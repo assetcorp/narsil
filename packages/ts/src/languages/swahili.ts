@@ -3,7 +3,7 @@ import type { LanguageModule } from '../types/language'
 const SUBJECT_PREFIXES = ['ni', 'tu', 'wa', 'vi', 'zi', 'li', 'ya', 'ku']
 const SHORT_SUBJECT_PREFIXES = ['u', 'a', 'i', 'm']
 const TENSE_MARKERS = ['na', 'li', 'ta', 'me', 'ki']
-const RELATIVE_MARKERS = ['ye', 'cho', 'vyo', 'zo', 'lo', 'yo', 'ko', 'po', 'mo']
+const RELATIVE_MARKERS = ['cho', 'vyo', 'ye', 'zo', 'lo', 'yo', 'ko', 'po', 'mo']
 const NEGATIVE_PREFIXES = ['ha', 'si']
 const NOUN_CLASS_PREFIXES = ['wa', 'mi', 'ki', 'vi', 'ma']
 const SHORT_NOUN_PREFIXES = ['m', 'u']

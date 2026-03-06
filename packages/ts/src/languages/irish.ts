@@ -44,7 +44,7 @@ function findRegions(word: string): { r1: number; r2: number; rv: number } {
   return { r1, r2, rv }
 }
 
-const INITIAL_MUTATIONS: [string, string][] = [
+const ECLIPSIS: [string, string][] = [
   ['bhf', 'f'],
   ['mb', 'b'],
   ['gc', 'c'],
@@ -53,6 +53,18 @@ const INITIAL_MUTATIONS: [string, string][] = [
   ['bp', 'p'],
   ['ts', 's'],
   ['dt', 't'],
+]
+
+const LENITION: [string, string][] = [
+  ['bh', 'b'],
+  ['ch', 'c'],
+  ['dh', 'd'],
+  ['fh', 'f'],
+  ['gh', 'g'],
+  ['mh', 'm'],
+  ['ph', 'p'],
+  ['sh', 's'],
+  ['th', 't'],
 ]
 
 function removeInitialMutations(word: string): string {
@@ -70,7 +82,13 @@ function removeInitialMutations(word: string): string {
     }
   }
 
-  for (const [mutation, replacement] of INITIAL_MUTATIONS) {
+  for (const [mutation, replacement] of ECLIPSIS) {
+    if (word.startsWith(mutation)) {
+      return `${replacement}${word.slice(mutation.length)}`
+    }
+  }
+
+  for (const [mutation, replacement] of LENITION) {
     if (word.startsWith(mutation)) {
       return `${replacement}${word.slice(mutation.length)}`
     }
@@ -81,12 +99,12 @@ function removeInitialMutations(word: string): string {
 
 const NOUN_SUFFIXES = [
   'arcachtaí',
-  'eachtaí',
   'gineadach',
   'aíochtaí',
-  'achtaí',
+  'eachtaí',
   'íochtaí',
   'aíochta',
+  'achtaí',
   'eachta',
   'gineas',
   'éaltas',

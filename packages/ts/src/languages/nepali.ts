@@ -3,10 +3,10 @@ import type { LanguageModule } from '../types/language'
 const POSTPOSITIONS: string[] = [
   'मार्फत',
   'द्वारा',
+  'प्रति',
   'देखि',
   'सम्म',
   'पछि',
-  'प्रति',
   'लाई',
   'संग',
   'सँग',
@@ -20,27 +20,27 @@ const POSTPOSITIONS: string[] = [
 
 const VERB_SUFFIXES: string[] = [
   'थिएनन्',
-  'थिएन',
-  'थियो',
   'हुन्छ',
   'हुनेछ',
   'नेछस्',
+  'थिएन',
+  'थियो',
   'इछस्',
   'एछस्',
   'इछन्',
   'एछन्',
+  'हुने',
+  'हुन्',
+  'छिन्',
+  'लान्',
+  'लिन्',
   'थिए',
   'छन्',
   'छौं',
   'छैन',
-  'हुने',
-  'हुन्',
-  'छिन्',
   'छस्',
   'नेछ',
   'छौँ',
-  'लान्',
-  'लिन्',
   'छौ',
   'इछ',
   'एछ',
@@ -49,7 +49,6 @@ const VERB_SUFFIXES: string[] = [
   'था',
   'थी',
   'थे',
-  'छ',
   'ने',
   'नु',
   'दै',
@@ -60,13 +59,14 @@ const VERB_SUFFIXES: string[] = [
   'ला',
   'लो',
   'ईं',
-  'ए',
   'या',
   'यो',
   'यौ',
-  'ई',
   'आउ',
   'आए',
+  'छ',
+  'ए',
+  'ई',
 ]
 
 const NOUN_SUFFIXES: string[] = [
@@ -75,16 +75,16 @@ const NOUN_SUFFIXES: string[] = [
   'हरूले',
   'हरूमा',
   'तालाई',
+  'दारको',
   'ताको',
   'ताले',
   'तामा',
-  'दारको',
   'हरू',
-  'ता',
   'दार',
+  'ता',
 ]
 
-const CASE_ENDINGS: string[] = ['देखि', 'सम्म', 'प्रति', 'लाई', 'बाट', 'संग', 'सँग', 'ले', 'को', 'मा', 'मै']
+const CASE_ENDINGS: string[] = ['प्रति', 'देखि', 'सम्म', 'लाई', 'बाट', 'संग', 'सँग', 'ले', 'को', 'मा', 'मै']
 
 function removeLongestSuffix(word: string, suffixes: string[], minLength: number): string {
   for (const suffix of suffixes) {
