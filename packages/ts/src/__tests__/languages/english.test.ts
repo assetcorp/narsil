@@ -15,7 +15,10 @@ describe('english language module', () => {
   })
 
   describe('stemmer', () => {
-    const stem = english.stemmer!
+    if (english.stemmer === null) {
+      throw new Error('english.stemmer should be defined')
+    }
+    const stem = english.stemmer
 
     it('returns short words unchanged', () => {
       expect(stem('a')).toBe('a')

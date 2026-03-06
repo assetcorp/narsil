@@ -240,8 +240,8 @@ export function createPartitionIndex(partitionId: number): PartitionIndex {
       return serializePartition(state, partitionId, indexName, totalPartitions, language, schema)
     },
 
-    deserialize(data: SerializablePartition): void {
-      deserializePartition(state, data, clearAll)
+    deserialize(data: SerializablePartition, schema: SchemaDefinition): void {
+      deserializePartition(state, data, clearAll, schema)
     },
   }
 

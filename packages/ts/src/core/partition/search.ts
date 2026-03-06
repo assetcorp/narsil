@@ -58,7 +58,7 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
         const avgLen = avgFieldLengths[posting.fieldName] ?? 1
 
         const storedDoc = state.docStore.get(posting.docId)
-        const actualFieldLength = storedDoc?.fieldLengths[posting.fieldName] ?? posting.termFrequency
+        const actualFieldLength = storedDoc?.fieldLengths[posting.fieldName] ?? avgLen
 
         const scoreFn = globalStats ? computeBM25WithGlobalStats : computeBM25
         let termScore = scoreFn(posting.termFrequency, docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
