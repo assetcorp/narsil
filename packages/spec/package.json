@@ -2,5 +2,16 @@
   "name": "@delali/narsil-spec",
   "version": "0.1.0",
   "private": true,
-  "description": "Language-agnostic architecture specifications for Narsil"
+  "description": "Language-agnostic architecture specifications for Narsil.",
+  "author": "Delali (https://sondelali.com)",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/assetcorp/narsil",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/assetcorp/narsil.git",
+    "directory": "packages/spec"
+  },
+  "bugs": {
+    "url": "https://github.com/assetcorp/narsil/issues"
+  }
 }
