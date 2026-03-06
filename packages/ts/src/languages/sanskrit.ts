@@ -1,28 +1,28 @@
 import type { LanguageModule } from '../types/language'
 
 const LONG_NOMINAL_ENDINGS = [
+  '\u0906\u092D\u094D\u092F\u093E\u092E\u094D',
+  '\u093E\u092D\u094D\u092F\u093E\u092E\u094D',
   '\u0906\u0928\u093E\u092E\u094D',
   '\u090F\u092D\u094D\u092F\u0903',
   '\u093E\u0923\u093E\u092E\u094D',
   '\u0947\u092D\u094D\u092F\u0903',
-  '\u0906\u092D\u094D\u092F\u093E\u092E\u094D',
-  '\u093E\u092D\u094D\u092F\u093E\u092E\u094D',
 ]
 
 const MEDIUM_NOMINAL_ENDINGS = [
   '\u0938\u094D\u092F',
-  '\u0947\u0928',
   '\u0947\u0937\u0941',
   '\u093E\u0924\u094D',
   '\u093E\u092E\u094D',
-  '\u092F\u093E',
-  '\u094C',
-  '\u093E\u0903',
   '\u093E\u0928\u094D',
+  '\u0947\u0928',
+  '\u092F\u093E',
+  '\u093E\u0903',
   '\u0905\u0903',
-  '\u0903',
   '\u092E\u094D',
   '\u093E\u092E',
+  '\u094C',
+  '\u0903',
   '\u0906',
 ]
 
@@ -31,14 +31,14 @@ const SHORT_NOMINAL_ENDINGS = ['\u093E', '\u093F', '\u0940', '\u0941', '\u0942',
 const VERB_ENDINGS = [
   '\u0928\u094D\u0924\u093F',
   '\u0928\u094D\u0924\u0947',
+  '\u0928\u094D\u0924\u0941',
+  '\u0905\u092E\u094D',
   '\u0938\u093F',
   '\u0924\u093F',
   '\u092E\u093F',
   '\u0924\u0947',
   '\u0938\u0947',
-  '\u0905\u092E\u094D',
   '\u0924\u0941',
-  '\u0928\u094D\u0924\u0941',
 ]
 
 function charLen(str: string): number {
@@ -140,7 +140,8 @@ const stopWords = new Set([
   '\u0924\u0924\u0903',
   '\u092F\u0924\u0903',
   '\u0915\u0941\u0924\u0903',
-  '\u0905\u0924 \u090F\u0935',
+  '\u0905\u0924',
+  '\u090F\u0935',
   '\u0924\u0924\u094D\u0930',
   '\u092F\u0924\u094D\u0930',
   '\u0938\u0930\u094D\u0935\u0924\u094D\u0930',

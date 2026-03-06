@@ -1,3 +1,10 @@
+/*
+ * Stop words compiled from:
+ *   - Japanese NLP particle/conjunction references (https://www.tofugu.com/japanese-grammar/particles/)
+ *   - Ko-so-a-do demonstrative system (https://www.wasabi-jpn.com/japanese-grammar/japanese-demonstrative-pronoun/)
+ *   - Compound postpositions reference (https://www.imabi.net/compoundparticles.htm)
+ */
+
 import type { LanguageModule } from '../types/language'
 
 const stopWords = new Set([
@@ -113,7 +120,6 @@ const stopWords = new Set([
   '何',
   'どなた',
   'いつ',
-  'どこ',
   'なぜ',
   'どうして',
   'いかが',
@@ -204,7 +210,7 @@ export const japanese: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: {
-    splitPattern: /[^\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff0-9a-zA-Z]+/gi,
+    splitPattern: /[^\u3005\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff0-9a-zA-Z]+/gi,
     normalizeDiacritics: false,
     minTokenLength: 1,
   },
