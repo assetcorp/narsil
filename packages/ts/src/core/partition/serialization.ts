@@ -101,7 +101,12 @@ export function serializePartition(
   }
 }
 
-export function deserializePartition(state: PartitionState, data: SerializablePartition, clearFn: () => void): void {
+export function deserializePartition(
+  state: PartitionState,
+  data: SerializablePartition,
+  clearFn: () => void,
+  schema: SchemaDefinition,
+): void {
   clearFn()
 
   const invertedData: Record<
@@ -164,6 +169,21 @@ export function deserializePartition(state: PartitionState, data: SerializablePa
   }
 
   state.stats.deserialize(data.statistics as SerializedPartitionStats)
-  state.flatSchemaCache = null
-  state.lastSchemaRef = null
+
+  const flatSchema = getFlatSchema(state, schema)
+  const serializedFields = data.schema
+  for (const [field, expectedType] of Object.entries(flatSchema)) {
+    if (serializedFields[field] !== (expectedType as string)) {
+      throw new Error(
+        `Schema mismatch on field "${field}": expected "${expectedType}", found "${serializedFields[field] ?? 'missing'}"`,
+      )
+    }
+  }
+  for (const field of Object.keys(serializedFields)) {
+    if (!(field in flatSchema)) {
+      throw new Error(
+        `Schema mismatch: serialized data contains unknown field "${field}" not present in schema`,
+      )
+    }
+  }
 }
