@@ -2,7 +2,28 @@
   "name": "@delali/narsil",
   "version": "0.1.0",
   "type": "module",
+  "description": "A distributed full-text search engine with cross-language portable binary format.",
+  "author": "Delali (https://sondelali.com)",
   "license": "Apache-2.0",
+  "homepage": "https://github.com/assetcorp/narsil",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/assetcorp/narsil.git",
+    "directory": "packages/ts"
+  },
+  "bugs": {
+    "url": "https://github.com/assetcorp/narsil/issues"
+  },
+  "sideEffects": false,
+  "keywords": [
+    "search",
+    "full-text-search",
+    "search-engine",
+    "indexing",
+    "text-search",
+    "distributed",
+    "typescript"
+  ],
   "engines": {
     "node": ">=22"
   },

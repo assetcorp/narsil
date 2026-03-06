@@ -2,6 +2,17 @@
   "name": "narsil",
   "private": true,
   "version": "0.1.0",
+  "description": "Monorepo for narsil, a distributed full-text search engine written in TypeScript.",
+  "author": "Delali (https://sondelali.com)",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/assetcorp/narsil",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/assetcorp/narsil.git"
+  },
+  "bugs": {
+    "url": "https://github.com/assetcorp/narsil/issues"
+  },
   "packageManager": "pnpm@10.30.3",
   "scripts": {
     "build": "turbo run build",
