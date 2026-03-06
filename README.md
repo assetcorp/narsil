@@ -2,7 +2,7 @@
 
 Distributed search, reforged.
 
-Narsil is a full-text search engine for TypeScript and JavaScript that partitions large indexes across worker threads, serializes them into a portable binary format, and merges results back into a single ranked answer. It runs in Node.js, Bun, Deno, and the browser with the same API.
+Narsil is a distributed search engine with full-text, vector, hybrid, and geosearch. It auto-partitions large indexes across workers, serializes them into a cross-language binary format (.nrsl), and merges results back into a single ranked answer. The TypeScript package is the first implementation.
 
 > *narsil* is the sword of Elendil in Tolkien's Lord of the Rings, shattered into shards and later reforged. The name maps to the architecture: data shatters into partitions, each shard is independently persisted, and every query reforges them into a unified result.
 
@@ -153,7 +153,7 @@ Inject specific documents at fixed positions in the result set, useful for spons
 Plug in any storage backend through the persistence adapter interface. Three built-in adapters ship with the package:
 
 | Adapter | Import | Environment |
-|---|---|---|
+| --- | --- | --- |
 | Memory | `@delali/narsil/adapters/memory` | All |
 | Filesystem | `@delali/narsil/adapters/filesystem` | Node.js, Bun, Deno |
 | IndexedDB | `@delali/narsil/adapters/indexeddb` | Browser |
@@ -186,7 +186,7 @@ Chinese (Mandarin), Japanese
 
 ### African language support
 
-Narsil is the first TypeScript search engine to offer support for African languages. Full stemmer support ships for Swahili. Tokenization and stop word support is available for Dagbani, Ewe, Ga, Hausa, Igbo, Twi (Akan), Yoruba, and Zulu.
+Full stemmer support ships for Swahili. Tokenization and stop word support is available for Dagbani, Ewe, Ga, Hausa, Igbo, Twi (Akan), Yoruba, and Zulu.
 
 Each language module is a separate entry point, so you only bundle the languages your application needs:
 
@@ -199,15 +199,15 @@ import '@delali/narsil/languages/twi'
 ## Search modes
 
 | Mode | Method | Scoring |
-|---|---|---|
+| --- | --- | --- |
 | Full-text | `mode: 'fulltext'` | BM25 with field boosting |
 | Vector | `mode: 'vector'` | Cosine similarity, dot product, or Euclidean distance |
 | Hybrid | `mode: 'hybrid'` | Weighted combination of BM25 + vector similarity |
 
-## Runtime support
+## Runtime support (TypeScript)
 
 | Runtime | Concurrency | Persistence | Invalidation |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Node.js | `worker_threads` | Filesystem | Adapter-based |
 | Bun | `worker_threads` | Filesystem | Adapter-based |
 | Deno | Web Workers | Filesystem | BroadcastChannel |
