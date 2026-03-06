@@ -173,17 +173,15 @@ export function deserializePartition(
   const flatSchema = getFlatSchema(state, schema)
   const serializedFields = data.schema
   for (const [field, expectedType] of Object.entries(flatSchema)) {
-    if (serializedFields[field] !== (expectedType as string)) {
+    if (field in serializedFields && serializedFields[field] !== (expectedType as string)) {
       throw new Error(
-        `Schema mismatch on field "${field}": expected "${expectedType}", found "${serializedFields[field] ?? 'missing'}"`,
+        `Schema mismatch on field "${field}": expected "${expectedType}", found "${serializedFields[field]}"`,
       )
     }
   }
   for (const field of Object.keys(serializedFields)) {
     if (!(field in flatSchema)) {
-      throw new Error(
-        `Schema mismatch: serialized data contains unknown field "${field}" not present in schema`,
-      )
+      throw new Error(`Schema mismatch: serialized data contains unknown field "${field}" not present in schema`)
     }
   }
 }

@@ -687,6 +687,22 @@ describe('PartitionIndex', () => {
       )
       expect(result.has('nyc')).toBe(true)
     })
+
+    it('deserializes when schema has new fields not present in serialized data', () => {
+      partition.insert('doc1', { title: 'hello world', price: 10 }, simpleSchema, english)
+      const serialized = partition.serialize('test-index', 1, 'english', simpleSchema)
+
+      const extendedSchema: SchemaDefinition = {
+        ...simpleSchema,
+        description: 'string',
+        rating: 'number',
+      }
+
+      const restored = makePartition(0)
+      expect(() => restored.deserialize(serialized, extendedSchema)).not.toThrow()
+      expect(restored.count()).toBe(1)
+      expect(restored.get('doc1')?.title).toBe('hello world')
+    })
   })
 
   describe('partitionId', () => {
