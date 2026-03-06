@@ -1,6 +1,6 @@
 export type ComparisonFilter = {
   eq?: number | string | boolean
-  ne?: number | string
+  ne?: number | string | boolean
   gt?: number
   lt?: number
   gte?: number
@@ -51,8 +51,7 @@ export type GeoFilter = GeoRadiusFilter | GeoPolygonFilter
 export type FieldFilter = ComparisonFilter | StringFilter | ArrayFilter | PresenceFilter | GeoFilter
 
 export type FilterExpression = {
-  [field: string]: FieldFilter
-} & {
+  fields?: Record<string, FieldFilter>
   and?: FilterExpression[]
   or?: FilterExpression[]
   not?: FilterExpression
