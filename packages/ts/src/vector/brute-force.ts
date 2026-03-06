@@ -34,9 +34,7 @@ export function createBruteForceVectorStore(dimension: number): BruteForceVector
 
     insert(docId: string, vector: Float32Array): void {
       if (vector.length !== dimension) {
-        throw new Error(
-          `Vector dimension mismatch: expected ${dimension}, got ${vector.length}`,
-        )
+        throw new Error(`Vector dimension mismatch: expected ${dimension}, got ${vector.length}`)
       }
       const mag = magnitude(vector)
       vectors.set(docId, { docId, vector, magnitude: mag })
@@ -58,9 +56,7 @@ export function createBruteForceVectorStore(dimension: number): BruteForceVector
       filterDocIds?: Set<string>,
     ): ScoredDocument[] {
       if (query.length !== dimension) {
-        throw new Error(
-          `Query dimension mismatch: expected ${dimension}, got ${query.length}`,
-        )
+        throw new Error(`Query dimension mismatch: expected ${dimension}, got ${query.length}`)
       }
       const queryMag = magnitude(query)
       const results: Array<{ docId: string; score: number }> = []
