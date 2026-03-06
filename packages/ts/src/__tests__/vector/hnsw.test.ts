@@ -414,9 +414,102 @@ describe('HNSWIndex', () => {
         }
       }
     })
+
+    it('serializes the build metric', () => {
+      const eucIndex = createHNSWIndex(DIM, { m: 4, efConstruction: 32, metric: 'euclidean' })
+      eucIndex.insert('doc1', randomVector(DIM))
+
+      const serialized = eucIndex.serialize()
+      expect(serialized.metric).toBe('euclidean')
+    })
+
+    it('recovers when entry point vector is missing', () => {
+      for (let i = 0; i < 10; i++) {
+        index.insert(`doc${i}`, randomVector(DIM))
+      }
+
+      const serialized = index.serialize()
+      const vectorMap = new Map<string, { vector: Float32Array; mag: number }>()
+      for (const [docId, entry] of index.entries()) {
+        if (docId !== serialized.entryPoint) {
+          vectorMap.set(docId, { vector: entry.vector, mag: entry.magnitude })
+        }
+      }
+
+      const restored = createHNSWIndex(DIM, { m: 4, efConstruction: 32 })
+      restored.deserialize(serialized, vectorMap)
+
+      expect(restored.size).toBe(9)
+      expect(restored.entryPointId).not.toBeNull()
+      expect(restored.entryPointId).not.toBe(serialized.entryPoint)
+
+      const results = restored.search(randomVector(DIM), 5, 'cosine', 0)
+      expect(results.length).toBeGreaterThan(0)
+    })
+
+    it('handles all vectors missing during deserialization', () => {
+      for (let i = 0; i < 5; i++) {
+        index.insert(`doc${i}`, randomVector(DIM))
+      }
+
+      const serialized = index.serialize()
+      const emptyVectorMap = new Map<string, { vector: Float32Array; mag: number }>()
+
+      const restored = createHNSWIndex(DIM, { m: 4, efConstruction: 32 })
+      restored.deserialize(serialized, emptyVectorMap)
+
+      expect(restored.size).toBe(0)
+      expect(restored.entryPointId).toBeNull()
+      expect(restored.topLayer).toBe(-1)
+
+      const results = restored.search(randomVector(DIM), 5, 'cosine', 0)
+      expect(results).toHaveLength(0)
+    })
+
+    it('deserializes data without metric field (backward compatibility)', () => {
+      for (let i = 0; i < 10; i++) {
+        index.insert(`doc${i}`, randomVector(DIM))
+      }
+
+      const serialized = index.serialize()
+      delete (serialized as Record<string, unknown>).metric
+
+      const vectorMap = new Map<string, { vector: Float32Array; mag: number }>()
+      for (const [docId, entry] of index.entries()) {
+        vectorMap.set(docId, { vector: entry.vector, mag: entry.magnitude })
+      }
+
+      const restored = createHNSWIndex(DIM, { m: 4, efConstruction: 32, metric: 'euclidean' })
+      restored.deserialize(serialized, vectorMap)
+
+      expect(restored.size).toBe(10)
+      expect(restored.entryPointId).not.toBeNull()
+    })
   })
 
   describe('graph structure integrity', () => {
+    it('remaining nodes stay connected after heavy deletions', () => {
+      const connIndex = createHNSWIndex(DIM, { m: 4, efConstruction: 32, metric: 'cosine' })
+      for (let i = 0; i < 50; i++) {
+        connIndex.insert(`doc${i}`, randomVector(DIM))
+      }
+
+      for (let i = 0; i < 25; i++) {
+        connIndex.remove(`doc${i}`)
+      }
+
+      const serialized = connIndex.serialize()
+      for (const [, , layerConns] of serialized.nodes) {
+        const layer0 = layerConns.find(([l]) => l === 0)
+        if (layer0) {
+          expect(layer0[1].length).toBeGreaterThan(0)
+        }
+      }
+
+      const results = connIndex.search(randomVector(DIM), 10, 'cosine', 0)
+      expect(results.length).toBeGreaterThan(0)
+    })
+
     it('most connections are bidirectional after insertion', () => {
       for (let i = 0; i < 20; i++) {
         index.insert(`doc${i}`, randomVector(DIM))

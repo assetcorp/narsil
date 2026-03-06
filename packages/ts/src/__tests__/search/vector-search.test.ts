@@ -185,6 +185,28 @@ describe('VectorSearchEngine', () => {
       const results = engine2.search(randomVector(DIM), 5, 'cosine', 0)
       expect(results.length).toBeGreaterThan(0)
     })
+
+    it('preserves build metric through serialization round-trip', () => {
+      const eucEngine = createVectorSearchEngine(DIM, { metric: 'euclidean' })
+      for (let i = 0; i < 10; i++) {
+        eucEngine.insert(`doc${i}`, randomVector(DIM))
+      }
+      eucEngine.promoteToHNSW()
+
+      const serialized = eucEngine.serializeHNSW()
+      if (!serialized) throw new Error('Expected serialized HNSW')
+      expect(serialized.metric).toBe('euclidean')
+
+      const restored = createVectorSearchEngine(DIM)
+      for (let i = 0; i < 10; i++) {
+        restored.insert(`doc${i}`, randomVector(DIM))
+      }
+      restored.deserializeHNSW(serialized)
+
+      const hnswIndex = restored.getHNSWIndex()
+      expect(hnswIndex).not.toBeNull()
+      expect(hnswIndex?.metric).toBe('euclidean')
+    })
   })
 
   describe('efSearch parameter passthrough', () => {
