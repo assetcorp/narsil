@@ -1,0 +1,249 @@
+import { ErrorCodes, NarsilError } from '../../errors'
+import { validateDocument } from '../../schema/validator'
+import type { FilterExpression } from '../../types/filters'
+import type {
+  GlobalStatistics,
+  InternalSearchParams,
+  InternalSearchResult,
+  InternalVectorParams,
+  ScoredDocument,
+  SerializablePartition,
+} from '../../types/internal'
+import type { LanguageModule } from '../../types/language'
+import type { FacetResult } from '../../types/results'
+import type { AnyDocument, SchemaDefinition } from '../../types/schema'
+import type { FacetConfig } from '../../types/search'
+import { createDocumentStore } from '../document-store'
+import { createInvertedIndex } from '../inverted-index'
+import { createPartitionStats, type PartitionStats } from '../statistics'
+import { indexDocument, removeFromIndexes, updateFieldIndexOnly } from './indexing'
+import { applyPartitionFilters, computeFacets, searchFulltext, searchVector } from './search'
+import { deserializePartition, serializePartition } from './serialization'
+import { getFlatSchema, type PartitionInsertOptions, type PartitionState, textFieldsChanged } from './utils'
+
+export type { GlobalStatistics, InternalSearchParams, InternalSearchResult, InternalVectorParams, ScoredDocument }
+export type { PartitionInsertOptions }
+
+export interface PartitionIndex {
+  readonly partitionId: number
+  readonly stats: PartitionStats
+
+  insert(
+    docId: string,
+    document: AnyDocument,
+    schema: SchemaDefinition,
+    language: LanguageModule,
+    options?: PartitionInsertOptions,
+  ): void
+  remove(docId: string, schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void
+  update(
+    docId: string,
+    document: AnyDocument,
+    schema: SchemaDefinition,
+    language: LanguageModule,
+    options?: PartitionInsertOptions,
+  ): void
+  get(docId: string): AnyDocument | undefined
+  has(docId: string): boolean
+  count(): number
+  clear(): void
+
+  searchFulltext(params: InternalSearchParams): InternalSearchResult
+  searchVector(params: InternalVectorParams): InternalSearchResult
+  applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string>
+  computeFacets(docIds: Set<string>, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult>
+
+  serialize(
+    indexName: string,
+    totalPartitions: number,
+    language: string,
+    schema: SchemaDefinition,
+  ): SerializablePartition
+  deserialize(data: SerializablePartition, schema: SchemaDefinition): void
+}
+
+export function createPartitionIndex(partitionId: number): PartitionIndex {
+  const state: PartitionState = {
+    invertedIdx: createInvertedIndex(),
+    docStore: createDocumentStore(),
+    stats: createPartitionStats(),
+    numericIndexes: new Map(),
+    booleanIndexes: new Map(),
+    enumIndexes: new Map(),
+    geoIndexes: new Map(),
+    vectorStores: new Map(),
+    flatSchemaCache: null,
+    lastSchemaRef: null,
+  }
+
+  function clearAll(): void {
+    state.invertedIdx.clear()
+    state.docStore.clear()
+    for (const idx of state.numericIndexes.values()) idx.clear()
+    for (const idx of state.booleanIndexes.values()) idx.clear()
+    for (const idx of state.enumIndexes.values()) idx.clear()
+    for (const idx of state.geoIndexes.values()) idx.clear()
+    for (const store of state.vectorStores.values()) store.clear()
+    state.numericIndexes.clear()
+    state.booleanIndexes.clear()
+    state.enumIndexes.clear()
+    state.geoIndexes.clear()
+    state.vectorStores.clear()
+    state.stats.deserialize({ totalDocuments: 0, totalFieldLengths: {}, averageFieldLengths: {}, docFrequencies: {} })
+    state.flatSchemaCache = null
+    state.lastSchemaRef = null
+  }
+
+  const partition: PartitionIndex = {
+    get partitionId() {
+      return partitionId
+    },
+    get stats() {
+      return state.stats
+    },
+
+    insert(
+      docId: string,
+      document: AnyDocument,
+      schema: SchemaDefinition,
+      language: LanguageModule,
+      options?: PartitionInsertOptions,
+    ): void {
+      if (state.docStore.has(docId)) {
+        throw new NarsilError(
+          ErrorCodes.DOC_ALREADY_EXISTS,
+          `Document "${docId}" already exists in partition ${partitionId}`,
+          { docId, partitionId },
+        )
+      }
+
+      if (options?.validate !== false) {
+        validateDocument(document, schema)
+      }
+
+      const flatSchema = getFlatSchema(state, schema)
+      const { fieldLengths, tokensByField } = indexDocument(
+        state,
+        docId,
+        document as Record<string, unknown>,
+        flatSchema,
+        language,
+        options,
+      )
+      state.docStore.store(docId, document, fieldLengths)
+      state.stats.addDocument(fieldLengths, tokensByField)
+    },
+
+    remove(docId: string, schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void {
+      const stored = state.docStore.get(docId)
+      if (!stored) {
+        throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in partition ${partitionId}`, {
+          docId,
+          partitionId,
+        })
+      }
+
+      const flatSchema = getFlatSchema(state, schema)
+      const { fieldLengths, tokensByField } = removeFromIndexes(state, docId, stored, flatSchema, language, options)
+      state.docStore.remove(docId)
+      state.stats.removeDocument(fieldLengths, tokensByField)
+    },
+
+    update(
+      docId: string,
+      document: AnyDocument,
+      schema: SchemaDefinition,
+      language: LanguageModule,
+      options?: PartitionInsertOptions,
+    ): void {
+      const stored = state.docStore.get(docId)
+      if (!stored) {
+        throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in partition ${partitionId}`, {
+          docId,
+          partitionId,
+        })
+      }
+
+      if (options?.validate !== false) {
+        validateDocument(document, schema)
+      }
+
+      const flatSchema = getFlatSchema(state, schema)
+      const needsTextReindex = textFieldsChanged(stored.fields, document as Record<string, unknown>, flatSchema)
+
+      if (needsTextReindex) {
+        const { fieldLengths: oldFieldLengths, tokensByField: oldTokens } = removeFromIndexes(
+          state,
+          docId,
+          stored,
+          flatSchema,
+          language,
+          options,
+        )
+        state.stats.removeDocument(oldFieldLengths, oldTokens)
+        state.docStore.remove(docId)
+
+        const { fieldLengths: newFieldLengths, tokensByField: newTokens } = indexDocument(
+          state,
+          docId,
+          document as Record<string, unknown>,
+          flatSchema,
+          language,
+          options,
+        )
+        state.docStore.store(docId, document, newFieldLengths)
+        state.stats.addDocument(newFieldLengths, newTokens)
+      } else {
+        updateFieldIndexOnly(state, docId, stored.fields, document as Record<string, unknown>, flatSchema)
+        state.docStore.store(docId, document, stored.fieldLengths)
+      }
+    },
+
+    get(docId: string): AnyDocument | undefined {
+      const stored = state.docStore.get(docId)
+      if (!stored) return undefined
+      return structuredClone(stored.fields) as AnyDocument
+    },
+
+    has(docId: string): boolean {
+      return state.docStore.has(docId)
+    },
+
+    count(): number {
+      return state.docStore.count()
+    },
+
+    clear: clearAll,
+
+    searchFulltext(params: InternalSearchParams): InternalSearchResult {
+      return searchFulltext(state, params)
+    },
+
+    searchVector(params: InternalVectorParams): InternalSearchResult {
+      return searchVector(state, params)
+    },
+
+    applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string> {
+      return applyPartitionFilters(state, filters, schema)
+    },
+
+    computeFacets(docIds: Set<string>, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult> {
+      return computeFacets(state, docIds, config, schema)
+    },
+
+    serialize(
+      indexName: string,
+      totalPartitions: number,
+      language: string,
+      schema: SchemaDefinition,
+    ): SerializablePartition {
+      return serializePartition(state, partitionId, indexName, totalPartitions, language, schema)
+    },
+
+    deserialize(data: SerializablePartition): void {
+      deserializePartition(state, data, clearAll)
+    },
+  }
+
+  return partition
+}

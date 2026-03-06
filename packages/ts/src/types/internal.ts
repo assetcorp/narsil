@@ -90,3 +90,43 @@ export interface IndexMetadata {
   createdAt: number
   engineVersion: string
 }
+
+export interface GlobalStatistics {
+  totalDocuments: number
+  docFrequencies: Record<string, number>
+  totalFieldLengths: Record<string, number>
+  averageFieldLengths: Record<string, number>
+}
+
+export interface ScoredDocument {
+  docId: string
+  score: number
+  termFrequencies: Record<string, number>
+  fieldLengths: Record<string, number>
+  idf: Record<string, number>
+}
+
+export interface InternalSearchResult {
+  scored: ScoredDocument[]
+  totalMatched: number
+}
+
+export interface InternalSearchParams {
+  queryTokens: Array<{ token: string; position: number }>
+  fields?: string[]
+  boost?: Record<string, number>
+  tolerance?: number
+  prefixLength?: number
+  exact?: boolean
+  bm25Params?: import('../types/schema').BM25Params
+  globalStats?: GlobalStatistics
+}
+
+export interface InternalVectorParams {
+  field: string
+  value: number[]
+  k: number
+  similarity?: number
+  metric?: 'cosine' | 'dotProduct' | 'euclidean'
+  filterDocIds?: Set<string>
+}

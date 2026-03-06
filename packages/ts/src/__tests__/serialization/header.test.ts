@@ -1,14 +1,14 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { ErrorCodes, NarsilError } from '../../errors'
 import {
-  writeHeader,
-  readHeader,
-  encodeFlags,
   decodeFlags,
+  encodeFlags,
   HEADER_SIZE,
-  type NrslHeader,
   type NrslFlags,
+  type NrslHeader,
+  readHeader,
+  writeHeader,
 } from '../../serialization/header'
-import { NarsilError, ErrorCodes } from '../../errors'
 
 function makeHeader(overrides: Partial<NrslHeader> = {}): NrslHeader {
   return {

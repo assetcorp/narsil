@@ -107,7 +107,12 @@ function validateGeopoint(path: string, value: unknown): void {
     )
   }
 
-  if (typeof value.lat !== 'number' || typeof value.lon !== 'number' || Number.isNaN(value.lat) || Number.isNaN(value.lon)) {
+  if (
+    typeof value.lat !== 'number' ||
+    typeof value.lon !== 'number' ||
+    Number.isNaN(value.lat) ||
+    Number.isNaN(value.lon)
+  ) {
     throw new NarsilError(ErrorCodes.SCHEMA_INVALID_GEOPOINT, `Field "${path}" geopoint requires numeric lat and lon`, {
       field: path,
       lat: Number.isNaN(value.lat) ? 'NaN' : typeof value.lat,

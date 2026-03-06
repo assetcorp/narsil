@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { tokenize, clearNormalizationCache } from '../../core/tokenizer'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { clearNormalizationCache, tokenize } from '../../core/tokenizer'
 import { english } from '../../languages/english'
 import type { LanguageModule } from '../../types/language'
 

@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { registerLanguage, getLanguage, hasLanguage } from '../../languages/registry'
+import { describe, expect, it } from 'vitest'
 import { english } from '../../languages/english'
+import { getLanguage, hasLanguage, registerLanguage } from '../../languages/registry'
 import type { LanguageModule } from '../../types/language'
 
 describe('language registry', () => {
