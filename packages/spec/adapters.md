@@ -253,7 +253,7 @@ module is a self-contained unit that can be loaded independently
 ```text
 LanguageModule {
   name:      string
-  stemmer:   function(token: string) -> string | null
+  stemmer:   (function(token: string) -> string) | null
   stopWords: Set<string>
   tokenizer: TokenizerConfig | undefined
 }

@@ -198,8 +198,8 @@ coordinator fans out to all partitions and merges the results.
 
 ### Merge Algorithm
 
-Merging K sorted lists (one per partition) uses a min-heap
-(priority queue) ordered by score descending:
+Merging K sorted lists (one per partition) uses a max-heap
+(priority queue) ordered by score, highest first:
 
 1. Initialize the heap with the first result from each partition.
 2. Pop the highest-scoring result.
