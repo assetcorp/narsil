@@ -44,10 +44,7 @@ describe('addDocument', () => {
 
   it('tracks doc frequencies by unique tokens across fields', () => {
     const stats = createPartitionStats()
-    stats.addDocument(
-      { title: 2, body: 3 },
-      { title: ['search', 'engine'], body: ['search', 'fast', 'index'] },
-    )
+    stats.addDocument({ title: 2, body: 3 }, { title: ['search', 'engine'], body: ['search', 'fast', 'index'] })
     expect(stats.docFrequencies.search).toBe(1)
     expect(stats.docFrequencies.engine).toBe(1)
     expect(stats.docFrequencies.fast).toBe(1)
@@ -56,10 +53,7 @@ describe('addDocument', () => {
 
   it('counts a token once per document even if it appears in multiple fields', () => {
     const stats = createPartitionStats()
-    stats.addDocument(
-      { title: 2, body: 2 },
-      { title: ['search', 'data'], body: ['search', 'query'] },
-    )
+    stats.addDocument({ title: 2, body: 2 }, { title: ['search', 'data'], body: ['search', 'query'] })
     expect(stats.docFrequencies.search).toBe(1)
   })
 

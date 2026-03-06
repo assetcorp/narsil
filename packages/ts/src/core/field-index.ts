@@ -277,7 +277,7 @@ export function createEnumIndex(): EnumFieldIndex {
     },
 
     serialize(): Record<string, string[]> {
-      const result: Record<string, string[]> = {}
+      const result: Record<string, string[]> = Object.create(null)
       for (const [value, docSet] of valueMap) {
         result[value] = Array.from(docSet)
       }

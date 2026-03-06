@@ -149,7 +149,7 @@ export function createInvertedIndex(): InvertedIndex {
     },
 
     serialize(): Record<string, PostingList> {
-      const result: Record<string, PostingList> = {}
+      const result: Record<string, PostingList> = Object.create(null)
       for (const [token, list] of index) {
         result[token] = list
       }

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { crc32 } from '../../serialization/crc32'
 
 describe('crc32', () => {

@@ -87,8 +87,7 @@ export function createPartitionStats(): PartitionStats {
       const newAverages: Record<string, number> = {}
       for (let i = 0; i < fields.length; i++) {
         const field = fields[i]
-        newAverages[field] =
-          stats.totalDocuments > 0 ? stats.totalFieldLengths[field] / stats.totalDocuments : 0
+        newAverages[field] = stats.totalDocuments > 0 ? stats.totalFieldLengths[field] / stats.totalDocuments : 0
       }
       stats.averageFieldLengths = newAverages
     },

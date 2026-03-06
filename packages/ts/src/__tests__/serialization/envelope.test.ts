@@ -1,14 +1,14 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { ErrorCodes, NarsilError } from '../../errors'
 import {
-  writePartitionEnvelope,
+  CURRENT_ENVELOPE_VERSION,
+  readMetadataEnvelope,
   readPartitionEnvelope,
   writeMetadataEnvelope,
-  readMetadataEnvelope,
-  CURRENT_ENVELOPE_VERSION,
+  writePartitionEnvelope,
 } from '../../serialization/envelope'
-import { writeHeader, HEADER_SIZE } from '../../serialization/header'
-import { NarsilError, ErrorCodes } from '../../errors'
-import type { SerializablePartition, IndexMetadata } from '../../types/internal'
+import { HEADER_SIZE, writeHeader } from '../../serialization/header'
+import type { IndexMetadata, SerializablePartition } from '../../types/internal'
 
 function makePartition(overrides: Partial<SerializablePartition> = {}): SerializablePartition {
   return {

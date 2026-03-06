@@ -1,6 +1,11 @@
-import { describe, it, expect } from 'vitest'
-import { serializePayloadV1, deserializePayloadV1, serializeMetadata, deserializeMetadata } from '../../serialization/payload-v1'
-import type { SerializablePartition, IndexMetadata } from '../../types/internal'
+import { describe, expect, it } from 'vitest'
+import {
+  deserializeMetadata,
+  deserializePayloadV1,
+  serializeMetadata,
+  serializePayloadV1,
+} from '../../serialization/payload-v1'
+import type { IndexMetadata, SerializablePartition } from '../../types/internal'
 
 function makePartition(overrides: Partial<SerializablePartition> = {}): SerializablePartition {
   return {
