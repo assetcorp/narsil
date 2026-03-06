@@ -1,13 +1,23 @@
 {
   "name": "narsil",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.30.3",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "test:coverage": "turbo run test:coverage",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "format": "biome check --write ."
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "packageManager": "pnpm@10.30.3"
+  "devDependencies": {
+    "@biomejs/biome": "2.4.4",
+    "turbo": "2.8.12"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
 }

@@ -1,0 +1,6 @@
+{
+  "name": "@delali/narsil-spec",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Language-agnostic architecture specifications for Narsil"
+}
