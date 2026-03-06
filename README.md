@@ -12,7 +12,7 @@ Narsil is a distributed search engine with full-text, vector, hybrid, and geosea
 pnpm add @delali/narsil
 ```
 
-Requires Node.js >= 20.
+Requires Node.js >= 22.
 
 ## Quick start
 
