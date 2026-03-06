@@ -1,5 +1,5 @@
 import type { FilterExpression } from './filters'
-import type { ScoringMode } from './schema'
+import type { AnyDocument, ScoringMode } from './schema'
 
 export type SearchMode = 'fulltext' | 'vector' | 'hybrid'
 export type TermMatchPolicy = 'all' | 'any' | number
@@ -55,7 +55,7 @@ export interface GroupConfig {
 }
 
 export type GroupReducer = {
-  reducer: (accumulator: unknown, doc: Record<string, unknown>, score: number) => unknown
+  reducer: (accumulator: unknown, doc: AnyDocument, score: number) => unknown
   initialValue: () => unknown
 }
 
