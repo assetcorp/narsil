@@ -126,7 +126,7 @@ export function createVectorSearchEngine(dimension: number, defaultHNSWConfig?: 
       const restoredHnsw = createHNSWIndex(dimension, {
         m: data.m ?? cfg.m,
         efConstruction: data.efConstruction ?? cfg.efConstruction,
-        metric: cfg.metric,
+        metric: data.metric ?? cfg.metric,
       })
       const vectorMap = new Map<string, { vector: Float32Array; mag: number }>()
       for (const [, entry] of bruteForce.entries()) {

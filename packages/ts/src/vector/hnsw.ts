@@ -28,6 +28,7 @@ export interface SerializedHNSWGraph {
   maxLayer: number
   m: number
   efConstruction: number
+  metric?: VectorMetric
   nodes: Array<[string, number, Array<[number, string[]]>]>
 }
 
@@ -404,7 +405,7 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
           layer,
           metric,
           false,
-          false,
+          true,
         )
 
         const newConns = new Set(selected.map(s => s.docId))
@@ -518,14 +519,13 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
       maxLayer: topLayer,
       m: M,
       efConstruction: efCons,
+      metric: buildMetric,
       nodes: nodeArray,
     }
   }
 
   function deserialize(data: SerializedHNSWGraph, vectors: Map<string, { vector: Float32Array; mag: number }>): void {
     nodes.clear()
-    entryPointId = data.entryPoint
-    topLayer = data.maxLayer
 
     for (const [docId, maxLayer, layerConns] of data.nodes) {
       const vecData = vectors.get(docId)
@@ -545,6 +545,25 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
         maxLayer,
         connections,
       })
+    }
+
+    if (data.entryPoint && nodes.has(data.entryPoint)) {
+      entryPointId = data.entryPoint
+      topLayer = data.maxLayer
+    } else if (nodes.size > 0) {
+      let bestId: string | null = null
+      let bestLayer = -1
+      for (const [nId, n] of nodes) {
+        if (n.maxLayer > bestLayer) {
+          bestLayer = n.maxLayer
+          bestId = nId
+        }
+      }
+      entryPointId = bestId
+      topLayer = bestLayer
+    } else {
+      entryPointId = null
+      topLayer = -1
     }
   }
 

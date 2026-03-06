@@ -69,6 +69,7 @@ export interface SerializablePartition {
         maxLayer: number
         m: number
         efConstruction: number
+        metric?: 'cosine' | 'dotProduct' | 'euclidean'
         nodes: Array<[string, number, Array<[number, string[]]>]>
       }
     }
