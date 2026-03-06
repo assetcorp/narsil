@@ -35,6 +35,7 @@ describe('ErrorCodes', () => {
   it('has all expected persistence error codes', () => {
     expect(ErrorCodes.PERSISTENCE_SAVE_FAILED).toBe('PERSISTENCE_SAVE_FAILED')
     expect(ErrorCodes.PERSISTENCE_LOAD_FAILED).toBe('PERSISTENCE_LOAD_FAILED')
+    expect(ErrorCodes.PERSISTENCE_DELETE_FAILED).toBe('PERSISTENCE_DELETE_FAILED')
     expect(ErrorCodes.PERSISTENCE_CRC_MISMATCH).toBe('PERSISTENCE_CRC_MISMATCH')
   })
 
@@ -52,7 +53,7 @@ describe('ErrorCodes', () => {
   })
 
   it('has exactly 25 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(25)
+    expect(Object.keys(ErrorCodes)).toHaveLength(26)
   })
 
   it('has unique values for every code', () => {
