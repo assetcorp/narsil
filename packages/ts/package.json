@@ -1,0 +1,66 @@
+{
+  "name": "@delali/narsil",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "biome check src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.mts"
+    },
+    "./adapters/memory": {
+      "import": "./dist/adapters/memory.mjs",
+      "types": "./dist/adapters/memory.d.mts"
+    },
+    "./adapters/filesystem": {
+      "import": "./dist/adapters/filesystem.mjs",
+      "types": "./dist/adapters/filesystem.d.mts"
+    },
+    "./adapters/indexeddb": {
+      "import": "./dist/adapters/indexeddb.mjs",
+      "types": "./dist/adapters/indexeddb.d.mts"
+    },
+    "./invalidation/noop": {
+      "import": "./dist/invalidation/noop.mjs",
+      "types": "./dist/invalidation/noop.d.mts"
+    },
+    "./invalidation/filesystem": {
+      "import": "./dist/invalidation/filesystem.mjs",
+      "types": "./dist/invalidation/filesystem.d.mts"
+    },
+    "./invalidation/broadcast-channel": {
+      "import": "./dist/invalidation/broadcast-channel.mjs",
+      "types": "./dist/invalidation/broadcast-channel.d.mts"
+    },
+    "./languages/*": {
+      "import": "./dist/languages/*.mjs",
+      "types": "./dist/languages/*.d.mts"
+    }
+  },
+  "files": [
+    "dist/",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@msgpack/msgpack": "3.1.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.4",
+    "@types/node": "22.15.32",
+    "@vitest/coverage-v8": "4.0.18",
+    "tsup": "8.5.1",
+    "typescript": "5.9.3",
+    "vitest": "4.0.18"
+  }
+}
