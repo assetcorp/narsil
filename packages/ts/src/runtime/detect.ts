@@ -9,57 +9,42 @@ export interface RuntimeInfo {
 }
 
 function detectRuntimeName(): RuntimeInfo['runtime'] {
-  if (typeof globalThis !== 'undefined' && 'Bun' in globalThis) {
+  if ('Bun' in globalThis) {
     return 'bun'
   }
-  if (typeof globalThis !== 'undefined' && 'Deno' in globalThis) {
+  if ('Deno' in globalThis) {
     return 'deno'
   }
+  const proc = (globalThis as Record<string, unknown>).process
   if (
-    typeof globalThis !== 'undefined' &&
-    typeof (globalThis as Record<string, unknown>).process === 'object' &&
-    typeof ((globalThis as Record<string, unknown>).process as Record<string, unknown>)?.versions === 'object' &&
-    typeof (
-      ((globalThis as Record<string, unknown>).process as Record<string, unknown>)?.versions as Record<string, unknown>
-    )?.node === 'string'
+    typeof proc === 'object' &&
+    proc !== null &&
+    typeof (proc as Record<string, unknown>).versions === 'object' &&
+    typeof ((proc as Record<string, unknown>).versions as Record<string, unknown>)?.node === 'string'
   ) {
     return 'node'
   }
   return 'browser'
 }
 
-async function getCpuCount(runtime: RuntimeInfo['runtime']): Promise<number> {
-  if (runtime === 'node' || runtime === 'bun') {
-    try {
-      const os = await import('node:os')
-      return os.cpus().length
-    } catch {
-      return 1
-    }
-  }
+function getCpuCount(): number {
   const nav = (globalThis as Record<string, unknown>).navigator as { hardwareConcurrency?: number } | undefined
-  if (nav && typeof nav.hardwareConcurrency === 'number') {
+  if (nav && typeof nav.hardwareConcurrency === 'number' && nav.hardwareConcurrency >= 1) {
     return nav.hardwareConcurrency
   }
   return 1
 }
 
-export async function detectRuntime(): Promise<RuntimeInfo> {
+export function detectRuntime(): RuntimeInfo {
   const runtime = detectRuntimeName()
-  const cpuCount = await getCpuCount(runtime)
 
   return {
     runtime,
-    cpuCount,
-
+    cpuCount: getCpuCount(),
     supportsWorkerThreads: runtime === 'node' || runtime === 'bun',
-
     supportsWebWorkers: runtime === 'browser' || runtime === 'deno' || runtime === 'bun',
-
     supportsFileSystem: runtime === 'node' || runtime === 'bun' || runtime === 'deno',
-
-    supportsIndexedDB: runtime === 'browser' || (typeof globalThis !== 'undefined' && 'indexedDB' in globalThis),
-
-    supportsBroadcastChannel: typeof globalThis !== 'undefined' && 'BroadcastChannel' in globalThis,
+    supportsIndexedDB: runtime === 'browser' || 'indexedDB' in globalThis,
+    supportsBroadcastChannel: 'BroadcastChannel' in globalThis,
   }
 }
