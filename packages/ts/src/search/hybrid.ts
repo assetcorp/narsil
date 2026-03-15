@@ -48,13 +48,18 @@ export function hybridSearch(
   const normalizedText = normalizeScores(textResult.scored)
   const normalizedVector = normalizeScores(vectorResult.scored)
 
+  const textDocMap = new Map<string, ScoredDocument>()
+  for (const doc of textResult.scored) {
+    textDocMap.set(doc.docId, doc)
+  }
+
   const mergedMap = new Map<string, { textScore: number; vectorScore: number; textDoc: ScoredDocument | null }>()
 
   for (const doc of normalizedText) {
     mergedMap.set(doc.docId, {
       textScore: doc.score,
       vectorScore: 0,
-      textDoc: findOriginal(textResult.scored, doc.docId),
+      textDoc: textDocMap.get(doc.docId) ?? null,
     })
   }
 
@@ -134,11 +139,4 @@ function clampAlpha(alpha: number | undefined): number {
   if (alpha < 0) return 0
   if (alpha > 1) return 1
   return alpha
-}
-
-function findOriginal(scored: ScoredDocument[], docId: string): ScoredDocument | null {
-  for (const doc of scored) {
-    if (doc.docId === docId) return doc
-  }
-  return null
 }

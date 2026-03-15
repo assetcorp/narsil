@@ -74,6 +74,13 @@ function validateKey(key: string): void {
 }
 
 export function createIndexedDBPersistence(config?: IndexedDBPersistenceConfig): PersistenceAdapter {
+  if (typeof indexedDB === 'undefined') {
+    throw new NarsilError(
+      ErrorCodes.PERSISTENCE_SAVE_FAILED,
+      'IndexedDB is not available in this environment. Use createMemoryPersistence() or createFilesystemPersistence() instead.',
+    )
+  }
+
   const dbName = config?.dbName ?? DEFAULT_DB_NAME
   const storeName = config?.storeName ?? DEFAULT_STORE_NAME
 

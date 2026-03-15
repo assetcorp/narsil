@@ -42,8 +42,10 @@ function resolveWorkerCount(requested?: number): number {
     if (typeof navigator !== 'undefined' && navigator?.hardwareConcurrency) {
       cpuCount = navigator.hardwareConcurrency
     } else if (typeof process !== 'undefined') {
-      const os = require('node:os')
-      cpuCount = os.cpus?.()?.length ?? 4
+      const ap = (process as unknown as Record<string, unknown>).availableParallelism
+      if (typeof ap === 'function') {
+        cpuCount = ap() as number
+      }
     }
   } catch {
     cpuCount = 4

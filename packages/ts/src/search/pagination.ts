@@ -92,7 +92,7 @@ export function applyPagination<T extends { id: string; score: number }>(
   offset: number,
   cursor?: string,
 ): { paginated: T[]; nextCursor?: string } {
-  if (limit === 0) {
+  if (limit <= 0) {
     return { paginated: [] }
   }
 

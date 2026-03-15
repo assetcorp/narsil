@@ -118,7 +118,8 @@ function dispatchSinglePartition(
   }
 
   if (params.mode === 'vector' || (hasVector && !hasTerm)) {
-    const vectorConfig = params.vector as NonNullable<typeof params.vector>
+    if (!params.vector) return { scored: [], totalMatched: 0 }
+    const vectorConfig = params.vector
     return partition.searchVector({
       field: vectorConfig.field,
       value: vectorConfig.value,
@@ -140,8 +141,8 @@ function collectAndMergeFacets(
 
   for (const outcome of outcomes) {
     const matchingDocIds = new Set(outcome.result.scored.map(doc => doc.docId))
-    const facetConfig = params.facets as NonNullable<typeof params.facets>
-    const facetResult = outcome.partition.computeFacets(matchingDocIds, facetConfig, schema)
+    if (!params.facets) continue
+    const facetResult = outcome.partition.computeFacets(matchingDocIds, params.facets, schema)
     partitionFacets.push(facetResult)
   }
 
@@ -165,7 +166,7 @@ export function kWayMerge(arrays: ScoredDocument[][]): ScoredDocument[] {
     return sequentialMerge(nonEmpty)
   }
 
-  return heapMerge(arrays)
+  return heapMerge(nonEmpty)
 }
 
 function sequentialMerge(arrays: ScoredDocument[][]): ScoredDocument[] {

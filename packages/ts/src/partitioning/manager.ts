@@ -118,10 +118,8 @@ export function createPartitionManager(
 
     removePartition(partitionId: number): void {
       validatePartitionId(partitionId)
-      const removed = partitions.splice(partitionId, 1)[0]
-      for (const docId of removed.docIds()) {
-        docPartitionMap.delete(docId)
-      }
+      partitions.splice(partitionId, 1)
+      rebuildDocPartitionMap()
     },
 
     insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void {

@@ -203,4 +203,37 @@ describe('pagination', () => {
       expect(firstPage.nextCursor).toBeDefined()
     })
   })
+
+  describe('edge cases', () => {
+    it('handles empty results array', () => {
+      const { paginated, nextCursor } = applyPagination([], 10, 0)
+      expect(paginated).toEqual([])
+      expect(nextCursor).toBeUndefined()
+    })
+
+    it('handles negative limit by treating as 0', () => {
+      const results = makeResults(5)
+      const { paginated } = applyPagination(results, -1, 0)
+      expect(paginated).toEqual([])
+    })
+
+    it('handles offset larger than results length', () => {
+      const results = makeResults(5)
+      const { paginated, nextCursor } = applyPagination(results, 10, 100)
+      expect(paginated).toEqual([])
+      expect(nextCursor).toBeUndefined()
+    })
+
+    it('handles cursor pointing past all results', () => {
+      const results = makeResults(3)
+      const cursor = encodeCursor([{ s: -999, d: 'zzz', p: 0 }])
+      const { paginated } = applyPagination(results, 10, 0, cursor)
+      expect(paginated).toEqual([])
+    })
+
+    it('cursor decode rejects Infinity in score field', () => {
+      const tampered = Buffer.from(JSON.stringify([{ s: Infinity, d: 'x', p: 0 }])).toString('base64')
+      expect(() => decodeCursor(tampered)).toThrow(NarsilError)
+    })
+  })
 })
