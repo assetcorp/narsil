@@ -44,6 +44,7 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.SEARCH_INVALID_VECTOR_SIZE).toBe('SEARCH_INVALID_VECTOR_SIZE')
     expect(ErrorCodes.SEARCH_INVALID_FILTER).toBe('SEARCH_INVALID_FILTER')
     expect(ErrorCodes.SEARCH_INVALID_MODE).toBe('SEARCH_INVALID_MODE')
+    expect(ErrorCodes.SEARCH_INVALID_CURSOR).toBe('SEARCH_INVALID_CURSOR')
   })
 
   it('has language and envelope error codes', () => {
@@ -52,8 +53,8 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.ENVELOPE_INVALID_MAGIC).toBe('ENVELOPE_INVALID_MAGIC')
   })
 
-  it('has exactly 26 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(26)
+  it('has exactly 27 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(27)
   })
 
   it('has unique values for every code', () => {
