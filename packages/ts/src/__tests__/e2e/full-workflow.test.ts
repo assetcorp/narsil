@@ -754,7 +754,9 @@ describe('E2E Full Workflow', () => {
   const insertedIds: string[] = []
 
   afterEach(async () => {
-    await narsil.shutdown()
+    if (narsil) {
+      await narsil.shutdown()
+    }
   })
 
   it('runs a complete product catalog workflow end-to-end', async () => {

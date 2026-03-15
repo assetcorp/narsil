@@ -78,7 +78,14 @@ describe('hybridSearch', () => {
       for (const fulltextDoc of fulltextOnly.scored) {
         const hybridDoc = hybrid.scored.find(d => d.docId === fulltextDoc.docId)
         expect(hybridDoc).toBeDefined()
+        expect(hybridDoc!.score).toBeGreaterThanOrEqual(0)
       }
+
+      const textMatchedIds = new Set(fulltextOnly.scored.map(d => d.docId))
+      const hybridTextDocs = hybrid.scored.filter(d => textMatchedIds.has(d.docId))
+      const hybridOrder = hybridTextDocs.map(d => d.docId)
+      const fulltextOrder = fulltextOnly.scored.map(d => d.docId)
+      expect(hybridOrder).toEqual(fulltextOrder)
     })
   })
 
@@ -105,10 +112,13 @@ describe('hybridSearch', () => {
       const hybridDocIds = hybrid.scored.map(s => s.docId)
       expect(hybridDocIds).toEqual(expect.arrayContaining(vectorDocIds))
 
-      for (const vecDoc of vectorOnly.scored) {
-        const hybridDoc = hybrid.scored.find(d => d.docId === vecDoc.docId)
-        expect(hybridDoc).toBeDefined()
+      const vecMatchedIds = new Set(vectorOnly.scored.map(d => d.docId))
+      const hybridVecDocs = hybrid.scored.filter(d => vecMatchedIds.has(d.docId))
+      for (const doc of hybridVecDocs) {
+        expect(doc.score).toBeGreaterThanOrEqual(0)
       }
+
+      expect(hybridVecDocs.map(d => d.docId)).toEqual(vectorOnly.scored.map(d => d.docId))
     })
   })
 
@@ -397,10 +407,16 @@ describe('hybridSearch', () => {
 
       const overlapDoc = hybrid.scored.find(s => s.docId === 'overlap')
       expect(overlapDoc).toBeDefined()
-      expect(overlapDoc?.score).toBeGreaterThan(0)
+      expect(overlapDoc!.score).toBeGreaterThan(0)
 
-      expect(overlapDoc?.termFrequencies).toBeDefined()
-      expect(overlapDoc?.idf).toBeDefined()
+      expect(Object.keys(overlapDoc!.termFrequencies).length).toBeGreaterThan(0)
+      expect(Object.keys(overlapDoc!.idf).length).toBeGreaterThan(0)
+
+      const textOnlyDoc = hybrid.scored.find(s => s.docId === 'textonly')
+      const vectorOnlyDoc = hybrid.scored.find(s => s.docId === 'vectoronly')
+      if (textOnlyDoc && vectorOnlyDoc) {
+        expect(overlapDoc!.score).toBeGreaterThan(Math.min(textOnlyDoc.score, vectorOnlyDoc.score))
+      }
     })
 
     it('uses empty term metadata for vector-only hits', () => {

@@ -172,7 +172,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
 
   function guardShutdown(): void {
     if (isShutdown) {
-      throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, 'Cannot perform operations after shutdown')
+      throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, 'This Narsil instance has been shut down')
     }
   }
 

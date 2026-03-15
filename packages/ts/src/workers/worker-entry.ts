@@ -4,7 +4,9 @@ import type { WorkerAction, WorkerResponse } from './protocol'
 import { isValidWorkerAction } from './protocol'
 
 export function startWorker(): void {
-  setup().catch(() => {})
+  setup().catch(err => {
+    console.error('Narsil worker setup failed:', err)
+  })
 }
 
 async function setup(): Promise<void> {

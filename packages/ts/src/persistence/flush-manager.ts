@@ -83,7 +83,8 @@ export function createFlushManager(
           onError?.(indexName, partitionId, err as Error, true)
           return false
         }
-        const delay = baseRetryDelay * 2 ** attempt * (0.5 + Math.random() * 0.5)
+        const cappedAttempt = Math.min(attempt, 20)
+        const delay = baseRetryDelay * 2 ** cappedAttempt * (0.5 + Math.random() * 0.5)
         await new Promise<void>(resolve => setTimeout(resolve, delay))
       }
     }
@@ -133,6 +134,7 @@ export function createFlushManager(
   }
 
   function markDirty(indexName: string, partitionId: number): void {
+    if (isShuttingDown) return
     addToDirtySet(indexName, partitionId)
     mutationCount++
 

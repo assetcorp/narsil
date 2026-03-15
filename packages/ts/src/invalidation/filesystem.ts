@@ -41,6 +41,10 @@ export function createFilesystemInvalidation(config: FilesystemInvalidationConfi
   const pollInterval = config.pollInterval ?? DEFAULT_POLL_INTERVAL
   const instanceId = config.instanceId ?? generateInstanceId()
 
+  if (instanceId.includes('/') || instanceId.includes('\\') || instanceId.includes('..') || instanceId.includes('\0')) {
+    throw new Error(`Invalid instanceId: "${instanceId}" contains path separator or traversal characters`)
+  }
+
   let lastProcessedTimestamp = Date.now()
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let handler: ((event: InvalidationEvent) => void) | null = null

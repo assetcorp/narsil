@@ -152,11 +152,12 @@ export function highlightField(
   const matchedRanges: CharRange[] = []
 
   for (let i = 0; i < fieldResult.tokens.length; i++) {
+    if (i >= charOffsets.length) break
     const fieldToken = fieldResult.tokens[i].token
     const stemmedField = language.stemmer ? language.stemmer(fieldToken) : fieldToken
 
     for (const stemmedQuery of stemmedQueryTokens) {
-      if (stemmedField === stemmedQuery && charOffsets[i]) {
+      if (stemmedField === stemmedQuery) {
         matchedRanges.push({ start: charOffsets[i].start, end: charOffsets[i].end })
         break
       }

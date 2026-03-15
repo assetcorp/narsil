@@ -104,6 +104,20 @@ describe('fanOutQuery', () => {
       const dfsDocIds = dfsResult.scored.map(s => s.docId).sort()
       const localDocIds = localResult.scored.map(s => s.docId).sort()
       expect(dfsDocIds).toEqual(localDocIds)
+
+      const localScoreMap = new Map(localResult.scored.map(s => [s.docId, s.score]))
+      const dfsScoreMap = new Map(dfsResult.scored.map(s => [s.docId, s.score]))
+      let scoresDiffer = false
+      for (const [docId, localScore] of localScoreMap) {
+        const dfsScore = dfsScoreMap.get(docId)
+        if (dfsScore !== undefined && Math.abs(localScore - dfsScore) > 1e-10) {
+          scoresDiffer = true
+          break
+        }
+      }
+      if (manager.partitionCount > 1 && dfsResult.scored.length > 0) {
+        expect(scoresDiffer).toBe(true)
+      }
     })
   })
 
