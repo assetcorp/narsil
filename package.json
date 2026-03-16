@@ -15,20 +15,22 @@
   },
   "packageManager": "pnpm@10.30.3",
   "scripts": {
-    "build": "turbo run build",
-    "test": "turbo run test",
-    "test:coverage": "turbo run test:coverage",
-    "lint": "turbo run lint",
-    "typecheck": "turbo run typecheck",
+    "build": "nx run-many -t build",
+    "test": "nx run-many -t test",
+    "test:coverage": "nx run-many -t test:coverage",
+    "lint": "nx run-many -t lint",
+    "typecheck": "nx run-many -t typecheck",
     "format": "biome check --write ."
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.4",
-    "turbo": "2.8.12"
+    "@nx/js": "22.5.4",
+    "nx": "22.5.4"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "esbuild"
+      "esbuild",
+      "nx"
     ]
   }
 }
