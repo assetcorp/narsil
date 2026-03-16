@@ -4,7 +4,7 @@ import type { AnyDocument, IndexConfig } from '../types/schema'
 import type { QueryParams } from '../types/search'
 
 export type WorkerAction =
-  | { type: 'insert'; indexName: string; docId: string; document: AnyDocument; requestId: string }
+  | { type: 'insert'; indexName: string; docId: string; document: AnyDocument; requestId: string; skipClone?: boolean }
   | { type: 'remove'; indexName: string; docId: string; requestId: string }
   | { type: 'update'; indexName: string; docId: string; document: AnyDocument; requestId: string }
   | { type: 'query'; indexName: string; params: QueryParams; requestId: string }

@@ -79,7 +79,7 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
 
       case 'insert': {
         const entry = requireIndex(action.indexName)
-        entry.manager.insert(action.docId, action.document)
+        entry.manager.insert(action.docId, action.document, action.skipClone ? { skipClone: true } : undefined)
         return undefined as T
       }
 

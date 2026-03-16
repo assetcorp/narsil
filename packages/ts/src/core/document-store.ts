@@ -8,6 +8,7 @@ export type ReadonlyStoredDocument = {
 
 export interface DocumentStore {
   store(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void
+  storeRef(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void
   get(docId: string): ReadonlyStoredDocument | undefined
   remove(docId: string): boolean
   has(docId: string): boolean
@@ -24,6 +25,10 @@ export function createDocumentStore(): DocumentStore {
   return {
     store(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
       docs.set(docId, { fields: structuredClone(document), fieldLengths })
+    },
+
+    storeRef(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
+      docs.set(docId, { fields: document as Record<string, unknown>, fieldLengths })
     },
 
     get(docId: string): ReadonlyStoredDocument | undefined {

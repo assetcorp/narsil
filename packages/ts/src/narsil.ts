@@ -292,6 +292,8 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
 
       const succeeded: string[] = []
       const failed: BatchResult['failed'] = []
+      const hasBeforeHook = pluginRegistry.hasHooks('beforeInsert')
+      const hasAfterHook = pluginRegistry.hasHooks('afterInsert')
 
       for (let chunkStart = 0; chunkStart < documents.length; chunkStart += BATCH_CHUNK_SIZE) {
         const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, documents.length)
@@ -301,28 +303,35 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
           try {
             validateDocId(docId)
 
-            await pluginRegistry.runHook('beforeInsert', {
-              indexName,
-              docId,
-              document: documents[i],
-            })
+            if (hasBeforeHook) {
+              await pluginRegistry.runHook('beforeInsert', {
+                indexName,
+                docId,
+                document: documents[i],
+              })
+            }
 
-            await executor.execute({
+            const result = executor.execute({
               type: 'insert',
               indexName,
               docId,
               document: documents[i],
               requestId: docId,
             })
+            if (result && typeof (result as Promise<unknown>).then === 'function') {
+              await result
+            }
 
-            try {
-              await pluginRegistry.runHook('afterInsert', {
-                indexName,
-                docId,
-                document: documents[i],
-              })
-            } catch (err) {
-              console.warn('afterInsert plugin hook error:', err)
+            if (hasAfterHook) {
+              try {
+                await pluginRegistry.runHook('afterInsert', {
+                  indexName,
+                  docId,
+                  document: documents[i],
+                })
+              } catch (err) {
+                console.warn('afterInsert plugin hook error:', err)
+              }
             }
 
             succeeded.push(docId)
