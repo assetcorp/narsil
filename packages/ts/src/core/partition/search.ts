@@ -56,70 +56,126 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
   const globalDocFreqs = globalStats?.docFrequencies ?? state.stats.docFrequencies
   const scoreFn = globalStats ? computeBM25WithGlobalStats : computeBM25
 
-  const resolved: ResolvedTokenPostings[] = []
-  for (const qt of queryTokens) {
-    const rawMatches = exact
-      ? (() => {
-          const postingList = state.invertedIdx.lookup(qt.token)
-          return postingList ? [{ token: qt.token, postingList }] : []
-        })()
-      : state.invertedIdx.fuzzyLookup(qt.token, tolerance, prefixLength)
-
-    let totalPostings = 0
-    const matches: ResolvedTokenPostings['matches'] = []
-    for (const m of rawMatches) {
-      const docFreq = globalStats ? (globalDocFreqs[m.token] ?? m.postingList.docFrequency) : m.postingList.docFrequency
-      const idf = computeIDF(docFreq, totalDocs)
-      totalPostings += m.postingList.postings.length
-      matches.push({ token: m.token, docFreq, idf, postings: m.postingList.postings })
-    }
-
-    resolved.push({ token: qt.token, matches, totalPostings })
-  }
-
-  if (resolved.length > 1) {
-    resolved.sort((a, b) => a.totalPostings - b.totalPostings)
-  }
-
-  const canIntersect = termMatch === 'all' && resolved.length > 1
   const docScores = new Map<string, ScoreAccumulator>()
   const fieldLengthCache = new Map<string, Record<string, number> | null>()
+  const useIntersection = termMatch === 'all' && queryTokens.length > 1
 
-  for (let tokenIndex = 0; tokenIndex < resolved.length; tokenIndex++) {
-    const { matches } = resolved[tokenIndex]
+  if (useIntersection) {
+    const resolved: ResolvedTokenPostings[] = []
+    for (const qt of queryTokens) {
+      const rawMatches = exact
+        ? (() => {
+            const postingList = state.invertedIdx.lookup(qt.token)
+            return postingList ? [{ token: qt.token, postingList }] : []
+          })()
+        : state.invertedIdx.fuzzyLookup(qt.token, tolerance, prefixLength)
 
-    for (const match of matches) {
-      for (const posting of match.postings) {
-        if (canIntersect && tokenIndex > 0 && !docScores.has(posting.docId)) continue
-        if (fields && !fields.includes(posting.fieldName)) continue
+      let totalPostings = 0
+      const matches: ResolvedTokenPostings['matches'] = []
+      for (const m of rawMatches) {
+        const docFreq = globalStats
+          ? (globalDocFreqs[m.token] ?? m.postingList.docFrequency)
+          : m.postingList.docFrequency
+        const idf = computeIDF(docFreq, totalDocs)
+        totalPostings += m.postingList.postings.length
+        matches.push({ token: m.token, docFreq, idf, postings: m.postingList.postings })
+      }
 
-        const fieldBoost = boost?.[posting.fieldName] ?? 1
-        const avgLen = avgFieldLengths[posting.fieldName] ?? 1
+      resolved.push({ token: qt.token, matches, totalPostings })
+    }
 
-        let cachedLengths = fieldLengthCache.get(posting.docId)
-        if (cachedLengths === undefined) {
-          const storedDoc = state.docStore.get(posting.docId)
-          cachedLengths = storedDoc?.fieldLengths ?? null
-          fieldLengthCache.set(posting.docId, cachedLengths)
+    resolved.sort((a, b) => a.totalPostings - b.totalPostings)
+
+    for (let tokenIndex = 0; tokenIndex < resolved.length; tokenIndex++) {
+      for (const match of resolved[tokenIndex].matches) {
+        for (const posting of match.postings) {
+          if (tokenIndex > 0 && !docScores.has(posting.docId)) continue
+          if (fields && !fields.includes(posting.fieldName)) continue
+
+          const fieldBoost = boost?.[posting.fieldName] ?? 1
+          const avgLen = avgFieldLengths[posting.fieldName] ?? 1
+
+          let cachedLengths = fieldLengthCache.get(posting.docId)
+          if (cachedLengths === undefined) {
+            const storedDoc = state.docStore.get(posting.docId)
+            cachedLengths = storedDoc?.fieldLengths ?? null
+            fieldLengthCache.set(posting.docId, cachedLengths)
+          }
+          const actualFieldLength = cachedLengths?.[posting.fieldName] ?? avgLen
+
+          let termScore = scoreFn(
+            posting.termFrequency,
+            match.docFreq,
+            totalDocs,
+            actualFieldLength,
+            avgLen,
+            bm25Params,
+          )
+          termScore *= fieldBoost
+
+          const existing = docScores.get(posting.docId)
+          if (existing) {
+            existing.score += termScore
+            existing.termFrequencies[`${posting.fieldName}:${match.token}`] = posting.termFrequency
+            existing.fieldLengths[posting.fieldName] = actualFieldLength
+            existing.idf[match.token] = match.idf
+          } else {
+            docScores.set(posting.docId, {
+              score: termScore,
+              termFrequencies: { [`${posting.fieldName}:${match.token}`]: posting.termFrequency },
+              fieldLengths: { [posting.fieldName]: actualFieldLength },
+              idf: { [match.token]: match.idf },
+            })
+          }
         }
-        const actualFieldLength = cachedLengths?.[posting.fieldName] ?? avgLen
+      }
+    }
+  } else {
+    for (const qt of queryTokens) {
+      const matchingPostings = exact
+        ? (() => {
+            const postingList = state.invertedIdx.lookup(qt.token)
+            return postingList ? [{ token: qt.token, postingList }] : []
+          })()
+        : state.invertedIdx.fuzzyLookup(qt.token, tolerance, prefixLength)
 
-        let termScore = scoreFn(posting.termFrequency, match.docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
-        termScore *= fieldBoost
+      for (const match of matchingPostings) {
+        const docFreq = globalStats
+          ? (globalDocFreqs[match.token] ?? match.postingList.docFrequency)
+          : match.postingList.docFrequency
+        const idf = computeIDF(docFreq, totalDocs)
 
-        const existing = docScores.get(posting.docId)
-        if (existing) {
-          existing.score += termScore
-          existing.termFrequencies[`${posting.fieldName}:${match.token}`] = posting.termFrequency
-          existing.fieldLengths[posting.fieldName] = actualFieldLength
-          existing.idf[match.token] = match.idf
-        } else {
-          docScores.set(posting.docId, {
-            score: termScore,
-            termFrequencies: { [`${posting.fieldName}:${match.token}`]: posting.termFrequency },
-            fieldLengths: { [posting.fieldName]: actualFieldLength },
-            idf: { [match.token]: match.idf },
-          })
+        for (const posting of match.postingList.postings) {
+          if (fields && !fields.includes(posting.fieldName)) continue
+
+          const fieldBoost = boost?.[posting.fieldName] ?? 1
+          const avgLen = avgFieldLengths[posting.fieldName] ?? 1
+
+          let cachedLengths = fieldLengthCache.get(posting.docId)
+          if (cachedLengths === undefined) {
+            const storedDoc = state.docStore.get(posting.docId)
+            cachedLengths = storedDoc?.fieldLengths ?? null
+            fieldLengthCache.set(posting.docId, cachedLengths)
+          }
+          const actualFieldLength = cachedLengths?.[posting.fieldName] ?? avgLen
+
+          let termScore = scoreFn(posting.termFrequency, docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
+          termScore *= fieldBoost
+
+          const existing = docScores.get(posting.docId)
+          if (existing) {
+            existing.score += termScore
+            existing.termFrequencies[`${posting.fieldName}:${match.token}`] = posting.termFrequency
+            existing.fieldLengths[posting.fieldName] = actualFieldLength
+            existing.idf[match.token] = idf
+          } else {
+            docScores.set(posting.docId, {
+              score: termScore,
+              termFrequencies: { [`${posting.fieldName}:${match.token}`]: posting.termFrequency },
+              fieldLengths: { [posting.fieldName]: actualFieldLength },
+              idf: { [match.token]: idf },
+            })
+          }
         }
       }
     }
