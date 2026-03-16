@@ -49,7 +49,7 @@ declare const IDBKeyRange: {
   bound(lower: string, upper: string): IDBKeyRangeInstance
 }
 
-type IDBKeyRangeInstance = {}
+type IDBKeyRangeInstance = object
 
 export interface IndexedDBPersistenceConfig {
   dbName?: string

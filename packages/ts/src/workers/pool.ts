@@ -39,7 +39,7 @@ function resolveWorkerCount(requested?: number): number {
 
   let cpuCount = 4
   try {
-    if (typeof navigator !== 'undefined' && navigator?.hardwareConcurrency) {
+    if (navigator?.hardwareConcurrency) {
       cpuCount = navigator.hardwareConcurrency
     } else if (typeof process !== 'undefined') {
       const ap = (process as unknown as Record<string, unknown>).availableParallelism
