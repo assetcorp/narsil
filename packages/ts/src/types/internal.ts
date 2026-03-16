@@ -121,6 +121,7 @@ export interface InternalSearchParams {
   exact?: boolean
   bm25Params?: import('../types/schema').BM25Params
   globalStats?: GlobalStatistics
+  maxResults?: number
 }
 
 export interface InternalVectorParams {
