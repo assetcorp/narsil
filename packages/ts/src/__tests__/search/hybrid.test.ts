@@ -78,7 +78,7 @@ describe('hybridSearch', () => {
       for (const fulltextDoc of fulltextOnly.scored) {
         const hybridDoc = hybrid.scored.find(d => d.docId === fulltextDoc.docId)
         expect(hybridDoc).toBeDefined()
-        expect(hybridDoc!.score).toBeGreaterThanOrEqual(0)
+        expect(hybridDoc?.score).toBeGreaterThanOrEqual(0)
       }
 
       const textMatchedIds = new Set(fulltextOnly.scored.map(d => d.docId))
@@ -407,15 +407,15 @@ describe('hybridSearch', () => {
 
       const overlapDoc = hybrid.scored.find(s => s.docId === 'overlap')
       expect(overlapDoc).toBeDefined()
-      expect(overlapDoc!.score).toBeGreaterThan(0)
+      expect(overlapDoc?.score).toBeGreaterThan(0)
 
-      expect(Object.keys(overlapDoc!.termFrequencies).length).toBeGreaterThan(0)
-      expect(Object.keys(overlapDoc!.idf).length).toBeGreaterThan(0)
+      expect(Object.keys(overlapDoc?.termFrequencies ?? {}).length).toBeGreaterThan(0)
+      expect(Object.keys(overlapDoc?.idf ?? {}).length).toBeGreaterThan(0)
 
       const textOnlyDoc = hybrid.scored.find(s => s.docId === 'textonly')
       const vectorOnlyDoc = hybrid.scored.find(s => s.docId === 'vectoronly')
       if (textOnlyDoc && vectorOnlyDoc) {
-        expect(overlapDoc!.score).toBeGreaterThan(Math.min(textOnlyDoc.score, vectorOnlyDoc.score))
+        expect(overlapDoc?.score).toBeGreaterThan(Math.min(textOnlyDoc.score, vectorOnlyDoc.score))
       }
     })
 

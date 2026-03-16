@@ -7,7 +7,7 @@ import {
   writeMetadataEnvelope,
   writePartitionEnvelope,
 } from '../../serialization/envelope'
-import { HEADER_SIZE, writeHeader } from '../../serialization/header'
+import { HEADER_SIZE } from '../../serialization/header'
 import type { IndexMetadata, SerializablePartition } from '../../types/internal'
 
 function makePartition(overrides: Partial<SerializablePartition> = {}): SerializablePartition {

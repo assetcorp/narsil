@@ -230,14 +230,14 @@ describe('serializePayloadV1 / deserializePayloadV1', () => {
 
     const graph = restored.vectorData.embedding.hnswGraph
     expect(graph).not.toBeNull()
-    expect(graph!.entryPoint).toBe('doc-1')
-    expect(graph!.maxLayer).toBe(2)
-    expect(graph!.m).toBe(16)
-    expect(graph!.efConstruction).toBe(200)
-    expect(graph!.nodes).toHaveLength(2)
-    expect(graph!.nodes[0][0]).toBe('doc-1')
-    expect(graph!.nodes[0][1]).toBe(1)
-    expect(graph!.nodes[0][2]).toEqual([[0, ['doc-2']]])
+    expect(graph?.entryPoint).toBe('doc-1')
+    expect(graph?.maxLayer).toBe(2)
+    expect(graph?.m).toBe(16)
+    expect(graph?.efConstruction).toBe(200)
+    expect(graph?.nodes).toHaveLength(2)
+    expect(graph?.nodes[0][0]).toBe('doc-1')
+    expect(graph?.nodes[0][1]).toBe(1)
+    expect(graph?.nodes[0][2]).toEqual([[0, ['doc-2']]])
   })
 
   it('roundtrips an empty partition', () => {
