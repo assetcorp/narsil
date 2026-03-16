@@ -44,6 +44,7 @@ export interface PartitionIndex {
     options?: PartitionInsertOptions,
   ): void
   get(docId: string): AnyDocument | undefined
+  getRef(docId: string): AnyDocument | undefined
   has(docId: string): boolean
   count(): number
   docIds(): IterableIterator<string>
@@ -204,6 +205,12 @@ export function createPartitionIndex(partitionId: number): PartitionIndex {
       const stored = state.docStore.get(docId)
       if (!stored) return undefined
       return structuredClone(stored.fields) as AnyDocument
+    },
+
+    getRef(docId: string): AnyDocument | undefined {
+      const stored = state.docStore.get(docId)
+      if (!stored) return undefined
+      return stored.fields as AnyDocument
     },
 
     has(docId: string): boolean {

@@ -36,6 +36,9 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
   const avgFieldLengths = globalStats?.averageFieldLengths ?? state.stats.averageFieldLengths
   const globalDocFreqs = globalStats?.docFrequencies ?? state.stats.docFrequencies
 
+  const fieldLengthCache = new Map<string, Record<string, number> | null>()
+  const scoreFn = globalStats ? computeBM25WithGlobalStats : computeBM25
+
   for (const qt of queryTokens) {
     const matchingPostings = exact
       ? (() => {
@@ -57,10 +60,14 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
         const fieldBoost = boost?.[posting.fieldName] ?? 1
         const avgLen = avgFieldLengths[posting.fieldName] ?? 1
 
-        const storedDoc = state.docStore.get(posting.docId)
-        const actualFieldLength = storedDoc?.fieldLengths[posting.fieldName] ?? avgLen
+        let cachedLengths = fieldLengthCache.get(posting.docId)
+        if (cachedLengths === undefined) {
+          const storedDoc = state.docStore.get(posting.docId)
+          cachedLengths = storedDoc?.fieldLengths ?? null
+          fieldLengthCache.set(posting.docId, cachedLengths)
+        }
+        const actualFieldLength = cachedLengths?.[posting.fieldName] ?? avgLen
 
-        const scoreFn = globalStats ? computeBM25WithGlobalStats : computeBM25
         let termScore = scoreFn(posting.termFrequency, docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
         termScore *= fieldBoost
 
