@@ -30,7 +30,7 @@ function makeManager(partitionCount = 3): PartitionManager {
 
 describe('fanOutQuery', () => {
   describe('single partition', () => {
-    it('produces identical results to a direct partition search', () => {
+    it('produces identical results to a direct partition search', async () => {
       const manager = makeManager(1)
       manager.insert('doc1', { title: 'quick brown fox', category: 'animals' })
       manager.insert('doc2', { title: 'lazy brown dog', category: 'animals' })
@@ -38,7 +38,7 @@ describe('fanOutQuery', () => {
 
       const params: QueryParams = { term: 'brown' }
       const fanOutConfig: FanOutConfig = { scoringMode: 'local' }
-      const fanOutResult = fanOutQuery(manager, params, english, schema, fanOutConfig)
+      const fanOutResult = await fanOutQuery(manager, params, english, schema, fanOutConfig)
 
       const partition = manager.getPartition(0)
       const directResult = fulltextSearch(partition, params, english, schema)
@@ -66,9 +66,9 @@ describe('fanOutQuery', () => {
       manager.insert('doc6', { title: 'brown eagle soars', category: 'animals' })
     })
 
-    it('finds all matching documents distributed across partitions', () => {
+    it('finds all matching documents distributed across partitions', async () => {
       const params: QueryParams = { term: 'brown' }
-      const result = fanOutQuery(manager, params, english, schema, { scoringMode: 'local' })
+      const result = await fanOutQuery(manager, params, english, schema, { scoringMode: 'local' })
 
       const matchingDocIds = result.scored.map(s => s.docId)
       expect(matchingDocIds).toContain('doc1')
@@ -79,8 +79,8 @@ describe('fanOutQuery', () => {
       expect(matchingDocIds).not.toContain('doc4')
     })
 
-    it('returns results sorted by descending score', () => {
-      const result = fanOutQuery(manager, { term: 'brown' }, english, schema, { scoringMode: 'local' })
+    it('returns results sorted by descending score', async () => {
+      const result = await fanOutQuery(manager, { term: 'brown' }, english, schema, { scoringMode: 'local' })
 
       for (let i = 1; i < result.scored.length; i++) {
         expect(result.scored[i - 1].score).toBeGreaterThanOrEqual(result.scored[i].score)
@@ -89,15 +89,15 @@ describe('fanOutQuery', () => {
   })
 
   describe('DFS mode', () => {
-    it('uses global stats passed to search functions', () => {
+    it('uses global stats passed to search functions', async () => {
       const manager = makeManager(3)
       manager.insert('doc1', { title: 'quick brown fox', category: 'animals' })
       manager.insert('doc2', { title: 'lazy brown dog', category: 'animals' })
       manager.insert('doc3', { title: 'brown bear roams', category: 'animals' })
       manager.insert('doc4', { title: 'search engine works', category: 'tech' })
 
-      const localResult = fanOutQuery(manager, { term: 'brown' }, english, schema, { scoringMode: 'local' })
-      const dfsResult = fanOutQuery(manager, { term: 'brown' }, english, schema, { scoringMode: 'dfs' })
+      const localResult = await fanOutQuery(manager, { term: 'brown' }, english, schema, { scoringMode: 'local' })
+      const dfsResult = await fanOutQuery(manager, { term: 'brown' }, english, schema, { scoringMode: 'dfs' })
 
       expect(dfsResult.scored.length).toBe(localResult.scored.length)
 
@@ -122,14 +122,14 @@ describe('fanOutQuery', () => {
   })
 
   describe('broadcast mode', () => {
-    it('uses pre-collected stats when provided', () => {
+    it('uses pre-collected stats when provided', async () => {
       const manager = makeManager(3)
       manager.insert('doc1', { title: 'quick brown fox', category: 'animals' })
       manager.insert('doc2', { title: 'lazy brown dog', category: 'animals' })
       manager.insert('doc3', { title: 'search engine works', category: 'tech' })
 
       const preCollectedStats = collectGlobalStats(manager)
-      const broadcastResult = fanOutQuery(manager, { term: 'brown' }, english, schema, {
+      const broadcastResult = await fanOutQuery(manager, { term: 'brown' }, english, schema, {
         scoringMode: 'broadcast',
         globalStats: preCollectedStats,
       })
@@ -140,15 +140,17 @@ describe('fanOutQuery', () => {
       expect(docIds).toContain('doc2')
     })
 
-    it('falls back to DFS when no pre-collected stats are provided', () => {
+    it('falls back to DFS when no pre-collected stats are provided', async () => {
       const manager = makeManager(3)
       manager.insert('doc1', { title: 'quick brown fox', category: 'animals' })
       manager.insert('doc2', { title: 'lazy brown dog', category: 'animals' })
       manager.insert('doc3', { title: 'search engine works', category: 'tech' })
 
-      const dfsResult = fanOutQuery(manager, { term: 'brown' }, english, schema, { scoringMode: 'dfs' })
+      const dfsResult = await fanOutQuery(manager, { term: 'brown' }, english, schema, { scoringMode: 'dfs' })
 
-      const broadcastNoStats = fanOutQuery(manager, { term: 'brown' }, english, schema, { scoringMode: 'broadcast' })
+      const broadcastNoStats = await fanOutQuery(manager, { term: 'brown' }, english, schema, {
+        scoringMode: 'broadcast',
+      })
 
       expect(broadcastNoStats.scored.length).toBe(dfsResult.scored.length)
 
@@ -160,7 +162,7 @@ describe('fanOutQuery', () => {
   })
 
   describe('facet merging', () => {
-    it('sums facet values correctly across partitions', () => {
+    it('sums facet values correctly across partitions', async () => {
       const manager = makeManager(3)
       manager.insert('doc1', { title: 'quick brown fox', category: 'animals' })
       manager.insert('doc2', { title: 'lazy brown dog', category: 'animals' })
@@ -173,7 +175,7 @@ describe('fanOutQuery', () => {
         facets: { category: {} },
       }
 
-      const result = fanOutQuery(manager, params, english, schema, { scoringMode: 'local' })
+      const result = await fanOutQuery(manager, params, english, schema, { scoringMode: 'local' })
 
       expect(result.facets).toBeDefined()
       const facets = result.facets as NonNullable<typeof result.facets>
@@ -186,19 +188,19 @@ describe('fanOutQuery', () => {
   })
 
   describe('empty partitions', () => {
-    it('handles all empty partitions gracefully', () => {
+    it('handles all empty partitions gracefully', async () => {
       const manager = makeManager(3)
-      const result = fanOutQuery(manager, { term: 'anything' }, english, schema, { scoringMode: 'local' })
+      const result = await fanOutQuery(manager, { term: 'anything' }, english, schema, { scoringMode: 'local' })
 
       expect(result.scored).toEqual([])
       expect(result.totalMatched).toBe(0)
     })
 
-    it('handles a mix of empty and populated partitions', () => {
+    it('handles a mix of empty and populated partitions', async () => {
       const manager = makeManager(4)
       manager.insert('doc1', { title: 'quick brown fox', category: 'animals' })
 
-      const result = fanOutQuery(manager, { term: 'brown' }, english, schema, { scoringMode: 'local' })
+      const result = await fanOutQuery(manager, { term: 'brown' }, english, schema, { scoringMode: 'local' })
 
       expect(result.scored.length).toBe(1)
       expect(result.scored[0].docId).toBe('doc1')
@@ -206,7 +208,7 @@ describe('fanOutQuery', () => {
   })
 
   describe('vector search fan-out', () => {
-    it('dispatches vector search when params.vector is set without a term', () => {
+    it('dispatches vector search when params.vector is set without a term', async () => {
       const vectorSchema: SchemaDefinition = {
         title: 'string',
         embedding: 'vector[3]',
@@ -228,7 +230,7 @@ describe('fanOutQuery', () => {
         limit: 10,
       }
 
-      const result = fanOutQuery(vectorManager, params, english, vectorSchema, { scoringMode: 'local' })
+      const result = await fanOutQuery(vectorManager, params, english, vectorSchema, { scoringMode: 'local' })
 
       expect(result.scored.length).toBeGreaterThan(0)
       expect(result.scored[0].docId).toBe('v1')
@@ -236,7 +238,7 @@ describe('fanOutQuery', () => {
   })
 
   describe('hybrid search fan-out', () => {
-    it('dispatches hybrid search when both term and vector are present', () => {
+    it('dispatches hybrid search when both term and vector are present', async () => {
       const hybridSchema: SchemaDefinition = {
         title: 'string',
         embedding: 'vector[3]',
@@ -260,7 +262,7 @@ describe('fanOutQuery', () => {
         limit: 10,
       }
 
-      const result = fanOutQuery(hybridManager, params, english, hybridSchema, { scoringMode: 'local' })
+      const result = await fanOutQuery(hybridManager, params, english, hybridSchema, { scoringMode: 'local' })
 
       expect(result.scored.length).toBeGreaterThan(0)
       const docIds = result.scored.map(s => s.docId)

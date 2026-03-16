@@ -67,7 +67,9 @@ describe('Rebalancing Integration', () => {
     expect(manager.partitionCount).toBe(2)
 
     const searchTermBefore = 'wireless'
-    const resultBefore = fanOutQuery(manager, { term: searchTermBefore }, language, schema, { scoringMode: 'local' })
+    const resultBefore = await fanOutQuery(manager, { term: searchTermBefore }, language, schema, {
+      scoringMode: 'local',
+    })
     const matchedIdsBefore = new Set(resultBefore.scored.map(s => s.docId))
     expect(matchedIdsBefore.size).toBeGreaterThan(0)
 
@@ -96,7 +98,9 @@ describe('Rebalancing Integration', () => {
       expect(retrieved?.category).toBe(doc.category)
     }
 
-    const resultAfter = fanOutQuery(manager, { term: searchTermBefore }, language, schema, { scoringMode: 'local' })
+    const resultAfter = await fanOutQuery(manager, { term: searchTermBefore }, language, schema, {
+      scoringMode: 'local',
+    })
     const matchedIdsAfter = new Set(resultAfter.scored.map(s => s.docId))
 
     expect(matchedIdsAfter.size).toBe(matchedIdsBefore.size)
@@ -117,7 +121,9 @@ describe('Rebalancing Integration', () => {
     expect(manager.partitionCount).toBe(4)
 
     const searchTermBefore = 'portable'
-    const resultBefore = fanOutQuery(manager, { term: searchTermBefore }, language, schema, { scoringMode: 'local' })
+    const resultBefore = await fanOutQuery(manager, { term: searchTermBefore }, language, schema, {
+      scoringMode: 'local',
+    })
     const matchedIdsBefore = new Set(resultBefore.scored.map(s => s.docId))
 
     const rebalancer = createRebalancer()
@@ -133,7 +139,9 @@ describe('Rebalancing Integration', () => {
       expect(retrieved?.category).toBe(doc.category)
     }
 
-    const resultAfter = fanOutQuery(manager, { term: searchTermBefore }, language, schema, { scoringMode: 'local' })
+    const resultAfter = await fanOutQuery(manager, { term: searchTermBefore }, language, schema, {
+      scoringMode: 'local',
+    })
     const matchedIdsAfter = new Set(resultAfter.scored.map(s => s.docId))
 
     expect(matchedIdsAfter.size).toBe(matchedIdsBefore.size)
@@ -150,7 +158,9 @@ describe('Rebalancing Integration', () => {
       manager.insert(docId, doc)
     }
 
-    const resultOriginal = fanOutQuery(manager, { term: 'headphones' }, language, schema, { scoringMode: 'local' })
+    const resultOriginal = await fanOutQuery(manager, { term: 'headphones' }, language, schema, {
+      scoringMode: 'local',
+    })
     const originalIds = new Set(resultOriginal.scored.map(s => s.docId))
 
     const rebalancer = createRebalancer()
@@ -159,7 +169,9 @@ describe('Rebalancing Integration', () => {
     expect(manager.partitionCount).toBe(4)
     expect(manager.countDocuments()).toBe(500)
 
-    const resultExpanded = fanOutQuery(manager, { term: 'headphones' }, language, schema, { scoringMode: 'local' })
+    const resultExpanded = await fanOutQuery(manager, { term: 'headphones' }, language, schema, {
+      scoringMode: 'local',
+    })
     const expandedIds = new Set(resultExpanded.scored.map(s => s.docId))
     expect(expandedIds.size).toBe(originalIds.size)
     for (const id of originalIds) {
@@ -170,7 +182,9 @@ describe('Rebalancing Integration', () => {
     expect(manager.partitionCount).toBe(2)
     expect(manager.countDocuments()).toBe(500)
 
-    const resultCompacted = fanOutQuery(manager, { term: 'headphones' }, language, schema, { scoringMode: 'local' })
+    const resultCompacted = await fanOutQuery(manager, { term: 'headphones' }, language, schema, {
+      scoringMode: 'local',
+    })
     const compactedIds = new Set(resultCompacted.scored.map(s => s.docId))
     expect(compactedIds.size).toBe(originalIds.size)
     for (const id of originalIds) {
@@ -219,7 +233,7 @@ describe('Rebalancing Integration', () => {
       manager.insert(docId, doc)
     }
 
-    const resultBefore = fanOutQuery(
+    const resultBefore = await fanOutQuery(
       manager,
       {
         term: 'premium',
@@ -241,7 +255,7 @@ describe('Rebalancing Integration', () => {
     expect(manager.partitionCount).toBe(5)
     expect(manager.countDocuments()).toBe(300)
 
-    const resultAfter = fanOutQuery(
+    const resultAfter = await fanOutQuery(
       manager,
       {
         term: 'premium',

@@ -24,7 +24,49 @@ export function createNarsilAdapter(): SearchEngine {
     async insert(documents: BenchDocument[]) {
       if (!instance) return
       const docs = documents.map(({ id, ...doc }) => doc)
-      await instance.insertBatch('bench', docs)
+      await instance.insertBatch('bench', docs, { skipClone: true })
+    },
+
+    async search(query: string) {
+      if (!instance) return 0
+      const result = await instance.query('bench', { term: query })
+      return result.count
+    },
+
+    async teardown() {
+      if (instance) {
+        await instance.shutdown()
+        instance = null
+      }
+    },
+  }
+}
+
+export function createNarsil4pAdapter(): SearchEngine {
+  let instance: Narsil | null = null
+
+  return {
+    name: 'narsil-4p',
+
+    async create() {
+      instance = await createNarsil()
+      await instance.createIndex('bench', {
+        schema: {
+          title: 'string' as const,
+          body: 'string' as const,
+          score: 'number' as const,
+          category: 'enum' as const,
+        },
+        language: 'english',
+        trackPositions: false,
+        partitions: { maxPartitions: 4 },
+      })
+    },
+
+    async insert(documents: BenchDocument[]) {
+      if (!instance) return
+      const docs = documents.map(({ id, ...doc }) => doc)
+      await instance.insertBatch('bench', docs, { skipClone: true })
     },
 
     async search(query: string) {

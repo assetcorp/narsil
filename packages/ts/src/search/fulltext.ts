@@ -69,6 +69,7 @@ export function fulltextSearch(
     bm25Params: options?.bm25Params,
     globalStats: options?.globalStats,
     maxResults,
+    termMatch: params.termMatch,
   })
 
   let scored = rawResult.scored
