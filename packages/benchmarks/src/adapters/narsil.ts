@@ -33,6 +33,12 @@ export function createNarsilAdapter(): SearchEngine {
       return result.count
     },
 
+    async searchTermMatchAll(query: string) {
+      if (!instance) return 0
+      const result = await instance.query('bench', { term: query, termMatch: 'all' })
+      return result.count
+    },
+
     async teardown() {
       if (instance) {
         await instance.shutdown()
@@ -72,6 +78,12 @@ export function createNarsil4pAdapter(): SearchEngine {
     async search(query: string) {
       if (!instance) return 0
       const result = await instance.query('bench', { term: query })
+      return result.count
+    },
+
+    async searchTermMatchAll(query: string) {
+      if (!instance) return 0
+      const result = await instance.query('bench', { term: query, termMatch: 'all' })
       return result.count
     },
 

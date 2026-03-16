@@ -11,6 +11,7 @@ export interface SearchEngine {
   create(): Promise<void>
   insert(documents: BenchDocument[]): Promise<void>
   search(query: string): Promise<number>
+  searchTermMatchAll?(query: string): Promise<number>
   teardown(): Promise<void>
 }
 
@@ -19,6 +20,8 @@ export interface ScaleResult {
   insertDocsPerSec: number
   searchMedianMs: number
   searchP95Ms: number
+  searchAllTermsMedianMs?: number
+  searchAllTermsP95Ms?: number
   memoryMb: number
 }
 

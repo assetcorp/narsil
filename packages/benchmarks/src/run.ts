@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { createMiniSearchAdapter } from './adapters/minisearch'
 import { createNarsil4pAdapter, createNarsilAdapter } from './adapters/narsil'
 import { createOramaAdapter } from './adapters/orama'
-import { generateDocuments, generateQueries } from './data'
+import { generateDocuments, generateMultiTermQueries, generateQueries } from './data'
 import type { BenchDocument, BenchmarkOutput, ScaleResult, SearchEngine } from './types'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -82,6 +82,31 @@ async function measureSearch(engine: SearchEngine, documents: BenchDocument[], q
   return times
 }
 
+async function measureSearchTermMatchAll(
+  engine: SearchEngine,
+  documents: BenchDocument[],
+  queries: string[],
+): Promise<number[]> {
+  if (!engine.searchTermMatchAll) return []
+  await engine.create()
+  await engine.insert(documents)
+
+  for (const query of queries.slice(0, 10)) {
+    await engine.searchTermMatchAll(query)
+  }
+
+  const times: number[] = []
+  for (const query of queries) {
+    const start = performance.now()
+    await engine.searchTermMatchAll(query)
+    const elapsed = performance.now() - start
+    times.push(elapsed)
+  }
+
+  await engine.teardown()
+  return times
+}
+
 async function measureMemory(engine: SearchEngine, documents: BenchDocument[]): Promise<number> {
   await engine.teardown()
   tryGc()
@@ -124,6 +149,21 @@ function printMarkdownTables(
       return `${r.searchMedianMs.toFixed(3)} (p95: ${r.searchP95Ms.toFixed(3)})`
     })
     console.log(`| ${name} v${version} | ${cells.join(' | ')} |`)
+  }
+
+  const allTermsEngines = engines.filter(e => SCALES.some(s => results[e.name][s].searchAllTermsMedianMs !== undefined))
+  if (allTermsEngines.length > 0) {
+    console.log('\n## Search Latency termMatch:all (ms, lower is better)\n')
+    console.log(`| Engine | ${scaleHeaders} |`)
+    console.log(`| --- | ${alignRow} |`)
+    for (const { name, version } of allTermsEngines) {
+      const cells = SCALES.map(s => {
+        const r = results[name][s]
+        if (r.searchAllTermsMedianMs === undefined) return 'n/a'
+        return `${r.searchAllTermsMedianMs.toFixed(3)} (p95: ${r.searchAllTermsP95Ms?.toFixed(3) ?? 'n/a'})`
+      })
+      console.log(`| ${name} v${version} | ${cells.join(' | ')} |`)
+    }
   }
 
   console.log('\n## Memory Usage (MB, lower is better)\n')
@@ -177,6 +217,7 @@ async function main() {
 
     const docs = generateDocuments(scale, SEED)
     const queries = generateQueries(SEARCH_QUERY_COUNT, SEED + 1)
+    const multiTermQueries = generateMultiTermQueries(SEARCH_QUERY_COUNT, SEED + 2)
 
     for (const engine of adapters) {
       const version = engineVersions[engine.name]
@@ -193,6 +234,17 @@ async function main() {
         const searchP95 = percentile(searchTimes, 95)
         console.log(`    search: ${searchMedian.toFixed(3)}ms median, ${searchP95.toFixed(3)}ms p95`)
 
+        const allTermsTimes = await measureSearchTermMatchAll(engine, docs, multiTermQueries)
+        let searchAllTermsMedianMs: number | undefined
+        let searchAllTermsP95Ms: number | undefined
+        if (allTermsTimes.length > 0) {
+          searchAllTermsMedianMs = median(allTermsTimes)
+          searchAllTermsP95Ms = percentile(allTermsTimes, 95)
+          console.log(
+            `    search (termMatch:all): ${searchAllTermsMedianMs.toFixed(3)}ms median, ${searchAllTermsP95Ms.toFixed(3)}ms p95`,
+          )
+        }
+
         const memoryBytes = await measureMemory(engine, docs)
         const memoryMb = memoryBytes / (1024 * 1024)
         console.log(`    memory: ${memoryMb.toFixed(1)}MB`)
@@ -202,6 +254,8 @@ async function main() {
           insertDocsPerSec: docsPerSec,
           searchMedianMs: searchMedian,
           searchP95Ms: searchP95,
+          searchAllTermsMedianMs,
+          searchAllTermsP95Ms,
           memoryMb,
         }
       } catch (err) {
