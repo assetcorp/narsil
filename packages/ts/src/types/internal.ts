@@ -122,6 +122,7 @@ export interface InternalSearchParams {
   bm25Params?: import('../types/schema').BM25Params
   globalStats?: GlobalStatistics
   maxResults?: number
+  termMatch?: import('../types/search').TermMatchPolicy
 }
 
 export interface InternalVectorParams {

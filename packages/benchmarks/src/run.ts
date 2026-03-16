@@ -4,7 +4,7 @@ import os from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createMiniSearchAdapter } from './adapters/minisearch'
-import { createNarsilAdapter } from './adapters/narsil'
+import { createNarsil4pAdapter, createNarsilAdapter } from './adapters/narsil'
 import { createOramaAdapter } from './adapters/orama'
 import { generateDocuments, generateQueries } from './data'
 import type { BenchDocument, BenchmarkOutput, ScaleResult, SearchEngine } from './types'
@@ -156,10 +156,12 @@ async function main() {
     console.log()
   }
 
-  const adapters = [createNarsilAdapter(), createOramaAdapter(), createMiniSearchAdapter()]
+  const adapters = [createNarsilAdapter(), createNarsil4pAdapter(), createOramaAdapter(), createMiniSearchAdapter()]
 
+  const narsilVersion = getPackageVersion('@delali/narsil')
   const engineVersions: Record<string, string> = {
-    narsil: getPackageVersion('@delali/narsil'),
+    narsil: narsilVersion,
+    'narsil-4p': narsilVersion,
     orama: getPackageVersion('@orama/orama'),
     minisearch: getPackageVersion('minisearch'),
   }

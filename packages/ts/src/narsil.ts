@@ -25,7 +25,7 @@ import type {
   PreflightResult,
   QueryResult,
 } from './types/results'
-import type { AnyDocument, IndexConfig } from './types/schema'
+import type { AnyDocument, IndexConfig, InsertOptions } from './types/schema'
 import type { QueryParams } from './types/search'
 import { createDirectExecutor, type DirectExecutorExtensions } from './workers/direct-executor'
 import type { Executor } from './workers/executor'
@@ -37,8 +37,8 @@ export interface Narsil {
   listIndexes(): IndexInfo[]
   getStats(indexName: string): IndexStats
 
-  insert(indexName: string, document: AnyDocument, docId?: string): Promise<string>
-  insertBatch(indexName: string, documents: AnyDocument[]): Promise<BatchResult>
+  insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string>
+  insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult>
   remove(indexName: string, docId: string): Promise<void>
   removeBatch(indexName: string, docIds: string[]): Promise<BatchResult>
   update(indexName: string, docId: string, document: AnyDocument): Promise<void>
@@ -243,7 +243,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       }
     },
 
-    async insert(indexName: string, document: AnyDocument, docId?: string): Promise<string> {
+    async insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string> {
       guardShutdown()
       requireIndex(indexName)
 
@@ -262,6 +262,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
         docId: resolvedDocId,
         document,
         requestId: resolvedDocId,
+        skipClone: options?.skipClone,
       })
 
       try {
@@ -286,7 +287,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       return resolvedDocId
     },
 
-    async insertBatch(indexName: string, documents: AnyDocument[]): Promise<BatchResult> {
+    async insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult> {
       guardShutdown()
       requireIndex(indexName)
 
@@ -317,6 +318,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
               docId,
               document: documents[i],
               requestId: docId,
+              skipClone: options?.skipClone,
             })
             if (result && typeof (result as Promise<unknown>).then === 'function') {
               await result
@@ -536,7 +538,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
         customTokenizer: entry.config.tokenizer,
       }
 
-      const fanOutResult = fanOutQuery(
+      const fanOutResult = await fanOutQuery(
         manager,
         params,
         entry.language,
@@ -654,7 +656,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
         customTokenizer: entry.config.tokenizer,
       }
 
-      const fanOutResult = fanOutQuery(
+      const fanOutResult = await fanOutQuery(
         manager,
         params,
         entry.language,

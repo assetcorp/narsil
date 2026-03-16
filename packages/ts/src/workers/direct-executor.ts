@@ -97,7 +97,7 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
 
       case 'query': {
         const entry = requireIndex(action.indexName)
-        const result = fanOutQuery(entry.manager, action.params, entry.language, entry.config.schema, {
+        const result = await fanOutQuery(entry.manager, action.params, entry.language, entry.config.schema, {
           scoringMode: entry.config.defaultScoring ?? 'local',
         })
         return result as T
@@ -105,7 +105,7 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
 
       case 'preflight': {
         const entry = requireIndex(action.indexName)
-        const result = fanOutQuery(entry.manager, action.params, entry.language, entry.config.schema, {
+        const result = await fanOutQuery(entry.manager, action.params, entry.language, entry.config.schema, {
           scoringMode: entry.config.defaultScoring ?? 'local',
         })
         return { count: result.totalMatched } as T

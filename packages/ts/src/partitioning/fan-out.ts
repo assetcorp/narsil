@@ -13,6 +13,7 @@ import type { PartitionManager } from './manager'
 export interface FanOutConfig {
   scoringMode: ScoringMode
   globalStats?: GlobalStatistics
+  dispatcher?: PartitionSearchDispatcher
 }
 
 export interface FanOutResult {
@@ -26,14 +27,24 @@ interface PartitionSearchOutcome {
   partition: PartitionIndex
 }
 
-export function fanOutQuery(
+export interface PartitionSearchDispatcher {
+  dispatch(
+    partition: PartitionIndex,
+    params: QueryParams,
+    language: LanguageModule,
+    schema: SchemaDefinition,
+    options: FulltextSearchOptions,
+  ): Promise<InternalSearchResult>
+}
+
+export async function fanOutQuery(
   manager: PartitionManager,
   params: QueryParams,
   language: LanguageModule,
   schema: SchemaDefinition,
   config: FanOutConfig,
   searchOptions?: FulltextSearchOptions,
-): FanOutResult {
+): Promise<FanOutResult> {
   const partitions = manager.getAllPartitions()
 
   if (partitions.length === 0) {
@@ -50,7 +61,7 @@ export function fanOutQuery(
   }
 
   const options = buildSearchOptions(searchOptions, globalStats)
-  const outcomes = dispatchToAllPartitions(partitions, params, language, schema, options)
+  const outcomes = await dispatchToAllPartitions(partitions, params, language, schema, options, config.dispatcher)
 
   const allScoredArrays = outcomes.map(o => o.result.scored)
   const merged = kWayMerge(allScoredArrays)
@@ -85,21 +96,22 @@ function buildSearchOptions(
   }
 }
 
-function dispatchToAllPartitions(
+async function dispatchToAllPartitions(
   partitions: PartitionIndex[],
   params: QueryParams,
   language: LanguageModule,
   schema: SchemaDefinition,
   options: FulltextSearchOptions,
-): PartitionSearchOutcome[] {
-  const outcomes: PartitionSearchOutcome[] = []
-
-  for (const partition of partitions) {
-    const result = dispatchSinglePartition(partition, params, language, schema, options)
-    outcomes.push({ result, partition })
-  }
-
-  return outcomes
+  dispatcher?: PartitionSearchDispatcher,
+): Promise<PartitionSearchOutcome[]> {
+  const promises = partitions.map(partition =>
+    Promise.resolve(
+      dispatcher
+        ? dispatcher.dispatch(partition, params, language, schema, options)
+        : dispatchSinglePartition(partition, params, language, schema, options),
+    ).then(result => ({ result, partition })),
+  )
+  return Promise.all(promises)
 }
 
 function dispatchSinglePartition(

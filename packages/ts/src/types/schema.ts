@@ -42,3 +42,7 @@ export interface PartitionConfig {
 }
 
 export type ScoringMode = 'local' | 'dfs' | 'broadcast'
+
+export interface InsertOptions {
+  skipClone?: boolean
+}

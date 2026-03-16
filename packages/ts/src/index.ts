@@ -48,6 +48,7 @@ export type {
   CustomTokenizer,
   FieldType,
   IndexConfig,
+  InsertOptions,
   PartitionConfig,
   SchemaDefinition,
   ScoringMode,
