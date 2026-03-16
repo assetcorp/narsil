@@ -14,23 +14,31 @@ import type { FacetConfig } from '../../types/search'
 import { computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
 import { getAllDocIds, getFieldValueForDoc, getFlatSchema, type PartitionState } from './utils'
 
+interface ScoreAccumulator {
+  score: number
+  termFrequencies: Record<string, number>
+  fieldLengths: Record<string, number>
+  idf: Record<string, number>
+}
+
 export function searchFulltext(state: PartitionState, params: InternalSearchParams): InternalSearchResult {
-  const { queryTokens, fields, boost, tolerance = 0, prefixLength = 2, exact = false, bm25Params, globalStats } = params
+  const {
+    queryTokens,
+    fields,
+    boost,
+    tolerance = 0,
+    prefixLength = 2,
+    exact = false,
+    bm25Params,
+    globalStats,
+    maxResults,
+  } = params
 
   if (queryTokens.length === 0) {
     return { scored: [], totalMatched: 0 }
   }
 
-  const docScores = new Map<
-    string,
-    {
-      score: number
-      termFrequencies: Record<string, number>
-      fieldLengths: Record<string, number>
-      idf: Record<string, number>
-      matchedTermCount: number
-    }
-  >()
+  const docScores = new Map<string, ScoreAccumulator>()
 
   const totalDocs = globalStats?.totalDocuments ?? state.stats.totalDocuments
   const avgFieldLengths = globalStats?.averageFieldLengths ?? state.stats.averageFieldLengths
@@ -77,18 +85,22 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
           existing.termFrequencies[`${posting.fieldName}:${match.token}`] = posting.termFrequency
           existing.fieldLengths[posting.fieldName] = actualFieldLength
           existing.idf[match.token] = idf
-          existing.matchedTermCount++
         } else {
           docScores.set(posting.docId, {
             score: termScore,
             termFrequencies: { [`${posting.fieldName}:${match.token}`]: posting.termFrequency },
             fieldLengths: { [posting.fieldName]: actualFieldLength },
             idf: { [match.token]: idf },
-            matchedTermCount: 1,
           })
         }
       }
     }
+  }
+
+  const totalMatched = docScores.size
+
+  if (maxResults !== undefined && maxResults > 0 && totalMatched > maxResults) {
+    return { scored: topKFromMap(docScores, maxResults), totalMatched }
   }
 
   const scored: ScoredDocument[] = []
@@ -103,7 +115,60 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
   }
 
   scored.sort((a, b) => b.score - a.score)
-  return { scored, totalMatched: scored.length }
+  return { scored, totalMatched }
+}
+
+function topKFromMap(docScores: Map<string, ScoreAccumulator>, k: number): ScoredDocument[] {
+  const heap: Array<{ docId: string; score: number }> = []
+
+  for (const [docId, data] of docScores) {
+    if (heap.length < k) {
+      heap.push({ docId, score: data.score })
+      if (heap.length === k) buildMinHeap(heap)
+    } else if (data.score > heap[0].score) {
+      heap[0] = { docId, score: data.score }
+      siftDown(heap, 0)
+    }
+  }
+
+  heap.sort((a, b) => b.score - a.score)
+
+  const result: ScoredDocument[] = []
+  for (const entry of heap) {
+    const data = docScores.get(entry.docId)
+    if (!data) continue
+    result.push({
+      docId: entry.docId,
+      score: data.score,
+      termFrequencies: data.termFrequencies,
+      fieldLengths: data.fieldLengths,
+      idf: data.idf,
+    })
+  }
+
+  return result
+}
+
+function buildMinHeap(heap: Array<{ score: number }>): void {
+  for (let i = (heap.length >> 1) - 1; i >= 0; i--) {
+    siftDown(heap, i)
+  }
+}
+
+function siftDown(heap: Array<{ score: number }>, idx: number): void {
+  const len = heap.length
+  while (true) {
+    let smallest = idx
+    const left = 2 * idx + 1
+    const right = 2 * idx + 2
+    if (left < len && heap[left].score < heap[smallest].score) smallest = left
+    if (right < len && heap[right].score < heap[smallest].score) smallest = right
+    if (smallest === idx) break
+    const tmp = heap[idx]
+    heap[idx] = heap[smallest]
+    heap[smallest] = tmp
+    idx = smallest
+  }
 }
 
 export function searchVector(state: PartitionState, params: InternalVectorParams): InternalSearchResult {

@@ -49,6 +49,16 @@ export function fulltextSearch(
 
   const queryTokens = deduplicateTokens(queryTokenResult.tokens)
 
+  const hasPostFilters =
+    params.filters !== undefined ||
+    params.minScore !== undefined ||
+    (params.termMatch !== undefined && params.termMatch !== 'any')
+  const requestedLimit =
+    params.limit !== undefined || params.offset !== undefined
+      ? (params.limit ?? 10) + (params.offset ?? 0) + 1
+      : undefined
+  const maxResults = requestedLimit !== undefined && !hasPostFilters ? requestedLimit : undefined
+
   const rawResult = partition.searchFulltext({
     queryTokens,
     fields: params.fields,
@@ -58,6 +68,7 @@ export function fulltextSearch(
     exact: params.exact ?? false,
     bm25Params: options?.bm25Params,
     globalStats: options?.globalStats,
+    maxResults,
   })
 
   let scored = rawResult.scored
@@ -77,7 +88,8 @@ export function fulltextSearch(
     scored = scored.filter(doc => matchingDocIds.has(doc.docId))
   }
 
-  return { scored, totalMatched: scored.length }
+  const totalMatched = hasPostFilters ? scored.length : rawResult.totalMatched
+  return { scored, totalMatched }
 }
 
 function validateSearchFields(fields: string[], flatSchema: Record<string, FieldType>): void {
