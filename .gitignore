@@ -1,6 +1,6 @@
 node_modules/
 dist/
-.turbo/
+.nx/
 .pnpm-store/
 coverage/
 *.tsbuildinfo
@@ -9,3 +9,4 @@ coverage/
 .env.*
 !.env.example
 packages/ts/benchmarks/results/*.json
+.turbo/
