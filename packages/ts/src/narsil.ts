@@ -299,7 +299,32 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
         for (let i = chunkStart; i < chunkEnd; i++) {
           const docId = idGenerator()
           try {
-            await narsil.insert(indexName, documents[i], docId)
+            validateDocId(docId)
+
+            await pluginRegistry.runHook('beforeInsert', {
+              indexName,
+              docId,
+              document: documents[i],
+            })
+
+            await executor.execute({
+              type: 'insert',
+              indexName,
+              docId,
+              document: documents[i],
+              requestId: docId,
+            })
+
+            try {
+              await pluginRegistry.runHook('afterInsert', {
+                indexName,
+                docId,
+                document: documents[i],
+              })
+            } catch (err) {
+              console.warn('afterInsert plugin hook error:', err)
+            }
+
             succeeded.push(docId)
           } catch (err) {
             failed.push({
@@ -313,6 +338,15 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
           await new Promise<void>(r => setTimeout(r, 0))
         }
       }
+
+      flushManager?.markDirty(indexName, 0)
+
+      const indexMap = new Map<string, { documentCount: number }>()
+      for (const [name] of indexRegistry) {
+        const mgr = executor.getManager(name)
+        indexMap.set(name, { documentCount: mgr?.countDocuments() ?? 0 })
+      }
+      promoter.check(indexMap)
 
       return { succeeded, failed }
     },

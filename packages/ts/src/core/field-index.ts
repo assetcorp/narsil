@@ -49,14 +49,23 @@ export interface NumericFieldIndex {
 
 export function createNumericIndex(): NumericFieldIndex {
   let entries: NumericIndexEntry[] = []
+  let sorted = true
+
+  function ensureSorted(): void {
+    if (!sorted) {
+      entries.sort((a, b) => a.value - b.value)
+      sorted = true
+    }
+  }
 
   return {
     insert(docId: string, value: number): void {
-      const pos = upperBound(entries, value)
-      entries.splice(pos, 0, { value, docId })
+      entries.push({ value, docId })
+      sorted = false
     },
 
     remove(docId: string, value: number): void {
+      ensureSorted()
       const start = lowerBound(entries, value)
       const end = upperBound(entries, value)
       for (let i = start; i < end; i++) {
@@ -68,10 +77,12 @@ export function createNumericIndex(): NumericFieldIndex {
     },
 
     queryEq(value: number): Set<string> {
+      ensureSorted()
       return collectDocIds(entries, lowerBound(entries, value), upperBound(entries, value))
     },
 
     queryNe(value: number): Set<string> {
+      ensureSorted()
       const excluded = this.queryEq(value)
       const result = new Set<string>()
       for (const entry of entries) {
@@ -81,22 +92,27 @@ export function createNumericIndex(): NumericFieldIndex {
     },
 
     queryGt(value: number): Set<string> {
+      ensureSorted()
       return collectDocIds(entries, upperBound(entries, value), entries.length)
     },
 
     queryGte(value: number): Set<string> {
+      ensureSorted()
       return collectDocIds(entries, lowerBound(entries, value), entries.length)
     },
 
     queryLt(value: number): Set<string> {
+      ensureSorted()
       return collectDocIds(entries, 0, lowerBound(entries, value))
     },
 
     queryLte(value: number): Set<string> {
+      ensureSorted()
       return collectDocIds(entries, 0, upperBound(entries, value))
     },
 
     queryBetween(min: number, max: number): Set<string> {
+      ensureSorted()
       return collectDocIds(entries, lowerBound(entries, min), upperBound(entries, max))
     },
 
@@ -110,14 +126,17 @@ export function createNumericIndex(): NumericFieldIndex {
 
     clear(): void {
       entries = []
+      sorted = true
     },
 
     serialize(): NumericIndexEntry[] {
+      ensureSorted()
       return entries.slice()
     },
 
     deserialize(data: NumericIndexEntry[]): void {
       entries = data.slice()
+      sorted = true
     },
   }
 }

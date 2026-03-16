@@ -26,6 +26,8 @@ export interface InvertedIndex {
 export function createInvertedIndex(): InvertedIndex {
   const index = new Map<string, PostingList>()
   const charBuckets = new Map<string, Set<string>>()
+  const tokenDocFields = new Map<string, Set<string>>()
+  const tokenDocIds = new Map<string, Set<string>>()
 
   function trackToken(token: string): void {
     if (token.length === 0) return
@@ -73,16 +75,24 @@ export function createInvertedIndex(): InvertedIndex {
         list = { docFrequency: 0, postings: [] }
         index.set(token, list)
         trackToken(token)
+        tokenDocFields.set(token, new Set())
+        tokenDocIds.set(token, new Set())
       }
 
-      const dupeIdx = list.postings.findIndex(p => p.docId === entry.docId && p.fieldName === entry.fieldName)
+      const docFieldKey = `${entry.docId}\0${entry.fieldName}`
+      const docFields = tokenDocFields.get(token)
+      const docIds = tokenDocIds.get(token)
 
-      if (dupeIdx !== -1) {
-        list.postings[dupeIdx] = entry
+      if (docFields?.has(docFieldKey)) {
+        const dupeIdx = list.postings.findIndex(p => p.docId === entry.docId && p.fieldName === entry.fieldName)
+        if (dupeIdx !== -1) list.postings[dupeIdx] = entry
         return
       }
 
-      const isNewDoc = !list.postings.some(p => p.docId === entry.docId)
+      docFields?.add(docFieldKey)
+      const isNewDoc = !docIds?.has(entry.docId)
+      docIds?.add(entry.docId)
+
       list.postings.push(entry)
       if (isNewDoc) list.docFrequency++
     },
@@ -91,15 +101,29 @@ export function createInvertedIndex(): InvertedIndex {
       const list = index.get(token)
       if (!list) return
 
+      const docFields = tokenDocFields.get(token)
+      const docIds = tokenDocIds.get(token)
+
       const lengthBefore = list.postings.length
-      list.postings = list.postings.filter(p => p.docId !== docId)
+      list.postings = list.postings.filter(p => {
+        if (p.docId === docId) {
+          docFields?.delete(`${docId}\0${p.fieldName}`)
+          return false
+        }
+        return true
+      })
       const removed = lengthBefore - list.postings.length
 
-      if (removed > 0) list.docFrequency--
+      if (removed > 0) {
+        docIds?.delete(docId)
+        list.docFrequency = docIds?.size ?? 0
+      }
 
       if (list.postings.length === 0) {
         index.delete(token)
         untrackToken(token)
+        tokenDocFields.delete(token)
+        tokenDocIds.delete(token)
       }
     },
 
@@ -146,6 +170,8 @@ export function createInvertedIndex(): InvertedIndex {
     clear(): void {
       index.clear()
       charBuckets.clear()
+      tokenDocFields.clear()
+      tokenDocIds.clear()
     },
 
     serialize(): Record<string, PostingList> {
@@ -159,9 +185,19 @@ export function createInvertedIndex(): InvertedIndex {
     deserialize(data: Record<string, PostingList>): void {
       index.clear()
       charBuckets.clear()
+      tokenDocFields.clear()
+      tokenDocIds.clear()
       for (const token of Object.keys(data)) {
         index.set(token, data[token])
         trackToken(token)
+        const docFields = new Set<string>()
+        const docIds = new Set<string>()
+        for (const p of data[token].postings) {
+          docFields.add(`${p.docId}\0${p.fieldName}`)
+          docIds.add(p.docId)
+        }
+        tokenDocFields.set(token, docFields)
+        tokenDocIds.set(token, docIds)
       }
     },
   }
