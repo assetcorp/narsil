@@ -17,16 +17,19 @@ export function createNarsilAdapter(): SearchEngine {
           category: 'enum' as const,
         },
         language: 'english',
+        trackPositions: false,
       })
     },
 
     async insert(documents: BenchDocument[]) {
+      if (!instance) return
       const docs = documents.map(({ id, ...doc }) => doc)
-      await instance!.insertBatch('bench', docs)
+      await instance.insertBatch('bench', docs)
     },
 
     async search(query: string) {
-      const result = await instance!.query('bench', { term: query })
+      if (!instance) return 0
+      const result = await instance.query('bench', { term: query })
       return result.count
     },
 

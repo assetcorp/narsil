@@ -68,17 +68,6 @@ describe('InvertedIndex', () => {
       expect(list?.postings).toHaveLength(2)
       expect(list?.docFrequency).toBe(2)
     })
-
-    it('replaces a duplicate entry (same docId + fieldName)', () => {
-      idx.insert('forge', entry('doc1', 'title', 1, [0]))
-      idx.insert('forge', entry('doc1', 'title', 3, [0, 4, 9]))
-      const list = idx.lookup('forge')
-      expect(list).toBeDefined()
-      expect(list?.postings).toHaveLength(1)
-      expect(list?.postings[0].termFrequency).toBe(3)
-      expect(list?.postings[0].positions).toEqual([0, 4, 9])
-      expect(list?.docFrequency).toBe(1)
-    })
   })
 
   describe('remove', () => {

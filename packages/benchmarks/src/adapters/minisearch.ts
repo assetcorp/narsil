@@ -16,11 +16,13 @@ export function createMiniSearchAdapter(): SearchEngine {
     },
 
     async insert(documents: BenchDocument[]) {
-      ms!.addAll(documents)
+      if (!ms) return
+      ms.addAll(documents)
     },
 
     async search(query: string) {
-      const results = ms!.search(query)
+      if (!ms) return 0
+      const results = ms.search(query)
       return results.length
     },
 

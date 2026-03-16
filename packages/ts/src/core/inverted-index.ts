@@ -6,6 +6,10 @@ export type ReadonlyPostingList = {
   readonly postings: readonly Readonly<PostingEntry>[]
 }
 
+interface InternalPostingList extends PostingList {
+  docIds: Set<string>
+}
+
 export interface InvertedIndex {
   insert(token: string, entry: PostingEntry): void
   remove(token: string, docId: string): void
@@ -24,10 +28,8 @@ export interface InvertedIndex {
 }
 
 export function createInvertedIndex(): InvertedIndex {
-  const index = new Map<string, PostingList>()
+  const index = new Map<string, InternalPostingList>()
   const charBuckets = new Map<string, Set<string>>()
-  const tokenDocFields = new Map<string, Set<string>>()
-  const tokenDocIds = new Map<string, Set<string>>()
 
   function trackToken(token: string): void {
     if (token.length === 0) return
@@ -68,66 +70,42 @@ export function createInvertedIndex(): InvertedIndex {
     return filtered
   }
 
+  function getOrCreateList(token: string): InternalPostingList {
+    let list = index.get(token)
+    if (!list) {
+      list = { docFrequency: 0, postings: [], docIds: new Set() }
+      index.set(token, list)
+      trackToken(token)
+    }
+    return list
+  }
+
   return {
     insert(token: string, entry: PostingEntry): void {
-      let list = index.get(token)
-      if (!list) {
-        list = { docFrequency: 0, postings: [] }
-        index.set(token, list)
-        trackToken(token)
-        tokenDocFields.set(token, new Set())
-        tokenDocIds.set(token, new Set())
-      }
-
-      const docFieldKey = `${entry.docId}\0${entry.fieldName}`
-      const docFields = tokenDocFields.get(token)
-
-      if (docFields?.has(docFieldKey)) {
-        const dupeIdx = list.postings.findIndex(p => p.docId === entry.docId && p.fieldName === entry.fieldName)
-        if (dupeIdx !== -1) list.postings[dupeIdx] = entry
-        return
-      }
-
-      docFields?.add(docFieldKey)
-      const docIds = tokenDocIds.get(token)
-      const isNewDoc = !docIds?.has(entry.docId)
-      docIds?.add(entry.docId)
-
+      const list = getOrCreateList(token)
       list.postings.push(entry)
-      if (isNewDoc) list.docFrequency++
+      if (!list.docIds.has(entry.docId)) {
+        list.docIds.add(entry.docId)
+        list.docFrequency++
+      }
     },
 
     remove(token: string, docId: string): void {
       const list = index.get(token)
       if (!list) return
+      if (!list.docIds.has(docId)) return
 
-      const docFields = tokenDocFields.get(token)
-      const docIds = tokenDocIds.get(token)
-
-      const lengthBefore = list.postings.length
-      list.postings = list.postings.filter(p => {
-        if (p.docId === docId) {
-          docFields?.delete(`${docId}\0${p.fieldName}`)
-          return false
-        }
-        return true
-      })
-      const removed = lengthBefore - list.postings.length
-
-      if (removed > 0) {
-        docIds?.delete(docId)
-        list.docFrequency = docIds?.size ?? 0
-      }
+      list.postings = list.postings.filter(p => p.docId !== docId)
+      list.docIds.delete(docId)
+      list.docFrequency = list.docIds.size
 
       if (list.postings.length === 0) {
         index.delete(token)
         untrackToken(token)
-        tokenDocFields.delete(token)
-        tokenDocIds.delete(token)
       }
     },
 
-    lookup(token: string): PostingList | undefined {
+    lookup(token: string): ReadonlyPostingList | undefined {
       return index.get(token)
     },
 
@@ -135,13 +113,13 @@ export function createInvertedIndex(): InvertedIndex {
       token: string,
       tolerance: number,
       prefixLength: number,
-    ): Array<{ token: string; postingList: PostingList }> {
+    ): Array<{ token: string; postingList: ReadonlyPostingList }> {
       if (tolerance === 0) {
         const exact = index.get(token)
         return exact ? [{ token, postingList: exact }] : []
       }
 
-      const results: Array<{ token: string; postingList: PostingList }> = []
+      const results: Array<{ token: string; postingList: ReadonlyPostingList }> = []
       const candidates = candidatesForPrefix(token, prefixLength)
 
       for (const candidate of candidates) {
@@ -170,14 +148,12 @@ export function createInvertedIndex(): InvertedIndex {
     clear(): void {
       index.clear()
       charBuckets.clear()
-      tokenDocFields.clear()
-      tokenDocIds.clear()
     },
 
     serialize(): Record<string, PostingList> {
       const result: Record<string, PostingList> = Object.create(null)
       for (const [token, list] of index) {
-        result[token] = list
+        result[token] = { docFrequency: list.docFrequency, postings: list.postings }
       }
       return result
     },
@@ -185,19 +161,18 @@ export function createInvertedIndex(): InvertedIndex {
     deserialize(data: Record<string, PostingList>): void {
       index.clear()
       charBuckets.clear()
-      tokenDocFields.clear()
-      tokenDocIds.clear()
       for (const token of Object.keys(data)) {
-        index.set(token, data[token])
-        trackToken(token)
-        const docFields = new Set<string>()
+        const src = data[token]
         const docIds = new Set<string>()
-        for (const p of data[token].postings) {
-          docFields.add(`${p.docId}\0${p.fieldName}`)
+        for (const p of src.postings) {
           docIds.add(p.docId)
         }
-        tokenDocFields.set(token, docFields)
-        tokenDocIds.set(token, docIds)
+        index.set(token, {
+          docFrequency: src.docFrequency,
+          postings: src.postings,
+          docIds,
+        })
+        trackToken(token)
       }
     },
   }
