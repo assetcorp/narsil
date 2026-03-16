@@ -96,20 +96,25 @@ function buildSearchOptions(
   }
 }
 
-async function dispatchToAllPartitions(
+function dispatchToAllPartitions(
   partitions: PartitionIndex[],
   params: QueryParams,
   language: LanguageModule,
   schema: SchemaDefinition,
   options: FulltextSearchOptions,
   dispatcher?: PartitionSearchDispatcher,
-): Promise<PartitionSearchOutcome[]> {
+): PartitionSearchOutcome[] | Promise<PartitionSearchOutcome[]> {
+  if (!dispatcher) {
+    const outcomes: PartitionSearchOutcome[] = []
+    for (const partition of partitions) {
+      const result = dispatchSinglePartition(partition, params, language, schema, options)
+      outcomes.push({ result, partition })
+    }
+    return outcomes
+  }
+
   const promises = partitions.map(partition =>
-    Promise.resolve(
-      dispatcher
-        ? dispatcher.dispatch(partition, params, language, schema, options)
-        : dispatchSinglePartition(partition, params, language, schema, options),
-    ).then(result => ({ result, partition })),
+    dispatcher.dispatch(partition, params, language, schema, options).then(result => ({ result, partition })),
   )
   return Promise.all(promises)
 }

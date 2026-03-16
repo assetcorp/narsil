@@ -290,3 +290,13 @@ export function generateQueries(count: number, seed: number): string[] {
   }
   return queries
 }
+
+export function generateMultiTermQueries(count: number, seed: number): string[] {
+  const rng = createRng(seed)
+  const queries: string[] = []
+  for (let i = 0; i < count; i++) {
+    const wordCount = 2 + Math.floor(rng() * 2)
+    queries.push(generateSentence(rng, wordCount))
+  }
+  return queries
+}
