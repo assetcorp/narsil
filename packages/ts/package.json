@@ -38,35 +38,35 @@
   "exports": {
     ".": {
       "import": "./dist/index.mjs",
-      "types": "./dist/index.d.mts"
+      "types": "./dist/index.d.ts"
     },
     "./adapters/memory": {
       "import": "./dist/adapters/memory.mjs",
-      "types": "./dist/adapters/memory.d.mts"
+      "types": "./dist/adapters/memory.d.ts"
     },
     "./adapters/filesystem": {
       "import": "./dist/adapters/filesystem.mjs",
-      "types": "./dist/adapters/filesystem.d.mts"
+      "types": "./dist/adapters/filesystem.d.ts"
     },
     "./adapters/indexeddb": {
       "import": "./dist/adapters/indexeddb.mjs",
-      "types": "./dist/adapters/indexeddb.d.mts"
+      "types": "./dist/adapters/indexeddb.d.ts"
     },
     "./invalidation/noop": {
       "import": "./dist/invalidation/noop.mjs",
-      "types": "./dist/invalidation/noop.d.mts"
+      "types": "./dist/invalidation/noop.d.ts"
     },
     "./invalidation/filesystem": {
       "import": "./dist/invalidation/filesystem.mjs",
-      "types": "./dist/invalidation/filesystem.d.mts"
+      "types": "./dist/invalidation/filesystem.d.ts"
     },
     "./invalidation/broadcast-channel": {
       "import": "./dist/invalidation/broadcast-channel.mjs",
-      "types": "./dist/invalidation/broadcast-channel.d.mts"
+      "types": "./dist/invalidation/broadcast-channel.d.ts"
     },
     "./languages/*": {
       "import": "./dist/languages/*.mjs",
-      "types": "./dist/languages/*.d.mts"
+      "types": "./dist/languages/*.d.ts"
     }
   },
   "files": [
