@@ -64,7 +64,7 @@ export interface PartitionIndex {
   deserialize(data: SerializablePartition, schema: SchemaDefinition): void
 }
 
-export function createPartitionIndex(partitionId: number): PartitionIndex {
+export function createPartitionIndex(partitionId: number, trackPositions = true): PartitionIndex {
   const state: PartitionState = {
     invertedIdx: createInvertedIndex(),
     docStore: createDocumentStore(),
@@ -76,6 +76,7 @@ export function createPartitionIndex(partitionId: number): PartitionIndex {
     vectorStores: new Map(),
     flatSchemaCache: null,
     lastSchemaRef: null,
+    trackPositions,
   }
 
   function clearAll(): void {

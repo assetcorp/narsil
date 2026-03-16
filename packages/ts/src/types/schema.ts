@@ -24,6 +24,7 @@ export interface IndexConfig {
   bm25?: BM25Params
   stopWords?: Set<string> | ((defaults: Set<string>) => Set<string>)
   tokenizer?: CustomTokenizer
+  trackPositions?: boolean
 }
 
 export interface BM25Params {

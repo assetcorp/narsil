@@ -3,9 +3,9 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createMiniSearchAdapter } from './adapters/minisearch'
 import { createNarsilAdapter } from './adapters/narsil'
 import { createOramaAdapter } from './adapters/orama'
-import { createMiniSearchAdapter } from './adapters/minisearch'
 import { generateDocuments, generateQueries } from './data'
 import type { BenchDocument, BenchmarkOutput, ScaleResult, SearchEngine } from './types'
 
@@ -49,10 +49,7 @@ function getPackageVersion(name: string): string {
   }
 }
 
-async function measureInsert(
-  engine: SearchEngine,
-  documents: BenchDocument[],
-): Promise<number[]> {
+async function measureInsert(engine: SearchEngine, documents: BenchDocument[]): Promise<number[]> {
   const times: number[] = []
   for (let i = 0; i < INSERT_ITERATIONS + WARMUP_ITERATIONS; i++) {
     await engine.create()
@@ -65,11 +62,7 @@ async function measureInsert(
   return times
 }
 
-async function measureSearch(
-  engine: SearchEngine,
-  documents: BenchDocument[],
-  queries: string[],
-): Promise<number[]> {
+async function measureSearch(engine: SearchEngine, documents: BenchDocument[], queries: string[]): Promise<number[]> {
   await engine.create()
   await engine.insert(documents)
 
@@ -89,10 +82,7 @@ async function measureSearch(
   return times
 }
 
-async function measureMemory(
-  engine: SearchEngine,
-  documents: BenchDocument[],
-): Promise<number> {
+async function measureMemory(engine: SearchEngine, documents: BenchDocument[]): Promise<number> {
   await engine.teardown()
   tryGc()
   tryGc()
@@ -151,7 +141,7 @@ async function main() {
     os: os.type(),
     arch: os.arch(),
     cpu: os.cpus()[0]?.model?.trim() ?? 'unknown',
-    totalMemory: `${Math.round(os.totalmem() / (1024 ** 3))}GB`,
+    totalMemory: `${Math.round(os.totalmem() / 1024 ** 3)}GB`,
   }
 
   console.log('Narsil Comparative Benchmarks')
@@ -166,11 +156,7 @@ async function main() {
     console.log()
   }
 
-  const adapters = [
-    createNarsilAdapter(),
-    createOramaAdapter(),
-    createMiniSearchAdapter(),
-  ]
+  const adapters = [createNarsilAdapter(), createOramaAdapter(), createMiniSearchAdapter()]
 
   const engineVersions: Record<string, string> = {
     narsil: getPackageVersion('@delali/narsil'),

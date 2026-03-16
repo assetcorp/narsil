@@ -54,6 +54,8 @@ function getOrCreateBooleanIndex(state: PartitionState, fieldPath: string): Bool
   return idx
 }
 
+const EMPTY_POSITIONS: readonly number[] = Object.freeze([] as number[])
+
 function indexStringField(
   state: PartitionState,
   docId: string,
@@ -68,25 +70,42 @@ function indexStringField(
   fieldLengths[fieldPath] = result.tokens.length
   const fieldTokenList: string[] = []
 
-  const tokenFreqs = new Map<string, { count: number; positions: number[] }>()
-  for (const t of result.tokens) {
-    const existing = tokenFreqs.get(t.token)
-    if (existing) {
-      existing.count++
-      existing.positions.push(t.position)
-    } else {
-      tokenFreqs.set(t.token, { count: 1, positions: [t.position] })
+  if (state.trackPositions) {
+    const tokenFreqs = new Map<string, { count: number; positions: number[] }>()
+    for (const t of result.tokens) {
+      const existing = tokenFreqs.get(t.token)
+      if (existing) {
+        existing.count++
+        existing.positions.push(t.position)
+      } else {
+        tokenFreqs.set(t.token, { count: 1, positions: [t.position] })
+      }
+      fieldTokenList.push(t.token)
     }
-    fieldTokenList.push(t.token)
-  }
 
-  for (const [token, freq] of tokenFreqs) {
-    state.invertedIdx.insert(token, {
-      docId,
-      termFrequency: freq.count,
-      fieldName: fieldPath,
-      positions: freq.positions,
-    })
+    for (const [token, freq] of tokenFreqs) {
+      state.invertedIdx.insert(token, {
+        docId,
+        termFrequency: freq.count,
+        fieldName: fieldPath,
+        positions: freq.positions,
+      })
+    }
+  } else {
+    const tokenCounts = new Map<string, number>()
+    for (const t of result.tokens) {
+      tokenCounts.set(t.token, (tokenCounts.get(t.token) ?? 0) + 1)
+      fieldTokenList.push(t.token)
+    }
+
+    for (const [token, count] of tokenCounts) {
+      state.invertedIdx.insert(token, {
+        docId,
+        termFrequency: count,
+        fieldName: fieldPath,
+        positions: EMPTY_POSITIONS as number[],
+      })
+    }
   }
 
   tokensByField[fieldPath] = fieldTokenList
@@ -102,34 +121,58 @@ function indexStringArrayField(
   fieldLengths: Record<string, number>,
   tokensByField: Record<string, string[]>,
 ): void {
-  const tokenFreqs = new Map<string, { count: number; positions: number[] }>()
   const fieldTokenList: string[] = []
-  let positionOffset = 0
 
-  for (const item of arr) {
-    const result = tokenize(item, language, tokenizeOptions(options))
-    for (const t of result.tokens) {
-      const existing = tokenFreqs.get(t.token)
-      if (existing) {
-        existing.count++
-        existing.positions.push(positionOffset + t.position)
-      } else {
-        tokenFreqs.set(t.token, { count: 1, positions: [positionOffset + t.position] })
+  if (state.trackPositions) {
+    const tokenFreqs = new Map<string, { count: number; positions: number[] }>()
+    let positionOffset = 0
+
+    for (const item of arr) {
+      const result = tokenize(item, language, tokenizeOptions(options))
+      for (const t of result.tokens) {
+        const existing = tokenFreqs.get(t.token)
+        if (existing) {
+          existing.count++
+          existing.positions.push(positionOffset + t.position)
+        } else {
+          tokenFreqs.set(t.token, { count: 1, positions: [positionOffset + t.position] })
+        }
+        fieldTokenList.push(t.token)
       }
-      fieldTokenList.push(t.token)
+      positionOffset += result.tokens.length
     }
-    positionOffset += result.tokens.length
-  }
 
-  fieldLengths[fieldPath] = fieldTokenList.length
+    fieldLengths[fieldPath] = fieldTokenList.length
 
-  for (const [token, freq] of tokenFreqs) {
-    state.invertedIdx.insert(token, {
-      docId,
-      termFrequency: freq.count,
-      fieldName: fieldPath,
-      positions: freq.positions,
-    })
+    for (const [token, freq] of tokenFreqs) {
+      state.invertedIdx.insert(token, {
+        docId,
+        termFrequency: freq.count,
+        fieldName: fieldPath,
+        positions: freq.positions,
+      })
+    }
+  } else {
+    const tokenCounts = new Map<string, number>()
+
+    for (const item of arr) {
+      const result = tokenize(item, language, tokenizeOptions(options))
+      for (const t of result.tokens) {
+        tokenCounts.set(t.token, (tokenCounts.get(t.token) ?? 0) + 1)
+        fieldTokenList.push(t.token)
+      }
+    }
+
+    fieldLengths[fieldPath] = fieldTokenList.length
+
+    for (const [token, count] of tokenCounts) {
+      state.invertedIdx.insert(token, {
+        docId,
+        termFrequency: count,
+        fieldName: fieldPath,
+        positions: EMPTY_POSITIONS as number[],
+      })
+    }
   }
 
   tokensByField[fieldPath] = fieldTokenList

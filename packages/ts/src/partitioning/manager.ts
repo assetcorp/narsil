@@ -43,11 +43,12 @@ export function createPartitionManager(
   initialPartitionCount?: number,
 ): PartitionManager {
   const count = initialPartitionCount ?? 1
+  const trackPositions = config.trackPositions ?? true
   let partitions: PartitionIndex[] = []
   const docPartitionMap = new Map<string, number>()
 
   for (let i = 0; i < count; i++) {
-    partitions.push(createPartitionIndex(i))
+    partitions.push(createPartitionIndex(i, trackPositions))
   }
 
   function validatePartitionId(partitionId: number): void {
@@ -112,7 +113,7 @@ export function createPartitionManager(
     },
 
     addPartition(): PartitionIndex {
-      const partition = createPartitionIndex(partitions.length)
+      const partition = createPartitionIndex(partitions.length, trackPositions)
       partitions.push(partition)
       return partition
     },

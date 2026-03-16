@@ -18,6 +18,7 @@ export interface PartitionState {
   vectorStores: Map<string, BruteForceVectorStore>
   flatSchemaCache: Record<string, FieldType> | null
   lastSchemaRef: SchemaDefinition | null
+  trackPositions: boolean
 }
 
 export interface PartitionInsertOptions {

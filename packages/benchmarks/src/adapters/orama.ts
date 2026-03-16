@@ -1,4 +1,4 @@
-import { create, insertMultiple, search, type AnyOrama } from '@orama/orama'
+import { type AnyOrama, create, insertMultiple, search } from '@orama/orama'
 import type { BenchDocument, SearchEngine } from '../types'
 
 export function createOramaAdapter(): SearchEngine {
@@ -20,12 +20,14 @@ export function createOramaAdapter(): SearchEngine {
     },
 
     async insert(documents: BenchDocument[]) {
+      if (!db) return
       const docs = documents.map(({ id, ...doc }) => doc)
-      await insertMultiple(db!, docs)
+      await insertMultiple(db, docs)
     },
 
     async search(query: string) {
-      const result = await search(db!, { term: query })
+      if (!db) return 0
+      const result = await search(db, { term: query })
       return result.count
     },
 
