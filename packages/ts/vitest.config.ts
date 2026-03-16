@@ -17,5 +17,8 @@ export default defineConfig({
         branches: 75,
       },
     },
+    benchmark: {
+      include: ['benchmarks/**/*.bench.ts'],
+    },
   },
 })

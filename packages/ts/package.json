@@ -32,6 +32,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "bench": "vitest bench",
     "lint": "biome check src/",
     "typecheck": "tsc --noEmit"
   },
