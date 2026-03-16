@@ -1,7 +1,37 @@
 import MiniSearch from 'minisearch'
 import type { BenchDocument, SearchEngine } from '../types'
 
-export function createMiniSearchAdapter(): SearchEngine {
+export function createMiniSearchTextOnlyAdapter(): SearchEngine {
+  let ms: MiniSearch<BenchDocument> | null = null
+
+  return {
+    name: 'minisearch',
+
+    async create() {
+      ms = new MiniSearch<BenchDocument>({
+        fields: ['title', 'body'],
+        storeFields: ['title', 'body'],
+        idField: 'id',
+      })
+    },
+
+    async insert(documents: BenchDocument[]) {
+      if (!ms) return
+      ms.addAll(documents)
+    },
+
+    async search(query: string) {
+      if (!ms) return 0
+      return ms.search(query).length
+    },
+
+    async teardown() {
+      ms = null
+    },
+  }
+}
+
+export function createMiniSearchFullSchemaAdapter(): SearchEngine {
   let ms: MiniSearch<BenchDocument> | null = null
 
   return {
@@ -22,8 +52,7 @@ export function createMiniSearchAdapter(): SearchEngine {
 
     async search(query: string) {
       if (!ms) return 0
-      const results = ms.search(query)
-      return results.length
+      return ms.search(query).length
     },
 
     async teardown() {

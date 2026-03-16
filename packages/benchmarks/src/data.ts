@@ -1,4 +1,4 @@
-import type { BenchDocument } from './types'
+import type { BenchDocument, VectorBenchDocument } from './types'
 
 function createRng(seed: number): () => number {
   let s = seed | 0
@@ -299,4 +299,44 @@ export function generateMultiTermQueries(count: number, seed: number): string[] 
     queries.push(generateSentence(rng, wordCount))
   }
   return queries
+}
+
+function generateUnitVector(rng: () => number, dimension: number): number[] {
+  const vec: number[] = new Array(dimension)
+  let magnitude = 0
+  for (let i = 0; i < dimension; i++) {
+    const g = (rng() + rng() + rng() - 1.5) * 2
+    vec[i] = g
+    magnitude += g * g
+  }
+  magnitude = Math.sqrt(magnitude)
+  if (magnitude > 0) {
+    for (let i = 0; i < dimension; i++) {
+      vec[i] /= magnitude
+    }
+  }
+  return vec
+}
+
+export function generateVectorDocuments(count: number, dimension: number, seed: number): VectorBenchDocument[] {
+  const rng = createRng(seed)
+  const docs: VectorBenchDocument[] = []
+  for (let i = 0; i < count; i++) {
+    const titleLength = 3 + Math.floor(rng() * 10)
+    docs.push({
+      id: `vec-${String(i).padStart(7, '0')}`,
+      title: generateSentence(rng, titleLength),
+      embedding: generateUnitVector(rng, dimension),
+    })
+  }
+  return docs
+}
+
+export function generateQueryVectors(count: number, dimension: number, seed: number): number[][] {
+  const rng = createRng(seed)
+  const vectors: number[][] = []
+  for (let i = 0; i < count; i++) {
+    vectors.push(generateUnitVector(rng, dimension))
+  }
+  return vectors
 }
