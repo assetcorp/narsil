@@ -11,6 +11,7 @@ type HookContext<T extends PluginHookName> = NarsilPlugin[T] extends
 export interface PluginRegistry {
   register(plugin: NarsilPlugin): void
   runHook<T extends PluginHookName>(hookName: T, context: HookContext<T>): void | Promise<void>
+  hasHooks(hookName: PluginHookName): boolean
 }
 
 function isThenable(value: unknown): value is PromiseLike<unknown> {
@@ -35,6 +36,10 @@ export function createPluginRegistry(): PluginRegistry {
   return {
     register(plugin: NarsilPlugin): void {
       plugins.push(plugin)
+    },
+
+    hasHooks(hookName: PluginHookName): boolean {
+      return plugins.some(p => typeof p[hookName] === 'function')
     },
 
     runHook<T extends PluginHookName>(hookName: T, context: HookContext<T>): void | Promise<void> {

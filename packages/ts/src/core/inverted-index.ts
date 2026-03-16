@@ -81,7 +81,6 @@ export function createInvertedIndex(): InvertedIndex {
 
       const docFieldKey = `${entry.docId}\0${entry.fieldName}`
       const docFields = tokenDocFields.get(token)
-      const docIds = tokenDocIds.get(token)
 
       if (docFields?.has(docFieldKey)) {
         const dupeIdx = list.postings.findIndex(p => p.docId === entry.docId && p.fieldName === entry.fieldName)
@@ -90,6 +89,7 @@ export function createInvertedIndex(): InvertedIndex {
       }
 
       docFields?.add(docFieldKey)
+      const docIds = tokenDocIds.get(token)
       const isNewDoc = !docIds?.has(entry.docId)
       docIds?.add(entry.docId)
 

@@ -132,7 +132,11 @@ export function createPartitionIndex(partitionId: number): PartitionIndex {
         language,
         options,
       )
-      state.docStore.store(docId, document, fieldLengths)
+      if (options?.skipClone) {
+        state.docStore.storeRef(docId, document, fieldLengths)
+      } else {
+        state.docStore.store(docId, document, fieldLengths)
+      }
       state.stats.addDocument(fieldLengths, tokensByField)
     },
 
