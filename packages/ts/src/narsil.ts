@@ -541,13 +541,44 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       let hits: Array<Hit<T>> = fanOutResult.scored.map(scored => ({
         id: scored.docId,
         score: scored.score,
-        document: (manager.get(scored.docId) ?? {}) as T,
+        document: undefined as unknown as T,
         scoreComponents: {
           termFrequencies: scored.termFrequencies,
           fieldLengths: scored.fieldLengths,
           idf: scored.idf,
         },
       }))
+
+      if (params.sort) {
+        hits = applySorting(hits, params.sort, (docId: string) => manager.getRef(docId) as AnyDocument | undefined)
+      }
+
+      let groups: GroupResult[] | undefined
+      if (params.group) {
+        groups = applyGrouping(hits, params.group, (docId: string) => manager.getRef(docId) as AnyDocument | undefined)
+      }
+
+      if (params.pinned) {
+        hits = applyPinning(hits, params.pinned, (docId: string) => {
+          const doc = manager.getRef(docId)
+          if (!doc) return undefined
+          return { id: docId, score: 0, document: doc as T }
+        })
+      }
+
+      const { paginated, nextCursor } = applyPagination(hits, limit, offset, params.searchAfter)
+
+      for (const hit of paginated) {
+        hit.document = (manager.get(hit.id) ?? {}) as T
+      }
+
+      if (groups) {
+        for (const group of groups) {
+          for (const hit of group.hits) {
+            hit.document = (manager.get(hit.id) ?? {}) as AnyDocument
+          }
+        }
+      }
 
       if (params.highlight) {
         const queryTokenResult = tokenize(params.term ?? '', entry.language, {
@@ -557,7 +588,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
           stopWordOverride: entry.config.stopWords,
         })
 
-        for (const hit of hits) {
+        for (const hit of paginated) {
           const highlights: Record<string, HighlightMatch> = {}
           for (const field of params.highlight.fields) {
             const doc = hit.document as Record<string, unknown>
@@ -573,25 +604,6 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
           hit.highlights = highlights
         }
       }
-
-      if (params.sort) {
-        hits = applySorting(hits, params.sort, (docId: string) => manager.get(docId) as AnyDocument | undefined)
-      }
-
-      let groups: GroupResult[] | undefined
-      if (params.group) {
-        groups = applyGrouping(hits, params.group, (docId: string) => manager.get(docId) as AnyDocument | undefined)
-      }
-
-      if (params.pinned) {
-        hits = applyPinning(hits, params.pinned, (docId: string) => {
-          const doc = manager.get(docId)
-          if (!doc) return undefined
-          return { id: docId, score: 0, document: doc as T }
-        })
-      }
-
-      const { paginated, nextCursor } = applyPagination(hits, limit, offset, params.searchAfter)
 
       const elapsed = now() - startTime
 

@@ -22,6 +22,7 @@ export interface PartitionManager {
   remove(docId: string): void
   update(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
   get(docId: string): AnyDocument | undefined
+  getRef(docId: string): AnyDocument | undefined
   has(docId: string): boolean
   countDocuments(): number
 
@@ -149,6 +150,12 @@ export function createPartitionManager(
       const pid = docPartitionMap.get(docId)
       if (pid === undefined) return undefined
       return partitions[pid].get(docId)
+    },
+
+    getRef(docId: string): AnyDocument | undefined {
+      const pid = docPartitionMap.get(docId)
+      if (pid === undefined) return undefined
+      return partitions[pid].getRef(docId)
     },
 
     has(docId: string): boolean {

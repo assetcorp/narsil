@@ -6,7 +6,7 @@
     "cpu": "Apple M3 Pro",
     "totalMemory": "18GB"
   },
-  "timestamp": "2026-03-16T15:28:52.323Z",
+  "timestamp": "2026-03-16T15:52:03.914Z",
   "config": {
     "scales": [
       1000,
@@ -26,71 +26,71 @@
   "results": {
     "narsil": {
       "1000": {
-        "insertMedianMs": 104.52191700000003,
-        "insertDocsPerSec": 9567,
-        "searchMedianMs": 1.2310205000001133,
-        "searchP95Ms": 2.421915999999783,
-        "memoryMb": 21.781585693359375
+        "insertMedianMs": 87.44625000000008,
+        "insertDocsPerSec": 11436,
+        "searchMedianMs": 0.6232919999998785,
+        "searchP95Ms": 1.2245420000000422,
+        "memoryMb": 21.81739044189453
       },
       "10000": {
-        "insertMedianMs": 1138.7248749999999,
-        "insertDocsPerSec": 8782,
-        "searchMedianMs": 19.53510449999976,
-        "searchP95Ms": 38.149999999999636,
-        "memoryMb": 220.0158233642578
+        "insertMedianMs": 1150.2760829999988,
+        "insertDocsPerSec": 8694,
+        "searchMedianMs": 8.422312499999862,
+        "searchP95Ms": 16.154915999999503,
+        "memoryMb": 220.03028869628906
       },
       "50000": {
-        "insertMedianMs": 8089.884917000003,
-        "insertDocsPerSec": 6181,
-        "searchMedianMs": 138.7246665000057,
-        "searchP95Ms": 434.153707999998,
-        "memoryMb": 1085.1521682739258
+        "insertMedianMs": 8092.461332999999,
+        "insertDocsPerSec": 6179,
+        "searchMedianMs": 62.731895999997505,
+        "searchP95Ms": 123.91416700000991,
+        "memoryMb": 1085.2017974853516
       }
     },
     "orama": {
       "1000": {
-        "insertMedianMs": 69.86008300000003,
-        "insertDocsPerSec": 14314,
-        "searchMedianMs": 0.3408755000000383,
-        "searchP95Ms": 0.8103330000003552,
-        "memoryMb": 8.457389831542969
+        "insertMedianMs": 72.47916699999996,
+        "insertDocsPerSec": 13797,
+        "searchMedianMs": 0.3332500000000209,
+        "searchP95Ms": 0.8088339999999334,
+        "memoryMb": 8.455184936523438
       },
       "10000": {
-        "insertMedianMs": 891.9204159999972,
-        "insertDocsPerSec": 11212,
-        "searchMedianMs": 7.486333000000741,
-        "searchP95Ms": 23.7946669999983,
-        "memoryMb": 83.32935333251953
+        "insertMedianMs": 909.0934579999994,
+        "insertDocsPerSec": 11000,
+        "searchMedianMs": 6.859875000000102,
+        "searchP95Ms": 23.118500000000495,
+        "memoryMb": 83.33118438720703
       },
       "50000": {
-        "insertMedianMs": 5261.312083999976,
-        "insertDocsPerSec": 9503,
-        "searchMedianMs": 83.16416649999155,
-        "searchP95Ms": 368.2909170000057,
-        "memoryMb": 409.7306213378906
+        "insertMedianMs": 4959.380207999988,
+        "insertDocsPerSec": 10082,
+        "searchMedianMs": 84.97539600000891,
+        "searchP95Ms": 353.88054199999897,
+        "memoryMb": 409.7332458496094
       }
     },
     "minisearch": {
       "1000": {
-        "insertMedianMs": 46.248083999999835,
-        "insertDocsPerSec": 21623,
-        "searchMedianMs": 0.3123955000000933,
-        "searchP95Ms": 0.7049170000000231,
+        "insertMedianMs": 57.348999999999705,
+        "insertDocsPerSec": 17437,
+        "searchMedianMs": 0.3842709999998988,
+        "searchP95Ms": 1.0262080000002243,
         "memoryMb": 3.365570068359375
       },
       "10000": {
-        "insertMedianMs": 600.6863329999978,
-        "insertDocsPerSec": 16648,
-        "searchMedianMs": 4.642708499999571,
-        "searchP95Ms": 10.147958000001381,
-        "memoryMb": 35.17320251464844
+        "insertMedianMs": 545.3059170000015,
+        "insertDocsPerSec": 18338,
+        "searchMedianMs": 4.546479000002364,
+        "searchP95Ms": 10.458583999999973,
+        "memoryMb": 35.17155456542969
       },
       "50000": {
-        "insertMedianMs": 3263.641333000007,
-        "insertDocsPerSec": 15320,
-        "searchMedianMs": 31.55077149999852,
-        "searchP95Ms": 78.05887499998789,
-        "memoryMb": 169.43060302734375
+        "insertMedianMs": 3251.0730840000033,
+        "insertDocsPerSec": 15380,
+        "searchMedianMs": 32.224270999999135,
+        "searchP95Ms": 73.32808300000033,
+        "memoryMb": 169.43756103515625
       }
     }
   }
