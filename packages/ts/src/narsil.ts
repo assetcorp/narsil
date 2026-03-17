@@ -433,7 +433,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
 
       await pluginRegistry.runHook('beforeSearch', { indexName, params })
 
-      const result = await executeQuery<T>(indexName, params, {
+      const result = await executeQuery<T>(params, {
         manager,
         language: entry.language,
         config: entry.config,
@@ -457,7 +457,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       const entry = requireIndex(indexName)
       const manager = requireManager(indexName)
 
-      return executePreflight(indexName, params, {
+      return executePreflight(params, {
         manager,
         language: entry.language,
         config: entry.config,
