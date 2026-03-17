@@ -1,7 +1,7 @@
 import type { GeoIndex } from '../../geo/geo-index'
 import { flattenSchema } from '../../schema/validator'
+import type { VectorSearchEngine } from '../../search/vector-search'
 import type { CustomTokenizer, FieldType, SchemaDefinition } from '../../types/schema'
-import type { BruteForceVectorStore } from '../../vector/brute-force'
 import type { DocumentStore } from '../document-store'
 import type { BooleanFieldIndex, EnumFieldIndex, NumericFieldIndex } from '../field-index'
 import type { InvertedIndex } from '../inverted-index'
@@ -15,7 +15,7 @@ export interface PartitionState {
   booleanIndexes: Map<string, BooleanFieldIndex>
   enumIndexes: Map<string, EnumFieldIndex>
   geoIndexes: Map<string, GeoIndex>
-  vectorStores: Map<string, BruteForceVectorStore>
+  vectorStores: Map<string, VectorSearchEngine>
   flatSchemaCache: Record<string, FieldType> | null
   lastSchemaRef: SchemaDefinition | null
   trackPositions: boolean

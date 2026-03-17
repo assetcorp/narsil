@@ -18,7 +18,7 @@ export function createNarsilTextOnlyAdapter(): SearchEngine {
 
     async insert(documents: BenchDocument[]) {
       if (!instance) return
-      const docs = documents.map(({ id, ...doc }) => doc)
+      const docs = documents.map(d => ({ title: d.title, body: d.body }))
       await instance.insertBatch('bench', docs, { skipClone: true })
     },
 

@@ -132,4 +132,5 @@ export interface InternalVectorParams {
   similarity?: number
   metric?: 'cosine' | 'dotProduct' | 'euclidean'
   filterDocIds?: Set<string>
+  efSearch?: number
 }

@@ -11,8 +11,9 @@ import type {
 } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { FacetResult } from '../../types/results'
-import type { AnyDocument, SchemaDefinition } from '../../types/schema'
+import type { AnyDocument, SchemaDefinition, VectorPromotionConfig } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
+import { createVectorPromoter, type VectorPromoter } from '../../vector/promoter'
 import { createDocumentStore } from '../document-store'
 import { createInvertedIndex } from '../inverted-index'
 import { createPartitionStats, type PartitionStats } from '../statistics'
@@ -64,7 +65,18 @@ export interface PartitionIndex {
   deserialize(data: SerializablePartition, schema: SchemaDefinition): void
 }
 
-export function createPartitionIndex(partitionId: number, trackPositions = true): PartitionIndex {
+export function createPartitionIndex(
+  partitionId: number,
+  trackPositions = true,
+  vectorPromotionConfig?: VectorPromotionConfig,
+): PartitionIndex {
+  const vectorPromoter: VectorPromoter | null = vectorPromotionConfig
+    ? createVectorPromoter({
+        promotionThreshold: vectorPromotionConfig.threshold,
+        hnswConfig: vectorPromotionConfig.hnswConfig,
+      })
+    : null
+
   const state: PartitionState = {
     invertedIdx: createInvertedIndex(),
     docStore: createDocumentStore(),
@@ -80,6 +92,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
   }
 
   function clearAll(): void {
+    vectorPromoter?.shutdown()
     state.invertedIdx.clear()
     state.docStore.clear()
     for (const idx of state.numericIndexes.values()) idx.clear()
@@ -139,6 +152,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
         state.docStore.store(docId, document, fieldLengths)
       }
       state.stats.addDocument(fieldLengths, tokensByField)
+      vectorPromoter?.check(state.vectorStores)
     },
 
     remove(docId: string, schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void {

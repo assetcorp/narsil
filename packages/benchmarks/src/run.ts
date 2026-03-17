@@ -29,8 +29,8 @@ import type {
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-const SCALES = [1_000, 10_000, 50_000]
-const VECTOR_SCALES = [1_000, 10_000, 50_000]
+const SCALES = [1_000, 10_000, 50_000, 100_000]
+const VECTOR_SCALES = [1_000, 10_000, 50_000, 100_000, 1_000_000]
 const VECTOR_DIM = 128
 const SEED = 42
 const INSERT_ITERATIONS = 5

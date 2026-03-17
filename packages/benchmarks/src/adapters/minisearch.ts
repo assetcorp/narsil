@@ -17,7 +17,7 @@ export function createMiniSearchTextOnlyAdapter(): SearchEngine {
 
     async insert(documents: BenchDocument[]) {
       if (!ms) return
-      ms.addAll(documents)
+      ms.addAll(documents.map(d => ({ id: d.id, title: d.title, body: d.body }) as BenchDocument))
     },
 
     async search(query: string) {

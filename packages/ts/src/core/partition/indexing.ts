@@ -1,7 +1,7 @@
 import { createGeoIndex } from '../../geo/geo-index'
+import { createVectorSearchEngine } from '../../search/vector-search'
 import type { LanguageModule } from '../../types/language'
 import type { FieldType } from '../../types/schema'
-import { createBruteForceVectorStore } from '../../vector/brute-force'
 import type { ReadonlyStoredDocument } from '../document-store'
 import {
   type BooleanFieldIndex,
@@ -31,7 +31,7 @@ function ensureFieldIndex(state: PartitionState, fieldPath: string, fieldType: F
   } else {
     const dim = parseVectorDimension(fieldType)
     if (dim !== null && !state.vectorStores.has(fieldPath)) {
-      state.vectorStores.set(fieldPath, createBruteForceVectorStore(dim))
+      state.vectorStores.set(fieldPath, createVectorSearchEngine(dim))
     }
   }
 }

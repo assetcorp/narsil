@@ -143,6 +143,7 @@ function dispatchSinglePartition(
       k: params.limit ?? 10,
       similarity: vectorConfig.similarity,
       metric: vectorConfig.metric,
+      efSearch: vectorConfig.efSearch,
     })
   }
 
