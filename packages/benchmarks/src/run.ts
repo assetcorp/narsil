@@ -30,8 +30,14 @@ import type {
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const SCALES = [1_000, 10_000, 50_000, 100_000]
-const VECTOR_SCALES = [1_000, 10_000, 50_000, 100_000, 1_000_000]
-const VECTOR_DIM = 128
+const VECTOR_SCALES_BY_DIM: Record<number, number[]> = {
+  384: [10_000, 50_000, 100_000, 500_000],
+  1536: [10_000, 50_000, 100_000],
+  3072: [10_000, 50_000],
+}
+const VECTOR_DIMS = [384, 1536, 3072]
+const VECTOR_SCALES = [10_000, 50_000, 100_000, 500_000]
+const VECTOR_DIM = 384
 const SEED = 42
 const INSERT_ITERATIONS = 5
 const WARMUP_ITERATIONS = 2
@@ -408,12 +414,16 @@ async function main() {
     SCALES,
   )
 
-  const vectorResults = await runVectorTier(
-    [createNarsilVectorAdapter(VECTOR_DIM), createOramaVectorAdapter(VECTOR_DIM)],
-    engineVersions,
-    VECTOR_SCALES,
-    VECTOR_DIM,
-  )
+  const vectorResultsByDim: Record<number, Record<string, Record<number, VectorScaleResult>>> = {}
+  for (const dim of VECTOR_DIMS) {
+    const scales = VECTOR_SCALES_BY_DIM[dim] ?? [10_000, 50_000]
+    vectorResultsByDim[dim] = await runVectorTier(
+      [createNarsilVectorAdapter(dim), createOramaVectorAdapter(dim)],
+      engineVersions,
+      scales,
+      dim,
+    )
+  }
 
   const output: BenchmarkOutput = {
     env,
@@ -431,7 +441,7 @@ async function main() {
     tiers: {
       textOnly: textOnlyResults,
       fullSchema: fullSchemaResults,
-      vector: vectorResults,
+      vector: vectorResultsByDim[VECTOR_DIMS[0]],
     },
   }
 

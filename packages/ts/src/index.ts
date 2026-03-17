@@ -4,6 +4,7 @@ export { getLanguage, registerLanguage } from './languages/registry'
 export type { Narsil } from './narsil'
 export { createNarsil } from './narsil'
 
+export { isSimdAvailable } from './vector/simd'
 export const VERSION = '0.1.0'
 
 export type { InvalidationAdapter, InvalidationEvent, PartitionStatistics, PersistenceAdapter } from './types/adapters'

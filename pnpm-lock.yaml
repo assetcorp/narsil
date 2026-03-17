@@ -59,6 +59,9 @@ importers:
       vitest:
         specifier: 4.0.18
         version: 4.0.18(@types/node@22.15.32)(tsx@4.21.0)(yaml@2.8.2)
+      wabt:
+        specifier: 1.0.39
+        version: 1.0.39
 
 packages:
 
@@ -2153,6 +2156,10 @@ packages:
         optional: true
       jsdom:
         optional: true
+
+  wabt@1.0.39:
+    resolution: {integrity: sha512-ba+dRL/75VQQY7RkU/CgriGbkoWAfS8TDyUlJfJhJ8KhtXgMl5dhNvoPNUcQ9IWRhW8u41glMSuZeTvsYq2rRg==}
+    hasBin: true
 
   wcwidth@1.0.1:
     resolution: {integrity: sha512-XHPEwS0q6TaxcvG85+8EYkbiCux2XtWG2mkc47Ng2A77BQu9+DqIOJldST4HgPkuea7dvKSj5VgX3P1d4rW8Tg==}
@@ -4317,6 +4324,8 @@ snapshots:
       - terser
       - tsx
       - yaml
+
+  wabt@1.0.39: {}
 
   wcwidth@1.0.1:
     dependencies:

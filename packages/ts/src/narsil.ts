@@ -433,10 +433,14 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
 
       await pluginRegistry.runHook('beforeSearch', { indexName, params })
 
+      const workerSearch = orchestrator.isPromoted() ? orchestrator.searchViaWorker.bind(orchestrator) : undefined
+
       const result = await executeQuery<T>(params, {
         manager,
         language: entry.language,
         config: entry.config,
+        workerSearch,
+        indexName,
       })
 
       try {
@@ -457,10 +461,14 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       const entry = requireIndex(indexName)
       const manager = requireManager(indexName)
 
+      const workerSearch = orchestrator.isPromoted() ? orchestrator.searchViaWorker.bind(orchestrator) : undefined
+
       return executePreflight(params, {
         manager,
         language: entry.language,
         config: entry.config,
+        workerSearch,
+        indexName,
       })
     },
 
