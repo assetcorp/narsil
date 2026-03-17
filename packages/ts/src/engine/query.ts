@@ -1,7 +1,6 @@
 import { tokenize } from '../core/tokenizer'
-import { ErrorCodes, NarsilError } from '../errors'
 import { highlightField } from '../highlighting/highlighter'
-import { fanOutQuery } from '../partitioning/fan-out'
+import { type FanOutResult, fanOutQuery } from '../partitioning/fan-out'
 import type { PartitionManager } from '../partitioning/manager'
 import { applyGrouping } from '../search/grouping'
 import { applyPagination } from '../search/pagination'
@@ -17,31 +16,39 @@ interface QueryContext {
   manager: PartitionManager
   language: LanguageModule
   config: IndexConfig
+  workerSearch?: (indexName: string, params: QueryParams) => Promise<FanOutResult | null>
+  indexName: string
 }
 
 export async function executeQuery<T = AnyDocument>(
   params: QueryParams,
   context: QueryContext,
 ): Promise<QueryResult<T>> {
-  const { manager, language, config } = context
+  const { manager, language, config, workerSearch, indexName } = context
   const startTime = now()
   const limit = clampLimit(params.limit)
   const offset = clampOffset(params.offset)
 
-  const searchOptions = {
-    bm25Params: config.bm25,
-    stopWords: config.stopWords,
-    customTokenizer: config.tokenizer,
-  }
+  let fanOutResult: FanOutResult
 
-  const fanOutResult = await fanOutQuery(
-    manager,
-    params,
-    language,
-    config.schema,
-    { scoringMode: params.scoring ?? config.defaultScoring ?? 'local' },
-    searchOptions,
-  )
+  const workerResult = workerSearch ? await workerSearch(indexName, params) : null
+  if (workerResult) {
+    fanOutResult = workerResult
+  } else {
+    const searchOptions = {
+      bm25Params: config.bm25,
+      stopWords: config.stopWords,
+      customTokenizer: config.tokenizer,
+    }
+    fanOutResult = await fanOutQuery(
+      manager,
+      params,
+      language,
+      config.schema,
+      { scoringMode: params.scoring ?? config.defaultScoring ?? 'local' },
+      searchOptions,
+    )
+  }
 
   let hits: Array<Hit<T>> = fanOutResult.scored.map(scored => ({
     id: scored.docId,
@@ -102,26 +109,33 @@ export async function executeQuery<T = AnyDocument>(
 }
 
 export async function executePreflight(params: QueryParams, context: QueryContext): Promise<PreflightResult> {
-  const { manager, language, config } = context
+  const { manager, language, config, workerSearch, indexName } = context
   const startTime = now()
 
-  const searchOptions = {
-    bm25Params: config.bm25,
-    stopWords: config.stopWords,
-    customTokenizer: config.tokenizer,
+  let totalMatched: number
+
+  const workerResult = workerSearch ? await workerSearch(indexName, params) : null
+  if (workerResult) {
+    totalMatched = workerResult.totalMatched
+  } else {
+    const searchOptions = {
+      bm25Params: config.bm25,
+      stopWords: config.stopWords,
+      customTokenizer: config.tokenizer,
+    }
+    const fanOutResult = await fanOutQuery(
+      manager,
+      params,
+      language,
+      config.schema,
+      { scoringMode: params.scoring ?? config.defaultScoring ?? 'local' },
+      searchOptions,
+    )
+    totalMatched = fanOutResult.totalMatched
   }
 
-  const fanOutResult = await fanOutQuery(
-    manager,
-    params,
-    language,
-    config.schema,
-    { scoringMode: params.scoring ?? config.defaultScoring ?? 'local' },
-    searchOptions,
-  )
-
   const elapsed = now() - startTime
-  return { count: fanOutResult.totalMatched, elapsed }
+  return { count: totalMatched, elapsed }
 }
 
 function applyHighlights<T>(

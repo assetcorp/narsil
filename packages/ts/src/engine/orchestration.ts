@@ -1,17 +1,22 @@
+import type { FanOutResult } from '../partitioning/fan-out'
 import type { NarsilConfig } from '../types/config'
 import type { LanguageModule } from '../types/language'
 import type { MemoryStats } from '../types/results'
 import type { IndexConfig } from '../types/schema'
+import type { QueryParams } from '../types/search'
 import type { DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
 import { createWorkerFactory } from '../workers/factory'
 import { createWorkerPool, type WorkerPool } from '../workers/pool'
 import type { ExecutionPromoter } from '../workers/promoter'
 import type { WorkerAction } from '../workers/protocol'
+import { createRequestId } from '../workers/protocol'
 
 export interface WorkerOrchestrator {
   checkPromotion(): void
   replicateToWorkers(action: WorkerAction): Promise<void>
+  searchViaWorker(indexName: string, params: QueryParams): Promise<FanOutResult | null>
+  isPromoted(): boolean
   getMemoryStats(): MemoryStats
   shutdown(): Promise<void>
 }
@@ -101,6 +106,28 @@ export function createWorkerOrchestrator(
     }
   }
 
+  async function searchViaWorker(indexName: string, params: QueryParams): Promise<FanOutResult | null> {
+    if (!workerPool) return null
+
+    try {
+      const workerExecutor = workerPool.getExecutor(indexName)
+      const result = await workerExecutor.execute<FanOutResult>({
+        type: 'query',
+        indexName,
+        params,
+        requestId: createRequestId(),
+      })
+      return result
+    } catch (err) {
+      console.warn('Worker search failed, falling back to local:', err)
+      return null
+    }
+  }
+
+  function isPromoted(): boolean {
+    return workerPool !== null
+  }
+
   function getMemoryStats(): MemoryStats {
     const workers = workerPool
       ? workerPool.getMemoryStats().map(s => ({
@@ -121,5 +148,5 @@ export function createWorkerOrchestrator(
     }
   }
 
-  return { checkPromotion, replicateToWorkers, getMemoryStats, shutdown }
+  return { checkPromotion, replicateToWorkers, searchViaWorker, isPromoted, getMemoryStats, shutdown }
 }
