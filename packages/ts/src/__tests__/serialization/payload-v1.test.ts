@@ -299,3 +299,74 @@ describe('serializeMetadata / deserializeMetadata', () => {
     expect(restored.bm25Params.b).toBeCloseTo(0.5)
   })
 })
+
+describe('HNSW metric preservation in payload-v1', () => {
+  function makePartitionWithHNSW(metric: 'cosine' | 'dotProduct' | 'euclidean'): SerializablePartition {
+    return {
+      indexName: 'vectors',
+      partitionId: 0,
+      totalPartitions: 1,
+      language: 'english',
+      schema: { embedding: 'vector[3]' },
+      docCount: 2,
+      avgDocLength: 0,
+      documents: {
+        'doc-1': { fields: { embedding: [0.1, 0.2, 0.3] }, fieldLengths: {} },
+        'doc-2': { fields: { embedding: [0.4, 0.5, 0.6] }, fieldLengths: {} },
+      },
+      invertedIndex: {},
+      fieldIndexes: { numeric: {}, boolean: {}, enum: {}, geopoint: {} },
+      vectorData: {
+        embedding: {
+          dimension: 3,
+          vectors: [
+            { docId: 'doc-1', vector: [0.1, 0.2, 0.3] },
+            { docId: 'doc-2', vector: [0.4, 0.5, 0.6] },
+          ],
+          hnswGraph: {
+            entryPoint: 'doc-1',
+            maxLayer: 1,
+            m: 16,
+            efConstruction: 200,
+            metric,
+            nodes: [
+              ['doc-1', 1, [[0, ['doc-2']]]],
+              ['doc-2', 0, [[0, ['doc-1']]]],
+            ],
+          },
+        },
+      },
+      statistics: {
+        totalDocuments: 2,
+        totalFieldLengths: {},
+        averageFieldLengths: {},
+        docFrequencies: {},
+      },
+    }
+  }
+
+  it('preserves euclidean metric through roundtrip', () => {
+    const original = makePartitionWithHNSW('euclidean')
+    const restored = deserializePayloadV1(serializePayloadV1(original))
+    expect(restored.vectorData.embedding.hnswGraph?.metric).toBe('euclidean')
+  })
+
+  it('preserves dotProduct metric through roundtrip', () => {
+    const original = makePartitionWithHNSW('dotProduct')
+    const restored = deserializePayloadV1(serializePayloadV1(original))
+    expect(restored.vectorData.embedding.hnswGraph?.metric).toBe('dotProduct')
+  })
+
+  it('preserves cosine metric through roundtrip', () => {
+    const original = makePartitionWithHNSW('cosine')
+    const restored = deserializePayloadV1(serializePayloadV1(original))
+    expect(restored.vectorData.embedding.hnswGraph?.metric).toBe('cosine')
+  })
+
+  it('handles missing metric field gracefully', () => {
+    const original = makePartitionWithHNSW('cosine')
+    delete (original.vectorData.embedding.hnswGraph as Record<string, unknown>).metric
+    const restored = deserializePayloadV1(serializePayloadV1(original))
+    expect(restored.vectorData.embedding.hnswGraph?.metric).toBeFalsy()
+  })
+})

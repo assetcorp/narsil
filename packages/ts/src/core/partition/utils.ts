@@ -23,6 +23,7 @@ export interface PartitionState {
 
 export interface PartitionInsertOptions {
   validate?: boolean
+  strict?: boolean
   skipClone?: boolean
   stopWordOverride?: Set<string> | ((defaults: Set<string>) => Set<string>)
   customTokenizer?: CustomTokenizer

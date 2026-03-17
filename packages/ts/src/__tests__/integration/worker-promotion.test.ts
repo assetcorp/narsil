@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { createWorkerOrchestrator, type WorkerOrchestrator } from '../../engine/orchestration'
-import { getLanguage } from '../../languages/registry'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
 import { createDirectExecutor } from '../../workers/direct-executor'

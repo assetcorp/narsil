@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { validateDocument } from '../../schema/validator'
+import { validateDocument, validateDocumentStrict } from '../../schema/validator'
 import type { FilterExpression } from '../../types/filters'
 import type {
   GlobalStatistics,
@@ -55,6 +55,10 @@ export interface PartitionIndex {
   searchVector(params: InternalVectorParams): InternalSearchResult
   applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string>
   computeFacets(docIds: Set<string>, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult>
+
+  estimateMemoryBytes(): number
+  vectorFieldCount(): number
+  hasPromotedHnsw(): boolean
 
   serialize(
     indexName: string,
@@ -135,6 +139,9 @@ export function createPartitionIndex(
 
       if (options?.validate !== false) {
         validateDocument(document, schema)
+        if (options?.strict) {
+          validateDocumentStrict(document as Record<string, unknown>, schema)
+        }
       }
 
       const flatSchema = getFlatSchema(state, schema)
@@ -187,6 +194,9 @@ export function createPartitionIndex(
 
       if (options?.validate !== false) {
         validateDocument(document, schema)
+        if (options?.strict) {
+          validateDocumentStrict(document as Record<string, unknown>, schema)
+        }
       }
 
       const flatSchema = getFlatSchema(state, schema)
@@ -247,6 +257,51 @@ export function createPartitionIndex(
     },
 
     clear: clearAll,
+
+    estimateMemoryBytes(): number {
+      const docCount = state.docStore.count()
+      if (docCount === 0) return 0
+
+      const AVG_DOC_OVERHEAD = 200
+      let bytes = docCount * AVG_DOC_OVERHEAD
+
+      const docFreqs = state.stats.docFrequencies
+      const POSTING_ENTRY_SIZE = 64
+      let totalPostings = 0
+      for (const term in docFreqs) {
+        totalPostings += docFreqs[term]
+      }
+      bytes += totalPostings * POSTING_ENTRY_SIZE
+
+      const FIELD_ENTRY_OVERHEAD = 24
+      bytes += docCount * state.numericIndexes.size * FIELD_ENTRY_OVERHEAD
+      bytes += docCount * state.booleanIndexes.size * FIELD_ENTRY_OVERHEAD
+      bytes += docCount * state.enumIndexes.size * FIELD_ENTRY_OVERHEAD
+      bytes += docCount * state.geoIndexes.size * FIELD_ENTRY_OVERHEAD
+
+      for (const store of state.vectorStores.values()) {
+        const vectorBytes = store.size * store.dimension * 4
+        bytes += vectorBytes
+        if (store.isPromoted) {
+          const hnswIndex = store.getHNSWIndex()
+          const m = hnswIndex ? hnswIndex.m : 16
+          bytes += store.size * m * 2 * 8
+        }
+      }
+
+      return bytes
+    },
+
+    vectorFieldCount(): number {
+      return state.vectorStores.size
+    },
+
+    hasPromotedHnsw(): boolean {
+      for (const store of state.vectorStores.values()) {
+        if (store.isPromoted) return true
+      }
+      return false
+    },
 
     searchFulltext(params: InternalSearchParams): InternalSearchResult {
       return searchFulltext(state, params)

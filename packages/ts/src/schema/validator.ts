@@ -307,6 +307,41 @@ export function validateDocument(document: Record<string, unknown>, schema: Sche
   validateDocumentFields(document, schema, '')
 }
 
+function collectExtraFields(
+  doc: Record<string, unknown>,
+  schema: SchemaDefinition,
+  prefix: string,
+  extras: string[],
+): void {
+  for (const key of Object.keys(doc)) {
+    if (key === 'id') continue
+    const path = prefix ? `${prefix}.${key}` : key
+
+    if (!(key in schema)) {
+      extras.push(path)
+      continue
+    }
+
+    const schemaType = schema[key]
+    if (isPlainObject(schemaType) && isPlainObject(doc[key])) {
+      collectExtraFields(doc[key] as Record<string, unknown>, schemaType as SchemaDefinition, path, extras)
+    }
+  }
+}
+
+export function validateDocumentStrict(document: Record<string, unknown>, schema: SchemaDefinition): void {
+  const extras: string[] = []
+  collectExtraFields(document, schema, '', extras)
+
+  if (extras.length > 0) {
+    throw new NarsilError(
+      ErrorCodes.DOC_VALIDATION_FAILED,
+      `Document contains fields not defined in schema: ${extras.join(', ')}`,
+      { extraFields: extras },
+    )
+  }
+}
+
 function flattenRecursive(schema: SchemaDefinition, prefix: string, result: Record<string, FieldType>): void {
   for (const [field, type] of Object.entries(schema)) {
     const path = prefix ? `${prefix}.${field}` : field

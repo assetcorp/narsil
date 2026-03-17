@@ -65,6 +65,14 @@ export interface IndexInfo {
   language: string
 }
 
+export interface PartitionStatsResult {
+  partitionId: number
+  documentCount: number
+  estimatedMemoryBytes: number
+  vectorFieldCount: number
+  isHnswPromoted: boolean
+}
+
 export interface MemoryStats {
   totalBytes: number
   workers: Array<{

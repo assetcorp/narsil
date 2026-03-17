@@ -9,6 +9,8 @@ export function startWorker(): void {
   })
 }
 
+startWorker()
+
 async function setup(): Promise<void> {
   let parentPort: {
     on: (event: string, handler: (msg: unknown) => void) => void

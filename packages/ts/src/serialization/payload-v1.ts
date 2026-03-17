@@ -38,6 +38,7 @@ interface RawPartitionPayload {
         max_layer: number
         m: number
         ef_construction: number
+        metric?: string
         nodes: Array<[string, number, Array<[number, string[]]>]>
       }
     }
@@ -108,6 +109,7 @@ function partitionToWire(partition: SerializablePartition): RawPartitionPayload 
             max_layer: data.hnswGraph.maxLayer,
             m: data.hnswGraph.m,
             ef_construction: data.hnswGraph.efConstruction,
+            metric: data.hnswGraph.metric,
             nodes: data.hnswGraph.nodes,
           }
         : null,
@@ -138,6 +140,16 @@ function partitionToWire(partition: SerializablePartition): RawPartitionPayload 
       doc_frequencies: partition.statistics.docFrequencies,
     },
   }
+}
+
+const VALID_HNSW_METRICS = new Set(['cosine', 'dotProduct', 'euclidean'])
+
+function validateHnswMetric(value: unknown): 'cosine' | 'dotProduct' | 'euclidean' | undefined {
+  if (value === undefined || value === null) return undefined
+  if (typeof value === 'string' && VALID_HNSW_METRICS.has(value)) {
+    return value as 'cosine' | 'dotProduct' | 'euclidean'
+  }
+  return undefined
 }
 
 function wireToPartition(raw: RawPartitionPayload): SerializablePartition {
@@ -188,6 +200,7 @@ function wireToPartition(raw: RawPartitionPayload): SerializablePartition {
             maxLayer: data.hnsw_graph.max_layer,
             m: data.hnsw_graph.m,
             efConstruction: data.hnsw_graph.ef_construction,
+            metric: validateHnswMetric(data.hnsw_graph.metric),
             nodes: data.hnsw_graph.nodes,
           }
         : null,

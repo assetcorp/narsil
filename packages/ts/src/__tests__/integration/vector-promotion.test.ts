@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createPartitionIndex, type PartitionIndex } from '../../core/partition'
 import { getLanguage } from '../../languages/registry'
 import type { SchemaDefinition } from '../../types/schema'
