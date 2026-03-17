@@ -20,7 +20,6 @@ interface QueryContext {
 }
 
 export async function executeQuery<T = AnyDocument>(
-  indexName: string,
   params: QueryParams,
   context: QueryContext,
 ): Promise<QueryResult<T>> {
@@ -102,11 +101,7 @@ export async function executeQuery<T = AnyDocument>(
   }
 }
 
-export async function executePreflight(
-  indexName: string,
-  params: QueryParams,
-  context: QueryContext,
-): Promise<PreflightResult> {
+export async function executePreflight(params: QueryParams, context: QueryContext): Promise<PreflightResult> {
   const { manager, language, config } = context
   const startTime = now()
 
