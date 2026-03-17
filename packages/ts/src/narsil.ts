@@ -4,14 +4,25 @@ import { executePreflight, executeQuery } from './engine/query'
 import { BATCH_CHUNK_SIZE, validateDocId, validateIndexName } from './engine/validation'
 import { ErrorCodes, NarsilError } from './errors'
 import { getLanguage } from './languages/registry'
+import { createRebalancer } from './partitioning/rebalancer'
+import { createPartitionRouter } from './partitioning/router'
+import { createWriteAheadQueue, type WAQEntry } from './partitioning/write-ahead-queue'
 import { createFlushManager, type FlushManager } from './persistence/flush-manager'
 import { createPluginRegistry, type PluginRegistry } from './plugins/registry'
 import { validateSchema } from './schema/validator'
 import type { NarsilConfig } from './types/config'
 import type { NarsilEventMap } from './types/events'
 import type { LanguageModule } from './types/language'
-import type { BatchResult, IndexInfo, IndexStats, MemoryStats, PreflightResult, QueryResult } from './types/results'
-import type { AnyDocument, IndexConfig, InsertOptions } from './types/schema'
+import type {
+  BatchResult,
+  IndexInfo,
+  IndexStats,
+  MemoryStats,
+  PartitionStatsResult,
+  PreflightResult,
+  QueryResult,
+} from './types/results'
+import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig } from './types/schema'
 import type { QueryParams } from './types/search'
 import { createDirectExecutor, type DirectExecutorExtensions } from './workers/direct-executor'
 import type { Executor } from './workers/executor'
@@ -22,6 +33,7 @@ export interface Narsil {
   dropIndex(name: string): Promise<void>
   listIndexes(): IndexInfo[]
   getStats(indexName: string): IndexStats
+  getPartitionStats(indexName: string): PartitionStatsResult[]
 
   insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string>
   insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult>
@@ -39,6 +51,8 @@ export interface Narsil {
   preflight(indexName: string, params: QueryParams): Promise<PreflightResult>
 
   clear(indexName: string): Promise<void>
+  rebalance(indexName: string, targetPartitionCount: number): Promise<void>
+  updatePartitionConfig(indexName: string, config: Partial<PartitionConfig>): Promise<void>
   getMemoryStats(): MemoryStats
 
   on<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void
@@ -87,6 +101,11 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
   let isShutdown = false
 
   const orchestrator = createWorkerOrchestrator(config, executor, promoter, indexRegistry)
+  const rebalancer = createRebalancer()
+  const rebalanceRouter = createPartitionRouter()
+  const rebalancingIndexes = new Set<string>()
+  const waqMap = new Map<string, ReturnType<typeof createWriteAheadQueue>>()
+  const lastAppliedSeqMap = new Map<string, Map<number, number>>()
 
   function guardShutdown(): void {
     if (isShutdown) {
@@ -100,6 +119,14 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `Index "${indexName}" does not exist`, { indexName })
     }
     return entry
+  }
+
+  function bufferIfRebalancing(indexName: string, entry: Omit<WAQEntry, 'sequenceNumber'>): boolean {
+    if (!rebalancingIndexes.has(indexName)) return false
+    const waq = waqMap.get(indexName)
+    if (!waq) return false
+    waq.push(entry)
+    return true
   }
 
   function requireManager(indexName: string) {
@@ -156,14 +183,22 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       guardShutdown()
       const entry = requireIndex(indexName)
       const manager = executor.getManager(indexName)
+      const estimatedMemory = manager?.estimateMemoryBytes() ?? 0
       return {
         documentCount: manager?.countDocuments() ?? 0,
         partitionCount: manager?.partitionCount ?? 0,
-        memoryBytes: 0,
-        indexSizeBytes: 0,
+        memoryBytes: estimatedMemory,
+        indexSizeBytes: estimatedMemory,
         language: entry.language.name,
         schema: entry.config.schema,
       }
+    },
+
+    getPartitionStats(indexName: string): PartitionStatsResult[] {
+      guardShutdown()
+      requireIndex(indexName)
+      const manager = executor.getManager(indexName)
+      return manager?.getPartitionStats() ?? []
     },
 
     async insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string> {
@@ -172,6 +207,10 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
 
       const resolvedDocId = docId ?? idGenerator()
       validateDocId(resolvedDocId)
+
+      if (bufferIfRebalancing(indexName, { action: 'insert', docId: resolvedDocId, document, indexName })) {
+        return resolvedDocId
+      }
 
       await pluginRegistry.runHook('beforeInsert', { indexName, docId: resolvedDocId, document })
 
@@ -272,6 +311,10 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       requireIndex(indexName)
       validateDocId(docId)
 
+      if (bufferIfRebalancing(indexName, { action: 'remove', docId, indexName })) {
+        return
+      }
+
       await pluginRegistry.runHook('beforeRemove', { indexName, docId })
 
       await executor.execute({ type: 'remove', indexName, docId, requestId: docId })
@@ -326,6 +369,10 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       guardShutdown()
       requireIndex(indexName)
       validateDocId(docId)
+
+      if (bufferIfRebalancing(indexName, { action: 'update', docId, document, indexName })) {
+        return
+      }
 
       const manager = executor.getManager(indexName)
       const oldDocument = manager?.get(docId)
@@ -479,8 +526,129 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       await orchestrator.replicateToWorkers({ type: 'clear', indexName, requestId: `replicate-clear-${indexName}` })
     },
 
+    async rebalance(indexName: string, targetPartitionCount: number): Promise<void> {
+      guardShutdown()
+      requireIndex(indexName)
+      const manager = requireManager(indexName)
+
+      if (targetPartitionCount <= 0 || !Number.isInteger(targetPartitionCount)) {
+        throw new NarsilError(
+          ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
+          `Target partition count must be a positive integer, got ${targetPartitionCount}`,
+          { targetPartitionCount },
+        )
+      }
+
+      if (rebalancingIndexes.has(indexName)) {
+        throw new NarsilError(
+          ErrorCodes.PARTITION_REBALANCING_BACKPRESSURE,
+          `Index "${indexName}" is already being rebalanced`,
+        )
+      }
+
+      if (targetPartitionCount === manager.partitionCount) {
+        return
+      }
+
+      const waq = createWriteAheadQueue()
+      waqMap.set(indexName, waq)
+      rebalancingIndexes.add(indexName)
+
+      try {
+        const oldCount = manager.partitionCount
+        await rebalancer.rebalance(manager, targetPartitionCount, rebalanceRouter, progress => {
+          if (progress.phase === 'complete') {
+            const handlers = eventHandlers.get('partitionRebalance')
+            if (handlers) {
+              for (const handler of handlers) {
+                handler({ indexName, oldCount, newCount: targetPartitionCount })
+              }
+            }
+          }
+        })
+
+        const entries = waq.drain()
+        const appliedSeqs = lastAppliedSeqMap.get(indexName) ?? new Map<number, number>()
+        for (const entry of entries) {
+          const partitionLastSeq = appliedSeqs.get(0) ?? 0
+          if (entry.sequenceNumber <= partitionLastSeq) continue
+
+          try {
+            if (entry.action === 'insert' && entry.document) {
+              manager.insert(entry.docId, entry.document)
+            } else if (entry.action === 'remove') {
+              manager.remove(entry.docId)
+            } else if (entry.action === 'update' && entry.document) {
+              manager.update(entry.docId, entry.document)
+            }
+          } catch (replayErr) {
+            const isDuplicate = replayErr instanceof NarsilError && replayErr.code === ErrorCodes.DOC_ALREADY_EXISTS
+            const isMissing = replayErr instanceof NarsilError && replayErr.code === ErrorCodes.DOC_NOT_FOUND
+            if (!isDuplicate && !isMissing) {
+              console.warn(`WAQ replay failed for ${entry.action} on doc "${entry.docId}":`, replayErr)
+            }
+          }
+          appliedSeqs.set(0, entry.sequenceNumber)
+        }
+        lastAppliedSeqMap.set(indexName, appliedSeqs)
+      } finally {
+        rebalancingIndexes.delete(indexName)
+        waqMap.delete(indexName)
+      }
+    },
+
+    async updatePartitionConfig(indexName: string, partitionConfig: Partial<PartitionConfig>): Promise<void> {
+      guardShutdown()
+      const entry = requireIndex(indexName)
+      const manager = requireManager(indexName)
+
+      if (rebalancingIndexes.has(indexName)) {
+        throw new NarsilError(
+          ErrorCodes.PARTITION_REBALANCING_BACKPRESSURE,
+          `Index "${indexName}" is currently being rebalanced`,
+        )
+      }
+
+      const currentDocCount = manager.countDocuments()
+      const newMaxDocs = partitionConfig.maxDocsPerPartition ?? entry.config.partitions?.maxDocsPerPartition
+      const newMaxPartitions =
+        partitionConfig.maxPartitions ?? entry.config.partitions?.maxPartitions ?? manager.partitionCount
+
+      if (newMaxDocs !== undefined) {
+        const newTotalCapacity = newMaxDocs * newMaxPartitions
+        if (newTotalCapacity < currentDocCount) {
+          throw new NarsilError(
+            ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
+            `New capacity (${newTotalCapacity}) is less than current document count (${currentDocCount})`,
+            { newTotalCapacity, currentDocCount },
+          )
+        }
+      }
+
+      if (!entry.config.partitions) {
+        entry.config.partitions = {}
+      }
+      if (partitionConfig.maxDocsPerPartition !== undefined) {
+        entry.config.partitions.maxDocsPerPartition = partitionConfig.maxDocsPerPartition
+      }
+      if (partitionConfig.maxPartitions !== undefined) {
+        entry.config.partitions.maxPartitions = partitionConfig.maxPartitions
+      }
+    },
+
     getMemoryStats(): MemoryStats {
-      return orchestrator.getMemoryStats()
+      const workerStats = orchestrator.getMemoryStats()
+      let mainThreadBytes = 0
+      for (const [name] of indexRegistry) {
+        const manager = executor.getManager(name)
+        if (manager) {
+          mainThreadBytes += manager.estimateMemoryBytes()
+        }
+      }
+      return {
+        totalBytes: mainThreadBytes + workerStats.totalBytes,
+        workers: workerStats.workers,
+      }
     },
 
     on<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void {

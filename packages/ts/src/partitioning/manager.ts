@@ -2,6 +2,7 @@ import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions 
 import { ErrorCodes, NarsilError } from '../errors'
 import type { SerializablePartition } from '../types/internal'
 import type { LanguageModule } from '../types/language'
+import type { PartitionStatsResult } from '../types/results'
 import type { AnyDocument, IndexConfig, SchemaDefinition } from '../types/schema'
 import type { PartitionRouter } from './router'
 
@@ -33,6 +34,8 @@ export interface PartitionManager {
     docFrequencies: Record<string, number>
     totalFieldLengths: Record<string, number>
   }
+  estimateMemoryBytes(): number
+  getPartitionStats(): PartitionStatsResult[]
 }
 
 export function createPartitionManager(
@@ -114,6 +117,14 @@ export function createPartitionManager(
     },
 
     addPartition(): PartitionIndex {
+      const currentMaxPartitions = config.partitions?.maxPartitions
+      if (currentMaxPartitions !== undefined && partitions.length >= currentMaxPartitions) {
+        throw new NarsilError(
+          ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
+          `Cannot add partition: maximum of ${currentMaxPartitions} partitions reached`,
+          { maxPartitions: currentMaxPartitions, currentCount: partitions.length },
+        )
+      }
       const partition = createPartitionIndex(partitions.length, trackPositions, vectorPromotionConfig)
       partitions.push(partition)
       return partition
@@ -126,8 +137,26 @@ export function createPartitionManager(
     },
 
     insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void {
+      const currentMaxDocs = config.partitions?.maxDocsPerPartition
+      if (currentMaxDocs !== undefined) {
+        const totalCapacity = currentMaxDocs * partitions.length
+        if (docPartitionMap.size >= totalCapacity) {
+          throw new NarsilError(
+            ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
+            `Index "${indexName}" has reached its capacity of ${totalCapacity} documents (${currentMaxDocs} per partition × ${partitions.length} partitions)`,
+            {
+              indexName,
+              currentCount: docPartitionMap.size,
+              totalCapacity,
+              maxDocsPerPartition: currentMaxDocs,
+              partitionCount: partitions.length,
+            },
+          )
+        }
+      }
       const pid = router.route(docId, partitions.length)
-      partitions[pid].insert(docId, document, config.schema, language, options)
+      const insertOpts = config.strict ? { ...options, strict: true } : options
+      partitions[pid].insert(docId, document, config.schema, language, insertOpts)
       docPartitionMap.set(docId, pid)
     },
 
@@ -145,7 +174,8 @@ export function createPartitionManager(
       if (pid === undefined) {
         throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
       }
-      partitions[pid].update(docId, document, config.schema, language, options)
+      const updateOpts = config.strict ? { ...options, strict: true } : options
+      partitions[pid].update(docId, document, config.schema, language, updateOpts)
     },
 
     get(docId: string): AnyDocument | undefined {
@@ -202,6 +232,24 @@ export function createPartitionManager(
       }
 
       return { totalDocuments, docFrequencies, totalFieldLengths }
+    },
+
+    estimateMemoryBytes(): number {
+      let total = 0
+      for (let i = 0; i < partitions.length; i++) {
+        total += partitions[i].estimateMemoryBytes()
+      }
+      return total
+    },
+
+    getPartitionStats(): PartitionStatsResult[] {
+      return partitions.map((p, i) => ({
+        partitionId: i,
+        documentCount: p.count(),
+        estimatedMemoryBytes: p.estimateMemoryBytes(),
+        vectorFieldCount: p.vectorFieldCount(),
+        isHnswPromoted: p.hasPromotedHnsw(),
+      }))
     },
   }
 

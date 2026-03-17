@@ -39,6 +39,7 @@ export type {
   IndexInfo,
   IndexStats,
   MemoryStats,
+  PartitionStatsResult,
   PreflightResult,
   QueryResult,
   ScoreComponents,

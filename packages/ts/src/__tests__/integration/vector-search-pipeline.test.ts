@@ -14,10 +14,6 @@ const indexConfig: IndexConfig = {
   language: 'english',
 }
 
-function vectorFromValues(...values: number[]): number[] {
-  return values
-}
-
 function paddedVector(lead: number, rest = 0): number[] {
   const v = new Array(DIM).fill(rest)
   v[0] = lead

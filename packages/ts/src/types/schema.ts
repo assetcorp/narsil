@@ -31,6 +31,7 @@ export interface IndexConfig {
   tokenizer?: CustomTokenizer
   trackPositions?: boolean
   vectorPromotion?: VectorPromotionConfig
+  strict?: boolean
 }
 
 export interface BM25Params {

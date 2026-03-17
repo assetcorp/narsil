@@ -53,8 +53,8 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.ENVELOPE_INVALID_MAGIC).toBe('ENVELOPE_INVALID_MAGIC')
   })
 
-  it('has exactly 27 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(27)
+  it('has exactly 28 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(28)
   })
 
   it('has unique values for every code', () => {
