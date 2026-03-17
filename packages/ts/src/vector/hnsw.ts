@@ -1,3 +1,4 @@
+import { createMinHeap } from '../core/heap'
 import type { ScoredDocument, VectorEntry } from '../types/internal'
 import type { VectorMetric } from './brute-force'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from './similarity'
@@ -81,19 +82,8 @@ function toScore(distance: number, metric: VectorMetric): number {
   }
 }
 
-function insertSorted(arr: DistancePair[], item: DistancePair): void {
-  let lo = 0
-  let hi = arr.length
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1
-    if (arr[mid].distance < item.distance) {
-      lo = mid + 1
-    } else {
-      hi = mid
-    }
-  }
-  arr.splice(lo, 0, item)
-}
+const distanceAsc = (a: DistancePair, b: DistancePair): number => a.distance - b.distance
+const distanceDesc = (a: DistancePair, b: DistancePair): number => b.distance - a.distance
 
 export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWIndex {
   const M = config?.m ?? 16
@@ -139,8 +129,9 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
     metric: VectorMetric,
   ): DistancePair[] {
     const visited = new Set<string>()
-    const candidates: DistancePair[] = []
-    const results: DistancePair[] = []
+    const candidates = createMinHeap<DistancePair>(distanceAsc)
+    const results = createMinHeap<DistancePair>(distanceDesc)
+    let furthestDist = Number.POSITIVE_INFINITY
 
     for (const epId of eps) {
       if (visited.has(epId)) continue
@@ -148,15 +139,21 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
       const node = nodes.get(epId)
       if (!node) continue
       const dist = queryDistance(qVec, qMag, node, metric)
-      insertSorted(candidates, { docId: epId, distance: dist })
-      insertSorted(results, { docId: epId, distance: dist })
+      const pair = { docId: epId, distance: dist }
+      candidates.push(pair)
+      results.push(pair)
+      if (results.size > ef) {
+        results.pop()
+      }
     }
 
-    while (candidates.length > 0) {
-      const nearest = candidates.shift()
+    const topResult = results.peek()
+    if (topResult) furthestDist = topResult.distance
+
+    while (candidates.size > 0) {
+      const nearest = candidates.pop()
       if (!nearest) break
-      const furthest = results[results.length - 1]
-      if (nearest.distance > furthest.distance) break
+      if (nearest.distance > furthestDist) break
 
       const node = nodes.get(nearest.docId)
       if (!node || layer >= node.connections.length) continue
@@ -169,19 +166,21 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
         if (!neighborNode) continue
 
         const dist = queryDistance(qVec, qMag, neighborNode, metric)
-        const currentFurthest = results[results.length - 1]
 
-        if (dist < currentFurthest.distance || results.length < ef) {
-          insertSorted(candidates, { docId: neighborId, distance: dist })
-          insertSorted(results, { docId: neighborId, distance: dist })
-          if (results.length > ef) {
+        if (dist < furthestDist || results.size < ef) {
+          const pair = { docId: neighborId, distance: dist }
+          candidates.push(pair)
+          results.push(pair)
+          if (results.size > ef) {
             results.pop()
           }
+          const newTop = results.peek()
+          if (newTop) furthestDist = newTop.distance
         }
       }
     }
 
-    return results
+    return results.toSortedArray()
   }
 
   /**

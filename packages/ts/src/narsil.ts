@@ -1,35 +1,21 @@
 import { generateId } from './core/id-generator'
-import { tokenize } from './core/tokenizer'
+import { createWorkerOrchestrator } from './engine/orchestration'
+import { executePreflight, executeQuery } from './engine/query'
+import { BATCH_CHUNK_SIZE, validateDocId, validateIndexName } from './engine/validation'
 import { ErrorCodes, NarsilError } from './errors'
-import { highlightField } from './highlighting/highlighter'
 import { getLanguage } from './languages/registry'
-import { fanOutQuery } from './partitioning/fan-out'
 import { createFlushManager, type FlushManager } from './persistence/flush-manager'
 import { createPluginRegistry, type PluginRegistry } from './plugins/registry'
 import { validateSchema } from './schema/validator'
-import { applyGrouping } from './search/grouping'
-import { applyPagination } from './search/pagination'
-import { applyPinning } from './search/pinning'
-import { applySorting } from './search/sorting'
 import type { NarsilConfig } from './types/config'
 import type { NarsilEventMap } from './types/events'
 import type { LanguageModule } from './types/language'
-import type {
-  BatchResult,
-  GroupResult,
-  HighlightMatch,
-  Hit,
-  IndexInfo,
-  IndexStats,
-  MemoryStats,
-  PreflightResult,
-  QueryResult,
-} from './types/results'
+import type { BatchResult, IndexInfo, IndexStats, MemoryStats, PreflightResult, QueryResult } from './types/results'
 import type { AnyDocument, IndexConfig, InsertOptions } from './types/schema'
 import type { QueryParams } from './types/search'
 import { createDirectExecutor, type DirectExecutorExtensions } from './workers/direct-executor'
 import type { Executor } from './workers/executor'
-import { createExecutionPromoter, type ExecutionPromoter } from './workers/promoter'
+import { createExecutionPromoter } from './workers/promoter'
 
 export interface Narsil {
   createIndex(name: string, config: IndexConfig): Promise<void>
@@ -60,80 +46,10 @@ export interface Narsil {
   shutdown(): Promise<void>
 }
 
-const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
-const MAX_INDEX_NAME_LENGTH = 256
-const MAX_DOC_ID_LENGTH = 512
-const BATCH_CHUNK_SIZE = 1000
-const MAX_LIMIT = 10_000
-const MAX_OFFSET = 100_000
-const DEFAULT_LIMIT = 10
-const DEFAULT_OFFSET = 0
-
-function now(): number {
-  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
-    return performance.now()
-  }
-  return Date.now()
-}
-
-function validateIndexName(name: string): void {
-  if (!name || name.length === 0) {
-    throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, 'Index name must not be empty', { indexName: name })
-  }
-
-  if (name.length > MAX_INDEX_NAME_LENGTH) {
-    throw new NarsilError(
-      ErrorCodes.INDEX_NOT_FOUND,
-      `Index name must not exceed ${MAX_INDEX_NAME_LENGTH} characters`,
-      { indexName: name, length: name.length },
-    )
-  }
-
-  if (!INDEX_NAME_PATTERN.test(name)) {
-    throw new NarsilError(
-      ErrorCodes.INDEX_NOT_FOUND,
-      `Index name "${name}" contains invalid characters; use alphanumeric, dots, hyphens, and underscores only`,
-      { indexName: name },
-    )
-  }
-
-  if (name.includes('..')) {
-    throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `Index name "${name}" must not contain ".."`, { indexName: name })
-  }
-}
-
-function validateDocId(docId: string): void {
-  if (!docId || docId.length === 0) {
-    throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Document ID must not be empty', { docId })
-  }
-
-  if (docId.length > MAX_DOC_ID_LENGTH) {
-    throw new NarsilError(
-      ErrorCodes.DOC_VALIDATION_FAILED,
-      `Document ID must not exceed ${MAX_DOC_ID_LENGTH} characters`,
-      { docId, length: docId.length },
-    )
-  }
-
-  if (docId.includes('\0')) {
-    throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Document ID must not contain null bytes', { docId })
-  }
-}
-
-function clampLimit(limit: number | undefined): number {
-  if (limit === undefined) return DEFAULT_LIMIT
-  return Math.max(0, Math.min(limit, MAX_LIMIT))
-}
-
-function clampOffset(offset: number | undefined): number {
-  if (offset === undefined) return DEFAULT_OFFSET
-  return Math.max(0, Math.min(offset, MAX_OFFSET))
-}
-
 export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
   const executor: Executor & DirectExecutorExtensions = createDirectExecutor()
 
-  const promoter: ExecutionPromoter = createExecutionPromoter({
+  const promoter = createExecutionPromoter({
     perIndexThreshold: config?.workers?.promotionThreshold,
     totalThreshold: config?.workers?.totalPromotionThreshold,
   })
@@ -170,6 +86,8 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
   const eventHandlers = new Map<string, Set<EventHandler>>()
   let isShutdown = false
 
+  const orchestrator = createWorkerOrchestrator(config, executor, promoter, indexRegistry)
+
   function guardShutdown(): void {
     if (isShutdown) {
       throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, 'This Narsil instance has been shut down')
@@ -182,6 +100,14 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `Index "${indexName}" does not exist`, { indexName })
     }
     return entry
+  }
+
+  function requireManager(indexName: string) {
+    const manager = executor.getManager(indexName)
+    if (!manager) {
+      throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `Index "${indexName}" manager not found`, { indexName })
+    }
+    return manager
   }
 
   const narsil: Narsil = {
@@ -209,10 +135,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       executor.dropIndex(name)
       indexRegistry.delete(name)
 
-      await pluginRegistry.runHook('onIndexDrop', {
-        indexName: name,
-        config: entry.config,
-      })
+      await pluginRegistry.runHook('onIndexDrop', { indexName: name, config: entry.config })
     },
 
     listIndexes(): IndexInfo[] {
@@ -250,11 +173,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       const resolvedDocId = docId ?? idGenerator()
       validateDocId(resolvedDocId)
 
-      await pluginRegistry.runHook('beforeInsert', {
-        indexName,
-        docId: resolvedDocId,
-        document,
-      })
+      await pluginRegistry.runHook('beforeInsert', { indexName, docId: resolvedDocId, document })
 
       await executor.execute({
         type: 'insert',
@@ -266,23 +185,23 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       })
 
       try {
-        await pluginRegistry.runHook('afterInsert', {
-          indexName,
-          docId: resolvedDocId,
-          document,
-        })
+        await pluginRegistry.runHook('afterInsert', { indexName, docId: resolvedDocId, document })
       } catch (err) {
         console.warn('afterInsert plugin hook error:', err)
       }
 
       flushManager?.markDirty(indexName, 0)
 
-      const indexMap = new Map<string, { documentCount: number }>()
-      for (const [name] of indexRegistry) {
-        const mgr = executor.getManager(name)
-        indexMap.set(name, { documentCount: mgr?.countDocuments() ?? 0 })
-      }
-      promoter.check(indexMap)
+      await orchestrator.replicateToWorkers({
+        type: 'insert',
+        indexName,
+        docId: resolvedDocId,
+        document,
+        requestId: `replicate-insert-${resolvedDocId}`,
+        skipClone: options?.skipClone,
+      })
+
+      orchestrator.checkPromotion()
 
       return resolvedDocId
     },
@@ -305,11 +224,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
             validateDocId(docId)
 
             if (hasBeforeHook) {
-              await pluginRegistry.runHook('beforeInsert', {
-                indexName,
-                docId,
-                document: documents[i],
-              })
+              await pluginRegistry.runHook('beforeInsert', { indexName, docId, document: documents[i] })
             }
 
             const result = executor.execute({
@@ -326,11 +241,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
 
             if (hasAfterHook) {
               try {
-                await pluginRegistry.runHook('afterInsert', {
-                  indexName,
-                  docId,
-                  document: documents[i],
-                })
+                await pluginRegistry.runHook('afterInsert', { indexName, docId, document: documents[i] })
               } catch (err) {
                 console.warn('afterInsert plugin hook error:', err)
               }
@@ -351,13 +262,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       }
 
       flushManager?.markDirty(indexName, 0)
-
-      const indexMap = new Map<string, { documentCount: number }>()
-      for (const [name] of indexRegistry) {
-        const mgr = executor.getManager(name)
-        indexMap.set(name, { documentCount: mgr?.countDocuments() ?? 0 })
-      }
-      promoter.check(indexMap)
+      orchestrator.checkPromotion()
 
       return { succeeded, failed }
     },
@@ -369,12 +274,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
 
       await pluginRegistry.runHook('beforeRemove', { indexName, docId })
 
-      await executor.execute({
-        type: 'remove',
-        indexName,
-        docId,
-        requestId: docId,
-      })
+      await executor.execute({ type: 'remove', indexName, docId, requestId: docId })
 
       try {
         await pluginRegistry.runHook('afterRemove', { indexName, docId })
@@ -383,6 +283,13 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       }
 
       flushManager?.markDirty(indexName, 0)
+
+      await orchestrator.replicateToWorkers({
+        type: 'remove',
+        indexName,
+        docId,
+        requestId: `replicate-remove-${docId}`,
+      })
     },
 
     async removeBatch(indexName: string, docIds: string[]): Promise<BatchResult> {
@@ -430,13 +337,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
         newDocument: document,
       })
 
-      await executor.execute({
-        type: 'update',
-        indexName,
-        docId,
-        document,
-        requestId: docId,
-      })
+      await executor.execute({ type: 'update', indexName, docId, document, requestId: docId })
 
       try {
         await pluginRegistry.runHook('afterUpdate', {
@@ -450,6 +351,14 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       }
 
       flushManager?.markDirty(indexName, 0)
+
+      await orchestrator.replicateToWorkers({
+        type: 'update',
+        indexName,
+        docId,
+        document,
+        requestId: `replicate-update-${docId}`,
+      })
     },
 
     async updateBatch(
@@ -520,112 +429,15 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
     async query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>> {
       guardShutdown()
       const entry = requireIndex(indexName)
-      const startTime = now()
-
-      const limit = clampLimit(params.limit)
-      const offset = clampOffset(params.offset)
+      const manager = requireManager(indexName)
 
       await pluginRegistry.runHook('beforeSearch', { indexName, params })
 
-      const manager = executor.getManager(indexName)
-      if (!manager) {
-        throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `Index "${indexName}" manager not found`, { indexName })
-      }
-
-      const searchOptions = {
-        bm25Params: entry.config.bm25,
-        stopWords: entry.config.stopWords,
-        customTokenizer: entry.config.tokenizer,
-      }
-
-      const fanOutResult = await fanOutQuery(
+      const result = await executeQuery<T>(indexName, params, {
         manager,
-        params,
-        entry.language,
-        entry.config.schema,
-        {
-          scoringMode: params.scoring ?? entry.config.defaultScoring ?? 'local',
-        },
-        searchOptions,
-      )
-
-      let hits: Array<Hit<T>> = fanOutResult.scored.map(scored => ({
-        id: scored.docId,
-        score: scored.score,
-        document: undefined as unknown as T,
-        scoreComponents: {
-          termFrequencies: scored.termFrequencies,
-          fieldLengths: scored.fieldLengths,
-          idf: scored.idf,
-        },
-      }))
-
-      if (params.sort) {
-        hits = applySorting(hits, params.sort, (docId: string) => manager.getRef(docId) as AnyDocument | undefined)
-      }
-
-      let groups: GroupResult[] | undefined
-      if (params.group) {
-        groups = applyGrouping(hits, params.group, (docId: string) => manager.getRef(docId) as AnyDocument | undefined)
-      }
-
-      if (params.pinned) {
-        hits = applyPinning(hits, params.pinned, (docId: string) => {
-          const doc = manager.getRef(docId)
-          if (!doc) return undefined
-          return { id: docId, score: 0, document: doc as T }
-        })
-      }
-
-      const { paginated, nextCursor } = applyPagination(hits, limit, offset, params.searchAfter)
-
-      for (const hit of paginated) {
-        hit.document = (manager.get(hit.id) ?? {}) as T
-      }
-
-      if (groups) {
-        for (const group of groups) {
-          for (const hit of group.hits) {
-            hit.document = (manager.get(hit.id) ?? {}) as AnyDocument
-          }
-        }
-      }
-
-      if (params.highlight) {
-        const queryTokenResult = tokenize(params.term ?? '', entry.language, {
-          stem: true,
-          removeStopWords: true,
-          customTokenizer: entry.config.tokenizer,
-          stopWordOverride: entry.config.stopWords,
-        })
-
-        for (const hit of paginated) {
-          const highlights: Record<string, HighlightMatch> = {}
-          for (const field of params.highlight.fields) {
-            const doc = hit.document as Record<string, unknown>
-            const fieldValue = doc[field]
-            if (typeof fieldValue === 'string') {
-              highlights[field] = highlightField(fieldValue, queryTokenResult.tokens, entry.language, {
-                preTag: params.highlight.preTag,
-                postTag: params.highlight.postTag,
-                maxSnippetLength: params.highlight.maxSnippetLength,
-              })
-            }
-          }
-          hit.highlights = highlights
-        }
-      }
-
-      const elapsed = now() - startTime
-
-      const result: QueryResult<T> = {
-        hits: paginated,
-        count: fanOutResult.totalMatched,
-        elapsed,
-        cursor: nextCursor,
-        facets: fanOutResult.facets,
-        groups,
-      }
+        language: entry.language,
+        config: entry.config,
+      })
 
       try {
         await pluginRegistry.runHook('afterSearch', {
@@ -643,42 +455,24 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
     async preflight(indexName: string, params: QueryParams): Promise<PreflightResult> {
       guardShutdown()
       const entry = requireIndex(indexName)
-      const startTime = now()
+      const manager = requireManager(indexName)
 
-      const manager = executor.getManager(indexName)
-      if (!manager) {
-        throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `Index "${indexName}" manager not found`, { indexName })
-      }
-
-      const searchOptions = {
-        bm25Params: entry.config.bm25,
-        stopWords: entry.config.stopWords,
-        customTokenizer: entry.config.tokenizer,
-      }
-
-      const fanOutResult = await fanOutQuery(
+      return executePreflight(indexName, params, {
         manager,
-        params,
-        entry.language,
-        entry.config.schema,
-        {
-          scoringMode: params.scoring ?? entry.config.defaultScoring ?? 'local',
-        },
-        searchOptions,
-      )
-
-      const elapsed = now() - startTime
-      return { count: fanOutResult.totalMatched, elapsed }
+        language: entry.language,
+        config: entry.config,
+      })
     },
 
     async clear(indexName: string): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
       await executor.execute({ type: 'clear', indexName, requestId: indexName })
+      await orchestrator.replicateToWorkers({ type: 'clear', indexName, requestId: `replicate-clear-${indexName}` })
     },
 
     getMemoryStats(): MemoryStats {
-      return { totalBytes: 0, workers: [] }
+      return orchestrator.getMemoryStats()
     },
 
     on<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void {
@@ -710,6 +504,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
         await flushManager.shutdown()
       }
 
+      await orchestrator.shutdown()
       await executor.shutdown()
       eventHandlers.clear()
       indexRegistry.clear()

@@ -16,7 +16,7 @@ export function createOramaTextOnlyAdapter(): SearchEngine {
 
     async insert(documents: BenchDocument[]) {
       if (!db) return
-      const docs = documents.map(({ id, ...doc }) => doc)
+      const docs = documents.map(d => ({ title: d.title, body: d.body }))
       await insertMultiple(db, docs)
     },
 

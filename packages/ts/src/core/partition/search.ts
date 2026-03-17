@@ -256,7 +256,7 @@ function siftDown(heap: Array<{ score: number }>, idx: number): void {
 }
 
 export function searchVector(state: PartitionState, params: InternalVectorParams): InternalSearchResult {
-  const { field, value, k, similarity = 0, metric = 'cosine', filterDocIds } = params
+  const { field, value, k, similarity = 0, metric = 'cosine', filterDocIds, efSearch } = params
 
   const vecStore = state.vectorStores.get(field)
   if (!vecStore) {
@@ -272,7 +272,7 @@ export function searchVector(state: PartitionState, params: InternalVectorParams
   }
 
   const queryVec = new Float32Array(value)
-  const results = vecStore.search(queryVec, k, metric, similarity, filterDocIds)
+  const results = vecStore.search(queryVec, k, metric, similarity, filterDocIds, efSearch)
   return { scored: results, totalMatched: results.length }
 }
 

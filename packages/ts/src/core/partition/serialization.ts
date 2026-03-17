@@ -1,7 +1,7 @@
 import { createGeoIndex } from '../../geo/geo-index'
+import { createVectorSearchEngine } from '../../search/vector-search'
 import type { SerializablePartition } from '../../types/internal'
 import type { SchemaDefinition } from '../../types/schema'
-import { createBruteForceVectorStore } from '../../vector/brute-force'
 import { createBooleanIndex, createEnumIndex, createNumericIndex } from '../field-index'
 import type { SerializedPartitionStats } from '../statistics'
 import { getFlatSchema, type PartitionState } from './utils'
@@ -74,7 +74,7 @@ export function serializePartition(
     serializedVectors[path] = {
       dimension: store.dimension,
       vectors,
-      hnswGraph: null,
+      hnswGraph: store.serializeHNSW(),
     }
   }
 
@@ -161,9 +161,12 @@ export function deserializePartition(
   }
 
   for (const [path, vecData] of Object.entries(data.vectorData)) {
-    const store = createBruteForceVectorStore(vecData.dimension)
+    const store = createVectorSearchEngine(vecData.dimension)
     for (const entry of vecData.vectors) {
       store.insert(entry.docId, new Float32Array(entry.vector))
+    }
+    if (vecData.hnswGraph) {
+      store.deserializeHNSW(vecData.hnswGraph)
     }
     state.vectorStores.set(path, store)
   }

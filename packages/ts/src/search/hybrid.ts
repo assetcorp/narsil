@@ -43,6 +43,7 @@ export function hybridSearch(
     k: params.limit ?? 10,
     similarity: vectorConfig.similarity,
     metric: vectorConfig.metric,
+    efSearch: vectorConfig.efSearch,
   })
 
   const normalizedText = normalizeScores(textResult.scored)
@@ -111,6 +112,7 @@ function runVectorOnly(partition: PartitionIndex, params: QueryParams): Internal
     k: params.limit ?? 10,
     similarity: vectorConfig.similarity,
     metric: vectorConfig.metric,
+    efSearch: vectorConfig.efSearch,
   })
   return result
 }

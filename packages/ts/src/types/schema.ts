@@ -16,6 +16,11 @@ export type SchemaDefinition = {
   [field: string]: FieldType | SchemaDefinition
 }
 
+export interface VectorPromotionConfig {
+  threshold?: number
+  hnswConfig?: { m?: number; efConstruction?: number; metric?: 'cosine' | 'dotProduct' | 'euclidean' }
+}
+
 export interface IndexConfig {
   schema: SchemaDefinition
   language?: string
@@ -25,6 +30,7 @@ export interface IndexConfig {
   stopWords?: Set<string> | ((defaults: Set<string>) => Set<string>)
   tokenizer?: CustomTokenizer
   trackPositions?: boolean
+  vectorPromotion?: VectorPromotionConfig
 }
 
 export interface BM25Params {
