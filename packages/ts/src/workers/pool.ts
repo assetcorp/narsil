@@ -11,7 +11,10 @@ export interface MemoryStats {
 
 export interface WorkerPool {
   getExecutor(indexName: string): Executor
+  getAllExecutors(): Executor[]
+  readonly workerCount: number
   addIndex(indexName: string): void
+  addIndexToAll(indexName: string): void
   removeIndex(indexName: string): void
   getMemoryStats(): MemoryStats[]
   shutdown(): Promise<void>
@@ -151,5 +154,29 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     indexAssignment.clear()
   }
 
-  return { getExecutor, addIndex, removeIndex, getMemoryStats, shutdown }
+  function getAllExecutors(): Executor[] {
+    return workers.filter(Boolean).map(slot => slot.executor)
+  }
+
+  function addIndexToAll(indexName: string): void {
+    if (isShutdown) {
+      throw new NarsilError(ErrorCodes.WORKER_CRASHED, 'Worker pool has been shut down')
+    }
+    for (let i = 0; i < workerCount; i++) {
+      const slot = ensureWorker(i)
+      slot.indexes.add(indexName)
+    }
+    indexAssignment.set(indexName, 0)
+  }
+
+  return {
+    getExecutor,
+    getAllExecutors,
+    get workerCount() { return workerCount },
+    addIndex,
+    addIndexToAll,
+    removeIndex,
+    getMemoryStats,
+    shutdown,
+  }
 }

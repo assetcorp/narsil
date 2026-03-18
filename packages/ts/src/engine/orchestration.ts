@@ -1,4 +1,4 @@
-import type { FanOutResult } from '../partitioning/fan-out'
+import { type FanOutResult, kWayMerge } from '../partitioning/fan-out'
 import type { NarsilConfig } from '../types/config'
 import type { LanguageModule } from '../types/language'
 import type { MemoryStats } from '../types/results'
@@ -13,7 +13,7 @@ import type { WorkerAction } from '../workers/protocol'
 import { createRequestId } from '../workers/protocol'
 
 export interface WorkerOrchestrator {
-  checkPromotion(): void
+  checkPromotion(): Promise<void>
   replicateToWorkers(action: WorkerAction): Promise<void>
   searchViaWorker(indexName: string, params: QueryParams): Promise<FanOutResult | null>
   isPromoted(): boolean
@@ -21,17 +21,22 @@ export interface WorkerOrchestrator {
   shutdown(): Promise<void>
 }
 
+export interface WorkerOrchestratorCallbacks {
+  onPromotion?: (workerCount: number, reason: string) => void
+}
+
 export function createWorkerOrchestrator(
   config: NarsilConfig | undefined,
   executor: Executor & DirectExecutorExtensions,
   promoter: ExecutionPromoter,
   indexRegistry: Map<string, { config: IndexConfig; language: LanguageModule }>,
+  callbacks?: WorkerOrchestratorCallbacks,
 ): WorkerOrchestrator {
   let workerPool: WorkerPool | null = null
   let promotionInProgress = false
   const workersEnabled = config?.workers?.enabled === true
 
-  function checkPromotion(): void {
+  async function checkPromotion(): Promise<void> {
     if (!workersEnabled || promotionInProgress || workerPool) return
 
     const indexMap = new Map<string, { documentCount: number }>()
@@ -43,16 +48,15 @@ export function createWorkerOrchestrator(
 
     if (result.shouldPromote) {
       promotionInProgress = true
-      setTimeout(() => {
-        runPromotion().catch(err => {
-          console.warn('Worker promotion failed:', err)
-          promotionInProgress = false
-        })
-      }, 0)
+      try {
+        await runPromotion(result.reason)
+      } catch (err) {
+        console.warn('Worker promotion failed:', err)
+      }
     }
   }
 
-  async function runPromotion(): Promise<void> {
+  async function runPromotion(reason: string): Promise<void> {
     try {
       const factory = await createWorkerFactory()
       const pool = createWorkerPool({
@@ -61,32 +65,41 @@ export function createWorkerOrchestrator(
       })
 
       for (const [name, entry] of indexRegistry) {
-        pool.addIndex(name)
-        const workerExecutor = pool.getExecutor(name)
-        await workerExecutor.execute({
-          type: 'createIndex',
-          indexName: name,
-          config: entry.config,
-          requestId: `promote-create-${name}`,
-        })
+        pool.addIndexToAll(name)
+      }
+
+      const allExecutors = pool.getAllExecutors()
+
+      for (const [name, entry] of indexRegistry) {
+        for (const workerExecutor of allExecutors) {
+          await workerExecutor.execute({
+            type: 'createIndex',
+            indexName: name,
+            config: entry.config,
+            requestId: `promote-create-${name}`,
+          })
+        }
 
         const manager = executor.getManager(name)
         if (manager) {
           for (let i = 0; i < manager.partitionCount; i++) {
             const serialized = manager.serializePartition(i)
-            await workerExecutor.execute({
-              type: 'deserialize',
-              indexName: name,
-              partitionId: i,
-              data: serialized,
-              requestId: `promote-sync-${name}-${i}`,
-            })
+            for (const workerExecutor of allExecutors) {
+              await workerExecutor.execute({
+                type: 'deserialize',
+                indexName: name,
+                partitionId: i,
+                data: serialized,
+                requestId: `promote-sync-${name}-${i}`,
+              })
+            }
           }
         }
       }
 
       workerPool = pool
       promoter.markPromoted()
+      callbacks?.onPromotion?.(pool.workerCount, reason)
     } finally {
       promotionInProgress = false
     }
@@ -95,31 +108,72 @@ export function createWorkerOrchestrator(
   async function replicateToWorkers(action: WorkerAction): Promise<void> {
     if (!workerPool) return
 
-    const indexName = 'indexName' in action ? (action as { indexName: string }).indexName : null
-    if (!indexName) return
+    const allExecutors = workerPool.getAllExecutors()
+    const results = await Promise.allSettled(
+      allExecutors.map(workerExecutor => workerExecutor.execute(action)),
+    )
 
-    try {
-      const workerExecutor = workerPool.getExecutor(indexName)
-      await workerExecutor.execute(action)
-    } catch (err) {
-      console.warn('Worker replication failed:', err)
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        console.warn('Worker replication failed:', result.reason)
+      }
     }
   }
 
   async function searchViaWorker(indexName: string, params: QueryParams): Promise<FanOutResult | null> {
     if (!workerPool) return null
 
+    const manager = executor.getManager(indexName)
+    if (!manager) return null
+
+    const allExecutors = workerPool.getAllExecutors()
+    const totalPartitions = manager.partitionCount
+    const numWorkers = allExecutors.length
+
+    if (numWorkers === 0) return null
+
+    if (numWorkers === 1) {
+      try {
+        return await allExecutors[0].execute<FanOutResult>({
+          type: 'query',
+          indexName,
+          params,
+          requestId: createRequestId(),
+        })
+      } catch (err) {
+        console.warn('Worker search failed, falling back to local:', err)
+        return null
+      }
+    }
+
     try {
-      const workerExecutor = workerPool.getExecutor(indexName)
-      const result = await workerExecutor.execute<FanOutResult>({
-        type: 'query',
-        indexName,
-        params,
-        requestId: createRequestId(),
-      })
-      return result
+      const workerAssignments: number[][] = Array.from({ length: numWorkers }, () => [])
+      for (let p = 0; p < totalPartitions; p++) {
+        workerAssignments[p % numWorkers].push(p)
+      }
+
+      const results = await Promise.all(
+        allExecutors.map((workerExecutor, idx) =>
+          workerExecutor.execute<FanOutResult>({
+            type: 'query',
+            indexName,
+            params,
+            requestId: createRequestId(),
+            partitionIds: workerAssignments[idx],
+          }),
+        ),
+      )
+
+      const allScored = results.map(r => r.scored)
+      const merged = kWayMerge(allScored)
+      let totalMatched = 0
+      for (const r of results) {
+        totalMatched += r.totalMatched
+      }
+
+      return { scored: merged, totalMatched }
     } catch (err) {
-      console.warn('Worker search failed, falling back to local:', err)
+      console.warn('Parallel worker search failed, falling back to local:', err)
       return null
     }
   }

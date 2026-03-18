@@ -19,6 +19,7 @@ export type SchemaDefinition = {
 export interface VectorPromotionConfig {
   threshold?: number
   hnswConfig?: { m?: number; efConstruction?: number; metric?: 'cosine' | 'dotProduct' | 'euclidean' }
+  workerStrategy?: 'worker-threads' | 'web-worker' | 'synchronous'
 }
 
 export interface IndexConfig {

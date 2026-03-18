@@ -78,3 +78,33 @@ export interface BenchmarkOutput {
   engines: Record<string, string>
   tiers: TierResults
 }
+
+export interface TimeSeriesPoint {
+  checkpoint: number
+  label?: string
+  insertThroughput?: number
+  searchMedianMs?: number
+  searchP95Ms?: number
+  memoryBytes?: number
+  partitionCount?: number
+}
+
+export interface ComparisonRow {
+  label: string
+  metrics: Record<string, number | string>
+}
+
+export interface ScenarioResult {
+  name: string
+  description: string
+  config: Record<string, unknown>
+  timeSeries?: TimeSeriesPoint[]
+  comparisons?: ComparisonRow[]
+  durationMs: number
+}
+
+export interface ScenarioOutput {
+  env: EnvironmentInfo
+  timestamp: string
+  scenarios: ScenarioResult[]
+}

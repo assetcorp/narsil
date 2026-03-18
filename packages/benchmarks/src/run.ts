@@ -1,5 +1,4 @@
 import { writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import os from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,6 +16,7 @@ import {
   generateQueryVectors,
   generateVectorDocuments,
 } from './data'
+import { fmt, getPackageVersion, median, percentile, tryGc } from './stats'
 import type {
   BenchDocument,
   BenchmarkOutput,
@@ -43,38 +43,6 @@ const INSERT_ITERATIONS = 5
 const WARMUP_ITERATIONS = 2
 const SEARCH_QUERY_COUNT = 100
 const VECTOR_K = 10
-
-function median(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b)
-  const mid = Math.floor(sorted.length / 2)
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
-}
-
-function percentile(values: number[], p: number): number {
-  const sorted = [...values].sort((a, b) => a - b)
-  const index = Math.ceil((p / 100) * sorted.length) - 1
-  return sorted[Math.max(0, index)]
-}
-
-function fmt(n: number): string {
-  return n.toLocaleString('en-US')
-}
-
-function tryGc(): void {
-  if (typeof globalThis.gc === 'function') {
-    globalThis.gc()
-  }
-}
-
-function getPackageVersion(name: string): string {
-  const require = createRequire(import.meta.url)
-  try {
-    const pkgPath = require.resolve(`${name}/package.json`)
-    return JSON.parse(require('node:fs').readFileSync(pkgPath, 'utf-8')).version
-  } catch {
-    return 'unknown'
-  }
-}
 
 async function measureInsert<T>(
   engine: { create(): Promise<void>; insert(docs: T[]): Promise<void>; teardown(): Promise<void> },

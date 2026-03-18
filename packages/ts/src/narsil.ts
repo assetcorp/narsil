@@ -100,7 +100,16 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
   const eventHandlers = new Map<string, Set<EventHandler>>()
   let isShutdown = false
 
-  const orchestrator = createWorkerOrchestrator(config, executor, promoter, indexRegistry)
+  const orchestrator = createWorkerOrchestrator(config, executor, promoter, indexRegistry, {
+    onPromotion(workerCount, reason) {
+      const handlers = eventHandlers.get('workerPromote')
+      if (handlers) {
+        for (const handler of handlers) {
+          handler({ workerCount, reason })
+        }
+      }
+    },
+  })
   const rebalancer = createRebalancer()
   const rebalanceRouter = createPartitionRouter()
   const rebalancingIndexes = new Set<string>()
@@ -240,7 +249,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
         skipClone: options?.skipClone,
       })
 
-      orchestrator.checkPromotion()
+      await orchestrator.checkPromotion()
 
       return resolvedDocId
     },
@@ -301,7 +310,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       }
 
       flushManager?.markDirty(indexName, 0)
-      orchestrator.checkPromotion()
+      await orchestrator.checkPromotion()
 
       return { succeeded, failed }
     },
