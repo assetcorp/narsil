@@ -1,11 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createVectorSearchEngine, type VectorSearchEngine } from '../../search/vector-search'
-import {
-  createVectorPromoter,
-  detectWorkerStrategy,
-  type VectorPromoter,
-  type WorkerStrategy,
-} from '../../vector/promoter'
+import { createVectorPromoter, detectWorkerStrategy, type VectorPromoter } from '../../vector/promoter'
 
 function randomVector(dim: number): Float32Array {
   const v = new Float32Array(dim)
@@ -176,11 +171,20 @@ describe('VectorPromoter with worker-threads strategy', () => {
     const worker = new wt.Worker(new URL(workerUrl))
 
     const result = await new Promise<{ type: string }>((resolve, reject) => {
-      worker.on('message', (msg: unknown) => { worker.terminate(); resolve(msg as { type: string }) })
-      worker.on('error', (err: unknown) => { worker.terminate(); reject(err) })
+      worker.on('message', (msg: unknown) => {
+        worker.terminate()
+        resolve(msg as { type: string })
+      })
+      worker.on('error', (err: unknown) => {
+        worker.terminate()
+        reject(err)
+      })
       worker.postMessage({
         type: 'build',
-        vectors: [{ docId: 'a', values: [1, 0, 0, 0] }, { docId: 'b', values: [0, 1, 0, 0] }],
+        vectors: [
+          { docId: 'a', values: [1, 0, 0, 0] },
+          { docId: 'b', values: [0, 1, 0, 0] },
+        ],
         dimension: 4,
         config: {},
       })

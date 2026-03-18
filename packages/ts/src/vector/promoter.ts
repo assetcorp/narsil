@@ -59,7 +59,11 @@ function spawnNodeWorker(
   onError: (err: Error) => void,
 ): { terminate: () => void } {
   const entryUrl = resolveWorkerUrl()
-  type NodeWorker = { postMessage: (msg: unknown) => void; on: (event: string, handler: (msg: unknown) => void) => void; terminate: () => void }
+  type NodeWorker = {
+    postMessage: (msg: unknown) => void
+    on: (event: string, handler: (msg: unknown) => void) => void
+    terminate: () => void
+  }
   let worker: NodeWorker | null = null
 
   import('node:worker_threads')
@@ -95,12 +99,19 @@ function spawnWebWorker(
   onError: (err: Error) => void,
 ): { terminate: () => void } {
   const entryUrl = resolveWorkerUrl()
-  const WorkerCtor = (globalThis as unknown as { Worker: new (url: string, opts?: { type: string }) => {
-    postMessage: (msg: unknown) => void
-    terminate: () => void
-    onmessage: ((event: { data: unknown }) => void) | null
-    onerror: ((event: { message?: string; error?: Error }) => void) | null
-  } }).Worker
+  const WorkerCtor = (
+    globalThis as unknown as {
+      Worker: new (
+        url: string,
+        opts?: { type: string },
+      ) => {
+        postMessage: (msg: unknown) => void
+        terminate: () => void
+        onmessage: ((event: { data: unknown }) => void) | null
+        onerror: ((event: { message?: string; error?: Error }) => void) | null
+      }
+    }
+  ).Worker
 
   const worker = new WorkerCtor(entryUrl, { type: 'module' })
 

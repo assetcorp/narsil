@@ -172,7 +172,9 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
   return {
     getExecutor,
     getAllExecutors,
-    get workerCount() { return workerCount },
+    get workerCount() {
+      return workerCount
+    },
     addIndex,
     addIndexToAll,
     removeIndex,
