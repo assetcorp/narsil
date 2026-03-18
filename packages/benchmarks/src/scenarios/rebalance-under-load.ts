@@ -1,9 +1,9 @@
 import { createNarsil, type Narsil } from '@delali/narsil'
-import { type AnyOrama, create, insertMultiple, search } from '@orama/orama'
+import { create, insertMultiple, search } from '@orama/orama'
 import { generateDocumentBatch, generateQueries } from '../data'
+import { measureSearchBatch } from '../run-scenarios'
 import { fmt, median, percentile } from '../stats'
 import type { ComparisonRow, ScenarioResult, TimeSeriesPoint } from '../types'
-import { measureSearchBatch } from '../run-scenarios'
 
 const PRELOAD_DOCS = 10_000
 const TICK_INSERT_SIZE = 100
@@ -114,7 +114,9 @@ export async function runRebalanceUnderLoad(): Promise<ScenarioResult> {
   const oramaDocs = generateDocumentBatch(PRELOAD_DOCS, SEED, 0).map(({ id, ...rest }) => rest)
   await insertMultiple(oramaDb, oramaDocs)
 
-  const oramaInsertBatch = generateDocumentBatch(TICK_INSERT_SIZE, SEED + 200, PRELOAD_DOCS).map(({ id, ...rest }) => rest)
+  const oramaInsertBatch = generateDocumentBatch(TICK_INSERT_SIZE, SEED + 200, PRELOAD_DOCS).map(
+    ({ id, ...rest }) => rest,
+  )
   const oInsertStart = performance.now()
   await insertMultiple(oramaDb, oramaInsertBatch)
   const oInsertMs = performance.now() - oInsertStart
@@ -128,8 +130,7 @@ export async function runRebalanceUnderLoad(): Promise<ScenarioResult> {
   }
 
   console.log(
-    `  orama at 10K: ${fmt(oramaThroughput)} inserts/sec, ` +
-      `search ${median(oramaSearchTimes).toFixed(3)}ms median`,
+    `  orama at 10K: ${fmt(oramaThroughput)} inserts/sec, ` + `search ${median(oramaSearchTimes).toFixed(3)}ms median`,
   )
 
   comparisons.push({

@@ -2,26 +2,42 @@ import { writeFileSync } from 'node:fs'
 import os from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createMiniSearchFullSchemaAdapter, createMiniSearchTextOnlyAdapter } from './adapters/minisearch'
+import {
+  createMiniSearchFullSchemaAdapter,
+  createMiniSearchSerializableAdapter,
+  createMiniSearchTextOnlyAdapter,
+} from './adapters/minisearch'
 import {
   createNarsilFullSchemaAdapter,
+  createNarsilSerializableAdapter,
   createNarsilTextOnlyAdapter,
   createNarsilVectorAdapter,
 } from './adapters/narsil'
-import { createOramaFullSchemaAdapter, createOramaTextOnlyAdapter, createOramaVectorAdapter } from './adapters/orama'
+import {
+  createOramaFullSchemaAdapter,
+  createOramaSerializableAdapter,
+  createOramaTextOnlyAdapter,
+  createOramaVectorAdapter,
+} from './adapters/orama'
 import {
   generateDocuments,
+  generateFilteredQueries,
   generateMultiTermQueries,
   generateQueries,
   generateQueryVectors,
   generateVectorDocuments,
 } from './data'
+import { computeGroundTruthBM25, computeNDCG } from './quality'
 import { fmt, getPackageVersion, median, percentile, tryGc } from './stats'
 import type {
   BenchDocument,
   BenchmarkOutput,
+  MutationResult,
+  QualityResult,
   ScaleResult,
   SearchEngine,
+  SerializableEngine,
+  SerializationResult,
   VectorBenchDocument,
   VectorScaleResult,
   VectorSearchEngine,
@@ -97,6 +113,31 @@ async function measureSearchTermMatchAll(
   for (const query of queries) {
     const start = performance.now()
     await engine.searchTermMatchAll(query)
+    const elapsed = performance.now() - start
+    times.push(elapsed)
+  }
+
+  await engine.teardown()
+  return times
+}
+
+async function measureFilteredSearch(
+  engine: SearchEngine,
+  documents: BenchDocument[],
+  queries: string[],
+): Promise<number[]> {
+  if (!engine.searchWithFilter) return []
+  await engine.create()
+  await engine.insert(documents)
+
+  for (const query of queries.slice(0, 10)) {
+    await engine.searchWithFilter(query)
+  }
+
+  const times: number[] = []
+  for (const query of queries) {
+    const start = performance.now()
+    await engine.searchWithFilter(query)
     const elapsed = performance.now() - start
     times.push(elapsed)
   }
@@ -191,6 +232,7 @@ async function runTextSearchTier(
     const docs = generateDocuments(scale, SEED)
     const queries = generateQueries(SEARCH_QUERY_COUNT, SEED + 1)
     const multiTermQueries = generateMultiTermQueries(SEARCH_QUERY_COUNT, SEED + 2)
+    const filteredQueries = generateFilteredQueries(SEARCH_QUERY_COUNT, SEED + 3)
 
     for (const engine of adapters) {
       const version = engineVersions[engine.name]
@@ -218,6 +260,19 @@ async function runTextSearchTier(
           )
         }
 
+        const filteredTimes = await measureFilteredSearch(engine, docs, filteredQueries)
+        let filteredSearchMedianMs: number | undefined
+        let filteredSearchP95Ms: number | undefined
+        if (filteredTimes.length > 0) {
+          filteredSearchMedianMs = median(filteredTimes)
+          filteredSearchP95Ms = percentile(filteredTimes, 95)
+          console.log(
+            `    search (filtered): ${filteredSearchMedianMs.toFixed(3)}ms median, ${filteredSearchP95Ms.toFixed(3)}ms p95`,
+          )
+        } else if (engine.searchWithFilter === undefined) {
+          console.log(`    search (filtered): n/a (no built-in filter support)`)
+        }
+
         const memoryBytes = await measureMemory(engine, docs)
         const memoryMb = memoryBytes / (1024 * 1024)
         console.log(`    memory: ${memoryMb.toFixed(1)}MB`)
@@ -229,6 +284,8 @@ async function runTextSearchTier(
           searchP95Ms: searchP95,
           searchAllTermsMedianMs,
           searchAllTermsP95Ms,
+          filteredSearchMedianMs,
+          filteredSearchP95Ms,
           memoryMb,
         }
       } catch (err) {
@@ -263,6 +320,17 @@ async function runTextSearchTier(
       const sr = r as ScaleResult
       if (sr.searchAllTermsMedianMs === undefined) return 'n/a'
       return `${sr.searchAllTermsMedianMs.toFixed(3)} (p95: ${sr.searchAllTermsP95Ms?.toFixed(3) ?? 'n/a'})`
+    })
+  }
+
+  const filteredEngines = enginesMeta.filter(e =>
+    scales.some(s => (results[e.name][s] as ScaleResult)?.filteredSearchMedianMs !== undefined),
+  )
+  if (filteredEngines.length > 0) {
+    printScaleTable(`Filtered Search Latency (ms)`, scales, results, filteredEngines, r => {
+      const sr = r as ScaleResult
+      if (sr.filteredSearchMedianMs === undefined) return 'n/a'
+      return `${sr.filteredSearchMedianMs.toFixed(3)} (p95: ${sr.filteredSearchP95Ms?.toFixed(3) ?? 'n/a'})`
     })
   }
 
@@ -344,6 +412,219 @@ async function runVectorTier(
   return results
 }
 
+async function measureSerialization(
+  engine: SerializableEngine,
+  documents: BenchDocument[],
+  query: string,
+): Promise<SerializationResult> {
+  await engine.create()
+  await engine.insert(documents)
+
+  const serStart = performance.now()
+  const serialized = await engine.serialize()
+  const serializeMs = performance.now() - serStart
+
+  const serializedBytes =
+    typeof serialized === 'string' ? new TextEncoder().encode(serialized).byteLength : serialized.byteLength
+
+  const deserStart = performance.now()
+  await engine.deserializeAndSearch(serialized, query)
+  const deserializeAndSearchMs = performance.now() - deserStart
+
+  await engine.teardown()
+  return { serializeMs, serializedBytes, deserializeAndSearchMs }
+}
+
+async function measureMutations(
+  engine: SearchEngine,
+  documents: BenchDocument[],
+  queries: string[],
+): Promise<MutationResult | null> {
+  if (!engine.remove) return null
+  await engine.create()
+  await engine.insert(documents)
+
+  const removeCount = Math.floor(documents.length * 0.1)
+  const idsToRemove = (engine.insertedIds ?? []).slice(0, removeCount)
+  if (idsToRemove.length === 0) {
+    await engine.teardown()
+    return null
+  }
+
+  const removeStart = performance.now()
+  for (const id of idsToRemove) {
+    await engine.remove(id)
+  }
+  const removeMs = performance.now() - removeStart
+  const removeDocsPerSec = Math.round(removeCount / (removeMs / 1000))
+
+  const searchTimes: number[] = []
+  for (const q of queries.slice(0, 50)) {
+    const s = performance.now()
+    await engine.search(q)
+    searchTimes.push(performance.now() - s)
+  }
+
+  const reinsertDocs = documents.slice(documents.length - removeCount).map((d, i) => ({
+    ...d,
+    id: `reinsertion-${i}`,
+    title: `${d.title} reinserted`,
+  }))
+  const reinsertStart = performance.now()
+  await engine.insert(reinsertDocs)
+  const reinsertMs = performance.now() - reinsertStart
+
+  await engine.teardown()
+
+  return {
+    removeDocsPerSec,
+    removeMedianMs: removeMs,
+    searchAfterRemoveMedianMs: median(searchTimes),
+    reinsertDocsPerSec: Math.round(removeCount / (reinsertMs / 1000)),
+  }
+}
+
+async function runMutationTier(
+  adapters: SearchEngine[],
+  engineVersions: Record<string, string>,
+  docCount: number,
+): Promise<Record<string, MutationResult>> {
+  console.log(`\n## Tier 5: Mutation Throughput (${fmt(docCount)} docs)\n`)
+
+  const docs = generateDocuments(docCount, SEED)
+  const queries = generateQueries(SEARCH_QUERY_COUNT, SEED + 1)
+  const results: Record<string, MutationResult> = {}
+
+  for (const engine of adapters) {
+    const version = engineVersions[engine.name]
+    console.log(`  ${engine.name} v${version}`)
+
+    try {
+      const result = await measureMutations(engine, docs, queries)
+      if (!result) {
+        console.log(`    skipped (no remove support)`)
+        continue
+      }
+      results[engine.name] = result
+      console.log(`    remove: ${fmt(result.removeDocsPerSec)} docs/sec (${result.removeMedianMs.toFixed(1)}ms total)`)
+      console.log(`    search after remove: ${result.searchAfterRemoveMedianMs.toFixed(3)}ms median`)
+      console.log(`    reinsert: ${fmt(result.reinsertDocsPerSec)} docs/sec`)
+    } catch (err) {
+      console.log(`    ERROR: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+
+  const enginesMeta = adapters.map(a => ({ name: a.name, version: engineVersions[a.name] }))
+  const alignRow = '---:'
+  console.log(`\n### Mutation Results\n`)
+  console.log(`| Engine | Remove (docs/sec) | Search After Remove (ms) | Reinsert (docs/sec) |`)
+  console.log(`| --- | ${alignRow} | ${alignRow} | ${alignRow} |`)
+  for (const { name, version } of enginesMeta) {
+    const r = results[name]
+    if (!r) continue
+    console.log(
+      `| ${name} v${version} | ${fmt(r.removeDocsPerSec)} | ${r.searchAfterRemoveMedianMs.toFixed(3)} | ${fmt(r.reinsertDocsPerSec)} |`,
+    )
+  }
+
+  return results
+}
+
+async function runQualityMeasurement(
+  adapters: SearchEngine[],
+  engineVersions: Record<string, string>,
+  docCount: number,
+  queryCount: number,
+): Promise<Record<string, QualityResult>> {
+  console.log(`\n## Tier 6: Search Quality nDCG@10 (${fmt(docCount)} docs, ${queryCount} queries)\n`)
+
+  const docs = generateDocuments(docCount, SEED)
+  const queries = generateQueries(queryCount, SEED + 10)
+  const results: Record<string, QualityResult> = {}
+
+  for (const engine of adapters) {
+    if (!engine.searchWithIds || !engine.insertWithIds) continue
+    const version = engineVersions[engine.name]
+    console.log(`  ${engine.name} v${version}`)
+
+    try {
+      await engine.create()
+      await engine.insertWithIds(docs)
+
+      const ndcgScores: number[] = []
+      for (const query of queries) {
+        const predicted = await engine.searchWithIds(query)
+        const groundTruth = computeGroundTruthBM25(docs, query, 10)
+        if (groundTruth.length === 0) continue
+        ndcgScores.push(computeNDCG(predicted, groundTruth, 10))
+      }
+
+      await engine.teardown()
+
+      const meanNdcg = ndcgScores.length > 0 ? ndcgScores.reduce((a, b) => a + b, 0) / ndcgScores.length : 0
+      results[engine.name] = { meanNdcg10: meanNdcg, queryCount: ndcgScores.length, docCount }
+      console.log(`    mean nDCG@10: ${meanNdcg.toFixed(4)} (over ${ndcgScores.length} queries with results)`)
+    } catch (err) {
+      console.log(`    ERROR: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+
+  const enginesMeta = adapters.map(a => ({ name: a.name, version: engineVersions[a.name] }))
+  const alignRow = '---:'
+  console.log(`\n### Search Quality Results\n`)
+  console.log(`| Engine | Mean nDCG@10 | Queries Evaluated |`)
+  console.log(`| --- | ${alignRow} | ${alignRow} |`)
+  for (const { name, version } of enginesMeta) {
+    const r = results[name]
+    if (!r) continue
+    console.log(`| ${name} v${version} | ${r.meanNdcg10.toFixed(4)} | ${r.queryCount} |`)
+  }
+
+  return results
+}
+
+async function runSerializationTier(
+  adapters: SerializableEngine[],
+  engineVersions: Record<string, string>,
+  docCount: number,
+): Promise<Record<string, SerializationResult>> {
+  console.log(`\n## Tier 4: Serialization/Reload (${fmt(docCount)} docs)\n`)
+
+  const docs = generateDocuments(docCount, SEED)
+  const query = generateQueries(1, SEED + 1)[0]
+  const results: Record<string, SerializationResult> = {}
+
+  for (const engine of adapters) {
+    const version = engineVersions[engine.name]
+    console.log(`  ${engine.name} v${version}`)
+
+    try {
+      const result = await measureSerialization(engine, docs, query)
+      results[engine.name] = result
+      console.log(`    serialize: ${result.serializeMs.toFixed(1)}ms`)
+      console.log(`    size: ${(result.serializedBytes / 1024 / 1024).toFixed(1)}MB`)
+      console.log(`    deserialize+search: ${result.deserializeAndSearchMs.toFixed(1)}ms`)
+    } catch (err) {
+      console.log(`    ERROR: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+
+  const enginesMeta = adapters.map(a => ({ name: a.name, version: engineVersions[a.name] }))
+  const alignRow = '---:'
+  console.log(`\n### Serialization Results\n`)
+  console.log(`| Engine | Serialize (ms) | Size (MB) | Deserialize+Search (ms) |`)
+  console.log(`| --- | ${alignRow} | ${alignRow} | ${alignRow} |`)
+  for (const { name, version } of enginesMeta) {
+    const r = results[name]
+    if (!r) continue
+    console.log(
+      `| ${name} v${version} | ${r.serializeMs.toFixed(1)} | ${(r.serializedBytes / 1024 / 1024).toFixed(1)} | ${r.deserializeAndSearchMs.toFixed(1)} |`,
+    )
+  }
+
+  return results
+}
+
 async function main() {
   const env = {
     node: process.version,
@@ -393,6 +674,25 @@ async function main() {
     )
   }
 
+  const serializationResults = await runSerializationTier(
+    [createNarsilSerializableAdapter(), createOramaSerializableAdapter(), createMiniSearchSerializableAdapter()],
+    engineVersions,
+    100_000,
+  )
+
+  const mutationResults = await runMutationTier(
+    [createNarsilFullSchemaAdapter(), createOramaFullSchemaAdapter(), createMiniSearchFullSchemaAdapter()],
+    engineVersions,
+    100_000,
+  )
+
+  const qualityResults = await runQualityMeasurement(
+    [createNarsilFullSchemaAdapter(), createOramaFullSchemaAdapter(), createMiniSearchFullSchemaAdapter()],
+    engineVersions,
+    10_000,
+    50,
+  )
+
   const output: BenchmarkOutput = {
     env,
     timestamp: new Date().toISOString(),
@@ -411,6 +711,9 @@ async function main() {
       fullSchema: fullSchemaResults,
       vector: vectorResultsByDim[VECTOR_DIMS[0]],
     },
+    serialization: serializationResults,
+    mutations: mutationResults,
+    quality: qualityResults,
   }
 
   const outputPath = resolve(__dirname, '..', 'results.json')

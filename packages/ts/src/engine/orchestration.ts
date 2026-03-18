@@ -34,6 +34,7 @@ export function createWorkerOrchestrator(
 ): WorkerOrchestrator {
   let workerPool: WorkerPool | null = null
   let promotionInProgress = false
+  const promotionBuffer: WorkerAction[] = []
   const workersEnabled = config?.workers?.enabled === true
 
   async function checkPromotion(): Promise<void> {
@@ -48,11 +49,12 @@ export function createWorkerOrchestrator(
 
     if (result.shouldPromote) {
       promotionInProgress = true
-      try {
-        await runPromotion(result.reason)
-      } catch (err) {
-        console.warn('Worker promotion failed:', err)
-      }
+      setTimeout(() => {
+        runPromotion(result.reason).catch(err => {
+          console.warn('Worker promotion failed:', err)
+          promotionInProgress = false
+        })
+      }, 0)
     }
   }
 
@@ -71,41 +73,61 @@ export function createWorkerOrchestrator(
       const allExecutors = pool.getAllExecutors()
 
       for (const [name, entry] of indexRegistry) {
-        for (const workerExecutor of allExecutors) {
-          await workerExecutor.execute({
-            type: 'createIndex',
-            indexName: name,
-            config: entry.config,
-            requestId: `promote-create-${name}`,
-          })
-        }
+        await Promise.all(
+          allExecutors.map(workerExecutor =>
+            workerExecutor.execute({
+              type: 'createIndex',
+              indexName: name,
+              config: entry.config,
+              requestId: `promote-create-${name}`,
+            }),
+          ),
+        )
 
         const manager = executor.getManager(name)
         if (manager) {
           for (let i = 0; i < manager.partitionCount; i++) {
             const serialized = manager.serializePartition(i)
-            for (const workerExecutor of allExecutors) {
-              await workerExecutor.execute({
-                type: 'deserialize',
-                indexName: name,
-                partitionId: i,
-                data: serialized,
-                requestId: `promote-sync-${name}-${i}`,
-              })
-            }
+            await Promise.all(
+              allExecutors.map(workerExecutor =>
+                workerExecutor.execute({
+                  type: 'deserialize',
+                  indexName: name,
+                  partitionId: i,
+                  data: serialized,
+                  requestId: `promote-sync-${name}-${i}`,
+                }),
+              ),
+            )
           }
         }
       }
 
       workerPool = pool
       promoter.markPromoted()
+
+      if (promotionBuffer.length > 0) {
+        const buffered = [...promotionBuffer]
+        promotionBuffer.length = 0
+        for (const action of buffered) {
+          await replicateToWorkers(action)
+        }
+      }
+
       callbacks?.onPromotion?.(pool.workerCount, reason)
+    } catch (err) {
+      promotionBuffer.length = 0
+      throw err
     } finally {
       promotionInProgress = false
     }
   }
 
   async function replicateToWorkers(action: WorkerAction): Promise<void> {
+    if (promotionInProgress) {
+      promotionBuffer.push(action)
+      return
+    }
     if (!workerPool) return
 
     const allExecutors = workerPool.getAllExecutors()

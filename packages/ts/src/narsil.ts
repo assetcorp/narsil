@@ -21,6 +21,7 @@ import type {
   PartitionStatsResult,
   PreflightResult,
   QueryResult,
+  SnapshotData,
 } from './types/results'
 import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig } from './types/schema'
 import type { QueryParams } from './types/search'
@@ -49,6 +50,9 @@ export interface Narsil {
 
   query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>
   preflight(indexName: string, params: QueryParams): Promise<PreflightResult>
+
+  snapshot(indexName: string): Promise<SnapshotData>
+  restore(indexName: string, data: SnapshotData): Promise<void>
 
   clear(indexName: string): Promise<void>
   rebalance(indexName: string, targetPartitionCount: number): Promise<void>
@@ -526,6 +530,82 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
         workerSearch,
         indexName,
       })
+    },
+
+    async snapshot(indexName: string): Promise<SnapshotData> {
+      guardShutdown()
+      const entry = requireIndex(indexName)
+      const manager = requireManager(indexName)
+
+      const partitions = []
+      for (let i = 0; i < manager.partitionCount; i++) {
+        partitions.push(manager.serializePartition(i))
+      }
+
+      return {
+        version: 1,
+        indexName,
+        schema: entry.config.schema,
+        language: entry.language.name,
+        partitions,
+      }
+    },
+
+    async restore(indexName: string, data: SnapshotData): Promise<void> {
+      guardShutdown()
+
+      if (typeof data !== 'object' || data === null || !Array.isArray(data.partitions)) {
+        throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Invalid snapshot data: missing partitions array')
+      }
+
+      if (data.version !== 1) {
+        throw new NarsilError(
+          ErrorCodes.DOC_VALIDATION_FAILED,
+          `Unsupported snapshot version: ${data.version}. Expected version 1`,
+          { version: data.version },
+        )
+      }
+
+      if (!data.schema || typeof data.schema !== 'object') {
+        throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Invalid snapshot data: missing or invalid schema')
+      }
+
+      if (!data.language || typeof data.language !== 'string') {
+        throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Invalid snapshot data: missing or invalid language')
+      }
+
+      const language = getLanguage(data.language)
+      validateSchema(data.schema as import('./types/schema').SchemaDefinition)
+
+      if (indexRegistry.has(indexName)) {
+        await narsil.dropIndex(indexName)
+      }
+
+      const schema = data.schema as import('./types/schema').SchemaDefinition
+      const indexConfig: IndexConfig = { schema, language: data.language }
+
+      executor.createIndex(indexName, indexConfig, language)
+      indexRegistry.set(indexName, { config: indexConfig, language })
+
+      try {
+        const manager = requireManager(indexName)
+
+        while (manager.partitionCount < data.partitions.length) {
+          manager.addPartition()
+        }
+
+        for (let i = 0; i < data.partitions.length; i++) {
+          manager.deserializePartition(i, data.partitions[i])
+        }
+      } catch (err) {
+        try {
+          executor.dropIndex(indexName)
+          indexRegistry.delete(indexName)
+        } catch (_) {
+          /* cleanup best-effort */
+        }
+        throw err
+      }
     },
 
     async clear(indexName: string): Promise<void> {

@@ -26,6 +26,8 @@ export interface VectorSearchEngine {
   getHNSWIndex(): HNSWIndex | null
   getBruteForceStore(): BruteForceVectorStore
 
+  estimateMemoryBytes(): number
+
   serializeHNSW(): SerializedHNSWGraph | null
   deserializeHNSW(data: SerializedHNSWGraph): void
 }
@@ -114,6 +116,44 @@ export function createVectorSearchEngine(dimension: number, defaultHNSWConfig?: 
 
     getBruteForceStore(): BruteForceVectorStore {
       return bruteForce
+    },
+
+    estimateMemoryBytes(): number {
+      const count = bruteForce.size
+      if (count === 0) return 0
+
+      const MAP_OVERHEAD = 64
+      const MAP_ENTRY = 72
+      const VECTOR_ENTRY_OBJ = 32
+      const AVG_DOCID_BYTES = 56
+      const TYPED_ARRAY_HEADER = 64
+      const MAGNITUDE_BYTES = 8
+
+      const perBruteForceEntry = MAP_ENTRY + VECTOR_ENTRY_OBJ + AVG_DOCID_BYTES + TYPED_ARRAY_HEADER + MAGNITUDE_BYTES
+      let bytes = MAP_OVERHEAD + count * (perBruteForceEntry + dimension * 4)
+
+      if (hnsw) {
+        const HNSW_NODE_OBJ = 64
+        const SHARED_REFS = 16
+        const CONN_ARRAY_HEADER = 32
+        const SET_OVERHEAD = 64
+        const SET_ENTRY_COST = 72
+
+        const m = hnsw.m
+        const avgLayers = m / (m - 1)
+        const avgConnsLayer0 = m
+        const avgConnsUpper = Math.ceil(m / 2)
+
+        const connMemPerNode =
+          CONN_ARRAY_HEADER +
+          (SET_OVERHEAD + avgConnsLayer0 * SET_ENTRY_COST) +
+          Math.max(0, avgLayers - 1) * (SET_OVERHEAD + avgConnsUpper * SET_ENTRY_COST)
+
+        const perHnswNode = MAP_ENTRY + HNSW_NODE_OBJ + SHARED_REFS + connMemPerNode
+        bytes += MAP_OVERHEAD + count * perHnswNode
+      }
+
+      return Math.round(bytes)
     },
 
     serializeHNSW(): SerializedHNSWGraph | null {

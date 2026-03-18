@@ -1,4 +1,5 @@
 import type { NarsilError } from '../errors'
+import type { SerializablePartition } from './internal'
 import type { AnyDocument, SchemaDefinition } from './schema'
 
 export interface QueryResult<T = AnyDocument> {
@@ -81,4 +82,12 @@ export interface MemoryStats {
     heapTotal: number
     external: number
   }>
+}
+
+export interface SnapshotData {
+  version: number
+  indexName: string
+  schema: SchemaDefinition
+  language: string
+  partitions: SerializablePartition[]
 }

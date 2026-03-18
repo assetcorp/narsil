@@ -1,8 +1,10 @@
 import { createNarsil, type Narsil } from '@delali/narsil'
-import { type AnyOrama, create, insertMultiple, search } from '@orama/orama'
+import { create, insertMultiple, search } from '@orama/orama'
+import MiniSearch from 'minisearch'
+import { stemmer } from 'stemmer'
 import { generateDocumentBatch, generateDocuments, generateQueries } from '../data'
 import { fmt, median, percentile } from '../stats'
-import type { ComparisonRow, ScenarioResult } from '../types'
+import type { BenchDocument, ComparisonRow, ScenarioResult } from '../types'
 
 const PRELOAD_DOCS = 10_000
 const ADDITIONAL_DOCS = 5_000
@@ -24,7 +26,10 @@ export async function runMixedWorkload(): Promise<ScenarioResult> {
     language: 'english',
   })
   const preloadDocs = generateDocuments(PRELOAD_DOCS, SEED)
-  await insertMultiple(oramaDb, preloadDocs.map(({ id, ...rest }) => rest))
+  await insertMultiple(
+    oramaDb,
+    preloadDocs.map(({ id, ...rest }) => rest),
+  )
 
   const oramaAdditional = generateDocumentBatch(ADDITIONAL_DOCS, SEED + 10, PRELOAD_DOCS).map(({ id, ...rest }) => rest)
   const oInsertStart = performance.now()
@@ -51,6 +56,43 @@ export async function runMixedWorkload(): Promise<ScenarioResult> {
     metrics: {
       medianMs: Number(median(oramaSearchTimes).toFixed(3)),
       p95Ms: Number(percentile(oramaSearchTimes, 95).toFixed(3)),
+    },
+  })
+
+  console.log('  measuring minisearch baseline...')
+  const ms = new MiniSearch<BenchDocument>({
+    fields: ['title', 'body'],
+    storeFields: ['title', 'body', 'score', 'category'],
+    idField: 'id',
+    processTerm: (term: string) => stemmer(term.toLowerCase()),
+  })
+  ms.addAll(preloadDocs)
+
+  const msAdditional = generateDocumentBatch(ADDITIONAL_DOCS, SEED + 10, PRELOAD_DOCS)
+  const msInsertStart = performance.now()
+  ms.addAll(msAdditional)
+  const msInsertMs = performance.now() - msInsertStart
+  const msInsertThroughput = Math.round(ADDITIONAL_DOCS / (msInsertMs / 1000))
+
+  const msSearchTimes: number[] = []
+  for (const q of queries) {
+    const s = performance.now()
+    ms.search(q)
+    msSearchTimes.push(performance.now() - s)
+  }
+  console.log(
+    `  minisearch: ${fmt(msInsertThroughput)} insert docs/sec, ` +
+      `search ${median(msSearchTimes).toFixed(3)}ms median`,
+  )
+  comparisons.push({
+    label: 'minisearch-insert',
+    metrics: { docsPerSec: msInsertThroughput, totalMs: Math.round(msInsertMs) },
+  })
+  comparisons.push({
+    label: 'minisearch-search',
+    metrics: {
+      medianMs: Number(median(msSearchTimes).toFixed(3)),
+      p95Ms: Number(percentile(msSearchTimes, 95).toFixed(3)),
     },
   })
 
@@ -87,12 +129,8 @@ export async function runMixedWorkload(): Promise<ScenarioResult> {
     const isolatedSearchMedian = median(isolatedSearchTimes)
     const isolatedSearchP95 = percentile(isolatedSearchTimes, 95)
 
-    console.log(
-      `  narsil isolated insert: ${fmt(isolatedInsertThroughput)} docs/sec`,
-    )
-    console.log(
-      `  narsil isolated search: ${isolatedSearchMedian.toFixed(3)}ms median`,
-    )
+    console.log(`  narsil isolated insert: ${fmt(isolatedInsertThroughput)} docs/sec`)
+    console.log(`  narsil isolated search: ${isolatedSearchMedian.toFixed(3)}ms median`)
 
     comparisons.push({
       label: 'narsil-isolated-insert',
@@ -136,10 +174,7 @@ export async function runMixedWorkload(): Promise<ScenarioResult> {
       const insertMs = performance.now() - insertStart
       interleavedInsertThroughputs.push(Math.round(INTERLEAVE_INSERT_SIZE / (insertMs / 1000)))
 
-      const cycleQueries = queries.slice(
-        cycle * INTERLEAVE_QUERY_COUNT,
-        (cycle + 1) * INTERLEAVE_QUERY_COUNT,
-      )
+      const cycleQueries = queries.slice(cycle * INTERLEAVE_QUERY_COUNT, (cycle + 1) * INTERLEAVE_QUERY_COUNT)
       const searchTimes: number[] = []
       for (const q of cycleQueries) {
         const searchStart = performance.now()
@@ -176,7 +211,7 @@ export async function runMixedWorkload(): Promise<ScenarioResult> {
 
   return {
     name: 'mixed-workload',
-    description: 'Isolated vs interleaved insert + search, Narsil and Orama compared',
+    description: 'Isolated vs interleaved insert + search, Narsil, Orama, and MiniSearch compared',
     config: {
       preloadDocs: PRELOAD_DOCS,
       additionalDocs: ADDITIONAL_DOCS,

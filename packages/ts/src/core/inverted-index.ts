@@ -7,7 +7,7 @@ export type ReadonlyPostingList = {
 }
 
 interface InternalPostingList extends PostingList {
-  docIds: Set<string>
+  docIdToIndex: Map<string, number>
 }
 
 export interface InvertedIndex {
@@ -73,7 +73,7 @@ export function createInvertedIndex(): InvertedIndex {
   function getOrCreateList(token: string): InternalPostingList {
     let list = index.get(token)
     if (!list) {
-      list = { docFrequency: 0, postings: [], docIds: new Set() }
+      list = { docFrequency: 0, postings: [], docIdToIndex: new Map() }
       index.set(token, list)
       trackToken(token)
     }
@@ -83,9 +83,10 @@ export function createInvertedIndex(): InvertedIndex {
   return {
     insert(token: string, entry: PostingEntry): void {
       const list = getOrCreateList(token)
+      const idx = list.postings.length
       list.postings.push(entry)
-      if (!list.docIds.has(entry.docId)) {
-        list.docIds.add(entry.docId)
+      if (!list.docIdToIndex.has(entry.docId)) {
+        list.docIdToIndex.set(entry.docId, idx)
         list.docFrequency++
       }
     },
@@ -93,11 +94,22 @@ export function createInvertedIndex(): InvertedIndex {
     remove(token: string, docId: string): void {
       const list = index.get(token)
       if (!list) return
-      if (!list.docIds.has(docId)) return
+      if (!list.docIdToIndex.has(docId)) return
 
-      list.postings = list.postings.filter(p => p.docId !== docId)
-      list.docIds.delete(docId)
-      list.docFrequency = list.docIds.size
+      list.docIdToIndex.delete(docId)
+
+      let writeIdx = 0
+      for (let i = 0; i < list.postings.length; i++) {
+        if (list.postings[i].docId !== docId) {
+          if (writeIdx !== i) {
+            list.postings[writeIdx] = list.postings[i]
+            list.docIdToIndex.set(list.postings[i].docId, writeIdx)
+          }
+          writeIdx++
+        }
+      }
+      list.postings.length = writeIdx
+      list.docFrequency = list.docIdToIndex.size
 
       if (list.postings.length === 0) {
         index.delete(token)
@@ -163,14 +175,14 @@ export function createInvertedIndex(): InvertedIndex {
       charBuckets.clear()
       for (const token of Object.keys(data)) {
         const src = data[token]
-        const docIds = new Set<string>()
-        for (const p of src.postings) {
-          docIds.add(p.docId)
+        const docIdToIndex = new Map<string, number>()
+        for (let i = 0; i < src.postings.length; i++) {
+          docIdToIndex.set(src.postings[i].docId, i)
         }
         index.set(token, {
           docFrequency: src.docFrequency,
           postings: src.postings,
-          docIds,
+          docIdToIndex,
         })
         trackToken(token)
       }

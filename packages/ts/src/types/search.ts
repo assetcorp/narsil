@@ -26,6 +26,7 @@ export interface QueryParams {
   mode?: SearchMode
   vector?: VectorQueryConfig
   hybrid?: HybridConfig
+  includeScoreComponents?: boolean
 }
 
 export interface VectorQueryConfig {
