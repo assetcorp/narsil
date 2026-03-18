@@ -64,7 +64,7 @@ export function createWorkerOrchestrator(
         workerFactory: factory,
       })
 
-      for (const [name, entry] of indexRegistry) {
+      for (const [name] of indexRegistry) {
         pool.addIndexToAll(name)
       }
 
@@ -109,9 +109,7 @@ export function createWorkerOrchestrator(
     if (!workerPool) return
 
     const allExecutors = workerPool.getAllExecutors()
-    const results = await Promise.allSettled(
-      allExecutors.map(workerExecutor => workerExecutor.execute(action)),
-    )
+    const results = await Promise.allSettled(allExecutors.map(workerExecutor => workerExecutor.execute(action)))
 
     for (const result of results) {
       if (result.status === 'rejected') {
