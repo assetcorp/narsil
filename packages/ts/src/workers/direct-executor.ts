@@ -99,6 +99,7 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
         const entry = requireIndex(action.indexName)
         const result = await fanOutQuery(entry.manager, action.params, entry.language, entry.config.schema, {
           scoringMode: entry.config.defaultScoring ?? 'local',
+          partitionIds: action.partitionIds,
         })
         return result as T
       }

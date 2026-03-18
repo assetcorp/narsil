@@ -14,6 +14,7 @@ export interface FanOutConfig {
   scoringMode: ScoringMode
   globalStats?: GlobalStatistics
   dispatcher?: PartitionSearchDispatcher
+  partitionIds?: number[]
 }
 
 export interface FanOutResult {
@@ -45,7 +46,10 @@ export async function fanOutQuery(
   config: FanOutConfig,
   searchOptions?: FulltextSearchOptions,
 ): Promise<FanOutResult> {
-  const partitions = manager.getAllPartitions()
+  const allPartitions = manager.getAllPartitions()
+  const partitions = config.partitionIds
+    ? config.partitionIds.map(id => allPartitions[id]).filter(Boolean)
+    : allPartitions
 
   if (partitions.length === 0) {
     return { scored: [], totalMatched: 0 }

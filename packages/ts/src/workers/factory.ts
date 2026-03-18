@@ -9,11 +9,11 @@ declare const Worker: {
 }
 
 function resolveEntryPoint(): string {
-  try {
-    return new URL('../workers/entry.mjs', import.meta.url).href
-  } catch {
-    return './workers/entry.mjs'
+  const base = import.meta.url
+  if (base.endsWith('.mjs') || base.endsWith('.js')) {
+    return new URL('./workers/entry.mjs', base).href
   }
+  return base.replace(/\/src\/workers\/[^/]+$/, '/dist/workers/entry.mjs')
 }
 
 export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFactory> {
@@ -24,7 +24,7 @@ export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFa
     const workerThreadsModule = await import('node:worker_threads')
 
     return function nodeFactory(_workerId: number): Executor {
-      const instance = new workerThreadsModule.Worker(resolvedEntry)
+      const instance = new workerThreadsModule.Worker(new URL(resolvedEntry))
       return createWorkerExecutor(instance as unknown as WorkerLike)
     }
   }

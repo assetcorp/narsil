@@ -340,3 +340,41 @@ export function generateQueryVectors(count: number, dimension: number, seed: num
   }
   return vectors
 }
+
+export function generateDocumentBatch(count: number, seed: number, offset: number): BenchDocument[] {
+  const rng = createRng(seed)
+  const docs: BenchDocument[] = []
+  for (let i = 0; i < count; i++) {
+    const titleLength = 3 + Math.floor(rng() * 10)
+    const bodyLength = 30 + Math.floor(rng() * 70 + rng() * 70)
+    docs.push({
+      id: `doc-${String(offset + i).padStart(7, '0')}`,
+      title: generateSentence(rng, titleLength),
+      body: generateSentence(rng, bodyLength),
+      score: Math.floor(rng() * 100),
+      category: CATEGORIES[Math.floor(rng() * CATEGORIES.length)],
+    })
+  }
+  return docs
+}
+
+export function generateVectorDocumentBatch(
+  count: number,
+  dimension: number,
+  seed: number,
+  offset: number,
+): VectorBenchDocument[] {
+  const rng = createRng(seed)
+  const docs: VectorBenchDocument[] = []
+  for (let i = 0; i < count; i++) {
+    const titleLength = 3 + Math.floor(rng() * 10)
+    docs.push({
+      id: `vec-${String(offset + i).padStart(7, '0')}`,
+      title: generateSentence(rng, titleLength),
+      embedding: generateUnitVector(rng, dimension),
+    })
+  }
+  return docs
+}
+
+export { createRng }

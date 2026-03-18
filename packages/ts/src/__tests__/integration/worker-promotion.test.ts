@@ -84,13 +84,13 @@ describe('WorkerOrchestrator replication and lifecycle', () => {
     await orchestrator?.shutdown()
   })
 
-  it('checkPromotion is a no-op when workers are disabled', () => {
+  it('checkPromotion is a no-op when workers are disabled', async () => {
     const executor = createDirectExecutor()
     const promoter = createExecutionPromoter({ perIndexThreshold: 1 })
     const registry = new Map<string, { config: IndexConfig; language: LanguageModule }>()
 
     orchestrator = createWorkerOrchestrator(undefined, executor, promoter, registry)
-    orchestrator.checkPromotion()
+    await orchestrator.checkPromotion()
 
     expect(promoter.isPromoted()).toBe(false)
   })

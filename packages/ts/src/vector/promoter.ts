@@ -3,20 +3,28 @@ import type { VectorSearchEngine } from '../search/vector-search'
 import type { HNSWConfig, SerializedHNSWGraph } from './hnsw'
 import type { HNSWBuildRequest, HNSWWorkerMessage } from './hnsw-build-worker'
 
+export type WorkerStrategy = 'worker-threads' | 'web-worker' | 'synchronous'
+
 export interface VectorPromoterConfig {
   promotionThreshold?: number
   hnswConfig?: HNSWConfig
+  workerStrategy?: WorkerStrategy
 }
 
 export interface VectorPromoter {
   check(engines: Map<string, VectorSearchEngine>): void
   shutdown(): void
+  readonly strategy: WorkerStrategy
 }
 
-interface WorkerHandle {
-  postMessage: (msg: unknown) => void
-  on?: (event: string, handler: (msg: unknown) => void) => void
-  terminate: () => void
+export function detectWorkerStrategy(): WorkerStrategy {
+  const runtime = detectRuntime()
+  const url = import.meta.url
+  const hasBundledWorker = url.endsWith('.mjs') || url.endsWith('.js')
+
+  if (runtime.supportsWorkerThreads && hasBundledWorker) return 'worker-threads'
+  if (runtime.supportsWebWorkers && hasBundledWorker) return 'web-worker'
+  return 'synchronous'
 }
 
 function collectVectorsForWorker(engine: VectorSearchEngine): Array<{ docId: string; values: number[] }> {
@@ -27,48 +35,49 @@ function collectVectorsForWorker(engine: VectorSearchEngine): Array<{ docId: str
   return vectors
 }
 
-function canUseWorkerBuild(): boolean {
-  const runtime = detectRuntime()
-  if (!runtime.supportsWorkerThreads) return false
-  const currentUrl = import.meta.url
-  return currentUrl.endsWith('.mjs') || currentUrl.endsWith('.js')
-}
-
-function spawnHNSWBuildWorker(
-  engine: VectorSearchEngine,
-  hnswConfig: HNSWConfig | undefined,
-  onComplete: (graph: SerializedHNSWGraph) => void,
-  onError: (err: Error) => void,
-): { terminate: () => void } {
-  const vectors = collectVectorsForWorker(engine)
-  const request: HNSWBuildRequest = {
+function buildWorkerRequest(engine: VectorSearchEngine, hnswConfig: HNSWConfig | undefined): HNSWBuildRequest {
+  return {
     type: 'build',
-    vectors,
+    vectors: collectVectorsForWorker(engine),
     dimension: engine.dimension,
     config: hnswConfig ?? {},
   }
+}
 
-  const entryUrl = new URL('./hnsw-build-worker.mjs', import.meta.url).href
-  let worker: WorkerHandle | null = null
+function resolveWorkerUrl(): string {
+  const base = import.meta.url
+  if (base.endsWith('.mjs') || base.endsWith('.js')) {
+    return new URL('./hnsw-build-worker.mjs', base).href
+  }
+  const replaced = base.replace(/\/src\/vector\/[^/]+$/, '/dist/vector/hnsw-build-worker.mjs')
+  return replaced
+}
+
+function spawnNodeWorker(
+  request: HNSWBuildRequest,
+  onComplete: (graph: SerializedHNSWGraph) => void,
+  onError: (err: Error) => void,
+): { terminate: () => void } {
+  const entryUrl = resolveWorkerUrl()
+  type NodeWorker = { postMessage: (msg: unknown) => void; on: (event: string, handler: (msg: unknown) => void) => void; terminate: () => void }
+  let worker: NodeWorker | null = null
 
   import('node:worker_threads')
     .then(wt => {
-      worker = new wt.Worker(entryUrl) as unknown as WorkerHandle
-      if (worker.on) {
-        worker.on('message', (msg: unknown) => {
-          const response = msg as HNSWWorkerMessage
-          worker?.terminate()
-          if (response.type === 'success') {
-            onComplete(response.graph)
-          } else {
-            onError(new Error(response.message))
-          }
-        })
-        worker.on('error', (err: unknown) => {
-          worker?.terminate()
-          onError(err instanceof Error ? err : new Error(String(err)))
-        })
-      }
+      worker = new wt.Worker(new URL(entryUrl)) as NodeWorker
+      worker.on('message', (msg: unknown) => {
+        const response = msg as HNSWWorkerMessage
+        worker?.terminate()
+        if (response.type === 'success') {
+          onComplete(response.graph)
+        } else {
+          onError(new Error(response.message))
+        }
+      })
+      worker.on('error', (err: unknown) => {
+        worker?.terminate()
+        onError(err instanceof Error ? err : new Error(String(err)))
+      })
       worker.postMessage(request)
     })
     .catch(onError)
@@ -80,17 +89,58 @@ function spawnHNSWBuildWorker(
   }
 }
 
+function spawnWebWorker(
+  request: HNSWBuildRequest,
+  onComplete: (graph: SerializedHNSWGraph) => void,
+  onError: (err: Error) => void,
+): { terminate: () => void } {
+  const entryUrl = resolveWorkerUrl()
+  const WorkerCtor = (globalThis as unknown as { Worker: new (url: string, opts?: { type: string }) => {
+    postMessage: (msg: unknown) => void
+    terminate: () => void
+    onmessage: ((event: { data: unknown }) => void) | null
+    onerror: ((event: { message?: string; error?: Error }) => void) | null
+  } }).Worker
+
+  const worker = new WorkerCtor(entryUrl, { type: 'module' })
+
+  worker.onmessage = (event: { data: unknown }) => {
+    const response = event.data as HNSWWorkerMessage
+    worker.terminate()
+    if (response.type === 'success') {
+      onComplete(response.graph)
+    } else {
+      onError(new Error(response.message))
+    }
+  }
+
+  worker.onerror = (event: { message?: string; error?: Error }) => {
+    worker.terminate()
+    onError(event.error ?? new Error(event.message ?? 'Web Worker error'))
+  }
+
+  worker.postMessage(request)
+
+  return {
+    terminate() {
+      worker.terminate()
+    },
+  }
+}
+
 export function createVectorPromoter(config?: VectorPromoterConfig): VectorPromoter {
   const threshold = config?.promotionThreshold ?? 10_000
   const hnswConfig = config?.hnswConfig
   const promoting = new Set<string>()
+  const strategy = config?.workerStrategy ?? detectWorkerStrategy()
 
-  const useWorkerBuild = canUseWorkerBuild()
-
-  const pendingTimers = new Set<ReturnType<typeof setTimeout>>()
   const pendingWorkers = new Set<{ terminate: () => void }>()
 
   return {
+    get strategy() {
+      return strategy
+    },
+
     check(engines: Map<string, VectorSearchEngine>): void {
       for (const [field, engine] of engines) {
         if (engine.isPromoted || promoting.has(field)) continue
@@ -98,10 +148,27 @@ export function createVectorPromoter(config?: VectorPromoterConfig): VectorPromo
 
         promoting.add(field)
 
-        if (useWorkerBuild) {
-          const handle = spawnHNSWBuildWorker(
-            engine,
-            hnswConfig,
+        if (strategy === 'worker-threads') {
+          const request = buildWorkerRequest(engine, hnswConfig)
+          const handle = spawnNodeWorker(
+            request,
+            graph => {
+              pendingWorkers.delete(handle)
+              if (!engine.isPromoted) {
+                engine.deserializeHNSW(graph)
+              }
+              promoting.delete(field)
+            },
+            () => {
+              pendingWorkers.delete(handle)
+              promoting.delete(field)
+            },
+          )
+          pendingWorkers.add(handle)
+        } else if (strategy === 'web-worker') {
+          const request = buildWorkerRequest(engine, hnswConfig)
+          const handle = spawnWebWorker(
+            request,
             graph => {
               pendingWorkers.delete(handle)
               if (!engine.isPromoted) {
@@ -116,30 +183,20 @@ export function createVectorPromoter(config?: VectorPromoterConfig): VectorPromo
           )
           pendingWorkers.add(handle)
         } else {
-          const timer = setTimeout(() => {
-            pendingTimers.delete(timer)
-            try {
-              engine.promoteToHNSW(hnswConfig)
-            } finally {
-              promoting.delete(field)
-            }
-          }, 0)
-          pendingTimers.add(timer)
+          try {
+            engine.promoteToHNSW(hnswConfig)
+          } finally {
+            promoting.delete(field)
+          }
         }
       }
     },
 
     shutdown(): void {
-      for (const timer of pendingTimers) {
-        clearTimeout(timer)
-      }
-      pendingTimers.clear()
-
       for (const handle of pendingWorkers) {
         handle.terminate()
       }
       pendingWorkers.clear()
-
       promoting.clear()
     },
   }

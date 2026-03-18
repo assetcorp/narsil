@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "bench": "node --expose-gc --import tsx src/run.ts"
+    "bench": "node --expose-gc --import tsx src/run.ts",
+    "bench:scenarios": "node --expose-gc --import tsx src/run-scenarios.ts"
   },
   "dependencies": {
     "@delali/narsil": "workspace:*",

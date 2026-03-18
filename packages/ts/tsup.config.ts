@@ -10,6 +10,7 @@ export default defineConfig({
     'invalidation/filesystem': 'src/invalidation/filesystem.ts',
     'invalidation/broadcast-channel': 'src/invalidation/broadcast-channel.ts',
     'workers/entry': 'src/workers/worker-entry.ts',
+    'vector/hnsw-build-worker': 'src/vector/hnsw-build-worker.ts',
     'languages/english': 'src/languages/english.ts',
     'languages/french': 'src/languages/french.ts',
     'languages/german': 'src/languages/german.ts',

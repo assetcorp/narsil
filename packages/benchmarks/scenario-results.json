@@ -1,0 +1,714 @@
+{
+  "env": {
+    "node": "v22.22.0",
+    "os": "Darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Pro",
+    "totalMemory": "18GB"
+  },
+  "timestamp": "2026-03-18T12:51:14.255Z",
+  "scenarios": [
+    {
+      "name": "partitioned-search",
+      "description": "Narsil partition fan-out vs Orama and MiniSearch at 100K documents",
+      "config": {
+        "totalDocs": 100000,
+        "partitionConfigs": [
+          1,
+          5,
+          10,
+          20
+        ],
+        "queryCount": 100
+      },
+      "comparisons": [
+        {
+          "label": "orama",
+          "metrics": {
+            "insertDocsPerSec": 9746,
+            "searchMedianMs": 249.67,
+            "searchP95Ms": 1218.278
+          }
+        },
+        {
+          "label": "minisearch",
+          "metrics": {
+            "insertDocsPerSec": 15932,
+            "searchMedianMs": 60.503,
+            "searchP95Ms": 127.919
+          }
+        },
+        {
+          "label": "narsil-1p",
+          "metrics": {
+            "insertDocsPerSec": 14106,
+            "searchMedianMs": 97.332,
+            "searchP95Ms": 189.742
+          }
+        },
+        {
+          "label": "narsil-5p",
+          "metrics": {
+            "insertDocsPerSec": 13354,
+            "searchMedianMs": 95.292,
+            "searchP95Ms": 181.528
+          }
+        },
+        {
+          "label": "narsil-10p",
+          "metrics": {
+            "insertDocsPerSec": 12441,
+            "searchMedianMs": 100.622,
+            "searchP95Ms": 220.324
+          }
+        },
+        {
+          "label": "narsil-20p",
+          "metrics": {
+            "insertDocsPerSec": 11389,
+            "searchMedianMs": 97.87,
+            "searchP95Ms": 179.639
+          }
+        }
+      ],
+      "durationMs": 155768.44537499998
+    },
+    {
+      "name": "worker-promotion",
+      "description": "Latency curve across DirectExecutor -> WorkerExecutor boundary, vs Orama at same scale",
+      "config": {
+        "batchSize": 1000,
+        "batchCount": 20,
+        "promotionThreshold": 10000,
+        "queriesPerBatch": 50
+      },
+      "timeSeries": [
+        {
+          "checkpoint": 1000,
+          "label": "direct-executor",
+          "insertThroughput": 17059,
+          "searchMedianMs": 0.596,
+          "searchP95Ms": 2.042
+        },
+        {
+          "checkpoint": 2000,
+          "label": "direct-executor",
+          "insertThroughput": 15533,
+          "searchMedianMs": 1.133,
+          "searchP95Ms": 5.262
+        },
+        {
+          "checkpoint": 3000,
+          "label": "direct-executor",
+          "insertThroughput": 15742,
+          "searchMedianMs": 1.933,
+          "searchP95Ms": 4.652
+        },
+        {
+          "checkpoint": 4000,
+          "label": "direct-executor",
+          "insertThroughput": 15439,
+          "searchMedianMs": 2.489,
+          "searchP95Ms": 6.877
+        },
+        {
+          "checkpoint": 5000,
+          "label": "direct-executor",
+          "insertThroughput": 15605,
+          "searchMedianMs": 4.407,
+          "searchP95Ms": 8.962
+        },
+        {
+          "checkpoint": 6000,
+          "label": "direct-executor",
+          "insertThroughput": 14629,
+          "searchMedianMs": 6.162,
+          "searchP95Ms": 11.013
+        },
+        {
+          "checkpoint": 7000,
+          "label": "direct-executor",
+          "insertThroughput": 13654,
+          "searchMedianMs": 5.865,
+          "searchP95Ms": 15.478
+        },
+        {
+          "checkpoint": 8000,
+          "label": "direct-executor",
+          "insertThroughput": 13840,
+          "searchMedianMs": 5.946,
+          "searchP95Ms": 13.779
+        },
+        {
+          "checkpoint": 9000,
+          "label": "direct-executor",
+          "insertThroughput": 9714,
+          "searchMedianMs": 5.775,
+          "searchP95Ms": 12.192
+        },
+        {
+          "checkpoint": 10000,
+          "label": "worker-executor",
+          "insertThroughput": 135,
+          "searchMedianMs": 16.201,
+          "searchP95Ms": 34.588
+        },
+        {
+          "checkpoint": 11000,
+          "label": "worker-executor",
+          "insertThroughput": 15119,
+          "searchMedianMs": 14.149,
+          "searchP95Ms": 27.828
+        },
+        {
+          "checkpoint": 12000,
+          "label": "worker-executor",
+          "insertThroughput": 15628,
+          "searchMedianMs": 15.432,
+          "searchP95Ms": 30.503
+        },
+        {
+          "checkpoint": 13000,
+          "label": "worker-executor",
+          "insertThroughput": 15529,
+          "searchMedianMs": 15.001,
+          "searchP95Ms": 30.737
+        },
+        {
+          "checkpoint": 14000,
+          "label": "worker-executor",
+          "insertThroughput": 15281,
+          "searchMedianMs": 15.253,
+          "searchP95Ms": 29.284
+        },
+        {
+          "checkpoint": 15000,
+          "label": "worker-executor",
+          "insertThroughput": 13289,
+          "searchMedianMs": 14.524,
+          "searchP95Ms": 30.812
+        },
+        {
+          "checkpoint": 16000,
+          "label": "worker-executor",
+          "insertThroughput": 14849,
+          "searchMedianMs": 14.652,
+          "searchP95Ms": 27.585
+        },
+        {
+          "checkpoint": 17000,
+          "label": "worker-executor",
+          "insertThroughput": 12923,
+          "searchMedianMs": 14.238,
+          "searchP95Ms": 26.908
+        },
+        {
+          "checkpoint": 18000,
+          "label": "worker-executor",
+          "insertThroughput": 14015,
+          "searchMedianMs": 14.377,
+          "searchP95Ms": 27.068
+        },
+        {
+          "checkpoint": 19000,
+          "label": "worker-executor",
+          "insertThroughput": 13807,
+          "searchMedianMs": 15.006,
+          "searchP95Ms": 51.467
+        },
+        {
+          "checkpoint": 20000,
+          "label": "worker-executor",
+          "insertThroughput": 13376,
+          "searchMedianMs": 15.327,
+          "searchP95Ms": 34.557
+        }
+      ],
+      "comparisons": [
+        {
+          "label": "orama-20k-baseline",
+          "metrics": {
+            "insertDocsPerSec": 12043,
+            "searchMedianMs": 16.686,
+            "searchP95Ms": 69.615
+          }
+        }
+      ],
+      "durationMs": 24029.356792000006
+    },
+    {
+      "name": "vector-lifecycle",
+      "description": "Vector search latency (1536-dim) across brute-force -> HNSW phases, vs Orama",
+      "config": {
+        "dimension": 1536,
+        "totalVectors": 2000,
+        "batchSize": 100,
+        "promotionThreshold": 1000,
+        "queriesPerBatch": 20,
+        "efConstruction": 200
+      },
+      "timeSeries": [
+        {
+          "checkpoint": 100,
+          "label": "brute-force",
+          "searchMedianMs": 1.006,
+          "searchP95Ms": 1.388
+        },
+        {
+          "checkpoint": 200,
+          "label": "brute-force",
+          "searchMedianMs": 1.07,
+          "searchP95Ms": 2.744
+        },
+        {
+          "checkpoint": 300,
+          "label": "brute-force",
+          "searchMedianMs": 1.082,
+          "searchP95Ms": 1.138
+        },
+        {
+          "checkpoint": 400,
+          "label": "brute-force",
+          "searchMedianMs": 1.109,
+          "searchP95Ms": 1.179
+        },
+        {
+          "checkpoint": 500,
+          "label": "brute-force",
+          "searchMedianMs": 1.197,
+          "searchP95Ms": 1.226
+        },
+        {
+          "checkpoint": 600,
+          "label": "brute-force",
+          "searchMedianMs": 1.266,
+          "searchP95Ms": 1.33
+        },
+        {
+          "checkpoint": 700,
+          "label": "brute-force",
+          "searchMedianMs": 1.344,
+          "searchP95Ms": 1.365
+        },
+        {
+          "checkpoint": 800,
+          "label": "brute-force",
+          "searchMedianMs": 1.41,
+          "searchP95Ms": 1.478
+        },
+        {
+          "checkpoint": 900,
+          "label": "brute-force",
+          "searchMedianMs": 1.498,
+          "searchP95Ms": 2.039
+        },
+        {
+          "checkpoint": 1000,
+          "label": "hnsw-building",
+          "searchMedianMs": 1.457,
+          "searchP95Ms": 1.966
+        },
+        {
+          "checkpoint": 1100,
+          "label": "hnsw-building",
+          "searchMedianMs": 1.542,
+          "searchP95Ms": 1.668
+        },
+        {
+          "checkpoint": 1200,
+          "label": "hnsw-building",
+          "searchMedianMs": 1.574,
+          "searchP95Ms": 1.701
+        },
+        {
+          "checkpoint": 1300,
+          "label": "hnsw-building",
+          "searchMedianMs": 1.632,
+          "searchP95Ms": 1.709
+        },
+        {
+          "checkpoint": 1400,
+          "label": "hnsw-building",
+          "searchMedianMs": 1.682,
+          "searchP95Ms": 1.972
+        },
+        {
+          "checkpoint": 1500,
+          "label": "hnsw-building",
+          "searchMedianMs": 1.752,
+          "searchP95Ms": 2.169
+        },
+        {
+          "checkpoint": 1600,
+          "label": "hnsw-building",
+          "searchMedianMs": 1.813,
+          "searchP95Ms": 1.894
+        },
+        {
+          "checkpoint": 1700,
+          "label": "hnsw-building",
+          "searchMedianMs": 1.828,
+          "searchP95Ms": 1.999
+        },
+        {
+          "checkpoint": 1800,
+          "label": "hnsw-building",
+          "searchMedianMs": 2.012,
+          "searchP95Ms": 2.163
+        },
+        {
+          "checkpoint": 1900,
+          "label": "hnsw-building",
+          "searchMedianMs": 1.982,
+          "searchP95Ms": 2.336
+        },
+        {
+          "checkpoint": 2000,
+          "label": "hnsw-building",
+          "searchMedianMs": 2.009,
+          "searchP95Ms": 2.365
+        }
+      ],
+      "comparisons": [
+        {
+          "label": "orama-2,000-vectors",
+          "metrics": {
+            "searchMedianMs": 2.545,
+            "searchP95Ms": 2.624
+          }
+        }
+      ],
+      "durationMs": 831.9421670000011
+    },
+    {
+      "name": "rebalance-under-load",
+      "description": "Throughput during partition rebalancing, vs Orama at same scale",
+      "config": {
+        "preloadDocs": 10000,
+        "tickInsertSize": 100,
+        "tickQueryCount": 10,
+        "targetPartitions": 5
+      },
+      "timeSeries": [
+        {
+          "checkpoint": 0,
+          "label": "baseline",
+          "insertThroughput": 18398,
+          "searchMedianMs": 8.128,
+          "searchP95Ms": 17.57,
+          "partitionCount": 10
+        },
+        {
+          "checkpoint": 1,
+          "label": "baseline",
+          "insertThroughput": 12360,
+          "searchMedianMs": 8.114,
+          "searchP95Ms": 14.279,
+          "partitionCount": 10
+        },
+        {
+          "checkpoint": 2,
+          "label": "baseline",
+          "insertThroughput": 14736,
+          "searchMedianMs": 8.292,
+          "searchP95Ms": 14.206,
+          "partitionCount": 10
+        },
+        {
+          "checkpoint": 3,
+          "label": "during-rebalance",
+          "insertThroughput": 14798,
+          "searchMedianMs": 8.053,
+          "searchP95Ms": 13.15,
+          "partitionCount": 10
+        },
+        {
+          "checkpoint": 4,
+          "label": "during-rebalance",
+          "insertThroughput": 15579,
+          "searchMedianMs": 8.306,
+          "searchP95Ms": 13.411,
+          "partitionCount": 10
+        },
+        {
+          "checkpoint": 5,
+          "label": "during-rebalance",
+          "insertThroughput": 14849,
+          "searchMedianMs": 9.217,
+          "searchP95Ms": 14.176,
+          "partitionCount": 10
+        },
+        {
+          "checkpoint": 6,
+          "label": "during-rebalance",
+          "insertThroughput": 15635,
+          "searchMedianMs": 8.476,
+          "searchP95Ms": 14.117,
+          "partitionCount": 10
+        },
+        {
+          "checkpoint": 7,
+          "label": "during-rebalance",
+          "insertThroughput": 14792,
+          "searchMedianMs": 8.737,
+          "searchP95Ms": 14.249,
+          "partitionCount": 10
+        },
+        {
+          "checkpoint": 8,
+          "label": "during-rebalance",
+          "insertThroughput": 13749,
+          "searchMedianMs": 9.372,
+          "searchP95Ms": 14.274,
+          "partitionCount": 10
+        },
+        {
+          "checkpoint": 9,
+          "label": "during-rebalance",
+          "insertThroughput": 13372,
+          "searchMedianMs": 8.67,
+          "searchP95Ms": 14.485,
+          "partitionCount": 10
+        },
+        {
+          "checkpoint": 10,
+          "label": "during-rebalance",
+          "insertThroughput": 14269,
+          "searchMedianMs": 9.293,
+          "searchP95Ms": 14.753,
+          "partitionCount": 10
+        },
+        {
+          "checkpoint": 11,
+          "label": "during-rebalance",
+          "insertThroughput": 14696,
+          "searchMedianMs": 9.209,
+          "searchP95Ms": 14.45,
+          "partitionCount": 10
+        },
+        {
+          "checkpoint": 12,
+          "label": "during-rebalance",
+          "insertThroughput": 15176,
+          "searchMedianMs": 9.542,
+          "searchP95Ms": 15.32,
+          "partitionCount": 10
+        },
+        {
+          "checkpoint": 13,
+          "label": "during-rebalance",
+          "insertThroughput": 16202,
+          "searchMedianMs": 9.51,
+          "searchP95Ms": 15.506,
+          "partitionCount": 10
+        },
+        {
+          "checkpoint": 14,
+          "label": "recovery",
+          "insertThroughput": 16737,
+          "searchMedianMs": 8.888,
+          "searchP95Ms": 14.413,
+          "partitionCount": 5
+        },
+        {
+          "checkpoint": 15,
+          "label": "recovery",
+          "insertThroughput": 15499,
+          "searchMedianMs": 8.659,
+          "searchP95Ms": 14.176,
+          "partitionCount": 5
+        },
+        {
+          "checkpoint": 16,
+          "label": "recovery",
+          "insertThroughput": 16360,
+          "searchMedianMs": 9.297,
+          "searchP95Ms": 14.672,
+          "partitionCount": 5
+        },
+        {
+          "checkpoint": 17,
+          "label": "recovery",
+          "insertThroughput": 14653,
+          "searchMedianMs": 8.222,
+          "searchP95Ms": 14.63,
+          "partitionCount": 5
+        },
+        {
+          "checkpoint": 18,
+          "label": "recovery",
+          "insertThroughput": 15731,
+          "searchMedianMs": 9.345,
+          "searchP95Ms": 14.437,
+          "partitionCount": 5
+        },
+        {
+          "checkpoint": 19,
+          "label": "post-rebalance",
+          "insertThroughput": 14571,
+          "searchMedianMs": 9.268,
+          "searchP95Ms": 14.647,
+          "partitionCount": 5
+        },
+        {
+          "checkpoint": 20,
+          "label": "post-rebalance",
+          "insertThroughput": 15933,
+          "searchMedianMs": 9.72,
+          "searchP95Ms": 14.619,
+          "partitionCount": 5
+        },
+        {
+          "checkpoint": 21,
+          "label": "post-rebalance",
+          "insertThroughput": 13798,
+          "searchMedianMs": 10.183,
+          "searchP95Ms": 16.468,
+          "partitionCount": 5
+        }
+      ],
+      "comparisons": [
+        {
+          "label": "orama-10k-baseline",
+          "metrics": {
+            "insertDocsPerSec": 11907,
+            "searchMedianMs": 10.381,
+            "searchP95Ms": 25.635
+          }
+        }
+      ],
+      "durationMs": 4141.3988750000135
+    },
+    {
+      "name": "mixed-workload",
+      "description": "Isolated vs interleaved insert + search, Narsil and Orama compared",
+      "config": {
+        "preloadDocs": 10000,
+        "additionalDocs": 5000,
+        "queryCount": 200,
+        "interleaveCycles": 10,
+        "interleaveInsertSize": 500,
+        "interleaveQueryCount": 20
+      },
+      "comparisons": [
+        {
+          "label": "orama-insert",
+          "metrics": {
+            "docsPerSec": 10793,
+            "totalMs": 463
+          }
+        },
+        {
+          "label": "orama-search",
+          "metrics": {
+            "medianMs": 13.388,
+            "p95Ms": 42.493
+          }
+        },
+        {
+          "label": "narsil-isolated-insert",
+          "metrics": {
+            "docsPerSec": 15143,
+            "totalMs": 330
+          }
+        },
+        {
+          "label": "narsil-isolated-search",
+          "metrics": {
+            "medianMs": 12.292,
+            "p95Ms": 21.744
+          }
+        },
+        {
+          "label": "narsil-interleaved-insert-avg",
+          "metrics": {
+            "docsPerSec": 13435
+          }
+        },
+        {
+          "label": "narsil-interleaved-search-avg",
+          "metrics": {
+            "medianMs": 9.672,
+            "p95Ms": 17.745
+          }
+        }
+      ],
+      "durationMs": 12242.07475
+    },
+    {
+      "name": "memory-accuracy",
+      "description": "Validates getStats().memoryBytes against actual heap delta",
+      "config": {
+        "scales": [
+          1000,
+          10000,
+          50000
+        ],
+        "vectorDimension": 384
+      },
+      "comparisons": [
+        {
+          "label": "text-1,000",
+          "metrics": {
+            "scale": 1000,
+            "variant": "text-only",
+            "heapDeltaBytes": 8761416,
+            "estimatedBytes": 8662110,
+            "ratio": 0.99
+          }
+        },
+        {
+          "label": "vector-1,000",
+          "metrics": {
+            "scale": 1000,
+            "variant": "vector-384d",
+            "heapDeltaBytes": 4765256,
+            "estimatedBytes": 3180220,
+            "ratio": 0.67
+          }
+        },
+        {
+          "label": "text-10,000",
+          "metrics": {
+            "scale": 10000,
+            "variant": "text-only",
+            "heapDeltaBytes": 87333216,
+            "estimatedBytes": 87040970,
+            "ratio": 1
+          }
+        },
+        {
+          "label": "vector-10,000",
+          "metrics": {
+            "scale": 10000,
+            "variant": "vector-384d",
+            "heapDeltaBytes": 42648544,
+            "estimatedBytes": 31652930,
+            "ratio": 0.74
+          }
+        },
+        {
+          "label": "text-50,000",
+          "metrics": {
+            "scale": 50000,
+            "variant": "text-only",
+            "heapDeltaBytes": 421623696,
+            "estimatedBytes": 435723610,
+            "ratio": 1.03
+          }
+        },
+        {
+          "label": "vector-50,000",
+          "metrics": {
+            "scale": 50000,
+            "variant": "vector-384d",
+            "heapDeltaBytes": 194340416,
+            "estimatedBytes": 158139030,
+            "ratio": 0.81
+          }
+        }
+      ],
+      "durationMs": 7007.133582999988
+    }
+  ]
+}

@@ -1,10 +1,20 @@
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
+  server: {
+    deps: {
+      inline: [],
+    },
+  },
   test: {
     globals: true,
     environment: 'node',
     passWithNoTests: true,
+    server: {
+      deps: {
+        external: [/^node:/],
+      },
+    },
     include: ['src/**/__tests__/**/*.test.ts', 'benchmarks/__tests__/**/*.test.ts'],
     coverage: {
       provider: 'v8',
