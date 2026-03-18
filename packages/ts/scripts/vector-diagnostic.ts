@@ -119,7 +119,9 @@ async function main() {
       const bfInsertMs = performance.now() - t0
 
       const bfSearch = measureSearch(q => bf.search(q, K, 'cosine', 0), queries)
-      console.log(`    BF  insert: ${bfInsertMs.toFixed(1)}ms | search: ${bfSearch.medianMs.toFixed(3)}ms median, ${bfSearch.p95Ms.toFixed(3)}ms p95`)
+      console.log(
+        `    BF  insert: ${bfInsertMs.toFixed(1)}ms | search: ${bfSearch.medianMs.toFixed(3)}ms median, ${bfSearch.p95Ms.toFixed(3)}ms p95`,
+      )
 
       console.log(`    HNSW building...`)
       const hnsw = createHNSWIndex(dim, { m: 16, efConstruction: 200, metric: 'cosine' })
@@ -131,7 +133,9 @@ async function main() {
           const elapsed = performance.now() - t0
           const perVec = elapsed / (i + 1)
           const remaining = perVec * (scale - i - 1)
-          process.stdout.write(`\r    HNSW ${fmt(i + 1)}/${fmt(scale)} (${perVec.toFixed(2)}ms/vec, ~${(remaining / 1000).toFixed(0)}s remaining)`)
+          process.stdout.write(
+            `\r    HNSW ${fmt(i + 1)}/${fmt(scale)} (${perVec.toFixed(2)}ms/vec, ~${(remaining / 1000).toFixed(0)}s remaining)`,
+          )
 
           if (elapsed > 120_000) {
             console.log(`\n    HNSW ABORTED: exceeded 2 minutes at ${fmt(i + 1)} vectors`)
@@ -149,13 +153,17 @@ async function main() {
       }
 
       const perVec = hnswInsertMs / scale
-      console.log(`\r    HNSW insert: ${(hnswInsertMs / 1000).toFixed(2)}s total (${perVec.toFixed(2)}ms/vec)${' '.repeat(30)}`)
+      console.log(
+        `\r    HNSW insert: ${(hnswInsertMs / 1000).toFixed(2)}s total (${perVec.toFixed(2)}ms/vec)${' '.repeat(30)}`,
+      )
 
       const hnswSearch = measureSearch(q => hnsw.search(q, K, 'cosine', 0, undefined, 50), queries)
       const r = recall(bfSearch.resultIds, hnswSearch.resultIds)
       const speedup = bfSearch.medianMs / hnswSearch.medianMs
 
-      console.log(`    HNSW search (ef=50): ${hnswSearch.medianMs.toFixed(3)}ms median, ${hnswSearch.p95Ms.toFixed(3)}ms p95 | recall: ${(r * 100).toFixed(1)}% | ${speedup.toFixed(1)}x faster`)
+      console.log(
+        `    HNSW search (ef=50): ${hnswSearch.medianMs.toFixed(3)}ms median, ${hnswSearch.p95Ms.toFixed(3)}ms p95 | recall: ${(r * 100).toFixed(1)}% | ${speedup.toFixed(1)}x faster`,
+      )
 
       allResults.push({
         dim,

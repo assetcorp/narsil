@@ -14,6 +14,7 @@ export interface PartitionManager {
   readonly config: IndexConfig
 
   getPartition(partitionId: number): PartitionIndex
+  partitionAt(index: number): PartitionIndex | undefined
   getAllPartitions(): PartitionIndex[]
   setPartitions(partitions: PartitionIndex[]): void
   addPartition(): PartitionIndex
@@ -105,6 +106,10 @@ export function createPartitionManager(
     getPartition(partitionId: number): PartitionIndex {
       validatePartitionId(partitionId)
       return partitions[partitionId]
+    },
+
+    partitionAt(index: number): PartitionIndex | undefined {
+      return partitions[index]
     },
 
     getAllPartitions(): PartitionIndex[] {

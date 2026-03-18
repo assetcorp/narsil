@@ -1,5 +1,5 @@
 import { createNarsil, type Narsil } from '@delali/narsil'
-import { type AnyOrama, create, insertMultiple, searchVector } from '@orama/orama'
+import { create, insertMultiple, searchVector } from '@orama/orama'
 import { generateQueryVectors, generateVectorDocumentBatch } from '../data'
 import { fmt, median, percentile } from '../stats'
 import type { ComparisonRow, ScenarioResult, TimeSeriesPoint } from '../types'

@@ -377,4 +377,14 @@ export function generateVectorDocumentBatch(
   return docs
 }
 
+export function generateFilteredQueries(count: number, seed: number): string[] {
+  const rng = createRng(seed)
+  const queries: string[] = []
+  for (let i = 0; i < count; i++) {
+    const wordCount = 1 + Math.floor(rng() * 2)
+    queries.push(generateSentence(rng, wordCount))
+  }
+  return queries
+}
+
 export { createRng }

@@ -267,12 +267,16 @@ export function createPartitionIndex(
       let bytes = docCount * AVG_DOC_OVERHEAD
 
       const docFreqs = state.stats.docFrequencies
-      const POSTING_ENTRY_SIZE = 110
+      const POSTING_ENTRY_SIZE = 120
+      const PER_TERM_OVERHEAD = 180
       let totalPostings = 0
+      let termCount = 0
       for (const term in docFreqs) {
         totalPostings += docFreqs[term]
+        termCount++
       }
       bytes += totalPostings * POSTING_ENTRY_SIZE
+      bytes += termCount * PER_TERM_OVERHEAD
 
       const FIELD_ENTRY_OVERHEAD = 42
       bytes += docCount * state.numericIndexes.size * FIELD_ENTRY_OVERHEAD
@@ -280,14 +284,8 @@ export function createPartitionIndex(
       bytes += docCount * state.enumIndexes.size * FIELD_ENTRY_OVERHEAD
       bytes += docCount * state.geoIndexes.size * FIELD_ENTRY_OVERHEAD
 
-      const VECTOR_ENTRY_OVERHEAD = 480
       for (const store of state.vectorStores.values()) {
-        bytes += store.size * (store.dimension * 4 + VECTOR_ENTRY_OVERHEAD)
-        if (store.isPromoted) {
-          const hnswIndex = store.getHNSWIndex()
-          const m = hnswIndex ? hnswIndex.m : 16
-          bytes += store.size * m * 2 * 8
-        }
+        bytes += store.estimateMemoryBytes()
       }
 
       return bytes

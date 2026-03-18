@@ -10,3 +10,4 @@ coverage/
 !.env.example
 packages/ts/benchmarks/results/*.json
 .turbo/
+.cache/

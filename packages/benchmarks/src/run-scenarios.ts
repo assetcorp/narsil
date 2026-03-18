@@ -3,15 +3,15 @@ import os from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Narsil } from '@delali/narsil'
+import { runIncrementalInsert } from './scenarios/incremental-insert'
+import { runMemoryAccuracy } from './scenarios/memory-accuracy'
+import { runMixedWorkload } from './scenarios/mixed-workload'
+import { runPartitionedSearch } from './scenarios/partitioned-search'
+import { runRebalanceUnderLoad } from './scenarios/rebalance-under-load'
+import { runVectorLifecycle } from './scenarios/vector-lifecycle'
+import { runWorkerPromotion } from './scenarios/worker-promotion'
 import { fmt, getPackageVersion, median, percentile } from './stats'
 import type { ScenarioOutput, ScenarioResult } from './types'
-
-import { runPartitionedSearch } from './scenarios/partitioned-search'
-import { runWorkerPromotion } from './scenarios/worker-promotion'
-import { runVectorLifecycle } from './scenarios/vector-lifecycle'
-import { runRebalanceUnderLoad } from './scenarios/rebalance-under-load'
-import { runMixedWorkload } from './scenarios/mixed-workload'
-import { runMemoryAccuracy } from './scenarios/memory-accuracy'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -109,6 +109,7 @@ async function main() {
     { name: 'Rebalance Under Load', fn: runRebalanceUnderLoad },
     { name: 'Mixed Workload', fn: runMixedWorkload },
     { name: 'Memory Estimation Accuracy', fn: runMemoryAccuracy },
+    { name: 'Incremental Insert Degradation', fn: runIncrementalInsert },
   ]
 
   const results: ScenarioResult[] = []

@@ -1,10 +1,10 @@
 import { createNarsil, type Narsil } from '@delali/narsil'
-import { type AnyOrama, create, insertMultiple, search } from '@orama/orama'
+import { create, insertMultiple, search } from '@orama/orama'
 import MiniSearch from 'minisearch'
 import { generateDocuments, generateQueries } from '../data'
+import { measureSearchBatch } from '../run-scenarios'
 import { fmt, median, percentile } from '../stats'
 import type { BenchDocument, ComparisonRow, ScenarioResult } from '../types'
-import { measureSearchBatch } from '../run-scenarios'
 
 const TOTAL_DOCS = 100_000
 const PARTITION_CONFIGS = [1, 5, 10, 20]
@@ -46,7 +46,11 @@ function measureMiniSearchBaseline(
   docs: BenchDocument[],
   queries: string[],
 ): { insertDocsPerSec: number; searchMedianMs: number; searchP95Ms: number } {
-  const ms = new MiniSearch<BenchDocument>({ fields: ['title', 'body'], storeFields: ['title', 'body', 'score', 'category'], idField: 'id' })
+  const ms = new MiniSearch<BenchDocument>({
+    fields: ['title', 'body'],
+    storeFields: ['title', 'body', 'score', 'category'],
+    idField: 'id',
+  })
   const insertStart = performance.now()
   ms.addAll(docs)
   const insertMs = performance.now() - insertStart

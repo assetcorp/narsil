@@ -6,11 +6,11 @@
     "cpu": "Apple M3 Pro",
     "totalMemory": "18GB"
   },
-  "timestamp": "2026-03-17T01:59:19.282Z",
+  "timestamp": "2026-03-18T13:21:17.385Z",
   "config": {
     "scales": [1000, 10000, 50000, 100000],
-    "vectorScales": [1000, 10000, 50000, 100000, 1000000],
-    "vectorDimension": 128,
+    "vectorScales": [10000, 50000, 100000, 500000],
+    "vectorDimension": 384,
     "insertIterations": 5,
     "warmupIterations": 2,
     "searchQueryCount": 100,
@@ -25,276 +25,262 @@
     "textOnly": {
       "narsil": {
         "1000": {
-          "insertMedianMs": 43.73887500000001,
-          "insertDocsPerSec": 22863,
-          "searchMedianMs": 0.5114580000000046,
-          "searchP95Ms": 0.9361660000000711,
-          "searchAllTermsMedianMs": 0.33520850000002156,
-          "searchAllTermsP95Ms": 0.7230420000000777,
-          "memoryMb": 7.327522277832031
+          "insertMedianMs": 45.28045800000001,
+          "insertDocsPerSec": 22085,
+          "searchMedianMs": 0.5392499999999814,
+          "searchP95Ms": 1.0865420000000086,
+          "searchAllTermsMedianMs": 0.3166869999999449,
+          "searchAllTermsP95Ms": 0.6245830000000296,
+          "memoryMb": 7.3389739990234375
         },
         "10000": {
-          "insertMedianMs": 570.0242079999998,
-          "insertDocsPerSec": 17543,
-          "searchMedianMs": 6.582354000000123,
-          "searchP95Ms": 15.559041999999863,
-          "searchAllTermsMedianMs": 3.9396250000008877,
-          "searchAllTermsP95Ms": 8.8643749999992,
-          "memoryMb": 73.9020004272461
+          "insertMedianMs": 542.859375,
+          "insertDocsPerSec": 18421,
+          "searchMedianMs": 6.712604500000452,
+          "searchP95Ms": 12.597499999999854,
+          "searchAllTermsMedianMs": 3.9088540000002467,
+          "searchAllTermsP95Ms": 7.862208999998984,
+          "memoryMb": 73.89330291748047
         },
         "50000": {
-          "insertMedianMs": 3362.6496659999975,
-          "insertDocsPerSec": 14869,
-          "searchMedianMs": 48.64858300000196,
-          "searchP95Ms": 92.00279199999932,
-          "searchAllTermsMedianMs": 26.323771000003035,
-          "searchAllTermsP95Ms": 55.577958999994735,
-          "memoryMb": 360.23453521728516
+          "insertMedianMs": 3300.8857499999976,
+          "insertDocsPerSec": 15147,
+          "searchMedianMs": 46.50749999999971,
+          "searchP95Ms": 88.97891700000037,
+          "searchAllTermsMedianMs": 23.58320850000382,
+          "searchAllTermsP95Ms": 54.77541599999677,
+          "memoryMb": 360.2278518676758
         },
         "100000": {
-          "insertMedianMs": 7416.499624999997,
-          "insertDocsPerSec": 13483,
-          "searchMedianMs": 110.47577099999762,
-          "searchP95Ms": 274.80549999998766,
-          "searchAllTermsMedianMs": 54.75454149999132,
-          "searchAllTermsP95Ms": 106.17391599999974,
-          "memoryMb": 719.7954635620117
+          "insertMedianMs": 6743.743874999986,
+          "insertDocsPerSec": 14829,
+          "searchMedianMs": 106.18310399999609,
+          "searchP95Ms": 233.35737499999232,
+          "searchAllTermsMedianMs": 55.592917000016314,
+          "searchAllTermsP95Ms": 190.1913329999952,
+          "memoryMb": 719.7316284179688
         }
       },
       "orama": {
         "1000": {
-          "insertMedianMs": 67.53595899999982,
-          "insertDocsPerSec": 14807,
-          "searchMedianMs": 0.3406874999999445,
-          "searchP95Ms": 1.000250000000051,
-          "memoryMb": 8.284378051757812
+          "insertMedianMs": 61.51358400000004,
+          "insertDocsPerSec": 16257,
+          "searchMedianMs": 0.2577284999999847,
+          "searchP95Ms": 0.61262499999998,
+          "memoryMb": 8.289138793945312
         },
         "10000": {
-          "insertMedianMs": 758.4292920000007,
-          "insertDocsPerSec": 13185,
-          "searchMedianMs": 6.114312499999869,
-          "searchP95Ms": 19.834917000000132,
-          "memoryMb": 81.4853286743164
+          "insertMedianMs": 716.1721249999991,
+          "insertDocsPerSec": 13963,
+          "searchMedianMs": 5.858104500000081,
+          "searchP95Ms": 19.233916999999565,
+          "memoryMb": 81.48802947998047
         },
         "50000": {
-          "insertMedianMs": 4552.8859580000135,
-          "insertDocsPerSec": 10982,
-          "searchMedianMs": 76.53558350000094,
-          "searchP95Ms": 356.79733300000953,
-          "memoryMb": 401.2498245239258
+          "insertMedianMs": 4636.29529200001,
+          "insertDocsPerSec": 10784,
+          "searchMedianMs": 71.45222900000226,
+          "searchP95Ms": 351.60374999999476,
+          "memoryMb": 401.2449264526367
         },
         "100000": {
-          "insertMedianMs": 9842.862790999992,
-          "insertDocsPerSec": 10160,
-          "searchMedianMs": 270.2111670000013,
-          "searchP95Ms": 1197.2860830000136,
-          "memoryMb": 800.3779296875
+          "insertMedianMs": 9714.033083000046,
+          "insertDocsPerSec": 10294,
+          "searchMedianMs": 234.55647949999548,
+          "searchP95Ms": 1262.7172919999575,
+          "memoryMb": 800.5429916381836
         }
       },
       "minisearch": {
         "1000": {
-          "insertMedianMs": 42.44162499999993,
-          "insertDocsPerSec": 23562,
-          "searchMedianMs": 0.32035400000017944,
-          "searchP95Ms": 0.6797080000001188,
+          "insertMedianMs": 38.194708999999875,
+          "insertDocsPerSec": 26182,
+          "searchMedianMs": 0.3035835000002862,
+          "searchP95Ms": 0.6919590000002245,
           "memoryMb": 3.3648605346679688
         },
         "10000": {
-          "insertMedianMs": 475.79312500000015,
-          "insertDocsPerSec": 21018,
-          "searchMedianMs": 4.267146000000139,
-          "searchP95Ms": 9.382834000000003,
-          "memoryMb": 35.167144775390625
+          "insertMedianMs": 460.1427079999994,
+          "insertDocsPerSec": 21732,
+          "searchMedianMs": 4.242854000000079,
+          "searchP95Ms": 8.989458000000013,
+          "memoryMb": 35.17211151123047
         },
         "50000": {
-          "insertMedianMs": 3006.763917000004,
-          "insertDocsPerSec": 16629,
-          "searchMedianMs": 31.483458499991684,
-          "searchP95Ms": 70.241417000012,
-          "memoryMb": 169.43146514892578
+          "insertMedianMs": 3684.683958999987,
+          "insertDocsPerSec": 13570,
+          "searchMedianMs": 31.559687500004657,
+          "searchP95Ms": 73.82329100000788,
+          "memoryMb": 169.43226623535156
         },
         "100000": {
-          "insertMedianMs": 6094.881083000044,
-          "insertDocsPerSec": 16407,
-          "searchMedianMs": 71.7178539999586,
-          "searchP95Ms": 167.00958299997728,
-          "memoryMb": 337.5754928588867
+          "insertMedianMs": 5724.8682499999995,
+          "insertDocsPerSec": 17468,
+          "searchMedianMs": 64.0122295000183,
+          "searchP95Ms": 152.33079199999338,
+          "memoryMb": 337.5779113769531
         }
       }
     },
     "fullSchema": {
       "narsil": {
         "1000": {
-          "insertMedianMs": 44.66470899997512,
-          "insertDocsPerSec": 22389,
-          "searchMedianMs": 0.5087080000084825,
-          "searchP95Ms": 1.0235419999808073,
-          "searchAllTermsMedianMs": 0.28054200002225116,
-          "searchAllTermsP95Ms": 0.5756249999976717,
-          "memoryMb": 7.413276672363281
+          "insertMedianMs": 42.07600000000093,
+          "insertDocsPerSec": 23767,
+          "searchMedianMs": 0.5739790000079665,
+          "searchP95Ms": 1.4904589999932796,
+          "searchAllTermsMedianMs": 0.2735835000057705,
+          "searchAllTermsP95Ms": 0.584792000008747,
+          "memoryMb": 7.4251861572265625
         },
         "10000": {
-          "insertMedianMs": 587.3680419999873,
-          "insertDocsPerSec": 17025,
-          "searchMedianMs": 6.664916499983519,
-          "searchP95Ms": 13.592292000015732,
-          "searchAllTermsMedianMs": 3.656478999997489,
-          "searchAllTermsP95Ms": 7.694124999979977,
-          "memoryMb": 74.81006622314453
+          "insertMedianMs": 499.46020800003316,
+          "insertDocsPerSec": 20022,
+          "searchMedianMs": 6.140104000020074,
+          "searchP95Ms": 12.108209000027273,
+          "searchAllTermsMedianMs": 3.440208000014536,
+          "searchAllTermsP95Ms": 6.71708299999591,
+          "memoryMb": 74.792724609375
         },
         "50000": {
-          "insertMedianMs": 3559.8646249999874,
-          "insertDocsPerSec": 14045,
-          "searchMedianMs": 43.07114549999824,
-          "searchP95Ms": 87.36962499999208,
-          "searchAllTermsMedianMs": 24.988500499981456,
-          "searchAllTermsP95Ms": 60.97912500001257,
-          "memoryMb": 364.5261535644531
+          "insertMedianMs": 3304.9252909999923,
+          "insertDocsPerSec": 15129,
+          "searchMedianMs": 41.55995850000181,
+          "searchP95Ms": 88.61512500001118,
+          "searchAllTermsMedianMs": 22.68349950000993,
+          "searchAllTermsP95Ms": 46.65212500002235,
+          "memoryMb": 364.50372314453125
         },
         "100000": {
-          "insertMedianMs": 7813.028374999994,
-          "insertDocsPerSec": 12799,
-          "searchMedianMs": 105.45527099998435,
-          "searchP95Ms": 221.96041699999478,
-          "searchAllTermsMedianMs": 57.19818750000559,
-          "searchAllTermsP95Ms": 133.96066600002814,
-          "memoryMb": 728.4019393920898
+          "insertMedianMs": 7656.066999999923,
+          "insertDocsPerSec": 13062,
+          "searchMedianMs": 92.54645849997178,
+          "searchP95Ms": 191.937707999954,
+          "searchAllTermsMedianMs": 51.40508299996145,
+          "searchAllTermsP95Ms": 119.07554200000595,
+          "memoryMb": 728.4059219360352
         }
       },
       "orama": {
         "1000": {
-          "insertMedianMs": 63.025041999993846,
-          "insertDocsPerSec": 15867,
-          "searchMedianMs": 0.25497900001937523,
-          "searchP95Ms": 0.5617499999934807,
-          "memoryMb": 8.453804016113281
+          "insertMedianMs": 56.712499999965075,
+          "insertDocsPerSec": 17633,
+          "searchMedianMs": 0.23735400001169182,
+          "searchP95Ms": 0.5376669999677688,
+          "memoryMb": 8.45947265625
         },
         "10000": {
-          "insertMedianMs": 765.033832999994,
-          "insertDocsPerSec": 13071,
-          "searchMedianMs": 6.017208499979461,
-          "searchP95Ms": 19.556540999969002,
-          "memoryMb": 83.32183074951172
+          "insertMedianMs": 693.4251250000088,
+          "insertDocsPerSec": 14421,
+          "searchMedianMs": 6.093916500016348,
+          "searchP95Ms": 20.252665999985766,
+          "memoryMb": 83.3136978149414
         },
         "50000": {
-          "insertMedianMs": 4577.07120799995,
-          "insertDocsPerSec": 10924,
-          "searchMedianMs": 74.57035349996295,
-          "searchP95Ms": 323.8536249999888,
-          "memoryMb": 409.70912170410156
+          "insertMedianMs": 4717.909708000021,
+          "insertDocsPerSec": 10598,
+          "searchMedianMs": 71.40118749992689,
+          "searchP95Ms": 313.4573330000276,
+          "memoryMb": 409.70684814453125
         },
         "100000": {
-          "insertMedianMs": 9929.030167000019,
-          "insertDocsPerSec": 10071,
-          "searchMedianMs": 255.47429149999516,
-          "searchP95Ms": 1149.85699999996,
-          "memoryMb": 817.3770599365234
+          "insertMedianMs": 9217.473041999969,
+          "insertDocsPerSec": 10849,
+          "searchMedianMs": 246.76962450001156,
+          "searchP95Ms": 1174.9567089999327,
+          "memoryMb": 817.3995742797852
         }
       },
       "minisearch": {
         "1000": {
-          "insertMedianMs": 36.892915999982506,
-          "insertDocsPerSec": 27105,
-          "searchMedianMs": 0.35360400000354275,
-          "searchP95Ms": 0.806624999968335,
-          "memoryMb": 3.3569869995117188
+          "insertMedianMs": 36.36195900000166,
+          "insertDocsPerSec": 27501,
+          "searchMedianMs": 0.3000210000027437,
+          "searchP95Ms": 0.7060829999973066,
+          "memoryMb": 3.35595703125
         },
         "10000": {
-          "insertMedianMs": 464.5515000000014,
-          "insertDocsPerSec": 21526,
-          "searchMedianMs": 4.0315834999782965,
-          "searchP95Ms": 9.479667000006884,
-          "memoryMb": 35.175323486328125
+          "insertMedianMs": 437.1930000000284,
+          "insertDocsPerSec": 22873,
+          "searchMedianMs": 3.639958999992814,
+          "searchP95Ms": 8.66783300001407,
+          "memoryMb": 35.17387390136719
         },
         "50000": {
-          "insertMedianMs": 2967.877416000003,
-          "insertDocsPerSec": 16847,
-          "searchMedianMs": 30.421833500033244,
-          "searchP95Ms": 63.70475000003353,
-          "memoryMb": 169.42842864990234
+          "insertMedianMs": 2814.705457999953,
+          "insertDocsPerSec": 17764,
+          "searchMedianMs": 27.4773334999918,
+          "searchP95Ms": 59.63241600000765,
+          "memoryMb": 169.42709350585938
         },
         "100000": {
-          "insertMedianMs": 6174.418042000034,
-          "insertDocsPerSec": 16196,
-          "searchMedianMs": 68.85854149999795,
-          "searchP95Ms": 157.2635419999715,
-          "memoryMb": 337.5760192871094
+          "insertMedianMs": 6111.9666669999715,
+          "insertDocsPerSec": 16361,
+          "searchMedianMs": 66.90256249997765,
+          "searchP95Ms": 135.27612499997485,
+          "memoryMb": 337.5794143676758
         }
       }
     },
     "vector": {
       "narsil": {
-        "1000": {
-          "insertMedianMs": 8.884625000064261,
-          "insertDocsPerSec": 112554,
-          "searchMedianMs": 0.3456875000265427,
-          "searchP95Ms": 0.4814590000314638,
-          "memoryMb": 1.37530517578125
-        },
         "10000": {
-          "insertMedianMs": 102.57983299996704,
-          "insertDocsPerSec": 97485,
-          "searchMedianMs": 2.8064165000687353,
-          "searchP95Ms": 3.0723330000182614,
-          "memoryMb": 12.368637084960938
+          "insertMedianMs": 107.82291699992493,
+          "insertDocsPerSec": 92745,
+          "searchMedianMs": 2.6899165000068024,
+          "searchP95Ms": 3.0147910000523552,
+          "memoryMb": 12.435455322265625
         },
         "50000": {
-          "insertMedianMs": 547.0009169999976,
-          "insertDocsPerSec": 91408,
-          "searchMedianMs": 17.195604000007734,
-          "searchP95Ms": 19.88991599995643,
-          "memoryMb": 59.85072326660156
+          "insertMedianMs": 595.7834160000784,
+          "insertDocsPerSec": 83923,
+          "searchMedianMs": 16.27797900000587,
+          "searchP95Ms": 18.401249999995343,
+          "memoryMb": 59.83941650390625
         },
         "100000": {
-          "insertMedianMs": 1284.4627500000643,
-          "insertDocsPerSec": 77854,
-          "searchMedianMs": 37.42379150004126,
-          "searchP95Ms": 43.31670799991116,
-          "memoryMb": 119.39108276367188
+          "insertMedianMs": 1296.1343750000233,
+          "insertDocsPerSec": 77152,
+          "searchMedianMs": 35.325687500007916,
+          "searchP95Ms": 38.140833999961615,
+          "memoryMb": 119.58721160888672
         },
-        "1000000": {
-          "insertMedianMs": 18228.120999999926,
-          "insertDocsPerSec": 54860,
-          "searchMedianMs": 495.5052085000789,
-          "searchP95Ms": 1077.8042079999577,
-          "memoryMb": 1180.2338943481445
+        "500000": {
+          "insertMedianMs": 9986.760709000053,
+          "insertDocsPerSec": 50066,
+          "searchMedianMs": 206.04608350002673,
+          "searchP95Ms": 250.09733300004154,
+          "memoryMb": 589.0676727294922
         }
       },
       "orama": {
-        "1000": {
-          "insertMedianMs": 5.594457999919541,
-          "insertDocsPerSec": 178748,
-          "searchMedianMs": 0.18843749997904524,
-          "searchP95Ms": 0.19849999994039536,
-          "memoryMb": 1.7650909423828125
-        },
         "10000": {
-          "insertMedianMs": 67.82937499997206,
-          "insertDocsPerSec": 147429,
-          "searchMedianMs": 2.170228999981191,
-          "searchP95Ms": 2.6275419999146834,
-          "memoryMb": 16.617477416992188
+          "insertMedianMs": 65.57308300002478,
+          "insertDocsPerSec": 152502,
+          "searchMedianMs": 4.084291500039399,
+          "searchP95Ms": 4.472707999986596,
+          "memoryMb": 16.694931030273438
         },
         "50000": {
-          "insertMedianMs": 389.579207999981,
-          "insertDocsPerSec": 128344,
-          "searchMedianMs": 13.438208500039764,
-          "searchP95Ms": 15.692292000050656,
-          "memoryMb": 80.7793960571289
+          "insertMedianMs": 453.4300420000218,
+          "insertDocsPerSec": 110271,
+          "searchMedianMs": 23.52404150000075,
+          "searchP95Ms": 25.101207999978215,
+          "memoryMb": 80.8449478149414
         },
         "100000": {
-          "insertMedianMs": 874.1482919999398,
-          "insertDocsPerSec": 114397,
-          "searchMedianMs": 29.594958500005305,
-          "searchP95Ms": 32.72316699998919,
-          "memoryMb": 160.88866424560547
+          "insertMedianMs": 1218.1352499999339,
+          "insertDocsPerSec": 82093,
+          "searchMedianMs": 53.004500000039116,
+          "searchP95Ms": 70.79970800003503,
+          "memoryMb": 160.94960021972656
         },
-        "1000000": {
-          "insertMedianMs": 14665.466999999946,
-          "insertDocsPerSec": 68187,
-          "searchMedianMs": 577.0674579999177,
-          "searchP95Ms": 1344.2388749998063,
-          "memoryMb": 1561.7111129760742
+        "500000": {
+          "insertMedianMs": 8097.381499999901,
+          "insertDocsPerSec": 61748,
+          "searchMedianMs": 343.9263750000391,
+          "searchP95Ms": 1093.06175000011,
+          "memoryMb": 781.490852355957
         }
       }
     }

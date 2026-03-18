@@ -46,10 +46,9 @@ export async function fanOutQuery(
   config: FanOutConfig,
   searchOptions?: FulltextSearchOptions,
 ): Promise<FanOutResult> {
-  const allPartitions = manager.getAllPartitions()
-  const partitions = config.partitionIds
-    ? config.partitionIds.map(id => allPartitions[id]).filter(Boolean)
-    : allPartitions
+  const partitions: PartitionIndex[] = config.partitionIds
+    ? config.partitionIds.map(id => manager.partitionAt(id)).filter((p): p is PartitionIndex => p !== undefined)
+    : manager.getAllPartitions()
 
   if (partitions.length === 0) {
     return { scored: [], totalMatched: 0 }
@@ -65,6 +64,17 @@ export async function fanOutQuery(
   }
 
   const options = buildSearchOptions(searchOptions, globalStats)
+
+  if (partitions.length === 1 && !config.dispatcher) {
+    const result = dispatchSinglePartition(partitions[0], params, language, schema, options)
+    let facets: Record<string, FacetResult> | undefined
+    if (params.facets) {
+      const matchingDocIds = new Set(result.scored.map(doc => doc.docId))
+      facets = partitions[0].computeFacets(matchingDocIds, params.facets, schema)
+    }
+    return { scored: result.scored, totalMatched: result.totalMatched, facets }
+  }
+
   const outcomes = await dispatchToAllPartitions(partitions, params, language, schema, options, config.dispatcher)
 
   const allScoredArrays = outcomes.map(o => o.result.scored)

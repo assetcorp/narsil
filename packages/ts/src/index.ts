@@ -43,6 +43,7 @@ export type {
   PreflightResult,
   QueryResult,
   ScoreComponents,
+  SnapshotData,
 } from './types/results'
 export type {
   AnyDocument,

@@ -15,6 +15,8 @@ import type { FacetConfig } from '../../types/search'
 import { computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
 import { getAllDocIds, getFieldValueForDoc, getFlatSchema, type PartitionState } from './utils'
 
+const DEFAULT_MAX_RESULTS = 1000
+
 interface ScoreAccumulator {
   score: number
   termFrequencies: Record<string, number>
@@ -182,27 +184,14 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
   }
 
   const totalMatched = docScores.size
-
-  if (maxResults !== undefined && maxResults > 0 && totalMatched > maxResults) {
-    return { scored: topKFromMap(docScores, maxResults), totalMatched }
-  }
-
-  const scored: ScoredDocument[] = []
-  for (const [docId, data] of docScores) {
-    scored.push({
-      docId,
-      score: data.score,
-      termFrequencies: data.termFrequencies,
-      fieldLengths: data.fieldLengths,
-      idf: data.idf,
-    })
-  }
-
-  scored.sort((a, b) => b.score - a.score)
+  const k = maxResults !== undefined && maxResults > 0 ? maxResults : DEFAULT_MAX_RESULTS
+  const scored = topKFromMap(docScores, Math.min(k, totalMatched))
   return { scored, totalMatched }
 }
 
 function topKFromMap(docScores: Map<string, ScoreAccumulator>, k: number): ScoredDocument[] {
+  if (k <= 0) return []
+
   const heap: Array<{ docId: string; score: number }> = []
 
   for (const [docId, data] of docScores) {
@@ -217,17 +206,17 @@ function topKFromMap(docScores: Map<string, ScoreAccumulator>, k: number): Score
 
   heap.sort((a, b) => b.score - a.score)
 
-  const result: ScoredDocument[] = []
-  for (const entry of heap) {
-    const data = docScores.get(entry.docId)
+  const result: ScoredDocument[] = new Array(heap.length)
+  for (let i = 0; i < heap.length; i++) {
+    const data = docScores.get(heap[i].docId)
     if (!data) continue
-    result.push({
-      docId: entry.docId,
+    result[i] = {
+      docId: heap[i].docId,
       score: data.score,
       termFrequencies: data.termFrequencies,
       fieldLengths: data.fieldLengths,
       idf: data.idf,
-    })
+    }
   }
 
   return result

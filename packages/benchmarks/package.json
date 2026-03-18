@@ -4,12 +4,18 @@
   "type": "module",
   "scripts": {
     "bench": "node --expose-gc --import tsx src/run.ts",
-    "bench:scenarios": "node --expose-gc --import tsx src/run-scenarios.ts"
+    "bench:scenarios": "node --expose-gc --import tsx src/run-scenarios.ts",
+    "bench:wiki": "node --expose-gc --import tsx src/run-wiki.ts",
+    "profile:memory": "node --expose-gc --max-old-space-size=4096 --import tsx src/profile-memory.ts"
   },
   "dependencies": {
     "@delali/narsil": "workspace:*",
     "@orama/orama": "3.1.18",
     "minisearch": "7.2.0",
+    "stemmer": "2.0.1",
     "tsx": "4.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.18"
   }
 }

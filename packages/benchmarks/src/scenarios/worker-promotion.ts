@@ -1,9 +1,9 @@
 import { createNarsil, type Narsil } from '@delali/narsil'
-import { type AnyOrama, create, insertMultiple, search } from '@orama/orama'
+import { create, insertMultiple, search } from '@orama/orama'
 import { generateDocumentBatch, generateQueries } from '../data'
+import { measureSearchBatch } from '../run-scenarios'
 import { fmt, median, percentile } from '../stats'
 import type { ComparisonRow, ScenarioResult, TimeSeriesPoint } from '../types'
-import { measureSearchBatch } from '../run-scenarios'
 
 const BATCH_SIZE = 1_000
 const BATCH_COUNT = 20
@@ -96,8 +96,7 @@ export async function runWorkerPromotion(): Promise<ScenarioResult> {
   const oramaSearchP95 = percentile(oramaSearchTimes, 95)
 
   console.log(
-    `  orama at 20K: ${fmt(oramaInsertThroughput)} docs/sec, ` +
-      `search ${oramaSearchMedian.toFixed(3)}ms median`,
+    `  orama at 20K: ${fmt(oramaInsertThroughput)} docs/sec, ` + `search ${oramaSearchMedian.toFixed(3)}ms median`,
   )
 
   comparisons.push({

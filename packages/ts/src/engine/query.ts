@@ -50,16 +50,37 @@ export async function executeQuery<T = AnyDocument>(
     )
   }
 
-  let hits: Array<Hit<T>> = fanOutResult.scored.map(scored => ({
-    id: scored.docId,
-    score: scored.score,
-    document: undefined as unknown as T,
-    scoreComponents: {
-      termFrequencies: scored.termFrequencies,
-      fieldLengths: scored.fieldLengths,
-      idf: scored.idf,
-    },
-  }))
+  const needsFullHits =
+    params.sort !== undefined ||
+    params.group !== undefined ||
+    params.pinned !== undefined ||
+    params.searchAfter !== undefined
+  let hits: Array<Hit<T>>
+
+  if (needsFullHits) {
+    hits = fanOutResult.scored.map(scored => ({
+      id: scored.docId,
+      score: scored.score,
+      document: undefined as unknown as T,
+      scoreComponents: params.includeScoreComponents
+        ? { termFrequencies: scored.termFrequencies, fieldLengths: scored.fieldLengths, idf: scored.idf }
+        : undefined,
+    }))
+  } else {
+    const end = Math.min(offset + limit + 1, fanOutResult.scored.length)
+    hits = new Array(end)
+    for (let i = 0; i < end; i++) {
+      const scored = fanOutResult.scored[i]
+      hits[i] = {
+        id: scored.docId,
+        score: scored.score,
+        document: undefined as unknown as T,
+        scoreComponents: params.includeScoreComponents
+          ? { termFrequencies: scored.termFrequencies, fieldLengths: scored.fieldLengths, idf: scored.idf }
+          : undefined,
+      }
+    }
+  }
 
   if (params.sort) {
     hits = applySorting(hits, params.sort, (docId: string) => manager.getRef(docId) as AnyDocument | undefined)
