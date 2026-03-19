@@ -29,6 +29,7 @@ export interface PartitionManager {
   countDocuments(): number
 
   serializePartition(partitionId: number): SerializablePartition
+  serializePartitionToBytes(partitionId: number): Uint8Array
   deserializePartition(partitionId: number, data: SerializablePartition): void
   getAggregateStats(): {
     totalDocuments: number
@@ -206,6 +207,11 @@ export function createPartitionManager(
     serializePartition(partitionId: number): SerializablePartition {
       validatePartitionId(partitionId)
       return partitions[partitionId].serialize(indexName, partitions.length, language.name, config.schema)
+    },
+
+    serializePartitionToBytes(partitionId: number): Uint8Array {
+      validatePartitionId(partitionId)
+      return partitions[partitionId].serializeToBytes(indexName, partitions.length, language.name, config.schema)
     },
 
     deserializePartition(partitionId: number, data: SerializablePartition): void {

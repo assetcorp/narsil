@@ -3,10 +3,10 @@ import { evaluateFilters, type FilterContext } from '../../filters/evaluator'
 import type { FieldIndex, GeoFieldIndex } from '../../filters/operators'
 import type { FilterExpression } from '../../types/filters'
 import type {
+  CompactPostingList,
   InternalSearchParams,
   InternalSearchResult,
   InternalVectorParams,
-  PostingEntry,
   ScoredDocument,
 } from '../../types/internal'
 import type { FacetResult } from '../../types/results'
@@ -30,7 +30,7 @@ interface ResolvedTokenPostings {
     token: string
     docFreq: number
     idf: number
-    postings: readonly Readonly<PostingEntry>[]
+    postingList: CompactPostingList
   }>
   totalPostings: number
 }
@@ -62,6 +62,8 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
   const fieldLengthCache = new Map<string, Record<string, number> | null>()
   const useIntersection = termMatch === 'all' && queryTokens.length > 1
 
+  const fieldNames = state.fieldNameTable.names
+
   if (useIntersection) {
     const resolved: ResolvedTokenPostings[] = []
     for (const qt of queryTokens) {
@@ -76,11 +78,11 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
       const matches: ResolvedTokenPostings['matches'] = []
       for (const m of rawMatches) {
         const docFreq = globalStats
-          ? (globalDocFreqs[m.token] ?? m.postingList.docFrequency)
-          : m.postingList.docFrequency
+          ? (globalDocFreqs[m.token] ?? m.postingList.docIdSet.size)
+          : m.postingList.docIdSet.size
         const idf = computeIDF(docFreq, totalDocs)
-        totalPostings += m.postingList.postings.length
-        matches.push({ token: m.token, docFreq, idf, postings: m.postingList.postings })
+        totalPostings += m.postingList.length
+        matches.push({ token: m.token, docFreq, idf, postingList: m.postingList })
       }
 
       resolved.push({ token: qt.token, matches, totalPostings })
@@ -90,42 +92,39 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
 
     for (let tokenIndex = 0; tokenIndex < resolved.length; tokenIndex++) {
       for (const match of resolved[tokenIndex].matches) {
-        for (const posting of match.postings) {
-          if (tokenIndex > 0 && !docScores.has(posting.docId)) continue
-          if (fields && !fields.includes(posting.fieldName)) continue
+        const list = match.postingList
+        for (let pi = 0; pi < list.length; pi++) {
+          const docId = list.docIds[pi]
+          if (tokenIndex > 0 && !docScores.has(docId)) continue
+          const fieldName = fieldNames[list.fieldNameIndices[pi]]
+          if (fields && !fields.includes(fieldName)) continue
 
-          const fieldBoost = boost?.[posting.fieldName] ?? 1
-          const avgLen = avgFieldLengths[posting.fieldName] ?? 1
+          const termFrequency = list.termFrequencies[pi]
+          const fieldBoost = boost?.[fieldName] ?? 1
+          const avgLen = avgFieldLengths[fieldName] ?? 1
 
-          let cachedLengths = fieldLengthCache.get(posting.docId)
+          let cachedLengths = fieldLengthCache.get(docId)
           if (cachedLengths === undefined) {
-            const storedDoc = state.docStore.get(posting.docId)
+            const storedDoc = state.docStore.get(docId)
             cachedLengths = storedDoc?.fieldLengths ?? null
-            fieldLengthCache.set(posting.docId, cachedLengths)
+            fieldLengthCache.set(docId, cachedLengths)
           }
-          const actualFieldLength = cachedLengths?.[posting.fieldName] ?? avgLen
+          const actualFieldLength = cachedLengths?.[fieldName] ?? avgLen
 
-          let termScore = scoreFn(
-            posting.termFrequency,
-            match.docFreq,
-            totalDocs,
-            actualFieldLength,
-            avgLen,
-            bm25Params,
-          )
+          let termScore = scoreFn(termFrequency, match.docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
           termScore *= fieldBoost
 
-          const existing = docScores.get(posting.docId)
+          const existing = docScores.get(docId)
           if (existing) {
             existing.score += termScore
-            existing.termFrequencies[`${posting.fieldName}:${match.token}`] = posting.termFrequency
-            existing.fieldLengths[posting.fieldName] = actualFieldLength
+            existing.termFrequencies[`${fieldName}:${match.token}`] = termFrequency
+            existing.fieldLengths[fieldName] = actualFieldLength
             existing.idf[match.token] = match.idf
           } else {
-            docScores.set(posting.docId, {
+            docScores.set(docId, {
               score: termScore,
-              termFrequencies: { [`${posting.fieldName}:${match.token}`]: posting.termFrequency },
-              fieldLengths: { [posting.fieldName]: actualFieldLength },
+              termFrequencies: { [`${fieldName}:${match.token}`]: termFrequency },
+              fieldLengths: { [fieldName]: actualFieldLength },
               idf: { [match.token]: match.idf },
             })
           }
@@ -143,38 +142,42 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
 
       for (const match of matchingPostings) {
         const docFreq = globalStats
-          ? (globalDocFreqs[match.token] ?? match.postingList.docFrequency)
-          : match.postingList.docFrequency
+          ? (globalDocFreqs[match.token] ?? match.postingList.docIdSet.size)
+          : match.postingList.docIdSet.size
         const idf = computeIDF(docFreq, totalDocs)
 
-        for (const posting of match.postingList.postings) {
-          if (fields && !fields.includes(posting.fieldName)) continue
+        const list = match.postingList
+        for (let pi = 0; pi < list.length; pi++) {
+          const fieldName = fieldNames[list.fieldNameIndices[pi]]
+          if (fields && !fields.includes(fieldName)) continue
 
-          const fieldBoost = boost?.[posting.fieldName] ?? 1
-          const avgLen = avgFieldLengths[posting.fieldName] ?? 1
+          const docId = list.docIds[pi]
+          const termFrequency = list.termFrequencies[pi]
+          const fieldBoost = boost?.[fieldName] ?? 1
+          const avgLen = avgFieldLengths[fieldName] ?? 1
 
-          let cachedLengths = fieldLengthCache.get(posting.docId)
+          let cachedLengths = fieldLengthCache.get(docId)
           if (cachedLengths === undefined) {
-            const storedDoc = state.docStore.get(posting.docId)
+            const storedDoc = state.docStore.get(docId)
             cachedLengths = storedDoc?.fieldLengths ?? null
-            fieldLengthCache.set(posting.docId, cachedLengths)
+            fieldLengthCache.set(docId, cachedLengths)
           }
-          const actualFieldLength = cachedLengths?.[posting.fieldName] ?? avgLen
+          const actualFieldLength = cachedLengths?.[fieldName] ?? avgLen
 
-          let termScore = scoreFn(posting.termFrequency, docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
+          let termScore = scoreFn(termFrequency, docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
           termScore *= fieldBoost
 
-          const existing = docScores.get(posting.docId)
+          const existing = docScores.get(docId)
           if (existing) {
             existing.score += termScore
-            existing.termFrequencies[`${posting.fieldName}:${match.token}`] = posting.termFrequency
-            existing.fieldLengths[posting.fieldName] = actualFieldLength
+            existing.termFrequencies[`${fieldName}:${match.token}`] = termFrequency
+            existing.fieldLengths[fieldName] = actualFieldLength
             existing.idf[match.token] = idf
           } else {
-            docScores.set(posting.docId, {
+            docScores.set(docId, {
               score: termScore,
-              termFrequencies: { [`${posting.fieldName}:${match.token}`]: posting.termFrequency },
-              fieldLengths: { [posting.fieldName]: actualFieldLength },
+              termFrequencies: { [`${fieldName}:${match.token}`]: termFrequency },
+              fieldLengths: { [fieldName]: actualFieldLength },
               idf: { [match.token]: idf },
             })
           }

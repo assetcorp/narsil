@@ -10,6 +10,7 @@ import { createWriteAheadQueue, type WAQEntry } from './partitioning/write-ahead
 import { createFlushManager, type FlushManager } from './persistence/flush-manager'
 import { createPluginRegistry, type PluginRegistry } from './plugins/registry'
 import { validateSchema } from './schema/validator'
+import { deserializePayloadV1 } from './serialization/payload-v1'
 import type { NarsilConfig } from './types/config'
 import type { NarsilEventMap } from './types/events'
 import type { LanguageModule } from './types/language'
@@ -21,7 +22,6 @@ import type {
   PartitionStatsResult,
   PreflightResult,
   QueryResult,
-  SnapshotData,
 } from './types/results'
 import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig } from './types/schema'
 import type { QueryParams } from './types/search'
@@ -51,8 +51,8 @@ export interface Narsil {
   query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>
   preflight(indexName: string, params: QueryParams): Promise<PreflightResult>
 
-  snapshot(indexName: string): Promise<SnapshotData>
-  restore(indexName: string, data: SnapshotData): Promise<void>
+  snapshot(indexName: string): Promise<Uint8Array>
+  restore(indexName: string, data: Uint8Array): Promise<void>
 
   clear(indexName: string): Promise<void>
   rebalance(indexName: string, targetPartitionCount: number): Promise<void>
@@ -532,70 +532,82 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       })
     },
 
-    async snapshot(indexName: string): Promise<SnapshotData> {
+    async snapshot(indexName: string): Promise<Uint8Array> {
       guardShutdown()
       const entry = requireIndex(indexName)
       const manager = requireManager(indexName)
 
-      const partitions = []
+      const partitionBuffers: Uint8Array[] = []
       for (let i = 0; i < manager.partitionCount; i++) {
-        partitions.push(manager.serializePartition(i))
+        partitionBuffers.push(manager.serializePartitionToBytes(i))
       }
 
-      return {
+      const { encode } = await import('@msgpack/msgpack')
+      return encode({
         version: 1,
-        indexName,
         schema: entry.config.schema,
         language: entry.language.name,
-        partitions,
-      }
+        partitions: partitionBuffers,
+      })
     },
 
-    async restore(indexName: string, data: SnapshotData): Promise<void> {
+    async restore(indexName: string, data: Uint8Array): Promise<void> {
       guardShutdown()
 
-      if (typeof data !== 'object' || data === null || !Array.isArray(data.partitions)) {
-        throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Invalid snapshot data: missing partitions array')
+      if (!(data instanceof Uint8Array)) {
+        throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Snapshot data must be a Uint8Array')
       }
 
-      if (data.version !== 1) {
+      const { decode } = await import('@msgpack/msgpack')
+      const envelope = decode(data) as {
+        version?: number
+        schema?: Record<string, string>
+        language?: string
+        partitions?: Uint8Array[]
+      }
+
+      if (envelope.version !== 1) {
         throw new NarsilError(
           ErrorCodes.DOC_VALIDATION_FAILED,
-          `Unsupported snapshot version: ${data.version}. Expected version 1`,
-          { version: data.version },
+          `Unsupported snapshot version: ${envelope.version}. Expected version 1`,
+          { version: envelope.version },
         )
       }
 
-      if (!data.schema || typeof data.schema !== 'object') {
-        throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Invalid snapshot data: missing or invalid schema')
+      if (!envelope.schema || typeof envelope.schema !== 'object') {
+        throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Invalid snapshot: missing or invalid schema')
       }
 
-      if (!data.language || typeof data.language !== 'string') {
-        throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Invalid snapshot data: missing or invalid language')
+      if (!envelope.language || typeof envelope.language !== 'string') {
+        throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Invalid snapshot: missing or invalid language')
       }
 
-      const language = getLanguage(data.language)
-      validateSchema(data.schema as import('./types/schema').SchemaDefinition)
+      if (!Array.isArray(envelope.partitions)) {
+        throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Invalid snapshot: missing partitions')
+      }
+
+      const language = getLanguage(envelope.language)
+      const schema = envelope.schema as import('./types/schema').SchemaDefinition
+      validateSchema(schema)
 
       if (indexRegistry.has(indexName)) {
         await narsil.dropIndex(indexName)
       }
 
-      const schema = data.schema as import('./types/schema').SchemaDefinition
-      const indexConfig: IndexConfig = { schema, language: data.language }
-
+      const indexConfig: IndexConfig = { schema, language: envelope.language }
       executor.createIndex(indexName, indexConfig, language)
       indexRegistry.set(indexName, { config: indexConfig, language })
 
       try {
         const manager = requireManager(indexName)
 
-        while (manager.partitionCount < data.partitions.length) {
+        while (manager.partitionCount < envelope.partitions.length) {
           manager.addPartition()
         }
 
-        for (let i = 0; i < data.partitions.length; i++) {
-          manager.deserializePartition(i, data.partitions[i])
+        for (let i = 0; i < envelope.partitions.length; i++) {
+          const partition = deserializePayloadV1(envelope.partitions[i])
+          manager.deserializePartition(i, partition)
         }
       } catch (err) {
         try {

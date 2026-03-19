@@ -21,6 +21,7 @@ export interface SearchEngine {
   searchWithFilter?(query: string): Promise<number>
   searchWithIds?(query: string): Promise<string[]>
   remove?(docId: string): Promise<void>
+  removeBatch?(docIds: string[]): Promise<void>
   insertWithIds?(documents: BenchDocument[]): Promise<void>
   insertedIds?: string[]
   teardown(): Promise<void>

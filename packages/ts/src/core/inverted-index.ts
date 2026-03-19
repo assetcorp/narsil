@@ -1,24 +1,18 @@
-import type { PostingEntry, PostingList } from '../types/internal'
+import type { CompactPostingList, FieldNameTable, PostingEntry, PostingList } from '../types/internal'
 import { boundedLevenshtein } from './fuzzy'
 
-export type ReadonlyPostingList = {
-  readonly docFrequency: number
-  readonly postings: readonly Readonly<PostingEntry>[]
-}
-
-interface InternalPostingList extends PostingList {
-  docIdToIndex: Map<string, number>
-}
+const INITIAL_CAPACITY = 4
+const MAX_TERM_FREQUENCY = 65535
 
 export interface InvertedIndex {
-  insert(token: string, entry: PostingEntry): void
+  insert(token: string, docId: string, termFrequency: number, fieldNameIndex: number, positions: number[] | null): void
   remove(token: string, docId: string): void
-  lookup(token: string): ReadonlyPostingList | undefined
+  lookup(token: string): CompactPostingList | undefined
   fuzzyLookup(
     token: string,
     tolerance: number,
     prefixLength: number,
-  ): Array<{ token: string; postingList: ReadonlyPostingList }>
+  ): Array<{ token: string; postingList: CompactPostingList }>
   has(token: string): boolean
   tokens(): IterableIterator<string>
   size(): number
@@ -27,8 +21,8 @@ export interface InvertedIndex {
   deserialize(data: Record<string, PostingList>): void
 }
 
-export function createInvertedIndex(): InvertedIndex {
-  const index = new Map<string, InternalPostingList>()
+export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedIndex {
+  const index = new Map<string, CompactPostingList>()
   const charBuckets = new Map<string, Set<string>>()
 
   function trackToken(token: string): void {
@@ -70,54 +64,101 @@ export function createInvertedIndex(): InvertedIndex {
     return filtered
   }
 
-  function getOrCreateList(token: string): InternalPostingList {
+  function getOrCreateList(token: string): CompactPostingList {
     let list = index.get(token)
     if (!list) {
-      list = { docFrequency: 0, postings: [], docIdToIndex: new Map() }
+      list = {
+        length: 0,
+        docIds: [],
+        termFrequencies: new Uint16Array(INITIAL_CAPACITY),
+        fieldNameIndices: new Uint8Array(INITIAL_CAPACITY),
+        positions: null,
+        docIdSet: new Set(),
+      }
       index.set(token, list)
       trackToken(token)
     }
     return list
   }
 
+  function growTypedArrays(list: CompactPostingList): void {
+    const newCap = list.termFrequencies.length * 2
+
+    const newTF = new Uint16Array(newCap)
+    newTF.set(list.termFrequencies)
+    list.termFrequencies = newTF
+
+    const newFNI = new Uint8Array(newCap)
+    newFNI.set(list.fieldNameIndices)
+    list.fieldNameIndices = newFNI
+  }
+
   return {
-    insert(token: string, entry: PostingEntry): void {
+    insert(
+      token: string,
+      docId: string,
+      termFrequency: number,
+      fieldNameIndex: number,
+      positions: number[] | null,
+    ): void {
       const list = getOrCreateList(token)
-      const idx = list.postings.length
-      list.postings.push(entry)
-      if (!list.docIdToIndex.has(entry.docId)) {
-        list.docIdToIndex.set(entry.docId, idx)
-        list.docFrequency++
+
+      if (list.length >= list.termFrequencies.length) {
+        growTypedArrays(list)
       }
+
+      const idx = list.length
+      list.docIds.push(docId)
+      list.termFrequencies[idx] = termFrequency > MAX_TERM_FREQUENCY ? MAX_TERM_FREQUENCY : termFrequency
+      list.fieldNameIndices[idx] = fieldNameIndex
+
+      if (positions !== null) {
+        if (!list.positions) {
+          list.positions = []
+          for (let j = 0; j < idx; j++) list.positions.push([])
+        }
+        list.positions.push(positions)
+      } else if (list.positions !== null) {
+        list.positions.push([])
+      }
+
+      if (!list.docIdSet.has(docId)) {
+        list.docIdSet.add(docId)
+      }
+
+      list.length++
     },
 
     remove(token: string, docId: string): void {
       const list = index.get(token)
-      if (!list) return
-      if (!list.docIdToIndex.has(docId)) return
+      if (!list || !list.docIdSet.has(docId)) return
 
-      list.docIdToIndex.delete(docId)
-
+      list.docIdSet.delete(docId)
       let writeIdx = 0
-      for (let i = 0; i < list.postings.length; i++) {
-        if (list.postings[i].docId !== docId) {
+      for (let i = 0; i < list.length; i++) {
+        if (list.docIds[i] !== docId) {
           if (writeIdx !== i) {
-            list.postings[writeIdx] = list.postings[i]
-            list.docIdToIndex.set(list.postings[i].docId, writeIdx)
+            list.docIds[writeIdx] = list.docIds[i]
+            list.termFrequencies[writeIdx] = list.termFrequencies[i]
+            list.fieldNameIndices[writeIdx] = list.fieldNameIndices[i]
+            if (list.positions) {
+              list.positions[writeIdx] = list.positions[i]
+            }
           }
           writeIdx++
         }
       }
-      list.postings.length = writeIdx
-      list.docFrequency = list.docIdToIndex.size
+      list.docIds.length = writeIdx
+      if (list.positions) list.positions.length = writeIdx
+      list.length = writeIdx
 
-      if (list.postings.length === 0) {
+      if (writeIdx === 0) {
         index.delete(token)
         untrackToken(token)
       }
     },
 
-    lookup(token: string): ReadonlyPostingList | undefined {
+    lookup(token: string): CompactPostingList | undefined {
       return index.get(token)
     },
 
@@ -125,13 +166,13 @@ export function createInvertedIndex(): InvertedIndex {
       token: string,
       tolerance: number,
       prefixLength: number,
-    ): Array<{ token: string; postingList: ReadonlyPostingList }> {
+    ): Array<{ token: string; postingList: CompactPostingList }> {
       if (tolerance === 0) {
         const exact = index.get(token)
         return exact ? [{ token, postingList: exact }] : []
       }
 
-      const results: Array<{ token: string; postingList: ReadonlyPostingList }> = []
+      const results: Array<{ token: string; postingList: CompactPostingList }> = []
       const candidates = candidatesForPrefix(token, prefixLength)
 
       for (const candidate of candidates) {
@@ -165,7 +206,16 @@ export function createInvertedIndex(): InvertedIndex {
     serialize(): Record<string, PostingList> {
       const result: Record<string, PostingList> = Object.create(null)
       for (const [token, list] of index) {
-        result[token] = { docFrequency: list.docFrequency, postings: list.postings }
+        const postings: PostingEntry[] = new Array(list.length)
+        for (let i = 0; i < list.length; i++) {
+          postings[i] = {
+            docId: list.docIds[i],
+            termFrequency: list.termFrequencies[i],
+            fieldName: fieldNameTable.names[list.fieldNameIndices[i]],
+            positions: list.positions ? list.positions[i] : [],
+          }
+        }
+        result[token] = { docFrequency: list.docIdSet.size, postings }
       }
       return result
     },
@@ -175,14 +225,46 @@ export function createInvertedIndex(): InvertedIndex {
       charBuckets.clear()
       for (const token of Object.keys(data)) {
         const src = data[token]
-        const docIdToIndex = new Map<string, number>()
-        for (let i = 0; i < src.postings.length; i++) {
-          docIdToIndex.set(src.postings[i].docId, i)
+        const count = src.postings.length
+
+        const docIdSet = new Set<string>()
+        const docIds = new Array<string>(count)
+        const termFrequencies = new Uint16Array(count)
+        const fieldNameIndices = new Uint8Array(count)
+        let hasPositions = false
+
+        for (let i = 0; i < count; i++) {
+          const p = src.postings[i]
+          docIds[i] = p.docId
+          termFrequencies[i] = p.termFrequency > MAX_TERM_FREQUENCY ? MAX_TERM_FREQUENCY : p.termFrequency
+
+          let fnIndex = fieldNameTable.indexMap.get(p.fieldName)
+          if (fnIndex === undefined) {
+            fnIndex = fieldNameTable.names.length
+            fieldNameTable.names.push(p.fieldName)
+            fieldNameTable.indexMap.set(p.fieldName, fnIndex)
+          }
+          fieldNameIndices[i] = fnIndex
+
+          docIdSet.add(p.docId)
+          if (p.positions.length > 0) hasPositions = true
         }
+
+        let positions: number[][] | null = null
+        if (hasPositions) {
+          positions = new Array(count)
+          for (let i = 0; i < count; i++) {
+            positions[i] = src.postings[i].positions
+          }
+        }
+
         index.set(token, {
-          docFrequency: src.docFrequency,
-          postings: src.postings,
-          docIdToIndex,
+          length: count,
+          docIds,
+          termFrequencies,
+          fieldNameIndices,
+          positions,
+          docIdSet,
         })
         trackToken(token)
       }

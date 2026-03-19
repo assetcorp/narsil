@@ -24,27 +24,38 @@ vi.mock('../../core/fuzzy', () => ({
 }))
 
 import { createInvertedIndex, type InvertedIndex } from '../../core/inverted-index'
-import type { PostingEntry } from '../../types/internal'
+import type { FieldNameTable } from '../../types/internal'
 
-function entry(docId: string, fieldName: string, termFrequency: number, positions: number[]): PostingEntry {
-  return { docId, fieldName, termFrequency, positions }
+function createTable(): FieldNameTable {
+  return { names: [], indexMap: new Map() }
+}
+
+function fieldIdx(table: FieldNameTable, name: string): number {
+  const existing = table.indexMap.get(name)
+  if (existing !== undefined) return existing
+  const idx = table.names.length
+  table.names.push(name)
+  table.indexMap.set(name, idx)
+  return idx
 }
 
 describe('InvertedIndex', () => {
   let idx: InvertedIndex
+  let table: FieldNameTable
 
   beforeEach(() => {
-    idx = createInvertedIndex()
+    table = createTable()
+    idx = createInvertedIndex(table)
   })
 
   describe('insert and lookup', () => {
     it('inserts a posting entry and looks it up by token', () => {
-      idx.insert('sword', entry('doc1', 'title', 1, [0]))
+      idx.insert('sword', 'doc1', 1, fieldIdx(table, 'title'), [0])
       const list = idx.lookup('sword')
       expect(list).toBeDefined()
-      expect(list?.docFrequency).toBe(1)
-      expect(list?.postings).toHaveLength(1)
-      expect(list?.postings[0].docId).toBe('doc1')
+      expect(list?.docIdSet.size).toBe(1)
+      expect(list?.length).toBe(1)
+      expect(list?.docIds[0]).toBe('doc1')
     })
 
     it('returns undefined for a non-existent token', () => {
@@ -52,41 +63,41 @@ describe('InvertedIndex', () => {
     })
 
     it('tracks separate entries for the same token across different fields', () => {
-      idx.insert('narsil', entry('doc1', 'title', 2, [0, 5]))
-      idx.insert('narsil', entry('doc1', 'body', 1, [12]))
+      idx.insert('narsil', 'doc1', 2, fieldIdx(table, 'title'), [0, 5])
+      idx.insert('narsil', 'doc1', 1, fieldIdx(table, 'body'), [12])
       const list = idx.lookup('narsil')
       expect(list).toBeDefined()
-      expect(list?.postings).toHaveLength(2)
-      expect(list?.docFrequency).toBe(1)
+      expect(list?.length).toBe(2)
+      expect(list?.docIdSet.size).toBe(1)
     })
 
     it('tracks separate entries across different documents', () => {
-      idx.insert('blade', entry('doc1', 'title', 1, [0]))
-      idx.insert('blade', entry('doc2', 'title', 1, [0]))
+      idx.insert('blade', 'doc1', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('blade', 'doc2', 1, fieldIdx(table, 'title'), [0])
       const list = idx.lookup('blade')
       expect(list).toBeDefined()
-      expect(list?.postings).toHaveLength(2)
-      expect(list?.docFrequency).toBe(2)
+      expect(list?.length).toBe(2)
+      expect(list?.docIdSet.size).toBe(2)
     })
   })
 
   describe('remove', () => {
     it('removes all entries for a docId from a token', () => {
-      idx.insert('steel', entry('doc1', 'title', 1, [0]))
-      idx.insert('steel', entry('doc1', 'body', 2, [0, 3]))
+      idx.insert('steel', 'doc1', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('steel', 'doc1', 2, fieldIdx(table, 'body'), [0, 3])
       idx.remove('steel', 'doc1')
       expect(idx.lookup('steel')).toBeUndefined()
     })
 
     it('removes only the specified docId, keeping others', () => {
-      idx.insert('steel', entry('doc1', 'title', 1, [0]))
-      idx.insert('steel', entry('doc2', 'title', 1, [0]))
+      idx.insert('steel', 'doc1', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('steel', 'doc2', 1, fieldIdx(table, 'title'), [0])
       idx.remove('steel', 'doc1')
       const list = idx.lookup('steel')
       expect(list).toBeDefined()
-      expect(list?.postings).toHaveLength(1)
-      expect(list?.postings[0].docId).toBe('doc2')
-      expect(list?.docFrequency).toBe(1)
+      expect(list?.length).toBe(1)
+      expect(list?.docIds[0]).toBe('doc2')
+      expect(list?.docIdSet.size).toBe(1)
     })
 
     it('does nothing when the token does not exist', () => {
@@ -95,13 +106,13 @@ describe('InvertedIndex', () => {
     })
 
     it('does nothing when the docId does not exist under the token', () => {
-      idx.insert('steel', entry('doc1', 'title', 1, [0]))
+      idx.insert('steel', 'doc1', 1, fieldIdx(table, 'title'), [0])
       idx.remove('steel', 'doc99')
-      expect(idx.lookup('steel')?.postings).toHaveLength(1)
+      expect(idx.lookup('steel')?.length).toBe(1)
     })
 
     it('cleans up the token entirely when the last posting is removed', () => {
-      idx.insert('rare', entry('doc1', 'title', 1, [0]))
+      idx.insert('rare', 'doc1', 1, fieldIdx(table, 'title'), [0])
       idx.remove('rare', 'doc1')
       expect(idx.has('rare')).toBe(false)
       expect(idx.size()).toBe(0)
@@ -110,7 +121,7 @@ describe('InvertedIndex', () => {
 
   describe('has, tokens, size', () => {
     it('has returns true for existing tokens', () => {
-      idx.insert('exists', entry('doc1', 'title', 1, [0]))
+      idx.insert('exists', 'doc1', 1, fieldIdx(table, 'title'), [0])
       expect(idx.has('exists')).toBe(true)
     })
 
@@ -119,9 +130,9 @@ describe('InvertedIndex', () => {
     })
 
     it('tokens iterates all token strings', () => {
-      idx.insert('alpha', entry('doc1', 'title', 1, [0]))
-      idx.insert('beta', entry('doc1', 'title', 1, [1]))
-      idx.insert('gamma', entry('doc1', 'title', 1, [2]))
+      idx.insert('alpha', 'doc1', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('beta', 'doc1', 1, fieldIdx(table, 'title'), [1])
+      idx.insert('gamma', 'doc1', 1, fieldIdx(table, 'title'), [2])
       const tokenList = Array.from(idx.tokens())
       expect(tokenList).toHaveLength(3)
       expect(tokenList).toContain('alpha')
@@ -130,17 +141,17 @@ describe('InvertedIndex', () => {
     })
 
     it('size returns the number of unique tokens', () => {
-      idx.insert('one', entry('doc1', 'title', 1, [0]))
-      idx.insert('two', entry('doc1', 'title', 1, [1]))
-      idx.insert('one', entry('doc2', 'title', 1, [0]))
+      idx.insert('one', 'doc1', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('two', 'doc1', 1, fieldIdx(table, 'title'), [1])
+      idx.insert('one', 'doc2', 1, fieldIdx(table, 'title'), [0])
       expect(idx.size()).toBe(2)
     })
   })
 
   describe('clear', () => {
     it('empties the entire index', () => {
-      idx.insert('a', entry('doc1', 'title', 1, [0]))
-      idx.insert('b', entry('doc2', 'title', 1, [0]))
+      idx.insert('a', 'doc1', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('b', 'doc2', 1, fieldIdx(table, 'title'), [0])
       idx.clear()
       expect(idx.size()).toBe(0)
       expect(idx.lookup('a')).toBeUndefined()
@@ -150,11 +161,11 @@ describe('InvertedIndex', () => {
 
   describe('fuzzyLookup', () => {
     beforeEach(() => {
-      idx.insert('cat', entry('doc1', 'title', 1, [0]))
-      idx.insert('car', entry('doc2', 'title', 1, [0]))
-      idx.insert('cap', entry('doc3', 'title', 1, [0]))
-      idx.insert('bat', entry('doc4', 'title', 1, [0]))
-      idx.insert('dog', entry('doc5', 'title', 1, [0]))
+      idx.insert('cat', 'doc1', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('car', 'doc2', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('cap', 'doc3', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('bat', 'doc4', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('dog', 'doc5', 1, fieldIdx(table, 'title'), [0])
     })
 
     it('with tolerance 0, returns only exact matches', () => {
@@ -194,8 +205,8 @@ describe('InvertedIndex', () => {
     })
 
     it('with prefixLength > 1, narrows candidates to those sharing the prefix', () => {
-      idx.insert('cob', entry('doc6', 'title', 1, [0]))
-      idx.insert('cup', entry('doc7', 'title', 1, [0]))
+      idx.insert('cob', 'doc6', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('cup', 'doc7', 1, fieldIdx(table, 'title'), [0])
       const results = idx.fuzzyLookup('cat', 1, 2)
       const tokens = results.map(r => r.token).sort()
       expect(tokens).toContain('cat')
@@ -208,30 +219,31 @@ describe('InvertedIndex', () => {
 
     it('each result includes the correct posting list', () => {
       const results = idx.fuzzyLookup('cat', 0, 0)
-      expect(results[0].postingList.postings[0].docId).toBe('doc1')
+      expect(results[0].postingList.docIds[0]).toBe('doc1')
     })
   })
 
   describe('serialize and deserialize', () => {
     it('roundtrips through serialization', () => {
-      idx.insert('flame', entry('doc1', 'title', 2, [0, 7]))
-      idx.insert('flame', entry('doc2', 'body', 1, [3]))
-      idx.insert('steel', entry('doc1', 'title', 1, [2]))
+      idx.insert('flame', 'doc1', 2, fieldIdx(table, 'title'), [0, 7])
+      idx.insert('flame', 'doc2', 1, fieldIdx(table, 'body'), [3])
+      idx.insert('steel', 'doc1', 1, fieldIdx(table, 'title'), [2])
 
       const serialized = idx.serialize()
-      const restored = createInvertedIndex()
+      const restoredTable = createTable()
+      const restored = createInvertedIndex(restoredTable)
       restored.deserialize(serialized)
 
       expect(restored.size()).toBe(2)
       const flameList = restored.lookup('flame')
       expect(flameList).toBeDefined()
-      expect(flameList?.docFrequency).toBe(2)
-      expect(flameList?.postings).toHaveLength(2)
-      expect(restored.lookup('steel')?.docFrequency).toBe(1)
+      expect(flameList?.docIdSet.size).toBe(2)
+      expect(flameList?.length).toBe(2)
+      expect(restored.lookup('steel')?.docIdSet.size).toBe(1)
     })
 
     it('serializes to a plain object', () => {
-      idx.insert('token', entry('doc1', 'title', 1, [0]))
+      idx.insert('token', 'doc1', 1, fieldIdx(table, 'title'), [0])
       const serialized = idx.serialize()
       expect(typeof serialized).toBe('object')
       expect(serialized.token).toBeDefined()
@@ -239,9 +251,12 @@ describe('InvertedIndex', () => {
     })
 
     it('deserialize replaces existing state', () => {
-      idx.insert('old', entry('doc1', 'title', 1, [0]))
+      idx.insert('old', 'doc1', 1, fieldIdx(table, 'title'), [0])
       idx.deserialize({
-        fresh: { docFrequency: 1, postings: [entry('doc9', 'title', 1, [0])] },
+        fresh: {
+          docFrequency: 1,
+          postings: [{ docId: 'doc9', termFrequency: 1, fieldName: 'title', positions: [0] }],
+        },
       })
       expect(idx.has('old')).toBe(false)
       expect(idx.has('fresh')).toBe(true)
@@ -249,17 +264,51 @@ describe('InvertedIndex', () => {
     })
 
     it('fuzzyLookup works after deserialization (prefix buckets rebuilt)', () => {
-      idx.insert('cat', entry('d1', 'title', 1, [0]))
-      idx.insert('car', entry('d2', 'title', 1, [0]))
+      idx.insert('cat', 'd1', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('car', 'd2', 1, fieldIdx(table, 'title'), [0])
 
       const serialized = idx.serialize()
-      const restored = createInvertedIndex()
+      const restoredTable = createTable()
+      const restored = createInvertedIndex(restoredTable)
       restored.deserialize(serialized)
 
       const results = restored.fuzzyLookup('cat', 1, 1)
       const tokens = results.map(r => r.token).sort()
       expect(tokens).toContain('cat')
       expect(tokens).toContain('car')
+    })
+  })
+
+  describe('null positions', () => {
+    it('stores null positions when positions are not tracked', () => {
+      idx.insert('term', 'doc1', 3, fieldIdx(table, 'title'), null)
+      const list = idx.lookup('term')
+      expect(list).toBeDefined()
+      expect(list?.positions).toBeNull()
+      expect(list?.termFrequencies[0]).toBe(3)
+    })
+
+    it('handles mixed positions and null in same list', () => {
+      idx.insert('term', 'doc1', 1, fieldIdx(table, 'title'), [0, 5])
+      idx.insert('term', 'doc2', 2, fieldIdx(table, 'body'), null)
+      const list = idx.lookup('term')
+      expect(list?.length).toBe(2)
+      expect(list?.positions).toBeDefined()
+      expect(list?.positions?.[0]).toEqual([0, 5])
+      expect(list?.positions?.[1]).toEqual([])
+    })
+  })
+
+  describe('typed array growth', () => {
+    it('grows typed arrays when capacity is exceeded', () => {
+      const titleIdx = fieldIdx(table, 'title')
+      for (let i = 0; i < 10; i++) {
+        idx.insert('popular', `doc${i}`, 1, titleIdx, null)
+      }
+      const list = idx.lookup('popular')
+      expect(list?.length).toBe(10)
+      expect(list?.docIdSet.size).toBe(10)
+      expect(list?.termFrequencies.length).toBeGreaterThanOrEqual(10)
     })
   })
 })

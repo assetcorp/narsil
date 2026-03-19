@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { validateDocument, validateDocumentStrict } from '../../schema/validator'
+import { encodeRawPayload } from '../../serialization/payload-v1'
 import type { FilterExpression } from '../../types/filters'
 import type {
   GlobalStatistics,
@@ -19,7 +20,7 @@ import { createInvertedIndex } from '../inverted-index'
 import { createPartitionStats, type PartitionStats } from '../statistics'
 import { indexDocument, removeFromIndexes, updateFieldIndexOnly } from './indexing'
 import { applyPartitionFilters, computeFacets, searchFulltext, searchVector } from './search'
-import { deserializePartition, serializePartition } from './serialization'
+import { deserializePartition, serializePartition, serializePartitionToWirePayload } from './serialization'
 import { getFlatSchema, type PartitionInsertOptions, type PartitionState, textFieldsChanged } from './utils'
 
 export type { GlobalStatistics, InternalSearchParams, InternalSearchResult, InternalVectorParams, ScoredDocument }
@@ -66,6 +67,7 @@ export interface PartitionIndex {
     language: string,
     schema: SchemaDefinition,
   ): SerializablePartition
+  serializeToBytes(indexName: string, totalPartitions: number, language: string, schema: SchemaDefinition): Uint8Array
   deserialize(data: SerializablePartition, schema: SchemaDefinition): void
 }
 
@@ -82,8 +84,10 @@ export function createPartitionIndex(
       })
     : null
 
+  const fieldNameTable = { names: [] as string[], indexMap: new Map<string, number>() }
+
   const state: PartitionState = {
-    invertedIdx: createInvertedIndex(),
+    invertedIdx: createInvertedIndex(fieldNameTable),
     docStore: createDocumentStore(),
     stats: createPartitionStats(),
     numericIndexes: new Map(),
@@ -91,6 +95,7 @@ export function createPartitionIndex(
     enumIndexes: new Map(),
     geoIndexes: new Map(),
     vectorStores: new Map(),
+    fieldNameTable,
     flatSchemaCache: null,
     lastSchemaRef: null,
     trackPositions,
@@ -267,7 +272,7 @@ export function createPartitionIndex(
       let bytes = docCount * AVG_DOC_OVERHEAD
 
       const docFreqs = state.stats.docFrequencies
-      const POSTING_ENTRY_SIZE = 120
+      const POSTING_ENTRY_SIZE = 24
       const PER_TERM_OVERHEAD = 180
       let totalPostings = 0
       let termCount = 0
@@ -325,6 +330,16 @@ export function createPartitionIndex(
       schema: SchemaDefinition,
     ): SerializablePartition {
       return serializePartition(state, partitionId, indexName, totalPartitions, language, schema)
+    },
+
+    serializeToBytes(
+      indexName: string,
+      totalPartitions: number,
+      language: string,
+      schema: SchemaDefinition,
+    ): Uint8Array {
+      const wire = serializePartitionToWirePayload(state, partitionId, indexName, totalPartitions, language, schema)
+      return encodeRawPayload(wire)
     },
 
     deserialize(data: SerializablePartition, schema: SchemaDefinition): void {

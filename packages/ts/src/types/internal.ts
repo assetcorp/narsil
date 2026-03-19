@@ -10,6 +10,20 @@ export interface PostingList {
   postings: PostingEntry[]
 }
 
+export interface FieldNameTable {
+  names: string[]
+  indexMap: Map<string, number>
+}
+
+export interface CompactPostingList {
+  length: number
+  docIds: string[]
+  termFrequencies: Uint16Array
+  fieldNameIndices: Uint8Array
+  positions: number[][] | null
+  docIdSet: Set<string>
+}
+
 export interface StoredDocument {
   fields: Record<string, unknown>
   fieldLengths: Record<string, number>

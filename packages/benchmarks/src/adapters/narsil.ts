@@ -121,6 +121,11 @@ export function createNarsilFullSchemaAdapter(): SearchEngine {
       await instance.remove('bench', docId)
     },
 
+    async removeBatch(docIds: string[]) {
+      if (!instance) return
+      await instance.removeBatch('bench', docIds)
+    },
+
     async teardown() {
       if (instance) {
         await instance.shutdown()
@@ -157,15 +162,13 @@ export function createNarsilSerializableAdapter(): SerializableEngine {
     },
 
     async serialize() {
-      if (!instance) return ''
-      const data = await instance.snapshot('bench')
-      return JSON.stringify(data)
+      if (!instance) return new Uint8Array(0)
+      return instance.snapshot('bench')
     },
 
     async deserializeAndSearch(serialized: Uint8Array | string, query: string) {
       const fresh = await createNarsil()
-      const data = JSON.parse(serialized as string)
-      await fresh.restore('bench', data)
+      await fresh.restore('bench', serialized as Uint8Array)
       const result = await fresh.query('bench', { term: query })
       await fresh.shutdown()
       return result.count
