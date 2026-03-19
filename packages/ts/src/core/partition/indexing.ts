@@ -13,6 +13,7 @@ import {
 import { tokenize } from '../tokenizer'
 import {
   getNestedValue,
+  getOrCreateFieldNameIndex,
   type PartitionInsertOptions,
   type PartitionState,
   parseVectorDimension,
@@ -54,8 +55,6 @@ function getOrCreateBooleanIndex(state: PartitionState, fieldPath: string): Bool
   return idx
 }
 
-const EMPTY_POSITIONS: readonly number[] = Object.freeze([] as number[])
-
 function indexStringField(
   state: PartitionState,
   docId: string,
@@ -69,6 +68,7 @@ function indexStringField(
   const result = tokenize(text, language, tokenizeOptions(options))
   fieldLengths[fieldPath] = result.tokens.length
   const fieldTokenList: string[] = []
+  const fieldNameIndex = getOrCreateFieldNameIndex(state.fieldNameTable, fieldPath)
 
   if (state.trackPositions) {
     const tokenFreqs = new Map<string, { count: number; positions: number[] }>()
@@ -84,12 +84,7 @@ function indexStringField(
     }
 
     for (const [token, freq] of tokenFreqs) {
-      state.invertedIdx.insert(token, {
-        docId,
-        termFrequency: freq.count,
-        fieldName: fieldPath,
-        positions: freq.positions,
-      })
+      state.invertedIdx.insert(token, docId, freq.count, fieldNameIndex, freq.positions)
     }
   } else {
     const tokenCounts = new Map<string, number>()
@@ -99,12 +94,7 @@ function indexStringField(
     }
 
     for (const [token, count] of tokenCounts) {
-      state.invertedIdx.insert(token, {
-        docId,
-        termFrequency: count,
-        fieldName: fieldPath,
-        positions: EMPTY_POSITIONS as number[],
-      })
+      state.invertedIdx.insert(token, docId, count, fieldNameIndex, null)
     }
   }
 
@@ -122,6 +112,7 @@ function indexStringArrayField(
   tokensByField: Record<string, string[]>,
 ): void {
   const fieldTokenList: string[] = []
+  const fieldNameIndex = getOrCreateFieldNameIndex(state.fieldNameTable, fieldPath)
 
   if (state.trackPositions) {
     const tokenFreqs = new Map<string, { count: number; positions: number[] }>()
@@ -145,12 +136,7 @@ function indexStringArrayField(
     fieldLengths[fieldPath] = fieldTokenList.length
 
     for (const [token, freq] of tokenFreqs) {
-      state.invertedIdx.insert(token, {
-        docId,
-        termFrequency: freq.count,
-        fieldName: fieldPath,
-        positions: freq.positions,
-      })
+      state.invertedIdx.insert(token, docId, freq.count, fieldNameIndex, freq.positions)
     }
   } else {
     const tokenCounts = new Map<string, number>()
@@ -166,12 +152,7 @@ function indexStringArrayField(
     fieldLengths[fieldPath] = fieldTokenList.length
 
     for (const [token, count] of tokenCounts) {
-      state.invertedIdx.insert(token, {
-        docId,
-        termFrequency: count,
-        fieldName: fieldPath,
-        positions: EMPTY_POSITIONS as number[],
-      })
+      state.invertedIdx.insert(token, docId, count, fieldNameIndex, null)
     }
   }
 

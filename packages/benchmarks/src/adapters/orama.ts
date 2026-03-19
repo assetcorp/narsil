@@ -108,6 +108,13 @@ export function createOramaFullSchemaAdapter(): SearchEngine {
       await removeDoc(db, docId)
     },
 
+    async removeBatch(docIds: string[]) {
+      if (!db) return
+      for (const id of docIds) {
+        await removeDoc(db, id)
+      }
+    },
+
     async teardown() {
       db = null
     },

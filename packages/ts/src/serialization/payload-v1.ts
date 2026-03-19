@@ -1,7 +1,7 @@
 import { decode, encode } from '@msgpack/msgpack'
 import type { IndexMetadata, SerializablePartition } from '../types/internal'
 
-interface RawPartitionPayload {
+export interface RawPartitionPayload {
   index_name: string
   partition_id: number
   total_partitions: number
@@ -235,6 +235,10 @@ function wireToPartition(raw: RawPartitionPayload): SerializablePartition {
 
 export function serializePayloadV1(partition: SerializablePartition): Uint8Array {
   const wire = partitionToWire(partition)
+  return encode(wire)
+}
+
+export function encodeRawPayload(wire: RawPartitionPayload): Uint8Array {
   return encode(wire)
 }
 

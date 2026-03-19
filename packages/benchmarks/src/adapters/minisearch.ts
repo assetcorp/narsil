@@ -91,6 +91,13 @@ export function createMiniSearchFullSchemaAdapter(): SearchEngine {
       ms.discard(docId)
     },
 
+    async removeBatch(docIds: string[]) {
+      if (!ms) return
+      for (const id of docIds) {
+        ms.discard(id)
+      }
+    },
+
     async teardown() {
       ms = null
     },

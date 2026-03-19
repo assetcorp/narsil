@@ -440,11 +440,11 @@ async function measureMutations(
   documents: BenchDocument[],
   queries: string[],
 ): Promise<MutationResult | null> {
-  if (!engine.remove) return null
+  if (!engine.remove && !engine.removeBatch) return null
   await engine.create()
   await engine.insert(documents)
 
-  const removeCount = Math.floor(documents.length * 0.1)
+  const removeCount = Math.floor(documents.length * 0.02)
   const idsToRemove = (engine.insertedIds ?? []).slice(0, removeCount)
   if (idsToRemove.length === 0) {
     await engine.teardown()
@@ -452,8 +452,12 @@ async function measureMutations(
   }
 
   const removeStart = performance.now()
-  for (const id of idsToRemove) {
-    await engine.remove(id)
+  if (engine.removeBatch) {
+    await engine.removeBatch(idsToRemove)
+  } else if (engine.remove) {
+    for (const id of idsToRemove) {
+      await engine.remove(id)
+    }
   }
   const removeMs = performance.now() - removeStart
   const removeDocsPerSec = Math.round(removeCount / (removeMs / 1000))

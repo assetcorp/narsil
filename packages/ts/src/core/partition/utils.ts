@@ -1,6 +1,7 @@
 import type { GeoIndex } from '../../geo/geo-index'
 import { flattenSchema } from '../../schema/validator'
 import type { VectorSearchEngine } from '../../search/vector-search'
+import type { FieldNameTable } from '../../types/internal'
 import type { CustomTokenizer, FieldType, SchemaDefinition } from '../../types/schema'
 import type { DocumentStore } from '../document-store'
 import type { BooleanFieldIndex, EnumFieldIndex, NumericFieldIndex } from '../field-index'
@@ -16,9 +17,19 @@ export interface PartitionState {
   enumIndexes: Map<string, EnumFieldIndex>
   geoIndexes: Map<string, GeoIndex>
   vectorStores: Map<string, VectorSearchEngine>
+  fieldNameTable: FieldNameTable
   flatSchemaCache: Record<string, FieldType> | null
   lastSchemaRef: SchemaDefinition | null
   trackPositions: boolean
+}
+
+export function getOrCreateFieldNameIndex(table: FieldNameTable, fieldName: string): number {
+  const existing = table.indexMap.get(fieldName)
+  if (existing !== undefined) return existing
+  const idx = table.names.length
+  table.names.push(fieldName)
+  table.indexMap.set(fieldName, idx)
+  return idx
 }
 
 export interface PartitionInsertOptions {

@@ -1,5 +1,6 @@
 import { createGeoIndex } from '../../geo/geo-index'
 import { createVectorSearchEngine } from '../../search/vector-search'
+import type { RawPartitionPayload } from '../../serialization/payload-v1'
 import type { SerializablePartition } from '../../types/internal'
 import type { SchemaDefinition } from '../../types/schema'
 import { createBooleanIndex, createEnumIndex, createNumericIndex } from '../field-index'
@@ -101,6 +102,117 @@ export function serializePartition(
   }
 }
 
+export function serializePartitionToWirePayload(
+  state: PartitionState,
+  partitionId: number,
+  indexName: string,
+  totalPartitions: number,
+  language: string,
+  schema: SchemaDefinition,
+): RawPartitionPayload {
+  const flatSchema = getFlatSchema(state, schema)
+  const flatSchemaStrings: Record<string, string> = {}
+  for (const [k, v] of Object.entries(flatSchema)) {
+    flatSchemaStrings[k] = v
+  }
+
+  const wireDocs: RawPartitionPayload['documents'] = Object.create(null)
+  for (const [docId, stored] of state.docStore.all()) {
+    wireDocs[docId] = {
+      fields: structuredClone(stored.fields) as Record<string, unknown>,
+      field_lengths: { ...stored.fieldLengths },
+    }
+  }
+
+  const fieldNames = state.fieldNameTable.names
+  const wireInverted: RawPartitionPayload['inverted_index'] = Object.create(null)
+  for (const token of state.invertedIdx.tokens()) {
+    const list = state.invertedIdx.lookup(token)
+    if (!list) continue
+    const postings = new Array(list.length)
+    for (let i = 0; i < list.length; i++) {
+      postings[i] = {
+        doc_id: list.docIds[i],
+        term_freq: list.termFrequencies[i],
+        field: fieldNames[list.fieldNameIndices[i]],
+        positions: list.positions ? list.positions[i] : [],
+      }
+    }
+    wireInverted[token] = { doc_freq: list.docIdSet.size, postings }
+  }
+
+  const wireNumeric: RawPartitionPayload['field_indexes']['numeric'] = {}
+  for (const [path, idx] of state.numericIndexes) {
+    wireNumeric[path] = idx.serialize().map(e => ({ value: e.value, doc_id: e.docId }))
+  }
+
+  const wireBoolean: RawPartitionPayload['field_indexes']['boolean'] = {}
+  for (const [path, idx] of state.booleanIndexes) {
+    const s = idx.serialize()
+    wireBoolean[path] = { true_docs: s.trueDocs, false_docs: s.falseDocs }
+  }
+
+  const wireEnum: Record<string, Record<string, string[]>> = {}
+  for (const [path, idx] of state.enumIndexes) {
+    wireEnum[path] = idx.serialize()
+  }
+
+  const wireGeo: RawPartitionPayload['field_indexes']['geopoint'] = {}
+  for (const [path, idx] of state.geoIndexes) {
+    wireGeo[path] = idx.serialize().map(e => ({ lat: e.lat, lon: e.lon, doc_id: e.docId }))
+  }
+
+  const wireVectors: RawPartitionPayload['vector_data'] = {}
+  for (const [path, store] of state.vectorStores) {
+    const vectors: Array<{ doc_id: string; vector: number[] }> = []
+    for (const [, entry] of store.entries()) {
+      vectors.push({ doc_id: entry.docId, vector: Array.from(entry.vector) })
+    }
+    const hnswData = store.serializeHNSW()
+    wireVectors[path] = {
+      dimension: store.dimension,
+      vectors,
+      hnsw_graph: hnswData
+        ? {
+            entry_point: hnswData.entryPoint,
+            max_layer: hnswData.maxLayer,
+            m: hnswData.m,
+            ef_construction: hnswData.efConstruction,
+            metric: hnswData.metric,
+            nodes: hnswData.nodes,
+          }
+        : null,
+    }
+  }
+
+  const serializedStats = state.stats.serialize()
+
+  return {
+    index_name: indexName,
+    partition_id: partitionId,
+    total_partitions: totalPartitions,
+    language,
+    schema: flatSchemaStrings,
+    doc_count: state.docStore.count(),
+    avg_doc_length: Object.values(serializedStats.averageFieldLengths).reduce((sum, v) => sum + v, 0),
+    documents: wireDocs,
+    inverted_index: wireInverted,
+    field_indexes: {
+      numeric: wireNumeric,
+      boolean: wireBoolean,
+      enum: wireEnum,
+      geopoint: wireGeo,
+    },
+    vector_data: wireVectors,
+    statistics: {
+      total_documents: serializedStats.totalDocuments,
+      total_field_lengths: serializedStats.totalFieldLengths,
+      average_field_lengths: serializedStats.averageFieldLengths,
+      doc_frequencies: serializedStats.docFrequencies,
+    },
+  }
+}
+
 export function deserializePartition(
   state: PartitionState,
   data: SerializablePartition,
@@ -123,7 +235,7 @@ export function deserializePartition(
         docId: p.docId,
         termFrequency: p.termFrequency,
         fieldName: p.field,
-        positions: [...p.positions],
+        positions: state.trackPositions ? [...p.positions] : [],
       })),
     }
   }
