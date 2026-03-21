@@ -13,7 +13,8 @@
     "@orama/orama": "3.1.18",
     "minisearch": "7.2.0",
     "stemmer": "2.0.1",
-    "tsx": "4.21.0"
+    "tsx": "4.21.0",
+    "unbzip2-stream": "1.4.3"
   },
   "devDependencies": {
     "@types/node": "22.15.18"

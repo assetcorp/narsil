@@ -47,13 +47,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const SCALES = [1_000, 10_000, 50_000, 100_000]
 const VECTOR_SCALES_BY_DIM: Record<number, number[]> = {
-  384: [10_000, 50_000, 100_000, 500_000],
   1536: [10_000, 50_000, 100_000],
   3072: [10_000, 50_000],
 }
-const VECTOR_DIMS = [384, 1536, 3072]
-const VECTOR_SCALES = [10_000, 50_000, 100_000, 500_000]
-const VECTOR_DIM = 384
+const VECTOR_DIMS = [1536, 3072]
+const VECTOR_SCALES = [10_000, 50_000, 100_000]
+const VECTOR_DIM = 1536
 const SEED = 42
 const INSERT_ITERATIONS = 5
 const WARMUP_ITERATIONS = 2
