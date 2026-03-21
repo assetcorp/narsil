@@ -1,22 +1,39 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
-import { Readable } from 'node:stream'
+import { Readable, type Transform } from 'node:stream'
 import { fileURLToPath } from 'node:url'
-import { createGunzip } from 'node:zlib'
+
+// @ts-expect-error no type declarations
+import unbzip2 from 'unbzip2-stream'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const CACHE_DIR = resolve(__dirname, '..', '.cache')
-const CACHE_PATH = resolve(CACHE_DIR, 'wiki-abstracts.json')
-const DUMP_URL = 'https://dumps.wikimedia.org/simplewiki/latest/simplewiki-latest-abstract.xml.gz'
+const CACHE_PATH = resolve(CACHE_DIR, 'wiki-articles.json')
+const DUMP_URL = 'https://dumps.wikimedia.org/simplewiki/latest/simplewiki-latest-pages-articles.xml.bz2'
 
 export interface WikiArticle {
   title: string
   body: string
 }
 
-export async function downloadWikiAbstracts(maxCount: number): Promise<WikiArticle[]> {
-  console.log('  downloading Simple English Wikipedia abstracts from dumps.wikimedia.org...')
+function stripWikiMarkup(text: string): string {
+  let result = text
+  result = result.replace(/\{\{[^}]*\}\}/g, '')
+  result = result.replace(/\[\[(?:[^|\]]*\|)?([^\]]*)\]\]/g, '$1')
+  result = result.replace(/\[https?:\/\/[^\s\]]+ ([^\]]*)\]/g, '$1')
+  result = result.replace(/\[https?:\/\/[^\]]*\]/g, '')
+  result = result.replace(/'{2,3}/g, '')
+  result = result.replace(/={2,}[^=]+={2,}/g, '')
+  result = result.replace(/<ref[^>]*\/>/g, '')
+  result = result.replace(/<ref[^>]*>[\s\S]*?<\/ref>/g, '')
+  result = result.replace(/<[^>]+>/g, '')
+  result = result.replace(/\n{2,}/g, '\n')
+  return result.trim()
+}
+
+export async function downloadWikiArticles(maxCount: number): Promise<WikiArticle[]> {
+  console.log('  downloading Simple English Wikipedia articles from dumps.wikimedia.org...')
   console.log('  this may take a few minutes on first run')
 
   const response = await fetch(DUMP_URL)
@@ -24,67 +41,70 @@ export async function downloadWikiAbstracts(maxCount: number): Promise<WikiArtic
     throw new Error(`failed to download: ${response.status} ${response.statusText}`)
   }
 
-  const gunzip = createGunzip()
   const nodeStream = Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0])
-  nodeStream.pipe(gunzip)
+  const decompressed = nodeStream.pipe(unbzip2() as Transform)
 
   const MAX_BUFFER_SIZE = 10 * 1024 * 1024
-
   let buffer = ''
   const articles: WikiArticle[] = []
-  let inDoc = false
+  let inPage = false
 
-  try {
-    for await (const chunk of gunzip) {
-      buffer += chunk.toString('utf-8')
+  decompressed.on('error', () => {})
+  nodeStream.on('error', () => {})
 
-      if (!inDoc && buffer.length > MAX_BUFFER_SIZE) {
-        buffer = buffer.slice(-1024)
-      }
+  for await (const chunk of decompressed) {
+    buffer += chunk.toString('utf-8')
 
-      while (articles.length < maxCount) {
-        if (!inDoc) {
-          const docStart = buffer.indexOf('<doc>')
-          if (docStart === -1) {
-            if (buffer.length > 1024) buffer = buffer.slice(-1024)
-            break
-          }
-          buffer = buffer.slice(docStart)
-          inDoc = true
-        }
-
-        const docEnd = buffer.indexOf('</doc>')
-        if (docEnd === -1) break
-
-        const docContent = buffer.slice(0, docEnd + 6)
-        buffer = buffer.slice(docEnd + 6)
-        inDoc = false
-
-        const titleMatch = docContent.match(/<title>Wikipedia:\s*(.*?)<\/title>/)
-        const abstractMatch = docContent.match(/<abstract>([\s\S]*?)<\/abstract>/)
-
-        if (titleMatch && abstractMatch) {
-          const title = titleMatch[1].trim()
-          const body = abstractMatch[1].trim()
-          if (title.length > 0 && body.length > 0) {
-            articles.push({ title, body })
-          }
-        }
-      }
-
-      if (articles.length >= maxCount) break
+    if (!inPage && buffer.length > MAX_BUFFER_SIZE) {
+      buffer = buffer.slice(-2048)
     }
-  } finally {
-    nodeStream.destroy()
-    gunzip.destroy()
+
+    while (articles.length < maxCount) {
+      if (!inPage) {
+        const pageStart = buffer.indexOf('<page>')
+        if (pageStart === -1) {
+          if (buffer.length > 2048) buffer = buffer.slice(-2048)
+          break
+        }
+        buffer = buffer.slice(pageStart)
+        inPage = true
+      }
+
+      const pageEnd = buffer.indexOf('</page>')
+      if (pageEnd === -1) break
+
+      const pageContent = buffer.slice(0, pageEnd + 7)
+      buffer = buffer.slice(pageEnd + 7)
+      inPage = false
+
+      if (pageContent.includes('<ns>0</ns>') && !pageContent.includes('<redirect')) {
+        const titleMatch = pageContent.match(/<title>(.*?)<\/title>/)
+        const textMatch = pageContent.match(/<text[^>]*>([\s\S]*?)<\/text>/)
+
+        if (titleMatch && textMatch) {
+          const title = titleMatch[1].trim()
+          const rawText = textMatch[1]
+          const body = stripWikiMarkup(rawText)
+          if (title.length > 0 && body.length > 50) {
+            articles.push({ title, body: body.slice(0, 2000) })
+          }
+        }
+      }
+    }
+
+    if (articles.length >= maxCount) {
+      nodeStream.destroy()
+      break
+    }
   }
 
+  console.log(`  extracted ${articles.length} articles`)
   return articles.slice(0, maxCount)
 }
 
 export async function loadWikiArticles(maxCount = 100_000): Promise<WikiArticle[] | null> {
   if (existsSync(CACHE_PATH)) {
-    console.log(`  loading cached wiki abstracts from ${CACHE_PATH}`)
+    console.log(`  loading cached wiki articles from ${CACHE_PATH}`)
     const raw = await readFile(CACHE_PATH, 'utf-8')
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) {
@@ -102,7 +122,7 @@ export async function loadWikiArticles(maxCount = 100_000): Promise<WikiArticle[
 }
 
 export async function downloadAndCacheWiki(maxCount = 100_000): Promise<WikiArticle[]> {
-  const articles = await downloadWikiAbstracts(maxCount)
+  const articles = await downloadWikiArticles(maxCount)
 
   mkdirSync(CACHE_DIR, { recursive: true })
   writeFileSync(CACHE_PATH, JSON.stringify(articles))
