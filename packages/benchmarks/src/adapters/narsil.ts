@@ -1,4 +1,5 @@
 import { createNarsil, type Narsil } from '@delali/narsil'
+import { STOP_WORD_SET } from '../stopwords'
 import type { BenchDocument, SearchEngine, SerializableEngine, VectorBenchDocument, VectorSearchEngine } from '../types'
 
 export function createNarsilTextOnlyAdapter(): SearchEngine {
@@ -13,6 +14,7 @@ export function createNarsilTextOnlyAdapter(): SearchEngine {
         schema: { title: 'string' as const, body: 'string' as const },
         language: 'english',
         trackPositions: false,
+        stopWords: STOP_WORD_SET,
       })
     },
 
@@ -63,6 +65,7 @@ export function createNarsilFullSchemaAdapter(): SearchEngine {
         },
         language: 'english',
         trackPositions: false,
+        stopWords: STOP_WORD_SET,
       })
     },
 
@@ -152,6 +155,7 @@ export function createNarsilSerializableAdapter(): SerializableEngine {
         },
         language: 'english',
         trackPositions: false,
+        stopWords: STOP_WORD_SET,
       })
     },
 
@@ -198,6 +202,7 @@ export function createNarsilVectorAdapter(dimension: number): VectorSearchEngine
         },
         language: 'english',
         trackPositions: false,
+        stopWords: STOP_WORD_SET,
       })
     },
 
