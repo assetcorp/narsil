@@ -20,6 +20,10 @@ const DEFAULT_MIN_TOKEN_LENGTH = 1
 const normalizationCache = new Map<string, string>()
 const MAX_CACHE_SIZE = 65536
 
+let cachedLangName = ''
+let cachedFlags = ''
+let cachedPrefix = ''
+
 function stripDiacritics(text: string): string {
   return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 }
@@ -33,9 +37,18 @@ function resolveStopWords(
   return override(language.stopWords)
 }
 
+function getCachePrefix(language: LanguageModule, flags: string): string {
+  if (language.name === cachedLangName && flags === cachedFlags) return cachedPrefix
+  cachedLangName = language.name
+  cachedFlags = flags
+  cachedPrefix = `${language.name}:${flags}:`
+  return cachedPrefix
+}
+
 function transformToken(raw: string, language: LanguageModule, stem: boolean, removeDiacritics: boolean): string {
   const flags = (stem ? 's' : '') + (removeDiacritics ? 'd' : '')
-  const cacheKey = `${language.name}:${flags}:${raw}`
+  const prefix = getCachePrefix(language, flags)
+  const cacheKey = prefix + raw
   const cached = normalizationCache.get(cacheKey)
   if (cached !== undefined) return cached
 
@@ -49,21 +62,24 @@ function transformToken(raw: string, language: LanguageModule, stem: boolean, re
     normalized = language.stemmer(normalized)
   }
 
-  cacheAndReturn(cacheKey, normalized)
-  return normalized
-}
-
-function cacheAndReturn(key: string, value: string): void {
   if (normalizationCache.size >= MAX_CACHE_SIZE) {
     const firstKey = normalizationCache.keys().next().value as string
     normalizationCache.delete(firstKey)
   }
-  normalizationCache.set(key, value)
+  normalizationCache.set(cacheKey, normalized)
+  return normalized
 }
 
 function splitText(text: string, language: LanguageModule): string[] {
   const pattern = language.tokenizer?.splitPattern ?? DEFAULT_SPLIT_PATTERN
   return text.split(pattern)
+}
+
+function isAscii(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) > 127) return false
+  }
+  return true
 }
 
 export function tokenize(text: string, language: LanguageModule, options?: TokenizeOptions): TokenizerResult {
@@ -83,7 +99,7 @@ export function tokenize(text: string, language: LanguageModule, options?: Token
     }
   }
 
-  const normalized = text.normalize('NFC').toLowerCase()
+  const normalized = isAscii(text) ? text.toLowerCase() : text.normalize('NFC').toLowerCase()
   const rawParts = splitText(normalized, language)
   const minLength = language.tokenizer?.minTokenLength ?? DEFAULT_MIN_TOKEN_LENGTH
 

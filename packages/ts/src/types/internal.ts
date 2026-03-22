@@ -22,6 +22,7 @@ export interface CompactPostingList {
   fieldNameIndices: Uint8Array
   positions: number[][] | null
   docIdSet: Set<string>
+  deletedDocs: Set<string>
 }
 
 export interface StoredDocument {

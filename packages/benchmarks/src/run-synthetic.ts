@@ -19,16 +19,14 @@ import {
   createOramaTextOnlyAdapter,
   createOramaVectorAdapter,
 } from './adapters/orama'
-import { generateQueryVectors, generateVectorDocuments } from './data'
 import {
-  downloadAndCacheWiki,
-  generateWikiFilteredQueries,
-  generateWikiMultiTermQueries,
-  generateWikiQueries,
-  loadWikiArticles,
-  type WikiArticle,
-  wikiToBenchDocuments,
-} from './data-wiki'
+  generateDocuments,
+  generateFilteredQueries,
+  generateMultiTermQueries,
+  generateQueries,
+  generateQueryVectors,
+  generateVectorDocuments,
+} from './data'
 import {
   measureFilteredSearch,
   measureInsert,
@@ -66,31 +64,12 @@ const VECTOR_SCALES = [10_000, 50_000, 100_000]
 const VECTOR_DIM = 1536
 const SEED = 42
 const SEARCH_QUERY_COUNT = 100
-const WIKI_MAX_ARTICLES = 100_000
-
-type TierName = 'text' | 'full' | 'vector' | 'serial' | 'mutation' | 'quality'
-const ALL_TIERS: TierName[] = ['text', 'full', 'vector', 'serial', 'mutation', 'quality']
-
-function parseTiers(args: string[]): Set<TierName> {
-  const tiersIdx = args.indexOf('--tiers')
-  if (tiersIdx === -1 || tiersIdx + 1 >= args.length) return new Set(ALL_TIERS)
-  const names = args[tiersIdx + 1].split(',').map(s => s.trim()) as TierName[]
-  const valid = new Set(ALL_TIERS)
-  for (const n of names) {
-    if (!valid.has(n)) {
-      console.log(`Unknown tier "${n}". Valid tiers: ${ALL_TIERS.join(', ')}`)
-      process.exit(1)
-    }
-  }
-  return new Set(names)
-}
 
 async function runTextSearchTier(
   tierName: string,
   adapters: SearchEngine[],
   engineVersions: Record<string, string>,
   scales: number[],
-  allArticles: WikiArticle[],
 ): Promise<Record<string, Record<number, ScaleResult>>> {
   console.log(`\n## ${tierName}\n`)
 
@@ -100,18 +79,12 @@ async function runTextSearchTier(
   }
 
   for (const scale of scales) {
-    if (scale > allArticles.length) {
-      console.log(`--- skipping ${fmt(scale)} documents (only ${fmt(allArticles.length)} available) ---\n`)
-      continue
-    }
-
     console.log(`--- ${fmt(scale)} documents ---`)
 
-    const articleSlice = allArticles.slice(0, scale)
-    const docs = wikiToBenchDocuments(articleSlice)
-    const queries = generateWikiQueries(articleSlice, SEARCH_QUERY_COUNT, SEED + 1)
-    const multiTermQueries = generateWikiMultiTermQueries(articleSlice, SEARCH_QUERY_COUNT, SEED + 2)
-    const filteredQueries = generateWikiFilteredQueries(articleSlice, SEARCH_QUERY_COUNT, SEED + 3)
+    const docs = generateDocuments(scale, SEED)
+    const queries = generateQueries(SEARCH_QUERY_COUNT, SEED + 1)
+    const multiTermQueries = generateMultiTermQueries(SEARCH_QUERY_COUNT, SEED + 2)
+    const filteredQueries = generateFilteredQueries(SEARCH_QUERY_COUNT, SEED + 3)
 
     for (const engine of adapters) {
       const version = engineVersions[engine.name]
@@ -192,7 +165,7 @@ async function runTextSearchTier(
   })
 
   const allTermsEngines = enginesMeta.filter(e =>
-    scales.some(s => results[e.name]?.[s]?.searchAllTermsMedianMs !== undefined),
+    scales.some(s => (results[e.name][s] as ScaleResult)?.searchAllTermsMedianMs !== undefined),
   )
   if (allTermsEngines.length > 0) {
     printScaleTable('Search Latency termMatch:all (ms)', scales, results, allTermsEngines, r => {
@@ -224,7 +197,7 @@ async function runVectorTier(
   scales: number[],
   dimension: number,
 ): Promise<Record<string, Record<number, VectorScaleResult>>> {
-  console.log(`\n## Tier 3: Vector Search (${dimension}-dim, top-10, synthetic embeddings)\n`)
+  console.log(`\n## Tier 3: Vector Search (${dimension}-dim, top-10)\n`)
 
   const results: Record<string, Record<number, VectorScaleResult>> = {}
   for (const adapter of adapters) {
@@ -291,50 +264,15 @@ async function runVectorTier(
   return results
 }
 
-async function runSerializationTier(
-  adapters: SerializableEngine[],
-  engineVersions: Record<string, string>,
-  docs: import('./types').BenchDocument[],
-): Promise<Record<string, SerializationResult>> {
-  console.log(`\n## Tier 4: Serialization/Reload (${fmt(docs.length)} wiki docs)\n`)
-
-  const query = generateWikiQueries(
-    [{ title: 'United States', body: 'The United States of America is a country.' }],
-    1,
-    SEED + 1,
-  )[0]
-  const results: Record<string, SerializationResult> = {}
-
-  for (const engine of adapters) {
-    const version = engineVersions[engine.name]
-    console.log(`  ${engine.name} v${version}`)
-
-    try {
-      const result = await measureSerialization(engine, docs, query)
-      results[engine.name] = result
-      console.log(`    serialize: ${result.serializeMs.toFixed(1)}ms`)
-      console.log(`    size: ${(result.serializedBytes / 1024 / 1024).toFixed(1)}MB`)
-      console.log(`    deserialize+search: ${result.deserializeAndSearchMs.toFixed(1)}ms`)
-    } catch (err) {
-      console.log(`    ERROR: ${err instanceof Error ? err.message : err}`)
-    }
-  }
-
-  const enginesMeta = adapters.map(a => ({ name: a.name, version: engineVersions[a.name] }))
-  printSerializationTable(results, enginesMeta)
-
-  return results
-}
-
 async function runMutationTier(
   adapters: SearchEngine[],
   engineVersions: Record<string, string>,
-  docs: import('./types').BenchDocument[],
-  articles: WikiArticle[],
+  docCount: number,
 ): Promise<Record<string, MutationResult>> {
-  console.log(`\n## Tier 5: Mutation Throughput (${fmt(docs.length)} wiki docs)\n`)
+  console.log(`\n## Tier 5: Mutation Throughput (${fmt(docCount)} docs)\n`)
 
-  const queries = generateWikiQueries(articles, SEARCH_QUERY_COUNT, SEED + 1)
+  const docs = generateDocuments(docCount, SEED)
+  const queries = generateQueries(SEARCH_QUERY_COUNT, SEED + 1)
   const results: Record<string, MutationResult> = {}
 
   for (const engine of adapters) {
@@ -365,15 +303,13 @@ async function runMutationTier(
 async function runQualityMeasurement(
   adapters: SearchEngine[],
   engineVersions: Record<string, string>,
-  articles: WikiArticle[],
   docCount: number,
   queryCount: number,
 ): Promise<Record<string, QualityResult>> {
-  console.log(`\n## Tier 6: Search Quality nDCG@10 (${fmt(docCount)} wiki docs, ${queryCount} queries)\n`)
+  console.log(`\n## Tier 6: Search Quality nDCG@10 (${fmt(docCount)} docs, ${queryCount} queries)\n`)
 
-  const articleSlice = articles.slice(0, docCount)
-  const docs = wikiToBenchDocuments(articleSlice)
-  const queries = generateWikiQueries(articleSlice, queryCount, SEED + 10)
+  const docs = generateDocuments(docCount, SEED)
+  const queries = generateQueries(queryCount, SEED + 10)
   const results: Record<string, QualityResult> = {}
 
   for (const engine of adapters) {
@@ -409,12 +345,39 @@ async function runQualityMeasurement(
   return results
 }
 
-async function main() {
-  const args = process.argv.slice(2)
-  const refreshWiki = args.includes('--refresh-wiki')
-  const noDownload = args.includes('--no-download')
-  const tiers = parseTiers(args)
+async function runSerializationTier(
+  adapters: SerializableEngine[],
+  engineVersions: Record<string, string>,
+  docCount: number,
+): Promise<Record<string, SerializationResult>> {
+  console.log(`\n## Tier 4: Serialization/Reload (${fmt(docCount)} docs)\n`)
 
+  const docs = generateDocuments(docCount, SEED)
+  const query = generateQueries(1, SEED + 1)[0]
+  const results: Record<string, SerializationResult> = {}
+
+  for (const engine of adapters) {
+    const version = engineVersions[engine.name]
+    console.log(`  ${engine.name} v${version}`)
+
+    try {
+      const result = await measureSerialization(engine, docs, query)
+      results[engine.name] = result
+      console.log(`    serialize: ${result.serializeMs.toFixed(1)}ms`)
+      console.log(`    size: ${(result.serializedBytes / 1024 / 1024).toFixed(1)}MB`)
+      console.log(`    deserialize+search: ${result.deserializeAndSearchMs.toFixed(1)}ms`)
+    } catch (err) {
+      console.log(`    ERROR: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+
+  const enginesMeta = adapters.map(a => ({ name: a.name, version: engineVersions[a.name] }))
+  printSerializationTable(results, enginesMeta)
+
+  return results
+}
+
+async function main() {
   const env = {
     node: process.version,
     os: os.type(),
@@ -423,24 +386,14 @@ async function main() {
     totalMemory: `${Math.round(os.totalmem() / 1024 ** 3)}GB`,
   }
 
-  console.log('Narsil Comparative Benchmarks (Wikipedia data)')
+  console.log('Narsil Synthetic Benchmarks')
   console.log(`${env.node} | ${env.os} ${env.arch} | ${env.totalMemory} RAM`)
   console.log(`CPU: ${env.cpu}`)
   console.log(`Seed: ${SEED} | Search queries: ${SEARCH_QUERY_COUNT}`)
-  console.log(`Tiers: ${Array.from(tiers).join(', ')}`)
 
   if (typeof globalThis.gc !== 'function') {
     console.log('\nNote: --expose-gc not set. Memory measurements will be approximate.')
   }
-
-  let articles: WikiArticle[]
-  if (refreshWiki) {
-    articles = await downloadAndCacheWiki(WIKI_MAX_ARTICLES)
-  } else {
-    articles = await loadWikiArticles(WIKI_MAX_ARTICLES, { noDownload })
-  }
-
-  console.log(`\nUsing ${fmt(articles.length)} Wikipedia articles`)
 
   const engineVersions: Record<string, string> = {
     narsil: getPackageVersion('@delali/narsil'),
@@ -448,103 +401,75 @@ async function main() {
     minisearch: getPackageVersion('minisearch'),
   }
 
-  const activeScales = SCALES.filter(s => s <= articles.length)
+  const textOnlyResults = await runTextSearchTier(
+    'Tier 1: Text-Only Search',
+    [createNarsilTextOnlyAdapter(), createOramaTextOnlyAdapter(), createMiniSearchTextOnlyAdapter()],
+    engineVersions,
+    SCALES,
+  )
 
-  let textOnlyResults: Record<string, Record<number, ScaleResult>> = {}
-  if (tiers.has('text')) {
-    textOnlyResults = await runTextSearchTier(
-      'Tier 1: Text-Only Search (Wikipedia)',
-      [createNarsilTextOnlyAdapter(), createOramaTextOnlyAdapter(), createMiniSearchTextOnlyAdapter()],
-      engineVersions,
-      activeScales,
-      articles,
-    )
-  }
-
-  let fullSchemaResults: Record<string, Record<number, ScaleResult>> = {}
-  if (tiers.has('full')) {
-    fullSchemaResults = await runTextSearchTier(
-      'Tier 2: Full Schema (Wikipedia + derived score/category)',
-      [createNarsilFullSchemaAdapter(), createOramaFullSchemaAdapter(), createMiniSearchFullSchemaAdapter()],
-      engineVersions,
-      activeScales,
-      articles,
-    )
-  }
+  const fullSchemaResults = await runTextSearchTier(
+    'Tier 2: Full Schema (text + numeric + enum)',
+    [createNarsilFullSchemaAdapter(), createOramaFullSchemaAdapter(), createMiniSearchFullSchemaAdapter()],
+    engineVersions,
+    SCALES,
+  )
 
   const vectorResultsByDim: Record<number, Record<string, Record<number, VectorScaleResult>>> = {}
-  if (tiers.has('vector')) {
-    for (const dim of VECTOR_DIMS) {
-      const scales = VECTOR_SCALES_BY_DIM[dim] ?? [10_000, 50_000]
-      vectorResultsByDim[dim] = await runVectorTier(
-        [createNarsilVectorAdapter(dim), createOramaVectorAdapter(dim)],
-        engineVersions,
-        scales,
-        dim,
-      )
-    }
-  }
-
-  let serializationResults: Record<string, SerializationResult> = {}
-  if (tiers.has('serial')) {
-    const maxDocs = Math.min(100_000, articles.length)
-    const serialDocs = wikiToBenchDocuments(articles.slice(0, maxDocs))
-    serializationResults = await runSerializationTier(
-      [createNarsilSerializableAdapter(), createOramaSerializableAdapter(), createMiniSearchSerializableAdapter()],
+  for (const dim of VECTOR_DIMS) {
+    const scales = VECTOR_SCALES_BY_DIM[dim] ?? [10_000, 50_000]
+    vectorResultsByDim[dim] = await runVectorTier(
+      [createNarsilVectorAdapter(dim), createOramaVectorAdapter(dim)],
       engineVersions,
-      serialDocs,
+      scales,
+      dim,
     )
   }
 
-  let mutationResults: Record<string, MutationResult> = {}
-  if (tiers.has('mutation')) {
-    const maxDocs = Math.min(100_000, articles.length)
-    const mutationDocs = wikiToBenchDocuments(articles.slice(0, maxDocs))
-    mutationResults = await runMutationTier(
-      [createNarsilFullSchemaAdapter(), createOramaFullSchemaAdapter(), createMiniSearchFullSchemaAdapter()],
-      engineVersions,
-      mutationDocs,
-      articles.slice(0, maxDocs),
-    )
-  }
+  const serializationResults = await runSerializationTier(
+    [createNarsilSerializableAdapter(), createOramaSerializableAdapter(), createMiniSearchSerializableAdapter()],
+    engineVersions,
+    100_000,
+  )
 
-  let qualityResults: Record<string, QualityResult> = {}
-  if (tiers.has('quality')) {
-    qualityResults = await runQualityMeasurement(
-      [createNarsilFullSchemaAdapter(), createOramaFullSchemaAdapter(), createMiniSearchFullSchemaAdapter()],
-      engineVersions,
-      articles,
-      10_000,
-      50,
-    )
-  }
+  const mutationResults = await runMutationTier(
+    [createNarsilFullSchemaAdapter(), createOramaFullSchemaAdapter(), createMiniSearchFullSchemaAdapter()],
+    engineVersions,
+    100_000,
+  )
+
+  const qualityResults = await runQualityMeasurement(
+    [createNarsilFullSchemaAdapter(), createOramaFullSchemaAdapter(), createMiniSearchFullSchemaAdapter()],
+    engineVersions,
+    10_000,
+    50,
+  )
 
   const output: BenchmarkOutput = {
     env,
     timestamp: new Date().toISOString(),
     config: {
-      scales: activeScales,
+      scales: SCALES,
       vectorScales: VECTOR_SCALES,
       vectorDimension: VECTOR_DIM,
       insertIterations: 5,
       warmupIterations: 2,
       searchQueryCount: SEARCH_QUERY_COUNT,
       seed: SEED,
-      dataSource: 'wiki',
-      wikiArticleCount: articles.length,
+      dataSource: 'synthetic',
     },
     engines: engineVersions,
     tiers: {
       textOnly: textOnlyResults,
       fullSchema: fullSchemaResults,
-      vector: vectorResultsByDim[VECTOR_DIMS[0]] ?? {},
+      vector: vectorResultsByDim[VECTOR_DIMS[0]],
     },
-    serialization: Object.keys(serializationResults).length > 0 ? serializationResults : undefined,
-    mutations: Object.keys(mutationResults).length > 0 ? mutationResults : undefined,
-    quality: Object.keys(qualityResults).length > 0 ? qualityResults : undefined,
+    serialization: serializationResults,
+    mutations: mutationResults,
+    quality: qualityResults,
   }
 
-  const outputPath = resolve(__dirname, '..', 'results.json')
+  const outputPath = resolve(__dirname, '..', 'synthetic-results.json')
   writeFileSync(outputPath, JSON.stringify(output, null, 2))
   console.log(`\nResults saved to ${outputPath}`)
 }

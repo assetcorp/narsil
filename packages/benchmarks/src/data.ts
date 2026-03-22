@@ -241,7 +241,7 @@ const VOCABULARY = [
   'traversal',
 ]
 
-const CATEGORIES = [
+export const CATEGORIES = [
   'engineering',
   'research',
   'operations',

@@ -1,32 +1,74 @@
-import { createNarsil } from '@delali/narsil'
-import { generateDocuments } from './data'
+import { createNarsil, type Narsil } from '@delali/narsil'
+import { loadWikiArticles, wikiToBenchDocuments } from './data-wiki'
+import { fmt } from './stats'
 
-const SCALE = 50_000
-const SEED = 42
+const SCALES = [1_000, 5_000, 10_000]
+
+async function profileInsert(instance: Narsil, docs: Array<Record<string, unknown>>, label: string): Promise<void> {
+  const BATCH_SIZE = 500
+  const batches = Math.ceil(docs.length / BATCH_SIZE)
+  let totalMs = 0
+  const batchTimes: number[] = []
+
+  for (let b = 0; b < batches; b++) {
+    const batch = docs.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE)
+    const start = performance.now()
+    await instance.insertBatch('bench', batch, { skipClone: true })
+    const elapsed = performance.now() - start
+    totalMs += elapsed
+    batchTimes.push(elapsed)
+  }
+
+  const docsPerSec = Math.round(docs.length / (totalMs / 1000))
+  const avgBatchMs = totalMs / batches
+  const firstBatch = batchTimes[0]
+  const lastBatch = batchTimes[batchTimes.length - 1]
+  const slowdown = lastBatch / firstBatch
+
+  console.log(`  ${label}: ${fmt(docsPerSec)} docs/sec (${totalMs.toFixed(0)}ms total)`)
+  console.log(
+    `    avg batch: ${avgBatchMs.toFixed(1)}ms, first: ${firstBatch.toFixed(1)}ms, last: ${lastBatch.toFixed(1)}ms`,
+  )
+  console.log(`    slowdown factor (last/first): ${slowdown.toFixed(2)}x`)
+}
 
 async function main() {
-  const docs = generateDocuments(SCALE, SEED)
-  const instance = await createNarsil()
-  await instance.createIndex('bench', {
-    schema: {
-      title: 'string' as const,
-      body: 'string' as const,
-      score: 'number' as const,
-      category: 'enum' as const,
-    },
-    language: 'english',
-    trackPositions: false,
-  })
+  const articles = await loadWikiArticles(10_000)
+  console.log('\nInsert Profile (Wikipedia data)\n')
 
-  const stripped = docs.map(({ id, ...doc }) => doc)
+  for (const scale of SCALES) {
+    if (scale > articles.length) continue
+    const docs = wikiToBenchDocuments(articles.slice(0, scale))
+    const insertDocs = docs.map(({ id, ...rest }) => rest)
 
-  console.log(`Inserting ${SCALE} documents...`)
-  const start = performance.now()
-  await instance.insertBatch('bench', stripped)
-  const elapsed = performance.now() - start
-  console.log(`Done in ${elapsed.toFixed(0)}ms (${Math.round(SCALE / (elapsed / 1000))} docs/sec)`)
+    console.log(`\n--- ${fmt(scale)} documents ---`)
 
-  await instance.shutdown()
+    const instance = await createNarsil()
+    await instance.createIndex('bench', {
+      schema: { title: 'string' as const, body: 'string' as const },
+      language: 'english',
+      trackPositions: false,
+    })
+
+    await profileInsert(instance, insertDocs, 'text-only')
+    await instance.shutdown()
+
+    const instanceFull = await createNarsil()
+    await instanceFull.createIndex('bench', {
+      schema: {
+        title: 'string' as const,
+        body: 'string' as const,
+        score: 'number' as const,
+        category: 'enum' as const,
+      },
+      language: 'english',
+      trackPositions: false,
+    })
+
+    const fullDocs = docs.map(({ id, ...rest }) => rest)
+    await profileInsert(instanceFull, fullDocs, 'full-schema')
+    await instanceFull.shutdown()
+  }
 }
 
 main().catch(err => {

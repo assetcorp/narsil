@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "bench": "node --expose-gc --import tsx src/run.ts",
+    "bench:synthetic": "node --expose-gc --import tsx src/run-synthetic.ts",
     "bench:scenarios": "node --expose-gc --import tsx src/run-scenarios.ts",
-    "bench:wiki": "node --expose-gc --import tsx src/run-wiki.ts",
     "profile:memory": "node --expose-gc --max-old-space-size=4096 --import tsx src/profile-memory.ts"
   },
   "dependencies": {
