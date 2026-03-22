@@ -1,9 +1,12 @@
 import MiniSearch from 'minisearch'
 import { stemmer } from 'stemmer'
+import { STOP_WORD_SET } from '../stopwords'
 import type { BenchDocument, SearchEngine, SerializableEngine } from '../types'
 
-function processTerm(term: string): string {
-  return stemmer(term.toLowerCase())
+function processTerm(term: string): string | false {
+  const lower = term.toLowerCase()
+  if (STOP_WORD_SET.has(lower)) return false
+  return stemmer(lower)
 }
 
 export function createMiniSearchTextOnlyAdapter(): SearchEngine {

@@ -53,13 +53,18 @@ export interface VectorSearchEngine {
 export interface ScaleResult {
   insertMedianMs: number
   insertDocsPerSec: number
+  insertCV: number
   searchMedianMs: number
   searchP95Ms: number
+  searchCV: number
+  searchStdDevMs: number
   searchAllTermsMedianMs?: number
   searchAllTermsP95Ms?: number
   filteredSearchMedianMs?: number
   filteredSearchP95Ms?: number
   memoryMb: number
+  insertSamples?: number[]
+  searchSamples?: number[]
 }
 
 export interface VectorScaleResult {

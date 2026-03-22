@@ -8,7 +8,14 @@ import {
   search,
   searchVector,
 } from '@orama/orama'
+import { LUCENE_ENGLISH_STOP_WORDS } from '../stopwords'
 import type { BenchDocument, SearchEngine, SerializableEngine, VectorBenchDocument, VectorSearchEngine } from '../types'
+
+const ORAMA_TOKENIZER_CONFIG = {
+  language: 'english' as const,
+  stemming: true,
+  stopWords: [...LUCENE_ENGLISH_STOP_WORDS],
+}
 
 export function createOramaTextOnlyAdapter(): SearchEngine {
   let db: AnyOrama | null = null
@@ -19,7 +26,7 @@ export function createOramaTextOnlyAdapter(): SearchEngine {
     async create() {
       db = create({
         schema: { title: 'string' as const, body: 'string' as const },
-        language: 'english',
+        components: { tokenizer: ORAMA_TOKENIZER_CONFIG },
       })
     },
 
@@ -57,7 +64,7 @@ export function createOramaFullSchemaAdapter(): SearchEngine {
           score: 'number' as const,
           category: 'enum' as const,
         },
-        language: 'english',
+        components: { tokenizer: ORAMA_TOKENIZER_CONFIG },
       })
       trackedIds.length = 0
     },
@@ -135,7 +142,7 @@ export function createOramaSerializableAdapter(): SerializableEngine {
           score: 'number' as const,
           category: 'enum' as const,
         },
-        language: 'english',
+        components: { tokenizer: ORAMA_TOKENIZER_CONFIG },
       })
     },
 
@@ -158,7 +165,7 @@ export function createOramaSerializableAdapter(): SerializableEngine {
           score: 'number' as const,
           category: 'enum' as const,
         },
-        language: 'english',
+        components: { tokenizer: ORAMA_TOKENIZER_CONFIG },
       })
       load(fresh, JSON.parse(serialized as string))
       const result = await search(fresh, { term: query })
@@ -183,7 +190,7 @@ export function createOramaVectorAdapter(dimension: number): VectorSearchEngine 
           title: 'string' as const,
           embedding: `vector[${dimension}]` as const,
         },
-        language: 'english',
+        components: { tokenizer: ORAMA_TOKENIZER_CONFIG },
       })
     },
 

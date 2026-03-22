@@ -1,0 +1,139 @@
+{
+  "env": {
+    "node": "v22.22.0",
+    "os": "Darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Pro",
+    "totalMemory": "18GB"
+  },
+  "timestamp": "2026-03-22T16:16:26.524Z",
+  "config": {
+    "scales": [
+      1000,
+      10000,
+      50000,
+      100000
+    ],
+    "vectorScales": [
+      10000,
+      50000,
+      100000
+    ],
+    "vectorDimension": 1536,
+    "insertIterations": 5,
+    "warmupIterations": 2,
+    "searchQueryCount": 100,
+    "seed": 42,
+    "dataSource": "wiki",
+    "wikiArticleCount": 100000
+  },
+  "engines": {
+    "narsil": "unknown",
+    "orama": "3.1.18",
+    "minisearch": "unknown"
+  },
+  "tiers": {
+    "textOnly": {
+      "narsil": {
+        "1000": {
+          "insertMedianMs": 120.94762500000002,
+          "insertDocsPerSec": 8268,
+          "searchMedianMs": 0.04108350000001337,
+          "searchP95Ms": 0.18249999999989086,
+          "searchAllTermsMedianMs": 0.025333499999987907,
+          "searchAllTermsP95Ms": 0.11574999999993452,
+          "memoryMb": 22.98046875
+        },
+        "10000": {
+          "insertMedianMs": 3653.084167000001,
+          "insertDocsPerSec": 2737,
+          "searchMedianMs": 0.07304199999634875,
+          "searchP95Ms": 1.856541000001016,
+          "searchAllTermsMedianMs": 0.11445800000001327,
+          "searchAllTermsP95Ms": 0.9241249999977299,
+          "memoryMb": 132.7958984375
+        },
+        "50000": {
+          "insertMedianMs": 14716.301625000022,
+          "insertDocsPerSec": 3398,
+          "searchMedianMs": 0.08052050000696909,
+          "searchP95Ms": 3.2823329999810085,
+          "searchAllTermsMedianMs": 0.7453750000131549,
+          "searchAllTermsP95Ms": 5.481792000005953,
+          "memoryMb": 401.8567657470703
+        },
+        "100000": {
+          "insertMedianMs": 33897.61937499989,
+          "insertDocsPerSec": 2950,
+          "searchMedianMs": 0.252625499968417,
+          "searchP95Ms": 11.77979200007394,
+          "searchAllTermsMedianMs": 0.8824579999782145,
+          "searchAllTermsP95Ms": 7.5695409999461845,
+          "memoryMb": 739.6544799804688
+        }
+      },
+      "orama": {
+        "1000": {
+          "insertMedianMs": 236.86283299999968,
+          "insertDocsPerSec": 4222,
+          "searchMedianMs": 0.020187999999961903,
+          "searchP95Ms": 0.09083300000020245,
+          "memoryMb": 22.48920440673828
+        },
+        "10000": {
+          "insertMedianMs": 2757.4116670000003,
+          "insertDocsPerSec": 3627,
+          "searchMedianMs": 0.06722950000039418,
+          "searchP95Ms": 1.594042000004265,
+          "memoryMb": 169.5468978881836
+        },
+        "50000": {
+          "insertMedianMs": 11235.327499999956,
+          "insertDocsPerSec": 4450,
+          "searchMedianMs": 0.13074999998207204,
+          "searchP95Ms": 6.189291999966372,
+          "memoryMb": 611.5648956298828
+        },
+        "100000": {
+          "insertMedianMs": 27651.26329199993,
+          "insertDocsPerSec": 3616,
+          "searchMedianMs": 0.4075209999573417,
+          "searchP95Ms": 38.09037500002887,
+          "memoryMb": 1191.966049194336
+        }
+      },
+      "minisearch": {
+        "1000": {
+          "insertMedianMs": 188.45637499999975,
+          "insertDocsPerSec": 5306,
+          "searchMedianMs": 0.017562500000167347,
+          "searchP95Ms": 0.12283300000035524,
+          "memoryMb": 14.828315734863281
+        },
+        "10000": {
+          "insertMedianMs": 2157.5840420000022,
+          "insertDocsPerSec": 4635,
+          "searchMedianMs": 0.09072899999591755,
+          "searchP95Ms": 2.1956670000072336,
+          "memoryMb": 94.64942169189453
+        },
+        "50000": {
+          "insertMedianMs": 9876.022042000026,
+          "insertDocsPerSec": 5063,
+          "searchMedianMs": 0.14579149999190122,
+          "searchP95Ms": 4.893708000017796,
+          "memoryMb": 323.43700408935547
+        },
+        "100000": {
+          "insertMedianMs": 20786.06437499984,
+          "insertDocsPerSec": 4811,
+          "searchMedianMs": 0.25229199999012053,
+          "searchP95Ms": 13.401124999858439,
+          "memoryMb": 625.2039031982422
+        }
+      }
+    },
+    "fullSchema": {},
+    "vector": {}
+  }
+}

@@ -39,9 +39,16 @@ import {
   measureSerialization,
   measureVectorSearch,
 } from './measure'
-import { printMutationTable, printQualityTable, printScaleTable, printSerializationTable } from './print'
+import {
+  printMutationTable,
+  printQualityTable,
+  printScaleTable,
+  printSerializationTable,
+  printSpeedupTable,
+  printVarianceWarnings,
+} from './print'
 import { computeGroundTruthBM25, computeNDCG } from './quality'
-import { fmt, getPackageVersion, median, percentile } from './stats'
+import { coefficientOfVariation, fmt, fmtPct, getPackageVersion, median, percentile, stddev } from './stats'
 import type {
   BenchmarkOutput,
   MutationResult,
@@ -121,12 +128,19 @@ async function runTextSearchTier(
         const insertTimes = await measureInsert(engine, docs)
         const insertMedian = median(insertTimes)
         const docsPerSec = Math.round(scale / (insertMedian / 1000))
-        console.log(`    insert: ${fmt(docsPerSec)} docs/sec (median ${insertMedian.toFixed(1)}ms)`)
+        const insertCv = coefficientOfVariation(insertTimes)
+        console.log(
+          `    insert: ${fmt(docsPerSec)} docs/sec (median ${insertMedian.toFixed(1)}ms, CV=${fmtPct(insertCv)})`,
+        )
 
         const searchTimes = await measureSearch(engine, docs, queries)
         const searchMedian = median(searchTimes)
         const searchP95 = percentile(searchTimes, 95)
-        console.log(`    search: ${searchMedian.toFixed(3)}ms median, ${searchP95.toFixed(3)}ms p95`)
+        const searchCv = coefficientOfVariation(searchTimes)
+        const searchSd = stddev(searchTimes)
+        console.log(
+          `    search: ${searchMedian.toFixed(3)}ms median, ${searchP95.toFixed(3)}ms p95, CV=${fmtPct(searchCv)}`,
+        )
 
         const allTermsTimes = await measureSearchTermMatchAll(engine, docs, multiTermQueries)
         let searchAllTermsMedianMs: number | undefined
@@ -159,21 +173,29 @@ async function runTextSearchTier(
         results[engine.name][scale] = {
           insertMedianMs: insertMedian,
           insertDocsPerSec: docsPerSec,
+          insertCV: insertCv,
           searchMedianMs: searchMedian,
           searchP95Ms: searchP95,
+          searchCV: searchCv,
+          searchStdDevMs: searchSd,
           searchAllTermsMedianMs,
           searchAllTermsP95Ms,
           filteredSearchMedianMs,
           filteredSearchP95Ms,
           memoryMb,
+          insertSamples: [...insertTimes],
+          searchSamples: [...searchTimes],
         }
       } catch (err) {
         console.log(`    ERROR: ${err instanceof Error ? err.message : err}`)
         results[engine.name][scale] = {
           insertMedianMs: -1,
           insertDocsPerSec: -1,
+          insertCV: 0,
           searchMedianMs: -1,
           searchP95Ms: -1,
+          searchCV: 0,
+          searchStdDevMs: 0,
           memoryMb: -1,
         }
       }
@@ -214,6 +236,44 @@ async function runTextSearchTier(
   }
 
   printScaleTable('Memory (MB)', scales, results, enginesMeta, r => r.memoryMb.toFixed(1))
+
+  printScaleTable('Insert CV', scales, results, enginesMeta, r => {
+    const sr = r as ScaleResult
+    return sr.insertCV > 0.1 ? `${fmtPct(sr.insertCV)} [!]` : fmtPct(sr.insertCV)
+  })
+
+  printScaleTable('Search CV', scales, results, enginesMeta, r => {
+    const sr = r as ScaleResult
+    return sr.searchCV > 0.1 ? `${fmtPct(sr.searchCV)} [!]` : fmtPct(sr.searchCV)
+  })
+
+  for (const scale of scales) {
+    const scaleResults: Record<string, ScaleResult> = {}
+    for (const { name } of enginesMeta) {
+      if (results[name]?.[scale]) scaleResults[name] = results[name][scale]
+    }
+    printVarianceWarnings(scale, scaleResults, enginesMeta)
+  }
+
+  const baselineEngine = enginesMeta.find(e => e.name === 'narsil')?.name ?? enginesMeta[0]?.name
+  if (baselineEngine && enginesMeta.length > 1) {
+    printSpeedupTable(
+      'Insert Speedup vs Competitors (bootstrap 95% CI)',
+      baselineEngine,
+      scales,
+      results,
+      enginesMeta,
+      'insert',
+    )
+    printSpeedupTable(
+      'Search Speedup vs Competitors (bootstrap 95% CI, lower is faster)',
+      baselineEngine,
+      scales,
+      results,
+      enginesMeta,
+      'search',
+    )
+  }
 
   return results
 }
