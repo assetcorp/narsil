@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { validateDocument, validateDocumentStrict } from '../../schema/validator'
-import { encodeRawPayload } from '../../serialization/payload-v1'
+import { encodeRawPayloadV2 } from '../../serialization/payload-v2'
 import type { FilterExpression } from '../../types/filters'
 import type {
   GlobalStatistics,
@@ -20,7 +20,7 @@ import { createInvertedIndex } from '../inverted-index'
 import { createPartitionStats, type PartitionStats } from '../statistics'
 import { indexDocument, removeFromIndexes, updateFieldIndexOnly } from './indexing'
 import { applyPartitionFilters, computeFacets, searchFulltext, searchVector } from './search'
-import { deserializePartition, serializePartition, serializePartitionToWirePayload } from './serialization'
+import { deserializePartition, serializePartition, serializePartitionToWirePayloadV2 } from './serialization'
 import { getFlatSchema, type PartitionInsertOptions, type PartitionState, textFieldsChanged } from './utils'
 
 export type { GlobalStatistics, InternalSearchParams, InternalSearchResult, InternalVectorParams, ScoredDocument }
@@ -338,8 +338,8 @@ export function createPartitionIndex(
       language: string,
       schema: SchemaDefinition,
     ): Uint8Array {
-      const wire = serializePartitionToWirePayload(state, partitionId, indexName, totalPartitions, language, schema)
-      return encodeRawPayload(wire)
+      const wire = serializePartitionToWirePayloadV2(state, partitionId, indexName, totalPartitions, language, schema)
+      return encodeRawPayloadV2(wire)
     },
 
     deserialize(data: SerializablePartition, schema: SchemaDefinition): void {

@@ -11,6 +11,7 @@ import { createFlushManager, type FlushManager } from './persistence/flush-manag
 import { createPluginRegistry, type PluginRegistry } from './plugins/registry'
 import { validateSchema } from './schema/validator'
 import { deserializePayloadV1 } from './serialization/payload-v1'
+import { deserializePayloadV2 } from './serialization/payload-v2'
 import type { NarsilConfig } from './types/config'
 import type { NarsilEventMap } from './types/events'
 import type { LanguageModule } from './types/language'
@@ -544,7 +545,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
 
       const { encode } = await import('@msgpack/msgpack')
       return encode({
-        version: 1,
+        version: 2,
         schema: entry.config.schema,
         language: entry.language.name,
         partitions: partitionBuffers,
@@ -566,10 +567,10 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
         partitions?: Uint8Array[]
       }
 
-      if (envelope.version !== 1) {
+      if (envelope.version !== 1 && envelope.version !== 2) {
         throw new NarsilError(
           ErrorCodes.DOC_VALIDATION_FAILED,
-          `Unsupported snapshot version: ${envelope.version}. Expected version 1`,
+          `Unsupported snapshot version: ${envelope.version}. Expected version 1 or 2`,
           { version: envelope.version },
         )
       }
@@ -605,8 +606,10 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
           manager.addPartition()
         }
 
+        const deserializePartitionPayload = envelope.version === 2 ? deserializePayloadV2 : deserializePayloadV1
+
         for (let i = 0; i < envelope.partitions.length; i++) {
-          const partition = deserializePayloadV1(envelope.partitions[i])
+          const partition = deserializePartitionPayload(envelope.partitions[i])
           manager.deserializePartition(i, partition)
         }
       } catch (err) {

@@ -1,8 +1,9 @@
 import type { CompactPostingList, FieldNameTable, PostingEntry, PostingList } from '../types/internal'
 import { boundedLevenshtein } from './fuzzy'
 
-const INITIAL_CAPACITY = 4
+const INITIAL_CAPACITY = 8
 const MAX_TERM_FREQUENCY = 65535
+const COMPACTION_THRESHOLD = 0.3
 
 export interface InvertedIndex {
   insert(token: string, docId: string, termFrequency: number, fieldNameIndex: number, positions: number[] | null): void
@@ -74,6 +75,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
         fieldNameIndices: new Uint8Array(INITIAL_CAPACITY),
         positions: null,
         docIdSet: new Set(),
+        deletedDocs: new Set(),
       }
       index.set(token, list)
       trackToken(token)
@@ -93,6 +95,49 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
     list.fieldNameIndices = newFNI
   }
 
+  function compactList(list: CompactPostingList): void {
+    if (list.deletedDocs.size === 0) return
+
+    let writeIdx = 0
+    for (let i = 0; i < list.length; i++) {
+      if (!list.deletedDocs.has(list.docIds[i])) {
+        if (writeIdx !== i) {
+          list.docIds[writeIdx] = list.docIds[i]
+          list.termFrequencies[writeIdx] = list.termFrequencies[i]
+          list.fieldNameIndices[writeIdx] = list.fieldNameIndices[i]
+          if (list.positions) {
+            list.positions[writeIdx] = list.positions[i]
+          }
+        }
+        writeIdx++
+      }
+    }
+    list.docIds.length = writeIdx
+    if (list.positions) list.positions.length = writeIdx
+    list.length = writeIdx
+    list.deletedDocs.clear()
+  }
+
+  function compactDocEntries(list: CompactPostingList, docId: string): void {
+    let writeIdx = 0
+    for (let i = 0; i < list.length; i++) {
+      if (list.docIds[i] !== docId) {
+        if (writeIdx !== i) {
+          list.docIds[writeIdx] = list.docIds[i]
+          list.termFrequencies[writeIdx] = list.termFrequencies[i]
+          list.fieldNameIndices[writeIdx] = list.fieldNameIndices[i]
+          if (list.positions) {
+            list.positions[writeIdx] = list.positions[i]
+          }
+        }
+        writeIdx++
+      }
+    }
+    list.docIds.length = writeIdx
+    if (list.positions) list.positions.length = writeIdx
+    list.length = writeIdx
+  }
+
   return {
     insert(
       token: string,
@@ -102,6 +147,11 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       positions: number[] | null,
     ): void {
       const list = getOrCreateList(token)
+
+      if (list.deletedDocs.size > 0 && list.deletedDocs.has(docId)) {
+        compactDocEntries(list, docId)
+        list.deletedDocs.delete(docId)
+      }
 
       if (list.length >= list.termFrequencies.length) {
         growTypedArrays(list)
@@ -134,27 +184,16 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       if (!list || !list.docIdSet.has(docId)) return
 
       list.docIdSet.delete(docId)
-      let writeIdx = 0
-      for (let i = 0; i < list.length; i++) {
-        if (list.docIds[i] !== docId) {
-          if (writeIdx !== i) {
-            list.docIds[writeIdx] = list.docIds[i]
-            list.termFrequencies[writeIdx] = list.termFrequencies[i]
-            list.fieldNameIndices[writeIdx] = list.fieldNameIndices[i]
-            if (list.positions) {
-              list.positions[writeIdx] = list.positions[i]
-            }
-          }
-          writeIdx++
-        }
-      }
-      list.docIds.length = writeIdx
-      if (list.positions) list.positions.length = writeIdx
-      list.length = writeIdx
+      list.deletedDocs.add(docId)
 
-      if (writeIdx === 0) {
+      if (list.docIdSet.size === 0) {
         index.delete(token)
         untrackToken(token)
+        return
+      }
+
+      if (list.deletedDocs.size / list.length > COMPACTION_THRESHOLD) {
+        compactList(list)
       }
     },
 
@@ -206,16 +245,19 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
     serialize(): Record<string, PostingList> {
       const result: Record<string, PostingList> = Object.create(null)
       for (const [token, list] of index) {
-        const postings: PostingEntry[] = new Array(list.length)
+        const postings: PostingEntry[] = []
         for (let i = 0; i < list.length; i++) {
-          postings[i] = {
+          if (list.deletedDocs.size > 0 && list.deletedDocs.has(list.docIds[i])) continue
+          postings.push({
             docId: list.docIds[i],
             termFrequency: list.termFrequencies[i],
             fieldName: fieldNameTable.names[list.fieldNameIndices[i]],
             positions: list.positions ? list.positions[i] : [],
-          }
+          })
         }
-        result[token] = { docFrequency: list.docIdSet.size, postings }
+        if (postings.length > 0) {
+          result[token] = { docFrequency: list.docIdSet.size, postings }
+        }
       }
       return result
     },
@@ -265,6 +307,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
           fieldNameIndices,
           positions,
           docIdSet,
+          deletedDocs: new Set(),
         })
         trackToken(token)
       }

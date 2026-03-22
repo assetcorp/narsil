@@ -93,8 +93,10 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
     for (let tokenIndex = 0; tokenIndex < resolved.length; tokenIndex++) {
       for (const match of resolved[tokenIndex].matches) {
         const list = match.postingList
+        const hasDeleted = list.deletedDocs.size > 0
         for (let pi = 0; pi < list.length; pi++) {
           const docId = list.docIds[pi]
+          if (hasDeleted && list.deletedDocs.has(docId)) continue
           if (tokenIndex > 0 && !docScores.has(docId)) continue
           const fieldName = fieldNames[list.fieldNameIndices[pi]]
           if (fields && !fields.includes(fieldName)) continue
@@ -147,11 +149,12 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
         const idf = computeIDF(docFreq, totalDocs)
 
         const list = match.postingList
+        const hasDeleted = list.deletedDocs.size > 0
         for (let pi = 0; pi < list.length; pi++) {
+          const docId = list.docIds[pi]
+          if (hasDeleted && list.deletedDocs.has(docId)) continue
           const fieldName = fieldNames[list.fieldNameIndices[pi]]
           if (fields && !fields.includes(fieldName)) continue
-
-          const docId = list.docIds[pi]
           const termFrequency = list.termFrequencies[pi]
           const fieldBoost = boost?.[fieldName] ?? 1
           const avgLen = avgFieldLengths[fieldName] ?? 1

@@ -86,6 +86,8 @@ export interface BenchmarkConfig {
   warmupIterations: number
   searchQueryCount: number
   seed: number
+  dataSource: 'wiki' | 'synthetic'
+  wikiArticleCount?: number
 }
 
 export interface TierResults {
