@@ -8,17 +8,8 @@
   },
   "timestamp": "2026-03-23T14:02:23.344Z",
   "config": {
-    "scales": [
-      1000,
-      10000,
-      50000,
-      100000
-    ],
-    "vectorScales": [
-      10000,
-      50000,
-      100000
-    ],
+    "scales": [1000, 10000, 50000, 100000],
+    "vectorScales": [10000, 50000, 100000],
     "vectorDimension": 1536,
     "insertIterations": 5,
     "warmupIterations": 2,
