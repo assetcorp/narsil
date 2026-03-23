@@ -199,7 +199,7 @@ function main(): void {
   console.log('Verifying file integrity...')
   verifySha256(docPath, EXPECTED_SHA256['cran.all.1400'])
   verifySha256(queryPath, EXPECTED_SHA256['cran.qry'])
-  verifySha256(qrelPath, EXPECTED_SHA256['cranqrel'])
+  verifySha256(qrelPath, EXPECTED_SHA256.cranqrel)
   console.log('  checksums verified')
 
   console.log('Parsing documents...')
