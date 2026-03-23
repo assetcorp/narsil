@@ -1,5 +1,5 @@
 import { type BootstrapCI, bootstrapSpeedupCI, fmt, fmtPct } from './stats'
-import type { ScaleResult, VectorScaleResult } from './types'
+import type { CranfieldQualityResult, ScaleResult, VectorScaleResult } from './types'
 
 export function printScaleTable(
   title: string,
@@ -62,13 +62,30 @@ export function printQualityTable(
   engines: Array<{ name: string; version: string }>,
 ): void {
   const alignRow = '---:'
-  console.log('\n### Search Quality Results\n')
+  console.log('\n### Search Quality Results (Self-Referential BM25)\n')
   console.log('| Engine | Mean nDCG@10 | Queries Evaluated |')
   console.log(`| --- | ${alignRow} | ${alignRow} |`)
   for (const { name, version } of engines) {
     const r = results[name]
     if (!r) continue
     console.log(`| ${name} v${version} | ${r.meanNdcg10.toFixed(4)} | ${r.queryCount} |`)
+  }
+}
+
+export function printCranfieldQualityTable(
+  results: Record<string, CranfieldQualityResult>,
+  engines: Array<{ name: string; version: string }>,
+): void {
+  const a = '---:'
+  console.log('\n### Cranfield Relevance (Human Judgments, 1400 docs, 225 queries)\n')
+  console.log(`| Engine | nDCG@10 | P@10 | MAP | MRR | Queries |`)
+  console.log(`| --- | ${a} | ${a} | ${a} | ${a} | ${a} |`)
+  for (const { name, version } of engines) {
+    const r = results[name]
+    if (!r) continue
+    console.log(
+      `| ${name} v${version} | ${r.meanNdcg10.toFixed(4)} | ${r.meanPrecision10.toFixed(4)} | ${r.meanMap.toFixed(4)} | ${r.meanMrr.toFixed(4)} | ${r.queryCount} |`,
+    )
   }
 }
 

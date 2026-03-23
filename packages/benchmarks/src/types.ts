@@ -114,6 +114,15 @@ export interface QualityResult {
   docCount: number
 }
 
+export interface CranfieldQualityResult {
+  meanNdcg10: number
+  meanPrecision10: number
+  meanMap: number
+  meanMrr: number
+  queryCount: number
+  docCount: number
+}
+
 export interface BenchmarkOutput {
   env: EnvironmentInfo
   timestamp: string
@@ -123,6 +132,7 @@ export interface BenchmarkOutput {
   serialization?: Record<string, SerializationResult>
   mutations?: Record<string, MutationResult>
   quality?: Record<string, QualityResult>
+  cranfieldQuality?: Record<string, CranfieldQualityResult>
 }
 
 export interface TimeSeriesPoint {

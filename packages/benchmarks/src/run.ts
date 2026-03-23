@@ -40,6 +40,7 @@ import {
   measureVectorSearch,
 } from './measure'
 import {
+  printCranfieldQualityTable,
   printMutationTable,
   printQualityTable,
   printScaleTable,
@@ -47,10 +48,11 @@ import {
   printSpeedupTable,
   printVarianceWarnings,
 } from './print'
-import { computeGroundTruthBM25, computeNDCG } from './quality'
+import { computeGroundTruthBM25, computeNDCG, evaluateCranfield, loadCranfieldData } from './quality'
 import { coefficientOfVariation, fmt, fmtPct, getPackageVersion, median, percentile, stddev } from './stats'
 import type {
   BenchmarkOutput,
+  CranfieldQualityResult,
   MutationResult,
   QualityResult,
   ScaleResult,
@@ -469,6 +471,54 @@ async function runQualityMeasurement(
   return results
 }
 
+async function runCranfieldMeasurement(
+  adapters: SearchEngine[],
+  engineVersions: Record<string, string>,
+): Promise<Record<string, CranfieldQualityResult>> {
+  const fixturesDir = resolve(__dirname, '..', '..', 'ts', 'src', '__tests__', 'relevance', 'fixtures')
+  const data = loadCranfieldData(fixturesDir)
+
+  console.log(
+    `\n## Cranfield Relevance (${data.documents.length} docs, ${data.queries.length} queries, human judgments)\n`,
+  )
+
+  const results: Record<string, CranfieldQualityResult> = {}
+
+  for (const engine of adapters) {
+    if (!engine.searchWithIds || !engine.insertWithIds) continue
+    const version = engineVersions[engine.name]
+    console.log(`  ${engine.name} v${version}`)
+
+    try {
+      await engine.create()
+      await engine.insertWithIds(data.documents)
+
+      const top10Results = new Map<number, string[]>()
+
+      for (const query of data.queries) {
+        const ranked = await engine.searchWithIds(query.text)
+        top10Results.set(query.id, ranked)
+      }
+
+      await engine.teardown()
+
+      const result = evaluateCranfield(top10Results, top10Results, data)
+      results[engine.name] = result
+
+      console.log(
+        `    nDCG@10: ${result.meanNdcg10.toFixed(4)}  P@10: ${result.meanPrecision10.toFixed(4)}  MAP: ${result.meanMap.toFixed(4)}  MRR: ${result.meanMrr.toFixed(4)}`,
+      )
+    } catch (err) {
+      console.log(`    ERROR: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+
+  const enginesMeta = adapters.map(a => ({ name: a.name, version: engineVersions[a.name] }))
+  printCranfieldQualityTable(results, enginesMeta)
+
+  return results
+}
+
 async function main() {
   const args = process.argv.slice(2)
   const refreshWiki = args.includes('--refresh-wiki')
@@ -569,6 +619,7 @@ async function main() {
   }
 
   let qualityResults: Record<string, QualityResult> = {}
+  let cranfieldResults: Record<string, CranfieldQualityResult> = {}
   if (tiers.has('quality')) {
     qualityResults = await runQualityMeasurement(
       [createNarsilFullSchemaAdapter(), createOramaFullSchemaAdapter(), createMiniSearchFullSchemaAdapter()],
@@ -576,6 +627,10 @@ async function main() {
       articles,
       10_000,
       50,
+    )
+    cranfieldResults = await runCranfieldMeasurement(
+      [createNarsilFullSchemaAdapter(), createOramaFullSchemaAdapter(), createMiniSearchFullSchemaAdapter()],
+      engineVersions,
     )
   }
 
@@ -602,6 +657,7 @@ async function main() {
     serialization: Object.keys(serializationResults).length > 0 ? serializationResults : undefined,
     mutations: Object.keys(mutationResults).length > 0 ? mutationResults : undefined,
     quality: Object.keys(qualityResults).length > 0 ? qualityResults : undefined,
+    cranfieldQuality: Object.keys(cranfieldResults).length > 0 ? cranfieldResults : undefined,
   }
 
   const outputPath = resolve(__dirname, '..', 'results.json')
