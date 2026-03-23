@@ -165,11 +165,7 @@ function parseQrels(filePath: string): CranfieldQrel[] {
   return Array.from(deduped.values())
 }
 
-function validate(
-  docs: CranfieldDoc[],
-  queries: CranfieldQuery[],
-  qrels: CranfieldQrel[],
-): void {
+function validate(docs: CranfieldDoc[], queries: CranfieldQuery[], qrels: CranfieldQrel[]): void {
   const docIds = new Set(docs.map(d => d.id))
   const queryIds = new Set(queries.map(q => q.id))
 
