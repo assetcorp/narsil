@@ -6,7 +6,7 @@
     "cpu": "Apple M3 Pro",
     "totalMemory": "18GB"
   },
-  "timestamp": "2026-03-23T14:02:23.344Z",
+  "timestamp": "2026-03-23T14:26:04.592Z",
   "config": {
     "scales": [1000, 10000, 50000, 100000],
     "vectorScales": [10000, 50000, 100000],

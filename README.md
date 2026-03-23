@@ -210,6 +210,20 @@ import '@delali/narsil/languages/twi'
 | Vector | `mode: 'vector'` | Cosine similarity, dot product, or Euclidean distance |
 | Hybrid | `mode: 'hybrid'` | Weighted combination of BM25 + vector similarity |
 
+## Search quality
+
+Ranking quality validated against the [Cranfield Collection](https://ir-datasets.com/cranfield.html), the foundational information retrieval benchmark with 1,400 documents and 225 queries scored by domain experts. All engines use identical stop words, Porter stemming, and default BM25 parameters.
+
+| Engine | nDCG@10 | P@10 | MAP | MRR |
+| --- | ---: | ---: | ---: | ---: |
+| **Narsil 0.1.1** | **0.3739** | **0.2458** | **0.2614** | **0.5638** |
+| Orama 3.1.18 | 0.2911 | 0.1836 | 0.1846 | 0.4821 |
+| MiniSearch 7.2.0 | 0.0077 | 0.0067 | 0.0027 | 0.0139 |
+
+nDCG@10 measures how well relevant documents are ranked in the top 10 results. P@10 is the fraction of top-10 results that are relevant. MAP tracks where relevant documents appear across the full result set. MRR is the average position of the first relevant result (higher means closer to position 1).
+
+Reproduce these results with `pnpm -C packages/benchmarks bench --tiers quality`. See [`packages/benchmarks`](packages/benchmarks) for full methodology.
+
 ## Runtime support (TypeScript)
 
 | Runtime | Concurrency | Persistence | Invalidation |
