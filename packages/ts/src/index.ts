@@ -43,6 +43,7 @@ export type {
   PreflightResult,
   QueryResult,
   ScoreComponents,
+  SuggestResult,
 } from './types/results'
 export type {
   AnyDocument,
@@ -63,6 +64,7 @@ export type {
   HybridConfig,
   QueryParams,
   SearchMode,
+  SuggestParams,
   TermMatchPolicy,
   VectorQueryConfig,
 } from './types/search'

@@ -1,4 +1,5 @@
 import { generateId } from './core/id-generator'
+import { tokenize } from './core/tokenizer'
 import { createWorkerOrchestrator } from './engine/orchestration'
 import { executePreflight, executeQuery } from './engine/query'
 import { BATCH_CHUNK_SIZE, validateDocId, validateIndexName } from './engine/validation'
@@ -23,9 +24,10 @@ import type {
   PartitionStatsResult,
   PreflightResult,
   QueryResult,
+  SuggestResult,
 } from './types/results'
 import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig } from './types/schema'
-import type { QueryParams } from './types/search'
+import type { QueryParams, SuggestParams } from './types/search'
 import { createDirectExecutor, type DirectExecutorExtensions } from './workers/direct-executor'
 import type { Executor } from './workers/executor'
 import { createExecutionPromoter } from './workers/promoter'
@@ -51,6 +53,7 @@ export interface Narsil {
 
   query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>
   preflight(indexName: string, params: QueryParams): Promise<PreflightResult>
+  suggest(indexName: string, params: SuggestParams): Promise<SuggestResult>
 
   snapshot(indexName: string): Promise<Uint8Array>
   restore(indexName: string, data: Uint8Array): Promise<void>
@@ -531,6 +534,55 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
         workerSearch,
         indexName,
       })
+    },
+
+    async suggest(indexName: string, params: SuggestParams): Promise<SuggestResult> {
+      guardShutdown()
+      const entry = requireIndex(indexName)
+      const manager = requireManager(indexName)
+
+      const t0 = performance.now()
+      const limit = Math.max(1, Math.min(params.limit ?? 10, 100))
+      const rawPrefix = params.prefix.trim()
+
+      if (rawPrefix.length === 0) {
+        return { terms: [], elapsed: performance.now() - t0 }
+      }
+
+      const unstemmed = tokenize(rawPrefix, entry.language, { stem: false, removeStopWords: false })
+      const lastToken =
+        unstemmed.tokens.length > 0 ? unstemmed.tokens[unstemmed.tokens.length - 1].token : rawPrefix.toLowerCase()
+
+      if (lastToken.length === 0) {
+        return { terms: [], elapsed: performance.now() - t0 }
+      }
+
+      const stemmed = entry.language.stemmer ? entry.language.stemmer(lastToken) : lastToken
+      const prefixes = stemmed !== lastToken ? [lastToken, stemmed] : [lastToken]
+
+      const partitions = manager.getAllPartitions()
+      const merged = new Map<string, number>()
+      const perPartitionLimit = limit * 2
+
+      for (const partition of partitions) {
+        const seen = new Set<string>()
+        for (const prefix of prefixes) {
+          const suggestions = partition.suggestTerms(prefix, perPartitionLimit)
+          for (const s of suggestions) {
+            if (seen.has(s.term)) continue
+            seen.add(s.term)
+            merged.set(s.term, (merged.get(s.term) ?? 0) + s.documentFrequency)
+          }
+        }
+      }
+
+      const terms = Array.from(merged.entries())
+        .map(([term, documentFrequency]) => ({ term, documentFrequency }))
+        .sort((a, b) => b.documentFrequency - a.documentFrequency)
+
+      if (terms.length > limit) terms.length = limit
+
+      return { terms, elapsed: performance.now() - t0 }
     },
 
     async snapshot(indexName: string): Promise<Uint8Array> {

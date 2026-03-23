@@ -56,6 +56,7 @@ export interface PartitionIndex {
   searchVector(params: InternalVectorParams): InternalSearchResult
   applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string>
   computeFacets(docIds: Set<string>, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult>
+  suggestTerms(prefix: string, limit: number): Array<{ term: string; documentFrequency: number }>
 
   estimateMemoryBytes(): number
   vectorFieldCount(): number
@@ -321,6 +322,10 @@ export function createPartitionIndex(
 
     computeFacets(docIds: Set<string>, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult> {
       return computeFacets(state, docIds, config, schema)
+    },
+
+    suggestTerms(prefix: string, limit: number): Array<{ term: string; documentFrequency: number }> {
+      return state.invertedIdx.prefixSearch(prefix, limit)
     },
 
     serialize(
