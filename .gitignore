@@ -11,3 +11,11 @@ coverage/
 packages/ts/benchmarks/results/*.json
 .turbo/
 .cache/
+.venv/
+
+# Raw datasets (too large to commit)
+data/raw/
+# Processed datasets > 10MB committed via Git LFS or kept local
+data/processed/tmdb/movies-all.json
+data/processed/tmdb/*-vectors-*.bin
+data/processed/tmdb/*-umap-*.bin
