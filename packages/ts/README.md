@@ -210,6 +210,27 @@ import '@delali/narsil/languages/twi'
 | Vector | `mode: 'vector'` | Cosine similarity, dot product, or Euclidean distance |
 | Hybrid | `mode: 'hybrid'` | Weighted combination of BM25 + vector similarity |
 
+## Search quality
+
+Ranking quality is measured against the [Cranfield Collection](https://ir-datasets.com/cranfield.html), the foundational information retrieval benchmark created in the 1960s. It contains 1,400 documents and 225 queries with exhaustive human relevance judgments, meaning every query-document pair was scored by domain experts. All engines in this comparison use identical stop words (Lucene English, 35 terms), Porter stemming, and default BM25 parameters.
+
+| Engine | nDCG@10 | P@10 | MAP | MRR |
+| --- | ---: | ---: | ---: | ---: |
+| **Narsil 0.1.1** | **0.3739** | **0.2458** | **0.2614** | **0.5638** |
+| Orama 3.1.18 | 0.2911 | 0.1836 | 0.1846 | 0.4821 |
+| MiniSearch 7.2.0 | 0.0077 | 0.0067 | 0.0027 | 0.0139 |
+
+**What these metrics mean:**
+
+- **nDCG@10** measures whether the most relevant documents appear near the top of the results. A score of 1.0 would mean perfect ranking; 0.0 means no relevant documents in the top 10.
+- **P@10** is the fraction of the top 10 results that are relevant. Narsil averages about 2.5 relevant results in every top-10 list.
+- **MAP** tracks precision at every rank where a relevant document appears. Higher MAP means relevant documents cluster near the top rather than being spread through the result set.
+- **MRR** measures how far a user scrolls to find the first relevant result. Narsil's 0.56 means the first relevant document typically appears at position 2.
+
+These scores fall within the expected range for BM25 on standard IR benchmarks (published BM25 baselines on BEIR datasets range from 0.24 to 0.63 nDCG@10). Narsil also runs a [Cranfield regression test](src/__tests__/relevance/cranfield.test.ts) in CI that fails the build if ranking quality drops below calibrated thresholds.
+
+Reproduce: `pnpm -C packages/benchmarks bench --tiers quality`
+
 ## Runtime support (TypeScript)
 
 | Runtime | Concurrency | Persistence | Invalidation |

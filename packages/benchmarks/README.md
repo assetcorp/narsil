@@ -48,11 +48,60 @@ Documents are generated deterministically from a seeded PRNG (seed: 42) with:
 
 The same dataset is used for every engine at each scale, ensuring fair comparison. Anyone running these benchmarks will generate identical documents.
 
+## Search quality (Cranfield benchmark)
+
+The quality tier measures ranking accuracy against the [Cranfield Collection](https://ir-datasets.com/cranfield.html), the foundational test collection for information retrieval evaluation. Created in the 1960s at Cranfield University, it contains 1,400 aerodynamics journal abstracts, 225 natural-language queries, and 1,837 graded relevance judgments made by domain experts.
+
+### Why Cranfield
+
+Cranfield has **exhaustive** relevance judgments: every query-document pair was judged by experts on a 5-point scale. This eliminates the problem of unjudged relevant documents being treated as non-relevant, which plagues larger datasets with sparse judgments. The collection is small enough to run in CI (under 5 seconds) and has been the standard IR evaluation dataset for over 60 years.
+
+### Fairness measures
+
+All three engines are configured identically for this comparison:
+
+- **Stop words**: Lucene English list (35 terms) from `src/stopwords.ts`, applied to all engines
+- **Stemming**: Porter stemmer for all engines (Narsil built-in, MiniSearch via `stemmer@2.0.1`, Orama via `stemming: true`)
+- **Query processing**: All engines apply stop word removal and stemming to both indexing and search queries
+- **Term matching**: All default to OR semantics (documents matching any query term are candidates)
+- **No prefix or fuzzy matching** enabled for any engine
+- **Default BM25 parameters** for all engines (no custom tuning)
+- **Same document IDs**: All engines insert documents with the original Cranfield numeric IDs, and search results are matched against human judgments using these IDs
+
+### Metrics
+
+- **nDCG@10**: Normalized Discounted Cumulative Gain at rank 10 using exponential gain (2^rel - 1). Measures ranking quality with graded relevance.
+- **P@10**: Fraction of the top 10 results that are relevant (relevance > 0).
+- **MAP**: Mean Average Precision computed from the top 10 results. Tracks precision at each rank where a relevant document appears.
+- **MRR**: Mean Reciprocal Rank, the reciprocal of the position of the first relevant result.
+
+Queries where no relevant documents exist in the judgment set are excluded from the mean computation.
+
+### Relevance grade normalization
+
+The original Cranfield grades are inverted (1 = most relevant). The benchmark normalizes them to the standard convention (higher = more relevant):
+
+| Original | Meaning | Normalized |
+| --- | --- | ---: |
+| 1 | Complete answer | 4 |
+| 2 | High relevance | 3 |
+| 3 | Useful background | 2 |
+| 4 | Minimum interest | 1 |
+| -1 | Not relevant | 0 |
+
+### Running the quality benchmark
+
+```bash
+pnpm -C packages/benchmarks bench --tiers quality
+```
+
+Results are printed to stdout and saved to `results.json` under the `cranfieldQuality` key.
+
 ## Methodology notes
 
 - Each engine runs with its default configuration for the English language. No custom tuning.
 - Engines are benchmarked sequentially in the same process. GC is forced between measurements to reduce cross-contamination.
-- Narsil and Orama apply English stemming by default. MiniSearch does not stem by default. This reflects how each engine is used out of the box.
+- All engines apply English stemming via a Porter stemmer. MiniSearch receives a custom `processTerm` function that applies the same stop words and stemmer used by Narsil and Orama.
 - MiniSearch search returns all matching results (no internal pagination). Narsil and Orama default to returning 10 results. The scoring and ranking work is equivalent; the difference is in result serialization.
 - Absolute numbers vary by hardware. The value is in the relative comparison between engines on the same machine.
 
