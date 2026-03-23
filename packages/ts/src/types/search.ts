@@ -66,3 +66,8 @@ export interface HighlightConfig {
   postTag?: string
   maxSnippetLength?: number
 }
+
+export interface SuggestParams {
+  prefix: string
+  limit?: number
+}

@@ -5,6 +5,11 @@ const INITIAL_CAPACITY = 8
 const MAX_TERM_FREQUENCY = 65535
 const COMPACTION_THRESHOLD = 0.3
 
+export interface TermSuggestion {
+  term: string
+  documentFrequency: number
+}
+
 export interface InvertedIndex {
   insert(token: string, docId: string, termFrequency: number, fieldNameIndex: number, positions: number[] | null): void
   remove(token: string, docId: string): void
@@ -14,6 +19,7 @@ export interface InvertedIndex {
     tolerance: number,
     prefixLength: number,
   ): Array<{ token: string; postingList: CompactPostingList }>
+  prefixSearch(prefix: string, limit: number): TermSuggestion[]
   has(token: string): boolean
   tokens(): IterableIterator<string>
   size(): number
@@ -222,6 +228,24 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
         }
       }
 
+      return results
+    },
+
+    prefixSearch(prefix: string, limit: number): TermSuggestion[] {
+      if (prefix.length === 0 || limit <= 0) return []
+
+      const candidates = candidatesForPrefix(prefix, prefix.length)
+      const results: TermSuggestion[] = []
+
+      for (const term of candidates) {
+        if (!term.startsWith(prefix)) continue
+        const list = index.get(term)
+        if (!list) continue
+        results.push({ term, documentFrequency: list.docIdSet.size })
+      }
+
+      results.sort((a, b) => b.documentFrequency - a.documentFrequency)
+      if (results.length > limit) results.length = limit
       return results
     },
 

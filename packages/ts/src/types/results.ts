@@ -73,6 +73,14 @@ export interface PartitionStatsResult {
   isHnswPromoted: boolean
 }
 
+export interface SuggestResult {
+  terms: Array<{
+    term: string
+    documentFrequency: number
+  }>
+  elapsed: number
+}
+
 export interface MemoryStats {
   totalBytes: number
   workers: Array<{

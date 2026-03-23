@@ -146,6 +146,18 @@ const results = await narsil.query('products', {
 // hit.highlights.title.snippet => '<mark>Mechanical</mark> Keyboard'
 ```
 
+### Term suggestions
+
+Get autocomplete suggestions from the index's term dictionary. The API tokenizes the input, extracts the last word, and matches it against stored terms across all partitions. Results are ranked by document frequency.
+
+```ts
+const suggestions = await narsil.suggest('products', {
+  prefix: 'mech',
+  limit: 5,
+})
+// suggestions.terms => [{ term: 'mechan', documentFrequency: 12 }, ...]
+```
+
 ### Cursor-based pagination
 
 Deep pagination using `searchAfter` cursors that track position across partitions. No offset-based performance degradation for deep result sets.
