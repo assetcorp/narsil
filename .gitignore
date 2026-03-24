@@ -17,5 +17,19 @@ packages/ts/benchmarks/results/*.json
 data/raw/
 # Processed datasets > 10MB committed via Git LFS or kept local
 data/processed/tmdb/movies-all.json
+data/processed/tmdb/movies-50000.json
+data/processed/tmdb/movies-100000.json
 data/processed/tmdb/*-vectors-*.bin
 data/processed/tmdb/*-umap-*.bin
+data/processed/wikipedia/wikipedia-en.json
+data/processed/wikipedia/wikipedia-fr.json
+data/processed/wikipedia/wikipedia-dag.json
+data/processed/wikipedia/wikipedia-ha.json
+data/processed/wikipedia/wikipedia-ig.json
+data/processed/wikipedia/wikipedia-sw.json
+data/processed/wikipedia/wikipedia-yo.json
+
+# Example app build artifacts and runtime data
+packages/ts/examples/*/dist/
+packages/ts/examples/*/.output/
+packages/ts/examples/server/data/

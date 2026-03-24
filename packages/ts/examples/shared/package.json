@@ -1,0 +1,139 @@
+{
+  "name": "@delali/narsil-example-shared",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Shared types, data manifest, React components, and UI primitives for Narsil example apps.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    },
+    "./manifest": {
+      "import": "./src/manifest.ts",
+      "types": "./src/manifest.ts"
+    },
+    "./backend": {
+      "import": "./src/backend.ts",
+      "types": "./src/backend.ts"
+    },
+    "./state": {
+      "import": "./src/state.ts",
+      "types": "./src/state.ts"
+    },
+    "./context": {
+      "import": "./src/context.ts",
+      "types": "./src/context.ts"
+    },
+    "./schemas": {
+      "import": "./src/schemas.ts",
+      "types": "./src/schemas.ts"
+    },
+    "./scoring": {
+      "import": "./src/scoring.ts",
+      "types": "./src/scoring.ts"
+    },
+    "./types": {
+      "import": "./src/types.ts",
+      "types": "./src/types.ts"
+    },
+    "./ui/button": {
+      "import": "./src/components/ui/button.tsx",
+      "types": "./src/components/ui/button.tsx"
+    },
+    "./ui/card": {
+      "import": "./src/components/ui/card.tsx",
+      "types": "./src/components/ui/card.tsx"
+    },
+    "./ui/badge": {
+      "import": "./src/components/ui/badge.tsx",
+      "types": "./src/components/ui/badge.tsx"
+    },
+    "./ui/input": {
+      "import": "./src/components/ui/input.tsx",
+      "types": "./src/components/ui/input.tsx"
+    },
+    "./ui/sheet": {
+      "import": "./src/components/ui/sheet.tsx",
+      "types": "./src/components/ui/sheet.tsx"
+    },
+    "./ui/progress": {
+      "import": "./src/components/ui/progress.tsx",
+      "types": "./src/components/ui/progress.tsx"
+    },
+    "./ui/tabs": {
+      "import": "./src/components/ui/tabs.tsx",
+      "types": "./src/components/ui/tabs.tsx"
+    },
+    "./ui/separator": {
+      "import": "./src/components/ui/separator.tsx",
+      "types": "./src/components/ui/separator.tsx"
+    },
+    "./ui/switch": {
+      "import": "./src/components/ui/switch.tsx",
+      "types": "./src/components/ui/switch.tsx"
+    },
+    "./lib/utils": {
+      "import": "./src/lib/utils.ts",
+      "types": "./src/lib/utils.ts"
+    },
+    "./components/LoadProgress": {
+      "import": "./src/components/LoadProgress.tsx",
+      "types": "./src/components/LoadProgress.tsx"
+    },
+    "./components/search/SearchPlayground": {
+      "import": "./src/components/search/SearchPlayground.tsx",
+      "types": "./src/components/search/SearchPlayground.tsx"
+    },
+    "./hooks/use-search": {
+      "import": "./src/hooks/use-search.ts",
+      "types": "./src/hooks/use-search.ts"
+    },
+    "./components/benchmark/BenchmarkView": {
+      "import": "./src/components/benchmark/BenchmarkView.tsx",
+      "types": "./src/components/benchmark/BenchmarkView.tsx"
+    },
+    "./lib/metrics": {
+      "import": "./src/lib/metrics.ts",
+      "types": "./src/lib/metrics.ts"
+    },
+    "./hooks/use-benchmark": {
+      "import": "./src/hooks/use-benchmark.ts",
+      "types": "./src/hooks/use-benchmark.ts"
+    },
+    "./components/relevance/RelevanceLab": {
+      "import": "./src/components/relevance/RelevanceLab.tsx",
+      "types": "./src/components/relevance/RelevanceLab.tsx"
+    },
+    "./hooks/use-relevance": {
+      "import": "./src/hooks/use-relevance.ts",
+      "types": "./src/hooks/use-relevance.ts"
+    },
+    "./components/inspector/InspectorView": {
+      "import": "./src/components/inspector/InspectorView.tsx",
+      "types": "./src/components/inspector/InspectorView.tsx"
+    },
+    "./lib/file-parser": {
+      "import": "./src/lib/file-parser.ts",
+      "types": "./src/lib/file-parser.ts"
+    },
+    "./lib/schema-detector": {
+      "import": "./src/lib/schema-detector.ts",
+      "types": "./src/lib/schema-detector.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "radix-ui": "^1.0.0",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.0.0",
+    "tailwind-merge": "^3.0.0",
+    "lucide-react": "^0.400.0"
+  }
+}
