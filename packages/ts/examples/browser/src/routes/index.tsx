@@ -1,6 +1,5 @@
 import type { DatasetId, DatasetLoadProgress, LoadDatasetRequest } from '@delali/narsil-example-shared'
 import { cranfield, tmdb, useAppDispatch, useAppState, useBackend, wikipedia } from '@delali/narsil-example-shared'
-import type { NarsilBackend } from '@delali/narsil-example-shared/backend'
 import { createFileRoute } from '@tanstack/react-router'
 import { BookOpen, Check, FileUp, Film, Globe, Loader2, Settings2, Upload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -26,7 +25,7 @@ function TmdbConfig({ tier, setTier }: { tier: string; setTier: (t: string) => v
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <label className="mb-2 block text-sm font-medium">Document tier</label>
+        <span className="mb-2 block text-sm font-medium">Document tier</span>
         <div className="flex flex-wrap gap-2">
           {tiers.map(t => (
             <Button
@@ -45,7 +44,7 @@ function TmdbConfig({ tier, setTier }: { tier: string; setTier: (t: string) => v
       </div>
       <Separator />
       <div>
-        <label className="mb-2 block text-sm font-medium">Indexed fields</label>
+        <span className="mb-2 block text-sm font-medium">Indexed fields</span>
         <p className="text-xs text-muted-foreground">
           title, overview, tagline, genres, original_language, vote_average, popularity, runtime, revenue, release_year,
           production_countries, status
@@ -59,7 +58,7 @@ function WikiConfig({ selected, toggle }: { selected: Set<string>; toggle: (code
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <label className="mb-2 block text-sm font-medium">Languages</label>
+        <span className="mb-2 block text-sm font-medium">Languages</span>
         <div className="flex flex-wrap gap-2">
           {wikipedia.languages.map(({ code, name }) => (
             <Button
@@ -81,7 +80,7 @@ function WikiConfig({ selected, toggle }: { selected: Set<string>; toggle: (code
       </div>
       <Separator />
       <div>
-        <label className="mb-2 block text-sm font-medium">Text depth</label>
+        <span className="mb-2 block text-sm font-medium">Text depth</span>
         <p className="text-xs text-muted-foreground">
           Lead section (~2k chars) or full article. Configurable after loading.
         </p>
@@ -144,7 +143,7 @@ function CustomConfig({ onFile }: { onFile: (file: File) => void }) {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <label className="mb-2 block text-sm font-medium">Upload your data</label>
+        <span className="mb-2 block text-sm font-medium">Upload your data</span>
         <p className="text-sm text-muted-foreground">
           Drag and drop a JSON or CSV file, or click to browse. Narsil will auto-detect the schema and let you choose
           which fields to index.
@@ -393,7 +392,7 @@ function HomePage() {
 
   const [tmdbTier, setTmdbTier] = useState('10k')
   const [wikiLangs, setWikiLangs] = useState<Set<string>>(new Set(['en']))
-  const [customFile, setCustomFile] = useState<File | null>(null)
+  const [_customFile, setCustomFile] = useState<File | null>(null)
 
   useEffect(() => {
     const handler = (progress: DatasetLoadProgress) => {

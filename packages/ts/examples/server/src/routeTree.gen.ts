@@ -126,7 +126,9 @@ const rootRouteChildren: RootRouteChildren = {
   RelevanceRoute: RelevanceRoute,
   SearchRoute: SearchRoute,
 }
-export const routeTree = rootRouteImport._addFileChildren(rootRouteChildren)._addFileTypes<FileRouteTypes>()
+export const routeTree = rootRouteImport
+  ._addFileChildren(rootRouteChildren)
+  ._addFileTypes<FileRouteTypes>()
 
 import type { createStart } from '@tanstack/react-start'
 import type { getRouter } from './router.tsx'

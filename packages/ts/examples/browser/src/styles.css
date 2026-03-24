@@ -1,8 +1,8 @@
 @import url("https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
-@plugin '@tailwindcss/typography';
-
 @import "tw-animate-css";
+
+@plugin "@tailwindcss/typography";
 
 @source "../../shared/src";
 
@@ -80,9 +80,9 @@
 }
 
 @theme inline {
-  --font-sans: 'Outfit', ui-sans-serif, system-ui, sans-serif;
-  --font-serif: 'Instrument Serif', Georgia, serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Instrument Serif", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

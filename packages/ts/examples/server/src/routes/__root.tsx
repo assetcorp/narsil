@@ -10,7 +10,7 @@ import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/react-r
 import { useEffect, useReducer, useRef } from 'react'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
-import { ServerBackend } from '../lib/server-backend'
+import { RpcBackend } from '../lib/rpc-backend'
 
 import appCss from '../styles.css?url'
 
@@ -34,6 +34,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        {/* biome-ignore lint/security/noDangerouslySetInnerHtml: inline theme init prevents FOUC */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <HeadContent />
       </head>
@@ -53,9 +54,9 @@ function inferDatasetId(indexName: string): DatasetId {
 }
 
 function RootLayout() {
-  const backendRef = useRef<ServerBackend | null>(null)
+  const backendRef = useRef<RpcBackend | null>(null)
   if (!backendRef.current) {
-    backendRef.current = new ServerBackend()
+    backendRef.current = new RpcBackend()
   }
   const backend = backendRef.current
   const [state, dispatch] = useReducer(appReducer, undefined, createInitialState)
