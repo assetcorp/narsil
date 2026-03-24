@@ -1,7 +1,7 @@
-import { ResultCard } from './ResultCard'
-import { Button } from '../ui/button'
 import type { QueryHit } from '../../backend'
 import type { DatasetId } from '../../manifest'
+import { Button } from '../ui/button'
+import { ResultCard } from './ResultCard'
 
 interface ResultListProps {
   hits: QueryHit[]
@@ -39,11 +39,7 @@ export function ResultList({
   }
 
   if (!isLoading && hits.length === 0 && count === 0) {
-    return (
-      <div className="py-12 text-center text-sm text-muted-foreground">
-        Type a search query to see results.
-      </div>
-    )
+    return <div className="py-12 text-center text-sm text-muted-foreground">Type a search query to see results.</div>
   }
 
   if (isLoading && hits.length === 0) {
@@ -61,7 +57,7 @@ export function ResultList({
 
   return (
     <div className="flex flex-col gap-3">
-      {hits.map((hit) => (
+      {hits.map(hit => (
         <ResultCard key={hit.id} hit={hit} datasetId={datasetId} />
       ))}
 

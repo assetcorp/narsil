@@ -13,7 +13,7 @@ export function parseJsonArray(text: string): Record<string, unknown>[] {
 }
 
 export function parseCsv(text: string): Record<string, unknown>[] {
-  const lines = text.split('\n').filter((line) => line.trim().length > 0)
+  const lines = text.split('\n').filter(line => line.trim().length > 0)
   if (lines.length < 2) {
     throw new Error('CSV needs at least a header row and one data row')
   }

@@ -1,10 +1,8 @@
-import type { AppState, AppAction, TabId, TabStatus } from './types'
+import type { AppAction, AppState, TabId, TabStatus } from './types'
 
 function computeTabStatus(state: AppState): Record<TabId, TabStatus> {
   const hasAnyIndex = state.indexes.length > 0
-  const hasNonCranfieldDocs = state.indexes.some(
-    (idx) => idx.datasetId !== 'cranfield' && idx.documentCount > 0
-  )
+  const hasNonCranfieldDocs = state.indexes.some(idx => idx.datasetId !== 'cranfield' && idx.documentCount > 0)
   const hasCranfield = state.cranfieldLoaded
 
   return {
@@ -42,7 +40,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     }
 
     case 'INDEX_READY': {
-      const existing = state.indexes.filter((i) => i.name !== action.payload.name)
+      const existing = state.indexes.filter(i => i.name !== action.payload.name)
       const indexes = [...existing, action.payload]
       const loadingDatasets = new Map(state.loadingDatasets)
       loadingDatasets.delete(action.payload.datasetId)
@@ -60,11 +58,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     }
 
     case 'REMOVE_INDEX': {
-      const indexes = state.indexes.filter((i) => i.name !== action.payload)
+      const indexes = state.indexes.filter(i => i.name !== action.payload)
       const activeIndexName =
-        state.activeIndexName === action.payload
-          ? (indexes[0]?.name ?? null)
-          : state.activeIndexName
+        state.activeIndexName === action.payload ? (indexes[0]?.name ?? null) : state.activeIndexName
       const next: AppState = { ...state, indexes, activeIndexName, tabStatus: state.tabStatus }
       next.tabStatus = computeTabStatus(next)
       return next

@@ -1,5 +1,5 @@
-import { Badge } from '../ui/badge'
 import type { IndexStats, PartitionStats } from '../../backend'
+import { Badge } from '../ui/badge'
 
 interface StatsTabProps {
   stats: IndexStats
@@ -28,7 +28,9 @@ export function StatsTab({ stats, partitionStats }: StatsTabProps) {
           <div className="flex flex-col gap-1.5 text-xs">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Language</span>
-              <Badge variant="secondary" className="text-[10px]">{stats.language}</Badge>
+              <Badge variant="secondary" className="text-[10px]">
+                {stats.language}
+              </Badge>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Document Count</span>
@@ -55,7 +57,7 @@ export function StatsTab({ stats, partitionStats }: StatsTabProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {partitionStats.map((p) => (
+                  {partitionStats.map(p => (
                     <tr key={p.partitionId} className="border-b last:border-b-0">
                       <td className="py-1 font-mono">{p.partitionId}</td>
                       <td className="py-1 text-right font-mono">{p.documentCount.toLocaleString()}</td>
@@ -63,7 +65,9 @@ export function StatsTab({ stats, partitionStats }: StatsTabProps) {
                       <td className="py-1 text-right font-mono">
                         {p.vectorFieldCount}
                         {p.isHnswPromoted && (
-                          <Badge variant="secondary" className="ml-1 text-[9px]">HNSW</Badge>
+                          <Badge variant="secondary" className="ml-1 text-[9px]">
+                            HNSW
+                          </Badge>
                         )}
                       </td>
                     </tr>

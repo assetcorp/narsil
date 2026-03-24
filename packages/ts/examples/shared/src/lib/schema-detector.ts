@@ -5,10 +5,7 @@ export interface DetectedField {
   searchable: boolean
 }
 
-export function detectSchema(
-  documents: Record<string, unknown>[],
-  sampleSize = 100
-): DetectedField[] {
+export function detectSchema(documents: Record<string, unknown>[], sampleSize = 100): DetectedField[] {
   const sample = documents.slice(0, sampleSize)
   const fieldTypes = new Map<string, Set<string>>()
   const fieldArrayTypes = new Map<string, Set<string>>()

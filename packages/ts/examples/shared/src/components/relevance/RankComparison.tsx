@@ -1,5 +1,5 @@
-import { Badge } from '../ui/badge'
 import type { RecomputedHit } from '../../scoring'
+import { Badge } from '../ui/badge'
 
 interface RankComparisonProps {
   recomputedHits: RecomputedHit[]
@@ -8,7 +8,7 @@ interface RankComparisonProps {
 export function RankComparison({ recomputedHits }: RankComparisonProps) {
   if (recomputedHits.length === 0) return null
 
-  const hasChanges = recomputedHits.some((h) => h.originalRank !== h.recomputedRank)
+  const hasChanges = recomputedHits.some(h => h.originalRank !== h.recomputedRank)
 
   return (
     <div className="rounded-lg border">
@@ -30,7 +30,7 @@ export function RankComparison({ recomputedHits }: RankComparisonProps) {
             </tr>
           </thead>
           <tbody>
-            {recomputedHits.slice(0, 20).map((item) => {
+            {recomputedHits.slice(0, 20).map(item => {
               const doc = item.hit.document
               const title = String(doc.title ?? doc.id ?? item.hit.id)
               const delta = item.originalRank - item.recomputedRank
@@ -38,21 +38,12 @@ export function RankComparison({ recomputedHits }: RankComparisonProps) {
               return (
                 <tr key={item.hit.id} className="border-b last:border-b-0">
                   <td className="max-w-[200px] truncate px-3 py-1.5">{title}</td>
-                  <td className="px-3 py-1.5 text-right font-mono text-muted-foreground">
-                    #{item.originalRank}
-                  </td>
-                  <td className="px-3 py-1.5 text-right font-mono">
-                    #{item.recomputedRank}
-                  </td>
-                  <td className="px-3 py-1.5 text-right font-mono">
-                    {item.recomputedScore.toFixed(3)}
-                  </td>
+                  <td className="px-3 py-1.5 text-right font-mono text-muted-foreground">#{item.originalRank}</td>
+                  <td className="px-3 py-1.5 text-right font-mono">#{item.recomputedRank}</td>
+                  <td className="px-3 py-1.5 text-right font-mono">{item.recomputedScore.toFixed(3)}</td>
                   <td className="px-3 py-1.5 text-right">
                     {delta !== 0 && (
-                      <Badge
-                        variant={delta > 0 ? 'default' : 'destructive'}
-                        className="text-[10px]"
-                      >
+                      <Badge variant={delta > 0 ? 'default' : 'destructive'} className="text-[10px]">
                         {delta > 0 ? `\u2191${delta}` : `\u2193${Math.abs(delta)}`}
                       </Badge>
                     )}

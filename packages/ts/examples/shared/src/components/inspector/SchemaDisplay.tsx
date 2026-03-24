@@ -25,11 +25,11 @@ function renderSchema(schema: Record<string, unknown>, depth: number): React.Rea
             <div className="flex items-center gap-2 py-1.5 px-3">
               <span className="font-mono text-xs font-medium">{field}</span>
               {isObject ? (
-                <Badge variant="outline" className="text-[10px]">object</Badge>
-              ) : (
-                <Badge className={`text-[10px] ${TYPE_COLORS[String(type)] ?? ''}`}>
-                  {String(type)}
+                <Badge variant="outline" className="text-[10px]">
+                  object
                 </Badge>
+              ) : (
+                <Badge className={`text-[10px] ${TYPE_COLORS[String(type)] ?? ''}`}>{String(type)}</Badge>
               )}
             </div>
             {isObject && renderSchema(type as Record<string, unknown>, depth + 1)}
@@ -45,9 +45,7 @@ export function SchemaDisplay({ schema }: SchemaDisplayProps) {
     <div className="rounded-lg border">
       <div className="border-b px-4 py-3">
         <h3 className="text-sm font-semibold">Schema</h3>
-        <p className="text-xs text-muted-foreground">
-          {Object.keys(schema).length} top-level fields
-        </p>
+        <p className="text-xs text-muted-foreground">{Object.keys(schema).length} top-level fields</p>
       </div>
       {renderSchema(schema, 0)}
     </div>

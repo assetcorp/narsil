@@ -14,14 +14,30 @@ const indexConfig: IndexConfig = {
 }
 
 const documents = [
-  { title: 'Running shoes for marathon training', body: 'Lightweight running shoes designed for long distance', category: 'sports' },
-  { title: 'Running techniques for beginners', body: 'Learn proper running form and breathing techniques', category: 'fitness' },
+  {
+    title: 'Running shoes for marathon training',
+    body: 'Lightweight running shoes designed for long distance',
+    category: 'sports',
+  },
+  {
+    title: 'Running techniques for beginners',
+    body: 'Learn proper running form and breathing techniques',
+    category: 'fitness',
+  },
   { title: 'Rust programming language', body: 'Memory safe systems programming with Rust', category: 'tech' },
   { title: 'Ruby on Rails web framework', body: 'Build web applications quickly with Ruby on Rails', category: 'tech' },
   { title: 'React component patterns', body: 'Advanced patterns for building React components', category: 'tech' },
-  { title: 'Reading comprehension strategies', body: 'Improve your reading speed and comprehension', category: 'education' },
+  {
+    title: 'Reading comprehension strategies',
+    body: 'Improve your reading speed and comprehension',
+    category: 'education',
+  },
   { title: 'Machine learning fundamentals', body: 'Introduction to machine learning algorithms', category: 'tech' },
-  { title: 'Deep learning with neural networks', body: 'Understanding deep learning and neural network architectures', category: 'tech' },
+  {
+    title: 'Deep learning with neural networks',
+    body: 'Understanding deep learning and neural network architectures',
+    category: 'tech',
+  },
 ]
 
 describe('suggest', () => {

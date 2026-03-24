@@ -1,6 +1,6 @@
-import { createContext, useContext, type Dispatch } from 'react'
+import { createContext, type Dispatch, useContext } from 'react'
 import type { NarsilBackend } from './backend'
-import type { AppState, AppAction } from './types'
+import type { AppAction, AppState } from './types'
 
 export const BackendContext = createContext<NarsilBackend | null>(null)
 

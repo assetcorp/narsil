@@ -145,7 +145,10 @@ async function main(): Promise<void> {
   const limitArg = args.find(a => a.startsWith('--limit='))
 
   const selectedLangs = langArg
-    ? langArg.replace('--lang=', '').split(',').filter(l => l in LANGUAGES)
+    ? langArg
+        .replace('--lang=', '')
+        .split(',')
+        .filter(l => l in LANGUAGES)
     : Object.keys(LANGUAGES)
 
   const limit = limitArg ? parseInt(limitArg.replace('--limit=', ''), 10) : DEFAULT_LIMIT
@@ -180,7 +183,9 @@ async function main(): Promise<void> {
     const avgLength = Math.round(articles.reduce((s, a) => s + a.length, 0) / articles.length)
     const totalCategories = articles.reduce((s, a) => s + a.categories.length, 0)
     console.log(`  Avg article length: ${avgLength} chars`)
-    console.log(`  Total categories: ${totalCategories} (avg ${(totalCategories / articles.length).toFixed(1)} per article)`)
+    console.log(
+      `  Total categories: ${totalCategories} (avg ${(totalCategories / articles.length).toFixed(1)} per article)`,
+    )
   }
 
   console.log('\nDone.')

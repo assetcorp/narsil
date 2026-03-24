@@ -2,14 +2,7 @@ import type { DatasetLoadProgress, LoadDatasetRequest } from '@delali/narsil-exa
 
 export interface WorkerRequest {
   requestId: string
-  type:
-    | 'loadDataset'
-    | 'query'
-    | 'suggest'
-    | 'getStats'
-    | 'getPartitionStats'
-    | 'getMemoryStats'
-    | 'listIndexes'
+  type: 'loadDataset' | 'query' | 'suggest' | 'getStats' | 'getPartitionStats' | 'getMemoryStats' | 'listIndexes'
   payload: unknown
 }
 

@@ -45,11 +45,7 @@ export interface LoadCustomRequest {
   language?: string
 }
 
-export type LoadDatasetRequest =
-  | LoadTmdbRequest
-  | LoadWikipediaRequest
-  | LoadCranfieldRequest
-  | LoadCustomRequest
+export type LoadDatasetRequest = LoadTmdbRequest | LoadWikipediaRequest | LoadCranfieldRequest | LoadCustomRequest
 
 export interface AppState {
   indexes: LoadedIndex[]

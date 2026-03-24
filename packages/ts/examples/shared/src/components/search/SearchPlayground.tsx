@@ -1,12 +1,12 @@
-import { type Dispatch } from 'react'
-import { useSearch } from '../../hooks/use-search'
+import type { Dispatch } from 'react'
 import type { NarsilBackend } from '../../backend'
-import type { AppState, AppAction } from '../../types'
-import { SearchBar } from './SearchBar'
-import { ResultList } from './ResultList'
-import { FacetSidebar } from './FacetSidebar'
-import { AdvancedOptions } from './AdvancedOptions'
+import { useSearch } from '../../hooks/use-search'
+import type { AppAction, AppState } from '../../types'
 import { Button } from '../ui/button'
+import { AdvancedOptions } from './AdvancedOptions'
+import { FacetSidebar } from './FacetSidebar'
+import { ResultList } from './ResultList'
+import { SearchBar } from './SearchBar'
 
 interface SearchPlaygroundProps {
   backend: NarsilBackend
@@ -15,7 +15,7 @@ interface SearchPlaygroundProps {
 }
 
 function getSearchableFields(state: AppState): string[] {
-  const activeIndex = state.indexes.find((i) => i.name === state.activeIndexName)
+  const activeIndex = state.indexes.find(i => i.name === state.activeIndexName)
   if (!activeIndex) return []
 
   switch (activeIndex.datasetId) {
@@ -31,12 +31,25 @@ function getSearchableFields(state: AppState): string[] {
 }
 
 function getAllFields(state: AppState): string[] {
-  const activeIndex = state.indexes.find((i) => i.name === state.activeIndexName)
+  const activeIndex = state.indexes.find(i => i.name === state.activeIndexName)
   if (!activeIndex) return []
 
   switch (activeIndex.datasetId) {
     case 'tmdb':
-      return ['title', 'overview', 'tagline', 'genres', 'original_language', 'vote_average', 'popularity', 'runtime', 'revenue', 'release_year', 'production_countries', 'status']
+      return [
+        'title',
+        'overview',
+        'tagline',
+        'genres',
+        'original_language',
+        'vote_average',
+        'popularity',
+        'runtime',
+        'revenue',
+        'release_year',
+        'production_countries',
+        'status',
+      ]
     case 'wikipedia':
       return ['title', 'text', 'language', 'categories']
     case 'cranfield':
@@ -56,14 +69,12 @@ export function SearchPlayground({ backend, state, dispatch }: SearchPlaygroundP
     return (
       <div className="mx-auto max-w-6xl px-4 py-8">
         <h1 className="mb-2 font-serif text-3xl tracking-tight">Search Playground</h1>
-        <p className="text-sm text-muted-foreground">
-          Load a dataset from the Datasets tab to start searching.
-        </p>
+        <p className="text-sm text-muted-foreground">Load a dataset from the Datasets tab to start searching.</p>
       </div>
     )
   }
 
-  const activeIndex = state.indexes.find((i) => i.name === indexName)
+  const activeIndex = state.indexes.find(i => i.name === indexName)
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
@@ -71,14 +82,15 @@ export function SearchPlayground({ backend, state, dispatch }: SearchPlaygroundP
         <h1 className="mb-1 font-serif text-3xl tracking-tight">Search Playground</h1>
         {activeIndex && (
           <p className="text-sm text-muted-foreground">
-            Searching <span className="font-mono font-medium text-foreground">{activeIndex.name}</span> ({activeIndex.documentCount.toLocaleString()} documents)
+            Searching <span className="font-mono font-medium text-foreground">{activeIndex.name}</span> (
+            {activeIndex.documentCount.toLocaleString()} documents)
           </p>
         )}
       </div>
 
       {state.indexes.length > 1 && (
         <div className="mb-4 flex flex-wrap gap-1.5">
-          {state.indexes.map((idx) => (
+          {state.indexes.map(idx => (
             <Button
               key={idx.name}
               type="button"

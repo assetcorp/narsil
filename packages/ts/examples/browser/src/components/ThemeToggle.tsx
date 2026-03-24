@@ -1,5 +1,5 @@
+import { Monitor, Moon, Sun } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Moon, Sun, Monitor } from 'lucide-react'
 import { Button } from '#/components/ui/button'
 
 type ThemeMode = 'light' | 'dark' | 'auto'
@@ -42,8 +42,7 @@ export default function ThemeToggle() {
   }, [mode])
 
   function toggleMode() {
-    const next: ThemeMode =
-      mode === 'light' ? 'dark' : mode === 'dark' ? 'auto' : 'light'
+    const next: ThemeMode = mode === 'light' ? 'dark' : mode === 'dark' ? 'auto' : 'light'
     setMode(next)
     applyThemeMode(next)
     window.localStorage.setItem('theme', next)
@@ -52,12 +51,7 @@ export default function ThemeToggle() {
   const Icon = mode === 'auto' ? Monitor : mode === 'dark' ? Moon : Sun
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={toggleMode}
-      aria-label={`Theme: ${mode}. Click to switch.`}
-    >
+    <Button variant="ghost" size="icon" onClick={toggleMode} aria-label={`Theme: ${mode}. Click to switch.`}>
       <Icon className="size-4" />
     </Button>
   )

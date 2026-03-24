@@ -1,16 +1,16 @@
-import { useReducer, useRef, useEffect } from 'react'
-import { Outlet, HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
-import {
-  BackendContext,
-  AppStateContext,
-  AppDispatchContext,
-  createInitialState,
-  appReducer,
-} from '@delali/narsil-example-shared'
 import type { DatasetId } from '@delali/narsil-example-shared'
-import { ServerBackend } from '../lib/server-backend'
-import Header from '../components/Header'
+import {
+  AppDispatchContext,
+  AppStateContext,
+  appReducer,
+  BackendContext,
+  createInitialState,
+} from '@delali/narsil-example-shared'
+import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/react-router'
+import { useEffect, useReducer, useRef } from 'react'
 import Footer from '../components/Footer'
+import Header from '../components/Header'
+import { ServerBackend } from '../lib/server-backend'
 
 import appCss from '../styles.css?url'
 
@@ -24,9 +24,7 @@ export const Route = createRootRoute({
       { title: 'Narsil - Server Example' },
       { name: 'description', content: 'Full-text search with server functions and filesystem persistence.' },
     ],
-    links: [
-      { rel: 'stylesheet', href: appCss },
-    ],
+    links: [{ rel: 'stylesheet', href: appCss }],
   }),
   component: RootLayout,
   shellComponent: RootDocument,
@@ -63,21 +61,25 @@ function RootLayout() {
   const [state, dispatch] = useReducer(appReducer, undefined, createInitialState)
 
   useEffect(() => {
-    backend.listIndexes().then((indexes) => {
-      for (const idx of indexes) {
-        dispatch({
-          type: 'INDEX_READY',
-          payload: {
-            name: idx.name,
-            datasetId: inferDatasetId(idx.name),
-            documentCount: idx.documentCount,
-            language: idx.language,
-          },
-        })
-      }
-    }).catch(() => {}).finally(() => {
-      dispatch({ type: 'SET_RESTORING', payload: false })
-    })
+    backend
+      .listIndexes()
+      .then(indexes => {
+        for (const idx of indexes) {
+          dispatch({
+            type: 'INDEX_READY',
+            payload: {
+              name: idx.name,
+              datasetId: inferDatasetId(idx.name),
+              documentCount: idx.documentCount,
+              language: idx.language,
+            },
+          })
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        dispatch({ type: 'SET_RESTORING', payload: false })
+      })
   }, [backend])
 
   return (

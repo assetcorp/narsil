@@ -9,11 +9,11 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SearchRouteImport } from './routes/search'
-import { Route as RelevanceRouteImport } from './routes/relevance'
-import { Route as InspectorRouteImport } from './routes/inspector'
 import { Route as BenchmarkRouteImport } from './routes/benchmark'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as InspectorRouteImport } from './routes/inspector'
+import { Route as RelevanceRouteImport } from './routes/relevance'
+import { Route as SearchRouteImport } from './routes/search'
 
 const SearchRoute = SearchRouteImport.update({
   id: '/search',
@@ -126,12 +126,11 @@ const rootRouteChildren: RootRouteChildren = {
   RelevanceRoute: RelevanceRoute,
   SearchRoute: SearchRoute,
 }
-export const routeTree = rootRouteImport
-  ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>()
+export const routeTree = rootRouteImport._addFileChildren(rootRouteChildren)._addFileTypes<FileRouteTypes>()
 
-import type { getRouter } from './router.tsx'
 import type { createStart } from '@tanstack/react-start'
+import type { getRouter } from './router.tsx'
+
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
