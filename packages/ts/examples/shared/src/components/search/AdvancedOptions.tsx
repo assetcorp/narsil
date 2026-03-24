@@ -40,7 +40,7 @@ export function AdvancedOptions({
       {open && (
         <div className="mt-3 grid gap-4 rounded-lg border p-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
-            <label className="mb-1.5 block text-xs font-medium">Search fields</label>
+            <span className="mb-1.5 block text-xs font-medium">Search fields</span>
             <div className="flex flex-wrap gap-1">
               {searchableFields.map(field => {
                 const active = params.fields.length === 0 || params.fields.includes(field)
@@ -68,7 +68,7 @@ export function AdvancedOptions({
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs font-medium">Field boosts</label>
+            <span className="mb-1.5 block text-xs font-medium">Field boosts</span>
             <div className="flex flex-col gap-1.5">
               {searchableFields.map(field => (
                 <div key={field} className="flex items-center gap-2">
@@ -89,9 +89,12 @@ export function AdvancedOptions({
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs font-medium">Fuzzy tolerance</label>
+            <label htmlFor="fuzzy-tolerance" className="mb-1.5 block text-xs font-medium">
+              Fuzzy tolerance
+            </label>
             <div className="flex items-center gap-2">
               <input
+                id="fuzzy-tolerance"
                 type="range"
                 min="0"
                 max="3"
@@ -105,7 +108,7 @@ export function AdvancedOptions({
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs font-medium">Term match</label>
+            <span className="mb-1.5 block text-xs font-medium">Term match</span>
             <div className="flex gap-1">
               {(['any', 'all'] as const).map(mode => (
                 <Button
@@ -121,7 +124,7 @@ export function AdvancedOptions({
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs font-medium">Exact match</label>
+            <span className="mb-1.5 block text-xs font-medium">Exact match</span>
             <Button
               variant={params.exact ? 'default' : 'outline'}
               size="xs"
@@ -132,8 +135,11 @@ export function AdvancedOptions({
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs font-medium">Min score</label>
+            <label htmlFor="min-score" className="mb-1.5 block text-xs font-medium">
+              Min score
+            </label>
             <Input
+              id="min-score"
               type="number"
               min="0"
               step="0.1"
@@ -145,7 +151,7 @@ export function AdvancedOptions({
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs font-medium">Sort by</label>
+            <span className="mb-1.5 block text-xs font-medium">Sort by</span>
             <div className="flex flex-wrap gap-1">
               {allFields
                 .filter(f => !searchableFields.includes(f))
@@ -170,7 +176,7 @@ export function AdvancedOptions({
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs font-medium">Results per page</label>
+            <span className="mb-1.5 block text-xs font-medium">Results per page</span>
             <div className="flex gap-1">
               {[10, 20, 50].map(n => (
                 <Button

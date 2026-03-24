@@ -49,6 +49,9 @@ const config = defineConfig({
     tanstackStart({ spa: { enabled: true } }),
     viteReact(),
   ],
+  worker: {
+    format: 'es',
+  },
   server: {
     fs: {
       allow: [monorepoRoot],

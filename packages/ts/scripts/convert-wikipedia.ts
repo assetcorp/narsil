@@ -176,7 +176,7 @@ async function main(): Promise<void> {
     }
 
     const path = resolve(outputDir, `wikipedia-${lang}.json`)
-    writeFileSync(path, JSON.stringify(articles) + '\n')
+    writeFileSync(path, `${JSON.stringify(articles)}\n`)
     const sizeMB = (Buffer.byteLength(JSON.stringify(articles)) / 1024 / 1024).toFixed(1)
     console.log(`  Written: ${path} (${articles.length} articles, ${sizeMB} MB)`)
 

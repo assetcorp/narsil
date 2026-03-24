@@ -23,10 +23,13 @@ export function TuningPanel({ config, fields, onK1Change, onBChange, onFieldBoos
       <div className="flex flex-col gap-4 p-4">
         <div>
           <div className="flex items-center justify-between">
-            <label className="text-xs font-medium">k1 (term saturation)</label>
+            <label htmlFor="bm25-k1" className="text-xs font-medium">
+              k1 (term saturation)
+            </label>
             <span className="font-mono text-xs">{config.k1.toFixed(2)}</span>
           </div>
           <input
+            id="bm25-k1"
             type="range"
             min="0"
             max="3"
@@ -40,10 +43,13 @@ export function TuningPanel({ config, fields, onK1Change, onBChange, onFieldBoos
 
         <div>
           <div className="flex items-center justify-between">
-            <label className="text-xs font-medium">b (length normalization)</label>
+            <label htmlFor="bm25-b" className="text-xs font-medium">
+              b (length normalization)
+            </label>
             <span className="font-mono text-xs">{config.b.toFixed(2)}</span>
           </div>
           <input
+            id="bm25-b"
             type="range"
             min="0"
             max="1"
@@ -56,7 +62,7 @@ export function TuningPanel({ config, fields, onK1Change, onBChange, onFieldBoos
         </div>
 
         <div>
-          <label className="text-xs font-medium">Field Boosts</label>
+          <span className="text-xs font-medium">Field Boosts</span>
           <div className="mt-2 flex flex-col gap-2">
             {fields.map(field => {
               const boost = config.fieldBoosts[field] ?? 1

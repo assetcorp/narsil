@@ -20,7 +20,10 @@ export function ResultCard({ hit, datasetId }: ResultCardProps) {
   function renderHighlightedText(field: string, fallback: string): React.ReactNode {
     const hl = highlights?.[field]
     if (hl) {
-      return <span dangerouslySetInnerHTML={{ __html: sanitizeHighlight(hl.snippet) }} />
+      return (
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized highlight markup
+        <span dangerouslySetInnerHTML={{ __html: sanitizeHighlight(hl.snippet) }} />
+      )
     }
     return fallback
   }

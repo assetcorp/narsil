@@ -21,21 +21,25 @@ export function detectSchema(documents: Record<string, unknown>[], sampleSize = 
         fieldValueCounts.set(key, new Set())
       }
 
-      const types = fieldTypes.get(key)!
+      const types = fieldTypes.get(key)
+      if (!types) continue
+
+      const arrTypes = fieldArrayTypes.get(key)
 
       if (Array.isArray(value)) {
         types.add('array')
-        const arrTypes = fieldArrayTypes.get(key)!
-        for (const item of value) {
-          arrTypes.add(typeof item)
+        if (arrTypes) {
+          for (const item of value) {
+            arrTypes.add(typeof item)
+          }
         }
       } else {
         types.add(typeof value)
       }
 
       if (typeof value === 'string') {
-        const values = fieldValueCounts.get(key)!
-        if (values.size < 50) values.add(value)
+        const values = fieldValueCounts.get(key)
+        if (values && values.size < 50) values.add(value)
       }
     }
   }
@@ -47,10 +51,10 @@ export function detectSchema(documents: Record<string, unknown>[], sampleSize = 
     const isSearchable = types.has('string')
 
     if (types.has('array')) {
-      const arrayItemTypes = fieldArrayTypes.get(name)!
-      if (arrayItemTypes.has('string')) {
+      const arrayItemTypes = fieldArrayTypes.get(name)
+      if (arrayItemTypes?.has('string')) {
         detectedType = 'string[]'
-      } else if (arrayItemTypes.has('number')) {
+      } else if (arrayItemTypes?.has('number')) {
         detectedType = 'number[]'
       } else {
         detectedType = 'string[]'

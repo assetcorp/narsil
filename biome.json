@@ -8,6 +8,11 @@
   "files": {
     "includes": ["**", "!!**/dist", "!.claude"]
   },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -25,6 +30,13 @@
       "recommended": true
     }
   },
+  "overrides": [
+    {
+      "includes": ["**/routeTree.gen.ts"],
+      "linter": { "enabled": false },
+      "formatter": { "enabled": false }
+    }
+  ],
   "assist": {
     "enabled": true,
     "actions": {

@@ -46,6 +46,7 @@ export function ResultList({
     return (
       <div className="flex flex-col gap-3">
         {Array.from({ length: 5 }).map((_, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
           <div key={i} className="h-24 animate-pulse rounded-lg border bg-muted/30" />
         ))}
       </div>
