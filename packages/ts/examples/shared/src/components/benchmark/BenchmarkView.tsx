@@ -1,11 +1,11 @@
 import type { NarsilBackend } from '../../backend'
-import type { AppState } from '../../types'
 import { useBenchmark } from '../../hooks/use-benchmark'
+import type { AppState } from '../../types'
+import { Button } from '../ui/button'
+import { Progress } from '../ui/progress'
 import { AggregateTable } from './AggregateTable'
 import { QueryExplorer } from './QueryExplorer'
 import { SideBySide } from './SideBySide'
-import { Button } from '../ui/button'
-import { Progress } from '../ui/progress'
 
 interface BenchmarkViewProps {
   backend: NarsilBackend
@@ -74,9 +74,7 @@ export function BenchmarkView({ backend, state }: BenchmarkViewProps) {
               selectedQuery={benchmark.selectedQuery}
               onSelect={benchmark.selectQuery}
             />
-            {benchmark.selectedQuery && (
-              <SideBySide query={benchmark.selectedQuery} backend={backend} />
-            )}
+            {benchmark.selectedQuery && <SideBySide query={benchmark.selectedQuery} backend={backend} />}
           </div>
         </div>
       )}

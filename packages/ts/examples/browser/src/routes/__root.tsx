@@ -1,18 +1,17 @@
-import { useReducer, useRef, useEffect } from 'react'
-import { Outlet, HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
-import {
-  BackendContext,
-  AppStateContext,
-  AppDispatchContext,
-  createInitialState,
-  appReducer,
-} from '@delali/narsil-example-shared'
 import type { DatasetId } from '@delali/narsil-example-shared'
-import { WorkerBackend } from '../worker/bridge'
-import Header from '../components/Header'
+import {
+  AppDispatchContext,
+  AppStateContext,
+  appReducer,
+  BackendContext,
+  createInitialState,
+} from '@delali/narsil-example-shared'
+import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/react-router'
+import { useEffect, useReducer, useRef } from 'react'
 import Footer from '../components/Footer'
-
+import Header from '../components/Header'
 import appCss from '../styles.css?url'
+import { WorkerBackend } from '../worker/bridge'
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`
 
@@ -22,11 +21,12 @@ export const Route = createRootRoute({
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       { title: 'Narsil - Browser Example' },
-      { name: 'description', content: 'Interactive full-text search running entirely in your browser via Web Workers and IndexedDB.' },
+      {
+        name: 'description',
+        content: 'Interactive full-text search running entirely in your browser via Web Workers and IndexedDB.',
+      },
     ],
-    links: [
-      { rel: 'stylesheet', href: appCss },
-    ],
+    links: [{ rel: 'stylesheet', href: appCss }],
   }),
   component: RootLayout,
   shellComponent: RootDocument,
@@ -63,21 +63,25 @@ function RootLayout() {
   const [state, dispatch] = useReducer(appReducer, undefined, createInitialState)
 
   useEffect(() => {
-    backend.listIndexes().then((indexes) => {
-      for (const idx of indexes) {
-        dispatch({
-          type: 'INDEX_READY',
-          payload: {
-            name: idx.name,
-            datasetId: inferDatasetId(idx.name),
-            documentCount: idx.documentCount,
-            language: idx.language,
-          },
-        })
-      }
-    }).catch(() => {}).finally(() => {
-      dispatch({ type: 'SET_RESTORING', payload: false })
-    })
+    backend
+      .listIndexes()
+      .then(indexes => {
+        for (const idx of indexes) {
+          dispatch({
+            type: 'INDEX_READY',
+            payload: {
+              name: idx.name,
+              datasetId: inferDatasetId(idx.name),
+              documentCount: idx.documentCount,
+              language: idx.language,
+            },
+          })
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        dispatch({ type: 'SET_RESTORING', payload: false })
+      })
   }, [backend])
 
   return (

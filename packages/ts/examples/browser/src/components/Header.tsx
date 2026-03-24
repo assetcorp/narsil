@@ -1,9 +1,9 @@
-import { Link } from '@tanstack/react-router'
-import { Search, FlaskConical, BarChart3, Inspect, Database, Lock, Check, Loader2 } from 'lucide-react'
-import { useAppState } from '@delali/narsil-example-shared'
 import type { TabId } from '@delali/narsil-example-shared'
-import ThemeToggle from './ThemeToggle'
+import { useAppState } from '@delali/narsil-example-shared'
+import { Link } from '@tanstack/react-router'
+import { BarChart3, Check, Database, FlaskConical, Inspect, Loader2, Lock, Search } from 'lucide-react'
 import { Badge } from '#/components/ui/badge'
+import ThemeToggle from './ThemeToggle'
 
 const tabs: Array<{ to: string; label: string; icon: typeof Database; tabId: TabId }> = [
   { to: '/', label: 'Datasets', icon: Database, tabId: 'datasets' },
@@ -46,9 +46,7 @@ export default function Header() {
                 <Icon className="size-3.5" />
                 <span className="hidden sm:inline">{label}</span>
                 {isLocked && <Lock className="size-2.5" />}
-                {status === 'ready' && tabId !== 'datasets' && (
-                  <Check className="size-2.5 text-green-500" />
-                )}
+                {status === 'ready' && tabId !== 'datasets' && <Check className="size-2.5 text-green-500" />}
               </Link>
             )
           })}

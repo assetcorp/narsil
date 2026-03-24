@@ -1,8 +1,8 @@
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-@import 'tailwindcss';
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+@import "tailwindcss";
 @plugin '@tailwindcss/typography';
 
-@import 'tw-animate-css';
+@import "tw-animate-css";
 
 @source "../../shared/src";
 
@@ -25,14 +25,14 @@
   --accent-foreground: oklch(0.25 0.02 260);
   --destructive: oklch(0.55 0.22 27);
   --destructive-foreground: oklch(0.98 0.005 0);
-  --border: oklch(0.90 0.006 260);
-  --input: oklch(0.90 0.006 260);
+  --border: oklch(0.9 0.006 260);
+  --input: oklch(0.9 0.006 260);
   --ring: oklch(0.58 0.17 55);
   --chart-1: oklch(0.58 0.17 55);
   --chart-2: oklch(0.55 0.14 200);
-  --chart-3: oklch(0.50 0.12 150);
+  --chart-3: oklch(0.5 0.12 150);
   --chart-4: oklch(0.65 0.18 80);
-  --chart-5: oklch(0.60 0.16 35);
+  --chart-5: oklch(0.6 0.16 35);
   --radius: 0.5rem;
   --sidebar: oklch(0.97 0.004 260);
   --sidebar-foreground: oklch(0.18 0.02 260);
@@ -40,7 +40,7 @@
   --sidebar-primary-foreground: oklch(0.98 0.005 80);
   --sidebar-accent: oklch(0.94 0.006 260);
   --sidebar-accent-foreground: oklch(0.25 0.02 260);
-  --sidebar-border: oklch(0.90 0.006 260);
+  --sidebar-border: oklch(0.9 0.006 260);
   --sidebar-ring: oklch(0.58 0.17 55);
 }
 
@@ -55,7 +55,7 @@
   --primary-foreground: oklch(0.15 0.012 260);
   --secondary: oklch(0.22 0.016 260);
   --secondary-foreground: oklch(0.88 0.008 80);
-  --muted: oklch(0.20 0.014 260);
+  --muted: oklch(0.2 0.014 260);
   --muted-foreground: oklch(0.58 0.014 260);
   --accent: oklch(0.22 0.016 260);
   --accent-foreground: oklch(0.88 0.008 80);
@@ -65,9 +65,9 @@
   --input: oklch(0.24 0.016 260);
   --ring: oklch(0.78 0.155 75);
   --chart-1: oklch(0.78 0.155 75);
-  --chart-2: oklch(0.60 0.14 200);
+  --chart-2: oklch(0.6 0.14 200);
   --chart-3: oklch(0.55 0.12 150);
-  --chart-4: oklch(0.70 0.18 80);
+  --chart-4: oklch(0.7 0.18 80);
   --chart-5: oklch(0.65 0.16 35);
   --sidebar: oklch(0.15 0.014 260);
   --sidebar-foreground: oklch(0.92 0.008 80);
@@ -142,12 +142,12 @@ body {
     @apply bg-background text-foreground;
   }
   button,
-  [role='button'],
+  [role="button"],
   a,
   label[for],
   select,
   summary,
-  [tabindex]:not([tabindex='-1']) {
+  [tabindex]:not([tabindex="-1"]) {
     cursor: pointer;
   }
 }

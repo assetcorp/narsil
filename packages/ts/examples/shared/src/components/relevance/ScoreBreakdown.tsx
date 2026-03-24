@@ -1,5 +1,5 @@
-import { Badge } from '../ui/badge'
 import type { RecomputedHit } from '../../scoring'
+import { Badge } from '../ui/badge'
 
 interface ScoreBreakdownProps {
   recomputedHits: RecomputedHit[]
@@ -7,8 +7,10 @@ interface ScoreBreakdownProps {
 }
 
 function getFieldStats(
-  components: { termFrequencies: Record<string, number>; idf: Record<string, number>; fieldLengths: Record<string, number> } | undefined,
-  fieldName: string
+  components:
+    | { termFrequencies: Record<string, number>; idf: Record<string, number>; fieldLengths: Record<string, number> }
+    | undefined,
+  fieldName: string,
 ): { tf: number; idf: number; fl: number } {
   if (!components) return { tf: 0, idf: 0, fl: 0 }
 
@@ -39,7 +41,7 @@ export function ScoreBreakdown({ recomputedHits, fields }: ScoreBreakdownProps) 
         <p className="text-xs text-muted-foreground">Per-field contribution for each result</p>
       </div>
       <div className="max-h-96 overflow-y-auto">
-        {recomputedHits.slice(0, 20).map((item) => {
+        {recomputedHits.slice(0, 20).map(item => {
           const doc = item.hit.document
           const title = String(doc.title ?? doc.id ?? item.hit.id)
           const maxFieldScore = Math.max(...Object.values(item.fieldScores), 0.001)
@@ -54,16 +56,14 @@ export function ScoreBreakdown({ recomputedHits, fields }: ScoreBreakdownProps) 
               </div>
 
               <div className="mt-2 flex flex-col gap-1">
-                {fields.map((field) => {
+                {fields.map(field => {
                   const score = item.fieldScores[field] ?? 0
                   const width = maxFieldScore > 0 ? (score / maxFieldScore) * 100 : 0
                   const stats = getFieldStats(item.hit.scoreComponents, field)
 
                   return (
                     <div key={field} className="flex items-center gap-2">
-                      <span className="w-16 shrink-0 truncate text-[10px] text-muted-foreground">
-                        {field}
-                      </span>
+                      <span className="w-16 shrink-0 truncate text-[10px] text-muted-foreground">{field}</span>
                       <div className="flex-1">
                         <div className="h-1.5 rounded-full bg-muted">
                           <div

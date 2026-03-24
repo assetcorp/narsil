@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
-import { Badge } from '../ui/badge'
-import type { QueryMetrics } from '../../lib/metrics'
+import { useEffect, useState } from 'react'
 import type { NarsilBackend, QueryHit } from '../../backend'
+import type { QueryMetrics } from '../../lib/metrics'
+import { Badge } from '../ui/badge'
 
 interface SideBySideProps {
   query: QueryMetrics
@@ -22,10 +22,12 @@ export function SideBySide({ query, backend }: SideBySideProps) {
 
   useEffect(() => {
     let cancelled = false
-    backend
-      .query({ indexName: 'cranfield', term: query.queryText, limit: 10 })
-      .then((res) => { if (!cancelled) setNarsilHits(res.hits) })
-    return () => { cancelled = true }
+    backend.query({ indexName: 'cranfield', term: query.queryText, limit: 10 }).then(res => {
+      if (!cancelled) setNarsilHits(res.hits)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [backend, query.queryText])
 
   const expertRanking = Array.from(query.judgments.entries())
@@ -42,9 +44,7 @@ export function SideBySide({ query, backend }: SideBySideProps) {
 
       <div className="grid grid-cols-2 divide-x">
         <div>
-          <div className="border-b px-3 py-2 text-xs font-semibold text-muted-foreground">
-            Expert Ranking
-          </div>
+          <div className="border-b px-3 py-2 text-xs font-semibold text-muted-foreground">Expert Ranking</div>
           <div className="flex flex-col">
             {expertRanking.map(([docId, rel], i) => (
               <div key={docId} className="flex items-center gap-2 border-b px-3 py-1.5 text-xs last:border-b-0">
@@ -62,9 +62,7 @@ export function SideBySide({ query, backend }: SideBySideProps) {
         </div>
 
         <div>
-          <div className="border-b px-3 py-2 text-xs font-semibold text-muted-foreground">
-            Narsil Ranking
-          </div>
+          <div className="border-b px-3 py-2 text-xs font-semibold text-muted-foreground">Narsil Ranking</div>
           <div className="flex flex-col">
             {narsilHits.slice(0, 10).map((hit, i) => {
               const docId = String(hit.document.id ?? hit.id)
@@ -81,9 +79,7 @@ export function SideBySide({ query, backend }: SideBySideProps) {
                       {displacement > 0 ? `\u2191${displacement}` : `\u2193${Math.abs(displacement)}`}
                     </span>
                   )}
-                  <Badge className={`text-[10px] ${GRADE_COLORS[Math.min(rel, 4)]}`}>
-                    {rel}
-                  </Badge>
+                  <Badge className={`text-[10px] ${GRADE_COLORS[Math.min(rel, 4)]}`}>{rel}</Badge>
                 </div>
               )
             })}

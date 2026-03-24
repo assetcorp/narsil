@@ -1,9 +1,9 @@
-import { useState, useEffect, type Dispatch } from 'react'
-import type { NarsilBackend, IndexStats, PartitionStats } from '../../backend'
-import type { AppState, AppAction } from '../../types'
-import { StatsTab } from './StatsTab'
-import { SchemaDisplay } from './SchemaDisplay'
+import { type Dispatch, useEffect, useState } from 'react'
+import type { IndexStats, NarsilBackend, PartitionStats } from '../../backend'
+import type { AppAction, AppState } from '../../types'
 import { Button } from '../ui/button'
+import { SchemaDisplay } from './SchemaDisplay'
+import { StatsTab } from './StatsTab'
 
 interface InspectorViewProps {
   backend: NarsilBackend
@@ -26,10 +26,7 @@ export function InspectorView({ backend, state, dispatch }: InspectorViewProps) 
     }
 
     setIsLoading(true)
-    Promise.all([
-      backend.getStats(indexName),
-      backend.getPartitionStats(indexName),
-    ])
+    Promise.all([backend.getStats(indexName), backend.getPartitionStats(indexName)])
       .then(([s, ps]) => {
         setStats(s)
         setPartitionStats(ps)
@@ -48,7 +45,7 @@ export function InspectorView({ backend, state, dispatch }: InspectorViewProps) 
     )
   }
 
-  const activeIndex = state.indexes.find((i) => i.name === indexName)
+  const activeIndex = state.indexes.find(i => i.name === indexName)
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
@@ -63,7 +60,7 @@ export function InspectorView({ backend, state, dispatch }: InspectorViewProps) 
 
       {state.indexes.length > 1 && (
         <div className="mb-4 flex flex-wrap gap-1.5">
-          {state.indexes.map((idx) => (
+          {state.indexes.map(idx => (
             <Button
               key={idx.name}
               variant={idx.name === indexName ? 'default' : 'outline'}
@@ -78,11 +75,7 @@ export function InspectorView({ backend, state, dispatch }: InspectorViewProps) 
       )}
 
       <div className="mb-4 flex gap-1">
-        <Button
-          variant={activeTab === 'stats' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setActiveTab('stats')}
-        >
+        <Button variant={activeTab === 'stats' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('stats')}>
           Stats
         </Button>
         <Button
@@ -94,17 +87,11 @@ export function InspectorView({ backend, state, dispatch }: InspectorViewProps) 
         </Button>
       </div>
 
-      {isLoading && (
-        <div className="py-12 text-center text-sm text-muted-foreground">Loading stats...</div>
-      )}
+      {isLoading && <div className="py-12 text-center text-sm text-muted-foreground">Loading stats...</div>}
 
-      {!isLoading && stats && activeTab === 'stats' && (
-        <StatsTab stats={stats} partitionStats={partitionStats} />
-      )}
+      {!isLoading && stats && activeTab === 'stats' && <StatsTab stats={stats} partitionStats={partitionStats} />}
 
-      {!isLoading && stats && activeTab === 'schema' && (
-        <SchemaDisplay schema={stats.schema} />
-      )}
+      {!isLoading && stats && activeTab === 'schema' && <SchemaDisplay schema={stats.schema} />}
     </div>
   )
 }

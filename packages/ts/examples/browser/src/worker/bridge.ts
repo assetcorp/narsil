@@ -1,18 +1,18 @@
 import type {
+  BackendEventHandler,
+  BackendEventType,
+  IndexListEntry,
+  IndexStats,
+  MemoryStatsResponse,
   NarsilBackend,
+  PartitionStats,
   QueryRequest,
   QueryResponse,
   SuggestRequest,
   SuggestResponse,
-  IndexStats,
-  PartitionStats,
-  MemoryStatsResponse,
-  IndexListEntry,
-  BackendEventType,
-  BackendEventHandler,
 } from '@delali/narsil-example-shared/backend'
 import type { LoadDatasetRequest } from '@delali/narsil-example-shared/types'
-import type { WorkerRequest, WorkerOutbound } from './messages'
+import type { WorkerOutbound, WorkerRequest } from './messages'
 
 type PendingRequest = {
   resolve: (value: unknown) => void
@@ -33,10 +33,7 @@ export class WorkerBackend implements NarsilBackend {
   private getWorker(): Worker {
     if (this.worker) return this.worker
 
-    this.worker = new Worker(
-      new URL('./narsil-worker.ts', import.meta.url),
-      { type: 'module' }
-    )
+    this.worker = new Worker(new URL('./narsil-worker.ts', import.meta.url), { type: 'module' })
     this.worker.onmessage = (event: MessageEvent<WorkerOutbound>) => {
       this.handleMessage(event.data)
     }

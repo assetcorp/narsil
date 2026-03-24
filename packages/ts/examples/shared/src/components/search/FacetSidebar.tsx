@@ -24,7 +24,7 @@ export function FacetSidebar({ facets, filters, onFilterChange }: FacetSidebarPr
 
     let next: string[]
     if (current.includes(value)) {
-      next = current.filter((v) => v !== value)
+      next = current.filter(v => v !== value)
     } else {
       next = [...current, value]
     }
@@ -53,9 +53,7 @@ export function FacetSidebar({ facets, filters, onFilterChange }: FacetSidebarPr
 
         return (
           <div key={field}>
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {field}
-            </h4>
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{field}</h4>
             <div className="flex flex-col gap-0.5">
               {entries.map(([value, count]) => {
                 const selected = isSelected(field, value)

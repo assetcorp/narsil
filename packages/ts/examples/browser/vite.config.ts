@@ -1,13 +1,11 @@
-import path from 'node:path'
 import fs from 'node:fs'
-import { defineConfig, type Plugin } from 'vite'
-import { devtools } from '@tanstack/devtools-vite'
-import tsconfigPaths from 'vite-tsconfig-paths'
-
-import { tanstackStart } from '@tanstack/react-start/plugin/vite'
-
-import viteReact from '@vitejs/plugin-react'
+import path from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
+import { devtools } from '@tanstack/devtools-vite'
+import { tanstackStart } from '@tanstack/react-start/plugin/vite'
+import viteReact from '@vitejs/plugin-react'
+import { defineConfig, type Plugin } from 'vite'
+import tsconfigPaths from 'vite-tsconfig-paths'
 
 const monorepoRoot = path.resolve(import.meta.dirname, '../../../..')
 const dataDir = path.join(monorepoRoot, 'data', 'processed')

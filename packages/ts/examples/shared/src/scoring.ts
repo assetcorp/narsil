@@ -57,7 +57,7 @@ function computeBM25FieldScore(
   fieldLength: number,
   avgFieldLength: number,
   k1: number,
-  b: number
+  b: number,
 ): number {
   if (avgFieldLength === 0) return 0
   const numerator = tf * (k1 + 1)
@@ -65,11 +65,7 @@ function computeBM25FieldScore(
   return idf * (numerator / denominator)
 }
 
-export function recomputeScores(
-  hits: QueryHit[],
-  config: BM25Config,
-  fieldAverages: FieldAverages
-): RecomputedHit[] {
+export function recomputeScores(hits: QueryHit[], config: BM25Config, fieldAverages: FieldAverages): RecomputedHit[] {
   const scored = hits.map((hit, index) => {
     const components = hit.scoreComponents
     if (!components) {

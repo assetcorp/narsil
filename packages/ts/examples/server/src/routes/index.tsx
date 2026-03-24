@@ -1,46 +1,33 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { createFileRoute } from '@tanstack/react-router'
-import { Film, Globe, BookOpen, Upload, Settings2, Check, Loader2, FileUp } from 'lucide-react'
-import {
-  useBackend,
-  useAppState,
-  useAppDispatch,
-  tmdb,
-  wikipedia,
-  cranfield,
-} from '@delali/narsil-example-shared'
 import type { DatasetId, DatasetLoadProgress, LoadDatasetRequest } from '@delali/narsil-example-shared'
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-  CardFooter,
-} from '#/components/ui/card'
-import { Button } from '#/components/ui/button'
+import { cranfield, tmdb, useAppDispatch, useAppState, useBackend, wikipedia } from '@delali/narsil-example-shared'
+import { createFileRoute } from '@tanstack/react-router'
+import { BookOpen, Check, FileUp, Film, Globe, Loader2, Settings2, Upload } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Badge } from '#/components/ui/badge'
+import { Button } from '#/components/ui/button'
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '#/components/ui/card'
+import { Progress } from '#/components/ui/progress'
+import { Separator } from '#/components/ui/separator'
 import {
   Sheet,
-  SheetTrigger,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
   SheetDescription,
   SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
 } from '#/components/ui/sheet'
-import { Separator } from '#/components/ui/separator'
-import { Progress } from '#/components/ui/progress'
 
 export const Route = createFileRoute('/')({ component: HomePage })
 
 function TmdbConfig({ tier, setTier }: { tier: string; setTier: (t: string) => void }) {
-  const tiers = tmdb.tiers.map((t) => t.label)
+  const tiers = tmdb.tiers.map(t => t.label)
   return (
     <div className="flex flex-col gap-4">
       <div>
         <label className="mb-2 block text-sm font-medium">Document tier</label>
         <div className="flex flex-wrap gap-2">
-          {tiers.map((t) => (
+          {tiers.map(t => (
             <Button
               key={t}
               type="button"
@@ -53,29 +40,21 @@ function TmdbConfig({ tier, setTier }: { tier: string; setTier: (t: string) => v
             </Button>
           ))}
         </div>
-        <p className="mt-1.5 text-xs text-muted-foreground">
-          Larger tiers (50k+) are downloaded from GitHub Releases.
-        </p>
+        <p className="mt-1.5 text-xs text-muted-foreground">Larger tiers (50k+) are downloaded from GitHub Releases.</p>
       </div>
       <Separator />
       <div>
         <label className="mb-2 block text-sm font-medium">Indexed fields</label>
         <p className="text-xs text-muted-foreground">
-          title, overview, tagline, genres, original_language, vote_average,
-          popularity, runtime, revenue, release_year, production_countries, status
+          title, overview, tagline, genres, original_language, vote_average, popularity, runtime, revenue, release_year,
+          production_countries, status
         </p>
       </div>
     </div>
   )
 }
 
-function WikiConfig({
-  selected,
-  toggle,
-}: {
-  selected: Set<string>
-  toggle: (code: string) => void
-}) {
+function WikiConfig({ selected, toggle }: { selected: Set<string>; toggle: (code: string) => void }) {
   return (
     <div className="flex flex-col gap-4">
       <div>
@@ -115,8 +94,8 @@ function CranfieldConfig() {
     <div className="flex flex-col gap-4">
       <div>
         <p className="text-sm text-muted-foreground">
-          The Cranfield collection is a fixed dataset: 1,400 aeronautics abstracts,
-          225 queries, and expert relevance judgments. No configuration needed.
+          The Cranfield collection is a fixed dataset: 1,400 aeronautics abstracts, 225 queries, and expert relevance
+          judgments. No configuration needed.
         </p>
       </div>
       <Separator />
@@ -166,8 +145,8 @@ function CustomConfig({ onFile }: { onFile: (file: File) => void }) {
       <div>
         <label className="mb-2 block text-sm font-medium">Upload your data</label>
         <p className="text-sm text-muted-foreground">
-          Drag and drop a JSON or CSV file, or click to browse. Narsil will
-          auto-detect the schema and let you choose which fields to index.
+          Drag and drop a JSON or CSV file, or click to browse. Narsil will auto-detect the schema and let you choose
+          which fields to index.
         </p>
       </div>
       <input
@@ -175,7 +154,7 @@ function CustomConfig({ onFile }: { onFile: (file: File) => void }) {
         type="file"
         accept=".json,.csv"
         className="hidden"
-        onChange={(e) => handleFile(e.target.files?.[0])}
+        onChange={e => handleFile(e.target.files?.[0])}
       />
       <button
         type="button"
@@ -242,9 +221,7 @@ function ProgressBar({ progress }: { progress: DatasetLoadProgress }) {
   return (
     <div className="flex flex-col gap-1.5 px-6 pb-2">
       <Progress value={percent} />
-      <p className={`text-xs ${progress.phase === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>
-        {label}
-      </p>
+      <p className={`text-xs ${progress.phase === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>{label}</p>
     </div>
   )
 }
@@ -340,7 +317,7 @@ function DatasetCard({ ds, loaded, loading, restoring, progress, onLoad, configC
         <p className="text-sm text-muted-foreground">{ds.description}</p>
         {ds.id === 'tmdb' && (
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {tmdb.tiers.map((tier) => (
+            {tmdb.tiers.map(tier => (
               <Badge key={tier.label} variant="secondary" className="text-[10px] font-mono">
                 {tier.label}
               </Badge>
@@ -364,9 +341,7 @@ function DatasetCard({ ds, loaded, loading, restoring, progress, onLoad, configC
         )}
       </CardContent>
 
-      {progress && progress.phase !== 'complete' && (
-        <ProgressBar progress={progress} />
-      )}
+      {progress && progress.phase !== 'complete' && <ProgressBar progress={progress} />}
 
       <CardFooter>
         {busy ? (
@@ -377,11 +352,7 @@ function DatasetCard({ ds, loaded, loading, restoring, progress, onLoad, configC
         ) : (
           <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
             <SheetTrigger asChild>
-              <Button
-                type="button"
-                variant={loaded ? 'secondary' : 'outline'}
-                className="w-full"
-              >
+              <Button type="button" variant={loaded ? 'secondary' : 'outline'} className="w-full">
                 {loaded ? (
                   <>
                     <Check className="size-3.5" />
@@ -400,16 +371,9 @@ function DatasetCard({ ds, loaded, loading, restoring, progress, onLoad, configC
                 <SheetTitle>{ds.title}</SheetTitle>
                 <SheetDescription>{ds.sheetDescription}</SheetDescription>
               </SheetHeader>
-              <div className="px-4">
-                {configContent}
-              </div>
+              <div className="px-4">{configContent}</div>
               <SheetFooter>
-                <Button
-                  type="button"
-                  className="w-full"
-                  disabled={ds.id === 'custom'}
-                  onClick={handleLoadClick}
-                >
+                <Button type="button" className="w-full" disabled={ds.id === 'custom'} onClick={handleLoadClick}>
                   {loaded ? 'Reload Dataset' : 'Load Dataset'}
                 </Button>
               </SheetFooter>
@@ -447,7 +411,7 @@ function HomePage() {
   }, [backend, dispatch])
 
   function toggleWikiLang(code: string) {
-    setWikiLangs((prev) => {
+    setWikiLangs(prev => {
       const next = new Set(prev)
       if (next.has(code)) {
         next.delete(code)
@@ -507,11 +471,11 @@ function HomePage() {
         })
       }
     },
-    [backend, dispatch, tmdbTier, wikiLangs]
+    [backend, dispatch, tmdbTier, wikiLangs],
   )
 
   function isLoaded(datasetId: DatasetId): boolean {
-    return state.indexes.some((idx) => idx.datasetId === datasetId)
+    return state.indexes.some(idx => idx.datasetId === datasetId)
   }
 
   function isLoading(datasetId: DatasetId): boolean {
@@ -531,15 +495,13 @@ function HomePage() {
       <section className="mb-8">
         <h1 className="mb-2 font-serif text-3xl tracking-tight">Datasets</h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
-          Choose a dataset to index. Narsil runs on the server with filesystem
-          persistence, so indexed data survives restarts. Configure the tier
-          and fields, then explore search, relevance tuning, and quality
-          benchmarks.
+          Choose a dataset to index. Narsil runs on the server with filesystem persistence, so indexed data survives
+          restarts. Configure the tier and fields, then explore search, relevance tuning, and quality benchmarks.
         </p>
       </section>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        {datasetMeta.map((ds) => (
+        {datasetMeta.map(ds => (
           <DatasetCard
             key={ds.id}
             ds={ds}

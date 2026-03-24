@@ -1,13 +1,13 @@
-import { type Dispatch } from 'react'
+import { Loader2, Search } from 'lucide-react'
+import type { Dispatch } from 'react'
 import type { NarsilBackend } from '../../backend'
-import type { AppState, AppAction } from '../../types'
 import { useRelevance } from '../../hooks/use-relevance'
-import { ScoreBreakdown } from './ScoreBreakdown'
-import { TuningPanel } from './TuningPanel'
-import { RankComparison } from './RankComparison'
+import type { AppAction, AppState } from '../../types'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
-import { Search, Loader2 } from 'lucide-react'
+import { RankComparison } from './RankComparison'
+import { ScoreBreakdown } from './ScoreBreakdown'
+import { TuningPanel } from './TuningPanel'
 
 interface RelevanceLabProps {
   backend: NarsilBackend
@@ -16,13 +16,17 @@ interface RelevanceLabProps {
 }
 
 function getSearchableFields(state: AppState): string[] {
-  const activeIndex = state.indexes.find((i) => i.name === state.activeIndexName)
+  const activeIndex = state.indexes.find(i => i.name === state.activeIndexName)
   if (!activeIndex) return []
   switch (activeIndex.datasetId) {
-    case 'tmdb': return ['title', 'overview', 'tagline']
-    case 'wikipedia': return ['title', 'text']
-    case 'cranfield': return ['title', 'body']
-    default: return []
+    case 'tmdb':
+      return ['title', 'overview', 'tagline']
+    case 'wikipedia':
+      return ['title', 'text']
+    case 'cranfield':
+      return ['title', 'body']
+    default:
+      return []
   }
 }
 
@@ -42,7 +46,7 @@ export function RelevanceLab({ backend, state, dispatch }: RelevanceLabProps) {
     )
   }
 
-  const activeIndex = state.indexes.find((i) => i.name === indexName)
+  const activeIndex = state.indexes.find(i => i.name === indexName)
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
@@ -57,7 +61,7 @@ export function RelevanceLab({ backend, state, dispatch }: RelevanceLabProps) {
 
       {state.indexes.length > 1 && (
         <div className="mb-4 flex flex-wrap gap-1.5">
-          {state.indexes.map((idx) => (
+          {state.indexes.map(idx => (
             <Button
               key={idx.name}
               type="button"
@@ -78,7 +82,7 @@ export function RelevanceLab({ backend, state, dispatch }: RelevanceLabProps) {
           type="text"
           placeholder="Enter a query to analyze scoring..."
           value={relevance.term}
-          onChange={(e) => relevance.setTerm(e.target.value)}
+          onChange={e => relevance.setTerm(e.target.value)}
           className="pl-10 pr-10"
         />
         {relevance.isLoading && (

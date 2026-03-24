@@ -1,9 +1,9 @@
-import { useState } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
-import { Button } from '../ui/button'
-import { Badge } from '../ui/badge'
-import { Input } from '../ui/input'
+import { useState } from 'react'
 import type { SearchParams } from '../../hooks/use-search'
+import { Badge } from '../ui/badge'
+import { Button } from '../ui/button'
+import { Input } from '../ui/input'
 
 interface AdvancedOptionsProps {
   params: SearchParams
@@ -42,7 +42,7 @@ export function AdvancedOptions({
           <div>
             <label className="mb-1.5 block text-xs font-medium">Search fields</label>
             <div className="flex flex-wrap gap-1">
-              {searchableFields.map((field) => {
+              {searchableFields.map(field => {
                 const active = params.fields.length === 0 || params.fields.includes(field)
                 return (
                   <Badge
@@ -51,9 +51,9 @@ export function AdvancedOptions({
                     className="cursor-pointer text-[10px]"
                     onClick={() => {
                       if (params.fields.length === 0) {
-                        onFieldsChange(searchableFields.filter((f) => f !== field))
+                        onFieldsChange(searchableFields.filter(f => f !== field))
                       } else if (params.fields.includes(field)) {
-                        const next = params.fields.filter((f) => f !== field)
+                        const next = params.fields.filter(f => f !== field)
                         onFieldsChange(next.length === searchableFields.length ? [] : next)
                       } else {
                         onFieldsChange([...params.fields, field])
@@ -70,7 +70,7 @@ export function AdvancedOptions({
           <div>
             <label className="mb-1.5 block text-xs font-medium">Field boosts</label>
             <div className="flex flex-col gap-1.5">
-              {searchableFields.map((field) => (
+              {searchableFields.map(field => (
                 <div key={field} className="flex items-center gap-2">
                   <span className="w-16 truncate text-xs text-muted-foreground">{field}</span>
                   <input
@@ -79,12 +79,10 @@ export function AdvancedOptions({
                     max="5"
                     step="0.5"
                     value={params.boost[field] ?? 1}
-                    onChange={(e) => onBoostChange(field, parseFloat(e.target.value))}
+                    onChange={e => onBoostChange(field, parseFloat(e.target.value))}
                     className="h-1.5 flex-1 accent-primary"
                   />
-                  <span className="w-6 text-right font-mono text-[10px]">
-                    {(params.boost[field] ?? 1).toFixed(1)}
-                  </span>
+                  <span className="w-6 text-right font-mono text-[10px]">{(params.boost[field] ?? 1).toFixed(1)}</span>
                 </div>
               ))}
             </div>
@@ -99,7 +97,7 @@ export function AdvancedOptions({
                 max="3"
                 step="1"
                 value={params.tolerance}
-                onChange={(e) => onParamChange('tolerance', parseInt(e.target.value, 10))}
+                onChange={e => onParamChange('tolerance', parseInt(e.target.value, 10))}
                 className="h-1.5 flex-1 accent-primary"
               />
               <span className="w-4 text-right font-mono text-xs">{params.tolerance}</span>
@@ -109,7 +107,7 @@ export function AdvancedOptions({
           <div>
             <label className="mb-1.5 block text-xs font-medium">Term match</label>
             <div className="flex gap-1">
-              {(['any', 'all'] as const).map((mode) => (
+              {(['any', 'all'] as const).map(mode => (
                 <Button
                   key={mode}
                   variant={params.termMatch === mode ? 'default' : 'outline'}
@@ -140,7 +138,7 @@ export function AdvancedOptions({
               min="0"
               step="0.1"
               value={params.minScore || ''}
-              onChange={(e) => onParamChange('minScore', parseFloat(e.target.value) || 0)}
+              onChange={e => onParamChange('minScore', parseFloat(e.target.value) || 0)}
               className="h-7 text-xs"
               placeholder="0"
             />
@@ -149,30 +147,32 @@ export function AdvancedOptions({
           <div>
             <label className="mb-1.5 block text-xs font-medium">Sort by</label>
             <div className="flex flex-wrap gap-1">
-              {allFields.filter((f) => !searchableFields.includes(f)).map((field) => {
-                const dir = params.sort[field]
-                return (
-                  <Badge
-                    key={field}
-                    variant={dir ? 'default' : 'outline'}
-                    className="cursor-pointer text-[10px]"
-                    onClick={() => {
-                      if (!dir) onSortChange(field, 'desc')
-                      else if (dir === 'desc') onSortChange(field, 'asc')
-                      else onSortChange(field, null)
-                    }}
-                  >
-                    {field} {dir === 'asc' ? '\u2191' : dir === 'desc' ? '\u2193' : ''}
-                  </Badge>
-                )
-              })}
+              {allFields
+                .filter(f => !searchableFields.includes(f))
+                .map(field => {
+                  const dir = params.sort[field]
+                  return (
+                    <Badge
+                      key={field}
+                      variant={dir ? 'default' : 'outline'}
+                      className="cursor-pointer text-[10px]"
+                      onClick={() => {
+                        if (!dir) onSortChange(field, 'desc')
+                        else if (dir === 'desc') onSortChange(field, 'asc')
+                        else onSortChange(field, null)
+                      }}
+                    >
+                      {field} {dir === 'asc' ? '\u2191' : dir === 'desc' ? '\u2193' : ''}
+                    </Badge>
+                  )
+                })}
             </div>
           </div>
 
           <div>
             <label className="mb-1.5 block text-xs font-medium">Results per page</label>
             <div className="flex gap-1">
-              {[10, 20, 50].map((n) => (
+              {[10, 20, 50].map(n => (
                 <Button
                   key={n}
                   variant={params.limit === n ? 'default' : 'outline'}

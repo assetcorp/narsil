@@ -57,9 +57,7 @@ export function LoadProgress({ progress }: { progress: DatasetLoadProgress }) {
   return (
     <div className="flex flex-col gap-1.5">
       <Progress value={percent} className={isError ? '[&_[data-slot=progress-indicator]]:bg-destructive' : ''} />
-      <p className={`text-xs ${isError ? 'text-destructive' : 'text-muted-foreground'}`}>
-        {label}
-      </p>
+      <p className={`text-xs ${isError ? 'text-destructive' : 'text-muted-foreground'}`}>{label}</p>
     </div>
   )
 }

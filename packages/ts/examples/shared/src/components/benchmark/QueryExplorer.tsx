@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react'
-import { Input } from '../ui/input'
+import { useMemo, useState } from 'react'
 import type { QueryMetrics } from '../../lib/metrics'
+import { Input } from '../ui/input'
 
 type SortColumn = 'id' | 'ndcg10' | 'precision10' | 'ap' | 'rr'
 
@@ -18,12 +18,9 @@ export function QueryExplorer({ perQuery, selectedQuery, onSelect }: QueryExplor
   const filtered = useMemo(() => {
     const lowerFilter = filter.toLowerCase()
     return perQuery
-      .filter((q) => {
+      .filter(q => {
         if (!filter) return true
-        return (
-          q.queryText.toLowerCase().includes(lowerFilter) ||
-          String(q.queryId).includes(filter)
-        )
+        return q.queryText.toLowerCase().includes(lowerFilter) || String(q.queryId).includes(filter)
       })
       .sort((a, b) => {
         const mul = sortAsc ? 1 : -1
@@ -49,7 +46,7 @@ export function QueryExplorer({ perQuery, selectedQuery, onSelect }: QueryExplor
           type="text"
           placeholder="Filter queries..."
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          onChange={e => setFilter(e.target.value)}
           className="mt-2 h-7 text-xs"
         />
       </div>
@@ -73,7 +70,7 @@ export function QueryExplorer({ perQuery, selectedQuery, onSelect }: QueryExplor
             </tr>
           </thead>
           <tbody>
-            {filtered.map((q) => (
+            {filtered.map(q => (
               <tr
                 key={q.queryId}
                 className={`cursor-pointer border-b transition-colors hover:bg-muted/50 ${selectedQuery?.queryId === q.queryId ? 'bg-accent' : ''}`}

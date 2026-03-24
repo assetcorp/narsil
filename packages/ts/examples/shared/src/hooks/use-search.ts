@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { NarsilBackend, QueryRequest, QueryResponse, SuggestResponse } from '../backend'
 
 export interface SearchParams {
@@ -65,12 +65,12 @@ export function useSearch(backend: NarsilBackend, indexName: string | null) {
   const executeSearch = useCallback(
     async (params: SearchParams) => {
       if (!indexName || !params.term.trim()) {
-        setState((s) => ({ ...s, results: null, isLoading: false, error: null }))
+        setState(s => ({ ...s, results: null, isLoading: false, error: null }))
         return
       }
 
       const id = ++searchCounter.current
-      setState((s) => ({ ...s, isLoading: true, error: null }))
+      setState(s => ({ ...s, isLoading: true, error: null }))
 
       try {
         const request: QueryRequest = {
@@ -110,36 +110,36 @@ export function useSearch(backend: NarsilBackend, indexName: string | null) {
         const response = await backend.query(request)
         if (id !== searchCounter.current) return
 
-        setState((s) => ({ ...s, results: response, isLoading: false }))
+        setState(s => ({ ...s, results: response, isLoading: false }))
       } catch (err) {
         if (id !== searchCounter.current) return
-        setState((s) => ({
+        setState(s => ({
           ...s,
           isLoading: false,
           error: err instanceof Error ? err.message : String(err),
         }))
       }
     },
-    [backend, indexName]
+    [backend, indexName],
   )
 
   const executeSuggest = useCallback(
     async (prefix: string) => {
       if (!indexName || prefix.length < 2) {
-        setState((s) => ({ ...s, suggestions: null, isSuggestLoading: false }))
+        setState(s => ({ ...s, suggestions: null, isSuggestLoading: false }))
         return
       }
 
-      setState((s) => ({ ...s, isSuggestLoading: true }))
+      setState(s => ({ ...s, isSuggestLoading: true }))
 
       try {
         const response = await backend.suggest({ indexName, prefix, limit: 8 })
-        setState((s) => ({ ...s, suggestions: response, isSuggestLoading: false }))
+        setState(s => ({ ...s, suggestions: response, isSuggestLoading: false }))
       } catch {
-        setState((s) => ({ ...s, isSuggestLoading: false }))
+        setState(s => ({ ...s, isSuggestLoading: false }))
       }
     },
-    [backend, indexName]
+    [backend, indexName],
   )
 
   const paramsRef = useRef(state.params)
@@ -147,7 +147,7 @@ export function useSearch(backend: NarsilBackend, indexName: string | null) {
 
   const setTerm = useCallback(
     (term: string) => {
-      setState((s) => {
+      setState(s => {
         const params = { ...s.params, term, offset: 0, searchAfter: undefined }
         return { ...s, params }
       })
@@ -163,12 +163,12 @@ export function useSearch(backend: NarsilBackend, indexName: string | null) {
         executeSuggest(term)
       }, 150)
     },
-    [executeSearch, executeSuggest]
+    [executeSearch, executeSuggest],
   )
 
   const setFields = useCallback(
     (fields: string[]) => {
-      setState((s) => {
+      setState(s => {
         const params = { ...s.params, fields, offset: 0 }
         if (params.term) {
           executeSearch(params)
@@ -176,12 +176,12 @@ export function useSearch(backend: NarsilBackend, indexName: string | null) {
         return { ...s, params }
       })
     },
-    [executeSearch]
+    [executeSearch],
   )
 
   const setBoost = useCallback(
     (field: string, value: number) => {
-      setState((s) => {
+      setState(s => {
         const boost = { ...s.params.boost }
         if (value === 1) {
           delete boost[field]
@@ -193,12 +193,12 @@ export function useSearch(backend: NarsilBackend, indexName: string | null) {
         return { ...s, params }
       })
     },
-    [executeSearch]
+    [executeSearch],
   )
 
   const setSort = useCallback(
     (field: string, direction: 'asc' | 'desc' | null) => {
-      setState((s) => {
+      setState(s => {
         const sort = { ...s.params.sort }
         if (direction === null) {
           delete sort[field]
@@ -213,22 +213,22 @@ export function useSearch(backend: NarsilBackend, indexName: string | null) {
         return { ...s, params }
       })
     },
-    [executeSearch]
+    [executeSearch],
   )
 
   const setPage = useCallback(
     (page: number) => {
-      setState((s) => {
+      setState(s => {
         const params = { ...s.params, offset: page * s.params.limit }
         executeSearch(params)
         return { ...s, params }
       })
     },
-    [executeSearch]
+    [executeSearch],
   )
 
   const loadMore = useCallback(() => {
-    setState((s) => {
+    setState(s => {
       if (!s.results?.cursor) return s
       const params = { ...s.params, searchAfter: s.results.cursor }
       executeSearch(params)
@@ -238,24 +238,24 @@ export function useSearch(backend: NarsilBackend, indexName: string | null) {
 
   const setFilter = useCallback(
     (filters: Record<string, unknown>) => {
-      setState((s) => {
+      setState(s => {
         const params = { ...s.params, filters, offset: 0 }
         if (params.term) executeSearch(params)
         return { ...s, params }
       })
     },
-    [executeSearch]
+    [executeSearch],
   )
 
   const updateParam = useCallback(
     <K extends keyof SearchParams>(key: K, value: SearchParams[K]) => {
-      setState((s) => {
+      setState(s => {
         const params = { ...s.params, [key]: value }
         if (params.term) executeSearch(params)
         return { ...s, params }
       })
     },
-    [executeSearch]
+    [executeSearch],
   )
 
   useEffect(() => {

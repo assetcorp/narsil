@@ -1,27 +1,23 @@
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
+import { createNarsil, registerLanguage } from '@delali/narsil'
+import { createMemoryPersistence } from '@delali/narsil/adapters/memory'
 import type {
+  BackendEventHandler,
+  BackendEventType,
+  IndexListEntry,
+  IndexStats,
+  MemoryStatsResponse,
   NarsilBackend,
+  PartitionStats,
   QueryRequest,
   QueryResponse,
   SuggestRequest,
   SuggestResponse,
-  IndexStats,
-  PartitionStats,
-  MemoryStatsResponse,
-  IndexListEntry,
-  BackendEventType,
-  BackendEventHandler,
 } from '@delali/narsil-example-shared/backend'
+import { cranfield, tmdb, wikipedia } from '@delali/narsil-example-shared/manifest'
+import { cranfieldSchema, tmdbSchema, wikipediaSchema } from '@delali/narsil-example-shared/schemas'
 import type { LoadDatasetRequest } from '@delali/narsil-example-shared/types'
-import { createNarsil, registerLanguage } from '@delali/narsil'
-import { createMemoryPersistence } from '@delali/narsil/adapters/memory'
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
-import {
-  tmdb,
-  wikipedia,
-  cranfield,
-} from '@delali/narsil-example-shared/manifest'
-import { tmdbSchema, wikipediaSchema, cranfieldSchema } from '@delali/narsil-example-shared/schemas'
 
 type Narsil = Awaited<ReturnType<typeof createNarsil>>
 type SchemaType = Parameters<Narsil['createIndex']>[1]['schema']
@@ -119,12 +115,12 @@ export class ServerBackend implements NarsilBackend {
 
       switch (request.datasetId) {
         case 'tmdb': {
-          const tierData = tmdb.tiers.find((t) => t.label === request.tier)
+          const tierData = tmdb.tiers.find(t => t.label === request.tier)
           if (!tierData) throw new Error(`Unknown TMDB tier: ${request.tier}`)
 
           const indexName = `tmdb-${request.tier}`
           const existing = inst.listIndexes()
-          if (!existing.some((idx) => idx.name === indexName)) {
+          if (!existing.some(idx => idx.name === indexName)) {
             const filePath = safeDataPath(dataRoot, 'tmdb', tierData.file)
             const docs = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>[]
             await inst.createIndex(indexName, { schema: tmdbSchema as SchemaType, language: 'english' })
@@ -138,12 +134,12 @@ export class ServerBackend implements NarsilBackend {
 
         case 'wikipedia': {
           for (const langCode of request.languages) {
-            const langData = wikipedia.languages.find((l) => l.code === langCode)
+            const langData = wikipedia.languages.find(l => l.code === langCode)
             if (!langData) continue
 
             const indexName = `wikipedia-${langCode}`
             const existing = inst.listIndexes()
-            if (!existing.some((idx) => idx.name === indexName)) {
+            if (!existing.some(idx => idx.name === indexName)) {
               await ensureLanguage(langCode)
               const filePath = safeDataPath(dataRoot, 'wikipedia', langData.file)
               const docs = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>[]
@@ -160,7 +156,7 @@ export class ServerBackend implements NarsilBackend {
         case 'cranfield': {
           const indexName = 'cranfield'
           const existing = inst.listIndexes()
-          if (!existing.some((idx) => idx.name === indexName)) {
+          if (!existing.some(idx => idx.name === indexName)) {
             const filePath = safeDataPath(dataRoot, 'cranfield', cranfield.docsFile)
             const docs = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>[]
             await inst.createIndex(indexName, { schema: cranfieldSchema as SchemaType, language: 'english' })
@@ -175,7 +171,7 @@ export class ServerBackend implements NarsilBackend {
         case 'custom': {
           const { documents, schema, indexName, language } = request
           const existing = inst.listIndexes()
-          if (existing.some((idx) => idx.name === indexName)) {
+          if (existing.some(idx => idx.name === indexName)) {
             await inst.dropIndex(indexName)
           }
           if (language) await ensureLanguage(language)
@@ -205,7 +201,10 @@ export class ServerBackend implements NarsilBackend {
 
   async suggest(request: SuggestRequest): Promise<SuggestResponse> {
     const inst = await getNarsil()
-    return inst.suggest(request.indexName, { prefix: request.prefix, limit: request.limit }) as unknown as SuggestResponse
+    return inst.suggest(request.indexName, {
+      prefix: request.prefix,
+      limit: request.limit,
+    }) as unknown as SuggestResponse
   }
 
   async getStats(indexName: string): Promise<IndexStats> {

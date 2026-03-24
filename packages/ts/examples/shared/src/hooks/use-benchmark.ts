@@ -1,12 +1,7 @@
-import { useState, useCallback, useRef } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type { NarsilBackend } from '../backend'
-import {
-  ndcgAtK,
-  precisionAtK,
-  averagePrecision,
-  reciprocalRank,
-} from '../lib/metrics'
-import type { RelevanceMap, QueryMetrics, BenchmarkResult } from '../lib/metrics'
+import type { BenchmarkResult, QueryMetrics, RelevanceMap } from '../lib/metrics'
+import { averagePrecision, ndcgAtK, precisionAtK, reciprocalRank } from '../lib/metrics'
 
 interface CranfieldQuery {
   id: number
@@ -74,7 +69,7 @@ export function useBenchmark(backend: NarsilBackend) {
         map.set(String(qrel.docId), qrel.relevance)
       }
 
-      setState((s) => ({ ...s, totalQueries: queries.length }))
+      setState(s => ({ ...s, totalQueries: queries.length }))
 
       const perQuery: QueryMetrics[] = []
       let sumNdcg10 = 0
@@ -87,7 +82,7 @@ export function useBenchmark(backend: NarsilBackend) {
 
         const query = queries[i]
         const judgments = qrelsByQuery.get(query.id) ?? new Map<string, number>()
-        const totalRelevant = Array.from(judgments.values()).filter((r) => r > 0).length
+        const totalRelevant = Array.from(judgments.values()).filter(r => r > 0).length
 
         const response = await backend.query({
           indexName: 'cranfield',
@@ -95,7 +90,7 @@ export function useBenchmark(backend: NarsilBackend) {
           limit: 100,
         })
 
-        const resultIds = response.hits.map((h) => String(h.document.id ?? h.id))
+        const resultIds = response.hits.map(h => String(h.document.id ?? h.id))
 
         const ndcg10 = ndcgAtK(resultIds, judgments, 10)
         const precision10 = precisionAtK(resultIds, judgments, 10)
@@ -118,7 +113,7 @@ export function useBenchmark(backend: NarsilBackend) {
           judgments,
         })
 
-        setState((s) => ({
+        setState(s => ({
           ...s,
           progress: i + 1,
           result: {
@@ -135,7 +130,7 @@ export function useBenchmark(backend: NarsilBackend) {
       }
 
       const n = perQuery.length
-      setState((s) => ({
+      setState(s => ({
         ...s,
         isRunning: false,
         result: {
@@ -150,7 +145,7 @@ export function useBenchmark(backend: NarsilBackend) {
         },
       }))
     } catch (err) {
-      setState((s) => ({
+      setState(s => ({
         ...s,
         isRunning: false,
         error: err instanceof Error ? err.message : String(err),
@@ -163,7 +158,7 @@ export function useBenchmark(backend: NarsilBackend) {
   }, [])
 
   const selectQuery = useCallback((query: QueryMetrics | null) => {
-    setState((s) => ({ ...s, selectedQuery: query }))
+    setState(s => ({ ...s, selectedQuery: query }))
   }, [])
 
   return { ...state, run, abort, selectQuery }

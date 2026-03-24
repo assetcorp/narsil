@@ -1,20 +1,15 @@
 import { createNarsil, registerLanguage } from '@delali/narsil'
-import {
-  tmdb,
-  wikipedia,
-  cranfield,
-  COMMITTED_SIZE_THRESHOLD,
-} from '@delali/narsil-example-shared/manifest'
-import { tmdbSchema, wikipediaSchema, cranfieldSchema } from '@delali/narsil-example-shared/schemas'
+import { COMMITTED_SIZE_THRESHOLD, cranfield, tmdb, wikipedia } from '@delali/narsil-example-shared/manifest'
+import { cranfieldSchema, tmdbSchema, wikipediaSchema } from '@delali/narsil-example-shared/schemas'
 import type { DatasetLoadProgress } from '@delali/narsil-example-shared/types'
 import type {
-  WorkerRequest,
+  IndexNamePayload,
   LoadDatasetPayload,
   QueryPayload,
   SuggestPayload,
-  IndexNamePayload,
-  WorkerResponse,
   WorkerProgressEvent,
+  WorkerRequest,
+  WorkerResponse,
 } from './messages'
 
 type Narsil = Awaited<ReturnType<typeof createNarsil>>
@@ -42,8 +37,14 @@ async function saveSnapshot(indexName: string, data: Uint8Array): Promise<void> 
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SNAPSHOT_STORE, 'readwrite')
     tx.objectStore(SNAPSHOT_STORE).put(data, indexName)
-    tx.oncomplete = () => { db.close(); resolve() }
-    tx.onerror = () => { db.close(); reject(tx.error) }
+    tx.oncomplete = () => {
+      db.close()
+      resolve()
+    }
+    tx.onerror = () => {
+      db.close()
+      reject(tx.error)
+    }
   })
 }
 
@@ -52,8 +53,14 @@ async function loadSnapshot(indexName: string): Promise<Uint8Array | null> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SNAPSHOT_STORE, 'readonly')
     const req = tx.objectStore(SNAPSHOT_STORE).get(indexName)
-    req.onsuccess = () => { db.close(); resolve(req.result ?? null) }
-    req.onerror = () => { db.close(); reject(req.error) }
+    req.onsuccess = () => {
+      db.close()
+      resolve(req.result ?? null)
+    }
+    req.onerror = () => {
+      db.close()
+      reject(req.error)
+    }
   })
 }
 
@@ -62,8 +69,14 @@ async function listSnapshots(): Promise<string[]> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SNAPSHOT_STORE, 'readonly')
     const req = tx.objectStore(SNAPSHOT_STORE).getAllKeys()
-    req.onsuccess = () => { db.close(); resolve(req.result as string[]) }
-    req.onerror = () => { db.close(); reject(req.error) }
+    req.onsuccess = () => {
+      db.close()
+      resolve(req.result as string[])
+    }
+    req.onerror = () => {
+      db.close()
+      reject(req.error)
+    }
   })
 }
 
@@ -72,8 +85,14 @@ async function deleteSnapshot(indexName: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SNAPSHOT_STORE, 'readwrite')
     tx.objectStore(SNAPSHOT_STORE).delete(indexName)
-    tx.oncomplete = () => { db.close(); resolve() }
-    tx.onerror = () => { db.close(); reject(tx.error) }
+    tx.oncomplete = () => {
+      db.close()
+      resolve()
+    }
+    tx.onerror = () => {
+      db.close()
+      reject(tx.error)
+    }
   })
 }
 
@@ -167,7 +186,7 @@ async function fetchJson(
   file: string,
   url: string | null,
   sizeBytes: number,
-  datasetId: DatasetLoadProgress['datasetId']
+  datasetId: DatasetLoadProgress['datasetId'],
 ): Promise<Record<string, unknown>[]> {
   const localUrl = `${basePath}${file}`
 
@@ -215,7 +234,7 @@ async function indexDocuments(
   instance: Narsil,
   indexName: string,
   docs: Record<string, unknown>[],
-  datasetId: DatasetLoadProgress['datasetId']
+  datasetId: DatasetLoadProgress['datasetId'],
 ) {
   const total = docs.length
   let indexed = 0
@@ -232,12 +251,12 @@ async function indexDocuments(
 
 async function loadTmdb(tier: string) {
   const instance = await getNarsil()
-  const tierData = tmdb.tiers.find((t) => t.label === tier)
+  const tierData = tmdb.tiers.find(t => t.label === tier)
   if (!tierData) throw new Error(`Unknown TMDB tier: ${tier}`)
 
   const indexName = `tmdb-${tier}`
   const existing = instance.listIndexes()
-  if (existing.some((idx) => idx.name === indexName)) {
+  if (existing.some(idx => idx.name === indexName)) {
     postProgress({ datasetId: 'tmdb', phase: 'complete', totalDocs: tierData.docCount, indexedDocs: tierData.docCount })
     return { name: indexName, documentCount: tierData.docCount, language: 'english' }
   }
@@ -257,18 +276,24 @@ async function loadWikipedia(languages: string[]) {
   const results: Array<{ name: string; documentCount: number; language: string }> = []
 
   for (const langCode of languages) {
-    const langData = wikipedia.languages.find((l) => l.code === langCode)
+    const langData = wikipedia.languages.find(l => l.code === langCode)
     if (!langData) continue
 
     const indexName = `wikipedia-${langCode}`
     const existing = instance.listIndexes()
-    if (existing.some((idx) => idx.name === indexName)) {
+    if (existing.some(idx => idx.name === indexName)) {
       results.push({ name: indexName, documentCount: langData.docCount, language: langCode })
       continue
     }
 
     await ensureLanguage(langCode)
-    const docs = await fetchJson('/data/processed/wikipedia/', langData.file, langData.url, langData.sizeBytes, 'wikipedia')
+    const docs = await fetchJson(
+      '/data/processed/wikipedia/',
+      langData.file,
+      langData.url,
+      langData.sizeBytes,
+      'wikipedia',
+    )
 
     await instance.createIndex(indexName, { schema: wikipediaSchema as SchemaType, language: langName(langCode) })
     await indexDocuments(instance, indexName, docs, 'wikipedia')
@@ -285,8 +310,13 @@ async function loadCranfield() {
   const indexName = 'cranfield'
   const existing = instance.listIndexes()
 
-  if (existing.some((idx) => idx.name === indexName)) {
-    postProgress({ datasetId: 'cranfield', phase: 'complete', totalDocs: cranfield.docCount, indexedDocs: cranfield.docCount })
+  if (existing.some(idx => idx.name === indexName)) {
+    postProgress({
+      datasetId: 'cranfield',
+      phase: 'complete',
+      totalDocs: cranfield.docCount,
+      indexedDocs: cranfield.docCount,
+    })
     return { name: indexName, documentCount: cranfield.docCount, language: 'english' }
   }
 
@@ -300,12 +330,17 @@ async function loadCranfield() {
   return { name: indexName, documentCount: docs.length, language: 'english' }
 }
 
-async function loadCustom(payload: { documents: Record<string, unknown>[]; schema: Record<string, string>; indexName: string; language?: string }) {
+async function loadCustom(payload: {
+  documents: Record<string, unknown>[]
+  schema: Record<string, string>
+  indexName: string
+  language?: string
+}) {
   const instance = await getNarsil()
   const { documents, schema, indexName, language } = payload
 
   const existing = instance.listIndexes()
-  if (existing.some((idx) => idx.name === indexName)) {
+  if (existing.some(idx => idx.name === indexName)) {
     await instance.dropIndex(indexName)
     await deleteSnapshot(indexName).catch(() => {})
   }

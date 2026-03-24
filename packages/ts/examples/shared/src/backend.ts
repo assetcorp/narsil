@@ -1,4 +1,4 @@
-import type { LoadDatasetRequest, DatasetLoadProgress } from './types'
+import type { DatasetLoadProgress, LoadDatasetRequest } from './types'
 
 export type BackendEventType = 'progress' | 'ready' | 'error'
 
@@ -8,9 +8,7 @@ export type BackendEventPayload = {
   error: { message: string }
 }
 
-export type BackendEventHandler<T extends BackendEventType> = (
-  payload: BackendEventPayload[T]
-) => void
+export type BackendEventHandler<T extends BackendEventType> = (payload: BackendEventPayload[T]) => void
 
 export interface QueryRequest {
   indexName: string
