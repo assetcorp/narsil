@@ -1,3 +1,13 @@
+## 0.1.4 (2026-03-25)
+
+### 🩹 Fixes
+
+- **tests:** update expectation in HNSWIndex test to allow for equal layer counts ([9b5fa85](https://github.com/assetcorp/narsil/commit/9b5fa85))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.1.3 (2026-03-25)
 
 ### 🩹 Fixes
