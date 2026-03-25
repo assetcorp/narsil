@@ -10,12 +10,9 @@ declare const Worker: {
 
 function resolveEntryPoint(): string {
   const base = import.meta.url
-  if (base.endsWith('.mjs') || base.endsWith('.js')) {
-    const distIndex = base.lastIndexOf('/dist/')
-    if (distIndex !== -1) {
-      return new URL('workers/entry.mjs', base.slice(0, distIndex + 6)).href
-    }
-    return new URL('./workers/entry.mjs', base).href
+  const distIndex = base.lastIndexOf('/dist/')
+  if (distIndex !== -1) {
+    return new URL('workers/entry.mjs', base.slice(0, distIndex + 6)).href
   }
   return base.replace(/\/src\/workers\/[^/]+$/, '/dist/workers/entry.mjs')
 }
