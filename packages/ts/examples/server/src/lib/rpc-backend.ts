@@ -13,6 +13,7 @@ import type {
 } from '@delali/narsil-example-shared/backend'
 import type { LoadDatasetRequest } from '@delali/narsil-example-shared/types'
 import {
+  deleteIndexFn,
   getMemoryStatsFn,
   getPartitionStatsFn,
   getStatsFn,
@@ -71,6 +72,10 @@ export class RpcBackend implements NarsilBackend {
 
   async listIndexes(): Promise<IndexListEntry[]> {
     return listIndexesFn() as Promise<IndexListEntry[]>
+  }
+
+  async deleteIndex(indexName: string): Promise<void> {
+    await deleteIndexFn({ data: { indexName } })
   }
 
   subscribe<T extends BackendEventType>(event: T, handler: BackendEventHandler<T>): void {

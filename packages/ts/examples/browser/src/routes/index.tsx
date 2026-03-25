@@ -1,7 +1,10 @@
 import type { DatasetId, DatasetLoadProgress, LoadDatasetRequest } from '@delali/narsil-example-shared'
 import { cranfield, tmdb, useAppDispatch, useAppState, useBackend, wikipedia } from '@delali/narsil-example-shared'
+import { INDEX_NAME_PATTERN, SchemaEditor } from '@delali/narsil-example-shared/components/SchemaEditor'
+import { parseFile } from '@delali/narsil-example-shared/lib/file-parser'
+import { buildSchema, type DetectedField, detectSchema } from '@delali/narsil-example-shared/lib/schema-detector'
 import { createFileRoute } from '@tanstack/react-router'
-import { BookOpen, Check, FileUp, Film, Globe, Loader2, Settings2, Upload } from 'lucide-react'
+import { BookOpen, Check, FileUp, Film, Globe, Loader2, Settings2, Trash2, Upload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
@@ -117,22 +120,101 @@ function CranfieldConfig() {
   )
 }
 
-function CustomConfig({ onFile }: { onFile: (file: File) => void }) {
+const MAX_FILE_SIZE = 50 * 1024 * 1024
+
+interface CustomConfigProps {
+  onReady: (
+    config: {
+      documents: Record<string, unknown>[]
+      schema: Record<string, string>
+      indexName: string
+      language: string
+    } | null,
+  ) => void
+}
+
+function CustomConfig({ onReady }: CustomConfigProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
   const [fileName, setFileName] = useState<string | null>(null)
+  const [parseError, setParseError] = useState<string | null>(null)
+  const [documents, setDocuments] = useState<Record<string, unknown>[] | null>(null)
+  const [fields, setFields] = useState<DetectedField[]>([])
+  const [indexName, setIndexName] = useState('')
+  const [language, setLanguage] = useState('en')
 
-  function handleFile(file: File | undefined) {
-    if (!file) return
+  function emitConfig(docs: Record<string, unknown>[], f: DetectedField[], name: string, lang: string) {
+    if (!name || name.length > 64 || !INDEX_NAME_PATTERN.test(name)) {
+      onReady(null)
+      return
+    }
+    const schema = buildSchema(f)
+    onReady({ documents: docs, schema, indexName: name, language: lang })
+  }
+
+  function handleFieldsChange(updated: DetectedField[]) {
+    setFields(updated)
+    if (documents) emitConfig(documents, updated, indexName, language)
+  }
+
+  function handleIndexNameChange(name: string) {
+    setIndexName(name)
+    if (documents) emitConfig(documents, fields, name, language)
+  }
+
+  function handleLanguageChange(lang: string) {
+    setLanguage(lang)
+    if (documents) emitConfig(documents, fields, indexName, lang)
+  }
+
+  function processFile(file: File) {
+    if (file.size > MAX_FILE_SIZE) {
+      setParseError(`File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is 50 MB.`)
+      onReady(null)
+      return
+    }
+
+    setParseError(null)
     setFileName(file.name)
-    onFile(file)
+
+    const baseName =
+      file.name
+        .replace(/\.[^.]+$/, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 64) || 'custom'
+    setIndexName(baseName)
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const text = reader.result as string
+        const docs = parseFile(text, file.name)
+        const detected = detectSchema(docs)
+        setDocuments(docs)
+        setFields(detected)
+        emitConfig(docs, detected, baseName, language)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setParseError(msg)
+        setDocuments(null)
+        setFields([])
+        onReady(null)
+      }
+    }
+    reader.onerror = () => {
+      setParseError('Failed to read file')
+      onReady(null)
+    }
+    reader.readAsText(file)
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault()
     setDragOver(false)
     const file = e.dataTransfer.files[0]
-    handleFile(file)
+    if (file) processFile(file)
   }
 
   function handleDragOver(e: React.DragEvent) {
@@ -154,7 +236,10 @@ function CustomConfig({ onFile }: { onFile: (file: File) => void }) {
         type="file"
         accept=".json,.csv"
         className="hidden"
-        onChange={e => handleFile(e.target.files?.[0])}
+        onChange={e => {
+          const file = e.target.files?.[0]
+          if (file) processFile(file)
+        }}
       />
       <button
         type="button"
@@ -178,6 +263,20 @@ function CustomConfig({ onFile }: { onFile: (file: File) => void }) {
           )}
         </div>
       </button>
+
+      {parseError && <p className="text-xs text-destructive">{parseError}</p>}
+
+      {documents && fields.length > 0 && (
+        <SchemaEditor
+          fields={fields}
+          documents={documents}
+          indexName={indexName}
+          language={language}
+          onFieldsChange={handleFieldsChange}
+          onIndexNameChange={handleIndexNameChange}
+          onLanguageChange={handleLanguageChange}
+        />
+      )}
     </div>
   )
 }
@@ -280,10 +379,22 @@ interface DatasetCardProps {
   restoring: boolean
   progress: DatasetLoadProgress | undefined
   onLoad: (datasetId: DatasetId) => void
+  onRemove: (datasetId: DatasetId) => void
   configContent: React.ReactNode
+  loadDisabled: boolean
 }
 
-function DatasetCard({ ds, loaded, loading, restoring, progress, onLoad, configContent }: DatasetCardProps) {
+function DatasetCard({
+  ds,
+  loaded,
+  loading,
+  restoring,
+  progress,
+  onLoad,
+  onRemove,
+  configContent,
+  loadDisabled,
+}: DatasetCardProps) {
   const [sheetOpen, setSheetOpen] = useState(false)
   const Icon = ds.icon
   const busy = loading || restoring
@@ -350,35 +461,49 @@ function DatasetCard({ ds, loaded, loading, restoring, progress, onLoad, configC
             {restoring ? 'Restoring...' : 'Loading...'}
           </Button>
         ) : (
-          <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-            <SheetTrigger asChild>
-              <Button type="button" variant={loaded ? 'secondary' : 'outline'} className="w-full">
-                {loaded ? (
-                  <>
-                    <Check className="size-3.5" />
-                    Reconfigure
-                  </>
-                ) : (
-                  <>
-                    <Settings2 className="size-3.5" />
-                    Configure
-                  </>
-                )}
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="right" className="overflow-y-auto sm:max-w-md">
-              <SheetHeader>
-                <SheetTitle>{ds.title}</SheetTitle>
-                <SheetDescription>{ds.sheetDescription}</SheetDescription>
-              </SheetHeader>
-              <div className="px-4">{configContent}</div>
-              <SheetFooter>
-                <Button type="button" className="w-full" disabled={ds.id === 'custom'} onClick={handleLoadClick}>
-                  {loaded ? 'Reload Dataset' : 'Load Dataset'}
+          <div className="flex w-full gap-1.5">
+            <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+              <SheetTrigger asChild>
+                <Button type="button" variant={loaded ? 'secondary' : 'outline'} className="flex-1">
+                  {loaded ? (
+                    <>
+                      <Check className="size-3.5" />
+                      Reconfigure
+                    </>
+                  ) : (
+                    <>
+                      <Settings2 className="size-3.5" />
+                      Configure
+                    </>
+                  )}
                 </Button>
-              </SheetFooter>
-            </SheetContent>
-          </Sheet>
+              </SheetTrigger>
+              <SheetContent side="right" className="overflow-y-auto sm:max-w-md">
+                <SheetHeader>
+                  <SheetTitle>{ds.title}</SheetTitle>
+                  <SheetDescription>{ds.sheetDescription}</SheetDescription>
+                </SheetHeader>
+                <div className="px-4">{configContent}</div>
+                <SheetFooter>
+                  <Button type="button" className="w-full" disabled={loadDisabled} onClick={handleLoadClick}>
+                    {loaded ? 'Reload Dataset' : 'Load Dataset'}
+                  </Button>
+                </SheetFooter>
+              </SheetContent>
+            </Sheet>
+            {loaded && !busy && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-destructive"
+                onClick={() => onRemove(ds.id)}
+              >
+                <Trash2 className="size-3.5" />
+                <span className="sr-only">Remove</span>
+              </Button>
+            )}
+          </div>
         )}
       </CardFooter>
     </Card>
@@ -392,7 +517,12 @@ function HomePage() {
 
   const [tmdbTier, setTmdbTier] = useState('10k')
   const [wikiLangs, setWikiLangs] = useState<Set<string>>(new Set(['en']))
-  const [_customFile, setCustomFile] = useState<File | null>(null)
+  const [customConfig, setCustomConfig] = useState<{
+    documents: Record<string, unknown>[]
+    schema: Record<string, string>
+    indexName: string
+    language: string
+  } | null>(null)
 
   useEffect(() => {
     const handler = (progress: DatasetLoadProgress) => {
@@ -435,8 +565,17 @@ function HomePage() {
         case 'cranfield':
           request = { datasetId: 'cranfield' }
           break
-        case 'custom':
-          return
+        case 'custom': {
+          if (!customConfig) return
+          request = {
+            datasetId: 'custom',
+            documents: customConfig.documents,
+            schema: customConfig.schema,
+            indexName: customConfig.indexName,
+            language: customConfig.language,
+          }
+          break
+        }
       }
 
       dispatch({
@@ -451,7 +590,8 @@ function HomePage() {
           if (
             (datasetId === 'tmdb' && idx.name.startsWith('tmdb-')) ||
             (datasetId === 'wikipedia' && idx.name.startsWith('wikipedia-')) ||
-            (datasetId === 'cranfield' && idx.name === 'cranfield')
+            (datasetId === 'cranfield' && idx.name === 'cranfield') ||
+            (datasetId === 'custom' && customConfig && idx.name === customConfig.indexName)
           ) {
             dispatch({
               type: 'INDEX_READY',
@@ -471,7 +611,22 @@ function HomePage() {
         })
       }
     },
-    [backend, dispatch, tmdbTier, wikiLangs],
+    [backend, dispatch, tmdbTier, wikiLangs, customConfig],
+  )
+
+  const handleRemove = useCallback(
+    async (datasetId: DatasetId) => {
+      const indexesForDataset = state.indexes.filter(idx => idx.datasetId === datasetId)
+      for (const idx of indexesForDataset) {
+        try {
+          await backend.deleteIndex(idx.name)
+          dispatch({ type: 'REMOVE_INDEX', payload: idx.name })
+        } catch {
+          // Index may already be gone
+        }
+      }
+    },
+    [backend, dispatch, state.indexes],
   )
 
   function isLoaded(datasetId: DatasetId): boolean {
@@ -483,11 +638,16 @@ function HomePage() {
     return !!progress && progress.phase !== 'complete' && progress.phase !== 'error'
   }
 
+  function isLoadDisabled(datasetId: DatasetId): boolean {
+    if (datasetId === 'custom') return !customConfig
+    return false
+  }
+
   const configContent: Record<DatasetId, React.ReactNode> = {
     tmdb: <TmdbConfig tier={tmdbTier} setTier={setTmdbTier} />,
     wikipedia: <WikiConfig selected={wikiLangs} toggle={toggleWikiLang} />,
     cranfield: <CranfieldConfig />,
-    custom: <CustomConfig onFile={setCustomFile} />,
+    custom: <CustomConfig onReady={setCustomConfig} />,
   }
 
   return (
@@ -510,7 +670,9 @@ function HomePage() {
             restoring={state.restoring}
             progress={state.loadingDatasets.get(ds.id)}
             onLoad={handleLoad}
+            onRemove={handleRemove}
             configContent={configContent[ds.id]}
+            loadDisabled={isLoadDisabled(ds.id)}
           />
         ))}
       </div>

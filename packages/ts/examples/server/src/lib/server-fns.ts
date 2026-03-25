@@ -55,3 +55,10 @@ export const listIndexesFn = createServerFn({ method: 'POST' }).handler(async ()
   const backend = await getBackend()
   return backend.listIndexes()
 })
+
+export const deleteIndexFn = createServerFn({ method: 'POST' })
+  .inputValidator((d: unknown) => d as { indexName: string })
+  .handler(async ({ data }) => {
+    const backend = await getBackend()
+    await backend.deleteIndex(data.indexName)
+  })

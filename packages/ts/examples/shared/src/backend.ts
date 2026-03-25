@@ -104,6 +104,7 @@ export interface NarsilBackend {
   getPartitionStats(indexName: string): Promise<PartitionStats[]>
   getMemoryStats(): Promise<MemoryStatsResponse>
   listIndexes(): Promise<IndexListEntry[]>
+  deleteIndex(indexName: string): Promise<void>
   subscribe<T extends BackendEventType>(event: T, handler: BackendEventHandler<T>): void
   unsubscribe<T extends BackendEventType>(event: T, handler: BackendEventHandler<T>): void
 }

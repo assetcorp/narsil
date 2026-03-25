@@ -1,5 +1,6 @@
 import type { BM25Config } from '../../scoring'
 import { Button } from '../ui/button'
+import { Slider } from '../ui/slider'
 
 interface TuningPanelProps {
   config: BM25Config
@@ -23,60 +24,51 @@ export function TuningPanel({ config, fields, onK1Change, onBChange, onFieldBoos
       <div className="flex flex-col gap-4 p-4">
         <div>
           <div className="flex items-center justify-between">
-            <label htmlFor="bm25-k1" className="text-xs font-medium">
-              k1 (term saturation)
-            </label>
+            <span className="text-xs font-medium">k1 (term saturation)</span>
             <span className="font-mono text-xs">{config.k1.toFixed(2)}</span>
           </div>
-          <input
-            id="bm25-k1"
-            type="range"
-            min="0"
-            max="3"
-            step="0.05"
-            value={config.k1}
-            onChange={e => onK1Change(parseFloat(e.target.value))}
-            className="mt-1 h-1.5 w-full accent-primary"
+          <Slider
+            min={0}
+            max={3}
+            step={0.05}
+            value={[config.k1]}
+            onValueChange={([v]) => onK1Change(v)}
+            className="mt-2"
           />
-          <p className="mt-0.5 text-[10px] text-muted-foreground">Higher values let repeated terms contribute more</p>
+          <p className="mt-1 text-[10px] text-muted-foreground">Higher values let repeated terms contribute more</p>
         </div>
 
         <div>
           <div className="flex items-center justify-between">
-            <label htmlFor="bm25-b" className="text-xs font-medium">
-              b (length normalization)
-            </label>
+            <span className="text-xs font-medium">b (length normalization)</span>
             <span className="font-mono text-xs">{config.b.toFixed(2)}</span>
           </div>
-          <input
-            id="bm25-b"
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-            value={config.b}
-            onChange={e => onBChange(parseFloat(e.target.value))}
-            className="mt-1 h-1.5 w-full accent-primary"
+          <Slider
+            min={0}
+            max={1}
+            step={0.05}
+            value={[config.b]}
+            onValueChange={([v]) => onBChange(v)}
+            className="mt-2"
           />
-          <p className="mt-0.5 text-[10px] text-muted-foreground">Higher values penalize longer documents more</p>
+          <p className="mt-1 text-[10px] text-muted-foreground">Higher values penalize longer documents more</p>
         </div>
 
         <div>
           <span className="text-xs font-medium">Field Boosts</span>
-          <div className="mt-2 flex flex-col gap-2">
+          <div className="mt-2 flex flex-col gap-3">
             {fields.map(field => {
               const boost = config.fieldBoosts[field] ?? 1
               return (
                 <div key={field} className="flex items-center gap-2">
                   <span className="w-16 truncate text-[10px] text-muted-foreground">{field}</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="5"
-                    step="0.5"
-                    value={boost}
-                    onChange={e => onFieldBoostChange(field, parseFloat(e.target.value))}
-                    className="h-1.5 flex-1 accent-primary"
+                  <Slider
+                    min={0}
+                    max={5}
+                    step={0.5}
+                    value={[boost]}
+                    onValueChange={([v]) => onFieldBoostChange(field, v)}
+                    className="flex-1"
                   />
                   <span className="w-6 text-right font-mono text-[10px]">{boost.toFixed(1)}</span>
                 </div>

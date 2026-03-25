@@ -61,7 +61,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       const indexes = state.indexes.filter(i => i.name !== action.payload)
       const activeIndexName =
         state.activeIndexName === action.payload ? (indexes[0]?.name ?? null) : state.activeIndexName
-      const next: AppState = { ...state, indexes, activeIndexName, tabStatus: state.tabStatus }
+      const cranfieldLoaded = action.payload === 'cranfield' ? false : state.cranfieldLoaded
+      const next: AppState = { ...state, indexes, activeIndexName, cranfieldLoaded, tabStatus: state.tabStatus }
       next.tabStatus = computeTabStatus(next)
       return next
     }
