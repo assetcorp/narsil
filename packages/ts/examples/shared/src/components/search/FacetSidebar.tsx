@@ -1,9 +1,41 @@
+import { useCallback } from 'react'
 import { Badge } from '../ui/badge'
 
 interface FacetSidebarProps {
   facets: Record<string, { values: Record<string, number>; count: number }>
   filters: Record<string, unknown>
   onFilterChange: (filters: Record<string, unknown>) => void
+}
+
+function FacetValueButton({
+  field,
+  value,
+  count,
+  selected,
+  onToggle,
+}: {
+  field: string
+  value: string
+  count: number
+  selected: boolean
+  onToggle: (field: string, value: string) => void
+}) {
+  const handleClick = useCallback(() => {
+    onToggle(field, value)
+  }, [onToggle, field, value])
+
+  return (
+    <button
+      type="button"
+      className={`flex items-center justify-between rounded-sm px-2 py-1 text-xs transition-colors hover:bg-accent ${selected ? 'bg-accent font-medium' : ''}`}
+      onClick={handleClick}
+    >
+      <span className="truncate">{value}</span>
+      <Badge variant="secondary" className="ml-2 text-[10px]">
+        {count}
+      </Badge>
+    </button>
+  )
 }
 
 export function FacetSidebar({ facets, filters, onFilterChange }: FacetSidebarProps) {
@@ -55,22 +87,16 @@ export function FacetSidebar({ facets, filters, onFilterChange }: FacetSidebarPr
           <div key={field}>
             <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{field}</h4>
             <div className="flex flex-col gap-0.5">
-              {entries.map(([value, count]) => {
-                const selected = isSelected(field, value)
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    className={`flex items-center justify-between rounded-sm px-2 py-1 text-xs transition-colors hover:bg-accent ${selected ? 'bg-accent font-medium' : ''}`}
-                    onClick={() => toggleFacetValue(field, value)}
-                  >
-                    <span className="truncate">{value}</span>
-                    <Badge variant="secondary" className="ml-2 text-[10px]">
-                      {count}
-                    </Badge>
-                  </button>
-                )
-              })}
+              {entries.map(([value, count]) => (
+                <FacetValueButton
+                  key={value}
+                  field={field}
+                  value={value}
+                  count={count}
+                  selected={isSelected(field, value)}
+                  onToggle={toggleFacetValue}
+                />
+              ))}
             </div>
           </div>
         )

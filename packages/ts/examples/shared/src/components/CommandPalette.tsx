@@ -2,15 +2,7 @@ import { BarChart3, Database, FlaskConical, Inspect, Search } from 'lucide-react
 import { useCallback, useEffect, useState } from 'react'
 import type { SuggestResponse } from '../backend'
 import { useAppDispatch, useAppState, useBackend } from '../context'
-import {
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandSeparator,
-} from './ui/command'
+import { CommandDialog, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from './ui/command'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Datasets', icon: Database, tabId: 'datasets' as const },
@@ -89,12 +81,15 @@ export function CommandPalette({ navigate }: CommandPaletteProps) {
       }
 
       if (value.startsWith('search:')) {
-        navigate('/search')
+        const term = value.replace('search:', '')
+        navigate(`/search?q=${encodeURIComponent(term)}`)
         return
       }
     },
     [navigate, dispatch],
   )
+
+  const hasQuery = query.trim().length > 0
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
@@ -102,56 +97,73 @@ export function CommandPalette({ navigate }: CommandPaletteProps) {
         placeholder="Search commands, navigate, or find content..."
         value={query}
         onValueChange={setQuery}
+        autoFocus
       />
       <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
-
-        <CommandGroup heading="Navigate">
-          {NAV_ITEMS.map(item => {
-            const status = state.tabStatus[item.tabId]
-            const locked = status === 'locked'
-            return (
-              <CommandItem key={item.to} value={item.to} disabled={locked} onSelect={handleSelect}>
-                <item.icon className="size-4" />
-                <span>{item.label}</span>
-                {locked && <span className="ml-auto text-[10px] text-muted-foreground">locked</span>}
-              </CommandItem>
-            )
-          })}
-        </CommandGroup>
-
-        {state.indexes.length > 0 && (
+        {!hasQuery && (
           <>
-            <CommandSeparator />
-            <CommandGroup heading="Switch Index">
-              {state.indexes.map(idx => (
-                <CommandItem key={idx.name} value={`index:${idx.name}`} onSelect={handleSelect}>
-                  <span className="font-mono text-xs">{idx.name}</span>
-                  <span className="ml-auto text-[10px] text-muted-foreground">
-                    {idx.documentCount.toLocaleString()} docs
-                  </span>
-                  {idx.name === state.activeIndexName && <span className="ml-1 size-1.5 rounded-full bg-green-500" />}
-                </CommandItem>
-              ))}
+            <CommandGroup heading="Navigate">
+              {NAV_ITEMS.map(item => {
+                const status = state.tabStatus[item.tabId]
+                const locked = status === 'locked'
+                return (
+                  <CommandItem key={item.to} value={item.to} disabled={locked} onSelect={handleSelect}>
+                    <item.icon className="size-4" />
+                    <span>{item.label}</span>
+                    {locked && <span className="ml-auto text-[10px] text-muted-foreground">locked</span>}
+                  </CommandItem>
+                )
+              })}
             </CommandGroup>
+
+            {state.indexes.length > 0 && (
+              <>
+                <CommandSeparator />
+                <CommandGroup heading="Switch Index">
+                  {state.indexes.map(idx => (
+                    <CommandItem key={idx.name} value={`index:${idx.name}`} onSelect={handleSelect}>
+                      <span className="font-mono text-xs">{idx.name}</span>
+                      <span className="ml-auto text-[10px] text-muted-foreground">
+                        {idx.documentCount.toLocaleString()} docs
+                      </span>
+                      {idx.name === state.activeIndexName && (
+                        <span className="ml-1 size-1.5 rounded-full bg-green-500" />
+                      )}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </>
+            )}
           </>
         )}
 
-        {suggestions.length > 0 && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading="Quick Search">
-              {suggestions.map(s => (
-                <CommandItem key={s.term} value={`search:${s.term}`} onSelect={handleSelect}>
-                  <Search className="size-3.5" />
-                  <span>{s.term}</span>
-                  <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-                    {s.documentFrequency} docs
-                  </span>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </>
+        {hasQuery && suggestions.length === 0 && (
+          <div className="py-6 text-center text-sm text-muted-foreground">
+            {state.activeIndexName ? 'Searching...' : 'Load a dataset to search'}
+          </div>
+        )}
+
+        {hasQuery && suggestions.length > 0 && (
+          <CommandGroup heading="Search Results">
+            {suggestions.map(s => (
+              <CommandItem key={s.term} value={`search:${s.term}`} onSelect={handleSelect}>
+                <Search className="size-3.5" />
+                <span>{s.term}</span>
+                <span className="ml-auto font-mono text-[10px] text-muted-foreground">{s.documentFrequency} docs</span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+
+        {hasQuery && (
+          <CommandGroup>
+            <CommandItem value={`search:${query.trim()}`} onSelect={handleSelect}>
+              <Search className="size-3.5" />
+              <span>
+                Search for <span className="font-medium">{query.trim()}</span>
+              </span>
+            </CommandItem>
+          </CommandGroup>
         )}
       </CommandList>
     </CommandDialog>

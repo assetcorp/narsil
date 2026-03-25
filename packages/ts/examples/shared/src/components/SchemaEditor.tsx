@@ -1,4 +1,5 @@
 import type * as React from 'react'
+import { useCallback } from 'react'
 import type { DetectedField } from '../lib/schema-detector'
 
 const FIELD_TYPES = ['string', 'number', 'boolean', 'enum', 'string[]', 'number[]'] as const
@@ -35,6 +36,61 @@ function validateIndexName(name: string): string | null {
   return null
 }
 
+function FieldRow({
+  field,
+  fieldIndex,
+  onTypeChange,
+  onSearchableToggle,
+}: {
+  field: DetectedField
+  fieldIndex: number
+  onTypeChange: (fieldIndex: number, newType: string) => void
+  onSearchableToggle: (fieldIndex: number) => void
+}) {
+  const handleTypeChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      onTypeChange(fieldIndex, e.target.value)
+    },
+    [onTypeChange, fieldIndex],
+  )
+
+  const handleSearchableToggle = useCallback(() => {
+    onSearchableToggle(fieldIndex)
+  }, [onSearchableToggle, fieldIndex])
+
+  return (
+    <tr className="border-b last:border-b-0 hover:bg-muted/30">
+      <td className="px-3 py-1.5">
+        <span className="font-mono text-foreground">{field.name}</span>
+      </td>
+      <td className="px-3 py-1.5">
+        <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground">{field.detectedType}</span>
+      </td>
+      <td className="px-3 py-1.5">
+        <select
+          value={field.overrideType ?? field.detectedType}
+          onChange={handleTypeChange}
+          className="h-6 cursor-pointer rounded border bg-transparent px-1 text-xs outline-none focus:border-primary"
+        >
+          {FIELD_TYPES.map(t => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td className="px-3 py-1.5 text-center">
+        <input
+          type="checkbox"
+          checked={field.searchable}
+          onChange={handleSearchableToggle}
+          className="size-3.5 cursor-pointer rounded accent-primary"
+        />
+      </td>
+    </tr>
+  )
+}
+
 export function SchemaEditor({
   fields,
   documents,
@@ -64,6 +120,20 @@ export function SchemaEditor({
     onFieldsChange(updated)
   }
 
+  const handleIndexNameChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onIndexNameChange(e.target.value)
+    },
+    [onIndexNameChange],
+  )
+
+  const handleLanguageChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      onLanguageChange(e.target.value)
+    },
+    [onLanguageChange],
+  )
+
   return (
     <div className="mt-4 flex flex-col gap-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
@@ -75,7 +145,7 @@ export function SchemaEditor({
             id="custom-index-name"
             type="text"
             value={indexName}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => onIndexNameChange(e.target.value)}
+            onChange={handleIndexNameChange}
             maxLength={64}
             className="h-8 w-full rounded-md border bg-transparent px-2.5 font-mono text-xs outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/30"
             placeholder="my-dataset"
@@ -90,7 +160,7 @@ export function SchemaEditor({
           <select
             id="custom-language"
             value={language}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onLanguageChange(e.target.value)}
+            onChange={handleLanguageChange}
             className="h-8 w-full cursor-pointer rounded-md border bg-transparent px-2 text-xs outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/30"
           >
             {SUPPORTED_LANGUAGES.map(({ code, name }) => (
@@ -124,37 +194,13 @@ export function SchemaEditor({
             </thead>
             <tbody>
               {fields.map((field, i) => (
-                <tr key={field.name} className="border-b last:border-b-0 hover:bg-muted/30">
-                  <td className="px-3 py-1.5">
-                    <span className="font-mono text-foreground">{field.name}</span>
-                  </td>
-                  <td className="px-3 py-1.5">
-                    <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground">
-                      {field.detectedType}
-                    </span>
-                  </td>
-                  <td className="px-3 py-1.5">
-                    <select
-                      value={field.overrideType ?? field.detectedType}
-                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleTypeChange(i, e.target.value)}
-                      className="h-6 cursor-pointer rounded border bg-transparent px-1 text-xs outline-none focus:border-primary"
-                    >
-                      {FIELD_TYPES.map(t => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-3 py-1.5 text-center">
-                    <input
-                      type="checkbox"
-                      checked={field.searchable}
-                      onChange={() => handleSearchableToggle(i)}
-                      className="size-3.5 cursor-pointer rounded accent-primary"
-                    />
-                  </td>
-                </tr>
+                <FieldRow
+                  key={field.name}
+                  field={field}
+                  fieldIndex={i}
+                  onTypeChange={handleTypeChange}
+                  onSearchableToggle={handleSearchableToggle}
+                />
               ))}
             </tbody>
           </table>

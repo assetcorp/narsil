@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { createNarsil, registerLanguage } from '@delali/narsil'
@@ -15,6 +16,7 @@ import type {
   SuggestRequest,
   SuggestResponse,
 } from '@delali/narsil-example-shared/backend'
+import type { DatasetId } from '@delali/narsil-example-shared/manifest'
 import { cranfield, tmdb, wikipedia } from '@delali/narsil-example-shared/manifest'
 import { cranfieldSchema, tmdbSchema, wikipediaSchema } from '@delali/narsil-example-shared/schemas'
 import type { LoadDatasetRequest } from '@delali/narsil-example-shared/types'
@@ -69,7 +71,6 @@ async function ensureLanguage(code: string) {
 }
 
 function findDataRoot(): string {
-  const { existsSync } = require('node:fs') as typeof import('node:fs')
   let dir = import.meta.dirname ?? process.cwd()
   for (let i = 0; i < 10; i++) {
     const candidate = path.join(dir, 'data', 'processed')
@@ -106,6 +107,24 @@ export class ServerBackend implements NarsilBackend {
     }
   }
 
+  private async indexBatched(
+    inst: Narsil,
+    indexName: string,
+    docs: Record<string, unknown>[],
+    datasetId: DatasetId,
+  ): Promise<void> {
+    const total = docs.length
+    let indexed = 0
+    this.emit('progress', { datasetId, phase: 'indexing', totalDocs: total, indexedDocs: 0 })
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      const batch = docs.slice(i, i + BATCH_SIZE)
+      await inst.insertBatch(indexName, batch, { skipClone: true })
+      indexed += batch.length
+      this.emit('progress', { datasetId, phase: 'indexing', totalDocs: total, indexedDocs: indexed })
+      await new Promise<void>(resolve => setTimeout(resolve, 0))
+    }
+  }
+
   async loadDataset(request: LoadDatasetRequest): Promise<void> {
     this.emit('progress', { datasetId: request.datasetId, phase: 'indexing' })
 
@@ -124,9 +143,7 @@ export class ServerBackend implements NarsilBackend {
             const filePath = safeDataPath(dataRoot, 'tmdb', tierData.file)
             const docs = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>[]
             await inst.createIndex(indexName, { schema: tmdbSchema as SchemaType, language: 'english' })
-            for (let i = 0; i < docs.length; i += BATCH_SIZE) {
-              await inst.insertBatch(indexName, docs.slice(i, i + BATCH_SIZE), { skipClone: true })
-            }
+            await this.indexBatched(inst, indexName, docs, request.datasetId)
           }
           this.emit('ready', { indexName })
           break
@@ -144,9 +161,7 @@ export class ServerBackend implements NarsilBackend {
               const filePath = safeDataPath(dataRoot, 'wikipedia', langData.file)
               const docs = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>[]
               await inst.createIndex(indexName, { schema: wikipediaSchema as SchemaType, language: langName(langCode) })
-              for (let i = 0; i < docs.length; i += BATCH_SIZE) {
-                await inst.insertBatch(indexName, docs.slice(i, i + BATCH_SIZE), { skipClone: true })
-              }
+              await this.indexBatched(inst, indexName, docs, request.datasetId)
             }
             this.emit('ready', { indexName })
           }
@@ -160,9 +175,7 @@ export class ServerBackend implements NarsilBackend {
             const filePath = safeDataPath(dataRoot, 'cranfield', cranfield.docsFile)
             const docs = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>[]
             await inst.createIndex(indexName, { schema: cranfieldSchema as SchemaType, language: 'english' })
-            for (let i = 0; i < docs.length; i += BATCH_SIZE) {
-              await inst.insertBatch(indexName, docs.slice(i, i + BATCH_SIZE), { skipClone: true })
-            }
+            await this.indexBatched(inst, indexName, docs, request.datasetId)
           }
           this.emit('ready', { indexName })
           break
@@ -176,9 +189,7 @@ export class ServerBackend implements NarsilBackend {
           }
           if (language) await ensureLanguage(language)
           await inst.createIndex(indexName, { schema: schema as SchemaType, language: language ?? 'english' })
-          for (let i = 0; i < documents.length; i += BATCH_SIZE) {
-            await inst.insertBatch(indexName, documents.slice(i, i + BATCH_SIZE), { skipClone: true })
-          }
+          await this.indexBatched(inst, indexName, documents, request.datasetId)
           this.emit('ready', { indexName })
           break
         }

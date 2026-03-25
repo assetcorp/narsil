@@ -33,9 +33,9 @@ function collectUniqueTokens(tokens: Record<string, string[]>): Set<string> {
 export function createPartitionStats(): PartitionStats {
   const stats: PartitionStats = {
     totalDocuments: 0,
-    totalFieldLengths: {},
-    averageFieldLengths: {},
-    docFrequencies: {},
+    totalFieldLengths: Object.create(null) as Record<string, number>,
+    averageFieldLengths: Object.create(null) as Record<string, number>,
+    docFrequencies: Object.create(null) as Record<string, number>,
 
     addDocument(fieldLengths: Record<string, number>, tokens: Record<string, string[]>): void {
       stats.totalDocuments++
@@ -84,7 +84,7 @@ export function createPartitionStats(): PartitionStats {
 
     recalculateAverages(): void {
       const fields = Object.keys(stats.totalFieldLengths)
-      const newAverages: Record<string, number> = {}
+      const newAverages = Object.create(null) as Record<string, number>
       for (let i = 0; i < fields.length; i++) {
         const field = fields[i]
         newAverages[field] = stats.totalDocuments > 0 ? stats.totalFieldLengths[field] / stats.totalDocuments : 0
@@ -93,19 +93,43 @@ export function createPartitionStats(): PartitionStats {
     },
 
     serialize(): SerializedPartitionStats {
+      const tfl = Object.create(null) as Record<string, number>
+      for (const key of Object.keys(stats.totalFieldLengths)) {
+        tfl[key] = stats.totalFieldLengths[key]
+      }
+      const afl = Object.create(null) as Record<string, number>
+      for (const key of Object.keys(stats.averageFieldLengths)) {
+        afl[key] = stats.averageFieldLengths[key]
+      }
+      const df = Object.create(null) as Record<string, number>
+      for (const key of Object.keys(stats.docFrequencies)) {
+        df[key] = stats.docFrequencies[key]
+      }
       return {
         totalDocuments: stats.totalDocuments,
-        totalFieldLengths: { ...stats.totalFieldLengths },
-        averageFieldLengths: { ...stats.averageFieldLengths },
-        docFrequencies: { ...stats.docFrequencies },
+        totalFieldLengths: tfl,
+        averageFieldLengths: afl,
+        docFrequencies: df,
       }
     },
 
     deserialize(data: SerializedPartitionStats): void {
       stats.totalDocuments = data.totalDocuments
-      stats.totalFieldLengths = { ...data.totalFieldLengths }
-      stats.averageFieldLengths = { ...data.averageFieldLengths }
-      stats.docFrequencies = { ...data.docFrequencies }
+      const tfl = Object.create(null) as Record<string, number>
+      for (const key of Object.keys(data.totalFieldLengths)) {
+        tfl[key] = data.totalFieldLengths[key]
+      }
+      stats.totalFieldLengths = tfl
+      const afl = Object.create(null) as Record<string, number>
+      for (const key of Object.keys(data.averageFieldLengths)) {
+        afl[key] = data.averageFieldLengths[key]
+      }
+      stats.averageFieldLengths = afl
+      const df = Object.create(null) as Record<string, number>
+      for (const key of Object.keys(data.docFrequencies)) {
+        df[key] = data.docFrequencies[key]
+      }
+      stats.docFrequencies = df
     },
   }
 

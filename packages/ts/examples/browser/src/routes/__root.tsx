@@ -8,7 +8,7 @@ import {
 } from '@delali/narsil-example-shared'
 import { CommandPalette } from '@delali/narsil-example-shared/components/CommandPalette'
 import { createRootRoute, HeadContent, Outlet, Scripts, useNavigate } from '@tanstack/react-router'
-import { useEffect, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useReducer, useRef } from 'react'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
 import appCss from '../styles.css?url'
@@ -88,6 +88,8 @@ function RootLayout() {
 
   const navigate = useNavigate()
 
+  const handleNavigate = useCallback((to: string) => navigate({ to }), [navigate])
+
   return (
     <BackendContext value={backend}>
       <AppStateContext value={state}>
@@ -99,7 +101,7 @@ function RootLayout() {
             </main>
             <Footer />
           </div>
-          <CommandPalette navigate={(to: string) => navigate({ to })} />
+          <CommandPalette navigate={handleNavigate} />
         </AppDispatchContext>
       </AppStateContext>
     </BackendContext>

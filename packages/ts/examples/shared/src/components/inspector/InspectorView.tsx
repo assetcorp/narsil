@@ -1,4 +1,4 @@
-import { type Dispatch, lazy, Suspense, useEffect, useState } from 'react'
+import { type Dispatch, lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import type { IndexStats, NarsilBackend, PartitionStats } from '../../backend'
 import type { AppAction, AppState } from '../../types'
 import { Button } from '../ui/button'
@@ -12,6 +12,18 @@ interface InspectorViewProps {
   backend: NarsilBackend
   state: AppState
   dispatch: Dispatch<AppAction>
+}
+
+function IndexButton({ name, active, dispatch }: { name: string; active: boolean; dispatch: Dispatch<AppAction> }) {
+  const handleClick = useCallback(() => {
+    dispatch({ type: 'SET_ACTIVE_INDEX', payload: name })
+  }, [dispatch, name])
+
+  return (
+    <Button variant={active ? 'default' : 'outline'} size="xs" className="font-mono text-xs" onClick={handleClick}>
+      {name}
+    </Button>
+  )
 }
 
 export function InspectorView({ backend, state, dispatch }: InspectorViewProps) {
@@ -36,6 +48,18 @@ export function InspectorView({ backend, state, dispatch }: InspectorViewProps) 
       })
       .finally(() => setIsLoading(false))
   }, [backend, indexName])
+
+  const handleStatsTab = useCallback(() => {
+    setActiveTab('stats')
+  }, [])
+
+  const handleSchemaTab = useCallback(() => {
+    setActiveTab('schema')
+  }, [])
+
+  const handleVectorsTab = useCallback(() => {
+    setActiveTab('vectors')
+  }, [])
 
   if (!indexName) {
     return (
@@ -64,35 +88,19 @@ export function InspectorView({ backend, state, dispatch }: InspectorViewProps) 
       {state.indexes.length > 1 && (
         <div className="mb-4 flex flex-wrap gap-1.5">
           {state.indexes.map(idx => (
-            <Button
-              key={idx.name}
-              variant={idx.name === indexName ? 'default' : 'outline'}
-              size="xs"
-              className="font-mono text-xs"
-              onClick={() => dispatch({ type: 'SET_ACTIVE_INDEX', payload: idx.name })}
-            >
-              {idx.name}
-            </Button>
+            <IndexButton key={idx.name} name={idx.name} active={idx.name === indexName} dispatch={dispatch} />
           ))}
         </div>
       )}
 
       <div className="mb-4 flex gap-1">
-        <Button variant={activeTab === 'stats' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('stats')}>
+        <Button variant={activeTab === 'stats' ? 'default' : 'outline'} size="sm" onClick={handleStatsTab}>
           Stats
         </Button>
-        <Button
-          variant={activeTab === 'schema' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setActiveTab('schema')}
-        >
+        <Button variant={activeTab === 'schema' ? 'default' : 'outline'} size="sm" onClick={handleSchemaTab}>
           Schema
         </Button>
-        <Button
-          variant={activeTab === 'vectors' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setActiveTab('vectors')}
-        >
+        <Button variant={activeTab === 'vectors' ? 'default' : 'outline'} size="sm" onClick={handleVectorsTab}>
           Vectors
         </Button>
       </div>

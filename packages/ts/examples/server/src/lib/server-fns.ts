@@ -1,22 +1,16 @@
 import type { QueryRequest, SuggestRequest } from '@delali/narsil-example-shared/backend'
-import type { LoadDatasetRequest } from '@delali/narsil-example-shared/types'
 import { createServerFn } from '@tanstack/react-start'
 
-let backendInstance: import('./server-backend').ServerBackend | null = null
+const BACKEND_KEY = Symbol.for('narsil-server-backend')
+const g = globalThis as unknown as Record<symbol, import('./server-backend').ServerBackend | undefined>
 
-async function getBackend() {
-  if (backendInstance) return backendInstance
+export async function getBackend() {
+  if (g[BACKEND_KEY]) return g[BACKEND_KEY]
   const { ServerBackend } = await import('./server-backend')
-  backendInstance = new ServerBackend()
-  return backendInstance
+  const instance = new ServerBackend()
+  g[BACKEND_KEY] = instance
+  return instance
 }
-
-export const loadDatasetFn = createServerFn({ method: 'POST' })
-  .inputValidator((d: unknown) => d as LoadDatasetRequest)
-  .handler(async ({ data }) => {
-    const backend = await getBackend()
-    await backend.loadDataset(data)
-  })
 
 export const queryFn = createServerFn({ method: 'POST' })
   .inputValidator((d: unknown) => d as QueryRequest)

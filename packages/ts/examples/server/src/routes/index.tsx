@@ -23,6 +23,21 @@ import {
 
 export const Route = createFileRoute('/')({ component: HomePage })
 
+function TierButton({ label, active, onSelect }: { label: string; active: boolean; onSelect: (t: string) => void }) {
+  const handleClick = useCallback(() => onSelect(label), [label, onSelect])
+  return (
+    <Button
+      type="button"
+      variant={active ? 'default' : 'outline'}
+      size="sm"
+      className="font-mono text-xs"
+      onClick={handleClick}
+    >
+      {label}
+    </Button>
+  )
+}
+
 function TmdbConfig({ tier, setTier }: { tier: string; setTier: (t: string) => void }) {
   const tiers = tmdb.tiers.map(t => t.label)
   return (
@@ -31,16 +46,7 @@ function TmdbConfig({ tier, setTier }: { tier: string; setTier: (t: string) => v
         <span className="mb-2 block text-sm font-medium">Document tier</span>
         <div className="flex flex-wrap gap-2">
           {tiers.map(t => (
-            <Button
-              key={t}
-              type="button"
-              variant={tier === t ? 'default' : 'outline'}
-              size="sm"
-              className="font-mono text-xs"
-              onClick={() => setTier(t)}
-            >
-              {t}
-            </Button>
+            <TierButton key={t} label={t} active={tier === t} onSelect={setTier} />
           ))}
         </div>
         <p className="mt-1.5 text-xs text-muted-foreground">Larger tiers (50k+) are downloaded from GitHub Releases.</p>
@@ -57,6 +63,26 @@ function TmdbConfig({ tier, setTier }: { tier: string; setTier: (t: string) => v
   )
 }
 
+function LangButton({
+  code,
+  name,
+  active,
+  onToggle,
+}: {
+  code: string
+  name: string
+  active: boolean
+  onToggle: (code: string) => void
+}) {
+  const handleClick = useCallback(() => onToggle(code), [code, onToggle])
+  return (
+    <Button type="button" variant={active ? 'default' : 'outline'} size="sm" className="text-xs" onClick={handleClick}>
+      <span className="font-mono uppercase">{code}</span>
+      <span className="ml-1 text-muted-foreground">{name}</span>
+    </Button>
+  )
+}
+
 function WikiConfig({ selected, toggle }: { selected: Set<string>; toggle: (code: string) => void }) {
   return (
     <div className="flex flex-col gap-4">
@@ -64,17 +90,7 @@ function WikiConfig({ selected, toggle }: { selected: Set<string>; toggle: (code
         <span className="mb-2 block text-sm font-medium">Languages</span>
         <div className="flex flex-wrap gap-2">
           {wikipedia.languages.map(({ code, name }) => (
-            <Button
-              key={code}
-              type="button"
-              variant={selected.has(code) ? 'default' : 'outline'}
-              size="sm"
-              className="text-xs"
-              onClick={() => toggle(code)}
-            >
-              <span className="font-mono uppercase">{code}</span>
-              <span className="ml-1 text-muted-foreground">{name}</span>
-            </Button>
+            <LangButton key={code} code={code} name={name} active={selected.has(code)} onToggle={toggle} />
           ))}
         </div>
         <p className="mt-1.5 text-xs text-muted-foreground">
@@ -222,6 +238,19 @@ function CustomConfig({ onReady }: CustomConfigProps) {
     setDragOver(true)
   }
 
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) processFile(file)
+  }
+
+  function handleBrowseClick() {
+    inputRef.current?.click()
+  }
+
+  function handleDragLeave() {
+    setDragOver(false)
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div>
@@ -231,23 +260,14 @@ function CustomConfig({ onReady }: CustomConfigProps) {
           which fields to index.
         </p>
       </div>
-      <input
-        ref={inputRef}
-        type="file"
-        accept=".json,.csv"
-        className="hidden"
-        onChange={e => {
-          const file = e.target.files?.[0]
-          if (file) processFile(file)
-        }}
-      />
+      <input ref={inputRef} type="file" accept=".json,.csv" className="hidden" onChange={handleFileChange} />
       <button
         type="button"
         className={`flex h-32 items-center justify-center rounded-lg border-2 border-dashed transition-colors ${dragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/50'}`}
-        onClick={() => inputRef.current?.click()}
+        onClick={handleBrowseClick}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
-        onDragLeave={() => setDragOver(false)}
+        onDragLeave={handleDragLeave}
       >
         <div className="text-center text-sm text-muted-foreground">
           {fileName ? (
@@ -404,6 +424,10 @@ function DatasetCard({
     setTimeout(() => onLoad(ds.id), 0)
   }
 
+  const handleRemoveClick = useCallback(() => {
+    onRemove(ds.id)
+  }, [ds.id, onRemove])
+
   return (
     <Card className="flex flex-col">
       <CardHeader>
@@ -497,7 +521,7 @@ function DatasetCard({
                 variant="ghost"
                 size="icon"
                 className="text-muted-foreground hover:text-destructive"
-                onClick={() => onRemove(ds.id)}
+                onClick={handleRemoveClick}
               >
                 <Trash2 className="size-3.5" />
                 <span className="sr-only">Remove</span>

@@ -99,6 +99,7 @@ export interface IndexListEntry {
 export interface NarsilBackend {
   loadDataset(request: LoadDatasetRequest): Promise<void>
   query(request: QueryRequest): Promise<QueryResponse>
+  batchQuery?(requests: QueryRequest[], onResult: (index: number, response: QueryResponse) => void): Promise<void>
   suggest(request: SuggestRequest): Promise<SuggestResponse>
   getStats(indexName: string): Promise<IndexStats>
   getPartitionStats(indexName: string): Promise<PartitionStats[]>
