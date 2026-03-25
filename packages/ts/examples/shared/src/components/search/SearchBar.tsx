@@ -1,5 +1,5 @@
 import { Loader2, Search } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type { SuggestResponse } from '../../backend'
 import { Input } from '../ui/input'
 
@@ -10,6 +10,36 @@ interface SearchBarProps {
   elapsed: number | null
   isLoading: boolean
   suggestions: SuggestResponse | null
+}
+
+function SuggestionItem({
+  term,
+  documentFrequency,
+  onSelect,
+}: {
+  term: string
+  documentFrequency: number
+  onSelect: (value: string) => void
+}) {
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+  }, [])
+
+  const handleClick = useCallback(() => {
+    onSelect(term)
+  }, [onSelect, term])
+
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center justify-between rounded-sm px-3 py-1.5 text-sm hover:bg-accent"
+      onMouseDown={handleMouseDown}
+      onClick={handleClick}
+    >
+      <span>{term}</span>
+      <span className="text-xs text-muted-foreground">{documentFrequency} docs</span>
+    </button>
+  )
 }
 
 export function SearchBar({ term, onTermChange, resultCount, elapsed, isLoading, suggestions }: SearchBarProps) {
@@ -33,6 +63,13 @@ export function SearchBar({ term, onTermChange, resultCount, elapsed, isLoading,
     onTermChange(value)
   }
 
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onTermChange(e.target.value)
+    },
+    [onTermChange],
+  )
+
   const hasSuggestions = showSuggestions && suggestions && suggestions.terms.length > 0 && term.length >= 2
 
   return (
@@ -43,7 +80,7 @@ export function SearchBar({ term, onTermChange, resultCount, elapsed, isLoading,
           type="text"
           placeholder="Search documents..."
           value={term}
-          onChange={e => onTermChange(e.target.value)}
+          onChange={handleChange}
           onFocus={handleFocus}
           onBlur={handleBlur}
           className="pl-10 pr-10"
@@ -65,16 +102,12 @@ export function SearchBar({ term, onTermChange, resultCount, elapsed, isLoading,
       {hasSuggestions && (
         <div className="absolute top-10 z-50 w-full rounded-md border bg-popover p-1 shadow-lg">
           {suggestions.terms.map(s => (
-            <button
+            <SuggestionItem
               key={s.term}
-              type="button"
-              className="flex w-full items-center justify-between rounded-sm px-3 py-1.5 text-sm hover:bg-accent"
-              onMouseDown={e => e.preventDefault()}
-              onClick={() => handleSelect(s.term)}
-            >
-              <span>{s.term}</span>
-              <span className="text-xs text-muted-foreground">{s.documentFrequency} docs</span>
-            </button>
+              term={s.term}
+              documentFrequency={s.documentFrequency}
+              onSelect={handleSelect}
+            />
           ))}
         </div>
       )}

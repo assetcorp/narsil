@@ -1,17 +1,44 @@
-import type { Dispatch } from 'react'
+import { type Dispatch, useCallback } from 'react'
 import type { NarsilBackend } from '../../backend'
 import { useSearch } from '../../hooks/use-search'
-import type { AppAction, AppState } from '../../types'
+import type { AppAction, AppState, LoadedIndex } from '../../types'
 import { Button } from '../ui/button'
 import { AdvancedOptions } from './AdvancedOptions'
 import { FacetSidebar } from './FacetSidebar'
 import { ResultList } from './ResultList'
 import { SearchBar } from './SearchBar'
 
+function IndexButton({
+  idx,
+  isActive,
+  dispatch,
+}: {
+  idx: LoadedIndex
+  isActive: boolean
+  dispatch: Dispatch<AppAction>
+}) {
+  const handleClick = useCallback(() => {
+    dispatch({ type: 'SET_ACTIVE_INDEX', payload: idx.name })
+  }, [dispatch, idx.name])
+
+  return (
+    <Button
+      type="button"
+      variant={isActive ? 'default' : 'outline'}
+      size="xs"
+      className="font-mono text-xs"
+      onClick={handleClick}
+    >
+      {idx.name}
+    </Button>
+  )
+}
+
 interface SearchPlaygroundProps {
   backend: NarsilBackend
   state: AppState
   dispatch: Dispatch<AppAction>
+  initialTerm?: string
 }
 
 function getSearchableFields(state: AppState): string[] {
@@ -59,11 +86,11 @@ function getAllFields(state: AppState): string[] {
   }
 }
 
-export function SearchPlayground({ backend, state, dispatch }: SearchPlaygroundProps) {
+export function SearchPlayground({ backend, state, dispatch, initialTerm }: SearchPlaygroundProps) {
   const indexName = state.activeIndexName
   const searchableFields = getSearchableFields(state)
   const allFields = getAllFields(state)
-  const search = useSearch(backend, indexName)
+  const search = useSearch(backend, indexName, initialTerm)
 
   if (!indexName) {
     return (
@@ -91,16 +118,7 @@ export function SearchPlayground({ backend, state, dispatch }: SearchPlaygroundP
       {state.indexes.length > 1 && (
         <div className="mb-4 flex flex-wrap gap-1.5">
           {state.indexes.map(idx => (
-            <Button
-              key={idx.name}
-              type="button"
-              variant={idx.name === indexName ? 'default' : 'outline'}
-              size="xs"
-              className="font-mono text-xs"
-              onClick={() => dispatch({ type: 'SET_ACTIVE_INDEX', payload: idx.name })}
-            >
-              {idx.name}
-            </Button>
+            <IndexButton key={idx.name} idx={idx} isActive={idx.name === indexName} dispatch={dispatch} />
           ))}
         </div>
       )}

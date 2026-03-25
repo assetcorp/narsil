@@ -48,15 +48,15 @@ const DEFAULT_PARAMS: SearchParams = {
   searchAfter: undefined,
 }
 
-export function useSearch(backend: NarsilBackend, indexName: string | null) {
-  const [state, setState] = useState<SearchState>({
+export function useSearch(backend: NarsilBackend, indexName: string | null, initialTerm?: string) {
+  const [state, setState] = useState<SearchState>(() => ({
     results: null,
     isLoading: false,
     suggestions: null,
     isSuggestLoading: false,
     error: null,
-    params: DEFAULT_PARAMS,
-  })
+    params: initialTerm ? { ...DEFAULT_PARAMS, term: initialTerm } : DEFAULT_PARAMS,
+  }))
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -257,6 +257,14 @@ export function useSearch(backend: NarsilBackend, indexName: string | null) {
     },
     [executeSearch],
   )
+
+  const initialSearchDone = useRef(false)
+  useEffect(() => {
+    if (!initialSearchDone.current && state.params.term && indexName) {
+      initialSearchDone.current = true
+      executeSearch(state.params)
+    }
+  }, [indexName, executeSearch, state.params])
 
   useEffect(() => {
     return () => {

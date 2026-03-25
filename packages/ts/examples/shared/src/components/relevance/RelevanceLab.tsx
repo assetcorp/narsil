@@ -1,13 +1,39 @@
 import { Loader2, Search } from 'lucide-react'
-import type { Dispatch } from 'react'
+import { type ChangeEvent, type Dispatch, useCallback } from 'react'
 import type { NarsilBackend } from '../../backend'
 import { useRelevance } from '../../hooks/use-relevance'
-import type { AppAction, AppState } from '../../types'
+import type { AppAction, AppState, LoadedIndex } from '../../types'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { RankComparison } from './RankComparison'
 import { ScoreBreakdown } from './ScoreBreakdown'
 import { TuningPanel } from './TuningPanel'
+
+function IndexButton({
+  idx,
+  isActive,
+  dispatch,
+}: {
+  idx: LoadedIndex
+  isActive: boolean
+  dispatch: Dispatch<AppAction>
+}) {
+  const handleClick = useCallback(() => {
+    dispatch({ type: 'SET_ACTIVE_INDEX', payload: idx.name })
+  }, [dispatch, idx.name])
+
+  return (
+    <Button
+      type="button"
+      variant={isActive ? 'default' : 'outline'}
+      size="xs"
+      className="font-mono text-xs"
+      onClick={handleClick}
+    >
+      {idx.name}
+    </Button>
+  )
+}
 
 interface RelevanceLabProps {
   backend: NarsilBackend
@@ -34,6 +60,13 @@ export function RelevanceLab({ backend, state, dispatch }: RelevanceLabProps) {
   const indexName = state.activeIndexName
   const fields = getSearchableFields(state)
   const relevance = useRelevance(backend, indexName)
+
+  const handleTermChange = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      relevance.setTerm(e.target.value)
+    },
+    [relevance.setTerm],
+  )
 
   if (!indexName) {
     return (
@@ -62,32 +95,25 @@ export function RelevanceLab({ backend, state, dispatch }: RelevanceLabProps) {
       {state.indexes.length > 1 && (
         <div className="mb-4 flex flex-wrap gap-1.5">
           {state.indexes.map(idx => (
-            <Button
-              key={idx.name}
-              type="button"
-              variant={idx.name === indexName ? 'default' : 'outline'}
-              size="xs"
-              className="font-mono text-xs"
-              onClick={() => dispatch({ type: 'SET_ACTIVE_INDEX', payload: idx.name })}
-            >
-              {idx.name}
-            </Button>
+            <IndexButton key={idx.name} idx={idx} isActive={idx.name === indexName} dispatch={dispatch} />
           ))}
         </div>
       )}
 
-      <div className="relative mb-6">
-        <Search className="pointer-events-none absolute top-1/2 left-3 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          type="text"
-          placeholder="Enter a query to analyze scoring..."
-          value={relevance.term}
-          onChange={e => relevance.setTerm(e.target.value)}
-          className="pl-10 pr-10"
-        />
-        {relevance.isLoading && (
-          <Loader2 className="pointer-events-none absolute top-1/2 right-3 z-10 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
-        )}
+      <div className="mb-6">
+        <div className="relative">
+          <Search className="pointer-events-none absolute top-1/2 left-3 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder="Enter a query to analyze scoring..."
+            value={relevance.term}
+            onChange={handleTermChange}
+            className="pl-10 pr-10 focus-visible:ring-1"
+          />
+          {relevance.isLoading && (
+            <Loader2 className="pointer-events-none absolute top-1/2 right-3 z-10 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+          )}
+        </div>
         {relevance.elapsed !== null && (
           <p className="mt-1.5 text-xs text-muted-foreground">
             {relevance.count} results in {relevance.elapsed.toFixed(1)}ms

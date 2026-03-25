@@ -1,7 +1,7 @@
 import { Command as CommandPrimitive } from 'cmdk'
 import { Search } from 'lucide-react'
 import type * as React from 'react'
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { cn } from '../../lib/utils'
 
@@ -111,6 +111,10 @@ function CommandDialog({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [open, onOpenChange])
 
+  const handleOverlayClick = useCallback(() => {
+    onOpenChange(false)
+  }, [onOpenChange])
+
   return (
     <>
       {open && (
@@ -119,10 +123,12 @@ function CommandDialog({
           {/* biome-ignore lint/a11y/noStaticElementInteractions: overlay dismiss */}
           <div
             className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm animate-in fade-in-0"
-            onClick={() => onOpenChange(false)}
+            onClick={handleOverlayClick}
           />
           <div className="fixed inset-x-0 top-[15%] z-50 mx-auto w-full max-w-lg animate-in fade-in-0 zoom-in-95 slide-in-from-top-2">
-            <Command className="rounded-lg border shadow-lg">{children}</Command>
+            <Command shouldFilter={false} className="rounded-lg border shadow-lg">
+              {children}
+            </Command>
           </div>
         </>
       )}

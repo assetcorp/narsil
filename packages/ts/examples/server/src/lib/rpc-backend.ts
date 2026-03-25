@@ -18,7 +18,6 @@ import {
   getPartitionStatsFn,
   getStatsFn,
   listIndexesFn,
-  loadDatasetFn,
   queryFn,
   suggestFn,
 } from './server-fns'
@@ -39,19 +38,93 @@ export class RpcBackend implements NarsilBackend {
   }
 
   async loadDataset(request: LoadDatasetRequest): Promise<void> {
-    this.emit('progress', { datasetId: request.datasetId, phase: 'indexing' })
-    try {
-      await loadDatasetFn({ data: request })
-      this.emit('progress', { datasetId: request.datasetId, phase: 'complete' })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+    const response = await fetch('/api/load', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    })
+
+    if (!response.ok || !response.body) {
+      const text = await response.text()
+      let message = `Load failed: ${response.status}`
+      try {
+        const parsed = JSON.parse(text) as { error?: string }
+        if (parsed.error) message = parsed.error
+      } catch {
+        // Use status-based message
+      }
       this.emit('progress', { datasetId: request.datasetId, phase: 'error', error: message })
-      throw err
+      throw new Error(message)
     }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const parts = buffer.split('\n\n')
+      buffer = parts.pop() ?? ''
+
+      for (const part of parts) {
+        const line = part.trim()
+        if (!line.startsWith('data: ')) continue
+        try {
+          const progress = JSON.parse(line.slice(6))
+          this.emit('progress', progress)
+        } catch {
+          // Malformed event, skip
+        }
+      }
+    }
+
+    this.emit('progress', { datasetId: request.datasetId, phase: 'complete' })
   }
 
   async query(request: QueryRequest): Promise<QueryResponse> {
     return queryFn({ data: request }) as Promise<QueryResponse>
+  }
+
+  async batchQuery(
+    requests: QueryRequest[],
+    onResult: (index: number, response: QueryResponse) => void,
+  ): Promise<void> {
+    const response = await fetch('/api/batch-query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ queries: requests }),
+    })
+
+    if (!response.ok || !response.body) {
+      throw new Error(`Batch query failed: ${response.status}`)
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const parts = buffer.split('\n\n')
+      buffer = parts.pop() ?? ''
+
+      for (const part of parts) {
+        const line = part.trim()
+        if (!line.startsWith('data: ')) continue
+        try {
+          const { i, response: qr } = JSON.parse(line.slice(6)) as { i: number; response: QueryResponse }
+          onResult(i, qr)
+        } catch {
+          // Malformed event, skip
+        }
+      }
+    }
   }
 
   async suggest(request: SuggestRequest): Promise<SuggestResponse> {

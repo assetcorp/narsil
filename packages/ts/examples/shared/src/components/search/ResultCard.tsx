@@ -5,6 +5,7 @@ import { Badge } from '../ui/badge'
 interface ResultCardProps {
   hit: QueryHit
   datasetId: DatasetId
+  onClick: () => void
 }
 
 function sanitizeHighlight(html: string): string {
@@ -13,7 +14,7 @@ function sanitizeHighlight(html: string): string {
   })
 }
 
-export function ResultCard({ hit, datasetId }: ResultCardProps) {
+export function ResultCard({ hit, datasetId, onClick }: ResultCardProps) {
   const doc = hit.document
   const highlights = hit.highlights
 
@@ -36,7 +37,11 @@ export function ResultCard({ hit, datasetId }: ResultCardProps) {
     const rating = doc.vote_average as number
 
     return (
-      <div className="rounded-lg border p-4 transition-colors hover:bg-muted/30">
+      <button
+        type="button"
+        onClick={onClick}
+        className="w-full cursor-pointer rounded-lg border p-4 text-left transition-colors hover:bg-muted/30"
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -63,7 +68,7 @@ export function ResultCard({ hit, datasetId }: ResultCardProps) {
             {rating > 0 && <span className="text-[10px] text-muted-foreground">{rating.toFixed(1)}/10</span>}
           </div>
         </div>
-      </div>
+      </button>
     )
   }
 
@@ -74,7 +79,11 @@ export function ResultCard({ hit, datasetId }: ResultCardProps) {
     const categories = (doc.categories as string[]) ?? []
 
     return (
-      <div className="rounded-lg border p-4 transition-colors hover:bg-muted/30">
+      <button
+        type="button"
+        onClick={onClick}
+        className="w-full cursor-pointer rounded-lg border p-4 text-left transition-colors hover:bg-muted/30"
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -101,7 +110,7 @@ export function ResultCard({ hit, datasetId }: ResultCardProps) {
             {hit.score.toFixed(3)}
           </Badge>
         </div>
-      </div>
+      </button>
     )
   }
 
@@ -109,7 +118,11 @@ export function ResultCard({ hit, datasetId }: ResultCardProps) {
   const body = String(doc.body ?? doc.text ?? doc.overview ?? '').slice(0, 200)
 
   return (
-    <div className="rounded-lg border p-4 transition-colors hover:bg-muted/30">
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full cursor-pointer rounded-lg border p-4 text-left transition-colors hover:bg-muted/30"
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-sm font-semibold">{title}</h3>
@@ -119,6 +132,6 @@ export function ResultCard({ hit, datasetId }: ResultCardProps) {
           {hit.score.toFixed(3)}
         </Badge>
       </div>
-    </div>
+    </button>
   )
 }

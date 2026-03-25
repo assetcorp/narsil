@@ -1,8 +1,41 @@
-import { useMemo, useState } from 'react'
+import { type ChangeEvent, useCallback, useMemo, useState } from 'react'
 import type { QueryMetrics } from '../../lib/metrics'
 import { Input } from '../ui/input'
 
 type SortColumn = 'id' | 'ndcg10' | 'precision10' | 'ap' | 'rr'
+
+function QueryRow({
+  query,
+  isSelected,
+  onSelect,
+}: {
+  query: QueryMetrics
+  isSelected: boolean
+  onSelect: (query: QueryMetrics) => void
+}) {
+  const handleClick = useCallback(() => {
+    onSelect(query)
+  }, [onSelect, query])
+
+  return (
+    <tr
+      className={`cursor-pointer border-b transition-colors hover:bg-muted/50 ${isSelected ? 'bg-accent' : ''}`}
+      onClick={handleClick}
+    >
+      <td className="px-3 py-1.5 font-mono">{query.queryId}</td>
+      <td className="max-w-[200px] truncate px-3 py-1.5">{query.queryText}</td>
+      <td className="px-3 py-1.5 text-right font-mono">
+        <MetricBadge value={query.ndcg10} />
+      </td>
+      <td className="px-3 py-1.5 text-right font-mono">
+        <MetricBadge value={query.precision10} />
+      </td>
+      <td className="px-3 py-1.5 text-right font-mono">
+        <MetricBadge value={query.ap} />
+      </td>
+    </tr>
+  )
+}
 
 interface QueryExplorerProps {
   perQuery: QueryMetrics[]
@@ -29,14 +62,25 @@ export function QueryExplorer({ perQuery, selectedQuery, onSelect }: QueryExplor
       })
   }, [perQuery, filter, sortBy, sortAsc])
 
-  function toggleSort(col: typeof sortBy) {
-    if (sortBy === col) {
-      setSortAsc(!sortAsc)
-    } else {
-      setSortBy(col)
+  const toggleSort = useCallback((col: SortColumn) => {
+    setSortBy(prev => {
+      if (prev === col) {
+        setSortAsc(a => !a)
+        return prev
+      }
       setSortAsc(false)
-    }
-  }
+      return col
+    })
+  }, [])
+
+  const handleFilterChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    setFilter(e.target.value)
+  }, [])
+
+  const handleSortId = useCallback(() => toggleSort('id'), [toggleSort])
+  const handleSortNdcg = useCallback(() => toggleSort('ndcg10'), [toggleSort])
+  const handleSortPrecision = useCallback(() => toggleSort('precision10'), [toggleSort])
+  const handleSortAp = useCallback(() => toggleSort('ap'), [toggleSort])
 
   return (
     <div className="rounded-lg border">
@@ -46,7 +90,7 @@ export function QueryExplorer({ perQuery, selectedQuery, onSelect }: QueryExplor
           type="text"
           placeholder="Filter queries..."
           value={filter}
-          onChange={e => setFilter(e.target.value)}
+          onChange={handleFilterChange}
           className="mt-2 h-7 text-xs"
         />
       </div>
@@ -54,40 +98,29 @@ export function QueryExplorer({ perQuery, selectedQuery, onSelect }: QueryExplor
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-background">
             <tr className="border-b">
-              <th className="cursor-pointer px-3 py-2 text-left font-medium" onClick={() => toggleSort('id')}>
+              <th className="cursor-pointer px-3 py-2 text-left font-medium" onClick={handleSortId}>
                 # {sortBy === 'id' && (sortAsc ? '\u2191' : '\u2193')}
               </th>
               <th className="px-3 py-2 text-left font-medium">Query</th>
-              <th className="cursor-pointer px-3 py-2 text-right font-medium" onClick={() => toggleSort('ndcg10')}>
+              <th className="cursor-pointer px-3 py-2 text-right font-medium" onClick={handleSortNdcg}>
                 nDCG {sortBy === 'ndcg10' && (sortAsc ? '\u2191' : '\u2193')}
               </th>
-              <th className="cursor-pointer px-3 py-2 text-right font-medium" onClick={() => toggleSort('precision10')}>
+              <th className="cursor-pointer px-3 py-2 text-right font-medium" onClick={handleSortPrecision}>
                 P@10 {sortBy === 'precision10' && (sortAsc ? '\u2191' : '\u2193')}
               </th>
-              <th className="cursor-pointer px-3 py-2 text-right font-medium" onClick={() => toggleSort('ap')}>
+              <th className="cursor-pointer px-3 py-2 text-right font-medium" onClick={handleSortAp}>
                 AP {sortBy === 'ap' && (sortAsc ? '\u2191' : '\u2193')}
               </th>
             </tr>
           </thead>
           <tbody>
             {filtered.map(q => (
-              <tr
+              <QueryRow
                 key={q.queryId}
-                className={`cursor-pointer border-b transition-colors hover:bg-muted/50 ${selectedQuery?.queryId === q.queryId ? 'bg-accent' : ''}`}
-                onClick={() => onSelect(q)}
-              >
-                <td className="px-3 py-1.5 font-mono">{q.queryId}</td>
-                <td className="max-w-[200px] truncate px-3 py-1.5">{q.queryText}</td>
-                <td className="px-3 py-1.5 text-right font-mono">
-                  <MetricBadge value={q.ndcg10} />
-                </td>
-                <td className="px-3 py-1.5 text-right font-mono">
-                  <MetricBadge value={q.precision10} />
-                </td>
-                <td className="px-3 py-1.5 text-right font-mono">
-                  <MetricBadge value={q.ap} />
-                </td>
-              </tr>
+                query={q}
+                isSelected={selectedQuery?.queryId === q.queryId}
+                onSelect={onSelect}
+              />
             ))}
           </tbody>
         </table>

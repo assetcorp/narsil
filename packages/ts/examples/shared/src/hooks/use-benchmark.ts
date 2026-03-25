@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import type { NarsilBackend } from '../backend'
+import type { NarsilBackend, QueryResponse } from '../backend'
 import type { BenchmarkResult, QueryMetrics, RelevanceMap } from '../lib/metrics'
 import { averagePrecision, ndcgAtK, precisionAtK, reciprocalRank } from '../lib/metrics'
 
@@ -77,18 +77,10 @@ export function useBenchmark(backend: NarsilBackend) {
       let sumAp = 0
       let sumRr = 0
 
-      for (let i = 0; i < queries.length; i++) {
-        if (abortRef.current) break
-
+      function processResult(i: number, response: QueryResponse) {
         const query = queries[i]
         const judgments = qrelsByQuery.get(query.id) ?? new Map<string, number>()
         const totalRelevant = Array.from(judgments.values()).filter(r => r > 0).length
-
-        const response = await backend.query({
-          indexName: 'cranfield',
-          term: query.text,
-          limit: 100,
-        })
 
         const resultIds = response.hits.map(h => String(h.document.id ?? h.id))
 
@@ -127,6 +119,22 @@ export function useBenchmark(backend: NarsilBackend) {
             perQuery: [...perQuery],
           },
         }))
+      }
+
+      const queryRequests = queries.map(q => ({
+        indexName: 'cranfield',
+        term: q.text,
+        limit: 100,
+      }))
+
+      if (backend.batchQuery) {
+        await backend.batchQuery(queryRequests, (i, response) => processResult(i, response))
+      } else {
+        for (let i = 0; i < queries.length; i++) {
+          if (abortRef.current) break
+          const response = await backend.query(queryRequests[i])
+          processResult(i, response)
+        }
       }
 
       const n = perQuery.length

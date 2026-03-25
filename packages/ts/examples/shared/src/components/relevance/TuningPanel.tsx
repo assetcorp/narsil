@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import type { BM25Config } from '../../scoring'
 import { Button } from '../ui/button'
 import { Slider } from '../ui/slider'
@@ -11,7 +12,46 @@ interface TuningPanelProps {
   onReset: () => void
 }
 
+function FieldBoostSlider({
+  field,
+  boost,
+  onFieldBoostChange,
+}: {
+  field: string
+  boost: number
+  onFieldBoostChange: (field: string, boost: number) => void
+}) {
+  const handleValueChange = useCallback(
+    ([v]: number[]) => {
+      onFieldBoostChange(field, v)
+    },
+    [onFieldBoostChange, field],
+  )
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-16 truncate text-[10px] text-muted-foreground">{field}</span>
+      <Slider min={0} max={5} step={0.5} value={[boost]} onValueChange={handleValueChange} className="flex-1" />
+      <span className="w-6 text-right font-mono text-[10px]">{boost.toFixed(1)}</span>
+    </div>
+  )
+}
+
 export function TuningPanel({ config, fields, onK1Change, onBChange, onFieldBoostChange, onReset }: TuningPanelProps) {
+  const handleK1ValueChange = useCallback(
+    ([v]: number[]) => {
+      onK1Change(v)
+    },
+    [onK1Change],
+  )
+
+  const handleBValueChange = useCallback(
+    ([v]: number[]) => {
+      onBChange(v)
+    },
+    [onBChange],
+  )
+
   return (
     <div className="sticky top-20 rounded-lg border">
       <div className="flex items-center justify-between border-b px-4 py-3">
@@ -32,7 +72,7 @@ export function TuningPanel({ config, fields, onK1Change, onBChange, onFieldBoos
             max={3}
             step={0.05}
             value={[config.k1]}
-            onValueChange={([v]) => onK1Change(v)}
+            onValueChange={handleK1ValueChange}
             className="mt-2"
           />
           <p className="mt-1 text-[10px] text-muted-foreground">Higher values let repeated terms contribute more</p>
@@ -43,14 +83,7 @@ export function TuningPanel({ config, fields, onK1Change, onBChange, onFieldBoos
             <span className="text-xs font-medium">b (length normalization)</span>
             <span className="font-mono text-xs">{config.b.toFixed(2)}</span>
           </div>
-          <Slider
-            min={0}
-            max={1}
-            step={0.05}
-            value={[config.b]}
-            onValueChange={([v]) => onBChange(v)}
-            className="mt-2"
-          />
+          <Slider min={0} max={1} step={0.05} value={[config.b]} onValueChange={handleBValueChange} className="mt-2" />
           <p className="mt-1 text-[10px] text-muted-foreground">Higher values penalize longer documents more</p>
         </div>
 
@@ -60,18 +93,7 @@ export function TuningPanel({ config, fields, onK1Change, onBChange, onFieldBoos
             {fields.map(field => {
               const boost = config.fieldBoosts[field] ?? 1
               return (
-                <div key={field} className="flex items-center gap-2">
-                  <span className="w-16 truncate text-[10px] text-muted-foreground">{field}</span>
-                  <Slider
-                    min={0}
-                    max={5}
-                    step={0.5}
-                    value={[boost]}
-                    onValueChange={([v]) => onFieldBoostChange(field, v)}
-                    className="flex-1"
-                  />
-                  <span className="w-6 text-right font-mono text-[10px]">{boost.toFixed(1)}</span>
-                </div>
+                <FieldBoostSlider key={field} field={field} boost={boost} onFieldBoostChange={onFieldBoostChange} />
               )
             })}
           </div>
