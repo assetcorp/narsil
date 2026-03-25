@@ -1,3 +1,13 @@
+## 0.1.3 (2026-03-25)
+
+### 🩹 Fixes
+
+- **ts:** add browser support for worker factory and vector promoter, enhancing modularity and performance ([7171aee](https://github.com/assetcorp/narsil/commit/7171aee))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.1.2 (2026-03-25)
 
 ### 🚀 Features
