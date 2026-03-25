@@ -48,10 +48,11 @@ export function CommandPalette({ navigate }: CommandPaletteProps) {
       return
     }
 
+    const activeIndex = state.activeIndexName
     const timeout = setTimeout(async () => {
       try {
         const result = await backend.suggest({
-          indexName: state.activeIndexName,
+          indexName: activeIndex,
           prefix: query.trim(),
           limit: 5,
         })

@@ -163,9 +163,13 @@
   },
   "devDependencies": {
     "@types/react": "^19.2.0",
-    "cmdk": "1.1.1"
+    "@types/three": "0.183.1",
+    "cmdk": "1.1.1",
+    "typescript": "6.0.2"
   },
   "peerDependencies": {
+    "@react-three/drei": "^10.0.0",
+    "@react-three/fiber": "^9.0.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "cmdk": "^1.0.0",
@@ -173,9 +177,7 @@
     "radix-ui": "^1.0.0",
     "react": "^19.0.0",
     "tailwind-merge": "^3.0.0",
-    "three": "^0.170.0",
-    "@react-three/fiber": "^9.0.0",
-    "@react-three/drei": "^10.0.0"
+    "three": "^0.170.0"
   },
   "peerDependenciesMeta": {
     "three": {

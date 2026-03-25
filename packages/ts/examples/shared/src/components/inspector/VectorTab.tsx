@@ -157,7 +157,7 @@ export default function VectorTab({ indexName }: VectorTabProps) {
       const id = umapData.ids[i]
       const movie = movieLookup.get(id)
       const genre = movie?.genres?.[0]
-      const rgb = (genre && GENRE_COLORS[genre]) ?? DEFAULT_COLOR
+      const rgb: [number, number, number] = (genre ? GENRE_COLORS[genre] : undefined) ?? DEFAULT_COLOR
       const hidden = genre ? hiddenGenres.has(genre) : false
       arr[i * 3] = hidden ? 0.15 : rgb[0]
       arr[i * 3 + 1] = hidden ? 0.15 : rgb[1]
