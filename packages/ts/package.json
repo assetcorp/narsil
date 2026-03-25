@@ -1,6 +1,6 @@
 {
   "name": "@delali/narsil",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "A distributed full-text search engine with cross-language portable binary format.",
   "author": "Delali (https://sondelali.com)",
