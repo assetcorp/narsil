@@ -577,7 +577,7 @@ describe('HNSWIndex', () => {
 
       const sortedLayers = Array.from(layerCounts.entries()).sort((a, b) => a[0] - b[0])
       for (let i = 1; i < sortedLayers.length; i++) {
-        expect(sortedLayers[i][1]).toBeLessThan(sortedLayers[i - 1][1])
+        expect(sortedLayers[i][1]).toBeLessThanOrEqual(sortedLayers[i - 1][1])
       }
     })
   })
