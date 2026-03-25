@@ -1,9 +1,12 @@
-import { type Dispatch, useEffect, useState } from 'react'
+import { type Dispatch, lazy, Suspense, useEffect, useState } from 'react'
 import type { IndexStats, NarsilBackend, PartitionStats } from '../../backend'
 import type { AppAction, AppState } from '../../types'
 import { Button } from '../ui/button'
+import { Skeleton } from '../ui/skeleton'
 import { SchemaDisplay } from './SchemaDisplay'
 import { StatsTab } from './StatsTab'
+
+const VectorTab = lazy(() => import('./VectorTab'))
 
 interface InspectorViewProps {
   backend: NarsilBackend
@@ -16,7 +19,7 @@ export function InspectorView({ backend, state, dispatch }: InspectorViewProps) 
   const [stats, setStats] = useState<IndexStats | null>(null)
   const [partitionStats, setPartitionStats] = useState<PartitionStats[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState<'stats' | 'schema'>('stats')
+  const [activeTab, setActiveTab] = useState<'stats' | 'schema' | 'vectors'>('stats')
 
   useEffect(() => {
     if (!indexName) {
@@ -85,13 +88,37 @@ export function InspectorView({ backend, state, dispatch }: InspectorViewProps) 
         >
           Schema
         </Button>
+        <Button
+          variant={activeTab === 'vectors' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setActiveTab('vectors')}
+        >
+          Vectors
+        </Button>
       </div>
 
-      {isLoading && <div className="py-12 text-center text-sm text-muted-foreground">Loading stats...</div>}
+      {isLoading && (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Skeleton className="h-24 rounded-lg" />
+          <Skeleton className="h-24 rounded-lg" />
+          <Skeleton className="h-24 rounded-lg" />
+          <Skeleton className="h-24 rounded-lg" />
+        </div>
+      )}
 
       {!isLoading && stats && activeTab === 'stats' && <StatsTab stats={stats} partitionStats={partitionStats} />}
 
       {!isLoading && stats && activeTab === 'schema' && <SchemaDisplay schema={stats.schema} />}
+
+      {activeTab === 'vectors' && indexName && (
+        <Suspense
+          fallback={
+            <div className="py-12 text-center text-sm text-muted-foreground">Loading vector visualization...</div>
+          }
+        >
+          <VectorTab indexName={indexName} />
+        </Suspense>
+      )}
     </div>
   )
 }

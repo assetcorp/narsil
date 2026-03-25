@@ -59,6 +59,9 @@ export default function Header() {
               <span className="hidden sm:inline">Loading...</span>
             </div>
           )}
+          <kbd className="hidden items-center gap-0.5 rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground sm:inline-flex">
+            <span className="text-xs">Cmd</span>K
+          </kbd>
           <ThemeToggle />
           <a
             href="https://github.com/assetcorp/narsil"

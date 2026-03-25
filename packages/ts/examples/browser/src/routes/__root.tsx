@@ -6,7 +6,8 @@ import {
   BackendContext,
   createInitialState,
 } from '@delali/narsil-example-shared'
-import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/react-router'
+import { CommandPalette } from '@delali/narsil-example-shared/components/CommandPalette'
+import { createRootRoute, HeadContent, Outlet, Scripts, useNavigate } from '@tanstack/react-router'
 import { useEffect, useReducer, useRef } from 'react'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
@@ -85,6 +86,8 @@ function RootLayout() {
       })
   }, [backend])
 
+  const navigate = useNavigate()
+
   return (
     <BackendContext value={backend}>
       <AppStateContext value={state}>
@@ -96,6 +99,7 @@ function RootLayout() {
             </main>
             <Footer />
           </div>
+          <CommandPalette navigate={(to: string) => navigate({ to })} />
         </AppDispatchContext>
       </AppStateContext>
     </BackendContext>

@@ -125,6 +125,10 @@ export class WorkerBackend implements NarsilBackend {
     return this.send('listIndexes', {}) as Promise<IndexListEntry[]>
   }
 
+  async deleteIndex(indexName: string): Promise<void> {
+    await this.send('deleteIndex', { indexName })
+  }
+
   subscribe<T extends BackendEventType>(event: T, handler: BackendEventHandler<T>): void {
     let handlers = this.listeners.get(event)
     if (!handlers) {

@@ -120,20 +120,72 @@
     "./lib/schema-detector": {
       "import": "./src/lib/schema-detector.ts",
       "types": "./src/lib/schema-detector.ts"
+    },
+    "./lib/umap-loader": {
+      "import": "./src/lib/umap-loader.ts",
+      "types": "./src/lib/umap-loader.ts"
+    },
+    "./components/SchemaEditor": {
+      "import": "./src/components/SchemaEditor.tsx",
+      "types": "./src/components/SchemaEditor.tsx"
+    },
+    "./components/CommandPalette": {
+      "import": "./src/components/CommandPalette.tsx",
+      "types": "./src/components/CommandPalette.tsx"
+    },
+    "./ui/slider": {
+      "import": "./src/components/ui/slider.tsx",
+      "types": "./src/components/ui/slider.tsx"
+    },
+    "./ui/skeleton": {
+      "import": "./src/components/ui/skeleton.tsx",
+      "types": "./src/components/ui/skeleton.tsx"
+    },
+    "./ui/tooltip": {
+      "import": "./src/components/ui/tooltip.tsx",
+      "types": "./src/components/ui/tooltip.tsx"
+    },
+    "./ui/scroll-area": {
+      "import": "./src/components/ui/scroll-area.tsx",
+      "types": "./src/components/ui/scroll-area.tsx"
+    },
+    "./ui/collapsible": {
+      "import": "./src/components/ui/collapsible.tsx",
+      "types": "./src/components/ui/collapsible.tsx"
+    },
+    "./ui/command": {
+      "import": "./src/components/ui/command.tsx",
+      "types": "./src/components/ui/command.tsx"
     }
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/react": "^19.2.0"
+    "@types/react": "^19.2.0",
+    "cmdk": "1.1.1"
   },
   "peerDependencies": {
-    "react": "^19.0.0",
-    "radix-ui": "^1.0.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
+    "cmdk": "^1.0.0",
+    "lucide-react": "^0.400.0",
+    "radix-ui": "^1.0.0",
+    "react": "^19.0.0",
     "tailwind-merge": "^3.0.0",
-    "lucide-react": "^0.400.0"
+    "three": "^0.170.0",
+    "@react-three/fiber": "^9.0.0",
+    "@react-three/drei": "^10.0.0"
+  },
+  "peerDependenciesMeta": {
+    "three": {
+      "optional": true
+    },
+    "@react-three/fiber": {
+      "optional": true
+    },
+    "@react-three/drei": {
+      "optional": true
+    }
   }
 }

@@ -1,6 +1,7 @@
 import type { QueryHit } from '../../backend'
 import type { DatasetId } from '../../manifest'
 import { Button } from '../ui/button'
+import { Skeleton } from '../ui/skeleton'
 import { ResultCard } from './ResultCard'
 
 interface ResultListProps {
@@ -47,7 +48,7 @@ export function ResultList({
       <div className="flex flex-col gap-3">
         {Array.from({ length: 5 }).map((_, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
-          <div key={i} className="h-24 animate-pulse rounded-lg border bg-muted/30" />
+          <Skeleton key={i} className="h-24 rounded-lg" />
         ))}
       </div>
     )

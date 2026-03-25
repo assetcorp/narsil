@@ -227,6 +227,11 @@ export class ServerBackend implements NarsilBackend {
     return inst.listIndexes() as unknown as IndexListEntry[]
   }
 
+  async deleteIndex(indexName: string): Promise<void> {
+    const inst = await getNarsil()
+    await inst.dropIndex(indexName)
+  }
+
   subscribe<T extends BackendEventType>(event: T, handler: BackendEventHandler<T>): void {
     let handlers = this.listeners.get(event)
     if (!handlers) {

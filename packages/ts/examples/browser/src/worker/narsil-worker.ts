@@ -399,6 +399,12 @@ async function handleListIndexes() {
   return instance.listIndexes()
 }
 
+async function handleDeleteIndex(payload: IndexNamePayload) {
+  const instance = await getNarsil()
+  await instance.dropIndex(payload.indexName)
+  await deleteSnapshot(payload.indexName).catch(() => {})
+}
+
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const { requestId, type, payload } = event.data
 
@@ -425,6 +431,9 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         break
       case 'listIndexes':
         result = await handleListIndexes()
+        break
+      case 'deleteIndex':
+        result = await handleDeleteIndex(payload as IndexNamePayload)
         break
     }
     postResponse(requestId, result)
