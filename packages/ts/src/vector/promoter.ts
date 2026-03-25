@@ -47,10 +47,13 @@ function buildWorkerRequest(engine: VectorSearchEngine, hnswConfig: HNSWConfig |
 function resolveWorkerUrl(): string {
   const base = import.meta.url
   if (base.endsWith('.mjs') || base.endsWith('.js')) {
+    const distIndex = base.lastIndexOf('/dist/')
+    if (distIndex !== -1) {
+      return new URL('vector/hnsw-build-worker.mjs', base.slice(0, distIndex + 6)).href
+    }
     return new URL('./hnsw-build-worker.mjs', base).href
   }
-  const replaced = base.replace(/\/src\/vector\/[^/]+$/, '/dist/vector/hnsw-build-worker.mjs')
-  return replaced
+  return base.replace(/\/src\/vector\/[^/]+$/, '/dist/vector/hnsw-build-worker.mjs')
 }
 
 function spawnNodeWorker(
