@@ -22,7 +22,6 @@ export function detectWorkerStrategy(): WorkerStrategy {
   const url = import.meta.url
   const hasBundledWorker = url.endsWith('.mjs') || url.endsWith('.js')
 
-  if (runtime.supportsWorkerThreads && hasBundledWorker) return 'worker-threads'
   if (runtime.supportsWebWorkers && hasBundledWorker) return 'web-worker'
   return 'synchronous'
 }
@@ -54,46 +53,6 @@ function resolveWorkerUrl(): string {
     return new URL('./hnsw-build-worker.mjs', base).href
   }
   return base.replace(/\/src\/vector\/[^/]+$/, '/dist/vector/hnsw-build-worker.mjs')
-}
-
-function spawnNodeWorker(
-  request: HNSWBuildRequest,
-  onComplete: (graph: SerializedHNSWGraph) => void,
-  onError: (err: Error) => void,
-): { terminate: () => void } {
-  const entryUrl = resolveWorkerUrl()
-  type NodeWorker = {
-    postMessage: (msg: unknown) => void
-    on: (event: string, handler: (msg: unknown) => void) => void
-    terminate: () => void
-  }
-  let worker: NodeWorker | null = null
-
-  import('node:worker_threads')
-    .then(wt => {
-      worker = new wt.Worker(new URL(entryUrl)) as NodeWorker
-      worker.on('message', (msg: unknown) => {
-        const response = msg as HNSWWorkerMessage
-        worker?.terminate()
-        if (response.type === 'success') {
-          onComplete(response.graph)
-        } else {
-          onError(new Error(response.message))
-        }
-      })
-      worker.on('error', (err: unknown) => {
-        worker?.terminate()
-        onError(err instanceof Error ? err : new Error(String(err)))
-      })
-      worker.postMessage(request)
-    })
-    .catch(onError)
-
-  return {
-    terminate() {
-      worker?.terminate()
-    },
-  }
 }
 
 function spawnWebWorker(
@@ -162,24 +121,7 @@ export function createVectorPromoter(config?: VectorPromoterConfig): VectorPromo
 
         promoting.add(field)
 
-        if (strategy === 'worker-threads') {
-          const request = buildWorkerRequest(engine, hnswConfig)
-          const handle = spawnNodeWorker(
-            request,
-            graph => {
-              pendingWorkers.delete(handle)
-              if (!engine.isPromoted) {
-                engine.deserializeHNSW(graph)
-              }
-              promoting.delete(field)
-            },
-            () => {
-              pendingWorkers.delete(handle)
-              promoting.delete(field)
-            },
-          )
-          pendingWorkers.add(handle)
-        } else if (strategy === 'web-worker') {
+        if (strategy === 'web-worker') {
           const request = buildWorkerRequest(engine, hnswConfig)
           const handle = spawnWebWorker(
             request,

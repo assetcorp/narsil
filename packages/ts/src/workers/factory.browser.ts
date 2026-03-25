@@ -24,15 +24,6 @@ export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFa
   const runtime = detectRuntime()
   const resolvedEntry = entryPoint ?? resolveEntryPoint()
 
-  if (runtime.supportsWorkerThreads) {
-    const workerThreadsModule = await import('node:worker_threads')
-
-    return function nodeFactory(_workerId: number): Executor {
-      const instance = new workerThreadsModule.Worker(new URL(resolvedEntry))
-      return createWorkerExecutor(instance as unknown as WorkerLike)
-    }
-  }
-
   if (runtime.supportsWebWorkers) {
     return function webFactory(_workerId: number): Executor {
       const instance = new Worker(resolvedEntry, { type: 'module' })
