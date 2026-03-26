@@ -67,7 +67,7 @@ function streamingLoadPlugin(): Plugin {
           const body = await readRequestBody(req)
           const { queries } = JSON.parse(body) as { queries: unknown[] }
 
-          const mod = (await viteServer.ssrLoadModule('./src/lib/server-fns.ts')) as {
+          const mod = (await viteServer.ssrLoadModule('./src/lib/get-backend.ts')) as {
             getBackend: () => Promise<import('./src/lib/server-backend').ServerBackend>
           }
           const backend = await mod.getBackend()
@@ -103,7 +103,7 @@ function streamingLoadPlugin(): Plugin {
           const body = await readRequestBody(req)
           const request = JSON.parse(body)
 
-          const mod = (await viteServer.ssrLoadModule('./src/lib/server-fns.ts')) as {
+          const mod = (await viteServer.ssrLoadModule('./src/lib/get-backend.ts')) as {
             getBackend: () => Promise<import('./src/lib/server-backend').ServerBackend>
           }
           const backend = await mod.getBackend()
