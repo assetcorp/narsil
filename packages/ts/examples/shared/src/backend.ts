@@ -39,7 +39,7 @@ export interface SuggestRequest {
 export interface QueryHit {
   id: string
   score: number
-  document: Record<string, unknown>
+  document: Record<string, NonNullable<unknown>>
   scoreComponents?: {
     termFrequencies: Record<string, number>
     fieldLengths: Record<string, number>
@@ -54,7 +54,7 @@ export interface QueryResponse {
   elapsed: number
   cursor?: string
   facets?: Record<string, { values: Record<string, number>; count: number }>
-  groups?: Array<{ values: Record<string, unknown>; hits: QueryHit[] }>
+  groups?: Array<{ values: Record<string, NonNullable<unknown>>; hits: QueryHit[] }>
 }
 
 export interface SuggestResponse {
@@ -68,7 +68,7 @@ export interface IndexStats {
   memoryBytes: number
   indexSizeBytes: number
   language: string
-  schema: Record<string, unknown>
+  schema: Record<string, NonNullable<unknown>>
 }
 
 export interface PartitionStats {

@@ -11,7 +11,9 @@
     "dev": "vite dev --port 5173",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "lint": "biome check src/",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@delali/narsil": "workspace:*",
