@@ -1,0 +1,26 @@
+{
+  "name": "narsil-embeddings-transformers",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm tsup",
+        "cwd": "packages/embeddings-transformers"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm biome check src/",
+        "cwd": "packages/embeddings-transformers"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm tsc --noEmit",
+        "cwd": "packages/embeddings-transformers"
+      }
+    }
+  }
+}
