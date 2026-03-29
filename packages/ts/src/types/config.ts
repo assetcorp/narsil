@@ -1,4 +1,4 @@
-import type { InvalidationAdapter, PersistenceAdapter } from './adapters'
+import type { EmbeddingAdapter, InvalidationAdapter, PersistenceAdapter } from './adapters'
 import type { NarsilPlugin } from './plugins'
 import type { BM25Params, CustomTokenizer } from './schema'
 
@@ -12,6 +12,7 @@ export interface NarsilConfig {
   workers?: WorkerConfig
   flush?: FlushConfig
   eagerLoad?: boolean
+  embedding?: EmbeddingAdapter
 }
 
 export interface WorkerConfig {

@@ -31,7 +31,8 @@ export interface QueryParams {
 
 export interface VectorQueryConfig {
   field: string
-  value: number[]
+  value?: number[]
+  text?: string
   similarity?: number
   metric?: 'cosine' | 'dotProduct' | 'euclidean'
   efSearch?: number

@@ -1,3 +1,5 @@
+import type { EmbeddingAdapter } from './adapters'
+
 export type AnyDocument = Record<string, unknown> & { id?: string }
 
 export type FieldType =
@@ -22,6 +24,11 @@ export interface VectorPromotionConfig {
   workerStrategy?: 'worker-threads' | 'web-worker' | 'synchronous'
 }
 
+export interface EmbeddingFieldConfig {
+  adapter?: EmbeddingAdapter
+  fields: Record<string, string | string[]>
+}
+
 export interface IndexConfig {
   schema: SchemaDefinition
   language?: string
@@ -33,6 +40,8 @@ export interface IndexConfig {
   trackPositions?: boolean
   vectorPromotion?: VectorPromotionConfig
   strict?: boolean
+  embedding?: EmbeddingFieldConfig
+  required?: string[]
 }
 
 export interface BM25Params {
