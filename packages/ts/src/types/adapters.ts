@@ -31,3 +31,10 @@ export interface PartitionStatistics {
   docFrequencies: Record<string, number>
   totalFieldLengths: Record<string, number>
 }
+
+export interface EmbeddingAdapter {
+  embed(input: string, purpose: 'document' | 'query', signal?: AbortSignal): Promise<Float32Array>
+  embedBatch?(inputs: string[], purpose: 'document' | 'query', signal?: AbortSignal): Promise<Float32Array[]>
+  readonly dimensions: number
+  shutdown?(): Promise<void>
+}
