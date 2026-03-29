@@ -37,9 +37,12 @@ export function hybridSearch(
   const textResult = fulltextSearch(partition, params, language, schema, options as FulltextSearchOptions)
 
   const vectorConfig = params.vector as NonNullable<typeof params.vector>
+  const vectorValue = vectorConfig.value
+  if (!vectorValue) return textResult
+
   const vectorResult = partition.searchVector({
     field: vectorConfig.field,
-    value: vectorConfig.value,
+    value: vectorValue,
     k: params.limit ?? 10,
     similarity: vectorConfig.similarity,
     metric: vectorConfig.metric,
@@ -106,9 +109,12 @@ export function hybridSearch(
 
 function runVectorOnly(partition: PartitionIndex, params: QueryParams): InternalSearchResult {
   const vectorConfig = params.vector as NonNullable<typeof params.vector>
+  const vectorValue = vectorConfig.value
+  if (!vectorValue) return { scored: [], totalMatched: 0 }
+
   const result = partition.searchVector({
     field: vectorConfig.field,
-    value: vectorConfig.value,
+    value: vectorValue,
     k: params.limit ?? 10,
     similarity: vectorConfig.similarity,
     metric: vectorConfig.metric,

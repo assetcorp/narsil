@@ -150,14 +150,15 @@ function dispatchSinglePartition(
 
   if (params.mode === 'vector' || (hasVector && !hasTerm)) {
     if (!params.vector) return { scored: [], totalMatched: 0 }
-    const vectorConfig = params.vector
+    const vectorValue = params.vector.value
+    if (!vectorValue) return { scored: [], totalMatched: 0 }
     return partition.searchVector({
-      field: vectorConfig.field,
-      value: vectorConfig.value,
+      field: params.vector.field,
+      value: vectorValue,
       k: params.limit ?? 10,
-      similarity: vectorConfig.similarity,
-      metric: vectorConfig.metric,
-      efSearch: vectorConfig.efSearch,
+      similarity: params.vector.similarity,
+      metric: params.vector.metric,
+      efSearch: params.vector.efSearch,
     })
   }
 

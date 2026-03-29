@@ -342,6 +342,19 @@ export function validateDocumentStrict(document: Record<string, unknown>, schema
   }
 }
 
+export function validateRequiredFields(document: Record<string, unknown>, required: string[]): void {
+  if (required.length === 0) return
+
+  for (const field of required) {
+    const value = document[field]
+    if (value === undefined || value === null) {
+      throw new NarsilError(ErrorCodes.DOC_MISSING_REQUIRED_FIELD, `Document is missing required field "${field}"`, {
+        field,
+      })
+    }
+  }
+}
+
 function flattenRecursive(schema: SchemaDefinition, prefix: string, result: Record<string, FieldType>): void {
   for (const [field, type] of Object.entries(schema)) {
     const path = prefix ? `${prefix}.${field}` : field

@@ -83,6 +83,10 @@
       "import": "./dist/vector/hnsw-build-worker.mjs",
       "types": "./dist/vector/hnsw-build-worker.d.ts"
     },
+    "./embeddings/openai": {
+      "import": "./dist/embeddings/openai.mjs",
+      "types": "./dist/embeddings/openai.d.ts"
+    },
     "./languages/*": {
       "import": "./dist/languages/*.mjs",
       "types": "./dist/languages/*.d.ts"

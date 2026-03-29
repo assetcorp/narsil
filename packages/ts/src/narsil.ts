@@ -1,5 +1,6 @@
 import { generateId } from './core/id-generator'
 import { tokenize } from './core/tokenizer'
+import { embedBatchDocumentFields, embedDocumentFields } from './engine/embed'
 import { createWorkerOrchestrator } from './engine/orchestration'
 import { executePreflight, executeQuery } from './engine/query'
 import { BATCH_CHUNK_SIZE, validateDocId, validateIndexName } from './engine/validation'
@@ -10,9 +11,11 @@ import { createPartitionRouter } from './partitioning/router'
 import { createWriteAheadQueue, type WAQEntry } from './partitioning/write-ahead-queue'
 import { createFlushManager, type FlushManager } from './persistence/flush-manager'
 import { createPluginRegistry, type PluginRegistry } from './plugins/registry'
-import { validateSchema } from './schema/validator'
+import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from './schema/embedding-validator'
+import { validateRequiredFields, validateSchema } from './schema/validator'
 import { deserializePayloadV1 } from './serialization/payload-v1'
 import { deserializePayloadV2 } from './serialization/payload-v2'
+import type { EmbeddingAdapter } from './types/adapters'
 import type { NarsilConfig } from './types/config'
 import type { NarsilEventMap } from './types/events'
 import type { LanguageModule } from './types/language'
@@ -26,8 +29,8 @@ import type {
   QueryResult,
   SuggestResult,
 } from './types/results'
-import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig } from './types/schema'
-import type { QueryParams, SuggestParams } from './types/search'
+import type { AnyDocument, EmbeddingFieldConfig, IndexConfig, InsertOptions, PartitionConfig } from './types/schema'
+import type { QueryParams, SuggestParams, VectorQueryConfig } from './types/search'
 import { createDirectExecutor, type DirectExecutorExtensions } from './workers/direct-executor'
 import type { Executor } from './workers/executor'
 import { createExecutionPromoter } from './workers/promoter'
@@ -103,10 +106,14 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
   }
 
   const idGenerator = config?.idGenerator ?? generateId
-  const indexRegistry = new Map<string, { config: IndexConfig; language: LanguageModule }>()
+  const indexRegistry = new Map<
+    string,
+    { config: IndexConfig; language: LanguageModule; embeddingAdapter: EmbeddingAdapter | null }
+  >()
   type EventHandler = (payload: unknown) => void
   const eventHandlers = new Map<string, Set<EventHandler>>()
   let isShutdown = false
+  const abortController = new AbortController()
 
   const orchestrator = createWorkerOrchestrator(config, executor, promoter, indexRegistry, {
     onPromotion(workerCount, reason) {
@@ -130,7 +137,11 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
     }
   }
 
-  function requireIndex(indexName: string): { config: IndexConfig; language: LanguageModule } {
+  function requireIndex(indexName: string): {
+    config: IndexConfig
+    language: LanguageModule
+    embeddingAdapter: EmbeddingAdapter | null
+  } {
     const entry = indexRegistry.get(indexName)
     if (!entry) {
       throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `Index "${indexName}" does not exist`, { indexName })
@@ -154,6 +165,53 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
     return manager
   }
 
+  async function resolveVectorText(
+    params: QueryParams,
+    embeddingAdapter: EmbeddingAdapter | null,
+  ): Promise<QueryParams> {
+    if (!params.vector) return params
+    if (params.vector.text === undefined && params.vector.value === undefined) return params
+    if (params.vector.value !== undefined && params.vector.text === undefined) return params
+
+    if (params.vector.text !== undefined && params.vector.value !== undefined) {
+      throw new NarsilError(ErrorCodes.EMBEDDING_CONFIG_INVALID, "Vector query cannot have both 'text' and 'value'")
+    }
+
+    if (!embeddingAdapter) {
+      throw new NarsilError(
+        ErrorCodes.EMBEDDING_CONFIG_INVALID,
+        "Vector query with 'text' requires an embedding adapter on the index or instance",
+      )
+    }
+
+    if (typeof params.vector.text !== 'string') {
+      throw new NarsilError(
+        ErrorCodes.DOC_VALIDATION_FAILED,
+        `Vector query 'text' must be a string, got ${typeof params.vector.text}`,
+      )
+    }
+    if (params.vector.text.length === 0) {
+      throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, "Vector query 'text' must not be empty")
+    }
+    const raw = await embeddingAdapter.embed(params.vector.text, 'query', abortController.signal)
+    if (!(raw instanceof Float32Array)) {
+      throw new NarsilError(
+        ErrorCodes.EMBEDDING_FAILED,
+        `Adapter returned ${typeof raw} for query embedding, expected Float32Array`,
+      )
+    }
+    if (raw.length !== embeddingAdapter.dimensions) {
+      throw new NarsilError(
+        ErrorCodes.EMBEDDING_DIMENSION_MISMATCH,
+        `Adapter returned ${raw.length}-dimensional vector for query, expected ${embeddingAdapter.dimensions}`,
+        { expected: embeddingAdapter.dimensions, actual: raw.length },
+      )
+    }
+    const resolved: VectorQueryConfig = { ...params.vector, value: Array.from(raw) }
+    delete resolved.text
+    return { ...params, vector: resolved }
+  }
+
   const narsil: Narsil = {
     async createIndex(name: string, indexConfig: IndexConfig): Promise<void> {
       guardShutdown()
@@ -165,9 +223,17 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
 
       validateSchema(indexConfig.schema)
 
+      let resolvedEmbeddingAdapter: EmbeddingAdapter | null = null
+      if (indexConfig.embedding) {
+        resolvedEmbeddingAdapter = validateEmbeddingConfig(indexConfig.embedding, indexConfig.schema, config?.embedding)
+      }
+      if (indexConfig.required && indexConfig.required.length > 0) {
+        validateRequiredFieldsInSchema(indexConfig.required, indexConfig.schema)
+      }
+
       const language = getLanguage(indexConfig.language ?? 'english')
       executor.createIndex(name, indexConfig, language)
-      indexRegistry.set(name, { config: indexConfig, language })
+      indexRegistry.set(name, { config: indexConfig, language, embeddingAdapter: resolvedEmbeddingAdapter })
 
       await pluginRegistry.runHook('onIndexCreate', { indexName: name, config: indexConfig })
     },
@@ -220,7 +286,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
 
     async insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string> {
       guardShutdown()
-      requireIndex(indexName)
+      const entry = requireIndex(indexName)
 
       const resolvedDocId = docId ?? idGenerator()
       validateDocId(resolvedDocId)
@@ -230,6 +296,19 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       }
 
       await pluginRegistry.runHook('beforeInsert', { indexName, docId: resolvedDocId, document })
+
+      if (entry.config.required && entry.config.required.length > 0) {
+        validateRequiredFields(document as Record<string, unknown>, entry.config.required)
+      }
+
+      if (entry.embeddingAdapter && entry.config.embedding) {
+        await embedDocumentFields(
+          document as Record<string, unknown>,
+          entry.config.embedding,
+          entry.embeddingAdapter,
+          abortController.signal,
+        )
+      }
 
       await executor.execute({
         type: 'insert',
@@ -264,17 +343,68 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
 
     async insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult> {
       guardShutdown()
-      requireIndex(indexName)
+      const entry = requireIndex(indexName)
 
       const succeeded: string[] = []
       const failed: BatchResult['failed'] = []
       const hasBeforeHook = pluginRegistry.hasHooks('beforeInsert')
       const hasAfterHook = pluginRegistry.hasHooks('afterInsert')
+      const hasRequired = entry.config.required && entry.config.required.length > 0
+      const hasEmbedding = entry.embeddingAdapter && entry.config.embedding
 
       for (let chunkStart = 0; chunkStart < documents.length; chunkStart += BATCH_CHUNK_SIZE) {
+        if (abortController.signal.aborted) break
+
         const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, documents.length)
 
+        const chunkFailedIndexes = new Set<number>()
+
+        if (hasRequired) {
+          for (let i = chunkStart; i < chunkEnd; i++) {
+            try {
+              validateRequiredFields(documents[i] as Record<string, unknown>, entry.config.required as string[])
+            } catch (err) {
+              chunkFailedIndexes.add(i)
+              failed.push({
+                docId: '',
+                error:
+                  err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, String(err)),
+              })
+            }
+          }
+        }
+
+        if (hasEmbedding) {
+          const embeddableSlice: Record<string, unknown>[] = []
+          const embeddableOriginalIndexes: number[] = []
+          for (let i = chunkStart; i < chunkEnd; i++) {
+            if (chunkFailedIndexes.has(i)) continue
+            embeddableSlice.push(documents[i] as Record<string, unknown>)
+            embeddableOriginalIndexes.push(i)
+          }
+
+          if (embeddableSlice.length > 0) {
+            try {
+              await embedBatchDocumentFields(
+                embeddableSlice,
+                entry.config.embedding as EmbeddingFieldConfig,
+                entry.embeddingAdapter as EmbeddingAdapter,
+                abortController.signal,
+              )
+            } catch (err) {
+              const embeddingError =
+                err instanceof NarsilError ? err : new NarsilError(ErrorCodes.EMBEDDING_FAILED, String(err))
+              for (const originalIdx of embeddableOriginalIndexes) {
+                chunkFailedIndexes.add(originalIdx)
+                failed.push({ docId: '', error: embeddingError })
+              }
+            }
+          }
+        }
+
         for (let i = chunkStart; i < chunkEnd; i++) {
+          if (chunkFailedIndexes.has(i)) continue
+
           const docId = idGenerator()
           try {
             validateDocId(docId)
@@ -495,11 +625,13 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       const entry = requireIndex(indexName)
       const manager = requireManager(indexName)
 
-      await pluginRegistry.runHook('beforeSearch', { indexName, params })
+      const resolvedParams = await resolveVectorText(params, entry.embeddingAdapter)
+
+      await pluginRegistry.runHook('beforeSearch', { indexName, params: resolvedParams })
 
       const workerSearch = orchestrator.isPromoted() ? orchestrator.searchViaWorker.bind(orchestrator) : undefined
 
-      const result = await executeQuery<T>(params, {
+      const result = await executeQuery<T>(resolvedParams, {
         manager,
         language: entry.language,
         config: entry.config,
@@ -510,7 +642,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       try {
         await pluginRegistry.runHook('afterSearch', {
           indexName,
-          params,
+          params: resolvedParams,
           results: result as unknown as QueryResult,
         })
       } catch (err) {
@@ -525,9 +657,11 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       const entry = requireIndex(indexName)
       const manager = requireManager(indexName)
 
+      const resolvedParams = await resolveVectorText(params, entry.embeddingAdapter)
+
       const workerSearch = orchestrator.isPromoted() ? orchestrator.searchViaWorker.bind(orchestrator) : undefined
 
-      return executePreflight(params, {
+      return executePreflight(resolvedParams, {
         manager,
         language: entry.language,
         config: entry.config,
@@ -649,7 +783,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
 
       const indexConfig: IndexConfig = { schema, language: envelope.language }
       executor.createIndex(indexName, indexConfig, language)
-      indexRegistry.set(indexName, { config: indexConfig, language })
+      indexRegistry.set(indexName, { config: indexConfig, language, embeddingAdapter: null })
 
       try {
         const manager = requireManager(indexName)
@@ -832,8 +966,24 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       if (isShutdown) return
       isShutdown = true
 
+      abortController.abort()
+
       if (flushManager) {
         await flushManager.shutdown()
+      }
+
+      const adaptersToShutdown = new Set<EmbeddingAdapter>()
+      for (const [, entry] of indexRegistry) {
+        if (entry.embeddingAdapter?.shutdown) {
+          adaptersToShutdown.add(entry.embeddingAdapter)
+        }
+      }
+      for (const adapter of adaptersToShutdown) {
+        try {
+          await adapter.shutdown?.()
+        } catch (_) {
+          /* best-effort adapter shutdown */
+        }
       }
 
       await orchestrator.shutdown()

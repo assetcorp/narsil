@@ -7,7 +7,13 @@ export { createNarsil } from './narsil'
 export { isSimdAvailable } from './vector/simd'
 export const VERSION = '0.1.0'
 
-export type { InvalidationAdapter, InvalidationEvent, PartitionStatistics, PersistenceAdapter } from './types/adapters'
+export type {
+  EmbeddingAdapter,
+  InvalidationAdapter,
+  InvalidationEvent,
+  PartitionStatistics,
+  PersistenceAdapter,
+} from './types/adapters'
 export type { FlushConfig, NarsilConfig, WorkerConfig } from './types/config'
 export type { NarsilEventMap } from './types/events'
 export type {
@@ -49,6 +55,7 @@ export type {
   AnyDocument,
   BM25Params,
   CustomTokenizer,
+  EmbeddingFieldConfig,
   FieldType,
   IndexConfig,
   InsertOptions,
