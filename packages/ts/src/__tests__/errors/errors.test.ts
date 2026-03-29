@@ -53,8 +53,16 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.ENVELOPE_INVALID_MAGIC).toBe('ENVELOPE_INVALID_MAGIC')
   })
 
-  it('has exactly 28 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(28)
+  it('has all expected embedding error codes', () => {
+    expect(ErrorCodes.EMBEDDING_FAILED).toBe('EMBEDDING_FAILED')
+    expect(ErrorCodes.EMBEDDING_DIMENSION_MISMATCH).toBe('EMBEDDING_DIMENSION_MISMATCH')
+    expect(ErrorCodes.EMBEDDING_NO_SOURCE).toBe('EMBEDDING_NO_SOURCE')
+    expect(ErrorCodes.EMBEDDING_CONFIG_INVALID).toBe('EMBEDDING_CONFIG_INVALID')
+    expect(ErrorCodes.DOC_MISSING_REQUIRED_FIELD).toBe('DOC_MISSING_REQUIRED_FIELD')
+  })
+
+  it('has exactly 33 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(33)
   })
 
   it('has unique values for every code', () => {
