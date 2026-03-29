@@ -300,3 +300,301 @@ Per-index stop word configuration supports two modes:
   default stop words and returns a modified set (e.g., to add
   domain-specific words or remove words that are meaningful in
   the domain).
+
+---
+
+## EmbeddingAdapter
+
+The embedding adapter converts text into vector embeddings. It
+abstracts the embedding provider (remote API, local ONNX model,
+custom inference server) behind a uniform interface so that Narsil
+can auto-embed documents during indexing and queries during search.
+
+### EmbeddingAdapter Definition
+
+```text
+EmbeddingAdapter {
+  embed(input: string, purpose: 'document' | 'query', signal?: AbortSignal): async -> Float32Array
+  embedBatch?(inputs: Array<string>, purpose: 'document' | 'query', signal?: AbortSignal): async -> Array<Float32Array>
+  readonly dimensions: number
+  shutdown?(): async -> void
+}
+```
+
+### EmbeddingAdapter Methods
+
+#### embed(input, purpose, signal?)
+
+- Converts a text string into a vector embedding returned as a
+  `Float32Array`.
+- `purpose` indicates whether the input is a document being indexed
+  or a query being searched. Asymmetric embedding models (E5, BGE,
+  Nomic, Cohere, Google Vertex AI) use this to apply model-specific
+  prefixes or parameters that produce different vectors for documents
+  vs queries. Models without asymmetric behavior (MiniLM, GTE) ignore
+  this parameter.
+- `signal` is an optional `AbortSignal` for cancellation. When
+  aborted, the method rejects with an `AbortError`. Narsil passes a
+  signal during shutdown to cancel in-flight embedding requests.
+- On failure, the adapter throws an error. Narsil wraps it in a
+  `NarsilError` with code `EMBEDDING_FAILED`.
+
+#### embedBatch?(inputs, purpose, signal?)
+
+- Optional batch method. Accepts an array of text strings and returns
+  an array of `Float32Array` vectors in the same order.
+- When implemented, Narsil calls this instead of calling `embed()` in
+  a loop during `insertBatch()`.
+- When not implemented, Narsil falls back to calling `embed()`
+  concurrently via `Promise.all` for each input.
+- Chunking and rate limiting are the adapter's responsibility, not
+  Narsil's. For example, an OpenAI adapter knows its token limits and
+  can chunk internally.
+- The adapter must return vectors in the same order as the inputs
+  array.
+
+#### dimensions (readonly property)
+
+- Reports the dimensionality of vectors produced by this adapter.
+- Narsil validates this against the schema's vector field dimensions
+  at index creation time. A mismatch throws
+  `EMBEDDING_DIMENSION_MISMATCH`.
+- Must be a positive integer.
+- Must remain constant for the lifetime of the adapter.
+
+#### shutdown?()
+
+- Optional cleanup method. Called during `narsil.shutdown()`.
+- Must be idempotent: calling shutdown on an already-shut-down adapter
+  is not an error.
+- Used by adapters that hold resources (ONNX sessions, open
+  connections, timers).
+- Follows the same pattern as `InvalidationAdapter.shutdown()`.
+
+### Embedding Configuration
+
+The embedding adapter is configured at two levels:
+
+**Instance-level** (default for all indexes):
+
+```json
+{
+  "embedding": "EmbeddingAdapter instance"
+}
+```
+
+**Index-level** (overrides instance-level):
+
+```json
+{
+  "schema": {
+    "title": "string",
+    "description": "string",
+    "contentVec": "vector[1536]"
+  },
+  "embedding": {
+    "adapter": "EmbeddingAdapter instance (optional if instance-level is set)",
+    "fields": {
+      "contentVec": ["title", "description"],
+      "titleVec": "title"
+    }
+  }
+}
+```
+
+### Field Mapping Rules
+
+- Keys in `fields` must reference vector fields in the schema.
+- Values are either a single string (one source field) or an array of
+  strings (multiple source fields concatenated).
+- Source fields must be string-typed fields in the schema.
+- When multiple source fields are specified, they are concatenated
+  with `\n` (newline) as the separator.
+- Field order in the array is semantically significant: fields listed
+  first receive higher representational weight in the embedding due to
+  positional bias in transformer models (documented in "Dwell in the
+  Beginning", ACL 2024). Place the most important field first.
+- Validation: At `createIndex` time, Narsil validates that all field
+  references exist in the schema and have the correct types. Invalid
+  mappings throw `EMBEDDING_CONFIG_INVALID`.
+
+### Insert Behavior
+
+When a document is inserted into an index with embedding
+configuration:
+
+1. Required field validation runs first (if `required` array is
+   configured).
+2. For each mapped vector field:
+   a. If the document already contains the vector field, Narsil uses
+      it as-is (skip embedding). This preserves the "bring your own
+      vectors" path.
+   b. If the vector field is absent, Narsil collects the source field
+      values from the document.
+   c. Missing or empty source fields are skipped. If ALL source fields
+      for a mapping are missing or empty, Narsil throws
+      `EMBEDDING_NO_SOURCE`.
+   d. Present source fields are concatenated with `\n` and passed to
+      `adapter.embed(text, 'document', signal)`.
+   e. The returned `Float32Array` is assigned to the vector field on
+      the document.
+3. Schema validation runs. Vectors produced by the adapter skip
+   `validateVector()` (the adapter is trusted internal
+   infrastructure; dimensions were validated at index creation).
+4. The document is indexed.
+
+For `insertBatch`, if the adapter implements `embedBatch`, Narsil
+collects all texts per mapped vector field and calls `embedBatch`
+once per field. If `embedBatch` is not implemented, Narsil falls back
+to concurrent `embed()` calls.
+
+Embedding failure during insert results in `EMBEDDING_FAILED`. For
+single insert, this throws. For batch insert, the individual document
+goes to `BatchResult.failed` and processing continues for remaining
+documents.
+
+### Query Behavior
+
+Vector query parameters accept either a raw vector or text for
+auto-embedding:
+
+```json
+{
+  "vector": {
+    "field": "contentVec",
+    "value": [0.12, -0.45, "..."],
+    "text": "search query text"
+  }
+}
+```
+
+- `value`: A raw vector (`Float32Array` or `number[]`). Current
+  behavior, unchanged.
+- `text`: A text string to be auto-embedded using the index's
+  embedding adapter with `purpose: 'query'`.
+- `value` and `text` are mutually exclusive. Providing both is an
+  error.
+- If `text` is provided but the index has no embedding adapter,
+  Narsil throws `EMBEDDING_CONFIG_INVALID`.
+
+### Required Fields
+
+A separate but related feature. Indexes can declare required fields:
+
+```json
+{
+  "schema": {
+    "title": "string",
+    "price": "number"
+  },
+  "required": ["title", "price"]
+}
+```
+
+- `required` is an array of field names that must be present (not
+  `undefined` or `null`) in every inserted document.
+- Default: empty array (all fields optional, same as current
+  behavior).
+- Validation runs before embedding, so no adapter calls are wasted on
+  documents that will fail validation.
+- Missing required fields throw `DOC_MISSING_REQUIRED_FIELD`.
+- Follows JSON Schema's `required` array pattern (used by MongoDB,
+  OpenAPI).
+- This is orthogonal to the existing strict mode (which rejects extra
+  fields). Both can be used together.
+
+### EmbeddingAdapter Error Codes
+
+| Code                           | When                                                                              | Severity      |
+|--------------------------------|-----------------------------------------------------------------------------------|---------------|
+| `EMBEDDING_FAILED`             | Adapter threw during embed/embedBatch (network error, model failure, OOM)         | Runtime       |
+| `EMBEDDING_DIMENSION_MISMATCH` | Adapter dimensions != schema vector dimensions at createIndex                     | Configuration |
+| `EMBEDDING_NO_SOURCE`          | All mapped source fields missing/empty, no manual vector provided                 | Runtime       |
+| `EMBEDDING_CONFIG_INVALID`     | Field mapping references nonexistent or wrong-type schema fields                  | Configuration |
+| `DOC_MISSING_REQUIRED_FIELD`   | Document missing a field in the required array                                    | Validation    |
+
+### Embedding Built-in Adapters
+
+| Adapter          | Package                                  | Environment | Transport        |
+|------------------|------------------------------------------|-------------|------------------|
+| OpenAI-compat.   | `@delali/narsil/embeddings/openai`       | All         | fetch (HTTP)     |
+| Transformers.js  | `@delali/narsil-embeddings-transformers` | All         | ONNX Runtime     |
+
+#### OpenAI-compatible Adapter
+
+Configuration:
+
+```json
+{
+  "baseUrl": "https://api.openai.com/v1",
+  "apiKey": "string or function returning string/Promise<string>",
+  "model": "text-embedding-3-small",
+  "timeout": 30000,
+  "maxRetries": 3
+}
+```
+
+- Works with any provider implementing the OpenAI `/v1/embeddings`
+  endpoint (OpenAI, Azure OpenAI, Mistral, Together AI, Fireworks,
+  Groq).
+- Uses `fetch` (no external HTTP dependencies).
+- `apiKey` accepts a string for simple use or a function for dynamic
+  resolution (vault lookups, token rotation).
+- Retries transient failures (429, 500, 502, 503) with exponential
+  backoff and jitter. Does not retry permanent failures (400, 401,
+  403).
+- The adapter never logs, serializes, or includes the API key in
+  error messages.
+- Supports `AbortSignal` via `fetch(url, { signal })`.
+
+#### Transformers.js Adapter
+
+Configuration:
+
+```json
+{
+  "model": "Xenova/all-MiniLM-L6-v2",
+  "dtype": "q8",
+  "device": "wasm | webgpu | cpu",
+  "pooling": "mean | cls",
+  "normalize": true,
+  "documentPrefix": "passage: ",
+  "queryPrefix": "query: ",
+  "progress": "function(data) -> void",
+  "pipelineOptions": "PretrainedOptions passthrough"
+}
+```
+
+- Shipped as a separate package
+  (`@delali/narsil-embeddings-transformers`) because
+  `@huggingface/transformers` is a heavy dependency (~40MB with WASM
+  binaries).
+- `@huggingface/transformers` is a peer dependency so the user
+  controls the version.
+- Pipeline is created lazily on first `embed()` call (singleton
+  pattern). Subsequent calls reuse the session.
+- Dimensions are auto-detected from the model output on first call
+  (warm-up inference).
+- `documentPrefix`/`queryPrefix` are prepended based on the `purpose`
+  parameter. This handles models like E5 (`passage: `/`query: `) and
+  BGE (query instruction prefix). Models that need no prefix (MiniLM,
+  GTE) leave these unset.
+- `pipelineOptions` is an escape hatch for advanced transformers.js
+  configuration (`cache_dir`, `revision`, `local_files_only`) without
+  polluting the primary config surface.
+- `shutdown()` disposes the ONNX session and frees memory.
+
+### Community Adapter Guidelines
+
+Community adapters (Cohere, Voyage AI, custom model servers, etc.)
+should:
+
+- Implement the `EmbeddingAdapter` interface.
+- Handle the `purpose` parameter appropriately for their model's
+  asymmetric behavior.
+- Implement `embedBatch` when the underlying API supports batch
+  requests.
+- Implement `shutdown` when the adapter holds resources.
+- Document the model's expected dimensions clearly.
+- Handle retries and rate limiting internally.
+- Support `AbortSignal` for cancellation.
