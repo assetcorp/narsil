@@ -261,4 +261,3 @@ describe.skipIf(!shouldRun)('Embedding E2E: auto-vectorization with Transformers
     }
   })
 })
-
