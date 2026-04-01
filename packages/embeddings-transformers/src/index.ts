@@ -172,8 +172,16 @@ export function createTransformersEmbedding(config: TransformersEmbeddingConfig)
     },
 
     async shutdown(): Promise<void> {
+      const pending = pipelinePromise
       pipelineInstance = null
       pipelinePromise = null
+      if (pending) {
+        try {
+          await pending
+        } catch {
+          /* initialization failure during shutdown is expected */
+        }
+      }
     },
   }
 }

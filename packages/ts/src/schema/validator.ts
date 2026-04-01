@@ -342,11 +342,22 @@ export function validateDocumentStrict(document: Record<string, unknown>, schema
   }
 }
 
+function resolveNestedValue(document: Record<string, unknown>, path: string): unknown {
+  if (!path.includes('.')) return document[path]
+  const segments = path.split('.')
+  let current: unknown = document
+  for (const segment of segments) {
+    if (current === null || current === undefined || typeof current !== 'object') return undefined
+    current = (current as Record<string, unknown>)[segment]
+  }
+  return current
+}
+
 export function validateRequiredFields(document: Record<string, unknown>, required: string[]): void {
   if (required.length === 0) return
 
   for (const field of required) {
-    const value = document[field]
+    const value = resolveNestedValue(document, field)
     if (value === undefined || value === null) {
       throw new NarsilError(ErrorCodes.DOC_MISSING_REQUIRED_FIELD, `Document is missing required field "${field}"`, {
         field,

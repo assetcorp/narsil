@@ -385,12 +385,18 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
 
           if (embeddableSlice.length > 0) {
             try {
-              await embedBatchDocumentFields(
+              const embedResult = await embedBatchDocumentFields(
                 embeddableSlice,
                 entry.config.embedding as EmbeddingFieldConfig,
                 entry.embeddingAdapter as EmbeddingAdapter,
                 abortController.signal,
               )
+
+              for (const [sliceIndex, error] of embedResult.failed) {
+                const originalIdx = embeddableOriginalIndexes[sliceIndex]
+                chunkFailedIndexes.add(originalIdx)
+                failed.push({ docId: '', error })
+              }
             } catch (err) {
               const embeddingError =
                 err instanceof NarsilError ? err : new NarsilError(ErrorCodes.EMBEDDING_FAILED, String(err))
@@ -514,11 +520,20 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
 
     async update(indexName: string, docId: string, document: AnyDocument): Promise<void> {
       guardShutdown()
-      requireIndex(indexName)
+      const entry = requireIndex(indexName)
       validateDocId(docId)
 
       if (bufferIfRebalancing(indexName, { action: 'update', docId, document, indexName })) {
         return
+      }
+
+      if (entry.embeddingAdapter && entry.config.embedding) {
+        await embedDocumentFields(
+          document as Record<string, unknown>,
+          entry.config.embedding,
+          entry.embeddingAdapter,
+          abortController.signal,
+        )
       }
 
       const manager = executor.getManager(indexName)
