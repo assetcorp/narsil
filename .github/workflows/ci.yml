@@ -49,3 +49,108 @@ jobs:
 
       - name: Test
         run: pnpm nx run narsil-ts:test
+
+  detect-embedding-changes:
+    name: Detect embedding changes
+    runs-on: ubuntu-latest
+    outputs:
+      embedding-changed: ${{ steps.check-paths.outputs.changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Check for embedding-related file changes
+        id: check-paths
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- \
+            'packages/ts/src/embeddings/**' \
+            'packages/ts/src/engine/embed.ts' \
+            'packages/embeddings-transformers/**' \
+            'packages/ts/src/__tests__/integration/embedding-*' \
+            'packages/ts/src/__tests__/embedding.test.ts' \
+            'packages/ts/src/schema/embedding-validator.ts' \
+          )
+
+          if [ -n "$CHANGED" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  embedding-adapter-tests:
+    name: Embedding Adapter Tests
+    runs-on: ubuntu-latest
+    needs: detect-embedding-changes
+    if: needs.detect-embedding-changes.outputs.embedding-changed == 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (embeddings-transformers)
+        run: pnpm nx run narsil-embeddings-transformers:lint
+
+      - name: Typecheck (embeddings-transformers)
+        run: pnpm nx run narsil-embeddings-transformers:typecheck
+
+      - name: Test (embeddings-transformers)
+        run: pnpm nx run narsil-embeddings-transformers:test
+
+  embedding-integration-tests:
+    name: Embedding Integration Tests
+    runs-on: ubuntu-latest
+    needs: detect-embedding-changes
+    if: needs.detect-embedding-changes.outputs.embedding-changed == 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache HuggingFace models
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: ~/.cache/huggingface
+          key: hf-models-${{ runner.os }}-${{ hashFiles('packages/ts/src/__tests__/integration/embedding-e2e.test.ts') }}
+          restore-keys: |
+            hf-models-${{ runner.os }}-
+
+      - name: Build
+        run: pnpm nx run narsil-ts:build
+
+      - name: Run embedding integration tests
+        run: pnpm nx run narsil-ts:test:embeddings
+        timeout-minutes: 10

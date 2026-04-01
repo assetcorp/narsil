@@ -8,6 +8,13 @@
         "cwd": "packages/embeddings-transformers"
       }
     },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm vitest run",
+        "cwd": "packages/embeddings-transformers"
+      }
+    },
     "lint": {
       "executor": "nx:run-commands",
       "options": {
@@ -21,6 +28,9 @@
         "command": "pnpm tsc --noEmit",
         "cwd": "packages/embeddings-transformers"
       }
+    },
+    "nx-release-publish": {
+      "executor": "@nx/js:release-publish"
     }
   }
 }
