@@ -29,6 +29,8 @@
   },
   "scripts": {
     "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "biome check src/",
     "typecheck": "tsc --noEmit"
   },
@@ -43,13 +45,14 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "@huggingface/transformers": ">=3.0.0"
+    "@huggingface/transformers": ">=3.0.0 <4.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.4",
     "@huggingface/transformers": "3.8.1",
     "@types/node": "25.5.0",
     "tsup": "8.5.1",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "4.1.2"
   }
 }

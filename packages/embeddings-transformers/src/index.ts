@@ -36,16 +36,13 @@ export function createTransformersEmbedding(config: TransformersEmbeddingConfig)
   const documentPrefix = config.documentPrefix ?? ''
   const queryPrefix = config.queryPrefix ?? ''
 
-  let pipelineInstance:
-    | ((inputs: string | string[], options: Record<string, unknown>) => Promise<TransformersTensor>)
-    | null = null
-  let pipelinePromise: Promise<
-    (inputs: string | string[], options: Record<string, unknown>) => Promise<TransformersTensor>
-  > | null = null
+  type PipelineFn = (inputs: string | string[], options: Record<string, unknown>) => Promise<TransformersTensor>
 
-  async function initPipeline(): Promise<
-    (inputs: string | string[], options: Record<string, unknown>) => Promise<TransformersTensor>
-  > {
+  let pipelineInstance: PipelineFn | null = null
+  let rawPipeline: { dispose(): Promise<void> } | null = null
+  let pipelinePromise: Promise<PipelineFn> | null = null
+
+  async function initPipeline(): Promise<PipelineFn> {
     if (pipelineInstance) return pipelineInstance
 
     if (pipelinePromise) return pipelinePromise
@@ -68,10 +65,8 @@ export function createTransformersEmbedding(config: TransformersEmbeddingConfig)
 
       const pipe = await transformers.pipeline('feature-extraction', model, pipelineOptions)
 
-      pipelineInstance = pipe as unknown as (
-        inputs: string | string[],
-        options: Record<string, unknown>,
-      ) => Promise<TransformersTensor>
+      rawPipeline = pipe as unknown as { dispose(): Promise<void> }
+      pipelineInstance = pipe as unknown as PipelineFn
 
       return pipelineInstance
     })()
@@ -92,12 +87,13 @@ export function createTransformersEmbedding(config: TransformersEmbeddingConfig)
 
   function extractSingleVector(tensor: TransformersTensor, expectedDimensions: number): Float32Array {
     if (tensor.dims.length === 2 && tensor.dims[0] === 1) {
-      if (tensor.data.length !== expectedDimensions) {
+      const outputDim = tensor.dims[1]
+      if (outputDim !== expectedDimensions) {
         throw new Error(
-          `Model output dimensions (${tensor.data.length}) do not match configured dimensions (${expectedDimensions})`,
+          `Model output dimensions (${outputDim}) do not match configured dimensions (${expectedDimensions})`,
         )
       }
-      return new Float32Array(tensor.data)
+      return new Float32Array(tensor.data.slice(0, outputDim))
     }
 
     if (tensor.dims.length === 1) {
@@ -173,13 +169,25 @@ export function createTransformersEmbedding(config: TransformersEmbeddingConfig)
 
     async shutdown(): Promise<void> {
       const pending = pipelinePromise
+      const pipeline = rawPipeline
+
       pipelineInstance = null
+      rawPipeline = null
       pipelinePromise = null
+
       if (pending) {
         try {
           await pending
         } catch {
-          /* initialization failure during shutdown is expected */
+          return
+        }
+      }
+
+      if (pipeline) {
+        try {
+          await pipeline.dispose()
+        } catch {
+          /* disposal failure during shutdown is tolerable */
         }
       }
     },
