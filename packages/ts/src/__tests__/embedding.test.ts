@@ -22,7 +22,7 @@ function createMockAdapter(
       return vec
     },
     async embedBatch(inputs, purpose) {
-      return inputs.map((input) => {
+      return inputs.map(input => {
         calls.push({ input, purpose })
         const vec = new Float32Array(dimensions)
         for (let i = 0; i < dimensions; i++) vec[i] = Math.random()
@@ -357,7 +357,7 @@ describe('Embedding System', () => {
           return new Float32Array(384)
         },
       }
-      const schema: SchemaDefinition = {
+      const _schema: SchemaDefinition = {
         title: 'string' as const,
         body: 'string' as const,
         vec1: 'vector[384]' as const,
@@ -448,7 +448,37 @@ describe('Embedding System', () => {
       }
     })
 
-    it('throws EMBEDDING_NO_SOURCE when a document in the batch is missing all source fields', async () => {
+    it('batch insert with one document missing all source fields succeeds for other documents', async () => {
+      const adapter = createMockAdapter(384)
+      const config: EmbeddingFieldConfig = {
+        adapter,
+        fields: { embedding: ['title', 'body'] },
+      }
+      const docs: Record<string, unknown>[] = [
+        { title: 'Valid First', body: 'Has both fields' },
+        { category: 'orphan' },
+        { title: 'Valid Third', body: 'Also has both fields' },
+      ]
+
+      const result = await embedBatchDocumentFields(docs, config, adapter)
+
+      expect(result.embedded.size).toBe(2)
+      expect(result.embedded.has(0)).toBe(true)
+      expect(result.embedded.has(2)).toBe(true)
+      expect(docs[0].embedding).toBeInstanceOf(Float32Array)
+      expect(docs[2].embedding).toBeInstanceOf(Float32Array)
+
+      expect(result.failed.size).toBe(1)
+      expect(result.failed.has(1)).toBe(true)
+      const failedError = result.failed.get(1)
+      expect(failedError).toBeInstanceOf(NarsilError)
+      expect(failedError?.code).toBe(ErrorCodes.EMBEDDING_NO_SOURCE)
+
+      expect(docs[1].embedding).toBeUndefined()
+      expect(adapter.calls.length).toBe(2)
+    })
+
+    it('isolates documents with missing source fields as individual failures without blocking the batch', async () => {
       const adapter = createMockAdapter(384)
       const config: EmbeddingFieldConfig = {
         adapter,
@@ -456,13 +486,16 @@ describe('Embedding System', () => {
       }
       const docs: Record<string, unknown>[] = [{ title: 'Has Title' }, { category: 'has-nothing-useful' }]
 
-      try {
-        await embedBatchDocumentFields(docs, config, adapter)
-        expect.fail('Expected error for missing source fields in batch')
-      } catch (err) {
-        expect(err).toBeInstanceOf(NarsilError)
-        expect((err as NarsilError).code).toBe(ErrorCodes.EMBEDDING_NO_SOURCE)
-      }
+      const result = await embedBatchDocumentFields(docs, config, adapter)
+
+      expect(result.failed.size).toBe(1)
+      expect(result.failed.has(1)).toBe(true)
+      const failedError = result.failed.get(1)
+      expect(failedError).toBeInstanceOf(NarsilError)
+      expect(failedError?.code).toBe(ErrorCodes.EMBEDDING_NO_SOURCE)
+
+      expect(result.embedded.has(0)).toBe(true)
+      expect(docs[0].embedding).toBeInstanceOf(Float32Array)
     })
 
     it('cleans up all embedded fields when batch embedding fails partway through', async () => {
@@ -597,7 +630,7 @@ describe('Embedding System', () => {
       expect(adapter.calls.length).toBe(3)
     })
 
-    it('reports documents with missing source fields as batch failures', async () => {
+    it('reports documents with missing source fields as batch failures while succeeding for valid documents', async () => {
       const adapter = createMockAdapter(384)
       narsil = await createNarsil()
       await narsil.createIndex('articles', {
@@ -614,7 +647,9 @@ describe('Embedding System', () => {
         { category: 'tech' },
       ])
 
-      expect(result.failed.length).toBeGreaterThan(0)
+      expect(result.succeeded.length).toBe(1)
+      expect(result.failed.length).toBe(1)
+      expect(result.failed[0].error.code).toBe(ErrorCodes.EMBEDDING_NO_SOURCE)
     })
   })
 
@@ -643,7 +678,7 @@ describe('Embedding System', () => {
         vector: { field: 'embedding', text: 'natural language processing' },
       })
 
-      const queryCalls = adapter.calls.filter((c) => c.purpose === 'query')
+      const queryCalls = adapter.calls.filter(c => c.purpose === 'query')
       expect(queryCalls.length).toBe(1)
       expect(queryCalls[0].input).toBe('natural language processing')
       expect(result.hits).toBeDefined()
@@ -668,7 +703,7 @@ describe('Embedding System', () => {
         vector: { field: 'embedding', value: queryVector },
       })
 
-      const queryCalls = adapter.calls.filter((c) => c.purpose === 'query')
+      const queryCalls = adapter.calls.filter(c => c.purpose === 'query')
       expect(queryCalls.length).toBe(0)
     })
 
@@ -737,7 +772,7 @@ describe('Embedding System', () => {
         vector: { field: 'embedding', text: 'transformer model architecture' },
       })
 
-      const queryCalls = adapter.calls.filter((c) => c.purpose === 'query')
+      const queryCalls = adapter.calls.filter(c => c.purpose === 'query')
       expect(queryCalls.length).toBe(1)
       expect(result.hits).toBeDefined()
     })
@@ -872,14 +907,16 @@ describe('Embedding System', () => {
       })
 
       it('sends correct HTTP request for embed()', async () => {
-        const mockFetch = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              data: [{ index: 0, embedding: Array.from({ length: 1536 }, () => 0.1) }],
-            }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } },
-          ),
-        )
+        const mockFetch = vi
+          .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+          .mockResolvedValue(
+            new Response(
+              JSON.stringify({
+                data: [{ index: 0, embedding: Array.from({ length: 1536 }, () => 0.1) }],
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
         globalThis.fetch = mockFetch
 
         const adapter = createOpenAIEmbedding({
@@ -911,17 +948,19 @@ describe('Embedding System', () => {
       })
 
       it('sends batch input and returns results sorted by index', async () => {
-        const mockFetch = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              data: [
-                { index: 1, embedding: Array.from({ length: 1536 }, () => 0.2) },
-                { index: 0, embedding: Array.from({ length: 1536 }, () => 0.1) },
-              ],
-            }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } },
-          ),
-        )
+        const mockFetch = vi
+          .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+          .mockResolvedValue(
+            new Response(
+              JSON.stringify({
+                data: [
+                  { index: 1, embedding: Array.from({ length: 1536 }, () => 0.2) },
+                  { index: 0, embedding: Array.from({ length: 1536 }, () => 0.1) },
+                ],
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
         globalThis.fetch = mockFetch
 
         const adapter = createOpenAIEmbedding({
@@ -932,7 +971,7 @@ describe('Embedding System', () => {
           maxRetries: 0,
         })
 
-        const results = await adapter.embedBatch!(['first', 'second'], 'document')
+        const results = await adapter.embedBatch?.(['first', 'second'], 'document')
 
         expect(results.length).toBe(2)
         expect(results[0][0]).toBeCloseTo(0.1, 5)
@@ -944,8 +983,9 @@ describe('Embedding System', () => {
 
       it('retries on 429 and succeeds on the next attempt', async () => {
         let callCount = 0
-        const mockFetch = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockImplementation(
-          async () => {
+        const mockFetch = vi
+          .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+          .mockImplementation(async () => {
             callCount++
             if (callCount === 1) {
               return new Response(
@@ -959,8 +999,7 @@ describe('Embedding System', () => {
               }),
               { status: 200 },
             )
-          },
-        )
+          })
         globalThis.fetch = mockFetch
 
         const adapter = createOpenAIEmbedding({
@@ -980,12 +1019,13 @@ describe('Embedding System', () => {
       })
 
       it('does not retry on 400 and fails immediately', async () => {
-        const mockFetch = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockResolvedValue(
-          new Response(
-            JSON.stringify({ error: { type: 'invalid_request_error', message: 'Bad request' } }),
-            { status: 400 },
-          ),
-        )
+        const mockFetch = vi
+          .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+          .mockResolvedValue(
+            new Response(JSON.stringify({ error: { type: 'invalid_request_error', message: 'Bad request' } }), {
+              status: 400,
+            }),
+          )
         globalThis.fetch = mockFetch
 
         const adapter = createOpenAIEmbedding({
@@ -1020,9 +1060,9 @@ describe('Embedding System', () => {
         const responseBody = JSON.stringify({
           data: [{ index: 0, embedding: Array.from({ length: 1536 }, () => 0.1) }],
         })
-        const mockFetch = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockImplementation(
-          async () => new Response(responseBody, { status: 200 }),
-        )
+        const mockFetch = vi
+          .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+          .mockImplementation(async () => new Response(responseBody, { status: 200 }))
         globalThis.fetch = mockFetch
 
         const adapter = createOpenAIEmbedding({
@@ -1044,12 +1084,13 @@ describe('Embedding System', () => {
       })
 
       it('wraps API errors without exposing the API key in the error message', async () => {
-        const mockFetch = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockResolvedValue(
-          new Response(
-            JSON.stringify({ error: { type: 'server_error', message: 'Internal failure' } }),
-            { status: 500 },
-          ),
-        )
+        const mockFetch = vi
+          .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+          .mockResolvedValue(
+            new Response(JSON.stringify({ error: { type: 'server_error', message: 'Internal failure' } }), {
+              status: 500,
+            }),
+          )
         globalThis.fetch = mockFetch
 
         const secretKey = 'sk-super-secret-key-do-not-leak'
@@ -1073,14 +1114,16 @@ describe('Embedding System', () => {
       })
 
       it('strips trailing slashes from baseUrl before appending /embeddings', async () => {
-        const mockFetch = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              data: [{ index: 0, embedding: Array.from({ length: 1536 }, () => 0.1) }],
-            }),
-            { status: 200 },
-          ),
-        )
+        const mockFetch = vi
+          .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+          .mockResolvedValue(
+            new Response(
+              JSON.stringify({
+                data: [{ index: 0, embedding: Array.from({ length: 1536 }, () => 0.1) }],
+              }),
+              { status: 200 },
+            ),
+          )
         globalThis.fetch = mockFetch
 
         const adapter = createOpenAIEmbedding({
@@ -1108,10 +1151,84 @@ describe('Embedding System', () => {
           dimensions: 1536,
         })
 
-        const results = await adapter.embedBatch!([], 'document')
+        const results = await adapter.embedBatch?.([], 'document')
 
         expect(results).toEqual([])
         expect(mockFetch).not.toHaveBeenCalled()
+      })
+
+      it('chunks large batches into multiple requests of at most 2048 inputs', async () => {
+        const dims = 4
+        let callCount = 0
+        const mockFetch = vi
+          .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+          .mockImplementation(async (_url, init) => {
+            callCount++
+            const body = JSON.parse(init?.body as string) as { input: string[] }
+            const data = body.input.map((_, idx) => ({
+              index: idx,
+              embedding: Array.from({ length: dims }, () => callCount + idx * 0.001),
+            }))
+            return new Response(JSON.stringify({ data }), { status: 200 })
+          })
+        globalThis.fetch = mockFetch
+
+        const adapter = createOpenAIEmbedding({
+          baseUrl: 'https://api.openai.com/v1',
+          apiKey: 'test-key',
+          model: 'text-embedding-3-small',
+          dimensions: dims,
+          maxRetries: 0,
+        })
+
+        const totalInputs = 2048 + 500
+        const inputs = Array.from({ length: totalInputs }, (_, i) => `text-${i}`)
+        expect(adapter.embedBatch).toBeDefined()
+        const results = (await adapter.embedBatch?.(inputs, 'document')) ?? []
+
+        expect(mockFetch).toHaveBeenCalledTimes(2)
+
+        const firstBody = JSON.parse(mockFetch.mock.calls[0][1]?.body as string) as { input: string[] }
+        expect(firstBody.input.length).toBe(2048)
+
+        const secondBody = JSON.parse(mockFetch.mock.calls[1][1]?.body as string) as { input: string[] }
+        expect(secondBody.input.length).toBe(500)
+
+        expect(results.length).toBe(totalInputs)
+        for (const vec of results) {
+          expect(vec).toBeInstanceOf(Float32Array)
+          expect(vec.length).toBe(dims)
+        }
+      })
+
+      it('sends a single request when batch size is exactly 2048', async () => {
+        const dims = 4
+        const mockFetch = vi
+          .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+          .mockImplementation(async (_url, init) => {
+            const body = JSON.parse(init?.body as string) as { input: string[] }
+            const data = body.input.map((_, idx) => ({
+              index: idx,
+              embedding: Array.from({ length: dims }, () => 0.1),
+            }))
+            return new Response(JSON.stringify({ data }), { status: 200 })
+          })
+        globalThis.fetch = mockFetch
+
+        const adapter = createOpenAIEmbedding({
+          baseUrl: 'https://api.openai.com/v1',
+          apiKey: 'test-key',
+          model: 'text-embedding-3-small',
+          dimensions: dims,
+          maxRetries: 0,
+        })
+
+        const inputs = Array.from({ length: 2048 }, (_, i) => `text-${i}`)
+        expect(adapter.embedBatch).toBeDefined()
+        const results = (await adapter.embedBatch?.(inputs, 'document')) ?? []
+
+        expect(mockFetch).toHaveBeenCalledTimes(1)
+        expect(results.length).toBe(2048)
       })
     })
   })

@@ -1,6 +1,11 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import { type ErrorCode, ErrorCodes, NarsilError } from '../errors'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { EmbeddingFieldConfig } from '../types/schema'
+
+export interface BatchEmbedResult {
+  embedded: Map<number, Set<string>>
+  failed: Map<number, NarsilError>
+}
 
 function validateVector(vector: unknown, targetField: string, expectedDimensions: number): Float32Array {
   if (!(vector instanceof Float32Array)) {
@@ -17,7 +22,60 @@ function validateVector(vector: unknown, targetField: string, expectedDimensions
       { field: targetField, expected: expectedDimensions, actual: vector.length },
     )
   }
+  for (let i = 0; i < vector.length; i++) {
+    if (Number.isNaN(vector[i])) {
+      throw new NarsilError(
+        ErrorCodes.EMBEDDING_FAILED,
+        `Adapter returned vector with NaN at index ${i} for field "${targetField}"`,
+        { field: targetField, index: i },
+      )
+    }
+  }
   return vector
+}
+
+function resolveFieldValue(document: Record<string, unknown>, path: string): unknown {
+  if (!path.includes('.')) return document[path]
+  const segments = path.split('.')
+  let current: unknown = document
+  for (const segment of segments) {
+    if (current === null || current === undefined || typeof current !== 'object') return undefined
+    current = (current as Record<string, unknown>)[segment]
+  }
+  return current
+}
+
+function setFieldValue(document: Record<string, unknown>, path: string, value: unknown): void {
+  if (!path.includes('.')) {
+    document[path] = value
+    return
+  }
+  const segments = path.split('.')
+  let current: Record<string, unknown> = document
+  for (let i = 0; i < segments.length - 1; i++) {
+    let next = current[segments[i]]
+    if (next === null || next === undefined || typeof next !== 'object') {
+      next = {}
+      current[segments[i]] = next
+    }
+    current = next as Record<string, unknown>
+  }
+  current[segments[segments.length - 1]] = value
+}
+
+function deleteFieldValue(document: Record<string, unknown>, path: string): void {
+  if (!path.includes('.')) {
+    delete document[path]
+    return
+  }
+  const segments = path.split('.')
+  let current: Record<string, unknown> = document
+  for (let i = 0; i < segments.length - 1; i++) {
+    const next = current[segments[i]]
+    if (next === null || next === undefined || typeof next !== 'object') return
+    current = next as Record<string, unknown>
+  }
+  delete current[segments[segments.length - 1]]
 }
 
 function collectSourceText(
@@ -30,7 +88,7 @@ function collectSourceText(
   const parts: string[] = []
 
   for (const source of sources) {
-    const value = document[source]
+    const value = resolveFieldValue(document, source)
     if (value === undefined || value === null || value === '') continue
     if (typeof value !== 'string') {
       throw new NarsilError(
@@ -76,7 +134,7 @@ export async function embedDocumentFields(
 
   try {
     for (const [targetField, sourceFields] of Object.entries(embeddingConfig.fields)) {
-      const existing = document[targetField]
+      const existing = resolveFieldValue(document, targetField)
       if (existing !== undefined && existing !== null) continue
 
       const text = collectSourceText(document, sourceFields, targetField)
@@ -89,12 +147,12 @@ export async function embedDocumentFields(
         throw wrapAdapterError(err, targetField)
       }
 
-      document[targetField] = vector
+      setFieldValue(document, targetField, vector)
       embeddedFields.add(targetField)
     }
   } catch (err) {
     for (const field of embeddedFields) {
-      delete document[field]
+      deleteFieldValue(document, field)
     }
     throw err
   }
@@ -102,25 +160,42 @@ export async function embedDocumentFields(
   return embeddedFields
 }
 
+const SOURCE_FAILURE_CODES = new Set<ErrorCode>([ErrorCodes.EMBEDDING_NO_SOURCE, ErrorCodes.DOC_VALIDATION_FAILED])
+
+function isDocumentSourceError(err: unknown): err is NarsilError {
+  return err instanceof NarsilError && SOURCE_FAILURE_CODES.has(err.code)
+}
+
 export async function embedBatchDocumentFields(
   documents: Record<string, unknown>[],
   embeddingConfig: EmbeddingFieldConfig,
   adapter: EmbeddingAdapter,
   signal?: AbortSignal,
-): Promise<Map<number, Set<string>>> {
-  const result = new Map<number, Set<string>>()
+): Promise<BatchEmbedResult> {
+  const embedded = new Map<number, Set<string>>()
+  const failed = new Map<number, NarsilError>()
 
   try {
     for (const [targetField, sourceFields] of Object.entries(embeddingConfig.fields)) {
       const needsEmbedding: Array<{ docIndex: number; text: string }> = []
 
       for (let i = 0; i < documents.length; i++) {
+        if (failed.has(i)) continue
+
         const doc = documents[i]
-        const existing = doc[targetField]
+        const existing = resolveFieldValue(doc, targetField)
         if (existing !== undefined && existing !== null) continue
 
-        const text = collectSourceText(doc, sourceFields, targetField, i)
-        needsEmbedding.push({ docIndex: i, text })
+        try {
+          const text = collectSourceText(doc, sourceFields, targetField, i)
+          needsEmbedding.push({ docIndex: i, text })
+        } catch (err) {
+          if (isDocumentSourceError(err)) {
+            failed.set(i, err)
+          } else {
+            throw err
+          }
+        }
       }
 
       if (needsEmbedding.length === 0) continue
@@ -155,24 +230,24 @@ export async function embedBatchDocumentFields(
       for (let j = 0; j < needsEmbedding.length; j++) {
         const { docIndex } = needsEmbedding[j]
         const validated = validateVector(vectors[j], targetField, adapter.dimensions)
-        documents[docIndex][targetField] = validated
+        setFieldValue(documents[docIndex], targetField, validated)
 
-        let fieldSet = result.get(docIndex)
+        let fieldSet = embedded.get(docIndex)
         if (!fieldSet) {
           fieldSet = new Set<string>()
-          result.set(docIndex, fieldSet)
+          embedded.set(docIndex, fieldSet)
         }
         fieldSet.add(targetField)
       }
     }
   } catch (err) {
-    for (const [docIndex, fields] of result) {
+    for (const [docIndex, fields] of embedded) {
       for (const field of fields) {
-        delete documents[docIndex][field]
+        deleteFieldValue(documents[docIndex], field)
       }
     }
     throw err
   }
 
-  return result
+  return { embedded, failed }
 }

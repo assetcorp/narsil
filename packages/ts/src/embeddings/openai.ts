@@ -27,6 +27,7 @@ const MAX_BACKOFF_MS = 30_000
 const BASE_BACKOFF_MS = 1_000
 const MAX_JITTER_MS = 1_000
 const DEFAULT_TIMEOUT_MS = 30_000
+const MAX_INPUTS_PER_REQUEST = 2048
 
 function isRetryableStatus(status: number): boolean {
   return RETRYABLE_STATUS_CODES.has(status)
@@ -34,7 +35,7 @@ function isRetryableStatus(status: number): boolean {
 
 function computeBackoffMs(attempt: number, retryAfterSeconds: number | null): number {
   if (retryAfterSeconds !== null && retryAfterSeconds > 0) {
-    return retryAfterSeconds * 1_000
+    return Math.min(retryAfterSeconds * 1_000, MAX_BACKOFF_MS)
   }
   const exponential = Math.min(BASE_BACKOFF_MS * 2 ** attempt, MAX_BACKOFF_MS)
   const jitter = Math.random() * MAX_JITTER_MS
@@ -50,10 +51,14 @@ function parseRetryAfterHeader(headers: Headers): number | null {
 }
 
 async function resolveApiKey(apiKey: string | (() => string | Promise<string>)): Promise<string> {
-  if (typeof apiKey === 'function') {
-    return await apiKey()
+  const resolved = typeof apiKey === 'function' ? await apiKey() : apiKey
+  if (typeof resolved !== 'string' || resolved.trim().length === 0) {
+    throw new NarsilError(
+      ErrorCodes.EMBEDDING_CONFIG_INVALID,
+      'OpenAI embedding adapter apiKey resolved to an empty or non-string value',
+    )
   }
-  return apiKey
+  return resolved
 }
 
 function buildSignal(callerSignal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
@@ -69,16 +74,17 @@ async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       return
     }
 
-    const timer = setTimeout(resolve, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal?.reason as Error)
+    }
 
-    signal?.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer)
-        reject(signal.reason as Error)
-      },
-      { once: true },
-    )
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+
+    signal?.addEventListener('abort', onAbort, { once: true })
   })
 }
 
@@ -217,6 +223,15 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
       'OpenAI embedding adapter maxRetries must be a non-negative integer',
     )
   }
+  if (typeof config.apiKey === 'string' && config.apiKey.trim().length === 0) {
+    throw new NarsilError(ErrorCodes.EMBEDDING_CONFIG_INVALID, 'OpenAI embedding adapter requires a non-empty apiKey')
+  }
+  if (typeof config.apiKey !== 'string' && typeof config.apiKey !== 'function') {
+    throw new NarsilError(
+      ErrorCodes.EMBEDDING_CONFIG_INVALID,
+      'OpenAI embedding adapter apiKey must be a string or a function returning a string',
+    )
+  }
 
   const url = `${config.baseUrl.replace(/\/+$/, '')}/embeddings`
   const model = config.model
@@ -250,21 +265,38 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
       if (inputs.length === 0) return []
 
       const apiKey = await resolveApiKey(config.apiKey)
-      const body = JSON.stringify({ input: inputs, model, dimensions: dimensionCount })
       const combinedSignal = buildSignal(signal, timeoutMs)
-      const result = await executeWithRetry(url, body, apiKey, maxRetries, combinedSignal)
 
-      const items = parseEmbeddingItems(result.data)
-      if (items.length !== inputs.length) {
-        throw new NarsilError(
-          ErrorCodes.EMBEDDING_FAILED,
-          `OpenAI returned ${items.length} embeddings for ${inputs.length} inputs`,
-          { expected: inputs.length, actual: items.length },
-        )
+      const executeChunk = async (chunk: string[]): Promise<Float32Array[]> => {
+        const body = JSON.stringify({ input: chunk, model, dimensions: dimensionCount })
+        const result = await executeWithRetry(url, body, apiKey, maxRetries, combinedSignal)
+
+        const items = parseEmbeddingItems(result.data)
+        if (items.length !== chunk.length) {
+          throw new NarsilError(
+            ErrorCodes.EMBEDDING_FAILED,
+            `OpenAI returned ${items.length} embeddings for ${chunk.length} inputs`,
+            { expected: chunk.length, actual: items.length },
+          )
+        }
+
+        const sorted = items.slice().sort((a, b) => a.index - b.index)
+        return sorted.map(item => new Float32Array(item.embedding))
       }
 
-      const sorted = items.slice().sort((a, b) => a.index - b.index)
-      return sorted.map(item => new Float32Array(item.embedding))
+      if (inputs.length <= MAX_INPUTS_PER_REQUEST) {
+        return executeChunk(inputs)
+      }
+
+      const results: Float32Array[] = []
+      for (let start = 0; start < inputs.length; start += MAX_INPUTS_PER_REQUEST) {
+        const chunk = inputs.slice(start, start + MAX_INPUTS_PER_REQUEST)
+        const chunkResults = await executeChunk(chunk)
+        for (const vec of chunkResults) {
+          results.push(vec)
+        }
+      }
+      return results
     },
 
     async shutdown(): Promise<void> {},
