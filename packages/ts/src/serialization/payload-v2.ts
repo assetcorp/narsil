@@ -35,13 +35,20 @@ export interface RawPartitionPayloadV2 {
       dimension: number
       vectors: Array<{ doc_id: string; vector: number[] }>
       hnsw_graph: null | {
-        entry_point: string
+        entry_point: string | null
         max_layer: number
         m: number
         ef_construction: number
         metric?: string
         nodes: Array<[string, number, Array<[number, string[]]>]>
       }
+      sq8?: {
+        alpha: number
+        offset: number
+        quantized_vectors: Record<string, number[]>
+        vector_sums: Record<string, number>
+        vector_sum_sqs: Record<string, number>
+      } | null
     }
   >
   statistics: {
@@ -124,6 +131,15 @@ export function deserializePayloadV2(data: Uint8Array): SerializablePartition {
             efConstruction: data.hnsw_graph.ef_construction,
             metric: validateHnswMetric(data.hnsw_graph.metric),
             nodes: data.hnsw_graph.nodes,
+          }
+        : null,
+      sq8: data.sq8
+        ? {
+            alpha: data.sq8.alpha,
+            offset: data.sq8.offset,
+            quantizedVectors: data.sq8.quantized_vectors,
+            vectorSums: data.sq8.vector_sums,
+            vectorSumSqs: data.sq8.vector_sum_sqs,
           }
         : null,
     }

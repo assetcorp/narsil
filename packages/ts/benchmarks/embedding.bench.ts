@@ -1,12 +1,14 @@
-import { afterAll, beforeAll, bench, describe } from 'vitest'
+import { afterAll, bench, describe } from 'vitest'
 import { createNarsil, type Narsil } from '../src/narsil'
 import type { EmbeddingAdapter } from '../src/types/adapters'
 import type { AnyDocument, IndexConfig, SchemaDefinition } from '../src/types/schema'
 import { createRng, generateSentence } from './utils'
 
 const SEED = 99
-const DOC_COUNT = 1_000
-const DIM = 128
+const INSERT_DOC_COUNT = 1_000
+const SEARCH_DOC_COUNT = 10_000
+const SEARCH_DOC_COUNT_LARGE = 50_000
+const DIM = 1536
 
 function asyncDelay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -40,14 +42,14 @@ function createLatencyAdapter(dimensions: number, latencyMs: number): EmbeddingA
   }
 }
 
-const embeddingSchema: SchemaDefinition = {
+const schema: SchemaDefinition = {
   title: 'string',
   body: 'string',
   embedding: `vector[${DIM}]`,
 }
 
 const embeddingConfig: IndexConfig = {
-  schema: embeddingSchema,
+  schema,
   language: 'english',
   embedding: {
     adapter: createLatencyAdapter(DIM, 0.1),
@@ -56,7 +58,7 @@ const embeddingConfig: IndexConfig = {
 }
 
 const noEmbeddingConfig: IndexConfig = {
-  schema: embeddingSchema,
+  schema,
   language: 'english',
 }
 
@@ -72,8 +74,8 @@ function generateDocsWithText(count: number): AnyDocument[] {
   return docs
 }
 
-function generateDocsWithPrecomputedVectors(count: number): AnyDocument[] {
-  const rng = createRng(SEED)
+function generateDocsWithVectors(count: number, seed: number): AnyDocument[] {
+  const rng = createRng(seed)
   const docs: AnyDocument[] = []
   for (let i = 0; i < count; i++) {
     const vec = new Array(DIM)
@@ -89,8 +91,8 @@ function generateDocsWithPrecomputedVectors(count: number): AnyDocument[] {
   return docs
 }
 
-const docsForEmbedding = generateDocsWithText(DOC_COUNT)
-const docsWithVectors = generateDocsWithPrecomputedVectors(DOC_COUNT)
+const docsForEmbedding = generateDocsWithText(INSERT_DOC_COUNT)
+const docsWithVectorsInsert = generateDocsWithVectors(INSERT_DOC_COUNT, SEED)
 
 const queryRng = createRng(SEED + 2000)
 
@@ -102,13 +104,38 @@ function randomQueryVector(): number[] {
   return vec
 }
 
-describe('Embedding Overhead: Insert Throughput', () => {
+let search10k: Narsil | null = null
+
+async function getSearch10k(): Promise<Narsil> {
+  if (search10k) return search10k
+  search10k = await createNarsil()
+  await search10k.createIndex('bench', noEmbeddingConfig)
+  const docs = generateDocsWithVectors(SEARCH_DOC_COUNT, SEED + 100)
+  await search10k.insertBatch('bench', docs)
+  return search10k
+}
+
+let search50k: Narsil | null = null
+
+async function getSearch50k(): Promise<Narsil> {
+  if (search50k) return search50k
+  search50k = await createNarsil()
+  await search50k.createIndex('bench', {
+    ...noEmbeddingConfig,
+    partitions: {
+      maxDocsPerPartition: 10_000,
+      maxPartitions: 8,
+    },
+  })
+  const docs = generateDocsWithVectors(SEARCH_DOC_COUNT_LARGE, SEED + 200)
+  await search50k.insertBatch('bench', docs)
+  return search50k
+}
+
+describe('Embedding Overhead: Insert Throughput (1K docs, 1536 dims)', () => {
   bench(
     'insertBatch 1K with auto-vectorization (mock adapter)',
     async () => {
-      /* Intentionally includes full Narsil lifecycle (create + shutdown) per iteration
-         because vitest bench does not support per-iteration setup outside the timed region.
-         The higher iteration count stabilizes the measurement despite lifecycle overhead. */
       const narsil = await createNarsil()
       await narsil.createIndex('bench', embeddingConfig)
       await narsil.insertBatch('bench', docsForEmbedding)
@@ -122,28 +149,24 @@ describe('Embedding Overhead: Insert Throughput', () => {
     async () => {
       const narsil = await createNarsil()
       await narsil.createIndex('bench', noEmbeddingConfig)
-      await narsil.insertBatch('bench', docsWithVectors)
+      await narsil.insertBatch('bench', docsWithVectorsInsert)
       await narsil.shutdown()
     },
     { iterations: 5, warmupIterations: 1 },
   )
 })
 
-describe('Vector Search Latency (pre-stored vectors)', () => {
-  let narsil: Narsil
-
-  beforeAll(async () => {
-    narsil = await createNarsil()
-    await narsil.createIndex('search-bench', noEmbeddingConfig)
-    await narsil.insertBatch('search-bench', docsWithVectors)
-  })
-
+describe('Vector Search Latency: 10K docs, 1536 dims (brute-force)', () => {
   afterAll(async () => {
-    await narsil.shutdown()
+    if (search10k) {
+      await search10k.shutdown()
+      search10k = null
+    }
   })
 
   bench('vector search (cosine, top 10)', async () => {
-    await narsil.query('search-bench', {
+    const narsil = await getSearch10k()
+    await narsil.query('bench', {
       vector: { field: 'embedding', value: randomQueryVector(), metric: 'cosine' },
       mode: 'vector',
       limit: 10,
@@ -151,7 +174,37 @@ describe('Vector Search Latency (pre-stored vectors)', () => {
   })
 
   bench('hybrid search alpha=0.5 (BM25 + vector)', async () => {
-    await narsil.query('search-bench', {
+    const narsil = await getSearch10k()
+    await narsil.query('bench', {
+      term: 'server network protocol',
+      vector: { field: 'embedding', value: randomQueryVector(), metric: 'cosine' },
+      mode: 'hybrid',
+      hybrid: { alpha: 0.5 },
+      limit: 10,
+    })
+  })
+})
+
+describe('Vector Search Latency: 50K docs, 1536 dims (multi-partition)', () => {
+  afterAll(async () => {
+    if (search50k) {
+      await search50k.shutdown()
+      search50k = null
+    }
+  })
+
+  bench('vector search (cosine, top 10)', async () => {
+    const narsil = await getSearch50k()
+    await narsil.query('bench', {
+      vector: { field: 'embedding', value: randomQueryVector(), metric: 'cosine' },
+      mode: 'vector',
+      limit: 10,
+    })
+  })
+
+  bench('hybrid search alpha=0.5 (BM25 + vector)', async () => {
+    const narsil = await getSearch50k()
+    await narsil.query('bench', {
       term: 'server network protocol',
       vector: { field: 'embedding', value: randomQueryVector(), metric: 'cosine' },
       mode: 'hybrid',

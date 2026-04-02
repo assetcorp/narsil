@@ -32,7 +32,8 @@ function ensureFieldIndex(state: PartitionState, fieldPath: string, fieldType: F
   } else {
     const dim = parseVectorDimension(fieldType)
     if (dim !== null && !state.vectorStores.has(fieldPath)) {
-      state.vectorStores.set(fieldPath, createVectorSearchEngine(dim))
+      const vecConfig = state.vectorIndexConfig
+      state.vectorStores.set(fieldPath, createVectorSearchEngine(dim, vecConfig?.hnswConfig, vecConfig ?? undefined))
     }
   }
 }

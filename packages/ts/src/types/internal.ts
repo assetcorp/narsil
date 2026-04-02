@@ -80,13 +80,20 @@ export interface SerializablePartition {
       dimension: number
       vectors: Array<{ docId: string; vector: number[] }>
       hnswGraph: null | {
-        entryPoint: string
+        entryPoint: string | null
         maxLayer: number
         m: number
         efConstruction: number
         metric?: 'cosine' | 'dotProduct' | 'euclidean'
         nodes: Array<[string, number, Array<[number, string[]]>]>
       }
+      sq8?: {
+        alpha: number
+        offset: number
+        quantizedVectors: Record<string, number[]>
+        vectorSums: Record<string, number>
+        vectorSumSqs: Record<string, number>
+      } | null
     }
   >
   statistics: {

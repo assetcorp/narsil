@@ -1,5 +1,6 @@
-import { createBruteForceVectorStore } from '../src/vector/brute-force'
+import { createBruteForceSearch } from '../src/vector/brute-force'
 import { createHNSWIndex } from '../src/vector/hnsw'
+import { createVectorStore } from '../src/vector/vector-store'
 
 function mulberry32(seed: number): () => number {
   let s = seed | 0
@@ -36,8 +37,9 @@ const QUERY_COUNT = 100
 const vectors = generateVectors(SCALE, DIM, 42)
 const queries = generateVectors(QUERY_COUNT, DIM, 999)
 
-const bf = createBruteForceVectorStore(DIM)
-for (let i = 0; i < SCALE; i++) bf.insert(`d${i}`, vectors[i])
+const bfStore = createVectorStore()
+for (let i = 0; i < SCALE; i++) bfStore.insert(`d${i}`, vectors[i])
+const bf = createBruteForceSearch(DIM, bfStore)
 
 const groundTruth = queries.map(q => bf.search(q, K, 'cosine', 0).map(r => r.docId))
 
@@ -50,10 +52,12 @@ for (const q of queries) {
 console.log(`BF search median: ${median(bfTimes).toFixed(3)}ms\n`)
 
 for (const efCon of [16, 32, 64, 100, 200]) {
-  const hnsw = createHNSWIndex(DIM, { m: 16, efConstruction: efCon, metric: 'cosine' })
+  const hnswStore = createVectorStore()
+  for (let i = 0; i < SCALE; i++) hnswStore.insert(`d${i}`, vectors[i])
+  const hnsw = createHNSWIndex(DIM, hnswStore, { m: 16, efConstruction: efCon, metric: 'cosine' })
 
   const t0 = performance.now()
-  for (let i = 0; i < SCALE; i++) hnsw.insert(`d${i}`, vectors[i])
+  for (let i = 0; i < SCALE; i++) hnsw.insertNode(`d${i}`)
   const buildMs = performance.now() - t0
 
   for (const efSearch of [20, 50, 100]) {

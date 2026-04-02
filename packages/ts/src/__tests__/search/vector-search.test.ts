@@ -95,7 +95,7 @@ describe('VectorSearchEngine', () => {
       expect(results[0].docId).toBe('near')
     })
 
-    it('inserts go to both stores after promotion', () => {
+    it('inserts go to HNSW after promotion', () => {
       engine.insert('existing', randomVector(DIM))
       engine.promoteToHNSW({ m: 4, efConstruction: 32 })
 
@@ -108,7 +108,7 @@ describe('VectorSearchEngine', () => {
       expect(hnswIndex?.has('new_doc')).toBe(true)
     })
 
-    it('removals propagate to both stores after promotion', () => {
+    it('removals propagate to HNSW after promotion', () => {
       engine.insert('doc1', randomVector(DIM))
       engine.insert('doc2', randomVector(DIM))
       engine.promoteToHNSW({ m: 4, efConstruction: 32 })
@@ -231,9 +231,9 @@ describe('VectorSearchEngine', () => {
   })
 
   describe('accessor methods', () => {
-    it('getBruteForceStore returns the underlying store', () => {
+    it('getVectorStore returns the underlying store', () => {
       engine.insert('doc1', randomVector(DIM))
-      const store = engine.getBruteForceStore()
+      const store = engine.getVectorStore()
       expect(store.has('doc1')).toBe(true)
       expect(store.size).toBe(1)
     })

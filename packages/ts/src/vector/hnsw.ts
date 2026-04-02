@@ -1,14 +1,16 @@
-import { createMinHeap } from '../core/heap'
+import { type BinaryHeap, createMinHeap } from '../core/heap'
 import type { ScoredDocument, VectorEntry } from '../types/internal'
 import type { VectorMetric } from './brute-force'
+import type { QuantizedQuery, ScalarQuantizer } from './scalar-quantization'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from './similarity'
+import type { VectorStore, VectorStoreEntry } from './vector-store'
 
 const MAX_LAYER_CAP = 32
+const COMPACTION_TOMBSTONE_RATIO = 0.1
+const COMPACTION_ABSOLUTE_THRESHOLD = 1000
 
 interface HNSWNode {
   docId: string
-  vector: Float32Array
-  mag: number
   maxLayer: number
   connections: Set<string>[]
 }
@@ -25,7 +27,7 @@ export interface HNSWConfig {
 }
 
 export interface SerializedHNSWGraph {
-  entryPoint: string
+  entryPoint: string | null
   maxLayer: number
   m: number
   efConstruction: number
@@ -42,9 +44,10 @@ export interface HNSWIndex {
   readonly efConstruction: number
   readonly metric: VectorMetric
 
-  insert(docId: string, vector: Float32Array): void
-  remove(docId: string): void
+  insertNode(docId: string): void
+  markTombstone(docId: string): void
   has(docId: string): boolean
+  isTombstoned(docId: string): boolean
   search(
     query: Float32Array,
     k: number,
@@ -55,9 +58,11 @@ export interface HNSWIndex {
   ): ScoredDocument[]
   clear(): void
   entries(): IterableIterator<[string, VectorEntry]>
+  compactionNeeded(): boolean
+  compact(): void
 
   serialize(): SerializedHNSWGraph
-  deserialize(data: SerializedHNSWGraph, vectors: Map<string, { vector: Float32Array; mag: number }>): void
+  deserialize(data: SerializedHNSWGraph): void
 }
 
 function toDistance(a: Float32Array, b: Float32Array, magA: number, magB: number, metric: VectorMetric): number {
@@ -85,7 +90,14 @@ function toScore(distance: number, metric: VectorMetric): number {
 const distanceAsc = (a: DistancePair, b: DistancePair): number => a.distance - b.distance
 const distanceDesc = (a: DistancePair, b: DistancePair): number => b.distance - a.distance
 
-export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWIndex {
+const SQ8_OVERSELECTION_FACTOR = 2
+
+export function createHNSWIndex(
+  dimension: number,
+  store: VectorStore,
+  config?: HNSWConfig,
+  quantizer?: ScalarQuantizer,
+): HNSWIndex {
   const M = config?.m ?? 16
   const Mmax0 = M * 2
   const efCons = config?.efConstruction ?? 200
@@ -93,6 +105,7 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
   const mL = 1 / Math.log(M)
 
   const nodes = new Map<string, HNSWNode>()
+  const tombstones = new Set<string>()
   let entryPointId: string | null = null
   let topLayer = -1
 
@@ -102,24 +115,27 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
     return Math.min(Math.floor(-Math.log(u) * mL), MAX_LAYER_CAP)
   }
 
-  function nodeDistance(a: HNSWNode, b: HNSWNode, metric: VectorMetric): number {
-    return toDistance(a.vector, b.vector, a.mag, b.mag, metric)
+  function getEntry(docId: string): VectorStoreEntry | undefined {
+    return store.get(docId)
   }
 
-  function queryDistance(qVec: Float32Array, qMag: number, node: HNSWNode, metric: VectorMetric): number {
-    return toDistance(qVec, node.vector, qMag, node.mag, metric)
+  function nodeDistance(aId: string, bId: string, metric: VectorMetric): number {
+    const a = getEntry(aId)
+    const b = getEntry(bId)
+    if (!a || !b) return Number.POSITIVE_INFINITY
+    return toDistance(a.vector, b.vector, a.magnitude, b.magnitude, metric)
+  }
+
+  function queryDistance(qVec: Float32Array, qMag: number, nodeId: string, metric: VectorMetric): number {
+    const entry = getEntry(nodeId)
+    if (!entry) return Number.POSITIVE_INFINITY
+    return toDistance(qVec, entry.vector, qMag, entry.magnitude, metric)
   }
 
   function maxConns(layer: number): number {
     return layer === 0 ? Mmax0 : M
   }
 
-  /**
-   * Algorithm 2 from Malkov & Yashunin (2018).
-   *
-   * Greedy search on a single layer returning up to `ef` nearest neighbors
-   * of `qVec`, starting from `eps`. Results are sorted by distance ascending.
-   */
   function searchLayer(
     qVec: Float32Array,
     qMag: number,
@@ -127,7 +143,10 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
     ef: number,
     layer: number,
     metric: VectorMetric,
-  ): DistancePair[] {
+    skipTombstones: boolean,
+    distFn?: (nodeId: string) => number,
+  ): BinaryHeap<DistancePair> {
+    const getDistance = distFn ?? ((nodeId: string) => queryDistance(qVec, qMag, nodeId, metric))
     const visited = new Set<string>()
     const candidates = createMinHeap<DistancePair>(distanceAsc)
     const results = createMinHeap<DistancePair>(distanceDesc)
@@ -138,7 +157,9 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
       visited.add(epId)
       const node = nodes.get(epId)
       if (!node) continue
-      const dist = queryDistance(qVec, qMag, node, metric)
+      if (skipTombstones && tombstones.has(epId)) continue
+      const dist = getDistance(epId)
+      if (dist === Number.POSITIVE_INFINITY) continue
       const pair = { docId: epId, distance: dist }
       candidates.push(pair)
       results.push(pair)
@@ -162,10 +183,13 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
         if (visited.has(neighborId)) continue
         visited.add(neighborId)
 
+        if (skipTombstones && tombstones.has(neighborId)) continue
+
         const neighborNode = nodes.get(neighborId)
         if (!neighborNode) continue
 
-        const dist = queryDistance(qVec, qMag, neighborNode, metric)
+        const dist = getDistance(neighborId)
+        if (dist === Number.POSITIVE_INFINITY) continue
 
         if (dist < furthestDist || results.size < ef) {
           const pair = { docId: neighborId, distance: dist }
@@ -180,19 +204,19 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
       }
     }
 
-    return results.toSortedArray()
+    return results
   }
 
-  /**
-   * Algorithm 4 from Malkov & Yashunin (2018).
-   *
-   * Heuristic neighbor selection that promotes graph diversity: a candidate
-   * is accepted only when it is closer to the target than to every
-   * already-selected neighbor, preventing clusters of nearby neighbors.
-   */
+  function nearestFromHeap(heap: BinaryHeap<DistancePair>): DistancePair | undefined {
+    let nearest: DistancePair | undefined
+    while (heap.size > 0) {
+      nearest = heap.pop()
+    }
+    return nearest
+  }
+
   function selectNeighborsHeuristic(
-    targetVec: Float32Array,
-    targetMag: number,
+    targetId: string,
     candidates: DistancePair[],
     maxConnections: number,
     layer: number,
@@ -200,7 +224,7 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
     extendCandidates: boolean,
     keepPruned: boolean,
   ): DistancePair[] {
-    const working = [...candidates].sort((a, b) => a.distance - b.distance)
+    const working = [...candidates]
 
     if (extendCandidates) {
       const existing = new Set(working.map(c => c.docId))
@@ -210,14 +234,14 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
         for (const adjId of candNode.connections[layer]) {
           if (existing.has(adjId)) continue
           existing.add(adjId)
-          const adjNode = nodes.get(adjId)
-          if (!adjNode) continue
-          const dist = queryDistance(targetVec, targetMag, adjNode, metric)
+          const dist = nodeDistance(targetId, adjId, metric)
+          if (dist === Number.POSITIVE_INFINITY) continue
           working.push({ docId: adjId, distance: dist })
         }
       }
-      working.sort((a, b) => a.distance - b.distance)
     }
+
+    working.sort((a, b) => a.distance - b.distance)
 
     const selected: DistancePair[] = []
     const discarded: DistancePair[] = []
@@ -227,10 +251,7 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
 
       let accepted = true
       for (const sel of selected) {
-        const selNode = nodes.get(sel.docId)
-        const candNode = nodes.get(candidate.docId)
-        if (!selNode || !candNode) continue
-        const distBetween = nodeDistance(candNode, selNode, metric)
+        const distBetween = nodeDistance(candidate.docId, sel.docId, metric)
         if (candidate.distance >= distBetween) {
           accepted = false
           break
@@ -254,48 +275,40 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
     return selected
   }
 
-  function pruneConnections(node: HNSWNode, layer: number, metric: VectorMetric): void {
+  function pruneConnections(nodeId: string, node: HNSWNode, layer: number, metric: VectorMetric): void {
     const mc = maxConns(layer)
     if (node.connections[layer].size <= mc) return
 
     const conns: DistancePair[] = []
     for (const connId of node.connections[layer]) {
-      const connNode = nodes.get(connId)
-      if (!connNode) continue
-      conns.push({
-        docId: connId,
-        distance: nodeDistance(node, connNode, metric),
-      })
+      const dist = nodeDistance(nodeId, connId, metric)
+      if (dist === Number.POSITIVE_INFINITY) continue
+      conns.push({ docId: connId, distance: dist })
     }
 
-    const pruned = selectNeighborsHeuristic(node.vector, node.mag, conns, mc, layer, metric, false, true)
+    const pruned = selectNeighborsHeuristic(nodeId, conns, mc, layer, metric, false, true)
     node.connections[layer] = new Set(pruned.map(p => p.docId))
   }
 
-  /**
-   * Algorithm 1 from Malkov & Yashunin (2018).
-   *
-   * Inserts a vector into the multi-layer graph. A random layer is sampled
-   * with exponentially decaying probability. Upper layers are traversed
-   * greedily (ef=1) to find an entry point, then efConstruction candidates
-   * are evaluated per layer to select neighbors via the diversity heuristic.
-   */
-  function insert(docId: string, vector: Float32Array): void {
-    if (vector.length !== dimension) {
-      throw new Error(`Vector dimension mismatch: expected ${dimension}, got ${vector.length}`)
+  function insertNode(docId: string): void {
+    const vecEntry = store.get(docId)
+    if (!vecEntry) {
+      throw new Error(`Cannot insert HNSW node: vector for "${docId}" not found in VectorStore`)
+    }
+
+    if (vecEntry.vector.length !== dimension) {
+      throw new Error(`Vector dimension mismatch: expected ${dimension}, got ${vecEntry.vector.length}`)
     }
 
     if (nodes.has(docId)) {
-      remove(docId)
+      removeNodeEager(docId)
     }
 
-    const mag = magnitude(vector)
+    tombstones.delete(docId)
     const l = randomLevel()
 
     const node: HNSWNode = {
       docId,
-      vector,
-      mag,
       maxLayer: l,
       connections: Array.from({ length: l + 1 }, () => new Set<string>()),
     }
@@ -312,28 +325,30 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
     let currentEPs = [entryPointId]
 
     for (let layer = topLayer; layer > l; layer--) {
-      const nearest = searchLayer(vector, mag, currentEPs, 1, layer, metric)
-      if (nearest.length > 0) {
-        currentEPs = [nearest[0].docId]
+      const heap = searchLayer(vecEntry.vector, vecEntry.magnitude, currentEPs, 1, layer, metric, false)
+      const nearest = nearestFromHeap(heap)
+      if (nearest) {
+        currentEPs = [nearest.docId]
       }
     }
 
     for (let layer = Math.min(l, topLayer); layer >= 0; layer--) {
+      const heap = searchLayer(vecEntry.vector, vecEntry.magnitude, currentEPs, efCons, layer, metric, false)
+      const candidates = heap.toSortedArray().reverse()
       const mc = maxConns(layer)
-      const nearest = searchLayer(vector, mag, currentEPs, efCons, layer, metric)
-      const neighbors = selectNeighborsHeuristic(vector, mag, nearest, mc, layer, metric, false, true)
+      const neighbors = selectNeighborsHeuristic(docId, candidates, mc, layer, metric, false, true)
 
       for (const neighbor of neighbors) {
         node.connections[layer].add(neighbor.docId)
         const neighborNode = nodes.get(neighbor.docId)
         if (neighborNode && layer < neighborNode.connections.length) {
           neighborNode.connections[layer].add(docId)
-          pruneConnections(neighborNode, layer, metric)
+          pruneConnections(neighbor.docId, neighborNode, layer, metric)
         }
       }
 
-      if (nearest.length > 0) {
-        currentEPs = nearest.map(n => n.docId)
+      if (candidates.length > 0) {
+        currentEPs = candidates.map(n => n.docId)
       }
     }
 
@@ -343,18 +358,7 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
     }
   }
 
-  /**
-   * Removes a node and reconnects its former neighbors.
-   *
-   * For each layer the node occupied:
-   *   1. Disconnect the node from all its neighbors.
-   *   2. For each neighbor below its connection limit, select replacement
-   *      connections from the deleted node's other former neighbors using the
-   *      diversity heuristic.
-   *   3. If the removed node was the entry point, elect the node with the
-   *      highest layer as the new entry point.
-   */
-  function remove(docId: string): void {
+  function removeNodeEager(docId: string): void {
     const node = nodes.get(docId)
     if (!node) return
 
@@ -362,7 +366,6 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
 
     for (let layer = 0; layer <= node.maxLayer; layer++) {
       if (layer >= node.connections.length) continue
-
       const formerNeighborIds = new Set(node.connections[layer])
 
       for (const neighborId of formerNeighborIds) {
@@ -388,25 +391,12 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
 
         const candidates: DistancePair[] = []
         for (const candId of candidateIds) {
-          const candNode = nodes.get(candId)
-          if (!candNode) continue
-          candidates.push({
-            docId: candId,
-            distance: nodeDistance(neighborNode, candNode, metric),
-          })
+          const dist = nodeDistance(neighborId, candId, metric)
+          if (dist === Number.POSITIVE_INFINITY) continue
+          candidates.push({ docId: candId, distance: dist })
         }
 
-        const selected = selectNeighborsHeuristic(
-          neighborNode.vector,
-          neighborNode.mag,
-          candidates,
-          mc,
-          layer,
-          metric,
-          false,
-          true,
-        )
-
+        const selected = selectNeighborsHeuristic(neighborId, candidates, mc, layer, metric, false, true)
         const newConns = new Set(selected.map(s => s.docId))
         neighborNode.connections[layer] = newConns
 
@@ -414,7 +404,7 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
           const newConnNode = nodes.get(newConnId)
           if (newConnNode && layer < newConnNode.connections.length) {
             newConnNode.connections[layer].add(neighborId)
-            pruneConnections(newConnNode, layer, metric)
+            pruneConnections(newConnId, newConnNode, layer, metric)
           }
         }
       }
@@ -431,9 +421,18 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
       let newEntryId: string | null = null
       let newTopLayer = -1
       for (const [nId, n] of nodes) {
+        if (tombstones.has(nId)) continue
         if (n.maxLayer > newTopLayer) {
           newTopLayer = n.maxLayer
           newEntryId = nId
+        }
+      }
+      if (newEntryId === null) {
+        for (const [nId, n] of nodes) {
+          if (n.maxLayer > newTopLayer) {
+            newTopLayer = n.maxLayer
+            newEntryId = nId
+          }
         }
       }
       entryPointId = newEntryId
@@ -441,14 +440,30 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
     }
   }
 
-  /**
-   * Algorithm 5 from Malkov & Yashunin (2018).
-   *
-   * K-nearest neighbor search. Upper layers are traversed greedily to reach
-   * an entry zone, then layer 0 is searched with the full ef budget. When
-   * `filterDocIds` is provided, ef is increased proportionally to compensate
-   * for filtered-out candidates.
-   */
+  function markTombstone(docId: string): void {
+    if (!nodes.has(docId)) return
+    tombstones.add(docId)
+
+    if (entryPointId === docId) {
+      let newEntryId: string | null = null
+      let newTopLayer = -1
+      for (const [nId, n] of nodes) {
+        if (tombstones.has(nId)) continue
+        if (n.maxLayer > newTopLayer) {
+          newTopLayer = n.maxLayer
+          newEntryId = nId
+        }
+      }
+      if (newEntryId !== null) {
+        entryPointId = newEntryId
+        topLayer = newTopLayer
+      } else {
+        entryPointId = null
+        topLayer = -1
+      }
+    }
+  }
+
   function search(
     query: Float32Array,
     k: number,
@@ -461,31 +476,53 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
       throw new Error(`Query dimension mismatch: expected ${dimension}, got ${query.length}`)
     }
 
-    if (entryPointId === null || nodes.size === 0) {
+    const liveSize = nodes.size - tombstones.size
+    if (entryPointId === null || liveSize === 0) {
       return []
     }
 
-    let ef = Math.max(efSearch ?? 50, k)
-    if (filterDocIds && filterDocIds.size < nodes.size) {
-      const selectivity = filterDocIds.size / nodes.size
+    const useQuantized = quantizer?.isCalibrated() === true && quantizer.size > 0
+    const defaultEf = 50
+    let ef = Math.max(efSearch ?? defaultEf, k)
+    if (filterDocIds && filterDocIds.size < liveSize) {
+      const selectivity = filterDocIds.size / liveSize
       ef = Math.max(ef, Math.ceil(k / Math.max(selectivity, 0.01)))
-      ef = Math.min(ef, nodes.size)
+      ef = Math.min(ef, liveSize)
     }
 
     const qMag = magnitude(query)
-    let currentEPs = [entryPointId]
 
-    for (let layer = topLayer; layer >= 1; layer--) {
-      const nearest = searchLayer(query, qMag, currentEPs, 1, layer, searchMetric)
-      if (nearest.length > 0) {
-        currentEPs = [nearest[0].docId]
+    let quantizedDistFn: ((nodeId: string) => number) | undefined
+    let prepared: QuantizedQuery | null = null
+    if (useQuantized && quantizer) {
+      prepared = quantizer.prepareQuery(query)
+      if (prepared) {
+        const p = prepared
+        const metric = searchMetric
+        const q = quantizer
+        quantizedDistFn = (nodeId: string) => q.distanceFromPrepared(p, nodeId, metric)
       }
     }
 
-    const candidates = searchLayer(query, qMag, currentEPs, ef, 0, searchMetric)
+    let currentEPs = [entryPointId]
+
+    for (let layer = topLayer; layer >= 1; layer--) {
+      const heap = searchLayer(query, qMag, currentEPs, 1, layer, searchMetric, true, quantizedDistFn)
+      const nearest = nearestFromHeap(heap)
+      if (nearest) {
+        currentEPs = [nearest.docId]
+      }
+    }
+
+    const candidateHeap = searchLayer(query, qMag, currentEPs, ef, 0, searchMetric, true, quantizedDistFn)
+    const candidateArray = candidateHeap.toSortedArray().reverse()
+
+    if (useQuantized) {
+      return rerankWithFullPrecision(candidateArray, query, qMag, k, searchMetric, minSimilarity, filterDocIds)
+    }
 
     const results: ScoredDocument[] = []
-    for (const cand of candidates) {
+    for (const cand of candidateArray) {
       if (filterDocIds && !filterDocIds.has(cand.docId)) continue
       const score = toScore(cand.distance, searchMetric)
       if (score < minSimilarity) continue
@@ -498,23 +535,62 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
       })
     }
 
-    results.sort((a, b) => b.score - a.score)
+    results.sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
     return results.slice(0, k)
+  }
+
+  function rerankWithFullPrecision(
+    candidates: DistancePair[],
+    query: Float32Array,
+    qMag: number,
+    k: number,
+    metric: VectorMetric,
+    minSimilarity: number,
+    filterDocIds?: Set<string>,
+  ): ScoredDocument[] {
+    const reranked: ScoredDocument[] = []
+    const rerankLimit = Math.max(k * SQ8_OVERSELECTION_FACTOR, 10)
+
+    for (const cand of candidates) {
+      if (filterDocIds && !filterDocIds.has(cand.docId)) continue
+
+      const entry = getEntry(cand.docId)
+      if (!entry) continue
+
+      const fullDistance = toDistance(query, entry.vector, qMag, entry.magnitude, metric)
+      const score = toScore(fullDistance, metric)
+      if (score < minSimilarity) continue
+
+      reranked.push({
+        docId: cand.docId,
+        score,
+        termFrequencies: {},
+        fieldLengths: {},
+        idf: {},
+      })
+
+      if (reranked.length >= rerankLimit) break
+    }
+
+    reranked.sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
+    return reranked.slice(0, k)
   }
 
   function serialize(): SerializedHNSWGraph {
     const nodeArray: Array<[string, number, Array<[number, string[]]>]> = []
     for (const [docId, node] of nodes) {
+      if (tombstones.has(docId)) continue
       const layerConns: Array<[number, string[]]> = []
       for (let layer = 0; layer < node.connections.length; layer++) {
-        if (node.connections[layer].size > 0) {
-          layerConns.push([layer, Array.from(node.connections[layer])])
+        const liveNeighbors = Array.from(node.connections[layer]).filter(id => !tombstones.has(id))
+        if (liveNeighbors.length > 0) {
+          layerConns.push([layer, liveNeighbors])
         }
       }
       nodeArray.push([docId, node.maxLayer, layerConns])
     }
     return {
-      entryPoint: entryPointId ?? '',
+      entryPoint: entryPointId,
       maxLayer: topLayer,
       m: M,
       efConstruction: efCons,
@@ -523,11 +599,12 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
     }
   }
 
-  function deserialize(data: SerializedHNSWGraph, vectors: Map<string, { vector: Float32Array; mag: number }>): void {
+  function deserialize(data: SerializedHNSWGraph): void {
     nodes.clear()
+    tombstones.clear()
 
     for (const [docId, maxLayer, layerConns] of data.nodes) {
-      const vecData = vectors.get(docId)
+      const vecData = store.get(docId)
       if (!vecData) continue
 
       const connections: Set<string>[] = Array.from({ length: maxLayer + 1 }, () => new Set<string>())
@@ -537,16 +614,10 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
         }
       }
 
-      nodes.set(docId, {
-        docId,
-        vector: vecData.vector,
-        mag: vecData.mag,
-        maxLayer,
-        connections,
-      })
+      nodes.set(docId, { docId, maxLayer, connections })
     }
 
-    if (data.entryPoint && nodes.has(data.entryPoint)) {
+    if (data.entryPoint != null && data.entryPoint !== '' && nodes.has(data.entryPoint)) {
       entryPointId = data.entryPoint
       topLayer = data.maxLayer
     } else if (nodes.size > 0) {
@@ -568,13 +639,41 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
 
   function clear(): void {
     nodes.clear()
+    tombstones.clear()
     entryPointId = null
     topLayer = -1
   }
 
   function* entriesIterator(): IterableIterator<[string, VectorEntry]> {
-    for (const [docId, node] of nodes) {
-      yield [docId, { docId, vector: node.vector, magnitude: node.mag }]
+    for (const [docId] of nodes) {
+      if (tombstones.has(docId)) continue
+      const entry = store.get(docId)
+      if (!entry) continue
+      yield [docId, { docId, vector: entry.vector, magnitude: entry.magnitude }]
+    }
+  }
+
+  function compactionNeeded(): boolean {
+    if (nodes.size === 0) return false
+    return tombstones.size / nodes.size > COMPACTION_TOMBSTONE_RATIO || tombstones.size > COMPACTION_ABSOLUTE_THRESHOLD
+  }
+
+  function compact(): void {
+    if (tombstones.size === 0) return
+
+    const liveDocIds: string[] = []
+    for (const [docId] of nodes) {
+      if (!tombstones.has(docId)) {
+        liveDocIds.push(docId)
+      }
+    }
+
+    clear()
+
+    for (const docId of liveDocIds) {
+      const entry = store.get(docId)
+      if (!entry) continue
+      insertNode(docId)
     }
   }
 
@@ -583,7 +682,7 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
       return dimension
     },
     get size() {
-      return nodes.size
+      return nodes.size - tombstones.size
     },
     get entryPointId() {
       return entryPointId
@@ -600,12 +699,15 @@ export function createHNSWIndex(dimension: number, config?: HNSWConfig): HNSWInd
     get metric() {
       return buildMetric
     },
-    insert,
-    remove,
-    has: (docId: string) => nodes.has(docId),
+    insertNode,
+    markTombstone,
+    has: (docId: string) => nodes.has(docId) && !tombstones.has(docId),
+    isTombstoned: (docId: string) => tombstones.has(docId),
     search,
     clear,
     entries: entriesIterator,
+    compactionNeeded,
+    compact,
     serialize,
     deserialize,
   }

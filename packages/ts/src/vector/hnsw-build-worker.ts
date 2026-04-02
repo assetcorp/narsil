@@ -1,6 +1,7 @@
 declare const self: unknown
 
 import { createHNSWIndex, type HNSWConfig, type SerializedHNSWGraph } from './hnsw'
+import { createVectorStore } from './vector-store'
 
 export interface HNSWBuildRequest {
   type: 'build'
@@ -45,12 +46,24 @@ function validateBuildRequest(request: HNSWBuildRequest): void {
   }
 }
 
+function clampHNSWConfig(config: HNSWConfig): HNSWConfig {
+  return {
+    ...config,
+    m: config.m != null ? Math.max(2, Math.min(64, config.m)) : undefined,
+    efConstruction: config.efConstruction != null ? Math.max(10, Math.min(1000, config.efConstruction)) : undefined,
+  }
+}
+
 function handleBuildRequest(request: HNSWBuildRequest): SerializedHNSWGraph {
   validateBuildRequest(request)
-  const hnsw = createHNSWIndex(request.dimension, request.config)
+  const safeConfig = clampHNSWConfig(request.config)
+  const store = createVectorStore()
   for (const entry of request.vectors) {
-    const vec = new Float32Array(entry.values)
-    hnsw.insert(entry.docId, vec)
+    store.insert(entry.docId, new Float32Array(entry.values))
+  }
+  const hnsw = createHNSWIndex(request.dimension, store, safeConfig)
+  for (const entry of request.vectors) {
+    hnsw.insertNode(entry.docId)
   }
   return hnsw.serialize()
 }

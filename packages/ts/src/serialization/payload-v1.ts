@@ -34,13 +34,20 @@ export interface RawPartitionPayload {
       dimension: number
       vectors: Array<{ doc_id: string; vector: number[] }>
       hnsw_graph: null | {
-        entry_point: string
+        entry_point: string | null
         max_layer: number
         m: number
         ef_construction: number
         metric?: string
         nodes: Array<[string, number, Array<[number, string[]]>]>
       }
+      sq8?: {
+        alpha: number
+        offset: number
+        quantized_vectors: Record<string, number[]>
+        vector_sums: Record<string, number>
+        vector_sum_sqs: Record<string, number>
+      } | null
     }
   >
   statistics: {
@@ -111,6 +118,15 @@ function partitionToWire(partition: SerializablePartition): RawPartitionPayload 
             ef_construction: data.hnswGraph.efConstruction,
             metric: data.hnswGraph.metric,
             nodes: data.hnswGraph.nodes,
+          }
+        : null,
+      sq8: data.sq8
+        ? {
+            alpha: data.sq8.alpha,
+            offset: data.sq8.offset,
+            quantized_vectors: data.sq8.quantizedVectors,
+            vector_sums: data.sq8.vectorSums,
+            vector_sum_sqs: data.sq8.vectorSumSqs,
           }
         : null,
     }
@@ -202,6 +218,15 @@ function wireToPartition(raw: RawPartitionPayload): SerializablePartition {
             efConstruction: data.hnsw_graph.ef_construction,
             metric: validateHnswMetric(data.hnsw_graph.metric),
             nodes: data.hnsw_graph.nodes,
+          }
+        : null,
+      sq8: data.sq8
+        ? {
+            alpha: data.sq8.alpha,
+            offset: data.sq8.offset,
+            quantizedVectors: data.sq8.quantized_vectors,
+            vectorSums: data.sq8.vector_sums,
+            vectorSumSqs: data.sq8.vector_sum_sqs,
           }
         : null,
     }

@@ -1,11 +1,22 @@
 import type { ScoredDocument, VectorEntry } from '../types/internal'
-import { type BruteForceVectorStore, createBruteForceVectorStore, type VectorMetric } from '../vector/brute-force'
+import type { VectorIndexConfig } from '../types/schema'
+import { createBruteForceSearch, type VectorMetric } from '../vector/brute-force'
 import { createHNSWIndex, type HNSWConfig, type HNSWIndex, type SerializedHNSWGraph } from '../vector/hnsw'
+import {
+  createScalarQuantizer,
+  deserializeScalarQuantizer,
+  type ScalarQuantizer,
+  type SerializedSQ8,
+} from '../vector/scalar-quantization'
+import { createVectorStore, type VectorStore } from '../vector/vector-store'
+
+const DEFAULT_PROMOTION_THRESHOLD = 1024
 
 export interface VectorSearchEngine {
   readonly dimension: number
   readonly size: number
   readonly isPromoted: boolean
+  readonly compactionPending: boolean
 
   insert(docId: string, vector: Float32Array): void
   remove(docId: string): void
@@ -24,18 +35,78 @@ export interface VectorSearchEngine {
   promoteToHNSW(hnswConfig?: HNSWConfig): void
   demoteToLinear(): void
   getHNSWIndex(): HNSWIndex | null
-  getBruteForceStore(): BruteForceVectorStore
+  getVectorStore(): VectorStore
+  compact(): void
 
   estimateMemoryBytes(): number
 
   serializeHNSW(): SerializedHNSWGraph | null
   deserializeHNSW(data: SerializedHNSWGraph): void
+  serializeSQ8(): SerializedSQ8 | null
+  deserializeSQ8(data: SerializedSQ8): void
 }
 
-export function createVectorSearchEngine(dimension: number, defaultHNSWConfig?: HNSWConfig): VectorSearchEngine {
-  const bruteForce = createBruteForceVectorStore(dimension)
+export function createVectorSearchEngine(
+  dimension: number,
+  defaultHNSWConfig?: HNSWConfig,
+  indexConfig?: VectorIndexConfig,
+): VectorSearchEngine {
+  const store = createVectorStore()
+  const bruteForce = createBruteForceSearch(dimension, store)
   const hnswConfig = defaultHNSWConfig
+  const promotionThreshold = indexConfig?.threshold ?? DEFAULT_PROMOTION_THRESHOLD
+  const mergedHnswConfig = indexConfig?.hnswConfig ?? hnswConfig
+  const quantizationMode = indexConfig?.quantization ?? 'sq8'
+  let sq8: ScalarQuantizer | null = quantizationMode === 'sq8' ? createScalarQuantizer(dimension) : null
   let hnsw: HNSWIndex | null = null
+  let pendingCompaction = false
+
+  function checkAutoPromotion(): void {
+    if (hnsw) return
+    if (store.size < promotionThreshold) return
+    buildHNSWIndex(mergedHnswConfig)
+  }
+
+  function calibrateAndQuantizeAll(): void {
+    if (!sq8) return
+    if (store.size === 0) return
+
+    function* vectorIterator(): Iterable<Float32Array> {
+      for (const [, entry] of store.entries()) {
+        yield entry.vector
+      }
+    }
+
+    sq8.calibrate(vectorIterator())
+
+    for (const [docId, entry] of store.entries()) {
+      sq8.quantize(docId, entry.vector)
+    }
+  }
+
+  function buildHNSWIndex(overrideConfig?: HNSWConfig): void {
+    const cfg = overrideConfig ?? mergedHnswConfig
+
+    if (sq8 && store.size > 0) {
+      calibrateAndQuantizeAll()
+    }
+
+    const newHnsw = createHNSWIndex(dimension, store, cfg, sq8 ?? undefined)
+    for (const [docId] of store.entries()) {
+      newHnsw.insertNode(docId)
+    }
+    hnsw = newHnsw
+  }
+
+  function recalibrateFromStore(): void {
+    if (!sq8) return
+    function* storeVectors(): Iterable<[string, Float32Array]> {
+      for (const [docId, entry] of store.entries()) {
+        yield [docId, entry.vector]
+      }
+    }
+    sq8.recalibrateAll(storeVectors())
+  }
 
   return {
     get dimension() {
@@ -43,29 +114,51 @@ export function createVectorSearchEngine(dimension: number, defaultHNSWConfig?: 
     },
 
     get size() {
-      return bruteForce.size
+      return store.size
     },
 
     get isPromoted() {
       return hnsw !== null
     },
 
+    get compactionPending() {
+      return pendingCompaction
+    },
+
     insert(docId: string, vector: Float32Array): void {
-      bruteForce.insert(docId, vector)
+      if (vector.length !== dimension) {
+        throw new Error(`Vector dimension mismatch: expected ${dimension}, got ${vector.length}`)
+      }
+      store.insert(docId, vector)
+      if (sq8?.isCalibrated()) {
+        if (sq8.needsRecalibration(vector)) {
+          recalibrateFromStore()
+        } else {
+          sq8.quantize(docId, vector)
+        }
+      }
       if (hnsw) {
-        hnsw.insert(docId, vector)
+        hnsw.insertNode(docId)
+      } else {
+        checkAutoPromotion()
       }
     },
 
     remove(docId: string): void {
-      bruteForce.remove(docId)
       if (hnsw) {
-        hnsw.remove(docId)
+        hnsw.markTombstone(docId)
+        if (hnsw.compactionNeeded()) {
+          pendingCompaction = true
+        }
       }
+      if (sq8) {
+        sq8.remove(docId)
+      }
+      store.remove(docId)
     },
 
     has(docId: string): boolean {
-      return bruteForce.has(docId)
+      return store.has(docId)
     },
 
     search(
@@ -83,24 +176,22 @@ export function createVectorSearchEngine(dimension: number, defaultHNSWConfig?: 
     },
 
     clear(): void {
-      bruteForce.clear()
+      store.clear()
       if (hnsw) {
         hnsw.clear()
         hnsw = null
       }
+      if (sq8) {
+        sq8.clear()
+      }
     },
 
     entries(): IterableIterator<[string, VectorEntry]> {
-      return bruteForce.entries()
+      return storeToVectorEntries(store)
     },
 
     promoteToHNSW(overrideConfig?: HNSWConfig): void {
-      const cfg = overrideConfig ?? hnswConfig
-      const newHnsw = createHNSWIndex(dimension, cfg)
-      for (const [, entry] of bruteForce.entries()) {
-        newHnsw.insert(entry.docId, entry.vector)
-      }
-      hnsw = newHnsw
+      buildHNSWIndex(overrideConfig)
     },
 
     demoteToLinear(): void {
@@ -108,33 +199,37 @@ export function createVectorSearchEngine(dimension: number, defaultHNSWConfig?: 
         hnsw.clear()
         hnsw = null
       }
+      if (sq8) {
+        sq8.clear()
+      }
     },
 
     getHNSWIndex(): HNSWIndex | null {
       return hnsw
     },
 
-    getBruteForceStore(): BruteForceVectorStore {
-      return bruteForce
+    getVectorStore(): VectorStore {
+      return store
+    },
+
+    compact(): void {
+      if (hnsw) {
+        hnsw.compact()
+        pendingCompaction = false
+      }
+      if (sq8) {
+        recalibrateFromStore()
+      }
     },
 
     estimateMemoryBytes(): number {
-      const count = bruteForce.size
-      if (count === 0) return 0
-
-      const MAP_OVERHEAD = 64
-      const MAP_ENTRY = 72
-      const VECTOR_ENTRY_OBJ = 32
-      const AVG_DOCID_BYTES = 56
-      const TYPED_ARRAY_HEADER = 64
-      const MAGNITUDE_BYTES = 8
-
-      const perBruteForceEntry = MAP_ENTRY + VECTOR_ENTRY_OBJ + AVG_DOCID_BYTES + TYPED_ARRAY_HEADER + MAGNITUDE_BYTES
-      let bytes = MAP_OVERHEAD + count * (perBruteForceEntry + dimension * 4)
+      let bytes = store.estimateMemory(dimension)
 
       if (hnsw) {
-        const HNSW_NODE_OBJ = 64
-        const SHARED_REFS = 16
+        const count = store.size
+        const HNSW_NODE_OBJ = 48
+        const MAP_ENTRY = 72
+        const MAP_OVERHEAD = 64
         const CONN_ARRAY_HEADER = 32
         const SET_OVERHEAD = 64
         const SET_ENTRY_COST = 72
@@ -149,8 +244,21 @@ export function createVectorSearchEngine(dimension: number, defaultHNSWConfig?: 
           (SET_OVERHEAD + avgConnsLayer0 * SET_ENTRY_COST) +
           Math.max(0, avgLayers - 1) * (SET_OVERHEAD + avgConnsUpper * SET_ENTRY_COST)
 
-        const perHnswNode = MAP_ENTRY + HNSW_NODE_OBJ + SHARED_REFS + connMemPerNode
+        const perHnswNode = MAP_ENTRY + HNSW_NODE_OBJ + connMemPerNode
         bytes += MAP_OVERHEAD + count * perHnswNode
+      }
+
+      if (sq8?.isCalibrated()) {
+        const count = sq8.size
+        const MAP_OVERHEAD_SQ = 64
+        const MAP_ENTRY_SQ = 72
+        const UINT8_ARRAY_HEADER = 64
+        const PER_VECTOR_METADATA = 8 * 3
+        const GLOBAL_CALIBRATION = 8 * 5
+
+        bytes += 4 * (MAP_OVERHEAD_SQ + count * MAP_ENTRY_SQ)
+        bytes += count * (UINT8_ARRAY_HEADER + dimension + PER_VECTOR_METADATA)
+        bytes += GLOBAL_CALIBRATION
       }
 
       return Math.round(bytes)
@@ -162,18 +270,35 @@ export function createVectorSearchEngine(dimension: number, defaultHNSWConfig?: 
     },
 
     deserializeHNSW(data: SerializedHNSWGraph): void {
-      const cfg = hnswConfig ?? {}
-      const restoredHnsw = createHNSWIndex(dimension, {
-        m: data.m ?? cfg.m,
-        efConstruction: data.efConstruction ?? cfg.efConstruction,
-        metric: data.metric ?? cfg.metric,
-      })
-      const vectorMap = new Map<string, { vector: Float32Array; mag: number }>()
-      for (const [, entry] of bruteForce.entries()) {
-        vectorMap.set(entry.docId, { vector: entry.vector, mag: entry.magnitude })
-      }
-      restoredHnsw.deserialize(data, vectorMap)
+      const cfg = mergedHnswConfig ?? {}
+      const restoredHnsw = createHNSWIndex(
+        dimension,
+        store,
+        {
+          m: data.m ?? cfg.m,
+          efConstruction: data.efConstruction ?? cfg.efConstruction,
+          metric: data.metric ?? cfg.metric,
+        },
+        sq8 ?? undefined,
+      )
+      restoredHnsw.deserialize(data)
       hnsw = restoredHnsw
     },
+
+    serializeSQ8(): SerializedSQ8 | null {
+      if (!sq8 || !sq8.isCalibrated() || sq8.size === 0) return null
+      return sq8.serialize()
+    },
+
+    deserializeSQ8(data: SerializedSQ8): void {
+      if (quantizationMode === 'none') return
+      sq8 = deserializeScalarQuantizer(data, dimension)
+    },
+  }
+}
+
+function* storeToVectorEntries(store: VectorStore): IterableIterator<[string, VectorEntry]> {
+  for (const [docId, entry] of store.entries()) {
+    yield [docId, { docId, vector: entry.vector, magnitude: entry.magnitude }]
   }
 }

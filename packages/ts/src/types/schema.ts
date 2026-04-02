@@ -18,11 +18,16 @@ export type SchemaDefinition = {
   [field: string]: FieldType | SchemaDefinition
 }
 
-export interface VectorPromotionConfig {
+export type VectorQuantizationMode = 'sq8' | 'none'
+
+export interface VectorIndexConfig {
   threshold?: number
   hnswConfig?: { m?: number; efConstruction?: number; metric?: 'cosine' | 'dotProduct' | 'euclidean' }
-  workerStrategy?: 'worker-threads' | 'web-worker' | 'synchronous'
+  quantization?: VectorQuantizationMode
 }
+
+/** @deprecated Use VectorIndexConfig instead */
+export type VectorPromotionConfig = VectorIndexConfig
 
 export interface EmbeddingFieldConfig {
   adapter?: EmbeddingAdapter
@@ -38,7 +43,7 @@ export interface IndexConfig {
   stopWords?: Set<string> | ((defaults: Set<string>) => Set<string>)
   tokenizer?: CustomTokenizer
   trackPositions?: boolean
-  vectorPromotion?: VectorPromotionConfig
+  vectorPromotion?: VectorIndexConfig
   strict?: boolean
   embedding?: EmbeddingFieldConfig
   required?: string[]
