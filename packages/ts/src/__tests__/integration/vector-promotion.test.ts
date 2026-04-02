@@ -22,9 +22,9 @@ function vectorFromValues(...values: number[]): Float32Array {
   return new Float32Array(values)
 }
 
-describe('VectorPromoter wired into PartitionIndex', () => {
+describe('VectorSearchEngine auto-promotion wired into PartitionIndex', () => {
   it('auto-promotes vector field when threshold is exceeded', () => {
-    const partition = createPartitionIndex(0, true, { threshold: 50, workerStrategy: 'synchronous' })
+    const partition = createPartitionIndex(0, true, { threshold: 50 })
 
     for (let i = 0; i < 60; i++) {
       partition.insert(`doc${i}`, { title: `item ${i}`, embedding: randomVector() }, schema, language)
@@ -42,7 +42,7 @@ describe('VectorPromoter wired into PartitionIndex', () => {
   })
 
   it('does not promote when below threshold', () => {
-    const partition = createPartitionIndex(0, true, { threshold: 100, workerStrategy: 'synchronous' })
+    const partition = createPartitionIndex(0, true, { threshold: 100 })
 
     for (let i = 0; i < 30; i++) {
       partition.insert(`doc${i}`, { title: `item ${i}`, embedding: randomVector() }, schema, language)
@@ -58,7 +58,7 @@ describe('VectorPromoter wired into PartitionIndex', () => {
     expect(result.scored.length).toBeGreaterThan(0)
   })
 
-  it('works without vectorPromotion config (no auto-promotion)', () => {
+  it('works without vectorIndexConfig (uses default threshold)', () => {
     const partition = createPartitionIndex(0, true)
 
     for (let i = 0; i < 20; i++) {
@@ -76,7 +76,7 @@ describe('VectorPromoter wired into PartitionIndex', () => {
   })
 
   it('search finds the nearest vector after auto-promotion', () => {
-    const partition = createPartitionIndex(0, true, { threshold: 10, workerStrategy: 'synchronous' })
+    const partition = createPartitionIndex(0, true, { threshold: 10 })
 
     const target = vectorFromValues(1, 0, 0, 0)
     partition.insert('nearest', { title: 'nearest', embedding: vectorFromValues(0.95, 0.05, 0, 0) }, schema, language)
@@ -98,7 +98,7 @@ describe('VectorPromoter wired into PartitionIndex', () => {
   })
 
   it('efSearch parameter reaches the search layer', () => {
-    const partition = createPartitionIndex(0, true, { threshold: 10, workerStrategy: 'synchronous' })
+    const partition = createPartitionIndex(0, true, { threshold: 10 })
 
     for (let i = 0; i < 20; i++) {
       partition.insert(`doc${i}`, { title: `item ${i}`, embedding: randomVector() }, schema, language)
@@ -116,8 +116,8 @@ describe('VectorPromoter wired into PartitionIndex', () => {
     expect(result.scored.length).toBeLessThanOrEqual(3)
   })
 
-  it('clear shuts down the promoter cleanly', () => {
-    const partition = createPartitionIndex(0, true, { threshold: 10, workerStrategy: 'synchronous' })
+  it('clear resets all data', () => {
+    const partition = createPartitionIndex(0, true, { threshold: 10 })
 
     for (let i = 0; i < 15; i++) {
       partition.insert(`doc${i}`, { title: `item ${i}`, embedding: randomVector() }, schema, language)
@@ -129,7 +129,7 @@ describe('VectorPromoter wired into PartitionIndex', () => {
   })
 
   it('hasPromotedHnsw reflects promotion state', () => {
-    const partition = createPartitionIndex(0, true, { threshold: 10, workerStrategy: 'synchronous' })
+    const partition = createPartitionIndex(0, true, { threshold: 10 })
 
     expect(partition.hasPromotedHnsw()).toBe(false)
 
@@ -143,7 +143,7 @@ describe('VectorPromoter wired into PartitionIndex', () => {
 
 describe('HNSW serialization through partition layer', () => {
   function buildPopulatedPartition(count: number, threshold: number): PartitionIndex {
-    const partition = createPartitionIndex(0, true, { threshold, workerStrategy: 'synchronous' })
+    const partition = createPartitionIndex(0, true, { threshold })
 
     for (let i = 0; i < count; i++) {
       partition.insert(`doc${i}`, { title: `item ${i}`, embedding: randomVector() }, schema, language)
@@ -160,7 +160,7 @@ describe('HNSW serialization through partition layer', () => {
     expect(serialized.vectorData.embedding.hnswGraph).not.toBeNull()
     expect(serialized.vectorData.embedding.vectors).toHaveLength(30)
 
-    const restored = createPartitionIndex(0, true, { threshold: 10, workerStrategy: 'synchronous' })
+    const restored = createPartitionIndex(0, true, { threshold: 10 })
     restored.deserialize(serialized, schema)
 
     expect(restored.count()).toBe(30)
@@ -179,7 +179,7 @@ describe('HNSW serialization through partition layer', () => {
   })
 
   it('serialization round-trip without HNSW (below threshold)', () => {
-    const original = createPartitionIndex(0, true, { threshold: 100, workerStrategy: 'synchronous' })
+    const original = createPartitionIndex(0, true, { threshold: 100 })
     for (let i = 0; i < 10; i++) {
       original.insert(`doc${i}`, { title: `item ${i}`, embedding: randomVector() }, schema, language)
     }
@@ -187,7 +187,7 @@ describe('HNSW serialization through partition layer', () => {
     const serialized = original.serialize('test-index', 1, 'english', schema)
     expect(serialized.vectorData.embedding.hnswGraph).toBeNull()
 
-    const restored = createPartitionIndex(0, true, { threshold: 100, workerStrategy: 'synchronous' })
+    const restored = createPartitionIndex(0, true, { threshold: 100 })
     restored.deserialize(serialized, schema)
 
     expect(restored.count()).toBe(10)
@@ -205,7 +205,6 @@ describe('HNSW serialization through partition layer', () => {
     const partition = createPartitionIndex(0, true, {
       threshold: 5,
       hnswConfig: { m: 8, efConstruction: 64 },
-      workerStrategy: 'synchronous',
     })
 
     for (let i = 0; i < 10; i++) {

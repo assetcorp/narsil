@@ -1,6 +1,7 @@
-import { createBruteForceVectorStore } from '../src/vector/brute-force'
+import { createBruteForceSearch } from '../src/vector/brute-force'
 import { createHNSWIndex } from '../src/vector/hnsw'
 import { isSimdAvailable } from '../src/vector/simd'
+import { createVectorStore } from '../src/vector/vector-store'
 
 function mulberry32(seed: number): () => number {
   let s = seed | 0
@@ -113,9 +114,10 @@ async function main() {
       const vectors = generateVectors(scale, dim, 42)
       const queries = generateVectors(QUERY_COUNT, dim, 999)
 
-      const bf = createBruteForceVectorStore(dim)
+      const bfStore = createVectorStore()
       let t0 = performance.now()
-      for (let i = 0; i < scale; i++) bf.insert(`d${i}`, vectors[i])
+      for (let i = 0; i < scale; i++) bfStore.insert(`d${i}`, vectors[i])
+      const bf = createBruteForceSearch(dim, bfStore)
       const bfInsertMs = performance.now() - t0
 
       const bfSearch = measureSearch(q => bf.search(q, K, 'cosine', 0), queries)
@@ -124,11 +126,13 @@ async function main() {
       )
 
       console.log(`    HNSW building...`)
-      const hnsw = createHNSWIndex(dim, { m: 16, efConstruction: 200, metric: 'cosine' })
+      const hnswStore = createVectorStore()
+      for (let i = 0; i < scale; i++) hnswStore.insert(`d${i}`, vectors[i])
+      const hnsw = createHNSWIndex(dim, hnswStore, { m: 16, efConstruction: 200, metric: 'cosine' })
 
       t0 = performance.now()
       for (let i = 0; i < scale; i++) {
-        hnsw.insert(`d${i}`, vectors[i])
+        hnsw.insertNode(`d${i}`)
         if ((i + 1) % 1000 === 0) {
           const elapsed = performance.now() - t0
           const perVec = elapsed / (i + 1)
@@ -140,7 +144,7 @@ async function main() {
           if (elapsed > 120_000) {
             console.log(`\n    HNSW ABORTED: exceeded 2 minutes at ${fmt(i + 1)} vectors`)
             hnsw.clear()
-            bf.clear()
+            bfStore.clear()
             break
           }
         }
@@ -148,7 +152,7 @@ async function main() {
       const hnswInsertMs = performance.now() - t0
 
       if (hnsw.size === 0) {
-        bf.clear()
+        bfStore.clear()
         continue
       }
 
@@ -179,7 +183,7 @@ async function main() {
         speedup,
       })
 
-      bf.clear()
+      bfStore.clear()
       hnsw.clear()
       if (typeof globalThis.gc === 'function') {
         globalThis.gc()

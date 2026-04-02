@@ -1,4 +1,3 @@
-import { createVectorPromoter, type VectorPromoter } from '#platform/vector-promoter'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { validateDocument, validateDocumentStrict } from '../../schema/validator'
 import { encodeRawPayloadV2 } from '../../serialization/payload-v2'
@@ -13,7 +12,7 @@ import type {
 } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { FacetResult } from '../../types/results'
-import type { AnyDocument, SchemaDefinition, VectorPromotionConfig } from '../../types/schema'
+import type { AnyDocument, SchemaDefinition, VectorIndexConfig } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
 import { createDocumentStore } from '../document-store'
 import { createInvertedIndex } from '../inverted-index'
@@ -75,16 +74,8 @@ export interface PartitionIndex {
 export function createPartitionIndex(
   partitionId: number,
   trackPositions = true,
-  vectorPromotionConfig?: VectorPromotionConfig,
+  vectorIndexConfig?: VectorIndexConfig,
 ): PartitionIndex {
-  const vectorPromoter: VectorPromoter | null = vectorPromotionConfig
-    ? createVectorPromoter({
-        promotionThreshold: vectorPromotionConfig.threshold,
-        hnswConfig: vectorPromotionConfig.hnswConfig,
-        workerStrategy: vectorPromotionConfig.workerStrategy,
-      })
-    : null
-
   const fieldNameTable = { names: [] as string[], indexMap: new Map<string, number>() }
 
   const state: PartitionState = {
@@ -96,6 +87,7 @@ export function createPartitionIndex(
     enumIndexes: new Map(),
     geoIndexes: new Map(),
     vectorStores: new Map(),
+    vectorIndexConfig: vectorIndexConfig ?? null,
     fieldNameTable,
     flatSchemaCache: null,
     lastSchemaRef: null,
@@ -103,7 +95,6 @@ export function createPartitionIndex(
   }
 
   function clearAll(): void {
-    vectorPromoter?.shutdown()
     state.invertedIdx.clear()
     state.docStore.clear()
     for (const idx of state.numericIndexes.values()) idx.clear()
@@ -166,7 +157,6 @@ export function createPartitionIndex(
         state.docStore.store(docId, document, fieldLengths)
       }
       state.stats.addDocument(fieldLengths, tokensByField)
-      vectorPromoter?.check(state.vectorStores)
     },
 
     remove(docId: string, schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void {

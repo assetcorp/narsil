@@ -49,12 +49,12 @@ export function createPartitionManager(
 ): PartitionManager {
   const count = initialPartitionCount ?? 1
   const trackPositions = config.trackPositions ?? true
-  const vectorPromotionConfig = config.vectorPromotion
+  const vectorIndexConfig = config.vectorPromotion
   let partitions: PartitionIndex[] = []
   const docPartitionMap = new Map<string, number>()
 
   for (let i = 0; i < count; i++) {
-    partitions.push(createPartitionIndex(i, trackPositions, vectorPromotionConfig))
+    partitions.push(createPartitionIndex(i, trackPositions, vectorIndexConfig))
   }
 
   function validatePartitionId(partitionId: number): void {
@@ -131,7 +131,7 @@ export function createPartitionManager(
           { maxPartitions: currentMaxPartitions, currentCount: partitions.length },
         )
       }
-      const partition = createPartitionIndex(partitions.length, trackPositions, vectorPromotionConfig)
+      const partition = createPartitionIndex(partitions.length, trackPositions, vectorIndexConfig)
       partitions.push(partition)
       return partition
     },

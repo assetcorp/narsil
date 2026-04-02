@@ -77,6 +77,7 @@ export function serializePartition(
       dimension: store.dimension,
       vectors,
       hnswGraph: store.serializeHNSW(),
+      sq8: store.serializeSQ8(),
     }
   }
 
@@ -174,6 +175,7 @@ export function serializePartitionToWirePayload(
       vectors.push({ doc_id: entry.docId, vector: Array.from(entry.vector) })
     }
     const hnswData = store.serializeHNSW()
+    const sq8Data = store.serializeSQ8()
     wireVectors[path] = {
       dimension: store.dimension,
       vectors,
@@ -185,6 +187,15 @@ export function serializePartitionToWirePayload(
             ef_construction: hnswData.efConstruction,
             metric: hnswData.metric,
             nodes: hnswData.nodes,
+          }
+        : null,
+      sq8: sq8Data
+        ? {
+            alpha: sq8Data.alpha,
+            offset: sq8Data.offset,
+            quantized_vectors: sq8Data.quantizedVectors,
+            vector_sums: sq8Data.vectorSums,
+            vector_sum_sqs: sq8Data.vectorSumSqs,
           }
         : null,
     }
@@ -297,6 +308,7 @@ export function serializePartitionToWirePayloadV2(
       vectors.push({ doc_id: entry.docId, vector: Array.from(entry.vector) })
     }
     const hnswData = store.serializeHNSW()
+    const sq8Data = store.serializeSQ8()
     wireVectors[path] = {
       dimension: store.dimension,
       vectors,
@@ -308,6 +320,15 @@ export function serializePartitionToWirePayloadV2(
             ef_construction: hnswData.efConstruction,
             metric: hnswData.metric,
             nodes: hnswData.nodes,
+          }
+        : null,
+      sq8: sq8Data
+        ? {
+            alpha: sq8Data.alpha,
+            offset: sq8Data.offset,
+            quantized_vectors: sq8Data.quantizedVectors,
+            vector_sums: sq8Data.vectorSums,
+            vector_sum_sqs: sq8Data.vectorSumSqs,
           }
         : null,
     }
@@ -405,14 +426,21 @@ export function deserializePartition(
   }
 
   for (const [path, vecData] of Object.entries(data.vectorData)) {
-    const store = createVectorSearchEngine(vecData.dimension)
+    const vecConfig = state.vectorIndexConfig
+    const engine = createVectorSearchEngine(vecData.dimension, vecConfig?.hnswConfig, vecConfig ?? undefined)
+    const rawStore = engine.getVectorStore()
     for (const entry of vecData.vectors) {
-      store.insert(entry.docId, new Float32Array(entry.vector))
+      rawStore.insert(entry.docId, new Float32Array(entry.vector))
+    }
+    if (vecData.sq8) {
+      engine.deserializeSQ8(vecData.sq8)
     }
     if (vecData.hnswGraph) {
-      store.deserializeHNSW(vecData.hnswGraph)
+      engine.deserializeHNSW(vecData.hnswGraph)
+    } else if (rawStore.size >= (vecConfig?.threshold ?? 1024)) {
+      engine.promoteToHNSW(vecConfig?.hnswConfig)
     }
-    state.vectorStores.set(path, store)
+    state.vectorStores.set(path, engine)
   }
 
   state.stats.deserialize(data.statistics as SerializedPartitionStats)
