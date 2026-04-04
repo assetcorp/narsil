@@ -12,11 +12,12 @@ behavior.
 ## Overview
 
 Large indexes are automatically split into multiple partitions
-(shards). Each partition is an independent search engine instance
-with its own inverted index, document store, field indexes, vector
-storage, geopoint storage, and statistics. Partitioning is
-transparent to the caller; the API is identical whether an index
-has 1 partition or 16.
+(shards). Each partition is an independent unit with its own
+inverted index, document store, field indexes, geopoint storage,
+and statistics. Vector data is stored separately in per-field
+vector indexes (see [vector-index.md](vector-index.md)).
+Partitioning is transparent to the caller; the API is identical
+whether an index has 1 partition or 16.
 
 ---
 
@@ -139,6 +140,8 @@ the caller to retry after a brief delay.
      Insert into the corresponding new partition
    Process in chunks of 1,000, yielding between chunks
    via setTimeout(fn, 0) to avoid blocking.
+   Vector data is unaffected by rebalancing because
+   vector indexes are partition-agnostic.
 
 4. REPLAY WAQ entries in sequence order:
    For each entry ordered by seq:
@@ -177,10 +180,10 @@ rebalance from blocking the event loop for extended periods.
 When a search query arrives for a multi-partition index, the
 coordinator fans out to all partitions and merges the results.
 
-### Fan-Out Steps
+### Fan-Out Steps (Text Search)
 
 ```text
-1. Send the query to ALL partitions in parallel.
+1. Send the text query to ALL partitions in parallel.
 2. Each partition runs the query against its local index:
    - Tokenize the query term
    - Look up tokens in the inverted index
@@ -195,6 +198,16 @@ coordinator fans out to all partitions and merges the results.
 8. Encode cursor for next page (if applicable).
 9. Return the merged result.
 ```
+
+### Hybrid Search (Text + Vector)
+
+When a query includes both a text term and a vector, the
+coordinator runs text search and vector search independently and
+fuses the results. Text search fans out to partitions as above.
+Vector search queries the per-field VectorIndex directly (no
+partition fan-out). See
+[vector-index.md](vector-index.md#hybrid-search) for the fusion
+strategies and coordinator-level flow.
 
 ### Merge Algorithm
 
