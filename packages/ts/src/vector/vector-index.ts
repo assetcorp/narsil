@@ -74,7 +74,10 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
   const promotionThreshold = config?.threshold ?? DEFAULT_PROMOTION_THRESHOLD
   const filterThreshold = Math.max(0, Math.min(1, config?.filterThreshold ?? DEFAULT_FILTER_THRESHOLD))
   const quantizationMode = config?.quantization ?? 'sq8'
+  const rawHnswM = config?.hnswConfig?.m
   const hnswConfig: HNSWConfig | undefined = config?.hnswConfig
+    ? { ...config.hnswConfig, m: rawHnswM !== undefined ? Math.max(rawHnswM, 2) : undefined }
+    : undefined
   const dimensionScale = dimension / 256
 
   const store = createVectorStore()

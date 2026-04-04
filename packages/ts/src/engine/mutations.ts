@@ -14,6 +14,8 @@ import { embedBatchDocumentFields, embedDocumentFields } from './embed'
 import type { WorkerOrchestrator } from './orchestration'
 import { BATCH_CHUNK_SIZE, validateDocId } from './validation'
 import {
+  deleteNestedValue,
+  extractVectorFromDoc,
   insertDocumentVectors,
   prepareDocumentVectors,
   removeDocumentVectors,
@@ -136,6 +138,7 @@ export async function insertDocumentBatch(
   const entry = ctx.requireIndex(indexName)
 
   const succeeded: string[] = []
+  const succeededDocs: AnyDocument[] = []
   const failed: BatchResult['failed'] = []
   const hasBeforeHook = ctx.pluginRegistry.hasHooks('beforeInsert')
   const hasAfterHook = ctx.pluginRegistry.hasHooks('afterInsert')
@@ -253,6 +256,7 @@ export async function insertDocumentBatch(
         }
 
         succeeded.push(batchDocId)
+        succeededDocs.push(documents[i])
       } catch (err) {
         failed.push({
           docId: batchDocId,
@@ -267,6 +271,18 @@ export async function insertDocumentBatch(
   }
 
   ctx.flushManager?.markDirty(indexName, 0)
+
+  for (let i = 0; i < succeeded.length; i++) {
+    await ctx.orchestrator.replicateToWorkers({
+      type: 'insert',
+      indexName,
+      docId: succeeded[i],
+      document: succeededDocs[i],
+      requestId: `replicate-insert-${succeeded[i]}`,
+      skipClone: options?.skipClone,
+    })
+  }
+
   await ctx.orchestrator.checkPromotion()
 
   return { succeeded, failed }
@@ -364,6 +380,8 @@ export async function updateDocument(
 
   const updateManager = ctx.requireManager(indexName)
   const oldDocument = updateManager.get(docId)
+  const oldPartitionDoc = updateManager.getRef(docId)
+  const rollbackDoc = oldPartitionDoc ? structuredClone(oldPartitionDoc) : undefined
 
   await ctx.pluginRegistry.runHook('beforeUpdate', {
     indexName,
@@ -401,13 +419,13 @@ export async function updateDocument(
   try {
     updateDocumentVectors(docId, updateExtractedVectors, updateVecIndexes)
   } catch (err) {
-    if (oldDocument) {
+    if (rollbackDoc) {
       try {
         await ctx.executor.execute({
           type: 'update',
           indexName,
           docId,
-          document: oldDocument,
+          document: rollbackDoc,
           requestId: docId,
         })
       } catch (rollbackErr) {
@@ -472,8 +490,6 @@ export async function updateDocumentBatch(
 
   return { succeeded, failed }
 }
-
-import { deleteNestedValue, extractVectorFromDoc } from './vector-coordinator'
 
 function extractVectorFromDocForUpdate(document: Record<string, unknown>, fieldPath: string): Float32Array | null {
   return extractVectorFromDoc(document, fieldPath)
