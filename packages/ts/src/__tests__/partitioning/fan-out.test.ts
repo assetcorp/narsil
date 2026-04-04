@@ -206,5 +206,4 @@ describe('fanOutQuery', () => {
       expect(result.scored[0].docId).toBe('doc1')
     })
   })
-
 })

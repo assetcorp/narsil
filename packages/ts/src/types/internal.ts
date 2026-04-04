@@ -147,4 +147,3 @@ export interface InternalSearchParams {
   maxResults?: number
   termMatch?: import('../types/search').TermMatchPolicy
 }
-

@@ -167,7 +167,6 @@ export function serializePartitionToWirePayload(
       enum: wireEnum,
       geopoint: wireGeo,
     },
-    vector_data: {},
     statistics: {
       total_documents: serializedStats.totalDocuments,
       total_field_lengths: serializedStats.totalFieldLengths,
@@ -271,7 +270,6 @@ export function serializePartitionToWirePayloadV2(
       enum: wireEnum,
       geopoint: wireGeo,
     },
-    vector_data: {},
     statistics: {
       total_documents: serializedStats.totalDocuments,
       total_field_lengths: serializedStats.totalFieldLengths,

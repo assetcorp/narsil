@@ -106,33 +106,6 @@ function partitionToWire(partition: SerializablePartition): RawPartitionPayload 
     wireGeopoint[field] = entries.map(e => ({ lat: e.lat, lon: e.lon, doc_id: e.docId }))
   }
 
-  const wireVectors: NonNullable<RawPartitionPayload['vector_data']> = {}
-  for (const [field, data] of Object.entries(partition.vectorData ?? {})) {
-    wireVectors[field] = {
-      dimension: data.dimension,
-      vectors: data.vectors.map(v => ({ doc_id: v.docId, vector: v.vector })),
-      hnsw_graph: data.hnswGraph
-        ? {
-            entry_point: data.hnswGraph.entryPoint,
-            max_layer: data.hnswGraph.maxLayer,
-            m: data.hnswGraph.m,
-            ef_construction: data.hnswGraph.efConstruction,
-            metric: data.hnswGraph.metric,
-            nodes: data.hnswGraph.nodes,
-          }
-        : null,
-      sq8: data.sq8
-        ? {
-            alpha: data.sq8.alpha,
-            offset: data.sq8.offset,
-            quantized_vectors: data.sq8.quantizedVectors,
-            vector_sums: data.sq8.vectorSums,
-            vector_sum_sqs: data.sq8.vectorSumSqs,
-          }
-        : null,
-    }
-  }
-
   return {
     index_name: partition.indexName,
     partition_id: partition.partitionId,
@@ -149,7 +122,6 @@ function partitionToWire(partition: SerializablePartition): RawPartitionPayload 
       enum: partition.fieldIndexes.enum,
       geopoint: wireGeopoint,
     },
-    vector_data: wireVectors,
     statistics: {
       total_documents: partition.statistics.totalDocuments,
       total_field_lengths: partition.statistics.totalFieldLengths,

@@ -416,7 +416,7 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
       const SET_ENTRY_COST = 72
 
       const m = hnsw.m
-      const avgLayers = m / (m - 1)
+      const avgLayers = m > 1 ? m / (m - 1) : 1
       const avgConnsLayer0 = m
       const avgConnsUpper = Math.ceil(m / 2)
 
