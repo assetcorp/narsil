@@ -438,67 +438,6 @@ describe('PartitionIndex', () => {
     })
   })
 
-  describe('vector fields', () => {
-    const vectorSchema: SchemaDefinition = {
-      title: 'string',
-      embedding: 'vector[3]',
-    }
-
-    it('indexes and searches vector fields', () => {
-      partition.insert('doc1', { title: 'one', embedding: [1, 0, 0] }, vectorSchema, english)
-      partition.insert('doc2', { title: 'two', embedding: [0, 1, 0] }, vectorSchema, english)
-      partition.insert('doc3', { title: 'three', embedding: [1, 0.1, 0] }, vectorSchema, english)
-
-      const result = partition.searchVector({
-        field: 'embedding',
-        value: [1, 0, 0],
-        k: 2,
-        metric: 'cosine',
-      })
-
-      expect(result.totalMatched).toBe(2)
-      expect(result.scored[0].docId).toBe('doc1')
-    })
-
-    it('throws for mismatched vector dimensions', () => {
-      partition.insert('doc1', { title: 'one', embedding: [1, 0, 0] }, vectorSchema, english)
-      expect(() => {
-        partition.searchVector({
-          field: 'embedding',
-          value: [1, 0],
-          k: 1,
-          metric: 'cosine',
-        })
-      }).toThrow(NarsilError)
-    })
-
-    it('filters vector results by similarity threshold', () => {
-      partition.insert('doc1', { title: 'one', embedding: [1, 0, 0] }, vectorSchema, english)
-      partition.insert('doc2', { title: 'two', embedding: [0, 1, 0] }, vectorSchema, english)
-
-      const result = partition.searchVector({
-        field: 'embedding',
-        value: [1, 0, 0],
-        k: 10,
-        similarity: 0.9,
-        metric: 'cosine',
-      })
-
-      expect(result.scored.length).toBe(1)
-      expect(result.scored[0].docId).toBe('doc1')
-    })
-
-    it('returns empty results for non-existent vector field', () => {
-      const result = partition.searchVector({
-        field: 'nonexistent',
-        value: [1, 0, 0],
-        k: 10,
-        metric: 'cosine',
-      })
-      expect(result.totalMatched).toBe(0)
-    })
-  })
-
   describe('array fields', () => {
     const arraySchema: SchemaDefinition = {
       title: 'string',
@@ -633,21 +572,17 @@ describe('PartitionIndex', () => {
       expect(restored.stats.totalDocuments).toBe(2)
     })
 
-    it('preserves vector data after deserialization', () => {
+    it('omits vector data from partition serialization', () => {
       const vectorSchema: SchemaDefinition = { title: 'string', embedding: 'vector[3]' }
       partition.insert('doc1', { title: 'one', embedding: [1, 0, 0] }, vectorSchema, english)
 
       const serialized = partition.serialize('test-index', 1, 'english', vectorSchema)
+      expect(serialized.vectorData).toBeUndefined()
+
       const restored = makePartition(0)
       restored.deserialize(serialized, vectorSchema)
 
-      const result = restored.searchVector({
-        field: 'embedding',
-        value: [1, 0, 0],
-        k: 1,
-        metric: 'cosine',
-      })
-      expect(result.totalMatched).toBe(1)
+      expect(restored.count()).toBe(1)
     })
 
     it('round-trips documents and tokens with __proto__ as key', () => {
@@ -741,60 +676,4 @@ describe('PartitionIndex', () => {
     })
   })
 
-  describe('euclidean vector metric', () => {
-    const vectorSchema: SchemaDefinition = { title: 'string', embedding: 'vector[2]' }
-
-    it('returns results using euclidean distance', () => {
-      partition.insert('doc1', { title: 'close', embedding: [1.0, 0.0] }, vectorSchema, english)
-      partition.insert('doc2', { title: 'far', embedding: [10.0, 10.0] }, vectorSchema, english)
-
-      const result = partition.searchVector({
-        field: 'embedding',
-        value: [1.0, 0.0],
-        k: 2,
-        metric: 'euclidean',
-      })
-
-      expect(result.scored[0].docId).toBe('doc1')
-      expect(result.scored[0].score).toBeGreaterThan(result.scored[1].score)
-    })
-  })
-
-  describe('dotProduct vector metric', () => {
-    const vectorSchema: SchemaDefinition = { title: 'string', embedding: 'vector[3]' }
-
-    it('returns results using dot product', () => {
-      partition.insert('doc1', { title: 'aligned', embedding: [1, 1, 1] }, vectorSchema, english)
-      partition.insert('doc2', { title: 'orthogonal', embedding: [0, 0, 1] }, vectorSchema, english)
-
-      const result = partition.searchVector({
-        field: 'embedding',
-        value: [1, 1, 0],
-        k: 2,
-        metric: 'dotProduct',
-      })
-
-      expect(result.scored[0].docId).toBe('doc1')
-    })
-  })
-
-  describe('vector search with filter doc IDs', () => {
-    const vectorSchema: SchemaDefinition = { title: 'string', embedding: 'vector[3]' }
-
-    it('restricts vector search to provided doc IDs', () => {
-      partition.insert('doc1', { title: 'one', embedding: [1, 0, 0] }, vectorSchema, english)
-      partition.insert('doc2', { title: 'two', embedding: [0.9, 0.1, 0] }, vectorSchema, english)
-      partition.insert('doc3', { title: 'three', embedding: [0, 1, 0] }, vectorSchema, english)
-
-      const result = partition.searchVector({
-        field: 'embedding',
-        value: [1, 0, 0],
-        k: 10,
-        metric: 'cosine',
-        filterDocIds: new Set(['doc2', 'doc3']),
-      })
-
-      expect(result.scored.every(s => s.docId !== 'doc1')).toBe(true)
-    })
-  })
 })

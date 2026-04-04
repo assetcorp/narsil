@@ -39,6 +39,8 @@ export interface VectorQueryConfig {
 }
 
 export interface HybridConfig {
+  strategy?: 'rrf' | 'linear'
+  k?: number
   alpha?: number
 }
 

@@ -388,7 +388,7 @@ export function createHNSWIndex(
         const candidateIds = new Set(neighborNode.connections[layer])
         for (const otherId of formerNeighborIds) {
           if (otherId !== neighborId && otherId !== docId) {
-            if (excludeDocIds && excludeDocIds.has(otherId)) continue
+            if (excludeDocIds?.has(otherId)) continue
             candidateIds.add(otherId)
           }
         }

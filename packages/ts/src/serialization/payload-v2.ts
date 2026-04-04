@@ -29,7 +29,7 @@ export interface RawPartitionPayloadV2 {
     enum: Record<string, Record<string, string[]>>
     geopoint: Record<string, Array<{ lat: number; lon: number; doc_id: string }>>
   }
-  vector_data: Record<
+  vector_data?: Record<
     string,
     {
       dimension: number
@@ -118,7 +118,7 @@ export function deserializePayloadV2(data: Uint8Array): SerializablePartition {
     geopoint[field] = entries.map(e => ({ lat: e.lat, lon: e.lon, docId: e.doc_id }))
   }
 
-  const vectorData: SerializablePartition['vectorData'] = {}
+  const vectorData: NonNullable<SerializablePartition['vectorData']> = {}
   for (const [field, data] of Object.entries(raw.vector_data ?? {})) {
     vectorData[field] = {
       dimension: data.dimension,

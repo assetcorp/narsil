@@ -1,4 +1,3 @@
-import { ErrorCodes, NarsilError } from '../../errors'
 import { evaluateFilters, type FilterContext } from '../../filters/evaluator'
 import type { FieldIndex, GeoFieldIndex } from '../../filters/operators'
 import type { FilterExpression } from '../../types/filters'
@@ -6,7 +5,6 @@ import type {
   CompactPostingList,
   InternalSearchParams,
   InternalSearchResult,
-  InternalVectorParams,
   ScoredDocument,
 } from '../../types/internal'
 import type { FacetResult } from '../../types/results'
@@ -248,27 +246,6 @@ function siftDown(heap: Array<{ score: number }>, idx: number): void {
     heap[smallest] = tmp
     idx = smallest
   }
-}
-
-export function searchVector(state: PartitionState, params: InternalVectorParams): InternalSearchResult {
-  const { field, value, k, similarity = 0, metric = 'cosine', filterDocIds, efSearch } = params
-
-  const vecStore = state.vectorStores.get(field)
-  if (!vecStore) {
-    return { scored: [], totalMatched: 0 }
-  }
-
-  if (value.length !== vecStore.dimension) {
-    throw new NarsilError(
-      ErrorCodes.SEARCH_INVALID_VECTOR_SIZE,
-      `Query vector dimension ${value.length} does not match field "${field}" dimension ${vecStore.dimension}`,
-      { field, expected: vecStore.dimension, received: value.length },
-    )
-  }
-
-  const queryVec = new Float32Array(value)
-  const results = vecStore.search(queryVec, k, metric, similarity, filterDocIds, efSearch)
-  return { scored: results, totalMatched: results.length }
 }
 
 export function buildFilterContext(state: PartitionState, schema: SchemaDefinition): FilterContext {

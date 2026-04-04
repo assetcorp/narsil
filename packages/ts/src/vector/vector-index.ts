@@ -53,6 +53,7 @@ export interface VectorIndex {
   compact(): void
   optimize(): void
   maintenanceStatus(): MaintenanceStatus
+  estimateMemoryBytes(): number
   serialize(): VectorIndexPayload
   deserialize(payload: VectorIndexPayload): void
 
@@ -396,6 +397,54 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     }
   }
 
+  function estimateMemoryBytes(): number {
+    const count = store.size
+    if (count === 0 && tombstones.size === 0) return 0
+
+    let bytes = store.estimateMemory(dimension)
+
+    const TOMBSTONE_SET_OVERHEAD = 64
+    const TOMBSTONE_ENTRY_COST = 72
+    bytes += TOMBSTONE_SET_OVERHEAD + tombstones.size * TOMBSTONE_ENTRY_COST
+
+    if (hnsw) {
+      const HNSW_NODE_OBJ = 48
+      const MAP_ENTRY = 72
+      const MAP_OVERHEAD = 64
+      const CONN_ARRAY_HEADER = 32
+      const SET_OVERHEAD = 64
+      const SET_ENTRY_COST = 72
+
+      const m = hnsw.m
+      const avgLayers = m / (m - 1)
+      const avgConnsLayer0 = m
+      const avgConnsUpper = Math.ceil(m / 2)
+
+      const connMemPerNode =
+        CONN_ARRAY_HEADER +
+        (SET_OVERHEAD + avgConnsLayer0 * SET_ENTRY_COST) +
+        Math.max(0, avgLayers - 1) * (SET_OVERHEAD + avgConnsUpper * SET_ENTRY_COST)
+
+      const perHnswNode = MAP_ENTRY + HNSW_NODE_OBJ + connMemPerNode
+      bytes += MAP_OVERHEAD + count * perHnswNode
+    }
+
+    if (sq8?.isCalibrated()) {
+      const sqCount = sq8.size
+      const MAP_OVERHEAD_SQ = 64
+      const MAP_ENTRY_SQ = 72
+      const UINT8_ARRAY_HEADER = 64
+      const PER_VECTOR_METADATA = 8 * 3
+      const GLOBAL_CALIBRATION = 8 * 5
+
+      bytes += 4 * (MAP_OVERHEAD_SQ + sqCount * MAP_ENTRY_SQ)
+      bytes += sqCount * (UINT8_ARRAY_HEADER + dimension + PER_VECTOR_METADATA)
+      bytes += GLOBAL_CALIBRATION
+    }
+
+    return Math.round(bytes)
+  }
+
   return {
     get size() {
       return liveSize()
@@ -414,6 +463,7 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     compact,
     optimize,
     maintenanceStatus,
+    estimateMemoryBytes,
     serialize,
     deserialize,
   }

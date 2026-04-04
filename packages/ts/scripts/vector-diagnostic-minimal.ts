@@ -1,7 +1,7 @@
+import { createBruteForceSearch } from '../src/vector/brute-force'
 import { createHNSWIndex } from '../src/vector/hnsw'
 import { isSimdAvailable } from '../src/vector/simd'
 import { createVectorStore } from '../src/vector/vector-store'
-import { createBruteForceSearch } from '../src/vector/brute-force'
 
 function mulberry32(seed: number): () => number {
   let s = seed | 0

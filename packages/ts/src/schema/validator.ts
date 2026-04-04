@@ -382,3 +382,15 @@ export function flattenSchema(schema: SchemaDefinition): Record<string, FieldTyp
   flattenRecursive(schema, '', result)
   return result
 }
+
+export function extractVectorFieldsFromSchema(schema: SchemaDefinition): Map<string, number> {
+  const flat = flattenSchema(schema)
+  const result = new Map<string, number>()
+  for (const [fieldPath, fieldType] of Object.entries(flat)) {
+    const match = VECTOR_PATTERN.exec(fieldType)
+    if (match) {
+      result.set(fieldPath, Number.parseInt(match[1], 10))
+    }
+  }
+  return result
+}
