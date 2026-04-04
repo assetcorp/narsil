@@ -10,7 +10,7 @@ export function extractVectorFromDoc(document: Record<string, unknown>, fieldPat
   const arr = new Float32Array(value.length)
   for (let i = 0; i < value.length; i++) {
     const n = value[i]
-    if (typeof n !== 'number' || Number.isNaN(n)) return null
+    if (typeof n !== 'number' || !Number.isFinite(n)) return null
     arr[i] = n
   }
   return arr

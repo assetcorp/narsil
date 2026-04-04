@@ -17,6 +17,8 @@ const VECTOR_PATTERN = /^vector\[(\d+)]$/
 
 const RESERVED_ROOT_FIELDS = new Set(['id'])
 
+const PROTOTYPE_POLLUTION_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
 const MAX_NESTING_DEPTH = 4
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -34,6 +36,13 @@ function validateSchemaFields(schema: SchemaDefinition, depth: number, prefix: s
 
   for (const [field, type] of Object.entries(schema)) {
     const path = prefix ? `${prefix}.${field}` : field
+
+    if (PROTOTYPE_POLLUTION_KEYS.has(field)) {
+      throw new NarsilError(ErrorCodes.SCHEMA_INVALID_TYPE, `Field name "${field}" is not allowed in a schema`, {
+        field,
+        path,
+      })
+    }
 
     if (depth === 1 && RESERVED_ROOT_FIELDS.has(field)) {
       throw new NarsilError(
