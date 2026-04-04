@@ -38,6 +38,7 @@ export interface SerializedHNSWGraph {
 export interface HNSWIndex {
   readonly dimension: number
   readonly size: number
+  readonly tombstoneCount: number
   readonly entryPointId: string | null
   readonly topLayer: number
   readonly m: number
@@ -60,6 +61,8 @@ export interface HNSWIndex {
   entries(): IterableIterator<[string, VectorEntry]>
   compactionNeeded(): boolean
   compact(): void
+  compactTombstones(): void
+  rebuild(): void
 
   serialize(): SerializedHNSWGraph
   deserialize(data: SerializedHNSWGraph): void
@@ -358,7 +361,7 @@ export function createHNSWIndex(
     }
   }
 
-  function removeNodeEager(docId: string): void {
+  function removeNodeEager(docId: string, excludeDocIds?: Set<string>): void {
     const node = nodes.get(docId)
     if (!node) return
 
@@ -385,6 +388,7 @@ export function createHNSWIndex(
         const candidateIds = new Set(neighborNode.connections[layer])
         for (const otherId of formerNeighborIds) {
           if (otherId !== neighborId && otherId !== docId) {
+            if (excludeDocIds && excludeDocIds.has(otherId)) continue
             candidateIds.add(otherId)
           }
         }
@@ -658,8 +662,20 @@ export function createHNSWIndex(
     return tombstones.size / nodes.size > COMPACTION_TOMBSTONE_RATIO || tombstones.size > COMPACTION_ABSOLUTE_THRESHOLD
   }
 
-  function compact(): void {
+  function compactTombstones(): void {
     if (tombstones.size === 0) return
+
+    const tombstonedDocIds = Array.from(tombstones)
+
+    for (const docId of tombstonedDocIds) {
+      removeNodeEager(docId, tombstones)
+    }
+
+    tombstones.clear()
+  }
+
+  function rebuild(): void {
+    if (tombstones.size === 0 && nodes.size === 0) return
 
     const liveDocIds: string[] = []
     for (const [docId] of nodes) {
@@ -684,6 +700,9 @@ export function createHNSWIndex(
     get size() {
       return nodes.size - tombstones.size
     },
+    get tombstoneCount() {
+      return tombstones.size
+    },
     get entryPointId() {
       return entryPointId
     },
@@ -707,7 +726,9 @@ export function createHNSWIndex(
     clear,
     entries: entriesIterator,
     compactionNeeded,
-    compact,
+    compact: rebuild,
+    compactTombstones,
+    rebuild,
     serialize,
     deserialize,
   }

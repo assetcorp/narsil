@@ -22,6 +22,7 @@ export type VectorQuantizationMode = 'sq8' | 'none'
 
 export interface VectorIndexConfig {
   threshold?: number
+  filterThreshold?: number
   hnswConfig?: { m?: number; efConstruction?: number; metric?: 'cosine' | 'dotProduct' | 'euclidean' }
   quantization?: VectorQuantizationMode
 }
