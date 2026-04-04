@@ -42,6 +42,7 @@ describe('ErrorCodes', () => {
   it('has all expected search error codes', () => {
     expect(ErrorCodes.SEARCH_INVALID_FIELD).toBe('SEARCH_INVALID_FIELD')
     expect(ErrorCodes.SEARCH_INVALID_VECTOR_SIZE).toBe('SEARCH_INVALID_VECTOR_SIZE')
+    expect(ErrorCodes.VECTOR_DIMENSION_MISMATCH).toBe('VECTOR_DIMENSION_MISMATCH')
     expect(ErrorCodes.SEARCH_INVALID_FILTER).toBe('SEARCH_INVALID_FILTER')
     expect(ErrorCodes.SEARCH_INVALID_MODE).toBe('SEARCH_INVALID_MODE')
     expect(ErrorCodes.SEARCH_INVALID_CURSOR).toBe('SEARCH_INVALID_CURSOR')
@@ -61,8 +62,8 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.DOC_MISSING_REQUIRED_FIELD).toBe('DOC_MISSING_REQUIRED_FIELD')
   })
 
-  it('has exactly 33 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(33)
+  it('has exactly 34 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(34)
   })
 
   it('has unique values for every code', () => {
