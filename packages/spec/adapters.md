@@ -65,10 +65,11 @@ PersistenceAdapter {
 Keys are slash-delimited string paths. The key format follows the
 convention defined in [envelope.md](envelope.md):
 
-| Key Pattern                 | Content          |
-|-----------------------------|------------------|
-| `<indexName>/meta`          | Index metadata   |
-| `<indexName>/partition_<N>` | Partition N data |
+| Key Pattern                      | Content            |
+|----------------------------------|--------------------|
+| `<indexName>/meta`               | Index metadata     |
+| `<indexName>/partition_<N>`      | Partition N data   |
+| `<indexName>/vector/<fieldName>` | Vector index data  |
 
 ### Security: Path Traversal Protection
 
