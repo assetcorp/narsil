@@ -69,8 +69,6 @@ export interface PartitionStatsResult {
   partitionId: number
   documentCount: number
   estimatedMemoryBytes: number
-  vectorFieldCount: number
-  isHnswPromoted: boolean
 }
 
 export interface SuggestResult {

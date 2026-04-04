@@ -3,8 +3,10 @@ import { getLanguage } from '../languages/registry'
 import { fanOutQuery } from '../partitioning/fan-out'
 import { createPartitionManager, type PartitionManager } from '../partitioning/manager'
 import { createPartitionRouter } from '../partitioning/router'
+import { extractVectorFieldsFromSchema } from '../schema/validator'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
+import { createVectorIndex, type VectorIndex } from '../vector/vector-index'
 import type { Executor } from './executor'
 import type { WorkerAction } from './protocol'
 
@@ -19,6 +21,7 @@ interface IndexEntry {
   manager: PartitionManager
   config: IndexConfig
   language: LanguageModule
+  vectorIndexes: Map<string, VectorIndex>
 }
 
 export function createDirectExecutor(): Executor & DirectExecutorExtensions {
@@ -43,9 +46,16 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
 
     const router = createPartitionRouter()
     const partitionCount = config.partitions?.maxPartitions ?? 1
-    const manager = createPartitionManager(indexName, config, language, router, partitionCount)
 
-    indexes.set(indexName, { manager, config, language })
+    const vectorFields = extractVectorFieldsFromSchema(config.schema)
+    const vectorIndexes = new Map<string, VectorIndex>()
+    for (const [fieldPath, dim] of vectorFields) {
+      vectorIndexes.set(fieldPath, createVectorIndex(fieldPath, dim, config.vectorPromotion))
+    }
+
+    const manager = createPartitionManager(indexName, config, language, router, partitionCount, vectorIndexes)
+
+    indexes.set(indexName, { manager, config, language, vectorIndexes })
   }
 
   function dropIndex(indexName: string): void {
@@ -144,6 +154,15 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
           partition.clear()
         }
         entry.manager.setPartitions(partitions)
+
+        const vectorFields = extractVectorFieldsFromSchema(entry.config.schema)
+        const newVectorIndexes = new Map<string, VectorIndex>()
+        for (const [fieldPath, dim] of vectorFields) {
+          newVectorIndexes.set(fieldPath, createVectorIndex(fieldPath, dim, entry.config.vectorPromotion))
+        }
+        entry.manager.resetVectorIndexes(newVectorIndexes)
+        entry.vectorIndexes = entry.manager.getVectorIndexes()
+
         return undefined as T
       }
 

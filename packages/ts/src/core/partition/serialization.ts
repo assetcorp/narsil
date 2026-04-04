@@ -1,5 +1,4 @@
 import { createGeoIndex } from '../../geo/geo-index'
-import { createVectorSearchEngine } from '../../search/vector-search'
 import type { RawPartitionPayload } from '../../serialization/payload-v1'
 import type { RawPartitionPayloadV2 } from '../../serialization/payload-v2'
 import type { SerializablePartition } from '../../types/internal'
@@ -64,23 +63,6 @@ export function serializePartition(
     serializedGeo[path] = idx.serialize()
   }
 
-  const serializedVectors: SerializablePartition['vectorData'] = {}
-  for (const [path, store] of state.vectorStores) {
-    const vectors: Array<{ docId: string; vector: number[] }> = []
-    for (const [, entry] of store.entries()) {
-      vectors.push({
-        docId: entry.docId,
-        vector: Array.from(entry.vector),
-      })
-    }
-    serializedVectors[path] = {
-      dimension: store.dimension,
-      vectors,
-      hnswGraph: store.serializeHNSW(),
-      sq8: store.serializeSQ8(),
-    }
-  }
-
   const serializedStats = state.stats.serialize()
 
   return {
@@ -99,7 +81,6 @@ export function serializePartition(
       enum: serializedEnum,
       geopoint: serializedGeo,
     },
-    vectorData: serializedVectors,
     statistics: serializedStats,
   }
 }
@@ -168,39 +149,6 @@ export function serializePartitionToWirePayload(
     wireGeo[path] = idx.serialize().map(e => ({ lat: e.lat, lon: e.lon, doc_id: e.docId }))
   }
 
-  const wireVectors: RawPartitionPayload['vector_data'] = {}
-  for (const [path, store] of state.vectorStores) {
-    const vectors: Array<{ doc_id: string; vector: number[] }> = []
-    for (const [, entry] of store.entries()) {
-      vectors.push({ doc_id: entry.docId, vector: Array.from(entry.vector) })
-    }
-    const hnswData = store.serializeHNSW()
-    const sq8Data = store.serializeSQ8()
-    wireVectors[path] = {
-      dimension: store.dimension,
-      vectors,
-      hnsw_graph: hnswData
-        ? {
-            entry_point: hnswData.entryPoint,
-            max_layer: hnswData.maxLayer,
-            m: hnswData.m,
-            ef_construction: hnswData.efConstruction,
-            metric: hnswData.metric,
-            nodes: hnswData.nodes,
-          }
-        : null,
-      sq8: sq8Data
-        ? {
-            alpha: sq8Data.alpha,
-            offset: sq8Data.offset,
-            quantized_vectors: sq8Data.quantizedVectors,
-            vector_sums: sq8Data.vectorSums,
-            vector_sum_sqs: sq8Data.vectorSumSqs,
-          }
-        : null,
-    }
-  }
-
   const serializedStats = state.stats.serialize()
 
   return {
@@ -219,7 +167,7 @@ export function serializePartitionToWirePayload(
       enum: wireEnum,
       geopoint: wireGeo,
     },
-    vector_data: wireVectors,
+    vector_data: {},
     statistics: {
       total_documents: serializedStats.totalDocuments,
       total_field_lengths: serializedStats.totalFieldLengths,
@@ -301,39 +249,6 @@ export function serializePartitionToWirePayloadV2(
     wireGeo[path] = idx.serialize().map(e => ({ lat: e.lat, lon: e.lon, doc_id: e.docId }))
   }
 
-  const wireVectors: RawPartitionPayloadV2['vector_data'] = {}
-  for (const [path, store] of state.vectorStores) {
-    const vectors: Array<{ doc_id: string; vector: number[] }> = []
-    for (const [, entry] of store.entries()) {
-      vectors.push({ doc_id: entry.docId, vector: Array.from(entry.vector) })
-    }
-    const hnswData = store.serializeHNSW()
-    const sq8Data = store.serializeSQ8()
-    wireVectors[path] = {
-      dimension: store.dimension,
-      vectors,
-      hnsw_graph: hnswData
-        ? {
-            entry_point: hnswData.entryPoint,
-            max_layer: hnswData.maxLayer,
-            m: hnswData.m,
-            ef_construction: hnswData.efConstruction,
-            metric: hnswData.metric,
-            nodes: hnswData.nodes,
-          }
-        : null,
-      sq8: sq8Data
-        ? {
-            alpha: sq8Data.alpha,
-            offset: sq8Data.offset,
-            quantized_vectors: sq8Data.quantizedVectors,
-            vector_sums: sq8Data.vectorSums,
-            vector_sum_sqs: sq8Data.vectorSumSqs,
-          }
-        : null,
-    }
-  }
-
   const serializedStats = state.stats.serialize()
 
   return {
@@ -356,7 +271,7 @@ export function serializePartitionToWirePayloadV2(
       enum: wireEnum,
       geopoint: wireGeo,
     },
-    vector_data: wireVectors,
+    vector_data: {},
     statistics: {
       total_documents: serializedStats.totalDocuments,
       total_field_lengths: serializedStats.totalFieldLengths,
@@ -423,24 +338,6 @@ export function deserializePartition(
     const geoIdx = createGeoIndex()
     geoIdx.deserialize(entries)
     state.geoIndexes.set(path, geoIdx)
-  }
-
-  for (const [path, vecData] of Object.entries(data.vectorData)) {
-    const vecConfig = state.vectorIndexConfig
-    const engine = createVectorSearchEngine(vecData.dimension, vecConfig?.hnswConfig, vecConfig ?? undefined)
-    const rawStore = engine.getVectorStore()
-    for (const entry of vecData.vectors) {
-      rawStore.insert(entry.docId, new Float32Array(entry.vector))
-    }
-    if (vecData.sq8) {
-      engine.deserializeSQ8(vecData.sq8)
-    }
-    if (vecData.hnswGraph) {
-      engine.deserializeHNSW(vecData.hnswGraph)
-    } else if (rawStore.size >= (vecConfig?.threshold ?? 1024)) {
-      engine.promoteToHNSW(vecConfig?.hnswConfig)
-    }
-    state.vectorStores.set(path, engine)
   }
 
   state.stats.deserialize(data.statistics as SerializedPartitionStats)

@@ -6,23 +6,22 @@ import type {
   GlobalStatistics,
   InternalSearchParams,
   InternalSearchResult,
-  InternalVectorParams,
   ScoredDocument,
   SerializablePartition,
 } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { FacetResult } from '../../types/results'
-import type { AnyDocument, SchemaDefinition, VectorIndexConfig } from '../../types/schema'
+import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
 import { createDocumentStore } from '../document-store'
 import { createInvertedIndex } from '../inverted-index'
 import { createPartitionStats, type PartitionStats } from '../statistics'
 import { indexDocument, removeFromIndexes, updateFieldIndexOnly } from './indexing'
-import { applyPartitionFilters, computeFacets, searchFulltext, searchVector } from './search'
+import { applyPartitionFilters, computeFacets, searchFulltext } from './search'
 import { deserializePartition, serializePartition, serializePartitionToWirePayloadV2 } from './serialization'
 import { getFlatSchema, type PartitionInsertOptions, type PartitionState, textFieldsChanged } from './utils'
 
-export type { GlobalStatistics, InternalSearchParams, InternalSearchResult, InternalVectorParams, ScoredDocument }
+export type { GlobalStatistics, InternalSearchParams, InternalSearchResult, ScoredDocument }
 export type { PartitionInsertOptions }
 
 export interface PartitionIndex {
@@ -52,14 +51,11 @@ export interface PartitionIndex {
   clear(): void
 
   searchFulltext(params: InternalSearchParams): InternalSearchResult
-  searchVector(params: InternalVectorParams): InternalSearchResult
   applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string>
   computeFacets(docIds: Set<string>, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult>
   suggestTerms(prefix: string, limit: number): Array<{ term: string; documentFrequency: number }>
 
   estimateMemoryBytes(): number
-  vectorFieldCount(): number
-  hasPromotedHnsw(): boolean
 
   serialize(
     indexName: string,
@@ -74,7 +70,6 @@ export interface PartitionIndex {
 export function createPartitionIndex(
   partitionId: number,
   trackPositions = true,
-  vectorIndexConfig?: VectorIndexConfig,
 ): PartitionIndex {
   const fieldNameTable = { names: [] as string[], indexMap: new Map<string, number>() }
 
@@ -86,8 +81,6 @@ export function createPartitionIndex(
     booleanIndexes: new Map(),
     enumIndexes: new Map(),
     geoIndexes: new Map(),
-    vectorStores: new Map(),
-    vectorIndexConfig: vectorIndexConfig ?? null,
     fieldNameTable,
     flatSchemaCache: null,
     lastSchemaRef: null,
@@ -101,12 +94,10 @@ export function createPartitionIndex(
     for (const idx of state.booleanIndexes.values()) idx.clear()
     for (const idx of state.enumIndexes.values()) idx.clear()
     for (const idx of state.geoIndexes.values()) idx.clear()
-    for (const store of state.vectorStores.values()) store.clear()
     state.numericIndexes.clear()
     state.booleanIndexes.clear()
     state.enumIndexes.clear()
     state.geoIndexes.clear()
-    state.vectorStores.clear()
     state.stats.deserialize({ totalDocuments: 0, totalFieldLengths: {}, averageFieldLengths: {}, docFrequencies: {} })
     state.flatSchemaCache = null
     state.lastSchemaRef = null
@@ -280,30 +271,11 @@ export function createPartitionIndex(
       bytes += docCount * state.enumIndexes.size * FIELD_ENTRY_OVERHEAD
       bytes += docCount * state.geoIndexes.size * FIELD_ENTRY_OVERHEAD
 
-      for (const store of state.vectorStores.values()) {
-        bytes += store.estimateMemoryBytes()
-      }
-
       return bytes
-    },
-
-    vectorFieldCount(): number {
-      return state.vectorStores.size
-    },
-
-    hasPromotedHnsw(): boolean {
-      for (const store of state.vectorStores.values()) {
-        if (store.isPromoted) return true
-      }
-      return false
     },
 
     searchFulltext(params: InternalSearchParams): InternalSearchResult {
       return searchFulltext(state, params)
-    },
-
-    searchVector(params: InternalVectorParams): InternalSearchResult {
-      return searchVector(state, params)
     },
 
     applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string> {

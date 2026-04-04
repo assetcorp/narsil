@@ -1,5 +1,4 @@
 import { createGeoIndex } from '../../geo/geo-index'
-import { createVectorSearchEngine } from '../../search/vector-search'
 import type { LanguageModule } from '../../types/language'
 import type { FieldType } from '../../types/schema'
 import type { ReadonlyStoredDocument } from '../document-store'
@@ -16,7 +15,6 @@ import {
   getOrCreateFieldNameIndex,
   type PartitionInsertOptions,
   type PartitionState,
-  parseVectorDimension,
   tokenizeOptions,
 } from './utils'
 
@@ -29,12 +27,6 @@ function ensureFieldIndex(state: PartitionState, fieldPath: string, fieldType: F
     state.enumIndexes.set(fieldPath, createEnumIndex())
   } else if (fieldType === 'geopoint' && !state.geoIndexes.has(fieldPath)) {
     state.geoIndexes.set(fieldPath, createGeoIndex())
-  } else {
-    const dim = parseVectorDimension(fieldType)
-    if (dim !== null && !state.vectorStores.has(fieldPath)) {
-      const vecConfig = state.vectorIndexConfig
-      state.vectorStores.set(fieldPath, createVectorSearchEngine(dim, vecConfig?.hnswConfig, vecConfig ?? undefined))
-    }
   }
 }
 
@@ -201,12 +193,6 @@ export function indexDocument(
       if (enumIdx) {
         for (const e of value as string[]) enumIdx.insert(docId, e)
       }
-    } else {
-      const dim = parseVectorDimension(fieldType)
-      if (dim !== null) {
-        const vec = value instanceof Float32Array ? value : new Float32Array(value as number[])
-        state.vectorStores.get(fieldPath)?.insert(docId, vec)
-      }
     }
   }
 
@@ -276,10 +262,6 @@ export function removeFromIndexes(
       const enumIdx = state.enumIndexes.get(fieldPath)
       if (enumIdx) {
         for (const e of value as string[]) enumIdx.remove(docId, e)
-      }
-    } else {
-      if (parseVectorDimension(fieldType) !== null) {
-        state.vectorStores.get(fieldPath)?.remove(docId)
       }
     }
   }
@@ -370,15 +352,6 @@ export function updateFieldIndexOnly(
         }
         if (newVal !== undefined && newVal !== null) {
           for (const e of newVal as string[]) enumIdx.insert(docId, e)
-        }
-      }
-    } else if (parseVectorDimension(fieldType) !== null) {
-      const vecStore = state.vectorStores.get(fieldPath)
-      if (vecStore) {
-        vecStore.remove(docId)
-        if (newVal !== undefined && newVal !== null) {
-          const vec = newVal instanceof Float32Array ? newVal : new Float32Array(newVal as number[])
-          vecStore.insert(docId, vec)
         }
       }
     }

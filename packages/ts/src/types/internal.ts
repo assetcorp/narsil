@@ -74,7 +74,7 @@ export interface SerializablePartition {
     enum: Record<string, Record<string, string[]>>
     geopoint: Record<string, Array<{ lat: number; lon: number; docId: string }>>
   }
-  vectorData: Record<
+  vectorData?: Record<
     string,
     {
       dimension: number
@@ -112,6 +112,7 @@ export interface IndexMetadata {
   bm25Params: { k1: number; b: number }
   createdAt: number
   engineVersion: string
+  vectorFields?: Record<string, { dimension: number; metric: string; quantization: string }>
 }
 
 export interface GlobalStatistics {
@@ -147,12 +148,3 @@ export interface InternalSearchParams {
   termMatch?: import('../types/search').TermMatchPolicy
 }
 
-export interface InternalVectorParams {
-  field: string
-  value: number[]
-  k: number
-  similarity?: number
-  metric?: 'cosine' | 'dotProduct' | 'euclidean'
-  filterDocIds?: Set<string>
-  efSearch?: number
-}
