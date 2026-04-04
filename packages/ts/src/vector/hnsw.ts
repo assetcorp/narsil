@@ -60,7 +60,6 @@ export interface HNSWIndex {
   clear(): void
   entries(): IterableIterator<[string, VectorEntry]>
   compactionNeeded(): boolean
-  compact(): void
   compactTombstones(): void
   rebuild(): void
 
@@ -726,7 +725,6 @@ export function createHNSWIndex(
     clear,
     entries: entriesIterator,
     compactionNeeded,
-    compact: rebuild,
     compactTombstones,
     rebuild,
     serialize,

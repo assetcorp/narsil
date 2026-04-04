@@ -67,10 +67,7 @@ export interface PartitionIndex {
   deserialize(data: SerializablePartition, schema: SchemaDefinition): void
 }
 
-export function createPartitionIndex(
-  partitionId: number,
-  trackPositions = true,
-): PartitionIndex {
+export function createPartitionIndex(partitionId: number, trackPositions = true): PartitionIndex {
   const fieldNameTable = { names: [] as string[], indexMap: new Map<string, number>() }
 
   const state: PartitionState = {

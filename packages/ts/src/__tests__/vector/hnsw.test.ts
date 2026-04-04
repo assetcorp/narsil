@@ -391,7 +391,7 @@ describe('HNSWIndex', () => {
       expect(index.compactionNeeded()).toBe(true)
     })
 
-    it('compact rebuilds the graph without tombstoned nodes', () => {
+    it('rebuild reconstructs the graph without tombstoned nodes', () => {
       for (let i = 0; i < 20; i++) {
         insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
@@ -402,7 +402,7 @@ describe('HNSWIndex', () => {
       }
 
       expect(index.size).toBe(15)
-      index.compact()
+      index.rebuild()
       expect(index.size).toBe(15)
 
       const results = index.search(randomVector(DIM), 5, 'cosine', 0)
@@ -412,7 +412,7 @@ describe('HNSWIndex', () => {
       }
     })
 
-    it('compact with all nodes tombstoned results in empty index', () => {
+    it('rebuild with all nodes tombstoned results in empty index', () => {
       for (let i = 0; i < 10; i++) {
         insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
@@ -422,7 +422,7 @@ describe('HNSWIndex', () => {
         store.remove(`doc${i}`)
       }
 
-      index.compact()
+      index.rebuild()
       expect(index.size).toBe(0)
       expect(index.entryPointId).toBeNull()
       expect(index.topLayer).toBe(-1)
@@ -587,7 +587,7 @@ describe('HNSWIndex', () => {
         removeVec(connStore, connIndex, `doc${i}`)
       }
 
-      connIndex.compact()
+      connIndex.rebuild()
 
       const serialized = connIndex.serialize()
       for (const [, , layerConns] of serialized.nodes) {

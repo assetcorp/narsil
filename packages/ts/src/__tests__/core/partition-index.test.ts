@@ -675,5 +675,4 @@ describe('PartitionIndex', () => {
       expect(result.scored[0].docId).toBe('doc2')
     })
   })
-
 })

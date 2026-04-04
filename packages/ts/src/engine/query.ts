@@ -205,8 +205,8 @@ export async function executeQuery<T = AnyDocument>(
   const isVectorOnly = (params.mode === 'vector' || (hasVector && !hasTerm)) && !isHybridMode
 
   const requestedVectorField = params.vector?.field
-  const hasGlobalVectorIndex = requestedVectorField !== undefined
-    && manager.getVectorIndexes().has(requestedVectorField)
+  const hasGlobalVectorIndex =
+    requestedVectorField !== undefined && manager.getVectorIndexes().has(requestedVectorField)
 
   let fanOutResult: FanOutResult
 
@@ -318,26 +318,55 @@ export async function executePreflight(params: QueryParams, context: QueryContex
   const { manager, language, config, workerSearch, indexName } = context
   const startTime = now()
 
+  const hasTerm = params.term !== undefined && params.term.trim().length > 0
+  const hasVector = params.vector !== undefined && params.vector.value !== undefined
+  const isHybridMode = params.mode === 'hybrid' || (hasTerm && hasVector)
+  const isVectorOnly = (params.mode === 'vector' || (hasVector && !hasTerm)) && !isHybridMode
+
+  const requestedVectorField = params.vector?.field
+  const hasGlobalVectorIndex =
+    requestedVectorField !== undefined && manager.getVectorIndexes().has(requestedVectorField)
+
   let totalMatched: number
 
-  const workerResult = workerSearch ? await workerSearch(indexName, params) : null
-  if (workerResult) {
-    totalMatched = workerResult.totalMatched
-  } else {
-    const searchOptions = {
-      bm25Params: config.bm25,
-      stopWords: config.stopWords,
-      customTokenizer: config.tokenizer,
-    }
-    const fanOutResult = await fanOutQuery(
-      manager,
+  const preflightLimit = 1000
+  const preflightOffset = 0
+
+  if (isVectorOnly && hasGlobalVectorIndex) {
+    const result = executeVectorSearch(params, manager, config, preflightLimit, preflightOffset)
+    totalMatched = result.totalMatched
+  } else if (isHybridMode && hasGlobalVectorIndex) {
+    const result = await executeHybridSearch(
       params,
+      manager,
       language,
-      config.schema,
-      { scoringMode: params.scoring ?? config.defaultScoring ?? 'local' },
-      searchOptions,
+      config,
+      workerSearch,
+      indexName,
+      preflightLimit,
+      preflightOffset,
     )
-    totalMatched = fanOutResult.totalMatched
+    totalMatched = result.totalMatched
+  } else {
+    const workerResult = workerSearch ? await workerSearch(indexName, params) : null
+    if (workerResult) {
+      totalMatched = workerResult.totalMatched
+    } else {
+      const searchOptions = {
+        bm25Params: config.bm25,
+        stopWords: config.stopWords,
+        customTokenizer: config.tokenizer,
+      }
+      const fanOutResult = await fanOutQuery(
+        manager,
+        params,
+        language,
+        config.schema,
+        { scoringMode: params.scoring ?? config.defaultScoring ?? 'local' },
+        searchOptions,
+      )
+      totalMatched = fanOutResult.totalMatched
+    }
   }
 
   const elapsed = now() - startTime

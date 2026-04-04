@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   deserializeMetadata,
   deserializePayloadV1,
+  encodeRawPayload,
+  type RawPartitionPayload,
   serializeMetadata,
   serializePayloadV1,
 } from '../../serialization/payload-v1'
@@ -182,64 +184,6 @@ describe('serializePayloadV1 / deserializePayloadV1', () => {
     expect(restored.fieldIndexes.geopoint.location[0].docId).toBe('doc-1')
   })
 
-  it('roundtrips a partition with vector data (no HNSW graph)', () => {
-    const original = makePartition({
-      vectorData: {
-        embedding: {
-          dimension: 3,
-          vectors: [
-            { docId: 'doc-1', vector: [0.1, 0.2, 0.3] },
-            { docId: 'doc-2', vector: [0.4, 0.5, 0.6] },
-          ],
-          hnswGraph: null,
-        },
-      },
-    })
-    const restored = deserializePayloadV1(serializePayloadV1(original))
-
-    expect(restored.vectorData.embedding.dimension).toBe(3)
-    expect(restored.vectorData.embedding.vectors).toHaveLength(2)
-    expect(restored.vectorData.embedding.vectors[0].docId).toBe('doc-1')
-    expect(restored.vectorData.embedding.vectors[0].vector).toEqual([0.1, 0.2, 0.3])
-    expect(restored.vectorData.embedding.hnswGraph).toBeNull()
-  })
-
-  it('roundtrips a partition with HNSW graph', () => {
-    const original = makePartition({
-      vectorData: {
-        embedding: {
-          dimension: 3,
-          vectors: [
-            { docId: 'doc-1', vector: [0.1, 0.2, 0.3] },
-            { docId: 'doc-2', vector: [0.4, 0.5, 0.6] },
-          ],
-          hnswGraph: {
-            entryPoint: 'doc-1',
-            maxLayer: 2,
-            m: 16,
-            efConstruction: 200,
-            nodes: [
-              ['doc-1', 1, [[0, ['doc-2']]]],
-              ['doc-2', 0, [[0, ['doc-1']]]],
-            ],
-          },
-        },
-      },
-    })
-    const restored = deserializePayloadV1(serializePayloadV1(original))
-
-    const graph = restored.vectorData.embedding.hnswGraph
-    expect(graph).not.toBeNull()
-    expect(graph?.entryPoint).toBe('doc-1')
-    expect(graph?.maxLayer).toBe(2)
-    expect(graph?.m).toBe(16)
-    expect(graph?.efConstruction).toBe(200)
-    expect(graph?.nodes).toHaveLength(2)
-    expect(graph?.nodes[0][0]).toBe('doc-1')
-    expect(graph?.nodes[0][1]).toBe(1)
-    expect(graph?.nodes[0][2]).toEqual([[0, ['doc-2']]])
-  })
-
   it('roundtrips an empty partition', () => {
     const original = makePartition({
       docCount: 0,
@@ -300,73 +244,48 @@ describe('serializeMetadata / deserializeMetadata', () => {
   })
 })
 
-describe('HNSW metric preservation in payload-v1', () => {
-  function makePartitionWithHNSW(metric: 'cosine' | 'dotProduct' | 'euclidean'): SerializablePartition {
-    return {
-      indexName: 'vectors',
-      partitionId: 0,
-      totalPartitions: 1,
+describe('payload-v1 backward compat: vector_data read path', () => {
+  it('deserializes legacy wire payloads that contain vector_data', () => {
+    const wire: RawPartitionPayload = {
+      index_name: 'vectors',
+      partition_id: 0,
+      total_partitions: 1,
       language: 'english',
       schema: { embedding: 'vector[3]' },
-      docCount: 2,
-      avgDocLength: 0,
+      doc_count: 1,
+      avg_doc_length: 0,
       documents: {
-        'doc-1': { fields: { embedding: [0.1, 0.2, 0.3] }, fieldLengths: {} },
-        'doc-2': { fields: { embedding: [0.4, 0.5, 0.6] }, fieldLengths: {} },
+        'doc-1': { fields: {}, field_lengths: {} },
       },
-      invertedIndex: {},
-      fieldIndexes: { numeric: {}, boolean: {}, enum: {}, geopoint: {} },
-      vectorData: {
+      inverted_index: {},
+      field_indexes: { numeric: {}, boolean: {}, enum: {}, geopoint: {} },
+      vector_data: {
         embedding: {
           dimension: 3,
-          vectors: [
-            { docId: 'doc-1', vector: [0.1, 0.2, 0.3] },
-            { docId: 'doc-2', vector: [0.4, 0.5, 0.6] },
-          ],
-          hnswGraph: {
-            entryPoint: 'doc-1',
-            maxLayer: 1,
+          vectors: [{ doc_id: 'doc-1', vector: [0.1, 0.2, 0.3] }],
+          hnsw_graph: {
+            entry_point: 'doc-1',
+            max_layer: 1,
             m: 16,
-            efConstruction: 200,
-            metric,
-            nodes: [
-              ['doc-1', 1, [[0, ['doc-2']]]],
-              ['doc-2', 0, [[0, ['doc-1']]]],
-            ],
+            ef_construction: 200,
+            metric: 'euclidean',
+            nodes: [['doc-1', 1, [[0, []]]]],
           },
         },
       },
       statistics: {
-        totalDocuments: 2,
-        totalFieldLengths: {},
-        averageFieldLengths: {},
-        docFrequencies: {},
+        total_documents: 1,
+        total_field_lengths: {},
+        average_field_lengths: {},
+        doc_frequencies: {},
       },
     }
-  }
+    const bytes = encodeRawPayload(wire)
+    const restored = deserializePayloadV1(bytes)
 
-  it('preserves euclidean metric through roundtrip', () => {
-    const original = makePartitionWithHNSW('euclidean')
-    const restored = deserializePayloadV1(serializePayloadV1(original))
+    expect(restored.vectorData.embedding.dimension).toBe(3)
+    expect(restored.vectorData.embedding.vectors).toHaveLength(1)
+    expect(restored.vectorData.embedding.vectors[0].docId).toBe('doc-1')
     expect(restored.vectorData.embedding.hnswGraph?.metric).toBe('euclidean')
-  })
-
-  it('preserves dotProduct metric through roundtrip', () => {
-    const original = makePartitionWithHNSW('dotProduct')
-    const restored = deserializePayloadV1(serializePayloadV1(original))
-    expect(restored.vectorData.embedding.hnswGraph?.metric).toBe('dotProduct')
-  })
-
-  it('preserves cosine metric through roundtrip', () => {
-    const original = makePartitionWithHNSW('cosine')
-    const restored = deserializePayloadV1(serializePayloadV1(original))
-    expect(restored.vectorData.embedding.hnswGraph?.metric).toBe('cosine')
-  })
-
-  it('handles missing metric field gracefully', () => {
-    const original = makePartitionWithHNSW('cosine')
-    delete (original.vectorData.embedding.hnswGraph as Record<string, unknown>).metric
-    const restored = deserializePayloadV1(serializePayloadV1(original))
-    expect(restored.vectorData.embedding.hnswGraph?.metric).toBeFalsy()
   })
 })
