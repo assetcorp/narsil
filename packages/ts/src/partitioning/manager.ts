@@ -23,6 +23,8 @@ export interface PartitionManager {
 
   insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
   remove(docId: string): void
+  beginBatchRemove(): void
+  endBatchRemove(): void
   update(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
   get(docId: string): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
@@ -195,6 +197,18 @@ export function createPartitionManager(
       }
       partitions[pid].remove(docId, config.schema, language)
       docPartitionMap.delete(docId)
+    },
+
+    beginBatchRemove(): void {
+      for (let i = 0; i < partitions.length; i++) {
+        partitions[i].beginBatch()
+      }
+    },
+
+    endBatchRemove(): void {
+      for (let i = 0; i < partitions.length; i++) {
+        partitions[i].endBatch()
+      }
     },
 
     update(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void {

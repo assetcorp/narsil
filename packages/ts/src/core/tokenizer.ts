@@ -134,6 +134,57 @@ export function tokenize(text: string, language: LanguageModule, options?: Token
   return { tokens, originalTokens }
 }
 
+export function* tokenizeIterator(
+  text: string,
+  language: LanguageModule,
+  options?: TokenizeOptions,
+): Generator<{ token: string; position: number }> {
+  const {
+    stem = true,
+    removeStopWords = true,
+    removeDiacritics = false,
+    customTokenizer,
+    stopWordOverride,
+  } = options ?? {}
+
+  if (customTokenizer) {
+    const customResult = customTokenizer.tokenize(text)
+    for (const entry of customResult) {
+      yield entry
+    }
+    return
+  }
+
+  const normalized = isAscii(text) ? text.toLowerCase() : text.normalize('NFC').toLowerCase()
+  const rawParts = splitText(normalized, language)
+  const minLength = language.tokenizer?.minTokenLength ?? DEFAULT_MIN_TOKEN_LENGTH
+
+  const effectiveDiacritics = removeDiacritics || (language.tokenizer?.normalizeDiacritics ?? false)
+  const stopWords = removeStopWords ? resolveStopWords(language, stopWordOverride) : new Set<string>()
+
+  let position = 0
+
+  for (const part of rawParts) {
+    if (part.length < minLength) {
+      position++
+      continue
+    }
+
+    if (stopWords.has(part)) {
+      position++
+      continue
+    }
+
+    const processed = transformToken(part, language, stem, effectiveDiacritics)
+
+    if (processed.length > 0) {
+      yield { token: processed, position }
+    }
+
+    position++
+  }
+}
+
 export function clearNormalizationCache(): void {
   normalizationCache.clear()
 }

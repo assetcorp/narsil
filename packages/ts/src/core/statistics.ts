@@ -18,16 +18,62 @@ export interface SerializedPartitionStats {
   docFrequencies: Record<string, number>
 }
 
-function collectUniqueTokens(tokens: Record<string, string[]>): Set<string> {
-  const unique = new Set<string>()
+function applyUniqueTokens(
+  tokens: Record<string, string[]>,
+  docFrequencies: Record<string, number>,
+  increment: 1 | -1,
+): void {
   const fields = Object.keys(tokens)
+
+  if (fields.length === 1) {
+    const fieldTokens = tokens[fields[0]]
+    if (increment === 1) {
+      const seen = new Set<string>()
+      for (let j = 0; j < fieldTokens.length; j++) {
+        const tok = fieldTokens[j]
+        if (seen.has(tok)) continue
+        seen.add(tok)
+        docFrequencies[tok] = (docFrequencies[tok] ?? 0) + 1
+      }
+    } else {
+      const seen = new Set<string>()
+      for (let j = 0; j < fieldTokens.length; j++) {
+        const tok = fieldTokens[j]
+        if (seen.has(tok)) continue
+        seen.add(tok)
+        if (tok in docFrequencies) {
+          docFrequencies[tok]--
+          if (docFrequencies[tok] <= 0) {
+            delete docFrequencies[tok]
+          }
+        }
+      }
+    }
+    return
+  }
+
+  const unique = new Set<string>()
   for (let i = 0; i < fields.length; i++) {
     const fieldTokens = tokens[fields[i]]
     for (let j = 0; j < fieldTokens.length; j++) {
       unique.add(fieldTokens[j])
     }
   }
-  return unique
+
+  if (increment === 1) {
+    for (const tok of unique) {
+      docFrequencies[tok] = (docFrequencies[tok] ?? 0) + 1
+    }
+  } else {
+    for (const tok of unique) {
+      if (tok in docFrequencies) {
+        docFrequencies[tok]--
+        if (docFrequencies[tok] <= 0) {
+          delete docFrequencies[tok]
+        }
+      }
+    }
+  }
 }
 
 export function createPartitionStats(): PartitionStats {
@@ -46,10 +92,7 @@ export function createPartitionStats(): PartitionStats {
         stats.totalFieldLengths[field] = (stats.totalFieldLengths[field] ?? 0) + fieldLengths[field]
       }
 
-      const uniqueTokens = collectUniqueTokens(tokens)
-      for (const token of uniqueTokens) {
-        stats.docFrequencies[token] = (stats.docFrequencies[token] ?? 0) + 1
-      }
+      applyUniqueTokens(tokens, stats.docFrequencies, 1)
 
       stats.recalculateAverages()
     },
@@ -69,15 +112,7 @@ export function createPartitionStats(): PartitionStats {
         }
       }
 
-      const uniqueTokens = collectUniqueTokens(tokens)
-      for (const token of uniqueTokens) {
-        if (token in stats.docFrequencies) {
-          stats.docFrequencies[token]--
-          if (stats.docFrequencies[token] <= 0) {
-            delete stats.docFrequencies[token]
-          }
-        }
-      }
+      applyUniqueTokens(tokens, stats.docFrequencies, -1)
 
       stats.recalculateAverages()
     },

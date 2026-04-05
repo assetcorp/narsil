@@ -28,19 +28,22 @@ describe('DocumentStore', () => {
       expect(store.get('doc1')?.fields.title).toBe('New')
     })
 
-    it('stores the document fields as a deep copy (top-level mutation)', () => {
+    it('stores the document by reference (caller owns immutability)', () => {
       const original = { title: 'Test', nested: { a: 1 } }
       store.store('doc1', original, { title: 1 })
       original.title = 'Modified'
-      expect(store.get('doc1')?.fields.title).toBe('Test')
+      expect(store.get('doc1')?.fields.title).toBe('Modified')
     })
 
-    it('stores the document fields as a deep copy (nested mutation)', () => {
-      const address = { city: 'Accra', zip: '00233' }
-      store.store('doc1', { title: 'HQ', address }, { title: 1 })
-      address.city = 'London'
-      const stored = store.get('doc1')?.fields.address as Record<string, unknown> | undefined
-      expect(stored?.city).toBe('Accra')
+    it('store and storeRef behave identically (both use reference)', () => {
+      const docA = { title: 'Alpha' }
+      const docB = { title: 'Beta' }
+      store.store('a', docA, { title: 1 })
+      store.storeRef('b', docB, { title: 1 })
+      docA.title = 'Changed-A'
+      docB.title = 'Changed-B'
+      expect(store.get('a')?.fields.title).toBe('Changed-A')
+      expect(store.get('b')?.fields.title).toBe('Changed-B')
     })
 
     it('handles documents with multiple field lengths', () => {

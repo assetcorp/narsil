@@ -36,6 +36,8 @@ export interface PartitionIndex {
     options?: PartitionInsertOptions,
   ): void
   remove(docId: string, schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void
+  beginBatch(): void
+  endBatch(): void
   update(
     docId: string,
     document: AnyDocument,
@@ -161,6 +163,14 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       const { fieldLengths, tokensByField } = removeFromIndexes(state, docId, stored, flatSchema, language, options)
       state.docStore.remove(docId)
       state.stats.removeDocument(fieldLengths, tokensByField)
+    },
+
+    beginBatch(): void {
+      state.invertedIdx.beginBatch()
+    },
+
+    endBatch(): void {
+      state.invertedIdx.endBatch()
     },
 
     update(

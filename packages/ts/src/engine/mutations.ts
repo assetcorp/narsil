@@ -331,25 +331,31 @@ export async function removeDocumentBatch(
 
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
+  const manager = ctx.requireManager(indexName)
+  manager.beginBatchRemove()
 
-  for (let chunkStart = 0; chunkStart < docIds.length; chunkStart += BATCH_CHUNK_SIZE) {
-    const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, docIds.length)
+  try {
+    for (let chunkStart = 0; chunkStart < docIds.length; chunkStart += BATCH_CHUNK_SIZE) {
+      const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, docIds.length)
 
-    for (let i = chunkStart; i < chunkEnd; i++) {
-      try {
-        await removeDocument(ctx, indexName, docIds[i])
-        succeeded.push(docIds[i])
-      } catch (err) {
-        failed.push({
-          docId: docIds[i],
-          error: err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_NOT_FOUND, String(err)),
-        })
+      for (let i = chunkStart; i < chunkEnd; i++) {
+        try {
+          await removeDocument(ctx, indexName, docIds[i])
+          succeeded.push(docIds[i])
+        } catch (err) {
+          failed.push({
+            docId: docIds[i],
+            error: err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_NOT_FOUND, String(err)),
+          })
+        }
+      }
+
+      if (chunkEnd < docIds.length) {
+        await new Promise<void>(r => setTimeout(r, 0))
       }
     }
-
-    if (chunkEnd < docIds.length) {
-      await new Promise<void>(r => setTimeout(r, 0))
-    }
+  } finally {
+    manager.endBatchRemove()
   }
 
   return { succeeded, failed }
