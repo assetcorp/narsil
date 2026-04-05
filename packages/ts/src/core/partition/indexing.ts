@@ -9,7 +9,7 @@ import {
   createNumericIndex,
   type NumericFieldIndex,
 } from '../field-index'
-import { tokenize } from '../tokenizer'
+import { tokenize, tokenizeIterator } from '../tokenizer'
 import {
   getNestedValue,
   getOrCreateFieldNameIndex,
@@ -66,14 +66,13 @@ function indexStringField(
   fieldLengths: Record<string, number>,
   tokensByField: Record<string, string[]>,
 ): void {
-  const result = tokenize(text, language, tokenizeOptions(options))
-  fieldLengths[fieldPath] = result.tokens.length
   const fieldTokenList: string[] = []
   const fieldNameIndex = getOrCreateFieldNameIndex(state.fieldNameTable, fieldPath)
+  const opts = tokenizeOptions(options)
 
   if (state.trackPositions) {
     const tokenFreqs = new Map<string, { count: number; positions: number[] }>()
-    for (const t of result.tokens) {
+    for (const t of tokenizeIterator(text, language, opts)) {
       const existing = tokenFreqs.get(t.token)
       if (existing) {
         existing.count++
@@ -89,7 +88,7 @@ function indexStringField(
     }
   } else {
     const tokenCounts = new Map<string, number>()
-    for (const t of result.tokens) {
+    for (const t of tokenizeIterator(text, language, opts)) {
       tokenCounts.set(t.token, (tokenCounts.get(t.token) ?? 0) + 1)
       fieldTokenList.push(t.token)
     }
@@ -99,6 +98,7 @@ function indexStringField(
     }
   }
 
+  fieldLengths[fieldPath] = fieldTokenList.length
   tokensByField[fieldPath] = fieldTokenList
 }
 
@@ -114,14 +114,15 @@ function indexStringArrayField(
 ): void {
   const fieldTokenList: string[] = []
   const fieldNameIndex = getOrCreateFieldNameIndex(state.fieldNameTable, fieldPath)
+  const opts = tokenizeOptions(options)
 
   if (state.trackPositions) {
     const tokenFreqs = new Map<string, { count: number; positions: number[] }>()
     let positionOffset = 0
 
     for (const item of arr) {
-      const result = tokenize(item, language, tokenizeOptions(options))
-      for (const t of result.tokens) {
+      let itemTokenCount = 0
+      for (const t of tokenizeIterator(item, language, opts)) {
         const existing = tokenFreqs.get(t.token)
         if (existing) {
           existing.count++
@@ -130,8 +131,9 @@ function indexStringArrayField(
           tokenFreqs.set(t.token, { count: 1, positions: [positionOffset + t.position] })
         }
         fieldTokenList.push(t.token)
+        itemTokenCount++
       }
-      positionOffset += result.tokens.length
+      positionOffset += itemTokenCount
     }
 
     fieldLengths[fieldPath] = fieldTokenList.length
@@ -143,8 +145,7 @@ function indexStringArrayField(
     const tokenCounts = new Map<string, number>()
 
     for (const item of arr) {
-      const result = tokenize(item, language, tokenizeOptions(options))
-      for (const t of result.tokens) {
+      for (const t of tokenizeIterator(item, language, opts)) {
         tokenCounts.set(t.token, (tokenCounts.get(t.token) ?? 0) + 1)
         fieldTokenList.push(t.token)
       }

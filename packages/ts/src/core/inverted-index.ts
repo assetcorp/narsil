@@ -25,6 +25,8 @@ export interface InvertedIndex {
     positions: number[] | null,
   ): void
   remove(token: string, internalId: number): void
+  beginBatch(): void
+  endBatch(): void
   lookup(token: string): CompactPostingList | undefined
   fuzzyLookup(
     token: string,
@@ -43,6 +45,8 @@ export interface InvertedIndex {
 export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedIndex {
   const index = new Map<string, CompactPostingList>()
   const charBuckets = new Map<string, Set<string>>()
+  let batchMode = false
+  const batchDirtyTokens = new Set<string>()
 
   function trackToken(token: string): void {
     if (token.length === 0) return
@@ -207,12 +211,35 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       if (list.docIdSet.size === 0) {
         index.delete(token)
         untrackToken(token)
+        if (batchMode) batchDirtyTokens.delete(token)
+        return
+      }
+
+      if (batchMode) {
+        batchDirtyTokens.add(token)
         return
       }
 
       if (list.deletedDocs.size / list.length > COMPACTION_THRESHOLD) {
         compactList(list)
       }
+    },
+
+    beginBatch(): void {
+      batchMode = true
+      batchDirtyTokens.clear()
+    },
+
+    endBatch(): void {
+      batchMode = false
+      for (const token of batchDirtyTokens) {
+        const list = index.get(token)
+        if (!list) continue
+        if (list.deletedDocs.size / list.length > COMPACTION_THRESHOLD) {
+          compactList(list)
+        }
+      }
+      batchDirtyTokens.clear()
     },
 
     lookup(token: string): CompactPostingList | undefined {

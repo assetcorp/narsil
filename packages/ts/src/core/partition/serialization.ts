@@ -24,23 +24,32 @@ export function serializePartition(
   const serializedDocs: SerializablePartition['documents'] = Object.create(null)
   for (const [docId, stored] of state.docStore.all()) {
     serializedDocs[docId] = {
-      fields: structuredClone(stored.fields) as Record<string, unknown>,
+      fields: stored.fields as Record<string, unknown>,
       fieldLengths: { ...stored.fieldLengths },
     }
   }
 
   const resolver = state.docStore.resolver()
-  const serializedInverted = state.invertedIdx.serialize(resolver)
+  const fieldNames = state.fieldNameTable.names
   const serializedInvertedIndex: SerializablePartition['invertedIndex'] = Object.create(null)
-  for (const [token, list] of Object.entries(serializedInverted)) {
-    serializedInvertedIndex[token] = {
-      docFrequency: list.docFrequency,
-      postings: list.postings.map(p => ({
-        docId: p.docId,
-        termFrequency: p.termFrequency,
-        field: p.fieldName,
-        positions: [...p.positions],
-      })),
+  for (const token of state.invertedIdx.tokens()) {
+    const list = state.invertedIdx.lookup(token)
+    if (!list) continue
+    const hasDeleted = list.deletedDocs.size > 0
+    const postings: Array<{ docId: string; termFrequency: number; field: string; positions: number[] }> = []
+    for (let i = 0; i < list.length; i++) {
+      if (hasDeleted && list.deletedDocs.has(list.docIds[i])) continue
+      const externalId = resolver.toExternal(list.docIds[i])
+      if (externalId === undefined) continue
+      postings.push({
+        docId: externalId,
+        termFrequency: list.termFrequencies[i],
+        field: fieldNames[list.fieldNameIndices[i]],
+        positions: list.positions ? list.positions[i] : [],
+      })
+    }
+    if (postings.length > 0) {
+      serializedInvertedIndex[token] = { docFrequency: list.docIdSet.size, postings }
     }
   }
 
@@ -121,7 +130,7 @@ export function serializePartitionToWirePayload(
   const wireDocs: RawPartitionPayload['documents'] = Object.create(null)
   for (const [docId, stored] of state.docStore.all()) {
     wireDocs[docId] = {
-      fields: structuredClone(stored.fields) as Record<string, unknown>,
+      fields: stored.fields as Record<string, unknown>,
       field_lengths: { ...stored.fieldLengths },
     }
   }
@@ -230,15 +239,17 @@ export function serializePartitionToWirePayloadV2(
   const wireDocs: RawPartitionPayloadV2['documents'] = Object.create(null)
   for (const [docId, stored] of state.docStore.all()) {
     wireDocs[docId] = {
-      fields: structuredClone(stored.fields) as Record<string, unknown>,
+      fields: stored.fields as Record<string, unknown>,
       field_lengths: { ...stored.fieldLengths },
     }
   }
 
   const resolver = state.docStore.resolver()
   const fieldNames = [...state.fieldNameTable.names]
-  const wireEntries: Record<string, { df: number; ids: string[]; tf: number[]; fi: number[]; pos: number[][] | null }> =
-    Object.create(null)
+  const wireEntries: Record<
+    string,
+    { df: number; ids: string[]; tf: number[]; fi: Uint8Array; pos: number[][] | null }
+  > = Object.create(null)
 
   for (const token of state.invertedIdx.tokens()) {
     const list = state.invertedIdx.lookup(token)
@@ -247,8 +258,9 @@ export function serializePartitionToWirePayloadV2(
 
     const ids: string[] = []
     const tf: number[] = []
-    const fi: number[] = []
+    const fi = new Uint8Array(list.length)
     const pos: number[][] | null = list.positions ? [] : null
+    let writeIdx = 0
 
     for (let i = 0; i < list.length; i++) {
       if (hasDeleted && list.deletedDocs.has(list.docIds[i])) continue
@@ -256,14 +268,16 @@ export function serializePartitionToWirePayloadV2(
       if (externalId === undefined) continue
       ids.push(externalId)
       tf.push(list.termFrequencies[i])
-      fi.push(list.fieldNameIndices[i])
+      fi[writeIdx] = list.fieldNameIndices[i]
+      writeIdx++
       if (pos && list.positions) {
         pos.push(list.positions[i])
       }
     }
 
     if (ids.length > 0) {
-      wireEntries[token] = { df: list.docIdSet.size, ids, tf, fi, pos }
+      const finalFi = writeIdx < list.length ? fi.subarray(0, writeIdx) : fi
+      wireEntries[token] = { df: list.docIdSet.size, ids, tf, fi: finalFi, pos }
     }
   }
 

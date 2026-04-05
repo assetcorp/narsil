@@ -5,7 +5,7 @@ interface ColumnarPostingList {
   df: number
   ids: string[]
   tf: number[]
-  fi: number[]
+  fi: Uint8Array
   pos: number[][] | null
 }
 

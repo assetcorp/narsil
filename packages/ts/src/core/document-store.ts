@@ -58,7 +58,7 @@ export function createDocumentStore(): DocumentStore {
   return {
     store(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
       assignInternalId(docId)
-      docs.set(docId, { fields: structuredClone(document), fieldLengths })
+      docs.set(docId, { fields: document as Record<string, unknown>, fieldLengths })
     },
 
     storeRef(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
