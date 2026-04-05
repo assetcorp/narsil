@@ -47,26 +47,26 @@ Every VectorIndex implementation must provide these operations:
 
 ```text
 VectorIndex {
-  insert(docId: string, vector: float32[]): void
-  remove(docId: string): void
-  search(query: float32[], k: uint32, options: SearchOptions): Array<ScoredResult>
-  getVector(docId: string): float32[] | null
-  has(docId: string): boolean
-  compact(): void
-  optimize(): void
-  maintenanceStatus(): MaintenanceStatus
-  serialize(): VectorIndexPayload
-  deserialize(payload: VectorIndexPayload): void
+  fn insert(docId: string, vector: float32 array) -> none
+  fn remove(docId: string) -> none
+  fn search(query: float32 array, k: uint32, options: SearchOptions) -> array[ScoredResult]
+  fn getVector(docId: string) -> float32 array or null
+  fn has(docId: string) -> bool
+  fn compact() -> none
+  fn optimize() -> none
+  fn maintenanceStatus() -> MaintenanceStatus
+  fn serialize() -> VectorIndexPayload
+  fn deserialize(payload: VectorIndexPayload) -> none
 
-  readonly size: uint32
-  readonly dimension: uint16
+  [read-only] size: uint32
+  [read-only] dimension: uint16
 }
 
 SearchOptions {
-  metric:          'cosine' | 'dotProduct' | 'euclidean'
-  minSimilarity:   float32 | null
-  filterDocIds:    set<string> | null
-  efSearch:        uint16 | null
+  metric:          'cosine' or 'dotProduct' or 'euclidean'
+  minSimilarity:   float32 or null
+  filterDocIds:    set[string] or null
+  efSearch:        uint16 or null
 }
 
 ScoredResult {
@@ -242,10 +242,9 @@ document.
 The atomicity mechanism is implementation-specific. The spec defines
 the contract (fully indexed or not visible), not the implementation:
 
-- Single-threaded runtimes (e.g., Node.js) can rely on synchronous
-  execution within a single event loop tick. If all writes complete
-  synchronously without yielding, no reader can observe intermediate
-  state.
+- Single-threaded runtimes can rely on synchronous execution within
+  a single scheduler tick. If all writes complete synchronously
+  without yielding, no reader can observe intermediate state.
 - Multi-threaded runtimes (e.g., Rust, Go) may use write-ahead
   logging with version-gated visibility, segment-level atomic
   visibility, or another mechanism that satisfies the contract.
@@ -263,10 +262,10 @@ coordinator level.
 
 ```text
 1. Fan out the text query to all partitions.
-   Collect text results: Array<{ docId, bm25Score }>
+   Collect text results: array[{ docId, bm25Score }]
 
 2. Query the VectorIndex for the vector field.
-   Collect vector results: Array<{ docId, similarityScore }>
+   Collect vector results: array[{ docId, similarityScore }]
 
 3. Fuse the two result sets using the configured strategy.
 
@@ -282,7 +281,7 @@ per query:
 
 ```text
 hybrid: {
-  strategy: 'rrf' | 'linear'
+  strategy: 'rrf' or 'linear'
   k:        uint32      (RRF constant, default 60, rrf only)
   alpha:    float32     (weight 0.0-1.0, default 0.5, linear only)
 }
@@ -357,7 +356,7 @@ traversal overhead.
 Implementations must apply a selectivity-based fallback:
 
 ```text
-selectivity = filterDocIds.size / totalVectors
+selectivity = size(filterDocIds) / totalVectors
 
 if selectivity < filterThreshold:
   Brute-force scan only the vectors in filterDocIds.
@@ -387,8 +386,8 @@ When using HNSW with a filter, implementations should increase
 connectivity:
 
 ```text
-if filterDocIds is provided and filterDocIds.size < totalVectors:
-  selectivity = filterDocIds.size / totalVectors
+if filterDocIds is provided and size(filterDocIds) < totalVectors:
+  selectivity = size(filterDocIds) / totalVectors
   ef = max(efSearch, ceil(k / max(selectivity, 0.01)))
   ef = min(ef, totalVectors)
 ```
@@ -414,7 +413,7 @@ quantization formula, calibration process, and distance computation.
 
 ```text
 VectorIndexConfig {
-  quantization: 'sq8' | 'none'   (default: 'sq8')
+  quantization: 'sq8' or 'none'   (default: 'sq8')
 }
 ```
 
@@ -614,40 +613,40 @@ The vector index payload is a MessagePack map:
 VectorIndexPayload {
   field_name:  string
   dimension:   uint16
-  vectors:     Array<VectorEntry>
-  graphs:      Array<HnswGraph>
-  sq8:         null | SQ8Data
+  vectors:     array[VectorEntry]
+  graphs:      array[HnswGraph]
+  sq8:         SQ8Data or null
 }
 
 VectorEntry {
   doc_id: string
-  vector: Array<float32>
+  vector: array[float32]
 }
 
 HnswGraph {
-  entry_point:     string | null
+  entry_point:     string or null
   max_layer:       uint8
   m:               uint8
   ef_construction: uint16
   metric:          string
-  nodes:           Array<HnswNode>
+  nodes:           array[HnswNode]
 }
 
 HnswNode = [
   doc_id:      string,
   layer:       uint8,
-  connections: Array<[
+  connections: array[[
     layer_index: uint8,
-    neighbor_ids: Array<string>
-  ]>
+    neighbor_ids: array[string]
+  ]]
 ]
 
 SQ8Data {
   alpha:              float32
   offset:             float32
-  quantized_vectors:  map<string, Array<uint8>>
-  vector_sums:        map<string, float32>
-  vector_sum_sqs:     map<string, float32>
+  quantized_vectors:  map[string, array[uint8]]
+  vector_sums:        map[string, float32]
+  vector_sum_sqs:     map[string, float32]
 }
 ```
 
@@ -689,11 +688,11 @@ ensures consistent search quality regardless of strategy.
 VectorIndexConfig {
   threshold:       uint32   (promotion threshold, default 1024)
   filterThreshold: float32  (selectivity fallback, default 0.03)
-  quantization:    'sq8' | 'none'  (default 'sq8')
+  quantization:    'sq8' or 'none'  (default 'sq8')
   hnswConfig: {
     m:               uint8    (max connections, default 16)
     efConstruction:  uint16   (build quality, default 200)
-    metric:          'cosine' | 'dotProduct' | 'euclidean'
+    metric:          'cosine' or 'dotProduct' or 'euclidean'
   }
 }
 ```
@@ -712,7 +711,7 @@ and load vector index files:
 ```text
 IndexMetadata {
   ...existing fields...
-  vector_fields: map<string, VectorFieldMeta>
+  vector_fields: map[string, VectorFieldMeta]
 }
 
 VectorFieldMeta {

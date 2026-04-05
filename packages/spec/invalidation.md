@@ -87,7 +87,7 @@ stale reads:
 4. The flush manager's timer or mutation threshold triggers:
    a. Serialize the dirty partition to .nrsl envelope
    b. Call persistence adapter's save() method
-   c. WAIT for save() to confirm (resolve/complete)
+   c. WAIT for save() to confirm (complete successfully)
    d. THEN publish invalidation event
 5. Flush is complete
 ```

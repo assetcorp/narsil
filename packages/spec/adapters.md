@@ -19,10 +19,10 @@ string paths.
 
 ```text
 PersistenceAdapter {
-  save(key: string, data: bytes): async -> void
-  load(key: string): async -> bytes | null
-  delete(key: string): async -> void
-  list(prefix: string): async -> Array<string>
+  [async] fn save(key: string, data: bytes) -> none
+  [async] fn load(key: string) -> bytes or null
+  [async] fn delete(key: string) -> none
+  [async] fn list(prefix: string) -> array[string]
 }
 ```
 
@@ -81,11 +81,11 @@ to an absolute path, confirm the result starts with the absolute
 
 ### Persistence Built-in Adapters
 
-| Adapter             | Environment | Backend              |
-|---------------------|-------------|----------------------|
-| MemoryAdapter       | All         | In-memory Map        |
-| FilesystemAdapter   | Node.js+    | .nrsl files on disk  |
-| IndexedDBAdapter    | Browser     | IndexedDB store      |
+| Adapter             | Environment     | Backend              |
+|---------------------|-----------------|----------------------|
+| MemoryAdapter       | All             | In-memory map        |
+| FilesystemAdapter   | Server runtimes | .nrsl files on disk  |
+| IndexedDBAdapter    | Browser         | IndexedDB store      |
 
 ### Community Adapter Guidelines
 
@@ -109,9 +109,9 @@ partitions from memory.
 
 ```text
 InvalidationAdapter {
-  publish(event: InvalidationEvent): async -> void
-  subscribe(handler: function(InvalidationEvent) -> void): async -> void
-  shutdown(): async -> void
+  [async] fn publish(event: InvalidationEvent) -> none
+  [async] fn subscribe(handler: fn(event: InvalidationEvent) -> none) -> none
+  [async] fn shutdown() -> none
 }
 ```
 
@@ -178,11 +178,11 @@ concurrency model.
 
 ### Invalidation Built-in Adapters
 
-| Adapter                  | Environment | Transport        |
-|--------------------------|-------------|------------------|
-| NoopInvalidation         | All         | No-op            |
-| FilesystemInvalidation   | Node.js+    | JSON marker files|
-| BroadcastChannelInvalid. | Browser     | BroadcastChannel |
+| Adapter                  | Environment     | Transport        |
+|--------------------------|-----------------|------------------|
+| NoopInvalidation         | All             | No-op            |
+| FilesystemInvalidation   | Server runtimes | JSON marker files|
+| BroadcastChannelInvalid. | Browser         | BroadcastChannel |
 
 ---
 
@@ -197,12 +197,12 @@ medical terminology).
 
 ```text
 CustomTokenizer {
-  tokenize(text: string): Array<TokenResult>
+  fn tokenize(text: string) -> array[TokenResult]
 }
 
 TokenResult {
   token:    string
-  position: number
+  position: uint32
 }
 ```
 
@@ -231,7 +231,7 @@ A custom tokenizer is set per index at creation time:
 {
   "schema": {},
   "tokenizer": {
-    "tokenize": "function(text) -> Array<{ token, position }>"
+    "tokenize": "fn(text: string) -> array[{ token, position }]"
   }
 }
 ```
@@ -254,15 +254,15 @@ module is a self-contained unit that can be loaded independently
 ```text
 LanguageModule {
   name:      string
-  stemmer:   (function(token: string) -> string) | null
-  stopWords: Set<string>
-  tokenizer: TokenizerConfig | undefined
+  stemmer:   fn(token: string) -> string or null
+  stopWords: set[string]
+  tokenizer: TokenizerConfig or null
 }
 
 TokenizerConfig {
-  splitPattern:        RegExp | undefined
-  normalizeDiacritics: boolean | undefined
-  minTokenLength:      number | undefined
+  splitPattern:        regex or null
+  normalizeDiacritics: bool or null
+  minTokenLength:      uint32 or null
 }
 ```
 
@@ -281,7 +281,7 @@ for languages without a stemmer (partial support).
 
 #### stopWords
 
-A `Set` of common words to exclude from indexing. The set can be
+A `set[string]` of common words to exclude from indexing. The set can be
 overridden per index via the `stopWords` configuration option.
 
 #### tokenizer
@@ -294,10 +294,10 @@ character-based tokenization instead of whitespace splitting.
 
 Per-index stop word configuration supports two modes:
 
-- **Set replacement:** Providing a `Set<string>` replaces the
+- **Set replacement:** Providing a `set[string]` replaces the
   language's default stop words entirely.
 - **Function modifier:** Providing a function
-  `(defaults: Set<string>) -> Set<string>` receives the language's
+  `fn(defaults: set[string]) -> set[string]` receives the language's
   default stop words and returns a modified set (e.g., to add
   domain-specific words or remove words that are meaningful in
   the domain).
@@ -315,16 +315,16 @@ can auto-embed documents during indexing and queries during search.
 
 ```text
 EmbeddingAdapter {
-  embed(input: string, purpose: 'document' | 'query', cancel?: CancelToken): async -> float32[]
-  embedBatch?(inputs: Array<string>, purpose: 'document' | 'query', cancel?: CancelToken): async -> Array<float32[]>
-  readonly dimensions: number
-  shutdown?(): async -> void
+  [async] fn embed(input: string, purpose: 'document' or 'query', cancel: CancelToken or null) -> float32 array
+  [async] fn embedBatch(inputs: array[string], purpose: 'document' or 'query', cancel: CancelToken or null) -> array[float32 array]  (optional)
+  [read-only] dimensions: uint32
+  [async] fn shutdown() -> none  (optional)
 }
 ```
 
 ### EmbeddingAdapter Methods
 
-#### embed(input, purpose, signal?)
+#### embed(input, purpose, cancel)
 
 - Converts a text string into a vector embedding returned as a
   32-bit floating-point array.
@@ -334,22 +334,22 @@ EmbeddingAdapter {
   prefixes or parameters that produce different vectors for documents
   vs queries. Models without asymmetric behavior (MiniLM, GTE) ignore
   this parameter.
-- `signal` is an optional cancellation token for cooperative
+- `cancel` is an optional cancellation token for cooperative
   cancellation. When cancelled, the method returns an abort error.
-  Narsil passes a cancellation signal during shutdown to cancel
+  Narsil passes a cancellation token during shutdown to cancel
   in-flight embedding requests. The cancellation mechanism is
   runtime-specific (e.g., `AbortSignal` in JavaScript,
   `context.Context` in Go, `CancellationToken` in Rust).
 - On failure, the adapter returns an error. Narsil wraps it with
   error code `EMBEDDING_FAILED`.
 
-#### embedBatch?(inputs, purpose, signal?)
+#### embedBatch(inputs, purpose, cancel) (optional)
 
 - Optional batch method. Accepts an array of text strings and returns
-  an array of float32 vectors in the same order.
-- When implemented, Narsil calls this instead of calling `embed()` in
+  an array of `float32 array` vectors in the same order.
+- When provided, Narsil calls this instead of calling `embed()` in
   a loop during `insertBatch()`.
-- When not implemented, Narsil falls back to calling `embed()`
+- When not provided, Narsil falls back to calling `embed()`
   concurrently for each input, using the runtime's native
   concurrency mechanism.
 - Chunking and rate limiting are the adapter's responsibility, not
@@ -358,7 +358,7 @@ EmbeddingAdapter {
 - The adapter must return vectors in the same order as the inputs
   array.
 
-#### dimensions (readonly property)
+#### dimensions (read-only property)
 
 - Reports the dimensionality of vectors produced by this adapter.
 - Narsil validates this against the schema's vector field dimensions
@@ -367,7 +367,7 @@ EmbeddingAdapter {
 - Must be a positive integer.
 - Must remain constant for the lifetime of the adapter.
 
-#### shutdown?()
+#### shutdown() (optional)
 
 - Optional cleanup method. Called during `narsil.shutdown()`.
 - Must be idempotent: calling shutdown on an already-shut-down adapter
@@ -440,17 +440,17 @@ configuration:
       for a mapping are missing or empty, Narsil throws
       `EMBEDDING_NO_SOURCE`.
    d. Present source fields are concatenated with `\n` and passed to
-      `adapter.embed(text, 'document', signal)`.
-   e. The returned `Float32Array` is assigned to the vector field on
+      `adapter.embed(text, 'document', cancel)`.
+   e. The returned `float32 array` is assigned to the vector field on
       the document.
 3. Schema validation runs. Vectors produced by the adapter skip
    `validateVector()` (the adapter is trusted internal
    infrastructure; dimensions were validated at index creation).
 4. The document is indexed.
 
-For `insertBatch`, if the adapter implements `embedBatch`, Narsil
+For `insertBatch`, if the adapter provides `embedBatch`, Narsil
 collects all texts per mapped vector field and calls `embedBatch`
-once per field. If `embedBatch` is not implemented, Narsil falls back
+once per field. If `embedBatch` is not provided, Narsil falls back
 to concurrent `embed()` calls.
 
 Embedding failure during insert results in `EMBEDDING_FAILED`. For
@@ -473,8 +473,7 @@ auto-embedding:
 }
 ```
 
-- `value`: A raw vector (`Float32Array` or `number[]`). Current
-  behavior, unchanged.
+- `value`: A raw vector (`float32 array`). Current behavior, unchanged.
 - `text`: A text string to be auto-embedded using the index's
   embedding adapter with `purpose: 'query'`.
 - `value` and `text` are mutually exclusive. Providing both is an
@@ -497,7 +496,7 @@ A separate but related feature. Indexes can declare required fields:
 ```
 
 - `required` is an array of field names that must be present (not
-  `undefined` or `null`) in every inserted document.
+  `null`) in every inserted document.
 - Default: empty array (all fields optional, same as current
   behavior).
 - Validation runs before embedding, so no adapter calls are wasted on
@@ -532,7 +531,7 @@ Configuration:
 ```json
 {
   "baseUrl": "https://api.openai.com/v1",
-  "apiKey": "string or function returning string/Promise<string>",
+  "apiKey": "string or fn() -> string",
   "model": "text-embedding-3-small",
   "timeout": 30000,
   "maxRetries": 3
@@ -565,7 +564,7 @@ Configuration:
   "normalize": true,
   "documentPrefix": "passage: ",
   "queryPrefix": "query: ",
-  "progress": "function(data) -> void",
+  "progress": "fn(data) -> none",
   "pipelineOptions": "PretrainedOptions passthrough"
 }
 ```

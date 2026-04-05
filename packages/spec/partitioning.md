@@ -114,10 +114,10 @@ queue:
 
 ```text
 WriteAheadEntry {
-  seq:      number   (monotonically increasing)
-  op:       "insert" | "remove" | "update"
+  seq:      uint64   (monotonically increasing)
+  op:       "insert" or "remove" or "update"
   docId:    string
-  document: object | undefined  (present for insert/update)
+  document: object or null  (present for insert/update)
 }
 ```
 
@@ -158,8 +158,9 @@ the caller to retry after a brief delay.
    (reference counting).
 
 6. CLEANUP:
-   Old partitions become eligible for GC once all in-flight
-   reads complete. Flush new partitions to persistence.
+   Old partitions become eligible for reclamation once all
+   in-flight reads complete. Flush new partitions to
+   persistence.
 ```
 
 ### Concurrency During Rebalance

@@ -37,7 +37,7 @@ Where:
 ### IDF (Inverse Document Frequency)
 
 ```text
-IDF(qi) = log((N - n(qi) + 0.5) / (n(qi) + 0.5) + 1)
+IDF(qi) = ln((N - n(qi) + 0.5) / (n(qi) + 0.5) + 1)
 ```
 
 The `+ 1` inside the logarithm ensures IDF is always non-negative,
@@ -71,10 +71,10 @@ configurable per index at creation time.
 ### BM25 Edge Cases
 
 - **Term in zero documents:** `n(qi) = 0`.
-  IDF = `log((N + 0.5) / (0.5) + 1)`. High IDF, but no documents
+  IDF = `ln((N + 0.5) / (0.5) + 1)`. High IDF, but no documents
   match, so this term contributes nothing to any document's score.
 - **Term in all documents:** `n(qi) = N`.
-  IDF = `log((0.5) / (N + 0.5) + 1)`. Close to zero; the term is
+  IDF = `ln((0.5) / (N + 0.5) + 1)`. Close to zero; the term is
   not discriminative.
 - **Empty corpus:** `N = 0`. Return score 0 for all documents.
 - **Zero-length document:** `|D| = 0`. The denominator reduces to
@@ -114,11 +114,13 @@ the distance exceeds a tolerance bound.
 Standard dynamic programming matrix with bounded evaluation:
 
 ```text
-function boundedLevenshtein(a, b, tolerance):
+fn boundedLevenshtein(a: string, b: string, tolerance: uint32)
+    -> { distance: uint32, withinTolerance: bool }
+
   if abs(len(a) - len(b)) > tolerance:
     return { distance: tolerance + 1, withinTolerance: false }
 
-  let matrix = Array[len(a) + 1][len(b) + 1]
+  matrix = new uint32 array of size [len(a) + 1][len(b) + 1]
   initialize matrix[i][0] = i for i in 0..len(a)
   initialize matrix[0][j] = j for j in 0..len(b)
 
@@ -181,8 +183,8 @@ HNSW constructs a multi-layered proximity graph:
 Layer assignment follows an exponential distribution:
 
 ```text
-layer = floor(-log(random()) * mL)
-where mL = 1 / log(M)
+layer = floor(-ln(random()) * mL)
+where mL = 1 / ln(M)
 ```
 
 ### Construction (Insertion)
@@ -266,14 +268,14 @@ schema):
   max_layer:       uint8
   m:               uint8
   ef_construction: uint16
-  nodes: Array<[
+  nodes: array[[
     docId:       string,
     layer:       uint8,
-    connections: Array<[
+    connections: array[[
       layer_index: uint8,
-      neighbor_ids: Array<string>
-    ]>
-  ]>
+      neighbor_ids: array[string]
+    ]]
+  ]]
 }
 ```
 
@@ -284,7 +286,7 @@ the filter are eligible for results. Filter selectivity affects
 search strategy:
 
 ```text
-selectivity = filterDocIds.size / totalVectors
+selectivity = size(filterDocIds) / totalVectors
 
 if selectivity < filterThreshold (default 0.03):
   Brute-force scan only the vectors in filterDocIds.
@@ -492,7 +494,7 @@ many polygon edges the ray crosses. Odd count = inside, even count =
 outside.
 
 ```text
-function isPointInPolygon(lat, lon, polygon):
+fn isPointInPolygon(lat: float64, lon: float64, polygon: array[GeoPoint]) -> bool
   inside = false
   j = len(polygon) - 1
 
@@ -515,7 +517,7 @@ Used internally for optimization (e.g., pre-filtering by distance to
 centroid before running the full polygon check).
 
 ```text
-function centroid(polygon):
+fn centroid(polygon: array[GeoPoint]) -> GeoPoint
   A = 0  (signed area)
   cx = 0
   cy = 0
@@ -525,9 +527,9 @@ function centroid(polygon):
     j = (i + 1) % n
     cross = polygon[i].lat * polygon[j].lon
           - polygon[j].lat * polygon[i].lon
-    A += cross
-    cx += (polygon[i].lat + polygon[j].lat) * cross
-    cy += (polygon[i].lon + polygon[j].lon) * cross
+    A = A + cross
+    cx = cx + (polygon[i].lat + polygon[j].lat) * cross
+    cy = cy + (polygon[i].lon + polygon[j].lon) * cross
 
   A = A / 2
   cx = cx / (6 * A)
@@ -563,24 +565,24 @@ IEEE polynomial: 0xEDB88320 (reflected form)
 Use a 256-entry lookup table for performance:
 
 ```text
-function buildCRC32Table():
-  table = Array[256]
+fn buildCRC32Table() -> array[uint32]
+  table = new uint32 array of size 256
   for i in 0..256:
     crc = i
     for bit in 0..8:
       if crc & 1:
-        crc = (crc >>> 1) ^ 0xEDB88320
+        crc = (crc >>> 1) XOR 0xEDB88320
       else:
         crc = crc >>> 1
     table[i] = crc
   return table
 
-function crc32(data: bytes):
+fn crc32(data: bytes) -> uint32
   table = getCachedTable()
   crc = 0xFFFFFFFF
   for byte in data:
-    crc = (crc >>> 8) ^ table[(crc ^ byte) & 0xFF]
-  return crc ^ 0xFFFFFFFF
+    crc = (crc >>> 8) XOR table[(crc XOR byte) & 0xFF]
+  return crc XOR 0xFFFFFFFF
 ```
 
 ### Test Vectors
@@ -607,7 +609,7 @@ A fast, non-cryptographic hash function used for partition routing
 ### FNV-1a Algorithm
 
 ```text
-function fnv1a(input: string):
+fn fnv1a(input: string) -> uint32
   hash = 2166136261          (FNV offset basis, uint32)
   for each byte in UTF-8(input):
     hash = hash XOR byte
@@ -674,14 +676,14 @@ of top-ranked results.
 ### RRF Algorithm
 
 ```text
-function reciprocalRankFusion(lists: Array<Array<ScoredDoc>>, k: uint32):
-  scores = Map<docId, float64>
+fn reciprocalRankFusion(lists: array[array[ScoredDoc]], k: uint32) -> array[ScoredDoc]
+  scores = map[string, float64]
 
   for each list L in lists:
     for rank, doc in enumerate(L, start=1):
       scores[doc.id] = (scores[doc.id] or 0) + 1 / (k + rank)
 
-  result = Array from scores entries, sorted by score descending
+  result = collect scores entries, sorted by score descending
   return result
 ```
 
@@ -724,10 +726,10 @@ Calibration computes `alpha` and `offset` from all vectors in the
 store:
 
 ```text
-function calibrate(vectors: Array<Float32Array>):
+fn calibrate(vectors: array[float32 array]) -> { alpha: float32, offset: float32 }
   allValues = flatten all dimensions from all vectors
-  min_val = minimum of allValues
-  max_val = maximum of allValues
+  min_val = min(allValues)
+  max_val = max(allValues)
   alpha  = max_val - min_val
   offset = min_val
   return { alpha, offset }
@@ -741,15 +743,15 @@ avoid division by zero.
 The quantized dot product uses integer arithmetic:
 
 ```text
-function sq8DotProduct(a: Uint8Array, b: Uint8Array, dimension: uint16,
-                       alpha: float32, offset: float32):
+fn sq8DotProduct(a: uint8 array, b: uint8 array, dimension: uint16,
+                 alpha: float32, offset: float32) -> float32
   intSum = 0
   intSumA = 0
   intSumB = 0
   for i in 0..dimension:
-    intSum  += a[i] * b[i]
-    intSumA += a[i]
-    intSumB += b[i]
+    intSum  = intSum + a[i] * b[i]
+    intSumA = intSumA + a[i]
+    intSumB = intSumB + b[i]
 
   scale = alpha / 255
   return scale * scale * intSum
@@ -767,10 +769,10 @@ For cosine similarity, pre-computed vector sums and sum-of-squares
 are used to compute magnitudes without dequantizing:
 
 ```text
-function sq8Cosine(a: Uint8Array, b: Uint8Array, dimension: uint16,
-                   alpha: float32, offset: float32,
-                   sumA: float32, sumSqA: float32,
-                   sumB: float32, sumSqB: float32):
+fn sq8Cosine(a: uint8 array, b: uint8 array, dimension: uint16,
+             alpha: float32, offset: float32,
+             sumA: float32, sumSqA: float32,
+             sumB: float32, sumSqB: float32) -> float32
   dot = sq8DotProduct(a, b, dimension, alpha, offset)
   magA = sqrt(sumSqA)
   magB = sqrt(sumSqB)
