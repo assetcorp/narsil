@@ -1,31 +1,31 @@
 import type { ComparisonFilter } from '../types/filters'
 
-export type GetFieldValue = (docId: string) => unknown
+export type GetFieldValue = (internalId: number) => unknown
 
 export interface NumericFieldIndex {
-  eq(value: number): Set<string>
-  gt(value: number): Set<string>
-  gte(value: number): Set<string>
-  lt(value: number): Set<string>
-  lte(value: number): Set<string>
-  between(min: number, max: number): Set<string>
-  allDocIds(): Set<string>
+  eq(value: number): Set<number>
+  gt(value: number): Set<number>
+  gte(value: number): Set<number>
+  lt(value: number): Set<number>
+  lte(value: number): Set<number>
+  between(min: number, max: number): Set<number>
+  allDocIds(): Set<number>
 }
 
 export interface BooleanFieldIndex {
-  getTrue(): Set<string>
-  getFalse(): Set<string>
-  allDocIds(): Set<string>
+  getTrue(): Set<number>
+  getFalse(): Set<number>
+  allDocIds(): Set<number>
 }
 
 export interface EnumFieldIndex {
-  getDocIds(value: string): Set<string>
-  allDocIds(): Set<string>
+  getDocIds(value: string): Set<number>
+  allDocIds(): Set<number>
 }
 
 export interface GeoFieldIndex {
-  radiusQuery(lat: number, lon: number, distanceMeters: number, inside: boolean, highPrecision: boolean): Set<string>
-  polygonQuery(points: Array<{ lat: number; lon: number }>, inside: boolean): Set<string>
+  radiusQuery(lat: number, lon: number, distanceMeters: number, inside: boolean, highPrecision: boolean): Set<number>
+  polygonQuery(points: Array<{ lat: number; lon: number }>, inside: boolean): Set<number>
 }
 
 export type FieldIndex =
@@ -43,8 +43,8 @@ export function convertToMeters(distance: number, unit: 'km' | 'mi' | 'm'): numb
   return distance
 }
 
-function setDifference(a: Set<string>, b: Set<string>): Set<string> {
-  const result = new Set<string>()
+function setDifference(a: Set<number>, b: Set<number>): Set<number> {
+  const result = new Set<number>()
   for (const item of a) {
     if (!b.has(item)) result.add(item)
   }
@@ -53,10 +53,10 @@ function setDifference(a: Set<string>, b: Set<string>): Set<string> {
 
 export function applyEq(
   value: number | string | boolean,
-  docIds: Set<string>,
+  docIds: Set<number>,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
-): Set<string> {
+): Set<number> {
   if (fieldIndex?.type === 'numeric' && typeof value === 'number') {
     return fieldIndex.index.eq(value)
   }
@@ -66,19 +66,19 @@ export function applyEq(
   if (fieldIndex?.type === 'enum' && typeof value === 'string') {
     return fieldIndex.index.getDocIds(value)
   }
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    if (getValue(docId) === value) result.add(docId)
+  const result = new Set<number>()
+  for (const id of docIds) {
+    if (getValue(id) === value) result.add(id)
   }
   return result
 }
 
 export function applyNe(
   value: number | string | boolean,
-  docIds: Set<string>,
+  docIds: Set<number>,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
-): Set<string> {
+): Set<number> {
   if (fieldIndex?.type === 'numeric' && typeof value === 'number') {
     return setDifference(fieldIndex.index.allDocIds(), fieldIndex.index.eq(value))
   }
@@ -88,173 +88,173 @@ export function applyNe(
   if (fieldIndex?.type === 'enum' && typeof value === 'string') {
     return setDifference(fieldIndex.index.allDocIds(), fieldIndex.index.getDocIds(value))
   }
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
-    if (v !== undefined && v !== null && v !== value) result.add(docId)
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
+    if (v !== undefined && v !== null && v !== value) result.add(id)
   }
   return result
 }
 
 export function applyGt(
   value: number,
-  docIds: Set<string>,
+  docIds: Set<number>,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
-): Set<string> {
+): Set<number> {
   if (fieldIndex?.type === 'numeric') {
     return fieldIndex.index.gt(value)
   }
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
-    if (typeof v === 'number' && v > value) result.add(docId)
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
+    if (typeof v === 'number' && v > value) result.add(id)
   }
   return result
 }
 
 export function applyLt(
   value: number,
-  docIds: Set<string>,
+  docIds: Set<number>,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
-): Set<string> {
+): Set<number> {
   if (fieldIndex?.type === 'numeric') {
     return fieldIndex.index.lt(value)
   }
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
-    if (typeof v === 'number' && v < value) result.add(docId)
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
+    if (typeof v === 'number' && v < value) result.add(id)
   }
   return result
 }
 
 export function applyGte(
   value: number,
-  docIds: Set<string>,
+  docIds: Set<number>,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
-): Set<string> {
+): Set<number> {
   if (fieldIndex?.type === 'numeric') {
     return fieldIndex.index.gte(value)
   }
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
-    if (typeof v === 'number' && v >= value) result.add(docId)
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
+    if (typeof v === 'number' && v >= value) result.add(id)
   }
   return result
 }
 
 export function applyLte(
   value: number,
-  docIds: Set<string>,
+  docIds: Set<number>,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
-): Set<string> {
+): Set<number> {
   if (fieldIndex?.type === 'numeric') {
     return fieldIndex.index.lte(value)
   }
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
-    if (typeof v === 'number' && v <= value) result.add(docId)
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
+    if (typeof v === 'number' && v <= value) result.add(id)
   }
   return result
 }
 
 export function applyBetween(
   range: [number, number],
-  docIds: Set<string>,
+  docIds: Set<number>,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
-): Set<string> {
+): Set<number> {
   if (fieldIndex?.type === 'numeric') {
     return fieldIndex.index.between(range[0], range[1])
   }
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
-    if (typeof v === 'number' && v >= range[0] && v <= range[1]) result.add(docId)
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
+    if (typeof v === 'number' && v >= range[0] && v <= range[1]) result.add(id)
   }
   return result
 }
 
 export function applyIn(
   values: string[],
-  docIds: Set<string>,
+  docIds: Set<number>,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
-): Set<string> {
+): Set<number> {
   if (fieldIndex?.type === 'enum') {
-    const result = new Set<string>()
+    const result = new Set<number>()
     for (const val of values) {
-      for (const docId of fieldIndex.index.getDocIds(val)) {
-        result.add(docId)
+      for (const id of fieldIndex.index.getDocIds(val)) {
+        result.add(id)
       }
     }
     return result
   }
   const valSet = new Set<string>(values)
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
-    if (typeof v === 'string' && valSet.has(v)) result.add(docId)
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
+    if (typeof v === 'string' && valSet.has(v)) result.add(id)
   }
   return result
 }
 
 export function applyNin(
   values: string[],
-  docIds: Set<string>,
+  docIds: Set<number>,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
-): Set<string> {
+): Set<number> {
   if (fieldIndex?.type === 'enum') {
-    const matched = new Set<string>()
+    const matched = new Set<number>()
     for (const val of values) {
-      for (const docId of fieldIndex.index.getDocIds(val)) {
-        matched.add(docId)
+      for (const id of fieldIndex.index.getDocIds(val)) {
+        matched.add(id)
       }
     }
     return setDifference(fieldIndex.index.allDocIds(), matched)
   }
   const valSet = new Set<string>(values)
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
-    if (v !== undefined && v !== null && typeof v === 'string' && !valSet.has(v)) result.add(docId)
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
+    if (v !== undefined && v !== null && typeof v === 'string' && !valSet.has(v)) result.add(id)
   }
   return result
 }
 
-export function applyStartsWith(prefix: string, docIds: Set<string>, getValue: GetFieldValue): Set<string> {
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
-    if (typeof v === 'string' && v.startsWith(prefix)) result.add(docId)
+export function applyStartsWith(prefix: string, docIds: Set<number>, getValue: GetFieldValue): Set<number> {
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
+    if (typeof v === 'string' && v.startsWith(prefix)) result.add(id)
   }
   return result
 }
 
-export function applyEndsWith(suffix: string, docIds: Set<string>, getValue: GetFieldValue): Set<string> {
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
-    if (typeof v === 'string' && v.endsWith(suffix)) result.add(docId)
+export function applyEndsWith(suffix: string, docIds: Set<number>, getValue: GetFieldValue): Set<number> {
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
+    if (typeof v === 'string' && v.endsWith(suffix)) result.add(id)
   }
   return result
 }
 
 export function applyContainsAll(
   values: (string | number | boolean)[],
-  docIds: Set<string>,
+  docIds: Set<number>,
   getValue: GetFieldValue,
-): Set<string> {
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
+): Set<number> {
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
     if (!Array.isArray(v)) continue
     const arr = v as unknown[]
     let allFound = true
@@ -264,24 +264,24 @@ export function applyContainsAll(
         break
       }
     }
-    if (allFound) result.add(docId)
+    if (allFound) result.add(id)
   }
   return result
 }
 
 export function applyMatchesAny(
   values: (string | number | boolean)[],
-  docIds: Set<string>,
+  docIds: Set<number>,
   getValue: GetFieldValue,
-): Set<string> {
+): Set<number> {
   const valSet = new Set<unknown>(values)
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
     if (!Array.isArray(v)) continue
     for (const item of v as unknown[]) {
       if (valSet.has(item)) {
-        result.add(docId)
+        result.add(id)
         break
       }
     }
@@ -289,61 +289,61 @@ export function applyMatchesAny(
   return result
 }
 
-export function applySize(sizeFilter: ComparisonFilter, docIds: Set<string>, getValue: GetFieldValue): Set<string> {
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
+export function applySize(sizeFilter: ComparisonFilter, docIds: Set<number>, getValue: GetFieldValue): Set<number> {
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
     if (!Array.isArray(v)) continue
-    if (matchesNumericComparison(v.length, sizeFilter)) result.add(docId)
+    if (matchesNumericComparison(v.length, sizeFilter)) result.add(id)
   }
   return result
 }
 
-export function applyExists(docIds: Set<string>, getValue: GetFieldValue): Set<string> {
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
-    if (v !== undefined && v !== null) result.add(docId)
+export function applyExists(docIds: Set<number>, getValue: GetFieldValue): Set<number> {
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
+    if (v !== undefined && v !== null) result.add(id)
   }
   return result
 }
 
-export function applyNotExists(docIds: Set<string>, getValue: GetFieldValue): Set<string> {
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
-    if (v === undefined || v === null) result.add(docId)
+export function applyNotExists(docIds: Set<number>, getValue: GetFieldValue): Set<number> {
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
+    if (v === undefined || v === null) result.add(id)
   }
   return result
 }
 
-export function applyIsEmpty(docIds: Set<string>, getValue: GetFieldValue): Set<string> {
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
+export function applyIsEmpty(docIds: Set<number>, getValue: GetFieldValue): Set<number> {
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
     if (v === undefined || v === null) {
-      result.add(docId)
+      result.add(id)
       continue
     }
     if (typeof v === 'string' && v === '') {
-      result.add(docId)
+      result.add(id)
       continue
     }
     if (Array.isArray(v) && v.length === 0) {
-      result.add(docId)
+      result.add(id)
     }
   }
   return result
 }
 
-export function applyIsNotEmpty(docIds: Set<string>, getValue: GetFieldValue): Set<string> {
-  const result = new Set<string>()
-  for (const docId of docIds) {
-    const v = getValue(docId)
+export function applyIsNotEmpty(docIds: Set<number>, getValue: GetFieldValue): Set<number> {
+  const result = new Set<number>()
+  for (const id of docIds) {
+    const v = getValue(id)
     if (v === undefined || v === null) continue
     if (typeof v === 'string' && v === '') continue
     if (Array.isArray(v) && v.length === 0) continue
-    result.add(docId)
+    result.add(id)
   }
   return result
 }
@@ -358,7 +358,7 @@ export function applyGeoRadius(
     highPrecision?: boolean
   },
   geoIndex: GeoFieldIndex,
-): Set<string> {
+): Set<number> {
   const distanceMeters = convertToMeters(filter.distance, filter.unit)
   return geoIndex.radiusQuery(
     filter.lat,
@@ -372,7 +372,7 @@ export function applyGeoRadius(
 export function applyGeoPolygon(
   filter: { points: Array<{ lat: number; lon: number }>; inside?: boolean },
   geoIndex: GeoFieldIndex,
-): Set<string> {
+): Set<number> {
   return geoIndex.polygonQuery(filter.points, filter.inside ?? true)
 }
 

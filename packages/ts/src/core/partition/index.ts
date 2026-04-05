@@ -130,6 +130,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
         }
       }
 
+      state.docStore.ensureInternalId(docId)
       const flatSchema = getFlatSchema(state, schema)
       const { fieldLengths, tokensByField } = indexDocument(
         state,
@@ -198,6 +199,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
         )
         state.stats.removeDocument(oldFieldLengths, oldTokens)
         state.docStore.remove(docId)
+        state.docStore.ensureInternalId(docId)
 
         const { fieldLengths: newFieldLengths, tokensByField: newTokens } = indexDocument(
           state,

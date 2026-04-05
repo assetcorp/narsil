@@ -105,10 +105,24 @@ export function getFieldValueForDoc(docStore: DocumentStore, docId: string, fiel
   return getNestedValue(stored.fields as Record<string, unknown>, fieldPath)
 }
 
+export function getFieldValueByInternalId(docStore: DocumentStore, internalId: number, fieldPath: string): unknown {
+  const externalId = docStore.getExternalId(internalId)
+  if (externalId === undefined) return undefined
+  return getFieldValueForDoc(docStore, externalId, fieldPath)
+}
+
 export function getAllDocIds(docStore: DocumentStore): Set<string> {
   const ids = new Set<string>()
   for (const [id] of docStore.all()) {
     ids.add(id)
+  }
+  return ids
+}
+
+export function getAllInternalDocIds(docStore: DocumentStore): Set<number> {
+  const ids = new Set<number>()
+  for (const internalId of docStore.allInternalIds()) {
+    ids.add(internalId)
   }
   return ids
 }
