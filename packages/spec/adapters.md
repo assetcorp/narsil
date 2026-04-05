@@ -315,8 +315,8 @@ can auto-embed documents during indexing and queries during search.
 
 ```text
 EmbeddingAdapter {
-  embed(input: string, purpose: 'document' | 'query', signal?: AbortSignal): async -> Float32Array
-  embedBatch?(inputs: Array<string>, purpose: 'document' | 'query', signal?: AbortSignal): async -> Array<Float32Array>
+  embed(input: string, purpose: 'document' | 'query', cancel?: CancelToken): async -> float32[]
+  embedBatch?(inputs: Array<string>, purpose: 'document' | 'query', cancel?: CancelToken): async -> Array<float32[]>
   readonly dimensions: number
   shutdown?(): async -> void
 }
@@ -327,27 +327,31 @@ EmbeddingAdapter {
 #### embed(input, purpose, signal?)
 
 - Converts a text string into a vector embedding returned as a
-  `Float32Array`.
+  32-bit floating-point array.
 - `purpose` indicates whether the input is a document being indexed
   or a query being searched. Asymmetric embedding models (E5, BGE,
   Nomic, Cohere, Google Vertex AI) use this to apply model-specific
   prefixes or parameters that produce different vectors for documents
   vs queries. Models without asymmetric behavior (MiniLM, GTE) ignore
   this parameter.
-- `signal` is an optional `AbortSignal` for cancellation. When
-  aborted, the method rejects with an `AbortError`. Narsil passes a
-  signal during shutdown to cancel in-flight embedding requests.
-- On failure, the adapter throws an error. Narsil wraps it in a
-  `NarsilError` with code `EMBEDDING_FAILED`.
+- `signal` is an optional cancellation token for cooperative
+  cancellation. When cancelled, the method returns an abort error.
+  Narsil passes a cancellation signal during shutdown to cancel
+  in-flight embedding requests. The cancellation mechanism is
+  runtime-specific (e.g., `AbortSignal` in JavaScript,
+  `context.Context` in Go, `CancellationToken` in Rust).
+- On failure, the adapter returns an error. Narsil wraps it with
+  error code `EMBEDDING_FAILED`.
 
 #### embedBatch?(inputs, purpose, signal?)
 
 - Optional batch method. Accepts an array of text strings and returns
-  an array of `Float32Array` vectors in the same order.
+  an array of float32 vectors in the same order.
 - When implemented, Narsil calls this instead of calling `embed()` in
   a loop during `insertBatch()`.
 - When not implemented, Narsil falls back to calling `embed()`
-  concurrently via `Promise.all` for each input.
+  concurrently for each input, using the runtime's native
+  concurrency mechanism.
 - Chunking and rate limiting are the adapter's responsibility, not
   Narsil's. For example, an OpenAI adapter knows its token limits and
   can chunk internally.
@@ -546,7 +550,7 @@ Configuration:
   403).
 - The adapter never logs, serializes, or includes the API key in
   error messages.
-- Supports `AbortSignal` via `fetch(url, { signal })`.
+- Supports cooperative cancellation via the runtime's HTTP client.
 
 #### Transformers.js Adapter
 
@@ -598,4 +602,4 @@ should:
 - Implement `shutdown` when the adapter holds resources.
 - Document the model's expected dimensions clearly.
 - Handle retries and rate limiting internally.
-- Support `AbortSignal` for cancellation.
+- Support cooperative cancellation.

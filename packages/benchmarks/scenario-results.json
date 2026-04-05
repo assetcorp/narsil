@@ -6,67 +6,72 @@
     "cpu": "Apple M3 Pro",
     "totalMemory": "18GB"
   },
-  "timestamp": "2026-03-18T13:25:03.629Z",
+  "timestamp": "2026-04-05T10:04:12.808Z",
   "scenarios": [
     {
       "name": "partitioned-search",
       "description": "Narsil partition fan-out vs Orama and MiniSearch at 100K documents",
       "config": {
         "totalDocs": 100000,
-        "partitionConfigs": [1, 5, 10, 20],
+        "partitionConfigs": [
+          1,
+          5,
+          10,
+          20
+        ],
         "queryCount": 100
       },
       "comparisons": [
         {
           "label": "orama",
           "metrics": {
-            "insertDocsPerSec": 10559,
-            "searchMedianMs": 232.574,
-            "searchP95Ms": 1136.645
+            "insertDocsPerSec": 10037,
+            "searchMedianMs": 233.682,
+            "searchP95Ms": 1130.703
           }
         },
         {
           "label": "minisearch",
           "metrics": {
-            "insertDocsPerSec": 16804,
-            "searchMedianMs": 50.156,
-            "searchP95Ms": 104.161
+            "insertDocsPerSec": 17304,
+            "searchMedianMs": 51.413,
+            "searchP95Ms": 120.142
           }
         },
         {
           "label": "narsil-1p",
           "metrics": {
-            "insertDocsPerSec": 15225,
-            "searchMedianMs": 80.53,
-            "searchP95Ms": 155.444
+            "insertDocsPerSec": 15828,
+            "searchMedianMs": 48.14,
+            "searchP95Ms": 92.072
           }
         },
         {
           "label": "narsil-5p",
           "metrics": {
-            "insertDocsPerSec": 13318,
-            "searchMedianMs": 86.305,
-            "searchP95Ms": 168.048
+            "insertDocsPerSec": 15490,
+            "searchMedianMs": 54.052,
+            "searchP95Ms": 95.809
           }
         },
         {
           "label": "narsil-10p",
           "metrics": {
-            "insertDocsPerSec": 13672,
-            "searchMedianMs": 86.285,
-            "searchP95Ms": 166.756
+            "insertDocsPerSec": 14777,
+            "searchMedianMs": 57.186,
+            "searchP95Ms": 101.437
           }
         },
         {
           "label": "narsil-20p",
           "metrics": {
-            "insertDocsPerSec": 12506,
-            "searchMedianMs": 84.894,
-            "searchP95Ms": 156.334
+            "insertDocsPerSec": 14125,
+            "searchMedianMs": 58.63,
+            "searchP95Ms": 102.549
           }
         }
       ],
-      "durationMs": 140988.750583
+      "durationMs": 122899.094667
     },
     {
       "name": "worker-promotion",
@@ -81,155 +86,155 @@
         {
           "checkpoint": 1000,
           "label": "direct-executor",
-          "insertThroughput": 18748,
-          "searchMedianMs": 0.512,
-          "searchP95Ms": 1.218
+          "insertThroughput": 22843,
+          "searchMedianMs": 0.473,
+          "searchP95Ms": 1.103
         },
         {
           "checkpoint": 2000,
           "label": "direct-executor",
-          "insertThroughput": 18508,
-          "searchMedianMs": 0.994,
-          "searchP95Ms": 4.89
+          "insertThroughput": 21695,
+          "searchMedianMs": 0.911,
+          "searchP95Ms": 1.806
         },
         {
           "checkpoint": 3000,
           "label": "direct-executor",
-          "insertThroughput": 18196,
-          "searchMedianMs": 1.635,
-          "searchP95Ms": 4.704
+          "insertThroughput": 20513,
+          "searchMedianMs": 1.273,
+          "searchP95Ms": 3.758
         },
         {
           "checkpoint": 4000,
           "label": "direct-executor",
-          "insertThroughput": 17410,
-          "searchMedianMs": 2.202,
-          "searchP95Ms": 6.316
+          "insertThroughput": 19174,
+          "searchMedianMs": 1.875,
+          "searchP95Ms": 3.922
         },
         {
           "checkpoint": 5000,
           "label": "direct-executor",
-          "insertThroughput": 16485,
-          "searchMedianMs": 3.761,
-          "searchP95Ms": 8.64
+          "insertThroughput": 17738,
+          "searchMedianMs": 2.154,
+          "searchP95Ms": 5.972
         },
         {
           "checkpoint": 6000,
           "label": "direct-executor",
-          "insertThroughput": 14822,
-          "searchMedianMs": 3.514,
-          "searchP95Ms": 10.443
+          "insertThroughput": 19083,
+          "searchMedianMs": 2.471,
+          "searchP95Ms": 6.21
         },
         {
           "checkpoint": 7000,
           "label": "direct-executor",
-          "insertThroughput": 17155,
-          "searchMedianMs": 4.112,
-          "searchP95Ms": 7.604
+          "insertThroughput": 18054,
+          "searchMedianMs": 3.305,
+          "searchP95Ms": 5.647
         },
         {
           "checkpoint": 8000,
           "label": "direct-executor",
-          "insertThroughput": 19116,
-          "searchMedianMs": 4.968,
-          "searchP95Ms": 10.101
+          "insertThroughput": 17963,
+          "searchMedianMs": 3.614,
+          "searchP95Ms": 8.392
         },
         {
           "checkpoint": 9000,
           "label": "direct-executor",
-          "insertThroughput": 18022,
-          "searchMedianMs": 5.585,
-          "searchP95Ms": 10.817
+          "insertThroughput": 16073,
+          "searchMedianMs": 3.995,
+          "searchP95Ms": 10
         },
         {
           "checkpoint": 10000,
-          "label": "worker-executor",
-          "insertThroughput": 143,
-          "searchMedianMs": 15.359,
-          "searchP95Ms": 30.318
+          "label": "direct-executor",
+          "insertThroughput": 16593,
+          "searchMedianMs": 4.464,
+          "searchP95Ms": 11.176
         },
         {
           "checkpoint": 11000,
-          "label": "worker-executor",
-          "insertThroughput": 15777,
-          "searchMedianMs": 14.427,
-          "searchP95Ms": 27.025
+          "label": "direct-executor",
+          "insertThroughput": 16834,
+          "searchMedianMs": 5.238,
+          "searchP95Ms": 13.111
         },
         {
           "checkpoint": 12000,
-          "label": "worker-executor",
-          "insertThroughput": 14301,
-          "searchMedianMs": 12.947,
-          "searchP95Ms": 24.944
+          "label": "direct-executor",
+          "insertThroughput": 15205,
+          "searchMedianMs": 4.982,
+          "searchP95Ms": 11.227
         },
         {
           "checkpoint": 13000,
-          "label": "worker-executor",
-          "insertThroughput": 14416,
-          "searchMedianMs": 12.978,
-          "searchP95Ms": 26.879
+          "label": "direct-executor",
+          "insertThroughput": 17154,
+          "searchMedianMs": 6.5,
+          "searchP95Ms": 14.376
         },
         {
           "checkpoint": 14000,
-          "label": "worker-executor",
-          "insertThroughput": 12726,
-          "searchMedianMs": 13.199,
-          "searchP95Ms": 24.774
+          "label": "direct-executor",
+          "insertThroughput": 13315,
+          "searchMedianMs": 6.275,
+          "searchP95Ms": 12.786
         },
         {
           "checkpoint": 15000,
-          "label": "worker-executor",
-          "insertThroughput": 15705,
-          "searchMedianMs": 12.776,
-          "searchP95Ms": 24.834
+          "label": "direct-executor",
+          "insertThroughput": 17398,
+          "searchMedianMs": 6.282,
+          "searchP95Ms": 12.127
         },
         {
           "checkpoint": 16000,
-          "label": "worker-executor",
-          "insertThroughput": 15261,
-          "searchMedianMs": 12.778,
-          "searchP95Ms": 24.242
+          "label": "direct-executor",
+          "insertThroughput": 14640,
+          "searchMedianMs": 7.005,
+          "searchP95Ms": 13.35
         },
         {
           "checkpoint": 17000,
-          "label": "worker-executor",
-          "insertThroughput": 14230,
-          "searchMedianMs": 13.092,
-          "searchP95Ms": 24.751
+          "label": "direct-executor",
+          "insertThroughput": 16261,
+          "searchMedianMs": 7.561,
+          "searchP95Ms": 14.029
         },
         {
           "checkpoint": 18000,
-          "label": "worker-executor",
-          "insertThroughput": 12920,
-          "searchMedianMs": 13.245,
-          "searchP95Ms": 25.28
+          "label": "direct-executor",
+          "insertThroughput": 16507,
+          "searchMedianMs": 8.313,
+          "searchP95Ms": 16.19
         },
         {
           "checkpoint": 19000,
-          "label": "worker-executor",
-          "insertThroughput": 14388,
-          "searchMedianMs": 12.91,
-          "searchP95Ms": 25.334
+          "label": "direct-executor",
+          "insertThroughput": 16968,
+          "searchMedianMs": 7.87,
+          "searchP95Ms": 16.179
         },
         {
           "checkpoint": 20000,
-          "label": "worker-executor",
-          "insertThroughput": 14683,
-          "searchMedianMs": 12.811,
-          "searchP95Ms": 26.586
+          "label": "direct-executor",
+          "insertThroughput": 14761,
+          "searchMedianMs": 9.168,
+          "searchP95Ms": 18.099
         }
       ],
       "comparisons": [
         {
           "label": "orama-20k-baseline",
           "metrics": {
-            "insertDocsPerSec": 11993,
-            "searchMedianMs": 17.291,
-            "searchP95Ms": 71.004
+            "insertDocsPerSec": 12442,
+            "searchMedianMs": 16.308,
+            "searchP95Ms": 67.346
           }
         }
       ],
-      "durationMs": 21587.612541999988
+      "durationMs": 9662.000958000019
     },
     {
       "name": "vector-lifecycle",
@@ -246,134 +251,134 @@
         {
           "checkpoint": 100,
           "label": "brute-force",
-          "searchMedianMs": 1.008,
-          "searchP95Ms": 1.342
+          "searchMedianMs": 0.124,
+          "searchP95Ms": 0.521
         },
         {
           "checkpoint": 200,
           "label": "brute-force",
-          "searchMedianMs": 1.048,
-          "searchP95Ms": 1.144
+          "searchMedianMs": 0.184,
+          "searchP95Ms": 0.217
         },
         {
           "checkpoint": 300,
           "label": "brute-force",
-          "searchMedianMs": 1.061,
-          "searchP95Ms": 1.142
+          "searchMedianMs": 0.19,
+          "searchP95Ms": 0.208
         },
         {
           "checkpoint": 400,
           "label": "brute-force",
-          "searchMedianMs": 1.11,
-          "searchP95Ms": 1.148
+          "searchMedianMs": 0.239,
+          "searchP95Ms": 0.262
         },
         {
           "checkpoint": 500,
           "label": "brute-force",
-          "searchMedianMs": 1.158,
-          "searchP95Ms": 1.192
+          "searchMedianMs": 0.289,
+          "searchP95Ms": 0.308
         },
         {
           "checkpoint": 600,
           "label": "brute-force",
-          "searchMedianMs": 1.215,
-          "searchP95Ms": 1.232
+          "searchMedianMs": 0.341,
+          "searchP95Ms": 0.375
         },
         {
           "checkpoint": 700,
           "label": "brute-force",
-          "searchMedianMs": 1.267,
-          "searchP95Ms": 1.341
+          "searchMedianMs": 0.4,
+          "searchP95Ms": 0.429
         },
         {
           "checkpoint": 800,
           "label": "brute-force",
-          "searchMedianMs": 1.325,
-          "searchP95Ms": 1.388
+          "searchMedianMs": 0.453,
+          "searchP95Ms": 0.473
         },
         {
           "checkpoint": 900,
           "label": "brute-force",
-          "searchMedianMs": 1.373,
-          "searchP95Ms": 2.086
+          "searchMedianMs": 0.507,
+          "searchP95Ms": 0.529
         },
         {
           "checkpoint": 1000,
           "label": "hnsw-building",
-          "searchMedianMs": 1.433,
-          "searchP95Ms": 1.499
+          "searchMedianMs": 1.232,
+          "searchP95Ms": 1.319
         },
         {
           "checkpoint": 1100,
           "label": "hnsw-building",
-          "searchMedianMs": 1.508,
-          "searchP95Ms": 2.421
+          "searchMedianMs": 1.18,
+          "searchP95Ms": 1.214
         },
         {
           "checkpoint": 1200,
           "label": "hnsw-building",
-          "searchMedianMs": 1.556,
-          "searchP95Ms": 2.113
+          "searchMedianMs": 1.227,
+          "searchP95Ms": 1.312
         },
         {
           "checkpoint": 1300,
           "label": "hnsw-building",
-          "searchMedianMs": 1.614,
-          "searchP95Ms": 1.986
+          "searchMedianMs": 1.315,
+          "searchP95Ms": 1.36
         },
         {
           "checkpoint": 1400,
           "label": "hnsw-building",
-          "searchMedianMs": 1.672,
-          "searchP95Ms": 1.7
+          "searchMedianMs": 1.385,
+          "searchP95Ms": 1.56
         },
         {
           "checkpoint": 1500,
           "label": "hnsw-building",
-          "searchMedianMs": 1.722,
-          "searchP95Ms": 1.791
+          "searchMedianMs": 1.489,
+          "searchP95Ms": 1.559
         },
         {
           "checkpoint": 1600,
           "label": "hnsw-building",
-          "searchMedianMs": 1.773,
-          "searchP95Ms": 2.059
+          "searchMedianMs": 1.475,
+          "searchP95Ms": 1.562
         },
         {
           "checkpoint": 1700,
           "label": "hnsw-building",
-          "searchMedianMs": 1.822,
-          "searchP95Ms": 2.156
+          "searchMedianMs": 1.496,
+          "searchP95Ms": 1.603
         },
         {
           "checkpoint": 1800,
           "label": "hnsw-building",
-          "searchMedianMs": 1.888,
-          "searchP95Ms": 2.24
+          "searchMedianMs": 1.549,
+          "searchP95Ms": 1.645
         },
         {
           "checkpoint": 1900,
           "label": "hnsw-building",
-          "searchMedianMs": 1.947,
-          "searchP95Ms": 2.241
+          "searchMedianMs": 1.595,
+          "searchP95Ms": 1.761
         },
         {
           "checkpoint": 2000,
           "label": "hnsw-building",
-          "searchMedianMs": 1.996,
-          "searchP95Ms": 2.307
+          "searchMedianMs": 1.63,
+          "searchP95Ms": 1.758
         }
       ],
       "comparisons": [
         {
           "label": "orama-2,000-vectors",
           "metrics": {
-            "searchMedianMs": 2.607,
-            "searchP95Ms": 2.779
+            "searchMedianMs": 2.648,
+            "searchP95Ms": 2.796
           }
         }
       ],
-      "durationMs": 826.0047090000007
+      "durationMs": 17257.878125000017
     },
     {
       "name": "rebalance-under-load",
@@ -388,177 +393,177 @@
         {
           "checkpoint": 0,
           "label": "baseline",
-          "insertThroughput": 16191,
-          "searchMedianMs": 7.956,
-          "searchP95Ms": 17.589,
+          "insertThroughput": 16920,
+          "searchMedianMs": 6.755,
+          "searchP95Ms": 12.988,
           "partitionCount": 10
         },
         {
           "checkpoint": 1,
           "label": "baseline",
-          "insertThroughput": 16439,
-          "searchMedianMs": 7.767,
-          "searchP95Ms": 12.304,
+          "insertThroughput": 16614,
+          "searchMedianMs": 7.041,
+          "searchP95Ms": 11.062,
           "partitionCount": 10
         },
         {
           "checkpoint": 2,
           "label": "baseline",
-          "insertThroughput": 16201,
-          "searchMedianMs": 7.947,
-          "searchP95Ms": 12.898,
+          "insertThroughput": 16190,
+          "searchMedianMs": 7.385,
+          "searchP95Ms": 10.681,
           "partitionCount": 10
         },
         {
           "checkpoint": 3,
           "label": "during-rebalance",
-          "insertThroughput": 14756,
-          "searchMedianMs": 8.469,
-          "searchP95Ms": 13.958,
+          "insertThroughput": 13347,
+          "searchMedianMs": 8.185,
+          "searchP95Ms": 11.91,
           "partitionCount": 10
         },
         {
           "checkpoint": 4,
           "label": "during-rebalance",
-          "insertThroughput": 15967,
-          "searchMedianMs": 8.087,
-          "searchP95Ms": 13.555,
+          "insertThroughput": 13540,
+          "searchMedianMs": 7.102,
+          "searchP95Ms": 11.992,
           "partitionCount": 10
         },
         {
           "checkpoint": 5,
           "label": "during-rebalance",
-          "insertThroughput": 15843,
-          "searchMedianMs": 8.103,
-          "searchP95Ms": 13.314,
+          "insertThroughput": 16652,
+          "searchMedianMs": 7.291,
+          "searchP95Ms": 11.197,
           "partitionCount": 10
         },
         {
           "checkpoint": 6,
           "label": "during-rebalance",
-          "insertThroughput": 15976,
-          "searchMedianMs": 8.348,
-          "searchP95Ms": 13.753,
+          "insertThroughput": 15889,
+          "searchMedianMs": 6.957,
+          "searchP95Ms": 11.727,
           "partitionCount": 10
         },
         {
           "checkpoint": 7,
           "label": "during-rebalance",
-          "insertThroughput": 15599,
-          "searchMedianMs": 8.591,
-          "searchP95Ms": 13.84,
+          "insertThroughput": 15743,
+          "searchMedianMs": 7.114,
+          "searchP95Ms": 11.406,
           "partitionCount": 10
         },
         {
           "checkpoint": 8,
           "label": "during-rebalance",
-          "insertThroughput": 16305,
-          "searchMedianMs": 8.491,
-          "searchP95Ms": 13.983,
+          "insertThroughput": 16207,
+          "searchMedianMs": 7.039,
+          "searchP95Ms": 11.777,
           "partitionCount": 10
         },
         {
           "checkpoint": 9,
           "label": "during-rebalance",
-          "insertThroughput": 15057,
-          "searchMedianMs": 8.94,
-          "searchP95Ms": 14.02,
+          "insertThroughput": 13845,
+          "searchMedianMs": 8.76,
+          "searchP95Ms": 16.232,
           "partitionCount": 10
         },
         {
           "checkpoint": 10,
           "label": "during-rebalance",
-          "insertThroughput": 15364,
-          "searchMedianMs": 9.303,
-          "searchP95Ms": 15.216,
+          "insertThroughput": 13769,
+          "searchMedianMs": 7.513,
+          "searchP95Ms": 11.066,
           "partitionCount": 10
         },
         {
           "checkpoint": 11,
           "label": "during-rebalance",
-          "insertThroughput": 15167,
-          "searchMedianMs": 8.41,
-          "searchP95Ms": 14.391,
+          "insertThroughput": 12974,
+          "searchMedianMs": 8.972,
+          "searchP95Ms": 12.697,
           "partitionCount": 10
         },
         {
           "checkpoint": 12,
           "label": "during-rebalance",
-          "insertThroughput": 15634,
-          "searchMedianMs": 9.204,
-          "searchP95Ms": 14.486,
+          "insertThroughput": 13727,
+          "searchMedianMs": 7.932,
+          "searchP95Ms": 11.553,
           "partitionCount": 10
         },
         {
           "checkpoint": 13,
           "label": "during-rebalance",
-          "insertThroughput": 16481,
-          "searchMedianMs": 9.234,
-          "searchP95Ms": 15.699,
+          "insertThroughput": 16121,
+          "searchMedianMs": 7.56,
+          "searchP95Ms": 11.825,
           "partitionCount": 10
         },
         {
           "checkpoint": 14,
           "label": "recovery",
-          "insertThroughput": 15596,
-          "searchMedianMs": 8.38,
-          "searchP95Ms": 13.785,
+          "insertThroughput": 16418,
+          "searchMedianMs": 6.061,
+          "searchP95Ms": 10.973,
           "partitionCount": 5
         },
         {
           "checkpoint": 15,
           "label": "recovery",
-          "insertThroughput": 16315,
-          "searchMedianMs": 8.424,
-          "searchP95Ms": 13.524,
+          "insertThroughput": 16191,
+          "searchMedianMs": 6.447,
+          "searchP95Ms": 10.418,
           "partitionCount": 5
         },
         {
           "checkpoint": 16,
           "label": "recovery",
-          "insertThroughput": 16528,
-          "searchMedianMs": 8.676,
-          "searchP95Ms": 13.99,
+          "insertThroughput": 16674,
+          "searchMedianMs": 6.515,
+          "searchP95Ms": 10.724,
           "partitionCount": 5
         },
         {
           "checkpoint": 17,
           "label": "recovery",
-          "insertThroughput": 15359,
-          "searchMedianMs": 8.664,
-          "searchP95Ms": 14.966,
+          "insertThroughput": 16289,
+          "searchMedianMs": 6.517,
+          "searchP95Ms": 11.195,
           "partitionCount": 5
         },
         {
           "checkpoint": 18,
           "label": "recovery",
-          "insertThroughput": 15714,
-          "searchMedianMs": 9.335,
-          "searchP95Ms": 14.904,
+          "insertThroughput": 15563,
+          "searchMedianMs": 7,
+          "searchP95Ms": 11.367,
           "partitionCount": 5
         },
         {
           "checkpoint": 19,
           "label": "post-rebalance",
-          "insertThroughput": 14353,
-          "searchMedianMs": 9.28,
-          "searchP95Ms": 15.689,
+          "insertThroughput": 16507,
+          "searchMedianMs": 7.628,
+          "searchP95Ms": 11.285,
           "partitionCount": 5
         },
         {
           "checkpoint": 20,
           "label": "post-rebalance",
-          "insertThroughput": 16006,
-          "searchMedianMs": 8.919,
-          "searchP95Ms": 14.57,
+          "insertThroughput": 15884,
+          "searchMedianMs": 6.71,
+          "searchP95Ms": 11.576,
           "partitionCount": 5
         },
         {
           "checkpoint": 21,
           "label": "post-rebalance",
-          "insertThroughput": 14898,
-          "searchMedianMs": 9.038,
-          "searchP95Ms": 14.582,
+          "insertThroughput": 13234,
+          "searchMedianMs": 7.206,
+          "searchP95Ms": 10.24,
           "partitionCount": 5
         }
       ],
@@ -566,17 +571,17 @@
         {
           "label": "orama-10k-baseline",
           "metrics": {
-            "insertDocsPerSec": 12441,
-            "searchMedianMs": 9.549,
-            "searchP95Ms": 23.435
+            "insertDocsPerSec": 10387,
+            "searchMedianMs": 9.366,
+            "searchP95Ms": 24.302
           }
         }
       ],
-      "durationMs": 3997.267583000008
+      "durationMs": 3698.1380000000063
     },
     {
       "name": "mixed-workload",
-      "description": "Isolated vs interleaved insert + search, Narsil and Orama compared",
+      "description": "Isolated vs interleaved insert + search, Narsil, Orama, and MiniSearch compared",
       "config": {
         "preloadDocs": 10000,
         "additionalDocs": 5000,
@@ -589,52 +594,70 @@
         {
           "label": "orama-insert",
           "metrics": {
-            "docsPerSec": 12470,
-            "totalMs": 401
+            "docsPerSec": 12049,
+            "totalMs": 415
           }
         },
         {
           "label": "orama-search",
           "metrics": {
-            "medianMs": 12.056,
-            "p95Ms": 40.208
+            "medianMs": 12.463,
+            "p95Ms": 41.511
+          }
+        },
+        {
+          "label": "minisearch-insert",
+          "metrics": {
+            "docsPerSec": 12765,
+            "totalMs": 392
+          }
+        },
+        {
+          "label": "minisearch-search",
+          "metrics": {
+            "medianMs": 7.419,
+            "p95Ms": 16.374
           }
         },
         {
           "label": "narsil-isolated-insert",
           "metrics": {
-            "docsPerSec": 16200,
-            "totalMs": 309
+            "docsPerSec": 17235,
+            "totalMs": 290
           }
         },
         {
           "label": "narsil-isolated-search",
           "metrics": {
-            "medianMs": 11.435,
-            "p95Ms": 20.528
+            "medianMs": 7.235,
+            "p95Ms": 13.143
           }
         },
         {
           "label": "narsil-interleaved-insert-avg",
           "metrics": {
-            "docsPerSec": 15830
+            "docsPerSec": 16913
           }
         },
         {
           "label": "narsil-interleaved-search-avg",
           "metrics": {
-            "medianMs": 9.566,
-            "p95Ms": 16.145
+            "medianMs": 6.31,
+            "p95Ms": 10.682
           }
         }
       ],
-      "durationMs": 10682.116375000012
+      "durationMs": 11722.455959000014
     },
     {
       "name": "memory-accuracy",
       "description": "Validates getStats().memoryBytes against actual heap delta",
       "config": {
-        "scales": [1000, 10000, 50000],
+        "scales": [
+          1000,
+          10000,
+          50000
+        ],
         "vectorDimension": 384
       },
       "comparisons": [
@@ -643,9 +666,9 @@
           "metrics": {
             "scale": 1000,
             "variant": "text-only",
-            "heapDeltaBytes": 8757168,
-            "estimatedBytes": 8662110,
-            "ratio": 0.99
+            "heapDeltaBytes": 4508272,
+            "estimatedBytes": 2269904,
+            "ratio": 0.5
           }
         },
         {
@@ -653,9 +676,9 @@
           "metrics": {
             "scale": 1000,
             "variant": "vector-384d",
-            "heapDeltaBytes": 4765192,
-            "estimatedBytes": 3180220,
-            "ratio": 0.67
+            "heapDeltaBytes": 4842272,
+            "estimatedBytes": 2336456,
+            "ratio": 0.48
           }
         },
         {
@@ -663,9 +686,9 @@
           "metrics": {
             "scale": 10000,
             "variant": "text-only",
-            "heapDeltaBytes": 87315160,
-            "estimatedBytes": 87040970,
-            "ratio": 1
+            "heapDeltaBytes": 43612312,
+            "estimatedBytes": 22424528,
+            "ratio": 0.51
           }
         },
         {
@@ -673,9 +696,9 @@
           "metrics": {
             "scale": 10000,
             "variant": "vector-384d",
-            "heapDeltaBytes": 42668816,
-            "estimatedBytes": 31652930,
-            "ratio": 0.74
+            "heapDeltaBytes": 55080080,
+            "estimatedBytes": 44671747,
+            "ratio": 0.81
           }
         },
         {
@@ -683,9 +706,9 @@
           "metrics": {
             "scale": 50000,
             "variant": "text-only",
-            "heapDeltaBytes": 421622184,
-            "estimatedBytes": 435723610,
-            "ratio": 1.03
+            "heapDeltaBytes": 202269936,
+            "estimatedBytes": 112073104,
+            "ratio": 0.55
           }
         },
         {
@@ -693,13 +716,244 @@
           "metrics": {
             "scale": 50000,
             "variant": "vector-384d",
-            "heapDeltaBytes": 194349024,
-            "estimatedBytes": 158139030,
-            "ratio": 0.81
+            "heapDeltaBytes": 253173072,
+            "estimatedBytes": 223166653,
+            "ratio": 0.88
           }
         }
       ],
-      "durationMs": 6545.224333999999
+      "durationMs": 425028.059042
+    },
+    {
+      "name": "incremental-insert",
+      "description": "Insert throughput and search latency degradation as index grows from 0 to 100K across Narsil, Orama, and MiniSearch",
+      "config": {
+        "batchSize": 5000,
+        "totalDocs": 100000,
+        "queriesPerCheckpoint": 20,
+        "checkpointThresholds": [
+          25000,
+          50000,
+          100000
+        ]
+      },
+      "timeSeries": [
+        {
+          "checkpoint": 5000,
+          "label": "narsil",
+          "insertThroughput": 20778,
+          "searchMedianMs": 2.093,
+          "searchP95Ms": 4.152
+        },
+        {
+          "checkpoint": 10000,
+          "label": "narsil",
+          "insertThroughput": 16645,
+          "searchMedianMs": 5.129,
+          "searchP95Ms": 7.951
+        },
+        {
+          "checkpoint": 15000,
+          "label": "narsil",
+          "insertThroughput": 17242,
+          "searchMedianMs": 7.165,
+          "searchP95Ms": 12.059
+        },
+        {
+          "checkpoint": 20000,
+          "label": "narsil",
+          "insertThroughput": 15384,
+          "searchMedianMs": 10.323,
+          "searchP95Ms": 16.572
+        },
+        {
+          "checkpoint": 25000,
+          "label": "narsil",
+          "insertThroughput": 16126,
+          "searchMedianMs": 8.951,
+          "searchP95Ms": 20.048
+        },
+        {
+          "checkpoint": 30000,
+          "label": "narsil",
+          "insertThroughput": 15733,
+          "searchMedianMs": 15.67,
+          "searchP95Ms": 24.058
+        },
+        {
+          "checkpoint": 35000,
+          "label": "narsil",
+          "insertThroughput": 15254,
+          "searchMedianMs": 21.88,
+          "searchP95Ms": 31.768
+        },
+        {
+          "checkpoint": 40000,
+          "label": "narsil",
+          "insertThroughput": 15296,
+          "searchMedianMs": 26.201,
+          "searchP95Ms": 39.411
+        },
+        {
+          "checkpoint": 45000,
+          "label": "narsil",
+          "insertThroughput": 15233,
+          "searchMedianMs": 30.262,
+          "searchP95Ms": 42.793
+        },
+        {
+          "checkpoint": 50000,
+          "label": "narsil",
+          "insertThroughput": 15733,
+          "searchMedianMs": 19.014,
+          "searchP95Ms": 40.644
+        },
+        {
+          "checkpoint": 55000,
+          "label": "narsil",
+          "insertThroughput": 15192,
+          "searchMedianMs": 34.877,
+          "searchP95Ms": 46.147
+        },
+        {
+          "checkpoint": 60000,
+          "label": "narsil",
+          "insertThroughput": 15247,
+          "searchMedianMs": 40.954,
+          "searchP95Ms": 61.994
+        },
+        {
+          "checkpoint": 65000,
+          "label": "narsil",
+          "insertThroughput": 14834,
+          "searchMedianMs": 51.52,
+          "searchP95Ms": 66.463
+        },
+        {
+          "checkpoint": 70000,
+          "label": "narsil",
+          "insertThroughput": 14751,
+          "searchMedianMs": 46.609,
+          "searchP95Ms": 83.378
+        },
+        {
+          "checkpoint": 75000,
+          "label": "narsil",
+          "insertThroughput": 13246,
+          "searchMedianMs": 63.189,
+          "searchP95Ms": 96.902
+        },
+        {
+          "checkpoint": 80000,
+          "label": "narsil",
+          "insertThroughput": 13354,
+          "searchMedianMs": 55.495,
+          "searchP95Ms": 104.701
+        },
+        {
+          "checkpoint": 85000,
+          "label": "narsil",
+          "insertThroughput": 14072,
+          "searchMedianMs": 52.615,
+          "searchP95Ms": 95.443
+        },
+        {
+          "checkpoint": 90000,
+          "label": "narsil",
+          "insertThroughput": 10703,
+          "searchMedianMs": 46.157,
+          "searchP95Ms": 98.01
+        },
+        {
+          "checkpoint": 95000,
+          "label": "narsil",
+          "insertThroughput": 14277,
+          "searchMedianMs": 66.591,
+          "searchP95Ms": 102.597
+        },
+        {
+          "checkpoint": 100000,
+          "label": "narsil",
+          "insertThroughput": 14343,
+          "searchMedianMs": 71.29,
+          "searchP95Ms": 109.932
+        }
+      ],
+      "comparisons": [
+        {
+          "label": "narsil-25,000",
+          "metrics": {
+            "docsPerSec": 16126,
+            "searchMedianMs": 8.951,
+            "searchP95Ms": 20.048
+          }
+        },
+        {
+          "label": "orama-25,000",
+          "metrics": {
+            "docsPerSec": 11125,
+            "searchMedianMs": 15.438,
+            "searchP95Ms": 73.263
+          }
+        },
+        {
+          "label": "minisearch-25,000",
+          "metrics": {
+            "docsPerSec": 11830,
+            "searchMedianMs": 9.978,
+            "searchP95Ms": 32.804
+          }
+        },
+        {
+          "label": "narsil-50,000",
+          "metrics": {
+            "docsPerSec": 15733,
+            "searchMedianMs": 19.014,
+            "searchP95Ms": 40.644
+          }
+        },
+        {
+          "label": "orama-50,000",
+          "metrics": {
+            "docsPerSec": 10679,
+            "searchMedianMs": 52.295,
+            "searchP95Ms": 242.867
+          }
+        },
+        {
+          "label": "minisearch-50,000",
+          "metrics": {
+            "docsPerSec": 11765,
+            "searchMedianMs": 20.968,
+            "searchP95Ms": 39.733
+          }
+        },
+        {
+          "label": "narsil-100,000",
+          "metrics": {
+            "docsPerSec": 14343,
+            "searchMedianMs": 71.29,
+            "searchP95Ms": 109.932
+          }
+        },
+        {
+          "label": "orama-100,000",
+          "metrics": {
+            "docsPerSec": 10716,
+            "searchMedianMs": 451.008,
+            "searchP95Ms": 900.233
+          }
+        },
+        {
+          "label": "minisearch-100,000",
+          "metrics": {
+            "docsPerSec": 11521,
+            "searchMedianMs": 68.596,
+            "searchP95Ms": 120.637
+          }
+        }
+      ],
+      "durationMs": 51451.477541
     }
   ]
 }

@@ -163,7 +163,9 @@ O(prefix\_bucket\_size).
 
 HNSW is an approximate nearest neighbor (ANN) algorithm used for vector
 similarity search when the vector count exceeds the brute-force
-threshold (~10,000 vectors).
+promotion threshold (see
+[vector-index.md](vector-index.md#hnsw-promotion) for the threshold
+configuration and promotion process).
 
 ### Graph Structure
 
@@ -303,25 +305,19 @@ per graph, not globally.
 
 ### Auto-Promotion
 
-Narsil uses a two-tier approach to vector search:
-
-- **Below the promotion threshold (default 1,024):** Brute-force
-  linear scan. Exact, deterministic, no graph overhead.
-- **At or above the threshold:** HNSW approximate search. The graph
-  is built from all vectors when the threshold is reached.
-  Subsequent inserts go directly into the graph.
-
-The promotion threshold is configurable via
-`VectorIndexConfig.threshold`. See
+Narsil uses a two-tier approach to vector search: brute-force
+linear scan below a configurable promotion threshold, and HNSW
+approximate search at or above it. See
 [vector-index.md](vector-index.md#hnsw-promotion) for the full
-promotion process.
+promotion process, threshold configuration, and construction
+strategy.
 
 ---
 
 ## Similarity Functions
 
 Three metrics for vector distance/similarity computation. All operate
-on `Float32Array` for memory efficiency.
+on 32-bit floating-point arrays for memory efficiency.
 
 ### Cosine Similarity
 
@@ -792,10 +788,10 @@ sumSq(v) = SUM(v[i]^2) for i in 0..dimension
 ### SQ8 Properties
 
 - **Memory savings:** 4x reduction (float32 to uint8 per dimension).
-- **Speed:** The integer inner loop is not faster than float32 in
-  JavaScript without SIMD. The value of SQ8 in JS is memory savings,
-  not speed. In Rust/Go with SIMD, the integer inner loop can be
-  significantly faster.
+- **Speed:** The integer inner loop benefits from SIMD acceleration.
+  On runtimes without SIMD support, the primary value of SQ8 is
+  memory savings. On runtimes with SIMD (native code, WASM SIMD),
+  the integer inner loop can be significantly faster than float32.
 - **Accuracy:** Global SQ8 (single alpha/offset for all dimensions)
   matches float32 HNSW recall for typical embedding distributions.
   Accuracy degrades when the value distribution is highly non-uniform
