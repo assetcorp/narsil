@@ -45,6 +45,7 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
     globalStats,
     maxResults,
     termMatch,
+    filterDocIds,
   } = params
 
   if (queryTokens.length === 0) {
@@ -95,6 +96,7 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
         for (let pi = 0; pi < list.length; pi++) {
           const docId = list.docIds[pi]
           if (hasDeleted && list.deletedDocs.has(docId)) continue
+          if (filterDocIds && !filterDocIds.has(docId)) continue
           if (tokenIndex > 0 && !docScores.has(docId)) continue
           const fieldName = fieldNames[list.fieldNameIndices[pi]]
           if (fields && !fields.includes(fieldName)) continue
@@ -151,6 +153,7 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
         for (let pi = 0; pi < list.length; pi++) {
           const docId = list.docIds[pi]
           if (hasDeleted && list.deletedDocs.has(docId)) continue
+          if (filterDocIds && !filterDocIds.has(docId)) continue
           const fieldName = fieldNames[list.fieldNameIndices[pi]]
           if (fields && !fields.includes(fieldName)) continue
           const termFrequency = list.termFrequencies[pi]
