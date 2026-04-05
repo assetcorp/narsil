@@ -139,7 +139,10 @@ the caller to retry after a brief delay.
      newPartitionId = fnv1a(docId) % newCount
      Insert into the corresponding new partition
    Process in chunks of 1,000, yielding between chunks
-   via setTimeout(fn, 0) to avoid blocking.
+   to avoid monopolizing compute resources. The yielding
+   mechanism is runtime-specific (e.g., goroutine
+   scheduling in Go, async yield in Rust, cooperative
+   yielding in single-threaded runtimes).
    Vector data is unaffected by rebalancing because
    vector indexes are partition-agnostic.
 
@@ -167,11 +170,15 @@ the caller to retry after a brief delay.
 | Writes | Buffered in the WAQ with sequence numbers |
 | Queries | Fan out to old partitions until swap |
 
-### Event Loop Yielding
+### Cooperative Yielding
 
 The redistribution step (step 3) processes documents in chunks and
-yields between chunks using `setTimeout(fn, 0)`. This prevents the
-rebalance from blocking the event loop for extended periods.
+yields between chunks. This prevents the rebalance from
+monopolizing compute resources for extended periods. The yielding
+mechanism is implementation-specific: single-threaded runtimes
+must yield to the host scheduler between chunks; multi-threaded
+runtimes may run the redistribution on a background thread
+instead.
 
 ---
 

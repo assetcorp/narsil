@@ -47,10 +47,10 @@ Every VectorIndex implementation must provide these operations:
 
 ```text
 VectorIndex {
-  insert(docId: string, vector: Float32Array): void
+  insert(docId: string, vector: float32[]): void
   remove(docId: string): void
-  search(query: Float32Array, k: uint32, options: SearchOptions): Array<ScoredResult>
-  getVector(docId: string): Float32Array | null
+  search(query: float32[], k: uint32, options: SearchOptions): Array<ScoredResult>
+  getVector(docId: string): float32[] | null
   has(docId: string): boolean
   compact(): void
   optimize(): void
@@ -65,7 +65,7 @@ VectorIndex {
 SearchOptions {
   metric:          'cosine' | 'dotProduct' | 'euclidean'
   minSimilarity:   float32 | null
-  filterDocIds:    Set<string> | null
+  filterDocIds:    set<string> | null
   efSearch:        uint16 | null
 }
 
@@ -131,15 +131,36 @@ deletes).
 
 ### optimize()
 
-Expensive structural maintenance. May restructure the entire vector
-index for improved search performance. For segment-based
-implementations, this merges multiple graphs into fewer, larger
-graphs. For single-graph implementations, this rebuilds the graph
-from scratch for optimal connectivity.
+Expensive structural maintenance. Restructures the vector index for
+improved search performance. For segment-based implementations, this
+merges multiple graphs into fewer, larger graphs. For single-graph
+implementations, this rebuilds the graph from scratch for optimal
+connectivity.
 
 Callers should expect latency proportional to total vector count.
-Implementations should yield periodically to avoid blocking the host
-runtime for extended periods.
+Implementations should avoid monopolizing compute resources during
+this operation. Single-threaded runtimes should yield periodically;
+multi-threaded runtimes may run the operation on a background thread.
+
+#### When to call optimize()
+
+- After a large batch of inserts when using buffered or
+  segment-based post-promotion insertion. The buffer or new
+  segments are merged into the main graph.
+- After `compact()` has removed a significant fraction of vectors
+  (> 20%), since the remaining graph may have degraded connectivity.
+- When `maintenanceStatus().graphCount > 1` and search latency
+  has increased, indicating that multi-graph merge overhead is
+  accumulating.
+
+#### Interaction with concurrent operations
+
+- `optimize()` must not corrupt concurrent reads. Implementations
+  may block writes during optimize or buffer them (same WAQ pattern
+  as partition rebalancing).
+- After `optimize()` completes, subsequent searches must use the
+  optimized structure. There must be no window where a search uses
+  a partially-optimized graph.
 
 ### maintenanceStatus()
 
@@ -504,14 +525,70 @@ When the vector count reaches the threshold:
 2. Build an HNSW graph from all vectors.
 3. Switch the search backend from brute-force to HNSW.
 
-Promotion is synchronous. The Nth insert (where N = threshold)
-will take longer than typical inserts due to graph construction.
-Implementations should document this latency characteristic.
+### Promotion Contract
 
-### Incremental Insertion
+The spec defines the observable contract, not the construction
+mechanism:
 
-After promotion, new vectors are inserted directly into the HNSW
-graph via `insertNode()`. No batch rebuild is needed.
+- **Before promotion completes:** All search operations use
+  brute-force. Results are exact.
+- **After promotion completes:** Search operations use HNSW.
+  Results are approximate (subject to the recall floors defined in
+  [Cross-Implementation Result Equivalence](#cross-implementation-result-equivalence)).
+- **During promotion:** Search operations must remain available.
+  They may use brute-force (if promotion runs in the background)
+  or block until promotion completes (if promotion is synchronous).
+
+Implementations choose their own promotion strategy:
+
+- **Synchronous promotion:** The Nth insert blocks until the HNSW
+  graph is built. Simple to implement. Causes a latency spike on
+  the triggering insert.
+- **Background promotion:** The Nth insert returns immediately.
+  Graph construction runs asynchronously. Search continues using
+  brute-force until the graph is ready, then switches to HNSW.
+  No latency spike, but brute-force search may be slower for
+  large vector counts during the build window.
+- **Deferred promotion:** Graph construction is deferred until the
+  first search query after the threshold is crossed. Inserts never
+  pay the construction cost. The first search after threshold
+  either blocks for construction or triggers a background build.
+
+All three strategies satisfy the contract. Implementations should
+document which strategy they use and its latency characteristics.
+
+### Post-Promotion Insertion
+
+After promotion, new vectors must be added to the HNSW graph.
+Implementations choose the insertion strategy:
+
+- **Incremental insertion:** Each new vector is inserted directly
+  into the HNSW graph via the standard HNSW insertion algorithm.
+  This spreads the cost across inserts but becomes expensive at
+  high efConstruction values and large dimensions (each insert
+  requires O(efConstruction * M * dimensions) distance
+  computations across multiple layers).
+- **Buffered insertion:** New vectors are stored flat and searched
+  via brute-force. When the buffer reaches a size threshold or a
+  maintenance operation runs, the buffer is merged into the HNSW
+  graph in a single batch. This amortizes the graph construction
+  cost and produces better graph quality than incremental
+  insertion at the cost of mixed search modes during the buffer
+  window.
+- **Segment-based insertion:** New vectors form a new HNSW graph
+  segment. Multiple segments are searched independently and
+  results are merged. The `optimize()` operation merges segments.
+  This avoids modifying existing graphs and supports the
+  multi-graph serialization format defined in
+  [Serialization](#serialization).
+
+The choice of strategy has significant performance implications.
+Incremental insertion throughput degrades with index size due to
+per-insert graph traversal cost. Buffered and segment-based
+strategies maintain constant insert throughput at the cost of
+additional search-time complexity. Production vector databases
+(Qdrant, Milvus, Lucene) use buffered or segment-based strategies
+for this reason.
 
 ---
 
