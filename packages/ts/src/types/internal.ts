@@ -146,4 +146,5 @@ export interface InternalSearchParams {
   globalStats?: GlobalStatistics
   maxResults?: number
   termMatch?: import('../types/search').TermMatchPolicy
+  filterDocIds?: Set<string>
 }

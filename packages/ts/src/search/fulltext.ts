@@ -49,8 +49,16 @@ export function fulltextSearch(
 
   const queryTokens = deduplicateTokens(queryTokenResult.tokens)
 
+  let filterDocIds: Set<string> | undefined
+  if (params.filters) {
+    filterDocIds = partition.applyFilters(params.filters, schema)
+    if (filterDocIds.size === 0) {
+      return { scored: [], totalMatched: 0 }
+    }
+  }
+
   const hasPostFilters =
-    params.filters !== undefined ||
+    filterDocIds !== undefined ||
     params.minScore !== undefined ||
     (params.termMatch !== undefined && params.termMatch !== 'any')
   const requestedLimit =
@@ -70,6 +78,7 @@ export function fulltextSearch(
     globalStats: options?.globalStats,
     maxResults,
     termMatch: params.termMatch,
+    filterDocIds,
   })
 
   let scored = rawResult.scored
@@ -82,11 +91,6 @@ export function fulltextSearch(
   if (params.minScore !== undefined && params.minScore > 0) {
     const threshold = params.minScore
     scored = scored.filter(doc => doc.score >= threshold)
-  }
-
-  if (params.filters) {
-    const matchingDocIds = partition.applyFilters(params.filters, schema)
-    scored = scored.filter(doc => matchingDocIds.has(doc.docId))
   }
 
   const totalMatched = hasPostFilters ? scored.length : rawResult.totalMatched
