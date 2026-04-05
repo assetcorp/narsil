@@ -50,6 +50,7 @@ export type {
   QueryResult,
   ScoreComponents,
   SuggestResult,
+  VectorMaintenanceResult,
 } from './types/results'
 export type {
   AnyDocument,

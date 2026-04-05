@@ -15,6 +15,11 @@ import { resolveVectorText } from './engine/resolve-vector-text'
 import { createSnapshot, restoreFromSnapshot } from './engine/snapshot'
 import { executeSuggest } from './engine/suggest'
 import { validateIndexName } from './engine/validation'
+import {
+  compactVectors as executeCompactVectors,
+  optimizeVectors as executeOptimizeVectors,
+  getVectorMaintenanceStatus,
+} from './engine/vector-maintenance'
 import { ErrorCodes, NarsilError } from './errors'
 import { getLanguage } from './languages/registry'
 import { createRebalancer } from './partitioning/rebalancer'
@@ -37,6 +42,7 @@ import type {
   PreflightResult,
   QueryResult,
   SuggestResult,
+  VectorMaintenanceResult,
 } from './types/results'
 import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig, SchemaDefinition } from './types/schema'
 import type { QueryParams, SuggestParams } from './types/search'
@@ -74,6 +80,10 @@ export interface Narsil {
   rebalance(indexName: string, targetPartitionCount: number): Promise<void>
   updatePartitionConfig(indexName: string, config: Partial<PartitionConfig>): Promise<void>
   getMemoryStats(): MemoryStats
+
+  compactVectors(indexName: string, fieldName?: string): Promise<void>
+  optimizeVectors(indexName: string, fieldName?: string): Promise<void>
+  vectorMaintenanceStatus(indexName: string): VectorMaintenanceResult[]
 
   on<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void
   off<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void
@@ -432,6 +442,24 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
         if (mgr) mainThreadBytes += mgr.estimateMemoryBytes()
       }
       return { totalBytes: mainThreadBytes + workerStats.totalBytes, workers: workerStats.workers }
+    },
+
+    async compactVectors(indexName: string, fieldName?: string): Promise<void> {
+      guardShutdown()
+      requireIndex(indexName)
+      executeCompactVectors(requireManager(indexName), indexName, fieldName)
+    },
+
+    async optimizeVectors(indexName: string, fieldName?: string): Promise<void> {
+      guardShutdown()
+      requireIndex(indexName)
+      await executeOptimizeVectors(requireManager(indexName), indexName, fieldName)
+    },
+
+    vectorMaintenanceStatus(indexName: string): VectorMaintenanceResult[] {
+      guardShutdown()
+      requireIndex(indexName)
+      return getVectorMaintenanceStatus(requireManager(indexName))
     },
 
     on<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void {

@@ -53,9 +53,16 @@ function createMockVectorIndex(
       return []
     },
     compact() {},
-    optimize() {},
+    async optimize() {},
     maintenanceStatus() {
-      return { tombstoneRatio: 0, graphCount: 0, estimatedCompactMs: 0, estimatedOptimizeMs: 0 }
+      return {
+        tombstoneRatio: 0,
+        graphCount: 0,
+        bufferSize: 0,
+        building: false,
+        estimatedCompactMs: 0,
+        estimatedOptimizeMs: 0,
+      }
     },
     estimateMemoryBytes() {
       return 0

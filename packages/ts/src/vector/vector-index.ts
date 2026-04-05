@@ -32,6 +32,8 @@ export interface VectorSearchOptions {
 export interface MaintenanceStatus {
   tombstoneRatio: number
   graphCount: number
+  bufferSize: number
+  building: boolean
   estimatedCompactMs: number
   estimatedOptimizeMs: number
 }
@@ -51,7 +53,7 @@ export interface VectorIndex {
   getVector(docId: string): Float32Array | null
   has(docId: string): boolean
   compact(): void
-  optimize(): void
+  optimize(): Promise<void>
   maintenanceStatus(): MaintenanceStatus
   estimateMemoryBytes(): number
   serialize(): VectorIndexPayload
@@ -84,9 +86,57 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
   const tombstones = new Set<string>()
   let sq8: ScalarQuantizer | null = quantizationMode === 'sq8' ? createScalarQuantizer(dimension) : null
   let hnsw: HNSWIndex | null = null
+  const buffer = new Set<string>()
+  let building = false
+  let pendingBuild: Promise<void> | null = null
 
   function liveSize(): number {
     return store.size - tombstones.size
+  }
+
+  function yieldToEventLoop(): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, 0))
+  }
+
+  function mergeResults(
+    hnswResults: VectorScoredResult[],
+    bufferResults: VectorScoredResult[],
+    k: number,
+  ): VectorScoredResult[] {
+    const seen = new Set<string>()
+    const merged: VectorScoredResult[] = []
+    let hi = 0
+    let bi = 0
+
+    while (merged.length < k && (hi < hnswResults.length || bi < bufferResults.length)) {
+      const h = hi < hnswResults.length ? hnswResults[hi] : undefined
+      const b = bi < bufferResults.length ? bufferResults[bi] : undefined
+
+      let pick: VectorScoredResult
+      if (h && b) {
+        if (h.score > b.score || (h.score === b.score && h.docId.localeCompare(b.docId) < 0)) {
+          pick = h
+          hi++
+        } else {
+          pick = b
+          bi++
+        }
+      } else if (h) {
+        pick = h
+        hi++
+      } else if (b) {
+        pick = b
+        bi++
+      } else {
+        break
+      }
+
+      if (seen.has(pick.docId)) continue
+      seen.add(pick.docId)
+      merged.push(pick)
+    }
+
+    return merged
   }
 
   function validateDimension(vector: Float32Array): void {
@@ -129,23 +179,44 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     sq8.recalibrateAll(storeVectors())
   }
 
-  function buildHNSWFromStore(): void {
-    if (sq8 && liveSize() > 0) {
-      calibrateAndQuantizeAll()
-    }
+  function triggerBuild(): void {
+    if (building) return
+    building = true
 
-    const newHnsw = createHNSWIndex(dimension, store, hnswConfig, sq8 ?? undefined)
+    const liveDocIds: string[] = []
     for (const [docId] of store.entries()) {
       if (tombstones.has(docId)) continue
-      newHnsw.insertNode(docId)
+      liveDocIds.push(docId)
     }
-    hnsw = newHnsw
-  }
 
-  function checkAutoPromotion(): void {
-    if (hnsw) return
-    if (liveSize() < promotionThreshold) return
-    buildHNSWFromStore()
+    const buildPromise = (async () => {
+      try {
+        if (sq8 && liveDocIds.length > 0) {
+          calibrateAndQuantizeAll()
+        }
+
+        const newHnsw = createHNSWIndex(dimension, store, hnswConfig, sq8 ?? undefined)
+        const CHUNK_SIZE = 100
+        for (let i = 0; i < liveDocIds.length; i++) {
+          const docId = liveDocIds[i]
+          if (!store.has(docId) || tombstones.has(docId)) continue
+          newHnsw.insertNode(docId)
+          if ((i + 1) % CHUNK_SIZE === 0) {
+            await yieldToEventLoop()
+          }
+        }
+
+        hnsw = newHnsw
+        for (const docId of liveDocIds) {
+          buffer.delete(docId)
+        }
+      } finally {
+        building = false
+        pendingBuild = null
+      }
+    })()
+
+    pendingBuild = buildPromise
   }
 
   function bruteForceSearch(
@@ -199,21 +270,13 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     validateDimension(vector)
 
     tombstones.delete(docId)
-
     store.insert(docId, vector)
+    buffer.add(docId)
 
-    if (sq8?.isCalibrated()) {
-      if (sq8.needsRecalibration(vector)) {
-        recalibrateFromStore()
-      } else {
-        sq8.quantize(docId, vector)
-      }
-    }
-
-    if (hnsw) {
-      hnsw.insertNode(docId)
-    } else {
-      checkAutoPromotion()
+    if (!hnsw && !building && liveSize() >= promotionThreshold) {
+      triggerBuild()
+    } else if (hnsw && !building && buffer.size >= promotionThreshold) {
+      triggerBuild()
     }
   }
 
@@ -221,9 +284,28 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     if (!store.has(docId)) return
 
     tombstones.add(docId)
+    buffer.delete(docId)
 
     if (hnsw) {
       hnsw.markTombstone(docId)
+    }
+  }
+
+  function* bufferCandidates(filterDocIds?: Set<string>): Iterable<string> {
+    if (filterDocIds) {
+      if (buffer.size <= filterDocIds.size) {
+        for (const docId of buffer) {
+          if (filterDocIds.has(docId) && !tombstones.has(docId)) yield docId
+        }
+      } else {
+        for (const docId of filterDocIds) {
+          if (buffer.has(docId) && !tombstones.has(docId)) yield docId
+        }
+      }
+    } else {
+      for (const docId of buffer) {
+        if (!tombstones.has(docId)) yield docId
+      }
     }
   }
 
@@ -238,10 +320,15 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
 
     if (filterDocIds && filterDocIds.size === 0) return []
 
-    if (hnsw) {
+    if (!hnsw) {
+      const candidates = filterDocIds ?? allLiveDocIds()
+      return bruteForceSearch(query, k, metric, minSimilarity, candidates)
+    }
+
+    if (buffer.size === 0) {
       if (filterDocIds) {
-        const physicalSize = store.size
-        const selectivity = physicalSize > 0 ? filterDocIds.size / physicalSize : 1
+        const hnswLiveSize = hnsw.size
+        const selectivity = hnswLiveSize > 0 ? filterDocIds.size / hnswLiveSize : 1
         if (selectivity < filterThreshold) {
           return bruteForceSearch(query, k, metric, minSimilarity, filterDocIds)
         }
@@ -251,8 +338,21 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
       return hnswResults.map(r => ({ docId: r.docId, score: r.score }))
     }
 
-    const candidates = filterDocIds ?? allLiveDocIds()
-    return bruteForceSearch(query, k, metric, minSimilarity, candidates)
+    if (filterDocIds) {
+      const hnswLiveSize = hnsw.size
+      const selectivity = hnswLiveSize > 0 ? filterDocIds.size / hnswLiveSize : 1
+      if (selectivity < filterThreshold) {
+        return bruteForceSearch(query, k, metric, minSimilarity, filterDocIds)
+      }
+    }
+
+    const hnswResults = hnsw
+      .search(query, k, metric, minSimilarity, filterDocIds, efSearch)
+      .map(r => ({ docId: r.docId, score: r.score }))
+
+    const bufferResults = bruteForceSearch(query, k, metric, minSimilarity, bufferCandidates(filterDocIds))
+
+    return mergeResults(hnswResults, bufferResults, k)
   }
 
   function getVector(docId: string): Float32Array | null {
@@ -275,6 +375,7 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
 
     for (const docId of tombstones) {
       store.remove(docId)
+      buffer.delete(docId)
       if (sq8) {
         sq8.remove(docId)
       }
@@ -287,12 +388,47 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     }
   }
 
-  function optimize(): void {
+  async function optimize(): Promise<void> {
+    if (pendingBuild) {
+      await pendingBuild
+    }
+
     compact()
 
-    if (hnsw) {
-      hnsw.rebuild()
+    const live = liveSize()
+    if (live === 0) {
+      if (hnsw) {
+        hnsw.clear()
+        hnsw = null
+      }
+      buffer.clear()
+      if (sq8) {
+        sq8.clear()
+      }
+      return
     }
+
+    if (sq8) {
+      calibrateAndQuantizeAll()
+    }
+
+    const newHnsw = createHNSWIndex(dimension, store, hnswConfig, sq8 ?? undefined)
+    const liveDocIds: string[] = []
+    for (const [docId] of store.entries()) {
+      if (tombstones.has(docId)) continue
+      liveDocIds.push(docId)
+    }
+
+    const CHUNK_SIZE = 100
+    for (let i = 0; i < liveDocIds.length; i++) {
+      newHnsw.insertNode(liveDocIds[i])
+      if ((i + 1) % CHUNK_SIZE === 0) {
+        await yieldToEventLoop()
+      }
+    }
+
+    hnsw = newHnsw
+    buffer.clear()
 
     if (sq8 && store.size > 0) {
       recalibrateFromStore()
@@ -306,7 +442,14 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     const estimatedCompactMs = Math.round(tombstones.size * ESTIMATED_MS_PER_TOMBSTONE * dimensionScale)
     const estimatedOptimizeMs = Math.round(storeSize * ESTIMATED_MS_PER_VECTOR_REBUILD * dimensionScale)
 
-    return { tombstoneRatio, graphCount, estimatedCompactMs, estimatedOptimizeMs }
+    return {
+      tombstoneRatio,
+      graphCount,
+      bufferSize: buffer.size,
+      building,
+      estimatedCompactMs,
+      estimatedOptimizeMs,
+    }
   }
 
   function serialize(): VectorIndexPayload {
@@ -356,6 +499,7 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
 
     store.clear()
     tombstones.clear()
+    buffer.clear()
     if (hnsw) {
       hnsw.clear()
       hnsw = null
@@ -397,18 +541,44 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
           }
         }
       }
+
+      for (const [docId] of store.entries()) {
+        if (tombstones.has(docId)) continue
+        if (!restoredHnsw.has(docId)) {
+          buffer.add(docId)
+        }
+      }
+
+      if (buffer.size > restoredHnsw.size) {
+        hnsw.clear()
+        hnsw = null
+        buffer.clear()
+        for (const [docId] of store.entries()) {
+          if (tombstones.has(docId)) continue
+          buffer.add(docId)
+        }
+      }
+    } else {
+      for (const [docId] of store.entries()) {
+        if (tombstones.has(docId)) continue
+        buffer.add(docId)
+      }
     }
   }
 
   function estimateMemoryBytes(): number {
     const count = store.size
-    if (count === 0 && tombstones.size === 0) return 0
+    if (count === 0 && tombstones.size === 0 && buffer.size === 0) return 0
 
     let bytes = store.estimateMemory(dimension)
 
     const TOMBSTONE_SET_OVERHEAD = 64
     const TOMBSTONE_ENTRY_COST = 72
     bytes += TOMBSTONE_SET_OVERHEAD + tombstones.size * TOMBSTONE_ENTRY_COST
+
+    const BUFFER_SET_OVERHEAD = 64
+    const BUFFER_ENTRY_COST = 72
+    bytes += BUFFER_SET_OVERHEAD + buffer.size * BUFFER_ENTRY_COST
 
     if (hnsw) {
       const HNSW_NODE_OBJ = 48
@@ -428,8 +598,9 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
         (SET_OVERHEAD + avgConnsLayer0 * SET_ENTRY_COST) +
         Math.max(0, avgLayers - 1) * (SET_OVERHEAD + avgConnsUpper * SET_ENTRY_COST)
 
+      const hnswNodeCount = hnsw.size + hnsw.tombstoneCount
       const perHnswNode = MAP_ENTRY + HNSW_NODE_OBJ + connMemPerNode
-      bytes += MAP_OVERHEAD + count * perHnswNode
+      bytes += MAP_OVERHEAD + hnswNodeCount * perHnswNode
     }
 
     if (sq8?.isCalibrated()) {

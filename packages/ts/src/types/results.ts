@@ -88,3 +88,13 @@ export interface MemoryStats {
     external: number
   }>
 }
+
+export interface VectorMaintenanceResult {
+  fieldName: string
+  tombstoneRatio: number
+  graphCount: number
+  bufferSize: number
+  building: boolean
+  estimatedCompactMs: number
+  estimatedOptimizeMs: number
+}

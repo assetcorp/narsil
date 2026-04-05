@@ -13,12 +13,7 @@
       "description": "Narsil partition fan-out vs Orama and MiniSearch at 100K documents",
       "config": {
         "totalDocs": 100000,
-        "partitionConfigs": [
-          1,
-          5,
-          10,
-          20
-        ],
+        "partitionConfigs": [1, 5, 10, 20],
         "queryCount": 100
       },
       "comparisons": [
@@ -653,11 +648,7 @@
       "name": "memory-accuracy",
       "description": "Validates getStats().memoryBytes against actual heap delta",
       "config": {
-        "scales": [
-          1000,
-          10000,
-          50000
-        ],
+        "scales": [1000, 10000, 50000],
         "vectorDimension": 384
       },
       "comparisons": [
@@ -731,11 +722,7 @@
         "batchSize": 5000,
         "totalDocs": 100000,
         "queriesPerCheckpoint": 20,
-        "checkpointThresholds": [
-          25000,
-          50000,
-          100000
-        ]
+        "checkpointThresholds": [25000, 50000, 100000]
       },
       "timeSeries": [
         {

@@ -147,11 +147,11 @@ A v1 partition payload is a MessagePack map with these fields:
   partition_id:     uint32
   total_partitions: uint32
   language:         string
-  schema:           map<string, string>
+  schema:           map[string, string]
   doc_count:        uint32
   avg_doc_length:   float32
-  documents:        map<string, Document>
-  inverted_index:   map<string, PostingList>
+  documents:        map[string, Document]
+  inverted_index:   map[string, PostingList]
   field_indexes:    FieldIndexes
   statistics:       Statistics
 }
@@ -163,8 +163,8 @@ A map from document ID (string) to a `Document` structure:
 
 ```text
 Document {
-  fields:        map<string, value>
-  field_lengths: map<string, uint16>
+  fields:        map[string, value]
+  field_lengths: map[string, uint16]
 }
 ```
 
@@ -182,14 +182,14 @@ A map from token (string) to a `PostingList` structure:
 ```text
 PostingList {
   doc_freq: uint32
-  postings: Array<Posting>
+  postings: array[Posting]
 }
 
 Posting {
   doc_id:    string
   term_freq: uint16
   field:     string
-  positions: Array<uint16>
+  positions: array[uint16]
 }
 ```
 
@@ -202,20 +202,20 @@ within the field, used for highlighting and phrase matching.
 
 ```text
 FieldIndexes {
-  numeric:  map<string, Array<NumericEntry>>
-  boolean:  map<string, BooleanIndex>
-  enum:     map<string, map<string, Array<string>>>
-  geopoint: map<string, Array<GeopointEntry>>
+  numeric:  map[string, array[NumericEntry]]
+  boolean:  map[string, BooleanIndex]
+  enum:     map[string, map[string, array[string]]]
+  geopoint: map[string, array[GeopointEntry]]
 }
 
 NumericEntry {
-  value:  number
+  value:  float64
   doc_id: string
 }
 
 BooleanIndex {
-  true_docs:  Array<string>
-  false_docs: Array<string>
+  true_docs:  array[string]
+  false_docs: array[string]
 }
 
 GeopointEntry {
@@ -233,9 +233,9 @@ search on deserialization.
 ```text
 Statistics {
   total_documents:       uint32
-  total_field_lengths:   map<string, uint64>
-  average_field_lengths: map<string, float32>
-  doc_frequencies:       map<string, uint32>
+  total_field_lengths:   map[string, uint64]
+  average_field_lengths: map[string, float32]
+  doc_frequencies:       map[string, uint32]
 }
 ```
 
@@ -258,40 +258,40 @@ A v1 vector index payload is a MessagePack map:
 {
   field_name:  string
   dimension:   uint16
-  vectors:     Array<VectorEntry>
-  graphs:      Array<HnswGraph>
-  sq8:         null | SQ8Data
+  vectors:     array[VectorEntry]
+  graphs:      array[HnswGraph]
+  sq8:         SQ8Data or null
 }
 
 VectorEntry {
   doc_id: string
-  vector: Array<float32>
+  vector: array[float32]
 }
 
 HnswGraph {
-  entry_point:     string | null
+  entry_point:     string or null
   max_layer:       uint8
   m:               uint8
   ef_construction: uint16
   metric:          string
-  nodes:           Array<HnswNode>
+  nodes:           array[HnswNode]
 }
 
 HnswNode = [
   doc_id:      string,
   layer:       uint8,
-  connections: Array<[
+  connections: array[[
     layer_index: uint8,
-    neighbor_ids: Array<string>
-  ]>
+    neighbor_ids: array[string]
+  ]]
 ]
 
 SQ8Data {
   alpha:              float32
   offset:             float32
-  quantized_vectors:  map<string, Array<uint8>>
-  vector_sums:        map<string, float32>
-  vector_sum_sqs:     map<string, float32>
+  quantized_vectors:  map[string, array[uint8]]
+  vector_sums:        map[string, float32]
+  vector_sum_sqs:     map[string, float32]
 }
 ```
 
@@ -316,13 +316,13 @@ a different payload structure:
 ```text
 {
   index_name:      string
-  schema:          map<string, string>
+  schema:          map[string, string]
   language:        string
   partition_count: uint32
   bm25_params:     { k1: float32, b: float32 }
   created_at:      uint64  (Unix timestamp in milliseconds)
   engine_version:  string  (e.g., "0.1.0")
-  vector_fields:   map<string, VectorFieldMeta>
+  vector_fields:   map[string, VectorFieldMeta]
 }
 
 VectorFieldMeta {
