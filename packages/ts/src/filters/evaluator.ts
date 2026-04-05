@@ -33,12 +33,12 @@ import {
 
 export interface FilterContext {
   fieldIndexes: Record<string, FieldIndex>
-  getFieldValue: (docId: string, fieldPath: string) => unknown
-  allDocIds: Set<string>
+  getFieldValue: (internalId: number, fieldPath: string) => unknown
+  allDocIds: Set<number>
 }
 
-export function evaluateFilters(expression: FilterExpression, context: FilterContext): Set<string> {
-  const sets: Set<string>[] = []
+export function evaluateFilters(expression: FilterExpression, context: FilterContext): Set<number> {
+  const sets: Set<number>[] = []
 
   if (expression.fields) {
     for (const [fieldPath, filter] of Object.entries(expression.fields)) {
@@ -66,11 +66,11 @@ export function evaluateFilters(expression: FilterExpression, context: FilterCon
   return applyAnd(sets)
 }
 
-function evaluateFieldFilter(fieldPath: string, filter: FieldFilter, context: FilterContext): Set<string> {
+function evaluateFieldFilter(fieldPath: string, filter: FieldFilter, context: FilterContext): Set<number> {
   const fieldIndex = context.fieldIndexes[fieldPath]
-  const getValue: GetFieldValue = docId => context.getFieldValue(docId, fieldPath)
+  const getValue: GetFieldValue = internalId => context.getFieldValue(internalId, fieldPath)
   const f = filter as Record<string, unknown>
-  const sets: Set<string>[] = []
+  const sets: Set<number>[] = []
 
   if ('radius' in f && f.radius) {
     const geoIndex = resolveGeoIndex(fieldPath, fieldIndex)

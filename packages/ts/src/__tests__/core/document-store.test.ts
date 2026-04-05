@@ -166,4 +166,93 @@ describe('DocumentStore', () => {
       expect(store.count()).toBe(1)
     })
   })
+
+  describe('internal ID mapping', () => {
+    it('assigns sequential internal IDs on store', () => {
+      store.store('alpha', { title: 'A' }, {})
+      store.store('beta', { title: 'B' }, {})
+      store.store('gamma', { title: 'C' }, {})
+      expect(store.getInternalId('alpha')).toBe(0)
+      expect(store.getInternalId('beta')).toBe(1)
+      expect(store.getInternalId('gamma')).toBe(2)
+    })
+
+    it('resolves external ID from internal ID', () => {
+      store.store('alpha', { title: 'A' }, {})
+      store.store('beta', { title: 'B' }, {})
+      expect(store.getExternalId(0)).toBe('alpha')
+      expect(store.getExternalId(1)).toBe('beta')
+    })
+
+    it('returns undefined for unknown IDs', () => {
+      expect(store.getInternalId('nonexistent')).toBeUndefined()
+      expect(store.getExternalId(999)).toBeUndefined()
+    })
+
+    it('removes mapping on document removal', () => {
+      store.store('doc1', { title: 'A' }, {})
+      const internalId = store.getInternalId('doc1')
+      expect(internalId).toBe(0)
+      store.remove('doc1')
+      expect(store.getInternalId('doc1')).toBeUndefined()
+      expect(store.getExternalId(0)).toBeUndefined()
+    })
+
+    it('reuses the same internal ID for overwrites', () => {
+      store.store('doc1', { title: 'Old' }, {})
+      const first = store.getInternalId('doc1')
+      store.store('doc1', { title: 'New' }, {})
+      expect(store.getInternalId('doc1')).toBe(first)
+    })
+
+    it('clears mappings on clear', () => {
+      store.store('doc1', { title: 'A' }, {})
+      store.clear()
+      expect(store.getInternalId('doc1')).toBeUndefined()
+      expect(store.getExternalId(0)).toBeUndefined()
+    })
+
+    it('rebuilds mappings on deserialize', () => {
+      store.deserialize({
+        x: { fields: { title: 'X' }, fieldLengths: {} },
+        y: { fields: { title: 'Y' }, fieldLengths: {} },
+      })
+      expect(store.getInternalId('x')).toBeDefined()
+      expect(store.getInternalId('y')).toBeDefined()
+      expect(store.getExternalId(store.getInternalId('x') ?? -1)).toBe('x')
+    })
+
+    it('ensureInternalId pre-assigns IDs', () => {
+      const id = store.ensureInternalId('future-doc')
+      expect(id).toBe(0)
+      expect(store.getInternalId('future-doc')).toBe(0)
+      expect(store.getExternalId(0)).toBe('future-doc')
+    })
+
+    it('ensureInternalId is idempotent', () => {
+      const first = store.ensureInternalId('doc1')
+      const second = store.ensureInternalId('doc1')
+      expect(first).toBe(second)
+    })
+
+    it('allInternalIds yields live internal IDs', () => {
+      store.store('a', { title: 'A' }, {})
+      store.store('b', { title: 'B' }, {})
+      store.store('c', { title: 'C' }, {})
+      store.remove('b')
+      const ids = Array.from(store.allInternalIds())
+      expect(ids).toContain(0)
+      expect(ids).toContain(2)
+      expect(ids).not.toContain(1)
+    })
+
+    it('resolver provides consistent view', () => {
+      store.store('doc1', { title: 'A' }, {})
+      const resolver = store.resolver()
+      expect(resolver.toExternal(0)).toBe('doc1')
+      expect(resolver.toInternal('doc1')).toBe(0)
+      expect(resolver.toExternal(999)).toBeUndefined()
+      expect(resolver.toInternal('missing')).toBeUndefined()
+    })
+  })
 })

@@ -48,9 +48,17 @@ function getOrCreateBooleanIndex(state: PartitionState, fieldPath: string): Bool
   return idx
 }
 
+function resolveInternalId(state: PartitionState, docId: string): number {
+  const internalId = state.docStore.getInternalId(docId)
+  if (internalId === undefined) {
+    throw new Error(`Internal ID not found for document "${docId}"`)
+  }
+  return internalId
+}
+
 function indexStringField(
   state: PartitionState,
-  docId: string,
+  internalId: number,
   fieldPath: string,
   text: string,
   language: LanguageModule,
@@ -77,7 +85,7 @@ function indexStringField(
     }
 
     for (const [token, freq] of tokenFreqs) {
-      state.invertedIdx.insert(token, docId, freq.count, fieldNameIndex, freq.positions)
+      state.invertedIdx.insert(token, internalId, freq.count, fieldNameIndex, freq.positions)
     }
   } else {
     const tokenCounts = new Map<string, number>()
@@ -87,7 +95,7 @@ function indexStringField(
     }
 
     for (const [token, count] of tokenCounts) {
-      state.invertedIdx.insert(token, docId, count, fieldNameIndex, null)
+      state.invertedIdx.insert(token, internalId, count, fieldNameIndex, null)
     }
   }
 
@@ -96,7 +104,7 @@ function indexStringField(
 
 function indexStringArrayField(
   state: PartitionState,
-  docId: string,
+  internalId: number,
   fieldPath: string,
   arr: string[],
   language: LanguageModule,
@@ -129,7 +137,7 @@ function indexStringArrayField(
     fieldLengths[fieldPath] = fieldTokenList.length
 
     for (const [token, freq] of tokenFreqs) {
-      state.invertedIdx.insert(token, docId, freq.count, fieldNameIndex, freq.positions)
+      state.invertedIdx.insert(token, internalId, freq.count, fieldNameIndex, freq.positions)
     }
   } else {
     const tokenCounts = new Map<string, number>()
@@ -145,7 +153,7 @@ function indexStringArrayField(
     fieldLengths[fieldPath] = fieldTokenList.length
 
     for (const [token, count] of tokenCounts) {
-      state.invertedIdx.insert(token, docId, count, fieldNameIndex, null)
+      state.invertedIdx.insert(token, internalId, count, fieldNameIndex, null)
     }
   }
 
@@ -162,6 +170,7 @@ export function indexDocument(
 ): { fieldLengths: Record<string, number>; tokensByField: Record<string, string[]> } {
   const fieldLengths: Record<string, number> = {}
   const tokensByField: Record<string, string[]> = {}
+  const internalId = resolveInternalId(state, docId)
 
   for (const [fieldPath, fieldType] of Object.entries(flatSchema)) {
     const value = getNestedValue(document, fieldPath)
@@ -170,28 +179,37 @@ export function indexDocument(
     ensureFieldIndex(state, fieldPath, fieldType)
 
     if (fieldType === 'string') {
-      indexStringField(state, docId, fieldPath, value as string, language, options, fieldLengths, tokensByField)
+      indexStringField(state, internalId, fieldPath, value as string, language, options, fieldLengths, tokensByField)
     } else if (fieldType === 'number') {
-      getOrCreateNumericIndex(state, fieldPath).insert(docId, value as number)
+      getOrCreateNumericIndex(state, fieldPath).insert(internalId, value as number)
     } else if (fieldType === 'boolean') {
-      getOrCreateBooleanIndex(state, fieldPath).insert(docId, value as boolean)
+      getOrCreateBooleanIndex(state, fieldPath).insert(internalId, value as boolean)
     } else if (fieldType === 'enum') {
-      state.enumIndexes.get(fieldPath)?.insert(docId, value as string)
+      state.enumIndexes.get(fieldPath)?.insert(internalId, value as string)
     } else if (fieldType === 'geopoint') {
       const geo = value as { lat: number; lon: number }
-      state.geoIndexes.get(fieldPath)?.insert(docId, geo.lat, geo.lon)
+      state.geoIndexes.get(fieldPath)?.insert(internalId, geo.lat, geo.lon)
     } else if (fieldType === 'string[]') {
-      indexStringArrayField(state, docId, fieldPath, value as string[], language, options, fieldLengths, tokensByField)
+      indexStringArrayField(
+        state,
+        internalId,
+        fieldPath,
+        value as string[],
+        language,
+        options,
+        fieldLengths,
+        tokensByField,
+      )
     } else if (fieldType === 'number[]') {
       const numIdx = getOrCreateNumericIndex(state, fieldPath)
-      for (const num of value as number[]) numIdx.insert(docId, num)
+      for (const num of value as number[]) numIdx.insert(internalId, num)
     } else if (fieldType === 'boolean[]') {
       const boolIdx = getOrCreateBooleanIndex(state, fieldPath)
-      for (const b of value as boolean[]) boolIdx.insert(docId, b)
+      for (const b of value as boolean[]) boolIdx.insert(internalId, b)
     } else if (fieldType === 'enum[]') {
       const enumIdx = state.enumIndexes.get(fieldPath)
       if (enumIdx) {
-        for (const e of value as string[]) enumIdx.insert(docId, e)
+        for (const e of value as string[]) enumIdx.insert(internalId, e)
       }
     }
   }
@@ -210,6 +228,7 @@ export function removeFromIndexes(
   const fieldLengths: Record<string, number> = {}
   const tokensByField: Record<string, string[]> = {}
   const fields = storedDoc.fields
+  const internalId = resolveInternalId(state, docId)
 
   for (const [fieldPath, fieldType] of Object.entries(flatSchema)) {
     const value = getNestedValue(fields as Record<string, unknown>, fieldPath)
@@ -224,16 +243,16 @@ export function removeFromIndexes(
         uniqueTokens.add(t.token)
         fieldTokenList.push(t.token)
       }
-      for (const token of uniqueTokens) state.invertedIdx.remove(token, docId)
+      for (const token of uniqueTokens) state.invertedIdx.remove(token, internalId)
       tokensByField[fieldPath] = fieldTokenList
     } else if (fieldType === 'number') {
-      state.numericIndexes.get(fieldPath)?.remove(docId, value as number)
+      state.numericIndexes.get(fieldPath)?.remove(internalId, value as number)
     } else if (fieldType === 'boolean') {
-      state.booleanIndexes.get(fieldPath)?.remove(docId, value as boolean)
+      state.booleanIndexes.get(fieldPath)?.remove(internalId, value as boolean)
     } else if (fieldType === 'enum') {
-      state.enumIndexes.get(fieldPath)?.remove(docId, value as string)
+      state.enumIndexes.get(fieldPath)?.remove(internalId, value as string)
     } else if (fieldType === 'geopoint') {
-      state.geoIndexes.get(fieldPath)?.remove(docId)
+      state.geoIndexes.get(fieldPath)?.remove(internalId)
     } else if (fieldType === 'string[]') {
       const arr = value as string[]
       const uniqueTokens = new Set<string>()
@@ -246,22 +265,22 @@ export function removeFromIndexes(
         }
       }
       fieldLengths[fieldPath] = fieldTokenList.length
-      for (const token of uniqueTokens) state.invertedIdx.remove(token, docId)
+      for (const token of uniqueTokens) state.invertedIdx.remove(token, internalId)
       tokensByField[fieldPath] = fieldTokenList
     } else if (fieldType === 'number[]') {
       const numIdx = state.numericIndexes.get(fieldPath)
       if (numIdx) {
-        for (const num of value as number[]) numIdx.remove(docId, num)
+        for (const num of value as number[]) numIdx.remove(internalId, num)
       }
     } else if (fieldType === 'boolean[]') {
       const boolIdx = state.booleanIndexes.get(fieldPath)
       if (boolIdx) {
-        for (const b of value as boolean[]) boolIdx.remove(docId, b)
+        for (const b of value as boolean[]) boolIdx.remove(internalId, b)
       }
     } else if (fieldType === 'enum[]') {
       const enumIdx = state.enumIndexes.get(fieldPath)
       if (enumIdx) {
-        for (const e of value as string[]) enumIdx.remove(docId, e)
+        for (const e of value as string[]) enumIdx.remove(internalId, e)
       }
     }
   }
@@ -276,6 +295,8 @@ export function updateFieldIndexOnly(
   newDoc: Record<string, unknown>,
   flatSchema: Record<string, FieldType>,
 ): void {
+  const internalId = resolveInternalId(state, docId)
+
   for (const [fieldPath, fieldType] of Object.entries(flatSchema)) {
     if (fieldType === 'string' || fieldType === 'string[]') continue
 
@@ -300,58 +321,58 @@ export function updateFieldIndexOnly(
     if (fieldType === 'number') {
       const numIdx = state.numericIndexes.get(fieldPath)
       if (numIdx) {
-        if (oldVal !== undefined && oldVal !== null) numIdx.remove(docId, oldVal as number)
-        if (newVal !== undefined && newVal !== null) numIdx.insert(docId, newVal as number)
+        if (oldVal !== undefined && oldVal !== null) numIdx.remove(internalId, oldVal as number)
+        if (newVal !== undefined && newVal !== null) numIdx.insert(internalId, newVal as number)
       }
     } else if (fieldType === 'boolean') {
       const boolIdx = state.booleanIndexes.get(fieldPath)
       if (boolIdx) {
-        if (oldVal !== undefined && oldVal !== null) boolIdx.remove(docId, oldVal as boolean)
-        if (newVal !== undefined && newVal !== null) boolIdx.insert(docId, newVal as boolean)
+        if (oldVal !== undefined && oldVal !== null) boolIdx.remove(internalId, oldVal as boolean)
+        if (newVal !== undefined && newVal !== null) boolIdx.insert(internalId, newVal as boolean)
       }
     } else if (fieldType === 'enum') {
       const enumIdx = state.enumIndexes.get(fieldPath)
       if (enumIdx) {
-        if (oldVal !== undefined && oldVal !== null) enumIdx.remove(docId, oldVal as string)
-        if (newVal !== undefined && newVal !== null) enumIdx.insert(docId, newVal as string)
+        if (oldVal !== undefined && oldVal !== null) enumIdx.remove(internalId, oldVal as string)
+        if (newVal !== undefined && newVal !== null) enumIdx.insert(internalId, newVal as string)
       }
     } else if (fieldType === 'geopoint') {
       const geoIdx = state.geoIndexes.get(fieldPath)
       if (geoIdx) {
-        if (oldVal !== undefined && oldVal !== null) geoIdx.remove(docId)
+        if (oldVal !== undefined && oldVal !== null) geoIdx.remove(internalId)
         if (newVal !== undefined && newVal !== null) {
           const geo = newVal as { lat: number; lon: number }
-          geoIdx.insert(docId, geo.lat, geo.lon)
+          geoIdx.insert(internalId, geo.lat, geo.lon)
         }
       }
     } else if (fieldType === 'number[]') {
       const numIdx = state.numericIndexes.get(fieldPath)
       if (numIdx) {
         if (oldVal !== undefined && oldVal !== null) {
-          for (const n of oldVal as number[]) numIdx.remove(docId, n)
+          for (const n of oldVal as number[]) numIdx.remove(internalId, n)
         }
         if (newVal !== undefined && newVal !== null) {
-          for (const n of newVal as number[]) numIdx.insert(docId, n)
+          for (const n of newVal as number[]) numIdx.insert(internalId, n)
         }
       }
     } else if (fieldType === 'boolean[]') {
       const boolIdx = state.booleanIndexes.get(fieldPath)
       if (boolIdx) {
         if (oldVal !== undefined && oldVal !== null) {
-          for (const b of oldVal as boolean[]) boolIdx.remove(docId, b)
+          for (const b of oldVal as boolean[]) boolIdx.remove(internalId, b)
         }
         if (newVal !== undefined && newVal !== null) {
-          for (const b of newVal as boolean[]) boolIdx.insert(docId, b)
+          for (const b of newVal as boolean[]) boolIdx.insert(internalId, b)
         }
       }
     } else if (fieldType === 'enum[]') {
       const enumIdx = state.enumIndexes.get(fieldPath)
       if (enumIdx) {
         if (oldVal !== undefined && oldVal !== null) {
-          for (const e of oldVal as string[]) enumIdx.remove(docId, e)
+          for (const e of oldVal as string[]) enumIdx.remove(internalId, e)
         }
         if (newVal !== undefined && newVal !== null) {
-          for (const e of newVal as string[]) enumIdx.insert(docId, e)
+          for (const e of newVal as string[]) enumIdx.insert(internalId, e)
         }
       }
     }

@@ -11,7 +11,13 @@ import type { FacetResult } from '../../types/results'
 import type { SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
 import { computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
-import { getAllDocIds, getFieldValueForDoc, getFlatSchema, type PartitionState } from './utils'
+import {
+  getAllInternalDocIds,
+  getFieldValueByInternalId,
+  getFieldValueForDoc,
+  getFlatSchema,
+  type PartitionState,
+} from './utils'
 
 const DEFAULT_MAX_RESULTS = 1000
 
@@ -57,11 +63,23 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
   const globalDocFreqs = globalStats?.docFrequencies ?? state.stats.docFrequencies
   const scoreFn = globalStats ? computeBM25WithGlobalStats : computeBM25
 
-  const docScores = new Map<string, ScoreAccumulator>()
-  const fieldLengthCache = new Map<string, Record<string, number> | null>()
+  let filterInternalIds: Set<number> | undefined
+  if (filterDocIds) {
+    filterInternalIds = new Set<number>()
+    for (const externalId of filterDocIds) {
+      const internalId = state.docStore.getInternalId(externalId)
+      if (internalId !== undefined) {
+        filterInternalIds.add(internalId)
+      }
+    }
+  }
+
+  const docScores = new Map<number, ScoreAccumulator>()
+  const fieldLengthCache = new Map<number, Record<string, number> | null>()
   const useIntersection = termMatch === 'all' && queryTokens.length > 1
 
   const fieldNames = state.fieldNameTable.names
+  const resolver = state.docStore.resolver()
 
   if (useIntersection) {
     const resolved: ResolvedTokenPostings[] = []
@@ -94,10 +112,10 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
         const list = match.postingList
         const hasDeleted = list.deletedDocs.size > 0
         for (let pi = 0; pi < list.length; pi++) {
-          const docId = list.docIds[pi]
-          if (hasDeleted && list.deletedDocs.has(docId)) continue
-          if (filterDocIds && !filterDocIds.has(docId)) continue
-          if (tokenIndex > 0 && !docScores.has(docId)) continue
+          const internalId = list.docIds[pi]
+          if (hasDeleted && list.deletedDocs.has(internalId)) continue
+          if (filterInternalIds && !filterInternalIds.has(internalId)) continue
+          if (tokenIndex > 0 && !docScores.has(internalId)) continue
           const fieldName = fieldNames[list.fieldNameIndices[pi]]
           if (fields && !fields.includes(fieldName)) continue
 
@@ -105,25 +123,26 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
           const fieldBoost = boost?.[fieldName] ?? 1
           const avgLen = avgFieldLengths[fieldName] ?? 1
 
-          let cachedLengths = fieldLengthCache.get(docId)
+          let cachedLengths = fieldLengthCache.get(internalId)
           if (cachedLengths === undefined) {
-            const storedDoc = state.docStore.get(docId)
+            const externalId = resolver.toExternal(internalId)
+            const storedDoc = externalId !== undefined ? state.docStore.get(externalId) : undefined
             cachedLengths = storedDoc?.fieldLengths ?? null
-            fieldLengthCache.set(docId, cachedLengths)
+            fieldLengthCache.set(internalId, cachedLengths)
           }
           const actualFieldLength = cachedLengths?.[fieldName] ?? avgLen
 
           let termScore = scoreFn(termFrequency, match.docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
           termScore *= fieldBoost
 
-          const existing = docScores.get(docId)
+          const existing = docScores.get(internalId)
           if (existing) {
             existing.score += termScore
             existing.termFrequencies[`${fieldName}:${match.token}`] = termFrequency
             existing.fieldLengths[fieldName] = actualFieldLength
             existing.idf[match.token] = match.idf
           } else {
-            docScores.set(docId, {
+            docScores.set(internalId, {
               score: termScore,
               termFrequencies: { [`${fieldName}:${match.token}`]: termFrequency },
               fieldLengths: { [fieldName]: actualFieldLength },
@@ -151,34 +170,35 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
         const list = match.postingList
         const hasDeleted = list.deletedDocs.size > 0
         for (let pi = 0; pi < list.length; pi++) {
-          const docId = list.docIds[pi]
-          if (hasDeleted && list.deletedDocs.has(docId)) continue
-          if (filterDocIds && !filterDocIds.has(docId)) continue
+          const internalId = list.docIds[pi]
+          if (hasDeleted && list.deletedDocs.has(internalId)) continue
+          if (filterInternalIds && !filterInternalIds.has(internalId)) continue
           const fieldName = fieldNames[list.fieldNameIndices[pi]]
           if (fields && !fields.includes(fieldName)) continue
           const termFrequency = list.termFrequencies[pi]
           const fieldBoost = boost?.[fieldName] ?? 1
           const avgLen = avgFieldLengths[fieldName] ?? 1
 
-          let cachedLengths = fieldLengthCache.get(docId)
+          let cachedLengths = fieldLengthCache.get(internalId)
           if (cachedLengths === undefined) {
-            const storedDoc = state.docStore.get(docId)
+            const externalId = resolver.toExternal(internalId)
+            const storedDoc = externalId !== undefined ? state.docStore.get(externalId) : undefined
             cachedLengths = storedDoc?.fieldLengths ?? null
-            fieldLengthCache.set(docId, cachedLengths)
+            fieldLengthCache.set(internalId, cachedLengths)
           }
           const actualFieldLength = cachedLengths?.[fieldName] ?? avgLen
 
           let termScore = scoreFn(termFrequency, docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
           termScore *= fieldBoost
 
-          const existing = docScores.get(docId)
+          const existing = docScores.get(internalId)
           if (existing) {
             existing.score += termScore
             existing.termFrequencies[`${fieldName}:${match.token}`] = termFrequency
             existing.fieldLengths[fieldName] = actualFieldLength
             existing.idf[match.token] = idf
           } else {
-            docScores.set(docId, {
+            docScores.set(internalId, {
               score: termScore,
               termFrequencies: { [`${fieldName}:${match.token}`]: termFrequency },
               fieldLengths: { [fieldName]: actualFieldLength },
@@ -192,38 +212,44 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
 
   const totalMatched = docScores.size
   const k = maxResults !== undefined && maxResults > 0 ? maxResults : DEFAULT_MAX_RESULTS
-  const scored = topKFromMap(docScores, Math.min(k, totalMatched))
+  const scored = topKFromMap(docScores, Math.min(k, totalMatched), resolver)
   return { scored, totalMatched }
 }
 
-function topKFromMap(docScores: Map<string, ScoreAccumulator>, k: number): ScoredDocument[] {
+function topKFromMap(
+  docScores: Map<number, ScoreAccumulator>,
+  k: number,
+  resolver: { toExternal(id: number): string | undefined },
+): ScoredDocument[] {
   if (k <= 0) return []
 
-  const heap: Array<{ docId: string; score: number }> = []
+  const heap: Array<{ internalId: number; score: number }> = []
 
-  for (const [docId, data] of docScores) {
+  for (const [internalId, data] of docScores) {
     if (heap.length < k) {
-      heap.push({ docId, score: data.score })
+      heap.push({ internalId, score: data.score })
       if (heap.length === k) buildMinHeap(heap)
     } else if (data.score > heap[0].score) {
-      heap[0] = { docId, score: data.score }
+      heap[0] = { internalId, score: data.score }
       siftDown(heap, 0)
     }
   }
 
   heap.sort((a, b) => b.score - a.score)
 
-  const result: ScoredDocument[] = new Array(heap.length)
+  const result: ScoredDocument[] = []
   for (let i = 0; i < heap.length; i++) {
-    const data = docScores.get(heap[i].docId)
+    const data = docScores.get(heap[i].internalId)
     if (!data) continue
-    result[i] = {
-      docId: heap[i].docId,
+    const externalId = resolver.toExternal(heap[i].internalId)
+    if (externalId === undefined) continue
+    result.push({
+      docId: externalId,
       score: data.score,
       termFrequencies: data.termFrequencies,
       fieldLengths: data.fieldLengths,
       idf: data.idf,
-    }
+    })
   }
 
   return result
@@ -306,14 +332,15 @@ export function buildFilterContext(state: PartitionState, schema: SchemaDefiniti
     }
   }
 
-  let cachedAllDocIds: Set<string> | null = null
+  let cachedAllDocIds: Set<number> | null = null
 
   return {
     fieldIndexes,
-    getFieldValue: (docId: string, fieldPath: string) => getFieldValueForDoc(state.docStore, docId, fieldPath),
+    getFieldValue: (internalId: number, fieldPath: string) =>
+      getFieldValueByInternalId(state.docStore, internalId, fieldPath),
     get allDocIds() {
       if (!cachedAllDocIds) {
-        cachedAllDocIds = getAllDocIds(state.docStore)
+        cachedAllDocIds = getAllInternalDocIds(state.docStore)
       }
       return cachedAllDocIds
     },
@@ -326,7 +353,16 @@ export function applyPartitionFilters(
   schema: SchemaDefinition,
 ): Set<string> {
   const context = buildFilterContext(state, schema)
-  return evaluateFilters(filters, context)
+  const internalResult = evaluateFilters(filters, context)
+  const resolver = state.docStore.resolver()
+  const externalResult = new Set<string>()
+  for (const internalId of internalResult) {
+    const externalId = resolver.toExternal(internalId)
+    if (externalId !== undefined) {
+      externalResult.add(externalId)
+    }
+  }
+  return externalResult
 }
 
 export function computeFacets(

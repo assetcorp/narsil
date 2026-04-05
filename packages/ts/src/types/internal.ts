@@ -17,12 +17,12 @@ export interface FieldNameTable {
 
 export interface CompactPostingList {
   length: number
-  docIds: string[]
+  docIds: number[]
   termFrequencies: Uint16Array
   fieldNameIndices: Uint8Array
   positions: number[][] | null
-  docIdSet: Set<string>
-  deletedDocs: Set<string>
+  docIdSet: Set<number>
+  deletedDocs: Set<number>
 }
 
 export interface StoredDocument {
@@ -30,15 +30,20 @@ export interface StoredDocument {
   fieldLengths: Record<string, number>
 }
 
+export interface InternalIdResolver {
+  toExternal(internalId: number): string | undefined
+  toInternal(externalId: string): number | undefined
+}
+
 export interface NumericIndexEntry {
   value: number
-  docId: string
+  docId: number
 }
 
 export interface GeopointEntry {
   lat: number
   lon: number
-  docId: string
+  docId: number
 }
 
 export interface VectorEntry {
