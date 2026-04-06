@@ -1,3 +1,4 @@
+export { configureNormalizationCache } from './core/tokenizer'
 export type { ErrorCode } from './errors'
 export { ErrorCodes, NarsilError } from './errors'
 export { getLanguage, registerLanguage } from './languages/registry'

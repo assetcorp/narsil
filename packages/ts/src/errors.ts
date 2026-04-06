@@ -33,6 +33,7 @@ export const ErrorCodes = {
   EMBEDDING_NO_SOURCE: 'EMBEDDING_NO_SOURCE',
   EMBEDDING_CONFIG_INVALID: 'EMBEDDING_CONFIG_INVALID',
   DOC_MISSING_REQUIRED_FIELD: 'DOC_MISSING_REQUIRED_FIELD',
+  CONFIG_INVALID: 'CONFIG_INVALID',
 } as const
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes]

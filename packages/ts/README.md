@@ -23,9 +23,9 @@ Requires Node.js >= 22.
 ## Quick start
 
 ```ts
-import { Narsil } from '@delali/narsil'
+import { createNarsil } from '@delali/narsil'
 
-const narsil = new Narsil()
+const narsil = await createNarsil()
 
 await narsil.createIndex('products', {
   schema: {
@@ -58,6 +58,65 @@ const results = await narsil.query('products', {
   limit: 10,
 })
 ```
+
+## Configuration
+
+`createNarsil` accepts an optional `NarsilConfig` object. All fields are optional.
+
+```ts
+import { createNarsil } from '@delali/narsil'
+
+const narsil = await createNarsil({
+  persistence: myAdapter,
+  workers: { enabled: true, count: 4 },
+  flush: { interval: 5000, mutationThreshold: 100 },
+})
+```
+
+### NarsilConfig
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `persistence` | `PersistenceAdapter` | Storage backend for durable indexes (filesystem, IndexedDB, or custom) |
+| `invalidation` | `InvalidationAdapter` | Cross-instance cache coordination adapter for multi-process or multi-tab setups |
+| `plugins` | `NarsilPlugin[]` | Lifecycle hooks for insert, remove, update, search, and index events |
+| `idGenerator` | `() => string` | Custom function for generating document IDs (defaults to UUID v7) |
+| `workers` | `WorkerConfig` | Worker thread configuration for parallel search |
+| `flush` | `FlushConfig` | Controls when dirty partitions persist to storage |
+| `eagerLoad` | `boolean` | When `true`, loads all persisted data into memory at creation time |
+| `embedding` | `EmbeddingAdapter` | Adapter for generating vector embeddings from text fields |
+
+### WorkerConfig
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `boolean` | `false` | Enables worker thread pool for search |
+| `count` | `number` | CPU count | Number of worker threads to spawn |
+| `promotionThreshold` | `number` | - | Document count per index that triggers auto-promotion to workers |
+| `totalPromotionThreshold` | `number` | - | Total document count across all indexes that triggers auto-promotion |
+
+### FlushConfig
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `interval` | `number` | - | Milliseconds between persistence flushes |
+| `mutationThreshold` | `number` | - | Number of mutations that triggers a flush |
+
+### Tokenizer cache
+
+The stemmer normalization cache auto-sizes based on the runtime environment. On Node.js it reads container memory limits (via `process.constrainedMemory()`), in browsers it checks `navigator.deviceMemory`, and falls back to a sensible default elsewhere.
+
+This cache is process-global, shared across all Narsil instances in the same process. You can override the size by calling `configureNormalizationCache` once at startup, before creating any instances:
+
+```ts
+import { configureNormalizationCache, createNarsil } from '@delali/narsil'
+
+configureNormalizationCache(500_000)
+
+const narsil = await createNarsil()
+```
+
+The value clamps to a floor of 50,000 and a ceiling of 2,000,000 entries. Invalid values (NaN, Infinity, negative numbers) throw a `NarsilError` with code `CONFIG_INVALID`.
 
 ## Features
 

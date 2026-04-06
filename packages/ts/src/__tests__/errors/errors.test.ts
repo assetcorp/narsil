@@ -62,8 +62,12 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.DOC_MISSING_REQUIRED_FIELD).toBe('DOC_MISSING_REQUIRED_FIELD')
   })
 
-  it('has exactly 34 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(34)
+  it('has config error codes', () => {
+    expect(ErrorCodes.CONFIG_INVALID).toBe('CONFIG_INVALID')
+  })
+
+  it('has exactly 35 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(35)
   })
 
   it('has unique values for every code', () => {
