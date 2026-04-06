@@ -3,6 +3,7 @@ import { ErrorCodes, NarsilError } from '../errors'
 import type { VectorIndexConfig } from '../types/schema'
 import type { VectorMetric } from './brute-force'
 import { createHNSWIndex, type HNSWConfig, type HNSWIndex, type SerializedHNSWGraph } from './hnsw'
+import { dispatchWorkerBuild } from './hnsw-worker-dispatch'
 import {
   createScalarQuantizer,
   deserializeScalarQuantizer,
@@ -16,6 +17,7 @@ const DEFAULT_PROMOTION_THRESHOLD = 1024
 const DEFAULT_FILTER_THRESHOLD = 0.03
 const ESTIMATED_MS_PER_TOMBSTONE = 0.05
 const ESTIMATED_MS_PER_VECTOR_REBUILD = 0.15
+const WORKER_BUILD_SIZE_THRESHOLD = 5000
 
 export interface VectorScoredResult {
   docId: string
@@ -49,6 +51,8 @@ export interface VectorIndexPayload {
 export interface VectorIndex {
   insert(docId: string, vector: Float32Array): void
   remove(docId: string): void
+  scheduleBuild(): void
+  awaitPendingBuild(): Promise<void>
   search(query: Float32Array, k: number, options: VectorSearchOptions): VectorScoredResult[]
   getVector(docId: string): Float32Array | null
   has(docId: string): boolean
@@ -88,6 +92,7 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
   let hnsw: HNSWIndex | null = null
   const buffer = new Set<string>()
   let building = false
+  let buildScheduled = false
   let pendingBuild: Promise<void> | null = null
 
   function liveSize(): number {
@@ -189,10 +194,19 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
       liveDocIds.push(docId)
     }
 
+    const bufferSnapshot = new Set(buffer)
+
     const buildPromise = (async () => {
       try {
-        if (sq8 && liveDocIds.length > 0) {
+        if (liveDocIds.length === 0) return
+
+        if (sq8) {
           calibrateAndQuantizeAll()
+        }
+
+        if (liveDocIds.length > WORKER_BUILD_SIZE_THRESHOLD) {
+          const workerResult = await tryWorkerBuild(liveDocIds, bufferSnapshot)
+          if (workerResult) return
         }
 
         const newHnsw = createHNSWIndex(dimension, store, hnswConfig, sq8 ?? undefined)
@@ -207,7 +221,14 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
         }
 
         hnsw = newHnsw
-        for (const docId of liveDocIds) {
+
+        for (const docId of tombstones) {
+          if (newHnsw.has(docId)) {
+            newHnsw.markTombstone(docId)
+          }
+        }
+
+        for (const docId of bufferSnapshot) {
           buffer.delete(docId)
         }
       } finally {
@@ -217,6 +238,72 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     })()
 
     pendingBuild = buildPromise
+  }
+
+  async function tryWorkerBuild(liveDocIds: string[], bufferSnapshot: Set<string>): Promise<boolean> {
+    const vectorData = new Float32Array(liveDocIds.length * dimension)
+    const validDocIds: string[] = []
+    let offset = 0
+
+    for (const docId of liveDocIds) {
+      const entry = store.get(docId)
+      if (!entry || tombstones.has(docId)) continue
+      vectorData.set(entry.vector, offset)
+      validDocIds.push(docId)
+      offset += dimension
+    }
+
+    if (validDocIds.length === 0) return false
+
+    const packedData = offset < vectorData.length ? vectorData.subarray(0, offset) : vectorData
+
+    const resolvedConfig: HNSWConfig = {
+      m: hnswConfig?.m,
+      efConstruction: hnswConfig?.efConstruction,
+      metric: hnswConfig?.metric,
+    }
+
+    const timeoutMs = Math.max(10_000, liveDocIds.length * 2)
+    const outcome = await dispatchWorkerBuild(validDocIds, packedData, dimension, resolvedConfig, timeoutMs, true)
+
+    if (!outcome.ok) return false
+
+    const newHnsw = createHNSWIndex(dimension, store, hnswConfig, sq8 ?? undefined)
+    newHnsw.deserialize(outcome.graph)
+    hnsw = newHnsw
+
+    for (const docId of tombstones) {
+      if (newHnsw.has(docId)) {
+        newHnsw.markTombstone(docId)
+      }
+    }
+
+    for (const docId of bufferSnapshot) {
+      buffer.delete(docId)
+    }
+
+    return true
+  }
+
+  async function awaitPendingBuild(): Promise<void> {
+    if (pendingBuild) {
+      await pendingBuild
+    }
+  }
+
+  function scheduleBuild(): void {
+    if (building || buildScheduled) return
+
+    const thresholdMet =
+      (!hnsw && liveSize() >= promotionThreshold) || (hnsw !== null && buffer.size >= promotionThreshold)
+
+    if (!thresholdMet) return
+
+    buildScheduled = true
+    setTimeout(() => {
+      buildScheduled = false
+      triggerBuild()
+    }, 0)
   }
 
   function bruteForceSearch(
@@ -266,18 +353,13 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     }
   }
 
+  /** Stores the vector; callers should call scheduleBuild() afterward if automatic HNSW build triggering is needed */
   function insert(docId: string, vector: Float32Array): void {
     validateDimension(vector)
 
     tombstones.delete(docId)
     store.insert(docId, vector)
     buffer.add(docId)
-
-    if (!hnsw && !building && liveSize() >= promotionThreshold) {
-      triggerBuild()
-    } else if (hnsw && !building && buffer.size >= promotionThreshold) {
-      triggerBuild()
-    }
   }
 
   function remove(docId: string): void {
@@ -315,6 +397,10 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     const currentLiveSize = liveSize()
     if (currentLiveSize === 0) return []
     if (k <= 0) return []
+
+    if (buffer.size > 0 && !building && !buildScheduled) {
+      scheduleBuild()
+    }
 
     const { metric, minSimilarity, filterDocIds, efSearch } = options
 
@@ -631,6 +717,8 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     },
     insert,
     remove,
+    scheduleBuild,
+    awaitPendingBuild,
     search,
     getVector,
     has,

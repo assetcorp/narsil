@@ -101,7 +101,10 @@ export async function insertDocument(
     try {
       await ctx.executor.execute({ type: 'remove', indexName, docId: resolvedDocId, requestId: resolvedDocId })
     } catch (rollbackErr) {
-      console.warn(`Rollback failed for doc "${resolvedDocId}" during insert atomicity:`, rollbackErr)
+      console.warn(
+        `Rollback failed for doc "${resolvedDocId}" during insert atomicity:`,
+        rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+      )
     }
     throw err
   }
@@ -109,7 +112,7 @@ export async function insertDocument(
   try {
     await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: resolvedDocId, document })
   } catch (err) {
-    console.warn('afterInsert plugin hook error:', err)
+    console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
   }
 
   ctx.flushManager?.markDirty(indexName, 0)
@@ -122,6 +125,13 @@ export async function insertDocument(
     requestId: `replicate-insert-${resolvedDocId}`,
     skipClone: options?.skipClone,
   })
+
+  for (const fieldPath of extractedVectors.keys()) {
+    const vecIndex = insertVecIndexes.get(fieldPath)
+    if (vecIndex) {
+      vecIndex.scheduleBuild()
+    }
+  }
 
   await ctx.orchestrator.checkPromotion()
 
@@ -148,6 +158,7 @@ export async function insertDocumentBatch(
   const batchManager = ctx.requireManager(indexName)
   const batchVecIndexes = batchManager.getVectorIndexes()
   const batchVectorFieldPaths = batchVecIndexes.size > 0 ? entry.vectorFieldPaths : new Set<string>()
+  const touchedVectorFields = new Set<string>()
 
   for (let chunkStart = 0; chunkStart < documents.length; chunkStart += BATCH_CHUNK_SIZE) {
     if (ctx.abortController.signal.aborted) break
@@ -204,6 +215,7 @@ export async function insertDocumentBatch(
     }
 
     for (let i = chunkStart; i < chunkEnd; i++) {
+      if (ctx.abortController.signal.aborted) break
       if (chunkFailedIndexes.has(i)) continue
 
       const batchDocId = ctx.idGenerator()
@@ -242,16 +254,23 @@ export async function insertDocumentBatch(
           try {
             await ctx.executor.execute({ type: 'remove', indexName, docId: batchDocId, requestId: batchDocId })
           } catch (rollbackErr) {
-            console.warn(`Rollback failed for doc "${batchDocId}" during batch insert atomicity:`, rollbackErr)
+            console.warn(
+              `Rollback failed for doc "${batchDocId}" during batch insert atomicity:`,
+              rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+            )
           }
           throw vecErr
+        }
+
+        for (const fieldPath of extractedVectors.keys()) {
+          touchedVectorFields.add(fieldPath)
         }
 
         if (hasAfterHook) {
           try {
             await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: batchDocId, document: documents[i] })
           } catch (err) {
-            console.warn('afterInsert plugin hook error:', err)
+            console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
           }
         }
 
@@ -262,6 +281,13 @@ export async function insertDocumentBatch(
           docId: batchDocId,
           error: err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, String(err)),
         })
+      }
+    }
+
+    for (const fieldPath of touchedVectorFields) {
+      const vecIndex = batchVecIndexes.get(fieldPath)
+      if (vecIndex) {
+        vecIndex.scheduleBuild()
       }
     }
 
@@ -281,6 +307,13 @@ export async function insertDocumentBatch(
       requestId: `replicate-insert-${succeeded[i]}`,
       skipClone: options?.skipClone,
     })
+  }
+
+  for (const fieldPath of touchedVectorFields) {
+    const vecIndex = batchVecIndexes.get(fieldPath)
+    if (vecIndex) {
+      vecIndex.scheduleBuild()
+    }
   }
 
   await ctx.orchestrator.checkPromotion()
@@ -308,7 +341,7 @@ export async function removeDocument(ctx: MutationContext, indexName: string, do
   try {
     await ctx.pluginRegistry.runHook('afterRemove', { indexName, docId })
   } catch (err) {
-    console.warn('afterRemove plugin hook error:', err)
+    console.warn('afterRemove plugin hook error:', err instanceof Error ? err.message : String(err))
   }
 
   ctx.flushManager?.markDirty(indexName, 0)
@@ -435,7 +468,10 @@ export async function updateDocument(
           requestId: docId,
         })
       } catch (rollbackErr) {
-        console.warn(`Rollback failed for doc "${docId}" during update atomicity:`, rollbackErr)
+        console.warn(
+          `Rollback failed for doc "${docId}" during update atomicity:`,
+          rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+        )
       }
     }
     throw err
@@ -449,7 +485,7 @@ export async function updateDocument(
       newDocument: document,
     })
   } catch (err) {
-    console.warn('afterUpdate plugin hook error:', err)
+    console.warn('afterUpdate plugin hook error:', err instanceof Error ? err.message : String(err))
   }
 
   ctx.flushManager?.markDirty(indexName, 0)
@@ -461,6 +497,14 @@ export async function updateDocument(
     document,
     requestId: `replicate-update-${docId}`,
   })
+
+  for (const [fieldPath, vec] of updateExtractedVectors) {
+    if (vec === null) continue
+    const vecIndex = updateVecIndexes.get(fieldPath)
+    if (vecIndex) {
+      vecIndex.scheduleBuild()
+    }
+  }
 }
 
 export async function updateDocumentBatch(
@@ -469,10 +513,14 @@ export async function updateDocumentBatch(
   updates: Array<{ docId: string; document: AnyDocument }>,
 ): Promise<BatchResult> {
   ctx.guardShutdown()
-  ctx.requireIndex(indexName)
+  const entry = ctx.requireIndex(indexName)
 
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
+
+  const updateBatchManager = ctx.requireManager(indexName)
+  const updateBatchVecIndexes = updateBatchManager.getVectorIndexes()
+  const touchedVectorFields = new Set<string>()
 
   for (let chunkStart = 0; chunkStart < updates.length; chunkStart += BATCH_CHUNK_SIZE) {
     const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, updates.length)
@@ -481,6 +529,15 @@ export async function updateDocumentBatch(
       try {
         await updateDocument(ctx, indexName, updates[i].docId, updates[i].document)
         succeeded.push(updates[i].docId)
+
+        if (updateBatchVecIndexes.size > 0) {
+          for (const fieldPath of entry.vectorFieldPaths) {
+            const vec = extractVectorFromDocForUpdate(updates[i].document as Record<string, unknown>, fieldPath)
+            if (vec !== null) {
+              touchedVectorFields.add(fieldPath)
+            }
+          }
+        }
       } catch (err) {
         failed.push({
           docId: updates[i].docId,
@@ -491,6 +548,13 @@ export async function updateDocumentBatch(
 
     if (chunkEnd < updates.length) {
       await new Promise<void>(r => setTimeout(r, 0))
+    }
+  }
+
+  for (const fieldPath of touchedVectorFields) {
+    const vecIndex = updateBatchVecIndexes.get(fieldPath)
+    if (vecIndex) {
+      vecIndex.scheduleBuild()
     }
   }
 
