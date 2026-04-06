@@ -59,7 +59,6 @@ const RE_STEP4_SUFFIXES = /^(.+?)(al|ance|ence|er|ic|able|ible|ant|ement|ment|en
 const RE_STEP4_STION = /^(.+?)(s|t)(ion)$/
 const RE_TRAILING_E = /^(.+?)e$/
 const RE_TRAILING_LL = /ll$/
-const RE_LAST_CHAR = /.$/
 
 function hasMeasureGt0(stem: string): boolean {
   return RE_MEASURE_GT_0.test(stem)
@@ -70,15 +69,15 @@ function hasMeasureGt1(stem: string): boolean {
 }
 
 function stripPlurals(word: string): string {
-  if (RE_PLURAL_SS_IES.test(word)) return word.replace(RE_PLURAL_SS_IES, '$1$2')
-  if (RE_PLURAL_S.test(word)) return word.replace(RE_PLURAL_S, '$1$2')
+  if (RE_PLURAL_SS_IES.test(word)) return word.slice(0, -2)
+  if (RE_PLURAL_S.test(word)) return word.slice(0, -1)
   return word
 }
 
 function stripVerbSuffixes(word: string): string {
   let match = RE_SUFFIX_EED.exec(word)
   if (match) {
-    return hasMeasureGt0(match[1]) ? word.replace(RE_LAST_CHAR, '') : word
+    return hasMeasureGt0(match[1]) ? word.slice(0, -1) : word
   }
 
   match = RE_SUFFIX_ED_ING.exec(word)
@@ -87,7 +86,7 @@ function stripVerbSuffixes(word: string): string {
     if (!RE_HAS_VOWEL.test(base)) return word
     word = base
     if (RE_SUFFIX_AT_BL_IZ.test(word)) return `${word}e`
-    if (RE_DOUBLE_CONSONANT.test(word)) return word.replace(RE_LAST_CHAR, '')
+    if (RE_DOUBLE_CONSONANT.test(word)) return word.slice(0, -1)
     if (RE_CONSONANT_CVC.test(word)) return `${word}e`
   }
 
@@ -141,7 +140,7 @@ function tidyTrailingE(word: string): string {
 
 function collapseDoubleLl(word: string): string {
   if (RE_TRAILING_LL.test(word) && hasMeasureGt1(word)) {
-    return word.replace(RE_LAST_CHAR, '')
+    return word.slice(0, -1)
   }
   return word
 }
