@@ -78,12 +78,53 @@ export function prepareDocumentVectors(
     return { partitionDoc: document, extractedVectors }
   }
 
-  const partitionDoc = structuredClone(document)
-  for (const fieldPath of extractedVectors.keys()) {
-    deleteNestedValue(partitionDoc, fieldPath)
+  const partitionDoc = shallowCopyExcluding(document, extractedVectors.keys())
+  return { partitionDoc, extractedVectors }
+}
+
+function shallowCopyExcluding(
+  document: Record<string, unknown>,
+  fieldPaths: IterableIterator<string>,
+): Record<string, unknown> {
+  const topLevelExcludes = new Set<string>()
+  const nestedPaths: string[] = []
+
+  for (const path of fieldPaths) {
+    if (!path.includes('.')) {
+      topLevelExcludes.add(path)
+    } else {
+      nestedPaths.push(path)
+    }
   }
 
-  return { partitionDoc, extractedVectors }
+  const result: Record<string, unknown> = {}
+  for (const key of Object.keys(document)) {
+    if (topLevelExcludes.has(key)) continue
+    result[key] = document[key]
+  }
+
+  for (const path of nestedPaths) {
+    const segments = path.split('.')
+    const topKey = segments[0]
+    if (!(topKey in result) || result[topKey] === null || typeof result[topKey] !== 'object') continue
+
+    const source = document[topKey] as Record<string, unknown>
+    let target: Record<string, unknown> = { ...source }
+    result[topKey] = target
+
+    for (let i = 1; i < segments.length - 1; i++) {
+      const seg = segments[i]
+      const next = target[seg]
+      if (next === null || next === undefined || typeof next !== 'object') break
+      const copy = { ...(next as Record<string, unknown>) }
+      target[seg] = copy
+      target = copy
+    }
+
+    delete target[segments[segments.length - 1]]
+  }
+
+  return result
 }
 
 export function insertDocumentVectors(

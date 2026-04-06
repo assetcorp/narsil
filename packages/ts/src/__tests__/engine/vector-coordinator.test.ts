@@ -73,6 +73,7 @@ function createMockVectorIndex(
     deserialize() {},
     scheduleBuild() {},
     async awaitPendingBuild() {},
+    dispose() {},
   }
 }
 

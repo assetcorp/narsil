@@ -53,6 +53,7 @@ export interface VectorIndex {
   remove(docId: string): void
   scheduleBuild(): void
   awaitPendingBuild(): Promise<void>
+  dispose(): void
   search(query: Float32Array, k: number, options: VectorSearchOptions): VectorScoredResult[]
   getVector(docId: string): Float32Array | null
   has(docId: string): boolean
@@ -94,6 +95,7 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
   let building = false
   let buildScheduled = false
   let pendingBuild: Promise<void> | null = null
+  let disposed = false
 
   function liveSize(): number {
     return store.size - tombstones.size
@@ -198,7 +200,7 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
 
     const buildPromise = (async () => {
       try {
-        if (liveDocIds.length === 0) return
+        if (liveDocIds.length === 0 || disposed) return
 
         if (sq8) {
           calibrateAndQuantizeAll()
@@ -216,9 +218,12 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
           if (!store.has(docId) || tombstones.has(docId)) continue
           newHnsw.insertNode(docId)
           if ((i + 1) % CHUNK_SIZE === 0) {
+            if (disposed) return
             await yieldToEventLoop()
           }
         }
+
+        if (disposed) return
 
         hnsw = newHnsw
 
@@ -291,8 +296,12 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     }
   }
 
+  function dispose(): void {
+    disposed = true
+  }
+
   function scheduleBuild(): void {
-    if (building || buildScheduled) return
+    if (building || buildScheduled || disposed) return
 
     const thresholdMet =
       (!hnsw && liveSize() >= promotionThreshold) || (hnsw !== null && buffer.size >= promotionThreshold)
@@ -719,6 +728,7 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     remove,
     scheduleBuild,
     awaitPendingBuild,
+    dispose,
     search,
     getVector,
     has,
