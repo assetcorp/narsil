@@ -10,7 +10,7 @@ import type {
 import type { FacetResult } from '../../types/results'
 import type { SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
-import { bitsetFromSet, bitsetHas, bitsetSet, createBitSet } from '../bitset'
+import { bitsetFromSet, bitsetHas } from '../bitset'
 import { computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
 import {
   getAllInternalDocIds,
@@ -52,7 +52,7 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
     globalStats,
     maxResults,
     termMatch,
-    filterDocIds,
+    filterBitset,
   } = params
 
   if (queryTokens.length === 0) {
@@ -63,18 +63,6 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
   const avgFieldLengths = globalStats?.averageFieldLengths ?? state.stats.averageFieldLengths
   const globalDocFreqs = globalStats?.docFrequencies ?? state.stats.docFrequencies
   const scoreFn = globalStats ? computeBM25WithGlobalStats : computeBM25
-
-  let filterBitset: Uint32Array | undefined
-  if (filterDocIds) {
-    const capacity = state.docStore.internalIdCapacity()
-    filterBitset = createBitSet(capacity)
-    for (const externalId of filterDocIds) {
-      const internalId = state.docStore.getInternalId(externalId)
-      if (internalId !== undefined) {
-        bitsetSet(filterBitset, internalId)
-      }
-    }
-  }
 
   const docScores = new Map<number, ScoreAccumulator>()
   const fieldLengthCache = new Map<number, Record<string, number> | null>()
@@ -395,6 +383,15 @@ export function applyPartitionFilters(
     }
   }
   return externalResult
+}
+
+export function applyPartitionFiltersBitset(
+  state: PartitionState,
+  filters: FilterExpression,
+  schema: SchemaDefinition,
+): Uint32Array {
+  const context = buildFilterContext(state, schema)
+  return evaluateFilters(filters, context)
 }
 
 export function computeFacets(

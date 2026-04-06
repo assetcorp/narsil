@@ -3,15 +3,23 @@ export function createBitSet(capacity: number): Uint32Array {
 }
 
 export function bitsetSet(bs: Uint32Array, index: number): void {
-  bs[index >>> 5] |= 1 << (index & 31)
+  const word = index >>> 5
+  if (word < bs.length) {
+    bs[word] |= 1 << (index & 31)
+  }
 }
 
 export function bitsetClear(bs: Uint32Array, index: number): void {
-  bs[index >>> 5] &= ~(1 << (index & 31))
+  const word = index >>> 5
+  if (word < bs.length) {
+    bs[word] &= ~(1 << (index & 31))
+  }
 }
 
 export function bitsetHas(bs: Uint32Array, index: number): boolean {
-  return (bs[index >>> 5] & (1 << (index & 31))) !== 0
+  const word = index >>> 5
+  if (word >= bs.length) return false
+  return (bs[word] & (1 << (index & 31))) !== 0
 }
 
 export function bitsetAnd(a: Uint32Array, b: Uint32Array): Uint32Array {
@@ -58,6 +66,13 @@ export function bitsetCount(bs: Uint32Array): number {
     count += (((word + (word >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24
   }
   return count
+}
+
+export function bitsetIsEmpty(bs: Uint32Array): boolean {
+  for (let i = 0; i < bs.length; i++) {
+    if (bs[i] !== 0) return false
+  }
+  return true
 }
 
 export function* bitsetIterator(bs: Uint32Array): Generator<number> {

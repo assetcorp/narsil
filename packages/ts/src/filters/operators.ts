@@ -57,15 +57,20 @@ export function convertToMeters(distance: number, unit: 'km' | 'mi' | 'm'): numb
   return distance
 }
 
+function resolveBitset(bs: (() => Uint32Array) | Uint32Array): Uint32Array {
+  return typeof bs === 'function' ? bs() : bs
+}
+
 function scanToBitset(
-  docIds: Uint32Array,
+  docIds: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
   predicate: (v: unknown) => boolean,
 ): Uint32Array {
+  const resolved = resolveBitset(docIds)
   const result = createBitSet(capacity)
-  for (let wi = 0; wi < docIds.length; wi++) {
-    let word = docIds[wi]
+  for (let wi = 0; wi < resolved.length; wi++) {
+    let word = resolved[wi]
     if (word === 0) continue
     const base = wi << 5
     while (word !== 0) {
@@ -82,7 +87,7 @@ function scanToBitset(
 
 export function applyEqBitset(
   value: number | string | boolean,
-  allDocsBitset: Uint32Array,
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
@@ -101,7 +106,7 @@ export function applyEqBitset(
 
 export function applyNeBitset(
   value: number | string | boolean,
-  allDocsBitset: Uint32Array,
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
@@ -124,7 +129,7 @@ export function applyNeBitset(
 
 export function applyGtBitset(
   value: number,
-  allDocsBitset: Uint32Array,
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
@@ -137,7 +142,7 @@ export function applyGtBitset(
 
 export function applyLtBitset(
   value: number,
-  allDocsBitset: Uint32Array,
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
@@ -150,7 +155,7 @@ export function applyLtBitset(
 
 export function applyGteBitset(
   value: number,
-  allDocsBitset: Uint32Array,
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
@@ -163,7 +168,7 @@ export function applyGteBitset(
 
 export function applyLteBitset(
   value: number,
-  allDocsBitset: Uint32Array,
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
@@ -176,7 +181,7 @@ export function applyLteBitset(
 
 export function applyBetweenBitset(
   range: [number, number],
-  allDocsBitset: Uint32Array,
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
@@ -189,7 +194,7 @@ export function applyBetweenBitset(
 
 export function applyInBitset(
   values: string[],
-  allDocsBitset: Uint32Array,
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
@@ -203,7 +208,7 @@ export function applyInBitset(
 
 export function applyNinBitset(
   values: string[],
-  allDocsBitset: Uint32Array,
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
   fieldIndex?: FieldIndex,
@@ -224,7 +229,7 @@ export function applyNinBitset(
 
 export function applyStartsWithBitset(
   prefix: string,
-  allDocsBitset: Uint32Array,
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
 ): Uint32Array {
@@ -233,7 +238,7 @@ export function applyStartsWithBitset(
 
 export function applyEndsWithBitset(
   suffix: string,
-  allDocsBitset: Uint32Array,
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
 ): Uint32Array {
@@ -242,7 +247,7 @@ export function applyEndsWithBitset(
 
 export function applyContainsAllBitset(
   values: (string | number | boolean)[],
-  allDocsBitset: Uint32Array,
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
 ): Uint32Array {
@@ -258,7 +263,7 @@ export function applyContainsAllBitset(
 
 export function applyMatchesAnyBitset(
   values: (string | number | boolean)[],
-  allDocsBitset: Uint32Array,
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
 ): Uint32Array {
@@ -274,7 +279,7 @@ export function applyMatchesAnyBitset(
 
 export function applySizeBitset(
   sizeFilter: ComparisonFilter,
-  allDocsBitset: Uint32Array,
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
 ): Uint32Array {
@@ -286,19 +291,27 @@ export function applySizeBitset(
   )
 }
 
-export function applyExistsBitset(allDocsBitset: Uint32Array, capacity: number, getValue: GetFieldValue): Uint32Array {
+export function applyExistsBitset(
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
+  capacity: number,
+  getValue: GetFieldValue,
+): Uint32Array {
   return scanToBitset(allDocsBitset, capacity, getValue, v => v !== undefined && v !== null)
 }
 
 export function applyNotExistsBitset(
-  allDocsBitset: Uint32Array,
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
 ): Uint32Array {
   return scanToBitset(allDocsBitset, capacity, getValue, v => v === undefined || v === null)
 }
 
-export function applyIsEmptyBitset(allDocsBitset: Uint32Array, capacity: number, getValue: GetFieldValue): Uint32Array {
+export function applyIsEmptyBitset(
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
+  capacity: number,
+  getValue: GetFieldValue,
+): Uint32Array {
   return scanToBitset(allDocsBitset, capacity, getValue, v => {
     if (v === undefined || v === null) return true
     if (typeof v === 'string' && v === '') return true
@@ -308,7 +321,7 @@ export function applyIsEmptyBitset(allDocsBitset: Uint32Array, capacity: number,
 }
 
 export function applyIsNotEmptyBitset(
-  allDocsBitset: Uint32Array,
+  allDocsBitset: (() => Uint32Array) | Uint32Array,
   capacity: number,
   getValue: GetFieldValue,
 ): Uint32Array {

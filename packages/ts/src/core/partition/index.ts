@@ -17,7 +17,7 @@ import { createDocumentStore } from '../document-store'
 import { createInvertedIndex } from '../inverted-index'
 import { createPartitionStats, type PartitionStats } from '../statistics'
 import { indexDocument, removeFromIndexes, updateFieldIndexOnly } from './indexing'
-import { applyPartitionFilters, computeFacets, searchFulltext } from './search'
+import { applyPartitionFilters, applyPartitionFiltersBitset, computeFacets, searchFulltext } from './search'
 import { deserializePartition, serializePartition, serializePartitionToWirePayloadV2 } from './serialization'
 import { getFlatSchema, type PartitionInsertOptions, type PartitionState, textFieldsChanged } from './utils'
 
@@ -54,6 +54,7 @@ export interface PartitionIndex {
 
   searchFulltext(params: InternalSearchParams): InternalSearchResult
   applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string>
+  applyFiltersBitset(filters: FilterExpression, schema: SchemaDefinition): Uint32Array
   computeFacets(docIds: Set<string>, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult>
   suggestTerms(prefix: string, limit: number): Array<{ term: string; documentFrequency: number }>
 
@@ -289,6 +290,10 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
 
     applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string> {
       return applyPartitionFilters(state, filters, schema)
+    },
+
+    applyFiltersBitset(filters: FilterExpression, schema: SchemaDefinition): Uint32Array {
+      return applyPartitionFiltersBitset(state, filters, schema)
     },
 
     computeFacets(docIds: Set<string>, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult> {
