@@ -64,7 +64,25 @@ export function configureNormalizationCache(maxSize: number): void {
       received: maxSize,
     })
   }
+  if (maxSize === 0) {
+    throw createNarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      'tokenizerCacheSize must be greater than zero; the normalization cache cannot be disabled',
+      {
+        received: maxSize,
+      },
+    )
+  }
   maxCacheSize = Math.max(CACHE_SIZE_FLOOR, Math.min(Math.floor(maxSize), CACHE_SIZE_CEILING))
+  if (normalizationCache.size > maxCacheSize) {
+    const excess = normalizationCache.size - maxCacheSize
+    let count = 0
+    for (const key of normalizationCache.keys()) {
+      if (count >= excess) break
+      normalizationCache.delete(key)
+      count++
+    }
+  }
 }
 
 let cachedLangName = ''
@@ -110,7 +128,7 @@ function transformToken(raw: string, language: LanguageModule, stem: boolean, re
   }
 
   if (normalizationCache.size >= maxCacheSize) {
-    const evictCount = maxCacheSize >>> 2
+    const evictCount = Math.max(1, maxCacheSize >>> 2)
     let count = 0
     for (const key of normalizationCache.keys()) {
       if (count >= evictCount) break
@@ -239,6 +257,11 @@ export function* tokenizeIterator(
 
 export function clearNormalizationCache(): void {
   normalizationCache.clear()
+}
+
+export function resetNormalizationCache(): void {
+  normalizationCache.clear()
+  maxCacheSize = computeDefaultCacheSize()
 }
 
 export function getNormalizationCacheSize(): number {
