@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { bitsetFromSet } from '../../core/bitset'
 import type {
   BooleanFieldIndex,
   EnumFieldIndex,
@@ -32,28 +33,25 @@ import {
 } from '../../filters/operators'
 
 function createMockNumericIndex(entries: Array<{ value: number; docId: number }>): NumericFieldIndex {
+  const toSet = (filter: (e: { value: number; docId: number }) => boolean) =>
+    new Set(entries.filter(filter).map(e => e.docId))
+  const toBitset = (filter: (e: { value: number; docId: number }) => boolean, cap: number) =>
+    bitsetFromSet(toSet(filter), cap)
   return {
-    eq(value: number) {
-      return new Set(entries.filter(e => e.value === value).map(e => e.docId))
-    },
-    gt(value: number) {
-      return new Set(entries.filter(e => e.value > value).map(e => e.docId))
-    },
-    gte(value: number) {
-      return new Set(entries.filter(e => e.value >= value).map(e => e.docId))
-    },
-    lt(value: number) {
-      return new Set(entries.filter(e => e.value < value).map(e => e.docId))
-    },
-    lte(value: number) {
-      return new Set(entries.filter(e => e.value <= value).map(e => e.docId))
-    },
-    between(min: number, max: number) {
-      return new Set(entries.filter(e => e.value >= min && e.value <= max).map(e => e.docId))
-    },
-    allDocIds() {
-      return new Set(entries.map(e => e.docId))
-    },
+    eq: (v: number) => toSet(e => e.value === v),
+    gt: (v: number) => toSet(e => e.value > v),
+    gte: (v: number) => toSet(e => e.value >= v),
+    lt: (v: number) => toSet(e => e.value < v),
+    lte: (v: number) => toSet(e => e.value <= v),
+    between: (min: number, max: number) => toSet(e => e.value >= min && e.value <= max),
+    allDocIds: () => new Set(entries.map(e => e.docId)),
+    eqBitset: (v: number, cap: number) => toBitset(e => e.value === v, cap),
+    gtBitset: (v: number, cap: number) => toBitset(e => e.value > v, cap),
+    gteBitset: (v: number, cap: number) => toBitset(e => e.value >= v, cap),
+    ltBitset: (v: number, cap: number) => toBitset(e => e.value < v, cap),
+    lteBitset: (v: number, cap: number) => toBitset(e => e.value <= v, cap),
+    betweenBitset: (min: number, max: number, cap: number) => toBitset(e => e.value >= min && e.value <= max, cap),
+    allDocIdsBitset: (cap: number) => bitsetFromSet(new Set(entries.map(e => e.docId)), cap),
   }
 }
 
@@ -62,21 +60,32 @@ function createMockBooleanIndex(trueDocs: number[], falseDocs: number[]): Boolea
     getTrue: () => new Set(trueDocs),
     getFalse: () => new Set(falseDocs),
     allDocIds: () => new Set([...trueDocs, ...falseDocs]),
+    getTrueBitset: (cap: number) => bitsetFromSet(new Set(trueDocs), cap),
+    getFalseBitset: (cap: number) => bitsetFromSet(new Set(falseDocs), cap),
+    allDocIdsBitset: (cap: number) => bitsetFromSet(new Set([...trueDocs, ...falseDocs]), cap),
   }
 }
 
 function createMockEnumIndex(mapping: Record<string, number[]>): EnumFieldIndex {
+  function allDocs(): Set<number> {
+    const all = new Set<number>()
+    for (const docIds of Object.values(mapping)) {
+      for (const id of docIds) all.add(id)
+    }
+    return all
+  }
   return {
-    getDocIds(value: string) {
-      return new Set(mapping[value] ?? [])
-    },
-    allDocIds() {
-      const all = new Set<number>()
-      for (const docIds of Object.values(mapping)) {
-        for (const id of docIds) all.add(id)
+    getDocIds: (value: string) => new Set(mapping[value] ?? []),
+    allDocIds: allDocs,
+    getDocIdsBitset: (value: string, cap: number) => bitsetFromSet(new Set(mapping[value] ?? []), cap),
+    getDocIdsInBitset: (values: string[], cap: number) => {
+      const combined = new Set<number>()
+      for (const val of values) {
+        for (const id of mapping[val] ?? []) combined.add(id)
       }
-      return all
+      return bitsetFromSet(combined, cap)
     },
+    allDocIdsBitset: (cap: number) => bitsetFromSet(allDocs(), cap),
   }
 }
 

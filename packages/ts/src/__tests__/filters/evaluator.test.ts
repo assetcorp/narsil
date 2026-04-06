@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { bitsetFromSet, bitsetToSet } from '../../core/bitset'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FilterContext } from '../../filters/evaluator'
 import { evaluateFilters } from '../../filters/evaluator'
@@ -12,6 +13,8 @@ const products: Record<number, Record<string, unknown>> = {
   3: { name: 'Headphones', price: 199, category: 'electronics', inStock: true, tags: ['tech', 'audio'] },
   4: { name: 'Cookbook', price: 30, category: 'books', inStock: false, tags: [] },
 }
+
+const CAPACITY = 5
 
 function makeNumericFieldIndex(field: string): FieldIndex {
   const entries = Object.entries(products)
@@ -28,6 +31,19 @@ function makeNumericFieldIndex(field: string): FieldIndex {
       between: (min: number, max: number) =>
         new Set(entries.filter(e => e.value >= min && e.value <= max).map(e => e.docId)),
       allDocIds: () => new Set(entries.map(e => e.docId)),
+      eqBitset: (v: number, cap: number) =>
+        bitsetFromSet(new Set(entries.filter(e => e.value === v).map(e => e.docId)), cap),
+      gtBitset: (v: number, cap: number) =>
+        bitsetFromSet(new Set(entries.filter(e => e.value > v).map(e => e.docId)), cap),
+      gteBitset: (v: number, cap: number) =>
+        bitsetFromSet(new Set(entries.filter(e => e.value >= v).map(e => e.docId)), cap),
+      ltBitset: (v: number, cap: number) =>
+        bitsetFromSet(new Set(entries.filter(e => e.value < v).map(e => e.docId)), cap),
+      lteBitset: (v: number, cap: number) =>
+        bitsetFromSet(new Set(entries.filter(e => e.value <= v).map(e => e.docId)), cap),
+      betweenBitset: (min: number, max: number, cap: number) =>
+        bitsetFromSet(new Set(entries.filter(e => e.value >= min && e.value <= max).map(e => e.docId)), cap),
+      allDocIdsBitset: (cap: number) => bitsetFromSet(new Set(entries.map(e => e.docId)), cap),
     },
   }
 }
@@ -45,6 +61,9 @@ function makeBooleanFieldIndex(field: string): FieldIndex {
       getTrue: () => new Set(trueDocs),
       getFalse: () => new Set(falseDocs),
       allDocIds: () => new Set([...trueDocs, ...falseDocs]),
+      getTrueBitset: (cap: number) => bitsetFromSet(new Set(trueDocs), cap),
+      getFalseBitset: (cap: number) => bitsetFromSet(new Set(falseDocs), cap),
+      allDocIdsBitset: (cap: number) => bitsetFromSet(new Set([...trueDocs, ...falseDocs]), cap),
     },
   }
 }
@@ -69,11 +88,27 @@ function makeEnumFieldIndex(field: string): FieldIndex {
         }
         return all
       },
+      getDocIdsBitset: (v: string, cap: number) => bitsetFromSet(new Set(mapping[v] ?? []), cap),
+      getDocIdsInBitset: (values: string[], cap: number) => {
+        const all = new Set<number>()
+        for (const val of values) {
+          for (const id of mapping[val] ?? []) all.add(id)
+        }
+        return bitsetFromSet(all, cap)
+      },
+      allDocIdsBitset: (cap: number) => {
+        const all = new Set<number>()
+        for (const ids of Object.values(mapping)) {
+          for (const id of ids) all.add(id)
+        }
+        return bitsetFromSet(all, cap)
+      },
     },
   }
 }
 
 function buildContext(): FilterContext {
+  const allDocIds = new Set([0, 1, 2, 3, 4])
   return {
     fieldIndexes: {
       price: makeNumericFieldIndex('price'),
@@ -81,68 +116,74 @@ function buildContext(): FilterContext {
       category: makeEnumFieldIndex('category'),
     },
     getFieldValue: (id, fieldPath) => products[id]?.[fieldPath],
-    allDocIds: new Set([0, 1, 2, 3, 4]),
+    allDocIds,
+    capacity: CAPACITY,
+    allDocIdsBitset: bitsetFromSet(allDocIds, CAPACITY),
   }
+}
+
+function resultSet(expression: FilterExpression, context: FilterContext): Set<number> {
+  return bitsetToSet(evaluateFilters(expression, context))
 }
 
 describe('evaluateFilters', () => {
   const ctx = buildContext()
 
   it('returns all doc IDs for an empty expression', () => {
-    expect(evaluateFilters({}, ctx)).toEqual(ctx.allDocIds)
+    expect(resultSet({}, ctx)).toEqual(ctx.allDocIds)
   })
 
   describe('single field filters', () => {
     it('filters by numeric eq using index', () => {
       const expr: FilterExpression = { fields: { price: { eq: 999 } } }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([0]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([0]))
     })
 
     it('filters by numeric range using index', () => {
       const expr: FilterExpression = { fields: { price: { gt: 100 } } }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([0, 3]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([0, 3]))
     })
 
     it('filters by boolean using index', () => {
       const expr: FilterExpression = { fields: { inStock: { eq: true } } }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([0, 1, 3]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([0, 1, 3]))
     })
 
     it('filters by enum using index', () => {
       const expr: FilterExpression = { fields: { category: { eq: 'books' } } }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([1, 4]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([1, 4]))
     })
 
     it('filters by string scan (no index for name)', () => {
       const expr: FilterExpression = { fields: { name: { startsWith: 'Head' } } }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([3]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([3]))
     })
 
     it('filters by array containsAll', () => {
       const expr: FilterExpression = { fields: { tags: { containsAll: ['tech', 'audio'] } } }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([3]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([3]))
     })
 
     it('filters by array matchesAny', () => {
       const expr: FilterExpression = { fields: { tags: { matchesAny: ['fiction', 'cotton'] } } }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([1, 2]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([1, 2]))
     })
 
     it('filters by array size', () => {
       const expr: FilterExpression = { fields: { tags: { size: { eq: 0 } } } }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([4]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([4]))
     })
   })
 
   describe('multiple operators on one field (AND logic)', () => {
     it('combines gt and lt for a range', () => {
       const expr: FilterExpression = { fields: { price: { gt: 20, lt: 200 } } }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([2, 3, 4]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([2, 3, 4]))
     })
 
     it('combines gte and lte', () => {
       const expr: FilterExpression = { fields: { price: { gte: 25, lte: 199 } } }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([2, 3, 4]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([2, 3, 4]))
     })
   })
 
@@ -154,7 +195,7 @@ describe('evaluateFilters', () => {
           price: { lt: 500 },
         },
       }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([3]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([3]))
     })
   })
 
@@ -163,21 +204,21 @@ describe('evaluateFilters', () => {
       const expr: FilterExpression = {
         and: [{ fields: { inStock: { eq: true } } }, { fields: { price: { lt: 50 } } }],
       }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([1]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([1]))
     })
 
     it('evaluates OR combinator', () => {
       const expr: FilterExpression = {
         or: [{ fields: { category: { eq: 'electronics' } } }, { fields: { category: { eq: 'books' } } }],
       }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([0, 1, 3, 4]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([0, 1, 3, 4]))
     })
 
     it('evaluates NOT combinator', () => {
       const expr: FilterExpression = {
         not: { fields: { inStock: { eq: false } } },
       }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([0, 1, 3]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([0, 1, 3]))
     })
 
     it('combines fields with OR', () => {
@@ -185,7 +226,7 @@ describe('evaluateFilters', () => {
         fields: { price: { gt: 100 } },
         or: [{ fields: { category: { eq: 'books' } } }, { fields: { category: { eq: 'clothing' } } }],
       }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set())
+      expect(resultSet(expr, ctx)).toEqual(new Set())
     })
 
     it('combines fields with NOT', () => {
@@ -193,7 +234,7 @@ describe('evaluateFilters', () => {
         fields: { inStock: { eq: true } },
         not: { fields: { category: { eq: 'electronics' } } },
       }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([1]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([1]))
     })
   })
 
@@ -207,14 +248,14 @@ describe('evaluateFilters', () => {
           { fields: { inStock: { eq: true } } },
         ],
       }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([0, 1, 3]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([0, 1, 3]))
     })
 
     it('handles not inside and', () => {
       const expr: FilterExpression = {
         and: [{ fields: { inStock: { eq: true } } }, { not: { fields: { price: { gt: 500 } } } }],
       }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([1, 3]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([1, 3]))
     })
   })
 
@@ -225,25 +266,28 @@ describe('evaluateFilters', () => {
       2: { name: 'C', rating: null },
       3: { name: 'D', rating: 3.0 },
     }
+    const sparseAllDocIds = new Set([0, 1, 2, 3])
     const sparseCtx: FilterContext = {
       fieldIndexes: {},
       getFieldValue: (id, field) => sparseProducts[id]?.[field],
-      allDocIds: new Set([0, 1, 2, 3]),
+      allDocIds: sparseAllDocIds,
+      capacity: 4,
+      allDocIdsBitset: bitsetFromSet(sparseAllDocIds, 4),
     }
 
     it('filters by exists: true', () => {
       const expr: FilterExpression = { fields: { rating: { exists: true } } }
-      expect(evaluateFilters(expr, sparseCtx)).toEqual(new Set([0, 3]))
+      expect(resultSet(expr, sparseCtx)).toEqual(new Set([0, 3]))
     })
 
     it('filters by exists: false', () => {
       const expr: FilterExpression = { fields: { rating: { exists: false } } }
-      expect(evaluateFilters(expr, sparseCtx)).toEqual(new Set([1, 2]))
+      expect(resultSet(expr, sparseCtx)).toEqual(new Set([1, 2]))
     })
 
     it('filters by notExists: true', () => {
       const expr: FilterExpression = { fields: { rating: { notExists: true } } }
-      expect(evaluateFilters(expr, sparseCtx)).toEqual(new Set([1, 2]))
+      expect(resultSet(expr, sparseCtx)).toEqual(new Set([1, 2]))
     })
   })
 
@@ -253,53 +297,56 @@ describe('evaluateFilters', () => {
       1: { label: '', items: [] },
       2: { items: ['a', 'b'] },
     }
+    const emptyAllDocIds = new Set([0, 1, 2])
     const emptyCtx: FilterContext = {
       fieldIndexes: {},
       getFieldValue: (id, field) => dataProducts[id]?.[field],
-      allDocIds: new Set([0, 1, 2]),
+      allDocIds: emptyAllDocIds,
+      capacity: 3,
+      allDocIdsBitset: bitsetFromSet(emptyAllDocIds, 3),
     }
 
     it('isEmpty: true matches empty strings, empty arrays, and missing fields', () => {
       const expr: FilterExpression = { fields: { label: { isEmpty: true } } }
-      expect(evaluateFilters(expr, emptyCtx)).toEqual(new Set([1, 2]))
+      expect(resultSet(expr, emptyCtx)).toEqual(new Set([1, 2]))
     })
 
     it('isNotEmpty: true matches non-empty values', () => {
       const expr: FilterExpression = { fields: { label: { isNotEmpty: true } } }
-      expect(evaluateFilters(expr, emptyCtx)).toEqual(new Set([0]))
+      expect(resultSet(expr, emptyCtx)).toEqual(new Set([0]))
     })
   })
 
   describe('enum in/nin operators', () => {
     it('filters by in using enum index', () => {
       const expr: FilterExpression = { fields: { category: { in: ['electronics', 'clothing'] } } }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([0, 2, 3]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([0, 2, 3]))
     })
 
     it('filters by nin using enum index', () => {
       const expr: FilterExpression = { fields: { category: { nin: ['electronics'] } } }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([1, 2, 4]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([1, 2, 4]))
     })
   })
 
   describe('between operator', () => {
     it('filters by between range using numeric index', () => {
       const expr: FilterExpression = { fields: { price: { between: [20, 100] } } }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([2, 4]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([2, 4]))
     })
   })
 
   describe('ne operator', () => {
     it('filters by ne using numeric index', () => {
       const expr: FilterExpression = { fields: { price: { ne: 999 } } }
-      const result = evaluateFilters(expr, ctx)
+      const result = resultSet(expr, ctx)
       expect(result.has(0)).toBe(false)
       expect(result.size).toBe(4)
     })
 
     it('filters by ne on enum using index', () => {
       const expr: FilterExpression = { fields: { category: { ne: 'electronics' } } }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([1, 2, 4]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([1, 2, 4]))
     })
   })
 
@@ -317,6 +364,7 @@ describe('evaluateFilters', () => {
     })
 
     it('evaluates geo radius filter with geopoint index', () => {
+      const geoAllDocIds = new Set([0, 1, 2, 3])
       const geoIdx: FieldIndex = {
         type: 'geopoint',
         index: {
@@ -327,15 +375,18 @@ describe('evaluateFilters', () => {
       const geoCtx: FilterContext = {
         fieldIndexes: { location: geoIdx },
         getFieldValue: () => undefined,
-        allDocIds: new Set([0, 1, 2, 3]),
+        allDocIds: geoAllDocIds,
+        capacity: 4,
+        allDocIdsBitset: bitsetFromSet(geoAllDocIds, 4),
       }
       const expr: FilterExpression = {
         fields: { location: { radius: { lat: 40.7, lon: -74.0, distance: 10, unit: 'km' } } },
       }
-      expect(evaluateFilters(expr, geoCtx)).toEqual(new Set([0, 3]))
+      expect(resultSet(expr, geoCtx)).toEqual(new Set([0, 3]))
     })
 
     it('evaluates geo polygon filter with geopoint index', () => {
+      const geoAllDocIds = new Set([0, 1, 2])
       const geoIdx: FieldIndex = {
         type: 'geopoint',
         index: {
@@ -346,7 +397,9 @@ describe('evaluateFilters', () => {
       const geoCtx: FilterContext = {
         fieldIndexes: { location: geoIdx },
         getFieldValue: () => undefined,
-        allDocIds: new Set([0, 1, 2]),
+        allDocIds: geoAllDocIds,
+        capacity: 3,
+        allDocIdsBitset: bitsetFromSet(geoAllDocIds, 3),
       }
       const expr: FilterExpression = {
         fields: {
@@ -361,7 +414,7 @@ describe('evaluateFilters', () => {
           },
         },
       }
-      expect(evaluateFilters(expr, geoCtx)).toEqual(new Set([1]))
+      expect(resultSet(expr, geoCtx)).toEqual(new Set([1]))
     })
 
     it('throws when geo polygon filter has no geopoint index', () => {
@@ -385,22 +438,22 @@ describe('evaluateFilters', () => {
   describe('edge cases', () => {
     it('ignores empty and array', () => {
       const expr: FilterExpression = { and: [] }
-      expect(evaluateFilters(expr, ctx)).toEqual(ctx.allDocIds)
+      expect(resultSet(expr, ctx)).toEqual(ctx.allDocIds)
     })
 
     it('ignores empty or array', () => {
       const expr: FilterExpression = { or: [] }
-      expect(evaluateFilters(expr, ctx)).toEqual(ctx.allDocIds)
+      expect(resultSet(expr, ctx)).toEqual(ctx.allDocIds)
     })
 
     it('handles field filter with no recognized operators as match-all', () => {
       const expr: FilterExpression = { fields: { price: {} } }
-      expect(evaluateFilters(expr, ctx)).toEqual(ctx.allDocIds)
+      expect(resultSet(expr, ctx)).toEqual(ctx.allDocIds)
     })
 
     it('handles string endsWith scan', () => {
       const expr: FilterExpression = { fields: { name: { endsWith: 'top' } } }
-      expect(evaluateFilters(expr, ctx)).toEqual(new Set([0]))
+      expect(resultSet(expr, ctx)).toEqual(new Set([0]))
     })
   })
 })

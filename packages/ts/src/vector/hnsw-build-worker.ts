@@ -10,6 +10,14 @@ export interface HNSWBuildRequest {
   config: HNSWConfig
 }
 
+export interface HNSWBuildRequestBinary {
+  type: 'build-binary'
+  docIds: string[]
+  vectorData: Float32Array
+  dimension: number
+  config: HNSWConfig
+}
+
 export interface HNSWBuildResponse {
   type: 'success'
   graph: SerializedHNSWGraph
@@ -68,6 +76,47 @@ function handleBuildRequest(request: HNSWBuildRequest): SerializedHNSWGraph {
   return hnsw.serialize()
 }
 
+function handleBuildRequestBinary(request: HNSWBuildRequestBinary): SerializedHNSWGraph {
+  const { docIds, vectorData, dimension, config } = request
+  if (!Number.isInteger(dimension) || dimension <= 0 || dimension > MAX_WORKER_DIMENSION) {
+    throw new Error(`Invalid dimension: ${dimension} (must be 1..${MAX_WORKER_DIMENSION})`)
+  }
+  if (docIds.length > MAX_WORKER_VECTORS) {
+    throw new Error(`Too many vectors: ${docIds.length} (max ${MAX_WORKER_VECTORS})`)
+  }
+  const expectedLength = docIds.length * dimension
+  if (vectorData.length !== expectedLength) {
+    throw new Error(
+      `vectorData length ${vectorData.length} does not match ${docIds.length} * ${dimension} = ${expectedLength}`,
+    )
+  }
+
+  const safeConfig = clampHNSWConfig(config)
+  const store = createVectorStore()
+  for (let i = 0; i < docIds.length; i++) {
+    const offset = i * dimension
+    const vec = vectorData.subarray(offset, offset + dimension)
+    store.insert(docIds[i], new Float32Array(vec))
+  }
+
+  const hnsw = createHNSWIndex(dimension, store, safeConfig)
+  for (const docId of docIds) {
+    hnsw.insertNode(docId)
+  }
+  return hnsw.serialize()
+}
+
+function handleAnyRequest(raw: unknown): SerializedHNSWGraph {
+  const request = raw as { type: string }
+  if (request.type === 'build') {
+    return handleBuildRequest(raw as HNSWBuildRequest)
+  }
+  if (request.type === 'build-binary') {
+    return handleBuildRequestBinary(raw as HNSWBuildRequestBinary)
+  }
+  throw new Error(`Unknown request type: ${request.type}`)
+}
+
 function setupWorker(): void {
   setupAsync().catch(err => {
     console.error('HNSW build worker setup failed:', err)
@@ -90,10 +139,8 @@ async function setupAsync(): Promise<void> {
   if (parentPort) {
     const port = parentPort
     port.on('message', (raw: unknown) => {
-      const request = raw as HNSWBuildRequest
-      if (request.type !== 'build') return
       try {
-        const graph = handleBuildRequest(request)
+        const graph = handleAnyRequest(raw)
         port.postMessage({ type: 'success', graph } satisfies HNSWBuildResponse)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
@@ -111,10 +158,8 @@ async function setupAsync(): Promise<void> {
     }
 
     webSelf.onmessage = (event: { data: unknown }) => {
-      const request = event.data as HNSWBuildRequest
-      if (request.type !== 'build') return
       try {
-        const graph = handleBuildRequest(request)
+        const graph = handleAnyRequest(event.data)
         webSelf.postMessage({ type: 'success', graph } satisfies HNSWBuildResponse)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
