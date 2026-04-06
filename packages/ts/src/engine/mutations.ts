@@ -284,13 +284,6 @@ export async function insertDocumentBatch(
       }
     }
 
-    for (const fieldPath of touchedVectorFields) {
-      const vecIndex = batchVecIndexes.get(fieldPath)
-      if (vecIndex) {
-        vecIndex.scheduleBuild()
-      }
-    }
-
     if (chunkEnd < documents.length) {
       await new Promise<void>(r => setTimeout(r, 0))
     }
