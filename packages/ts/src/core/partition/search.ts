@@ -10,6 +10,7 @@ import type {
 import type { FacetResult } from '../../types/results'
 import type { SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
+import { bitsetFromSet, bitsetHas, bitsetSet, createBitSet } from '../bitset'
 import { computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
 import {
   getAllInternalDocIds,
@@ -63,13 +64,14 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
   const globalDocFreqs = globalStats?.docFrequencies ?? state.stats.docFrequencies
   const scoreFn = globalStats ? computeBM25WithGlobalStats : computeBM25
 
-  let filterInternalIds: Set<number> | undefined
+  let filterBitset: Uint32Array | undefined
   if (filterDocIds) {
-    filterInternalIds = new Set<number>()
+    const capacity = state.docStore.internalIdCapacity()
+    filterBitset = createBitSet(capacity)
     for (const externalId of filterDocIds) {
       const internalId = state.docStore.getInternalId(externalId)
       if (internalId !== undefined) {
-        filterInternalIds.add(internalId)
+        bitsetSet(filterBitset, internalId)
       }
     }
   }
@@ -114,7 +116,7 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
         for (let pi = 0; pi < list.length; pi++) {
           const internalId = list.docIds[pi]
           if (hasDeleted && list.deletedDocs.has(internalId)) continue
-          if (filterInternalIds && !filterInternalIds.has(internalId)) continue
+          if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
           if (tokenIndex > 0 && !docScores.has(internalId)) continue
           const fieldName = fieldNames[list.fieldNameIndices[pi]]
           if (fields && !fields.includes(fieldName)) continue
@@ -172,7 +174,7 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
         for (let pi = 0; pi < list.length; pi++) {
           const internalId = list.docIds[pi]
           if (hasDeleted && list.deletedDocs.has(internalId)) continue
-          if (filterInternalIds && !filterInternalIds.has(internalId)) continue
+          if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
           const fieldName = fieldNames[list.fieldNameIndices[pi]]
           if (fields && !fields.includes(fieldName)) continue
           const termFrequency = list.termFrequencies[pi]
@@ -280,6 +282,7 @@ function siftDown(heap: Array<{ score: number }>, idx: number): void {
 export function buildFilterContext(state: PartitionState, schema: SchemaDefinition): FilterContext {
   const flat = getFlatSchema(state, schema)
   const fieldIndexes: Record<string, FieldIndex> = {}
+  const capacity = state.docStore.internalIdCapacity()
 
   for (const [fieldPath, fieldType] of Object.entries(flat)) {
     if (fieldType === 'number' || fieldType === 'number[]') {
@@ -295,6 +298,13 @@ export function buildFilterContext(state: PartitionState, schema: SchemaDefiniti
             lte: (v: number) => numIdx.queryLte(v),
             between: (min: number, max: number) => numIdx.queryBetween(min, max),
             allDocIds: () => numIdx.getAllDocIds(),
+            eqBitset: (v: number, cap: number) => numIdx.queryEqBitset(v, cap),
+            gtBitset: (v: number, cap: number) => numIdx.queryGtBitset(v, cap),
+            gteBitset: (v: number, cap: number) => numIdx.queryGteBitset(v, cap),
+            ltBitset: (v: number, cap: number) => numIdx.queryLtBitset(v, cap),
+            lteBitset: (v: number, cap: number) => numIdx.queryLteBitset(v, cap),
+            betweenBitset: (min: number, max: number, cap: number) => numIdx.queryBetweenBitset(min, max, cap),
+            allDocIdsBitset: (cap: number) => numIdx.getAllDocIdsBitset(cap),
           },
         }
       }
@@ -307,6 +317,9 @@ export function buildFilterContext(state: PartitionState, schema: SchemaDefiniti
             getTrue: () => boolIdx.queryEq(true),
             getFalse: () => boolIdx.queryEq(false),
             allDocIds: () => boolIdx.getAllDocIds(),
+            getTrueBitset: (cap: number) => boolIdx.queryEqBitset(true, cap),
+            getFalseBitset: (cap: number) => boolIdx.queryEqBitset(false, cap),
+            allDocIdsBitset: (cap: number) => boolIdx.getAllDocIdsBitset(cap),
           },
         }
       }
@@ -318,6 +331,9 @@ export function buildFilterContext(state: PartitionState, schema: SchemaDefiniti
           index: {
             getDocIds: (v: string) => enumIdx.queryEq(v),
             allDocIds: () => enumIdx.getAllDocIds(),
+            getDocIdsBitset: (v: string, cap: number) => enumIdx.queryEqBitset(v, cap),
+            getDocIdsInBitset: (values: string[], cap: number) => enumIdx.queryInBitset(values, cap),
+            allDocIdsBitset: (cap: number) => enumIdx.getAllDocIdsBitset(cap),
           },
         }
       }
@@ -333,6 +349,7 @@ export function buildFilterContext(state: PartitionState, schema: SchemaDefiniti
   }
 
   let cachedAllDocIds: Set<number> | null = null
+  let cachedAllDocIdsBitset: Uint32Array | null = null
 
   return {
     fieldIndexes,
@@ -344,6 +361,13 @@ export function buildFilterContext(state: PartitionState, schema: SchemaDefiniti
       }
       return cachedAllDocIds
     },
+    capacity,
+    get allDocIdsBitset() {
+      if (!cachedAllDocIdsBitset) {
+        cachedAllDocIdsBitset = bitsetFromSet(this.allDocIds, capacity)
+      }
+      return cachedAllDocIdsBitset
+    },
   }
 }
 
@@ -353,13 +377,21 @@ export function applyPartitionFilters(
   schema: SchemaDefinition,
 ): Set<string> {
   const context = buildFilterContext(state, schema)
-  const internalResult = evaluateFilters(filters, context)
+  const resultBitset = evaluateFilters(filters, context)
   const resolver = state.docStore.resolver()
   const externalResult = new Set<string>()
-  for (const internalId of internalResult) {
-    const externalId = resolver.toExternal(internalId)
-    if (externalId !== undefined) {
-      externalResult.add(externalId)
+  for (let wi = 0; wi < resultBitset.length; wi++) {
+    let word = resultBitset[wi]
+    if (word === 0) continue
+    const base = wi << 5
+    while (word !== 0) {
+      const tz = Math.clz32(word & -word) ^ 31
+      const internalId = base + tz
+      const externalId = resolver.toExternal(internalId)
+      if (externalId !== undefined) {
+        externalResult.add(externalId)
+      }
+      word &= word - 1
     }
   }
   return externalResult

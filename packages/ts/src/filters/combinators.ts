@@ -1,3 +1,31 @@
+import { bitsetAnd, bitsetNot, bitsetOr } from '../core/bitset'
+
+export function applyAndBitset(bitsets: Uint32Array[]): Uint32Array {
+  if (bitsets.length === 0) return new Uint32Array(0)
+  if (bitsets.length === 1) return bitsets[0]
+
+  let result = bitsets[0]
+  for (let i = 1; i < bitsets.length; i++) {
+    result = bitsetAnd(result, bitsets[i])
+  }
+  return result
+}
+
+export function applyOrBitset(bitsets: Uint32Array[]): Uint32Array {
+  if (bitsets.length === 0) return new Uint32Array(0)
+  if (bitsets.length === 1) return bitsets[0]
+
+  let result = bitsets[0]
+  for (let i = 1; i < bitsets.length; i++) {
+    result = bitsetOr(result, bitsets[i])
+  }
+  return result
+}
+
+export function applyNotBitset(excluded: Uint32Array, capacity: number): Uint32Array {
+  return bitsetNot(excluded, capacity)
+}
+
 export function applyAnd(sets: Set<number>[]): Set<number> {
   if (sets.length === 0) return new Set()
   if (sets.length === 1) return sets[0]

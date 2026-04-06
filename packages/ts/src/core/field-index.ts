@@ -1,4 +1,5 @@
 import type { NumericIndexEntry } from '../types/internal'
+import { bitsetSet, createBitSet } from './bitset'
 
 function lowerBound(entries: NumericIndexEntry[], value: number): number {
   let lo = 0
@@ -30,6 +31,14 @@ function collectDocIds(entries: NumericIndexEntry[], from: number, to: number): 
   return result
 }
 
+function collectDocIdsBitset(entries: NumericIndexEntry[], from: number, to: number, capacity: number): Uint32Array {
+  const bs = createBitSet(capacity)
+  for (let i = from; i < to; i++) {
+    bitsetSet(bs, entries[i].docId)
+  }
+  return bs
+}
+
 export interface NumericFieldIndex {
   insert(internalId: number, value: number): void
   remove(internalId: number, value: number): void
@@ -41,6 +50,13 @@ export interface NumericFieldIndex {
   queryLte(value: number): Set<number>
   queryBetween(min: number, max: number): Set<number>
   getAllDocIds(): Set<number>
+  queryEqBitset(value: number, capacity: number): Uint32Array
+  queryGtBitset(value: number, capacity: number): Uint32Array
+  queryGteBitset(value: number, capacity: number): Uint32Array
+  queryLtBitset(value: number, capacity: number): Uint32Array
+  queryLteBitset(value: number, capacity: number): Uint32Array
+  queryBetweenBitset(min: number, max: number, capacity: number): Uint32Array
+  getAllDocIdsBitset(capacity: number): Uint32Array
   count(): number
   clear(): void
   serialize(): NumericIndexEntry[]
@@ -120,6 +136,40 @@ export function createNumericIndex(): NumericFieldIndex {
       return collectDocIds(entries, 0, entries.length)
     },
 
+    queryEqBitset(value: number, capacity: number): Uint32Array {
+      ensureSorted()
+      return collectDocIdsBitset(entries, lowerBound(entries, value), upperBound(entries, value), capacity)
+    },
+
+    queryGtBitset(value: number, capacity: number): Uint32Array {
+      ensureSorted()
+      return collectDocIdsBitset(entries, upperBound(entries, value), entries.length, capacity)
+    },
+
+    queryGteBitset(value: number, capacity: number): Uint32Array {
+      ensureSorted()
+      return collectDocIdsBitset(entries, lowerBound(entries, value), entries.length, capacity)
+    },
+
+    queryLtBitset(value: number, capacity: number): Uint32Array {
+      ensureSorted()
+      return collectDocIdsBitset(entries, 0, lowerBound(entries, value), capacity)
+    },
+
+    queryLteBitset(value: number, capacity: number): Uint32Array {
+      ensureSorted()
+      return collectDocIdsBitset(entries, 0, upperBound(entries, value), capacity)
+    },
+
+    queryBetweenBitset(min: number, max: number, capacity: number): Uint32Array {
+      ensureSorted()
+      return collectDocIdsBitset(entries, lowerBound(entries, min), upperBound(entries, max), capacity)
+    },
+
+    getAllDocIdsBitset(capacity: number): Uint32Array {
+      return collectDocIdsBitset(entries, 0, entries.length, capacity)
+    },
+
     count(): number {
       return entries.length
     },
@@ -147,6 +197,8 @@ export interface BooleanFieldIndex {
   queryEq(value: boolean): Set<number>
   queryNe(value: boolean): Set<number>
   getAllDocIds(): Set<number>
+  queryEqBitset(value: boolean, capacity: number): Uint32Array
+  getAllDocIdsBitset(capacity: number): Uint32Array
   count(): number
   clear(): void
   serialize(): { trueDocs: number[]; falseDocs: number[] }
@@ -182,6 +234,22 @@ export function createBooleanIndex(): BooleanFieldIndex {
       return all
     },
 
+    queryEqBitset(value: boolean, capacity: number): Uint32Array {
+      const source = value ? trueDocs : falseDocs
+      const bs = createBitSet(capacity)
+      for (const id of source) {
+        bitsetSet(bs, id)
+      }
+      return bs
+    },
+
+    getAllDocIdsBitset(capacity: number): Uint32Array {
+      const bs = createBitSet(capacity)
+      for (const id of trueDocs) bitsetSet(bs, id)
+      for (const id of falseDocs) bitsetSet(bs, id)
+      return bs
+    },
+
     count(): number {
       return trueDocs.size + falseDocs.size
     },
@@ -215,6 +283,9 @@ export interface EnumFieldIndex {
   queryIn(values: string[]): Set<number>
   queryNin(values: string[]): Set<number>
   getAllDocIds(): Set<number>
+  queryEqBitset(value: string, capacity: number): Uint32Array
+  queryInBitset(values: string[], capacity: number): Uint32Array
+  getAllDocIdsBitset(capacity: number): Uint32Array
   count(): number
   clear(): void
   serialize(): Record<string, number[]>
@@ -283,6 +354,34 @@ export function createEnumIndex(): EnumFieldIndex {
 
     getAllDocIds(): Set<number> {
       return allDocs()
+    },
+
+    queryEqBitset(value: string, capacity: number): Uint32Array {
+      const bs = createBitSet(capacity)
+      const docSet = valueMap.get(value)
+      if (docSet) {
+        for (const id of docSet) bitsetSet(bs, id)
+      }
+      return bs
+    },
+
+    queryInBitset(values: string[], capacity: number): Uint32Array {
+      const bs = createBitSet(capacity)
+      for (const val of values) {
+        const docSet = valueMap.get(val)
+        if (docSet) {
+          for (const id of docSet) bitsetSet(bs, id)
+        }
+      }
+      return bs
+    },
+
+    getAllDocIdsBitset(capacity: number): Uint32Array {
+      const bs = createBitSet(capacity)
+      for (const docSet of valueMap.values()) {
+        for (const id of docSet) bitsetSet(bs, id)
+      }
+      return bs
     },
 
     count(): number {

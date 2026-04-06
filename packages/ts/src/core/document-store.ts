@@ -22,6 +22,7 @@ export interface DocumentStore {
   getInternalId(docId: string): number | undefined
   getExternalId(internalId: number): string | undefined
   allInternalIds(): IterableIterator<number>
+  internalIdCapacity(): number
   resolver(): InternalIdResolver
 }
 
@@ -132,6 +133,10 @@ export function createDocumentStore(): DocumentStore {
       for (const internalId of forwardMap.values()) {
         yield internalId
       }
+    },
+
+    internalIdCapacity(): number {
+      return nextInternalId
     },
 
     resolver(): InternalIdResolver {
