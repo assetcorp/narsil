@@ -485,6 +485,16 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       if (isShutdown) return
       isShutdown = true
       abortController.abort()
+
+      for (const [name] of indexRegistry) {
+        const mgr = executor.getManager(name)
+        if (mgr) {
+          for (const [, vecIdx] of mgr.getVectorIndexes()) {
+            vecIdx.dispose()
+          }
+        }
+      }
+
       if (flushManager) await flushManager.shutdown()
       const adaptersToShutdown = new Set<EmbeddingAdapter>()
       for (const [, entry] of indexRegistry) {
