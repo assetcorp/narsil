@@ -3,6 +3,7 @@ import {
   clearNormalizationCache,
   configureNormalizationCache,
   getNormalizationCacheSize,
+  resetNormalizationCache,
   tokenize,
 } from '../../core/tokenizer'
 import { NarsilError } from '../../errors'
@@ -10,7 +11,7 @@ import { english } from '../../languages/english'
 import type { LanguageModule } from '../../types/language'
 
 beforeEach(() => {
-  clearNormalizationCache()
+  resetNormalizationCache()
 })
 
 describe('tokenize', () => {
@@ -261,6 +262,10 @@ describe('configureNormalizationCache', () => {
     expect(() => configureNormalizationCache(-100)).toThrow(NarsilError)
   })
 
+  it('throws NarsilError for zero', () => {
+    expect(() => configureNormalizationCache(0)).toThrow(NarsilError)
+  })
+
   it('throws with CONFIG_INVALID error code', () => {
     try {
       configureNormalizationCache(Number.NaN)
@@ -314,5 +319,23 @@ describe('batch eviction', () => {
 
     expect(getNormalizationCacheSize()).toBeLessThanOrEqual(50_000)
     expect(getNormalizationCacheSize()).toBe(1000)
+  })
+
+  it('evicts 25% of entries when the cache exceeds maxCacheSize', () => {
+    configureNormalizationCache(50_000)
+    clearNormalizationCache()
+
+    const totalTokens = 50_100
+    for (let i = 0; i < totalTokens; i++) {
+      tokenize(`token${i}`, english, { stem: false, removeStopWords: false })
+    }
+
+    expect(getNormalizationCacheSize()).toBe(37_600)
+
+    const lastResult = tokenize(`token${totalTokens - 1}`, english, { stem: false, removeStopWords: false })
+    expect(lastResult.tokens[0].token).toBe(`token${totalTokens - 1}`)
+
+    const midResult = tokenize('token25000', english, { stem: false, removeStopWords: false })
+    expect(midResult.tokens[0].token).toBe('token25000')
   })
 })
