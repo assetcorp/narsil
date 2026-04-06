@@ -92,6 +92,7 @@ export async function dispatchWorkerBuild(
   dimension: number,
   config: HNSWConfig,
   timeoutMs?: number,
+  skipCopy = false,
 ): Promise<WorkerBuildOutcome> {
   let worker: WorkerHandle | null
   try {
@@ -114,13 +115,18 @@ export async function dispatchWorkerBuild(
 
   const effectiveTimeout = timeoutMs ?? BUILD_TIMEOUT_MS
 
-  const transferCopy = new Float32Array(vectorData.length)
-  transferCopy.set(vectorData)
+  let transferBuffer: Float32Array
+  if (skipCopy) {
+    transferBuffer = vectorData
+  } else {
+    transferBuffer = new Float32Array(vectorData.length)
+    transferBuffer.set(vectorData)
+  }
 
   const request: HNSWBuildRequestBinary = {
     type: 'build-binary',
     docIds,
-    vectorData: transferCopy,
+    vectorData: transferBuffer,
     dimension,
     config,
   }
@@ -174,7 +180,7 @@ export async function dispatchWorkerBuild(
     const removeListener = listenForMessage(worker, handleMessage)
 
     try {
-      worker.postMessage(request, [transferCopy.buffer])
+      worker.postMessage(request, [transferBuffer.buffer])
     } catch (err) {
       if (settled) return
       settled = true

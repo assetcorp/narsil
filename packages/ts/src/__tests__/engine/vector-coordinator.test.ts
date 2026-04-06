@@ -71,6 +71,8 @@ function createMockVectorIndex(
       return { fieldName, dimension: dim, vectors: [], graphs: [], sq8: null }
     },
     deserialize() {},
+    scheduleBuild() {},
+    async awaitPendingBuild() {},
   }
 }
 
