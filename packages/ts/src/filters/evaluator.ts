@@ -74,7 +74,14 @@ function evaluateFieldFilter(fieldPath: string, filter: FieldFilter, context: Fi
   const getValue: GetFieldValue = internalId => context.getFieldValue(internalId, fieldPath)
   const f = filter as Record<string, unknown>
   const bitsets: Uint32Array[] = []
-  const { capacity, allDocIdsBitset } = context
+  const { capacity } = context
+  let allDocsBitset: Uint32Array | null = null
+  const getAllDocsBitset = (): Uint32Array => {
+    if (allDocsBitset === null) {
+      allDocsBitset = context.allDocIdsBitset
+    }
+    return allDocsBitset
+  }
 
   if ('radius' in f && f.radius) {
     const geoIndex = resolveGeoIndex(fieldPath, fieldIndex)
@@ -87,80 +94,80 @@ function evaluateFieldFilter(fieldPath: string, filter: FieldFilter, context: Fi
   }
 
   if ('eq' in f && f.eq !== undefined) {
-    bitsets.push(applyEqBitset(f.eq as number | string | boolean, allDocIdsBitset, capacity, getValue, fieldIndex))
+    bitsets.push(applyEqBitset(f.eq as number | string | boolean, getAllDocsBitset, capacity, getValue, fieldIndex))
   }
   if ('ne' in f && f.ne !== undefined) {
-    bitsets.push(applyNeBitset(f.ne as number | string | boolean, allDocIdsBitset, capacity, getValue, fieldIndex))
+    bitsets.push(applyNeBitset(f.ne as number | string | boolean, getAllDocsBitset, capacity, getValue, fieldIndex))
   }
   if ('gt' in f && f.gt !== undefined) {
-    bitsets.push(applyGtBitset(f.gt as number, allDocIdsBitset, capacity, getValue, fieldIndex))
+    bitsets.push(applyGtBitset(f.gt as number, getAllDocsBitset, capacity, getValue, fieldIndex))
   }
   if ('lt' in f && f.lt !== undefined) {
-    bitsets.push(applyLtBitset(f.lt as number, allDocIdsBitset, capacity, getValue, fieldIndex))
+    bitsets.push(applyLtBitset(f.lt as number, getAllDocsBitset, capacity, getValue, fieldIndex))
   }
   if ('gte' in f && f.gte !== undefined) {
-    bitsets.push(applyGteBitset(f.gte as number, allDocIdsBitset, capacity, getValue, fieldIndex))
+    bitsets.push(applyGteBitset(f.gte as number, getAllDocsBitset, capacity, getValue, fieldIndex))
   }
   if ('lte' in f && f.lte !== undefined) {
-    bitsets.push(applyLteBitset(f.lte as number, allDocIdsBitset, capacity, getValue, fieldIndex))
+    bitsets.push(applyLteBitset(f.lte as number, getAllDocsBitset, capacity, getValue, fieldIndex))
   }
   if ('between' in f && f.between !== undefined) {
-    bitsets.push(applyBetweenBitset(f.between as [number, number], allDocIdsBitset, capacity, getValue, fieldIndex))
+    bitsets.push(applyBetweenBitset(f.between as [number, number], getAllDocsBitset, capacity, getValue, fieldIndex))
   }
 
   if ('in' in f && f.in !== undefined) {
-    bitsets.push(applyInBitset(f.in as string[], allDocIdsBitset, capacity, getValue, fieldIndex))
+    bitsets.push(applyInBitset(f.in as string[], getAllDocsBitset, capacity, getValue, fieldIndex))
   }
   if ('nin' in f && f.nin !== undefined) {
-    bitsets.push(applyNinBitset(f.nin as string[], allDocIdsBitset, capacity, getValue, fieldIndex))
+    bitsets.push(applyNinBitset(f.nin as string[], getAllDocsBitset, capacity, getValue, fieldIndex))
   }
   if ('startsWith' in f && f.startsWith !== undefined) {
-    bitsets.push(applyStartsWithBitset(f.startsWith as string, allDocIdsBitset, capacity, getValue))
+    bitsets.push(applyStartsWithBitset(f.startsWith as string, getAllDocsBitset, capacity, getValue))
   }
   if ('endsWith' in f && f.endsWith !== undefined) {
-    bitsets.push(applyEndsWithBitset(f.endsWith as string, allDocIdsBitset, capacity, getValue))
+    bitsets.push(applyEndsWithBitset(f.endsWith as string, getAllDocsBitset, capacity, getValue))
   }
 
   if ('containsAll' in f && f.containsAll !== undefined) {
     bitsets.push(
-      applyContainsAllBitset(f.containsAll as (string | number | boolean)[], allDocIdsBitset, capacity, getValue),
+      applyContainsAllBitset(f.containsAll as (string | number | boolean)[], getAllDocsBitset, capacity, getValue),
     )
   }
   if ('matchesAny' in f && f.matchesAny !== undefined) {
     bitsets.push(
-      applyMatchesAnyBitset(f.matchesAny as (string | number | boolean)[], allDocIdsBitset, capacity, getValue),
+      applyMatchesAnyBitset(f.matchesAny as (string | number | boolean)[], getAllDocsBitset, capacity, getValue),
     )
   }
   if ('size' in f && f.size !== undefined) {
-    bitsets.push(applySizeBitset(f.size as ComparisonFilter, allDocIdsBitset, capacity, getValue))
+    bitsets.push(applySizeBitset(f.size as ComparisonFilter, getAllDocsBitset, capacity, getValue))
   }
 
   if ('exists' in f && f.exists !== undefined) {
     bitsets.push(
       f.exists
-        ? applyExistsBitset(allDocIdsBitset, capacity, getValue)
-        : applyNotExistsBitset(allDocIdsBitset, capacity, getValue),
+        ? applyExistsBitset(getAllDocsBitset, capacity, getValue)
+        : applyNotExistsBitset(getAllDocsBitset, capacity, getValue),
     )
   }
   if ('notExists' in f && f.notExists !== undefined) {
     bitsets.push(
       f.notExists
-        ? applyNotExistsBitset(allDocIdsBitset, capacity, getValue)
-        : applyExistsBitset(allDocIdsBitset, capacity, getValue),
+        ? applyNotExistsBitset(getAllDocsBitset, capacity, getValue)
+        : applyExistsBitset(getAllDocsBitset, capacity, getValue),
     )
   }
   if ('isEmpty' in f && f.isEmpty !== undefined) {
     bitsets.push(
       f.isEmpty
-        ? applyIsEmptyBitset(allDocIdsBitset, capacity, getValue)
-        : applyIsNotEmptyBitset(allDocIdsBitset, capacity, getValue),
+        ? applyIsEmptyBitset(getAllDocsBitset, capacity, getValue)
+        : applyIsNotEmptyBitset(getAllDocsBitset, capacity, getValue),
     )
   }
   if ('isNotEmpty' in f && f.isNotEmpty !== undefined) {
     bitsets.push(
       f.isNotEmpty
-        ? applyIsNotEmptyBitset(allDocIdsBitset, capacity, getValue)
-        : applyIsEmptyBitset(allDocIdsBitset, capacity, getValue),
+        ? applyIsNotEmptyBitset(getAllDocsBitset, capacity, getValue)
+        : applyIsEmptyBitset(getAllDocsBitset, capacity, getValue),
     )
   }
 
