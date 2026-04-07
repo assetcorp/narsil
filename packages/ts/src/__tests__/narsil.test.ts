@@ -610,6 +610,132 @@ describe('Narsil', () => {
       expect(result.failed.length).toBe(1)
       expect(result.failed[0].docId).toBe('nonexistent')
     })
+
+    it('cleans up search index so removed docs are not returned', async () => {
+      await narsil.createIndex('products', indexConfig)
+      await narsil.insert('products', { title: 'Alpha widget', category: 'tools', price: 10 }, 'a1')
+      await narsil.insert('products', { title: 'Beta widget', category: 'tools', price: 20 }, 'a2')
+      await narsil.insert('products', { title: 'Gamma gadget', category: 'toys', price: 30 }, 'a3')
+
+      await narsil.removeBatch('products', ['a1', 'a2'])
+
+      const searchResult = await narsil.query('products', { term: 'widget' })
+      expect(searchResult.count).toBe(0)
+
+      const remaining = await narsil.query('products', { term: 'gadget' })
+      expect(remaining.count).toBe(1)
+      expect(remaining.hits[0].id).toBe('a3')
+    })
+
+    it('cleans up filter indexes after batch removal', async () => {
+      await narsil.createIndex('products', indexConfig)
+      await narsil.insert('products', { title: 'Item A', category: 'electronics', price: 100 }, 'f1')
+      await narsil.insert('products', { title: 'Item B', category: 'electronics', price: 200 }, 'f2')
+      await narsil.insert('products', { title: 'Item C', category: 'clothing', price: 50 }, 'f3')
+
+      await narsil.removeBatch('products', ['f1', 'f2'])
+
+      const filtered = await narsil.query('products', {
+        term: 'item',
+        filters: { fields: { category: { eq: 'electronics' } } },
+      })
+      expect(filtered.count).toBe(0)
+
+      const clothingResult = await narsil.query('products', {
+        term: 'item',
+        filters: { fields: { category: { eq: 'clothing' } } },
+      })
+      expect(clothingResult.count).toBe(1)
+    })
+
+    it('handles empty batch', async () => {
+      await narsil.createIndex('products', indexConfig)
+      await narsil.insert('products', { title: 'Stays', category: 'test', price: 1 }, 's1')
+
+      const result = await narsil.removeBatch('products', [])
+      expect(result.succeeded.length).toBe(0)
+      expect(result.failed.length).toBe(0)
+
+      const count = await narsil.countDocuments('products')
+      expect(count).toBe(1)
+    })
+
+    it('handles batch larger than chunk size', async () => {
+      await narsil.createIndex('items', {
+        schema: { title: 'string' as const },
+        language: 'english',
+      })
+
+      const ids: string[] = []
+      const docs = Array.from({ length: 1050 }, (_, i) => ({ title: `Document number ${i}` }))
+      const insertResult = await narsil.insertBatch('items', docs)
+      ids.push(...insertResult.succeeded)
+      expect(ids.length).toBe(1050)
+
+      const removeResult = await narsil.removeBatch('items', ids)
+      expect(removeResult.succeeded.length).toBe(1050)
+      expect(removeResult.failed.length).toBe(0)
+
+      const count = await narsil.countDocuments('items')
+      expect(count).toBe(0)
+    })
+
+    it('correctly updates document count after batch removal', async () => {
+      await narsil.createIndex('products', indexConfig)
+      const insertResult = await narsil.insertBatch('products', [
+        { title: 'A', category: 'x', price: 1 },
+        { title: 'B', category: 'x', price: 2 },
+        { title: 'C', category: 'x', price: 3 },
+        { title: 'D', category: 'x', price: 4 },
+        { title: 'E', category: 'x', price: 5 },
+      ])
+
+      await narsil.removeBatch('products', insertResult.succeeded.slice(0, 3))
+      const count = await narsil.countDocuments('products')
+      expect(count).toBe(2)
+    })
+
+    it('allows re-insertion after batch removal', async () => {
+      await narsil.createIndex('products', indexConfig)
+      await narsil.insert('products', { title: 'Original', category: 'test', price: 10 }, 'reuse1')
+
+      await narsil.removeBatch('products', ['reuse1'])
+      await narsil.insert('products', { title: 'Replacement', category: 'test', price: 20 }, 'reuse1')
+
+      const doc = await narsil.get('products', 'reuse1')
+      expect(doc).toBeDefined()
+      expect(doc?.title).toBe('Replacement')
+
+      const searchResult = await narsil.query('products', { term: 'replacement' })
+      expect(searchResult.count).toBe(1)
+
+      const oldSearch = await narsil.query('products', { term: 'original' })
+      expect(oldSearch.count).toBe(0)
+    })
+
+    it('fires plugin hooks per document when plugins are registered', async () => {
+      const beforeCalls: string[] = []
+      const afterCalls: string[] = []
+      const plugin: NarsilPlugin = {
+        name: 'test-remove-hooks',
+        beforeRemove: ({ docId }) => {
+          beforeCalls.push(docId)
+        },
+        afterRemove: ({ docId }) => {
+          afterCalls.push(docId)
+        },
+      }
+
+      narsil = await createNarsil({ plugins: [plugin] })
+      await narsil.createIndex('products', indexConfig)
+      await narsil.insert('products', { title: 'Hook A', category: 'test', price: 1 }, 'h1')
+      await narsil.insert('products', { title: 'Hook B', category: 'test', price: 2 }, 'h2')
+
+      await narsil.removeBatch('products', ['h1', 'h2'])
+
+      expect(beforeCalls).toEqual(['h1', 'h2'])
+      expect(afterCalls).toEqual(['h1', 'h2'])
+    })
   })
 
   describe('updateBatch', () => {

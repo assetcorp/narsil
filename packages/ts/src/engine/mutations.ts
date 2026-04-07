@@ -358,15 +358,53 @@ export async function removeDocumentBatch(
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
   const manager = ctx.requireManager(indexName)
+  const hasBeforeHook = ctx.pluginRegistry.hasHooks('beforeRemove')
+  const hasAfterHook = ctx.pluginRegistry.hasHooks('afterRemove')
+  const batchVecIndexes = manager.getVectorIndexes()
+
   manager.beginBatchRemove()
 
   try {
     for (let chunkStart = 0; chunkStart < docIds.length; chunkStart += BATCH_CHUNK_SIZE) {
+      if (ctx.abortController.signal.aborted) break
+
       const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, docIds.length)
 
       for (let i = chunkStart; i < chunkEnd; i++) {
+        if (ctx.abortController.signal.aborted) break
+
         try {
-          await removeDocument(ctx, indexName, docIds[i])
+          validateDocId(docIds[i])
+
+          if (ctx.bufferIfRebalancing(indexName, { action: 'remove', docId: docIds[i], indexName })) {
+            succeeded.push(docIds[i])
+            continue
+          }
+
+          if (hasBeforeHook) {
+            await ctx.pluginRegistry.runHook('beforeRemove', { indexName, docId: docIds[i] })
+          }
+
+          const result = ctx.executor.execute({
+            type: 'remove',
+            indexName,
+            docId: docIds[i],
+            requestId: docIds[i],
+          })
+          if (result && typeof (result as Promise<unknown>).then === 'function') {
+            await result
+          }
+
+          removeDocumentVectors(docIds[i], batchVecIndexes)
+
+          if (hasAfterHook) {
+            try {
+              await ctx.pluginRegistry.runHook('afterRemove', { indexName, docId: docIds[i] })
+            } catch (err) {
+              console.warn('afterRemove plugin hook error:', err instanceof Error ? err.message : String(err))
+            }
+          }
+
           succeeded.push(docIds[i])
         } catch (err) {
           failed.push({
@@ -382,6 +420,19 @@ export async function removeDocumentBatch(
     }
   } finally {
     manager.endBatchRemove()
+  }
+
+  if (succeeded.length > 0) {
+    ctx.flushManager?.markDirty(indexName, 0)
+  }
+
+  for (let i = 0; i < succeeded.length; i++) {
+    await ctx.orchestrator.replicateToWorkers({
+      type: 'remove',
+      indexName,
+      docId: succeeded[i],
+      requestId: `replicate-remove-${succeeded[i]}`,
+    })
   }
 
   return { succeeded, failed }
