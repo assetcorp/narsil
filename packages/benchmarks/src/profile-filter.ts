@@ -1,5 +1,5 @@
 import { createNarsil } from '@delali/narsil'
-import { downloadAndCacheWiki, loadWikiArticles, wikiToBenchDocuments } from './data-wiki'
+import { loadWikiArticles, wikiToBenchDocuments } from './data-wiki'
 import { STOP_WORD_SET } from './stopwords'
 
 const SCALE = 100_000
@@ -84,6 +84,7 @@ async function main() {
     filterOnlyTimes.push(elapsed)
   }
   const filterOnlyAvg = filterOnlyTimes.reduce((a, b) => a + b, 0) / filterOnlyTimes.length
+  console.log(`Filter-only avg: ${filterOnlyAvg.toFixed(2)}ms`)
 
   console.log('\n--- Summary ---')
   console.log(`Unfiltered search avg: ${unfilteredAvg.toFixed(3)}ms`)

@@ -327,8 +327,8 @@ describe('ScalarQuantizer', () => {
       expect(serialized.quantizedVectors).toBeDefined()
       expect(serialized.vectorSums).toBeDefined()
       expect(serialized.vectorSumSqs).toBeDefined()
-      expect(serialized.quantizedVectors['doc1']).toBeDefined()
-      expect(Array.isArray(serialized.quantizedVectors['doc1'])).toBe(true)
+      expect(serialized.quantizedVectors.doc1).toBeDefined()
+      expect(Array.isArray(serialized.quantizedVectors.doc1)).toBe(true)
     })
 
     it('deserializeScalarQuantizer restores a working quantizer', () => {

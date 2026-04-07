@@ -6,7 +6,14 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!!**/dist", "!.claude"]
+    "includes": [
+      "**",
+      "!!**/dist",
+      "!.claude",
+      "!**/results.json",
+      "!data/**/*.json",
+      "!**/fixtures/**/*.json"
+    ]
   },
   "css": {
     "parser": {
