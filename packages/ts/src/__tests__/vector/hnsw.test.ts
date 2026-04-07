@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createHNSWIndex, type HNSWIndex } from '../../vector/hnsw'
+import { createScalarQuantizer, type ScalarQuantizer } from '../../vector/scalar-quantization'
 import { magnitude } from '../../vector/similarity'
 import { createVectorStore, type VectorStore } from '../../vector/vector-store'
 
@@ -739,6 +740,254 @@ describe('HNSWIndex', () => {
 
       const results = index.search(randomVector(DIM), 5, 'cosine', 0, new Set())
       expect(results).toHaveLength(0)
+    })
+  })
+
+  describe('search with scalar quantization', () => {
+    const SQ_DIM = 16
+    let sqStore: VectorStore
+    let sqQuantizer: ScalarQuantizer
+    let sqIndex: HNSWIndex
+
+    function sqInsert(docId: string, vector: Float32Array): void {
+      sqStore.insert(docId, vector)
+      sqIndex.insertNode(docId)
+      sqQuantizer.quantize(docId, vector)
+    }
+
+    function sqNormalizedVector(seed: number): Float32Array {
+      const v = new Float32Array(SQ_DIM)
+      for (let i = 0; i < SQ_DIM; i++) {
+        v[i] = Math.sin(seed * (i + 1) * 1.618) * Math.cos(seed * 0.7 + i)
+      }
+      const mag = magnitude(v)
+      if (mag > 0) {
+        for (let i = 0; i < SQ_DIM; i++) {
+          v[i] /= mag
+        }
+      }
+      return v
+    }
+
+    beforeEach(() => {
+      sqStore = createVectorStore()
+      sqQuantizer = createScalarQuantizer(SQ_DIM)
+      sqIndex = createHNSWIndex(SQ_DIM, sqStore, { m: 8, efConstruction: 64, metric: 'cosine' }, sqQuantizer)
+    })
+
+    it('returns results when quantizer is calibrated', () => {
+      const calibrationVecs: Float32Array[] = []
+      for (let i = 0; i < 50; i++) {
+        calibrationVecs.push(sqNormalizedVector(i + 1))
+      }
+      sqQuantizer.calibrate(calibrationVecs)
+
+      for (let i = 0; i < 50; i++) {
+        sqInsert(`doc${i}`, calibrationVecs[i])
+      }
+
+      const query = sqNormalizedVector(100)
+      const results = sqIndex.search(query, 5, 'cosine', 0)
+      expect(results.length).toBeGreaterThan(0)
+      expect(results.length).toBeLessThanOrEqual(5)
+    })
+
+    it('produces reasonable cosine scores between 0 and 1', () => {
+      const calibrationVecs: Float32Array[] = []
+      for (let i = 0; i < 30; i++) {
+        calibrationVecs.push(sqNormalizedVector(i + 1))
+      }
+      sqQuantizer.calibrate(calibrationVecs)
+
+      for (let i = 0; i < 30; i++) {
+        sqInsert(`doc${i}`, calibrationVecs[i])
+      }
+
+      const query = sqNormalizedVector(50)
+      const results = sqIndex.search(query, 10, 'cosine', 0)
+
+      for (const r of results) {
+        expect(r.score).toBeGreaterThanOrEqual(-0.1)
+        expect(r.score).toBeLessThanOrEqual(1.1)
+      }
+    })
+
+    it('returns scores in descending order (reranking path)', () => {
+      const calibrationVecs: Float32Array[] = []
+      for (let i = 0; i < 40; i++) {
+        calibrationVecs.push(sqNormalizedVector(i + 1))
+      }
+      sqQuantizer.calibrate(calibrationVecs)
+
+      for (let i = 0; i < 40; i++) {
+        sqInsert(`doc${i}`, calibrationVecs[i])
+      }
+
+      const query = sqNormalizedVector(200)
+      const results = sqIndex.search(query, 10, 'cosine', 0)
+
+      for (let i = 1; i < results.length; i++) {
+        expect(results[i - 1].score).toBeGreaterThanOrEqual(results[i].score)
+      }
+    })
+
+    it('ranks known close vector above known far vector', () => {
+      const target = new Float32Array(SQ_DIM)
+      target[0] = 1
+      const near = new Float32Array(SQ_DIM)
+      near[0] = 0.95
+      near[1] = 0.05
+      const far = new Float32Array(SQ_DIM)
+      far[SQ_DIM - 1] = 1
+
+      sqQuantizer.calibrate([target, near, far])
+      sqInsert('near', near)
+      sqInsert('far', far)
+
+      const results = sqIndex.search(target, 2, 'cosine', 0)
+      expect(results.length).toBe(2)
+      expect(results[0].docId).toBe('near')
+    })
+  })
+
+  describe('removeNodeEager graph repair', () => {
+    it('remaining nodes are still reachable via search after middle removals', () => {
+      const repairStore = createVectorStore()
+      const repairIndex = createHNSWIndex(DIM, repairStore, { m: 4, efConstruction: 32, metric: 'cosine' })
+
+      for (let i = 0; i < 30; i++) {
+        insertVec(repairStore, repairIndex, `doc${i}`, randomVector(DIM))
+      }
+
+      for (let i = 10; i < 20; i++) {
+        repairIndex.markTombstone(`doc${i}`)
+        repairStore.remove(`doc${i}`)
+      }
+
+      repairIndex.compactTombstones()
+
+      expect(repairIndex.size).toBe(20)
+      expect(repairIndex.tombstoneCount).toBe(0)
+
+      const query = randomVector(DIM)
+      const results = repairIndex.search(query, 10, 'cosine', 0)
+      expect(results.length).toBeGreaterThan(0)
+
+      for (const r of results) {
+        const docNum = Number.parseInt(r.docId.replace('doc', ''), 10)
+        expect(docNum < 10 || docNum >= 20).toBe(true)
+      }
+    })
+
+    it('survives entry point removal and selects a new entry point', () => {
+      const epStore = createVectorStore()
+      const epIndex = createHNSWIndex(DIM, epStore, { m: 4, efConstruction: 32, metric: 'cosine' })
+
+      for (let i = 0; i < 20; i++) {
+        insertVec(epStore, epIndex, `doc${i}`, randomVector(DIM))
+      }
+
+      const oldEntry = epIndex.entryPointId
+      expect(oldEntry).not.toBeNull()
+
+      if (oldEntry) {
+        epIndex.markTombstone(oldEntry)
+        epStore.remove(oldEntry)
+        epIndex.compactTombstones()
+      }
+
+      expect(epIndex.entryPointId).not.toBeNull()
+      expect(epIndex.entryPointId).not.toBe(oldEntry)
+
+      const results = epIndex.search(randomVector(DIM), 5, 'cosine', 0)
+      expect(results.length).toBeGreaterThan(0)
+    })
+
+    it('graph remains functional after multiple sequential compactions', () => {
+      const multiStore = createVectorStore()
+      const multiIndex = createHNSWIndex(DIM, multiStore, { m: 4, efConstruction: 32, metric: 'cosine' })
+
+      for (let i = 0; i < 40; i++) {
+        insertVec(multiStore, multiIndex, `doc${i}`, randomVector(DIM))
+      }
+
+      for (let i = 0; i < 10; i++) {
+        multiIndex.markTombstone(`doc${i}`)
+        multiStore.remove(`doc${i}`)
+      }
+      multiIndex.compactTombstones()
+
+      for (let i = 10; i < 20; i++) {
+        multiIndex.markTombstone(`doc${i}`)
+        multiStore.remove(`doc${i}`)
+      }
+      multiIndex.compactTombstones()
+
+      expect(multiIndex.size).toBe(20)
+      expect(multiIndex.tombstoneCount).toBe(0)
+
+      const results = multiIndex.search(randomVector(DIM), 10, 'cosine', 0)
+      expect(results.length).toBeGreaterThan(0)
+
+      for (const r of results) {
+        const docNum = Number.parseInt(r.docId.replace('doc', ''), 10)
+        expect(docNum).toBeGreaterThanOrEqual(20)
+      }
+    })
+  })
+
+  describe('neighbor selection heuristic (indirect verification)', () => {
+    it('maintains recall quality even with tightly clustered vectors', () => {
+      const clusterStore = createVectorStore()
+      const clusterIndex = createHNSWIndex(DIM, clusterStore, { m: 8, efConstruction: 64, metric: 'cosine' })
+
+      const allVecs = new Map<string, Float32Array>()
+
+      for (let i = 0; i < 30; i++) {
+        const v = new Float32Array(DIM)
+        v[0] = 1
+        for (let d = 1; d < DIM; d++) {
+          v[d] = (Math.random() - 0.5) * 0.1
+        }
+        const mag = magnitude(v)
+        for (let d = 0; d < DIM; d++) {
+          v[d] /= mag
+        }
+        allVecs.set(`cluster${i}`, v)
+        insertVec(clusterStore, clusterIndex, `cluster${i}`, v)
+      }
+
+      for (let i = 0; i < 10; i++) {
+        const v = normalizedVector(DIM)
+        allVecs.set(`outlier${i}`, v)
+        insertVec(clusterStore, clusterIndex, `outlier${i}`, v)
+      }
+
+      const query = new Float32Array(DIM)
+      query[0] = 1
+      const qMag = magnitude(query)
+
+      const hnswResults = clusterIndex.search(query, 5, 'cosine', 0, undefined, 64)
+
+      const bruteForce: Array<{ docId: string; score: number }> = []
+      for (const [docId, v] of allVecs) {
+        const vMag = magnitude(v)
+        if (qMag > 0 && vMag > 0) {
+          let dp = 0
+          for (let d = 0; d < DIM; d++) dp += query[d] * v[d]
+          bruteForce.push({ docId, score: dp / (qMag * vMag) })
+        }
+      }
+      bruteForce.sort((a, b) => b.score - a.score)
+
+      const trueTop5 = new Set(bruteForce.slice(0, 5).map(r => r.docId))
+      const hnswTop5 = new Set(hnswResults.map(r => r.docId))
+
+      let matches = 0
+      for (const docId of trueTop5) {
+        if (hnswTop5.has(docId)) matches++
+      }
+      expect(matches).toBeGreaterThanOrEqual(3)
     })
   })
 })

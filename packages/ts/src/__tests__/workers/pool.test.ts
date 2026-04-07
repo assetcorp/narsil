@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NarsilError } from '../../errors'
 import type { Executor } from '../../workers/executor'
 import { createWorkerPool, type WorkerPool } from '../../workers/pool'
@@ -158,5 +158,190 @@ describe('WorkerPool', () => {
       failPool.addIndex('products')
       await expect(failPool.shutdown()).resolves.toBeUndefined()
     })
+  })
+})
+
+describe('WorkerPool: worker count resolution', () => {
+  it('uses the explicitly provided count', () => {
+    const pool = createWorkerPool({
+      count: 3,
+      workerFactory: () => createMockExecutor(),
+    })
+    expect(pool.workerCount).toBe(3)
+  })
+
+  it('clamps resolved count to a minimum of 2', () => {
+    const pool = createWorkerPool({
+      count: undefined,
+      workerFactory: () => createMockExecutor(),
+    })
+    expect(pool.workerCount).toBeGreaterThanOrEqual(2)
+  })
+
+  it('clamps resolved count to a maximum of 8', () => {
+    const pool = createWorkerPool({
+      count: undefined,
+      workerFactory: () => createMockExecutor(),
+    })
+    expect(pool.workerCount).toBeLessThanOrEqual(8)
+  })
+})
+
+describe('WorkerPool: lazy initialization', () => {
+  it('does not create workers until addIndex is called', () => {
+    const factoryCalls: number[] = []
+    const pool = createWorkerPool({
+      count: 4,
+      workerFactory: (id: number) => {
+        factoryCalls.push(id)
+        return createMockExecutor()
+      },
+    })
+
+    expect(factoryCalls).toHaveLength(0)
+    expect(pool.getMemoryStats()).toEqual([])
+  })
+
+  it('creates a worker on demand when addIndex is called', () => {
+    const factoryCalls: number[] = []
+    const pool = createWorkerPool({
+      count: 4,
+      workerFactory: (id: number) => {
+        factoryCalls.push(id)
+        return createMockExecutor()
+      },
+    })
+
+    pool.addIndex('products')
+    expect(factoryCalls.length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('WorkerPool: index lifecycle edge cases', () => {
+  it('throws WORKER_CRASHED when addIndex is called after shutdown', async () => {
+    const pool = createWorkerPool({
+      count: 2,
+      workerFactory: () => createMockExecutor(),
+    })
+    await pool.shutdown()
+    expect(() => pool.addIndex('products')).toThrow(NarsilError)
+  })
+
+  it('allows re-adding an index after removal', () => {
+    const pool = createWorkerPool({
+      count: 4,
+      workerFactory: () => createMockExecutor(),
+    })
+    pool.addIndex('products')
+    pool.removeIndex('products')
+    pool.addIndex('products')
+    expect(pool.getExecutor('products')).toBeDefined()
+  })
+
+  it('throws INDEX_NOT_FOUND for an unknown index', () => {
+    const pool = createWorkerPool({
+      count: 2,
+      workerFactory: () => createMockExecutor(),
+    })
+    expect(() => pool.getExecutor('nonexistent')).toThrow(NarsilError)
+  })
+})
+
+describe('WorkerPool: addIndexToAll', () => {
+  it('creates workers in every slot', () => {
+    const factoryCalls: number[] = []
+    const pool = createWorkerPool({
+      count: 3,
+      workerFactory: (id: number) => {
+        factoryCalls.push(id)
+        return createMockExecutor()
+      },
+    })
+    pool.addIndexToAll('global-index')
+    expect(factoryCalls).toHaveLength(3)
+    expect(factoryCalls).toContain(0)
+    expect(factoryCalls).toContain(1)
+    expect(factoryCalls).toContain(2)
+  })
+
+  it('throws WORKER_CRASHED when called after shutdown', async () => {
+    const pool = createWorkerPool({
+      count: 2,
+      workerFactory: () => createMockExecutor(),
+    })
+    await pool.shutdown()
+    expect(() => pool.addIndexToAll('products')).toThrow(NarsilError)
+  })
+})
+
+describe('WorkerPool: getAllExecutors', () => {
+  it('returns all active executors', () => {
+    const pool = createWorkerPool({
+      count: 4,
+      workerFactory: () => createMockExecutor(),
+    })
+    pool.addIndexToAll('global')
+    const all = pool.getAllExecutors()
+    expect(all).toHaveLength(4)
+  })
+
+  it('returns an empty array when no workers have been created', () => {
+    const pool = createWorkerPool({
+      count: 4,
+      workerFactory: () => createMockExecutor(),
+    })
+    expect(pool.getAllExecutors()).toEqual([])
+  })
+})
+
+describe('WorkerPool: shutdown with slow worker', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('resolves even when an executor shutdown never completes', async () => {
+    vi.useFakeTimers()
+
+    const pool = createWorkerPool({
+      count: 2,
+      workerFactory: () => ({
+        async execute<T>(): Promise<T> {
+          return undefined as T
+        },
+        shutdown(): Promise<void> {
+          return new Promise(() => {})
+        },
+      }),
+    })
+
+    pool.addIndex('products')
+
+    const shutdownPromise = pool.shutdown()
+    await vi.advanceTimersByTimeAsync(6_000)
+    await expect(shutdownPromise).resolves.toBeUndefined()
+  })
+})
+
+describe('WorkerPool: getMemoryStats', () => {
+  it('returns stats with correct workerId for each spawned worker', () => {
+    const pool = createWorkerPool({
+      count: 4,
+      workerFactory: () => createMockExecutor(),
+    })
+    pool.addIndexToAll('products')
+    const stats = pool.getMemoryStats()
+
+    expect(stats).toHaveLength(4)
+    const workerIds = stats.map(s => s.workerId)
+    expect(workerIds).toContain(0)
+    expect(workerIds).toContain(1)
+    expect(workerIds).toContain(2)
+    expect(workerIds).toContain(3)
+
+    for (const entry of stats) {
+      expect(typeof entry.heapUsed).toBe('number')
+      expect(typeof entry.heapTotal).toBe('number')
+      expect(typeof entry.external).toBe('number')
+    }
   })
 })
