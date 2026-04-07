@@ -125,11 +125,19 @@ cross-language portability, compact binary encoding, and native
 support in every major programming language.
 
 The payload schema is determined by the `envelope_format_version`
-field in the header.
+field in the header. The storage key determines which payload type
+to expect (partition, vector index, or metadata).
 
 ---
 
-## Envelope Format Version 1 (Partition Data)
+## Envelope Format Version 1
+
+### Partition Payload
+
+Each partition is serialized as its own `.nrsl` envelope file.
+Partition payloads contain text and field index data. Vector data
+is stored separately in vector index files (see
+[Vector Index Payload](#vector-index-payload)).
 
 A v1 partition payload is a MessagePack map with these fields:
 
@@ -139,13 +147,12 @@ A v1 partition payload is a MessagePack map with these fields:
   partition_id:     uint32
   total_partitions: uint32
   language:         string
-  schema:           map<string, string>
+  schema:           map[string, string]
   doc_count:        uint32
   avg_doc_length:   float32
-  documents:        map<string, Document>
-  inverted_index:   map<string, PostingList>
+  documents:        map[string, Document]
+  inverted_index:   map[string, PostingList]
   field_indexes:    FieldIndexes
-  vector_data:      map<string, VectorFieldData>
   statistics:       Statistics
 }
 ```
@@ -156,13 +163,15 @@ A map from document ID (string) to a `Document` structure:
 
 ```text
 Document {
-  fields:        map<string, value>
-  field_lengths: map<string, uint16>
+  fields:        map[string, value]
+  field_lengths: map[string, uint16]
 }
 ```
 
 `fields` holds the raw document field values, keyed by field name.
 Nested objects use dot-notation keys (e.g., `"author.name"`).
+Vector field values are not included in `fields`; they are stored
+in the vector index file for the corresponding field.
 `field_lengths` holds token counts per text field after analysis,
 used for BM25 scoring.
 
@@ -173,14 +182,14 @@ A map from token (string) to a `PostingList` structure:
 ```text
 PostingList {
   doc_freq: uint32
-  postings: Array<Posting>
+  postings: array[Posting]
 }
 
 Posting {
   doc_id:    string
   term_freq: uint16
   field:     string
-  positions: Array<uint16>
+  positions: array[uint16]
 }
 ```
 
@@ -193,20 +202,20 @@ within the field, used for highlighting and phrase matching.
 
 ```text
 FieldIndexes {
-  numeric:  map<string, Array<NumericEntry>>
-  boolean:  map<string, BooleanIndex>
-  enum:     map<string, map<string, Array<string>>>
-  geopoint: map<string, Array<GeopointEntry>>
+  numeric:  map[string, array[NumericEntry]]
+  boolean:  map[string, BooleanIndex]
+  enum:     map[string, map[string, array[string]]]
+  geopoint: map[string, array[GeopointEntry]]
 }
 
 NumericEntry {
-  value:  number
+  value:  float64
   doc_id: string
 }
 
 BooleanIndex {
-  true_docs:  Array<string>
-  false_docs: Array<string>
+  true_docs:  array[string]
+  false_docs: array[string]
 }
 
 GeopointEntry {
@@ -219,52 +228,14 @@ GeopointEntry {
 Numeric entries are stored in sorted order by value to enable binary
 search on deserialization.
 
-### Vector Data
-
-A map from vector field name to:
-
-```text
-VectorFieldData {
-  dimension:  uint16
-  vectors:    Array<VectorEntry>
-  hnsw_graph: null | HnswGraph
-}
-
-VectorEntry {
-  doc_id: string
-  vector: Array<float32>
-}
-
-HnswGraph {
-  entry_point:     string
-  max_layer:       uint8
-  m:               uint8
-  ef_construction: uint16
-  nodes:           Array<HnswNode>
-}
-
-HnswNode = [
-  doc_id:      string,
-  layer:       uint8,
-  connections: Array<[
-    layer_index: uint8,
-    neighbor_ids: Array<string>
-  ]>
-]
-```
-
-The HNSW graph uses an array-based node format for compact
-MessagePack encoding. When `hnsw_graph` is `null`, the
-implementation uses brute-force similarity search.
-
 ### Statistics
 
 ```text
 Statistics {
   total_documents:       uint32
-  total_field_lengths:   map<string, uint64>
-  average_field_lengths: map<string, float32>
-  doc_frequencies:       map<string, uint32>
+  total_field_lengths:   map[string, uint64]
+  average_field_lengths: map[string, float32]
+  doc_frequencies:       map[string, uint32]
 }
 ```
 
@@ -274,26 +245,96 @@ after reload without recomputation.
 
 ---
 
-## Index Metadata Envelope
+### Vector Index Payload
+
+Each vector field is serialized as its own `.nrsl` envelope file,
+separate from partition data. See
+[vector-index.md](vector-index.md#serialization) for the full
+payload schema and design rationale.
+
+A v1 vector index payload is a MessagePack map:
+
+```text
+{
+  field_name:  string
+  dimension:   uint16
+  vectors:     array[VectorEntry]
+  graphs:      array[HnswGraph]
+  sq8:         SQ8Data or null
+}
+
+VectorEntry {
+  doc_id: string
+  vector: array[float32]
+}
+
+HnswGraph {
+  entry_point:     string or null
+  max_layer:       uint8
+  m:               uint8
+  ef_construction: uint16
+  metric:          string
+  nodes:           array[HnswNode]
+}
+
+HnswNode = [
+  doc_id:      string,
+  layer:       uint8,
+  connections: array[[
+    layer_index: uint8,
+    neighbor_ids: array[string]
+  ]]
+]
+
+SQ8Data {
+  alpha:              float32
+  offset:             float32
+  quantized_vectors:  map[string, array[uint8]]
+  vector_sums:        map[string, float32]
+  vector_sum_sqs:     map[string, float32]
+}
+```
+
+The `graphs` field is an array. A single-graph implementation
+writes an array of length 1. A segment-based implementation writes
+one graph per segment. The `vectors` list is always flat (one entry
+per document, regardless of graph count). Graphs reference vectors
+by `doc_id`.
+
+When `graphs` is empty, the implementation uses brute-force
+similarity search (the vector count is below the promotion
+threshold).
+
+---
+
+### Index Metadata Payload
 
 Each index persists a metadata envelope at the key
 `<indexName>/meta`. This uses the same 32-byte header but contains
 a different payload structure:
 
 ```text
-IndexMetadata {
+{
   index_name:      string
-  schema:          map<string, string>
+  schema:          map[string, string]
   language:        string
   partition_count: uint32
   bm25_params:     { k1: float32, b: float32 }
   created_at:      uint64  (Unix timestamp in milliseconds)
   engine_version:  string  (e.g., "0.1.0")
+  vector_fields:   map[string, VectorFieldMeta]
+}
+
+VectorFieldMeta {
+  dimension:    uint16
+  metric:       string
+  quantization: string
 }
 ```
 
-The `envelope_format_version` in the header determines which
-metadata schema to use. v1 uses the structure above.
+The `vector_fields` map lists all vector fields and their
+configuration. This allows the engine to discover which vector
+index files to load without scanning storage keys.
 
 ---
 
@@ -301,13 +342,15 @@ metadata schema to use. v1 uses the structure above.
 
 Persistence adapters use string keys that map to storage locations:
 
-| Key Pattern                 | Content          |
-|-----------------------------|------------------|
-| `<indexName>/meta`          | Index metadata   |
-| `<indexName>/partition_<N>` | Partition N data |
+| Key Pattern                          | Content              |
+|--------------------------------------|----------------------|
+| `<indexName>/meta`                   | Index metadata       |
+| `<indexName>/partition_<N>`          | Partition N data     |
+| `<indexName>/vector/<fieldName>`     | Vector index data    |
 
-For filesystem adapters, the key maps to a file path:
-`data/<indexName>/partition_N.nrsl` and
+For filesystem adapters, keys map to file paths:
+`data/<indexName>/partition_0.nrsl`,
+`data/<indexName>/vector/embedding.nrsl`, and
 `data/<indexName>/meta.nrsl`.
 
 ---

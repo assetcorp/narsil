@@ -1,6 +1,7 @@
-import { createBruteForceVectorStore } from '../src/vector/brute-force'
+import { createBruteForceSearch } from '../src/vector/brute-force'
 import { createHNSWIndex } from '../src/vector/hnsw'
 import { isSimdAvailable } from '../src/vector/simd'
+import { createVectorStore } from '../src/vector/vector-store'
 
 function mulberry32(seed: number): () => number {
   let s = seed | 0
@@ -29,9 +30,10 @@ for (let i = 0; i < SCALE; i++) {
 console.log('Vectors generated.')
 
 console.log('\n--- Brute Force ---')
-const bf = createBruteForceVectorStore(DIM)
+const bfStore = createVectorStore()
 let t0 = performance.now()
-for (let i = 0; i < SCALE; i++) bf.insert(`doc-${i}`, vectors[i])
+for (let i = 0; i < SCALE; i++) bfStore.insert(`doc-${i}`, vectors[i])
+const bf = createBruteForceSearch(DIM, bfStore)
 console.log(`Insert ${SCALE}: ${(performance.now() - t0).toFixed(1)}ms`)
 
 const query = vectors[0]
@@ -40,11 +42,13 @@ const bfResults = bf.search(query, K, 'cosine', 0)
 console.log(`Search: ${(performance.now() - t0).toFixed(3)}ms, returned ${bfResults.length} results`)
 
 console.log('\n--- HNSW (m=16, efConstruction=200) ---')
-const hnsw = createHNSWIndex(DIM, { m: 16, efConstruction: 200, metric: 'cosine' })
+const hnswStore = createVectorStore()
+const hnsw = createHNSWIndex(DIM, hnswStore, { m: 16, efConstruction: 200, metric: 'cosine' })
 
 t0 = performance.now()
 for (let i = 0; i < 100; i++) {
-  hnsw.insert(`doc-${i}`, vectors[i])
+  hnswStore.insert(`doc-${i}`, vectors[i])
+  hnsw.insertNode(`doc-${i}`)
   if (i % 10 === 0) {
     const elapsed = performance.now() - t0
     console.log(`  Inserted ${i + 1}, elapsed: ${elapsed.toFixed(1)}ms`)
@@ -54,7 +58,8 @@ console.log(`First 100 inserts: ${(performance.now() - t0).toFixed(1)}ms`)
 
 t0 = performance.now()
 for (let i = 100; i < SCALE; i++) {
-  hnsw.insert(`doc-${i}`, vectors[i])
+  hnswStore.insert(`doc-${i}`, vectors[i])
+  hnsw.insertNode(`doc-${i}`)
 }
 console.log(`Remaining ${SCALE - 100} inserts: ${(performance.now() - t0).toFixed(1)}ms`)
 console.log(`Total HNSW size: ${hnsw.size}`)

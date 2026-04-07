@@ -28,19 +28,26 @@ export interface RawPartitionPayload {
     enum: Record<string, Record<string, string[]>>
     geopoint: Record<string, Array<{ lat: number; lon: number; doc_id: string }>>
   }
-  vector_data: Record<
+  vector_data?: Record<
     string,
     {
       dimension: number
       vectors: Array<{ doc_id: string; vector: number[] }>
       hnsw_graph: null | {
-        entry_point: string
+        entry_point: string | null
         max_layer: number
         m: number
         ef_construction: number
         metric?: string
         nodes: Array<[string, number, Array<[number, string[]]>]>
       }
+      sq8?: {
+        alpha: number
+        offset: number
+        quantized_vectors: Record<string, number[]>
+        vector_sums: Record<string, number>
+        vector_sum_sqs: Record<string, number>
+      } | null
     }
   >
   statistics: {
@@ -59,6 +66,7 @@ interface RawMetadataPayload {
   bm25_params: { k1: number; b: number }
   created_at: number
   engine_version: string
+  vector_fields?: Record<string, { dimension: number; metric: string; quantization: string }>
 }
 
 function partitionToWire(partition: SerializablePartition): RawPartitionPayload {
@@ -98,24 +106,6 @@ function partitionToWire(partition: SerializablePartition): RawPartitionPayload 
     wireGeopoint[field] = entries.map(e => ({ lat: e.lat, lon: e.lon, doc_id: e.docId }))
   }
 
-  const wireVectors: RawPartitionPayload['vector_data'] = {}
-  for (const [field, data] of Object.entries(partition.vectorData)) {
-    wireVectors[field] = {
-      dimension: data.dimension,
-      vectors: data.vectors.map(v => ({ doc_id: v.docId, vector: v.vector })),
-      hnsw_graph: data.hnswGraph
-        ? {
-            entry_point: data.hnswGraph.entryPoint,
-            max_layer: data.hnswGraph.maxLayer,
-            m: data.hnswGraph.m,
-            ef_construction: data.hnswGraph.efConstruction,
-            metric: data.hnswGraph.metric,
-            nodes: data.hnswGraph.nodes,
-          }
-        : null,
-    }
-  }
-
   return {
     index_name: partition.indexName,
     partition_id: partition.partitionId,
@@ -132,7 +122,6 @@ function partitionToWire(partition: SerializablePartition): RawPartitionPayload 
       enum: partition.fieldIndexes.enum,
       geopoint: wireGeopoint,
     },
-    vector_data: wireVectors,
     statistics: {
       total_documents: partition.statistics.totalDocuments,
       total_field_lengths: partition.statistics.totalFieldLengths,
@@ -189,7 +178,7 @@ function wireToPartition(raw: RawPartitionPayload): SerializablePartition {
     geopoint[field] = entries.map(e => ({ lat: e.lat, lon: e.lon, docId: e.doc_id }))
   }
 
-  const vectorData: SerializablePartition['vectorData'] = {}
+  const vectorData: NonNullable<SerializablePartition['vectorData']> = {}
   for (const [field, data] of Object.entries(raw.vector_data ?? {})) {
     vectorData[field] = {
       dimension: data.dimension,
@@ -202,6 +191,15 @@ function wireToPartition(raw: RawPartitionPayload): SerializablePartition {
             efConstruction: data.hnsw_graph.ef_construction,
             metric: validateHnswMetric(data.hnsw_graph.metric),
             nodes: data.hnsw_graph.nodes,
+          }
+        : null,
+      sq8: data.sq8
+        ? {
+            alpha: data.sq8.alpha,
+            offset: data.sq8.offset,
+            quantizedVectors: data.sq8.quantized_vectors,
+            vectorSums: data.sq8.vector_sums,
+            vectorSumSqs: data.sq8.vector_sum_sqs,
           }
         : null,
     }
@@ -248,7 +246,7 @@ export function deserializePayloadV1(data: Uint8Array): SerializablePartition {
 }
 
 function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
-  return {
+  const wire: RawMetadataPayload = {
     index_name: meta.indexName,
     schema: meta.schema,
     language: meta.language,
@@ -257,10 +255,14 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
     created_at: meta.createdAt,
     engine_version: meta.engineVersion,
   }
+  if (meta.vectorFields) {
+    wire.vector_fields = meta.vectorFields
+  }
+  return wire
 }
 
 function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
-  return {
+  const meta: IndexMetadata = {
     indexName: raw.index_name,
     schema: raw.schema ?? {},
     language: raw.language ?? 'english',
@@ -269,6 +271,10 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
     createdAt: raw.created_at ?? 0,
     engineVersion: raw.engine_version ?? '0.0.0',
   }
+  if (raw.vector_fields) {
+    meta.vectorFields = raw.vector_fields
+  }
+  return meta
 }
 
 export function serializeMetadata(meta: IndexMetadata): Uint8Array {

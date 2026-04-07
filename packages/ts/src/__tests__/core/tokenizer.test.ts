@@ -1,10 +1,17 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { clearNormalizationCache, tokenize } from '../../core/tokenizer'
+import {
+  clearNormalizationCache,
+  configureNormalizationCache,
+  getNormalizationCacheSize,
+  resetNormalizationCache,
+  tokenize,
+} from '../../core/tokenizer'
+import { NarsilError } from '../../errors'
 import { english } from '../../languages/english'
 import type { LanguageModule } from '../../types/language'
 
 beforeEach(() => {
-  clearNormalizationCache()
+  resetNormalizationCache()
 })
 
 describe('tokenize', () => {
@@ -216,5 +223,119 @@ describe('tokenize', () => {
     expect(words).not.toContain('are')
     expect(words).toContain('cat')
     expect(words).toContain('run')
+  })
+})
+
+describe('configureNormalizationCache', () => {
+  it('clamps values below the floor to the floor (50,000)', () => {
+    configureNormalizationCache(10)
+    tokenize('running', english, { stem: true, removeStopWords: false })
+    expect(getNormalizationCacheSize()).toBe(1)
+  })
+
+  it('clamps values above the ceiling to the ceiling (2,000,000)', () => {
+    configureNormalizationCache(10_000_000)
+    tokenize('running', english, { stem: true, removeStopWords: false })
+    expect(getNormalizationCacheSize()).toBe(1)
+  })
+
+  it('accepts values within the valid range', () => {
+    configureNormalizationCache(100_000)
+    tokenize('running', english, { stem: true, removeStopWords: false })
+    expect(getNormalizationCacheSize()).toBe(1)
+  })
+
+  it('throws NarsilError for NaN', () => {
+    expect(() => configureNormalizationCache(Number.NaN)).toThrow(NarsilError)
+  })
+
+  it('throws NarsilError for Infinity', () => {
+    expect(() => configureNormalizationCache(Number.POSITIVE_INFINITY)).toThrow(NarsilError)
+  })
+
+  it('throws NarsilError for negative Infinity', () => {
+    expect(() => configureNormalizationCache(Number.NEGATIVE_INFINITY)).toThrow(NarsilError)
+  })
+
+  it('throws NarsilError for negative numbers', () => {
+    expect(() => configureNormalizationCache(-1)).toThrow(NarsilError)
+    expect(() => configureNormalizationCache(-100)).toThrow(NarsilError)
+  })
+
+  it('throws NarsilError for zero', () => {
+    expect(() => configureNormalizationCache(0)).toThrow(NarsilError)
+  })
+
+  it('throws with CONFIG_INVALID error code', () => {
+    try {
+      configureNormalizationCache(Number.NaN)
+      expect.fail('should have thrown')
+    } catch (err) {
+      expect(err).toBeInstanceOf(NarsilError)
+      expect((err as NarsilError).code).toBe('CONFIG_INVALID')
+    }
+  })
+})
+
+describe('batch eviction', () => {
+  it('returns correct stemmed results after eviction cycles', () => {
+    configureNormalizationCache(50_000)
+    clearNormalizationCache()
+
+    const words = [
+      'running',
+      'cats',
+      'jumping',
+      'dogs',
+      'playing',
+      'flying',
+      'swimming',
+      'walking',
+      'talking',
+      'singing',
+    ]
+    for (const word of words) {
+      const result = tokenize(word, english, { stem: true, removeStopWords: false })
+      expect(result.tokens.length).toBeGreaterThan(0)
+    }
+
+    const verifyRunning = tokenize('running', english, { stem: true, removeStopWords: false })
+    expect(verifyRunning.tokens[0].token).toBe('run')
+
+    const verifyCats = tokenize('cats', english, { stem: true, removeStopWords: false })
+    expect(verifyCats.tokens[0].token).toBe('cat')
+
+    const verifyJumping = tokenize('jumping', english, { stem: true, removeStopWords: false })
+    expect(verifyJumping.tokens[0].token).toBe('jump')
+  })
+
+  it('keeps cache size bounded after many unique token insertions', () => {
+    configureNormalizationCache(50_000)
+    clearNormalizationCache()
+
+    for (let i = 0; i < 1000; i++) {
+      tokenize(`uniqueword${i}`, english, { stem: false, removeStopWords: false })
+    }
+
+    expect(getNormalizationCacheSize()).toBeLessThanOrEqual(50_000)
+    expect(getNormalizationCacheSize()).toBe(1000)
+  })
+
+  it('evicts 25% of entries when the cache exceeds maxCacheSize', () => {
+    configureNormalizationCache(50_000)
+    clearNormalizationCache()
+
+    const totalTokens = 50_100
+    for (let i = 0; i < totalTokens; i++) {
+      tokenize(`token${i}`, english, { stem: false, removeStopWords: false })
+    }
+
+    expect(getNormalizationCacheSize()).toBe(37_600)
+
+    const lastResult = tokenize(`token${totalTokens - 1}`, english, { stem: false, removeStopWords: false })
+    expect(lastResult.tokens[0].token).toBe(`token${totalTokens - 1}`)
+
+    const midResult = tokenize('token25000', english, { stem: false, removeStopWords: false })
+    expect(midResult.tokens[0].token).toBe('token25000')
   })
 })

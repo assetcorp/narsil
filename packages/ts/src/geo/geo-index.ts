@@ -5,10 +5,10 @@ import { vincentyDistance } from './vincenty'
 
 export interface GeoIndex {
   readonly entries: readonly GeopointEntry[]
-  insert(docId: string, lat: number, lon: number): void
-  remove(docId: string): void
-  radiusQuery(lat: number, lon: number, distanceMeters: number, inside: boolean, highPrecision: boolean): Set<string>
-  polygonQuery(points: Array<{ lat: number; lon: number }>, inside: boolean): Set<string>
+  insert(internalId: number, lat: number, lon: number): void
+  remove(internalId: number): void
+  radiusQuery(lat: number, lon: number, distanceMeters: number, inside: boolean, highPrecision: boolean): Set<number>
+  polygonQuery(points: Array<{ lat: number; lon: number }>, inside: boolean): Set<number>
   clear(): void
   serialize(): GeopointEntry[]
   deserialize(data: GeopointEntry[]): void
@@ -22,13 +22,13 @@ export function createGeoIndex(): GeoIndex {
       return entries
     },
 
-    insert(docId: string, lat: number, lon: number): void {
-      entries.push({ lat, lon, docId })
+    insert(internalId: number, lat: number, lon: number): void {
+      entries.push({ lat, lon, docId: internalId })
     },
 
-    remove(docId: string): void {
+    remove(internalId: number): void {
       for (let i = entries.length - 1; i >= 0; i--) {
-        if (entries[i].docId === docId) {
+        if (entries[i].docId === internalId) {
           entries.splice(i, 1)
           return
         }
@@ -41,8 +41,8 @@ export function createGeoIndex(): GeoIndex {
       distanceMeters: number,
       inside: boolean,
       highPrecision: boolean,
-    ): Set<string> {
-      const result = new Set<string>()
+    ): Set<number> {
+      const result = new Set<number>()
       const distanceFn = highPrecision ? vincentyDistance : haversineDistance
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i]
@@ -55,8 +55,8 @@ export function createGeoIndex(): GeoIndex {
       return result
     },
 
-    polygonQuery(points: Array<{ lat: number; lon: number }>, inside: boolean): Set<string> {
-      const result = new Set<string>()
+    polygonQuery(points: Array<{ lat: number; lon: number }>, inside: boolean): Set<number> {
+      const result = new Set<number>()
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i]
         const withinPolygon = isPointInPolygon(entry.lat, entry.lon, points)

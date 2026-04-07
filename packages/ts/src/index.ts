@@ -1,3 +1,9 @@
+export {
+  clearNormalizationCache,
+  configureNormalizationCache,
+  getNormalizationCacheSize,
+  resetNormalizationCache,
+} from './core/tokenizer'
 export type { ErrorCode } from './errors'
 export { ErrorCodes, NarsilError } from './errors'
 export { getLanguage, registerLanguage } from './languages/registry'
@@ -7,7 +13,13 @@ export { createNarsil } from './narsil'
 export { isSimdAvailable } from './vector/simd'
 export const VERSION = '0.1.0'
 
-export type { InvalidationAdapter, InvalidationEvent, PartitionStatistics, PersistenceAdapter } from './types/adapters'
+export type {
+  EmbeddingAdapter,
+  InvalidationAdapter,
+  InvalidationEvent,
+  PartitionStatistics,
+  PersistenceAdapter,
+} from './types/adapters'
 export type { FlushConfig, NarsilConfig, WorkerConfig } from './types/config'
 export type { NarsilEventMap } from './types/events'
 export type {
@@ -44,11 +56,13 @@ export type {
   QueryResult,
   ScoreComponents,
   SuggestResult,
+  VectorMaintenanceResult,
 } from './types/results'
 export type {
   AnyDocument,
   BM25Params,
   CustomTokenizer,
+  EmbeddingFieldConfig,
   FieldType,
   IndexConfig,
   InsertOptions,

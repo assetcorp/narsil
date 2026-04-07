@@ -45,11 +45,50 @@ jobs:
       - name: Update npm for trusted publishing
         run: npm install -g npm@latest
 
+      - name: Lint
+        run: pnpm nx run narsil-ts:lint
+
+      - name: Lint (embeddings-transformers)
+        run: pnpm nx run narsil-embeddings-transformers:lint
+
+      - name: Typecheck
+        run: pnpm nx run narsil-ts:typecheck
+
+      - name: Typecheck (embeddings-transformers)
+        run: pnpm nx run narsil-embeddings-transformers:typecheck
+
       - name: Build
         run: pnpm nx run narsil-ts:build
 
+      - name: Build (embeddings-transformers)
+        run: pnpm nx run narsil-embeddings-transformers:build
+
       - name: Test
         run: pnpm nx run narsil-ts:test
+
+      - name: Test (embeddings-transformers)
+        run: pnpm nx run narsil-embeddings-transformers:test
+
+      - name: Cache HuggingFace models
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: ~/.cache/huggingface
+          key: hf-models-${{ runner.os }}-${{ hashFiles('packages/ts/src/__tests__/integration/embedding-e2e.test.ts') }}
+          restore-keys: |
+            hf-models-${{ runner.os }}-
+
+      - name: Test (embedding integration)
+        run: pnpm nx run narsil-ts:test:embeddings
+        timeout-minutes: 10
+
+      - name: Validate version input
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! echo "$VERSION" | grep -qE '^(patch|minor|major|[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)$'; then
+            echo "::error::Invalid version input: '$VERSION'. Must be patch, minor, major, or a valid semver like 1.2.3"
+            exit 1
+          fi
 
       - name: Configure git
         run: |
@@ -57,9 +96,11 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Release
-        run: pnpm nx release ${{ inputs.version }} ${{ inputs.dry-run && '--dry-run' || '' }} --skip-publish
         env:
+          VERSION: ${{ inputs.version }}
+          DRY_RUN_FLAG: ${{ inputs.dry-run && '--dry-run' || '' }}
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: pnpm nx release "$VERSION" $DRY_RUN_FLAG --skip-publish
 
       - name: Publish
         if: ${{ !inputs.dry-run }}

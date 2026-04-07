@@ -42,6 +42,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:embeddings": "NARSIL_TEST_EMBEDDINGS=1 vitest run embedding-e2e",
     "bench": "vitest bench",
     "lint": "biome check src/",
     "typecheck": "tsc --noEmit"
@@ -83,6 +84,10 @@
       "import": "./dist/vector/hnsw-build-worker.mjs",
       "types": "./dist/vector/hnsw-build-worker.d.ts"
     },
+    "./embeddings/openai": {
+      "import": "./dist/embeddings/openai.mjs",
+      "types": "./dist/embeddings/openai.d.ts"
+    },
     "./languages/*": {
       "import": "./dist/languages/*.mjs",
       "types": "./dist/languages/*.d.ts"
@@ -97,6 +102,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.4",
+    "@delali/narsil-embeddings-transformers": "workspace:*",
     "@types/node": "22.15.32",
     "@vitest/coverage-v8": "4.0.18",
     "tsup": "8.5.1",

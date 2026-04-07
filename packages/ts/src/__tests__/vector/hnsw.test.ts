@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createHNSWIndex, type HNSWIndex } from '../../vector/hnsw'
+import { createScalarQuantizer, type ScalarQuantizer } from '../../vector/scalar-quantization'
 import { magnitude } from '../../vector/similarity'
+import { createVectorStore, type VectorStore } from '../../vector/vector-store'
 
 function randomVector(dim: number): Float32Array {
   const v = new Float32Array(dim)
@@ -24,12 +26,24 @@ function vectorFromValues(...values: number[]): Float32Array {
   return new Float32Array(values)
 }
 
+function insertVec(store: VectorStore, index: HNSWIndex, docId: string, vector: Float32Array): void {
+  store.insert(docId, vector)
+  index.insertNode(docId)
+}
+
+function removeVec(store: VectorStore, index: HNSWIndex, docId: string): void {
+  index.markTombstone(docId)
+  store.remove(docId)
+}
+
 describe('HNSWIndex', () => {
   const DIM = 8
+  let store: VectorStore
   let index: HNSWIndex
 
   beforeEach(() => {
-    index = createHNSWIndex(DIM, { m: 4, efConstruction: 32, metric: 'cosine' })
+    store = createVectorStore()
+    index = createHNSWIndex(DIM, store, { m: 4, efConstruction: 32, metric: 'cosine' })
   })
 
   describe('construction and basic operations', () => {
@@ -41,8 +55,7 @@ describe('HNSWIndex', () => {
     })
 
     it('inserts a single vector and sets it as entry point', () => {
-      const vec = randomVector(DIM)
-      index.insert('doc1', vec)
+      insertVec(store, index, 'doc1', randomVector(DIM))
 
       expect(index.size).toBe(1)
       expect(index.has('doc1')).toBe(true)
@@ -52,34 +65,35 @@ describe('HNSWIndex', () => {
 
     it('inserts multiple vectors', () => {
       for (let i = 0; i < 20; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
       expect(index.size).toBe(20)
     })
 
-    it('rejects vectors with wrong dimension', () => {
-      expect(() => index.insert('doc1', new Float32Array(DIM + 1))).toThrow(/dimension mismatch/)
+    it('rejects insert when vector is not in store', () => {
+      expect(() => index.insertNode('missing')).toThrow(/not found in VectorStore/)
     })
 
     it('replaces existing vector on duplicate insert', () => {
       const v1 = vectorFromValues(1, 0, 0, 0, 0, 0, 0, 0)
       const v2 = vectorFromValues(0, 1, 0, 0, 0, 0, 0, 0)
-      index.insert('doc1', v1)
-      index.insert('doc1', v2)
+      insertVec(store, index, 'doc1', v1)
+      store.remove('doc1')
+      insertVec(store, index, 'doc1', v2)
 
       expect(index.size).toBe(1)
       expect(index.has('doc1')).toBe(true)
     })
 
     it('reports has correctly', () => {
-      index.insert('doc1', randomVector(DIM))
+      insertVec(store, index, 'doc1', randomVector(DIM))
       expect(index.has('doc1')).toBe(true)
       expect(index.has('nonexistent')).toBe(false)
     })
 
     it('clears all data', () => {
       for (let i = 0; i < 10; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
       index.clear()
 
@@ -90,7 +104,7 @@ describe('HNSWIndex', () => {
 
     it('iterates entries', () => {
       for (let i = 0; i < 5; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
 
       const entries = Array.from(index.entries())
@@ -119,7 +133,7 @@ describe('HNSWIndex', () => {
     })
 
     it('rejects query with wrong dimension', () => {
-      index.insert('doc1', randomVector(DIM))
+      insertVec(store, index, 'doc1', randomVector(DIM))
       expect(() => index.search(new Float32Array(DIM + 1), 5, 'cosine', 0)).toThrow(/dimension mismatch/)
     })
 
@@ -128,8 +142,8 @@ describe('HNSWIndex', () => {
       const near = vectorFromValues(0.9, 0.1, 0, 0, 0, 0, 0, 0)
       const far = vectorFromValues(0, 0, 0, 0, 0, 0, 0, 1)
 
-      index.insert('near', near)
-      index.insert('far', far)
+      insertVec(store, index, 'near', near)
+      insertVec(store, index, 'far', far)
 
       const results = index.search(target, 1, 'cosine', 0)
       expect(results).toHaveLength(1)
@@ -138,7 +152,7 @@ describe('HNSWIndex', () => {
 
     it('returns at most k results', () => {
       for (let i = 0; i < 20; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
 
       const results = index.search(randomVector(DIM), 5, 'cosine', 0)
@@ -150,8 +164,8 @@ describe('HNSWIndex', () => {
       const orthogonal = vectorFromValues(0, 1, 0, 0, 0, 0, 0, 0)
       const similar = vectorFromValues(0.95, 0.05, 0, 0, 0, 0, 0, 0)
 
-      index.insert('orthogonal', orthogonal)
-      index.insert('similar', similar)
+      insertVec(store, index, 'orthogonal', orthogonal)
+      insertVec(store, index, 'similar', similar)
 
       const results = index.search(target, 10, 'cosine', 0.9)
       for (const r of results) {
@@ -162,7 +176,7 @@ describe('HNSWIndex', () => {
 
     it('filters by docId set', () => {
       for (let i = 0; i < 20; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
 
       const allowed = new Set(['doc0', 'doc1', 'doc2'])
@@ -175,7 +189,7 @@ describe('HNSWIndex', () => {
 
     it('returns scores in descending order', () => {
       for (let i = 0; i < 30; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
 
       const results = index.search(randomVector(DIM), 10, 'cosine', 0)
@@ -186,7 +200,7 @@ describe('HNSWIndex', () => {
 
     it('accepts efSearch parameter', () => {
       for (let i = 0; i < 30; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
 
       const resultsLowEf = index.search(randomVector(DIM), 5, 'cosine', 0, undefined, 5)
@@ -199,13 +213,14 @@ describe('HNSWIndex', () => {
 
   describe('search with different metrics', () => {
     it('searches with euclidean distance', () => {
-      const eucIndex = createHNSWIndex(DIM, { m: 4, efConstruction: 32, metric: 'euclidean' })
+      const eucStore = createVectorStore()
+      const eucIndex = createHNSWIndex(DIM, eucStore, { m: 4, efConstruction: 32, metric: 'euclidean' })
       const target = vectorFromValues(1, 0, 0, 0, 0, 0, 0, 0)
       const near = vectorFromValues(1.1, 0.1, 0, 0, 0, 0, 0, 0)
       const far = vectorFromValues(5, 5, 5, 5, 5, 5, 5, 5)
 
-      eucIndex.insert('near', near)
-      eucIndex.insert('far', far)
+      insertVec(eucStore, eucIndex, 'near', near)
+      insertVec(eucStore, eucIndex, 'far', far)
 
       const results = eucIndex.search(target, 1, 'euclidean', 0)
       expect(results).toHaveLength(1)
@@ -214,13 +229,14 @@ describe('HNSWIndex', () => {
     })
 
     it('searches with dot product', () => {
-      const dpIndex = createHNSWIndex(DIM, { m: 4, efConstruction: 32, metric: 'dotProduct' })
+      const dpStore = createVectorStore()
+      const dpIndex = createHNSWIndex(DIM, dpStore, { m: 4, efConstruction: 32, metric: 'dotProduct' })
       const target = vectorFromValues(1, 0, 0, 0, 0, 0, 0, 0)
       const highDp = vectorFromValues(10, 0, 0, 0, 0, 0, 0, 0)
       const lowDp = vectorFromValues(0, 10, 0, 0, 0, 0, 0, 0)
 
-      dpIndex.insert('highDp', highDp)
-      dpIndex.insert('lowDp', lowDp)
+      insertVec(dpStore, dpIndex, 'highDp', highDp)
+      insertVec(dpStore, dpIndex, 'lowDp', lowDp)
 
       const results = dpIndex.search(target, 1, 'dotProduct', -Infinity)
       expect(results).toHaveLength(1)
@@ -230,14 +246,15 @@ describe('HNSWIndex', () => {
 
   describe('recall quality', () => {
     it('achieves high recall on moderate dataset', () => {
-      const recallIndex = createHNSWIndex(32, { m: 16, efConstruction: 100, metric: 'cosine' })
+      const recallStore = createVectorStore()
+      const recallIndex = createHNSWIndex(32, recallStore, { m: 16, efConstruction: 100, metric: 'cosine' })
       const vectors = new Map<string, Float32Array>()
       const count = 500
 
       for (let i = 0; i < count; i++) {
         const v = normalizedVector(32)
         vectors.set(`doc${i}`, v)
-        recallIndex.insert(`doc${i}`, v)
+        insertVec(recallStore, recallIndex, `doc${i}`, v)
       }
 
       const query = normalizedVector(32)
@@ -269,49 +286,48 @@ describe('HNSWIndex', () => {
     })
   })
 
-  describe('removal', () => {
-    it('removes a vector', () => {
-      index.insert('doc1', randomVector(DIM))
-      index.insert('doc2', randomVector(DIM))
+  describe('tombstone removal', () => {
+    it('removes a vector via tombstone', () => {
+      insertVec(store, index, 'doc1', randomVector(DIM))
+      insertVec(store, index, 'doc2', randomVector(DIM))
 
-      index.remove('doc1')
+      removeVec(store, index, 'doc1')
       expect(index.has('doc1')).toBe(false)
       expect(index.size).toBe(1)
     })
 
-    it('removes nonexistent vector without error', () => {
-      expect(() => index.remove('nonexistent')).not.toThrow()
+    it('tombstoning nonexistent vector does not throw', () => {
+      expect(() => index.markTombstone('nonexistent')).not.toThrow()
     })
 
     it('removes the only vector', () => {
-      index.insert('doc1', randomVector(DIM))
-      index.remove('doc1')
+      insertVec(store, index, 'doc1', randomVector(DIM))
+      removeVec(store, index, 'doc1')
 
       expect(index.size).toBe(0)
       expect(index.entryPointId).toBeNull()
-      expect(index.topLayer).toBe(-1)
     })
 
     it('removes the entry point and elects a new one', () => {
       for (let i = 0; i < 10; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
 
       const oldEntry = index.entryPointId
       expect(oldEntry).not.toBeNull()
-      index.remove(oldEntry)
+      removeVec(store, index, oldEntry as string)
 
       expect(index.size).toBe(9)
       expect(index.entryPointId).not.toBeNull()
       expect(index.entryPointId).not.toBe(oldEntry)
     })
 
-    it('removed vectors are excluded from search results', () => {
+    it('tombstoned vectors are excluded from search results', () => {
       const target = vectorFromValues(1, 0, 0, 0, 0, 0, 0, 0)
-      index.insert('keep', vectorFromValues(0.9, 0.1, 0, 0, 0, 0, 0, 0))
-      index.insert('remove_me', vectorFromValues(0.95, 0.05, 0, 0, 0, 0, 0, 0))
+      insertVec(store, index, 'keep', vectorFromValues(0.9, 0.1, 0, 0, 0, 0, 0, 0))
+      insertVec(store, index, 'remove_me', vectorFromValues(0.95, 0.05, 0, 0, 0, 0, 0, 0))
 
-      index.remove('remove_me')
+      removeVec(store, index, 'remove_me')
 
       const results = index.search(target, 10, 'cosine', 0)
       expect(results.every(r => r.docId !== 'remove_me')).toBe(true)
@@ -319,11 +335,11 @@ describe('HNSWIndex', () => {
 
     it('search works after multiple removals', () => {
       for (let i = 0; i < 30; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
 
       for (let i = 0; i < 15; i++) {
-        index.remove(`doc${i}`)
+        removeVec(store, index, `doc${i}`)
       }
 
       expect(index.size).toBe(15)
@@ -337,22 +353,90 @@ describe('HNSWIndex', () => {
 
     it('removes all vectors one by one', () => {
       for (let i = 0; i < 10; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
       for (let i = 0; i < 10; i++) {
-        index.remove(`doc${i}`)
+        removeVec(store, index, `doc${i}`)
       }
 
       expect(index.size).toBe(0)
       expect(index.entryPointId).toBeNull()
+    })
+
+    it('isTombstoned reports correctly', () => {
+      insertVec(store, index, 'doc1', randomVector(DIM))
+      expect(index.isTombstoned('doc1')).toBe(false)
+
+      index.markTombstone('doc1')
+      expect(index.isTombstoned('doc1')).toBe(true)
+    })
+  })
+
+  describe('compaction', () => {
+    it('compactionNeeded returns false when no tombstones', () => {
+      for (let i = 0; i < 10; i++) {
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
+      }
+      expect(index.compactionNeeded()).toBe(false)
+    })
+
+    it('compactionNeeded returns true when tombstone ratio exceeds threshold', () => {
+      for (let i = 0; i < 10; i++) {
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
+      }
+      index.markTombstone('doc0')
+      store.remove('doc0')
+      index.markTombstone('doc1')
+      store.remove('doc1')
+
+      expect(index.compactionNeeded()).toBe(true)
+    })
+
+    it('rebuild reconstructs the graph without tombstoned nodes', () => {
+      for (let i = 0; i < 20; i++) {
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
+      }
+
+      for (let i = 0; i < 5; i++) {
+        index.markTombstone(`doc${i}`)
+        store.remove(`doc${i}`)
+      }
+
+      expect(index.size).toBe(15)
+      index.rebuild()
+      expect(index.size).toBe(15)
+
+      const results = index.search(randomVector(DIM), 5, 'cosine', 0)
+      expect(results.length).toBeGreaterThan(0)
+      for (const r of results) {
+        expect(Number.parseInt(r.docId.replace('doc', ''), 10)).toBeGreaterThanOrEqual(5)
+      }
+    })
+
+    it('rebuild with all nodes tombstoned results in empty index', () => {
+      for (let i = 0; i < 10; i++) {
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
+      }
+
+      for (let i = 0; i < 10; i++) {
+        index.markTombstone(`doc${i}`)
+        store.remove(`doc${i}`)
+      }
+
+      index.rebuild()
+      expect(index.size).toBe(0)
+      expect(index.entryPointId).toBeNull()
       expect(index.topLayer).toBe(-1)
+
+      const results = index.search(randomVector(DIM), 5, 'cosine', 0)
+      expect(results).toHaveLength(0)
     })
   })
 
   describe('serialize / deserialize', () => {
     it('round-trips the graph structure', () => {
       for (let i = 0; i < 20; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
 
       const serialized = index.serialize()
@@ -363,13 +447,8 @@ describe('HNSWIndex', () => {
       expect(serialized.efConstruction).toBe(index.efConstruction)
       expect(serialized.nodes).toHaveLength(20)
 
-      const vectorMap = new Map<string, { vector: Float32Array; mag: number }>()
-      for (const [docId, entry] of index.entries()) {
-        vectorMap.set(docId, { vector: entry.vector, mag: entry.magnitude })
-      }
-
-      const restored = createHNSWIndex(DIM, { m: 4, efConstruction: 32 })
-      restored.deserialize(serialized, vectorMap)
+      const restored = createHNSWIndex(DIM, store, { m: 4, efConstruction: 32 })
+      restored.deserialize(serialized)
 
       expect(restored.size).toBe(20)
       expect(restored.entryPointId).toBe(serialized.entryPoint)
@@ -378,17 +457,13 @@ describe('HNSWIndex', () => {
 
     it('produces search results after deserialization', () => {
       for (let i = 0; i < 20; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
 
       const serialized = index.serialize()
-      const vectorMap = new Map<string, { vector: Float32Array; mag: number }>()
-      for (const [docId, entry] of index.entries()) {
-        vectorMap.set(docId, { vector: entry.vector, mag: entry.magnitude })
-      }
 
-      const restored = createHNSWIndex(DIM, { m: 4, efConstruction: 32 })
-      restored.deserialize(serialized, vectorMap)
+      const restored = createHNSWIndex(DIM, store, { m: 4, efConstruction: 32 })
+      restored.deserialize(serialized)
 
       const query = randomVector(DIM)
       const results = restored.search(query, 5, 'cosine', 0)
@@ -397,8 +472,8 @@ describe('HNSWIndex', () => {
     })
 
     it('serialized node format matches the expected tuple structure', () => {
-      index.insert('doc1', randomVector(DIM))
-      index.insert('doc2', randomVector(DIM))
+      insertVec(store, index, 'doc1', randomVector(DIM))
+      insertVec(store, index, 'doc2', randomVector(DIM))
 
       const serialized = index.serialize()
       for (const node of serialized.nodes) {
@@ -416,47 +491,50 @@ describe('HNSWIndex', () => {
     })
 
     it('serializes the build metric', () => {
-      const eucIndex = createHNSWIndex(DIM, { m: 4, efConstruction: 32, metric: 'euclidean' })
-      eucIndex.insert('doc1', randomVector(DIM))
+      const eucStore = createVectorStore()
+      const eucIndex = createHNSWIndex(DIM, eucStore, { m: 4, efConstruction: 32, metric: 'euclidean' })
+      insertVec(eucStore, eucIndex, 'doc1', randomVector(DIM))
 
       const serialized = eucIndex.serialize()
       expect(serialized.metric).toBe('euclidean')
     })
 
-    it('recovers when entry point vector is missing', () => {
+    it('recovers when entry point vector is missing from store', () => {
       for (let i = 0; i < 10; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
 
       const serialized = index.serialize()
-      const vectorMap = new Map<string, { vector: Float32Array; mag: number }>()
-      for (const [docId, entry] of index.entries()) {
-        if (docId !== serialized.entryPoint) {
-          vectorMap.set(docId, { vector: entry.vector, mag: entry.magnitude })
+      const epDocId = serialized.entryPoint
+
+      const partialStore = createVectorStore()
+      for (const [docId, entry] of store.entries()) {
+        if (docId !== epDocId) {
+          partialStore.insert(docId, entry.vector)
         }
       }
 
-      const restored = createHNSWIndex(DIM, { m: 4, efConstruction: 32 })
-      restored.deserialize(serialized, vectorMap)
+      const restored = createHNSWIndex(DIM, partialStore, { m: 4, efConstruction: 32 })
+      restored.deserialize(serialized)
 
       expect(restored.size).toBe(9)
       expect(restored.entryPointId).not.toBeNull()
-      expect(restored.entryPointId).not.toBe(serialized.entryPoint)
+      expect(restored.entryPointId).not.toBe(epDocId)
 
       const results = restored.search(randomVector(DIM), 5, 'cosine', 0)
       expect(results.length).toBeGreaterThan(0)
     })
 
-    it('handles all vectors missing during deserialization', () => {
+    it('handles all vectors missing from store during deserialization', () => {
       for (let i = 0; i < 5; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
 
       const serialized = index.serialize()
-      const emptyVectorMap = new Map<string, { vector: Float32Array; mag: number }>()
+      const emptyStore = createVectorStore()
 
-      const restored = createHNSWIndex(DIM, { m: 4, efConstruction: 32 })
-      restored.deserialize(serialized, emptyVectorMap)
+      const restored = createHNSWIndex(DIM, emptyStore, { m: 4, efConstruction: 32 })
+      restored.deserialize(serialized)
 
       expect(restored.size).toBe(0)
       expect(restored.entryPointId).toBeNull()
@@ -468,35 +546,49 @@ describe('HNSWIndex', () => {
 
     it('deserializes data without metric field (backward compatibility)', () => {
       for (let i = 0; i < 10; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
 
       const serialized = index.serialize()
       delete (serialized as Record<string, unknown>).metric
 
-      const vectorMap = new Map<string, { vector: Float32Array; mag: number }>()
-      for (const [docId, entry] of index.entries()) {
-        vectorMap.set(docId, { vector: entry.vector, mag: entry.magnitude })
-      }
-
-      const restored = createHNSWIndex(DIM, { m: 4, efConstruction: 32, metric: 'euclidean' })
-      restored.deserialize(serialized, vectorMap)
+      const restored = createHNSWIndex(DIM, store, { m: 4, efConstruction: 32, metric: 'euclidean' })
+      restored.deserialize(serialized)
 
       expect(restored.size).toBe(10)
       expect(restored.entryPointId).not.toBeNull()
+    })
+
+    it('serialization excludes tombstoned nodes', () => {
+      for (let i = 0; i < 10; i++) {
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
+      }
+
+      index.markTombstone('doc0')
+      index.markTombstone('doc1')
+
+      const serialized = index.serialize()
+      expect(serialized.nodes).toHaveLength(8)
+
+      const serializedIds = new Set(serialized.nodes.map(([id]) => id))
+      expect(serializedIds.has('doc0')).toBe(false)
+      expect(serializedIds.has('doc1')).toBe(false)
     })
   })
 
   describe('graph structure integrity', () => {
     it('remaining nodes stay connected after heavy deletions', () => {
-      const connIndex = createHNSWIndex(DIM, { m: 4, efConstruction: 32, metric: 'cosine' })
+      const connStore = createVectorStore()
+      const connIndex = createHNSWIndex(DIM, connStore, { m: 4, efConstruction: 32, metric: 'cosine' })
       for (let i = 0; i < 50; i++) {
-        connIndex.insert(`doc${i}`, randomVector(DIM))
+        insertVec(connStore, connIndex, `doc${i}`, randomVector(DIM))
       }
 
       for (let i = 0; i < 25; i++) {
-        connIndex.remove(`doc${i}`)
+        removeVec(connStore, connIndex, `doc${i}`)
       }
+
+      connIndex.rebuild()
 
       const serialized = connIndex.serialize()
       for (const [, , layerConns] of serialized.nodes) {
@@ -512,7 +604,7 @@ describe('HNSWIndex', () => {
 
     it('most connections are bidirectional after insertion', () => {
       for (let i = 0; i < 20; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
 
       const serialized = index.serialize()
@@ -544,9 +636,10 @@ describe('HNSWIndex', () => {
     })
 
     it('node connections do not exceed Mmax0 at layer 0', () => {
-      const largeIndex = createHNSWIndex(DIM, { m: 4, efConstruction: 32 })
+      const largeStore = createVectorStore()
+      const largeIndex = createHNSWIndex(DIM, largeStore, { m: 4, efConstruction: 32 })
       for (let i = 0; i < 50; i++) {
-        largeIndex.insert(`doc${i}`, randomVector(DIM))
+        insertVec(largeStore, largeIndex, `doc${i}`, randomVector(DIM))
       }
 
       const serialized = largeIndex.serialize()
@@ -561,9 +654,10 @@ describe('HNSWIndex', () => {
     })
 
     it('higher layers have fewer nodes', () => {
-      const largeIndex = createHNSWIndex(DIM, { m: 8, efConstruction: 64 })
+      const largeStore = createVectorStore()
+      const largeIndex = createHNSWIndex(DIM, largeStore, { m: 8, efConstruction: 64 })
       for (let i = 0; i < 200; i++) {
-        largeIndex.insert(`doc${i}`, randomVector(DIM))
+        insertVec(largeStore, largeIndex, `doc${i}`, randomVector(DIM))
       }
 
       const serialized = largeIndex.serialize()
@@ -584,7 +678,7 @@ describe('HNSWIndex', () => {
 
   describe('edge cases', () => {
     it('handles a single vector', () => {
-      index.insert('only', vectorFromValues(1, 0, 0, 0, 0, 0, 0, 0))
+      insertVec(store, index, 'only', vectorFromValues(1, 0, 0, 0, 0, 0, 0, 0))
 
       const results = index.search(vectorFromValues(1, 0, 0, 0, 0, 0, 0, 0), 1, 'cosine', 0)
       expect(results).toHaveLength(1)
@@ -593,17 +687,18 @@ describe('HNSWIndex', () => {
     })
 
     it('handles k larger than index size', () => {
-      index.insert('doc1', randomVector(DIM))
-      index.insert('doc2', randomVector(DIM))
+      insertVec(store, index, 'doc1', randomVector(DIM))
+      insertVec(store, index, 'doc2', randomVector(DIM))
 
       const results = index.search(randomVector(DIM), 100, 'cosine', 0)
       expect(results.length).toBeLessThanOrEqual(2)
     })
 
     it('handles insert after clear', () => {
-      index.insert('doc1', randomVector(DIM))
+      insertVec(store, index, 'doc1', randomVector(DIM))
       index.clear()
-      index.insert('doc2', randomVector(DIM))
+      store.clear()
+      insertVec(store, index, 'doc2', randomVector(DIM))
 
       expect(index.size).toBe(1)
       expect(index.has('doc2')).toBe(true)
@@ -612,11 +707,11 @@ describe('HNSWIndex', () => {
 
     it('handles mixed insert and remove operations', () => {
       for (let i = 0; i < 10; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
-      index.remove('doc3')
-      index.remove('doc7')
-      index.insert('doc_new', randomVector(DIM))
+      removeVec(store, index, 'doc3')
+      removeVec(store, index, 'doc7')
+      insertVec(store, index, 'doc_new', randomVector(DIM))
 
       expect(index.size).toBe(9)
       expect(index.has('doc3')).toBe(false)
@@ -631,8 +726,8 @@ describe('HNSWIndex', () => {
 
     it('handles zero vectors gracefully', () => {
       const zeroVec = new Float32Array(DIM)
-      index.insert('zero', zeroVec)
-      index.insert('nonzero', vectorFromValues(1, 0, 0, 0, 0, 0, 0, 0))
+      insertVec(store, index, 'zero', zeroVec)
+      insertVec(store, index, 'nonzero', vectorFromValues(1, 0, 0, 0, 0, 0, 0, 0))
 
       const results = index.search(vectorFromValues(1, 0, 0, 0, 0, 0, 0, 0), 2, 'cosine', 0)
       expect(results.length).toBeGreaterThan(0)
@@ -640,11 +735,259 @@ describe('HNSWIndex', () => {
 
     it('filterDocIds with empty set returns no results', () => {
       for (let i = 0; i < 10; i++) {
-        index.insert(`doc${i}`, randomVector(DIM))
+        insertVec(store, index, `doc${i}`, randomVector(DIM))
       }
 
       const results = index.search(randomVector(DIM), 5, 'cosine', 0, new Set())
       expect(results).toHaveLength(0)
+    })
+  })
+
+  describe('search with scalar quantization', () => {
+    const SQ_DIM = 16
+    let sqStore: VectorStore
+    let sqQuantizer: ScalarQuantizer
+    let sqIndex: HNSWIndex
+
+    function sqInsert(docId: string, vector: Float32Array): void {
+      sqStore.insert(docId, vector)
+      sqIndex.insertNode(docId)
+      sqQuantizer.quantize(docId, vector)
+    }
+
+    function sqNormalizedVector(seed: number): Float32Array {
+      const v = new Float32Array(SQ_DIM)
+      for (let i = 0; i < SQ_DIM; i++) {
+        v[i] = Math.sin(seed * (i + 1) * 1.618) * Math.cos(seed * 0.7 + i)
+      }
+      const mag = magnitude(v)
+      if (mag > 0) {
+        for (let i = 0; i < SQ_DIM; i++) {
+          v[i] /= mag
+        }
+      }
+      return v
+    }
+
+    beforeEach(() => {
+      sqStore = createVectorStore()
+      sqQuantizer = createScalarQuantizer(SQ_DIM)
+      sqIndex = createHNSWIndex(SQ_DIM, sqStore, { m: 8, efConstruction: 64, metric: 'cosine' }, sqQuantizer)
+    })
+
+    it('returns results when quantizer is calibrated', () => {
+      const calibrationVecs: Float32Array[] = []
+      for (let i = 0; i < 50; i++) {
+        calibrationVecs.push(sqNormalizedVector(i + 1))
+      }
+      sqQuantizer.calibrate(calibrationVecs)
+
+      for (let i = 0; i < 50; i++) {
+        sqInsert(`doc${i}`, calibrationVecs[i])
+      }
+
+      const query = sqNormalizedVector(100)
+      const results = sqIndex.search(query, 5, 'cosine', 0)
+      expect(results.length).toBeGreaterThan(0)
+      expect(results.length).toBeLessThanOrEqual(5)
+    })
+
+    it('produces reasonable cosine scores between 0 and 1', () => {
+      const calibrationVecs: Float32Array[] = []
+      for (let i = 0; i < 30; i++) {
+        calibrationVecs.push(sqNormalizedVector(i + 1))
+      }
+      sqQuantizer.calibrate(calibrationVecs)
+
+      for (let i = 0; i < 30; i++) {
+        sqInsert(`doc${i}`, calibrationVecs[i])
+      }
+
+      const query = sqNormalizedVector(50)
+      const results = sqIndex.search(query, 10, 'cosine', 0)
+
+      for (const r of results) {
+        expect(r.score).toBeGreaterThanOrEqual(-0.1)
+        expect(r.score).toBeLessThanOrEqual(1.1)
+      }
+    })
+
+    it('returns scores in descending order (reranking path)', () => {
+      const calibrationVecs: Float32Array[] = []
+      for (let i = 0; i < 40; i++) {
+        calibrationVecs.push(sqNormalizedVector(i + 1))
+      }
+      sqQuantizer.calibrate(calibrationVecs)
+
+      for (let i = 0; i < 40; i++) {
+        sqInsert(`doc${i}`, calibrationVecs[i])
+      }
+
+      const query = sqNormalizedVector(200)
+      const results = sqIndex.search(query, 10, 'cosine', 0)
+
+      for (let i = 1; i < results.length; i++) {
+        expect(results[i - 1].score).toBeGreaterThanOrEqual(results[i].score)
+      }
+    })
+
+    it('ranks known close vector above known far vector', () => {
+      const target = new Float32Array(SQ_DIM)
+      target[0] = 1
+      const near = new Float32Array(SQ_DIM)
+      near[0] = 0.95
+      near[1] = 0.05
+      const far = new Float32Array(SQ_DIM)
+      far[SQ_DIM - 1] = 1
+
+      sqQuantizer.calibrate([target, near, far])
+      sqInsert('near', near)
+      sqInsert('far', far)
+
+      const results = sqIndex.search(target, 2, 'cosine', 0)
+      expect(results.length).toBe(2)
+      expect(results[0].docId).toBe('near')
+    })
+  })
+
+  describe('removeNodeEager graph repair', () => {
+    it('remaining nodes are still reachable via search after middle removals', () => {
+      const repairStore = createVectorStore()
+      const repairIndex = createHNSWIndex(DIM, repairStore, { m: 4, efConstruction: 32, metric: 'cosine' })
+
+      for (let i = 0; i < 30; i++) {
+        insertVec(repairStore, repairIndex, `doc${i}`, randomVector(DIM))
+      }
+
+      for (let i = 10; i < 20; i++) {
+        repairIndex.markTombstone(`doc${i}`)
+        repairStore.remove(`doc${i}`)
+      }
+
+      repairIndex.compactTombstones()
+
+      expect(repairIndex.size).toBe(20)
+      expect(repairIndex.tombstoneCount).toBe(0)
+
+      const query = randomVector(DIM)
+      const results = repairIndex.search(query, 10, 'cosine', 0)
+      expect(results.length).toBeGreaterThan(0)
+
+      for (const r of results) {
+        const docNum = Number.parseInt(r.docId.replace('doc', ''), 10)
+        expect(docNum < 10 || docNum >= 20).toBe(true)
+      }
+    })
+
+    it('survives entry point removal and selects a new entry point', () => {
+      const epStore = createVectorStore()
+      const epIndex = createHNSWIndex(DIM, epStore, { m: 4, efConstruction: 32, metric: 'cosine' })
+
+      for (let i = 0; i < 20; i++) {
+        insertVec(epStore, epIndex, `doc${i}`, randomVector(DIM))
+      }
+
+      const oldEntry = epIndex.entryPointId
+      expect(oldEntry).not.toBeNull()
+
+      if (oldEntry) {
+        epIndex.markTombstone(oldEntry)
+        epStore.remove(oldEntry)
+        epIndex.compactTombstones()
+      }
+
+      expect(epIndex.entryPointId).not.toBeNull()
+      expect(epIndex.entryPointId).not.toBe(oldEntry)
+
+      const results = epIndex.search(randomVector(DIM), 5, 'cosine', 0)
+      expect(results.length).toBeGreaterThan(0)
+    })
+
+    it('graph remains functional after multiple sequential compactions', () => {
+      const multiStore = createVectorStore()
+      const multiIndex = createHNSWIndex(DIM, multiStore, { m: 4, efConstruction: 32, metric: 'cosine' })
+
+      for (let i = 0; i < 40; i++) {
+        insertVec(multiStore, multiIndex, `doc${i}`, randomVector(DIM))
+      }
+
+      for (let i = 0; i < 10; i++) {
+        multiIndex.markTombstone(`doc${i}`)
+        multiStore.remove(`doc${i}`)
+      }
+      multiIndex.compactTombstones()
+
+      for (let i = 10; i < 20; i++) {
+        multiIndex.markTombstone(`doc${i}`)
+        multiStore.remove(`doc${i}`)
+      }
+      multiIndex.compactTombstones()
+
+      expect(multiIndex.size).toBe(20)
+      expect(multiIndex.tombstoneCount).toBe(0)
+
+      const results = multiIndex.search(randomVector(DIM), 10, 'cosine', 0)
+      expect(results.length).toBeGreaterThan(0)
+
+      for (const r of results) {
+        const docNum = Number.parseInt(r.docId.replace('doc', ''), 10)
+        expect(docNum).toBeGreaterThanOrEqual(20)
+      }
+    })
+  })
+
+  describe('neighbor selection heuristic (indirect verification)', () => {
+    it('maintains recall quality even with tightly clustered vectors', () => {
+      const clusterStore = createVectorStore()
+      const clusterIndex = createHNSWIndex(DIM, clusterStore, { m: 8, efConstruction: 64, metric: 'cosine' })
+
+      const allVecs = new Map<string, Float32Array>()
+
+      for (let i = 0; i < 30; i++) {
+        const v = new Float32Array(DIM)
+        v[0] = 1
+        for (let d = 1; d < DIM; d++) {
+          v[d] = (Math.random() - 0.5) * 0.1
+        }
+        const mag = magnitude(v)
+        for (let d = 0; d < DIM; d++) {
+          v[d] /= mag
+        }
+        allVecs.set(`cluster${i}`, v)
+        insertVec(clusterStore, clusterIndex, `cluster${i}`, v)
+      }
+
+      for (let i = 0; i < 10; i++) {
+        const v = normalizedVector(DIM)
+        allVecs.set(`outlier${i}`, v)
+        insertVec(clusterStore, clusterIndex, `outlier${i}`, v)
+      }
+
+      const query = new Float32Array(DIM)
+      query[0] = 1
+      const qMag = magnitude(query)
+
+      const hnswResults = clusterIndex.search(query, 5, 'cosine', 0, undefined, 64)
+
+      const bruteForce: Array<{ docId: string; score: number }> = []
+      for (const [docId, v] of allVecs) {
+        const vMag = magnitude(v)
+        if (qMag > 0 && vMag > 0) {
+          let dp = 0
+          for (let d = 0; d < DIM; d++) dp += query[d] * v[d]
+          bruteForce.push({ docId, score: dp / (qMag * vMag) })
+        }
+      }
+      bruteForce.sort((a, b) => b.score - a.score)
+
+      const trueTop5 = new Set(bruteForce.slice(0, 5).map(r => r.docId))
+      const hnswTop5 = new Set(hnswResults.map(r => r.docId))
+
+      let matches = 0
+      for (const docId of trueTop5) {
+        if (hnswTop5.has(docId)) matches++
+      }
+      expect(matches).toBeGreaterThanOrEqual(3)
     })
   })
 })

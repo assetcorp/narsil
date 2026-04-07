@@ -1,4 +1,3 @@
-import { createVectorPromoter, type VectorPromoter } from '#platform/vector-promoter'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { validateDocument, validateDocumentStrict } from '../../schema/validator'
 import { encodeRawPayloadV2 } from '../../serialization/payload-v2'
@@ -7,23 +6,22 @@ import type {
   GlobalStatistics,
   InternalSearchParams,
   InternalSearchResult,
-  InternalVectorParams,
   ScoredDocument,
   SerializablePartition,
 } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { FacetResult } from '../../types/results'
-import type { AnyDocument, SchemaDefinition, VectorPromotionConfig } from '../../types/schema'
+import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
 import { createDocumentStore } from '../document-store'
 import { createInvertedIndex } from '../inverted-index'
 import { createPartitionStats, type PartitionStats } from '../statistics'
 import { indexDocument, removeFromIndexes, updateFieldIndexOnly } from './indexing'
-import { applyPartitionFilters, computeFacets, searchFulltext, searchVector } from './search'
+import { applyPartitionFilters, applyPartitionFiltersBitset, computeFacets, searchFulltext } from './search'
 import { deserializePartition, serializePartition, serializePartitionToWirePayloadV2 } from './serialization'
 import { getFlatSchema, type PartitionInsertOptions, type PartitionState, textFieldsChanged } from './utils'
 
-export type { GlobalStatistics, InternalSearchParams, InternalSearchResult, InternalVectorParams, ScoredDocument }
+export type { GlobalStatistics, InternalSearchParams, InternalSearchResult, ScoredDocument }
 export type { PartitionInsertOptions }
 
 export interface PartitionIndex {
@@ -38,6 +36,8 @@ export interface PartitionIndex {
     options?: PartitionInsertOptions,
   ): void
   remove(docId: string, schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void
+  beginBatch(): void
+  endBatch(): void
   update(
     docId: string,
     document: AnyDocument,
@@ -53,14 +53,12 @@ export interface PartitionIndex {
   clear(): void
 
   searchFulltext(params: InternalSearchParams): InternalSearchResult
-  searchVector(params: InternalVectorParams): InternalSearchResult
   applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string>
+  applyFiltersBitset(filters: FilterExpression, schema: SchemaDefinition): Uint32Array
   computeFacets(docIds: Set<string>, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult>
   suggestTerms(prefix: string, limit: number): Array<{ term: string; documentFrequency: number }>
 
   estimateMemoryBytes(): number
-  vectorFieldCount(): number
-  hasPromotedHnsw(): boolean
 
   serialize(
     indexName: string,
@@ -72,19 +70,7 @@ export interface PartitionIndex {
   deserialize(data: SerializablePartition, schema: SchemaDefinition): void
 }
 
-export function createPartitionIndex(
-  partitionId: number,
-  trackPositions = true,
-  vectorPromotionConfig?: VectorPromotionConfig,
-): PartitionIndex {
-  const vectorPromoter: VectorPromoter | null = vectorPromotionConfig
-    ? createVectorPromoter({
-        promotionThreshold: vectorPromotionConfig.threshold,
-        hnswConfig: vectorPromotionConfig.hnswConfig,
-        workerStrategy: vectorPromotionConfig.workerStrategy,
-      })
-    : null
-
+export function createPartitionIndex(partitionId: number, trackPositions = true): PartitionIndex {
   const fieldNameTable = { names: [] as string[], indexMap: new Map<string, number>() }
 
   const state: PartitionState = {
@@ -95,7 +81,6 @@ export function createPartitionIndex(
     booleanIndexes: new Map(),
     enumIndexes: new Map(),
     geoIndexes: new Map(),
-    vectorStores: new Map(),
     fieldNameTable,
     flatSchemaCache: null,
     lastSchemaRef: null,
@@ -103,19 +88,16 @@ export function createPartitionIndex(
   }
 
   function clearAll(): void {
-    vectorPromoter?.shutdown()
     state.invertedIdx.clear()
     state.docStore.clear()
     for (const idx of state.numericIndexes.values()) idx.clear()
     for (const idx of state.booleanIndexes.values()) idx.clear()
     for (const idx of state.enumIndexes.values()) idx.clear()
     for (const idx of state.geoIndexes.values()) idx.clear()
-    for (const store of state.vectorStores.values()) store.clear()
     state.numericIndexes.clear()
     state.booleanIndexes.clear()
     state.enumIndexes.clear()
     state.geoIndexes.clear()
-    state.vectorStores.clear()
     state.stats.deserialize({ totalDocuments: 0, totalFieldLengths: {}, averageFieldLengths: {}, docFrequencies: {} })
     state.flatSchemaCache = null
     state.lastSchemaRef = null
@@ -151,6 +133,7 @@ export function createPartitionIndex(
         }
       }
 
+      state.docStore.ensureInternalId(docId)
       const flatSchema = getFlatSchema(state, schema)
       const { fieldLengths, tokensByField } = indexDocument(
         state,
@@ -166,7 +149,6 @@ export function createPartitionIndex(
         state.docStore.store(docId, document, fieldLengths)
       }
       state.stats.addDocument(fieldLengths, tokensByField)
-      vectorPromoter?.check(state.vectorStores)
     },
 
     remove(docId: string, schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void {
@@ -182,6 +164,14 @@ export function createPartitionIndex(
       const { fieldLengths, tokensByField } = removeFromIndexes(state, docId, stored, flatSchema, language, options)
       state.docStore.remove(docId)
       state.stats.removeDocument(fieldLengths, tokensByField)
+    },
+
+    beginBatch(): void {
+      state.invertedIdx.beginBatch()
+    },
+
+    endBatch(): void {
+      state.invertedIdx.endBatch()
     },
 
     update(
@@ -220,6 +210,7 @@ export function createPartitionIndex(
         )
         state.stats.removeDocument(oldFieldLengths, oldTokens)
         state.docStore.remove(docId)
+        state.docStore.ensureInternalId(docId)
 
         const { fieldLengths: newFieldLengths, tokensByField: newTokens } = indexDocument(
           state,
@@ -290,34 +281,19 @@ export function createPartitionIndex(
       bytes += docCount * state.enumIndexes.size * FIELD_ENTRY_OVERHEAD
       bytes += docCount * state.geoIndexes.size * FIELD_ENTRY_OVERHEAD
 
-      for (const store of state.vectorStores.values()) {
-        bytes += store.estimateMemoryBytes()
-      }
-
       return bytes
-    },
-
-    vectorFieldCount(): number {
-      return state.vectorStores.size
-    },
-
-    hasPromotedHnsw(): boolean {
-      for (const store of state.vectorStores.values()) {
-        if (store.isPromoted) return true
-      }
-      return false
     },
 
     searchFulltext(params: InternalSearchParams): InternalSearchResult {
       return searchFulltext(state, params)
     },
 
-    searchVector(params: InternalVectorParams): InternalSearchResult {
-      return searchVector(state, params)
-    },
-
     applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string> {
       return applyPartitionFilters(state, filters, schema)
+    },
+
+    applyFiltersBitset(filters: FilterExpression, schema: SchemaDefinition): Uint32Array {
+      return applyPartitionFiltersBitset(state, filters, schema)
     },
 
     computeFacets(docIds: Set<string>, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult> {

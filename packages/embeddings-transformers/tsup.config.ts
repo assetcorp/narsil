@@ -1,0 +1,12 @@
+import { defineConfig } from 'tsup'
+
+export default defineConfig({
+  entry: { index: 'src/index.ts' },
+  format: ['esm'],
+  dts: true,
+  splitting: false,
+  clean: true,
+  treeshake: true,
+  outExtension: () => ({ js: '.mjs' }),
+  external: ['@huggingface/transformers'],
+})

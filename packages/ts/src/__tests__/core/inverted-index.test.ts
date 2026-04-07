@@ -24,7 +24,7 @@ vi.mock('../../core/fuzzy', () => ({
 }))
 
 import { createInvertedIndex, type InvertedIndex } from '../../core/inverted-index'
-import type { FieldNameTable } from '../../types/internal'
+import type { FieldNameTable, InternalIdResolver } from '../../types/internal'
 
 function createTable(): FieldNameTable {
   return { names: [], indexMap: new Map() }
@@ -39,6 +39,23 @@ function fieldIdx(table: FieldNameTable, name: string): number {
   return idx
 }
 
+function createTestResolver(mapping: Array<[number, string]>): InternalIdResolver {
+  const forward = new Map<string, number>()
+  const reverse = new Map<number, string>()
+  for (const [internalId, externalId] of mapping) {
+    forward.set(externalId, internalId)
+    reverse.set(internalId, externalId)
+  }
+  return {
+    toExternal(internalId: number): string | undefined {
+      return reverse.get(internalId)
+    },
+    toInternal(externalId: string): number | undefined {
+      return forward.get(externalId)
+    },
+  }
+}
+
 describe('InvertedIndex', () => {
   let idx: InvertedIndex
   let table: FieldNameTable
@@ -50,12 +67,12 @@ describe('InvertedIndex', () => {
 
   describe('insert and lookup', () => {
     it('inserts a posting entry and looks it up by token', () => {
-      idx.insert('sword', 'doc1', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('sword', 0, 1, fieldIdx(table, 'title'), [0])
       const list = idx.lookup('sword')
       expect(list).toBeDefined()
       expect(list?.docIdSet.size).toBe(1)
       expect(list?.length).toBe(1)
-      expect(list?.docIds[0]).toBe('doc1')
+      expect(list?.docIds[0]).toBe(0)
     })
 
     it('returns undefined for a non-existent token', () => {
@@ -63,8 +80,8 @@ describe('InvertedIndex', () => {
     })
 
     it('tracks separate entries for the same token across different fields', () => {
-      idx.insert('narsil', 'doc1', 2, fieldIdx(table, 'title'), [0, 5])
-      idx.insert('narsil', 'doc1', 1, fieldIdx(table, 'body'), [12])
+      idx.insert('narsil', 0, 2, fieldIdx(table, 'title'), [0, 5])
+      idx.insert('narsil', 0, 1, fieldIdx(table, 'body'), [12])
       const list = idx.lookup('narsil')
       expect(list).toBeDefined()
       expect(list?.length).toBe(2)
@@ -72,8 +89,8 @@ describe('InvertedIndex', () => {
     })
 
     it('tracks separate entries across different documents', () => {
-      idx.insert('blade', 'doc1', 1, fieldIdx(table, 'title'), [0])
-      idx.insert('blade', 'doc2', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('blade', 0, 1, fieldIdx(table, 'title'), [0])
+      idx.insert('blade', 1, 1, fieldIdx(table, 'title'), [0])
       const list = idx.lookup('blade')
       expect(list).toBeDefined()
       expect(list?.length).toBe(2)
@@ -83,37 +100,37 @@ describe('InvertedIndex', () => {
 
   describe('remove', () => {
     it('removes all entries for a docId from a token', () => {
-      idx.insert('steel', 'doc1', 1, fieldIdx(table, 'title'), [0])
-      idx.insert('steel', 'doc1', 2, fieldIdx(table, 'body'), [0, 3])
-      idx.remove('steel', 'doc1')
+      idx.insert('steel', 0, 1, fieldIdx(table, 'title'), [0])
+      idx.insert('steel', 0, 2, fieldIdx(table, 'body'), [0, 3])
+      idx.remove('steel', 0)
       expect(idx.lookup('steel')).toBeUndefined()
     })
 
     it('removes only the specified docId, keeping others', () => {
-      idx.insert('steel', 'doc1', 1, fieldIdx(table, 'title'), [0])
-      idx.insert('steel', 'doc2', 1, fieldIdx(table, 'title'), [0])
-      idx.remove('steel', 'doc1')
+      idx.insert('steel', 0, 1, fieldIdx(table, 'title'), [0])
+      idx.insert('steel', 1, 1, fieldIdx(table, 'title'), [0])
+      idx.remove('steel', 0)
       const list = idx.lookup('steel')
       expect(list).toBeDefined()
       expect(list?.length).toBe(1)
-      expect(list?.docIds[0]).toBe('doc2')
+      expect(list?.docIds[0]).toBe(1)
       expect(list?.docIdSet.size).toBe(1)
     })
 
     it('does nothing when the token does not exist', () => {
-      idx.remove('nonexistent', 'doc1')
+      idx.remove('nonexistent', 0)
       expect(idx.size()).toBe(0)
     })
 
     it('does nothing when the docId does not exist under the token', () => {
-      idx.insert('steel', 'doc1', 1, fieldIdx(table, 'title'), [0])
-      idx.remove('steel', 'doc99')
+      idx.insert('steel', 0, 1, fieldIdx(table, 'title'), [0])
+      idx.remove('steel', 99)
       expect(idx.lookup('steel')?.length).toBe(1)
     })
 
     it('cleans up the token entirely when the last posting is removed', () => {
-      idx.insert('rare', 'doc1', 1, fieldIdx(table, 'title'), [0])
-      idx.remove('rare', 'doc1')
+      idx.insert('rare', 0, 1, fieldIdx(table, 'title'), [0])
+      idx.remove('rare', 0)
       expect(idx.has('rare')).toBe(false)
       expect(idx.size()).toBe(0)
     })
@@ -121,7 +138,7 @@ describe('InvertedIndex', () => {
 
   describe('has, tokens, size', () => {
     it('has returns true for existing tokens', () => {
-      idx.insert('exists', 'doc1', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('exists', 0, 1, fieldIdx(table, 'title'), [0])
       expect(idx.has('exists')).toBe(true)
     })
 
@@ -130,9 +147,9 @@ describe('InvertedIndex', () => {
     })
 
     it('tokens iterates all token strings', () => {
-      idx.insert('alpha', 'doc1', 1, fieldIdx(table, 'title'), [0])
-      idx.insert('beta', 'doc1', 1, fieldIdx(table, 'title'), [1])
-      idx.insert('gamma', 'doc1', 1, fieldIdx(table, 'title'), [2])
+      idx.insert('alpha', 0, 1, fieldIdx(table, 'title'), [0])
+      idx.insert('beta', 0, 1, fieldIdx(table, 'title'), [1])
+      idx.insert('gamma', 0, 1, fieldIdx(table, 'title'), [2])
       const tokenList = Array.from(idx.tokens())
       expect(tokenList).toHaveLength(3)
       expect(tokenList).toContain('alpha')
@@ -141,17 +158,17 @@ describe('InvertedIndex', () => {
     })
 
     it('size returns the number of unique tokens', () => {
-      idx.insert('one', 'doc1', 1, fieldIdx(table, 'title'), [0])
-      idx.insert('two', 'doc1', 1, fieldIdx(table, 'title'), [1])
-      idx.insert('one', 'doc2', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('one', 0, 1, fieldIdx(table, 'title'), [0])
+      idx.insert('two', 0, 1, fieldIdx(table, 'title'), [1])
+      idx.insert('one', 1, 1, fieldIdx(table, 'title'), [0])
       expect(idx.size()).toBe(2)
     })
   })
 
   describe('clear', () => {
     it('empties the entire index', () => {
-      idx.insert('a', 'doc1', 1, fieldIdx(table, 'title'), [0])
-      idx.insert('b', 'doc2', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('a', 0, 1, fieldIdx(table, 'title'), [0])
+      idx.insert('b', 1, 1, fieldIdx(table, 'title'), [0])
       idx.clear()
       expect(idx.size()).toBe(0)
       expect(idx.lookup('a')).toBeUndefined()
@@ -161,11 +178,11 @@ describe('InvertedIndex', () => {
 
   describe('fuzzyLookup', () => {
     beforeEach(() => {
-      idx.insert('cat', 'doc1', 1, fieldIdx(table, 'title'), [0])
-      idx.insert('car', 'doc2', 1, fieldIdx(table, 'title'), [0])
-      idx.insert('cap', 'doc3', 1, fieldIdx(table, 'title'), [0])
-      idx.insert('bat', 'doc4', 1, fieldIdx(table, 'title'), [0])
-      idx.insert('dog', 'doc5', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('cat', 0, 1, fieldIdx(table, 'title'), [0])
+      idx.insert('car', 1, 1, fieldIdx(table, 'title'), [0])
+      idx.insert('cap', 2, 1, fieldIdx(table, 'title'), [0])
+      idx.insert('bat', 3, 1, fieldIdx(table, 'title'), [0])
+      idx.insert('dog', 4, 1, fieldIdx(table, 'title'), [0])
     })
 
     it('with tolerance 0, returns only exact matches', () => {
@@ -205,8 +222,8 @@ describe('InvertedIndex', () => {
     })
 
     it('with prefixLength > 1, narrows candidates to those sharing the prefix', () => {
-      idx.insert('cob', 'doc6', 1, fieldIdx(table, 'title'), [0])
-      idx.insert('cup', 'doc7', 1, fieldIdx(table, 'title'), [0])
+      idx.insert('cob', 5, 1, fieldIdx(table, 'title'), [0])
+      idx.insert('cup', 6, 1, fieldIdx(table, 'title'), [0])
       const results = idx.fuzzyLookup('cat', 1, 2)
       const tokens = results.map(r => r.token).sort()
       expect(tokens).toContain('cat')
@@ -219,20 +236,24 @@ describe('InvertedIndex', () => {
 
     it('each result includes the correct posting list', () => {
       const results = idx.fuzzyLookup('cat', 0, 0)
-      expect(results[0].postingList.docIds[0]).toBe('doc1')
+      expect(results[0].postingList.docIds[0]).toBe(0)
     })
   })
 
   describe('serialize and deserialize', () => {
     it('roundtrips through serialization', () => {
-      idx.insert('flame', 'doc1', 2, fieldIdx(table, 'title'), [0, 7])
-      idx.insert('flame', 'doc2', 1, fieldIdx(table, 'body'), [3])
-      idx.insert('steel', 'doc1', 1, fieldIdx(table, 'title'), [2])
+      const resolver = createTestResolver([
+        [0, 'doc1'],
+        [1, 'doc2'],
+      ])
+      idx.insert('flame', 0, 2, fieldIdx(table, 'title'), [0, 7])
+      idx.insert('flame', 1, 1, fieldIdx(table, 'body'), [3])
+      idx.insert('steel', 0, 1, fieldIdx(table, 'title'), [2])
 
-      const serialized = idx.serialize()
+      const serialized = idx.serialize(resolver)
       const restoredTable = createTable()
       const restored = createInvertedIndex(restoredTable)
-      restored.deserialize(serialized)
+      restored.deserialize(serialized, resolver)
 
       expect(restored.size()).toBe(2)
       const flameList = restored.lookup('flame')
@@ -243,34 +264,46 @@ describe('InvertedIndex', () => {
     })
 
     it('serializes to a plain object', () => {
-      idx.insert('token', 'doc1', 1, fieldIdx(table, 'title'), [0])
-      const serialized = idx.serialize()
+      const resolver = createTestResolver([[0, 'doc1']])
+      idx.insert('token', 0, 1, fieldIdx(table, 'title'), [0])
+      const serialized = idx.serialize(resolver)
       expect(typeof serialized).toBe('object')
       expect(serialized.token).toBeDefined()
       expect(serialized.token.docFrequency).toBe(1)
     })
 
     it('deserialize replaces existing state', () => {
-      idx.insert('old', 'doc1', 1, fieldIdx(table, 'title'), [0])
-      idx.deserialize({
-        fresh: {
-          docFrequency: 1,
-          postings: [{ docId: 'doc9', termFrequency: 1, fieldName: 'title', positions: [0] }],
+      const resolver = createTestResolver([
+        [0, 'doc1'],
+        [1, 'doc9'],
+      ])
+      idx.insert('old', 0, 1, fieldIdx(table, 'title'), [0])
+      idx.deserialize(
+        {
+          fresh: {
+            docFrequency: 1,
+            postings: [{ docId: 'doc9', termFrequency: 1, fieldName: 'title', positions: [0] }],
+          },
         },
-      })
+        resolver,
+      )
       expect(idx.has('old')).toBe(false)
       expect(idx.has('fresh')).toBe(true)
       expect(idx.size()).toBe(1)
     })
 
     it('fuzzyLookup works after deserialization (prefix buckets rebuilt)', () => {
-      idx.insert('cat', 'd1', 1, fieldIdx(table, 'title'), [0])
-      idx.insert('car', 'd2', 1, fieldIdx(table, 'title'), [0])
+      const resolver = createTestResolver([
+        [0, 'd1'],
+        [1, 'd2'],
+      ])
+      idx.insert('cat', 0, 1, fieldIdx(table, 'title'), [0])
+      idx.insert('car', 1, 1, fieldIdx(table, 'title'), [0])
 
-      const serialized = idx.serialize()
+      const serialized = idx.serialize(resolver)
       const restoredTable = createTable()
       const restored = createInvertedIndex(restoredTable)
-      restored.deserialize(serialized)
+      restored.deserialize(serialized, resolver)
 
       const results = restored.fuzzyLookup('cat', 1, 1)
       const tokens = results.map(r => r.token).sort()
@@ -281,7 +314,7 @@ describe('InvertedIndex', () => {
 
   describe('null positions', () => {
     it('stores null positions when positions are not tracked', () => {
-      idx.insert('term', 'doc1', 3, fieldIdx(table, 'title'), null)
+      idx.insert('term', 0, 3, fieldIdx(table, 'title'), null)
       const list = idx.lookup('term')
       expect(list).toBeDefined()
       expect(list?.positions).toBeNull()
@@ -289,8 +322,8 @@ describe('InvertedIndex', () => {
     })
 
     it('handles mixed positions and null in same list', () => {
-      idx.insert('term', 'doc1', 1, fieldIdx(table, 'title'), [0, 5])
-      idx.insert('term', 'doc2', 2, fieldIdx(table, 'body'), null)
+      idx.insert('term', 0, 1, fieldIdx(table, 'title'), [0, 5])
+      idx.insert('term', 1, 2, fieldIdx(table, 'body'), null)
       const list = idx.lookup('term')
       expect(list?.length).toBe(2)
       expect(list?.positions).toBeDefined()
@@ -303,7 +336,7 @@ describe('InvertedIndex', () => {
     it('grows typed arrays when capacity is exceeded', () => {
       const titleIdx = fieldIdx(table, 'title')
       for (let i = 0; i < 10; i++) {
-        idx.insert('popular', `doc${i}`, 1, titleIdx, null)
+        idx.insert('popular', i, 1, titleIdx, null)
       }
       const list = idx.lookup('popular')
       expect(list?.length).toBe(10)

@@ -1,5 +1,6 @@
 import { createWorkerFactory } from '#platform/worker-factory'
 import { type FanOutResult, kWayMerge } from '../partitioning/fan-out'
+import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { LanguageModule } from '../types/language'
 import type { MemoryStats } from '../types/results'
@@ -29,7 +30,10 @@ export function createWorkerOrchestrator(
   config: NarsilConfig | undefined,
   executor: Executor & DirectExecutorExtensions,
   promoter: ExecutionPromoter,
-  indexRegistry: Map<string, { config: IndexConfig; language: LanguageModule }>,
+  indexRegistry: Map<
+    string,
+    { config: IndexConfig; language: LanguageModule; embeddingAdapter: EmbeddingAdapter | null }
+  >,
   callbacks?: WorkerOrchestratorCallbacks,
 ): WorkerOrchestrator {
   let workerPool: WorkerPool | null = null

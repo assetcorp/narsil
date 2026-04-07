@@ -1,14 +1,12 @@
-import type { ScoredDocument, VectorEntry } from '../types/internal'
+import { createBoundedMaxHeap } from '../core/heap'
+import type { ScoredDocument } from '../types/internal'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from './similarity'
+import type { VectorStore } from './vector-store'
 
 export type VectorMetric = 'cosine' | 'dotProduct' | 'euclidean'
 
-export interface BruteForceVectorStore {
+export interface BruteForceSearch {
   readonly dimension: number
-  readonly size: number
-  insert(docId: string, vector: Float32Array): void
-  remove(docId: string): void
-  has(docId: string): boolean
   search(
     query: Float32Array,
     k: number,
@@ -16,36 +14,12 @@ export interface BruteForceVectorStore {
     minSimilarity: number,
     filterDocIds?: Set<string>,
   ): ScoredDocument[]
-  clear(): void
-  entries(): IterableIterator<[string, VectorEntry]>
 }
 
-export function createBruteForceVectorStore(dimension: number): BruteForceVectorStore {
-  const vectors = new Map<string, VectorEntry>()
-
+export function createBruteForceSearch(dimension: number, store: VectorStore): BruteForceSearch {
   return {
     get dimension() {
       return dimension
-    },
-
-    get size() {
-      return vectors.size
-    },
-
-    insert(docId: string, vector: Float32Array): void {
-      if (vector.length !== dimension) {
-        throw new Error(`Vector dimension mismatch: expected ${dimension}, got ${vector.length}`)
-      }
-      const mag = magnitude(vector)
-      vectors.set(docId, { docId, vector, magnitude: mag })
-    },
-
-    remove(docId: string): void {
-      vectors.delete(docId)
-    },
-
-    has(docId: string): boolean {
-      return vectors.has(docId)
     },
 
     search(
@@ -59,9 +33,11 @@ export function createBruteForceVectorStore(dimension: number): BruteForceVector
         throw new Error(`Query dimension mismatch: expected ${dimension}, got ${query.length}`)
       }
       const queryMag = magnitude(query)
-      const results: Array<{ docId: string; score: number }> = []
+      const highScoreFirst = (a: { score: number; docId: string }, b: { score: number; docId: string }) =>
+        b.score - a.score || a.docId.localeCompare(b.docId)
+      const heap = createBoundedMaxHeap<{ docId: string; score: number }>(highScoreFirst, k)
 
-      for (const [docId, entry] of vectors) {
+      for (const [docId, entry] of store.entries()) {
         if (filterDocIds && !filterDocIds.has(docId)) continue
 
         let score: number
@@ -80,28 +56,20 @@ export function createBruteForceVectorStore(dimension: number): BruteForceVector
         }
 
         if (score >= minSimilarity) {
-          results.push({ docId, score })
+          heap.push({ docId, score })
         }
       }
 
-      results.sort((a, b) => b.score - a.score)
-      const topK = results.slice(0, k)
-
-      return topK.map(r => ({
-        docId: r.docId,
-        score: r.score,
-        termFrequencies: {},
-        fieldLengths: {},
-        idf: {},
-      }))
-    },
-
-    clear(): void {
-      vectors.clear()
-    },
-
-    entries(): IterableIterator<[string, VectorEntry]> {
-      return vectors.entries()
+      return heap
+        .toSortedArray()
+        .reverse()
+        .map(r => ({
+          docId: r.docId,
+          score: r.score,
+          termFrequencies: {},
+          fieldLengths: {},
+          idf: {},
+        }))
     },
   }
 }

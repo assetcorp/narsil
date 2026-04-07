@@ -12,20 +12,24 @@ Narsil is a distributed search engine with full-text, vector, hybrid, and geosea
 
 > *narsil* is the sword of Elendil in Tolkien's Lord of the Rings, shattered into shards and later reforged. The name maps to the architecture: data shatters into partitions, each shard is independently persisted, and every query reforges them into a unified result.
 
-## Install
+## Packages
+
+| Package | Description |
+| --- | --- |
+| [`@delali/narsil`](packages/ts) | Core search engine (full-text, vector, hybrid, geo) |
+| [`@delali/narsil-embeddings-transformers`](packages/embeddings-transformers) | Local embedding adapter using Hugging Face Transformers.js |
+| [`benchmarks`](packages/benchmarks) | Comparative benchmarks against Orama and MiniSearch on Wikipedia data |
+
+## Getting started (TypeScript)
 
 ```bash
 pnpm add @delali/narsil
 ```
 
-Requires Node.js >= 22.
-
-## Quick start
-
 ```ts
-import { Narsil } from '@delali/narsil'
+import { createNarsil } from '@delali/narsil'
 
-const narsil = new Narsil()
+const narsil = await createNarsil()
 
 await narsil.createIndex('products', {
   schema: {
@@ -174,6 +178,34 @@ When multiple instances share the same persistence backend, the invalidation ada
 
 Hook into the document and search lifecycle with plugins. Plugins can run before/after insert, remove, update, and search operations, and respond to index creation, partition splits, and worker promotions.
 
+### Embedding adapters
+
+Auto-embed text fields into vectors on insert and query. Narsil ships with an OpenAI adapter (subpath export, zero dependencies) and a local Transformers.js adapter (separate package). Asymmetric models like E5 and BGE are supported through document/query purpose prefixes. Bring your own adapter by implementing the `EmbeddingAdapter` interface.
+
+```ts
+import { createNarsil } from '@delali/narsil'
+import { createOpenAIEmbedding } from '@delali/narsil/embeddings/openai'
+
+const narsil = await createNarsil({
+  embedding: createOpenAIEmbedding({
+    apiKey: process.env.OPENAI_API_KEY,
+    model: 'text-embedding-3-small',
+    dimensions: 1536,
+  }),
+})
+```
+
+### Term suggestions
+
+Autocomplete suggestions from the index's term dictionary. The API tokenizes the input, extracts the last word, and matches it against stored terms across all partitions, ranked by document frequency.
+
+```ts
+const suggestions = await narsil.suggest('products', {
+  prefix: 'mech',
+  limit: 5,
+})
+```
+
 ### Schema validation
 
 Define typed schemas with support for `string`, `number`, `boolean`, `enum`, `geopoint`, `vector[N]`, and array variants (`string[]`, `number[]`, `boolean[]`, `enum[]`). Nested objects up to 4 levels deep. Documents are validated against the schema at insertion time.
@@ -222,9 +254,17 @@ Ranking quality validated against the [Cranfield Collection](https://ir-datasets
 
 nDCG@10 measures how well relevant documents are ranked in the top 10 results. P@10 is the fraction of top-10 results that are relevant. MAP tracks where relevant documents appear across the full result set. MRR is the average position of the first relevant result (higher means closer to position 1).
 
-Reproduce these results with `pnpm -C packages/benchmarks bench --tiers quality`. See [`packages/benchmarks`](packages/benchmarks) for full methodology.
+Reproduce these results with `pnpm -C packages/benchmarks bench --tiers quality`.
 
-## Runtime support (TypeScript)
+## Performance
+
+Throughput, latency, and memory benchmarks run on 100,000 Wikipedia articles across six tiers (text-only, full schema with filters, vector search, serialization, mutations, and ranking quality). See [`packages/benchmarks`](packages/benchmarks) for methodology, results, and reproduction instructions.
+
+## Configuration
+
+See the [TypeScript package README](packages/ts/README.md#configuration) for `NarsilConfig` options and tokenizer cache configuration.
+
+## Runtime support
 
 | Runtime | Concurrency | Persistence | Invalidation |
 | --- | --- | --- | --- |

@@ -42,6 +42,7 @@ describe('ErrorCodes', () => {
   it('has all expected search error codes', () => {
     expect(ErrorCodes.SEARCH_INVALID_FIELD).toBe('SEARCH_INVALID_FIELD')
     expect(ErrorCodes.SEARCH_INVALID_VECTOR_SIZE).toBe('SEARCH_INVALID_VECTOR_SIZE')
+    expect(ErrorCodes.VECTOR_DIMENSION_MISMATCH).toBe('VECTOR_DIMENSION_MISMATCH')
     expect(ErrorCodes.SEARCH_INVALID_FILTER).toBe('SEARCH_INVALID_FILTER')
     expect(ErrorCodes.SEARCH_INVALID_MODE).toBe('SEARCH_INVALID_MODE')
     expect(ErrorCodes.SEARCH_INVALID_CURSOR).toBe('SEARCH_INVALID_CURSOR')
@@ -53,8 +54,20 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.ENVELOPE_INVALID_MAGIC).toBe('ENVELOPE_INVALID_MAGIC')
   })
 
-  it('has exactly 28 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(28)
+  it('has all expected embedding error codes', () => {
+    expect(ErrorCodes.EMBEDDING_FAILED).toBe('EMBEDDING_FAILED')
+    expect(ErrorCodes.EMBEDDING_DIMENSION_MISMATCH).toBe('EMBEDDING_DIMENSION_MISMATCH')
+    expect(ErrorCodes.EMBEDDING_NO_SOURCE).toBe('EMBEDDING_NO_SOURCE')
+    expect(ErrorCodes.EMBEDDING_CONFIG_INVALID).toBe('EMBEDDING_CONFIG_INVALID')
+    expect(ErrorCodes.DOC_MISSING_REQUIRED_FIELD).toBe('DOC_MISSING_REQUIRED_FIELD')
+  })
+
+  it('has config error codes', () => {
+    expect(ErrorCodes.CONFIG_INVALID).toBe('CONFIG_INVALID')
+  })
+
+  it('has exactly 35 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(35)
   })
 
   it('has unique values for every code', () => {
