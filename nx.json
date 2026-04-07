@@ -15,7 +15,8 @@
     "projectsRelationship": "independent",
     "releaseTagPattern": "{projectName}@v{version}",
     "version": {
-      "conventionalCommits": false
+      "conventionalCommits": false,
+      "updateDependents": "never"
     },
     "changelog": {
       "automaticFromRef": true,
