@@ -12,8 +12,8 @@
   },
   "release": {
     "projects": ["narsil-ts", "narsil-embeddings-transformers"],
-    "projectsRelationship": "fixed",
-    "releaseTagPattern": "v{version}",
+    "projectsRelationship": "independent",
+    "releaseTagPattern": "{projectName}@v{version}",
     "version": {
       "conventionalCommits": false
     },
@@ -27,7 +27,7 @@
     "git": {
       "commit": true,
       "tag": true,
-      "commitMessage": "chore(release): v{version}"
+      "commitMessage": "chore(release): {projectName}@v{version}"
     }
   },
   "targetDefaults": {
