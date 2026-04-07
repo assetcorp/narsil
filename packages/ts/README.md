@@ -84,7 +84,7 @@ const narsil = await createNarsil({
 | `workers` | `WorkerConfig` | Worker thread configuration for parallel search |
 | `flush` | `FlushConfig` | Controls when dirty partitions persist to storage |
 | `eagerLoad` | `boolean` | When `true`, loads all persisted data into memory at creation time |
-| `embedding` | `EmbeddingAdapter` | Adapter for generating vector embeddings from text fields |
+| `embedding` | `EmbeddingAdapter` | Default adapter for auto-embedding text fields into vectors (see [Embedding adapters](#embedding-adapters)) |
 
 ### WorkerConfig
 
@@ -116,7 +116,14 @@ configureNormalizationCache(500_000)
 const narsil = await createNarsil()
 ```
 
-The value clamps to a floor of 50,000 and a ceiling of 2,000,000 entries. Invalid values (NaN, Infinity, negative numbers) throw a `NarsilError` with code `CONFIG_INVALID`.
+The value clamps to a floor of 50,000 and a ceiling of 2,000,000 entries. Invalid values (NaN, Infinity, negative numbers, zero) throw a `NarsilError` with code `CONFIG_INVALID`.
+
+Four utility functions are available for cache management:
+
+- `configureNormalizationCache(maxSize)` - set the maximum cache size
+- `clearNormalizationCache()` - drop all cached entries (reclaim memory after one-off indexing)
+- `resetNormalizationCache()` - clear the cache and reset the size to the auto-detected default
+- `getNormalizationCacheSize()` - return the current number of cached entries (useful for monitoring)
 
 ## Features
 
@@ -204,6 +211,68 @@ const results = await narsil.query('products', {
 })
 // hit.highlights.title.snippet => '<mark>Mechanical</mark> Keyboard'
 ```
+
+### Embedding adapters
+
+Auto-embed text fields into vectors on insert and query. Pass an `EmbeddingAdapter` at the instance level (shared default) or per-index. When a document is inserted without a pre-computed vector, Narsil concatenates the configured source text fields and calls the adapter to generate the embedding. On query, pass `text` instead of `value` to auto-embed the search phrase.
+
+```ts
+import { createNarsil } from '@delali/narsil'
+import { createOpenAIEmbedding } from '@delali/narsil/embeddings/openai'
+
+const narsil = await createNarsil({
+  embedding: createOpenAIEmbedding({
+    apiKey: process.env.OPENAI_API_KEY,
+    model: 'text-embedding-3-small',
+    dimensions: 1536,
+  }),
+})
+
+await narsil.createIndex('articles', {
+  schema: {
+    title: 'string',
+    body: 'string',
+    embedding: 'vector[1536]',
+  },
+  embedding: {
+    fields: {
+      embedding: ['title', 'body'],
+    },
+  },
+})
+
+await narsil.insert('articles', {
+  title: 'Distributed search engines',
+  body: 'Partitioning data across shards improves throughput...',
+})
+
+const results = await narsil.query('articles', {
+  mode: 'vector',
+  vector: { field: 'embedding', text: 'how do search engines scale?' },
+})
+```
+
+Two adapters ship with the project:
+
+| Adapter | Package | Dependencies |
+| --- | --- | --- |
+| OpenAI | `@delali/narsil/embeddings/openai` | None (uses `fetch`) |
+| Transformers.js | `@delali/narsil-embeddings-transformers` | `@huggingface/transformers` (peer) |
+
+The OpenAI adapter includes retry logic with exponential backoff and jitter, batch chunking (up to 2,048 inputs per request), and configurable timeouts. The Transformers.js adapter runs models locally with lazy pipeline initialization, supports WebGPU/WASM/CPU backends, and handles asymmetric models through document/query prefixes.
+
+Build a custom adapter by implementing the `EmbeddingAdapter` interface:
+
+```ts
+interface EmbeddingAdapter {
+  embed(input: string, purpose: 'document' | 'query', signal?: AbortSignal): Promise<Float32Array>
+  embedBatch?(inputs: string[], purpose: 'document' | 'query', signal?: AbortSignal): Promise<Float32Array[]>
+  readonly dimensions: number
+  shutdown?(): Promise<void>
+}
+```
+
+If `embedBatch` is not provided, Narsil falls back to parallel `embed()` calls with a concurrency limit of 8.
 
 ### Term suggestions
 
