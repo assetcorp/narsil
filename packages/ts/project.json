@@ -11,7 +11,7 @@
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "pnpm vitest run",
+        "command": "pnpm vitest run --exclude='**/vector/recall.test.ts'",
         "cwd": "packages/ts"
       }
     },
@@ -19,6 +19,13 @@
       "executor": "nx:run-commands",
       "options": {
         "command": "pnpm vitest run --coverage",
+        "cwd": "packages/ts"
+      }
+    },
+    "test:recall": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm vitest run src/__tests__/vector/recall.test.ts",
         "cwd": "packages/ts"
       }
     },

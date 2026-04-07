@@ -39,9 +39,10 @@
   },
   "scripts": {
     "build": "tsup",
-    "test": "vitest run",
+    "test": "vitest run --exclude='**/vector/recall.test.ts'",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:recall": "vitest run src/__tests__/vector/recall.test.ts",
     "test:embeddings": "NARSIL_TEST_EMBEDDINGS=1 vitest run embedding-e2e",
     "bench": "vitest bench",
     "lint": "biome check src/",

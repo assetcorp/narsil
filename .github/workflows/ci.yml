@@ -50,6 +50,68 @@ jobs:
       - name: Test
         run: pnpm nx run narsil-ts:test
 
+  detect-vector-changes:
+    name: Detect vector changes
+    runs-on: ubuntu-latest
+    outputs:
+      vector-changed: ${{ steps.check-paths.outputs.changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Check for vector-related file changes
+        id: check-paths
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- \
+            'packages/ts/src/vector/**' \
+            'packages/ts/src/__tests__/vector/recall.test.ts' \
+          )
+
+          if [ -n "$CHANGED" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  vector-recall-tests:
+    name: Vector Recall Tests
+    runs-on: ubuntu-latest
+    needs: detect-vector-changes
+    if: needs.detect-vector-changes.outputs.vector-changed == 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm nx run narsil-ts:build
+
+      - name: Run vector recall tests
+        run: pnpm nx run narsil-ts:test:recall
+        timeout-minutes: 10
+
   detect-embedding-changes:
     name: Detect embedding changes
     runs-on: ubuntu-latest
