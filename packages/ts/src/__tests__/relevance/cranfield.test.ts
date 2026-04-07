@@ -54,19 +54,13 @@ describe('Cranfield Relevance Evaluation', () => {
     qrelLookup = buildQrelLookup()
 
     for (const query of cranfieldQueries) {
-      const top10 = await narsil.query('cranfield', { term: query.text, limit: 10 })
-      top10Results.set(
-        query.id,
-        top10.hits.map(h => h.id),
-      )
+      const result = await narsil.query('cranfield', { term: query.text, limit: 100 })
+      const allIds = result.hits.map(h => h.id)
 
-      const full = await narsil.query('cranfield', { term: query.text, limit: 1400 })
-      fullResults.set(
-        query.id,
-        full.hits.map(h => h.id),
-      )
+      top10Results.set(query.id, allIds.slice(0, 10))
+      fullResults.set(query.id, allIds)
 
-      if (top10.count === 0) queriesWithZeroResults++
+      if (result.count === 0) queriesWithZeroResults++
       const entry = qrelLookup.get(query.id)
       if (entry === undefined || entry.totalRelevant === 0) queriesWithZeroRelevant++
     }
