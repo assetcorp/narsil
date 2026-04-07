@@ -15,6 +15,13 @@
         "cwd": "packages/embeddings-transformers"
       }
     },
+    "test:coverage": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm vitest run --coverage",
+        "cwd": "packages/embeddings-transformers"
+      }
+    },
     "lint": {
       "executor": "nx:run-commands",
       "options": {
