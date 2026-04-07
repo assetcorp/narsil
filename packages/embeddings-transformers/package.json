@@ -30,6 +30,7 @@
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "lint": "biome check src/",
     "typecheck": "tsc --noEmit"
@@ -50,7 +51,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.4",
     "@huggingface/transformers": "3.8.1",
-    "@types/node": "25.5.0",
+    "@types/node": "22.15.18",
     "tsup": "8.5.1",
     "typescript": "5.9.3",
     "vitest": "4.1.2"
