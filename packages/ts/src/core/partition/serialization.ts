@@ -1,5 +1,4 @@
 import { createGeoIndex } from '../../geo/geo-index'
-import { createVectorSearchEngine } from '../../search/vector-search'
 import type { RawPartitionPayload } from '../../serialization/payload-v1'
 import type { RawPartitionPayloadV2 } from '../../serialization/payload-v2'
 import type { SerializablePartition } from '../../types/internal'
@@ -25,59 +24,71 @@ export function serializePartition(
   const serializedDocs: SerializablePartition['documents'] = Object.create(null)
   for (const [docId, stored] of state.docStore.all()) {
     serializedDocs[docId] = {
-      fields: structuredClone(stored.fields) as Record<string, unknown>,
+      fields: stored.fields as Record<string, unknown>,
       fieldLengths: { ...stored.fieldLengths },
     }
   }
 
-  const serializedInverted = state.invertedIdx.serialize()
+  const resolver = state.docStore.resolver()
+  const fieldNames = state.fieldNameTable.names
   const serializedInvertedIndex: SerializablePartition['invertedIndex'] = Object.create(null)
-  for (const [token, list] of Object.entries(serializedInverted)) {
-    serializedInvertedIndex[token] = {
-      docFrequency: list.docFrequency,
-      postings: list.postings.map(p => ({
-        docId: p.docId,
-        termFrequency: p.termFrequency,
-        field: p.fieldName,
-        positions: [...p.positions],
-      })),
+  for (const token of state.invertedIdx.tokens()) {
+    const list = state.invertedIdx.lookup(token)
+    if (!list) continue
+    const hasDeleted = list.deletedDocs.size > 0
+    const postings: Array<{ docId: string; termFrequency: number; field: string; positions: number[] }> = []
+    for (let i = 0; i < list.length; i++) {
+      if (hasDeleted && list.deletedDocs.has(list.docIds[i])) continue
+      const externalId = resolver.toExternal(list.docIds[i])
+      if (externalId === undefined) continue
+      postings.push({
+        docId: externalId,
+        termFrequency: list.termFrequencies[i],
+        field: fieldNames[list.fieldNameIndices[i]],
+        positions: list.positions ? list.positions[i] : [],
+      })
+    }
+    if (postings.length > 0) {
+      serializedInvertedIndex[token] = { docFrequency: list.docIdSet.size, postings }
     }
   }
 
   const serializedNumeric: Record<string, Array<{ value: number; docId: string }>> = {}
   for (const [path, idx] of state.numericIndexes) {
-    serializedNumeric[path] = idx.serialize()
+    const raw = idx.serialize()
+    serializedNumeric[path] = raw.map(e => {
+      const externalId = resolver.toExternal(e.docId)
+      return { value: e.value, docId: externalId ?? '' }
+    })
   }
 
   const serializedBoolean: Record<string, { trueDocs: string[]; falseDocs: string[] }> = {}
   for (const [path, idx] of state.booleanIndexes) {
-    serializedBoolean[path] = idx.serialize()
+    const raw = idx.serialize()
+    serializedBoolean[path] = {
+      trueDocs: raw.trueDocs.map(id => resolver.toExternal(id) ?? '').filter(id => id !== ''),
+      falseDocs: raw.falseDocs.map(id => resolver.toExternal(id) ?? '').filter(id => id !== ''),
+    }
   }
 
   const serializedEnum: Record<string, Record<string, string[]>> = {}
   for (const [path, idx] of state.enumIndexes) {
-    serializedEnum[path] = idx.serialize()
+    const raw = idx.serialize()
+    const converted: Record<string, string[]> = Object.create(null)
+    for (const [value, internalIds] of Object.entries(raw)) {
+      converted[value] = internalIds.map(id => resolver.toExternal(id) ?? '').filter(id => id !== '')
+    }
+    serializedEnum[path] = converted
   }
 
   const serializedGeo: Record<string, Array<{ lat: number; lon: number; docId: string }>> = {}
   for (const [path, idx] of state.geoIndexes) {
-    serializedGeo[path] = idx.serialize()
-  }
-
-  const serializedVectors: SerializablePartition['vectorData'] = {}
-  for (const [path, store] of state.vectorStores) {
-    const vectors: Array<{ docId: string; vector: number[] }> = []
-    for (const [, entry] of store.entries()) {
-      vectors.push({
-        docId: entry.docId,
-        vector: Array.from(entry.vector),
-      })
-    }
-    serializedVectors[path] = {
-      dimension: store.dimension,
-      vectors,
-      hnswGraph: store.serializeHNSW(),
-    }
+    const raw = idx.serialize()
+    serializedGeo[path] = raw.map(e => ({
+      lat: e.lat,
+      lon: e.lon,
+      docId: resolver.toExternal(e.docId) ?? '',
+    }))
   }
 
   const serializedStats = state.stats.serialize()
@@ -98,7 +109,6 @@ export function serializePartition(
       enum: serializedEnum,
       geopoint: serializedGeo,
     },
-    vectorData: serializedVectors,
     statistics: serializedStats,
   }
 }
@@ -120,11 +130,12 @@ export function serializePartitionToWirePayload(
   const wireDocs: RawPartitionPayload['documents'] = Object.create(null)
   for (const [docId, stored] of state.docStore.all()) {
     wireDocs[docId] = {
-      fields: structuredClone(stored.fields) as Record<string, unknown>,
+      fields: stored.fields as Record<string, unknown>,
       field_lengths: { ...stored.fieldLengths },
     }
   }
 
+  const resolver = state.docStore.resolver()
   const fieldNames = state.fieldNameTable.names
   const wireInverted: RawPartitionPayload['inverted_index'] = Object.create(null)
   for (const token of state.invertedIdx.tokens()) {
@@ -134,8 +145,10 @@ export function serializePartitionToWirePayload(
     const postings: Array<{ doc_id: string; term_freq: number; field: string; positions: number[] }> = []
     for (let i = 0; i < list.length; i++) {
       if (hasDeleted && list.deletedDocs.has(list.docIds[i])) continue
+      const externalId = resolver.toExternal(list.docIds[i])
+      if (externalId === undefined) continue
       postings.push({
-        doc_id: list.docIds[i],
+        doc_id: externalId,
         term_freq: list.termFrequencies[i],
         field: fieldNames[list.fieldNameIndices[i]],
         positions: list.positions ? list.positions[i] : [],
@@ -148,46 +161,38 @@ export function serializePartitionToWirePayload(
 
   const wireNumeric: RawPartitionPayload['field_indexes']['numeric'] = {}
   for (const [path, idx] of state.numericIndexes) {
-    wireNumeric[path] = idx.serialize().map(e => ({ value: e.value, doc_id: e.docId }))
+    wireNumeric[path] = idx.serialize().map(e => ({
+      value: e.value,
+      doc_id: resolver.toExternal(e.docId) ?? '',
+    }))
   }
 
   const wireBoolean: RawPartitionPayload['field_indexes']['boolean'] = {}
   for (const [path, idx] of state.booleanIndexes) {
     const s = idx.serialize()
-    wireBoolean[path] = { true_docs: s.trueDocs, false_docs: s.falseDocs }
+    wireBoolean[path] = {
+      true_docs: s.trueDocs.map(id => resolver.toExternal(id) ?? '').filter(id => id !== ''),
+      false_docs: s.falseDocs.map(id => resolver.toExternal(id) ?? '').filter(id => id !== ''),
+    }
   }
 
   const wireEnum: Record<string, Record<string, string[]>> = {}
   for (const [path, idx] of state.enumIndexes) {
-    wireEnum[path] = idx.serialize()
+    const raw = idx.serialize()
+    const converted: Record<string, string[]> = Object.create(null)
+    for (const [value, internalIds] of Object.entries(raw)) {
+      converted[value] = internalIds.map(id => resolver.toExternal(id) ?? '').filter(id => id !== '')
+    }
+    wireEnum[path] = converted
   }
 
   const wireGeo: RawPartitionPayload['field_indexes']['geopoint'] = {}
   for (const [path, idx] of state.geoIndexes) {
-    wireGeo[path] = idx.serialize().map(e => ({ lat: e.lat, lon: e.lon, doc_id: e.docId }))
-  }
-
-  const wireVectors: RawPartitionPayload['vector_data'] = {}
-  for (const [path, store] of state.vectorStores) {
-    const vectors: Array<{ doc_id: string; vector: number[] }> = []
-    for (const [, entry] of store.entries()) {
-      vectors.push({ doc_id: entry.docId, vector: Array.from(entry.vector) })
-    }
-    const hnswData = store.serializeHNSW()
-    wireVectors[path] = {
-      dimension: store.dimension,
-      vectors,
-      hnsw_graph: hnswData
-        ? {
-            entry_point: hnswData.entryPoint,
-            max_layer: hnswData.maxLayer,
-            m: hnswData.m,
-            ef_construction: hnswData.efConstruction,
-            metric: hnswData.metric,
-            nodes: hnswData.nodes,
-          }
-        : null,
-    }
+    wireGeo[path] = idx.serialize().map(e => ({
+      lat: e.lat,
+      lon: e.lon,
+      doc_id: resolver.toExternal(e.docId) ?? '',
+    }))
   }
 
   const serializedStats = state.stats.serialize()
@@ -208,7 +213,6 @@ export function serializePartitionToWirePayload(
       enum: wireEnum,
       geopoint: wireGeo,
     },
-    vector_data: wireVectors,
     statistics: {
       total_documents: serializedStats.totalDocuments,
       total_field_lengths: serializedStats.totalFieldLengths,
@@ -235,14 +239,17 @@ export function serializePartitionToWirePayloadV2(
   const wireDocs: RawPartitionPayloadV2['documents'] = Object.create(null)
   for (const [docId, stored] of state.docStore.all()) {
     wireDocs[docId] = {
-      fields: structuredClone(stored.fields) as Record<string, unknown>,
+      fields: stored.fields as Record<string, unknown>,
       field_lengths: { ...stored.fieldLengths },
     }
   }
 
+  const resolver = state.docStore.resolver()
   const fieldNames = [...state.fieldNameTable.names]
-  const wireEntries: Record<string, { df: number; ids: string[]; tf: number[]; fi: number[]; pos: number[][] | null }> =
-    Object.create(null)
+  const wireEntries: Record<
+    string,
+    { df: number; ids: string[]; tf: number[]; fi: Uint8Array; pos: number[][] | null }
+  > = Object.create(null)
 
   for (const token of state.invertedIdx.tokens()) {
     const list = state.invertedIdx.lookup(token)
@@ -251,66 +258,63 @@ export function serializePartitionToWirePayloadV2(
 
     const ids: string[] = []
     const tf: number[] = []
-    const fi: number[] = []
+    const fi = new Uint8Array(list.length)
     const pos: number[][] | null = list.positions ? [] : null
+    let writeIdx = 0
 
     for (let i = 0; i < list.length; i++) {
       if (hasDeleted && list.deletedDocs.has(list.docIds[i])) continue
-      ids.push(list.docIds[i])
+      const externalId = resolver.toExternal(list.docIds[i])
+      if (externalId === undefined) continue
+      ids.push(externalId)
       tf.push(list.termFrequencies[i])
-      fi.push(list.fieldNameIndices[i])
+      fi[writeIdx] = list.fieldNameIndices[i]
+      writeIdx++
       if (pos && list.positions) {
         pos.push(list.positions[i])
       }
     }
 
     if (ids.length > 0) {
-      wireEntries[token] = { df: list.docIdSet.size, ids, tf, fi, pos }
+      const finalFi = writeIdx < list.length ? fi.subarray(0, writeIdx) : fi
+      wireEntries[token] = { df: list.docIdSet.size, ids, tf, fi: finalFi, pos }
     }
   }
 
   const wireNumeric: RawPartitionPayloadV2['field_indexes']['numeric'] = {}
   for (const [path, idx] of state.numericIndexes) {
-    wireNumeric[path] = idx.serialize().map(e => ({ value: e.value, doc_id: e.docId }))
+    wireNumeric[path] = idx.serialize().map(e => ({
+      value: e.value,
+      doc_id: resolver.toExternal(e.docId) ?? '',
+    }))
   }
 
   const wireBoolean: RawPartitionPayloadV2['field_indexes']['boolean'] = {}
   for (const [path, idx] of state.booleanIndexes) {
     const s = idx.serialize()
-    wireBoolean[path] = { true_docs: s.trueDocs, false_docs: s.falseDocs }
+    wireBoolean[path] = {
+      true_docs: s.trueDocs.map(id => resolver.toExternal(id) ?? '').filter(id => id !== ''),
+      false_docs: s.falseDocs.map(id => resolver.toExternal(id) ?? '').filter(id => id !== ''),
+    }
   }
 
   const wireEnum: Record<string, Record<string, string[]>> = {}
   for (const [path, idx] of state.enumIndexes) {
-    wireEnum[path] = idx.serialize()
+    const raw = idx.serialize()
+    const converted: Record<string, string[]> = Object.create(null)
+    for (const [value, internalIds] of Object.entries(raw)) {
+      converted[value] = internalIds.map(id => resolver.toExternal(id) ?? '').filter(id => id !== '')
+    }
+    wireEnum[path] = converted
   }
 
   const wireGeo: RawPartitionPayloadV2['field_indexes']['geopoint'] = {}
   for (const [path, idx] of state.geoIndexes) {
-    wireGeo[path] = idx.serialize().map(e => ({ lat: e.lat, lon: e.lon, doc_id: e.docId }))
-  }
-
-  const wireVectors: RawPartitionPayloadV2['vector_data'] = {}
-  for (const [path, store] of state.vectorStores) {
-    const vectors: Array<{ doc_id: string; vector: number[] }> = []
-    for (const [, entry] of store.entries()) {
-      vectors.push({ doc_id: entry.docId, vector: Array.from(entry.vector) })
-    }
-    const hnswData = store.serializeHNSW()
-    wireVectors[path] = {
-      dimension: store.dimension,
-      vectors,
-      hnsw_graph: hnswData
-        ? {
-            entry_point: hnswData.entryPoint,
-            max_layer: hnswData.maxLayer,
-            m: hnswData.m,
-            ef_construction: hnswData.efConstruction,
-            metric: hnswData.metric,
-            nodes: hnswData.nodes,
-          }
-        : null,
-    }
+    wireGeo[path] = idx.serialize().map(e => ({
+      lat: e.lat,
+      lon: e.lon,
+      doc_id: resolver.toExternal(e.docId) ?? '',
+    }))
   }
 
   const serializedStats = state.stats.serialize()
@@ -335,7 +339,6 @@ export function serializePartitionToWirePayloadV2(
       enum: wireEnum,
       geopoint: wireGeo,
     },
-    vector_data: wireVectors,
     statistics: {
       total_documents: serializedStats.totalDocuments,
       total_field_lengths: serializedStats.totalFieldLengths,
@@ -352,6 +355,15 @@ export function deserializePartition(
   schema: SchemaDefinition,
 ): void {
   clearFn()
+
+  const docsData: Record<string, { fields: Record<string, unknown>; fieldLengths: Record<string, number> }> =
+    Object.create(null)
+  for (const [docId, doc] of Object.entries(data.documents)) {
+    docsData[docId] = { fields: doc.fields, fieldLengths: doc.fieldLengths }
+  }
+  state.docStore.deserialize(docsData)
+
+  const resolver = state.docStore.resolver()
 
   const invertedData: Record<
     string,
@@ -371,48 +383,53 @@ export function deserializePartition(
       })),
     }
   }
-  state.invertedIdx.deserialize(invertedData)
-
-  const docsData: Record<string, { fields: Record<string, unknown>; fieldLengths: Record<string, number> }> =
-    Object.create(null)
-  for (const [docId, doc] of Object.entries(data.documents)) {
-    docsData[docId] = { fields: doc.fields, fieldLengths: doc.fieldLengths }
-  }
-  state.docStore.deserialize(docsData)
+  state.invertedIdx.deserialize(invertedData, resolver)
 
   for (const [path, entries] of Object.entries(data.fieldIndexes.numeric)) {
     const idx = createNumericIndex()
-    idx.deserialize(entries)
+    const converted = entries
+      .map(e => {
+        const internalId = resolver.toInternal(e.docId)
+        return { value: e.value, docId: internalId ?? -1 }
+      })
+      .filter(e => e.docId !== -1)
+    idx.deserialize(converted)
     state.numericIndexes.set(path, idx)
   }
 
   for (const [path, serialized] of Object.entries(data.fieldIndexes.boolean)) {
     const idx = createBooleanIndex()
-    idx.deserialize(serialized)
+    const trueDocs = serialized.trueDocs
+      .map(id => resolver.toInternal(id))
+      .filter((id): id is number => id !== undefined)
+    const falseDocs = serialized.falseDocs
+      .map(id => resolver.toInternal(id))
+      .filter((id): id is number => id !== undefined)
+    idx.deserialize({ trueDocs, falseDocs })
     state.booleanIndexes.set(path, idx)
   }
 
   for (const [path, serialized] of Object.entries(data.fieldIndexes.enum)) {
     const idx = createEnumIndex()
-    idx.deserialize(serialized)
+    const converted: Record<string, number[]> = Object.create(null)
+    for (const [value, docIds] of Object.entries(serialized)) {
+      converted[value] = docIds.map(id => resolver.toInternal(id)).filter((id): id is number => id !== undefined)
+    }
+    idx.deserialize(converted)
     state.enumIndexes.set(path, idx)
   }
 
   for (const [path, entries] of Object.entries(data.fieldIndexes.geopoint)) {
     const geoIdx = createGeoIndex()
-    geoIdx.deserialize(entries)
+    const converted = entries
+      .map(e => ({
+        lat: e.lat,
+        lon: e.lon,
+        docId: resolver.toInternal(e.docId) ?? -1,
+      }))
+      .filter(e => e.docId !== -1)
+    geoIdx.deserialize(converted)
     state.geoIndexes.set(path, geoIdx)
-  }
-
-  for (const [path, vecData] of Object.entries(data.vectorData)) {
-    const store = createVectorSearchEngine(vecData.dimension)
-    for (const entry of vecData.vectors) {
-      store.insert(entry.docId, new Float32Array(entry.vector))
-    }
-    if (vecData.hnswGraph) {
-      store.deserializeHNSW(vecData.hnswGraph)
-    }
-    state.vectorStores.set(path, store)
   }
 
   state.stats.deserialize(data.statistics as SerializedPartitionStats)

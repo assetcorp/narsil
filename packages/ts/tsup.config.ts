@@ -15,6 +15,7 @@ export default defineConfig([
       'invalidation/broadcast-channel': 'src/invalidation/broadcast-channel.ts',
       'workers/entry': 'src/workers/worker-entry.ts',
       'vector/hnsw-build-worker': 'src/vector/hnsw-build-worker.ts',
+      'embeddings/openai': 'src/embeddings/openai.ts',
       'languages/english': 'src/languages/english.ts',
       'languages/french': 'src/languages/french.ts',
       'languages/german': 'src/languages/german.ts',

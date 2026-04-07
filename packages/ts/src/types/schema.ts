@@ -1,3 +1,5 @@
+import type { EmbeddingAdapter } from './adapters'
+
 export type AnyDocument = Record<string, unknown> & { id?: string }
 
 export type FieldType =
@@ -16,10 +18,21 @@ export type SchemaDefinition = {
   [field: string]: FieldType | SchemaDefinition
 }
 
-export interface VectorPromotionConfig {
+export type VectorQuantizationMode = 'sq8' | 'none'
+
+export interface VectorIndexConfig {
   threshold?: number
+  filterThreshold?: number
   hnswConfig?: { m?: number; efConstruction?: number; metric?: 'cosine' | 'dotProduct' | 'euclidean' }
-  workerStrategy?: 'worker-threads' | 'web-worker' | 'synchronous'
+  quantization?: VectorQuantizationMode
+}
+
+/** @deprecated Use VectorIndexConfig instead */
+export type VectorPromotionConfig = VectorIndexConfig
+
+export interface EmbeddingFieldConfig {
+  adapter?: EmbeddingAdapter
+  fields: Record<string, string | string[]>
 }
 
 export interface IndexConfig {
@@ -31,8 +44,10 @@ export interface IndexConfig {
   stopWords?: Set<string> | ((defaults: Set<string>) => Set<string>)
   tokenizer?: CustomTokenizer
   trackPositions?: boolean
-  vectorPromotion?: VectorPromotionConfig
+  vectorPromotion?: VectorIndexConfig
   strict?: boolean
+  embedding?: EmbeddingFieldConfig
+  required?: string[]
 }
 
 export interface BM25Params {

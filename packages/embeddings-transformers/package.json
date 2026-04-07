@@ -1,0 +1,59 @@
+{
+  "name": "@delali/narsil-embeddings-transformers",
+  "version": "0.1.5",
+  "type": "module",
+  "description": "Transformers.js embedding adapter for Narsil search engine",
+  "author": "Delali (https://sondelali.com)",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/assetcorp/narsil",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/assetcorp/narsil.git",
+    "directory": "packages/embeddings-transformers"
+  },
+  "bugs": {
+    "url": "https://github.com/assetcorp/narsil/issues"
+  },
+  "sideEffects": false,
+  "keywords": [
+    "narsil",
+    "embedding",
+    "transformers",
+    "transformers.js",
+    "vector-search",
+    "search-engine",
+    "huggingface"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "lint": "biome check src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist/",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@huggingface/transformers": ">=3.0.0 <4.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.4",
+    "@huggingface/transformers": "3.8.1",
+    "@types/node": "22.15.18",
+    "tsup": "8.5.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.2"
+  }
+}

@@ -37,7 +37,7 @@ Where:
 ### IDF (Inverse Document Frequency)
 
 ```text
-IDF(qi) = log((N - n(qi) + 0.5) / (n(qi) + 0.5) + 1)
+IDF(qi) = ln((N - n(qi) + 0.5) / (n(qi) + 0.5) + 1)
 ```
 
 The `+ 1` inside the logarithm ensures IDF is always non-negative,
@@ -71,10 +71,10 @@ configurable per index at creation time.
 ### BM25 Edge Cases
 
 - **Term in zero documents:** `n(qi) = 0`.
-  IDF = `log((N + 0.5) / (0.5) + 1)`. High IDF, but no documents
+  IDF = `ln((N + 0.5) / (0.5) + 1)`. High IDF, but no documents
   match, so this term contributes nothing to any document's score.
 - **Term in all documents:** `n(qi) = N`.
-  IDF = `log((0.5) / (N + 0.5) + 1)`. Close to zero; the term is
+  IDF = `ln((0.5) / (N + 0.5) + 1)`. Close to zero; the term is
   not discriminative.
 - **Empty corpus:** `N = 0`. Return score 0 for all documents.
 - **Zero-length document:** `|D| = 0`. The denominator reduces to
@@ -114,11 +114,13 @@ the distance exceeds a tolerance bound.
 Standard dynamic programming matrix with bounded evaluation:
 
 ```text
-function boundedLevenshtein(a, b, tolerance):
+fn boundedLevenshtein(a: string, b: string, tolerance: uint32)
+    -> { distance: uint32, withinTolerance: bool }
+
   if abs(len(a) - len(b)) > tolerance:
     return { distance: tolerance + 1, withinTolerance: false }
 
-  let matrix = Array[len(a) + 1][len(b) + 1]
+  matrix = new uint32 array of size [len(a) + 1][len(b) + 1]
   initialize matrix[i][0] = i for i in 0..len(a)
   initialize matrix[0][j] = j for j in 0..len(b)
 
@@ -163,7 +165,9 @@ O(prefix\_bucket\_size).
 
 HNSW is an approximate nearest neighbor (ANN) algorithm used for vector
 similarity search when the vector count exceeds the brute-force
-threshold (~10,000 vectors).
+promotion threshold (see
+[vector-index.md](vector-index.md#hnsw-promotion) for the threshold
+configuration and promotion process).
 
 ### Graph Structure
 
@@ -179,8 +183,8 @@ HNSW constructs a multi-layered proximity graph:
 Layer assignment follows an exponential distribution:
 
 ```text
-layer = floor(-log(random()) * mL)
-where mL = 1 / log(M)
+layer = floor(-ln(random()) * mL)
+where mL = 1 / ln(M)
 ```
 
 ### Construction (Insertion)
@@ -264,36 +268,58 @@ schema):
   max_layer:       uint8
   m:               uint8
   ef_construction: uint16
-  nodes: Array<[
+  nodes: array[[
     docId:       string,
     layer:       uint8,
-    connections: Array<[
+    connections: array[[
       layer_index: uint8,
-      neighbor_ids: Array<string>
-    ]>
-  ]>
+      neighbor_ids: array[string]
+    ]]
+  ]]
 }
 ```
 
+### Filtered Search
+
+When a filter set is provided, only vectors whose document ID is in
+the filter are eligible for results. Filter selectivity affects
+search strategy:
+
+```text
+selectivity = size(filterDocIds) / totalVectors
+
+if selectivity < filterThreshold (default 0.03):
+  Brute-force scan only the vectors in filterDocIds.
+else:
+  HNSW traversal with filter applied during the walk.
+  Increase efSearch to compensate for reduced connectivity:
+    ef = max(efSearch, ceil(k / max(selectivity, 0.01)))
+    ef = min(ef, totalVectors)
+```
+
+At 3% selectivity on a 100K index, the filter passes 3,000 vectors.
+Brute-force over 3,000 vectors is fast. HNSW traversal with 97%
+dead-end rate would be slower due to graph traversal overhead on
+non-matching nodes.
+
+When searching multiple HNSW graphs, the selectivity check applies
+per graph, not globally.
+
 ### Auto-Promotion
 
-Narsil uses a two-tier approach to vector search:
-
-- **Under ~10,000 vectors:** Brute-force linear scan. Simple, exact,
-  deterministic.
-- **Above ~10,000 vectors:** HNSW. Built from existing vectors in a
-  background task. The search backend switches from brute-force to
-  HNSW transparently.
-
-The promotion threshold (10,000) is configurable and should be
-validated by benchmarks.
+Narsil uses a two-tier approach to vector search: brute-force
+linear scan below a configurable promotion threshold, and HNSW
+approximate search at or above it. See
+[vector-index.md](vector-index.md#hnsw-promotion) for the full
+promotion process, threshold configuration, and construction
+strategy.
 
 ---
 
 ## Similarity Functions
 
 Three metrics for vector distance/similarity computation. All operate
-on `Float32Array` for memory efficiency.
+on 32-bit floating-point arrays for memory efficiency.
 
 ### Cosine Similarity
 
@@ -468,7 +494,7 @@ many polygon edges the ray crosses. Odd count = inside, even count =
 outside.
 
 ```text
-function isPointInPolygon(lat, lon, polygon):
+fn isPointInPolygon(lat: float64, lon: float64, polygon: array[GeoPoint]) -> bool
   inside = false
   j = len(polygon) - 1
 
@@ -491,7 +517,7 @@ Used internally for optimization (e.g., pre-filtering by distance to
 centroid before running the full polygon check).
 
 ```text
-function centroid(polygon):
+fn centroid(polygon: array[GeoPoint]) -> GeoPoint
   A = 0  (signed area)
   cx = 0
   cy = 0
@@ -501,9 +527,9 @@ function centroid(polygon):
     j = (i + 1) % n
     cross = polygon[i].lat * polygon[j].lon
           - polygon[j].lat * polygon[i].lon
-    A += cross
-    cx += (polygon[i].lat + polygon[j].lat) * cross
-    cy += (polygon[i].lon + polygon[j].lon) * cross
+    A = A + cross
+    cx = cx + (polygon[i].lat + polygon[j].lat) * cross
+    cy = cy + (polygon[i].lon + polygon[j].lon) * cross
 
   A = A / 2
   cx = cx / (6 * A)
@@ -539,24 +565,24 @@ IEEE polynomial: 0xEDB88320 (reflected form)
 Use a 256-entry lookup table for performance:
 
 ```text
-function buildCRC32Table():
-  table = Array[256]
+fn buildCRC32Table() -> array[uint32]
+  table = new uint32 array of size 256
   for i in 0..256:
     crc = i
     for bit in 0..8:
       if crc & 1:
-        crc = (crc >>> 1) ^ 0xEDB88320
+        crc = (crc >>> 1) XOR 0xEDB88320
       else:
         crc = crc >>> 1
     table[i] = crc
   return table
 
-function crc32(data: bytes):
+fn crc32(data: bytes) -> uint32
   table = getCachedTable()
   crc = 0xFFFFFFFF
   for byte in data:
-    crc = (crc >>> 8) ^ table[(crc ^ byte) & 0xFF]
-  return crc ^ 0xFFFFFFFF
+    crc = (crc >>> 8) XOR table[(crc XOR byte) & 0xFF]
+  return crc XOR 0xFFFFFFFF
 ```
 
 ### Test Vectors
@@ -583,7 +609,7 @@ A fast, non-cryptographic hash function used for partition routing
 ### FNV-1a Algorithm
 
 ```text
-function fnv1a(input: string):
+fn fnv1a(input: string) -> uint32
   hash = 2166136261          (FNV offset basis, uint32)
   for each byte in UTF-8(input):
     hash = hash XOR byte
@@ -615,3 +641,166 @@ XOR/multiply iterations execute.
 The input string must be encoded as UTF-8 bytes before hashing. All
 implementations must use the same UTF-8 encoding to ensure identical
 hash values across languages.
+
+---
+
+## Reciprocal Rank Fusion (RRF)
+
+RRF is the default hybrid search fusion strategy. It combines
+ranked result lists from different search modalities (e.g., BM25
+text search and vector similarity search) by fusing on rank
+position rather than score magnitude.
+
+### RRF Formula
+
+Given result lists `L1, L2, ..., Ln` and a constant `k`:
+
+```text
+rrf_score(doc) = SUM for each list Li where doc appears:
+  1 / (k + rank_Li(doc))
+```
+
+Where `rank_Li(doc)` is the 1-indexed rank of the document in list
+`Li`. Documents ranked first have `rank = 1`.
+
+### RRF Parameters
+
+| Parameter | Default | Description                              |
+|-----------|---------|------------------------------------------|
+| `k`       | 60      | Dampening constant for rank influence    |
+
+Higher `k` reduces the score difference between adjacent ranks,
+making the fusion more uniform. Lower `k` amplifies the advantage
+of top-ranked results.
+
+### RRF Algorithm
+
+```text
+fn reciprocalRankFusion(lists: array[array[ScoredDoc]], k: uint32) -> array[ScoredDoc]
+  scores = map[string, float64]
+
+  for each list L in lists:
+    for rank, doc in enumerate(L, start=1):
+      scores[doc.id] = (scores[doc.id] or 0) + 1 / (k + rank)
+
+  result = collect scores entries, sorted by score descending
+  return result
+```
+
+### RRF Properties
+
+- **Normalization-free:** Ranks are directly comparable across any
+  scoring system. BM25 scores and cosine similarities have
+  different distributions, but rank positions are always
+  comparable.
+- **Missing list handling:** Documents appearing in only one list
+  receive a score contribution from that list only. Their
+  contribution from missing lists is 0 (equivalent to
+  `rank = infinity`).
+- **Ties:** When multiple documents have the same RRF score, they
+  are ordered by document ID (lexicographic) for deterministic
+  pagination.
+
+---
+
+## Scalar Quantization (SQ8)
+
+SQ8 compresses float32 vectors to uint8, providing 4x memory
+savings for stored vectors. Quantized vectors are used for fast
+approximate distance computation during HNSW traversal.
+Full-precision vectors are kept for final rescoring.
+
+### Quantization Formula
+
+For a vector `v` with global statistics `alpha` and `offset`:
+
+```text
+quantize(v[i]) = clamp(round((v[i] - offset) / alpha * 255), 0, 255)
+
+dequantize(q[i]) = q[i] / 255 * alpha + offset
+```
+
+### Calibration
+
+Calibration computes `alpha` and `offset` from all vectors in the
+store:
+
+```text
+fn calibrate(vectors: array[float32 array]) -> { alpha: float32, offset: float32 }
+  allValues = flatten all dimensions from all vectors
+  min_val = min(allValues)
+  max_val = max(allValues)
+  alpha  = max_val - min_val
+  offset = min_val
+  return { alpha, offset }
+```
+
+If `alpha` is zero (all values identical), set `alpha = 1.0` to
+avoid division by zero.
+
+### SQ8 Dot Product
+
+The quantized dot product uses integer arithmetic:
+
+```text
+fn sq8DotProduct(a: uint8 array, b: uint8 array, dimension: uint16,
+                 alpha: float32, offset: float32) -> float32
+  intSum = 0
+  intSumA = 0
+  intSumB = 0
+  for i in 0..dimension:
+    intSum  = intSum + a[i] * b[i]
+    intSumA = intSumA + a[i]
+    intSumB = intSumB + b[i]
+
+  scale = alpha / 255
+  return scale * scale * intSum
+       + scale * offset * (intSumA + intSumB)
+       + offset * offset * dimension
+```
+
+This avoids per-dimension floating-point operations. The three
+integer accumulators are computed in a single pass, then converted
+to the final float result with three multiplications.
+
+### SQ8 Cosine Similarity
+
+For cosine similarity, pre-computed vector sums and sum-of-squares
+are used to compute magnitudes without dequantizing:
+
+```text
+fn sq8Cosine(a: uint8 array, b: uint8 array, dimension: uint16,
+             alpha: float32, offset: float32,
+             sumA: float32, sumSqA: float32,
+             sumB: float32, sumSqB: float32) -> float32
+  dot = sq8DotProduct(a, b, dimension, alpha, offset)
+  magA = sqrt(sumSqA)
+  magB = sqrt(sumSqB)
+  if magA == 0 or magB == 0: return 0
+  return dot / (magA * magB)
+```
+
+`sumSqA` and `sumSqB` are pre-computed from the full-precision
+vectors at insertion time:
+
+```text
+sumSq(v) = SUM(v[i]^2) for i in 0..dimension
+```
+
+### SQ8 Properties
+
+- **Memory savings:** 4x reduction (float32 to uint8 per dimension).
+- **Speed:** The integer inner loop benefits from SIMD acceleration.
+  On runtimes without SIMD support, the primary value of SQ8 is
+  memory savings. On runtimes with SIMD (native code, WASM SIMD),
+  the integer inner loop can be significantly faster than float32.
+- **Accuracy:** Global SQ8 (single alpha/offset for all dimensions)
+  matches float32 HNSW recall for typical embedding distributions.
+  Accuracy degrades when the value distribution is highly non-uniform
+  across dimensions.
+
+### Recalibration
+
+SQ8 parameters are recalibrated during `compact()` to account for
+distribution changes after document removals. See
+[vector-index.md](vector-index.md#scalar-quantization-sq8).

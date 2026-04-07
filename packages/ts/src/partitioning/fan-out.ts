@@ -1,7 +1,6 @@
 import type { PartitionIndex } from '../core/partition'
 import { mergeFacets } from '../search/facets'
 import { type FulltextSearchOptions, fulltextSearch } from '../search/fulltext'
-import { hybridSearch } from '../search/hybrid'
 import type { GlobalStatistics, InternalSearchResult, ScoredDocument } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { FacetResult } from '../types/results'
@@ -140,27 +139,6 @@ function dispatchSinglePartition(
   schema: SchemaDefinition,
   options: FulltextSearchOptions,
 ): InternalSearchResult {
-  const isHybridMode = params.mode === 'hybrid'
-  const hasTerm = params.term !== undefined && params.term.trim().length > 0
-  const hasVector = params.vector !== undefined
-
-  if (isHybridMode || (hasTerm && hasVector)) {
-    return hybridSearch(partition, params, language, schema, options)
-  }
-
-  if (params.mode === 'vector' || (hasVector && !hasTerm)) {
-    if (!params.vector) return { scored: [], totalMatched: 0 }
-    const vectorConfig = params.vector
-    return partition.searchVector({
-      field: vectorConfig.field,
-      value: vectorConfig.value,
-      k: params.limit ?? 10,
-      similarity: vectorConfig.similarity,
-      metric: vectorConfig.metric,
-      efSearch: vectorConfig.efSearch,
-    })
-  }
-
   return fulltextSearch(partition, params, language, schema, options)
 }
 

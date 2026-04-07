@@ -23,9 +23,9 @@ Requires Node.js >= 22.
 ## Quick start
 
 ```ts
-import { Narsil } from '@delali/narsil'
+import { createNarsil } from '@delali/narsil'
 
-const narsil = new Narsil()
+const narsil = await createNarsil()
 
 await narsil.createIndex('products', {
   schema: {
@@ -58,6 +58,72 @@ const results = await narsil.query('products', {
   limit: 10,
 })
 ```
+
+## Configuration
+
+`createNarsil` accepts an optional `NarsilConfig` object. All fields are optional.
+
+```ts
+import { createNarsil } from '@delali/narsil'
+
+const narsil = await createNarsil({
+  persistence: myAdapter,
+  workers: { enabled: true, count: 4 },
+  flush: { interval: 5000, mutationThreshold: 100 },
+})
+```
+
+### NarsilConfig
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `persistence` | `PersistenceAdapter` | Storage backend for durable indexes (filesystem, IndexedDB, or custom) |
+| `invalidation` | `InvalidationAdapter` | Cross-instance cache coordination adapter for multi-process or multi-tab setups |
+| `plugins` | `NarsilPlugin[]` | Lifecycle hooks for insert, remove, update, search, and index events |
+| `idGenerator` | `() => string` | Custom function for generating document IDs (defaults to UUID v7) |
+| `workers` | `WorkerConfig` | Worker thread configuration for parallel search |
+| `flush` | `FlushConfig` | Controls when dirty partitions persist to storage |
+| `eagerLoad` | `boolean` | When `true`, loads all persisted data into memory at creation time |
+| `embedding` | `EmbeddingAdapter` | Default adapter for auto-embedding text fields into vectors (see [Embedding adapters](#embedding-adapters)) |
+
+### WorkerConfig
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `boolean` | `false` | Enables worker thread pool for search |
+| `count` | `number` | CPU count | Number of worker threads to spawn |
+| `promotionThreshold` | `number` | - | Document count per index that triggers auto-promotion to workers |
+| `totalPromotionThreshold` | `number` | - | Total document count across all indexes that triggers auto-promotion |
+
+### FlushConfig
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `interval` | `number` | - | Milliseconds between persistence flushes |
+| `mutationThreshold` | `number` | - | Number of mutations that triggers a flush |
+
+### Tokenizer cache
+
+The stemmer normalization cache auto-sizes based on the runtime environment. On Node.js it reads container memory limits (via `process.constrainedMemory()`), in browsers it checks `navigator.deviceMemory`, and falls back to a sensible default elsewhere.
+
+This cache is process-global, shared across all Narsil instances in the same process. You can override the size by calling `configureNormalizationCache` once at startup, before creating any instances:
+
+```ts
+import { configureNormalizationCache, createNarsil } from '@delali/narsil'
+
+configureNormalizationCache(500_000)
+
+const narsil = await createNarsil()
+```
+
+The value clamps to a floor of 50,000 and a ceiling of 2,000,000 entries. Invalid values (NaN, Infinity, negative numbers, zero) throw a `NarsilError` with code `CONFIG_INVALID`.
+
+Four utility functions are available for cache management:
+
+- `configureNormalizationCache(maxSize)` - set the maximum cache size
+- `clearNormalizationCache()` - drop all cached entries (reclaim memory after one-off indexing)
+- `resetNormalizationCache()` - clear the cache and reset the size to the auto-detected default
+- `getNormalizationCacheSize()` - return the current number of cached entries (useful for monitoring)
 
 ## Features
 
@@ -145,6 +211,68 @@ const results = await narsil.query('products', {
 })
 // hit.highlights.title.snippet => '<mark>Mechanical</mark> Keyboard'
 ```
+
+### Embedding adapters
+
+Auto-embed text fields into vectors on insert and query. Pass an `EmbeddingAdapter` at the instance level (shared default) or per-index. When a document is inserted without a pre-computed vector, Narsil concatenates the configured source text fields and calls the adapter to generate the embedding. On query, pass `text` instead of `value` to auto-embed the search phrase.
+
+```ts
+import { createNarsil } from '@delali/narsil'
+import { createOpenAIEmbedding } from '@delali/narsil/embeddings/openai'
+
+const narsil = await createNarsil({
+  embedding: createOpenAIEmbedding({
+    apiKey: process.env.OPENAI_API_KEY,
+    model: 'text-embedding-3-small',
+    dimensions: 1536,
+  }),
+})
+
+await narsil.createIndex('articles', {
+  schema: {
+    title: 'string',
+    body: 'string',
+    embedding: 'vector[1536]',
+  },
+  embedding: {
+    fields: {
+      embedding: ['title', 'body'],
+    },
+  },
+})
+
+await narsil.insert('articles', {
+  title: 'Distributed search engines',
+  body: 'Partitioning data across shards improves throughput...',
+})
+
+const results = await narsil.query('articles', {
+  mode: 'vector',
+  vector: { field: 'embedding', text: 'how do search engines scale?' },
+})
+```
+
+Two adapters ship with the project:
+
+| Adapter | Package | Dependencies |
+| --- | --- | --- |
+| OpenAI | `@delali/narsil/embeddings/openai` | None (uses `fetch`) |
+| Transformers.js | `@delali/narsil-embeddings-transformers` | `@huggingface/transformers` (peer) |
+
+The OpenAI adapter includes retry logic with exponential backoff and jitter, batch chunking (up to 2,048 inputs per request), and configurable timeouts. The Transformers.js adapter runs models locally with lazy pipeline initialization, supports WebGPU/WASM/CPU backends, and handles asymmetric models through document/query prefixes.
+
+Build a custom adapter by implementing the `EmbeddingAdapter` interface:
+
+```ts
+interface EmbeddingAdapter {
+  embed(input: string, purpose: 'document' | 'query', signal?: AbortSignal): Promise<Float32Array>
+  embedBatch?(inputs: string[], purpose: 'document' | 'query', signal?: AbortSignal): Promise<Float32Array[]>
+  readonly dimensions: number
+  shutdown?(): Promise<void>
+}
+```
+
+If `embedBatch` is not provided, Narsil falls back to parallel `embed()` calls with a concurrency limit of 8.
 
 ### Term suggestions
 

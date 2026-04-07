@@ -17,6 +17,8 @@ const VECTOR_PATTERN = /^vector\[(\d+)]$/
 
 const RESERVED_ROOT_FIELDS = new Set(['id'])
 
+const PROTOTYPE_POLLUTION_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
 const MAX_NESTING_DEPTH = 4
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -34,6 +36,13 @@ function validateSchemaFields(schema: SchemaDefinition, depth: number, prefix: s
 
   for (const [field, type] of Object.entries(schema)) {
     const path = prefix ? `${prefix}.${field}` : field
+
+    if (PROTOTYPE_POLLUTION_KEYS.has(field)) {
+      throw new NarsilError(ErrorCodes.SCHEMA_INVALID_TYPE, `Field name "${field}" is not allowed in a schema`, {
+        field,
+        path,
+      })
+    }
 
     if (depth === 1 && RESERVED_ROOT_FIELDS.has(field)) {
       throw new NarsilError(
@@ -342,6 +351,30 @@ export function validateDocumentStrict(document: Record<string, unknown>, schema
   }
 }
 
+function resolveNestedValue(document: Record<string, unknown>, path: string): unknown {
+  if (!path.includes('.')) return document[path]
+  const segments = path.split('.')
+  let current: unknown = document
+  for (const segment of segments) {
+    if (current === null || current === undefined || typeof current !== 'object') return undefined
+    current = (current as Record<string, unknown>)[segment]
+  }
+  return current
+}
+
+export function validateRequiredFields(document: Record<string, unknown>, required: string[]): void {
+  if (required.length === 0) return
+
+  for (const field of required) {
+    const value = resolveNestedValue(document, field)
+    if (value === undefined || value === null) {
+      throw new NarsilError(ErrorCodes.DOC_MISSING_REQUIRED_FIELD, `Document is missing required field "${field}"`, {
+        field,
+      })
+    }
+  }
+}
+
 function flattenRecursive(schema: SchemaDefinition, prefix: string, result: Record<string, FieldType>): void {
   for (const [field, type] of Object.entries(schema)) {
     const path = prefix ? `${prefix}.${field}` : field
@@ -356,5 +389,17 @@ function flattenRecursive(schema: SchemaDefinition, prefix: string, result: Reco
 export function flattenSchema(schema: SchemaDefinition): Record<string, FieldType> {
   const result: Record<string, FieldType> = {}
   flattenRecursive(schema, '', result)
+  return result
+}
+
+export function extractVectorFieldsFromSchema(schema: SchemaDefinition): Map<string, number> {
+  const flat = flattenSchema(schema)
+  const result = new Map<string, number>()
+  for (const [fieldPath, fieldType] of Object.entries(flat)) {
+    const match = VECTOR_PATTERN.exec(fieldType)
+    if (match) {
+      result.set(fieldPath, Number.parseInt(match[1], 10))
+    }
+  }
   return result
 }

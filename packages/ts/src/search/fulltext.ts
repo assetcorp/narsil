@@ -1,3 +1,4 @@
+import { bitsetIsEmpty } from '../core/bitset'
 import { boundedLevenshtein } from '../core/fuzzy'
 import type { PartitionIndex } from '../core/partition'
 import { tokenize } from '../core/tokenizer'
@@ -49,15 +50,26 @@ export function fulltextSearch(
 
   const queryTokens = deduplicateTokens(queryTokenResult.tokens)
 
-  const hasPostFilters =
-    params.filters !== undefined ||
+  let filterBitset: Uint32Array | undefined
+  if (params.filters) {
+    filterBitset = partition.applyFiltersBitset(params.filters, schema)
+    if (bitsetIsEmpty(filterBitset)) {
+      return { scored: [], totalMatched: 0 }
+    }
+  }
+
+  const needsAllResults =
     params.minScore !== undefined ||
-    (params.termMatch !== undefined && params.termMatch !== 'any')
+    (params.termMatch !== undefined && params.termMatch !== 'any') ||
+    params.sort !== undefined ||
+    params.group !== undefined ||
+    params.pinned !== undefined ||
+    params.searchAfter !== undefined
   const requestedLimit =
     params.limit !== undefined || params.offset !== undefined
       ? (params.limit ?? 10) + (params.offset ?? 0) + 1
       : undefined
-  const maxResults = requestedLimit !== undefined && !hasPostFilters ? requestedLimit : undefined
+  const maxResults = requestedLimit !== undefined && !needsAllResults ? requestedLimit : undefined
 
   const rawResult = partition.searchFulltext({
     queryTokens,
@@ -70,6 +82,7 @@ export function fulltextSearch(
     globalStats: options?.globalStats,
     maxResults,
     termMatch: params.termMatch,
+    filterBitset,
   })
 
   let scored = rawResult.scored
@@ -84,12 +97,7 @@ export function fulltextSearch(
     scored = scored.filter(doc => doc.score >= threshold)
   }
 
-  if (params.filters) {
-    const matchingDocIds = partition.applyFilters(params.filters, schema)
-    scored = scored.filter(doc => matchingDocIds.has(doc.docId))
-  }
-
-  const totalMatched = hasPostFilters ? scored.length : rawResult.totalMatched
+  const totalMatched = needsAllResults ? scored.length : rawResult.totalMatched
   return { scored, totalMatched }
 }
 

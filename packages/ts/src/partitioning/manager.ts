@@ -4,6 +4,7 @@ import type { SerializablePartition } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { PartitionStatsResult } from '../types/results'
 import type { AnyDocument, IndexConfig, SchemaDefinition } from '../types/schema'
+import type { VectorIndex } from '../vector/vector-index'
 import type { PartitionRouter } from './router'
 
 export interface PartitionManager {
@@ -22,6 +23,8 @@ export interface PartitionManager {
 
   insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
   remove(docId: string): void
+  beginBatchRemove(): void
+  endBatchRemove(): void
   update(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
   get(docId: string): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
@@ -38,6 +41,26 @@ export interface PartitionManager {
   }
   estimateMemoryBytes(): number
   getPartitionStats(): PartitionStatsResult[]
+  getVectorIndexes(): Map<string, VectorIndex>
+  resetVectorIndexes(newIndexes: Map<string, VectorIndex>): void
+}
+
+function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
+  if (!path.includes('.')) {
+    obj[path] = value
+    return
+  }
+  const segments = path.split('.')
+  let current: Record<string, unknown> = obj
+  for (let i = 0; i < segments.length - 1; i++) {
+    let next = current[segments[i]]
+    if (next === null || next === undefined || typeof next !== 'object') {
+      next = {}
+      current[segments[i]] = next
+    }
+    current = next as Record<string, unknown>
+  }
+  current[segments[segments.length - 1]] = value
 }
 
 export function createPartitionManager(
@@ -46,15 +69,16 @@ export function createPartitionManager(
   language: LanguageModule,
   router: PartitionRouter,
   initialPartitionCount?: number,
+  vectorIndexes?: Map<string, VectorIndex>,
 ): PartitionManager {
   const count = initialPartitionCount ?? 1
   const trackPositions = config.trackPositions ?? true
-  const vectorPromotionConfig = config.vectorPromotion
+  const vecIndexes: Map<string, VectorIndex> = vectorIndexes ?? new Map()
   let partitions: PartitionIndex[] = []
   const docPartitionMap = new Map<string, number>()
 
   for (let i = 0; i < count; i++) {
-    partitions.push(createPartitionIndex(i, trackPositions, vectorPromotionConfig))
+    partitions.push(createPartitionIndex(i, trackPositions))
   }
 
   function validatePartitionId(partitionId: number): void {
@@ -131,7 +155,7 @@ export function createPartitionManager(
           { maxPartitions: currentMaxPartitions, currentCount: partitions.length },
         )
       }
-      const partition = createPartitionIndex(partitions.length, trackPositions, vectorPromotionConfig)
+      const partition = createPartitionIndex(partitions.length, trackPositions)
       partitions.push(partition)
       return partition
     },
@@ -175,6 +199,18 @@ export function createPartitionManager(
       docPartitionMap.delete(docId)
     },
 
+    beginBatchRemove(): void {
+      for (let i = 0; i < partitions.length; i++) {
+        partitions[i].beginBatch()
+      }
+    },
+
+    endBatchRemove(): void {
+      for (let i = 0; i < partitions.length; i++) {
+        partitions[i].endBatch()
+      }
+    },
+
     update(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void {
       const pid = docPartitionMap.get(docId)
       if (pid === undefined) {
@@ -187,7 +223,15 @@ export function createPartitionManager(
     get(docId: string): AnyDocument | undefined {
       const pid = docPartitionMap.get(docId)
       if (pid === undefined) return undefined
-      return partitions[pid].get(docId)
+      const doc = partitions[pid].get(docId)
+      if (!doc) return undefined
+      for (const [fieldPath, vecIndex] of vecIndexes) {
+        const vector = vecIndex.getVector(docId)
+        if (vector) {
+          setNestedValue(doc as Record<string, unknown>, fieldPath, vector)
+        }
+      }
+      return doc
     },
 
     getRef(docId: string): AnyDocument | undefined {
@@ -250,6 +294,9 @@ export function createPartitionManager(
       for (let i = 0; i < partitions.length; i++) {
         total += partitions[i].estimateMemoryBytes()
       }
+      for (const [, vecIndex] of vecIndexes) {
+        total += vecIndex.estimateMemoryBytes()
+      }
       return total
     },
 
@@ -258,9 +305,18 @@ export function createPartitionManager(
         partitionId: i,
         documentCount: p.count(),
         estimatedMemoryBytes: p.estimateMemoryBytes(),
-        vectorFieldCount: p.vectorFieldCount(),
-        isHnswPromoted: p.hasPromotedHnsw(),
       }))
+    },
+
+    getVectorIndexes(): Map<string, VectorIndex> {
+      return vecIndexes
+    },
+
+    resetVectorIndexes(newIndexes: Map<string, VectorIndex>): void {
+      vecIndexes.clear()
+      for (const [key, value] of newIndexes) {
+        vecIndexes.set(key, value)
+      }
     },
   }
 

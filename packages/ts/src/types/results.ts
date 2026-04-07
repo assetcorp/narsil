@@ -69,8 +69,6 @@ export interface PartitionStatsResult {
   partitionId: number
   documentCount: number
   estimatedMemoryBytes: number
-  vectorFieldCount: number
-  isHnswPromoted: boolean
 }
 
 export interface SuggestResult {
@@ -89,4 +87,14 @@ export interface MemoryStats {
     heapTotal: number
     external: number
   }>
+}
+
+export interface VectorMaintenanceResult {
+  fieldName: string
+  tombstoneRatio: number
+  graphCount: number
+  bufferSize: number
+  building: boolean
+  estimatedCompactMs: number
+  estimatedOptimizeMs: number
 }

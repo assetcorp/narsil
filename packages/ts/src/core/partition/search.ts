@@ -1,4 +1,3 @@
-import { ErrorCodes, NarsilError } from '../../errors'
 import { evaluateFilters, type FilterContext } from '../../filters/evaluator'
 import type { FieldIndex, GeoFieldIndex } from '../../filters/operators'
 import type { FilterExpression } from '../../types/filters'
@@ -6,14 +5,20 @@ import type {
   CompactPostingList,
   InternalSearchParams,
   InternalSearchResult,
-  InternalVectorParams,
   ScoredDocument,
 } from '../../types/internal'
 import type { FacetResult } from '../../types/results'
 import type { SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
+import { bitsetFromSet, bitsetHas } from '../bitset'
 import { computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
-import { getAllDocIds, getFieldValueForDoc, getFlatSchema, type PartitionState } from './utils'
+import {
+  getAllInternalDocIds,
+  getFieldValueByInternalId,
+  getFieldValueForDoc,
+  getFlatSchema,
+  type PartitionState,
+} from './utils'
 
 const DEFAULT_MAX_RESULTS = 1000
 
@@ -47,6 +52,7 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
     globalStats,
     maxResults,
     termMatch,
+    filterBitset,
   } = params
 
   if (queryTokens.length === 0) {
@@ -58,11 +64,12 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
   const globalDocFreqs = globalStats?.docFrequencies ?? state.stats.docFrequencies
   const scoreFn = globalStats ? computeBM25WithGlobalStats : computeBM25
 
-  const docScores = new Map<string, ScoreAccumulator>()
-  const fieldLengthCache = new Map<string, Record<string, number> | null>()
+  const docScores = new Map<number, ScoreAccumulator>()
+  const fieldLengthCache = new Map<number, Record<string, number> | null>()
   const useIntersection = termMatch === 'all' && queryTokens.length > 1
 
   const fieldNames = state.fieldNameTable.names
+  const resolver = state.docStore.resolver()
 
   if (useIntersection) {
     const resolved: ResolvedTokenPostings[] = []
@@ -95,9 +102,10 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
         const list = match.postingList
         const hasDeleted = list.deletedDocs.size > 0
         for (let pi = 0; pi < list.length; pi++) {
-          const docId = list.docIds[pi]
-          if (hasDeleted && list.deletedDocs.has(docId)) continue
-          if (tokenIndex > 0 && !docScores.has(docId)) continue
+          const internalId = list.docIds[pi]
+          if (hasDeleted && list.deletedDocs.has(internalId)) continue
+          if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
+          if (tokenIndex > 0 && !docScores.has(internalId)) continue
           const fieldName = fieldNames[list.fieldNameIndices[pi]]
           if (fields && !fields.includes(fieldName)) continue
 
@@ -105,25 +113,26 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
           const fieldBoost = boost?.[fieldName] ?? 1
           const avgLen = avgFieldLengths[fieldName] ?? 1
 
-          let cachedLengths = fieldLengthCache.get(docId)
+          let cachedLengths = fieldLengthCache.get(internalId)
           if (cachedLengths === undefined) {
-            const storedDoc = state.docStore.get(docId)
+            const externalId = resolver.toExternal(internalId)
+            const storedDoc = externalId !== undefined ? state.docStore.get(externalId) : undefined
             cachedLengths = storedDoc?.fieldLengths ?? null
-            fieldLengthCache.set(docId, cachedLengths)
+            fieldLengthCache.set(internalId, cachedLengths)
           }
           const actualFieldLength = cachedLengths?.[fieldName] ?? avgLen
 
           let termScore = scoreFn(termFrequency, match.docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
           termScore *= fieldBoost
 
-          const existing = docScores.get(docId)
+          const existing = docScores.get(internalId)
           if (existing) {
             existing.score += termScore
             existing.termFrequencies[`${fieldName}:${match.token}`] = termFrequency
             existing.fieldLengths[fieldName] = actualFieldLength
             existing.idf[match.token] = match.idf
           } else {
-            docScores.set(docId, {
+            docScores.set(internalId, {
               score: termScore,
               termFrequencies: { [`${fieldName}:${match.token}`]: termFrequency },
               fieldLengths: { [fieldName]: actualFieldLength },
@@ -151,33 +160,35 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
         const list = match.postingList
         const hasDeleted = list.deletedDocs.size > 0
         for (let pi = 0; pi < list.length; pi++) {
-          const docId = list.docIds[pi]
-          if (hasDeleted && list.deletedDocs.has(docId)) continue
+          const internalId = list.docIds[pi]
+          if (hasDeleted && list.deletedDocs.has(internalId)) continue
+          if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
           const fieldName = fieldNames[list.fieldNameIndices[pi]]
           if (fields && !fields.includes(fieldName)) continue
           const termFrequency = list.termFrequencies[pi]
           const fieldBoost = boost?.[fieldName] ?? 1
           const avgLen = avgFieldLengths[fieldName] ?? 1
 
-          let cachedLengths = fieldLengthCache.get(docId)
+          let cachedLengths = fieldLengthCache.get(internalId)
           if (cachedLengths === undefined) {
-            const storedDoc = state.docStore.get(docId)
+            const externalId = resolver.toExternal(internalId)
+            const storedDoc = externalId !== undefined ? state.docStore.get(externalId) : undefined
             cachedLengths = storedDoc?.fieldLengths ?? null
-            fieldLengthCache.set(docId, cachedLengths)
+            fieldLengthCache.set(internalId, cachedLengths)
           }
           const actualFieldLength = cachedLengths?.[fieldName] ?? avgLen
 
           let termScore = scoreFn(termFrequency, docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
           termScore *= fieldBoost
 
-          const existing = docScores.get(docId)
+          const existing = docScores.get(internalId)
           if (existing) {
             existing.score += termScore
             existing.termFrequencies[`${fieldName}:${match.token}`] = termFrequency
             existing.fieldLengths[fieldName] = actualFieldLength
             existing.idf[match.token] = idf
           } else {
-            docScores.set(docId, {
+            docScores.set(internalId, {
               score: termScore,
               termFrequencies: { [`${fieldName}:${match.token}`]: termFrequency },
               fieldLengths: { [fieldName]: actualFieldLength },
@@ -191,38 +202,44 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
 
   const totalMatched = docScores.size
   const k = maxResults !== undefined && maxResults > 0 ? maxResults : DEFAULT_MAX_RESULTS
-  const scored = topKFromMap(docScores, Math.min(k, totalMatched))
+  const scored = topKFromMap(docScores, Math.min(k, totalMatched), resolver)
   return { scored, totalMatched }
 }
 
-function topKFromMap(docScores: Map<string, ScoreAccumulator>, k: number): ScoredDocument[] {
+function topKFromMap(
+  docScores: Map<number, ScoreAccumulator>,
+  k: number,
+  resolver: { toExternal(id: number): string | undefined },
+): ScoredDocument[] {
   if (k <= 0) return []
 
-  const heap: Array<{ docId: string; score: number }> = []
+  const heap: Array<{ internalId: number; score: number }> = []
 
-  for (const [docId, data] of docScores) {
+  for (const [internalId, data] of docScores) {
     if (heap.length < k) {
-      heap.push({ docId, score: data.score })
+      heap.push({ internalId, score: data.score })
       if (heap.length === k) buildMinHeap(heap)
     } else if (data.score > heap[0].score) {
-      heap[0] = { docId, score: data.score }
+      heap[0] = { internalId, score: data.score }
       siftDown(heap, 0)
     }
   }
 
   heap.sort((a, b) => b.score - a.score)
 
-  const result: ScoredDocument[] = new Array(heap.length)
+  const result: ScoredDocument[] = []
   for (let i = 0; i < heap.length; i++) {
-    const data = docScores.get(heap[i].docId)
+    const data = docScores.get(heap[i].internalId)
     if (!data) continue
-    result[i] = {
-      docId: heap[i].docId,
+    const externalId = resolver.toExternal(heap[i].internalId)
+    if (externalId === undefined) continue
+    result.push({
+      docId: externalId,
       score: data.score,
       termFrequencies: data.termFrequencies,
       fieldLengths: data.fieldLengths,
       idf: data.idf,
-    }
+    })
   }
 
   return result
@@ -250,30 +267,10 @@ function siftDown(heap: Array<{ score: number }>, idx: number): void {
   }
 }
 
-export function searchVector(state: PartitionState, params: InternalVectorParams): InternalSearchResult {
-  const { field, value, k, similarity = 0, metric = 'cosine', filterDocIds, efSearch } = params
-
-  const vecStore = state.vectorStores.get(field)
-  if (!vecStore) {
-    return { scored: [], totalMatched: 0 }
-  }
-
-  if (value.length !== vecStore.dimension) {
-    throw new NarsilError(
-      ErrorCodes.SEARCH_INVALID_VECTOR_SIZE,
-      `Query vector dimension ${value.length} does not match field "${field}" dimension ${vecStore.dimension}`,
-      { field, expected: vecStore.dimension, received: value.length },
-    )
-  }
-
-  const queryVec = new Float32Array(value)
-  const results = vecStore.search(queryVec, k, metric, similarity, filterDocIds, efSearch)
-  return { scored: results, totalMatched: results.length }
-}
-
 export function buildFilterContext(state: PartitionState, schema: SchemaDefinition): FilterContext {
   const flat = getFlatSchema(state, schema)
   const fieldIndexes: Record<string, FieldIndex> = {}
+  const capacity = state.docStore.internalIdCapacity()
 
   for (const [fieldPath, fieldType] of Object.entries(flat)) {
     if (fieldType === 'number' || fieldType === 'number[]') {
@@ -289,6 +286,13 @@ export function buildFilterContext(state: PartitionState, schema: SchemaDefiniti
             lte: (v: number) => numIdx.queryLte(v),
             between: (min: number, max: number) => numIdx.queryBetween(min, max),
             allDocIds: () => numIdx.getAllDocIds(),
+            eqBitset: (v: number, cap: number) => numIdx.queryEqBitset(v, cap),
+            gtBitset: (v: number, cap: number) => numIdx.queryGtBitset(v, cap),
+            gteBitset: (v: number, cap: number) => numIdx.queryGteBitset(v, cap),
+            ltBitset: (v: number, cap: number) => numIdx.queryLtBitset(v, cap),
+            lteBitset: (v: number, cap: number) => numIdx.queryLteBitset(v, cap),
+            betweenBitset: (min: number, max: number, cap: number) => numIdx.queryBetweenBitset(min, max, cap),
+            allDocIdsBitset: (cap: number) => numIdx.getAllDocIdsBitset(cap),
           },
         }
       }
@@ -301,6 +305,9 @@ export function buildFilterContext(state: PartitionState, schema: SchemaDefiniti
             getTrue: () => boolIdx.queryEq(true),
             getFalse: () => boolIdx.queryEq(false),
             allDocIds: () => boolIdx.getAllDocIds(),
+            getTrueBitset: (cap: number) => boolIdx.queryEqBitset(true, cap),
+            getFalseBitset: (cap: number) => boolIdx.queryEqBitset(false, cap),
+            allDocIdsBitset: (cap: number) => boolIdx.getAllDocIdsBitset(cap),
           },
         }
       }
@@ -312,6 +319,9 @@ export function buildFilterContext(state: PartitionState, schema: SchemaDefiniti
           index: {
             getDocIds: (v: string) => enumIdx.queryEq(v),
             allDocIds: () => enumIdx.getAllDocIds(),
+            getDocIdsBitset: (v: string, cap: number) => enumIdx.queryEqBitset(v, cap),
+            getDocIdsInBitset: (values: string[], cap: number) => enumIdx.queryInBitset(values, cap),
+            allDocIdsBitset: (cap: number) => enumIdx.getAllDocIdsBitset(cap),
           },
         }
       }
@@ -326,16 +336,25 @@ export function buildFilterContext(state: PartitionState, schema: SchemaDefiniti
     }
   }
 
-  let cachedAllDocIds: Set<string> | null = null
+  let cachedAllDocIds: Set<number> | null = null
+  let cachedAllDocIdsBitset: Uint32Array | null = null
 
   return {
     fieldIndexes,
-    getFieldValue: (docId: string, fieldPath: string) => getFieldValueForDoc(state.docStore, docId, fieldPath),
+    getFieldValue: (internalId: number, fieldPath: string) =>
+      getFieldValueByInternalId(state.docStore, internalId, fieldPath),
     get allDocIds() {
       if (!cachedAllDocIds) {
-        cachedAllDocIds = getAllDocIds(state.docStore)
+        cachedAllDocIds = getAllInternalDocIds(state.docStore)
       }
       return cachedAllDocIds
+    },
+    capacity,
+    get allDocIdsBitset() {
+      if (!cachedAllDocIdsBitset) {
+        cachedAllDocIdsBitset = bitsetFromSet(this.allDocIds, capacity)
+      }
+      return cachedAllDocIdsBitset
     },
   }
 }
@@ -345,6 +364,32 @@ export function applyPartitionFilters(
   filters: FilterExpression,
   schema: SchemaDefinition,
 ): Set<string> {
+  const context = buildFilterContext(state, schema)
+  const resultBitset = evaluateFilters(filters, context)
+  const resolver = state.docStore.resolver()
+  const externalResult = new Set<string>()
+  for (let wi = 0; wi < resultBitset.length; wi++) {
+    let word = resultBitset[wi]
+    if (word === 0) continue
+    const base = wi << 5
+    while (word !== 0) {
+      const tz = Math.clz32(word & -word) ^ 31
+      const internalId = base + tz
+      const externalId = resolver.toExternal(internalId)
+      if (externalId !== undefined) {
+        externalResult.add(externalId)
+      }
+      word &= word - 1
+    }
+  }
+  return externalResult
+}
+
+export function applyPartitionFiltersBitset(
+  state: PartitionState,
+  filters: FilterExpression,
+  schema: SchemaDefinition,
+): Uint32Array {
   const context = buildFilterContext(state, schema)
   return evaluateFilters(filters, context)
 }

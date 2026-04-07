@@ -1,4 +1,10 @@
-import type { CompactPostingList, FieldNameTable, PostingEntry, PostingList } from '../types/internal'
+import type {
+  CompactPostingList,
+  FieldNameTable,
+  InternalIdResolver,
+  PostingEntry,
+  PostingList,
+} from '../types/internal'
 import { boundedLevenshtein } from './fuzzy'
 
 const INITIAL_CAPACITY = 8
@@ -11,8 +17,16 @@ export interface TermSuggestion {
 }
 
 export interface InvertedIndex {
-  insert(token: string, docId: string, termFrequency: number, fieldNameIndex: number, positions: number[] | null): void
-  remove(token: string, docId: string): void
+  insert(
+    token: string,
+    internalId: number,
+    termFrequency: number,
+    fieldNameIndex: number,
+    positions: number[] | null,
+  ): void
+  remove(token: string, internalId: number): void
+  beginBatch(): void
+  endBatch(): void
   lookup(token: string): CompactPostingList | undefined
   fuzzyLookup(
     token: string,
@@ -24,13 +38,15 @@ export interface InvertedIndex {
   tokens(): IterableIterator<string>
   size(): number
   clear(): void
-  serialize(): Record<string, PostingList>
-  deserialize(data: Record<string, PostingList>): void
+  serialize(resolver: InternalIdResolver): Record<string, PostingList>
+  deserialize(data: Record<string, PostingList>, resolver: InternalIdResolver): void
 }
 
 export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedIndex {
   const index = new Map<string, CompactPostingList>()
   const charBuckets = new Map<string, Set<string>>()
+  let batchMode = false
+  const batchDirtyTokens = new Set<string>()
 
   function trackToken(token: string): void {
     if (token.length === 0) return
@@ -124,10 +140,10 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
     list.deletedDocs.clear()
   }
 
-  function compactDocEntries(list: CompactPostingList, docId: string): void {
+  function compactDocEntries(list: CompactPostingList, internalId: number): void {
     let writeIdx = 0
     for (let i = 0; i < list.length; i++) {
-      if (list.docIds[i] !== docId) {
+      if (list.docIds[i] !== internalId) {
         if (writeIdx !== i) {
           list.docIds[writeIdx] = list.docIds[i]
           list.termFrequencies[writeIdx] = list.termFrequencies[i]
@@ -147,16 +163,16 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
   return {
     insert(
       token: string,
-      docId: string,
+      internalId: number,
       termFrequency: number,
       fieldNameIndex: number,
       positions: number[] | null,
     ): void {
       const list = getOrCreateList(token)
 
-      if (list.deletedDocs.size > 0 && list.deletedDocs.has(docId)) {
-        compactDocEntries(list, docId)
-        list.deletedDocs.delete(docId)
+      if (list.deletedDocs.size > 0 && list.deletedDocs.has(internalId)) {
+        compactDocEntries(list, internalId)
+        list.deletedDocs.delete(internalId)
       }
 
       if (list.length >= list.termFrequencies.length) {
@@ -164,7 +180,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       }
 
       const idx = list.length
-      list.docIds.push(docId)
+      list.docIds.push(internalId)
       list.termFrequencies[idx] = termFrequency > MAX_TERM_FREQUENCY ? MAX_TERM_FREQUENCY : termFrequency
       list.fieldNameIndices[idx] = fieldNameIndex
 
@@ -178,29 +194,52 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
         list.positions.push([])
       }
 
-      if (!list.docIdSet.has(docId)) {
-        list.docIdSet.add(docId)
+      if (!list.docIdSet.has(internalId)) {
+        list.docIdSet.add(internalId)
       }
 
       list.length++
     },
 
-    remove(token: string, docId: string): void {
+    remove(token: string, internalId: number): void {
       const list = index.get(token)
-      if (!list || !list.docIdSet.has(docId)) return
+      if (!list || !list.docIdSet.has(internalId)) return
 
-      list.docIdSet.delete(docId)
-      list.deletedDocs.add(docId)
+      list.docIdSet.delete(internalId)
+      list.deletedDocs.add(internalId)
 
       if (list.docIdSet.size === 0) {
         index.delete(token)
         untrackToken(token)
+        if (batchMode) batchDirtyTokens.delete(token)
+        return
+      }
+
+      if (batchMode) {
+        batchDirtyTokens.add(token)
         return
       }
 
       if (list.deletedDocs.size / list.length > COMPACTION_THRESHOLD) {
         compactList(list)
       }
+    },
+
+    beginBatch(): void {
+      batchMode = true
+      batchDirtyTokens.clear()
+    },
+
+    endBatch(): void {
+      batchMode = false
+      for (const token of batchDirtyTokens) {
+        const list = index.get(token)
+        if (!list) continue
+        if (list.deletedDocs.size / list.length > COMPACTION_THRESHOLD) {
+          compactList(list)
+        }
+      }
+      batchDirtyTokens.clear()
     },
 
     lookup(token: string): CompactPostingList | undefined {
@@ -266,14 +305,16 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       charBuckets.clear()
     },
 
-    serialize(): Record<string, PostingList> {
+    serialize(resolver: InternalIdResolver): Record<string, PostingList> {
       const result: Record<string, PostingList> = Object.create(null)
       for (const [token, list] of index) {
         const postings: PostingEntry[] = []
         for (let i = 0; i < list.length; i++) {
           if (list.deletedDocs.size > 0 && list.deletedDocs.has(list.docIds[i])) continue
+          const externalId = resolver.toExternal(list.docIds[i])
+          if (externalId === undefined) continue
           postings.push({
-            docId: list.docIds[i],
+            docId: externalId,
             termFrequency: list.termFrequencies[i],
             fieldName: fieldNameTable.names[list.fieldNameIndices[i]],
             positions: list.positions ? list.positions[i] : [],
@@ -286,23 +327,27 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       return result
     },
 
-    deserialize(data: Record<string, PostingList>): void {
+    deserialize(data: Record<string, PostingList>, resolver: InternalIdResolver): void {
       index.clear()
       charBuckets.clear()
       for (const token of Object.keys(data)) {
         const src = data[token]
         const count = src.postings.length
 
-        const docIdSet = new Set<string>()
-        const docIds = new Array<string>(count)
+        const docIdSet = new Set<number>()
+        const docIds = new Array<number>(count)
         const termFrequencies = new Uint16Array(count)
         const fieldNameIndices = new Uint8Array(count)
         let hasPositions = false
+        let validCount = 0
 
         for (let i = 0; i < count; i++) {
           const p = src.postings[i]
-          docIds[i] = p.docId
-          termFrequencies[i] = p.termFrequency > MAX_TERM_FREQUENCY ? MAX_TERM_FREQUENCY : p.termFrequency
+          const internalId = resolver.toInternal(p.docId)
+          if (internalId === undefined) continue
+
+          docIds[validCount] = internalId
+          termFrequencies[validCount] = p.termFrequency > MAX_TERM_FREQUENCY ? MAX_TERM_FREQUENCY : p.termFrequency
 
           let fnIndex = fieldNameTable.indexMap.get(p.fieldName)
           if (fnIndex === undefined) {
@@ -310,25 +355,36 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
             fieldNameTable.names.push(p.fieldName)
             fieldNameTable.indexMap.set(p.fieldName, fnIndex)
           }
-          fieldNameIndices[i] = fnIndex
+          fieldNameIndices[validCount] = fnIndex
 
-          docIdSet.add(p.docId)
+          docIdSet.add(internalId)
           if (p.positions.length > 0) hasPositions = true
+          validCount++
         }
+
+        if (validCount === 0) continue
+
+        docIds.length = validCount
+        const finalTF = validCount < count ? termFrequencies.slice(0, validCount) : termFrequencies
+        const finalFNI = validCount < count ? fieldNameIndices.slice(0, validCount) : fieldNameIndices
 
         let positions: number[][] | null = null
         if (hasPositions) {
-          positions = new Array(count)
+          positions = new Array(validCount)
+          let vi = 0
           for (let i = 0; i < count; i++) {
-            positions[i] = src.postings[i].positions
+            const internalId = resolver.toInternal(src.postings[i].docId)
+            if (internalId === undefined) continue
+            positions[vi] = src.postings[i].positions
+            vi++
           }
         }
 
         index.set(token, {
-          length: count,
+          length: validCount,
           docIds,
-          termFrequencies,
-          fieldNameIndices,
+          termFrequencies: finalTF,
+          fieldNameIndices: finalFNI,
           positions,
           docIdSet,
           deletedDocs: new Set(),

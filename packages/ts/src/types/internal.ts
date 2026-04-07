@@ -17,12 +17,12 @@ export interface FieldNameTable {
 
 export interface CompactPostingList {
   length: number
-  docIds: string[]
+  docIds: number[]
   termFrequencies: Uint16Array
   fieldNameIndices: Uint8Array
   positions: number[][] | null
-  docIdSet: Set<string>
-  deletedDocs: Set<string>
+  docIdSet: Set<number>
+  deletedDocs: Set<number>
 }
 
 export interface StoredDocument {
@@ -30,15 +30,20 @@ export interface StoredDocument {
   fieldLengths: Record<string, number>
 }
 
+export interface InternalIdResolver {
+  toExternal(internalId: number): string | undefined
+  toInternal(externalId: string): number | undefined
+}
+
 export interface NumericIndexEntry {
   value: number
-  docId: string
+  docId: number
 }
 
 export interface GeopointEntry {
   lat: number
   lon: number
-  docId: string
+  docId: number
 }
 
 export interface VectorEntry {
@@ -74,19 +79,26 @@ export interface SerializablePartition {
     enum: Record<string, Record<string, string[]>>
     geopoint: Record<string, Array<{ lat: number; lon: number; docId: string }>>
   }
-  vectorData: Record<
+  vectorData?: Record<
     string,
     {
       dimension: number
       vectors: Array<{ docId: string; vector: number[] }>
       hnswGraph: null | {
-        entryPoint: string
+        entryPoint: string | null
         maxLayer: number
         m: number
         efConstruction: number
         metric?: 'cosine' | 'dotProduct' | 'euclidean'
         nodes: Array<[string, number, Array<[number, string[]]>]>
       }
+      sq8?: {
+        alpha: number
+        offset: number
+        quantizedVectors: Record<string, number[]>
+        vectorSums: Record<string, number>
+        vectorSumSqs: Record<string, number>
+      } | null
     }
   >
   statistics: {
@@ -105,6 +117,7 @@ export interface IndexMetadata {
   bm25Params: { k1: number; b: number }
   createdAt: number
   engineVersion: string
+  vectorFields?: Record<string, { dimension: number; metric: string; quantization: string }>
 }
 
 export interface GlobalStatistics {
@@ -138,14 +151,5 @@ export interface InternalSearchParams {
   globalStats?: GlobalStatistics
   maxResults?: number
   termMatch?: import('../types/search').TermMatchPolicy
-}
-
-export interface InternalVectorParams {
-  field: string
-  value: number[]
-  k: number
-  similarity?: number
-  metric?: 'cosine' | 'dotProduct' | 'euclidean'
-  filterDocIds?: Set<string>
-  efSearch?: number
+  filterBitset?: Uint32Array
 }

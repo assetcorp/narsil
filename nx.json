@@ -11,7 +11,7 @@
     ]
   },
   "release": {
-    "projects": ["narsil-ts"],
+    "projects": ["narsil-ts", "narsil-embeddings-transformers"],
     "projectsRelationship": "fixed",
     "releaseTagPattern": "v{version}",
     "version": {

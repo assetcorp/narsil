@@ -22,6 +22,13 @@
         "cwd": "packages/ts"
       }
     },
+    "test:embeddings": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "NARSIL_TEST_EMBEDDINGS=1 pnpm vitest run embedding-e2e",
+        "cwd": "packages/ts"
+      }
+    },
     "lint": {
       "executor": "nx:run-commands",
       "options": {
