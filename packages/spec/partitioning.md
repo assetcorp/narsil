@@ -5,7 +5,7 @@ distribute large indexes across multiple independent shards. It
 covers hash-based routing, auto-partitioning triggers, the
 rebalancing protocol, query fan-out and merge, and deep pagination.
 All Narsil implementations must follow these rules for consistent
-behavior.
+behaviour.
 
 ---
 
@@ -356,7 +356,7 @@ Capped at 8 by default. Configurable via
 ### Creation
 
 A new index starts with 1 partition (partitionId = 0). The
-partition is created empty with initialized data structures.
+partition is created empty with initialised data structures.
 
 ### Splitting (Rebalance)
 
@@ -366,7 +366,7 @@ Protocol section above).
 
 ### Partition Persistence
 
-Each partition serializes independently to a `.nrsl` envelope. The
+Each partition serialises independently to a `.nrsl` envelope. The
 flush manager tracks dirty partitions and persists only those that
 changed since the last flush.
 
