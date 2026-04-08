@@ -10,7 +10,7 @@ must conform to them.
 
 ## PersistenceAdapter
 
-The persistence adapter handles durable storage of serialized index data
+The persistence adapter handles durable storage of serialised index data
 (`.nrsl` envelopes). All methods are asynchronous. The adapter does not
 interpret the data; it stores and retrieves raw byte arrays keyed by
 string paths.
@@ -212,12 +212,12 @@ TokenResult {
 
 - Receives raw field text.
 - Returns an array of `{ token, position }` pairs.
-- `token`: the normalized, analysis-ready token string (lowercased,
+- `token`: the normalised, analysis-ready token string (lowercased,
   stemmed, etc., as appropriate for the domain).
 - `position`: zero-indexed position of the token in the text. Used
   for highlighting and phrase matching.
 - When a custom tokenizer is configured for an index, Narsil bypasses
-  its standard pipeline (NFC normalization, lowercasing, splitting,
+  its standard pipeline (NFC normalisation, lowercasing, splitting,
   stop word removal, stemming) entirely and delegates to this function.
 - The same tokenizer is used for both indexing and querying. Tokens
   produced at index time must match tokens produced at query time for
@@ -238,7 +238,7 @@ A custom tokenizer is set per index at creation time:
 
 When a custom tokenizer is present, the `language` setting still applies
 for stop words (unless the custom tokenizer handles stop word removal
-itself) and for any other language-specific behavior outside
+itself) and for any other language-specific behaviour outside
 tokenization.
 
 ---
@@ -332,7 +332,7 @@ EmbeddingAdapter {
   or a query being searched. Asymmetric embedding models (E5, BGE,
   Nomic, Cohere, Google Vertex AI) use this to apply model-specific
   prefixes or parameters that produce different vectors for documents
-  vs queries. Models without asymmetric behavior (MiniLM, GTE) ignore
+  vs queries. Models without asymmetric behaviour (MiniLM, GTE) ignore
   this parameter.
 - `cancel` is an optional cancellation token for cooperative
   cancellation. When cancelled, the method returns an abort error.
@@ -473,7 +473,7 @@ auto-embedding:
 }
 ```
 
-- `value`: A raw vector (`float32 array`). Current behavior, unchanged.
+- `value`: A raw vector (`float32 array`). Current behaviour, unchanged.
 - `text`: A text string to be auto-embedded using the index's
   embedding adapter with `purpose: 'query'`.
 - `value` and `text` are mutually exclusive. Providing both is an
@@ -498,7 +498,7 @@ A separate but related feature. Indexes can declare required fields:
 - `required` is an array of field names that must be present (not
   `null`) in every inserted document.
 - Default: empty array (all fields optional, same as current
-  behavior).
+  behaviour).
 - Validation runs before embedding, so no adapter calls are wasted on
   documents that will fail validation.
 - Missing required fields throw `DOC_MISSING_REQUIRED_FIELD`.
@@ -547,7 +547,7 @@ Configuration:
 - Retries transient failures (429, 500, 502, 503) with exponential
   backoff and jitter. Does not retry permanent failures (400, 401,
   403).
-- The adapter never logs, serializes, or includes the API key in
+- The adapter never logs, serialises, or includes the API key in
   error messages.
 - Supports cooperative cancellation via the runtime's HTTP client.
 
@@ -595,7 +595,7 @@ should:
 
 - Implement the `EmbeddingAdapter` interface.
 - Handle the `purpose` parameter appropriately for their model's
-  asymmetric behavior.
+  asymmetric behaviour.
 - Implement `embedBatch` when the underlying API supports batch
   requests.
 - Implement `shutdown` when the adapter holds resources.

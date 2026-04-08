@@ -4,7 +4,7 @@ This document formally specifies every algorithm used by Narsil. All
 implementations (TypeScript, Rust, Python, Go) must produce identical
 output for identical input, except where floating-point precision
 differences are unavoidable. Each algorithm section includes the
-formula, parameters, edge cases, and expected behavior.
+formula, parameters, edge cases, and expected behaviour.
 
 ---
 
@@ -32,7 +32,7 @@ Where:
 | `N` | Total number of documents |
 | `n(qi)` | Document frequency: documents containing `qi` |
 | `k1` | Term saturation parameter (default: 1.2) |
-| `b` | Length normalization parameter (default: 0.75) |
+| `b` | Length normalisation parameter (default: 0.75) |
 
 ### IDF (Inverse Document Frequency)
 
@@ -62,10 +62,10 @@ Each field uses its own `|D|` (token count in that field) and `avgdl`
 | Parameter | Default | Range  | Effect                                    |
 |-----------|---------|--------|-------------------------------------------|
 | `k1`      | 1.2     | [0, 3] | Controls term frequency saturation        |
-| `b`       | 0.75    | [0, 1] | Controls document length normalization    |
+| `b`       | 0.75    | [0, 1] | Controls document length normalisation    |
 
 Higher `k1` gives more weight to repeated terms. `b = 0` means no
-length normalization; `b = 1` means full normalization. Both are
+length normalisation; `b = 1` means full normalisation. Both are
 configurable per index at creation time.
 
 ### BM25 Edge Cases
@@ -154,7 +154,7 @@ tolerance, the final distance must also exceed it. Skip remaining rows.
 | `tolerance`    | 1       | Maximum edit distance. 0 = exact match only. |
 | `prefixLength` | 2       | Characters that must match exactly first.    |
 
-The `prefixLength` optimization limits the search space: only tokens
+The `prefixLength` optimisation limits the search space: only tokens
 sharing the same first N characters are candidates for fuzzy matching,
 reducing the comparisons from O(total\_tokens) to
 O(prefix\_bucket\_size).
@@ -214,7 +214,7 @@ For a query vector `q`, returning the `k` nearest neighbors:
    - Greedily navigate to the nearest node to `q`.
 3. At layer 0:
    - Maintain a candidate set (min-heap by distance) and a result set
-     (max-heap by distance), both initialized with the entry node from
+     (max-heap by distance), both initialised with the entry node from
      the layer above.
    - While the candidate set is not empty:
      - Pop the closest candidate `c`.
@@ -258,7 +258,7 @@ See the [Similarity Functions](#similarity-functions) section below.
 
 ### HNSW Serialization
 
-The HNSW graph serializes using an array-based node format for compact
+The HNSW graph serialises using an array-based node format for compact
 MessagePack encoding (see [envelope.md](envelope.md) for the full
 schema):
 
@@ -344,7 +344,7 @@ dotProduct(a, b) = SUM(a[i] * b[i]) for i in 0..dimension
 ```
 
 Range: unbounded. Higher is more similar. Use when vectors are already
-normalized to unit length (in that case, dot product equals cosine
+normalised to unit length (in that case, dot product equals cosine
 similarity).
 
 ### Euclidean Distance
@@ -513,7 +513,7 @@ fn isPointInPolygon(lat: float64, lon: float64, polygon: array[GeoPoint]) -> boo
 
 ### Polygon Centroid (Shoelace Formula)
 
-Used internally for optimization (e.g., pre-filtering by distance to
+Used internally for optimisation (e.g., pre-filtering by distance to
 centroid before running the full polygon check).
 
 ```text
@@ -541,9 +541,9 @@ fn centroid(polygon: array[GeoPoint]) -> GeoPoint
 ### Polygon Edge Cases
 
 - **Point on edge:** Treated as outside (consistent with the ray
-  casting algorithm's boundary behavior).
+  casting algorithm's boundary behaviour).
 - **Degenerate polygon (< 3 points):** Return false.
-- **Self-intersecting polygon:** Behavior is undefined. Implementations
+- **Self-intersecting polygon:** Behaviour is undefined. Implementations
   may choose to support it using the even-odd rule (same as ray
   casting).
 
@@ -689,7 +689,7 @@ fn reciprocalRankFusion(lists: array[array[ScoredDoc]], k: uint32) -> array[Scor
 
 ### RRF Properties
 
-- **Normalization-free:** Ranks are directly comparable across any
+- **Normalisation-free:** Ranks are directly comparable across any
   scoring system. BM25 scores and cosine similarities have
   different distributions, but rank positions are always
   comparable.
