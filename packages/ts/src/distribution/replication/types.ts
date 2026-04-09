@@ -29,3 +29,13 @@ export interface ReplicationLog {
 }
 
 export const DEFAULT_LOG_RETENTION_BYTES = 268_435_456
+
+export interface ReplicateResult {
+  acknowledged: string[]
+  failed: string[]
+}
+
+export interface EntryValidation {
+  valid: boolean
+  error?: string
+}
