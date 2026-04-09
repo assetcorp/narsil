@@ -181,6 +181,7 @@ export interface WireQueryParams {
   sort: SortField[] | null
   group: WireGroupConfig | null
   facets: string[] | null
+  facetSize: number | null
   limit: number
   offset: number
   searchAfter: string | null
@@ -229,6 +230,7 @@ export interface SearchPayload {
   partitionIds: number[]
   params: WireQueryParams
   globalStats: GlobalStatistics | null
+  facetShardSize: number | null
 }
 
 export interface SearchResultPayload {

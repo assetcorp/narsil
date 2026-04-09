@@ -53,6 +53,7 @@ function makeQueryParams(overrides: Partial<WireQueryParams> = {}): WireQueryPar
     sort: null,
     group: null,
     facets: null,
+    facetSize: null,
     limit: 10,
     offset: 0,
     searchAfter: null,

@@ -323,6 +323,7 @@ QueryParams {
   sort:         array[SortField] or null
   group:        GroupConfig or null
   facets:       array[string] or null
+  facetSize:    uint32 or null  (default: 10, max buckets per facet field)
   limit:        uint32  (default: 10)
   offset:       uint32  (default: 0)
   searchAfter:  string or null  (base64-encoded cursor)
@@ -388,10 +389,11 @@ HighlightConfig {
 
 ```text
 {
-  indexName:     string
-  partitionIds:  array[uint32]
-  params:        QueryParams  (term, filters, sort, limit, offset, etc.)
-  globalStats:   GlobalStatistics or null  (present in DFS mode)
+  indexName:       string
+  partitionIds:    array[uint32]
+  params:          QueryParams  (term, filters, sort, limit, offset, etc.)
+  globalStats:     GlobalStatistics or null  (present in DFS mode)
+  facetShardSize:  uint32 or null  (oversampled bucket count, set by coordinator)
 }
 ```
 

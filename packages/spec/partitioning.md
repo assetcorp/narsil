@@ -286,11 +286,7 @@ Base64-encoded JSON:
 ```json
 {
   "s": 4.523,
-  "d": "doc-id-123",
-  "p": {
-    "0": { "s": 4.523, "d": "doc-id-123", "o": 12 },
-    "1": { "s": 4.100, "d": "doc-id-456", "o": 8 }
-  }
+  "d": "doc-id-123"
 }
 ```
 
@@ -298,7 +294,6 @@ Base64-encoded JSON:
 | --- | --- |
 | `s` | Score (or sort value) of the last document |
 | `d` | DocId of the last document (tiebreaker) |
-| `p` | Per-partition cursor state with local offsets |
 
 #### Tiebreaking
 
@@ -312,14 +307,16 @@ deterministic pagination across requests.
 1. First query:
    - Fan out to all partitions with limit.
    - Merge results, take top `limit`.
-   - Encode cursor from the last result's score,
-     docId, and per-partition positions.
+   - Encode cursor from the last result's score and docId.
    - Return results + cursor.
 
 2. Next query (with searchAfter cursor):
    - Decode cursor.
-   - Fan out to all partitions. Each partition seeks
-     to its cursor position.
+   - Fan out to all partitions with the same cursor.
+   - Each partition independently seeks past documents
+     with score < cursor.s, or score == cursor.s and
+     docId > cursor.d.
+   - Each partition returns up to `limit` results.
    - Merge results, take top `limit`.
    - Encode new cursor.
    - Return results + cursor.

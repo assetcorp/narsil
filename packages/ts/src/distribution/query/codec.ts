@@ -78,6 +78,8 @@ export function createStatsResultMessage(
   }
 }
 
+export const MAX_FACET_SHARD_SIZE = Math.ceil(1_000 * 1.5) + 10
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
@@ -122,6 +124,33 @@ export function validateSearchPayload(decoded: unknown): SearchPayload {
   }
   if (!isRecord(decoded.params)) {
     throw new Error('Invalid SearchPayload: "params" must be an object')
+  }
+  const params = decoded.params as Record<string, unknown>
+  if (params.facetSize !== null && params.facetSize !== undefined) {
+    if (
+      typeof params.facetSize !== 'number' ||
+      !Number.isFinite(params.facetSize as number) ||
+      !Number.isInteger(params.facetSize as number) ||
+      (params.facetSize as number) < 0
+    ) {
+      throw new Error('Invalid SearchPayload: "params.facetSize" must be a finite non-negative integer or null')
+    }
+  }
+  if (params.searchAfter !== null && params.searchAfter !== undefined) {
+    if (typeof params.searchAfter !== 'string') {
+      throw new Error('Invalid SearchPayload: "params.searchAfter" must be a string or null')
+    }
+  }
+  if (decoded.facetShardSize !== null && decoded.facetShardSize !== undefined) {
+    const shardSize = decoded.facetShardSize as number
+    if (
+      typeof decoded.facetShardSize !== 'number' ||
+      !Number.isFinite(shardSize) ||
+      shardSize < 1 ||
+      shardSize > MAX_FACET_SHARD_SIZE
+    ) {
+      throw new Error(`Invalid SearchPayload: "facetShardSize" must be between 1 and ${MAX_FACET_SHARD_SIZE}, or null`)
+    }
   }
   return decoded as unknown as SearchPayload
 }
