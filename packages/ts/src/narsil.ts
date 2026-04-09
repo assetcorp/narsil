@@ -1,16 +1,14 @@
-import { generateId } from './core/id-generator'
+import { createEngineCore, type EventHandler, getVectorFieldPaths } from './engine/core'
 import {
   insertDocument,
   insertDocumentBatch,
-  type MutationContext,
   removeDocument,
   removeDocumentBatch,
   updateDocument,
   updateDocumentBatch,
 } from './engine/mutations'
-import { createWorkerOrchestrator } from './engine/orchestration'
 import { executePreflight, executeQuery } from './engine/query'
-import { executeRebalance, type RebalanceContext } from './engine/rebalance-executor'
+import { executeRebalance } from './engine/rebalance-executor'
 import { resolveVectorText } from './engine/resolve-vector-text'
 import { createSnapshot, restoreFromSnapshot } from './engine/snapshot'
 import { executeSuggest } from './engine/suggest'
@@ -22,17 +20,11 @@ import {
 } from './engine/vector-maintenance'
 import { ErrorCodes, NarsilError } from './errors'
 import { getLanguage } from './languages/registry'
-import { createRebalancer } from './partitioning/rebalancer'
-import { createPartitionRouter } from './partitioning/router'
-import type { createWriteAheadQueue, WAQEntry } from './partitioning/write-ahead-queue'
-import { createFlushManager, type FlushManager } from './persistence/flush-manager'
-import { createPluginRegistry, type PluginRegistry } from './plugins/registry'
 import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from './schema/embedding-validator'
-import { extractVectorFieldsFromSchema, validateSchema } from './schema/validator'
+import { validateSchema } from './schema/validator'
 import type { EmbeddingAdapter } from './types/adapters'
 import type { NarsilConfig } from './types/config'
 import type { NarsilEventMap } from './types/events'
-import type { LanguageModule } from './types/language'
 import type {
   BatchResult,
   IndexInfo,
@@ -44,11 +36,8 @@ import type {
   SuggestResult,
   VectorMaintenanceResult,
 } from './types/results'
-import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig, SchemaDefinition } from './types/schema'
+import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig } from './types/schema'
 import type { QueryParams, SuggestParams } from './types/search'
-import { createDirectExecutor, type DirectExecutorExtensions } from './workers/direct-executor'
-import type { Executor } from './workers/executor'
-import { createExecutionPromoter } from './workers/promoter'
 
 export interface Narsil {
   createIndex(name: string, config: IndexConfig): Promise<void>
@@ -56,154 +45,51 @@ export interface Narsil {
   listIndexes(): IndexInfo[]
   getStats(indexName: string): IndexStats
   getPartitionStats(indexName: string): PartitionStatsResult[]
-
   insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string>
   insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult>
   remove(indexName: string, docId: string): Promise<void>
   removeBatch(indexName: string, docIds: string[]): Promise<BatchResult>
   update(indexName: string, docId: string, document: AnyDocument): Promise<void>
   updateBatch(indexName: string, updates: Array<{ docId: string; document: AnyDocument }>): Promise<BatchResult>
-
   get(indexName: string, docId: string): Promise<AnyDocument | undefined>
   getMultiple(indexName: string, docIds: string[]): Promise<Map<string, AnyDocument>>
   has(indexName: string, docId: string): Promise<boolean>
   countDocuments(indexName: string): Promise<number>
-
   query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>
   preflight(indexName: string, params: QueryParams): Promise<PreflightResult>
   suggest(indexName: string, params: SuggestParams): Promise<SuggestResult>
-
   snapshot(indexName: string): Promise<Uint8Array>
   restore(indexName: string, data: Uint8Array): Promise<void>
-
   clear(indexName: string): Promise<void>
   rebalance(indexName: string, targetPartitionCount: number): Promise<void>
   updatePartitionConfig(indexName: string, config: Partial<PartitionConfig>): Promise<void>
   getMemoryStats(): MemoryStats
-
   compactVectors(indexName: string, fieldName?: string): Promise<void>
   optimizeVectors(indexName: string, fieldName?: string): Promise<void>
   vectorMaintenanceStatus(indexName: string): VectorMaintenanceResult[]
-
   on<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void
   off<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void
   shutdown(): Promise<void>
 }
 
-function getVectorFieldPaths(schema: SchemaDefinition): Set<string> {
-  return new Set(extractVectorFieldsFromSchema(schema).keys())
-}
-
 export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
-  const executor: Executor & DirectExecutorExtensions = createDirectExecutor()
-  const promoter = createExecutionPromoter({
-    perIndexThreshold: config?.workers?.promotionThreshold,
-    totalThreshold: config?.workers?.totalPromotionThreshold,
-  })
-
-  const pluginRegistry: PluginRegistry = createPluginRegistry()
-  if (config?.plugins) {
-    for (const plugin of config.plugins) pluginRegistry.register(plugin)
-  }
-
-  let flushManager: FlushManager | null = null
-  if (config?.persistence) {
-    const noopInvalidation = config.invalidation ?? {
-      publish: async () => {},
-      subscribe: async () => {},
-      shutdown: async () => {},
-    }
-    flushManager = createFlushManager(
-      {
-        persistence: config.persistence,
-        invalidation: noopInvalidation,
-        interval: config.flush?.interval,
-        mutationThreshold: config.flush?.mutationThreshold,
-      },
-      () => new Uint8Array(0),
-      () => 'instance-0',
-    )
-  }
-
-  const idGenerator = config?.idGenerator ?? generateId
-  type IndexRegistryEntry = {
-    config: IndexConfig
-    language: LanguageModule
-    embeddingAdapter: EmbeddingAdapter | null
-    vectorFieldPaths: Set<string>
-  }
-  const indexRegistry = new Map<string, IndexRegistryEntry>()
-  type EventHandler = (payload: unknown) => void
-  const eventHandlers = new Map<string, Set<EventHandler>>()
-  let isShutdown = false
-  const abortController = new AbortController()
-  const orchestrator = createWorkerOrchestrator(config, executor, promoter, indexRegistry, {
-    onPromotion(workerCount, reason) {
-      const handlers = eventHandlers.get('workerPromote')
-      if (handlers) {
-        for (const handler of handlers) handler({ workerCount, reason })
-      }
-    },
-  })
-  const rebalancer = createRebalancer()
-  const rebalanceRouter = createPartitionRouter()
-  const rebalancingIndexes = new Set<string>()
-  const waqMap = new Map<string, ReturnType<typeof createWriteAheadQueue>>()
-  const lastAppliedSeqMap = new Map<string, Map<number, number>>()
-
-  function guardShutdown(): void {
-    if (isShutdown) {
-      throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, 'This Narsil instance has been shut down')
-    }
-  }
-
-  function requireIndex(indexName: string) {
-    const entry = indexRegistry.get(indexName)
-    if (!entry) {
-      throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `Index "${indexName}" does not exist`, { indexName })
-    }
-    return entry
-  }
-
-  function bufferIfRebalancing(indexName: string, entry: Omit<WAQEntry, 'sequenceNumber'>): boolean {
-    if (!rebalancingIndexes.has(indexName)) return false
-    const waq = waqMap.get(indexName)
-    if (!waq) return false
-    const clonedEntry = entry.document ? { ...entry, document: structuredClone(entry.document) } : entry
-    waq.push(clonedEntry)
-    return true
-  }
-
-  function requireManager(indexName: string) {
-    const manager = executor.getManager(indexName)
-    if (!manager) {
-      throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `Index "${indexName}" manager not found`, { indexName })
-    }
-    return manager
-  }
-
-  const mutationCtx: MutationContext = {
+  const core = createEngineCore(config)
+  const {
     executor,
     pluginRegistry,
     flushManager,
-    orchestrator,
-    idGenerator,
+    indexRegistry,
+    eventHandlers,
+    shutdownState,
     abortController,
+    orchestrator,
+    rebalancingIndexes,
     guardShutdown,
     requireIndex,
     requireManager,
-    bufferIfRebalancing,
-  }
-
-  const rebalanceCtx: RebalanceContext = {
-    rebalancer,
-    router: rebalanceRouter,
-    waqMap,
-    rebalancingIndexes,
-    lastAppliedSeqMap,
-    eventHandlers,
-    requireIndex,
-  }
+    mutationCtx,
+    rebalanceCtx,
+  } = core
 
   const narsil: Narsil = {
     async createIndex(name: string, indexConfig: IndexConfig): Promise<void> {
@@ -274,7 +160,6 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       requireIndex(indexName)
       return executor.getManager(indexName)?.getPartitionStats() ?? []
     },
-
     insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string> {
       return insertDocument(mutationCtx, indexName, document, docId, options)
     },
@@ -293,7 +178,6 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
     updateBatch(indexName: string, updates: Array<{ docId: string; document: AnyDocument }>): Promise<BatchResult> {
       return updateDocumentBatch(mutationCtx, indexName, updates)
     },
-
     async get(indexName: string, docId: string): Promise<AnyDocument | undefined> {
       guardShutdown()
       requireIndex(indexName)
@@ -319,7 +203,6 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       requireIndex(indexName)
       return executor.execute({ type: 'count', indexName, requestId: indexName })
     },
-
     async query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>> {
       guardShutdown()
       const entry = requireIndex(indexName)
@@ -366,7 +249,6 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
         indexName,
       })
     },
-
     async suggest(indexName: string, params: SuggestParams): Promise<SuggestResult> {
       guardShutdown()
       return executeSuggest(requireManager(indexName), requireIndex(indexName).language, params)
@@ -482,8 +364,8 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
     },
 
     async shutdown(): Promise<void> {
-      if (isShutdown) return
-      isShutdown = true
+      if (shutdownState.isShutdown) return
+      shutdownState.isShutdown = true
       abortController.abort()
 
       for (const [name] of indexRegistry) {
