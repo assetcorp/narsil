@@ -26,7 +26,9 @@ export const MAX_MESSAGE_SIZE_BYTES = 67_108_864
 export interface NodeTransport {
   send(target: string, message: TransportMessage): Promise<TransportMessage>
   stream(target: string, message: TransportMessage, handler: (chunk: Uint8Array) => void): Promise<void>
-  listen(handler: (message: TransportMessage, respond: (response: TransportMessage) => void) => void): Promise<void>
+  listen(
+    handler: (message: TransportMessage, respond: (response: TransportMessage) => void) => void,
+  ): Promise<() => void>
   shutdown(): Promise<void>
 }
 
@@ -77,6 +79,7 @@ export const QueryMessageTypes = {
 export const ClusterMessageTypes = {
   PING: 'cluster.ping',
   PONG: 'cluster.pong',
+  BOOTSTRAP_COMPLETE: 'cluster.bootstrap_complete',
 } as const
 
 export interface ForwardPayload {
@@ -274,4 +277,17 @@ export interface PingPayload {
 export interface PongPayload {
   timestamp: number
   respondedAt: number
+}
+
+export interface BootstrapCompletePayload {
+  indexName: string
+  partitionId: number
+  nodeId: string
+  primaryTerm: number
+}
+
+export interface BootstrapCompleteResultPayload {
+  indexName: string
+  partitionId: number
+  accepted: boolean
 }

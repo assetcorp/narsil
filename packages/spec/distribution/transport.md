@@ -18,7 +18,7 @@ Narsil nodes. All methods are asynchronous.
 NodeTransport {
   [async] fn send(target: string, message: TransportMessage) -> TransportMessage
   [async] fn stream(target: string, message: TransportMessage, handler: fn(chunk: bytes) -> none) -> none
-  [async] fn listen(handler: fn(message: TransportMessage, respond: fn(TransportMessage) -> none) -> none) -> none
+  [async] fn listen(handler: fn(message: TransportMessage, respond: fn(TransportMessage) -> none) -> none) -> fn() -> none
   [async] fn shutdown() -> none
 }
 ```
@@ -50,8 +50,15 @@ NodeTransport {
 - Registers a handler for incoming messages from other nodes.
 - The handler receives the message and a `respond` callback to
   send the reply.
+- Returns an unsubscribe function that removes the handler.
+  Calling the unsubscribe function stops the node from receiving
+  new messages through this handler. This allows components like
+  the controller to cleanly tear down their listener on
+  step-down without shutting down the entire transport.
 - A node must call `listen` before it can receive queries or
   replication entries from other nodes.
+- Calling `listen` again replaces the previous handler. The old
+  handler's unsubscribe function becomes a no-op.
 
 #### shutdown()
 
@@ -110,6 +117,7 @@ TransportMessage {
 | ------------- | -------------------- |
 | `cluster.ping` | Any -> Any | Health check |
 | `cluster.pong` | Any -> Any | Health check response |
+| `cluster.bootstrap_complete` | Data -> Controller | Reports that a partition has finished bootstrapping |
 
 ---
 
@@ -241,6 +249,45 @@ in-sync set.
   indexName:    string
   partitionId:  uint32
   accepted:     bool    (false if the primaryTerm was stale)
+}
+```
+
+### cluster.bootstrap_complete
+
+Sent by a data node to the controller after the sync protocol
+completes for a partition in `INITIALISING` state. The controller
+validates the request and transitions the partition to `ACTIVE`.
+
+The node retries with exponential backoff if the controller is
+unreachable or rejects the request. This follows the same pattern
+as Elasticsearch's `ShardStartedClusterStateTaskExecutor`.
+
+```text
+{
+  indexName:    string
+  partitionId:  uint32
+  nodeId:       string  (the reporting node's nodeId)
+  primaryTerm:  uint64  (the primaryTerm at bootstrap time)
+}
+```
+
+The controller validates:
+
+- `sourceId` of the transport message matches `nodeId` in the
+  payload (prevents spoofing).
+- The node is assigned to this partition (primary or replica).
+- The `primaryTerm` matches the current assignment's term
+  (rejects stale completions from old primary terms).
+- The partition is in `INITIALISING` state (idempotent: returns
+  `true` for already-`ACTIVE` partitions).
+
+Response:
+
+```text
+{
+  indexName:    string
+  partitionId:  uint32
+  accepted:     bool
 }
 ```
 

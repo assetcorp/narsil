@@ -72,11 +72,11 @@ export async function handleInsyncRemoval(
     assignments: updatedAssignments,
   }
 
-  await coordinator.putAllocation(payload.indexName, updatedTable)
+  const written = await coordinator.putAllocation(payload.indexName, updatedTable, table.version)
 
   return {
     indexName: payload.indexName,
     partitionId: payload.partitionId,
-    accepted: true,
+    accepted: written,
   }
 }
