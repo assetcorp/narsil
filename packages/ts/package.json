@@ -99,7 +99,8 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@msgpack/msgpack": "3.1.1"
+    "@msgpack/msgpack": "3.1.1",
+    "etcd3": "1.1.2"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.4",
