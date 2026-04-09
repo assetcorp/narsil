@@ -1,7 +1,7 @@
 import { encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AllocationTable, PartitionAssignment } from '../../../distribution/coordinator/types'
-import { decodePayload } from '../../../distribution/query/codec'
+import { decodePayload, validateSearchResultPayload } from '../../../distribution/query/codec'
 import { mergeAndTruncateScoredEntries, mergeDistributedFacets } from '../../../distribution/query/merge'
 import type { QueryRoutingDeps } from '../../../distribution/query/routing'
 import { distributedQuery } from '../../../distribution/query/routing'
@@ -448,5 +448,81 @@ describe('mergeDistributedFacets', () => {
 
   it('returns empty object for empty input', () => {
     expect(mergeDistributedFacets([])).toEqual({})
+  })
+
+  it('truncates buckets to maxBuckets', () => {
+    const buckets = Array.from({ length: 200 }, (_, i) => ({
+      value: `val-${String(i).padStart(3, '0')}`,
+      count: 200 - i,
+    }))
+    const facets = [{ category: buckets }]
+    const result = mergeDistributedFacets(facets, 5)
+    expect(result.category).toHaveLength(5)
+    expect(result.category[0].count).toBe(200)
+    expect(result.category[4].count).toBe(196)
+  })
+})
+
+describe('validateSearchResultPayload', () => {
+  it('rejects results with negative totalHits', () => {
+    expect(() =>
+      validateSearchResultPayload({
+        results: [{ partitionId: 0, scored: [], totalHits: -1 }],
+        facets: null,
+      }),
+    ).toThrow()
+  })
+
+  it('rejects results with NaN totalHits', () => {
+    expect(() =>
+      validateSearchResultPayload({
+        results: [{ partitionId: 0, scored: [], totalHits: NaN }],
+        facets: null,
+      }),
+    ).toThrow()
+  })
+
+  it('rejects scored entries with non-finite scores', () => {
+    expect(() =>
+      validateSearchResultPayload({
+        results: [
+          {
+            partitionId: 0,
+            scored: [{ docId: 'doc-1', score: Infinity, sortValues: null }],
+            totalHits: 1,
+          },
+        ],
+        facets: null,
+      }),
+    ).toThrow()
+  })
+
+  it('rejects oversized scored arrays', () => {
+    const hugeScored = Array.from({ length: 10_001 }, (_, i) => ({
+      docId: `doc-${i}`,
+      score: 1.0,
+      sortValues: null,
+    }))
+
+    expect(() =>
+      validateSearchResultPayload({
+        results: [{ partitionId: 0, scored: hugeScored, totalHits: 10_001 }],
+        facets: null,
+      }),
+    ).toThrow()
+  })
+
+  it('accepts valid result payloads', () => {
+    const result = validateSearchResultPayload({
+      results: [
+        {
+          partitionId: 0,
+          scored: [{ docId: 'doc-1', score: 5.0, sortValues: null }],
+          totalHits: 1,
+        },
+      ],
+      facets: null,
+    })
+    expect(result.results).toHaveLength(1)
   })
 })

@@ -3,6 +3,7 @@ import type { AllocationConstraints, AllocationTable, NodeRegistration } from '.
 import { createDeciderChain } from './deciders'
 import { initialAllocate } from './initial'
 import { rebalanceAllocate } from './rebalance'
+import type { AllocationResult } from './types'
 
 export function allocate(
   nodes: NodeRegistration[],
@@ -11,7 +12,7 @@ export function allocate(
   partitionCount: number,
   replicationFactor: number,
   constraints: AllocationConstraints,
-): AllocationTable {
+): AllocationResult {
   if (partitionCount <= 0) {
     throw new NarsilError(ErrorCodes.ALLOCATION_INVALID_CONFIG, 'partitionCount must be greater than 0', {
       partitionCount,
@@ -45,6 +46,6 @@ export type { AllocationConstraints, AllocationTable, NodeRegistration }
 export { createDeciderChain, runDeciders } from './deciders'
 export { initialAllocate } from './initial'
 export { rebalanceAllocate } from './rebalance'
-export type { AllocationMove, Decider, DeciderContext, DeciderVerdict, NodeWeight } from './types'
+export type { AllocationMove, AllocationResult, Decider, DeciderContext, DeciderVerdict, NodeWeight } from './types'
 export { DEFAULT_ESTIMATED_PARTITION_BYTES, REBALANCE_THRESHOLD } from './types'
 export { computeNodeWeights, countNodeAssignments, findBestNode } from './weight'

@@ -155,7 +155,12 @@ function popScoredHeap(heap: ScoredHeapNode[]): ScoredHeapNode {
   return top
 }
 
-export function mergeDistributedFacets(allFacets: Array<Record<string, FacetBucket[]>>): Record<string, FacetBucket[]> {
+const DEFAULT_MAX_FACET_BUCKETS = 100
+
+export function mergeDistributedFacets(
+  allFacets: Array<Record<string, FacetBucket[]>>,
+  maxBuckets: number = DEFAULT_MAX_FACET_BUCKETS,
+): Record<string, FacetBucket[]> {
   const merged = new Map<string, Map<string, number>>()
 
   for (const facetMap of allFacets) {
@@ -187,7 +192,7 @@ export function mergeDistributedFacets(allFacets: Array<Record<string, FacetBuck
       return 0
     })
 
-    result[field] = buckets
+    result[field] = buckets.slice(0, maxBuckets)
   }
 
   return result

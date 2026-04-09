@@ -1,5 +1,6 @@
 import type {
   AllocationConstraints,
+  AllocationResult,
   AllocationTable,
   Decider,
   DeciderContext,
@@ -33,8 +34,19 @@ function handleLostNodes(assignments: Map<number, PartitionAssignment>, activeNo
     assignment.inSyncSet = assignment.inSyncSet.filter(id => activeNodeIds.has(id))
 
     if (assignment.primary === null && assignment.replicas.length > 0) {
-      assignment.primary = assignment.replicas[0]
-      assignment.replicas = assignment.replicas.slice(1)
+      const inSyncCandidates = assignment.replicas.filter(id => assignment.inSyncSet.includes(id))
+
+      if (inSyncCandidates.length > 0) {
+        const promoted = inSyncCandidates[0]
+        assignment.primary = promoted
+        assignment.replicas = assignment.replicas.filter(id => id !== promoted)
+        assignment.inSyncSet = assignment.inSyncSet.filter(id => id !== promoted)
+      } else {
+        assignment.primary = assignment.replicas[0]
+        assignment.replicas = assignment.replicas.slice(1)
+      }
+
+      assignment.primaryTerm += 1
     }
 
     if (assignment.primary === null && assignment.replicas.length === 0) {
@@ -72,6 +84,7 @@ function fillUnassignedSlots(
 
       if (primaryNodeId !== null) {
         assignment.primary = primaryNodeId
+        assignment.primaryTerm += 1
         assignment.state = 'INITIALISING'
       }
     }
@@ -149,6 +162,7 @@ function rebalanceForBalance(
         const target = findBestNode([leastLoaded.nodeId], weights, deciders, moveContext)
         if (target !== null) {
           assignment.primary = target
+          assignment.primaryTerm += 1
           moved = true
           continue
         }
@@ -156,16 +170,15 @@ function rebalanceForBalance(
 
       const replicaIndex = assignment.replicas.indexOf(mostLoaded.nodeId)
       if (replicaIndex >= 0) {
-        const tempReplicas = assignment.replicas.filter((_, i) => i !== replicaIndex)
-        const tempAssignment: PartitionAssignment = { ...assignment, replicas: tempReplicas }
+        const removedReplica = assignment.replicas[replicaIndex]
+        assignment.replicas.splice(replicaIndex, 1)
 
         const nodeAssignmentCounts = countNodeAssignments(assignments)
-        nodeAssignmentCounts.set(mostLoaded.nodeId, (nodeAssignmentCounts.get(mostLoaded.nodeId) ?? 1) - 1)
 
         const moveContext: Omit<DeciderContext, 'candidateNodeId'> = {
           partitionId,
           role: 'replica',
-          currentAssignment: tempAssignment,
+          currentAssignment: assignment,
           allAssignments: assignments,
           nodeAssignmentCounts,
           nodes: nodeMap,
@@ -174,8 +187,10 @@ function rebalanceForBalance(
 
         const target = findBestNode([leastLoaded.nodeId], weights, deciders, moveContext)
         if (target !== null) {
-          assignment.replicas[replicaIndex] = target
+          assignment.replicas.push(target)
           moved = true
+        } else {
+          assignment.replicas.splice(replicaIndex, 0, removedReplica)
         }
       }
     }
@@ -189,7 +204,7 @@ export function rebalanceAllocate(
   currentTable: AllocationTable,
   constraints: AllocationConstraints,
   deciders: Decider[],
-): AllocationTable {
+): AllocationResult {
   const sortedNodes = [...nodes].sort((a, b) => {
     if (a.nodeId < b.nodeId) return -1
     if (a.nodeId > b.nodeId) return 1
@@ -211,10 +226,30 @@ export function rebalanceAllocate(
 
   rebalanceForBalance(assignments, sortedNodes, nodeMap, constraints, deciders)
 
+  const warnings = collectReplicationWarnings(assignments, currentTable.replicationFactor)
+
   return {
-    indexName: currentTable.indexName,
-    version: currentTable.version + 1,
-    replicationFactor: currentTable.replicationFactor,
-    assignments,
+    table: {
+      indexName: currentTable.indexName,
+      version: currentTable.version + 1,
+      replicationFactor: currentTable.replicationFactor,
+      assignments,
+    },
+    warnings,
   }
+}
+
+function collectReplicationWarnings(
+  assignments: Map<number, PartitionAssignment>,
+  replicationFactor: number,
+): string[] {
+  const warnings: string[] = []
+  for (const [partitionId, assignment] of assignments) {
+    if (assignment.replicas.length < replicationFactor) {
+      warnings.push(
+        `Partition ${partitionId} has ${assignment.replicas.length} replica(s) instead of requested ${replicationFactor} (insufficient nodes)`,
+      )
+    }
+  }
+  return warnings
 }

@@ -54,7 +54,7 @@ describe('allocator integration', () => {
       makeNode('node-c', 4_000_000_000),
       makeNode('node-d', 4_000_000_000),
     ]
-    const table = allocate(nodes, null, 'products', 12, 1, defaultConstraints)
+    const { table } = allocate(nodes, null, 'products', 12, 1, defaultConstraints)
 
     expect(table.assignments.size).toBe(12)
 
@@ -73,10 +73,10 @@ describe('allocator integration', () => {
       makeNode('node-c', 4_000_000_000),
       makeNode('node-d', 4_000_000_000),
     ]
-    const initialTable = allocate(initialNodes, null, 'products', 12, 1, defaultConstraints)
+    const initialTable = allocate(initialNodes, null, 'products', 12, 1, defaultConstraints).table
 
     const expandedNodes = [...initialNodes, makeNode('node-e', 4_000_000_000)]
-    const rebalancedTable = allocate(expandedNodes, initialTable, 'products', 12, 1, defaultConstraints)
+    const { table: rebalancedTable } = allocate(expandedNodes, initialTable, 'products', 12, 1, defaultConstraints)
 
     const counts = collectNodeCounts(rebalancedTable)
     expect(counts.size).toBe(5)
@@ -92,14 +92,14 @@ describe('allocator integration', () => {
       makeNode('node-c', 4_000_000_000),
       makeNode('node-d', 4_000_000_000),
     ]
-    const initialTable = allocate(initialNodes, null, 'products', 12, 1, defaultConstraints)
+    const initialTable = allocate(initialNodes, null, 'products', 12, 1, defaultConstraints).table
 
     const reducedNodes = [
       makeNode('node-a', 4_000_000_000),
       makeNode('node-b', 4_000_000_000),
       makeNode('node-c', 4_000_000_000),
     ]
-    const rebalancedTable = allocate(reducedNodes, initialTable, 'products', 12, 1, defaultConstraints)
+    const { table: rebalancedTable } = allocate(reducedNodes, initialTable, 'products', 12, 1, defaultConstraints)
 
     const counts = collectNodeCounts(rebalancedTable)
     expect(counts.has('node-d')).toBe(false)
@@ -126,7 +126,7 @@ describe('allocator integration', () => {
       makeNode('node-d', 4_000_000_000, { zone: 'us-east-1b' }),
     ]
 
-    const table = allocate(nodes, null, 'products', 4, 1, zoneConstraints)
+    const { table } = allocate(nodes, null, 'products', 4, 1, zoneConstraints)
 
     for (const assignment of table.assignments.values()) {
       expect(assignment.primary).not.toBeNull()
@@ -154,7 +154,7 @@ describe('allocator integration', () => {
       makeNode('node-b', 4_000_000_000),
       makeNode('node-c', 4_000_000_000),
     ]
-    const table = allocate(nodes, null, 'products', 6, 0, constraints)
+    const { table } = allocate(nodes, null, 'products', 6, 0, constraints)
 
     const counts = collectNodeCounts(table)
     for (const count of counts.values()) {
@@ -172,7 +172,7 @@ describe('allocator integration', () => {
 
     const results: AllocationTable[] = []
     for (let run = 0; run < 5; run++) {
-      results.push(allocate(nodes, null, 'products', 12, 1, defaultConstraints))
+      results.push(allocate(nodes, null, 'products', 12, 1, defaultConstraints).table)
     }
 
     const reference = results[0]
@@ -188,18 +188,18 @@ describe('allocator integration', () => {
 
   it('handles the complete lifecycle: create, expand, shrink', () => {
     const twoNodes = [makeNode('node-a', 4_000_000_000), makeNode('node-b', 4_000_000_000)]
-    const step1 = allocate(twoNodes, null, 'products', 6, 1, defaultConstraints)
+    const step1 = allocate(twoNodes, null, 'products', 6, 1, defaultConstraints).table
     expect(step1.version).toBe(1)
     verifyNoColocationViolations(step1)
 
     const threeNodes = [...twoNodes, makeNode('node-c', 4_000_000_000)]
-    const step2 = allocate(threeNodes, step1, 'products', 6, 1, defaultConstraints)
+    const step2 = allocate(threeNodes, step1, 'products', 6, 1, defaultConstraints).table
     expect(step2.version).toBe(2)
     verifyNoColocationViolations(step2)
     expect(collectNodeCounts(step2).get('node-c') ?? 0).toBeGreaterThan(0)
 
     const twoNodesAgain = [makeNode('node-a', 4_000_000_000), makeNode('node-c', 4_000_000_000)]
-    const step3 = allocate(twoNodesAgain, step2, 'products', 6, 1, defaultConstraints)
+    const step3 = allocate(twoNodesAgain, step2, 'products', 6, 1, defaultConstraints).table
     expect(step3.version).toBe(3)
     verifyNoColocationViolations(step3)
     expect(collectNodeCounts(step3).has('node-b')).toBe(false)
@@ -219,7 +219,7 @@ describe('allocator integration', () => {
       makeNode('node-b', 4_000_000_000),
     ]
 
-    const table = allocate(nodes, null, 'products', 4, 1, defaultConstraints)
+    const { table } = allocate(nodes, null, 'products', 4, 1, defaultConstraints)
 
     const counts = collectNodeCounts(table)
     expect(counts.has('coordinator-1')).toBe(false)

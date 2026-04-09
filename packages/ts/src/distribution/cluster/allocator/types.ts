@@ -37,6 +37,11 @@ export interface AllocationMove {
   toNodeId: string
 }
 
+export interface AllocationResult {
+  table: AllocationTable
+  warnings: string[]
+}
+
 export type { AllocationConstraints, AllocationTable, NodeRegistration, PartitionAssignment }
 
 export const REBALANCE_THRESHOLD = 0.1

@@ -36,11 +36,16 @@ export function decideSyncTier(log: ReplicationLog, replicaLastSeqNo: number): '
   return 'snapshot'
 }
 
-export function handleSyncRequest(request: SyncRequestPayload, deps: SyncPrimaryDeps): TransportMessage {
+export interface SyncRequestResult {
+  response: TransportMessage
+  snapshotBytes: Uint8Array | null
+}
+
+export function handleSyncRequest(request: SyncRequestPayload, deps: SyncPrimaryDeps): SyncRequestResult {
   const tier = decideSyncTier(deps.log, request.lastSeqNo)
 
   if (tier === 'incremental') {
-    return buildIncrementalResponse(request, deps)
+    return { response: buildIncrementalResponse(request, deps), snapshotBytes: null }
   }
 
   return buildSnapshotStartResponse(deps)
@@ -62,7 +67,7 @@ function buildIncrementalResponse(request: SyncRequestPayload, deps: SyncPrimary
   }
 }
 
-function buildSnapshotStartResponse(deps: SyncPrimaryDeps): TransportMessage {
+function buildSnapshotStartResponse(deps: SyncPrimaryDeps): SyncRequestResult {
   const snapshotBytes = deps.manager.serializePartitionToBytes(deps.partitionId)
   const checksum = crc32(snapshotBytes)
   const newestSeqNo = deps.log.newestSeqNo ?? 0
@@ -81,15 +86,22 @@ function buildSnapshotStartResponse(deps: SyncPrimaryDeps): TransportMessage {
   }
 
   return {
-    type: ReplicationMessageTypes.SNAPSHOT_START,
-    sourceId: deps.sourceNodeId,
-    requestId: generateId(),
-    payload: encode(startPayload),
+    response: {
+      type: ReplicationMessageTypes.SNAPSHOT_START,
+      sourceId: deps.sourceNodeId,
+      requestId: generateId(),
+      payload: encode(startPayload),
+    },
+    snapshotBytes,
   }
 }
 
-export function handleSnapshotStream(deps: SyncPrimaryDeps, respond: (response: TransportMessage) => void): void {
-  const snapshotBytes = deps.manager.serializePartitionToBytes(deps.partitionId)
+export function handleSnapshotStream(
+  deps: SyncPrimaryDeps,
+  respond: (response: TransportMessage) => void,
+  preSerializedBytes?: Uint8Array,
+): void {
+  const snapshotBytes = preSerializedBytes ?? deps.manager.serializePartitionToBytes(deps.partitionId)
   const checksum = crc32(snapshotBytes)
   const snapshotSeqNo = deps.log.newestSeqNo ?? 0
 
@@ -153,14 +165,18 @@ export function validateSyncRequest(decoded: unknown): SyncRequestPayload {
   if (typeof record.indexName !== 'string') {
     throw new Error('Invalid SyncRequestPayload: "indexName" must be a string')
   }
-  if (typeof record.partitionId !== 'number') {
-    throw new Error('Invalid SyncRequestPayload: "partitionId" must be a number')
+  if (typeof record.partitionId !== 'number' || !Number.isInteger(record.partitionId) || record.partitionId < 0) {
+    throw new Error('Invalid SyncRequestPayload: "partitionId" must be a non-negative integer')
   }
-  if (typeof record.lastSeqNo !== 'number') {
-    throw new Error('Invalid SyncRequestPayload: "lastSeqNo" must be a number')
+  if (typeof record.lastSeqNo !== 'number' || !Number.isInteger(record.lastSeqNo) || record.lastSeqNo < 0) {
+    throw new Error('Invalid SyncRequestPayload: "lastSeqNo" must be a non-negative integer')
   }
-  if (typeof record.lastPrimaryTerm !== 'number') {
-    throw new Error('Invalid SyncRequestPayload: "lastPrimaryTerm" must be a number')
+  if (
+    typeof record.lastPrimaryTerm !== 'number' ||
+    !Number.isInteger(record.lastPrimaryTerm) ||
+    record.lastPrimaryTerm < 0
+  ) {
+    throw new Error('Invalid SyncRequestPayload: "lastPrimaryTerm" must be a non-negative integer')
   }
   return record as unknown as SyncRequestPayload
 }

@@ -233,11 +233,12 @@ describe('handleSyncRequest', () => {
     insertDocument(cluster.primaryManager, 'prod-1', doc)
     appendIndexEntry(cluster.primaryLog, 'prod-1', doc)
 
-    const response = handleSyncRequest(
+    const { response, snapshotBytes } = handleSyncRequest(
       { indexName: 'products', partitionId: 0, lastSeqNo: 0, lastPrimaryTerm: 1 },
       deps,
     )
 
+    expect(snapshotBytes).toBeNull()
     expect(response.type).toBe(ReplicationMessageTypes.SYNC_ENTRIES)
     const payload = decode(response.payload) as SyncEntriesPayload
     expect(payload.entries).toHaveLength(1)
@@ -260,11 +261,12 @@ describe('handleSyncRequest', () => {
       primaryTerm: 1,
     }
 
-    const response = handleSyncRequest(
+    const { response, snapshotBytes } = handleSyncRequest(
       { indexName: 'products', partitionId: 0, lastSeqNo: 0, lastPrimaryTerm: 1 },
       deps,
     )
 
+    expect(snapshotBytes).not.toBeNull()
     expect(response.type).toBe(ReplicationMessageTypes.SNAPSHOT_START)
     const payload = decode(response.payload) as SnapshotStartPayload
     expect(payload.header.partitionId).toBe(0)
@@ -280,7 +282,7 @@ describe('handleSyncRequest', () => {
     appendIndexEntry(cluster.primaryLog, 'prod-1', doc)
 
     const deps = makePrimaryDeps(cluster)
-    const response = handleSyncRequest(
+    const { response } = handleSyncRequest(
       { indexName: 'products', partitionId: 0, lastSeqNo: 1, lastPrimaryTerm: 1 },
       deps,
     )
@@ -301,7 +303,7 @@ describe('handleSyncRequest', () => {
       appendIndexEntry(cluster.primaryLog, `prod-${i}`, doc)
     }
 
-    const response = handleSyncRequest(
+    const { response } = handleSyncRequest(
       { indexName: 'products', partitionId: 0, lastSeqNo: 5, lastPrimaryTerm: 1 },
       deps,
     )
@@ -354,10 +356,45 @@ describe('validateSyncRequest', () => {
 
   it('throws for missing fields', () => {
     expect(() => validateSyncRequest({})).toThrow('"indexName" must be a string')
-    expect(() => validateSyncRequest({ indexName: 'x' })).toThrow('"partitionId" must be a number')
-    expect(() => validateSyncRequest({ indexName: 'x', partitionId: 0 })).toThrow('"lastSeqNo" must be a number')
+    expect(() => validateSyncRequest({ indexName: 'x' })).toThrow('"partitionId" must be a non-negative integer')
+    expect(() => validateSyncRequest({ indexName: 'x', partitionId: 0 })).toThrow(
+      '"lastSeqNo" must be a non-negative integer',
+    )
     expect(() => validateSyncRequest({ indexName: 'x', partitionId: 0, lastSeqNo: 0 })).toThrow(
-      '"lastPrimaryTerm" must be a number',
+      '"lastPrimaryTerm" must be a non-negative integer',
+    )
+  })
+
+  it('rejects NaN values for numeric fields', () => {
+    expect(() => validateSyncRequest({ indexName: 'x', partitionId: NaN, lastSeqNo: 0, lastPrimaryTerm: 0 })).toThrow(
+      '"partitionId" must be a non-negative integer',
+    )
+    expect(() => validateSyncRequest({ indexName: 'x', partitionId: 0, lastSeqNo: NaN, lastPrimaryTerm: 0 })).toThrow(
+      '"lastSeqNo" must be a non-negative integer',
+    )
+    expect(() => validateSyncRequest({ indexName: 'x', partitionId: 0, lastSeqNo: 0, lastPrimaryTerm: NaN })).toThrow(
+      '"lastPrimaryTerm" must be a non-negative integer',
+    )
+  })
+
+  it('rejects negative values for numeric fields', () => {
+    expect(() => validateSyncRequest({ indexName: 'x', partitionId: -1, lastSeqNo: 0, lastPrimaryTerm: 0 })).toThrow(
+      '"partitionId" must be a non-negative integer',
+    )
+    expect(() => validateSyncRequest({ indexName: 'x', partitionId: 0, lastSeqNo: -5, lastPrimaryTerm: 0 })).toThrow(
+      '"lastSeqNo" must be a non-negative integer',
+    )
+    expect(() => validateSyncRequest({ indexName: 'x', partitionId: 0, lastSeqNo: 0, lastPrimaryTerm: -1 })).toThrow(
+      '"lastPrimaryTerm" must be a non-negative integer',
+    )
+  })
+
+  it('rejects non-integer values for numeric fields', () => {
+    expect(() => validateSyncRequest({ indexName: 'x', partitionId: 1.5, lastSeqNo: 0, lastPrimaryTerm: 0 })).toThrow(
+      '"partitionId" must be a non-negative integer',
+    )
+    expect(() => validateSyncRequest({ indexName: 'x', partitionId: 0, lastSeqNo: 2.7, lastPrimaryTerm: 0 })).toThrow(
+      '"lastSeqNo" must be a non-negative integer',
     )
   })
 })
@@ -383,7 +420,7 @@ describe('sync protocol integration', () => {
 
     await cluster.primaryTransport.listen((message: TransportMessage, respond) => {
       if (message.type === ReplicationMessageTypes.SYNC_REQUEST) {
-        respond(handleSyncRequest(decodeSyncRequest(message), deps))
+        respond(handleSyncRequest(decodeSyncRequest(message), deps).response)
       }
     })
 
@@ -418,7 +455,7 @@ describe('sync protocol integration', () => {
     const deps = makePrimaryDeps(cluster)
     await cluster.primaryTransport.listen((message: TransportMessage, respond) => {
       if (message.type === ReplicationMessageTypes.SYNC_REQUEST) {
-        respond(handleSyncRequest(decodeSyncRequest(message), deps))
+        respond(handleSyncRequest(decodeSyncRequest(message), deps).response)
       }
     })
 
@@ -448,7 +485,7 @@ describe('sync protocol integration', () => {
     const deps = makePrimaryDeps(cluster)
     await cluster.primaryTransport.listen((message: TransportMessage, respond) => {
       if (message.type === ReplicationMessageTypes.SYNC_REQUEST) {
-        respond(handleSyncRequest(decodeSyncRequest(message), deps))
+        respond(handleSyncRequest(decodeSyncRequest(message), deps).response)
       }
     })
 
@@ -482,7 +519,7 @@ describe('sync protocol integration', () => {
 
     await cluster.primaryTransport.listen((message: TransportMessage, respond) => {
       if (message.type === ReplicationMessageTypes.SYNC_REQUEST) {
-        respond(handleSyncRequest(decodeSyncRequest(message), deps))
+        respond(handleSyncRequest(decodeSyncRequest(message), deps).response)
       } else if (message.type === ReplicationMessageTypes.SNAPSHOT_CHUNK) {
         handleSnapshotStream(deps, respond)
       }
@@ -528,7 +565,7 @@ describe('sync protocol integration', () => {
 
     await cluster.primaryTransport.listen((message: TransportMessage, respond) => {
       if (message.type === ReplicationMessageTypes.SYNC_REQUEST) {
-        respond(handleSyncRequest(decodeSyncRequest(message), deps))
+        respond(handleSyncRequest(decodeSyncRequest(message), deps).response)
       } else if (message.type === ReplicationMessageTypes.SNAPSHOT_CHUNK) {
         handleSnapshotStream(deps, respond)
       }
@@ -570,7 +607,7 @@ describe('sync protocol integration', () => {
 
     await cluster.primaryTransport.listen((message: TransportMessage, respond) => {
       if (message.type === ReplicationMessageTypes.SYNC_REQUEST) {
-        respond(handleSyncRequest(decodeSyncRequest(message), deps))
+        respond(handleSyncRequest(decodeSyncRequest(message), deps).response)
       }
     })
 
@@ -600,7 +637,7 @@ describe('sync protocol integration', () => {
 
     await cluster.primaryTransport.listen((message: TransportMessage, respond) => {
       if (message.type === ReplicationMessageTypes.SYNC_REQUEST) {
-        respond(handleSyncRequest(decodeSyncRequest(message), deps))
+        respond(handleSyncRequest(decodeSyncRequest(message), deps).response)
       }
     })
 

@@ -486,4 +486,42 @@ describe('distributedQuery', () => {
     expect(result.coverage.queriedPartitions).toBe(0)
     expect(result.coverage.failedPartitions).toBe(2)
   })
+
+  it('throws QUERY_NODE_TIMEOUT when all DFS stats requests fail', async () => {
+    const table = makeAllocationTable([
+      [0, makeAssignment({ primary: 'node-x' })],
+      [1, makeAssignment({ primary: 'node-y' })],
+    ])
+
+    await expect(
+      distributedQuery('products', makeQueryParams({ scoring: 'dfs' }), makeDeps(table), {
+        allowPartialResults: true,
+      }),
+    ).rejects.toThrow(NarsilError)
+
+    try {
+      await distributedQuery('products', makeQueryParams({ scoring: 'dfs' }), makeDeps(table), {
+        allowPartialResults: true,
+      })
+    } catch (e) {
+      expect((e as NarsilError).code).toBe('QUERY_NODE_TIMEOUT')
+    }
+  })
+
+  it('clamps limit to MAX_QUERY_LIMIT', async () => {
+    setupDataNode('node-a', (msg, respond) => {
+      const resultPayload = makeSearchResultResponse([
+        { partitionId: 0, scored: [{ docId: 'doc-1', score: 5.0 }], totalHits: 1 },
+      ])
+      respond(createSearchResultMessage(resultPayload, 'node-a', msg.requestId))
+    })
+
+    const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
+
+    const resultNegative = await distributedQuery('products', makeQueryParams({ limit: -5 }), makeDeps(table))
+    expect(resultNegative.scored).toHaveLength(0)
+
+    const resultHuge = await distributedQuery('products', makeQueryParams({ limit: 999_999 }), makeDeps(table))
+    expect(resultHuge.scored).toHaveLength(1)
+  })
 })
