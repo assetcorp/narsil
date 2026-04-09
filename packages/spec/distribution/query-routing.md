@@ -202,18 +202,20 @@ counts for its partitions. The coordinator merges these counts.
 ### Facet Merge Protocol
 
 ```text
-1. Each data node returns facet buckets for each requested
-   facet field, sorted by count descending.
-2. Each data node returns more buckets than the client requested
-   (oversampling) to reduce accuracy loss from per-partition
-   truncation. The oversampling formula:
-     shardSize = requestedSize * 1.5 + 10
-3. The coordinator merges buckets from all data nodes:
+1. The coordinator computes the oversampled bucket count:
+     shardSize = ceil(facetSize * 1.5) + 10
+   where facetSize is the client's requested bucket count
+   (from QueryParams.facetSize, default 10).
+2. The coordinator includes shardSize in the search request
+   sent to each data node (as facetShardSize in query.search).
+3. Each data node returns up to shardSize facet buckets per
+   requested field, sorted by count descending.
+4. The coordinator merges buckets from all data nodes:
    a. For each facet field, group buckets by value.
    b. Sum the counts for identical values.
    c. Sort by merged count descending.
-   d. Truncate to the requested size.
-4. The merged facets are included in the query response.
+   d. Truncate to facetSize.
+5. The merged facets are included in the query response.
 ```
 
 ### Accuracy Tradeoff
@@ -243,11 +245,7 @@ to distributed mode without changes. The cursor encodes:
 ```json
 {
   "s": 4.523,
-  "d": "doc-id-123",
-  "p": {
-    "0": { "s": 4.523, "d": "doc-id-123", "o": 12 },
-    "1": { "s": 4.100, "d": "doc-id-456", "o": 8 }
-  }
+  "d": "doc-id-123"
 }
 ```
 
@@ -258,16 +256,17 @@ to distributed mode without changes. The cursor encodes:
    - Coordinator fans out to all data nodes.
    - Each data node returns scored results for its partitions.
    - Coordinator merges and takes top `limit` results.
-   - Cursor encodes the last result's score, docId, and
-     per-partition positions.
+   - Cursor encodes the last result's score and docId.
 
 2. Next query (with searchAfter):
    - Coordinator decodes the cursor.
-   - Fans out to all data nodes with the cursor.
-   - Each data node uses the per-partition cursor positions
-     to seek past already-seen results.
+   - Fans out to all data nodes with the same cursor
+     in the query parameters (searchAfter field).
+   - Each data node passes the cursor to its local
+     partitions. Each partition independently seeks
+     past the cursor point.
    - Coordinator merges and takes top `limit`.
-   - Encodes new cursor.
+   - Encodes new cursor from the last result.
 ```
 
 ### Tiebreaker Requirement
@@ -306,25 +305,39 @@ candidates, and the coordinator selects the global best from those.
 
 ### Distributed Hybrid Search
 
-Hybrid search (text + vector) runs both modalities in parallel
-across the cluster:
+Hybrid search (text + vector) uses two separate fan-outs so
+that the coordinator can fuse globally merged result sets.
+Per-node fusion is not used because it degrades as partition
+count grows.
+
+#### Hybrid Query Flow
 
 ```text
-1. Coordinator fans out text query to all data nodes.
-2. Coordinator fans out vector query to all data nodes.
-3. Each data node executes text and vector search locally,
-   returns both result sets.
-4. Coordinator merges text results from all nodes.
-5. Coordinator merges vector results from all nodes.
-6. Coordinator fuses text and vector results using the
-   configured fusion strategy (RRF or linear combination).
-7. Fetch phase for the fused top-k.
+1. The coordinator sends two search requests to each data
+   node in parallel:
+   a. A text-only request (term, filters, sort, limit;
+      vector and hybrid fields set to null).
+   b. A vector-only request (vector field populated;
+      term set to null).
+2. Each data node executes each request independently
+   against its local partitions and returns one result set
+   per request.
+3. The coordinator merges all text results from all data
+   nodes into a single ranked list.
+4. The coordinator merges all vector results from all data
+   nodes into a single ranked list.
+5. The coordinator applies the configured fusion strategy
+   on the two globally merged lists:
+   - RRF: reciprocal rank fusion with the configured k
+     constant.
+   - Linear combination: weighted sum of normalised
+     scores. Normalisation uses the full global score
+     distribution (min/max across all nodes), not
+     per-node ranges.
+6. The coordinator selects the global top-k from the
+   fused list.
+7. Fetch phase for the top-k documents.
 ```
-
-The fusion strategies (RRF, linear combination) operate on the
-globally merged text and vector result sets. Normalisation for
-linear combination happens over the full global score
-distribution, not per-node.
 
 ---
 
