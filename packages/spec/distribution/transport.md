@@ -81,7 +81,7 @@ TransportMessage {
 #### Replication Messages
 
 | Type | Direction | Description |
-|---|---|---|
+| ------------- | -------------------- |
 | `replication.forward` | Any node -> Primary | Forward a client mutation to the partition's primary |
 | `replication.entry` | Primary -> Replica | A replication log entry to apply |
 | `replication.ack` | Replica -> Primary | Acknowledgement of a replicated entry |
@@ -96,7 +96,7 @@ TransportMessage {
 #### Query Messages
 
 | Type | Direction | Description |
-|---|---|---|
+| ------------- | -------------------- |
 | `query.search` | Coordinator -> Data | Phase 1 query request with partitionIds and optional global stats |
 | `query.search_result` | Data -> Coordinator | Phase 1 response with scored document IDs and facet counts |
 | `query.fetch` | Coordinator -> Data | Phase 2 fetch request with specific document IDs |
@@ -107,7 +107,7 @@ TransportMessage {
 #### Cluster Messages
 
 | Type | Direction | Description |
-|---|---|---|
+| ------------- | -------------------- |
 | `cluster.ping` | Any -> Any | Health check |
 | `cluster.pong` | Any -> Any | Health check response |
 
@@ -133,6 +133,7 @@ because the mutation has not yet been materialised.
 ```
 
 The primary processes this message by:
+
 - `insert`: Generates embeddings if configured, then writes an
   `INDEX` entry to the replication log.
 - `update`: Fetches the existing document, merges `updateFields`,
@@ -459,7 +460,7 @@ TransportConfig {
 ```
 
 | Parameter | Default | Description |
-|---|---|---|
+| ------------- | -------------------- |
 | `connectTimeout` | 5,000 ms | Maximum time to establish a connection to a peer node |
 | `requestTimeout` | 30,000 ms | Maximum time to wait for a query request/response |
 | `replicationTimeout` | 10,000 ms | Maximum time to wait for a replication entry acknowledgement |
@@ -470,8 +471,7 @@ TransportConfig {
 ## NodeTransport Built-in Adapters
 
 | Adapter | Transport | Use Case |
-|---|---|---|
-| WebSocketTransport | WebSocket | Browser-compatible, works in all runtimes |
+| ------------- | -------------------- |
 | TcpTransport | Raw TCP with MessagePack framing | Server-to-server, lowest overhead |
 | InMemoryTransport | Direct function calls | Testing and single-process development |
 
@@ -490,7 +490,7 @@ Community adapters (gRPC, QUIC, HTTP/2, Unix sockets, etc.) must:
 ## Error Codes
 
 | Code | When |
-|---|---|
+| ------------- | -------------------- |
 | `TRANSPORT_CONNECT_FAILED` | Failed to establish a connection to a peer node. |
 | `TRANSPORT_TIMEOUT` | A request did not complete within the configured timeout. |
 | `TRANSPORT_MESSAGE_TOO_LARGE` | A non-streaming message exceeded the 64 MB limit. |
