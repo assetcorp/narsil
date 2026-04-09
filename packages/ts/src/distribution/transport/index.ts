@@ -2,6 +2,8 @@ export type { InMemoryNetwork, InMemoryTransportInternal } from './in-memory'
 export { createInMemoryNetwork, createInMemoryTransport } from './in-memory'
 export type {
   AckPayload,
+  BootstrapCompletePayload,
+  BootstrapCompleteResultPayload,
   EntryPayload,
   FacetBucket,
   FetchDocumentId,

@@ -153,10 +153,25 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
       return allocations.get(indexName) ?? null
     },
 
-    async putAllocation(indexName: string, table: AllocationTable): Promise<void> {
+    async putAllocation(indexName: string, table: AllocationTable, expectedVersion?: number | null): Promise<boolean> {
       assertNotShutdown()
+
+      if (expectedVersion !== undefined) {
+        const current = allocations.get(indexName)
+        if (expectedVersion === null) {
+          if (current !== undefined) {
+            return false
+          }
+        } else {
+          if (current === undefined || current.version !== expectedVersion) {
+            return false
+          }
+        }
+      }
+
       allocations.set(indexName, table)
       emitAllocationEvent({ indexName, table })
+      return true
     },
 
     async watchAllocation(handler: (event: AllocationEvent) => void): Promise<() => void> {
@@ -227,6 +242,12 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
     async releaseLease(key: string): Promise<void> {
       assertNotShutdown()
       clearLeaseEntry(key)
+    },
+
+    async get(key: string): Promise<Uint8Array | null> {
+      assertNotShutdown()
+      const value = kvStore.get(key)
+      return value !== undefined ? new Uint8Array(value) : null
     },
 
     async compareAndSet(key: string, expected: Uint8Array | null, value: Uint8Array): Promise<boolean> {

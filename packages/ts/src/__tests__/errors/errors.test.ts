@@ -77,10 +77,13 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.ALLOCATION_NO_DATA_NODES).toBe('ALLOCATION_NO_DATA_NODES')
     expect(ErrorCodes.ALLOCATION_INVALID_CONFIG).toBe('ALLOCATION_INVALID_CONFIG')
     expect(ErrorCodes.ALLOCATION_FAILED).toBe('ALLOCATION_FAILED')
+    expect(ErrorCodes.NODE_BOOTSTRAP_FAILED).toBe('NODE_BOOTSTRAP_FAILED')
+    expect(ErrorCodes.NODE_ALREADY_JOINED).toBe('NODE_ALREADY_JOINED')
+    expect(ErrorCodes.NODE_NOT_JOINED).toBe('NODE_NOT_JOINED')
   })
 
-  it('has exactly 42 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(42)
+  it('has exactly 48 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(48)
   })
 
   it('has unique values for every code', () => {

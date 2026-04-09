@@ -176,8 +176,13 @@ export function createInMemoryTransport(
       })
     },
 
-    async listen(handler: ListenHandler): Promise<void> {
+    async listen(handler: ListenHandler): Promise<() => void> {
       listenHandler = handler
+      return () => {
+        if (listenHandler === handler) {
+          listenHandler = undefined
+        }
+      }
     },
 
     async shutdown(): Promise<void> {

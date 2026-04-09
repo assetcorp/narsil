@@ -23,7 +23,7 @@ ClusterCoordinator {
   [async] fn watchNodes(handler: fn(event: NodeEvent) -> none) -> fn() -> none
 
   [async] fn getAllocation(indexName: string) -> AllocationTable or null
-  [async] fn putAllocation(indexName: string, table: AllocationTable) -> none
+  [async] fn putAllocation(indexName: string, table: AllocationTable, expectedVersion: uint64 or null) -> bool
   [async] fn watchAllocation(handler: fn(event: AllocationEvent) -> none) -> fn() -> none
 
   [async] fn getPartitionState(indexName: string, partitionId: uint32) -> PartitionState
@@ -33,6 +33,7 @@ ClusterCoordinator {
   [async] fn renewLease(key: string, nodeId: string, ttlMs: uint32) -> bool
   [async] fn releaseLease(key: string) -> none
 
+  [async] fn get(key: string) -> bytes or null
   [async] fn compareAndSet(key: string, expected: bytes or null, value: bytes) -> bool
 
   [async] fn getSchema(indexName: string) -> SchemaDefinition or null
@@ -71,11 +72,20 @@ ClusterCoordinator {
 - Events: `node_joined` (new registration), `node_left` (lease
   expired or explicit deregister).
 
-#### getAllocation(indexName) / putAllocation(indexName, table)
+#### getAllocation(indexName) / putAllocation(indexName, table, expectedVersion)
 
 - Reads or writes the allocation table for an index.
 - `putAllocation` must be atomic: the entire table is written as
   a single unit or not at all.
+- `putAllocation` supports optimistic concurrency control via
+  `expectedVersion`. When `expectedVersion` is provided, the
+  write succeeds only if the current table's version matches.
+  When `expectedVersion` is `null`, the write succeeds only if
+  no table exists for the index. Returns `true` if the write
+  succeeded, `false` if the version check failed.
+- This prevents split-brain writes: a controller that lost its
+  lease cannot overwrite a newer allocation table written by the
+  new controller, because the version will have advanced.
 
 #### watchAllocation(handler)
 
@@ -91,6 +101,14 @@ ClusterCoordinator {
 - `renewLease` extends the TTL. Returns `false` if the lease was
   lost (expired or taken by another node).
 - `releaseLease` explicitly releases the lease.
+
+#### get(key)
+
+- Reads the value stored at `key` in the coordinator's generic
+  key-value store.
+- Returns the raw bytes, or `null` if no value exists at `key`.
+- Used by the controller to read index metadata when handling
+  `schema_created` events (see [Index Metadata](#index-metadata)).
 
 #### compareAndSet(key, expected, value)
 
@@ -520,6 +538,73 @@ heuristic. Implementations may use:
 
 The chosen algorithm must satisfy the constraints above and
 produce deterministic output for identical input.
+
+---
+
+## Index Metadata
+
+When creating an index in cluster mode, the node handling the
+creation stores index-level configuration in the coordinator so
+the controller can read it when computing the initial allocation.
+
+### IndexMetadata
+
+```text
+IndexMetadata {
+  partitionCount:    uint32
+  replicationFactor: uint8
+  constraints:       AllocationConstraints
+}
+```
+
+### Storage Convention
+
+Index metadata is stored in the coordinator's generic key-value
+store under a well-known key:
+
+```text
+_narsil/index/{indexName}/config
+```
+
+The value is the `IndexMetadata` record serialised as MessagePack.
+
+### Index Creation Flow
+
+```text
+1. The node receiving a createIndex request:
+   a. Writes the IndexMetadata to the coordinator using
+      compareAndSet('_narsil/index/{indexName}/config', null, bytes).
+      The null-check prevents duplicate creation.
+   b. Writes the schema via putSchema(indexName, schema).
+      This triggers a schema_created event.
+
+2. The controller observes the schema_created event:
+   a. Reads the IndexMetadata via
+      get('_narsil/index/{indexName}/config').
+   b. Runs the allocator with the metadata's partitionCount,
+      replicationFactor, and constraints.
+   c. Writes the initial allocation table via putAllocation.
+
+3. If the creating node crashes between steps 1a and 1b:
+   - The metadata exists but no schema event fires.
+   - The controller does not act. The metadata is orphaned.
+   - A subsequent createIndex call for the same name will fail
+     the compareAndSet (key already exists), signalling that a
+     partial creation occurred. The caller can retry or clean up.
+
+4. If the controller crashes between steps 2a and 2c:
+   - The new controller (after re-election) observes the schema
+     exists via getSchema but no allocation exists via
+     getAllocation. It runs the allocator to recover.
+```
+
+The `partitionCount` is immutable after index creation (matching
+Elasticsearch's `index.number_of_shards`). Changing partition
+count requires creating a new index and reindexing.
+
+The `replicationFactor` can be changed after creation by updating
+the allocation table. The controller applies the new factor on
+the next rebalance.
 
 ---
 

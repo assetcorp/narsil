@@ -65,7 +65,7 @@ export interface ClusterCoordinator {
   watchNodes(handler: (event: NodeEvent) => void): Promise<() => void>
 
   getAllocation(indexName: string): Promise<AllocationTable | null>
-  putAllocation(indexName: string, table: AllocationTable): Promise<void>
+  putAllocation(indexName: string, table: AllocationTable, expectedVersion?: number | null): Promise<boolean>
   watchAllocation(handler: (event: AllocationEvent) => void): Promise<() => void>
 
   getPartitionState(indexName: string, partitionId: number): Promise<PartitionState>
@@ -75,6 +75,7 @@ export interface ClusterCoordinator {
   renewLease(key: string, nodeId: string, ttlMs: number): Promise<boolean>
   releaseLease(key: string): Promise<void>
 
+  get(key: string): Promise<Uint8Array | null>
   compareAndSet(key: string, expected: Uint8Array | null, value: Uint8Array): Promise<boolean>
 
   getSchema(indexName: string): Promise<SchemaDefinition | null>
