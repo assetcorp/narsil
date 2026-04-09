@@ -20,11 +20,11 @@ ClusterCoordinator {
   [async] fn registerNode(registration: NodeRegistration) -> none
   [async] fn deregisterNode(nodeId: string) -> none
   [async] fn listNodes() -> array[NodeRegistration]
-  [async] fn watchNodes(handler: fn(event: NodeEvent) -> none) -> none
+  [async] fn watchNodes(handler: fn(event: NodeEvent) -> none) -> fn() -> none
 
   [async] fn getAllocation(indexName: string) -> AllocationTable or null
   [async] fn putAllocation(indexName: string, table: AllocationTable) -> none
-  [async] fn watchAllocation(handler: fn(event: AllocationEvent) -> none) -> none
+  [async] fn watchAllocation(handler: fn(event: AllocationEvent) -> none) -> fn() -> none
 
   [async] fn getPartitionState(indexName: string, partitionId: uint32) -> PartitionState
   [async] fn putPartitionState(indexName: string, partitionId: uint32, state: PartitionState) -> none
@@ -37,7 +37,7 @@ ClusterCoordinator {
 
   [async] fn getSchema(indexName: string) -> SchemaDefinition or null
   [async] fn putSchema(indexName: string, schema: SchemaDefinition) -> none
-  [async] fn watchSchemas(handler: fn(event: SchemaEvent) -> none) -> none
+  [async] fn watchSchemas(handler: fn(event: SchemaEvent) -> none) -> fn() -> none
 
   [async] fn getLeaseHolder(key: string) -> string or null
   [async] fn shutdown() -> none
