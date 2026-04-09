@@ -1,13 +1,13 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type {
   AllocationConstraints,
-  AllocationTable,
+  AllocationResult,
   Decider,
   DeciderContext,
   NodeRegistration,
   PartitionAssignment,
 } from './types'
-import { computeNodeWeights, findBestNode } from './weight'
+import { computeNodeWeights, countNodeAssignments, findBestNode } from './weight'
 
 export function initialAllocate(
   nodes: NodeRegistration[],
@@ -16,7 +16,7 @@ export function initialAllocate(
   replicationFactor: number,
   constraints: AllocationConstraints,
   deciders: Decider[],
-): AllocationTable {
+): AllocationResult {
   const sortedNodes = [...nodes].sort((a, b) => {
     if (a.nodeId < b.nodeId) return -1
     if (a.nodeId > b.nodeId) return 1
@@ -28,16 +28,12 @@ export function initialAllocate(
     nodeMap.set(node.nodeId, node)
   }
 
-  const nodeAssignmentCounts = new Map<string, number>()
-  for (const node of sortedNodes) {
-    nodeAssignmentCounts.set(node.nodeId, 0)
-  }
-
   const assignments = new Map<number, PartitionAssignment>()
   const candidateNodeIds = sortedNodes.map(n => n.nodeId)
 
   for (let partitionId = 0; partitionId < partitionCount; partitionId++) {
     const weights = computeNodeWeights(sortedNodes, assignments)
+    const nodeAssignmentCounts = countNodeAssignments(assignments)
 
     const primaryContext: Omit<DeciderContext, 'candidateNodeId'> = {
       partitionId,
@@ -58,8 +54,6 @@ export function initialAllocate(
       })
     }
 
-    nodeAssignmentCounts.set(primaryNodeId, (nodeAssignmentCounts.get(primaryNodeId) ?? 0) + 1)
-
     const replicas: string[] = []
 
     const partialAssignment: PartitionAssignment = {
@@ -74,13 +68,14 @@ export function initialAllocate(
 
     for (let replicaSlot = 0; replicaSlot < replicationFactor; replicaSlot++) {
       const replicaWeights = computeNodeWeights(sortedNodes, assignments)
+      const replicaCounts = countNodeAssignments(assignments)
 
       const replicaContext: Omit<DeciderContext, 'candidateNodeId'> = {
         partitionId,
         role: 'replica',
         currentAssignment: partialAssignment,
         allAssignments: assignments,
-        nodeAssignmentCounts,
+        nodeAssignmentCounts: replicaCounts,
         nodes: nodeMap,
         constraints,
       }
@@ -92,14 +87,25 @@ export function initialAllocate(
       }
 
       replicas.push(replicaNodeId)
-      nodeAssignmentCounts.set(replicaNodeId, (nodeAssignmentCounts.get(replicaNodeId) ?? 0) + 1)
+    }
+  }
+
+  const warnings: string[] = []
+  for (const [partitionId, assignment] of assignments) {
+    if (assignment.replicas.length < replicationFactor) {
+      warnings.push(
+        `Partition ${partitionId} has ${assignment.replicas.length} replica(s) instead of requested ${replicationFactor} (insufficient nodes)`,
+      )
     }
   }
 
   return {
-    indexName,
-    version: 1,
-    replicationFactor,
-    assignments,
+    table: {
+      indexName,
+      version: 1,
+      replicationFactor,
+      assignments,
+    },
+    warnings,
   }
 }

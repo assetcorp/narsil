@@ -82,16 +82,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
+const MAX_RESULTS_PER_PARTITION = 10_000
+
 function isScoredEntry(value: unknown): value is { docId: string; score: number; sortValues: unknown[] | null } {
   if (!isRecord(value)) return false
-  return typeof value.docId === 'string' && typeof value.score === 'number'
+  return typeof value.docId === 'string' && typeof value.score === 'number' && Number.isFinite(value.score as number)
 }
 
 function isPartitionSearchResult(
   value: unknown,
 ): value is { partitionId: number; scored: Array<{ docId: string; score: number }>; totalHits: number } {
   if (!isRecord(value)) return false
-  return typeof value.partitionId === 'number' && typeof value.totalHits === 'number' && Array.isArray(value.scored)
+  if (typeof value.partitionId !== 'number' || typeof value.totalHits !== 'number' || !Array.isArray(value.scored)) {
+    return false
+  }
+  if ((value.totalHits as number) < 0 || !Number.isFinite(value.totalHits as number)) {
+    return false
+  }
+  if ((value.scored as unknown[]).length > MAX_RESULTS_PER_PARTITION) {
+    return false
+  }
+  return true
 }
 
 export function validateSearchPayload(decoded: unknown): SearchPayload {

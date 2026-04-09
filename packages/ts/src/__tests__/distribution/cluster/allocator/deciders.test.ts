@@ -161,9 +161,9 @@ describe('createCapacityDecider', () => {
     expect(verdict).toBe('YES')
   })
 
-  it('allows when memoryBytes is zero (capacity unknown)', () => {
+  it('rejects when memoryBytes is zero', () => {
     const nodeMap = new Map([['node-a', makeNode('node-a', 0)]])
-    const counts = new Map([['node-a', 100]])
+    const counts = new Map([['node-a', 0]])
 
     const verdict = capacityDecider.canAllocate(
       buildContext({
@@ -172,7 +172,7 @@ describe('createCapacityDecider', () => {
         nodes: nodeMap,
       }),
     )
-    expect(verdict).toBe('YES')
+    expect(verdict).toBe('NO')
   })
 
   it('rejects when candidate node is unknown', () => {

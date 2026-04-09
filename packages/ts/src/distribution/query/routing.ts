@@ -38,6 +38,8 @@ interface NodeQueryOutcome {
   results: SearchResultPayload | null
 }
 
+const MAX_QUERY_LIMIT = 10_000
+
 export async function distributedQuery(
   indexName: string,
   params: WireQueryParams,
@@ -49,6 +51,8 @@ export async function distributedQuery(
     ...DEFAULT_QUERY_CONFIG,
     ...config,
   }
+
+  const limit = Math.min(Math.max(params.limit, 0), MAX_QUERY_LIMIT)
 
   const allocationTable = await deps.getAllocation(indexName)
   if (allocationTable === null) {
@@ -121,7 +125,7 @@ export async function distributedQuery(
     }
   }
 
-  const mergedScored = mergeAndTruncateScoredEntries(allScored, params.limit)
+  const mergedScored = mergeAndTruncateScoredEntries(allScored, limit)
   const mergedFacets = allFacets.length > 0 ? mergeDistributedFacets(allFacets) : null
 
   return {
@@ -169,12 +173,9 @@ async function collectDistributedStats(
   }
 
   if (validStats.length === 0) {
-    return {
-      totalDocuments: 0,
-      docFrequencies: {},
-      totalFieldLengths: {},
-      averageFieldLengths: {},
-    }
+    throw new NarsilError('QUERY_NODE_TIMEOUT', 'All partition stats requests failed during DFS pre-pass', {
+      nodeCount: nodeEntries.length,
+    })
   }
 
   return mergePartitionStats(validStats)
@@ -228,10 +229,11 @@ async function sendWithTimeout<T>(
   timeout: number,
   validate: (decoded: unknown) => T,
 ): Promise<T | null> {
+  let timerId: ReturnType<typeof setTimeout> | undefined
   const abortPromise = new Promise<null>(resolve => {
-    const timer = setTimeout(() => resolve(null), timeout)
-    if (typeof timer === 'object' && 'unref' in timer) {
-      ;(timer as { unref: () => void }).unref()
+    timerId = setTimeout(() => resolve(null), timeout)
+    if (typeof timerId === 'object' && 'unref' in timerId) {
+      ;(timerId as { unref: () => void }).unref()
     }
   })
 
@@ -240,7 +242,13 @@ async function sendWithTimeout<T>(
     return validate(decoded)
   })
 
-  return Promise.race([sendPromise, abortPromise])
+  try {
+    return await Promise.race([sendPromise, abortPromise])
+  } finally {
+    if (timerId !== undefined) {
+      clearTimeout(timerId)
+    }
+  }
 }
 
 function isTimeoutError(error: unknown): boolean {

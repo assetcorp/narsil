@@ -44,10 +44,10 @@ describe('rebalance allocation', () => {
       makeNode('node-b', 4_000_000_000),
       makeNode('node-c', 4_000_000_000),
     ]
-    const initialTable = allocate(initialNodes, null, 'products', 6, 1, defaultConstraints)
+    const initialTable = allocate(initialNodes, null, 'products', 6, 1, defaultConstraints).table
 
     const expandedNodes = [...initialNodes, makeNode('node-d', 4_000_000_000)]
-    const rebalancedTable = allocate(expandedNodes, initialTable, 'products', 6, 1, defaultConstraints)
+    const rebalancedTable = allocate(expandedNodes, initialTable, 'products', 6, 1, defaultConstraints).table
 
     const counts = collectNodeCounts(rebalancedTable)
     const countD = counts.get('node-d') ?? 0
@@ -61,14 +61,14 @@ describe('rebalance allocation', () => {
       makeNode('node-c', 4_000_000_000),
       makeNode('node-d', 4_000_000_000),
     ]
-    const initialTable = allocate(initialNodes, null, 'products', 8, 1, defaultConstraints)
+    const initialTable = allocate(initialNodes, null, 'products', 8, 1, defaultConstraints).table
 
     const reducedNodes = [
       makeNode('node-a', 4_000_000_000),
       makeNode('node-b', 4_000_000_000),
       makeNode('node-c', 4_000_000_000),
     ]
-    const rebalancedTable = allocate(reducedNodes, initialTable, 'products', 8, 1, defaultConstraints)
+    const rebalancedTable = allocate(reducedNodes, initialTable, 'products', 8, 1, defaultConstraints).table
 
     const counts = collectNodeCounts(rebalancedTable)
     expect(counts.has('node-d')).toBe(false)
@@ -85,10 +85,10 @@ describe('rebalance allocation', () => {
       makeNode('node-b', 4_000_000_000),
       makeNode('node-c', 4_000_000_000),
     ]
-    const initialTable = allocate(initialNodes, null, 'products', 12, 1, defaultConstraints)
+    const initialTable = allocate(initialNodes, null, 'products', 12, 1, defaultConstraints).table
 
     const expandedNodes = [...initialNodes, makeNode('node-d', 4_000_000_000)]
-    const rebalancedTable = allocate(expandedNodes, initialTable, 'products', 12, 1, defaultConstraints)
+    const rebalancedTable = allocate(expandedNodes, initialTable, 'products', 12, 1, defaultConstraints).table
 
     let movedSlots = 0
     for (let i = 0; i < 12; i++) {
@@ -112,9 +112,9 @@ describe('rebalance allocation', () => {
       makeNode('node-b', 4_000_000_000),
       makeNode('node-c', 4_000_000_000),
     ]
-    const initialTable = allocate(nodes, null, 'products', 6, 1, defaultConstraints)
+    const initialTable = allocate(nodes, null, 'products', 6, 1, defaultConstraints).table
 
-    const rebalancedTable = allocate(nodes, initialTable, 'products', 6, 1, defaultConstraints)
+    const rebalancedTable = allocate(nodes, initialTable, 'products', 6, 1, defaultConstraints).table
 
     for (let i = 0; i < 6; i++) {
       const before = initialTable.assignments.get(i)
@@ -146,13 +146,13 @@ describe('rebalance allocation', () => {
     }
 
     const survivingNodes = [makeNode('node-a', 4_000_000_000)]
-    const rebalancedTable = allocate(survivingNodes, currentTable, 'products', 1, 1, defaultConstraints)
+    const rebalancedTable = allocate(survivingNodes, currentTable, 'products', 1, 1, defaultConstraints).table
 
     const assignment = rebalancedTable.assignments.get(0)
     expect(assignment?.primary).not.toBeNull()
   })
 
-  it('promotes first replica to primary when primary is lost', () => {
+  it('promotes in-sync replica to primary when primary is lost', () => {
     const assignments = new Map<number, PartitionAssignment>([
       [
         0,
@@ -174,10 +174,95 @@ describe('rebalance allocation', () => {
     }
 
     const survivingNodes = [makeNode('node-b', 4_000_000_000), makeNode('node-c', 4_000_000_000)]
-    const rebalancedTable = allocate(survivingNodes, currentTable, 'products', 1, 2, defaultConstraints)
+    const rebalancedTable = allocate(survivingNodes, currentTable, 'products', 1, 2, defaultConstraints).table
 
     const assignment = rebalancedTable.assignments.get(0)
     expect(assignment?.primary).toBe('node-b')
+  })
+
+  it('prefers in-sync replicas over out-of-sync replicas for promotion', () => {
+    const assignments = new Map<number, PartitionAssignment>([
+      [
+        0,
+        {
+          primary: 'node-a',
+          replicas: ['node-b', 'node-c'],
+          inSyncSet: ['node-a', 'node-c'],
+          state: 'ACTIVE',
+          primaryTerm: 1,
+        },
+      ],
+    ])
+
+    const currentTable: AllocationTable = {
+      indexName: 'products',
+      version: 1,
+      replicationFactor: 2,
+      assignments,
+    }
+
+    const survivingNodes = [makeNode('node-b', 4_000_000_000), makeNode('node-c', 4_000_000_000)]
+    const rebalancedTable = allocate(survivingNodes, currentTable, 'products', 1, 2, defaultConstraints).table
+
+    const assignment = rebalancedTable.assignments.get(0)
+    expect(assignment?.primary).toBe('node-c')
+  })
+
+  it('falls back to out-of-sync replica when no in-sync replica is available', () => {
+    const assignments = new Map<number, PartitionAssignment>([
+      [
+        0,
+        {
+          primary: 'node-a',
+          replicas: ['node-b'],
+          inSyncSet: ['node-a'],
+          state: 'ACTIVE',
+          primaryTerm: 1,
+        },
+      ],
+    ])
+
+    const currentTable: AllocationTable = {
+      indexName: 'products',
+      version: 1,
+      replicationFactor: 1,
+      assignments,
+    }
+
+    const survivingNodes = [makeNode('node-b', 4_000_000_000)]
+    const rebalancedTable = allocate(survivingNodes, currentTable, 'products', 1, 1, defaultConstraints).table
+
+    const assignment = rebalancedTable.assignments.get(0)
+    expect(assignment?.primary).toBe('node-b')
+  })
+
+  it('increments primaryTerm on every primary change', () => {
+    const assignments = new Map<number, PartitionAssignment>([
+      [
+        0,
+        {
+          primary: 'node-a',
+          replicas: ['node-b'],
+          inSyncSet: ['node-a', 'node-b'],
+          state: 'ACTIVE',
+          primaryTerm: 3,
+        },
+      ],
+    ])
+
+    const currentTable: AllocationTable = {
+      indexName: 'products',
+      version: 1,
+      replicationFactor: 1,
+      assignments,
+    }
+
+    const survivingNodes = [makeNode('node-b', 4_000_000_000)]
+    const rebalancedTable = allocate(survivingNodes, currentTable, 'products', 1, 1, defaultConstraints).table
+
+    const assignment = rebalancedTable.assignments.get(0)
+    expect(assignment?.primary).toBe('node-b')
+    expect(assignment?.primaryTerm).toBeGreaterThan(3)
   })
 
   it('handles multiple simultaneous changes: 2 nodes leave, 1 joins', () => {
@@ -187,14 +272,14 @@ describe('rebalance allocation', () => {
       makeNode('node-c', 4_000_000_000),
       makeNode('node-d', 4_000_000_000),
     ]
-    const initialTable = allocate(initialNodes, null, 'products', 8, 1, defaultConstraints)
+    const initialTable = allocate(initialNodes, null, 'products', 8, 1, defaultConstraints).table
 
     const changedNodes = [
       makeNode('node-a', 4_000_000_000),
       makeNode('node-b', 4_000_000_000),
       makeNode('node-e', 4_000_000_000),
     ]
-    const rebalancedTable = allocate(changedNodes, initialTable, 'products', 8, 1, defaultConstraints)
+    const rebalancedTable = allocate(changedNodes, initialTable, 'products', 8, 1, defaultConstraints).table
 
     const counts = collectNodeCounts(rebalancedTable)
     expect(counts.has('node-c')).toBe(false)
@@ -208,20 +293,20 @@ describe('rebalance allocation', () => {
 
   it('increments version on rebalance', () => {
     const nodes = [makeNode('node-a', 4_000_000_000), makeNode('node-b', 4_000_000_000)]
-    const initialTable = allocate(nodes, null, 'products', 4, 1, defaultConstraints)
+    const initialTable = allocate(nodes, null, 'products', 4, 1, defaultConstraints).table
     expect(initialTable.version).toBe(1)
 
     const expandedNodes = [...nodes, makeNode('node-c', 4_000_000_000)]
-    const rebalancedTable = allocate(expandedNodes, initialTable, 'products', 4, 1, defaultConstraints)
+    const rebalancedTable = allocate(expandedNodes, initialTable, 'products', 4, 1, defaultConstraints).table
     expect(rebalancedTable.version).toBe(2)
 
-    const rebalancedAgain = allocate(expandedNodes, rebalancedTable, 'products', 4, 1, defaultConstraints)
+    const rebalancedAgain = allocate(expandedNodes, rebalancedTable, 'products', 4, 1, defaultConstraints).table
     expect(rebalancedAgain.version).toBe(3)
   })
 
   it('does not mutate the input allocation table', () => {
     const nodes = [makeNode('node-a', 4_000_000_000), makeNode('node-b', 4_000_000_000)]
-    const initialTable = allocate(nodes, null, 'products', 4, 1, defaultConstraints)
+    const initialTable = allocate(nodes, null, 'products', 4, 1, defaultConstraints).table
 
     const originalPrimaries = new Map<number, string | null>()
     const originalReplicas = new Map<number, string[]>()
@@ -245,14 +330,14 @@ describe('rebalance allocation', () => {
       makeNode('node-b', 4_000_000_000),
       makeNode('node-c', 4_000_000_000),
     ]
-    const initialTable = allocate(initialNodes, null, 'products', 6, 2, defaultConstraints)
+    const initialTable = allocate(initialNodes, null, 'products', 6, 2, defaultConstraints).table
 
     const reducedNodes = [
       makeNode('node-a', 4_000_000_000),
       makeNode('node-b', 4_000_000_000),
       makeNode('node-d', 4_000_000_000),
     ]
-    const rebalancedTable = allocate(reducedNodes, initialTable, 'products', 6, 2, defaultConstraints)
+    const rebalancedTable = allocate(reducedNodes, initialTable, 'products', 6, 2, defaultConstraints).table
 
     for (const assignment of rebalancedTable.assignments.values()) {
       if (assignment.primary === null) continue
@@ -264,10 +349,10 @@ describe('rebalance allocation', () => {
 
   it('redistributes partitions toward the new node after expansion', () => {
     const nodes = [makeNode('node-a', 4_000_000_000), makeNode('node-b', 4_000_000_000)]
-    const initialTable = allocate(nodes, null, 'products', 8, 0, defaultConstraints)
+    const initialTable = allocate(nodes, null, 'products', 8, 0, defaultConstraints).table
 
     const expandedNodes = [...nodes, makeNode('node-c', 4_000_000_000)]
-    const rebalancedTable = allocate(expandedNodes, initialTable, 'products', 8, 0, defaultConstraints)
+    const rebalancedTable = allocate(expandedNodes, initialTable, 'products', 8, 0, defaultConstraints).table
 
     const rebalancedCounts = collectNodeCounts(rebalancedTable)
     expect(rebalancedCounts.size).toBe(3)

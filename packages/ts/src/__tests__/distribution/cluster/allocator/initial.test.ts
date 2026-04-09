@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { allocate } from '../../../../distribution/cluster/allocator'
-import type { AllocationConstraints, NodeRegistration } from '../../../../distribution/coordinator/types'
+import type {
+  AllocationConstraints,
+  AllocationTable,
+  NodeRegistration,
+} from '../../../../distribution/coordinator/types'
 import { ErrorCodes, NarsilError } from '../../../../errors'
 
 function makeNode(
@@ -24,7 +28,7 @@ const defaultConstraints: AllocationConstraints = {
   maxShardsPerNode: null,
 }
 
-function collectNodeCounts(table: ReturnType<typeof allocate>): Map<string, number> {
+function collectNodeCounts(table: AllocationTable): Map<string, number> {
   const counts = new Map<string, number>()
   for (const assignment of table.assignments.values()) {
     if (assignment.primary !== null) {
@@ -44,7 +48,7 @@ describe('initial allocation', () => {
       makeNode('node-b', 4_000_000_000),
       makeNode('node-c', 4_000_000_000),
     ]
-    const table = allocate(nodes, null, 'products', 6, 1, defaultConstraints)
+    const { table } = allocate(nodes, null, 'products', 6, 1, defaultConstraints)
 
     expect(table.assignments.size).toBe(6)
     expect(table.indexName).toBe('products')
@@ -71,7 +75,7 @@ describe('initial allocation', () => {
       makeNode('node-b', 4_000_000_000),
       makeNode('node-c', 4_000_000_000),
     ]
-    const table = allocate(nodes, null, 'products', 3, 2, defaultConstraints)
+    const { table } = allocate(nodes, null, 'products', 3, 2, defaultConstraints)
 
     expect(table.assignments.size).toBe(3)
 
@@ -97,7 +101,7 @@ describe('initial allocation', () => {
       makeNode('node-d', 4_000_000_000),
       makeNode('node-e', 4_000_000_000),
     ]
-    const table = allocate(nodes, null, 'products', 10, 1, defaultConstraints)
+    const { table } = allocate(nodes, null, 'products', 10, 1, defaultConstraints)
 
     expect(table.assignments.size).toBe(10)
 
@@ -109,7 +113,7 @@ describe('initial allocation', () => {
 
   it('gives more partitions to a node with 2x memory', () => {
     const nodes = [makeNode('node-a', 2_000_000_000), makeNode('node-b', 1_000_000_000)]
-    const table = allocate(nodes, null, 'products', 6, 0, defaultConstraints)
+    const { table } = allocate(nodes, null, 'products', 6, 0, defaultConstraints)
 
     const counts = collectNodeCounts(table)
     const countA = counts.get('node-a') ?? 0
@@ -119,7 +123,7 @@ describe('initial allocation', () => {
 
   it('allocates all primaries to single node with RF=0', () => {
     const nodes = [makeNode('node-a', 4_000_000_000)]
-    const table = allocate(nodes, null, 'products', 3, 0, defaultConstraints)
+    const { table } = allocate(nodes, null, 'products', 3, 0, defaultConstraints)
 
     expect(table.assignments.size).toBe(3)
     for (const assignment of table.assignments.values()) {
@@ -130,7 +134,7 @@ describe('initial allocation', () => {
 
   it('distributes 3 partitions with RF=1 across 2 nodes evenly', () => {
     const nodes = [makeNode('node-a', 4_000_000_000), makeNode('node-b', 4_000_000_000)]
-    const table = allocate(nodes, null, 'products', 3, 1, defaultConstraints)
+    const { table } = allocate(nodes, null, 'products', 3, 1, defaultConstraints)
 
     expect(table.assignments.size).toBe(3)
 
@@ -145,14 +149,17 @@ describe('initial allocation', () => {
     expect(counts.get('node-b')).toBe(3)
   })
 
-  it('caps replicas when not enough nodes for full replication', () => {
+  it('caps replicas when not enough nodes for full replication and returns warnings', () => {
     const nodes = [makeNode('node-a', 4_000_000_000), makeNode('node-b', 4_000_000_000)]
-    const table = allocate(nodes, null, 'products', 3, 2, defaultConstraints)
+    const { table, warnings } = allocate(nodes, null, 'products', 3, 2, defaultConstraints)
 
     for (const assignment of table.assignments.values()) {
       expect(assignment.primary).not.toBeNull()
       expect(assignment.replicas).toHaveLength(1)
     }
+
+    expect(warnings.length).toBeGreaterThan(0)
+    expect(warnings[0]).toContain('instead of requested 2')
   })
 
   it('produces deterministic output for identical input', () => {
@@ -162,12 +169,12 @@ describe('initial allocation', () => {
       makeNode('node-c', 4_000_000_000),
     ]
 
-    const table1 = allocate(nodes, null, 'products', 6, 1, defaultConstraints)
-    const table2 = allocate(nodes, null, 'products', 6, 1, defaultConstraints)
+    const result1 = allocate(nodes, null, 'products', 6, 1, defaultConstraints)
+    const result2 = allocate(nodes, null, 'products', 6, 1, defaultConstraints)
 
     for (let i = 0; i < 6; i++) {
-      const a1 = table1.assignments.get(i)
-      const a2 = table2.assignments.get(i)
+      const a1 = result1.table.assignments.get(i)
+      const a2 = result2.table.assignments.get(i)
       expect(a1?.primary).toBe(a2?.primary)
       expect(a1?.replicas).toEqual(a2?.replicas)
     }
@@ -175,7 +182,7 @@ describe('initial allocation', () => {
 
   it('sets state=INITIALISING and primaryTerm=1 for all partitions', () => {
     const nodes = [makeNode('node-a', 4_000_000_000), makeNode('node-b', 4_000_000_000)]
-    const table = allocate(nodes, null, 'products', 4, 1, defaultConstraints)
+    const { table } = allocate(nodes, null, 'products', 4, 1, defaultConstraints)
 
     for (const assignment of table.assignments.values()) {
       expect(assignment.state).toBe('INITIALISING')
@@ -191,7 +198,7 @@ describe('initial allocation', () => {
       makeNode('node-c', 4_000_000_000),
       makeNode('node-d', 4_000_000_000),
     ]
-    const table = allocate(nodes, null, 'products', 12, 2, defaultConstraints)
+    const { table } = allocate(nodes, null, 'products', 12, 2, defaultConstraints)
 
     for (const assignment of table.assignments.values()) {
       const allNodes = [assignment.primary, ...assignment.replicas]
@@ -246,5 +253,15 @@ describe('initial allocation', () => {
       expect(err).toBeInstanceOf(NarsilError)
       expect((err as NarsilError).code).toBe(ErrorCodes.ALLOCATION_INVALID_CONFIG)
     }
+  })
+
+  it('returns empty warnings when full replication is achieved', () => {
+    const nodes = [
+      makeNode('node-a', 4_000_000_000),
+      makeNode('node-b', 4_000_000_000),
+      makeNode('node-c', 4_000_000_000),
+    ]
+    const { warnings } = allocate(nodes, null, 'products', 3, 1, defaultConstraints)
+    expect(warnings).toEqual([])
   })
 })

@@ -16,7 +16,7 @@ export function createCapacityDecider(estimatedPartitionBytes?: number): Decider
       }
 
       if (node.capacity.memoryBytes === 0) {
-        return 'YES'
+        return 'NO'
       }
 
       const currentCount = nodeAssignmentCounts.get(candidateNodeId) ?? 0

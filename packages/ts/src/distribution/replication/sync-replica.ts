@@ -17,6 +17,8 @@ import { ReplicationMessageTypes } from '../transport/types'
 import { applyDeleteEntry, applyIndexEntry, validateReplicationEntry } from './replica'
 import type { ReplicationLog, ReplicationLogEntry } from './types'
 
+const MAX_SNAPSHOT_SIZE_BYTES = 2 * 1024 * 1024 * 1024
+
 export interface SyncReplicaDeps {
   manager: PartitionManager
   log: ReplicationLog
@@ -112,6 +114,10 @@ async function handleSnapshotSync(
   const header = startPayload.header
   const expectedTotalBytes = startPayload.totalBytes
 
+  if (expectedTotalBytes > MAX_SNAPSHOT_SIZE_BYTES) {
+    return { synced: false, newSeqNo: header.lastSeqNo, tier: 'snapshot', entriesApplied: 0 }
+  }
+
   const fetchMessage: TransportMessage = {
     type: ReplicationMessageTypes.SNAPSHOT_CHUNK,
     sourceId: deps.sourceNodeId,
@@ -125,12 +131,26 @@ async function handleSnapshotSync(
   const receivedChunks: Uint8Array[] = []
   let receivedEnd: SnapshotEndPayload | undefined
   let trailingEntries: ReplicationLogEntry[] = []
+  let expectedNextOffset = 0
+  let accumulatedBytes = 0
+  let chunkOrderError = false
 
   await deps.transport.stream(primaryNodeId, fetchMessage, (chunk: Uint8Array) => {
     const decoded = decode(chunk) as Record<string, unknown>
 
     if (isSnapshotChunkPayload(decoded)) {
-      receivedChunks.push((decoded as unknown as SnapshotChunkPayload).data)
+      const chunkPayload = decoded as unknown as SnapshotChunkPayload
+      if (chunkPayload.offset !== expectedNextOffset) {
+        chunkOrderError = true
+        return
+      }
+      accumulatedBytes += chunkPayload.data.byteLength
+      if (accumulatedBytes > MAX_SNAPSHOT_SIZE_BYTES) {
+        chunkOrderError = true
+        return
+      }
+      expectedNextOffset = chunkPayload.offset + chunkPayload.data.byteLength
+      receivedChunks.push(chunkPayload.data)
     } else if (isSnapshotEndPayload(decoded)) {
       receivedEnd = decoded as unknown as SnapshotEndPayload
     } else if (isSyncEntriesPayload(decoded)) {
@@ -138,6 +158,10 @@ async function handleSnapshotSync(
       trailingEntries = trailingEntries.concat(entriesPayload.entries)
     }
   })
+
+  if (chunkOrderError) {
+    return { synced: false, newSeqNo: header.lastSeqNo, tier: 'snapshot', entriesApplied: 0 }
+  }
 
   if (receivedEnd === undefined) {
     return { synced: false, newSeqNo: header.lastSeqNo, tier: 'snapshot', entriesApplied: 0 }
