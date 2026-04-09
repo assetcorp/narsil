@@ -10,7 +10,7 @@ export interface DistributedCursor {
 
 function truncateCursorForError(encoded: string): string {
   if (encoded.length > 100) {
-    return encoded.slice(0, 100) + '...'
+    return `${encoded.slice(0, 100)}...`
   }
   return encoded
 }

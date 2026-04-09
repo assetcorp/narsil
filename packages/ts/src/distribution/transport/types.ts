@@ -27,7 +27,7 @@ export interface NodeTransport {
   send(target: string, message: TransportMessage): Promise<TransportMessage>
   stream(target: string, message: TransportMessage, handler: (chunk: Uint8Array) => void): Promise<void>
   listen(
-    handler: (message: TransportMessage, respond: (response: TransportMessage) => void) => void,
+    handler: (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>,
   ): Promise<() => void>
   shutdown(): Promise<void>
 }

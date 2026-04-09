@@ -8,7 +8,7 @@ import {
   type TransportMessage,
 } from './types'
 
-type ListenHandler = (message: TransportMessage, respond: (response: TransportMessage) => void) => void
+type ListenHandler = (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>
 
 type StreamResponder = (chunks: Uint8Array[]) => void
 

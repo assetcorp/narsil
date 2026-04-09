@@ -1,5 +1,7 @@
 export type { InMemoryNetwork, InMemoryTransportInternal } from './in-memory'
 export { createInMemoryNetwork, createInMemoryTransport } from './in-memory'
+export type { TcpTransportConfig } from './tcp'
+export { createTcpTransport } from './tcp'
 export type {
   AckPayload,
   BootstrapCompletePayload,
