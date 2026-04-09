@@ -17,6 +17,7 @@ export interface NodeRegistration {
   capacity: NodeCapacity
   startedAt: string
   version: string
+  metadata?: Record<string, string>
 }
 
 export interface PartitionAssignment {

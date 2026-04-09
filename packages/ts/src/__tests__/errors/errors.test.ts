@@ -66,8 +66,21 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.CONFIG_INVALID).toBe('CONFIG_INVALID')
   })
 
-  it('has exactly 35 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(35)
+  it('has query routing error codes', () => {
+    expect(ErrorCodes.QUERY_ROUTING_FAILED).toBe('QUERY_ROUTING_FAILED')
+    expect(ErrorCodes.QUERY_PARTIAL_FAILURE).toBe('QUERY_PARTIAL_FAILURE')
+    expect(ErrorCodes.QUERY_NODE_TIMEOUT).toBe('QUERY_NODE_TIMEOUT')
+    expect(ErrorCodes.QUERY_NO_ACTIVE_REPLICA).toBe('QUERY_NO_ACTIVE_REPLICA')
+  })
+
+  it('has allocation error codes', () => {
+    expect(ErrorCodes.ALLOCATION_NO_DATA_NODES).toBe('ALLOCATION_NO_DATA_NODES')
+    expect(ErrorCodes.ALLOCATION_INVALID_CONFIG).toBe('ALLOCATION_INVALID_CONFIG')
+    expect(ErrorCodes.ALLOCATION_FAILED).toBe('ALLOCATION_FAILED')
+  })
+
+  it('has exactly 42 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(42)
   })
 
   it('has unique values for every code', () => {
