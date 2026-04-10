@@ -1,4 +1,5 @@
 import { connect, type Socket } from 'node:net'
+import { connect as tlsConnect } from 'node:tls'
 import { MAX_MESSAGE_SIZE_BYTES, TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import { decodeTransportMessage, encodeFrame, encodeTransportMessage, FrameParser, type WireFrame } from './framing'
 import {
@@ -153,7 +154,21 @@ export class TcpConnectionPool {
 
     return new Promise<Socket>((resolve, reject) => {
       let settled = false
-      const socket = connect({ host, port })
+      const tlsConfig = this.config.tls
+
+      const socket: Socket =
+        tlsConfig !== undefined
+          ? tlsConnect({
+              host,
+              port,
+              cert: tlsConfig.cert,
+              key: tlsConfig.key,
+              ca: tlsConfig.ca,
+              rejectUnauthorized: tlsConfig.rejectUnauthorized ?? true,
+            })
+          : connect({ host, port })
+
+      const connectEvent = tlsConfig !== undefined ? 'secureConnect' : 'connect'
 
       const connectTimer = setTimeout(() => {
         if (!settled) {
@@ -169,7 +184,7 @@ export class TcpConnectionPool {
         }
       }, this.config.connectTimeout)
 
-      socket.once('connect', () => {
+      socket.once(connectEvent, () => {
         if (settled) {
           socket.destroy()
           return

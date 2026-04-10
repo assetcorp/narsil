@@ -1,3 +1,4 @@
+import { decode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createNarsil } from '../../narsil'
@@ -10,10 +11,26 @@ import { DEFAULT_CONTROLLER_CONFIG } from '../cluster/controller/types'
 import { createDataNodeLifecycle } from '../cluster/node-lifecycle'
 import type { DataNodeHandle } from '../cluster/node-lifecycle/types'
 import { DEFAULT_NODE_LIFECYCLE_CONFIG } from '../cluster/node-lifecycle/types'
-import type { NodeRegistration, NodeRole } from '../coordinator/types'
+import type { AllocationTable, NodeRegistration, NodeRole } from '../coordinator/types'
+import { createFetchMessage, validateFetchResultPayload } from '../query/codec'
+import { distributedQuery } from '../query/routing'
+import { selectReplica } from '../query/selection'
+import type { DistributedQueryResult } from '../query/types'
+import type { FetchDocumentId, TransportMessage } from '../transport/types'
+import { createDataNodeHandler } from './message-handler'
+import { distributedResultToLocal, localParamsToWire } from './query-conversion'
+import { createMultiplexedControllerTransport } from './transport-listener'
 import type { ClusterNamespace, ClusterNode, ClusterNodeConfig, CreateIndexOptions } from './types'
 import { DEFAULT_CAPACITY } from './types'
-import { routeCreateIndex, routeInsert, routeInsertBatch, routeRemove, routeRemoveBatch } from './write-routing'
+import {
+  resolvePartitionId,
+  routeCreateIndex,
+  routeInsert,
+  routeInsertBatch,
+  routeRemove,
+  routeRemoveBatch,
+  type WriteRoutingDeps,
+} from './write-routing'
 
 const SPEC_VERSION = '1.0'
 
@@ -37,9 +54,20 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
 
   const hasDataRole = roles.includes('data')
   const hasControllerRole = roles.includes('controller')
+  const controllerTransport =
+    hasDataRole && hasControllerRole ? createMultiplexedControllerTransport(config.transport) : null
+
+  const writeDeps: WriteRoutingDeps = {
+    nodeId,
+    coordinator: config.coordinator,
+    engine,
+    transport: config.transport,
+    resolveNodeTargets,
+  }
 
   let lifecycle: DataNodeHandle | null = null
   let controller: ControllerNode | null = null
+  let unregisterHandler: (() => void) | null = null
   let isShutdown = false
   let activeOps = 0
   let drainResolve: (() => void) | null = null
@@ -81,7 +109,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     controller = createController({
       nodeId,
       coordinator: config.coordinator,
-      transport: config.transport,
+      transport: controllerTransport?.transport ?? config.transport,
       leaseTtlMs: DEFAULT_CONTROLLER_CONFIG.leaseTtlMs,
       standbyRetryMs: DEFAULT_CONTROLLER_CONFIG.standbyRetryMs,
       knownIndexNames: [],
@@ -138,23 +166,48 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     },
 
     async insert(indexName, document, docId?) {
-      return trackOp(() => routeInsert(indexName, document, docId, nodeId, config.coordinator, engine))
+      return trackOp(() => routeInsert(indexName, document, docId, writeDeps))
     },
 
     async insertBatch(indexName, documents) {
-      return trackOp(() => routeInsertBatch(indexName, documents, nodeId, config.coordinator, engine))
+      return trackOp(() => routeInsertBatch(indexName, documents, writeDeps))
     },
 
     async remove(indexName, docId) {
-      return trackOp(() => routeRemove(indexName, docId, nodeId, config.coordinator, engine))
+      return trackOp(() => routeRemove(indexName, docId, writeDeps))
     },
 
     async removeBatch(indexName, docIds) {
-      return trackOp(() => routeRemoveBatch(indexName, docIds, nodeId, config.coordinator, engine))
+      return trackOp(() => routeRemoveBatch(indexName, docIds, writeDeps))
     },
 
     async query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>> {
-      return trackOp(() => engine.query<T>(indexName, params))
+      return trackOp(async () => {
+        const allocation = await config.coordinator.getAllocation(indexName)
+        if (allocation === null || allocation.assignments.size === 0) {
+          return engine.query<T>(indexName, params)
+        }
+        let hasActivePartition = false
+        for (const [, assignment] of allocation.assignments) {
+          if (assignment.state === 'ACTIVE') {
+            hasActivePartition = true
+            break
+          }
+        }
+        if (!hasActivePartition) {
+          return engine.query<T>(indexName, params)
+        }
+        const wireParams = localParamsToWire(params)
+        const queryDeps = {
+          transport: config.transport,
+          sourceNodeId: nodeId,
+          getAllocation: (idx: string) => config.coordinator.getAllocation(idx),
+          resolveNodeTargets,
+        }
+        const distributed = await distributedQuery(indexName, wireParams, queryDeps)
+        const documents = await fetchDistributedDocuments<T>(indexName, distributed, allocation)
+        return distributedResultToLocal<T>(distributed, documents)
+      })
     },
 
     cluster,
@@ -168,6 +221,12 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
 
       if (controller !== null) {
         await controller.start()
+      }
+
+      if (hasDataRole) {
+        const dataHandler = createDataNodeHandler({ nodeId, engine })
+        const listener = controllerTransport !== null ? controllerTransport.createHandler(dataHandler) : dataHandler
+        unregisterHandler = await config.transport.listen(listener)
       }
     },
 
@@ -183,6 +242,11 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
         })
       }
 
+      if (unregisterHandler !== null) {
+        unregisterHandler()
+        unregisterHandler = null
+      }
+
       if (lifecycle !== null) {
         await lifecycle.shutdown()
       }
@@ -196,6 +260,87 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   }
 
   return node
+
+  async function resolveNodeTargets(targetNodeId: string): Promise<string[]> {
+    const targets = [targetNodeId]
+    const nodes = await config.coordinator.listNodes()
+    const registration = nodes.find(node => node.nodeId === targetNodeId)
+    if (registration !== undefined && registration.address.length > 0 && registration.address !== targetNodeId) {
+      targets.push(registration.address)
+    }
+    return targets
+  }
+
+  async function fetchDistributedDocuments<T>(
+    indexName: string,
+    result: DistributedQueryResult,
+    allocation: AllocationTable,
+  ): Promise<Map<string, T>> {
+    const partitionCount = allocation.assignments.size
+    const nodeToDocumentIds = new Map<string, FetchDocumentId[]>()
+
+    for (const entry of result.scored) {
+      const partitionId = resolvePartitionId(entry.docId, partitionCount)
+      const assignment = allocation.assignments.get(partitionId)
+      if (assignment === undefined) {
+        continue
+      }
+      const selectedNodeId = selectReplica(assignment, nodeId, undefined, partitionId)
+      if (selectedNodeId === null) {
+        continue
+      }
+      let documentIds = nodeToDocumentIds.get(selectedNodeId)
+      if (documentIds === undefined) {
+        documentIds = []
+        nodeToDocumentIds.set(selectedNodeId, documentIds)
+      }
+      documentIds.push({ docId: entry.docId, partitionId })
+    }
+
+    const documents = new Map<string, T>()
+    for (const [targetNodeId, documentIds] of nodeToDocumentIds) {
+      if (targetNodeId === nodeId) {
+        for (const { docId } of documentIds) {
+          const document = await engine.get(indexName, docId)
+          if (document !== undefined) {
+            documents.set(docId, document as T)
+          }
+        }
+        continue
+      }
+
+      const fetchMessage = createFetchMessage(
+        {
+          indexName,
+          documentIds,
+          fields: null,
+          highlight: null,
+        },
+        nodeId,
+      )
+      const response = await sendToNode(targetNodeId, fetchMessage)
+      const decoded = decode(response.payload)
+      const payload = validateFetchResultPayload(decoded)
+      for (const fetched of payload.documents) {
+        documents.set(fetched.docId, fetched.document as T)
+      }
+    }
+
+    return documents
+  }
+
+  async function sendToNode(targetNodeId: string, message: TransportMessage): Promise<TransportMessage> {
+    const targets = await resolveNodeTargets(targetNodeId)
+    let lastError: unknown
+    for (const target of targets) {
+      try {
+        return await config.transport.send(target, message)
+      } catch (error) {
+        lastError = error
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError))
+  }
 }
 
 function validateClusterNodeConfig(config: ClusterNodeConfig): void {

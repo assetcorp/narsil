@@ -37,4 +37,5 @@ export interface QueryRoutingDeps {
   transport: NodeTransport
   sourceNodeId: string
   getAllocation: (indexName: string) => Promise<AllocationTable | null>
+  resolveNodeTargets?: (nodeId: string) => Promise<string[]>
 }

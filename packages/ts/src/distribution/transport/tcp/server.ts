@@ -1,4 +1,5 @@
 import { createServer, type Server, type Socket } from 'node:net'
+import { createServer as createTlsServer } from 'node:tls'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import { decodeTransportMessage, encodeFrame, encodeTransportMessage, FrameParser } from './framing'
 import {
@@ -44,9 +45,24 @@ export class TcpServer {
     }
 
     return new Promise<() => void>((resolve, reject) => {
-      const server = createServer(clientSocket => {
-        this.handleClient(clientSocket)
-      })
+      const tlsConfig = this.config.tls
+      const server: Server =
+        tlsConfig !== undefined
+          ? createTlsServer(
+              {
+                cert: tlsConfig.cert,
+                key: tlsConfig.key,
+                ca: tlsConfig.ca,
+                requestCert: true,
+                rejectUnauthorized: tlsConfig.rejectUnauthorized ?? true,
+              },
+              clientSocket => {
+                this.handleClient(clientSocket)
+              },
+            )
+          : createServer(clientSocket => {
+              this.handleClient(clientSocket)
+            })
 
       server.on('error', err => {
         if (this.server === null) {
