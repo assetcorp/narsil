@@ -610,18 +610,32 @@ describe('createClusterNode', () => {
       expect(docId).toBeTruthy()
     })
 
-    it('fails when partition primary is a remote node (forwarding not implemented)', async () => {
+    it('forwards write to remote primary when partition is owned by another node', async () => {
       nodeA = await createClusterNode(
         makeConfig({
           coordinator,
           transport: transportA,
           address: 'node-a:9200',
           nodeId: 'node-a',
+          roles: ['data', 'coordinator'],
         }),
       )
 
+      nodeB = await createClusterNode(
+        makeConfig({
+          coordinator,
+          transport: transportB,
+          address: 'node-b:9200',
+          nodeId: 'node-b',
+          roles: ['data'],
+        }),
+      )
+
+      await nodeB.start()
+
+      await nodeB.createIndex('products', { schema: { title: 'string' } })
+
       await nodeA.start()
-      await nodeA.createIndex('products', { schema: { title: 'string' } })
 
       const assignments = new Map<number, PartitionAssignment>()
       for (let i = 0; i < 5; i++) {
@@ -629,9 +643,8 @@ describe('createClusterNode', () => {
       }
       await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
 
-      await expect(nodeA.insert('products', { title: 'Remote Write' }, 'fixed-doc-id')).rejects.toThrow(
-        'forwarding to remote primary is not yet implemented',
-      )
+      const docId = await nodeA.insert('products', { title: 'Remote Write' }, 'fixed-doc-id')
+      expect(docId).toBe('fixed-doc-id')
     })
   })
 
@@ -790,6 +803,322 @@ describe('createClusterNode', () => {
 
       const result = await nodeA.query('products', { term: 'Alpha' })
       expect(result.count).toBe(1)
+    })
+  })
+
+  describe('write forwarding across two nodes', () => {
+    it('forwards insert to remote primary and the document is queryable on the remote node', async () => {
+      nodeB = await createClusterNode(
+        makeConfig({
+          coordinator,
+          transport: transportB,
+          address: 'node-b:9200',
+          nodeId: 'node-b',
+          roles: ['data'],
+        }),
+      )
+
+      await nodeB.start()
+      await nodeB.createIndex('products', { schema: { title: 'string', price: 'number' } })
+
+      nodeA = await createClusterNode(
+        makeConfig({
+          coordinator,
+          transport: transportA,
+          address: 'node-a:9200',
+          nodeId: 'node-a',
+          roles: ['data', 'coordinator'],
+        }),
+      )
+
+      await nodeA.start()
+
+      const assignments = new Map<number, PartitionAssignment>()
+      for (let i = 0; i < 5; i++) {
+        assignments.set(i, makeAssignment({ primary: 'node-b', state: 'ACTIVE' }))
+      }
+      await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
+
+      const docId = await nodeA.insert('products', { title: 'Forwarded Widget', price: 42.0 }, 'doc-forwarded')
+      expect(docId).toBe('doc-forwarded')
+
+      const resultOnB = await nodeB.query('products', { term: 'Forwarded' })
+      expect(resultOnB.count).toBe(1)
+      expect(resultOnB.hits[0].document).toMatchObject({ title: 'Forwarded Widget' })
+    })
+
+    it('forwards remove to remote primary', async () => {
+      nodeB = await createClusterNode(
+        makeConfig({
+          coordinator,
+          transport: transportB,
+          address: 'node-b:9200',
+          nodeId: 'node-b',
+          roles: ['data'],
+        }),
+      )
+
+      await nodeB.start()
+      await nodeB.createIndex('products', { schema: { title: 'string' } })
+
+      nodeA = await createClusterNode(
+        makeConfig({
+          coordinator,
+          transport: transportA,
+          address: 'node-a:9200',
+          nodeId: 'node-a',
+          roles: ['data', 'coordinator'],
+        }),
+      )
+
+      await nodeA.start()
+
+      const assignments = new Map<number, PartitionAssignment>()
+      for (let i = 0; i < 5; i++) {
+        assignments.set(i, makeAssignment({ primary: 'node-b', state: 'ACTIVE' }))
+      }
+      await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
+
+      await nodeA.insert('products', { title: 'ToRemove' }, 'doc-remove')
+      await nodeA.remove('products', 'doc-remove')
+
+      const resultOnB = await nodeB.query('products', { term: 'ToRemove' })
+      expect(resultOnB.count).toBe(0)
+    })
+
+    it('forwards insertBatch with documents targeting a remote primary', async () => {
+      nodeB = await createClusterNode(
+        makeConfig({
+          coordinator,
+          transport: transportB,
+          address: 'node-b:9200',
+          nodeId: 'node-b',
+          roles: ['data'],
+        }),
+      )
+
+      await nodeB.start()
+      await nodeB.createIndex('products', { schema: { title: 'string' } })
+
+      nodeA = await createClusterNode(
+        makeConfig({
+          coordinator,
+          transport: transportA,
+          address: 'node-a:9200',
+          nodeId: 'node-a',
+          roles: ['data', 'coordinator'],
+        }),
+      )
+
+      await nodeA.start()
+
+      const assignments = new Map<number, PartitionAssignment>()
+      for (let i = 0; i < 5; i++) {
+        assignments.set(i, makeAssignment({ primary: 'node-b', state: 'ACTIVE' }))
+      }
+      await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
+
+      const batch = await nodeA.insertBatch('products', [
+        { id: 'batch-1', title: 'First' },
+        { id: 'batch-2', title: 'Second' },
+      ])
+
+      expect(batch.succeeded.length).toBe(2)
+      expect(batch.failed.length).toBe(0)
+    })
+  })
+
+  describe('distributed query via transport', () => {
+    it('query fans out to remote node when partitions are ACTIVE on that node', async () => {
+      nodeB = await createClusterNode(
+        makeConfig({
+          coordinator,
+          transport: transportB,
+          address: 'node-b:9200',
+          nodeId: 'node-b',
+          roles: ['data'],
+        }),
+      )
+
+      await nodeB.start()
+      await nodeB.createIndex('products', { schema: { title: 'string' } })
+
+      await nodeB.insert('products', { title: 'Remote Widget' }, 'doc-remote')
+
+      nodeA = await createClusterNode(
+        makeConfig({
+          coordinator,
+          transport: transportA,
+          address: 'node-a:9200',
+          nodeId: 'node-a',
+          roles: ['data', 'coordinator'],
+        }),
+      )
+
+      await nodeA.start()
+
+      const assignments = new Map<number, PartitionAssignment>()
+      for (let i = 0; i < 1; i++) {
+        assignments.set(i, makeAssignment({ primary: 'node-b', state: 'ACTIVE' }))
+      }
+      await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
+
+      const result = await nodeA.query('products', { term: 'Remote' })
+      expect(result.count).toBe(1)
+    })
+
+    it('falls back to local engine when no partitions are ACTIVE', async () => {
+      nodeA = await createClusterNode(
+        makeConfig({
+          coordinator,
+          transport: transportA,
+          address: 'node-a:9200',
+          nodeId: 'node-a',
+          roles: ['data', 'coordinator'],
+        }),
+      )
+
+      await nodeA.start()
+      await nodeA.createIndex('products', { schema: { title: 'string' } })
+      await nodeA.insert('products', { title: 'Local Widget' })
+
+      const assignments = new Map<number, PartitionAssignment>()
+      for (let i = 0; i < 5; i++) {
+        assignments.set(i, makeAssignment({ primary: 'node-a', state: 'INITIALISING' }))
+      }
+      await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
+
+      const result = await nodeA.query('products', { term: 'Local' })
+      expect(result.count).toBe(1)
+    })
+  })
+
+  describe('message handler', () => {
+    it('handles replication.forward messages and inserts documents', async () => {
+      nodeB = await createClusterNode(
+        makeConfig({
+          coordinator,
+          transport: transportB,
+          address: 'node-b:9200',
+          nodeId: 'node-b',
+          roles: ['data'],
+        }),
+      )
+
+      await nodeB.start()
+      await nodeB.createIndex('products', { schema: { title: 'string' } })
+
+      const { encode } = await import('@msgpack/msgpack')
+      const { createForwardMessage } = await import('../../../distribution/replication/codec')
+      const { decode } = await import('@msgpack/msgpack')
+
+      const forwardMsg = createForwardMessage(
+        {
+          indexName: 'products',
+          documentId: 'msg-handler-doc',
+          operation: 'insert',
+          document: encode({ title: 'Handler Test' }),
+          updateFields: null,
+        },
+        'node-a',
+      )
+
+      const response = await transportA.send('node-b', forwardMsg)
+      const result = decode(response.payload) as Record<string, unknown>
+
+      expect(result.documentId).toBe('msg-handler-doc')
+      expect(result.success).toBe(true)
+
+      const queryResult = await nodeB.query('products', { term: 'Handler' })
+      expect(queryResult.count).toBe(1)
+    })
+
+    it('handles query.search messages and returns scored results', async () => {
+      nodeB = await createClusterNode(
+        makeConfig({
+          coordinator,
+          transport: transportB,
+          address: 'node-b:9200',
+          nodeId: 'node-b',
+          roles: ['data'],
+        }),
+      )
+
+      await nodeB.start()
+      await nodeB.createIndex('products', { schema: { title: 'string' } })
+      await nodeB.insert('products', { title: 'Search Target' }, 'search-doc')
+
+      const { decode } = await import('@msgpack/msgpack')
+      const { createSearchMessage } = await import('../../../distribution/query/codec')
+
+      const searchMsg = createSearchMessage(
+        {
+          indexName: 'products',
+          partitionIds: [0],
+          params: {
+            term: 'Search',
+            filters: null,
+            sort: null,
+            group: null,
+            facets: null,
+            facetSize: null,
+            limit: 10,
+            offset: 0,
+            searchAfter: null,
+            fields: null,
+            boost: null,
+            tolerance: null,
+            threshold: null,
+            scoring: 'local',
+            vector: null,
+            hybrid: null,
+          },
+          globalStats: null,
+          facetShardSize: null,
+        },
+        'node-a',
+      )
+
+      const response = await transportA.send('node-b', searchMsg)
+      const result = decode(response.payload) as { results: Array<{ totalHits: number }> }
+
+      expect(result.results).toHaveLength(1)
+      expect(result.results[0].totalHits).toBe(1)
+    })
+
+    it('write forwarding timeout produces a transport error', async () => {
+      vi.useRealTimers()
+
+      const fastNetwork = createInMemoryNetwork()
+      const fastTransportA = createInMemoryTransport('fast-a', fastNetwork, { requestTimeout: 50 })
+      createInMemoryTransport('fast-b', fastNetwork, { requestTimeout: 50 })
+
+      const fastNodeA = await createClusterNode(
+        makeConfig({
+          coordinator,
+          transport: fastTransportA,
+          address: 'fast-a:9200',
+          nodeId: 'fast-a',
+          roles: ['data', 'coordinator'],
+        }),
+      )
+
+      await fastNodeA.start()
+      await fastNodeA.createIndex('timeout-idx', { schema: { title: 'string' } })
+
+      const assignments = new Map<number, PartitionAssignment>()
+      for (let i = 0; i < 5; i++) {
+        assignments.set(i, makeAssignment({ primary: 'fast-b', state: 'ACTIVE' }))
+      }
+      await coordinator.putAllocation('timeout-idx', makeAllocationTable('timeout-idx', assignments))
+
+      await expect(fastNodeA.insert('timeout-idx', { title: 'Will Timeout' }, 'timeout-doc')).rejects.toThrow(
+        /timed out/i,
+      )
+
+      await fastNodeA.shutdown()
+      await fastTransportA.shutdown()
+      vi.useFakeTimers()
     })
   })
 })

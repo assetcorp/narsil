@@ -38,9 +38,10 @@ export async function collectDistributedStats(
 
   for (const [nodeId, partitionIds] of nodeEntries) {
     const message = createStatsMessage({ indexName, partitionIds, terms }, deps.sourceNodeId)
+    const targets = await resolveTargets(nodeId, deps)
     const promise = sendWithTimeout<StatsResultPayload>(
       deps.transport,
-      nodeId,
+      targets,
       message,
       config.partitionTimeout,
       validateStatsResultPayload,
@@ -87,10 +88,11 @@ export async function fanOutSearch(
       { indexName, partitionIds, params, globalStats, facetShardSize },
       deps.sourceNodeId,
     )
+    const targets = await resolveTargets(nodeId, deps)
 
     const promise = sendWithTimeout<SearchResultPayload>(
       deps.transport,
-      nodeId,
+      targets,
       message,
       config.partitionTimeout,
       validateSearchResultPayload,
@@ -149,7 +151,7 @@ export function buildCoverage(
 
 async function sendWithTimeout<T>(
   transport: NodeTransport,
-  target: string,
+  targets: string[],
   message: TransportMessage,
   timeout: number,
   validate: (decoded: unknown) => T,
@@ -162,7 +164,7 @@ async function sendWithTimeout<T>(
     }
   })
 
-  const sendPromise = transport.send(target, message).then(response => {
+  const sendPromise = sendToFirstReachableTarget(transport, targets, message).then(response => {
     const decoded = decode(response.payload)
     return validate(decoded)
   })
@@ -174,6 +176,30 @@ async function sendWithTimeout<T>(
       clearTimeout(timerId)
     }
   }
+}
+
+async function resolveTargets(nodeId: string, deps: QueryRoutingDeps): Promise<string[]> {
+  if (deps.resolveNodeTargets === undefined) {
+    return [nodeId]
+  }
+  const targets = await deps.resolveNodeTargets(nodeId)
+  return targets.length > 0 ? targets : [nodeId]
+}
+
+async function sendToFirstReachableTarget(
+  transport: NodeTransport,
+  targets: string[],
+  message: TransportMessage,
+): Promise<TransportMessage> {
+  let lastError: unknown
+  for (const target of targets) {
+    try {
+      return await transport.send(target, message)
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
 
 function isTimeoutError(error: unknown): boolean {

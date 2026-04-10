@@ -9,7 +9,7 @@ import { TcpConnectionPool } from './connection'
 import { TcpServer } from './server'
 import { DEFAULT_TCP_CONFIG, type TcpTransportConfig } from './types'
 
-export type { TcpTransportConfig } from './types'
+export type { TcpTransportConfig, TlsConfig } from './types'
 
 type ListenHandler = (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>
 

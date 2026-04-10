@@ -1,9 +1,17 @@
 import type { TransportConfig } from '../types'
 
+export interface TlsConfig {
+  cert: Buffer | string
+  key: Buffer | string
+  ca?: Buffer | string
+  rejectUnauthorized?: boolean
+}
+
 export interface TcpTransportConfig extends TransportConfig {
   host: string
   port: number
   maxConnections: number
+  tls?: TlsConfig
 }
 
 export const DEFAULT_TCP_CONFIG: TcpTransportConfig = {
