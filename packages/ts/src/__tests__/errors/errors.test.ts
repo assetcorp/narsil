@@ -80,10 +80,11 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.NODE_BOOTSTRAP_FAILED).toBe('NODE_BOOTSTRAP_FAILED')
     expect(ErrorCodes.NODE_ALREADY_JOINED).toBe('NODE_ALREADY_JOINED')
     expect(ErrorCodes.NODE_NOT_JOINED).toBe('NODE_NOT_JOINED')
+    expect(ErrorCodes.COORDINATOR_DEPENDENCY_MISSING).toBe('COORDINATOR_DEPENDENCY_MISSING')
   })
 
-  it('has exactly 48 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(48)
+  it('has exactly 49 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(49)
   })
 
   it('has unique values for every code', () => {
