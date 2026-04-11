@@ -28,6 +28,7 @@ interface MockEngineOptions {
   hasIndex?: boolean
   restoreRejects?: Error
   createIndexRejects?: Error
+  statsSchema?: Record<string, unknown>
 }
 
 interface MockEngineHandle {
@@ -44,6 +45,7 @@ function makeMockEngine(options: MockEngineOptions = {}): MockEngineHandle {
   const createIndexCalls: string[] = []
   const dropIndexCalls: string[] = []
 
+  const statsSchema = options.statsSchema ?? { title: 'text' }
   const engine = {
     listIndexes: () => (hasIndex ? [{ name: 'products' }] : []),
     createIndex: async (name: string) => {
@@ -64,6 +66,7 @@ function makeMockEngine(options: MockEngineOptions = {}): MockEngineHandle {
       hasIndex = true
       restoreCalls.push({ indexName, data })
     },
+    getStats: (_indexName: string) => ({ schema: statsSchema }),
   } as unknown as Narsil
 
   return {
