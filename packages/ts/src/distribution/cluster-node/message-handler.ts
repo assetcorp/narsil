@@ -3,6 +3,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
 import type { AnyDocument } from '../../types/schema'
 import type { FacetConfig, QueryParams } from '../../types/search'
+import type { ClusterCoordinator } from '../coordinator/types'
 import { validateFetchPayload, validateSearchPayload, validateStatsPayload } from '../query/codec'
 import type {
   FetchResultPayload,
@@ -12,6 +13,7 @@ import type {
   TransportMessage,
 } from '../transport/types'
 import { QueryMessageTypes, ReplicationMessageTypes } from '../transport/types'
+import { handleSnapshotSyncRequest, type SnapshotSyncHandlerState } from './snapshot-sync-handler'
 
 export type TransportHandler = (
   message: TransportMessage,
@@ -21,10 +23,22 @@ export type TransportHandler = (
 export interface DataNodeHandlerDeps {
   nodeId: string
   engine: Narsil
+  coordinator: ClusterCoordinator
+  snapshotSyncState: SnapshotSyncHandlerState
 }
 
 export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandler {
   return async (message: TransportMessage, respond: (response: TransportMessage) => void): Promise<void> => {
+    if (message.type === ReplicationMessageTypes.SNAPSHOT_SYNC_REQUEST) {
+      await handleSnapshotSyncRequest(message, respond, {
+        nodeId: deps.nodeId,
+        engine: deps.engine,
+        coordinator: deps.coordinator,
+        state: deps.snapshotSyncState,
+      })
+      return
+    }
+
     try {
       switch (message.type) {
         case ReplicationMessageTypes.FORWARD:

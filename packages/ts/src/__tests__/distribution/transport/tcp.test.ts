@@ -1,3 +1,5 @@
+import { createServer, type Server } from 'node:net'
+import { encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { TransportMessage } from '../../../distribution/transport'
 import {
@@ -8,6 +10,7 @@ import {
 } from '../../../distribution/transport'
 import { createTcpTransport } from '../../../distribution/transport/tcp'
 import { parseAddress } from '../../../distribution/transport/tcp/connection'
+import { FRAME_TYPE_RESPONSE, LENGTH_PREFIX_BYTES } from '../../../distribution/transport/tcp/types'
 
 function makeMessage(overrides: Partial<TransportMessage> = {}): TransportMessage {
   return {
@@ -447,6 +450,58 @@ describe('TcpTransport', () => {
       const [host, port] = parseAddress('[::1]:9300')
       expect(host).toBe('[::1]')
       expect(port).toBe('9300')
+    })
+  })
+
+  describe('stream decode-failure fast-fail', () => {
+    it('rejects a pending stream immediately when the first frame fails to decode', async () => {
+      const rawServer: Server = createServer()
+      await new Promise<void>((resolve, reject) => {
+        rawServer.once('error', reject)
+        rawServer.listen(0, '127.0.0.1', () => resolve())
+      })
+      const addr = rawServer.address()
+      if (addr === null || typeof addr !== 'object') {
+        throw new Error('failed to determine raw server port')
+      }
+      const rawPort = addr.port
+
+      rawServer.on('connection', socket => {
+        socket.on('data', (_data: Buffer) => {
+          const malformedData = new Uint8Array([0xc1, 0xc1, 0xc1, 0xc1, 0xc1])
+          const envelope = encode({ frameType: FRAME_TYPE_RESPONSE, requestId: 'raw-1', data: malformedData })
+          const frame = new Uint8Array(LENGTH_PREFIX_BYTES + envelope.byteLength)
+          const view = new DataView(frame.buffer)
+          view.setUint32(0, envelope.byteLength, false)
+          frame.set(envelope, LENGTH_PREFIX_BYTES)
+          socket.write(Buffer.from(frame))
+        })
+      })
+
+      const clientTransport = createTcpTransport('raw-client', {
+        host: '127.0.0.1',
+        port: 0,
+        snapshotTimeout: 10_000,
+        requestTimeout: 5_000,
+        connectTimeout: 3_000,
+      })
+
+      try {
+        const target = `127.0.0.1:${rawPort}`
+        const startedAt = Date.now()
+        await expect(
+          clientTransport.stream(target, makeMessage({ requestId: 'raw-1' }), () => {}),
+        ).rejects.toMatchObject({
+          code: TransportErrorCodes.DECODE_FAILED,
+        })
+        const elapsed = Date.now() - startedAt
+        expect(elapsed).toBeLessThan(5_000)
+      } finally {
+        await clientTransport.shutdown()
+        await new Promise<void>(resolve => {
+          rawServer.close(() => resolve())
+        })
+      }
     })
   })
 

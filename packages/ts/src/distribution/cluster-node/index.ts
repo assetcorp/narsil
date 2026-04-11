@@ -17,8 +17,10 @@ import { distributedQuery } from '../query/routing'
 import { selectReplica } from '../query/selection'
 import type { DistributedQueryResult } from '../query/types'
 import type { FetchDocumentId, TransportMessage } from '../transport/types'
+import { clearBootstrapSyncIndex, createBootstrapSyncState, runBootstrapSync } from './bootstrap-sync'
 import { createDataNodeHandler } from './message-handler'
 import { distributedResultToLocal, localParamsToWire } from './query-conversion'
+import { createSnapshotSyncHandlerState } from './snapshot-sync-handler'
 import { createMultiplexedControllerTransport } from './transport-listener'
 import type { ClusterNamespace, ClusterNode, ClusterNodeConfig, CreateIndexOptions } from './types'
 import { DEFAULT_CAPACITY } from './types'
@@ -42,6 +44,16 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   const capacity = config.capacity ?? DEFAULT_CAPACITY
 
   const engine = await createNarsil(config.engine)
+  const bootstrapSyncState = createBootstrapSyncState()
+  const snapshotSyncHandlerState = createSnapshotSyncHandlerState()
+
+  const forwardOnError = (error: unknown): void => {
+    if (config.onError === undefined) {
+      return
+    }
+    const wrapped = error instanceof Error ? error : new Error(String(error))
+    config.onError(wrapped)
+  }
 
   const registration: NodeRegistration = {
     nodeId,
@@ -82,25 +94,17 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       bootstrapRetryMaxMs: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapRetryMaxMs,
       bootstrapMaxRetries: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapMaxRetries,
       allocationDebounceMs: DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs,
-      onBootstrapPartition: async (indexName: string, _partitionId: number, _primaryNodeId: string) => {
-        try {
-          const schema = await config.coordinator.getSchema(indexName)
-          if (schema === null) {
-            return false
-          }
-
-          const existing = engine.listIndexes().find(idx => idx.name === indexName)
-          if (existing === undefined) {
-            await engine.createIndex(indexName, { schema })
-          }
-          return true
-        } catch (err) {
-          if (config.onError !== undefined) {
-            const wrappedError = err instanceof Error ? err : new Error(String(err))
-            config.onError(wrappedError)
-          }
-          return false
-        }
+      onBootstrapPartition: (indexName: string, partitionId: number, primaryNodeId: string) =>
+        runBootstrapSync(bootstrapSyncState, indexName, partitionId, primaryNodeId, {
+          engine,
+          coordinator: config.coordinator,
+          transport: config.transport,
+          sourceNodeId: nodeId,
+          resolveNodeTargets,
+          onError: forwardOnError,
+        }),
+      onRemovePartition: (indexName: string, partitionId: number) => {
+        clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
       },
     })
   }
@@ -224,7 +228,12 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       }
 
       if (hasDataRole) {
-        const dataHandler = createDataNodeHandler({ nodeId, engine })
+        const dataHandler = createDataNodeHandler({
+          nodeId,
+          engine,
+          coordinator: config.coordinator,
+          snapshotSyncState: snapshotSyncHandlerState,
+        })
         const listener = controllerTransport !== null ? controllerTransport.createHandler(dataHandler) : dataHandler
         unregisterHandler = await config.transport.listen(listener)
       }

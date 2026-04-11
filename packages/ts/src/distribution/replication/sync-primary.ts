@@ -12,9 +12,8 @@ import type {
   TransportMessage,
 } from '../transport/types'
 import { ReplicationMessageTypes } from '../transport/types'
+import { SNAPSHOT_CHUNK_SIZE } from './snapshot-constants'
 import type { ReplicationLog } from './types'
-
-const SNAPSHOT_CHUNK_SIZE = 65_536
 
 export interface SyncPrimaryDeps {
   log: ReplicationLog

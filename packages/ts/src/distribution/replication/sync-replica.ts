@@ -1,13 +1,10 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import type { PartitionManager } from '../../partitioning/manager'
-import { crc32 } from '../../serialization/crc32'
 import { deserializePayloadV2 } from '../../serialization/payload-v2'
 import type { VectorIndex } from '../../vector/vector-index'
 import type {
   NodeTransport,
-  SnapshotChunkPayload,
-  SnapshotEndPayload,
   SnapshotStartPayload,
   SyncEntriesPayload,
   SyncRequestPayload,
@@ -15,9 +12,14 @@ import type {
 } from '../transport/types'
 import { ReplicationMessageTypes } from '../transport/types'
 import { applyDeleteEntry, applyIndexEntry, validateReplicationEntry } from './replica'
+import { MAX_SNAPSHOT_SIZE_BYTES } from './snapshot-constants'
+import {
+  createSnapshotStreamState,
+  finalizeSnapshotStream,
+  handleIncomingSnapshotRecord,
+  seedSnapshotStreamStart,
+} from './snapshot-stream-assembler'
 import type { ReplicationLog, ReplicationLogEntry } from './types'
-
-const MAX_SNAPSHOT_SIZE_BYTES = 2 * 1024 * 1024 * 1024
 
 export interface SyncReplicaDeps {
   manager: PartitionManager
@@ -128,64 +130,43 @@ async function handleSnapshotSync(
     }),
   }
 
-  const receivedChunks: Uint8Array[] = []
-  let receivedEnd: SnapshotEndPayload | undefined
-  let trailingEntries: ReplicationLogEntry[] = []
-  let expectedNextOffset = 0
-  let accumulatedBytes = 0
-  let chunkOrderError = false
+  const streamState = createSnapshotStreamState({ indexName: deps.indexName, partitionId: deps.partitionId })
+  seedSnapshotStreamStart(streamState, startPayload)
+  if (streamState.failure !== null) {
+    return { synced: false, newSeqNo: header.lastSeqNo, tier: 'snapshot', entriesApplied: 0 }
+  }
+  const trailingEntries: ReplicationLogEntry[] = []
 
   await deps.transport.stream(primaryNodeId, fetchMessage, (chunk: Uint8Array) => {
-    const decoded = decode(chunk) as Record<string, unknown>
-
-    if (isSnapshotChunkPayload(decoded)) {
-      const chunkPayload = decoded as unknown as SnapshotChunkPayload
-      if (chunkPayload.offset !== expectedNextOffset) {
-        chunkOrderError = true
-        return
-      }
-      accumulatedBytes += chunkPayload.data.byteLength
-      if (accumulatedBytes > MAX_SNAPSHOT_SIZE_BYTES) {
-        chunkOrderError = true
-        return
-      }
-      expectedNextOffset = chunkPayload.offset + chunkPayload.data.byteLength
-      receivedChunks.push(chunkPayload.data)
-    } else if (isSnapshotEndPayload(decoded)) {
-      receivedEnd = decoded as unknown as SnapshotEndPayload
-    } else if (isSyncEntriesPayload(decoded)) {
-      const entriesPayload = decoded as unknown as SyncEntriesPayload
-      trailingEntries = trailingEntries.concat(entriesPayload.entries)
+    if (streamState.failure !== null) {
+      return
     }
+    let record: Record<string, unknown>
+    try {
+      const decoded = decode(chunk)
+      if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded)) {
+        return
+      }
+      record = decoded as Record<string, unknown>
+    } catch (_) {
+      return
+    }
+    if (Array.isArray(record.entries) && typeof record.isLast === 'boolean') {
+      const entriesPayload = record as unknown as SyncEntriesPayload
+      for (const entry of entriesPayload.entries) {
+        trailingEntries.push(entry)
+      }
+      return
+    }
+    handleIncomingSnapshotRecord(streamState, record)
   })
 
-  if (chunkOrderError) {
+  const finalized = finalizeSnapshotStream(streamState)
+  if (!finalized.ok) {
     return { synced: false, newSeqNo: header.lastSeqNo, tier: 'snapshot', entriesApplied: 0 }
   }
 
-  if (receivedEnd === undefined) {
-    return { synced: false, newSeqNo: header.lastSeqNo, tier: 'snapshot', entriesApplied: 0 }
-  }
-
-  const snapshotBytes = assembleChunks(receivedChunks, expectedTotalBytes)
-  if (snapshotBytes === null) {
-    return { synced: false, newSeqNo: header.lastSeqNo, tier: 'snapshot', entriesApplied: 0 }
-  }
-
-  const computedChecksum = crc32(snapshotBytes)
-  if (computedChecksum !== header.checksum) {
-    return { synced: false, newSeqNo: header.lastSeqNo, tier: 'snapshot', entriesApplied: 0 }
-  }
-
-  if (receivedEnd.totalBytes !== expectedTotalBytes) {
-    return { synced: false, newSeqNo: header.lastSeqNo, tier: 'snapshot', entriesApplied: 0 }
-  }
-
-  if (receivedEnd.checksum !== header.checksum) {
-    return { synced: false, newSeqNo: header.lastSeqNo, tier: 'snapshot', entriesApplied: 0 }
-  }
-
-  const partition = deserializePayloadV2(snapshotBytes)
+  const partition = deserializePayloadV2(finalized.bytes)
   deps.manager.deserializePartition(deps.partitionId, partition)
 
   let highestSeqNo = header.lastSeqNo
@@ -226,42 +207,4 @@ function appendToReplicaLog(entry: ReplicationLogEntry, log: ReplicationLog): vo
     documentId: entry.documentId,
     document: entry.document,
   })
-}
-
-function assembleChunks(chunks: Uint8Array[], expectedTotalBytes: number): Uint8Array | null {
-  let totalLength = 0
-  for (const chunk of chunks) {
-    totalLength += chunk.byteLength
-  }
-
-  if (totalLength !== expectedTotalBytes) {
-    return null
-  }
-
-  const assembled = new Uint8Array(totalLength)
-  let offset = 0
-  for (const chunk of chunks) {
-    assembled.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-
-  return assembled
-}
-
-function isSnapshotChunkPayload(obj: Record<string, unknown>): boolean {
-  return typeof obj.offset === 'number' && obj.data instanceof Uint8Array && typeof obj.partitionId === 'number'
-}
-
-function isSnapshotEndPayload(obj: Record<string, unknown>): boolean {
-  return (
-    typeof obj.totalBytes === 'number' &&
-    typeof obj.checksum === 'number' &&
-    typeof obj.partitionId === 'number' &&
-    obj.data === undefined &&
-    obj.offset === undefined
-  )
-}
-
-function isSyncEntriesPayload(obj: Record<string, unknown>): boolean {
-  return Array.isArray(obj.entries) && typeof obj.isLast === 'boolean'
 }

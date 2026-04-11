@@ -63,6 +63,7 @@ export const ReplicationMessageTypes = {
   SNAPSHOT_START: 'replication.snapshot_start',
   SNAPSHOT_CHUNK: 'replication.snapshot_chunk',
   SNAPSHOT_END: 'replication.snapshot_end',
+  SNAPSHOT_SYNC_REQUEST: 'replication.snapshot_sync_request',
   INSYNC_REMOVE: 'replication.insync_remove',
   INSYNC_CONFIRM: 'replication.insync_confirm',
 } as const
@@ -137,6 +138,10 @@ export interface SnapshotEndPayload {
   indexName: string
   totalBytes: number
   checksum: number
+}
+
+export interface SnapshotSyncRequestPayload {
+  indexName: string
 }
 
 export interface InsyncRemovePayload {
