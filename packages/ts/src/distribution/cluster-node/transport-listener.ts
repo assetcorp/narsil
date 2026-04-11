@@ -1,4 +1,9 @@
-import type { NodeTransport, TransportMessage } from '../transport/types'
+import {
+  ClusterMessageTypes,
+  type NodeTransport,
+  ReplicationMessageTypes,
+  type TransportMessage,
+} from '../transport/types'
 
 export type TransportHandler = (
   message: TransportMessage,
@@ -9,6 +14,11 @@ export interface MultiplexedControllerTransport {
   transport: NodeTransport
   createHandler: (dataHandler: TransportHandler) => TransportHandler
 }
+
+const CONTROLLER_MESSAGE_TYPES = new Set<string>([
+  ReplicationMessageTypes.INSYNC_REMOVE,
+  ClusterMessageTypes.BOOTSTRAP_COMPLETE,
+])
 
 export function createMultiplexedControllerTransport(baseTransport: NodeTransport): MultiplexedControllerTransport {
   let controllerHandler: TransportHandler | null = null
@@ -41,11 +51,27 @@ export function createMultiplexedControllerTransport(baseTransport: NodeTranspor
     transport,
     createHandler(dataHandler: TransportHandler): TransportHandler {
       return async (message, respond) => {
-        await dataHandler(message, respond)
-        if (controllerHandler !== null) {
-          await controllerHandler(message, respond)
+        if (CONTROLLER_MESSAGE_TYPES.has(message.type)) {
+          if (controllerHandler !== null) {
+            await controllerHandler(message, createSingleResponseRespond(respond))
+          }
+          return
         }
+        await dataHandler(message, respond)
       }
     },
+  }
+}
+
+function createSingleResponseRespond(
+  respond: (response: TransportMessage) => void,
+): (response: TransportMessage) => void {
+  let delivered = false
+  return (response: TransportMessage) => {
+    if (delivered) {
+      return
+    }
+    delivered = true
+    respond(response)
   }
 }

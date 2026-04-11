@@ -82,13 +82,23 @@ export function createInMemoryTransport(
 
     deliverStream(message: TransportMessage, responder: StreamResponder): void {
       if (listenHandler === undefined) {
+        responder([])
         return
       }
 
       const chunks: Uint8Array[] = []
-      listenHandler(message, (response: TransportMessage) => {
+      const handlerResult = listenHandler(message, (response: TransportMessage) => {
         chunks.push(response.payload)
       })
+
+      if (handlerResult instanceof Promise) {
+        handlerResult.then(
+          () => responder(chunks),
+          () => responder(chunks),
+        )
+        return
+      }
+
       responder(chunks)
     },
 

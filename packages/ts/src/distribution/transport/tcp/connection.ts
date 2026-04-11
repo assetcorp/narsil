@@ -262,8 +262,16 @@ export class TcpConnectionPool {
         try {
           const message = decodeTransportMessage(frame.data)
           pendingStream.handler(message.payload)
-        } catch (_) {
-          /* stream chunk decode failure is non-fatal for the stream */
+        } catch (err) {
+          this.pendingStreams.delete(pendingKey)
+          clearTimeout(pendingStream.timer)
+          pendingStream.reject(
+            new TransportError(
+              TransportErrorCodes.DECODE_FAILED,
+              `Failed to decode stream frame: ${err instanceof Error ? err.message : String(err)}`,
+              { target, requestId: frame.requestId },
+            ),
+          )
         }
       }
       return
