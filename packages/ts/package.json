@@ -99,18 +99,26 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@msgpack/msgpack": "3.1.1",
-    "etcd3": "1.1.2"
+    "@msgpack/msgpack": "3.1.1"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.4",
     "@delali/narsil-embeddings-transformers": "workspace:*",
     "@types/node": "22.15.32",
     "@vitest/coverage-v8": "4.0.18",
+    "etcd3": "1.1.2",
     "selfsigned": "5.5.0",
     "tsup": "8.5.1",
     "typescript": "5.9.3",
     "vitest": "4.0.18",
     "wabt": "1.0.39"
+  },
+  "peerDependencies": {
+    "etcd3": "1.1.2"
+  },
+  "peerDependenciesMeta": {
+    "etcd3": {
+      "optional": true
+    }
   }
 }

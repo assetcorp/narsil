@@ -47,6 +47,7 @@ export const ErrorCodes = {
   NODE_BOOTSTRAP_FAILED: 'NODE_BOOTSTRAP_FAILED',
   NODE_ALREADY_JOINED: 'NODE_ALREADY_JOINED',
   NODE_NOT_JOINED: 'NODE_NOT_JOINED',
+  COORDINATOR_DEPENDENCY_MISSING: 'COORDINATOR_DEPENDENCY_MISSING',
 } as const
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes]

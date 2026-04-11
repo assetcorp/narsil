@@ -1,4 +1,4 @@
-import { Etcd3, type IKeyValue, type Watcher } from 'etcd3'
+import type { Etcd3 as Etcd3Client, IKeyValue, Watcher } from 'etcd3'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { SchemaDefinition } from '../../../types/schema'
 import type {
@@ -11,6 +11,7 @@ import type {
   SchemaEvent,
 } from '../types'
 import { LeaseManager } from './leases'
+import { loadEtcd3Module } from './loader'
 import {
   deserializeAllocationTable,
   deserializeNodeRegistration,
@@ -33,13 +34,14 @@ import { MAX_WATCHERS, validateNodeId, validatePartitionState } from './validati
 export type { EtcdCoordinatorConfig } from './types'
 export { validateNodeId } from './validation'
 
-export function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConfig>): ClusterCoordinator {
+export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConfig>): Promise<ClusterCoordinator> {
   const resolvedConfig: EtcdCoordinatorConfig = {
     ...DEFAULT_ETCD_CONFIG,
     ...config,
   }
 
-  const client = new Etcd3({ hosts: resolvedConfig.endpoints })
+  const etcd3Module = await loadEtcd3Module()
+  const client: Etcd3Client = new etcd3Module.Etcd3({ hosts: resolvedConfig.endpoints })
   const leaseManager = new LeaseManager()
   const watchers = new Set<Watcher>()
   let isShutdown = false

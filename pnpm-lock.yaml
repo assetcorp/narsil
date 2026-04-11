@@ -71,9 +71,6 @@ importers:
       '@msgpack/msgpack':
         specifier: 3.1.1
         version: 3.1.1
-      etcd3:
-        specifier: 1.1.2
-        version: 1.1.2
     devDependencies:
       '@biomejs/biome':
         specifier: 2.4.4
@@ -87,6 +84,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: 4.0.18
         version: 4.0.18(vitest@4.0.18(@types/node@22.15.32)(jiti@2.6.1)(jsdom@28.1.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2))
+      etcd3:
+        specifier: 1.1.2
+        version: 1.1.2
       selfsigned:
         specifier: 5.5.0
         version: 5.5.0
