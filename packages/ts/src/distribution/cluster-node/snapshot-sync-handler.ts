@@ -1,52 +1,60 @@
-import { decode, encode } from '@msgpack/msgpack'
-import { type ErrorCode, ErrorCodes, NarsilError } from '../../errors'
+import { decode } from '@msgpack/msgpack'
+import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
 import { crc32 } from '../../serialization/crc32'
 import type { ClusterCoordinator } from '../coordinator/types'
 import {
   MAX_SNAPSHOT_SIZE_BYTES,
-  SNAPSHOT_CHUNK_SIZE,
   SNAPSHOT_HEADER_SENTINEL_PARTITION_ID,
   SNAPSHOT_HEADER_SENTINEL_SEQNO,
 } from '../replication/snapshot-constants'
-import type {
-  ReplicationSnapshotHeader,
-  SnapshotChunkPayload,
-  SnapshotEndPayload,
-  SnapshotStartPayload,
-  SnapshotSyncRequestPayload,
-  TransportMessage,
-} from '../transport/types'
-import { MAX_MESSAGE_SIZE_BYTES, ReplicationMessageTypes } from '../transport/types'
+import type { SnapshotSyncRequestPayload, TransportMessage } from '../transport/types'
 import { authorizeSnapshotRequest } from './snapshot-auth'
 import {
   acquireSnapshotBuild,
   acquireSourceSlot,
+  acquireStreamSlot,
   createSnapshotCacheState,
   DEFAULT_MAX_CONCURRENT_SNAPSHOTS,
   DEFAULT_MAX_PER_SOURCE_SNAPSHOTS,
+  DEFAULT_MAX_STREAMS_PER_INDEX,
   releaseSourceSlot,
+  releaseStreamSlot,
   type SnapshotBuildResult,
   type SnapshotCacheState,
   type SourceSlotHandle,
+  type StreamSlotHandle,
 } from './snapshot-cache'
+import {
+  createSingleResponseSink,
+  respondError,
+  type SingleResponseSink,
+  SNAPSHOT_SYNC_ERROR_TYPE,
+  streamSnapshotToReplica,
+} from './snapshot-stream-writer'
 
-export const SNAPSHOT_SYNC_ERROR_TYPE = `${ReplicationMessageTypes.SNAPSHOT_SYNC_REQUEST}.error`
+export { SNAPSHOT_SYNC_ERROR_TYPE }
 
 const MAX_INDEX_NAME_LENGTH = 256
 const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
 
-const CHUNK_YIELD_INTERVAL_MS = 8
+/**
+ * A SNAPSHOT_SYNC_REQUEST only carries `{indexName: string}` with `indexName <= 256`.
+ * Rejecting oversized payloads before msgpack decode keeps an abusive peer from
+ * pinning a CPU on a 64 MiB decode just to fail validation.
+ */
+const MAX_SNAPSHOT_SYNC_REQUEST_BYTES = 4_096
 
 export type SnapshotSyncHandlerState = SnapshotCacheState
 
-export { DEFAULT_MAX_CONCURRENT_SNAPSHOTS, DEFAULT_MAX_PER_SOURCE_SNAPSHOTS }
+export { DEFAULT_MAX_CONCURRENT_SNAPSHOTS, DEFAULT_MAX_PER_SOURCE_SNAPSHOTS, DEFAULT_MAX_STREAMS_PER_INDEX }
 
 export function createSnapshotSyncHandlerState(
   maxConcurrent: number = DEFAULT_MAX_CONCURRENT_SNAPSHOTS,
   maxPerSource: number = DEFAULT_MAX_PER_SOURCE_SNAPSHOTS,
+  maxStreamsPerIndex: number = DEFAULT_MAX_STREAMS_PER_INDEX,
 ): SnapshotSyncHandlerState {
-  return createSnapshotCacheState(maxConcurrent, maxPerSource)
+  return createSnapshotCacheState(maxConcurrent, maxPerSource, maxStreamsPerIndex)
 }
 
 export interface SnapshotHeaderMetadata {
@@ -101,6 +109,16 @@ export async function handleSnapshotSyncRequest(
 ): Promise<void> {
   const sink = createSingleResponseSink(respond)
   try {
+    if (message.payload.byteLength > MAX_SNAPSHOT_SYNC_REQUEST_BYTES) {
+      respondError(
+        sink,
+        deps.nodeId,
+        message.requestId,
+        ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID,
+        `SNAPSHOT_SYNC_REQUEST payload (${message.payload.byteLength} bytes) exceeds the ${MAX_SNAPSHOT_SYNC_REQUEST_BYTES} byte limit`,
+      )
+      return
+    }
     await runSnapshotSyncRequest(message, sink, deps)
   } catch (err) {
     const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_SNAPSHOT_FAILED
@@ -114,14 +132,8 @@ async function runSnapshotSyncRequest(
   sink: SingleResponseSink,
   deps: SnapshotSyncHandlerDeps,
 ): Promise<void> {
-  let request: SnapshotSyncRequestPayload
-  try {
-    const decoded = decode(message.payload) as unknown
-    request = validateSnapshotSyncRequestPayload(decoded)
-  } catch (err) {
-    const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID
-    const errMessage = err instanceof Error ? err.message : String(err)
-    respondError(sink, deps.nodeId, message.requestId, code, errMessage)
+  const request = decodeRequest(message, sink, deps)
+  if (request === null) {
     return
   }
 
@@ -154,9 +166,34 @@ async function runSnapshotSyncRequest(
     return
   }
 
+  await acquireAndStream(message, sink, request.indexName, deps)
+}
+
+function decodeRequest(
+  message: TransportMessage,
+  sink: SingleResponseSink,
+  deps: SnapshotSyncHandlerDeps,
+): SnapshotSyncRequestPayload | null {
+  try {
+    const decoded = decode(message.payload) as unknown
+    return validateSnapshotSyncRequestPayload(decoded)
+  } catch (err) {
+    const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID
+    const errMessage = err instanceof Error ? err.message : String(err)
+    respondError(sink, deps.nodeId, message.requestId, code, errMessage)
+    return null
+  }
+}
+
+async function acquireAndStream(
+  message: TransportMessage,
+  sink: SingleResponseSink,
+  indexName: string,
+  deps: SnapshotSyncHandlerDeps,
+): Promise<void> {
   let sourceHandle: SourceSlotHandle
   try {
-    sourceHandle = acquireSourceSlot(deps.state, message.sourceId)
+    sourceHandle = acquireSourceSlot(deps.state, message.sourceId, indexName)
   } catch (err) {
     const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_CAPACITY_EXHAUSTED
     const errMessage = err instanceof Error ? err.message : String(err)
@@ -167,9 +204,7 @@ async function runSnapshotSyncRequest(
   try {
     let build: SnapshotBuildResult
     try {
-      build = await acquireSnapshotBuild(deps.state, request.indexName, async () =>
-        buildSnapshot(deps, request.indexName),
-      )
+      build = await acquireSnapshotBuild(deps.state, indexName, async () => buildSnapshot(deps, indexName))
     } catch (err) {
       const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_SNAPSHOT_FAILED
       const errMessage = err instanceof Error ? err.message : String(err)
@@ -188,8 +223,22 @@ async function runSnapshotSyncRequest(
       return
     }
 
-    const metadata = await resolveHeaderMetadata(deps, request.indexName)
-    await streamSnapshotToReplica(sink, deps.nodeId, message.requestId, request.indexName, build, metadata)
+    let streamHandle: StreamSlotHandle
+    try {
+      streamHandle = acquireStreamSlot(deps.state, indexName)
+    } catch (err) {
+      const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_CAPACITY_EXHAUSTED
+      const errMessage = err instanceof Error ? err.message : String(err)
+      respondError(sink, deps.nodeId, message.requestId, code, errMessage)
+      return
+    }
+
+    try {
+      const metadata = await resolveHeaderMetadata(deps, indexName)
+      await streamSnapshotToReplica(sink, deps.nodeId, message.requestId, indexName, build, metadata)
+    } finally {
+      releaseStreamSlot(deps.state, streamHandle)
+    }
   } finally {
     releaseSourceSlot(deps.state, sourceHandle)
   }
@@ -232,134 +281,7 @@ async function resolveHeaderMetadata(
   }
 }
 
-interface SingleResponseSink {
-  (response: TransportMessage): void
-  closed: boolean
-}
-
-function createSingleResponseSink(respond: (response: TransportMessage) => void): SingleResponseSink {
-  const sink = ((response: TransportMessage) => {
-    if (sink.closed) {
-      return
-    }
-    respond(response)
-  }) as SingleResponseSink
-  sink.closed = false
-  return sink
-}
-
-async function streamSnapshotToReplica(
-  sink: SingleResponseSink,
-  nodeId: string,
-  requestId: string,
-  indexName: string,
-  build: SnapshotBuildResult,
-  metadata: SnapshotHeaderMetadata,
-): Promise<void> {
-  const snapshotBytes = build.bytes
-  const totalBytes = snapshotBytes.byteLength
-  const checksum = build.checksum
-
-  const header: ReplicationSnapshotHeader = {
-    lastSeqNo: metadata.lastSeqNo,
-    primaryTerm: metadata.primaryTerm,
-    partitionId: metadata.partitionId,
-    indexName,
-    checksum,
-  }
-
-  const startPayload: SnapshotStartPayload = { header, totalBytes }
-  const startBytes = encode(startPayload)
-  assertMessageWithinLimit(startBytes, 'SNAPSHOT_START')
-  respondMessage(sink, ReplicationMessageTypes.SNAPSHOT_START, nodeId, requestId, startBytes)
-
-  let offset = 0
-  let lastYieldAt = now()
-  while (offset < totalBytes) {
-    const end = Math.min(offset + SNAPSHOT_CHUNK_SIZE, totalBytes)
-    const chunk = snapshotBytes.subarray(offset, end)
-
-    const chunkPayload: SnapshotChunkPayload = {
-      partitionId: metadata.partitionId,
-      indexName,
-      offset,
-      data: chunk,
-    }
-    const chunkBytes = encode(chunkPayload)
-    assertMessageWithinLimit(chunkBytes, 'SNAPSHOT_CHUNK')
-    respondMessage(sink, ReplicationMessageTypes.SNAPSHOT_CHUNK, nodeId, requestId, chunkBytes)
-
-    offset = end
-
-    if (offset < totalBytes && now() - lastYieldAt >= CHUNK_YIELD_INTERVAL_MS) {
-      await yieldToEventLoop()
-      lastYieldAt = now()
-    }
-  }
-
-  const endPayload: SnapshotEndPayload = {
-    partitionId: metadata.partitionId,
-    indexName,
-    totalBytes,
-    checksum,
-  }
-  const endBytes = encode(endPayload)
-  assertMessageWithinLimit(endBytes, 'SNAPSHOT_END')
-  respondMessage(sink, ReplicationMessageTypes.SNAPSHOT_END, nodeId, requestId, endBytes)
-}
-
-function now(): number {
-  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
-    return performance.now()
-  }
-  return Date.now()
-}
-
-function yieldToEventLoop(): Promise<void> {
-  return new Promise<void>(resolve => {
-    if (typeof setImmediate === 'function') {
-      setImmediate(resolve)
-      return
-    }
-    setTimeout(resolve, 0)
-  })
-}
-
-function respondMessage(
-  sink: SingleResponseSink,
-  type: string,
-  sourceId: string,
-  requestId: string,
-  payload: Uint8Array,
-): void {
-  sink({ type, sourceId, requestId, payload })
-}
-
-function assertMessageWithinLimit(bytes: Uint8Array, label: string): void {
-  if (bytes.byteLength > MAX_MESSAGE_SIZE_BYTES) {
-    throw new NarsilError(
-      ErrorCodes.CONFIG_INVALID,
-      `${label} payload (${bytes.byteLength} bytes) exceeds transport message limit (${MAX_MESSAGE_SIZE_BYTES})`,
-    )
-  }
-}
-
-function respondError(
-  sink: SingleResponseSink,
-  sourceId: string,
-  requestId: string,
-  code: ErrorCode | string,
-  message: string,
-): void {
-  const response: TransportMessage = {
-    type: SNAPSHOT_SYNC_ERROR_TYPE,
-    sourceId,
-    requestId,
-    payload: encode({ error: true, code, message }),
-  }
-  sink(response)
-  sink.closed = true
-}
+export type { SingleResponseSink } from './snapshot-stream-writer'
 
 /**
  * Forward-compatible validator: unknown top-level fields are tolerated so
