@@ -1,8 +1,21 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
+import type { SchemaDefinition } from '../../types/schema'
 import type { ClusterCoordinator } from '../coordinator/types'
 import type { NodeTransport } from '../transport/types'
-import { fetchSnapshotFromAnyTarget, withDeadline } from './bootstrap-fetch'
+import { fetchSnapshotFromAnyTarget } from './bootstrap-fetch'
+import {
+  ABORT_SENTINEL,
+  dropExistingIndex,
+  dropRestoredIndexQuietly,
+  executeEngineRestore,
+  loadCoordinatorSchema,
+  resolveTransportTargets,
+  surfaceAborted,
+  surfaceError,
+  validateArguments,
+  validateRestoredSchema,
+} from './bootstrap-restore'
 
 export const DEFAULT_BOOTSTRAP_SYNC_DEADLINE_MS = 600_000
 
@@ -12,6 +25,8 @@ interface BootstrapEntry {
   generation: number
   promise: Promise<boolean>
   aborted: boolean
+  abortResolve: () => void
+  abortPromise: Promise<typeof ABORT_SENTINEL>
 }
 
 export interface BootstrapSyncState {
@@ -40,7 +55,10 @@ export function clearBootstrapSyncIndex(state: BootstrapSyncState, indexName: st
   const inFlight = state.inFlight.get(key)
   if (inFlight !== undefined) {
     inFlight.aborted = true
+    inFlight.abortResolve()
+    return
   }
+  state.generations.delete(key)
 }
 
 export interface BootstrapSyncDeps {
@@ -74,45 +92,49 @@ export async function runBootstrapSync(
 
   const existing = state.inFlight.get(key)
   if (existing !== undefined) {
-    return existing.promise
+    const result = await Promise.race([existing.promise, existing.abortPromise])
+    if (result === ABORT_SENTINEL) {
+      return false
+    }
+    return result
   }
 
-  const startGeneration = state.generations.get(key) ?? 0
-  const entry: BootstrapEntry = {
-    indexName,
-    partitionId,
-    generation: startGeneration,
-    promise: Promise.resolve(false),
-    aborted: false,
-  }
+  const entry = createEntry(state, indexName, partitionId, key)
   entry.promise = executeBootstrapSync(state, entry, indexName, partitionId, primaryNodeId, deps).finally(() => {
     const current = state.inFlight.get(key)
     if (current === entry) {
       state.inFlight.delete(key)
     }
+    if (!state.completed.has(key) && !state.inFlight.has(key)) {
+      const currentGen = state.generations.get(key)
+      if (currentGen !== undefined && currentGen !== entry.generation) {
+        state.generations.delete(key)
+      }
+    }
+    // Do not resolve the abort promise on successful completion; waiters
+    // that race `existing.promise` against it would otherwise see the abort
+    // win for a happy-path exit. The entry becomes unreachable once inFlight
+    // drops it, so the pending abort promise will be garbage-collected.
   })
   state.inFlight.set(key, entry)
   return entry.promise
 }
 
-function validateArguments(indexName: string, partitionId: number, primaryNodeId: string): NarsilError | null {
-  if (typeof indexName !== 'string' || indexName.length === 0) {
-    return new NarsilError(ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID, 'indexName must be a non-empty string', {
-      indexName,
-    })
+function createEntry(state: BootstrapSyncState, indexName: string, partitionId: number, key: string): BootstrapEntry {
+  const startGeneration = state.generations.get(key) ?? 0
+  let abortResolve: () => void = () => {}
+  const abortPromise = new Promise<typeof ABORT_SENTINEL>(resolve => {
+    abortResolve = () => resolve(ABORT_SENTINEL)
+  })
+  return {
+    indexName,
+    partitionId,
+    generation: startGeneration,
+    promise: Promise.resolve(false),
+    aborted: false,
+    abortResolve,
+    abortPromise,
   }
-  if (!Number.isInteger(partitionId) || partitionId < 0) {
-    return new NarsilError(ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID, 'partitionId must be a non-negative integer', {
-      indexName,
-      partitionId,
-    })
-  }
-  if (typeof primaryNodeId !== 'string' || primaryNodeId.length === 0) {
-    return new NarsilError(ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID, 'primaryNodeId must be a non-empty string', {
-      indexName,
-    })
-  }
-  return null
 }
 
 async function executeBootstrapSync(
@@ -135,8 +157,12 @@ async function executeBootstrapSync(
     return entry.aborted
   }
 
-  const schemaReady = await ensureSchemaFetched(indexName, primaryNodeId, deps)
-  if (!schemaReady) {
+  const schemaResult = await fetchSchemaAndPrepare(entry, indexName, primaryNodeId, deps)
+  if (schemaResult === 'aborted') {
+    surfaceAborted(deps, indexName, primaryNodeId)
+    return false
+  }
+  if (schemaResult === null) {
     return false
   }
   if (abortCheck()) {
@@ -157,8 +183,9 @@ async function executeBootstrapSync(
     return false
   }
 
-  const targets = await resolveTargets(indexName, primaryNodeId, deps)
-  if (targets === null) {
+  const targetsResult = await resolveTransportTargets(indexName, primaryNodeId, deps.resolveNodeTargets)
+  if (targetsResult instanceof NarsilError) {
+    surfaceError(deps, indexName, primaryNodeId, targetsResult)
     return false
   }
 
@@ -166,7 +193,7 @@ async function executeBootstrapSync(
   const fetchResult = await fetchSnapshotFromAnyTarget(
     indexName,
     primaryNodeId,
-    targets,
+    targetsResult,
     deadline,
     fetchDeps,
     abortCheck,
@@ -194,14 +221,17 @@ async function executeBootstrapSync(
     return false
   }
 
-  const restoreSucceeded = await applyRestore(indexName, primaryNodeId, fetchResult.bytes, deadline, deps)
+  const restoreSucceeded = await applyRestore(
+    state,
+    entry,
+    indexName,
+    primaryNodeId,
+    fetchResult.bytes,
+    schemaResult,
+    deadline,
+    deps,
+  )
   if (!restoreSucceeded) {
-    return false
-  }
-
-  const currentGeneration = state.generations.get(key) ?? 0
-  if (currentGeneration !== entry.generation || entry.aborted) {
-    surfaceAborted(deps, indexName, primaryNodeId)
     return false
   }
 
@@ -209,49 +239,40 @@ async function executeBootstrapSync(
   return true
 }
 
-async function resolveTargets(
+async function fetchSchemaAndPrepare(
+  entry: BootstrapEntry,
   indexName: string,
   primaryNodeId: string,
   deps: BootstrapSyncDeps,
-): Promise<string[] | null> {
-  let targets: string[]
-  try {
-    targets = await deps.resolveNodeTargets(primaryNodeId)
-  } catch (err) {
-    surfaceError(
-      deps,
-      indexName,
-      primaryNodeId,
-      new NarsilError(
-        ErrorCodes.SNAPSHOT_SYNC_NO_TARGETS,
-        `resolveNodeTargets failed: ${err instanceof Error ? err.message : String(err)}`,
-        { indexName, primaryNodeId, cause: err instanceof Error ? err.message : String(err) },
-      ),
-    )
+): Promise<SchemaDefinition | null | 'aborted'> {
+  const dropError = await dropExistingIndex(deps.engine, indexName, primaryNodeId)
+  if (dropError !== null) {
+    surfaceError(deps, indexName, primaryNodeId, dropError)
     return null
   }
 
-  if (targets.length === 0) {
-    surfaceError(
-      deps,
-      indexName,
-      primaryNodeId,
-      new NarsilError(
-        ErrorCodes.SNAPSHOT_SYNC_NO_TARGETS,
-        `no transport targets resolved for primary '${primaryNodeId}'`,
-        { indexName, primaryNodeId },
-      ),
-    )
-    return null
+  if (entry.aborted) {
+    return 'aborted'
   }
 
-  return targets
+  const schemaResult = await loadCoordinatorSchema(deps.coordinator, indexName, primaryNodeId, entry.abortPromise)
+  if (schemaResult === 'aborted') {
+    return 'aborted'
+  }
+  if ('error' in schemaResult) {
+    surfaceError(deps, indexName, primaryNodeId, schemaResult.error)
+    return null
+  }
+  return schemaResult.schema
 }
 
 async function applyRestore(
+  state: BootstrapSyncState,
+  entry: BootstrapEntry,
   indexName: string,
   primaryNodeId: string,
   bytes: Uint8Array,
+  coordinatorSchema: SchemaDefinition,
   deadline: number,
   deps: BootstrapSyncDeps,
 ): Promise<boolean> {
@@ -268,113 +289,32 @@ async function applyRestore(
     return false
   }
 
-  try {
-    await withDeadline(deps.engine.restore(indexName, bytes), remainingMs, indexName, 'restore')
-  } catch (err) {
-    if (err instanceof NarsilError && err.code === ErrorCodes.SNAPSHOT_SYNC_TIMEOUT) {
-      surfaceError(deps, indexName, primaryNodeId, err)
-      return false
-    }
-    surfaceError(
-      deps,
-      indexName,
-      primaryNodeId,
-      new NarsilError(
-        ErrorCodes.SNAPSHOT_SYNC_RESTORE_FAILED,
-        `engine.restore failed: ${err instanceof Error ? err.message : String(err)}`,
-        { indexName, primaryNodeId, cause: err instanceof Error ? err.message : String(err) },
-      ),
-    )
+  const key = entryKey(indexName, entry.partitionId)
+  const generationBeforeRestore = state.generations.get(key) ?? 0
+  if (generationBeforeRestore !== entry.generation || entry.aborted) {
+    surfaceAborted(deps, indexName, primaryNodeId)
+    return false
+  }
+
+  const restoreError = await executeEngineRestore(deps.engine, indexName, primaryNodeId, bytes, remainingMs)
+  if (restoreError !== null) {
+    surfaceError(deps, indexName, primaryNodeId, restoreError)
+    return false
+  }
+
+  const generationAfterRestore = state.generations.get(key) ?? 0
+  if (generationAfterRestore !== entry.generation || entry.aborted) {
+    await dropRestoredIndexQuietly(deps.engine, indexName)
+    surfaceAborted(deps, indexName, primaryNodeId)
+    return false
+  }
+
+  const schemaError = validateRestoredSchema(deps.engine, indexName, primaryNodeId, coordinatorSchema)
+  if (schemaError !== null) {
+    await dropRestoredIndexQuietly(deps.engine, indexName)
+    surfaceError(deps, indexName, primaryNodeId, schemaError)
     return false
   }
 
   return true
-}
-
-async function ensureSchemaFetched(
-  indexName: string,
-  primaryNodeId: string,
-  deps: BootstrapSyncDeps,
-): Promise<boolean> {
-  const existing = deps.engine.listIndexes().find(idx => idx.name === indexName)
-  if (existing !== undefined) {
-    try {
-      await deps.engine.dropIndex(indexName)
-    } catch (err) {
-      surfaceError(
-        deps,
-        indexName,
-        primaryNodeId,
-        new NarsilError(
-          ErrorCodes.SNAPSHOT_SYNC_RESTORE_FAILED,
-          `engine.dropIndex failed before restore: ${err instanceof Error ? err.message : String(err)}`,
-          { indexName, primaryNodeId, cause: err instanceof Error ? err.message : String(err) },
-        ),
-      )
-      return false
-    }
-    return true
-  }
-
-  let schema: Awaited<ReturnType<ClusterCoordinator['getSchema']>>
-  try {
-    schema = await deps.coordinator.getSchema(indexName)
-  } catch (err) {
-    surfaceError(
-      deps,
-      indexName,
-      primaryNodeId,
-      new NarsilError(
-        ErrorCodes.SNAPSHOT_SYNC_SCHEMA_UNAVAILABLE,
-        `coordinator.getSchema failed: ${err instanceof Error ? err.message : String(err)}`,
-        { indexName, primaryNodeId, cause: err instanceof Error ? err.message : String(err) },
-      ),
-    )
-    return false
-  }
-
-  if (schema === null) {
-    surfaceError(
-      deps,
-      indexName,
-      primaryNodeId,
-      new NarsilError(
-        ErrorCodes.SNAPSHOT_SYNC_SCHEMA_UNAVAILABLE,
-        `coordinator has no schema for index '${indexName}'`,
-        { indexName, primaryNodeId },
-      ),
-    )
-    return false
-  }
-
-  return true
-}
-
-function surfaceError(deps: BootstrapSyncDeps, indexName: string, primaryNodeId: string, error: NarsilError): void {
-  if (deps.onError === undefined) {
-    return
-  }
-  const wrapped = new NarsilError(
-    ErrorCodes.NODE_BOOTSTRAP_FAILED,
-    `Bootstrap sync failed for index '${indexName}': ${error.message}`,
-    {
-      indexName,
-      primaryNodeId,
-      innerCode: error.code,
-      ...error.details,
-    },
-  )
-  deps.onError(wrapped)
-}
-
-function surfaceAborted(deps: BootstrapSyncDeps, indexName: string, primaryNodeId: string): void {
-  if (deps.onError === undefined) {
-    return
-  }
-  deps.onError(
-    new NarsilError(ErrorCodes.SNAPSHOT_SYNC_ABORTED, `bootstrap sync aborted for index '${indexName}'`, {
-      indexName,
-      primaryNodeId,
-    }),
-  )
 }

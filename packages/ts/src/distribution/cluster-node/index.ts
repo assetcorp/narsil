@@ -17,6 +17,7 @@ import { distributedQuery } from '../query/routing'
 import { selectReplica } from '../query/selection'
 import type { DistributedQueryResult } from '../query/types'
 import type { FetchDocumentId, TransportMessage } from '../transport/types'
+import { cleanupRemovedPartition } from './bootstrap-cleanup'
 import { clearBootstrapSyncIndex, createBootstrapSyncState, runBootstrapSync } from './bootstrap-sync'
 import { createDataNodeHandler } from './message-handler'
 import { distributedResultToLocal, localParamsToWire } from './query-conversion'
@@ -105,6 +106,15 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
         }),
       onRemovePartition: (indexName: string, partitionId: number) => {
         clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
+        // Fire-and-forget: align engine state with allocation by dropping the
+        // local index when no other partitions of the same index remain
+        // assigned to this node. Errors are surfaced via forwardOnError.
+        void cleanupRemovedPartition(indexName, partitionId, {
+          engine,
+          coordinator: config.coordinator,
+          nodeId,
+          onError: forwardOnError,
+        })
       },
     })
   }
