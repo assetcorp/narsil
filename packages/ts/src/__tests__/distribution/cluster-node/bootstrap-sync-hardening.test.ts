@@ -44,6 +44,7 @@ function makeMockEngine(startWithIndex = false, restoreDelayMs = 0): MockEngineH
       hasIndex = true
       restoreCalls.push({ indexName, data })
     },
+    getStats: (_indexName: string) => ({ schema: { title: 'text' } }),
   } as unknown as Narsil
 
   return {
