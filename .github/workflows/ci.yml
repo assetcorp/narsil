@@ -41,14 +41,26 @@ jobs:
       - name: Lint
         run: pnpm nx run narsil-ts:lint
 
+      - name: Lint (certutil)
+        run: pnpm nx run narsil-certutil:lint
+
       - name: Typecheck
         run: pnpm nx run narsil-ts:typecheck
+
+      - name: Typecheck (certutil)
+        run: pnpm nx run narsil-certutil:typecheck
 
       - name: Build
         run: pnpm nx run narsil-ts:build
 
+      - name: Build (certutil)
+        run: pnpm nx run narsil-certutil:build
+
       - name: Test
         run: pnpm nx run narsil-ts:test
+
+      - name: Test (certutil)
+        run: pnpm nx run narsil-certutil:test
 
   detect-vector-changes:
     name: Detect vector changes

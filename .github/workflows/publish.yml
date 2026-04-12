@@ -11,6 +11,7 @@ on:
           - all
           - '@delali/narsil'
           - '@delali/narsil-embeddings-transformers'
+          - '@delali/narsil-certutil'
       version:
         description: 'Version bump (patch, minor, major, or explicit like 1.2.3)'
         required: true
@@ -56,11 +57,17 @@ jobs:
       - name: Lint (embeddings-transformers)
         run: pnpm nx run narsil-embeddings-transformers:lint
 
+      - name: Lint (certutil)
+        run: pnpm nx run narsil-certutil:lint
+
       - name: Typecheck
         run: pnpm nx run narsil-ts:typecheck
 
       - name: Typecheck (embeddings-transformers)
         run: pnpm nx run narsil-embeddings-transformers:typecheck
+
+      - name: Typecheck (certutil)
+        run: pnpm nx run narsil-certutil:typecheck
 
       - name: Build
         run: pnpm nx run narsil-ts:build
@@ -68,11 +75,17 @@ jobs:
       - name: Build (embeddings-transformers)
         run: pnpm nx run narsil-embeddings-transformers:build
 
+      - name: Build (certutil)
+        run: pnpm nx run narsil-certutil:build
+
       - name: Test
         run: pnpm nx run narsil-ts:test
 
       - name: Test (embeddings-transformers)
         run: pnpm nx run narsil-embeddings-transformers:test
+
+      - name: Test (certutil)
+        run: pnpm nx run narsil-certutil:test
 
       - name: Cache HuggingFace models
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
@@ -104,7 +117,7 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
           DRY_RUN_FLAG: ${{ inputs.dry-run && '--dry-run' || '' }}
-          PROJECTS_FLAG: ${{ inputs.package == '@delali/narsil' && '--projects=narsil-ts' || inputs.package == '@delali/narsil-embeddings-transformers' && '--projects=narsil-embeddings-transformers' || '' }}
+          PROJECTS_FLAG: ${{ inputs.package == '@delali/narsil' && '--projects=narsil-ts' || inputs.package == '@delali/narsil-embeddings-transformers' && '--projects=narsil-embeddings-transformers' || inputs.package == '@delali/narsil-certutil' && '--projects=narsil-certutil' || '' }}
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: pnpm nx release "$VERSION" $DRY_RUN_FLAG $PROJECTS_FLAG --skip-publish
 
@@ -112,5 +125,5 @@ jobs:
         if: ${{ !inputs.dry-run }}
         env:
           NPM_CONFIG_PROVENANCE: true
-          PROJECTS_FLAG: ${{ inputs.package == '@delali/narsil' && '--projects=narsil-ts' || inputs.package == '@delali/narsil-embeddings-transformers' && '--projects=narsil-embeddings-transformers' || '' }}
+          PROJECTS_FLAG: ${{ inputs.package == '@delali/narsil' && '--projects=narsil-ts' || inputs.package == '@delali/narsil-embeddings-transformers' && '--projects=narsil-embeddings-transformers' || inputs.package == '@delali/narsil-certutil' && '--projects=narsil-certutil' || '' }}
         run: pnpm nx release publish $PROJECTS_FLAG --verbose
