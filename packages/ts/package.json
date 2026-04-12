@@ -92,6 +92,10 @@
     "./languages/*": {
       "import": "./dist/languages/*.mjs",
       "types": "./dist/languages/*.d.ts"
+    },
+    "./distribution": {
+      "import": "./dist/distribution.mjs",
+      "types": "./dist/distribution.d.ts"
     }
   },
   "files": [

@@ -1,6 +1,6 @@
 import { defineConfig } from 'tsup'
 
-const NODE_BUILTINS = ['worker_threads', 'fs', 'path', 'os', 'crypto']
+const NODE_BUILTINS = ['worker_threads', 'fs', 'path', 'os', 'crypto', 'net', 'tls']
 const NODE_EXTERNAL = NODE_BUILTINS.flatMap(m => [m, `node:${m}`])
 
 export default defineConfig([
@@ -55,6 +55,7 @@ export default defineConfig([
       'languages/chinese': 'src/languages/chinese.ts',
       'languages/japanese': 'src/languages/japanese.ts',
       'languages/sanskrit': 'src/languages/sanskrit.ts',
+      distribution: 'src/distribution/index.ts',
     },
     format: ['esm'],
     dts: true,
@@ -62,7 +63,7 @@ export default defineConfig([
     clean: true,
     treeshake: true,
     outExtension: () => ({ js: '.mjs' }),
-    external: NODE_EXTERNAL,
+    external: [...NODE_EXTERNAL, 'etcd3'],
   },
   {
     entry: { 'index.browser': 'src/index.ts' },
