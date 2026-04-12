@@ -105,14 +105,15 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.SNAPSHOT_SYNC_TRANSPORT_FAILED).toBe('SNAPSHOT_SYNC_TRANSPORT_FAILED')
     expect(ErrorCodes.SNAPSHOT_SYNC_SCHEMA_UNAVAILABLE).toBe('SNAPSHOT_SYNC_SCHEMA_UNAVAILABLE')
     expect(ErrorCodes.SNAPSHOT_SYNC_RESTORE_FAILED).toBe('SNAPSHOT_SYNC_RESTORE_FAILED')
+    expect(ErrorCodes.SNAPSHOT_SYNC_RESTORE_CLEANUP_FAILED).toBe('SNAPSHOT_SYNC_RESTORE_CLEANUP_FAILED')
     expect(ErrorCodes.SNAPSHOT_SYNC_TIMEOUT).toBe('SNAPSHOT_SYNC_TIMEOUT')
     expect(ErrorCodes.SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE).toBe('SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE')
     expect(ErrorCodes.SNAPSHOT_SYNC_NOT_ASSIGNED).toBe('SNAPSHOT_SYNC_NOT_ASSIGNED')
     expect(ErrorCodes.SNAPSHOT_SYNC_ABORTED).toBe('SNAPSHOT_SYNC_ABORTED')
   })
 
-  it('has exactly 74 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(74)
+  it('has exactly 75 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(75)
   })
 
   it('has unique values for every code', () => {

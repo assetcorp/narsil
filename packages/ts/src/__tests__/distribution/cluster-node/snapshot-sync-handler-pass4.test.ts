@@ -106,7 +106,7 @@ describe('snapshot-sync-handler pass-4 findings', () => {
     expect(snapshot).not.toHaveBeenCalled()
   })
 
-  it('I-D: sink closes after SNAPSHOT_END; no further responses are accepted', async () => {
+  it('I-D: after the handler resolves, no further responses are emitted and no async straggler fires', async () => {
     const engine = makeEngine(['products'])
     const coordinator = makeCoordinator(makeAllocation('products', makeAssignment()))
     const state = createSnapshotSyncHandlerState()
@@ -116,13 +116,17 @@ describe('snapshot-sync-handler pass-4 findings', () => {
 
     const last = responses.at(-1)
     expect(last?.type).toBe(ReplicationMessageTypes.SNAPSHOT_END)
-    // A probe that re-uses the handler's outer respond after END must not
-    // produce additional observable output; the respond function itself
-    // keeps receiving, but the sink guard suppresses the write. We verify
-    // the sink is closed by checking that the handler body itself did not
-    // emit anything after SNAPSHOT_END.
     const endIndex = responses.findIndex(r => r.type === ReplicationMessageTypes.SNAPSHOT_END)
     expect(endIndex).toBe(responses.length - 1)
+
+    // Active probe: yield to both the microtask and macrotask queues so any
+    // straggling async continuation inside the handler has a chance to fire
+    // against the captured respond callback. The count must not grow.
+    const beforeLength = responses.length
+    await Promise.resolve()
+    await new Promise<void>(resolve => setTimeout(resolve, 0))
+    await new Promise<void>(resolve => setImmediate(resolve))
+    expect(responses.length).toBe(beforeLength)
   })
 
   it('M-D: same sourceId can request two different indices concurrently without contention', async () => {
@@ -201,6 +205,42 @@ describe('snapshot-sync-handler pass-4 findings', () => {
     expect(successes).toBeLessThanOrEqual(2)
     expect(successes + rejects).toBe(3)
     expect(state.streamActive.size).toBe(0)
+  })
+
+  it('L-new-2: sourceId containing NUL is rejected before slot acquisition or engine work', async () => {
+    const engine = makeEngine(['products'])
+    const listIndexesSpy = engine.listIndexes as unknown as ReturnType<typeof vi.fn>
+    const snapshotSpy = engine.snapshot as unknown as ReturnType<typeof vi.fn>
+    const coordinator = makeCoordinator(makeAllocation('products', makeAssignment()))
+    const state = createSnapshotSyncHandlerState()
+    const { respond, responses } = collectResponses()
+
+    const msg = makeRequest('products', 'req-nul', 'victim\u0000products')
+    await handleSnapshotSyncRequest(msg, respond, makeDeps(engine, coordinator, state))
+
+    expect(responses.length).toBe(1)
+    const decoded = decode(responses[0].payload) as { code: string; message: string }
+    expect(decoded.code).toBe(ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID)
+    expect(decoded.message.toLowerCase()).toContain('control')
+
+    expect(listIndexesSpy).not.toHaveBeenCalled()
+    expect(snapshotSpy).not.toHaveBeenCalled()
+    expect(state.perSource.size).toBe(0)
+    expect(state.streamActive.size).toBe(0)
+  })
+
+  it('L-new-2: sourceId with other ASCII control characters is rejected the same way', async () => {
+    const engine = makeEngine(['products'])
+    const coordinator = makeCoordinator(makeAllocation('products', makeAssignment()))
+    const state = createSnapshotSyncHandlerState()
+    const { respond, responses } = collectResponses()
+
+    const msg = makeRequest('products', 'req-tab', 'bad\tsource')
+    await handleSnapshotSyncRequest(msg, respond, makeDeps(engine, coordinator, state))
+
+    expect(responses.length).toBe(1)
+    const decoded = decode(responses[0].payload) as { code: string }
+    expect(decoded.code).toBe(ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID)
   })
 
   it('M-C: single-chunk snapshot yields at least once between START and END', async () => {

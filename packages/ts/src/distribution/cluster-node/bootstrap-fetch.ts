@@ -203,7 +203,13 @@ export async function jitteredBackoff(
     if (remaining <= 0) {
       return false
     }
-    const tickMs = Math.max(1, Math.min(remaining, JITTERED_BACKOFF_POLL_INTERVAL_MS))
+    // Exit before the tail of the window degenerates into 1 ms spin-sleeps.
+    // A final abort check above already protected the 2 ms slice we're giving
+    // up; losing this slice is cheaper than re-entering setTimeout twice.
+    if (remaining <= 2) {
+      return false
+    }
+    const tickMs = Math.min(remaining, JITTERED_BACKOFF_POLL_INTERVAL_MS)
     await sleepForMs(tickMs)
   }
   return abortCheck()

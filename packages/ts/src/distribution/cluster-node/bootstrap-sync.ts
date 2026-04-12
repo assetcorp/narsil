@@ -50,15 +50,26 @@ function entryKey(indexName: string, partitionId: number): string {
 export function clearBootstrapSyncIndex(state: BootstrapSyncState, indexName: string, partitionId: number): void {
   const key = entryKey(indexName, partitionId)
   state.completed.delete(key)
-  const previous = state.generations.get(key) ?? 0
-  state.generations.set(key, previous + 1)
   const inFlight = state.inFlight.get(key)
-  if (inFlight !== undefined) {
-    inFlight.aborted = true
-    inFlight.abortResolve()
+  if (inFlight === undefined) {
+    // Generations are only meaningful while an in-flight worker watches
+    // its own generation to detect eviction. With no worker to invalidate,
+    // the slot is free; clear any lingering counter so a future bootstrap
+    // starts clean.
+    state.generations.delete(key)
     return
   }
-  state.generations.delete(key)
+  // Bump the generation and eagerly evict the in-flight entry. Eviction
+  // allows a fresh runBootstrapSync for the same key to start immediately
+  // rather than absorbing the aborted entry and returning false. The
+  // draining worker observes the generation mismatch at its next check
+  // (see executeBootstrapSync / applyRestore) and its .finally is a no-op
+  // because state.inFlight no longer maps the key to it.
+  const previous = state.generations.get(key) ?? 0
+  state.generations.set(key, previous + 1)
+  inFlight.aborted = true
+  inFlight.abortResolve()
+  state.inFlight.delete(key)
 }
 
 export interface BootstrapSyncDeps {
@@ -235,8 +246,27 @@ async function executeBootstrapSync(
     return false
   }
 
+  // Defense-in-depth: an eviction may have slipped in between applyRestore's
+  // final generation check and this point (there are no awaits in between
+  // today, but a future edit could add one). Re-check before mutating the
+  // shared completed set so a drained worker never revives a stale slot.
+  if (abortCheck()) {
+    if (!anotherBootstrapOwnsKey(state, key, entry)) {
+      await dropRestoredIndexQuietly(deps.engine, indexName, deps)
+    }
+    surfaceAborted(deps, indexName, primaryNodeId)
+    return false
+  }
   state.completed.add(key)
   return true
+}
+
+function anotherBootstrapOwnsKey(state: BootstrapSyncState, key: string, self: BootstrapEntry): boolean {
+  const current = state.inFlight.get(key)
+  if (current === undefined) {
+    return false
+  }
+  return current !== self
 }
 
 async function fetchSchemaAndPrepare(
@@ -304,14 +334,20 @@ async function applyRestore(
 
   const generationAfterRestore = state.generations.get(key) ?? 0
   if (generationAfterRestore !== entry.generation || entry.aborted) {
-    await dropRestoredIndexQuietly(deps.engine, indexName)
+    // Our bootstrap was aborted, but another bootstrap may already be racing
+    // us for the same index (M-new-2 allows a fresh runBootstrapSync to
+    // start immediately after eviction). Dropping the index here would
+    // destroy that bootstrap's restored data. Defer to the takeover.
+    if (!anotherBootstrapOwnsKey(state, key, entry)) {
+      await dropRestoredIndexQuietly(deps.engine, indexName, deps)
+    }
     surfaceAborted(deps, indexName, primaryNodeId)
     return false
   }
 
   const schemaError = validateRestoredSchema(deps.engine, indexName, primaryNodeId, coordinatorSchema)
   if (schemaError !== null) {
-    await dropRestoredIndexQuietly(deps.engine, indexName)
+    await dropRestoredIndexQuietly(deps.engine, indexName, deps)
     surfaceError(deps, indexName, primaryNodeId, schemaError)
     return false
   }
