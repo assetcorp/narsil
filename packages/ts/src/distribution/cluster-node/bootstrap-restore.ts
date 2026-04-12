@@ -150,19 +150,39 @@ export function validateRestoredSchema(
 }
 
 /**
- * Drop the restored index, swallowing any error. Used for cleanup paths after
- * a primary failure is already being surfaced; a secondary drop failure must
- * not mask the real signal.
+ * Drop the restored index, surfacing any cleanup failure through onError
+ * under a dedicated code so operators can see when cleanup is stuck.
+ * Still best-effort: the function never throws back to the caller, which is
+ * already handling a primary failure.
+ *
+ * INDEX_NOT_FOUND is expected (another drop raced us) and stays silent.
  */
-export async function dropRestoredIndexQuietly(engine: Narsil, indexName: string): Promise<void> {
+export async function dropRestoredIndexQuietly(
+  engine: Narsil,
+  indexName: string,
+  deps: SurfaceErrorDeps = {},
+): Promise<void> {
   try {
     const existing = engine.listIndexes().find(idx => idx.name === indexName)
     if (existing === undefined) {
       return
     }
     await engine.dropIndex(indexName)
-  } catch (_) {
-    /* intentional: cleanup failure is subordinate to the primary error */
+  } catch (err) {
+    if (err instanceof NarsilError && err.code === ErrorCodes.INDEX_NOT_FOUND) {
+      return
+    }
+    if (deps.onError === undefined) {
+      return
+    }
+    const cause = err instanceof Error ? err.message : String(err)
+    deps.onError(
+      new NarsilError(
+        ErrorCodes.SNAPSHOT_SYNC_RESTORE_CLEANUP_FAILED,
+        `failed to drop restored index '${indexName}' after bootstrap cleanup: ${cause}`,
+        { indexName, cause },
+      ),
+    )
   }
 }
 
@@ -216,6 +236,13 @@ export async function dropExistingIndex(
     await engine.dropIndex(indexName)
     return null
   } catch (err) {
+    // TOCTOU: another bootstrap path (e.g. cleanupRemovedPartition) may drop
+    // the index between listIndexes() and the awaited dropIndex(). Treat
+    // INDEX_NOT_FOUND as success; the post-condition we care about (no
+    // existing index) is already satisfied. Mirrors cleanupRemovedPartition.
+    if (err instanceof NarsilError && err.code === ErrorCodes.INDEX_NOT_FOUND) {
+      return null
+    }
     const cause = err instanceof Error ? err.message : String(err)
     return new NarsilError(
       ErrorCodes.SNAPSHOT_SYNC_RESTORE_FAILED,

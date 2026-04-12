@@ -38,12 +38,59 @@ export { SNAPSHOT_SYNC_ERROR_TYPE }
 const MAX_INDEX_NAME_LENGTH = 256
 const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
 
+const MAX_SOURCE_ID_LENGTH = 256
+
+/**
+ * Control characters in a sourceId would collide with our per-source slot key
+ * separator (NUL) and could let an authorized replica forge a key that aliases
+ * another replica's slot. Beyond NUL, reject the full ASCII C0 + DEL set, the
+ * Unicode C1 control range, the line and paragraph separators, and the BOM,
+ * because all of these confuse log viewers, audit trails, and any future
+ * normalization-aware comparator. Reject the whole class at the trust boundary
+ * before any slot acquisition or engine work. Uses a character-code scan
+ * rather than a regex to avoid embedding control characters in source
+ * (biome's noControlCharactersInRegex).
+ */
+function containsControlCharacter(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i)
+    if (code < 0x20) {
+      return true
+    }
+    if (code >= 0x7f && code <= 0x9f) {
+      return true
+    }
+    if (code === 0x2028 || code === 0x2029 || code === 0xfeff) {
+      return true
+    }
+  }
+  return false
+}
+
 /**
  * A SNAPSHOT_SYNC_REQUEST only carries `{indexName: string}` with `indexName <= 256`.
  * Rejecting oversized payloads before msgpack decode keeps an abusive peer from
  * pinning a CPU on a 64 MiB decode just to fail validation.
  */
 const MAX_SNAPSHOT_SYNC_REQUEST_BYTES = 4_096
+
+/**
+ * The request payload is a single-field map: `{indexName: string}`. Cap the
+ * decoder's structural limits so a deeply nested or wide map within the 4 KiB
+ * byte budget can't run the decoder's inner loop long enough to matter. Each
+ * cap is a multiple of the single legitimate value so forward-compatible
+ * optional hints still decode. `keyDecoder: null` opts out of the msgpack
+ * library's process-global shared key cache so a hostile peer cannot evict
+ * cached keys used by unrelated decoders running in the same process.
+ */
+const REQUEST_DECODE_OPTIONS = {
+  maxMapLength: 16,
+  maxArrayLength: 16,
+  maxStrLength: MAX_INDEX_NAME_LENGTH,
+  maxBinLength: 0,
+  maxExtLength: 0,
+  keyDecoder: null,
+} as const
 
 export type SnapshotSyncHandlerState = SnapshotCacheState
 
@@ -137,14 +184,9 @@ async function runSnapshotSyncRequest(
     return
   }
 
-  if (typeof message.sourceId !== 'string' || message.sourceId.length === 0) {
-    respondError(
-      sink,
-      deps.nodeId,
-      message.requestId,
-      ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID,
-      'request sourceId is missing',
-    )
+  const sourceIdError = validateSourceId(message.sourceId)
+  if (sourceIdError !== null) {
+    respondError(sink, deps.nodeId, message.requestId, ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID, sourceIdError)
     return
   }
 
@@ -175,7 +217,7 @@ function decodeRequest(
   deps: SnapshotSyncHandlerDeps,
 ): SnapshotSyncRequestPayload | null {
   try {
-    const decoded = decode(message.payload) as unknown
+    const decoded = decode(message.payload, REQUEST_DECODE_OPTIONS) as unknown
     return validateSnapshotSyncRequestPayload(decoded)
   } catch (err) {
     const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID
@@ -183,6 +225,19 @@ function decodeRequest(
     respondError(sink, deps.nodeId, message.requestId, code, errMessage)
     return null
   }
+}
+
+function validateSourceId(sourceId: unknown): string | null {
+  if (typeof sourceId !== 'string' || sourceId.length === 0) {
+    return 'request sourceId is missing'
+  }
+  if (sourceId.length > MAX_SOURCE_ID_LENGTH) {
+    return `request sourceId exceeds ${MAX_SOURCE_ID_LENGTH} characters`
+  }
+  if (containsControlCharacter(sourceId)) {
+    return 'request sourceId contains control characters'
+  }
+  return null
 }
 
 async function acquireAndStream(
