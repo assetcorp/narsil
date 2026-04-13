@@ -1,4 +1,7 @@
+import { generateCaCertificate } from '../../crypto/ca'
+import { generateNodeCertificate } from '../../crypto/certificate'
 import { buildCaExtensions, buildNodeExtensions, buildSanExtension } from '../../crypto/extensions'
+import { pemToCertificate } from '../../crypto/pem'
 
 describe('buildCaExtensions', () => {
   it('includes basicConstraints with cA set to true and critical', () => {
@@ -83,5 +86,70 @@ describe('buildSanExtension', () => {
   it('handles empty arrays', () => {
     const san = buildSanExtension([], [])
     expect(san.altNames?.length).toBe(0)
+  })
+})
+
+describe('extensions in generated certificates', () => {
+  const ca = generateCaCertificate({ name: 'Ext Verify CA', days: 3650, keySize: 2048 })
+  const caCert = pemToCertificate(ca.certPem)
+
+  const nodeResult = generateNodeCertificate({
+    caCertPem: ca.certPem,
+    caKeyPem: ca.keyPem,
+    cn: 'ext-verify-node',
+    ipSans: ['172.16.0.1', '10.0.0.1'],
+    dnsSans: ['ext-node.cluster.local', 'ext-node.internal'],
+    days: 365,
+    keySize: 2048,
+  })
+  const nodeCert = pemToCertificate(nodeResult.certPem)
+
+  it('parses basicConstraints.cA as true in the CA certificate', () => {
+    const bc = caCert.getExtension('basicConstraints') as { cA?: boolean } | null
+    expect(bc).not.toBeNull()
+    expect(bc?.cA).toBe(true)
+  })
+
+  it('parses keyUsage with keyCertSign, cRLSign, and digitalSignature in the CA certificate', () => {
+    const ku = caCert.getExtension('keyUsage') as Record<string, unknown> | null
+    expect(ku).not.toBeNull()
+    expect(ku?.keyCertSign).toBe(true)
+    expect(ku?.cRLSign).toBe(true)
+    expect(ku?.digitalSignature).toBe(true)
+  })
+
+  it('parses basicConstraints.cA as false in the node certificate', () => {
+    const bc = nodeCert.getExtension('basicConstraints') as { cA?: boolean } | null
+    expect(bc).not.toBeNull()
+    expect(bc?.cA).toBe(false)
+  })
+
+  it('parses extKeyUsage with serverAuth and clientAuth in the node certificate', () => {
+    const eku = nodeCert.getExtension('extKeyUsage') as { serverAuth?: boolean; clientAuth?: boolean } | null
+    expect(eku).not.toBeNull()
+    expect(eku?.serverAuth).toBe(true)
+    expect(eku?.clientAuth).toBe(true)
+  })
+
+  it('parses keyUsage with digitalSignature and keyEncipherment in the node certificate', () => {
+    const ku = nodeCert.getExtension('keyUsage') as Record<string, unknown> | null
+    expect(ku).not.toBeNull()
+    expect(ku?.digitalSignature).toBe(true)
+    expect(ku?.keyEncipherment).toBe(true)
+  })
+
+  it('parses subjectAltName with the requested IPs and DNS names in the node certificate', () => {
+    const san = nodeCert.getExtension('subjectAltName') as {
+      altNames?: Array<{ type: number; value?: string; ip?: string }>
+    } | null
+    expect(san).not.toBeNull()
+
+    const ipEntries = san?.altNames?.filter(e => e.type === 7).map(e => e.ip) ?? []
+    expect(ipEntries).toContain('172.16.0.1')
+    expect(ipEntries).toContain('10.0.0.1')
+
+    const dnsEntries = san?.altNames?.filter(e => e.type === 2).map(e => e.value) ?? []
+    expect(dnsEntries).toContain('ext-node.cluster.local')
+    expect(dnsEntries).toContain('ext-node.internal')
   })
 })

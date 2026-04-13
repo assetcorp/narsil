@@ -2,8 +2,11 @@ import { randomBytes } from 'node:crypto'
 import { readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import forge from 'node-forge'
 import { runBatchCert, runBatchCsr } from '../../batch/runner'
 import { generateCaCertificate } from '../../crypto/ca'
+import { publicKeysMatch } from '../../crypto/keys'
+import { pemToCertificate, pemToPrivateKey } from '../../crypto/pem'
 import { ensureDirectory, fileExists } from '../../output/writer'
 import type { ClusterConfig } from '../../types'
 
@@ -96,6 +99,84 @@ describe('runBatchCert', () => {
     expect(results).toHaveLength(1)
     expect(results[0].cn).toBe('bare-node')
     expect(results[0].certPem).toContain('BEGIN CERTIFICATE')
+  })
+
+  it('each batch cert validates against the CA chain', async () => {
+    const results = await runBatchCert(twoNodeConfig, ca.certPem, ca.keyPem, dir, false, 365, 2048)
+    const caCert = pemToCertificate(ca.certPem)
+    const caStore = forge.pki.createCaStore([caCert])
+
+    for (const result of results) {
+      const nodeCert = pemToCertificate(result.certPem)
+      expect(() => forge.pki.verifyCertificateChain(caStore, [nodeCert])).not.toThrow()
+    }
+  })
+
+  it('each batch cert has its node-specific SANs, not other nodes SANs', async () => {
+    const results = await runBatchCert(twoNodeConfig, ca.certPem, ca.keyPem, dir, false, 365, 2048)
+
+    const node01Result = results.find(r => r.cn === 'narsil-node-01')
+    const node02Result = results.find(r => r.cn === 'narsil-node-02')
+    expect(node01Result).toBeDefined()
+    expect(node02Result).toBeDefined()
+    if (node01Result === undefined || node02Result === undefined) return
+
+    const cert01 = pemToCertificate(node01Result.certPem)
+    const san01 = cert01.getExtension('subjectAltName') as {
+      altNames?: Array<{ type: number; value?: string; ip?: string }>
+    } | null
+    expect(san01).not.toBeNull()
+    const alt01 = san01?.altNames ?? []
+    const ips01 = alt01.filter(a => a.type === 7).map(a => a.ip ?? '')
+    const dns01 = alt01.filter(a => a.type === 2).map(a => a.value ?? '')
+
+    expect(ips01).toContain('10.0.0.1')
+    expect(dns01).toContain('node01.cluster.local')
+    expect(ips01).not.toContain('10.0.0.2')
+    expect(dns01).not.toContain('node02.cluster.local')
+
+    const cert02 = pemToCertificate(node02Result.certPem)
+    const san02 = cert02.getExtension('subjectAltName') as {
+      altNames?: Array<{ type: number; value?: string; ip?: string }>
+    } | null
+    expect(san02).not.toBeNull()
+    const alt02 = san02?.altNames ?? []
+    const ips02 = alt02.filter(a => a.type === 7).map(a => a.ip ?? '')
+    const dns02 = alt02.filter(a => a.type === 2).map(a => a.value ?? '')
+
+    expect(ips02).toContain('10.0.0.2')
+    expect(dns02).toContain('node02.cluster.local')
+    expect(ips02).not.toContain('10.0.0.1')
+    expect(dns02).not.toContain('node01.cluster.local')
+  })
+
+  it('each batch cert has mTLS extensions', async () => {
+    const results = await runBatchCert(twoNodeConfig, ca.certPem, ca.keyPem, dir, false, 365, 2048)
+
+    for (const result of results) {
+      const cert = pemToCertificate(result.certPem)
+
+      const eku = cert.getExtension('extKeyUsage') as {
+        serverAuth?: boolean
+        clientAuth?: boolean
+      } | null
+      expect(eku?.serverAuth).toBe(true)
+      expect(eku?.clientAuth).toBe(true)
+    }
+  })
+
+  it('each batch cert key matches its certificate', async () => {
+    const results = await runBatchCert(twoNodeConfig, ca.certPem, ca.keyPem, dir, false, 365, 2048)
+
+    for (const result of results) {
+      const cert = pemToCertificate(result.certPem)
+      const key = pemToPrivateKey(result.keyPem)
+      expect(publicKeysMatch(cert, key)).toBe(true)
+    }
+
+    const cert01 = pemToCertificate(results[0].certPem)
+    const key02 = pemToPrivateKey(results[1].keyPem)
+    expect(publicKeysMatch(cert01, key02)).toBe(false)
   })
 })
 
