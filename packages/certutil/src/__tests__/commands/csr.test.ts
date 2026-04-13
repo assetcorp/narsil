@@ -12,7 +12,7 @@ function tempDir(): string {
 
 describe('csr command', () => {
   let dir: string
-  let originalExitCode: number | undefined
+  let originalExitCode: string | number | null | undefined
   let stderrChunks: string[]
   let stdoutChunks: string[]
   let stderrSpy: ReturnType<typeof vi.spyOn>

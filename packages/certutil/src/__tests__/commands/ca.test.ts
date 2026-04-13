@@ -11,7 +11,7 @@ function tempDir(): string {
 
 describe('ca command', () => {
   let dir: string
-  let originalExitCode: number | undefined
+  let originalExitCode: string | number | null | undefined
   let stderrChunks: string[]
   let stdoutChunks: string[]
   let stderrSpy: ReturnType<typeof vi.spyOn>
