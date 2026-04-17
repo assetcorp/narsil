@@ -32,7 +32,14 @@
     "typecheck": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "pnpm tsc --noEmit",
+        "command": "pnpm run typecheck",
+        "cwd": "packages/certutil"
+      }
+    },
+    "typecheck:tests": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm run typecheck:tests",
         "cwd": "packages/certutil"
       }
     },

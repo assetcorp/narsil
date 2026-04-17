@@ -7,7 +7,7 @@ import {
 } from '../types'
 import { TcpConnectionPool } from './connection'
 import { TcpServer } from './server'
-import { DEFAULT_TCP_CONFIG, type TcpTransportConfig } from './types'
+import { DEFAULT_TCP_CONFIG, type TcpTransportConfig, type TlsConfig } from './types'
 
 export type { TcpTransportConfig, TlsConfig } from './types'
 
@@ -16,7 +16,7 @@ type ListenHandler = (message: TransportMessage, respond: (response: TransportMe
 export function createTcpTransport(
   nodeId: string,
   config?: Partial<TcpTransportConfig>,
-): NodeTransport & { getPort(): number } {
+): NodeTransport & { getPort(): number; rotateTlsContext(nextTlsConfig: TlsConfig): void } {
   const resolvedConfig: TcpTransportConfig = {
     ...DEFAULT_TCP_CONFIG,
     ...config,
@@ -39,6 +39,12 @@ export function createTcpTransport(
   return {
     getPort(): number {
       return server.getPort()
+    },
+
+    rotateTlsContext(nextTlsConfig: TlsConfig): void {
+      assertNotShutdown()
+      pool.updateTlsConfig(nextTlsConfig)
+      server.updateTlsConfig(nextTlsConfig)
     },
 
     async send(target: string, message: TransportMessage): Promise<TransportMessage> {

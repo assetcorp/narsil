@@ -47,7 +47,7 @@ jobs:
       - name: Typecheck
         run: pnpm nx run narsil-ts:typecheck
 
-      - name: Typecheck (certutil)
+      - name: Typecheck (certutil incl. tests)
         run: pnpm nx run narsil-certutil:typecheck
 
       - name: Build
