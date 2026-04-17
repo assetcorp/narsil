@@ -1,5 +1,5 @@
 import { createServer, type Server, type Socket } from 'node:net'
-import { createServer as createTlsServer } from 'node:tls'
+import { createServer as createTlsServer, type Server as TlsServer, type SecureContextOptions } from 'node:tls'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import { decodeTransportMessage, encodeFrame, encodeTransportMessage, FrameParser } from './framing'
 import {
@@ -7,6 +7,7 @@ import {
   FRAME_TYPE_RESPONSE,
   FRAME_TYPE_STREAM_CHUNK,
   FRAME_TYPE_STREAM_END,
+  type TlsConfig,
   type TcpTransportConfig,
 } from './types'
 
@@ -19,6 +20,7 @@ export class TcpServer {
   private handler: ListenHandler | null = null
   private closed = false
   private boundPort = 0
+  private tlsServer: TlsServer | null = null
 
   constructor(config: TcpTransportConfig) {
     this.config = config
@@ -26,6 +28,26 @@ export class TcpServer {
 
   getPort(): number {
     return this.boundPort
+  }
+
+  updateTlsConfig(nextTlsConfig: TlsConfig): void {
+    this.config = {
+      ...this.config,
+      tls: nextTlsConfig,
+    }
+
+    if (this.server === null) {
+      return
+    }
+
+    if (this.tlsServer === null) {
+      throw new TransportError(
+        TransportErrorCodes.PEER_UNAVAILABLE,
+        'Cannot rotate TLS context on a server that was started without TLS',
+      )
+    }
+
+    this.tlsServer.setSecureContext(toSecureContextOptions(nextTlsConfig))
   }
 
   async start(handler: ListenHandler): Promise<() => void> {
@@ -72,6 +94,7 @@ export class TcpServer {
 
       server.listen(this.config.port, this.config.host, () => {
         this.server = server
+        this.tlsServer = tlsConfig !== undefined ? (server as TlsServer) : null
         const addr = server.address()
         if (addr !== null && typeof addr === 'object') {
           this.boundPort = addr.port
@@ -203,6 +226,15 @@ export class TcpServer {
         server.close(() => resolve())
       })
       this.server = null
+      this.tlsServer = null
     }
+  }
+}
+
+function toSecureContextOptions(tlsConfig: TlsConfig): SecureContextOptions {
+  return {
+    cert: tlsConfig.cert,
+    key: tlsConfig.key,
+    ca: tlsConfig.ca,
   }
 }

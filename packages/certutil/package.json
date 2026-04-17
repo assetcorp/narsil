@@ -40,7 +40,9 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "biome check src/",
-    "typecheck": "tsc --noEmit"
+    "typecheck:src": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
+    "typecheck": "pnpm run typecheck:src && pnpm run typecheck:tests"
   },
   "dependencies": {
     "commander": "14.0.3",

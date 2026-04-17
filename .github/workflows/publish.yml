@@ -66,7 +66,7 @@ jobs:
       - name: Typecheck (embeddings-transformers)
         run: pnpm nx run narsil-embeddings-transformers:typecheck
 
-      - name: Typecheck (certutil)
+      - name: Typecheck (certutil incl. tests)
         run: pnpm nx run narsil-certutil:typecheck
 
       - name: Build

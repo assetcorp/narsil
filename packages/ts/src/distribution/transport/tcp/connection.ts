@@ -7,6 +7,7 @@ import {
   FRAME_TYPE_RESPONSE,
   FRAME_TYPE_STREAM_CHUNK,
   FRAME_TYPE_STREAM_END,
+  type TlsConfig,
   type TcpTransportConfig,
 } from './types'
 
@@ -38,6 +39,13 @@ export class TcpConnectionPool {
 
   constructor(config: TcpTransportConfig) {
     this.config = config
+  }
+
+  updateTlsConfig(nextTlsConfig: TlsConfig): void {
+    this.config = {
+      ...this.config,
+      tls: nextTlsConfig,
+    }
   }
 
   async send(target: string, message: TransportMessage): Promise<TransportMessage> {

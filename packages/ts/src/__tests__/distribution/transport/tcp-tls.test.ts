@@ -15,6 +15,8 @@ type ListenHandler = (message: TransportMessage, respond: (r: TransportMessage) 
 let serverBundle: CertBundle
 let clientBundle: CertBundle
 let rogueBundle: CertBundle
+let rotatedClientBundle: CertBundle
+let rotatedServerBundle: CertBundle
 
 function makeMessage(overrides: Partial<TransportMessage> = {}): TransportMessage {
   return {
@@ -139,6 +141,38 @@ beforeAll(async () => {
     ],
   })
   rogueBundle = { cert: rogueCert.cert, key: rogueCert.private, ca: rogueCA.cert }
+
+  const rotatedCA = await generate([{ name: 'commonName', value: 'Rotated Test CA' }], {
+    keySize: 2048,
+    algorithm: 'sha256',
+    extensions: [
+      { name: 'basicConstraints', cA: true, critical: true },
+      { name: 'keyUsage', keyCertSign: true, cRLSign: true, critical: true },
+    ],
+  })
+  const rotatedServer = await generate([{ name: 'commonName', value: 'rotated-narsil-server' }], {
+    keySize: 2048,
+    algorithm: 'sha256',
+    ca: { key: rotatedCA.private, cert: rotatedCA.cert },
+    extensions: [
+      { name: 'basicConstraints', cA: false },
+      { name: 'keyUsage', digitalSignature: true, keyEncipherment: true },
+      { name: 'extKeyUsage', serverAuth: true, clientAuth: true },
+      { name: 'subjectAltName', altNames: [{ type: 7, ip: '127.0.0.1' }] },
+    ],
+  })
+  const rotatedClient = await generate([{ name: 'commonName', value: 'rotated-narsil-client' }], {
+    keySize: 2048,
+    algorithm: 'sha256',
+    ca: { key: rotatedCA.private, cert: rotatedCA.cert },
+    extensions: [
+      { name: 'basicConstraints', cA: false },
+      { name: 'keyUsage', digitalSignature: true, keyEncipherment: true },
+      { name: 'extKeyUsage', clientAuth: true },
+    ],
+  })
+  rotatedServerBundle = { cert: rotatedServer.cert, key: rotatedServer.private, ca: rotatedCA.cert }
+  rotatedClientBundle = { cert: rotatedClient.cert, key: rotatedClient.private, ca: rotatedCA.cert }
 })
 
 describe('TcpTransport with mTLS', () => {
@@ -246,6 +280,78 @@ describe('TcpTransport with mTLS', () => {
         ).toBe(true)
       } finally {
         await rogueClient.shutdown()
+        await server.shutdown()
+      }
+    }, 15_000)
+  })
+
+  describe('TLS context rotation', () => {
+    it('rotates server TLS context for new connections without dropping existing ones', async () => {
+      const server = createTcpTransport('tls-rotating-server', {
+        host: '127.0.0.1',
+        port: 0,
+        requestTimeout: 5_000,
+        connectTimeout: 3_000,
+        snapshotTimeout: 10_000,
+        tls: makeTlsConfig(serverBundle),
+      })
+      await server.listen(echoHandler('tls-rotating-server'))
+      const port = server.getPort()
+
+      const existingClient = createTcpTransport('tls-existing-client', {
+        host: '127.0.0.1',
+        port: 0,
+        requestTimeout: 5_000,
+        connectTimeout: 3_000,
+        snapshotTimeout: 10_000,
+        tls: makeTlsConfig(clientBundle),
+      })
+      const rotatedClient = createTcpTransport('tls-rotated-client', {
+        host: '127.0.0.1',
+        port: 0,
+        requestTimeout: 5_000,
+        connectTimeout: 3_000,
+        snapshotTimeout: 10_000,
+        tls: makeTlsConfig(rotatedClientBundle),
+      })
+      const staleClient = createTcpTransport('tls-stale-client', {
+        host: '127.0.0.1',
+        port: 0,
+        requestTimeout: 5_000,
+        connectTimeout: 3_000,
+        snapshotTimeout: 10_000,
+        tls: makeTlsConfig(clientBundle),
+      })
+
+      try {
+        const beforeRotation = await existingClient.send(
+          `127.0.0.1:${port}`,
+          makeMessage({ requestId: 'tls-rotate-before-001' }),
+        )
+        expect(beforeRotation.requestId).toBe('tls-rotate-before-001')
+
+        server.rotateTlsContext(makeTlsConfig(rotatedServerBundle))
+
+        const existingConnectionResponse = await existingClient.send(
+          `127.0.0.1:${port}`,
+          makeMessage({ requestId: 'tls-rotate-existing-001' }),
+        )
+        expect(existingConnectionResponse.requestId).toBe('tls-rotate-existing-001')
+
+        const rotatedResponse = await rotatedClient.send(
+          `127.0.0.1:${port}`,
+          makeMessage({ requestId: 'tls-rotate-new-001' }),
+        )
+        expect(rotatedResponse.requestId).toBe('tls-rotate-new-001')
+        expect(rotatedResponse.sourceId).toBe('tls-rotating-server')
+
+        await expect(
+          staleClient.send(`127.0.0.1:${port}`, makeMessage({ requestId: 'tls-rotate-stale-001' })),
+        ).rejects.toBeInstanceOf(TransportError)
+      } finally {
+        await staleClient.shutdown()
+        await rotatedClient.shutdown()
+        await existingClient.shutdown()
         await server.shutdown()
       }
     }, 15_000)
