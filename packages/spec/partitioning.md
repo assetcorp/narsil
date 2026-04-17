@@ -5,7 +5,7 @@ distribute large indexes across multiple independent shards. It
 covers hash-based routing, auto-partitioning triggers, the
 rebalancing protocol, query fan-out and merge, and deep pagination.
 All Narsil implementations must follow these rules for consistent
-behavior.
+behaviour.
 
 ---
 
@@ -286,11 +286,7 @@ Base64-encoded JSON:
 ```json
 {
   "s": 4.523,
-  "d": "doc-id-123",
-  "p": {
-    "0": { "s": 4.523, "d": "doc-id-123", "o": 12 },
-    "1": { "s": 4.100, "d": "doc-id-456", "o": 8 }
-  }
+  "d": "doc-id-123"
 }
 ```
 
@@ -298,7 +294,6 @@ Base64-encoded JSON:
 | --- | --- |
 | `s` | Score (or sort value) of the last document |
 | `d` | DocId of the last document (tiebreaker) |
-| `p` | Per-partition cursor state with local offsets |
 
 #### Tiebreaking
 
@@ -312,14 +307,16 @@ deterministic pagination across requests.
 1. First query:
    - Fan out to all partitions with limit.
    - Merge results, take top `limit`.
-   - Encode cursor from the last result's score,
-     docId, and per-partition positions.
+   - Encode cursor from the last result's score and docId.
    - Return results + cursor.
 
 2. Next query (with searchAfter cursor):
    - Decode cursor.
-   - Fan out to all partitions. Each partition seeks
-     to its cursor position.
+   - Fan out to all partitions with the same cursor.
+   - Each partition independently seeks past documents
+     with score < cursor.s, or score == cursor.s and
+     docId > cursor.d.
+   - Each partition returns up to `limit` results.
    - Merge results, take top `limit`.
    - Encode new cursor.
    - Return results + cursor.
@@ -356,7 +353,7 @@ Capped at 8 by default. Configurable via
 ### Creation
 
 A new index starts with 1 partition (partitionId = 0). The
-partition is created empty with initialized data structures.
+partition is created empty with initialised data structures.
 
 ### Splitting (Rebalance)
 
@@ -366,7 +363,7 @@ Protocol section above).
 
 ### Partition Persistence
 
-Each partition serializes independently to a `.nrsl` envelope. The
+Each partition serialises independently to a `.nrsl` envelope. The
 flush manager tracks dirty partitions and persists only those that
 changed since the last flush.
 

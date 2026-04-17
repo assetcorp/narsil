@@ -4,19 +4,11 @@ import type { PartitionManager } from '../partitioning/manager'
 import { validateSchema } from '../schema/validator'
 import { deserializePayloadV1 } from '../serialization/payload-v1'
 import { deserializePayloadV2 } from '../serialization/payload-v2'
-import type { EmbeddingAdapter } from '../types/adapters'
-import type { LanguageModule } from '../types/language'
 import type { IndexConfig, SchemaDefinition } from '../types/schema'
 import type { VectorIndexPayload } from '../vector/vector-index'
 import type { DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
-
-interface IndexRegistryEntry {
-  config: IndexConfig
-  language: LanguageModule
-  embeddingAdapter: EmbeddingAdapter | null
-  vectorFieldPaths: Set<string>
-}
+import type { IndexRegistryEntry } from './core'
 
 export async function createSnapshot(manager: PartitionManager, entry: IndexRegistryEntry): Promise<Uint8Array> {
   const partitionBuffers: Uint8Array[] = []

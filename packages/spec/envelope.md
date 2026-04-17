@@ -1,6 +1,6 @@
 # Narsil Envelope Format Specification (.nrsl)
 
-This document defines the binary serialization format used by all
+This document defines the binary serialisation format used by all
 Narsil implementations. The `.nrsl` format is the portable,
 cross-language contract for persisting and transferring index data.
 Any conforming implementation (TypeScript, Rust, Python, Go) must
@@ -52,7 +52,7 @@ does not require a version bump.
 
 Three bytes encoding the Narsil engine version that wrote the file
 (`major.minor.patch`). This is informational and used for
-diagnostics; it does not affect deserialization logic.
+diagnostics; it does not affect deserialisation logic.
 
 ### Payload Length
 
@@ -134,7 +134,7 @@ to expect (partition, vector index, or metadata).
 
 ### Partition Payload
 
-Each partition is serialized as its own `.nrsl` envelope file.
+Each partition is serialised as its own `.nrsl` envelope file.
 Partition payloads contain text and field index data. Vector data
 is stored separately in vector index files (see
 [Vector Index Payload](#vector-index-payload)).
@@ -226,7 +226,7 @@ GeopointEntry {
 ```
 
 Numeric entries are stored in sorted order by value to enable binary
-search on deserialization.
+search on deserialisation.
 
 ### Statistics
 
@@ -247,9 +247,9 @@ after reload without recomputation.
 
 ### Vector Index Payload
 
-Each vector field is serialized as its own `.nrsl` envelope file,
+Each vector field is serialised as its own `.nrsl` envelope file,
 separate from partition data. See
-[vector-index.md](vector-index.md#serialization) for the full
+[vector-index.md](vector-index.md#serialisation) for the full
 payload schema and design rationale.
 
 A v1 vector index payload is a MessagePack map:
@@ -360,22 +360,22 @@ For filesystem adapters, keys map to file paths:
 These rules are permanent and must be followed by all
 implementations:
 
-1. **Code maintains deserializers for ALL shipped envelope format
-   versions.** A v3 deserializer handles v1 and v2 payloads by
-   filling in defaults for missing fields. Old deserializers are
+1. **Code maintains deserialisers for ALL shipped envelope format
+   versions.** A v3 deserialiser handles v1 and v2 payloads by
+   filling in defaults for missing fields. Old deserialisers are
    NEVER removed.
 
 2. **Adding new optional fields** to the payload is a minor version
-   bump (v1.0 -> v1.1). Existing deserializers ignore unknown
+   bump (v1.0 -> v1.1). Existing deserialisers ignore unknown
    fields. MessagePack handles this naturally since it preserves
    unknown keys.
 
 3. **Removing or renaming fields** is a major version bump
-   (v1 -> v2). A new deserializer is added alongside the existing
+   (v1 -> v2). A new deserialiser is added alongside the existing
    one.
 
 4. **Newer code reading older envelopes:** Always works. The newer
-   deserializer fills in defaults for fields that were added after
+   deserialiser fills in defaults for fields that were added after
    the older version.
 
 5. **Older code reading newer major versions:** Reject with a clear

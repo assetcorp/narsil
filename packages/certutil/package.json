@@ -1,0 +1,60 @@
+{
+  "name": "@delali/narsil-certutil",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "CLI tool for generating and managing TLS certificates for Narsil clusters.",
+  "author": "Delali (https://sondelali.com)",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/assetcorp/narsil",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/assetcorp/narsil.git",
+    "directory": "packages/certutil"
+  },
+  "bugs": {
+    "url": "https://github.com/assetcorp/narsil/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "narsil-certutil": "./dist/cli.mjs"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist/",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "biome check src/",
+    "typecheck:src": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
+    "typecheck": "pnpm run typecheck:src && pnpm run typecheck:tests"
+  },
+  "dependencies": {
+    "commander": "14.0.3",
+    "node-forge": "1.4.0",
+    "yaml": "2.8.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.4",
+    "@types/node": "25.6.0",
+    "@types/node-forge": "1.3.14",
+    "tsup": "8.5.1",
+    "typescript": "6.0.2",
+    "vitest": "4.1.4"
+  }
+}
