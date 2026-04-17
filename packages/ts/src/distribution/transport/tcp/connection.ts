@@ -7,8 +7,8 @@ import {
   FRAME_TYPE_RESPONSE,
   FRAME_TYPE_STREAM_CHUNK,
   FRAME_TYPE_STREAM_END,
-  type TlsConfig,
   type TcpTransportConfig,
+  type TlsConfig,
 } from './types'
 
 export type { WireFrame } from './framing'

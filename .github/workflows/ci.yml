@@ -62,6 +62,9 @@ jobs:
       - name: Test (certutil)
         run: pnpm nx run narsil-certutil:test
 
+      - name: Test (etcd integration)
+        run: pnpm nx run narsil-ts:test:etcd
+
   detect-vector-changes:
     name: Detect vector changes
     runs-on: ubuntu-latest

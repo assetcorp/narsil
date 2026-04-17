@@ -1,5 +1,5 @@
 import { createServer, type Server, type Socket } from 'node:net'
-import { createServer as createTlsServer, type Server as TlsServer, type SecureContextOptions } from 'node:tls'
+import { createServer as createTlsServer, type SecureContextOptions, type Server as TlsServer } from 'node:tls'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import { decodeTransportMessage, encodeFrame, encodeTransportMessage, FrameParser } from './framing'
 import {
@@ -7,8 +7,8 @@ import {
   FRAME_TYPE_RESPONSE,
   FRAME_TYPE_STREAM_CHUNK,
   FRAME_TYPE_STREAM_END,
-  type TlsConfig,
   type TcpTransportConfig,
+  type TlsConfig,
 } from './types'
 
 type ListenHandler = (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>
