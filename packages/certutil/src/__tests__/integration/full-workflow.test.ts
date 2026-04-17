@@ -13,10 +13,10 @@ import { ensureDirectory } from '../../output/writer'
 import type { InspectResult, OutputEnvelope, VerifyResult } from '../../types'
 
 function createTempDir(): string {
-  return join(tmpdir(), `certutil-e2e-test-${randomBytes(8).toString('hex')}`)
+  return join(tmpdir(), `certutil-integration-test-${randomBytes(8).toString('hex')}`)
 }
 
-describe('end-to-end certificate workflow', () => {
+describe('certificate workflow integration', () => {
   let dir: string
   let originalExitCode: string | number | null | undefined
   let stdoutChunks: string[]
@@ -52,8 +52,8 @@ describe('end-to-end certificate workflow', () => {
   }
 
   describe('complete single-node workflow', () => {
-    const caName = 'E2E Test CA'
-    const nodeCn = 'e2e-node1.narsil.cluster'
+    const caName = 'Integration Test CA'
+    const nodeCn = 'integration-node1.narsil.cluster'
     const nodeIpSans = ['10.0.1.10', '127.0.0.1']
     const nodeDnsSans = ['node1.narsil.cluster']
 
@@ -150,7 +150,7 @@ describe('end-to-end certificate workflow', () => {
     let nodeCerts: Array<{ certPem: string; keyPem: string; fingerprint: string }>
 
     beforeEach(() => {
-      ca = generateCaCertificate({ name: 'Multi-Node E2E CA', days: 3650, keySize: 2048 })
+      ca = generateCaCertificate({ name: 'Multi-Node Integration CA', days: 3650, keySize: 2048 })
       nodeCerts = nodeSpecs.map(spec =>
         generateNodeCertificate({
           caCertPem: ca.certPem,
