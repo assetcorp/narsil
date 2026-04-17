@@ -40,6 +40,7 @@
   "scripts": {
     "build": "tsup",
     "test": "vitest run --exclude='**/vector/recall.test.ts'",
+    "test:etcd": "vitest run src/__tests__/distribution/coordinator/etcd.integration.test.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:recall": "vitest run src/__tests__/vector/recall.test.ts",
