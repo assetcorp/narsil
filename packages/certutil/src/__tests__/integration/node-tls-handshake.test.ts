@@ -217,7 +217,7 @@ async function performMutualTlsHandshake(): Promise<HandshakeResult> {
   }
 }
 
-describe('certutil-generated certificates in Node TLS', () => {
+describe('certutil-generated certificates in Node TLS integration', () => {
   it('complete a real mutual TLS handshake and exchange application data', async () => {
     const result = await performMutualTlsHandshake()
 
