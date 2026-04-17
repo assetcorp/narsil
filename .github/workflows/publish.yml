@@ -30,6 +30,20 @@ jobs:
   publish:
     name: Publish to npm
     runs-on: ubuntu-latest
+    services:
+      etcd:
+        image: gcr.io/etcd-development/etcd:v3.6.0
+        entrypoint: /usr/local/bin/etcd
+        command: >-
+          --name node1
+          --data-dir /etcd-data
+          --listen-client-urls http://0.0.0.0:2379
+          --advertise-client-urls http://127.0.0.1:2379
+          --listen-peer-urls http://0.0.0.0:2380
+          --initial-advertise-peer-urls http://127.0.0.1:2380
+          --initial-cluster node1=http://127.0.0.1:2380
+        ports:
+          - 2379:2379
 
     steps:
       - name: Checkout
@@ -88,6 +102,8 @@ jobs:
         run: pnpm nx run narsil-certutil:test
 
       - name: Test (etcd integration)
+        env:
+          NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-ts:test:etcd
 
       - name: Cache HuggingFace models

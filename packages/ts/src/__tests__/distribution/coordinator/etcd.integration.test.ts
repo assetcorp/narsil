@@ -16,10 +16,11 @@ import { createEtcdCoordinator } from '../../../distribution/coordinator'
 import type { SchemaDefinition } from '../../../types/schema'
 
 const ETCD_IMAGE = 'gcr.io/etcd-development/etcd:v3.6.0'
+const MANAGED_ETCD_ENDPOINT = process.env.NARSIL_ETCD_ENDPOINT?.trim() || null
 
 interface EtcdContainerHandle {
   endpoint: string
-  name: string
+  name: string | null
 }
 
 function makeNodeRegistration(overrides: Partial<NodeRegistration> = {}): NodeRegistration {
@@ -213,6 +214,12 @@ describe('EtcdCoordinator integration', () => {
   }
 
   beforeAll(async () => {
+    if (MANAGED_ETCD_ENDPOINT !== null) {
+      container = { endpoint: MANAGED_ETCD_ENDPOINT, name: null }
+      await waitForEtcdReady(MANAGED_ETCD_ENDPOINT)
+      return
+    }
+
     await runDocker(['version'])
     container = await startEtcdContainer()
   }, 90_000)
