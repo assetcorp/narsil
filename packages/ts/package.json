@@ -40,6 +40,7 @@
   "scripts": {
     "build": "tsup",
     "test": "vitest run --exclude='**/vector/recall.test.ts'",
+    "test:etcd": "vitest run src/__tests__/distribution/coordinator/etcd.integration.test.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:recall": "vitest run src/__tests__/vector/recall.test.ts",
@@ -92,6 +93,10 @@
     "./languages/*": {
       "import": "./dist/languages/*.mjs",
       "types": "./dist/languages/*.d.ts"
+    },
+    "./distribution": {
+      "import": "./dist/distribution.mjs",
+      "types": "./dist/distribution.d.ts"
     }
   },
   "files": [
@@ -106,9 +111,19 @@
     "@delali/narsil-embeddings-transformers": "workspace:*",
     "@types/node": "22.15.32",
     "@vitest/coverage-v8": "4.0.18",
+    "etcd3": "1.1.2",
+    "selfsigned": "5.5.0",
     "tsup": "8.5.1",
     "typescript": "5.9.3",
     "vitest": "4.0.18",
     "wabt": "1.0.39"
+  },
+  "peerDependencies": {
+    "etcd3": "1.1.2"
+  },
+  "peerDependenciesMeta": {
+    "etcd3": {
+      "optional": true
+    }
   }
 }

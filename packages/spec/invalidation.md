@@ -100,7 +100,7 @@ stale reads:
 3. Evict the specified partitions from in-memory cache
 4. On the next query or mutation targeting those partitions:
    a. Load the fresh partition data from persistence
-   b. Deserialize the .nrsl envelope
+   b. Deserialise the .nrsl envelope
    c. Proceed with the operation
 ```
 
@@ -112,7 +112,7 @@ receiving instance evicts its cache, attempts to reload, and gets
 stale data. The flush sequence must be:
 
 ```text
-serialize -> persist -> confirm persist -> publish invalidation
+serialise -> persist -> confirm persist -> publish invalidation
 ```
 
 This ordering is non-negotiable and must be enforced by all

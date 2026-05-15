@@ -19,7 +19,7 @@ const RESERVED_ROOT_FIELDS = new Set(['id'])
 
 const PROTOTYPE_POLLUTION_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 
-const MAX_NESTING_DEPTH = 4
+export const MAX_NESTING_DEPTH = 4
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

@@ -104,7 +104,7 @@ Returns up to `k` vectors most similar to `query`, ranked by
 similarity score (highest first for cosine and dotProduct, lowest
 distance first for euclidean).
 
-See [Filtered Search](#filtered-search) for the behavior when
+See [Filtered Search](#filtered-search) for the behaviour when
 `filterDocIds` is provided. See [algorithms.md](algorithms.md) for
 similarity metric definitions.
 
@@ -159,8 +159,8 @@ multi-threaded runtimes may run the operation on a background thread.
   may block writes during optimize or buffer them (same WAQ pattern
   as partition rebalancing).
 - After `optimize()` completes, subsequent searches must use the
-  optimized structure. There must be no window where a search uses
-  a partially-optimized graph.
+  optimised structure. There must be no window where a search uses
+  a partially-optimised graph.
 
 ### maintenanceStatus()
 
@@ -315,12 +315,12 @@ full algorithm specification.
 
 #### Linear Combination
 
-Fuses results by score magnitude after min-max normalization.
+Fuses results by score magnitude after min-max normalisation.
 
 ```text
 1. Normalize text scores to [0, 1]:
-   normalized = (score - min_score) / (max_score - min_score)
-   If all scores are equal, normalized = 1.0.
+   normalised = (score - min_score) / (max_score - min_score)
+   If all scores are equal, normalised = 1.0.
 
 2. Normalize vector scores to [0, 1] using the same formula.
 
@@ -335,7 +335,7 @@ Fuses results by score magnitude after min-max normalization.
 
 Normalization happens over the full result set (all documents from
 all partitions for text, all results from the VectorIndex for
-vectors). This is more correct than per-partition normalization
+vectors). This is more correct than per-partition normalisation
 because the score ranges represent the true global distribution.
 
 ---
@@ -374,7 +374,7 @@ HNSW traversal with 97% dead-end rate would be significantly slower.
 ### Per-Graph Selectivity
 
 When the index contains multiple HNSW graphs (see
-[Serialization](#serialization)), the selectivity check applies
+[Serialisation](#serialisation)), the selectivity check applies
 per graph, not globally. A filter that passes 3% of the total index
 might pass 10% of a smaller graph, which is above the threshold.
 Per-graph selectivity produces more accurate fallback decisions.
@@ -486,14 +486,14 @@ The VectorIndex must be thread-safe at its interface boundary.
   a concurrent read. A read during a write may return results that
   either include or exclude the document being written, but must
   never return corrupted or partial state.
-- **Concurrent writes may be serialized.** Implementations are free
-  to serialize write operations (e.g., via a mutex). Concurrent
+- **Concurrent writes may be serialised.** Implementations are free
+  to serialise write operations (e.g., via a mutex). Concurrent
   write support is not required.
 
 ### What Is Not Required
 
 - Lock-free reads.
-- Concurrent writes (serialization is acceptable).
+- Concurrent writes (serialisation is acceptable).
 - A specific locking strategy.
 
 Single-threaded runtimes satisfy this contract automatically.
@@ -578,8 +578,8 @@ Implementations choose the insertion strategy:
   segment. Multiple segments are searched independently and
   results are merged. The `optimize()` operation merges segments.
   This avoids modifying existing graphs and supports the
-  multi-graph serialization format defined in
-  [Serialization](#serialization).
+  multi-graph serialisation format defined in
+  [Serialisation](#serialisation).
 
 The choice of strategy has significant performance implications.
 Incremental insertion throughput degrades with index size due to
@@ -591,9 +591,9 @@ for this reason.
 
 ---
 
-## Serialization
+## Serialisation
 
-Vector index data is serialized separately from partition data.
+Vector index data is serialised separately from partition data.
 Each vector field produces its own `.nrsl` envelope file.
 
 ### Storage Path
@@ -665,9 +665,9 @@ All implementations must be able to read a vector index file
 containing any number of graphs (including zero, which indicates
 brute-force-only storage).
 
-### Deserialization Strategy
+### Deserialisation Strategy
 
-The search strategy after deserialization is implementation-specific:
+The search strategy after deserialisation is implementation-specific:
 
 - An implementation may search each graph independently and merge
   results (segment-style).
