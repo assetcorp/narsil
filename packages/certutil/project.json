@@ -1,0 +1,50 @@
+{
+  "name": "narsil-certutil",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm tsup",
+        "cwd": "packages/certutil"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm vitest run",
+        "cwd": "packages/certutil"
+      }
+    },
+    "test:coverage": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm vitest run --coverage",
+        "cwd": "packages/certutil"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm biome check src/",
+        "cwd": "packages/certutil"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm run typecheck",
+        "cwd": "packages/certutil"
+      }
+    },
+    "typecheck:tests": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm run typecheck:tests",
+        "cwd": "packages/certutil"
+      }
+    },
+    "nx-release-publish": {
+      "executor": "@nx/js:release-publish"
+    }
+  }
+}

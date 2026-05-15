@@ -15,6 +15,13 @@
         "cwd": "packages/ts"
       }
     },
+    "test:etcd": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm run test:etcd",
+        "cwd": "packages/ts"
+      }
+    },
     "test:coverage": {
       "executor": "nx:run-commands",
       "options": {

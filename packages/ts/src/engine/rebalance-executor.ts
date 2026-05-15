@@ -4,6 +4,7 @@ import type { Rebalancer } from '../partitioning/rebalancer'
 import type { PartitionRouter } from '../partitioning/router'
 import { createWriteAheadQueue, type WriteAheadQueue } from '../partitioning/write-ahead-queue'
 import type { AnyDocument } from '../types/schema'
+import type { EventHandler } from './core'
 import {
   deleteNestedValue,
   extractVectorFromDoc,
@@ -12,8 +13,6 @@ import {
   removeDocumentVectors,
   vectorsEqual,
 } from './vector-coordinator'
-
-type EventHandler = (payload: unknown) => void
 
 export interface RebalanceContext {
   rebalancer: Rebalancer
