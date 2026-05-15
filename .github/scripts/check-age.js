@@ -14,7 +14,7 @@ const main = async () => {
   const currentPackages = parsePnpmLock(readFileSync(LOCKFILE, 'utf8'))
   const basePackages = parsePnpmLock(readBaseLockfile(baseRef))
   const addedPackages = [...currentPackages.values()]
-    .filter((pkg) => !basePackages.has(createPackageKey(pkg)))
+    .filter(pkg => !basePackages.has(createPackageKey(pkg)))
     .sort(comparePackages)
 
   if (addedPackages.length === 0) {
@@ -28,24 +28,33 @@ const main = async () => {
   const metadataByName = new Map()
 
   for (const pkg of addedPackages) {
-    const metadata = await fetchMetadata(pkg.name, metadataByName)
+    const packageKey = createPackageKey(pkg)
+    let metadata
+
+    try {
+      metadata = await fetchMetadata(pkg.name, metadataByName)
+    } catch (error) {
+      failures.push(`${packageKey}: npm metadata lookup failed: ${formatError(error)}`)
+      continue
+    }
+
     const publishedAt = metadata.time?.[pkg.version]
 
     if (typeof publishedAt !== 'string') {
-      failures.push(`${createPackageKey(pkg)}: publish timestamp was not available from the npm registry`)
+      failures.push(`${packageKey}: publish timestamp was not available from the npm registry`)
       continue
     }
 
     const publishedTime = Date.parse(publishedAt)
 
     if (Number.isNaN(publishedTime)) {
-      failures.push(`${createPackageKey(pkg)}: publish timestamp is invalid: ${publishedAt}`)
+      failures.push(`${packageKey}: publish timestamp is invalid: ${publishedAt}`)
       continue
     }
 
     if (publishedTime > minimumPublishedAt) {
       const ageDays = Math.max(0, (Date.now() - publishedTime) / DAY_MS).toFixed(2)
-      failures.push(`${createPackageKey(pkg)}: published ${ageDays} day(s) ago, below the ${minAgeDays} day minimum`)
+      failures.push(`${packageKey}: published ${ageDays} day(s) ago, below the ${minAgeDays} day minimum`)
     }
   }
 
@@ -104,7 +113,7 @@ const readBaseShaFromEvent = () => {
   return event.pull_request?.base?.sha
 }
 
-const gitCommitExists = (ref) => {
+const gitCommitExists = ref => {
   try {
     execFileSync('git', ['cat-file', '-e', `${ref}^{commit}`], { stdio: 'ignore' })
     return true
@@ -113,7 +122,7 @@ const gitCommitExists = (ref) => {
   }
 }
 
-const readBaseLockfile = (baseRef) => {
+const readBaseLockfile = baseRef => {
   try {
     return execFileSync('git', ['show', `${baseRef}:${LOCKFILE}`], {
       encoding: 'utf8',
@@ -125,7 +134,7 @@ const readBaseLockfile = (baseRef) => {
   }
 }
 
-const parsePnpmLock = (content) => {
+const parsePnpmLock = content => {
   const packages = new Map()
   let inPackages = false
 
@@ -160,7 +169,7 @@ const parsePnpmLock = (content) => {
   return packages
 }
 
-const parsePnpmPackageKey = (key) => {
+const parsePnpmPackageKey = key => {
   const packageKey = key.split('(')[0]
   const versionSeparator = packageKey.lastIndexOf('@')
 
@@ -205,14 +214,15 @@ const fetchMetadata = async (name, cache) => {
   }
 }
 
-const createPackageKey = (pkg) => `${pkg.name}@${pkg.version}`
+const formatError = error => (error instanceof Error ? error.message : String(error))
+
+const createPackageKey = pkg => `${pkg.name}@${pkg.version}`
 
 const comparePackages = (left, right) => createPackageKey(left).localeCompare(createPackageKey(right))
 
-const escapeAnnotationValue = (value) =>
-  value.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')
+const escapeAnnotationValue = value => value.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')
 
-main().catch((error) => {
+main().catch(error => {
   console.error(error instanceof Error ? error.stack || error.message : String(error))
   process.exitCode = 1
 })
