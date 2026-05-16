@@ -70,7 +70,7 @@ for (const efCon of [16, 32, 64, 100, 200]) {
       for (const id of hnswResults[i]) {
         if (gt.has(id)) overlap++
       }
-      total += gt.length
+      total += gt.size
     }
     const recall = total > 0 ? overlap / total : 1
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { validateSchema } from '../../schema/validator'
+import type { SchemaDefinition } from '../../types/schema'
 
 describe('prototype pollution protection in schema validation', () => {
   it('rejects __proto__ as a field name from parsed JSON', () => {
@@ -17,7 +18,7 @@ describe('prototype pollution protection in schema validation', () => {
 
   it('rejects constructor as a field name', () => {
     try {
-      validateSchema({ constructor: 'string', name: 'string' })
+      validateSchema({ constructor: 'string', name: 'string' } as unknown as SchemaDefinition)
       expect.fail('Expected NarsilError')
     } catch (err) {
       expect(err).toBeInstanceOf(NarsilError)
@@ -54,7 +55,7 @@ describe('prototype pollution protection in schema validation', () => {
         metadata: {
           constructor: 'number',
         },
-      })
+      } as unknown as SchemaDefinition)
       expect.fail('Expected NarsilError')
     } catch (err) {
       expect(err).toBeInstanceOf(NarsilError)

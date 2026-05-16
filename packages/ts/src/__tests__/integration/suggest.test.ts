@@ -121,7 +121,7 @@ describe('suggest', () => {
     await narsil.createIndex('partitioned', {
       schema,
       language: 'english',
-      partitions: { maxDocumentsPerPartition: 3 },
+      partitions: { maxDocsPerPartition: 3, maxPartitions: 3 },
     })
 
     for (let i = 0; i < documents.length; i++) {
@@ -140,7 +140,7 @@ describe('suggest', () => {
     await narsil.createIndex('multi', {
       schema,
       language: 'english',
-      partitions: { maxDocumentsPerPartition: 3 },
+      partitions: { maxDocsPerPartition: 3, maxPartitions: 3 },
     })
 
     for (const doc of documents) {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { createWorkerOrchestrator, type WorkerOrchestrator } from '../../engine/orchestration'
+import type { EmbeddingAdapter } from '../../types/adapters'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
 import { createDirectExecutor } from '../../workers/direct-executor'
@@ -87,7 +88,10 @@ describe('WorkerOrchestrator replication and lifecycle', () => {
   it('checkPromotion is a no-op when workers are disabled', async () => {
     const executor = createDirectExecutor()
     const promoter = createExecutionPromoter({ perIndexThreshold: 1 })
-    const registry = new Map<string, { config: IndexConfig; language: LanguageModule }>()
+    const registry = new Map<
+      string,
+      { config: IndexConfig; language: LanguageModule; embeddingAdapter: EmbeddingAdapter | null }
+    >()
 
     orchestrator = createWorkerOrchestrator(undefined, executor, promoter, registry)
     await orchestrator.checkPromotion()
@@ -98,7 +102,10 @@ describe('WorkerOrchestrator replication and lifecycle', () => {
   it('replicateToWorkers is a no-op when no worker pool exists', async () => {
     const executor = createDirectExecutor()
     const promoter = createExecutionPromoter()
-    const registry = new Map<string, { config: IndexConfig; language: LanguageModule }>()
+    const registry = new Map<
+      string,
+      { config: IndexConfig; language: LanguageModule; embeddingAdapter: EmbeddingAdapter | null }
+    >()
 
     orchestrator = createWorkerOrchestrator(undefined, executor, promoter, registry)
 
@@ -114,7 +121,10 @@ describe('WorkerOrchestrator replication and lifecycle', () => {
   it('getMemoryStats returns empty when no workers are active', () => {
     const executor = createDirectExecutor()
     const promoter = createExecutionPromoter()
-    const registry = new Map<string, { config: IndexConfig; language: LanguageModule }>()
+    const registry = new Map<
+      string,
+      { config: IndexConfig; language: LanguageModule; embeddingAdapter: EmbeddingAdapter | null }
+    >()
 
     orchestrator = createWorkerOrchestrator(undefined, executor, promoter, registry)
 
@@ -126,7 +136,10 @@ describe('WorkerOrchestrator replication and lifecycle', () => {
   it('shutdown is safe to call even without promotion', async () => {
     const executor = createDirectExecutor()
     const promoter = createExecutionPromoter()
-    const registry = new Map<string, { config: IndexConfig; language: LanguageModule }>()
+    const registry = new Map<
+      string,
+      { config: IndexConfig; language: LanguageModule; embeddingAdapter: EmbeddingAdapter | null }
+    >()
 
     orchestrator = createWorkerOrchestrator(undefined, executor, promoter, registry)
 

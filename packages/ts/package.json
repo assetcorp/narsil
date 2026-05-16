@@ -47,7 +47,10 @@
     "test:embeddings": "NARSIL_TEST_EMBEDDINGS=1 vitest run embedding-e2e",
     "bench": "vitest bench",
     "lint": "biome check src/",
-    "typecheck": "tsc --noEmit"
+    "typecheck:src": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
+    "typecheck:tooling": "tsc --noEmit -p scripts/tsconfig.json && tsc --noEmit -p benchmarks/tsconfig.json && tsc --noEmit -p wasm/tsconfig.json",
+    "typecheck": "pnpm run typecheck:src && pnpm run typecheck:tests && pnpm run typecheck:tooling"
   },
   "exports": {
     ".": {

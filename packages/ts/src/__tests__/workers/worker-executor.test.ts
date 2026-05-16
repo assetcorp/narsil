@@ -179,14 +179,14 @@ describe('WorkerExecutor', () => {
     })
 
     it('uses addEventListener when on() is not available', async () => {
-      let handler: ((msg: unknown) => void) | null = null
+      const handlerRef: { value: ((msg: unknown) => void) | null } = { value: null }
       const webWorker: WorkerLike = {
         postMessage(msg: unknown) {
-          ;(this as { lastMessage: unknown }).lastMessage = msg
+          ;(this as unknown as { lastMessage: unknown }).lastMessage = msg
         },
         addEventListener(event: string, fn: (...args: unknown[]) => void) {
           if (event === 'message') {
-            handler = fn as (msg: unknown) => void
+            handlerRef.value = fn as (msg: unknown) => void
           }
         },
       }
@@ -199,7 +199,8 @@ describe('WorkerExecutor', () => {
       })
 
       const sentAction = (webWorker as unknown as { lastMessage: { requestId: string } }).lastMessage
-      handler?.({ data: { type: 'success', requestId: sentAction.requestId, data: 7 } })
+      if (!handlerRef.value) throw new Error('expected handler to be registered')
+      handlerRef.value({ data: { type: 'success', requestId: sentAction.requestId, data: 7 } })
 
       expect(await promise).toBe(7)
     })
