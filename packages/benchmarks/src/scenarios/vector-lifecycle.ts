@@ -56,11 +56,11 @@ export async function runVectorLifecycle(): Promise<ScenarioResult> {
       const medianMs = median(times)
       const p95Ms = percentile(times, 95)
 
-      const stats = instance.getPartitionStats('bench')
+      const maintenance = instance.vectorMaintenanceStatus('bench')
       let label: string
       if (checkpoint < PROMOTION_THRESHOLD) {
         label = 'brute-force'
-      } else if (stats.some(s => s.isHnswPromoted)) {
+      } else if (maintenance.some(m => m.graphCount > 0 && m.building === false)) {
         label = 'hnsw-active'
       } else {
         label = 'hnsw-building'
