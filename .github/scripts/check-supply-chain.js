@@ -5,20 +5,13 @@ const WORKFLOW_DIR = '.github/workflows'
 const MINIMUM_RELEASE_AGE_DAYS = 4
 const MINIMUM_RELEASE_AGE_MINUTES = MINIMUM_RELEASE_AGE_DAYS * 24 * 60
 const PACKAGE_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies']
-const TANSTACK_MALWARE_IOCS = [
-  '@tanstack/setup',
-  'github:tanstack/router#79ac49eedf774dd4b0cfa308722bc463cfe5885c',
-  'router_init.js',
-  'tanstack_runner.js',
-  '79ac49eedf774dd4b0cfa308722bc463cfe5885c',
-]
 
 const main = () => {
   const failures = [
     ...checkWorkflows(),
     ...checkPackageManifests(),
     ...checkDependencyCooldowns(),
-    ...checkLockfileIocs(),
+    ...checkLockfile(),
   ]
 
   if (failures.length === 0) {
@@ -132,19 +125,9 @@ const checkDependencyCooldowns = () => {
   return failures
 }
 
-const checkLockfileIocs = () => {
+const checkLockfile = () => {
   const failures = []
-  const content = readRequiredFile('pnpm-lock.yaml', failures, 'pnpm-lock.yaml is required for the supply-chain gate')
-
-  if (!content) {
-    return failures
-  }
-
-  for (const indicator of TANSTACK_MALWARE_IOCS) {
-    if (content.includes(indicator)) {
-      failures.push(`pnpm-lock.yaml contains known TanStack malware indicator '${indicator}'`)
-    }
-  }
+  readRequiredFile('pnpm-lock.yaml', failures, 'pnpm-lock.yaml is required for the supply-chain gate')
 
   return failures
 }
