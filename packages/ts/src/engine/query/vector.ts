@@ -36,7 +36,7 @@ export function executeVectorSearch(
   const k = limit + offset + 1
   const results = vecIndex.search(queryVec, k, {
     metric: vectorConfig.metric ?? 'cosine',
-    minSimilarity: vectorConfig.similarity ?? 0,
+    minSimilarity: vectorConfig.similarity ?? -Infinity,
     filterDocIds,
     efSearch: vectorConfig.efSearch,
   })
@@ -101,7 +101,7 @@ export async function executeHybridSearch(
     const vectorK = limit + offset + 1
     const vectorResults = vecIndex.search(queryVec, vectorK, {
       metric: vectorConfig.metric ?? 'cosine',
-      minSimilarity: vectorConfig.similarity ?? 0,
+      minSimilarity: vectorConfig.similarity ?? -Infinity,
       filterDocIds,
       efSearch: vectorConfig.efSearch,
     })
