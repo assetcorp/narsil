@@ -7,12 +7,7 @@ const MINIMUM_RELEASE_AGE_MINUTES = MINIMUM_RELEASE_AGE_DAYS * 24 * 60
 const PACKAGE_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies']
 
 const main = () => {
-  const failures = [
-    ...checkWorkflows(),
-    ...checkPackageManifests(),
-    ...checkDependencyCooldowns(),
-    ...checkLockfile(),
-  ]
+  const failures = [...checkWorkflows(), ...checkPackageManifests(), ...checkDependencyCooldowns(), ...checkLockfile()]
 
   if (failures.length === 0) {
     console.log('Supply-chain gate passed.')

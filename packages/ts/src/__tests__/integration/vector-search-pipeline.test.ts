@@ -58,15 +58,17 @@ describe('vector search through Narsil query API', () => {
 
   it('respects the limit parameter', async () => {
     for (let i = 0; i < 20; i++) {
-      await narsil.insert('docs', { title: `doc ${i}`, embedding: randomVector() })
+      const lead = 1.0 - i * 0.05
+      await narsil.insert('docs', { title: `doc ${i}`, embedding: paddedVector(lead, 0.01) }, `doc-${i}`)
     }
 
     const result = await narsil.query('docs', {
-      vector: { field: 'embedding', value: randomVector() },
+      vector: { field: 'embedding', value: paddedVector(1.0, 0.0), metric: 'cosine' },
       limit: 5,
     })
 
     expect(result.hits).toHaveLength(5)
+    expect(result.hits.map(h => h.id)).toEqual(['doc-0', 'doc-1', 'doc-2', 'doc-3', 'doc-4'])
   })
 
   it('filters by minimum similarity threshold', async () => {
