@@ -1,15 +1,12 @@
 import os from 'node:os'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import type { EngineId } from './runner/jobs'
 import { ProgressStore } from './runner/progress'
+import { prepareRunArtifact } from './runner/run-paths'
 import { runMutationTier, runQualityTier, runSerializationTier } from './runner/tiers-extra'
 import { runTextTier } from './runner/tiers-text'
 import { runVectorTier } from './runner/tiers-vector'
 import { getPackageVersion } from './stats'
 import type { BenchmarkOutput } from './types'
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const SCALES = [1_000, 10_000, 50_000, 100_000]
 const VECTOR_SCALES_BY_DIM: Record<number, number[]> = {
@@ -49,7 +46,8 @@ async function main() {
     minisearch: getPackageVersion('minisearch'),
   }
 
-  const outputPath = resolve(__dirname, '..', 'synthetic-results.json')
+  const { runDir, artifactPath: outputPath } = prepareRunArtifact('synthetic')
+  console.log(`Run folder: ${runDir}`)
   const initial: BenchmarkOutput = {
     env,
     timestamp: new Date().toISOString(),

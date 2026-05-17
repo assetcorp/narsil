@@ -65,8 +65,7 @@ export interface SuggestResponse {
 export interface IndexStats {
   documentCount: number
   partitionCount: number
-  memoryBytes: number
-  indexSizeBytes: number
+  estimatedMemoryBytes: number
   language: string
   schema: Record<string, NonNullable<unknown>>
 }
@@ -80,7 +79,13 @@ export interface PartitionStats {
 }
 
 export interface MemoryStatsResponse {
-  totalBytes: number
+  process: {
+    heapUsed: number
+    heapTotal: number
+    external: number
+    rss: number
+  } | null
+  estimatedIndexBytes: number
   workers: Array<{
     workerId: number
     heapUsed: number

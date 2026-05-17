@@ -45,7 +45,7 @@ export async function runMemoryAccuracy(): Promise<ScenarioResult> {
 
       const afterHeap = await settleHeap()
       const heapDelta = Math.max(0, afterHeap - baselineHeap)
-      const estimatedBytes = instance.getStats('bench').memoryBytes
+      const estimatedBytes = instance.getStats('bench').estimatedMemoryBytes
       const ratio = estimatedBytes > 0 ? (estimatedBytes / heapDelta).toFixed(2) : 'n/a'
 
       console.log(
@@ -91,7 +91,7 @@ export async function runMemoryAccuracy(): Promise<ScenarioResult> {
 
       const afterHeap = await settleHeap()
       const heapDelta = Math.max(0, afterHeap - baselineHeap)
-      const estimatedBytes = vecInstance.getStats('bench').memoryBytes
+      const estimatedBytes = vecInstance.getStats('bench').estimatedMemoryBytes
       const ratio = estimatedBytes > 0 ? (estimatedBytes / heapDelta).toFixed(2) : 'n/a'
 
       console.log(
@@ -120,7 +120,7 @@ export async function runMemoryAccuracy(): Promise<ScenarioResult> {
 
   return {
     name: 'memory-accuracy',
-    description: 'Validates getStats().memoryBytes against actual heap delta',
+    description: 'Validates getStats().estimatedMemoryBytes against actual heap delta',
     config: { scales: SCALES, vectorDimension: VECTOR_DIMENSION },
     comparisons,
     durationMs: performance.now() - start,

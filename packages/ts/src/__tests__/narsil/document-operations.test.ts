@@ -127,10 +127,15 @@ describe('Narsil document operations and management', () => {
   })
 
   describe('getMemoryStats', () => {
-    it('returns a valid memory stats structure', () => {
-      const stats = narsil.getMemoryStats()
-      expect(stats.totalBytes).toBe(0)
+    it('returns a valid memory stats structure with no indexes loaded', async () => {
+      const stats = await narsil.getMemoryStats()
+      expect(stats.estimatedIndexBytes).toBe(0)
       expect(stats.workers).toEqual([])
+      if (stats.process !== null) {
+        expect(stats.process.heapUsed).toBeGreaterThan(0)
+        expect(stats.process.heapTotal).toBeGreaterThan(0)
+        expect(stats.process.rss).toBeGreaterThan(0)
+      }
     })
   })
 

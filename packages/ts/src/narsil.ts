@@ -20,6 +20,7 @@ import {
 } from './engine/vector-maintenance'
 import { ErrorCodes, NarsilError } from './errors'
 import { getLanguage } from './languages/registry'
+import { readProcessMemory } from './runtime/process-memory'
 import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from './schema/embedding-validator'
 import { validateSchema } from './schema/validator'
 import type { EmbeddingAdapter } from './types/adapters'
@@ -63,7 +64,7 @@ export interface Narsil {
   clear(indexName: string): Promise<void>
   rebalance(indexName: string, targetPartitionCount: number): Promise<void>
   updatePartitionConfig(indexName: string, config: Partial<PartitionConfig>): Promise<void>
-  getMemoryStats(): MemoryStats
+  getMemoryStats(): Promise<MemoryStats>
   compactVectors(indexName: string, fieldName?: string): Promise<void>
   optimizeVectors(indexName: string, fieldName?: string): Promise<void>
   vectorMaintenanceStatus(indexName: string): VectorMaintenanceResult[]
@@ -144,12 +145,10 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
       guardShutdown()
       const entry = requireIndex(indexName)
       const manager = executor.getManager(indexName)
-      const mem = manager?.estimateMemoryBytes() ?? 0
       return {
         documentCount: manager?.countDocuments() ?? 0,
         partitionCount: manager?.partitionCount ?? 0,
-        memoryBytes: mem,
-        indexSizeBytes: mem,
+        estimatedMemoryBytes: manager?.estimateMemoryBytes() ?? 0,
         language: entry.language.name,
         schema: entry.config.schema,
       }
@@ -316,14 +315,13 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
         entry.config.partitions.maxPartitions = partitionConfig.maxPartitions
     },
 
-    getMemoryStats(): MemoryStats {
-      const workerStats = orchestrator.getMemoryStats()
-      let mainThreadBytes = 0
+    async getMemoryStats(): Promise<MemoryStats> {
+      let estimatedIndexBytes = 0
       for (const [name] of indexRegistry) {
-        const mgr = executor.getManager(name)
-        if (mgr) mainThreadBytes += mgr.estimateMemoryBytes()
+        estimatedIndexBytes += executor.getManager(name)?.estimateMemoryBytes() ?? 0
       }
-      return { totalBytes: mainThreadBytes + workerStats.totalBytes, workers: workerStats.workers }
+      const workers = await orchestrator.getWorkerMemoryStats()
+      return { process: readProcessMemory(), estimatedIndexBytes, workers }
     },
 
     async compactVectors(indexName: string, fieldName?: string): Promise<void> {

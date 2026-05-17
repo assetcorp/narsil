@@ -87,11 +87,11 @@ describe('WorkerPool', () => {
   })
 
   describe('getMemoryStats', () => {
-    it('returns stats for spawned workers', () => {
+    it('returns stats for spawned workers', async () => {
       pool.addIndex('products')
       pool.addIndex('users')
 
-      const stats = pool.getMemoryStats()
+      const stats = await pool.getMemoryStats()
       expect(Array.isArray(stats)).toBe(true)
       for (const entry of stats) {
         expect(entry).toHaveProperty('workerId')
@@ -101,12 +101,12 @@ describe('WorkerPool', () => {
       }
     })
 
-    it('returns an empty array when no workers have been spawned', () => {
+    it('returns an empty array when no workers have been spawned', async () => {
       const emptyPool = createWorkerPool({
         count: 2,
         workerFactory: () => createMockExecutor(),
       })
-      expect(emptyPool.getMemoryStats()).toEqual([])
+      expect(await emptyPool.getMemoryStats()).toEqual([])
     })
   })
 
@@ -188,7 +188,7 @@ describe('WorkerPool: worker count resolution', () => {
 })
 
 describe('WorkerPool: lazy initialization', () => {
-  it('does not create workers until addIndex is called', () => {
+  it('does not create workers until addIndex is called', async () => {
     const factoryCalls: number[] = []
     const pool = createWorkerPool({
       count: 4,
@@ -199,7 +199,7 @@ describe('WorkerPool: lazy initialization', () => {
     })
 
     expect(factoryCalls).toHaveLength(0)
-    expect(pool.getMemoryStats()).toEqual([])
+    expect(await pool.getMemoryStats()).toEqual([])
   })
 
   it('creates a worker on demand when addIndex is called', () => {
@@ -323,13 +323,13 @@ describe('WorkerPool: shutdown with slow worker', () => {
 })
 
 describe('WorkerPool: getMemoryStats', () => {
-  it('returns stats with correct workerId for each spawned worker', () => {
+  it('returns stats with correct workerId for each spawned worker', async () => {
     const pool = createWorkerPool({
       count: 4,
       workerFactory: () => createMockExecutor(),
     })
     pool.addIndexToAll('products')
-    const stats = pool.getMemoryStats()
+    const stats = await pool.getMemoryStats()
 
     expect(stats).toHaveLength(4)
     const workerIds = stats.map(s => s.workerId)
@@ -343,5 +343,26 @@ describe('WorkerPool: getMemoryStats', () => {
       expect(typeof entry.heapTotal).toBe('number')
       expect(typeof entry.external).toBe('number')
     }
+  })
+
+  it('forwards memoryReport responses and zeros out executors that throw', async () => {
+    const pool = createWorkerPool({
+      count: 3,
+      workerFactory: (id: number) => ({
+        async execute<T>(action: WorkerAction): Promise<T> {
+          if (action.type !== 'memoryReport') return undefined as T
+          if (id === 0) throw new Error('worker unreachable')
+          return { heapUsed: 1000 + id, heapTotal: (1000 + id) * 2, external: id } as T
+        },
+        async shutdown() {},
+      }),
+    })
+    pool.addIndexToAll('a')
+
+    const stats = await pool.getMemoryStats()
+    expect(stats).toHaveLength(3)
+    expect(stats.find(s => s.workerId === 0)).toEqual({ workerId: 0, heapUsed: 0, heapTotal: 0, external: 0 })
+    expect(stats.find(s => s.workerId === 1)).toEqual({ workerId: 1, heapUsed: 1001, heapTotal: 2002, external: 1 })
+    expect(stats.find(s => s.workerId === 2)).toEqual({ workerId: 2, heapUsed: 1002, heapTotal: 2004, external: 2 })
   })
 })

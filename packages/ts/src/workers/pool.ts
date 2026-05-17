@@ -1,6 +1,7 @@
 import { fnv1a } from '../core/hash'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { Executor } from './executor'
+import { createRequestId } from './protocol'
 
 export interface MemoryStats {
   workerId: number
@@ -16,14 +17,23 @@ export interface WorkerPool {
   addIndex(indexName: string): void
   addIndexToAll(indexName: string): void
   removeIndex(indexName: string): void
-  getMemoryStats(): MemoryStats[]
+  getMemoryStats(): Promise<MemoryStats[]>
   shutdown(): Promise<void>
 }
 
 interface WorkerSlot {
   executor: Executor
   indexes: Set<string>
-  memoryStats: { heapUsed: number; heapTotal: number; external: number }
+}
+
+interface MemoryReportPayload {
+  heapUsed?: number
+  heapTotal?: number
+  external?: number
+}
+
+function toFinite(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
 
 export type WorkerFactory = (workerId: number) => Executor
@@ -68,7 +78,6 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
       workers[slotIndex] = {
         executor: config.workerFactory(slotIndex),
         indexes: new Set(),
-        memoryStats: { heapUsed: 0, heapTotal: 0, external: 0 },
       }
     }
     return workers[slotIndex]
@@ -119,18 +128,30 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     return workers[slotIndex].executor
   }
 
-  function getMemoryStats(): MemoryStats[] {
-    const stats: MemoryStats[] = []
+  async function getMemoryStats(): Promise<MemoryStats[]> {
+    const indices: number[] = []
+    const pending: Array<Promise<MemoryReportPayload | null>> = []
     for (let i = 0; i < workers.length; i++) {
       const slot = workers[i]
-      if (slot) {
-        stats.push({
-          workerId: i,
-          heapUsed: slot.memoryStats.heapUsed,
-          heapTotal: slot.memoryStats.heapTotal,
-          external: slot.memoryStats.external,
-        })
-      }
+      if (!slot) continue
+      indices.push(i)
+      pending.push(
+        slot.executor
+          .execute<MemoryReportPayload>({ type: 'memoryReport', requestId: createRequestId() })
+          .catch(() => null),
+      )
+    }
+
+    const reports = await Promise.all(pending)
+    const stats: MemoryStats[] = []
+    for (let n = 0; n < indices.length; n++) {
+      const report = reports[n]
+      stats.push({
+        workerId: indices[n],
+        heapUsed: toFinite(report?.heapUsed),
+        heapTotal: toFinite(report?.heapTotal),
+        external: toFinite(report?.external),
+      })
     }
     return stats
   }

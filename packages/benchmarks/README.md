@@ -29,7 +29,11 @@ pnpm --filter benchmarks bench -- --tiers mutation
 pnpm --filter benchmarks bench -- --tiers quality
 ```
 
-Results are printed to stdout and saved to `results.json`.
+Results are printed to stdout and saved under `runs/<timestamp>/`. The `runs/latest` symlink always points to the most recent invocation, so tooling that reads "the current results" can follow `runs/latest/results.json` (or `synthetic-results.json`, `scenario-results.json`, `memory-profile.json` depending on which entry point ran).
+
+Each run folder also contains a `META.txt` with the ISO timestamp, git commit SHA, branch name, and a dirty-tree flag. The `runs/` directory is gitignored by default, but a specific baseline can be pinned with `git add -f packages/benchmarks/runs/<timestamp>/`.
+
+One folder is created per bench invocation. Two consecutive invocations produce two folders, and `latest` points at the second.
 
 ## Dataset
 

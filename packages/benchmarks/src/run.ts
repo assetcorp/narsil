@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { downloadAndCacheWiki, loadWikiArticles, type WikiArticle } from './data-wiki'
 import type { EngineId } from './runner/jobs'
 import { ProgressStore } from './runner/progress'
+import { prepareRunArtifact } from './runner/run-paths'
 import { runCranfieldTier, runMutationTier, runQualityTier, runSerializationTier } from './runner/tiers-extra'
 import { runTextTier } from './runner/tiers-text'
 import { runVectorTier } from './runner/tiers-vector'
@@ -82,7 +83,8 @@ async function main() {
     minisearch: getPackageVersion('minisearch'),
   }
   const activeScales = SCALES.filter(s => s <= articles.length)
-  const outputPath = resolve(__dirname, '..', 'results.json')
+  const { runDir, artifactPath: outputPath } = prepareRunArtifact('comparative')
+  console.log(`Run folder: ${runDir}`)
 
   const initial: BenchmarkOutput = {
     env,

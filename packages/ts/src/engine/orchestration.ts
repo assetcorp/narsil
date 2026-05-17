@@ -18,7 +18,7 @@ export interface WorkerOrchestrator {
   replicateToWorkers(action: WorkerAction): Promise<void>
   searchViaWorker(indexName: string, params: QueryParams): Promise<FanOutResult | null>
   isPromoted(): boolean
-  getMemoryStats(): MemoryStats
+  getWorkerMemoryStats(): Promise<MemoryStats['workers']>
   shutdown(): Promise<void>
 }
 
@@ -206,17 +206,15 @@ export function createWorkerOrchestrator(
     return workerPool !== null
   }
 
-  function getMemoryStats(): MemoryStats {
-    const workers = workerPool
-      ? workerPool.getMemoryStats().map(s => ({
-          workerId: s.workerId,
-          heapUsed: s.heapUsed,
-          heapTotal: s.heapTotal,
-          external: s.external,
-        }))
-      : []
-    const totalBytes = workers.reduce((sum, w) => sum + w.heapUsed, 0)
-    return { totalBytes, workers }
+  async function getWorkerMemoryStats(): Promise<MemoryStats['workers']> {
+    if (!workerPool) return []
+    const reports = await workerPool.getMemoryStats()
+    return reports.map(s => ({
+      workerId: s.workerId,
+      heapUsed: s.heapUsed,
+      heapTotal: s.heapTotal,
+      external: s.external,
+    }))
   }
 
   async function shutdown(): Promise<void> {
@@ -226,5 +224,5 @@ export function createWorkerOrchestrator(
     }
   }
 
-  return { checkPromotion, replicateToWorkers, searchViaWorker, isPromoted, getMemoryStats, shutdown }
+  return { checkPromotion, replicateToWorkers, searchViaWorker, isPromoted, getWorkerMemoryStats, shutdown }
 }

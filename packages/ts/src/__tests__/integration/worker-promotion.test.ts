@@ -118,7 +118,7 @@ describe('WorkerOrchestrator replication and lifecycle', () => {
     })
   })
 
-  it('getMemoryStats returns empty when no workers are active', () => {
+  it('getWorkerMemoryStats returns empty when no workers are active', async () => {
     const executor = createDirectExecutor()
     const promoter = createExecutionPromoter()
     const registry = new Map<
@@ -128,9 +128,7 @@ describe('WorkerOrchestrator replication and lifecycle', () => {
 
     orchestrator = createWorkerOrchestrator(undefined, executor, promoter, registry)
 
-    const stats = orchestrator.getMemoryStats()
-    expect(stats.totalBytes).toBe(0)
-    expect(stats.workers).toHaveLength(0)
+    expect(await orchestrator.getWorkerMemoryStats()).toHaveLength(0)
   })
 
   it('shutdown is safe to call even without promotion', async () => {
