@@ -11,6 +11,7 @@
       "!!**/dist",
       "!.claude",
       "!**/results.json",
+      "!packages/benchmarks/runs",
       "!data/**/*.json",
       "!**/fixtures/**/*.json"
     ]

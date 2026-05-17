@@ -16,11 +16,10 @@ function formatBytes(bytes: number): string {
 export function StatsTab({ stats, partitionStats }: StatsTabProps) {
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Documents" value={stats.documentCount.toLocaleString()} />
         <StatCard label="Partitions" value={String(stats.partitionCount)} />
-        <StatCard label="Memory" value={formatBytes(stats.memoryBytes)} />
-        <StatCard label="Index Size" value={formatBytes(stats.indexSizeBytes)} />
+        <StatCard label="Estimated Memory" value={formatBytes(stats.estimatedMemoryBytes)} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

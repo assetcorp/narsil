@@ -1,8 +1,7 @@
 import os from 'node:os'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import type { Narsil } from '@delali/narsil'
 import { writeJsonAtomicSync } from './runner/atomic-write'
+import { prepareRunArtifact } from './runner/run-paths'
 import { runIncrementalInsert } from './scenarios/incremental-insert'
 import { runMemoryAccuracy } from './scenarios/memory-accuracy'
 import { runMixedWorkload } from './scenarios/mixed-workload'
@@ -12,8 +11,6 @@ import { runVectorLifecycle } from './scenarios/vector-lifecycle'
 import { runWorkerPromotion } from './scenarios/worker-promotion'
 import { fmt, getPackageVersion, median, percentile } from './stats'
 import type { ScenarioOutput, ScenarioResult } from './types'
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
 
 export async function measureSearchBatch(
   instance: Narsil,
@@ -112,7 +109,8 @@ async function main() {
     { name: 'Incremental Insert Degradation', fn: runIncrementalInsert },
   ]
 
-  const outputPath = resolve(__dirname, '..', 'scenario-results.json')
+  const { runDir, artifactPath: outputPath } = prepareRunArtifact('scenarios')
+  console.log(`Run folder: ${runDir}`)
   const output: ScenarioOutput = {
     env,
     timestamp: new Date().toISOString(),

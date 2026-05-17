@@ -137,20 +137,19 @@ describe('Narsil rebalance, partitioning, and strict mode', () => {
   })
 
   describe('memory estimation', () => {
-    it('returns positive memoryBytes after inserting documents', async () => {
+    it('returns positive estimatedMemoryBytes after inserting documents', async () => {
       await narsil.createIndex('products', indexConfig)
       await narsil.insert('products', { title: 'Wireless Headphones', category: 'electronics', price: 99 })
       await narsil.insert('products', { title: 'Bluetooth Speaker', category: 'electronics', price: 49 })
 
       const stats = narsil.getStats('products')
-      expect(stats.memoryBytes).toBeGreaterThan(0)
-      expect(stats.indexSizeBytes).toBeGreaterThan(0)
+      expect(stats.estimatedMemoryBytes).toBeGreaterThan(0)
     })
 
-    it('returns zero memoryBytes for an empty index', async () => {
+    it('returns zero estimatedMemoryBytes for an empty index', async () => {
       await narsil.createIndex('products', indexConfig)
       const stats = narsil.getStats('products')
-      expect(stats.memoryBytes).toBe(0)
+      expect(stats.estimatedMemoryBytes).toBe(0)
     })
 
     it('tracks memory decrease after removes', async () => {
@@ -160,11 +159,11 @@ describe('Narsil rebalance, partitioning, and strict mode', () => {
         ids.push(await narsil.insert('products', { title: `Product ${i}`, category: 'test', price: i }))
       }
 
-      const memAfterInsert = narsil.getStats('products').memoryBytes
+      const memAfterInsert = narsil.getStats('products').estimatedMemoryBytes
       for (let i = 0; i < 25; i++) {
         await narsil.remove('products', ids[i])
       }
-      expect(narsil.getStats('products').memoryBytes).toBeLessThan(memAfterInsert)
+      expect(narsil.getStats('products').estimatedMemoryBytes).toBeLessThan(memAfterInsert)
     })
   })
 
@@ -189,7 +188,7 @@ describe('Narsil rebalance, partitioning, and strict mode', () => {
       expect(totalDocs).toBe(30)
     })
 
-    it('is consistent with getStats memoryBytes', async () => {
+    it('is consistent with getStats estimatedMemoryBytes', async () => {
       await narsil.createIndex('products', { schema, language: 'english', partitions: { maxPartitions: 3 } })
 
       for (let i = 0; i < 30; i++) {
@@ -199,7 +198,7 @@ describe('Narsil rebalance, partitioning, and strict mode', () => {
       const stats = narsil.getStats('products')
       const partitionStats = narsil.getPartitionStats('products')
       const partitionSum = partitionStats.reduce((sum, ps) => sum + ps.estimatedMemoryBytes, 0)
-      expect(stats.memoryBytes).toBe(partitionSum)
+      expect(stats.estimatedMemoryBytes).toBe(partitionSum)
     })
   })
 })
