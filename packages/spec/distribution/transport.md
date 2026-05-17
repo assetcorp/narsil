@@ -347,11 +347,14 @@ GroupConfig {
 }
 
 VectorQueryParams {
-  field: string
-  value: array[float32] or null
-  text:  string or null
-  k:     uint32
+  field:      string
+  value:      array[float32] or null
+  text:       string or null
+  similarity: float32 or null  (score floor; null keeps every scored hit)
 }
+
+The enclosing QueryParams.limit field sets the top-K count for vector
+search, and VectorQueryParams omits it to keep one source of truth.
 
 HybridConfig {
   strategy: 'rrf' or 'linear'

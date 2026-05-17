@@ -1,7 +1,7 @@
+import { MAX_INDEX_NAME_LENGTH } from '../distribution/cluster/index-metadata'
 import { ErrorCodes, NarsilError } from '../errors'
 
 const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
-const MAX_INDEX_NAME_LENGTH = 256
 const MAX_DOC_ID_LENGTH = 512
 
 export const BATCH_CHUNK_SIZE = 1000

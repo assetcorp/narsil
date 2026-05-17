@@ -33,7 +33,7 @@ export function makeAllocationTable(
 }
 
 export function makeVectorParams(): WireVectorQueryParams {
-  return { field: 'embedding', value: [0.1, 0.2, 0.3], text: null, k: 10 }
+  return { field: 'embedding', value: [0.1, 0.2, 0.3], text: null, similarity: null }
 }
 
 export function makeHybridConfig(overrides: Partial<WireHybridConfig> = {}): WireHybridConfig {

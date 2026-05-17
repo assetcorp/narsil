@@ -135,6 +135,10 @@ BM25 scoring with field boosting, fuzzy matching via bounded Levenshtein distanc
 
 Indexes split into shards when they grow beyond a configurable threshold. Partition assignment uses FNV-1a hashing for deterministic routing. Background rebalancing redistributes documents across new partitions without blocking queries, using a write-ahead queue for zero-downtime resharding.
 
+**Single-process overhead.** Partitioning pays off when shards live on separate processes or hosts. Inside one Node.js process, going from 1 to 20 partitions costs about 14% of insert throughput, 28% of median search latency, and 27% at p95, with no scaling upside. Keep `partitions.maxPartitions` low (or unset) for single-process deployments and raise it once you fan partitions out across workers or distributed nodes.
+
+**Rebalance latency spikes.** While a partition reshape is running, worst-tick p95 latency can climb to about 25ms compared with around 11ms in steady state. Schedule large bulk inserts that trigger rebalancing during low-traffic windows, or pre-size the index with `partitions.maxDocsPerPartition` to avoid mid-load reshapes.
+
 ### Worker isolation
 
 Search operations move off the main thread through worker threads (Node.js, Bun) or Web Workers (browser, Deno). The engine starts in direct mode for small indexes and auto-promotes to workers once document counts cross a threshold. You keep using the same API throughout.
@@ -149,7 +153,7 @@ Three scoring modes handle the partition-skew problem:
 
 ### Vector search
 
-Store and query high-dimensional embeddings with cosine similarity, dot product, or Euclidean distance. Small vector sets use brute-force linear scan. When a field exceeds 10,000 vectors, the engine builds an HNSW graph in the background and swaps the search backend transparently.
+Store and query high-dimensional embeddings with cosine similarity, dot product, or Euclidean distance. Small vector sets use an exact brute-force scan. Once a field crosses 1,024 vectors, the engine builds an HNSW graph and switches the field to approximate search. The threshold is configurable per index via `vectorPromotion.threshold`.
 
 ### Hybrid search
 

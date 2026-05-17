@@ -29,12 +29,50 @@ export interface QueryParams {
   includeScoreComponents?: boolean
 }
 
+/**
+ * Vector-search inputs passed under `QueryParams.vector`.
+ *
+ * Supply either a raw `value` array or a `text` string for auto-embedding;
+ * passing both throws `EMBEDDING_CONFIG_INVALID`. Result count is governed
+ * by the outer query's `limit`, not by any field on this object.
+ */
 export interface VectorQueryConfig {
+  /**
+   * Name of the schema field that holds the vector to compare against.
+   * Must reference a field declared as `vector[N]` in the index schema.
+   */
   field: string
+  /**
+   * Raw query vector. Length must match the indexed field's dimension or
+   * the search rejects the request with `VECTOR_DIMENSION_MISMATCH`.
+   */
   value?: number[]
+  /**
+   * Text to embed at query time using the index or instance embedding
+   * adapter. Mutually exclusive with `value`; requires a configured adapter.
+   */
   text?: string
+  /**
+   * Score floor applied during ranking. Hits scoring below this value
+   * are dropped before `limit` is enforced, so the returned hit count
+   * can be smaller than `limit` even when more documents exist. The
+   * floor is interpreted in score space for every metric; for
+   * `euclidean`, distance is mapped to a similarity score of
+   * `1 / (1 + distance)` first. Defaults to no floor.
+   */
   similarity?: number
+  /**
+   * Similarity metric used for ranking. Defaults to `cosine`. Choose
+   * `dotProduct` for raw inner-product scoring on already-normalised
+   * vectors and `euclidean` for distance-based ordering.
+   */
   metric?: 'cosine' | 'dotProduct' | 'euclidean'
+  /**
+   * HNSW exploration factor for approximate search. Higher values raise
+   * recall at the cost of latency. Ignored while the field is still
+   * served by the brute-force backend. Defaults to the engine's built-in
+   * value when omitted.
+   */
   efSearch?: number
 }
 
