@@ -31,6 +31,7 @@ describe('bootstrap-fetch pass-4 findings', () => {
       deadline,
       { transport, sourceNodeId: 'replica' },
       () => false,
+      0,
     )
     expect(result.ok).toBe(false)
     // Protocol budget equals target count; exactly one call per distinct target.
@@ -61,6 +62,7 @@ describe('bootstrap-fetch pass-4 findings', () => {
       Date.now() + 10_000,
       { transport, sourceNodeId: 'replica' },
       () => false,
+      0,
     )
     expect(streamFn).toHaveBeenCalledTimes(2)
   })
@@ -84,6 +86,7 @@ describe('bootstrap-fetch pass-4 findings', () => {
       Date.now() + 10_000,
       { transport, sourceNodeId: 'replica' },
       () => false,
+      0,
     )
     expect(result.ok).toBe(false)
     expect(streamFn).toHaveBeenCalledTimes(1)

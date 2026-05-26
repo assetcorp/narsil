@@ -53,6 +53,10 @@ describe('createClusterNode message handler', () => {
     await nodeB.start()
     await nodeB.createIndex('products', { schema: { title: 'string' } })
 
+    const assignments = new Map<number, PartitionAssignment>()
+    assignments.set(0, makeAssignment({ primary: 'node-b', state: 'ACTIVE' }))
+    await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
+
     const { encode } = await import('@msgpack/msgpack')
     const { createForwardMessage } = await import('../../../../distribution/replication/codec')
     const { decode } = await import('@msgpack/msgpack')

@@ -90,6 +90,16 @@ describe('cluster-node transport listener composition', () => {
     await nodeB.start()
     await nodeB.createIndex('products', { schema: { title: 'string' } })
 
+    const forwardAssignments = new Map<number, PartitionAssignment>()
+    forwardAssignments.set(
+      0,
+      makeAssignment({
+        primary: 'node-b',
+        state: 'ACTIVE',
+      }),
+    )
+    await coordinator.putAllocation('products', makeAllocationTable(forwardAssignments))
+
     const forwardMessage = createForwardMessage(
       {
         indexName: 'products',

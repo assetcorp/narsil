@@ -1,10 +1,11 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
-import type { Narsil } from '../../narsil'
-import type { AnyDocument } from '../../types/schema'
+import type { QueryResult } from '../../types/results'
 import type { FacetConfig, QueryParams } from '../../types/search'
 import type { ClusterCoordinator } from '../coordinator/types'
 import { validateFetchPayload, validateSearchPayload, validateStatsPayload } from '../query/codec'
+import { createAckMessage, validateEntryPayload } from '../replication/codec'
+import { validateReplicationEntry } from '../replication/replica'
 import type {
   FetchResultPayload,
   ForwardPayload,
@@ -13,7 +14,13 @@ import type {
   TransportMessage,
 } from '../transport/types'
 import { QueryMessageTypes, ReplicationMessageTypes } from '../transport/types'
-import { handleSnapshotSyncRequest, type SnapshotSyncHandlerState } from './snapshot-sync-handler'
+import type { ClusterLocalEngine } from './local-engine'
+import {
+  handleSnapshotSyncRequest,
+  type SnapshotHeaderMetadataProvider,
+  type SnapshotSyncHandlerState,
+} from './snapshot-sync-handler'
+import { applyForwardedWrite, type WriteRoutingDeps } from './write-routing'
 
 export type TransportHandler = (
   message: TransportMessage,
@@ -22,9 +29,12 @@ export type TransportHandler = (
 
 export interface DataNodeHandlerDeps {
   nodeId: string
-  engine: Narsil
+  engine: ClusterLocalEngine
   coordinator: ClusterCoordinator
+  writeDeps: WriteRoutingDeps
   snapshotSyncState: SnapshotSyncHandlerState
+  resolveHeaderMetadata?: SnapshotHeaderMetadataProvider
+  isBootstrapSynced?: (indexName: string, partitionId: number) => boolean
 }
 
 export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandler {
@@ -35,6 +45,7 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
         engine: deps.engine,
         coordinator: deps.coordinator,
         state: deps.snapshotSyncState,
+        resolveHeaderMetadata: deps.resolveHeaderMetadata,
       })
       return
     }
@@ -43,6 +54,9 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
       switch (message.type) {
         case ReplicationMessageTypes.FORWARD:
           await handleForward(message, respond, deps)
+          return
+        case ReplicationMessageTypes.ENTRY:
+          await handleReplicationEntry(message, respond, deps)
           return
         case QueryMessageTypes.SEARCH:
           await handleSearch(message, respond, deps)
@@ -79,19 +93,7 @@ async function handleForward(
 ): Promise<void> {
   const decoded = decode(message.payload) as Record<string, unknown>
   const payload = validateForwardPayload(decoded)
-
-  let documentId = payload.documentId
-  if (payload.operation === 'insert') {
-    if (payload.document === null) {
-      throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Invalid ForwardPayload: insert requires a document')
-    }
-    const document = decode(payload.document) as AnyDocument
-    documentId = await deps.engine.insert(payload.indexName, document, payload.documentId)
-  } else if (payload.operation === 'remove') {
-    await deps.engine.remove(payload.indexName, payload.documentId)
-  } else {
-    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Forward update operations are not supported yet')
-  }
+  const documentId = await applyForwardedWrite(payload, deps.writeDeps)
 
   respond({
     type: ReplicationMessageTypes.FORWARD,
@@ -99,6 +101,109 @@ async function handleForward(
     requestId: message.requestId,
     payload: encode({ documentId, success: true }),
   })
+}
+
+async function handleReplicationEntry(
+  message: TransportMessage,
+  respond: (response: TransportMessage) => void,
+  deps: DataNodeHandlerDeps,
+): Promise<void> {
+  const payload = validateEntryPayload(decode(message.payload))
+  const { entry } = payload
+
+  const table = await deps.coordinator.getAllocation(entry.indexName)
+  if (table === null) {
+    throw new NarsilError(
+      ErrorCodes.REPLICATION_ENTRY_INVALID,
+      `No allocation table is available for replication entry on index '${entry.indexName}'`,
+      { indexName: entry.indexName, partitionId: entry.partitionId },
+    )
+  }
+
+  const assignment = table.assignments.get(entry.partitionId)
+  if (assignment === undefined) {
+    throw new NarsilError(
+      ErrorCodes.REPLICATION_ENTRY_INVALID,
+      `No assignment exists for replication entry partition ${entry.partitionId} of index '${entry.indexName}'`,
+      { indexName: entry.indexName, partitionId: entry.partitionId },
+    )
+  }
+
+  if (assignment.primary !== message.sourceId) {
+    throw new NarsilError(
+      ErrorCodes.REPLICATION_ENTRY_INVALID,
+      `Replication entry for index '${entry.indexName}' partition ${entry.partitionId} came from a non-primary node`,
+      {
+        indexName: entry.indexName,
+        partitionId: entry.partitionId,
+        sourceNodeId: message.sourceId,
+        primaryNodeId: assignment.primary,
+      },
+    )
+  }
+
+  if (assignment.primaryTerm !== entry.primaryTerm) {
+    throw new NarsilError(
+      ErrorCodes.REPLICATION_ENTRY_INVALID,
+      `Replication entry term ${entry.primaryTerm} does not match allocation term ${assignment.primaryTerm}`,
+      { indexName: entry.indexName, partitionId: entry.partitionId },
+    )
+  }
+
+  if (!assignment.replicas.includes(deps.nodeId) || !assignment.inSyncSet.includes(deps.nodeId)) {
+    throw new NarsilError(
+      ErrorCodes.REPLICATION_ENTRY_INVALID,
+      `Node '${deps.nodeId}' is not an in-sync replica for index '${entry.indexName}' partition ${entry.partitionId}`,
+      { indexName: entry.indexName, partitionId: entry.partitionId, nodeId: deps.nodeId },
+    )
+  }
+
+  let log = deps.writeDeps.getReplicationLog(entry.indexName, entry.partitionId)
+  const existing = log.getEntry(entry.seqNo)
+  if (existing !== undefined) {
+    if (existing.checksum !== entry.checksum) {
+      throw new NarsilError(
+        ErrorCodes.REPLICATION_ENTRY_INVALID,
+        `Conflicting replication entry at sequence number ${entry.seqNo}`,
+        { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo },
+      )
+    }
+    respond(createAckMessage(entry.seqNo, entry.partitionId, entry.indexName, deps.nodeId, message.requestId))
+    return
+  }
+
+  const expectedSeqNo = (log.newestSeqNo ?? 0) + 1
+  if (entry.seqNo !== expectedSeqNo) {
+    const canSeedFromCompletedBootstrap =
+      log.entryCount === 0 &&
+      entry.seqNo > expectedSeqNo &&
+      deps.isBootstrapSynced?.(entry.indexName, entry.partitionId) === true
+
+    if (!canSeedFromCompletedBootstrap) {
+      throw new NarsilError(
+        ErrorCodes.REPLICATION_ENTRY_INVALID,
+        `Out-of-order replication entry ${entry.seqNo}; expected ${expectedSeqNo}`,
+        { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo, expectedSeqNo },
+      )
+    }
+
+    deps.writeDeps.resetReplicationLog(entry.indexName, entry.partitionId, entry.seqNo)
+    log = deps.writeDeps.getReplicationLog(entry.indexName, entry.partitionId)
+  }
+
+  const validation = validateReplicationEntry(entry, assignment.primaryTerm, log)
+  if (!validation.valid) {
+    throw new NarsilError(
+      ErrorCodes.REPLICATION_ENTRY_INVALID,
+      `Invalid replication entry ${entry.seqNo}: ${validation.error ?? 'unknown validation error'}`,
+      { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo },
+    )
+  }
+
+  await deps.engine.applyReplicationEntry(entry)
+  log.appendCommitted(entry)
+
+  respond(createAckMessage(entry.seqNo, entry.partitionId, entry.indexName, deps.nodeId, message.requestId))
 }
 
 async function handleSearch(
@@ -263,7 +368,7 @@ function convertWireFacetsToLocal(facets: string[] | null, limit: number | null)
 }
 
 function convertLocalFacetsToWire(
-  facets: Awaited<ReturnType<Narsil['query']>>['facets'],
+  facets: QueryResult['facets'],
 ): Record<string, Array<{ value: string; count: number }>> | null {
   if (facets === undefined) {
     return null

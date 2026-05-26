@@ -100,6 +100,14 @@
     "./distribution": {
       "import": "./dist/distribution.mjs",
       "types": "./dist/distribution.d.ts"
+    },
+    "./distribution/coordinator/in-memory": {
+      "import": "./dist/distribution/coordinator/in-memory.mjs",
+      "types": "./dist/distribution/coordinator/in-memory.d.ts"
+    },
+    "./distribution/coordinator/etcd": {
+      "import": "./dist/distribution/coordinator/etcd.mjs",
+      "types": "./dist/distribution/coordinator/etcd.d.ts"
     }
   },
   "files": [

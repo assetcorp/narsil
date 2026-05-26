@@ -81,7 +81,7 @@ function restoreVectorFields(document: Record<string, unknown>, vectorFieldPaths
       const elementCount = value.byteLength / 4
       const float32 = new Float32Array(elementCount)
       const dataView = new DataView(value.buffer, value.byteOffset, value.byteLength)
-      for (let i = 0; i < elementCount; i++) {
+      for (let i = 0; i < elementCount; i += 1) {
         float32[i] = dataView.getFloat32(i * 4, true)
       }
       setNestedValue(document, fieldPath, float32)
@@ -99,23 +99,29 @@ export function setNestedValue(obj: Record<string, unknown>, path: string, value
     obj[path] = value
     return
   }
+
   const segments = path.split('.')
   let current: Record<string, unknown> = obj
-  for (let i = 0; i < segments.length - 1; i++) {
+
+  for (let i = 0; i < segments.length - 1; i += 1) {
     const segment = segments[i]
-    if (FORBIDDEN_KEYS.has(segment)) {
+    if (segment === undefined || FORBIDDEN_KEYS.has(segment)) {
       return
     }
+
     let next = current[segment]
     if (next === null || next === undefined || typeof next !== 'object') {
       next = {}
       current[segment] = next
     }
+
     current = next as Record<string, unknown>
   }
-  const finalSegment = segments[segments.length - 1]
-  if (FORBIDDEN_KEYS.has(finalSegment)) {
+
+  const finalSegment = segments.at(-1)
+  if (finalSegment === undefined || FORBIDDEN_KEYS.has(finalSegment)) {
     return
   }
+
   current[finalSegment] = value
 }

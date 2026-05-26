@@ -1,7 +1,6 @@
 import { decode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { createNarsil } from '../../narsil'
 import type { QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
@@ -16,12 +15,20 @@ import { createFetchMessage, validateFetchResultPayload } from '../query/codec'
 import { distributedQuery } from '../query/routing'
 import { selectReplica } from '../query/selection'
 import type { DistributedQueryResult } from '../query/types'
-import type { FetchDocumentId, TransportMessage } from '../transport/types'
+import { createReplicationLog } from '../replication/log'
+import type { ReplicationLog } from '../replication/types'
+import type { FetchDocumentId, ReplicationSnapshotHeader, TransportMessage } from '../transport/types'
 import { cleanupRemovedPartition } from './bootstrap-cleanup'
-import { clearBootstrapSyncIndex, createBootstrapSyncState, runBootstrapSync } from './bootstrap-sync'
+import {
+  clearBootstrapSyncIndex,
+  createBootstrapSyncState,
+  hasCompletedBootstrapSync,
+  runBootstrapSync,
+} from './bootstrap-sync'
+import { createClusterLocalEngine } from './local-engine'
 import { createDataNodeHandler } from './message-handler'
 import { distributedResultToLocal, localParamsToWire } from './query-conversion'
-import { createSnapshotSyncHandlerState } from './snapshot-sync-handler'
+import { createSnapshotSyncHandlerState, defaultSnapshotHeaderMetadataProvider } from './snapshot-sync-handler'
 import { createMultiplexedControllerTransport } from './transport-listener'
 import type { ClusterNamespace, ClusterNode, ClusterNodeConfig, CreateIndexOptions } from './types'
 import { DEFAULT_CAPACITY } from './types'
@@ -44,9 +51,10 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   const roles: ReadonlyArray<NodeRole> = config.roles ?? ['data', 'coordinator', 'controller']
   const capacity = config.capacity ?? DEFAULT_CAPACITY
 
-  const engine = await createNarsil(config.engine)
+  const engine = await createClusterLocalEngine(config.engine)
   const bootstrapSyncState = createBootstrapSyncState()
   const snapshotSyncHandlerState = createSnapshotSyncHandlerState()
+  const replicationLogs = new Map<string, ReplicationLog>()
 
   const forwardOnError = (error: unknown): void => {
     if (config.onError === undefined) {
@@ -75,6 +83,8 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     coordinator: config.coordinator,
     engine,
     transport: config.transport,
+    getReplicationLog,
+    resetReplicationLog: seedReplicationLog,
     resolveNodeTargets,
   }
 
@@ -102,10 +112,12 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
           transport: config.transport,
           sourceNodeId: nodeId,
           resolveNodeTargets,
+          onSnapshotApplied: seedReplicationLogFromSnapshot,
           onError: forwardOnError,
         }),
       onRemovePartition: (indexName: string, partitionId: number) => {
         clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
+        replicationLogs.delete(replicationLogKey(indexName, partitionId))
         // Fire-and-forget: align engine state with allocation by dropping the
         // local index when no other partitions of the same index remain
         // assigned to this node. Errors are surfaced via forwardOnError.
@@ -242,7 +254,11 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
           nodeId,
           engine,
           coordinator: config.coordinator,
+          writeDeps,
           snapshotSyncState: snapshotSyncHandlerState,
+          resolveHeaderMetadata: resolveSnapshotHeaderMetadata,
+          isBootstrapSynced: (indexName: string, partitionId: number) =>
+            hasCompletedBootstrapSync(bootstrapSyncState, indexName, partitionId),
         })
         const listener = controllerTransport !== null ? controllerTransport.createHandler(dataHandler) : dataHandler
         unregisterHandler = await config.transport.listen(listener)
@@ -279,6 +295,52 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   }
 
   return node
+
+  function replicationLogKey(indexName: string, partitionId: number): string {
+    return `${indexName}:${partitionId}`
+  }
+
+  function getReplicationLog(indexName: string, partitionId: number): ReplicationLog {
+    const key = replicationLogKey(indexName, partitionId)
+    let log = replicationLogs.get(key)
+    if (log === undefined) {
+      log = createReplicationLog(partitionId)
+      replicationLogs.set(key, log)
+    }
+    return log
+  }
+
+  function seedReplicationLog(indexName: string, partitionId: number, startSeqNo: number): void {
+    replicationLogs.set(replicationLogKey(indexName, partitionId), createReplicationLog(partitionId, { startSeqNo }))
+  }
+
+  function seedReplicationLogFromSnapshot(
+    indexName: string,
+    partitionId: number,
+    header: ReplicationSnapshotHeader,
+  ): void {
+    if (header.partitionId !== partitionId || header.lastSeqNo < 0) {
+      return
+    }
+    seedReplicationLog(indexName, partitionId, header.lastSeqNo + 1)
+  }
+
+  async function resolveSnapshotHeaderMetadata(indexName: string, partitionId: number | null) {
+    const fallback = await defaultSnapshotHeaderMetadataProvider(config.coordinator, indexName)
+    if (partitionId === null) {
+      return fallback
+    }
+
+    const allocation = await config.coordinator.getAllocation(indexName)
+    const assignment = allocation?.assignments.get(partitionId)
+    const log = getReplicationLog(indexName, partitionId)
+
+    return {
+      partitionId,
+      primaryTerm: assignment?.primaryTerm ?? fallback.primaryTerm,
+      lastSeqNo: log.newestSeqNo ?? 0,
+    }
+  }
 
   async function resolveNodeTargets(targetNodeId: string): Promise<string[]> {
     const targets = [targetNodeId]
