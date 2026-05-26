@@ -1,0 +1,28 @@
+import type { PartitionManager } from '../../partitioning/manager'
+import type { WAQEntry } from '../../partitioning/write-ahead-queue'
+import type { FlushManager } from '../../persistence/flush-manager'
+import type { PluginRegistry } from '../../plugins/registry'
+import type { EmbeddingAdapter } from '../../types/adapters'
+import type { LanguageModule } from '../../types/language'
+import type { IndexConfig } from '../../types/schema'
+import type { DirectExecutorExtensions } from '../../workers/direct-executor'
+import type { Executor } from '../../workers/executor'
+import type { WorkerOrchestrator } from '../orchestration'
+
+export interface MutationContext {
+  executor: Executor & DirectExecutorExtensions
+  pluginRegistry: PluginRegistry
+  flushManager: FlushManager | null
+  orchestrator: WorkerOrchestrator
+  idGenerator: () => string
+  abortController: AbortController
+  guardShutdown: () => void
+  requireIndex: (name: string) => {
+    config: IndexConfig
+    language: LanguageModule
+    embeddingAdapter: EmbeddingAdapter | null
+    vectorFieldPaths: Set<string>
+  }
+  requireManager: (name: string) => PartitionManager
+  bufferIfRebalancing: (name: string, entry: Omit<WAQEntry, 'sequenceNumber'>) => boolean
+}

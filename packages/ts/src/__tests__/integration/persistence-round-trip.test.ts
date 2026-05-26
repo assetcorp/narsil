@@ -6,7 +6,7 @@ import { createPartitionRouter } from '../../partitioning/router'
 import { createFlushManager } from '../../persistence/flush-manager'
 import { createMemoryPersistence } from '../../persistence/memory'
 import type { InvalidationAdapter, InvalidationEvent } from '../../types/adapters'
-import type { IndexConfig, SchemaDefinition } from '../../types/schema'
+import type { AnyDocument, IndexConfig, SchemaDefinition } from '../../types/schema'
 
 const schema: SchemaDefinition = {
   title: 'string',
@@ -21,7 +21,7 @@ const indexConfig: IndexConfig = {
   language: 'english',
 }
 
-interface ProductDoc {
+type ProductDoc = AnyDocument & {
   title: string
   description: string
   price: number

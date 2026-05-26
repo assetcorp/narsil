@@ -171,7 +171,7 @@ export interface WireVectorQueryParams {
   field: string
   value: number[] | null
   text: string | null
-  k: number
+  similarity: number | null
 }
 
 export interface WireHybridConfig {

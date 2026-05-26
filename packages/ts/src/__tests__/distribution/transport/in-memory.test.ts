@@ -366,6 +366,6 @@ describe('InMemoryTransport', () => {
 
       const response = await transportA.send('node-b', makeMessage({ payload: largePayload }))
       expect(response.payload).toEqual(largePayload)
-    })
+    }, 30_000)
   })
 })

@@ -132,7 +132,7 @@ async function handleSearch(
             field: payload.params.vector.field,
             value: payload.params.vector.value ?? undefined,
             text: payload.params.vector.text ?? undefined,
-            similarity: payload.params.vector.k,
+            similarity: payload.params.vector.similarity ?? undefined,
           }
         : undefined,
     hybrid:

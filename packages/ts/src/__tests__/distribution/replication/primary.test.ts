@@ -4,7 +4,7 @@ import { createAckMessage } from '../../../distribution/replication/codec'
 import { replicateToReplicas } from '../../../distribution/replication/primary'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
 import { createInMemoryNetwork, createInMemoryTransport } from '../../../distribution/transport/in-memory'
-import type { TransportMessage } from '../../../distribution/transport/types'
+import type { NodeTransport, TransportMessage } from '../../../distribution/transport/types'
 import { ReplicationMessageTypes } from '../../../distribution/transport/types'
 
 function makeEntry(overrides?: Partial<ReplicationLogEntry>): ReplicationLogEntry {
@@ -67,13 +67,7 @@ describe('replicateToReplicas', () => {
     await replicaA.listen((msg, respond) => ackHandler(msg, respond, 'replica-a'))
     await replicaB.listen((msg, respond) => ackHandler(msg, respond, 'replica-b'))
 
-    const result = await replicateToReplicas(
-      makeEntry(),
-      ['replica-a', 'replica-b'],
-      primaryTransport,
-      'primary',
-      10_000,
-    )
+    const result = await replicateToReplicas(makeEntry(), ['replica-a', 'replica-b'], primaryTransport, 'primary')
 
     expect(result.acknowledged).toHaveLength(2)
     expect(result.acknowledged).toContain('replica-a')
@@ -124,12 +118,14 @@ describe('replicateToReplicas', () => {
   })
 
   it('propagates programming errors (non-TransportError) instead of swallowing them', async () => {
-    const fakeTransport = {
+    const fakeTransport: NodeTransport = {
       async send(_target: string, _message: TransportMessage): Promise<TransportMessage> {
         throw new TypeError('unexpected null reference')
       },
-      async stream() {},
-      async listen() {},
+      async stream(_target: string, _message: TransportMessage, _handler: (chunk: Uint8Array) => void) {},
+      async listen() {
+        return () => {}
+      },
       async shutdown() {},
     }
 

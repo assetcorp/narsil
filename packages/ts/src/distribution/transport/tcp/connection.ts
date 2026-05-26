@@ -2,6 +2,7 @@ import { connect, type Socket } from 'node:net'
 import { connect as tlsConnect } from 'node:tls'
 import { MAX_MESSAGE_SIZE_BYTES, TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import { decodeTransportMessage, encodeFrame, encodeTransportMessage, FrameParser, type WireFrame } from './framing'
+import { parseAddress } from './parse-address'
 import {
   FRAME_TYPE_REQUEST,
   FRAME_TYPE_RESPONSE,
@@ -13,6 +14,7 @@ import {
 
 export type { WireFrame } from './framing'
 export { decodeTransportMessage, encodeFrame, encodeTransportMessage, FrameParser } from './framing'
+export { parseAddress } from './parse-address'
 
 interface PendingRequest {
   target: string
@@ -379,23 +381,4 @@ export class TcpConnectionPool {
 
     await Promise.all(closePromises)
   }
-}
-
-export function parseAddress(address: string): [string, string] {
-  const lastColon = address.lastIndexOf(':')
-  if (lastColon === -1) {
-    throw new TransportError(
-      TransportErrorCodes.CONNECT_FAILED,
-      `Invalid address format '${address}', expected host:port`,
-      {
-        address,
-      },
-    )
-  }
-  const host = address.slice(0, lastColon)
-  const port = address.slice(lastColon + 1)
-  if (host.length === 0 || host.includes('\0')) {
-    throw new TransportError(TransportErrorCodes.CONNECT_FAILED, `Invalid host in address '${address}'`, { address })
-  }
-  return [host, port]
 }

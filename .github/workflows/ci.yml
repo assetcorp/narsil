@@ -58,7 +58,7 @@ jobs:
       - name: Lint (certutil)
         run: pnpm nx run narsil-certutil:lint
 
-      - name: Typecheck
+      - name: Typecheck (incl. tests)
         run: pnpm nx run narsil-ts:typecheck
 
       - name: Typecheck (certutil incl. tests)
