@@ -2,7 +2,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
 import type { SchemaDefinition } from '../../types/schema'
 import type { ClusterCoordinator } from '../coordinator/types'
-import type { NodeTransport } from '../transport/types'
+import type { NodeTransport, ReplicationSnapshotHeader } from '../transport/types'
 import { fetchSnapshotFromAnyTarget } from './bootstrap-fetch'
 import {
   ABORT_SENTINEL,
@@ -72,6 +72,10 @@ export function clearBootstrapSyncIndex(state: BootstrapSyncState, indexName: st
   state.inFlight.delete(key)
 }
 
+export function hasCompletedBootstrapSync(state: BootstrapSyncState, indexName: string, partitionId: number): boolean {
+  return state.completed.has(entryKey(indexName, partitionId))
+}
+
 export interface BootstrapSyncDeps {
   engine: Narsil
   coordinator: ClusterCoordinator
@@ -79,6 +83,7 @@ export interface BootstrapSyncDeps {
   sourceNodeId: string
   resolveNodeTargets: (nodeId: string) => Promise<string[]>
   onError?: (error: unknown) => void
+  onSnapshotApplied?: (indexName: string, partitionId: number, header: ReplicationSnapshotHeader) => void
   deadlineMs?: number
 }
 
@@ -208,6 +213,7 @@ async function executeBootstrapSync(
     deadline,
     fetchDeps,
     abortCheck,
+    partitionId,
   )
   if (!fetchResult.ok) {
     if (fetchResult.code === ErrorCodes.SNAPSHOT_SYNC_ABORTED) {
@@ -257,6 +263,7 @@ async function executeBootstrapSync(
     surfaceAborted(deps, indexName, primaryNodeId)
     return false
   }
+  deps.onSnapshotApplied?.(indexName, partitionId, fetchResult.header)
   state.completed.add(key)
   return true
 }

@@ -18,6 +18,7 @@ export interface ReplicationConfig {
 
 export interface ReplicationLog {
   append(entry: Omit<ReplicationLogEntry, 'seqNo' | 'checksum'>): ReplicationLogEntry
+  appendCommitted(entry: ReplicationLogEntry): ReplicationLogEntry
   getEntriesFrom(fromSeqNo: number): ReplicationLogEntry[]
   getEntry(seqNo: number): ReplicationLogEntry | undefined
   verifyChecksum(entry: ReplicationLogEntry): boolean

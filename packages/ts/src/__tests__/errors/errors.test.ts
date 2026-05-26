@@ -83,6 +83,11 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.COORDINATOR_DEPENDENCY_MISSING).toBe('COORDINATOR_DEPENDENCY_MISSING')
   })
 
+  it('has replication error codes', () => {
+    expect(ErrorCodes.REPLICATION_ENTRY_INVALID).toBe('REPLICATION_ENTRY_INVALID')
+    expect(ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED).toBe('REPLICATION_INSYNC_REMOVAL_FAILED')
+  })
+
   it('has all expected snapshot sync error codes', () => {
     expect(ErrorCodes.SNAPSHOT_SYNC_UNAUTHORIZED).toBe('SNAPSHOT_SYNC_UNAUTHORIZED')
     expect(ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID).toBe('SNAPSHOT_SYNC_REQUEST_INVALID')
@@ -112,8 +117,8 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.SNAPSHOT_SYNC_ABORTED).toBe('SNAPSHOT_SYNC_ABORTED')
   })
 
-  it('has exactly 75 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(75)
+  it('has exactly 77 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(77)
   })
 
   it('has unique values for every code', () => {
