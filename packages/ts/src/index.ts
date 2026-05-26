@@ -53,6 +53,7 @@ export type {
   MemoryStats,
   PartitionStatsResult,
   PreflightResult,
+  ProcessMemoryReport,
   QueryResult,
   ScoreComponents,
   SuggestResult,

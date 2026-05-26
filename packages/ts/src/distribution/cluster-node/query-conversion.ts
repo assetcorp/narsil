@@ -2,7 +2,7 @@ import type { QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import type { DistributedQueryResult } from '../query/types'
-import type { SortField, WireQueryParams } from '../transport/types'
+import type { SortField, WireQueryParams, WireVectorQueryParams } from '../transport/types'
 
 export function localParamsToWire(params: QueryParams): WireQueryParams {
   return {
@@ -66,9 +66,7 @@ function convertLocalFacetsToWire(facets: QueryParams['facets']): string[] | nul
   return Object.keys(facets)
 }
 
-function convertLocalVectorToWire(
-  vector: QueryParams['vector'],
-): { field: string; value: number[] | null; text: string | null; k: number } | null {
+function convertLocalVectorToWire(vector: QueryParams['vector']): WireVectorQueryParams | null {
   if (vector === undefined) {
     return null
   }
@@ -76,7 +74,7 @@ function convertLocalVectorToWire(
     field: vector.field,
     value: vector.value ?? null,
     text: vector.text ?? null,
-    k: vector.similarity ?? 10,
+    similarity: vector.similarity ?? null,
   }
 }
 

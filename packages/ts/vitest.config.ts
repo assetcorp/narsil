@@ -1,11 +1,6 @@
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
-  server: {
-    deps: {
-      inline: [],
-    },
-  },
   test: {
     globals: true,
     environment: 'node',

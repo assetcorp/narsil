@@ -11,7 +11,11 @@
     ]
   },
   "release": {
-    "projects": ["narsil-ts", "narsil-embeddings-transformers", "narsil-certutil"],
+    "projects": [
+      "narsil-ts",
+      "narsil-embeddings-transformers",
+      "narsil-certutil"
+    ],
     "projectsRelationship": "independent",
     "releaseTagPattern": "{projectName}@v{version}",
     "version": {

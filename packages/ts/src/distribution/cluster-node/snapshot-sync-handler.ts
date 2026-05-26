@@ -2,6 +2,7 @@ import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
 import { crc32 } from '../../serialization/crc32'
+import { MAX_INDEX_NAME_LENGTH } from '../cluster/index-metadata'
 import type { ClusterCoordinator } from '../coordinator/types'
 import {
   MAX_SNAPSHOT_SIZE_BYTES,
@@ -35,7 +36,6 @@ import {
 
 export { SNAPSHOT_SYNC_ERROR_TYPE }
 
-const MAX_INDEX_NAME_LENGTH = 256
 const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
 
 const MAX_SOURCE_ID_LENGTH = 256
@@ -68,9 +68,10 @@ function containsControlCharacter(value: string): boolean {
 }
 
 /**
- * A SNAPSHOT_SYNC_REQUEST only carries `{indexName: string}` with `indexName <= 256`.
- * Rejecting oversized payloads before msgpack decode keeps an abusive peer from
- * pinning a CPU on a 64 MiB decode just to fail validation.
+ * A SNAPSHOT_SYNC_REQUEST only carries `{indexName: string}` with `indexName`
+ * bounded by the canonical MAX_INDEX_NAME_LENGTH. Rejecting oversized payloads
+ * before msgpack decode keeps an abusive peer from pinning a CPU on a 64 MiB
+ * decode just to fail validation.
  */
 const MAX_SNAPSHOT_SYNC_REQUEST_BYTES = 4_096
 

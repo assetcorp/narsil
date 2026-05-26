@@ -6,7 +6,11 @@
     "bench": "node --expose-gc --import tsx src/run.ts",
     "bench:synthetic": "node --expose-gc --import tsx src/run-synthetic.ts",
     "bench:scenarios": "node --expose-gc --import tsx src/run-scenarios.ts",
-    "profile:memory": "node --expose-gc --max-old-space-size=4096 --import tsx src/profile-memory.ts"
+    "profile:memory": "node --expose-gc --max-old-space-size=4096 --import tsx src/profile-memory.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check src/",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@delali/narsil": "workspace:*",
@@ -17,6 +21,9 @@
     "unbzip2-stream": "1.4.3"
   },
   "devDependencies": {
-    "@types/node": "22.15.18"
+    "@biomejs/biome": "2.4.4",
+    "@types/node": "22.15.18",
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
   }
 }

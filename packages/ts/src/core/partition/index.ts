@@ -16,10 +16,13 @@ import type { FacetConfig } from '../../types/search'
 import { createDocumentStore } from '../document-store'
 import { createInvertedIndex } from '../inverted-index'
 import { createPartitionStats, type PartitionStats } from '../statistics'
+import { computeFacets } from './facets'
+import { applyPartitionFilters, applyPartitionFiltersBitset } from './filters'
 import { indexDocument, removeFromIndexes, updateFieldIndexOnly } from './indexing'
-import { applyPartitionFilters, applyPartitionFiltersBitset, computeFacets, searchFulltext } from './search'
-import { deserializePartition, serializePartition, serializePartitionToWirePayloadV2 } from './serialization'
+import { searchFulltext } from './search'
+import { deserializePartition, serializePartition } from './serialization'
 import { getFlatSchema, type PartitionInsertOptions, type PartitionState, textFieldsChanged } from './utils'
+import { serializePartitionToWirePayloadV2 } from './wire-payload'
 
 export type { GlobalStatistics, InternalSearchParams, InternalSearchResult, ScoredDocument }
 export type { PartitionInsertOptions }

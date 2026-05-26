@@ -4,7 +4,7 @@ import { fanOutQuery } from '../../partitioning/fan-out'
 import { createPartitionManager } from '../../partitioning/manager'
 import { createRebalancer } from '../../partitioning/rebalancer'
 import { createPartitionRouter } from '../../partitioning/router'
-import type { IndexConfig, SchemaDefinition } from '../../types/schema'
+import type { AnyDocument, IndexConfig, SchemaDefinition } from '../../types/schema'
 
 const schema: SchemaDefinition = {
   title: 'string',
@@ -19,7 +19,7 @@ const indexConfig: IndexConfig = {
   language: 'english',
 }
 
-interface ProductDoc {
+type ProductDoc = AnyDocument & {
   title: string
   description: string
   price: number

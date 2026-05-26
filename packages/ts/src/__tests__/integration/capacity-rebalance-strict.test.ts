@@ -167,7 +167,7 @@ describe('capacity + rebalancing + strict mode integration', () => {
     expect(await narsil.countDocuments('products')).toBe(1)
 
     const stats = narsil.getStats('products')
-    expect(stats.memoryBytes).toBeGreaterThan(0)
+    expect(stats.estimatedMemoryBytes).toBeGreaterThan(0)
     expect(stats.documentCount).toBe(1)
   })
 

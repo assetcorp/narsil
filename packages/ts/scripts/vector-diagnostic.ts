@@ -64,7 +64,7 @@ function recall(truth: string[][], approx: string[][]): number {
     for (const id of approx[i]) {
       if (gt.has(id)) overlap++
     }
-    total += gt.length
+    total += gt.size
   }
   return total > 0 ? overlap / total : 1
 }

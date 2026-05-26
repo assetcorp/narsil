@@ -5,7 +5,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, IndexConfig } from '../../types/schema'
-import { type IndexMetadata, putIndexMetadata, validateIndexName } from '../cluster/index-metadata'
+import { type IndexMetadata, MAX_PARTITION_COUNT, putIndexMetadata, validateIndexName } from '../cluster/index-metadata'
 import type { AllocationConstraints, ClusterCoordinator } from '../coordinator/types'
 import { createForwardMessage } from '../replication/codec'
 import type { ForwardPayload, NodeTransport } from '../transport/types'
@@ -20,7 +20,6 @@ export interface WriteRoutingDeps {
   resolveNodeTargets?: (nodeId: string) => Promise<string[]>
 }
 
-const MAX_PARTITION_COUNT = 65_536
 const MAX_REPLICATION_FACTOR = 255
 
 function validateCreateIndexOptions(partitionCount: number, replicationFactor: number): void {

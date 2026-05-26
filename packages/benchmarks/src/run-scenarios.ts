@@ -1,8 +1,7 @@
-import { writeFileSync } from 'node:fs'
 import os from 'node:os'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import type { Narsil } from '@delali/narsil'
+import { writeJsonAtomicSync } from './runner/atomic-write'
+import { prepareRunArtifact } from './runner/run-paths'
 import { runIncrementalInsert } from './scenarios/incremental-insert'
 import { runMemoryAccuracy } from './scenarios/memory-accuracy'
 import { runMixedWorkload } from './scenarios/mixed-workload'
@@ -12,8 +11,6 @@ import { runVectorLifecycle } from './scenarios/vector-lifecycle'
 import { runWorkerPromotion } from './scenarios/worker-promotion'
 import { fmt, getPackageVersion, median, percentile } from './stats'
 import type { ScenarioOutput, ScenarioResult } from './types'
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
 
 export async function measureSearchBatch(
   instance: Narsil,
@@ -112,13 +109,20 @@ async function main() {
     { name: 'Incremental Insert Degradation', fn: runIncrementalInsert },
   ]
 
-  const results: ScenarioResult[] = []
+  const { runDir, artifactPath: outputPath } = prepareRunArtifact('scenarios')
+  console.log(`Run folder: ${runDir}`)
+  const output: ScenarioOutput = {
+    env,
+    timestamp: new Date().toISOString(),
+    scenarios: [],
+  }
+  writeJsonAtomicSync(outputPath, output)
 
   for (const scenario of scenarios) {
     console.log(`\n## ${scenario.name}\n`)
     try {
       const result = await scenario.fn()
-      results.push(result)
+      output.scenarios.push(result)
 
       if (result.comparisons && result.comparisons.length > 0) {
         printComparisonTable(result)
@@ -129,21 +133,21 @@ async function main() {
 
       console.log(`\n  completed in ${(result.durationMs / 1000).toFixed(1)}s`)
     } catch (err) {
-      console.error(`  ERROR: ${err instanceof Error ? err.message : err}`)
-      if (err instanceof Error && err.stack) {
-        console.error(`  ${err.stack.split('\n').slice(1, 4).join('\n  ')}`)
-      }
+      const message = err instanceof Error ? err.message : String(err)
+      const stack = err instanceof Error && err.stack ? err.stack.split('\n').slice(1, 4).join('\n  ') : ''
+      console.error(`  ERROR: ${message}`)
+      if (stack.length > 0) console.error(`  ${stack}`)
+      output.scenarios.push({
+        name: scenario.name,
+        description: 'scenario failed before completion',
+        config: {},
+        durationMs: 0,
+        comparisons: [{ label: 'error', metrics: { code: 'scenario-threw', message } }],
+      })
     }
+    writeJsonAtomicSync(outputPath, output)
   }
 
-  const output: ScenarioOutput = {
-    env,
-    timestamp: new Date().toISOString(),
-    scenarios: results,
-  }
-
-  const outputPath = resolve(__dirname, '..', 'scenario-results.json')
-  writeFileSync(outputPath, JSON.stringify(output, null, 2))
   console.log(`\nResults saved to ${outputPath}`)
 }
 
