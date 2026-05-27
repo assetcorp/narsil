@@ -37,6 +37,33 @@ function collectNodeCounts(table: AllocationTable): Map<string, number> {
   return counts
 }
 
+function activateTable(table: AllocationTable): AllocationTable {
+  const assignments = new Map<number, PartitionAssignment>()
+
+  for (const [partitionId, assignment] of table.assignments) {
+    if (assignment.primary === null) {
+      assignments.set(partitionId, {
+        ...assignment,
+        replicas: [],
+        inSyncSet: [],
+        state: 'UNASSIGNED',
+      })
+      continue
+    }
+
+    assignments.set(partitionId, {
+      ...assignment,
+      inSyncSet: [assignment.primary, ...assignment.replicas],
+      state: 'ACTIVE',
+    })
+  }
+
+  return {
+    ...table,
+    assignments,
+  }
+}
+
 describe('rebalance allocation', () => {
   it('redistributes partitions toward a newly added node', () => {
     const initialNodes = [
@@ -61,7 +88,7 @@ describe('rebalance allocation', () => {
       makeNode('node-c', 4_000_000_000),
       makeNode('node-d', 4_000_000_000),
     ]
-    const initialTable = allocate(initialNodes, null, 'products', 8, 1, defaultConstraints).table
+    const initialTable = activateTable(allocate(initialNodes, null, 'products', 8, 1, defaultConstraints).table)
 
     const reducedNodes = [
       makeNode('node-a', 4_000_000_000),
@@ -149,7 +176,13 @@ describe('rebalance allocation', () => {
     const rebalancedTable = allocate(survivingNodes, currentTable, 'products', 1, 1, defaultConstraints).table
 
     const assignment = rebalancedTable.assignments.get(0)
-    expect(assignment?.primary).not.toBeNull()
+    expect(assignment).toMatchObject({
+      primary: null,
+      replicas: [],
+      inSyncSet: [],
+      state: 'UNASSIGNED',
+      primaryTerm: 1,
+    })
   })
 
   it('promotes in-sync replica to primary when primary is lost', () => {
@@ -208,7 +241,7 @@ describe('rebalance allocation', () => {
     expect(assignment?.primary).toBe('node-c')
   })
 
-  it('falls back to out-of-sync replica when no in-sync replica is available', () => {
+  it('leaves partition UNASSIGNED when no in-sync replica is available', () => {
     const assignments = new Map<number, PartitionAssignment>([
       [
         0,
@@ -233,7 +266,13 @@ describe('rebalance allocation', () => {
     const rebalancedTable = allocate(survivingNodes, currentTable, 'products', 1, 1, defaultConstraints).table
 
     const assignment = rebalancedTable.assignments.get(0)
-    expect(assignment?.primary).toBe('node-b')
+    expect(assignment).toMatchObject({
+      primary: null,
+      replicas: [],
+      inSyncSet: [],
+      state: 'UNASSIGNED',
+      primaryTerm: 1,
+    })
   })
 
   it('increments primaryTerm on every primary change', () => {
@@ -272,7 +311,7 @@ describe('rebalance allocation', () => {
       makeNode('node-c', 4_000_000_000),
       makeNode('node-d', 4_000_000_000),
     ]
-    const initialTable = allocate(initialNodes, null, 'products', 8, 1, defaultConstraints).table
+    const initialTable = activateTable(allocate(initialNodes, null, 'products', 8, 1, defaultConstraints).table)
 
     const changedNodes = [
       makeNode('node-a', 4_000_000_000),
@@ -286,8 +325,23 @@ describe('rebalance allocation', () => {
     expect(counts.has('node-d')).toBe(false)
     expect(counts.get('node-e') ?? 0).toBeGreaterThan(0)
 
-    for (const assignment of rebalancedTable.assignments.values()) {
-      expect(assignment.primary).not.toBeNull()
+    const changedNodeIds = new Set(changedNodes.map(node => node.nodeId))
+    for (const [partitionId, before] of initialTable.assignments) {
+      const after = rebalancedTable.assignments.get(partitionId)
+      expect(after).toBeDefined()
+
+      const survivingInSyncHolders = [before.primary, ...before.replicas].filter(
+        (nodeId): nodeId is string =>
+          nodeId !== null && changedNodeIds.has(nodeId) && before.inSyncSet.includes(nodeId),
+      )
+
+      if (survivingInSyncHolders.length === 0) {
+        expect(after?.primary).toBeNull()
+        expect(after?.state).toBe('UNASSIGNED')
+        continue
+      }
+
+      expect(after?.primary).not.toBeNull()
     }
   })
 
@@ -330,7 +384,7 @@ describe('rebalance allocation', () => {
       makeNode('node-b', 4_000_000_000),
       makeNode('node-c', 4_000_000_000),
     ]
-    const initialTable = allocate(initialNodes, null, 'products', 6, 2, defaultConstraints).table
+    const initialTable = activateTable(allocate(initialNodes, null, 'products', 6, 2, defaultConstraints).table)
 
     const reducedNodes = [
       makeNode('node-a', 4_000_000_000),
@@ -347,7 +401,7 @@ describe('rebalance allocation', () => {
     }
   })
 
-  it('redistributes partitions toward the new node after expansion', () => {
+  it('does not directly rebalance primaries onto a newly added non-holder node', () => {
     const nodes = [makeNode('node-a', 4_000_000_000), makeNode('node-b', 4_000_000_000)]
     const initialTable = allocate(nodes, null, 'products', 8, 0, defaultConstraints).table
 
@@ -355,14 +409,12 @@ describe('rebalance allocation', () => {
     const rebalancedTable = allocate(expandedNodes, initialTable, 'products', 8, 0, defaultConstraints).table
 
     const rebalancedCounts = collectNodeCounts(rebalancedTable)
-    expect(rebalancedCounts.size).toBe(3)
+    expect(rebalancedCounts.has('node-c')).toBe(false)
 
-    const countC = rebalancedCounts.get('node-c') ?? 0
-    expect(countC).toBeGreaterThanOrEqual(2)
-
-    for (const count of rebalancedCounts.values()) {
-      expect(count).toBeGreaterThanOrEqual(2)
-      expect(count).toBeLessThanOrEqual(3)
+    for (let i = 0; i < 8; i++) {
+      const before = initialTable.assignments.get(i)
+      const after = rebalancedTable.assignments.get(i)
+      expect(after?.primary).toBe(before?.primary)
     }
   })
 })
