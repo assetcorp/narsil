@@ -86,6 +86,7 @@ describe('ErrorCodes', () => {
   it('has replication error codes', () => {
     expect(ErrorCodes.REPLICATION_ENTRY_INVALID).toBe('REPLICATION_ENTRY_INVALID')
     expect(ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED).toBe('REPLICATION_INSYNC_REMOVAL_FAILED')
+    expect(ErrorCodes.REPLICATION_ROLLBACK_FAILED).toBe('REPLICATION_ROLLBACK_FAILED')
   })
 
   it('has all expected snapshot sync error codes', () => {
@@ -117,8 +118,8 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.SNAPSHOT_SYNC_ABORTED).toBe('SNAPSHOT_SYNC_ABORTED')
   })
 
-  it('has exactly 77 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(77)
+  it('has exactly 78 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(78)
   })
 
   it('has unique values for every code', () => {

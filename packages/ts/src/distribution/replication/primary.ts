@@ -1,6 +1,7 @@
+import { decode } from '@msgpack/msgpack'
 import type { NodeTransport, TransportMessage } from '../transport/types'
 import { ReplicationMessageTypes, TransportError } from '../transport/types'
-import { createEntryMessage } from './codec'
+import { createEntryMessage, validateAckPayload } from './codec'
 import type { ReplicateResult, ReplicationLogEntry } from './types'
 
 export async function replicateToReplicas(
@@ -37,7 +38,7 @@ export async function replicateToReplicas(
     }
 
     const response = result.value
-    if (response.type === ReplicationMessageTypes.ACK) {
+    if (isMatchingAck(response, entry)) {
       acknowledged.push(replicaNodeId)
     } else {
       failed.push(replicaNodeId)
@@ -66,4 +67,21 @@ async function sendToReplica(
   }
 
   throw lastError instanceof Error ? lastError : new Error(String(lastError))
+}
+
+function isMatchingAck(response: TransportMessage, entry: ReplicationLogEntry): boolean {
+  if (response.type !== ReplicationMessageTypes.ACK) {
+    return false
+  }
+
+  try {
+    const payload = validateAckPayload(decode(response.payload))
+    return (
+      payload.seqNo === entry.seqNo &&
+      payload.partitionId === entry.partitionId &&
+      payload.indexName === entry.indexName
+    )
+  } catch {
+    return false
+  }
 }

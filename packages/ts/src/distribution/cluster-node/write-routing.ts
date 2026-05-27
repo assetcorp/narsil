@@ -254,6 +254,109 @@ function getInSyncReplicaTargets(assignment: PartitionAssignment, localNodeId: s
   return targets
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function throwWriteFailure(error: unknown): never {
+  if (error instanceof Error) {
+    throw error
+  }
+  throw new Error(String(error))
+}
+
+function createRollbackFailure(
+  operation: 'insert' | 'remove',
+  indexName: string,
+  partitionId: number,
+  documentId: string,
+  originalError: unknown,
+  rollbackError: unknown,
+): NarsilError {
+  return new NarsilError(
+    ErrorCodes.REPLICATION_ROLLBACK_FAILED,
+    `Primary ${operation} for document '${documentId}' in index '${indexName}' failed before acknowledgement and local rollback also failed`,
+    {
+      operation,
+      indexName,
+      partitionId,
+      documentId,
+      originalError: errorMessage(originalError),
+      rollbackError: errorMessage(rollbackError),
+    },
+  )
+}
+
+async function rollbackPrimaryInsert(
+  indexName: string,
+  partitionId: number,
+  documentId: string,
+  originalError: unknown,
+  deps: WriteRoutingDeps,
+): Promise<never> {
+  try {
+    await deps.engine.remove(indexName, documentId)
+  } catch (rollbackError) {
+    if (!(rollbackError instanceof NarsilError && rollbackError.code === ErrorCodes.DOC_NOT_FOUND)) {
+      throw createRollbackFailure('insert', indexName, partitionId, documentId, originalError, rollbackError)
+    }
+  }
+
+  throwWriteFailure(originalError)
+}
+
+async function rollbackPrimaryRemove(
+  indexName: string,
+  partitionId: number,
+  documentId: string,
+  previousDocument: AnyDocument | undefined,
+  originalError: unknown,
+  deps: WriteRoutingDeps,
+): Promise<never> {
+  if (previousDocument === undefined) {
+    throw createRollbackFailure(
+      'remove',
+      indexName,
+      partitionId,
+      documentId,
+      originalError,
+      new Error('No local document snapshot was available for restore'),
+    )
+  }
+
+  try {
+    await deps.engine.insert(indexName, previousDocument, documentId)
+  } catch (rollbackError) {
+    throw createRollbackFailure('remove', indexName, partitionId, documentId, originalError, rollbackError)
+  }
+
+  throwWriteFailure(originalError)
+}
+
+async function assertPrimaryWriteAuthority(entry: ReplicationLogEntry, deps: WriteRoutingDeps): Promise<void> {
+  const table = await deps.coordinator.getAllocation(entry.indexName)
+  const currentAssignment = table?.assignments.get(entry.partitionId)
+  const currentPrimaryNodeId = currentAssignment?.primary ?? null
+  const currentPrimaryTerm = currentAssignment?.primaryTerm ?? null
+
+  if (currentPrimaryNodeId === deps.nodeId && currentPrimaryTerm === entry.primaryTerm) {
+    return
+  }
+
+  throw new NarsilError(
+    ErrorCodes.QUERY_ROUTING_FAILED,
+    `Primary authority changed before acknowledging write for index '${entry.indexName}' partition ${entry.partitionId}`,
+    {
+      indexName: entry.indexName,
+      partitionId: entry.partitionId,
+      localNodeId: deps.nodeId,
+      expectedPrimaryTerm: entry.primaryTerm,
+      currentPrimaryNodeId,
+      currentPrimaryTerm,
+    },
+  )
+}
+
 function appendIndexReplicationEntry(
   indexName: string,
   partitionId: number,
@@ -368,6 +471,7 @@ async function replicateEntry(
   const replicaTargets = getInSyncReplicaTargets(assignment, deps.nodeId)
   const result = await replicateToReplicas(entry, replicaTargets, deps.transport, deps.nodeId, deps.resolveNodeTargets)
   await removeFailedReplicasFromInsync(entry, result.failed, deps)
+  await assertPrimaryWriteAuthority(entry, deps)
 }
 
 async function applyPrimaryInsert(
@@ -389,8 +493,12 @@ async function applyPrimaryInsert(
     )
   }
 
-  const entry = appendIndexReplicationEntry(indexName, partitionId, assignment, insertedDocId, storedDocument, deps)
-  await replicateEntry(entry, assignment, deps)
+  try {
+    const entry = appendIndexReplicationEntry(indexName, partitionId, assignment, insertedDocId, storedDocument, deps)
+    await replicateEntry(entry, assignment, deps)
+  } catch (error) {
+    await rollbackPrimaryInsert(indexName, partitionId, insertedDocId, error, deps)
+  }
 
   return insertedDocId
 }
@@ -402,9 +510,14 @@ async function applyPrimaryRemove(
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
 ): Promise<void> {
+  const previousDocument = await deps.engine.get(indexName, docId)
   await deps.engine.remove(indexName, docId)
-  const entry = appendDeleteReplicationEntry(indexName, partitionId, assignment, docId, deps)
-  await replicateEntry(entry, assignment, deps)
+  try {
+    const entry = appendDeleteReplicationEntry(indexName, partitionId, assignment, docId, deps)
+    await replicateEntry(entry, assignment, deps)
+  } catch (error) {
+    await rollbackPrimaryRemove(indexName, partitionId, docId, previousDocument, error, deps)
+  }
 }
 
 export async function applyForwardedWrite(payload: ForwardPayload, deps: WriteRoutingDeps): Promise<string> {
