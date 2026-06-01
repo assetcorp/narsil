@@ -17,7 +17,7 @@ import { selectReplica } from '../query/selection'
 import type { DistributedQueryResult } from '../query/types'
 import { createReplicationLog } from '../replication/log'
 import type { ReplicationLog } from '../replication/types'
-import type { FetchDocumentId, ReplicationSnapshotHeader, TransportMessage } from '../transport/types'
+import type { FetchDocumentId, TransportMessage } from '../transport/types'
 import { cleanupRemovedPartition } from './bootstrap-cleanup'
 import {
   clearBootstrapSyncIndex,
@@ -112,7 +112,10 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
           transport: config.transport,
           sourceNodeId: nodeId,
           resolveNodeTargets,
-          onSnapshotApplied: seedReplicationLogFromSnapshot,
+          getReplicationLog,
+          resetReplicationLog: seedReplicationLog,
+          applyReplicationEntry: engine.applyReplicationEntry,
+          restoreReplicationPartition: engine.restoreReplicationPartition,
           onError: forwardOnError,
         }),
       onRemovePartition: (indexName: string, partitionId: number) => {
@@ -310,19 +313,11 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     return log
   }
 
-  function seedReplicationLog(indexName: string, partitionId: number, startSeqNo: number): void {
-    replicationLogs.set(replicationLogKey(indexName, partitionId), createReplicationLog(partitionId, { startSeqNo }))
-  }
-
-  function seedReplicationLogFromSnapshot(
-    indexName: string,
-    partitionId: number,
-    header: ReplicationSnapshotHeader,
-  ): void {
-    if (header.partitionId !== partitionId || header.lastSeqNo < 0) {
-      return
-    }
-    seedReplicationLog(indexName, partitionId, header.lastSeqNo + 1)
+  function seedReplicationLog(indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm = 0): void {
+    replicationLogs.set(
+      replicationLogKey(indexName, partitionId),
+      createReplicationLog(partitionId, { startSeqNo, lastPrimaryTerm }),
+    )
   }
 
   async function resolveSnapshotHeaderMetadata(indexName: string, partitionId: number | null) {

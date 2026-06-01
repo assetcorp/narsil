@@ -113,6 +113,41 @@ describe('DataNodeLifecycle bootstrap completion reporting and validation', () =
       }
     })
 
+    it('does not report bootstrap_complete when partition sync returns false', async () => {
+      await coordinator.registerNode(makeNode('data-1'))
+      await coordinator.registerNode(makeNode('primary-node'))
+
+      const assignments = new Map<number, PartitionAssignment>()
+      assignments.set(
+        0,
+        makeAssignment({
+          primary: 'primary-node',
+          replicas: ['data-1'],
+          state: 'INITIALISING',
+        }),
+      )
+      await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
+
+      await startController(['products'])
+
+      const bootstrapFn = vi.fn().mockResolvedValue(false)
+      createLifecycle({ knownIndexNames: ['products'], onBootstrapPartition: bootstrapFn })
+      if (lifecycle === undefined) throw new Error('lifecycle not initialised')
+      await lifecycle.join()
+
+      await flushPromises()
+      await flushPromises()
+
+      vi.advanceTimersByTime(DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs + 10)
+      await flushPromises()
+      await flushPromises()
+
+      const table = await coordinator.getAllocation('products')
+      const assignment = table?.assignments.get(0)
+      expect(assignment?.state).toBe('INITIALISING')
+      expect(assignment?.inSyncSet).not.toContain('data-1')
+    })
+
     it('controller rejects bootstrap_complete for unassigned node', async () => {
       await coordinator.registerNode(makeNode('primary-node'))
 

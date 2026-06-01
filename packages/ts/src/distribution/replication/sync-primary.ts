@@ -27,7 +27,10 @@ export interface SyncPrimaryDeps {
 export function decideSyncTier(log: ReplicationLog, replicaLastSeqNo: number): 'incremental' | 'snapshot' {
   const oldest = log.oldestSeqNo
   if (oldest === undefined) {
-    return replicaLastSeqNo === 0 ? 'incremental' : 'snapshot'
+    if (log.committedSeqNo === 0) {
+      return replicaLastSeqNo === 0 ? 'incremental' : 'snapshot'
+    }
+    return replicaLastSeqNo >= log.committedSeqNo ? 'incremental' : 'snapshot'
   }
   if (oldest <= replicaLastSeqNo + 1) {
     return 'incremental'
@@ -69,7 +72,7 @@ function buildIncrementalResponse(request: SyncRequestPayload, deps: SyncPrimary
 function buildSnapshotStartResponse(deps: SyncPrimaryDeps): SyncRequestResult {
   const snapshotBytes = deps.manager.serializePartitionToBytes(deps.partitionId)
   const checksum = crc32(snapshotBytes)
-  const newestSeqNo = deps.log.newestSeqNo ?? 0
+  const newestSeqNo = deps.log.committedSeqNo
 
   const header: ReplicationSnapshotHeader = {
     lastSeqNo: newestSeqNo,
@@ -102,7 +105,7 @@ export function handleSnapshotStream(
 ): void {
   const snapshotBytes = preSerializedBytes ?? deps.manager.serializePartitionToBytes(deps.partitionId)
   const checksum = crc32(snapshotBytes)
-  const snapshotSeqNo = deps.log.newestSeqNo ?? 0
+  const snapshotSeqNo = deps.log.committedSeqNo
 
   let offset = 0
   while (offset < snapshotBytes.byteLength) {

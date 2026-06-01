@@ -22,7 +22,7 @@ export interface WriteRoutingDeps {
   engine: Narsil
   transport: NodeTransport
   getReplicationLog: (indexName: string, partitionId: number) => ReplicationLog
-  resetReplicationLog: (indexName: string, partitionId: number, startSeqNo: number) => void
+  resetReplicationLog: (indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm?: number) => void
   resolveNodeTargets?: (nodeId: string) => Promise<string[]>
 }
 
