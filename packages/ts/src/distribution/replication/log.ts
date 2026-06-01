@@ -31,10 +31,12 @@ function computeChecksum(entry: Omit<ReplicationLogEntry, 'checksum'>): number {
 
 export function createReplicationLog(
   partitionId: number,
-  config?: Partial<ReplicationConfig & { startSeqNo: number }>,
+  config?: Partial<ReplicationConfig & { startSeqNo: number; lastPrimaryTerm: number }>,
 ): ReplicationLog {
   const retentionBytes = config?.logRetentionBytes ?? DEFAULT_LOG_RETENTION_BYTES
   let nextSeqNo = config?.startSeqNo ?? 1
+  let committedSeqNo = nextSeqNo - 1
+  let committedPrimaryTerm = config?.lastPrimaryTerm ?? 0
   let entries: ReplicationLogEntry[] = []
   let headIndex = 0
   let totalSizeBytes = 0
@@ -83,6 +85,10 @@ export function createReplicationLog(
 
   function storeEntry(entry: ReplicationLogEntry): ReplicationLogEntry {
     entries.push(entry)
+    if (entry.seqNo >= committedSeqNo) {
+      committedSeqNo = entry.seqNo
+      committedPrimaryTerm = entry.primaryTerm
+    }
     totalSizeBytes += estimateEntrySize(entry)
     evictOldEntries()
     return { ...entry }
@@ -198,6 +204,14 @@ export function createReplicationLog(
       return verifyEntryChecksum(entry)
     },
 
+    get committedSeqNo(): number {
+      return committedSeqNo
+    },
+
+    get committedPrimaryTerm(): number {
+      return committedPrimaryTerm
+    },
+
     get oldestSeqNo(): number | undefined {
       if (liveCount() === 0) return undefined
       return entries[headIndex].seqNo
@@ -220,6 +234,7 @@ export function createReplicationLog(
       entries = []
       headIndex = 0
       totalSizeBytes = 0
+      committedSeqNo = nextSeqNo - 1
     },
   }
 }

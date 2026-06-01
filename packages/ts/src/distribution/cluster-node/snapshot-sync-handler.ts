@@ -151,6 +151,14 @@ export interface SnapshotSyncHandlerDeps {
   resolveHeaderMetadata?: SnapshotHeaderMetadataProvider
 }
 
+export interface SnapshotSyncStreamOptions {
+  metadata?: SnapshotHeaderMetadata
+  closeOnEnd?: boolean
+  afterSnapshot?: (sink: SingleResponseSink) => void | Promise<void>
+  disableBuildCache?: boolean
+  buildSnapshot?: (indexName: string) => Promise<SnapshotBuildResult> | SnapshotBuildResult
+}
+
 export async function handleSnapshotSyncRequest(
   message: TransportMessage,
   respond: (response: TransportMessage) => void,
@@ -186,6 +194,16 @@ async function runSnapshotSyncRequest(
     return
   }
 
+  await streamValidatedSnapshotRequest(message, sink, request, deps)
+}
+
+export async function streamValidatedSnapshotRequest(
+  message: TransportMessage,
+  sink: SingleResponseSink,
+  request: SnapshotSyncRequestPayload,
+  deps: SnapshotSyncHandlerDeps,
+  options: SnapshotSyncStreamOptions = {},
+): Promise<void> {
   const sourceIdError = validateSourceId(message.sourceId)
   if (sourceIdError !== null) {
     respondError(sink, deps.nodeId, message.requestId, ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID, sourceIdError)
@@ -210,7 +228,7 @@ async function runSnapshotSyncRequest(
     return
   }
 
-  await acquireAndStream(message, sink, request, deps)
+  await acquireAndStream(message, sink, request, deps, options)
 }
 
 function decodeRequest(
@@ -247,6 +265,7 @@ async function acquireAndStream(
   sink: SingleResponseSink,
   request: SnapshotSyncRequestPayload,
   deps: SnapshotSyncHandlerDeps,
+  options: SnapshotSyncStreamOptions,
 ): Promise<void> {
   const { indexName } = request
   let sourceHandle: SourceSlotHandle
@@ -262,7 +281,11 @@ async function acquireAndStream(
   try {
     let build: SnapshotBuildResult
     try {
-      build = await acquireSnapshotBuild(deps.state, indexName, async () => buildSnapshot(deps, indexName))
+      const buildForRequest = async () => buildSnapshotForRequest(deps, indexName, options)
+      build =
+        options.disableBuildCache === true
+          ? await buildForRequest()
+          : await acquireSnapshotBuild(deps.state, indexName, buildForRequest)
     } catch (err) {
       const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_SNAPSHOT_FAILED
       const errMessage = err instanceof Error ? err.message : String(err)
@@ -292,8 +315,14 @@ async function acquireAndStream(
     }
 
     try {
-      const metadata = await resolveHeaderMetadata(deps, indexName, request.partitionId ?? null)
-      await streamSnapshotToReplica(sink, deps.nodeId, message.requestId, indexName, build, metadata)
+      const metadata = options.metadata ?? (await resolveHeaderMetadata(deps, indexName, request.partitionId ?? null))
+      await streamSnapshotToReplica(sink, deps.nodeId, message.requestId, indexName, build, metadata, {
+        closeOnEnd: options.closeOnEnd,
+      })
+      await options.afterSnapshot?.(sink)
+      if (options.closeOnEnd === false) {
+        sink.closed = true
+      }
     } finally {
       releaseStreamSlot(deps.state, streamHandle)
     }
@@ -318,6 +347,17 @@ async function buildSnapshot(deps: SnapshotSyncHandlerDeps, indexName: string): 
   }
   const checksum = bytes.byteLength <= MAX_SNAPSHOT_SIZE_BYTES ? crc32(bytes) : 0
   return { bytes, checksum }
+}
+
+function buildSnapshotForRequest(
+  deps: SnapshotSyncHandlerDeps,
+  indexName: string,
+  options: SnapshotSyncStreamOptions,
+): Promise<SnapshotBuildResult> | SnapshotBuildResult {
+  if (options.buildSnapshot !== undefined) {
+    return options.buildSnapshot(indexName)
+  }
+  return buildSnapshot(deps, indexName)
 }
 
 async function resolveHeaderMetadata(

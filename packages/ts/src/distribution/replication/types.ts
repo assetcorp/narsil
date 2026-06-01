@@ -22,6 +22,8 @@ export interface ReplicationLog {
   getEntriesFrom(fromSeqNo: number): ReplicationLogEntry[]
   getEntry(seqNo: number): ReplicationLogEntry | undefined
   verifyChecksum(entry: ReplicationLogEntry): boolean
+  readonly committedSeqNo: number
+  readonly committedPrimaryTerm: number
   readonly oldestSeqNo: number | undefined
   readonly newestSeqNo: number | undefined
   readonly entryCount: number
