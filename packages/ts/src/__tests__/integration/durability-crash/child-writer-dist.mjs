@@ -1,12 +1,11 @@
-import { createNarsil } from '../../../narsil'
-import type { IndexConfig } from '../../../types/schema'
+import { createNarsil } from '../../../../dist/index.mjs'
 
-const SCHEMA: IndexConfig = {
+const SCHEMA = {
   schema: { title: 'string', year: 'number' },
   language: 'english',
 }
 
-async function main(): Promise<void> {
+async function main() {
   const directory = process.env.NARSIL_WAL_DIR
   if (directory === undefined) {
     process.stderr.write('missing NARSIL_WAL_DIR\n')
@@ -39,7 +38,7 @@ async function main(): Promise<void> {
     return
   }
 
-  await new Promise<void>(() => undefined)
+  await new Promise(() => undefined)
 }
 
 main().catch(err => {

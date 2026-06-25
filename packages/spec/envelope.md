@@ -384,6 +384,7 @@ Persistence adapters use string keys that map to storage locations:
 | `<indexName>/vector/<fieldName>`         | Vector index data             |
 | `<indexName>/snapshot`                   | Durability checkpoint bundle  |
 | `<indexName>/wal/<partitionId>/<seqNo>`  | WAL segment (durability)      |
+| `<indexName>/wal/<partitionId>/commit`   | WAL commit marker (durability) |
 
 For filesystem adapters, keys map to file paths:
 `data/<indexName>/partition_0.nrsl`,

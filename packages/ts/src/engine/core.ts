@@ -5,18 +5,17 @@ import type { PartitionManager } from '../partitioning/manager'
 import { createRebalancer, type Rebalancer } from '../partitioning/rebalancer'
 import { createPartitionRouter, type PartitionRouter } from '../partitioning/router'
 import type { createWriteAheadQueue, WAQEntry } from '../partitioning/write-ahead-queue'
-import { createFlushManager, type FlushManager } from '../persistence/flush-manager'
 import { createPluginRegistry, type PluginRegistry } from '../plugins/registry'
 import { extractVectorFieldsFromSchema, flattenSchema } from '../schema/validator'
 import type { EmbeddingAdapter } from '../types/adapters'
-import type { DurabilityConfig, NarsilConfig } from '../types/config'
+import type { NarsilConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig, SchemaDefinition } from '../types/schema'
 import { createDirectExecutor, type DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
 import { createExecutionPromoter, type ExecutionPromoter } from '../workers/promoter'
-import { createDurabilityIntegration, type DurabilityIntegration } from './durability-integration'
+import { createDurabilityIntegration, type DurabilityIntegration, type DurabilityTier } from './durability-integration'
 import type { MutationContext } from './mutations'
 import { createWorkerOrchestrator, type WorkerOrchestrator } from './orchestration'
 import type { RebalanceContext } from './rebalance-executor'
@@ -39,7 +38,6 @@ export interface EngineCore {
   readonly executor: Executor & DirectExecutorExtensions
   readonly promoter: ExecutionPromoter
   readonly pluginRegistry: PluginRegistry
-  readonly flushManager: FlushManager | null
   readonly durability: DurabilityIntegration | null
   readonly idGenerator: () => string
   readonly indexRegistry: Map<string, IndexRegistryEntry>
@@ -64,18 +62,43 @@ export function getVectorFieldPaths(schema: SchemaDefinition): Set<string> {
   return new Set(extractVectorFieldsFromSchema(schema).keys())
 }
 
-function deriveDurabilityDirectory(durability: DurabilityConfig, config: NarsilConfig): string {
-  if (durability.directory !== undefined && durability.directory.trim().length > 0) {
-    return durability.directory
-  }
+function filesystemBackedDirectory(config: NarsilConfig): string | null {
   const adapterDirectory = config.persistence?.directory
   if (adapterDirectory !== undefined && adapterDirectory.trim().length > 0) {
     return adapterDirectory
   }
-  throw new NarsilError(
-    ErrorCodes.CONFIG_INVALID,
-    'Durability requires a directory. Set durability.directory explicitly, or configure a persistence adapter that exposes a real filesystem path',
-  )
+  return null
+}
+
+function resolveDurabilityTier(config: NarsilConfig): DurabilityTier | null {
+  const filesystemDirectory = filesystemBackedDirectory(config)
+
+  if (config.durability) {
+    if (config.durability.directory !== undefined && config.durability.directory.trim().length > 0) {
+      return { kind: 'wal', config: { ...config.durability } }
+    }
+    if (filesystemDirectory !== null) {
+      return { kind: 'wal', config: { ...config.durability, directory: filesystemDirectory } }
+    }
+    if (config.persistence !== undefined) {
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        'WAL durability requires a filesystem directory, but the configured persistence adapter is not filesystem-backed. Use a filesystem persistence adapter or set durability.directory',
+      )
+    }
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      'Durability requires a directory. Set durability.directory explicitly, or configure a filesystem persistence adapter',
+    )
+  }
+
+  if (config.persistence === undefined) {
+    return null
+  }
+  if (filesystemDirectory !== null) {
+    return { kind: 'wal', config: { directory: filesystemDirectory } }
+  }
+  return { kind: 'snapshot', config: {}, adapter: config.persistence }
 }
 
 interface DurabilityWiring {
@@ -89,34 +112,34 @@ function createDurabilityFromConfig(
   config: NarsilConfig | undefined,
   wiring: DurabilityWiring,
 ): DurabilityIntegration | null {
-  if (!config?.durability) {
+  if (config === undefined) {
     return null
   }
-  const directory = deriveDurabilityDirectory(config.durability, config)
+  const tier = resolveDurabilityTier(config)
+  if (tier === null) {
+    return null
+  }
 
-  return createDurabilityIntegration(
-    { ...config.durability, directory },
-    {
-      getManager: indexName => (wiring.indexRegistry.has(indexName) ? wiring.requireManager(indexName) : undefined),
-      getVectorFieldPaths: indexName => wiring.indexRegistry.get(indexName)?.vectorFieldPaths ?? new Set<string>(),
-      getVectorIndexes: indexName =>
-        wiring.indexRegistry.has(indexName) ? wiring.requireManager(indexName).getVectorIndexes() : new Map(),
-      getIndexConfig: indexName => {
-        const entry = wiring.indexRegistry.get(indexName)
-        if (entry === undefined) {
-          return undefined
-        }
-        return {
-          schema: flattenSchema(entry.config.schema) as Record<string, string>,
-          language: entry.language.name,
-          k1: entry.config.bm25?.k1 ?? 1.2,
-          b: entry.config.bm25?.b ?? 0.75,
-        }
-      },
-      createIndexFromMetadata: wiring.createIndexFromMetadata,
-      onFatalError: wiring.emitFatalError,
+  return createDurabilityIntegration(tier, {
+    getManager: indexName => (wiring.indexRegistry.has(indexName) ? wiring.requireManager(indexName) : undefined),
+    getVectorFieldPaths: indexName => wiring.indexRegistry.get(indexName)?.vectorFieldPaths ?? new Set<string>(),
+    getVectorIndexes: indexName =>
+      wiring.indexRegistry.has(indexName) ? wiring.requireManager(indexName).getVectorIndexes() : new Map(),
+    getIndexConfig: indexName => {
+      const entry = wiring.indexRegistry.get(indexName)
+      if (entry === undefined) {
+        return undefined
+      }
+      return {
+        schema: flattenSchema(entry.config.schema) as Record<string, string>,
+        language: entry.language.name,
+        k1: entry.config.bm25?.k1 ?? 1.2,
+        b: entry.config.bm25?.b ?? 0.75,
+      }
     },
-  )
+    createIndexFromMetadata: wiring.createIndexFromMetadata,
+    onFatalError: wiring.emitFatalError,
+  })
 }
 
 export function createEngineCore(config?: NarsilConfig): EngineCore {
@@ -129,25 +152,6 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
   const pluginRegistry: PluginRegistry = createPluginRegistry()
   if (config?.plugins) {
     for (const plugin of config.plugins) pluginRegistry.register(plugin)
-  }
-
-  let flushManager: FlushManager | null = null
-  if (config?.persistence) {
-    const noopInvalidation = config.invalidation ?? {
-      publish: async () => {},
-      subscribe: async () => {},
-      shutdown: async () => {},
-    }
-    flushManager = createFlushManager(
-      {
-        persistence: config.persistence,
-        invalidation: noopInvalidation,
-        interval: config.flush?.interval,
-        mutationThreshold: config.flush?.mutationThreshold,
-      },
-      () => new Uint8Array(0),
-      () => 'instance-0',
-    )
   }
 
   const idGenerator = config?.idGenerator ?? generateId
@@ -232,7 +236,6 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
   const mutationCtx: MutationContext = {
     executor,
     pluginRegistry,
-    flushManager,
     durability,
     orchestrator,
     idGenerator,
@@ -257,7 +260,6 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     executor,
     promoter,
     pluginRegistry,
-    flushManager,
     durability,
     idGenerator,
     indexRegistry,

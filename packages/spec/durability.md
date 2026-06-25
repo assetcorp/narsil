@@ -5,7 +5,9 @@ restores its data on restart. Durability rests on two artefacts: a
 periodic **snapshot** (the checkpoint) and a **write-ahead log**
 (the WAL) of every mutation since that checkpoint. On restart, a node
 loads the snapshot and replays the WAL records the snapshot does not
-already contain.
+already contain. A filesystem deployment gets this full guarantee. A
+non-filesystem persistence backend gets a weaker snapshot-only
+guarantee, defined in [Snapshot-Only Persistence](#snapshot-only-persistence).
 
 The WAL record is the same entry the replication protocol uses (see
 [distribution/replication.md](distribution/replication.md)). There is
@@ -21,7 +23,13 @@ and write these formats identically.
 
 ## Model
 
-A Narsil node holds its index in memory. Durability comes from:
+A Narsil node holds its index in memory. Persistence has two tiers, and
+each publishes a different guarantee.
+
+### Tier 1: WAL durability (filesystem)
+
+The strong tier combines a periodic **snapshot** with a **write-ahead
+log**.
 
 - **Snapshot (checkpoint):** the full index state at a point in time,
   written atomically as a `.nrsl` envelope (see
@@ -29,9 +37,21 @@ A Narsil node holds its index in memory. Durability comes from:
 - **WAL:** an append-only, per-partition log of mutations. A mutation
   is made durable in the WAL before the write is acknowledged.
 
-Recovery loads the latest snapshot, then replays WAL records whose
+Recovery loads the latest snapshot, then replays the WAL records whose
 sequence number is greater than the snapshot's recorded checkpoint
-position.
+position. This tier requires a real filesystem, because it relies on
+append, fsync, and atomic rename. Its guarantee is that no acknowledged
+write is lost (see [Durability Modes](#durability-modes)).
+
+### Tier 2: snapshot-only persistence (any backend)
+
+A `PersistenceAdapter` that is not filesystem-backed cannot run a WAL,
+because a key-to-bytes interface expresses neither append nor fsync.
+These backends persist periodic snapshots only. Recovery restores the
+last snapshot and there is no log to replay. The guarantee is that the
+index is durable up to the last snapshot, so a crash loses every write
+since that snapshot. See
+[Snapshot-Only Persistence](#snapshot-only-persistence).
 
 ---
 
@@ -46,22 +66,22 @@ position.
   MessagePack payload.
 - **Checksum:** CRC32 with the IEEE polynomial, as defined in
   [algorithms.md](algorithms.md#crc32). The same algorithm is used for
-  the envelope checksum, the WAL frame checksum, and the log entry
-  checksum.
+  the envelope checksum, the WAL frame checksum, the commit marker
+  checksum, and the log entry checksum.
 
 ---
 
 ## Durability Modes
 
-A node runs in one of two durability modes. The mode determines the
+WAL durability runs in one of two modes. The mode determines the
 guarantee a node may publish.
 
 ### sync (default)
 
-A write is acknowledged only after its WAL record has been made
-durable by an fsync. Concurrent writes that arrive while an fsync is in
-flight share the next fsync (group commit), so fsync cost is amortised
-without weakening the guarantee.
+A write is acknowledged only after its WAL record and the commit marker
+have been made durable by fsync. Concurrent writes that arrive while an
+fsync is in flight share the next fsync (group commit), so fsync cost is
+amortised without weakening the guarantee.
 
 **Guarantee:** no acknowledged write is lost on process crash or power
 loss, subject to the platform fsync semantics in
@@ -107,8 +127,7 @@ The WAL for a partition is a sequence of append-only **segment** files.
 
 Because segments are append-only and deleted whole, never overwritten
 in place, a reader can never encounter a stale leftover record from a
-previous use of the same bytes. Sequence-number monotonicity (below) is
-the additional guard.
+previous use of the same bytes.
 
 ### Segment header (8 bytes)
 
@@ -141,35 +160,92 @@ Offset  Size  Type      Field          Description
 - `payload` is the MessagePack encoding of the `ReplicationLogEntry`
   exactly as defined in [replication.md](distribution/replication.md),
   including the entry's own `checksum` field.
-- `frame_crc32` is computed over the `payload` bytes only. It is the
-  on-disk torn-write guard. The entry's own `checksum` field carries
-  logical integrity for cross-node transfer; the frame checksum carries
-  on-disk integrity. Both use CRC32 (IEEE).
+- `frame_crc32` is computed over the `payload` bytes only. The entry's
+  own `checksum` field carries logical integrity for cross-node
+  transfer; the frame checksum carries on-disk integrity. Both use CRC32
+  (IEEE).
 
-### Reading and the torn-tail rule
+### Segment commit marker
 
-Recovery reads records sequentially from the end of the segment header:
+A reader must not trust a record's `record_length` to find where the
+durable region of a segment ends, because a corrupt length would point
+the reader to the wrong place and risk silently dropping acknowledged
+records. Each partition therefore keeps a small **commit marker** that
+records, after every durable flush, exactly how far the active segment
+is durable. This follows the Elasticsearch translog checkpoint design.
 
-1. If fewer than 4 bytes remain, the segment ends cleanly.
-2. Read `record_length`. If it exceeds `segment_max_bytes` or exceeds
-   the bytes remaining after accounting for the trailing 4-byte
-   checksum, the final record is torn: truncate at this offset.
-3. Read `payload` and `frame_crc32`. If fewer bytes remain than
-   required, the final record is torn: truncate at this offset.
-4. Compute CRC32 over `payload`. On mismatch:
-   - If no valid record follows, the final record is torn: truncate.
-   - If a valid record follows, the log has a hole. This is mid-log
-     corruption, not a torn tail. Recovery must refuse to start and
-     surface `PERSISTENCE_WAL_CORRUPT`.
-5. Sequence numbers within a partition must strictly increase. A gap or
-   an out-of-order `seqNo` with valid records following it is mid-log
-   corruption: refuse and surface `PERSISTENCE_WAL_CORRUPT`.
+The marker lives at `<indexName>/wal/<partitionId>/commit`. It holds two
+fixed-size slots so a torn marker write never destroys the last good
+value:
 
-A torn tail is always at the physical end of the last segment, with
-nothing valid after it. That is the normal end-of-log signal after a
-crash. On a torn tail, the segment is truncated to the offset of the
-first bad or partial record and fsynced, so later appends continue
-cleanly.
+```text
+Offset  Size  Type      Field                   Description
+------  ----  ----      -----                   -----------
+0       8     uint64be  write_seq               Monotonic marker write counter
+8       8     uint64be  active_segment_seq_no   startSeqNo of the active segment
+16      8     uint64be  durable_byte_length     Durable byte length of the active segment
+24      8     uint64be  highest_durable_seq_no  Highest seqNo durable across the WAL
+32      4     uint32be  marker_crc32            CRC32 (IEEE) of bytes 0..31
+```
+
+Each slot is 36 bytes. Slot 0 begins at offset 0 and slot 1 at offset
+36, so the marker file is 72 bytes.
+
+A node updates the marker as the final step of a durable flush:
+
+1. fsync the active segment, so the appended records are durable.
+2. Write the marker to the slot that was not written last, with
+   `write_seq` incremented, `durable_byte_length` set to the fsynced
+   length, and `highest_durable_seq_no` set to the highest seqNo now
+   durable across the WAL.
+3. fsync the marker.
+
+In sync mode, a node acknowledges a write only after the marker fsync
+returns. If the marker write tears, its slot fails its CRC, and recovery
+falls back to the other slot, whose smaller `durable_byte_length`
+discards the un-acknowledged tail. A node never acknowledges a write
+whose marker update is not yet durable.
+
+When a node creates a new segment file, or the marker file for the first
+time, it fsyncs the partition directory so the new directory entry
+survives a crash.
+
+### Reading a segment
+
+Recovery uses the commit marker to find the durable region of each
+segment, then reads records within that region.
+
+1. Read the partition's commit marker. Choose the slot with the highest
+   `write_seq` whose `marker_crc32` is valid. If neither slot is valid
+   or the marker is absent, no acknowledged WAL records exist for the
+   partition beyond the snapshot, and recovery replays nothing from the
+   WAL.
+2. Delete any segment whose `startSeqNo` is greater than
+   `active_segment_seq_no`. Such a segment holds only un-acknowledged
+   records from a roll that a crash interrupted.
+3. A segment whose `startSeqNo` is below `active_segment_seq_no` was
+   sealed before the active segment opened, so it is durable in full.
+   Read every record in it.
+4. For the active segment, read only the first `durable_byte_length`
+   bytes. Bytes beyond that offset are an un-acknowledged tail; truncate
+   the segment to `durable_byte_length` and fsync it, so later appends
+   continue from a clean boundary.
+5. Within a region the marker reports durable, every record must be
+   complete and valid. A `record_length` that overruns the region, a
+   `frame_crc32` mismatch, or a payload that fails to decode is mid-log
+   corruption. Recovery refuses to start and surfaces
+   `PERSISTENCE_WAL_CORRUPT`.
+6. Sequence numbers within a partition must strictly increase across the
+   records read. A gap or an out-of-order `seqNo` is corruption; refuse
+   and surface `PERSISTENCE_WAL_CORRUPT`.
+7. After reading all segments, the highest `seqNo` read must equal
+   `highest_durable_seq_no`. A lower value means a durable record is
+   missing, which is corruption; refuse and surface
+   `PERSISTENCE_WAL_CORRUPT`.
+
+A truncated active-segment tail is the normal end-of-log signal after a
+crash. Every other failure above is corruption and stops recovery rather
+than silently dropping data.
 
 ---
 
@@ -256,56 +332,96 @@ segment it covers is deleted. This ordering is never reversed. A crash
 between steps 2 and 3 leaves extra WAL segments that recovery harmlessly
 skips by sequence number.
 
+The commit marker always references the active segment, which a
+checkpoint never deletes, so truncation does not affect the marker.
+
 ---
 
 ## Recovery
 
-When persistence is configured and eager loading is enabled, a node
-recovers on startup:
+On startup, when persistence is configured, a node recovers before it
+serves requests:
 
 1. Enumerate persisted indexes from their `<indexName>/meta` keys.
 2. For each index:
-   1. Load `<indexName>/meta`; reconstruct the schema, language,
-      partition count, and vector fields; create the index empty.
-   2. Load `<indexName>/snapshot`. Verify the envelope CRC. If the
+   1. Load `<indexName>/meta`, reconstruct the schema, language,
+      partition count, and vector fields, and create the index empty.
+   2. Load `<indexName>/snapshot` and verify the envelope CRC. If the
       snapshot is absent, every partition starts empty with
       `lastSeqNo = 0`.
-   3. Deserialise the bundle; load partitions and vector indexes; read
-      each partition's `lastSeqNo`.
-   4. For each partition, open its WAL segments in sequence order and
-      replay every record with `seqNo > lastSeqNo`, applying it to the
-      partition. Apply the [torn-tail rule](#reading-and-the-torn-tail-rule)
-      during replay.
-3. After replay, the index serves reads and writes. New mutations
-   continue from the highest replayed `seqNo + 1` per partition.
+   3. Deserialise the bundle, load the partitions and vector indexes,
+      and read each partition's `lastSeqNo`.
+   4. For each partition, read its WAL as in
+      [Reading a segment](#reading-a-segment) and replay every record
+      with `seqNo > lastSeqNo`, applying it to the partition.
+3. After replay, the index serves reads and writes. Each partition
+   continues from the highest replayed `seqNo + 1`.
 
 **Corruption handling:**
 
-- Snapshot envelope CRC mismatch is fatal for that index; surface
+- A snapshot envelope CRC mismatch is fatal for that index; surface
   `PERSISTENCE_CRC_MISMATCH`.
 - WAL mid-log corruption is fatal; surface `PERSISTENCE_WAL_CORRUPT`.
-- A WAL torn tail is normal; truncate and continue.
+- A truncated active-segment tail is normal; truncate and continue.
 
 ---
 
 ## Write Path
 
+A mutation is durable before it is acknowledged, and a WAL record is
+written only for a mutation that has already applied in memory, so
+replay can never resurrect a write that failed or poison recovery.
+
 For each mutation while the WAL is active:
 
-1. Validate the document against the schema before any durable write.
-2. Build the log entry. `INDEX` carries the full transformed document,
+1. Validate the document against the schema.
+2. Apply the mutation to the in-memory partition, including any vector
+   index work. If this fails, no WAL record is written and the caller
+   receives the error.
+3. Build the log entry. `INDEX` carries the full transformed document,
    including any computed embeddings, as MessagePack bytes. `DELETE`
    carries the `documentId` with `document = null`. Assign the
    partition's next `seqNo`. On a single node, `primaryTerm` is a
    constant.
-3. Append the framed record to the partition's active WAL segment and
-   make it durable per the [durability mode](#durability-modes) before
-   acknowledging.
-4. Apply the mutation to the in-memory partition.
+4. Append the framed record to the partition's active WAL segment, make
+   it durable per the [durability mode](#durability-modes), and update
+   the [commit marker](#segment-commit-marker).
 5. Acknowledge the write.
 
-If the durable append fails, the write is not acknowledged. An fsync
-error is fatal.
+A node serialises a partition's apply, sequence-number assignment, and
+append, so the in-memory apply order matches the WAL sequence order and
+sequence numbers reach disk strictly increasing. If the durable append
+fails, the write is not acknowledged; an fsync error is fatal. A crash
+between step 2 and a durable step 4 loses the write, but because that
+write was never acknowledged, the loss is correct.
+
+---
+
+## Snapshot-Only Persistence
+
+A `PersistenceAdapter` that is not filesystem-backed (an in-memory
+store, IndexedDB, an object store, or a key-value service) cannot run
+the WAL, because its `save(key, bytes)` interface expresses neither
+append nor fsync. These backends persist snapshots only.
+
+- On the same interval and mutation-count triggers as a checkpoint, the
+  node writes the index snapshot, the same `.nrsl` envelope used in
+  [Tier 1](#tier-1-wal-durability-filesystem), through the adapter's
+  `save` at key `<indexName>/snapshot`. No WAL is written.
+- The snapshot write must be atomic at the backend's granularity. A
+  single object-store `PUT` and an IndexedDB transaction are atomic. A
+  filesystem-backed adapter must use the atomic
+  temporary-file-then-rename sequence.
+- Recovery loads the snapshot through `adapter.load` and replays no log.
+
+**Guarantee:** the index is durable up to the last snapshot. A crash
+loses every write since that snapshot. A node must publish this weaker
+guarantee and must not imply the WAL guarantee for a snapshot-only
+backend.
+
+Configuring WAL durability (a `durability.directory`) for a
+non-filesystem backend is a configuration error and surfaces
+`CONFIG_INVALID`.
 
 ---
 
@@ -333,7 +449,8 @@ error is fatal.
 | Code | When |
 |---|---|
 | `PERSISTENCE_CRC_MISMATCH` | A snapshot envelope checksum does not match its payload. |
-| `PERSISTENCE_WAL_CORRUPT` | A WAL record fails its checksum or sequence-number check with valid records following it (mid-log corruption). |
+| `PERSISTENCE_WAL_CORRUPT` | A record inside a WAL segment's durable region overruns the region, fails its checksum, fails to decode, breaks sequence-number order, or leaves the highest read seqNo short of the commit marker. |
 | `PERSISTENCE_FSYNC_FAILED` | An fsync returned an error. The write is not acknowledged. Fatal. |
 | `PERSISTENCE_LOAD_FAILED` | A snapshot or WAL file could not be read or decoded. |
 | `PERSISTENCE_SAVE_FAILED` | A snapshot or WAL file could not be written. |
+| `CONFIG_INVALID` | WAL durability was requested for a non-filesystem backend, or durability was configured without a directory. |

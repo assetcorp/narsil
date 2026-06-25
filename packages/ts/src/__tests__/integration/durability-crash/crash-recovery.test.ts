@@ -6,8 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil } from '../../../narsil'
 
-const CHILD_SCRIPT = fileURLToPath(new URL('./child-writer.ts', import.meta.url))
-const TSX_BIN = fileURLToPath(new URL('../../../../node_modules/.bin/tsx', import.meta.url))
+const CHILD_SCRIPT = fileURLToPath(new URL('./child-writer-dist.mjs', import.meta.url))
 
 interface ChildOptions {
   directory: string
@@ -21,7 +20,7 @@ function spawnChild(options: ChildOptions): {
   acked: Promise<void>
   exited: Promise<number | null>
 } {
-  const child = spawn(TSX_BIN, [CHILD_SCRIPT], {
+  const child = spawn(process.execPath, [CHILD_SCRIPT], {
     env: {
       ...process.env,
       NARSIL_WAL_DIR: options.directory,

@@ -24,13 +24,13 @@ export interface MutationRecord {
   operation: ReplicationOperation
   documentId: string
   document: Uint8Array | null
+  apply: () => void | Promise<void>
 }
 
 export interface DurabilityManager {
   isActive(): boolean
   recover(): Promise<void>
   recordMutation(record: MutationRecord): Promise<number>
-  markApplied(indexName: string, partitionId: number, seqNo: number): void
   persistMetadata(indexName: string): Promise<void>
   checkpoint(indexName: string): Promise<void>
   checkpointAll(): Promise<void>

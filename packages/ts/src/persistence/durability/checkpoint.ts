@@ -21,7 +21,9 @@ function walPrefix(indexName: string, partitionId: number): string {
   return `${indexName}/wal/${partitionId}/`
 }
 
-export async function writeCheckpoint(directory: DurableDirectory, input: CheckpointInput): Promise<void> {
+export async function buildSnapshotBundleBytes(
+  input: CheckpointInput,
+): Promise<{ bytes: Uint8Array; checkpoint: PartitionCheckpoint[] }> {
   const partitionBuffers: Uint8Array[] = []
   const checkpoint: PartitionCheckpoint[] = []
 
@@ -39,7 +41,7 @@ export async function writeCheckpoint(directory: DurableDirectory, input: Checkp
     vectorPayloads[fieldPath] = vecIndex.serialize()
   }
 
-  const bundleBytes = await encodeSnapshotBundle({
+  const bytes = await encodeSnapshotBundle({
     version: 2,
     schema: input.schema,
     language: input.language,
@@ -48,7 +50,16 @@ export async function writeCheckpoint(directory: DurableDirectory, input: Checkp
     checkpoint,
   })
 
-  await directory.atomicWrite(snapshotKey(input.indexName), bundleBytes)
+  return { bytes, checkpoint }
+}
+
+export function snapshotStorageKey(indexName: string): string {
+  return snapshotKey(indexName)
+}
+
+export async function writeCheckpoint(directory: DurableDirectory, input: CheckpointInput): Promise<void> {
+  const { bytes, checkpoint } = await buildSnapshotBundleBytes(input)
+  await directory.atomicWrite(snapshotKey(input.indexName), bytes)
   await truncateCoveredSegments(directory, input.indexName, checkpoint)
 }
 

@@ -3,10 +3,16 @@ import { fnv1a } from '../core/hash'
 import type { ReplicationOperation } from '../distribution/replication/types'
 import { VERSION } from '../index'
 import { createDurabilityManager, type DurabilityManager } from '../persistence/durability'
+import { createSnapshotOnlyManager } from '../persistence/durability/snapshot-only'
 import type { IndexDurabilityHooks } from '../persistence/durability/types'
+import type { PersistenceAdapter } from '../types/adapters'
 import type { DurabilityConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
 import type { AnyDocument } from '../types/schema'
+
+export type DurabilityTier =
+  | { kind: 'wal'; config: DurabilityConfig }
+  | { kind: 'snapshot'; config: DurabilityConfig; adapter: PersistenceAdapter }
 
 export interface DurableWrite {
   indexName: string
@@ -14,11 +20,17 @@ export interface DurableWrite {
   seqNo: number
 }
 
+export type ApplyMutation = () => void | Promise<void>
+
 export interface DurabilityIntegration {
   manager: DurabilityManager
-  recordInsertOrUpdate(indexName: string, docId: string, document: AnyDocument): Promise<DurableWrite>
-  recordRemove(indexName: string, docId: string): Promise<DurableWrite>
-  confirmApplied(write: DurableWrite): void
+  recordInsertOrUpdate(
+    indexName: string,
+    docId: string,
+    document: AnyDocument,
+    apply: ApplyMutation,
+  ): Promise<DurableWrite>
+  recordRemove(indexName: string, docId: string, apply: ApplyMutation): Promise<DurableWrite>
 }
 
 export interface DurabilityIntegrationHooks {
@@ -50,7 +62,7 @@ function buildMetadata(indexName: string, hooks: DurabilityIntegrationHooks): In
 }
 
 export function createDurabilityIntegration(
-  config: DurabilityConfig,
+  tier: DurabilityTier,
   hooks: DurabilityIntegrationHooks,
 ): DurabilityIntegration {
   const managerHooks: IndexDurabilityHooks = {
@@ -62,7 +74,10 @@ export function createDurabilityIntegration(
     onFatalError: hooks.onFatalError,
   }
 
-  const manager = createDurabilityManager(config, managerHooks)
+  const manager =
+    tier.kind === 'wal'
+      ? createDurabilityManager(tier.config, managerHooks)
+      : createSnapshotOnlyManager(tier.adapter, tier.config, managerHooks)
 
   function partitionFor(indexName: string, docId: string): number {
     const partitionManager = hooks.getManager(indexName)
@@ -75,6 +90,7 @@ export function createDurabilityIntegration(
     docId: string,
     operation: ReplicationOperation,
     document: Uint8Array | null,
+    apply: ApplyMutation,
   ): Promise<DurableWrite> {
     const partitionId = partitionFor(indexName, docId)
     const seqNo = await manager.recordMutation({
@@ -83,20 +99,23 @@ export function createDurabilityIntegration(
       operation,
       documentId: docId,
       document,
+      apply,
     })
     return { indexName, partitionId, seqNo }
   }
 
   return {
     manager,
-    recordInsertOrUpdate(indexName: string, docId: string, document: AnyDocument): Promise<DurableWrite> {
-      return recordMutation(indexName, docId, 'INDEX', encode(document))
+    recordInsertOrUpdate(
+      indexName: string,
+      docId: string,
+      document: AnyDocument,
+      apply: ApplyMutation,
+    ): Promise<DurableWrite> {
+      return recordMutation(indexName, docId, 'INDEX', encode(document), apply)
     },
-    recordRemove(indexName: string, docId: string): Promise<DurableWrite> {
-      return recordMutation(indexName, docId, 'DELETE', null)
-    },
-    confirmApplied(write: DurableWrite): void {
-      manager.markApplied(write.indexName, write.partitionId, write.seqNo)
+    recordRemove(indexName: string, docId: string, apply: ApplyMutation): Promise<DurableWrite> {
+      return recordMutation(indexName, docId, 'DELETE', null, apply)
     },
   }
 }
