@@ -242,6 +242,14 @@ export class TcpConnectionPool {
     socket.on('close', () => {
       this.connections.delete(target)
       this.parsers.delete(target)
+      this.rejectPendingForTarget(
+        target,
+        new TransportError(
+          TransportErrorCodes.PEER_UNAVAILABLE,
+          `Connection to '${target}' closed before a response was received`,
+          { target },
+        ),
+      )
     })
   }
 
@@ -313,14 +321,15 @@ export class TcpConnectionPool {
       socket.destroy()
     }
 
-    const error = new TransportError(
-      TransportErrorCodes.PEER_UNAVAILABLE,
-      `Connection to '${target}' lost: ${err.message}`,
-      {
+    this.rejectPendingForTarget(
+      target,
+      new TransportError(TransportErrorCodes.PEER_UNAVAILABLE, `Connection to '${target}' lost: ${err.message}`, {
         target,
-      },
+      }),
     )
+  }
 
+  private rejectPendingForTarget(target: string, error: TransportError): void {
     for (const [pendingKey, pending] of this.pendingRequests) {
       if (pending.target !== target) {
         continue
