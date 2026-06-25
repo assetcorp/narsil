@@ -40,7 +40,7 @@ export interface AppendHandle {
 
 export interface MarkerHandle {
   read(): Promise<Uint8Array>
-  writeSlot(offset: number, slot: Uint8Array, fsync: boolean): Promise<void>
+  writeSlot(offset: number, slot: Uint8Array): Promise<void>
   close(): Promise<void>
 }
 
@@ -175,11 +175,8 @@ export function createDurableDirectory(root: string): DurableDirectory {
           await handle.read(buffer, 0, stat.size, 0)
           return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
         },
-        async writeSlot(offset: number, slot: Uint8Array, fsync: boolean): Promise<void> {
+        async writeSlot(offset: number, slot: Uint8Array): Promise<void> {
           await handle.write(slot, 0, slot.length, offset)
-          if (!fsync) {
-            return
-          }
           try {
             await handle.sync()
           } catch (err: unknown) {

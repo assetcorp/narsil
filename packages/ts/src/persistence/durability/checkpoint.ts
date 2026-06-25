@@ -1,5 +1,6 @@
 import type { PartitionManager } from '../../partitioning/manager'
 import type { VectorIndex, VectorIndexPayload } from '../../vector/vector-index'
+import { readCommitMarker } from './commit-marker'
 import type { DurableDirectory } from './durable-filesystem'
 import { encodeSnapshotBundle, type PartitionCheckpoint } from './snapshot-bundle'
 
@@ -70,6 +71,13 @@ async function truncateCoveredSegments(
 ): Promise<void> {
   for (const { partitionId, lastSeqNo } of checkpoint) {
     const prefix = walPrefix(indexName, partitionId)
+    const markerBytes = await directory.read(`${prefix}commit`)
+    const marker = markerBytes === null ? null : readCommitMarker(markerBytes)
+    if (marker === null) {
+      continue
+    }
+    const activeSegmentSeqNo = marker.state.activeSegmentSeqNo
+
     const segments = await directory.list(prefix)
     const startSeqNos = segments
       .map(key => parseSegmentStartSeqNo(key, prefix))
@@ -78,6 +86,9 @@ async function truncateCoveredSegments(
 
     for (let i = 0; i < startSeqNos.length; i += 1) {
       const start = startSeqNos[i]
+      if (start >= activeSegmentSeqNo) {
+        break
+      }
       const nextStart = startSeqNos[i + 1]
       const segmentCoversBeyondCheckpoint = nextStart === undefined || nextStart > lastSeqNo + 1
       if (segmentCoversBeyondCheckpoint) {

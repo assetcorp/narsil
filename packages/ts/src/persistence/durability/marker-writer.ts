@@ -8,7 +8,7 @@ import {
 import type { DurableDirectory, MarkerHandle } from './durable-filesystem'
 
 export interface MarkerWriter {
-  commit(state: Omit<CommitMarkerState, 'writeSeq'>, fsync: boolean): Promise<void>
+  commit(state: Omit<CommitMarkerState, 'writeSeq'>): Promise<void>
   close(): Promise<void>
   readonly created: boolean
   readonly existingHighestDurableSeqNo: number
@@ -36,11 +36,11 @@ export async function createMarkerWriter(
     created: createdFresh,
     existingHighestDurableSeqNo: current?.state.highestDurableSeqNo ?? 0,
 
-    async commit(state: Omit<CommitMarkerState, 'writeSeq'>, fsync: boolean): Promise<void> {
+    async commit(state: Omit<CommitMarkerState, 'writeSeq'>): Promise<void> {
       const slotIndex = nextMarkerSlot(lastSlot)
       writeSeq += 1
       const slot = encodeMarkerSlot({ ...state, writeSeq })
-      await handle.writeSlot(markerSlotOffset(slotIndex), slot, fsync)
+      await handle.writeSlot(markerSlotOffset(slotIndex), slot)
       lastSlot = slotIndex
     },
 

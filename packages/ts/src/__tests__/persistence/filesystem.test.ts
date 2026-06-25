@@ -143,6 +143,23 @@ describe('createFilesystemPersistence', () => {
     expect(() => createFilesystemPersistence({ directory: '   ' })).toThrow(NarsilError)
   })
 
+  it('writes atomically through a temporary file and leaves no temporary artifacts', async () => {
+    const adapter = createFilesystemPersistence({ directory: tempDir })
+    const data = new Uint8Array(1 << 20)
+    for (let i = 0; i < data.length; i += 1) {
+      data[i] = i & 0xff
+    }
+
+    await adapter.save('movies/snapshot', data)
+    await adapter.save('movies/snapshot', data)
+
+    const loaded = await adapter.load('movies/snapshot')
+    expect(loaded).toEqual(data)
+
+    const entries = await readdir(join(tempDir, 'movies'))
+    expect(entries).toEqual(['snapshot'])
+  })
+
   it('lists keys from nested directories with correct relative paths', async () => {
     const adapter = createFilesystemPersistence({ directory: tempDir })
     await adapter.save('idx/p0', new Uint8Array([1]))

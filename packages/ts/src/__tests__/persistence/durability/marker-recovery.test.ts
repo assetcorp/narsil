@@ -77,14 +77,40 @@ describe('marker-driven WAL recovery', () => {
     expect(result.highestSeqNo).toBe(0)
   })
 
-  it('reads only the durable region recorded by the marker', async () => {
+  it('recovers the durable region and a complete tail beyond the fsynced frontier', async () => {
     const full = segmentBytes([entry(1), entry(2)])
     const durableLength = SEGMENT_HEADER_SIZE + frameRecord(entry(1)).length
     await directory.atomicWrite(segmentName(0), full)
     await directory.atomicWrite('movies/wal/0/commit', markerBytes(0, durableLength, 1))
 
     const result = await replayWal(directory, 'movies', 0, 0, noopDeps)
-    expect(result.highestSeqNo).toBe(1)
+    expect(result.highestSeqNo).toBe(2)
+
+    const after = await directory.read(segmentName(0))
+    expect(after?.length).toBe(full.length)
+  })
+
+  it('stops at a torn tail record and truncates the segment to the last good record', async () => {
+    const frame1 = frameRecord(entry(1))
+    const frame2 = frameRecord(entry(2))
+    const durableLength = SEGMENT_HEADER_SIZE + frame1.length
+    const cleanTailEnd = durableLength + frame2.length
+    const garbage = new Uint8Array([0xff, 0xff, 0xff, 0xff, 0x01, 0x02])
+
+    const seg = new Uint8Array(cleanTailEnd + garbage.length)
+    seg.set(writeSegmentHeader(), 0)
+    seg.set(frame1, SEGMENT_HEADER_SIZE)
+    seg.set(frame2, durableLength)
+    seg.set(garbage, cleanTailEnd)
+
+    await directory.atomicWrite(segmentName(0), seg)
+    await directory.atomicWrite('movies/wal/0/commit', markerBytes(0, durableLength, 1))
+
+    const result = await replayWal(directory, 'movies', 0, 0, noopDeps)
+    expect(result.highestSeqNo).toBe(2)
+
+    const after = await directory.read(segmentName(0))
+    expect(after?.length).toBe(cleanTailEnd)
   })
 
   it('deletes an orphan segment newer than the marker active segment', async () => {
@@ -119,5 +145,40 @@ describe('marker-driven WAL recovery', () => {
     await expect(replayWal(directory, 'movies', 0, 0, noopDeps)).rejects.toMatchObject({
       code: 'PERSISTENCE_WAL_CORRUPT',
     })
+  })
+
+  it('refuses recovery when a record fails its logical entry checksum', async () => {
+    const good = entry(1)
+    const tampered: ReplicationLogEntry = { ...good, checksum: (good.checksum ^ 0x5a5a5a5a) >>> 0 }
+    const seg = segmentBytes([tampered])
+    await directory.atomicWrite(segmentName(0), seg)
+    await directory.atomicWrite('movies/wal/0/commit', markerBytes(0, seg.length, 1))
+
+    await expect(replayWal(directory, 'movies', 0, 0, noopDeps)).rejects.toMatchObject({
+      code: 'PERSISTENCE_WAL_CORRUPT',
+    })
+  })
+
+  it('recovers when the snapshot already covers the marker head and the active segment is empty', async () => {
+    const empty = writeSegmentHeader()
+    await directory.atomicWrite(segmentName(11), empty)
+    await directory.atomicWrite('movies/wal/0/commit', markerBytes(11, SEGMENT_HEADER_SIZE, 10))
+
+    const result = await replayWal(directory, 'movies', 0, 10, noopDeps)
+    expect(result.highestSeqNo).toBe(10)
+  })
+
+  it('does not reclaim an orphan segment until the durable region validates', async () => {
+    await directory.atomicWrite(segmentName(0), segmentBytes([entry(1)]))
+    await directory.atomicWrite(segmentName(2), segmentBytes([entry(2)]))
+    const durableLength = SEGMENT_HEADER_SIZE + frameRecord(entry(1)).length
+    await directory.atomicWrite('movies/wal/0/commit', markerBytes(0, durableLength, 9))
+
+    await expect(replayWal(directory, 'movies', 0, 0, noopDeps)).rejects.toMatchObject({
+      code: 'PERSISTENCE_WAL_CORRUPT',
+    })
+
+    const remaining = (await directory.list('movies/wal/0/')).filter(k => /\/\d{16}$/.test(k))
+    expect(remaining).toContain(segmentName(2))
   })
 })

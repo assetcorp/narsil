@@ -7,7 +7,7 @@ import type { ReplicationLogEntry } from '../../../distribution/replication/type
 import { readCommitMarker } from '../../../persistence/durability/commit-marker'
 import { createDurableDirectory, type DurableDirectory } from '../../../persistence/durability/durable-filesystem'
 import { readDurableRegion } from '../../../persistence/durability/wal-framing'
-import { createWalWriter } from '../../../persistence/durability/wal-writer'
+import { createWalWriter, parseSegmentStartSeqNo } from '../../../persistence/durability/wal-writer'
 
 function entry(seqNo: number): ReplicationLogEntry {
   return buildEntry({
@@ -119,5 +119,33 @@ describe('WAL writer', () => {
     expect(keys).toEqual(['movies/wal/0/0000000000000001'])
     const entries = await readAllEntries(directory)
     expect(entries.map(e => e.seqNo)).toEqual([1, 2])
+  })
+
+  it('advances the commit marker to the new segment as part of a roll', async () => {
+    const writer = createWalWriter(directory, { indexName: 'movies', partitionId: 0, segmentMaxBytes: 20 })
+    await writer.append(entry(1))
+    await writer.append(entry(2))
+
+    const markerBytes = await directory.read('movies/wal/0/commit')
+    expect(markerBytes).not.toBeNull()
+    if (markerBytes === null) return
+    const marker = readCommitMarker(markerBytes)
+    const keys = segmentKeys(await directory.list('movies/wal/0/'))
+    const newestStart = parseSegmentStartSeqNo(keys[keys.length - 1])
+    expect(keys.length).toBeGreaterThan(1)
+    expect(marker?.state.activeSegmentSeqNo).toBe(newestStart)
+
+    await writer.close()
+  })
+})
+
+describe('parseSegmentStartSeqNo', () => {
+  it('parses a zero-padded sixteen-digit segment key', () => {
+    expect(parseSegmentStartSeqNo('movies/wal/0/0000000000000005')).toBe(5)
+  })
+
+  it('throws on a malformed segment key instead of coercing to zero', () => {
+    expect(() => parseSegmentStartSeqNo('movies/wal/0/not-a-number')).toThrow(/Malformed WAL segment key/)
+    expect(() => parseSegmentStartSeqNo('movies/wal/0/commit')).toThrow(/Malformed WAL segment key/)
   })
 })
