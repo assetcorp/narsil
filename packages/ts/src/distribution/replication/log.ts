@@ -1,6 +1,5 @@
-import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { crc32 } from '../../serialization/crc32'
+import { computeEntryChecksum } from './entry-checksum'
 import {
   DEFAULT_LOG_RETENTION_BYTES,
   type ReplicationConfig,
@@ -16,18 +15,7 @@ function estimateEntrySize(entry: ReplicationLogEntry): number {
   )
 }
 
-function computeChecksum(entry: Omit<ReplicationLogEntry, 'checksum'>): number {
-  const payload = encode([
-    entry.seqNo,
-    entry.primaryTerm,
-    entry.operation,
-    entry.partitionId,
-    entry.indexName,
-    entry.documentId,
-    entry.document,
-  ])
-  return crc32(payload)
-}
+const computeChecksum = computeEntryChecksum
 
 export function createReplicationLog(
   partitionId: number,

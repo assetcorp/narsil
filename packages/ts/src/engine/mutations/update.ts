@@ -84,6 +84,8 @@ export async function updateDocument(
 
   const { partitionDoc } = prepareUpdatePartitionDoc(document as Record<string, unknown>, updateExtractedVectors)
 
+  const durableWrite = ctx.durability ? await ctx.durability.recordInsertOrUpdate(indexName, docId, document) : null
+
   await ctx.executor.execute({
     type: 'update',
     indexName,
@@ -91,6 +93,10 @@ export async function updateDocument(
     document: partitionDoc as AnyDocument,
     requestId: docId,
   })
+
+  if (durableWrite && ctx.durability) {
+    ctx.durability.confirmApplied(durableWrite)
+  }
 
   try {
     updateDocumentVectors(docId, updateExtractedVectors, updateVecIndexes)

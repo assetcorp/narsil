@@ -1,22 +1,26 @@
 import { generateId } from '../core/id-generator'
 import { ErrorCodes, NarsilError } from '../errors'
+import { getLanguage } from '../languages/registry'
 import type { PartitionManager } from '../partitioning/manager'
 import { createRebalancer, type Rebalancer } from '../partitioning/rebalancer'
 import { createPartitionRouter, type PartitionRouter } from '../partitioning/router'
 import type { createWriteAheadQueue, WAQEntry } from '../partitioning/write-ahead-queue'
 import { createFlushManager, type FlushManager } from '../persistence/flush-manager'
 import { createPluginRegistry, type PluginRegistry } from '../plugins/registry'
-import { extractVectorFieldsFromSchema } from '../schema/validator'
+import { extractVectorFieldsFromSchema, flattenSchema } from '../schema/validator'
 import type { EmbeddingAdapter } from '../types/adapters'
-import type { NarsilConfig } from '../types/config'
+import type { DurabilityConfig, NarsilConfig } from '../types/config'
+import type { IndexMetadata } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig, SchemaDefinition } from '../types/schema'
 import { createDirectExecutor, type DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
 import { createExecutionPromoter, type ExecutionPromoter } from '../workers/promoter'
+import { createDurabilityIntegration, type DurabilityIntegration } from './durability-integration'
 import type { MutationContext } from './mutations'
 import { createWorkerOrchestrator, type WorkerOrchestrator } from './orchestration'
 import type { RebalanceContext } from './rebalance-executor'
+import { reconstructSchemaFromMetadata } from './recovery-schema'
 
 export type IndexRegistryEntry = {
   config: IndexConfig
@@ -36,6 +40,7 @@ export interface EngineCore {
   readonly promoter: ExecutionPromoter
   readonly pluginRegistry: PluginRegistry
   readonly flushManager: FlushManager | null
+  readonly durability: DurabilityIntegration | null
   readonly idGenerator: () => string
   readonly indexRegistry: Map<string, IndexRegistryEntry>
   readonly eventHandlers: Map<string, Set<EventHandler>>
@@ -57,6 +62,61 @@ export interface EngineCore {
 
 export function getVectorFieldPaths(schema: SchemaDefinition): Set<string> {
   return new Set(extractVectorFieldsFromSchema(schema).keys())
+}
+
+function deriveDurabilityDirectory(durability: DurabilityConfig, config: NarsilConfig): string {
+  if (durability.directory !== undefined && durability.directory.trim().length > 0) {
+    return durability.directory
+  }
+  const adapterDirectory = config.persistence?.directory
+  if (adapterDirectory !== undefined && adapterDirectory.trim().length > 0) {
+    return adapterDirectory
+  }
+  throw new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    'Durability requires a directory. Set durability.directory explicitly, or configure a persistence adapter that exposes a real filesystem path',
+  )
+}
+
+interface DurabilityWiring {
+  requireManager: (indexName: string) => PartitionManager
+  indexRegistry: Map<string, IndexRegistryEntry>
+  createIndexFromMetadata: (metadata: IndexMetadata) => Promise<void>
+  emitFatalError: (error: Error) => void
+}
+
+function createDurabilityFromConfig(
+  config: NarsilConfig | undefined,
+  wiring: DurabilityWiring,
+): DurabilityIntegration | null {
+  if (!config?.durability) {
+    return null
+  }
+  const directory = deriveDurabilityDirectory(config.durability, config)
+
+  return createDurabilityIntegration(
+    { ...config.durability, directory },
+    {
+      getManager: indexName => (wiring.indexRegistry.has(indexName) ? wiring.requireManager(indexName) : undefined),
+      getVectorFieldPaths: indexName => wiring.indexRegistry.get(indexName)?.vectorFieldPaths ?? new Set<string>(),
+      getVectorIndexes: indexName =>
+        wiring.indexRegistry.has(indexName) ? wiring.requireManager(indexName).getVectorIndexes() : new Map(),
+      getIndexConfig: indexName => {
+        const entry = wiring.indexRegistry.get(indexName)
+        if (entry === undefined) {
+          return undefined
+        }
+        return {
+          schema: flattenSchema(entry.config.schema) as Record<string, string>,
+          language: entry.language.name,
+          k1: entry.config.bm25?.k1 ?? 1.2,
+          b: entry.config.bm25?.b ?? 0.75,
+        }
+      },
+      createIndexFromMetadata: wiring.createIndexFromMetadata,
+      onFatalError: wiring.emitFatalError,
+    },
+  )
 }
 
 export function createEngineCore(config?: NarsilConfig): EngineCore {
@@ -142,10 +202,38 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     return manager
   }
 
+  async function createIndexFromMetadata(metadata: IndexMetadata): Promise<void> {
+    if (indexRegistry.has(metadata.indexName)) {
+      return
+    }
+    const indexConfig = reconstructSchemaFromMetadata(metadata)
+    const language = getLanguage(indexConfig.language ?? 'english')
+    executor.createIndex(metadata.indexName, indexConfig, language)
+    indexRegistry.set(metadata.indexName, {
+      config: indexConfig,
+      language,
+      embeddingAdapter: null,
+      vectorFieldPaths: getVectorFieldPaths(indexConfig.schema),
+    })
+  }
+
+  const durability = createDurabilityFromConfig(config, {
+    requireManager,
+    indexRegistry,
+    createIndexFromMetadata,
+    emitFatalError(error: Error) {
+      const handlers = eventHandlers.get('durabilityError')
+      if (handlers) {
+        for (const handler of handlers) handler({ error })
+      }
+    },
+  })
+
   const mutationCtx: MutationContext = {
     executor,
     pluginRegistry,
     flushManager,
+    durability,
     orchestrator,
     idGenerator,
     abortController,
@@ -170,6 +258,7 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     promoter,
     pluginRegistry,
     flushManager,
+    durability,
     idGenerator,
     indexRegistry,
     eventHandlers,

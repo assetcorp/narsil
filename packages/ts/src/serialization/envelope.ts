@@ -7,10 +7,12 @@ import { HEADER_SIZE, readHeader, writeHeader } from './header'
 import { deserializeMetadata, deserializePayloadV1, serializeMetadata, serializePayloadV1 } from './payload-v1'
 
 const CURRENT_ENVELOPE_VERSION = 1
+const SNAPSHOT_ENVELOPE_VERSION = 2
 
 export interface EnvelopeOptions {
   compression?: 'none' | 'gzip'
   checksum?: boolean
+  envelopeFormatVersion?: number
 }
 
 function parseEngineVersion(version: string): [number, number, number] {
@@ -75,10 +77,11 @@ async function packEnvelope(payloadBytes: Uint8Array, options: EnvelopeOptions):
 
   const checksum = flags.checksumPresent ? crc32(finalPayload) : 0
   const [major, minor, patch] = parseEngineVersion(VERSION)
+  const envelopeFormatVersion = options.envelopeFormatVersion ?? CURRENT_ENVELOPE_VERSION
 
   const header: NrslHeader = {
     magic: 'NRSL',
-    envelopeFormatVersion: CURRENT_ENVELOPE_VERSION,
+    envelopeFormatVersion,
     engineVersionMajor: major,
     engineVersionMinor: minor,
     engineVersionPatch: patch,
@@ -96,10 +99,13 @@ async function packEnvelope(payloadBytes: Uint8Array, options: EnvelopeOptions):
   return envelope
 }
 
-async function unpackEnvelope(data: Uint8Array): Promise<{ header: NrslHeader; payloadBytes: Uint8Array }> {
+async function unpackEnvelope(
+  data: Uint8Array,
+  maxAcceptedVersion: number = CURRENT_ENVELOPE_VERSION,
+): Promise<{ header: NrslHeader; payloadBytes: Uint8Array }> {
   const header = readHeader(data)
 
-  if (header.envelopeFormatVersion > CURRENT_ENVELOPE_VERSION) {
+  if (header.envelopeFormatVersion > maxAcceptedVersion) {
     throw new NarsilError(
       ErrorCodes.ENVELOPE_VERSION_MISMATCH,
       `This data was written by Narsil envelope format v${header.envelopeFormatVersion}` +
@@ -149,6 +155,14 @@ async function unpackEnvelope(data: Uint8Array): Promise<{ header: NrslHeader; p
   return { header, payloadBytes }
 }
 
+export async function packEnvelopeBytes(payloadBytes: Uint8Array, options: EnvelopeOptions = {}): Promise<Uint8Array> {
+  return packEnvelope(payloadBytes, { ...options, envelopeFormatVersion: SNAPSHOT_ENVELOPE_VERSION })
+}
+
+export async function unpackEnvelopeBytes(data: Uint8Array): Promise<{ header: NrslHeader; payloadBytes: Uint8Array }> {
+  return unpackEnvelope(data, SNAPSHOT_ENVELOPE_VERSION)
+}
+
 export async function writePartitionEnvelope(
   partition: SerializablePartition,
   options: EnvelopeOptions = {},
@@ -176,4 +190,4 @@ export async function readMetadataEnvelope(data: Uint8Array): Promise<{ header: 
   return { header, metadata }
 }
 
-export { CURRENT_ENVELOPE_VERSION }
+export { CURRENT_ENVELOPE_VERSION, SNAPSHOT_ENVELOPE_VERSION }

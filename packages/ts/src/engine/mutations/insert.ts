@@ -53,6 +53,10 @@ export async function insertDocument(
     validateVectorDimensions(extractedVectors, insertVecIndexes)
   }
 
+  const durableWrite = ctx.durability
+    ? await ctx.durability.recordInsertOrUpdate(indexName, resolvedDocId, document)
+    : null
+
   await ctx.executor.execute({
     type: 'insert',
     indexName,
@@ -61,6 +65,10 @@ export async function insertDocument(
     requestId: resolvedDocId,
     skipClone: extractedVectors.size > 0 ? true : options?.skipClone,
   })
+
+  if (durableWrite && ctx.durability) {
+    ctx.durability.confirmApplied(durableWrite)
+  }
 
   try {
     insertDocumentVectors(resolvedDocId, extractedVectors, insertVecIndexes)
@@ -203,6 +211,10 @@ export async function insertDocumentBatch(
           validateVectorDimensions(extractedVectors, batchVecIndexes)
         }
 
+        const batchDurableWrite = ctx.durability
+          ? await ctx.durability.recordInsertOrUpdate(indexName, batchDocId, documents[i])
+          : null
+
         const result = ctx.executor.execute({
           type: 'insert',
           indexName,
@@ -213,6 +225,10 @@ export async function insertDocumentBatch(
         })
         if (result && typeof (result as Promise<unknown>).then === 'function') {
           await result
+        }
+
+        if (batchDurableWrite && ctx.durability) {
+          ctx.durability.confirmApplied(batchDurableWrite)
         }
 
         try {

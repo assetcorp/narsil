@@ -13,6 +13,16 @@ export interface NarsilConfig {
   flush?: FlushConfig
   eagerLoad?: boolean
   embedding?: EmbeddingAdapter
+  durability?: DurabilityConfig
+}
+
+export interface DurabilityConfig {
+  directory?: string
+  mode?: 'sync' | 'async'
+  flushIntervalMs?: number
+  segmentMaxBytes?: number
+  checkpointIntervalMs?: number
+  checkpointMutationThreshold?: number
 }
 
 export interface WorkerConfig {
