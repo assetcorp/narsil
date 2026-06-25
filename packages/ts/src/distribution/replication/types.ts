@@ -18,9 +18,12 @@ export interface ReplicationConfig {
 
 export interface ReplicationLog {
   append(entry: Omit<ReplicationLogEntry, 'seqNo' | 'checksum'>): ReplicationLogEntry
+  appendCommitted(entry: ReplicationLogEntry): ReplicationLogEntry
   getEntriesFrom(fromSeqNo: number): ReplicationLogEntry[]
   getEntry(seqNo: number): ReplicationLogEntry | undefined
   verifyChecksum(entry: ReplicationLogEntry): boolean
+  readonly committedSeqNo: number
+  readonly committedPrimaryTerm: number
   readonly oldestSeqNo: number | undefined
   readonly newestSeqNo: number | undefined
   readonly entryCount: number

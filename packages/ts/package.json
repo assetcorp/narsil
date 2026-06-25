@@ -40,7 +40,7 @@
   "scripts": {
     "build": "tsup",
     "test": "vitest run --exclude='**/vector/recall.test.ts'",
-    "test:etcd": "vitest run src/__tests__/distribution/coordinator/etcd.integration.test.ts",
+    "test:etcd": "vitest run src/__tests__/distribution/coordinator/etcd-integration/*.test.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:recall": "vitest run src/__tests__/vector/recall.test.ts",
@@ -100,6 +100,14 @@
     "./distribution": {
       "import": "./dist/distribution.mjs",
       "types": "./dist/distribution.d.ts"
+    },
+    "./distribution/coordinator/in-memory": {
+      "import": "./dist/distribution/coordinator/in-memory.mjs",
+      "types": "./dist/distribution/coordinator/in-memory.d.ts"
+    },
+    "./distribution/coordinator/etcd": {
+      "import": "./dist/distribution/coordinator/etcd.mjs",
+      "types": "./dist/distribution/coordinator/etcd.d.ts"
     }
   },
   "files": [

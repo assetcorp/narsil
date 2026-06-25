@@ -1,4 +1,5 @@
 import { encode } from '@msgpack/msgpack'
+import { ErrorCodes, NarsilError } from '../../errors'
 import { crc32 } from '../../serialization/crc32'
 import {
   DEFAULT_LOG_RETENTION_BYTES,
@@ -30,10 +31,12 @@ function computeChecksum(entry: Omit<ReplicationLogEntry, 'checksum'>): number {
 
 export function createReplicationLog(
   partitionId: number,
-  config?: Partial<ReplicationConfig & { startSeqNo: number }>,
+  config?: Partial<ReplicationConfig & { startSeqNo: number; lastPrimaryTerm: number }>,
 ): ReplicationLog {
   const retentionBytes = config?.logRetentionBytes ?? DEFAULT_LOG_RETENTION_BYTES
   let nextSeqNo = config?.startSeqNo ?? 1
+  let committedSeqNo = nextSeqNo - 1
+  let committedPrimaryTerm = config?.lastPrimaryTerm ?? 0
   let entries: ReplicationLogEntry[] = []
   let headIndex = 0
   let totalSizeBytes = 0
@@ -80,6 +83,39 @@ export function createReplicationLog(
     }
   }
 
+  function storeEntry(entry: ReplicationLogEntry): ReplicationLogEntry {
+    entries.push(entry)
+    if (entry.seqNo >= committedSeqNo) {
+      committedSeqNo = entry.seqNo
+      committedPrimaryTerm = entry.primaryTerm
+    }
+    totalSizeBytes += estimateEntrySize(entry)
+    evictOldEntries()
+    return { ...entry }
+  }
+
+  function readEntry(seqNo: number): ReplicationLogEntry | undefined {
+    if (liveCount() === 0) return undefined
+    const idx = findIndexBySeqNo(seqNo)
+    if (idx < entries.length && entries[idx].seqNo === seqNo) {
+      return { ...entries[idx] }
+    }
+    return undefined
+  }
+
+  function verifyEntryChecksum(entry: ReplicationLogEntry): boolean {
+    const expected = computeChecksum({
+      seqNo: entry.seqNo,
+      primaryTerm: entry.primaryTerm,
+      operation: entry.operation,
+      partitionId: entry.partitionId,
+      indexName: entry.indexName,
+      documentId: entry.documentId,
+      document: entry.document,
+    })
+    return expected === entry.checksum
+  }
+
   return {
     append(partial) {
       const seqNo = nextSeqNo
@@ -98,11 +134,59 @@ export function createReplicationLog(
       const checksum = computeChecksum(entryWithoutChecksum)
       const entry: ReplicationLogEntry = { ...entryWithoutChecksum, checksum }
 
-      entries.push(entry)
-      totalSizeBytes += estimateEntrySize(entry)
-      evictOldEntries()
+      return storeEntry(entry)
+    },
 
-      return entry
+    appendCommitted(entry: ReplicationLogEntry): ReplicationLogEntry {
+      if (!Number.isSafeInteger(entry.seqNo) || entry.seqNo < 1) {
+        throw new NarsilError(
+          ErrorCodes.REPLICATION_ENTRY_INVALID,
+          `Invalid replication sequence number ${entry.seqNo}`,
+          {
+            seqNo: entry.seqNo,
+            partitionId,
+          },
+        )
+      }
+
+      if (entry.partitionId !== partitionId) {
+        throw new NarsilError(
+          ErrorCodes.REPLICATION_ENTRY_INVALID,
+          `Replication entry partition ${entry.partitionId} does not match log partition ${partitionId}`,
+          { entryPartitionId: entry.partitionId, logPartitionId: partitionId },
+        )
+      }
+
+      const existing = readEntry(entry.seqNo)
+      if (existing !== undefined) {
+        if (existing.checksum !== entry.checksum) {
+          throw new NarsilError(
+            ErrorCodes.REPLICATION_ENTRY_INVALID,
+            `Conflicting replication entry at sequence number ${entry.seqNo}`,
+            { seqNo: entry.seqNo, partitionId },
+          )
+        }
+        return existing
+      }
+
+      if (entry.seqNo !== nextSeqNo) {
+        throw new NarsilError(
+          ErrorCodes.REPLICATION_ENTRY_INVALID,
+          `Out-of-order replication entry ${entry.seqNo}; expected ${nextSeqNo}`,
+          { seqNo: entry.seqNo, expectedSeqNo: nextSeqNo, partitionId },
+        )
+      }
+
+      if (!verifyEntryChecksum(entry)) {
+        throw new NarsilError(
+          ErrorCodes.REPLICATION_ENTRY_INVALID,
+          `Invalid checksum for replication entry ${entry.seqNo}`,
+          { seqNo: entry.seqNo, partitionId },
+        )
+      }
+
+      nextSeqNo = entry.seqNo + 1
+      return storeEntry({ ...entry })
     },
 
     getEntriesFrom(fromSeqNo: number): ReplicationLogEntry[] {
@@ -113,25 +197,19 @@ export function createReplicationLog(
     },
 
     getEntry(seqNo: number): ReplicationLogEntry | undefined {
-      if (liveCount() === 0) return undefined
-      const idx = findIndexBySeqNo(seqNo)
-      if (idx < entries.length && entries[idx].seqNo === seqNo) {
-        return { ...entries[idx] }
-      }
-      return undefined
+      return readEntry(seqNo)
     },
 
     verifyChecksum(entry: ReplicationLogEntry): boolean {
-      const expected = computeChecksum({
-        seqNo: entry.seqNo,
-        primaryTerm: entry.primaryTerm,
-        operation: entry.operation,
-        partitionId: entry.partitionId,
-        indexName: entry.indexName,
-        documentId: entry.documentId,
-        document: entry.document,
-      })
-      return expected === entry.checksum
+      return verifyEntryChecksum(entry)
+    },
+
+    get committedSeqNo(): number {
+      return committedSeqNo
+    },
+
+    get committedPrimaryTerm(): number {
+      return committedPrimaryTerm
     },
 
     get oldestSeqNo(): number | undefined {
@@ -156,6 +234,7 @@ export function createReplicationLog(
       entries = []
       headIndex = 0
       totalSizeBytes = 0
+      committedSeqNo = nextSeqNo - 1
     },
   }
 }

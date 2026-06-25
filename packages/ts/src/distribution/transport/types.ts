@@ -142,6 +142,7 @@ export interface SnapshotEndPayload {
 
 export interface SnapshotSyncRequestPayload {
   indexName: string
+  partitionId?: number | null
 }
 
 export interface InsyncRemovePayload {

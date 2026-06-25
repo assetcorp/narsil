@@ -56,6 +56,8 @@ export default defineConfig([
       'languages/japanese': 'src/languages/japanese.ts',
       'languages/sanskrit': 'src/languages/sanskrit.ts',
       distribution: 'src/distribution/index.ts',
+      'distribution/coordinator/in-memory': 'src/distribution/coordinator/in-memory.ts',
+      'distribution/coordinator/etcd': 'src/distribution/coordinator/etcd/index.ts',
     },
     format: ['esm'],
     dts: true,

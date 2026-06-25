@@ -1,6 +1,7 @@
+import { decode } from '@msgpack/msgpack'
 import type { NodeTransport, TransportMessage } from '../transport/types'
 import { ReplicationMessageTypes, TransportError } from '../transport/types'
-import { createEntryMessage } from './codec'
+import { createEntryMessage, validateAckPayload } from './codec'
 import type { ReplicateResult, ReplicationLogEntry } from './types'
 
 export async function replicateToReplicas(
@@ -8,6 +9,7 @@ export async function replicateToReplicas(
   inSyncReplicas: string[],
   transport: NodeTransport,
   sourceNodeId: string,
+  resolveNodeTargets?: (nodeId: string) => Promise<string[]>,
 ): Promise<ReplicateResult> {
   const uniqueReplicas = [...new Set(inSyncReplicas)]
 
@@ -17,7 +19,7 @@ export async function replicateToReplicas(
 
   const message = createEntryMessage(entry, sourceNodeId)
   const sendResults = await Promise.allSettled(
-    uniqueReplicas.map(replicaNodeId => sendToReplica(transport, replicaNodeId, message)),
+    uniqueReplicas.map(replicaNodeId => sendToReplica(transport, replicaNodeId, message, resolveNodeTargets)),
   )
 
   const acknowledged: string[] = []
@@ -36,7 +38,7 @@ export async function replicateToReplicas(
     }
 
     const response = result.value
-    if (response.type === ReplicationMessageTypes.ACK) {
+    if (isMatchingAck(response, entry)) {
       acknowledged.push(replicaNodeId)
     } else {
       failed.push(replicaNodeId)
@@ -50,6 +52,36 @@ async function sendToReplica(
   transport: NodeTransport,
   replicaNodeId: string,
   message: TransportMessage,
+  resolveNodeTargets?: (nodeId: string) => Promise<string[]>,
 ): Promise<TransportMessage> {
-  return transport.send(replicaNodeId, message)
+  const targets = resolveNodeTargets === undefined ? [replicaNodeId] : await resolveNodeTargets(replicaNodeId)
+  const resolvedTargets = targets.length > 0 ? targets : [replicaNodeId]
+  let lastError: unknown
+
+  for (const target of resolvedTargets) {
+    try {
+      return await transport.send(target, message)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+}
+
+function isMatchingAck(response: TransportMessage, entry: ReplicationLogEntry): boolean {
+  if (response.type !== ReplicationMessageTypes.ACK) {
+    return false
+  }
+
+  try {
+    const payload = validateAckPayload(decode(response.payload))
+    return (
+      payload.seqNo === entry.seqNo &&
+      payload.partitionId === entry.partitionId &&
+      payload.indexName === entry.indexName
+    )
+  } catch {
+    return false
+  }
 }

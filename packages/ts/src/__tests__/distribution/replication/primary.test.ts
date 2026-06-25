@@ -52,6 +52,51 @@ describe('replicateToReplicas', () => {
     await replicaTransport.shutdown()
   })
 
+  it('marks an ack with mismatched entry identity as failed', async () => {
+    const network = createInMemoryNetwork()
+    const primaryTransport = createInMemoryTransport('primary', network)
+    const replicaTransport = createInMemoryTransport('replica-a', network)
+
+    await replicaTransport.listen((message: TransportMessage, respond) => {
+      if (message.type === ReplicationMessageTypes.ENTRY) {
+        respond(createAckMessage(2, 0, 'products', 'replica-a', message.requestId))
+      }
+    })
+
+    const result = await replicateToReplicas(makeEntry(), ['replica-a'], primaryTransport, 'primary')
+
+    expect(result.acknowledged).toEqual([])
+    expect(result.failed).toEqual(['replica-a'])
+
+    await primaryTransport.shutdown()
+    await replicaTransport.shutdown()
+  })
+
+  it('marks a malformed ack payload as failed', async () => {
+    const network = createInMemoryNetwork()
+    const primaryTransport = createInMemoryTransport('primary', network)
+    const replicaTransport = createInMemoryTransport('replica-a', network)
+
+    await replicaTransport.listen((message: TransportMessage, respond) => {
+      if (message.type === ReplicationMessageTypes.ENTRY) {
+        respond({
+          type: ReplicationMessageTypes.ACK,
+          sourceId: 'replica-a',
+          requestId: message.requestId,
+          payload: encode({ seqNo: '1', partitionId: 0, indexName: 'products' }),
+        })
+      }
+    })
+
+    const result = await replicateToReplicas(makeEntry(), ['replica-a'], primaryTransport, 'primary')
+
+    expect(result.acknowledged).toEqual([])
+    expect(result.failed).toEqual(['replica-a'])
+
+    await primaryTransport.shutdown()
+    await replicaTransport.shutdown()
+  })
+
   it('acknowledges multiple replicas that all respond with ack', async () => {
     const network = createInMemoryNetwork()
     const primaryTransport = createInMemoryTransport('primary', network)

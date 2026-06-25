@@ -1,4 +1,4 @@
-import { createEngineCore, type EventHandler, getVectorFieldPaths } from './engine/core'
+import { createEngineCore, type EngineCore, type EventHandler, getVectorFieldPaths } from './engine/core'
 import {
   insertDocument,
   insertDocumentBatch,
@@ -75,6 +75,10 @@ export interface Narsil {
 
 export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
   const core = createEngineCore(config)
+  return createNarsilFromCore(core, config)
+}
+
+export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): Narsil {
   const {
     executor,
     pluginRegistry,

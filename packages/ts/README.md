@@ -143,6 +143,42 @@ Indexes split into shards when they grow beyond a configurable threshold. Partit
 
 Search operations move off the main thread through worker threads (Node.js, Bun) or Web Workers (browser, Deno). The engine starts in direct mode for small indexes and auto-promotes to workers once document counts cross a threshold. You keep using the same API throughout.
 
+### Memory reporting
+
+Narsil reports memory at three levels: per index, per partition, and per runtime. `getStats(indexName)` returns `estimatedMemoryBytes`, a formula-based estimate for the index's main-thread partitions and vector structures.
+
+```ts
+const indexStats = narsil.getStats('products')
+
+console.log(indexStats.estimatedMemoryBytes)
+```
+
+The estimate comes from document counts, posting lists, field indexes, and vector indexes. It excludes V8 object headers, allocator overhead, and other host runtime costs, so use it for comparing indexes inside one process.
+
+`getPartitionStats(indexName)` returns the same estimate for each partition. The partition values sum to `getStats(indexName).estimatedMemoryBytes`.
+
+```ts
+const partitions = narsil.getPartitionStats('products')
+
+for (const partition of partitions) {
+  console.log(partition.partitionId, partition.estimatedMemoryBytes)
+}
+```
+
+`getMemoryStats()` returns a runtime snapshot and worker reports. It is async because workers report their heap usage through the worker message channel.
+
+```ts
+const memory = await narsil.getMemoryStats()
+
+console.log(memory.estimatedIndexBytes)
+console.log(memory.process?.heapUsed)
+console.log(memory.workers)
+```
+
+`memory.estimatedIndexBytes` sums `estimatedMemoryBytes` across every index in this Narsil instance. `memory.process` comes from `process.memoryUsage()` when the runtime exposes it. It measures the whole host process, so two Narsil instances in one Node.js process report the same process numbers. Browser runtimes return `null` for `memory.process`.
+
+`memory.workers` lists `heapUsed`, `heapTotal`, and `external` for each active worker. The array is empty before worker promotion.
+
 ### Distributed BM25 scoring
 
 Three scoring modes handle the partition-skew problem:

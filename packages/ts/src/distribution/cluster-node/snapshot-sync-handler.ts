@@ -68,21 +68,21 @@ function containsControlCharacter(value: string): boolean {
 }
 
 /**
- * A SNAPSHOT_SYNC_REQUEST only carries `{indexName: string}` with `indexName`
- * bounded by the canonical MAX_INDEX_NAME_LENGTH. Rejecting oversized payloads
- * before msgpack decode keeps an abusive peer from pinning a CPU on a 64 MiB
- * decode just to fail validation.
+ * A SNAPSHOT_SYNC_REQUEST carries `{indexName: string, partitionId?: number}`
+ * with `indexName` bounded by the canonical MAX_INDEX_NAME_LENGTH. Rejecting
+ * oversized payloads before msgpack decode keeps an abusive peer from pinning
+ * a CPU on a 64 MiB decode just to fail validation.
  */
 const MAX_SNAPSHOT_SYNC_REQUEST_BYTES = 4_096
 
 /**
- * The request payload is a single-field map: `{indexName: string}`. Cap the
- * decoder's structural limits so a deeply nested or wide map within the 4 KiB
- * byte budget can't run the decoder's inner loop long enough to matter. Each
- * cap is a multiple of the single legitimate value so forward-compatible
- * optional hints still decode. `keyDecoder: null` opts out of the msgpack
- * library's process-global shared key cache so a hostile peer cannot evict
- * cached keys used by unrelated decoders running in the same process.
+ * Cap the decoder's structural limits so a deeply nested or wide map within
+ * the 4 KiB byte budget can't run the decoder's inner loop long enough to
+ * matter. Each cap is intentionally above the two legitimate fields so
+ * forward-compatible optional hints still decode. `keyDecoder: null` opts out
+ * of the msgpack library's process-global shared key cache so a hostile peer
+ * cannot evict cached keys used by unrelated decoders running in the same
+ * process.
  */
 const REQUEST_DECODE_OPTIONS = {
   maxMapLength: 16,
@@ -113,6 +113,7 @@ export interface SnapshotHeaderMetadata {
 
 export type SnapshotHeaderMetadataProvider = (
   indexName: string,
+  partitionId: number | null,
 ) => Promise<SnapshotHeaderMetadata> | SnapshotHeaderMetadata
 
 export async function defaultSnapshotHeaderMetadataProvider(
@@ -150,6 +151,14 @@ export interface SnapshotSyncHandlerDeps {
   resolveHeaderMetadata?: SnapshotHeaderMetadataProvider
 }
 
+export interface SnapshotSyncStreamOptions {
+  metadata?: SnapshotHeaderMetadata
+  closeOnEnd?: boolean
+  afterSnapshot?: (sink: SingleResponseSink) => void | Promise<void>
+  disableBuildCache?: boolean
+  buildSnapshot?: (indexName: string) => Promise<SnapshotBuildResult> | SnapshotBuildResult
+}
+
 export async function handleSnapshotSyncRequest(
   message: TransportMessage,
   respond: (response: TransportMessage) => void,
@@ -185,6 +194,16 @@ async function runSnapshotSyncRequest(
     return
   }
 
+  await streamValidatedSnapshotRequest(message, sink, request, deps)
+}
+
+export async function streamValidatedSnapshotRequest(
+  message: TransportMessage,
+  sink: SingleResponseSink,
+  request: SnapshotSyncRequestPayload,
+  deps: SnapshotSyncHandlerDeps,
+  options: SnapshotSyncStreamOptions = {},
+): Promise<void> {
   const sourceIdError = validateSourceId(message.sourceId)
   if (sourceIdError !== null) {
     respondError(sink, deps.nodeId, message.requestId, ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID, sourceIdError)
@@ -209,7 +228,7 @@ async function runSnapshotSyncRequest(
     return
   }
 
-  await acquireAndStream(message, sink, request.indexName, deps)
+  await acquireAndStream(message, sink, request, deps, options)
 }
 
 function decodeRequest(
@@ -244,9 +263,11 @@ function validateSourceId(sourceId: unknown): string | null {
 async function acquireAndStream(
   message: TransportMessage,
   sink: SingleResponseSink,
-  indexName: string,
+  request: SnapshotSyncRequestPayload,
   deps: SnapshotSyncHandlerDeps,
+  options: SnapshotSyncStreamOptions,
 ): Promise<void> {
+  const { indexName } = request
   let sourceHandle: SourceSlotHandle
   try {
     sourceHandle = acquireSourceSlot(deps.state, message.sourceId, indexName)
@@ -260,7 +281,11 @@ async function acquireAndStream(
   try {
     let build: SnapshotBuildResult
     try {
-      build = await acquireSnapshotBuild(deps.state, indexName, async () => buildSnapshot(deps, indexName))
+      const buildForRequest = async () => buildSnapshotForRequest(deps, indexName, options)
+      build =
+        options.disableBuildCache === true
+          ? await buildForRequest()
+          : await acquireSnapshotBuild(deps.state, indexName, buildForRequest)
     } catch (err) {
       const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_SNAPSHOT_FAILED
       const errMessage = err instanceof Error ? err.message : String(err)
@@ -290,8 +315,14 @@ async function acquireAndStream(
     }
 
     try {
-      const metadata = await resolveHeaderMetadata(deps, indexName)
-      await streamSnapshotToReplica(sink, deps.nodeId, message.requestId, indexName, build, metadata)
+      const metadata = options.metadata ?? (await resolveHeaderMetadata(deps, indexName, request.partitionId ?? null))
+      await streamSnapshotToReplica(sink, deps.nodeId, message.requestId, indexName, build, metadata, {
+        closeOnEnd: options.closeOnEnd,
+      })
+      await options.afterSnapshot?.(sink)
+      if (options.closeOnEnd === false) {
+        sink.closed = true
+      }
     } finally {
       releaseStreamSlot(deps.state, streamHandle)
     }
@@ -318,16 +349,28 @@ async function buildSnapshot(deps: SnapshotSyncHandlerDeps, indexName: string): 
   return { bytes, checksum }
 }
 
+function buildSnapshotForRequest(
+  deps: SnapshotSyncHandlerDeps,
+  indexName: string,
+  options: SnapshotSyncStreamOptions,
+): Promise<SnapshotBuildResult> | SnapshotBuildResult {
+  if (options.buildSnapshot !== undefined) {
+    return options.buildSnapshot(indexName)
+  }
+  return buildSnapshot(deps, indexName)
+}
+
 async function resolveHeaderMetadata(
   deps: SnapshotSyncHandlerDeps,
   indexName: string,
+  partitionId: number | null,
 ): Promise<SnapshotHeaderMetadata> {
   const provider = deps.resolveHeaderMetadata
   if (provider === undefined) {
     return defaultSnapshotHeaderMetadataProvider(deps.coordinator, indexName)
   }
   try {
-    return await provider(indexName)
+    return await provider(indexName, partitionId)
   } catch (_) {
     return {
       partitionId: SNAPSHOT_HEADER_SENTINEL_PARTITION_ID,
@@ -372,5 +415,15 @@ export function validateSnapshotSyncRequestPayload(decoded: unknown): SnapshotSy
       'Invalid SnapshotSyncRequestPayload: "indexName" contains invalid characters',
     )
   }
-  return { indexName }
+  const partitionId = record.partitionId
+  if (partitionId !== undefined && partitionId !== null) {
+    if (typeof partitionId !== 'number' || !Number.isInteger(partitionId) || partitionId < 0) {
+      throw new NarsilError(
+        ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID,
+        'Invalid SnapshotSyncRequestPayload: "partitionId" must be a non-negative integer when provided',
+      )
+    }
+    return { indexName, partitionId }
+  }
+  return { indexName, partitionId: null }
 }

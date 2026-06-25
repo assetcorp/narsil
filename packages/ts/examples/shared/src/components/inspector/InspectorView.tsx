@@ -1,5 +1,5 @@
 import { type Dispatch, lazy, Suspense, useCallback, useEffect, useState } from 'react'
-import type { IndexStats, NarsilBackend, PartitionStats } from '../../backend'
+import type { IndexStats, MemoryStatsResponse, NarsilBackend, PartitionStats } from '../../backend'
 import type { AppAction, AppState } from '../../types'
 import { Button } from '../ui/button'
 import { Skeleton } from '../ui/skeleton'
@@ -30,6 +30,7 @@ export function InspectorView({ backend, state, dispatch }: InspectorViewProps) 
   const indexName = state.activeIndexName
   const [stats, setStats] = useState<IndexStats | null>(null)
   const [partitionStats, setPartitionStats] = useState<PartitionStats[]>([])
+  const [memoryStats, setMemoryStats] = useState<MemoryStatsResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<'stats' | 'schema' | 'vectors'>('stats')
 
@@ -37,16 +38,33 @@ export function InspectorView({ backend, state, dispatch }: InspectorViewProps) 
     if (!indexName) {
       setStats(null)
       setPartitionStats([])
+      setMemoryStats(null)
       return
     }
 
+    let isCancelled = false
     setIsLoading(true)
-    Promise.all([backend.getStats(indexName), backend.getPartitionStats(indexName)])
-      .then(([s, ps]) => {
+    const memoryPromise = backend.getMemoryStats().catch(() => null)
+    Promise.all([backend.getStats(indexName), backend.getPartitionStats(indexName), memoryPromise])
+      .then(([s, ps, memory]) => {
+        if (isCancelled) return
         setStats(s)
         setPartitionStats(ps)
+        setMemoryStats(memory)
       })
-      .finally(() => setIsLoading(false))
+      .catch(() => {
+        if (isCancelled) return
+        setStats(null)
+        setPartitionStats([])
+        setMemoryStats(null)
+      })
+      .finally(() => {
+        if (!isCancelled) setIsLoading(false)
+      })
+
+    return () => {
+      isCancelled = true
+    }
   }, [backend, indexName])
 
   const handleStatsTab = useCallback(() => {
@@ -114,7 +132,9 @@ export function InspectorView({ backend, state, dispatch }: InspectorViewProps) 
         </div>
       )}
 
-      {!isLoading && stats && activeTab === 'stats' && <StatsTab stats={stats} partitionStats={partitionStats} />}
+      {!isLoading && stats && activeTab === 'stats' && (
+        <StatsTab stats={stats} partitionStats={partitionStats} memoryStats={memoryStats} />
+      )}
 
       {!isLoading && stats && activeTab === 'schema' && <SchemaDisplay schema={stats.schema} />}
 
