@@ -2,7 +2,7 @@ import type { EmbeddingAdapter } from '../types/adapters'
 import type { EngineCore } from './core'
 
 export async function shutdownEngine(core: EngineCore): Promise<void> {
-  const { executor, flushManager, durability, indexRegistry, eventHandlers, orchestrator } = core
+  const { executor, durability, indexRegistry, eventHandlers, orchestrator } = core
 
   for (const [name] of indexRegistry) {
     const manager = executor.getManager(name)
@@ -13,9 +13,6 @@ export async function shutdownEngine(core: EngineCore): Promise<void> {
     }
   }
 
-  if (flushManager) {
-    await flushManager.shutdown()
-  }
   if (durability) {
     await durability.manager.shutdown()
   }

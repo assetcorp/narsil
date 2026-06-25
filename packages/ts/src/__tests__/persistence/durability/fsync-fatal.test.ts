@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildEntry } from '../../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
 import { NarsilError } from '../../../errors'
-import type { AppendHandle, DurableDirectory } from '../../../persistence/durability/durable-filesystem'
+import type { AppendHandle, DurableDirectory, MarkerHandle } from '../../../persistence/durability/durable-filesystem'
 import { createWalWriter } from '../../../persistence/durability/wal-writer'
 
 function entry(seqNo: number): ReplicationLogEntry {
@@ -37,12 +37,30 @@ function failingSyncDirectory(): { directory: DurableDirectory; appended: Uint8A
     },
   }
 
+  const marker: MarkerHandle = {
+    async read(): Promise<Uint8Array> {
+      return new Uint8Array(0)
+    },
+    async writeSlot(): Promise<void> {
+      return undefined
+    },
+    async close(): Promise<void> {
+      return undefined
+    },
+  }
+
   const directory: DurableDirectory = {
     root: '/fake',
     async appendHandle(): Promise<AppendHandle> {
       return handle
     },
+    async markerHandle(): Promise<MarkerHandle> {
+      return marker
+    },
     async atomicWrite(): Promise<void> {
+      return undefined
+    },
+    async syncDirectoryOf(): Promise<void> {
       return undefined
     },
     async read(): Promise<Uint8Array | null> {

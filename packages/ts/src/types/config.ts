@@ -11,7 +11,6 @@ export interface NarsilConfig {
   idGenerator?: () => string
   workers?: WorkerConfig
   flush?: FlushConfig
-  eagerLoad?: boolean
   embedding?: EmbeddingAdapter
   durability?: DurabilityConfig
 }

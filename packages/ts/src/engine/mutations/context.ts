@@ -1,6 +1,5 @@
 import type { PartitionManager } from '../../partitioning/manager'
 import type { WAQEntry } from '../../partitioning/write-ahead-queue'
-import type { FlushManager } from '../../persistence/flush-manager'
 import type { PluginRegistry } from '../../plugins/registry'
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { LanguageModule } from '../../types/language'
@@ -15,16 +14,21 @@ export interface DurableWriteToken {
   seqNo: number
 }
 
+export type ApplyMutation = () => void | Promise<void>
+
 export interface DurabilityRecorder {
-  recordInsertOrUpdate(indexName: string, docId: string, document: AnyDocument): Promise<DurableWriteToken>
-  recordRemove(indexName: string, docId: string): Promise<DurableWriteToken>
-  confirmApplied(write: DurableWriteToken): void
+  recordInsertOrUpdate(
+    indexName: string,
+    docId: string,
+    document: AnyDocument,
+    apply: ApplyMutation,
+  ): Promise<DurableWriteToken>
+  recordRemove(indexName: string, docId: string, apply: ApplyMutation): Promise<DurableWriteToken>
 }
 
 export interface MutationContext {
   executor: Executor & DirectExecutorExtensions
   pluginRegistry: PluginRegistry
-  flushManager: FlushManager | null
   durability: DurabilityRecorder | null
   orchestrator: WorkerOrchestrator
   idGenerator: () => string

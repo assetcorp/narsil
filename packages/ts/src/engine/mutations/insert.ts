@@ -7,6 +7,7 @@ import { embedBatchDocumentFields, embedDocumentFields } from '../embed'
 import { BATCH_CHUNK_SIZE, validateDocId } from '../validation'
 import { insertDocumentVectors, prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
 import type { MutationContext } from './context'
+import { rollbackInsertedDocument } from './durable-rollback'
 
 export async function insertDocument(
   ctx: MutationContext,
@@ -53,35 +54,42 @@ export async function insertDocument(
     validateVectorDimensions(extractedVectors, insertVecIndexes)
   }
 
-  const durableWrite = ctx.durability
-    ? await ctx.durability.recordInsertOrUpdate(indexName, resolvedDocId, document)
-    : null
-
-  await ctx.executor.execute({
-    type: 'insert',
-    indexName,
-    docId: resolvedDocId,
-    document: partitionDoc as AnyDocument,
-    requestId: resolvedDocId,
-    skipClone: extractedVectors.size > 0 ? true : options?.skipClone,
-  })
-
-  if (durableWrite && ctx.durability) {
-    ctx.durability.confirmApplied(durableWrite)
+  let inserted = false
+  const applyInsert = async (): Promise<void> => {
+    await ctx.executor.execute({
+      type: 'insert',
+      indexName,
+      docId: resolvedDocId,
+      document: partitionDoc as AnyDocument,
+      requestId: resolvedDocId,
+      skipClone: extractedVectors.size > 0 ? true : options?.skipClone,
+    })
+    inserted = true
+    try {
+      insertDocumentVectors(resolvedDocId, extractedVectors, insertVecIndexes)
+    } catch (err) {
+      try {
+        await ctx.executor.execute({ type: 'remove', indexName, docId: resolvedDocId, requestId: resolvedDocId })
+        inserted = false
+      } catch (rollbackErr) {
+        console.warn(
+          `Rollback failed for doc "${resolvedDocId}" during insert atomicity:`,
+          rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+        )
+      }
+      throw err
+    }
   }
 
-  try {
-    insertDocumentVectors(resolvedDocId, extractedVectors, insertVecIndexes)
-  } catch (err) {
+  if (ctx.durability) {
     try {
-      await ctx.executor.execute({ type: 'remove', indexName, docId: resolvedDocId, requestId: resolvedDocId })
-    } catch (rollbackErr) {
-      console.warn(
-        `Rollback failed for doc "${resolvedDocId}" during insert atomicity:`,
-        rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
-      )
+      await ctx.durability.recordInsertOrUpdate(indexName, resolvedDocId, document, applyInsert)
+    } catch (err) {
+      await rollbackInsertedDocument(ctx, indexName, resolvedDocId, inserted, err)
+      throw err
     }
-    throw err
+  } else {
+    await applyInsert()
   }
 
   try {
@@ -89,8 +97,6 @@ export async function insertDocument(
   } catch (err) {
     console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
   }
-
-  ctx.flushManager?.markDirty(indexName, 0)
 
   await ctx.orchestrator.replicateToWorkers({
     type: 'insert',
@@ -211,38 +217,45 @@ export async function insertDocumentBatch(
           validateVectorDimensions(extractedVectors, batchVecIndexes)
         }
 
-        const batchDurableWrite = ctx.durability
-          ? await ctx.durability.recordInsertOrUpdate(indexName, batchDocId, documents[i])
-          : null
-
-        const result = ctx.executor.execute({
-          type: 'insert',
-          indexName,
-          docId: batchDocId,
-          document: partitionDoc as AnyDocument,
-          requestId: batchDocId,
-          skipClone: extractedVectors.size > 0 ? true : options?.skipClone,
-        })
-        if (result && typeof (result as Promise<unknown>).then === 'function') {
-          await result
-        }
-
-        if (batchDurableWrite && ctx.durability) {
-          ctx.durability.confirmApplied(batchDurableWrite)
-        }
-
-        try {
-          insertDocumentVectors(batchDocId, extractedVectors, batchVecIndexes)
-        } catch (vecErr) {
-          try {
-            await ctx.executor.execute({ type: 'remove', indexName, docId: batchDocId, requestId: batchDocId })
-          } catch (rollbackErr) {
-            console.warn(
-              `Rollback failed for doc "${batchDocId}" during batch insert atomicity:`,
-              rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
-            )
+        let batchInserted = false
+        const applyBatchInsert = async (): Promise<void> => {
+          const result = ctx.executor.execute({
+            type: 'insert',
+            indexName,
+            docId: batchDocId,
+            document: partitionDoc as AnyDocument,
+            requestId: batchDocId,
+            skipClone: extractedVectors.size > 0 ? true : options?.skipClone,
+          })
+          if (result && typeof (result as Promise<unknown>).then === 'function') {
+            await result
           }
-          throw vecErr
+          batchInserted = true
+          try {
+            insertDocumentVectors(batchDocId, extractedVectors, batchVecIndexes)
+          } catch (vecErr) {
+            try {
+              await ctx.executor.execute({ type: 'remove', indexName, docId: batchDocId, requestId: batchDocId })
+              batchInserted = false
+            } catch (rollbackErr) {
+              console.warn(
+                `Rollback failed for doc "${batchDocId}" during batch insert atomicity:`,
+                rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+              )
+            }
+            throw vecErr
+          }
+        }
+
+        if (ctx.durability) {
+          try {
+            await ctx.durability.recordInsertOrUpdate(indexName, batchDocId, documents[i], applyBatchInsert)
+          } catch (durableErr) {
+            await rollbackInsertedDocument(ctx, indexName, batchDocId, batchInserted, durableErr)
+            throw durableErr
+          }
+        } else {
+          await applyBatchInsert()
         }
 
         for (const fieldPath of extractedVectors.keys()) {
@@ -271,8 +284,6 @@ export async function insertDocumentBatch(
       await new Promise<void>(r => setTimeout(r, 0))
     }
   }
-
-  ctx.flushManager?.markDirty(indexName, 0)
 
   for (let i = 0; i < succeeded.length; i++) {
     await ctx.orchestrator.replicateToWorkers({

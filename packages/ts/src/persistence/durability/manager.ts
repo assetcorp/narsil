@@ -15,11 +15,14 @@ import {
 } from './types'
 import { createWalWriter, DEFAULT_SEGMENT_MAX_BYTES, type WalWriter } from './wal-writer'
 
+const DEFAULT_ASYNC_FLUSH_INTERVAL_MS = 1000
+
 interface PartitionState {
   walWriter: WalWriter
   seqOwner: SeqOwner
   appendChain: Promise<void>
   appliedSeqNo: number
+  failed: Error | null
 }
 
 interface IndexState {
@@ -38,9 +41,11 @@ export function createDurabilityManager(
   const checkpointIntervalMs = config.checkpointIntervalMs ?? DEFAULT_CHECKPOINT_INTERVAL_MS
   const checkpointMutationThreshold = config.checkpointMutationThreshold ?? DEFAULT_CHECKPOINT_MUTATION_THRESHOLD
   const mode = config.mode ?? 'sync'
+  const flushIntervalMs = config.flushIntervalMs ?? DEFAULT_ASYNC_FLUSH_INTERVAL_MS
 
   const indexes = new Map<string, IndexState>()
   let checkpointTimer: ReturnType<typeof setInterval> | null = null
+  let asyncFlushTimer: ReturnType<typeof setInterval> | null = null
   let shuttingDown = false
 
   async function closeWriterReportingFailure(closePromise: Promise<void>): Promise<void> {
@@ -69,6 +74,7 @@ export function createDurabilityManager(
         seqOwner: createSeqOwner(startSeqNo),
         appendChain: Promise.resolve(),
         appliedSeqNo: startSeqNo,
+        failed: null,
       }
       indexState.partitions.set(partitionId, partition)
     }
@@ -84,6 +90,36 @@ export function createDurabilityManager(
     }, checkpointIntervalMs)
     if (typeof checkpointTimer.unref === 'function') {
       checkpointTimer.unref()
+    }
+  }
+
+  function startAsyncFlushTimer(): void {
+    if (mode !== 'async' || asyncFlushTimer !== null || shuttingDown || flushIntervalMs <= 0) {
+      return
+    }
+    asyncFlushTimer = setInterval(() => {
+      void flushAllPartitions()
+    }, flushIntervalMs)
+    if (typeof asyncFlushTimer.unref === 'function') {
+      asyncFlushTimer.unref()
+    }
+  }
+
+  async function flushAllPartitions(): Promise<void> {
+    for (const indexState of indexes.values()) {
+      for (const partition of indexState.partitions.values()) {
+        if (partition.failed) {
+          continue
+        }
+        const flushed = partition.appendChain.then(() => partition.walWriter.commit())
+        partition.appendChain = flushed.catch(() => undefined)
+        try {
+          await flushed
+        } catch (err) {
+          partition.failed = err instanceof Error ? err : new Error(String(err))
+          hooks.onFatalError(partition.failed)
+        }
+      }
     }
   }
 
@@ -199,32 +235,37 @@ export function createDurabilityManager(
 
       let allocatedSeqNo = 0
       const buffered = partition.appendChain.then(async () => {
+        if (partition.failed) {
+          throw partition.failed
+        }
+        await record.apply()
         allocatedSeqNo = partition.seqOwner.next()
-        const entry = buildMutationEntry(record, allocatedSeqNo)
-        await partition.walWriter.append(entry)
+        try {
+          const entry = buildMutationEntry(record, allocatedSeqNo)
+          await partition.walWriter.append(entry)
+          if (mode === 'sync') {
+            await partition.walWriter.commit()
+          } else {
+            await partition.walWriter.commitSoft()
+          }
+        } catch (err) {
+          partition.failed = err instanceof Error ? err : new Error(String(err))
+          throw err
+        }
+        partition.appliedSeqNo = allocatedSeqNo
       })
       partition.appendChain = buffered.catch(() => undefined)
       await buffered
 
-      if (mode === 'sync') {
-        await partition.walWriter.commit()
-      }
-
       indexState.mutationsSinceCheckpoint += 1
       startCheckpointTimer()
+      startAsyncFlushTimer()
       if (indexState.mutationsSinceCheckpoint >= checkpointMutationThreshold) {
         void checkpointIndex(record.indexName).catch(err => {
           hooks.onFatalError(err instanceof Error ? err : new Error(String(err)))
         })
       }
       return allocatedSeqNo
-    },
-
-    markApplied(indexName: string, partitionId: number, seqNo: number): void {
-      const partition = indexes.get(indexName)?.partitions.get(partitionId)
-      if (partition !== undefined && seqNo > partition.appliedSeqNo) {
-        partition.appliedSeqNo = seqNo
-      }
     },
 
     async persistMetadata(indexName: string): Promise<void> {
@@ -265,6 +306,10 @@ export function createDurabilityManager(
       if (checkpointTimer !== null) {
         clearInterval(checkpointTimer)
         checkpointTimer = null
+      }
+      if (asyncFlushTimer !== null) {
+        clearInterval(asyncFlushTimer)
+        asyncFlushTimer = null
       }
       for (const indexState of indexes.values()) {
         if (indexState.checkpointInFlight !== null) {

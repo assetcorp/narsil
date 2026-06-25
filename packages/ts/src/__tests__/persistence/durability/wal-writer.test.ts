@@ -4,8 +4,9 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildEntry } from '../../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
+import { readCommitMarker } from '../../../persistence/durability/commit-marker'
 import { createDurableDirectory, type DurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { readSegment } from '../../../persistence/durability/wal-framing'
+import { readDurableRegion } from '../../../persistence/durability/wal-framing'
 import { createWalWriter } from '../../../persistence/durability/wal-writer'
 
 function entry(seqNo: number): ReplicationLogEntry {
@@ -20,16 +21,26 @@ function entry(seqNo: number): ReplicationLogEntry {
   })
 }
 
+function segmentKeys(keys: string[]): string[] {
+  return keys.filter(k => /\/\d{16}$/.test(k)).sort()
+}
+
 async function readAllEntries(directory: DurableDirectory): Promise<ReplicationLogEntry[]> {
-  const keys = await directory.list('movies/wal/0/')
+  const markerBytes = await directory.read('movies/wal/0/commit')
+  const marker = markerBytes === null ? null : readCommitMarker(markerBytes)
+  if (marker === null) {
+    return []
+  }
+  const keys = segmentKeys(await directory.list('movies/wal/0/'))
   const entries: ReplicationLogEntry[] = []
-  for (const key of keys.sort()) {
+  for (const key of keys) {
     const bytes = await directory.read(key)
-    if (bytes === null) continue
-    const result = readSegment(bytes, 67_108_864)
-    if (result.kind === 'records') {
-      entries.push(...result.entries)
+    if (bytes === null) {
+      continue
     }
+    const tail = Number.parseInt(key.slice(key.lastIndexOf('/') + 1), 10)
+    const durableLength = tail < marker.state.activeSegmentSeqNo ? bytes.length : marker.state.durableByteLength
+    entries.push(...readDurableRegion(bytes, durableLength, 67_108_864))
   }
   return entries
 }
@@ -58,6 +69,19 @@ describe('WAL writer', () => {
     expect(writer.activeSegmentKey).toBeNull()
   })
 
+  it('records the durable head in the commit marker', async () => {
+    const writer = createWalWriter(directory, { indexName: 'movies', partitionId: 0 })
+    await writer.appendDurable(entry(1))
+    await writer.appendDurable(entry(2))
+    await writer.close()
+
+    const markerBytes = await directory.read('movies/wal/0/commit')
+    expect(markerBytes).not.toBeNull()
+    if (markerBytes === null) return
+    const marker = readCommitMarker(markerBytes)
+    expect(marker?.state.highestDurableSeqNo).toBe(2)
+  })
+
   it('batches a fsync across an append followed by commit', async () => {
     const writer = createWalWriter(directory, { indexName: 'movies', partitionId: 0 })
     await writer.append(entry(1))
@@ -76,7 +100,7 @@ describe('WAL writer', () => {
     await writer.appendDurable(entry(3))
     await writer.close()
 
-    const keys = await directory.list('movies/wal/0/')
+    const keys = segmentKeys(await directory.list('movies/wal/0/'))
     expect(keys.length).toBeGreaterThan(1)
     const entries = await readAllEntries(directory)
     expect(entries.map(e => e.seqNo)).toEqual([1, 2, 3])
@@ -91,7 +115,7 @@ describe('WAL writer', () => {
     await second.appendDurable(entry(2))
     await second.close()
 
-    const keys = await directory.list('movies/wal/0/')
+    const keys = segmentKeys(await directory.list('movies/wal/0/'))
     expect(keys).toEqual(['movies/wal/0/0000000000000001'])
     const entries = await readAllEntries(directory)
     expect(entries.map(e => e.seqNo)).toEqual([1, 2])

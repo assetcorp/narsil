@@ -51,6 +51,7 @@ describe('durability manager fsync handling', () => {
         operation: 'INDEX',
         documentId: 'm1',
         document: new Uint8Array([1]),
+        apply: async () => undefined,
       }),
     ).rejects.toMatchObject({ code: 'PERSISTENCE_FSYNC_FAILED' })
 

@@ -38,10 +38,18 @@ export interface AppendHandle {
   close(): Promise<void>
 }
 
+export interface MarkerHandle {
+  read(): Promise<Uint8Array>
+  writeSlot(offset: number, slot: Uint8Array, fsync: boolean): Promise<void>
+  close(): Promise<void>
+}
+
 export interface DurableDirectory {
   readonly root: string
   appendHandle(key: string): Promise<AppendHandle>
+  markerHandle(key: string): Promise<MarkerHandle>
   atomicWrite(key: string, data: Uint8Array): Promise<void>
+  syncDirectoryOf(key: string): Promise<void>
   read(key: string): Promise<Uint8Array | null>
   remove(key: string): Promise<void>
   list(prefix: string): Promise<string[]>
@@ -53,6 +61,24 @@ function wrapFsyncError(err: unknown, key: string): never {
     `fsync failed for "${key}"; the write is not acknowledged and the node must recover from the durable log`,
     { key, cause: err instanceof Error ? err.message : String(err) },
   )
+}
+
+async function openReadWriteCreating(filePath: string, fs: FsModule): Promise<FileHandle> {
+  try {
+    return await fs.open(filePath, 'r+')
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw err
+    }
+  }
+  try {
+    return await fs.open(filePath, 'wx+')
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') {
+      throw err
+    }
+    return fs.open(filePath, 'r+')
+  }
 }
 
 async function fsyncDirectory(dirPath: string, fs: FsModule): Promise<void> {
@@ -131,6 +157,45 @@ export function createDurableDirectory(root: string): DurableDirectory {
           await handle.close()
         },
       }
+    },
+
+    async markerHandle(key: string): Promise<MarkerHandle> {
+      const { path: filePath, pathMod } = await resolve(key)
+      const fs = await getFs()
+      await ensureDir(filePath, pathMod, fs)
+      const handle = await openReadWriteCreating(filePath, fs)
+
+      return {
+        async read(): Promise<Uint8Array> {
+          const stat = await handle.stat()
+          if (stat.size === 0) {
+            return new Uint8Array(0)
+          }
+          const buffer = Buffer.alloc(stat.size)
+          await handle.read(buffer, 0, stat.size, 0)
+          return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+        },
+        async writeSlot(offset: number, slot: Uint8Array, fsync: boolean): Promise<void> {
+          await handle.write(slot, 0, slot.length, offset)
+          if (!fsync) {
+            return
+          }
+          try {
+            await handle.sync()
+          } catch (err: unknown) {
+            wrapFsyncError(err, key)
+          }
+        },
+        async close(): Promise<void> {
+          await handle.close()
+        },
+      }
+    },
+
+    async syncDirectoryOf(key: string): Promise<void> {
+      const { path: filePath, pathMod } = await resolve(key)
+      const fs = await getFs()
+      await fsyncDirectory(pathMod.dirname(filePath), fs)
     },
 
     async atomicWrite(key: string, data: Uint8Array): Promise<void> {

@@ -29,13 +29,25 @@ export function frameRecord(entry: ReplicationLogEntry): Uint8Array {
   return frame
 }
 
-export type WalReadResult =
-  | { kind: 'header-invalid'; reason: string }
-  | { kind: 'records'; entries: ReplicationLogEntry[]; cleanByteLength: number; truncated: boolean }
+export type SegmentHeaderCheck = { ok: true } | { ok: false; reason: string }
 
-interface ParsedRecord {
-  entry: ReplicationLogEntry
-  endOffset: number
+export function checkSegmentHeader(data: Uint8Array): SegmentHeaderCheck {
+  if (data.length < SEGMENT_HEADER_SIZE) {
+    return { ok: false, reason: 'segment shorter than the 8-byte header' }
+  }
+  for (let i = 0; i < WAL_MAGIC.length; i += 1) {
+    if (data[i] !== WAL_MAGIC[i]) {
+      return { ok: false, reason: 'missing NRSW magic' }
+    }
+  }
+  const formatVersion = data[4]
+  if (formatVersion > WAL_FORMAT_VERSION) {
+    return {
+      ok: false,
+      reason: `WAL format version ${formatVersion} is newer than supported version ${WAL_FORMAT_VERSION}`,
+    }
+  }
+  return { ok: true }
 }
 
 function decodeEntry(payload: Uint8Array): ReplicationLogEntry {
@@ -44,113 +56,67 @@ function decodeEntry(payload: Uint8Array): ReplicationLogEntry {
   return validated.entry
 }
 
-export function readSegment(data: Uint8Array, maxRecordBytes: number = MAX_WAL_RECORD_BYTES): WalReadResult {
-  if (data.length < SEGMENT_HEADER_SIZE) {
-    return { kind: 'header-invalid', reason: 'segment shorter than the 8-byte header' }
+function corrupt(message: string, details: Record<string, unknown>): never {
+  throw new NarsilError(ErrorCodes.PERSISTENCE_WAL_CORRUPT, message, details)
+}
+
+export function readDurableRegion(
+  data: Uint8Array,
+  durableByteLength: number,
+  maxRecordBytes: number = MAX_WAL_RECORD_BYTES,
+): ReplicationLogEntry[] {
+  const header = checkSegmentHeader(data)
+  if (!header.ok) {
+    corrupt(`WAL segment header invalid in durable region: ${header.reason}`, { reason: header.reason })
   }
-  for (let i = 0; i < WAL_MAGIC.length; i += 1) {
-    if (data[i] !== WAL_MAGIC[i]) {
-      return { kind: 'header-invalid', reason: 'missing NRSW magic' }
-    }
-  }
-  const formatVersion = data[4]
-  if (formatVersion > WAL_FORMAT_VERSION) {
-    return {
-      kind: 'header-invalid',
-      reason: `WAL format version ${formatVersion} is newer than supported version ${WAL_FORMAT_VERSION}`,
-    }
+  if (durableByteLength < SEGMENT_HEADER_SIZE || durableByteLength > data.length) {
+    corrupt('Commit marker durable byte length is outside the segment', {
+      durableByteLength,
+      segmentLength: data.length,
+    })
   }
 
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
   const entries: ReplicationLogEntry[] = []
   let offset = SEGMENT_HEADER_SIZE
-  let cleanByteLength = SEGMENT_HEADER_SIZE
-  let truncated = false
 
-  for (;;) {
-    const parsed = parseRecord(data, view, offset, maxRecordBytes)
-    if (parsed === 'clean-end') {
-      break
+  while (offset < durableByteLength) {
+    if (offset + RECORD_LENGTH_SIZE > durableByteLength) {
+      corrupt('WAL record length field overruns the durable region', { offset, durableByteLength })
     }
-    if (parsed === 'torn') {
-      truncated = true
-      break
+    const recordLength = view.getUint32(offset, false)
+    if (recordLength === 0 || recordLength > maxRecordBytes) {
+      corrupt('WAL record length is zero or exceeds the maximum record size', { offset, recordLength })
     }
-    if (parsed === 'corrupt') {
-      const hasValidAfter = scanForValidRecordAfter(data, view, offset, maxRecordBytes)
-      if (hasValidAfter) {
-        throw new NarsilError(
-          ErrorCodes.PERSISTENCE_WAL_CORRUPT,
-          'WAL record failed its frame checksum with valid records following it (mid-log corruption)',
-          { offset },
-        )
-      }
-      truncated = true
-      break
+    const payloadStart = offset + RECORD_LENGTH_SIZE
+    const crcStart = payloadStart + recordLength
+    const frameEnd = crcStart + FRAME_CRC_SIZE
+    if (frameEnd > durableByteLength) {
+      corrupt('WAL record overruns the durable region', { offset, frameEnd, durableByteLength })
     }
-    entries.push(parsed.entry)
-    offset = parsed.endOffset
-    cleanByteLength = parsed.endOffset
-  }
-
-  enforceMonotonicSeqNo(entries)
-  return { kind: 'records', entries, cleanByteLength, truncated }
-}
-
-function parseRecord(
-  data: Uint8Array,
-  view: DataView,
-  offset: number,
-  maxRecordBytes: number,
-): ParsedRecord | 'clean-end' | 'torn' | 'corrupt' {
-  if (offset + RECORD_LENGTH_SIZE > data.length) {
-    return 'clean-end'
-  }
-  const recordLength = view.getUint32(offset, false)
-  if (recordLength === 0 || recordLength > maxRecordBytes) {
-    return 'torn'
-  }
-  const payloadStart = offset + RECORD_LENGTH_SIZE
-  const crcStart = payloadStart + recordLength
-  const frameEnd = crcStart + FRAME_CRC_SIZE
-  if (frameEnd > data.length) {
-    return 'torn'
-  }
-  const payload = data.subarray(payloadStart, crcStart)
-  const storedCrc = view.getUint32(crcStart, false)
-  if (crc32(payload) !== storedCrc) {
-    return 'corrupt'
-  }
-  let entry: ReplicationLogEntry
-  try {
-    entry = decodeEntry(payload)
-  } catch {
-    return 'corrupt'
-  }
-  return { entry, endOffset: frameEnd }
-}
-
-function scanForValidRecordAfter(data: Uint8Array, view: DataView, badOffset: number, maxRecordBytes: number): boolean {
-  const recordLength = badOffset + RECORD_LENGTH_SIZE <= data.length ? view.getUint32(badOffset, false) : 0
-  if (recordLength === 0 || recordLength > maxRecordBytes) {
-    return false
-  }
-  const nextOffset = badOffset + RECORD_LENGTH_SIZE + recordLength + FRAME_CRC_SIZE
-  if (nextOffset >= data.length) {
-    return false
-  }
-  const next = parseRecord(data, view, nextOffset, maxRecordBytes)
-  return next !== 'clean-end' && next !== 'torn' && next !== 'corrupt'
-}
-
-function enforceMonotonicSeqNo(entries: ReplicationLogEntry[]): void {
-  for (let i = 1; i < entries.length; i += 1) {
-    if (entries[i].seqNo <= entries[i - 1].seqNo) {
-      throw new NarsilError(
-        ErrorCodes.PERSISTENCE_WAL_CORRUPT,
-        'WAL sequence numbers are not strictly increasing (mid-log corruption)',
-        { previousSeqNo: entries[i - 1].seqNo, seqNo: entries[i].seqNo },
-      )
+    const payload = data.subarray(payloadStart, crcStart)
+    const storedCrc = view.getUint32(crcStart, false)
+    if (crc32(payload) !== storedCrc) {
+      corrupt('WAL record failed its frame checksum inside the durable region', { offset })
     }
+    let entry: ReplicationLogEntry
+    try {
+      entry = decodeEntry(payload)
+    } catch (err) {
+      corrupt('WAL record payload failed to decode inside the durable region', {
+        offset,
+        cause: err instanceof Error ? err.message : String(err),
+      })
+    }
+    if (entries.length > 0 && entry.seqNo <= entries[entries.length - 1].seqNo) {
+      corrupt('WAL sequence numbers are not strictly increasing', {
+        previousSeqNo: entries[entries.length - 1].seqNo,
+        seqNo: entry.seqNo,
+      })
+    }
+    entries.push(entry)
+    offset = frameEnd
   }
+
+  return entries
 }

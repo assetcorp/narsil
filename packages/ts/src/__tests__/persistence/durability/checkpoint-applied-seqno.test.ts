@@ -46,7 +46,7 @@ describe('checkpoint records the applied sequence number', () => {
     await rm(root, { recursive: true, force: true })
   })
 
-  it('records only the confirmed-applied seqNo, never an allocated-but-unapplied one', async () => {
+  it('records the head of the writes that applied before their WAL append', async () => {
     const directory = createDurableDirectory(root)
     const manager = createDurabilityManager(
       { directory: root, mode: 'sync', checkpointIntervalMs: 0 },
@@ -54,21 +54,28 @@ describe('checkpoint records the applied sequence number', () => {
       directory,
     )
 
-    const first = await manager.recordMutation({
-      indexName: 'docs',
-      partitionId: 0,
-      operation: 'INDEX',
-      documentId: 'd1',
-      document: new Uint8Array([1]),
-    })
-    manager.markApplied('docs', 0, first)
+    const applied: number[] = []
 
     await manager.recordMutation({
       indexName: 'docs',
       partitionId: 0,
       operation: 'INDEX',
+      documentId: 'd1',
+      document: new Uint8Array([1]),
+      apply: () => {
+        applied.push(1)
+      },
+    })
+
+    const second = await manager.recordMutation({
+      indexName: 'docs',
+      partitionId: 0,
+      operation: 'INDEX',
       documentId: 'd2',
       document: new Uint8Array([2]),
+      apply: () => {
+        applied.push(2)
+      },
     })
 
     await manager.checkpoint('docs')
@@ -77,7 +84,8 @@ describe('checkpoint records the applied sequence number', () => {
     expect(snapshot).not.toBeNull()
     if (snapshot === null) return
     const bundle = await decodeSnapshotBundle(snapshot)
-    expect(bundle.checkpoint[0].lastSeqNo).toBe(first)
+    expect(bundle.checkpoint[0].lastSeqNo).toBe(second)
+    expect(applied).toEqual([1, 2])
 
     await manager.shutdown()
   })
