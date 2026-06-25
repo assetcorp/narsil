@@ -48,6 +48,29 @@ ordering.
    - The primary handles it from step 4.
 ```
 
+### Failed Write Rollback
+
+A primary must not leave a locally applied mutation visible if the
+mutation fails before it can be acknowledged to the client. This
+includes failures while forwarding to in-sync replicas, while
+removing failed replicas from the in-sync set, or while verifying
+that the node still holds primary authority for the partition.
+
+If the primary has already applied an insert locally and the write
+cannot be acknowledged, it must remove that inserted document
+before returning the failure. If the primary has already applied a
+remove locally and the write cannot be acknowledged, it must
+restore the previously visible document before returning the
+failure.
+
+If rollback itself fails, the primary must still not acknowledge
+the write. It reports `REPLICATION_ROLLBACK_FAILED` and includes
+enough diagnostic context to identify the original write failure
+and the rollback failure. Implementations may then mark the local
+partition unhealthy or take it out of service; the partition must
+not continue serving reads that may expose the unacknowledged
+mutation.
+
 ### Read Path
 
 Any node holding a replica of the requested partition can serve
@@ -467,6 +490,7 @@ adapter. Replicas can operate without any embedding infrastructure.
 | `REPLICATION_SNAPSHOT_CORRUPT` | CRC32 checksum mismatch on a received snapshot. |
 | `REPLICATION_TERM_MISMATCH` | A replica received an entry with a stale primaryTerm. |
 | `REPLICATION_SYNC_FAILED` | The sync protocol (incremental or snapshot) failed to complete. |
+| `REPLICATION_ROLLBACK_FAILED` | A primary-local mutation failed before acknowledgement and rollback also failed. |
 | `PARTITION_NOT_PRIMARY` | A write was routed to a node that is not the primary for the target partition. |
 | `PARTITION_UNASSIGNED` | The target partition has no primary (all copies lost). |
 | `INSUFFICIENT_REPLICAS` | The waitForActiveReplicas pre-check failed. |
