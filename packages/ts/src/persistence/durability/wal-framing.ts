@@ -1,5 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { validateEntryPayload } from '../../distribution/replication/codec'
+import { computeEntryChecksum } from '../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { crc32 } from './checksum'
@@ -52,8 +53,11 @@ export function checkSegmentHeader(data: Uint8Array): SegmentHeaderCheck {
 
 function decodeEntry(payload: Uint8Array): ReplicationLogEntry {
   const decoded = decode(payload)
-  const validated = validateEntryPayload({ entry: decoded })
-  return validated.entry
+  const { entry } = validateEntryPayload({ entry: decoded })
+  if (computeEntryChecksum(entry) !== entry.checksum) {
+    throw new Error('WAL record failed its logical entry checksum')
+  }
+  return entry
 }
 
 function corrupt(message: string, details: Record<string, unknown>): never {
@@ -119,4 +123,62 @@ export function readDurableRegion(
   }
 
   return entries
+}
+
+export interface TailReadResult {
+  entries: ReplicationLogEntry[]
+  cleanEnd: number
+}
+
+export function readTailBeyondFrontier(
+  data: Uint8Array,
+  durableByteLength: number,
+  lastDurableSeqNo: number,
+  maxRecordBytes: number = MAX_WAL_RECORD_BYTES,
+): TailReadResult {
+  const start = Math.max(durableByteLength, SEGMENT_HEADER_SIZE)
+  const entries: ReplicationLogEntry[] = []
+  if (start >= data.length) {
+    return { entries, cleanEnd: start }
+  }
+
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+  let offset = start
+  let cleanEnd = start
+  let previousSeqNo = lastDurableSeqNo
+
+  while (offset < data.length) {
+    if (offset + RECORD_LENGTH_SIZE > data.length) {
+      break
+    }
+    const recordLength = view.getUint32(offset, false)
+    if (recordLength === 0 || recordLength > maxRecordBytes) {
+      break
+    }
+    const payloadStart = offset + RECORD_LENGTH_SIZE
+    const crcStart = payloadStart + recordLength
+    const frameEnd = crcStart + FRAME_CRC_SIZE
+    if (frameEnd > data.length) {
+      break
+    }
+    const payload = data.subarray(payloadStart, crcStart)
+    if (crc32(payload) !== view.getUint32(crcStart, false)) {
+      break
+    }
+    let entry: ReplicationLogEntry
+    try {
+      entry = decodeEntry(payload)
+    } catch {
+      break
+    }
+    if (entry.seqNo <= previousSeqNo) {
+      break
+    }
+    entries.push(entry)
+    previousSeqNo = entry.seqNo
+    offset = frameEnd
+    cleanEnd = frameEnd
+  }
+
+  return { entries, cleanEnd }
 }

@@ -1,11 +1,13 @@
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { AppendHandle, DurableDirectory } from './durable-filesystem'
-import { createGroupCommitCoordinator, type GroupCommitCoordinator } from './group-commit'
+import { createGroupCommitCoordinator } from './group-commit'
 import { createMarkerWriter, type MarkerWriter } from './marker-writer'
 import { frameRecord, SEGMENT_HEADER_SIZE, writeSegmentHeader } from './wal-framing'
 
 export const DEFAULT_SEGMENT_MAX_BYTES = 67_108_864
+
+const SEGMENT_TAIL_PATTERN = /^\d{16}$/
 
 export interface WalWriterConfig {
   indexName: string
@@ -17,7 +19,6 @@ export interface WalWriter {
   append(entry: ReplicationLogEntry): Promise<void>
   appendDurable(entry: ReplicationLogEntry): Promise<void>
   commit(): Promise<void>
-  commitSoft(): Promise<void>
   rollToNewSegment(startSeqNo: number): Promise<void>
   close(): Promise<void>
   readonly activeSegmentKey: string | null
@@ -28,22 +29,47 @@ function segmentKey(indexName: string, partitionId: number, startSeqNo: number):
   return `${indexName}/wal/${partitionId}/${padded}`
 }
 
-function parseStartSeqNo(key: string): number {
+export function parseSegmentStartSeqNo(key: string): number {
   const tail = key.slice(key.lastIndexOf('/') + 1)
+  if (!SEGMENT_TAIL_PATTERN.test(tail)) {
+    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, `Malformed WAL segment key: "${key}"`, { key })
+  }
   const value = Number.parseInt(tail, 10)
-  return Number.isSafeInteger(value) ? value : 0
+  if (!Number.isSafeInteger(value)) {
+    throw new NarsilError(
+      ErrorCodes.PERSISTENCE_LOAD_FAILED,
+      `WAL segment start sequence number is out of range: "${key}"`,
+      {
+        key,
+      },
+    )
+  }
+  return value
 }
 
 export function createWalWriter(directory: DurableDirectory, config: WalWriterConfig): WalWriter {
   const segmentMaxBytes = config.segmentMaxBytes ?? DEFAULT_SEGMENT_MAX_BYTES
+  const commitKey = `${config.indexName}/wal/${config.partitionId}/commit`
+
   let handle: AppendHandle | null = null
   let activeKey: string | null = null
   let activeStartSeqNo = 0
   let activeBytes = 0
   let highestAppendedSeqNo = 0
   let highestDurableSeqNo = 0
-  let coordinator: GroupCommitCoordinator | null = null
   let markerWriter: MarkerWriter | null = null
+  let durabilityLock: Promise<unknown> = Promise.resolve()
+
+  const coordinator = createGroupCommitCoordinator(() => withDurabilityLock(flushActiveSegment))
+
+  function withDurabilityLock<T>(fn: () => Promise<T>): Promise<T> {
+    const result = durabilityLock.then(fn)
+    durabilityLock = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
 
   async function getMarkerWriter(): Promise<MarkerWriter> {
     if (markerWriter === null) {
@@ -53,38 +79,28 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
         highestDurableSeqNo = writer.existingHighestDurableSeqNo
       }
       if (writer.created) {
-        await directory.syncDirectoryOf(`${config.indexName}/wal/${config.partitionId}/commit`)
+        await directory.syncDirectoryOf(commitKey)
       }
     }
     return markerWriter
   }
 
-  async function flushMarker(fsync: boolean): Promise<void> {
+  async function flushActiveSegment(): Promise<void> {
     if (handle === null) {
       return
     }
-    if (fsync) {
-      await handle.sync()
-    }
-    const durableByteLength = activeBytes
-    const durableSeqNo = Math.max(highestAppendedSeqNo, highestDurableSeqNo)
     const writer = await getMarkerWriter()
-    await writer.commit(
-      {
-        activeSegmentSeqNo: activeStartSeqNo,
-        durableByteLength,
-        highestDurableSeqNo: durableSeqNo,
-      },
-      fsync,
-    )
-    highestDurableSeqNo = durableSeqNo
+    const durableByteLength = activeBytes
+    const activeSegmentSeqNo = activeStartSeqNo
+    const durableSeqNo = Math.max(highestAppendedSeqNo, highestDurableSeqNo)
+    await handle.sync()
+    await writer.commit({ activeSegmentSeqNo, durableByteLength, highestDurableSeqNo: durableSeqNo })
+    if (durableSeqNo > highestDurableSeqNo) {
+      highestDurableSeqNo = durableSeqNo
+    }
   }
 
-  async function syncSegmentThenMarker(): Promise<void> {
-    await flushMarker(true)
-  }
-
-  async function openSegmentByKey(key: string): Promise<void> {
+  async function openSegmentByKey(key: string): Promise<boolean> {
     const nextHandle = await directory.appendHandle(key)
     const existingSize = await nextHandle.size()
     let createdNew = false
@@ -97,20 +113,16 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
     }
     handle = nextHandle
     activeKey = key
-    activeStartSeqNo = parseStartSeqNo(key)
-    coordinator = createGroupCommitCoordinator(syncSegmentThenMarker)
+    activeStartSeqNo = parseSegmentStartSeqNo(key)
     if (createdNew) {
       await directory.syncDirectoryOf(key)
     }
-  }
-
-  async function openSegment(startSeqNo: number): Promise<void> {
-    await openSegmentByKey(segmentKey(config.indexName, config.partitionId, startSeqNo))
+    return createdNew
   }
 
   async function findActiveSegmentKey(): Promise<string | null> {
     const prefix = `${config.indexName}/wal/${config.partitionId}/`
-    const keys = (await directory.list(prefix)).filter(k => /\/\d{16}$/.test(k)).sort()
+    const keys = (await directory.list(prefix)).filter(k => SEGMENT_TAIL_PATTERN.test(k.slice(prefix.length))).sort()
     return keys.length > 0 ? keys[keys.length - 1] : null
   }
 
@@ -119,26 +131,28 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
       return
     }
     const existing = await findActiveSegmentKey()
-    if (existing !== null) {
-      await openSegmentByKey(existing)
-      return
+    const createdNew = await openSegmentByKey(existing ?? segmentKey(config.indexName, config.partitionId, seqNo))
+    if (createdNew) {
+      await withDurabilityLock(flushActiveSegment)
     }
-    await openSegment(seqNo)
+  }
+
+  async function rollToNewSegment(startSeqNo: number): Promise<void> {
+    await withDurabilityLock(async () => {
+      if (handle !== null) {
+        await flushActiveSegment()
+        await handle.close()
+        handle = null
+      }
+      await openSegmentByKey(segmentKey(config.indexName, config.partitionId, startSeqNo))
+      await flushActiveSegment()
+    })
   }
 
   async function maybeRoll(nextSeqNo: number): Promise<void> {
     if (handle !== null && activeBytes >= segmentMaxBytes) {
       await rollToNewSegment(nextSeqNo)
     }
-  }
-
-  async function rollToNewSegment(startSeqNo: number): Promise<void> {
-    if (handle !== null) {
-      await syncSegmentThenMarker()
-      await handle.close()
-      handle = null
-    }
-    await openSegment(startSeqNo)
   }
 
   async function appendFrame(entry: ReplicationLogEntry): Promise<void> {
@@ -167,37 +181,28 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
 
     async appendDurable(entry: ReplicationLogEntry): Promise<void> {
       await appendFrame(entry)
-      if (coordinator === null) {
-        return
-      }
       await coordinator.commit()
     },
 
     async commit(): Promise<void> {
-      if (coordinator === null) {
-        return
-      }
       await coordinator.commit()
-    },
-
-    async commitSoft(): Promise<void> {
-      await flushMarker(false)
     },
 
     rollToNewSegment,
 
     async close(): Promise<void> {
-      if (handle !== null) {
-        await syncSegmentThenMarker()
-        await handle.close()
-        handle = null
-      }
-      if (markerWriter !== null) {
-        await markerWriter.close()
-        markerWriter = null
-      }
-      activeKey = null
-      coordinator = null
+      await withDurabilityLock(async () => {
+        if (handle !== null) {
+          await flushActiveSegment()
+          await handle.close()
+          handle = null
+        }
+        if (markerWriter !== null) {
+          await markerWriter.close()
+          markerWriter = null
+        }
+        activeKey = null
+      })
     },
 
     get activeSegmentKey(): string | null {

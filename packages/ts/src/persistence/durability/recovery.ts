@@ -6,10 +6,10 @@ import { readMetadataEnvelope } from '../../serialization/envelope'
 import { deserializePayloadV2 } from '../../serialization/payload-v2'
 import type { IndexMetadata } from '../../types/internal'
 import type { VectorIndex } from '../../vector/vector-index'
-import { type CommitMarkerState, readCommitMarker } from './commit-marker'
+import { readCommitMarker } from './commit-marker'
 import type { DurableDirectory } from './durable-filesystem'
 import { checkpointLastSeqNo, decodeSnapshotBundle, type PartitionCheckpoint } from './snapshot-bundle'
-import { checkSegmentHeader, readDurableRegion, SEGMENT_HEADER_SIZE } from './wal-framing'
+import { checkSegmentHeader, readDurableRegion, readTailBeyondFrontier, SEGMENT_HEADER_SIZE } from './wal-framing'
 
 export interface RecoveredIndex {
   metadata: IndexMetadata
@@ -85,6 +85,13 @@ function segmentStartSeqNo(key: string, prefix: string): number | null {
   return Number.isSafeInteger(value) ? value : null
 }
 
+interface ActiveTail {
+  key: string
+  entries: ReplicationLogEntry[]
+  cleanEnd: number
+  segmentLength: number
+}
+
 export async function replayWal(
   directory: DurableDirectory,
   indexName: string,
@@ -101,33 +108,56 @@ export async function replayWal(
   }
 
   const segments = await collectSegments(directory, prefix)
-  await deleteOrphanSegments(directory, segments, marker.state.activeSegmentSeqNo)
 
-  let highestSeqNo = fromSeqNoExclusive
-  let highestPrimaryTerm = 0
+  const durableEntries: ReplicationLogEntry[] = []
   let highestReadFromWal = 0
+  let activeTail: ActiveTail | null = null
 
   for (const { key, startSeqNo } of segments) {
     if (startSeqNo > marker.state.activeSegmentSeqNo) {
       continue
     }
-    const entries = await readSegmentForRecovery(directory, key, startSeqNo, marker.state)
-    for (const entry of entries) {
+    const bytes = await directory.read(key)
+    if (bytes === null) {
+      continue
+    }
+
+    if (startSeqNo < marker.state.activeSegmentSeqNo) {
+      const header = checkSegmentHeader(bytes)
+      if (!header.ok) {
+        throw new NarsilError(
+          ErrorCodes.PERSISTENCE_WAL_CORRUPT,
+          `Sealed WAL segment header invalid: ${header.reason}`,
+          {
+            key,
+            reason: header.reason,
+          },
+        )
+      }
+      for (const entry of readDurableRegion(bytes, bytes.length)) {
+        durableEntries.push(entry)
+        if (entry.seqNo > highestReadFromWal) {
+          highestReadFromWal = entry.seqNo
+        }
+      }
+      continue
+    }
+
+    for (const entry of readDurableRegion(bytes, marker.state.durableByteLength)) {
+      durableEntries.push(entry)
       if (entry.seqNo > highestReadFromWal) {
         highestReadFromWal = entry.seqNo
       }
-      if (entry.seqNo <= highestSeqNo) {
-        continue
-      }
-      applyEntry(entry, deps)
-      highestSeqNo = entry.seqNo
-      if (entry.primaryTerm > highestPrimaryTerm) {
-        highestPrimaryTerm = entry.primaryTerm
-      }
     }
+    const tail = readTailBeyondFrontier(
+      bytes,
+      marker.state.durableByteLength,
+      Math.max(highestReadFromWal, marker.state.highestDurableSeqNo),
+    )
+    activeTail = { key, entries: tail.entries, cleanEnd: tail.cleanEnd, segmentLength: bytes.length }
   }
 
-  if (highestReadFromWal < marker.state.highestDurableSeqNo) {
+  if (Math.max(fromSeqNoExclusive, highestReadFromWal) < marker.state.highestDurableSeqNo) {
     throw new NarsilError(
       ErrorCodes.PERSISTENCE_WAL_CORRUPT,
       'A durable WAL record is missing: the highest recovered seqNo is below the commit marker',
@@ -138,6 +168,30 @@ export async function replayWal(
         highestDurable: marker.state.highestDurableSeqNo,
       },
     )
+  }
+
+  let highestSeqNo = fromSeqNoExclusive
+  let highestPrimaryTerm = 0
+  const replay = (entries: ReplicationLogEntry[]): void => {
+    for (const entry of entries) {
+      if (entry.seqNo <= highestSeqNo) {
+        continue
+      }
+      applyEntry(entry, deps)
+      highestSeqNo = entry.seqNo
+      if (entry.primaryTerm > highestPrimaryTerm) {
+        highestPrimaryTerm = entry.primaryTerm
+      }
+    }
+  }
+  replay(durableEntries)
+  if (activeTail !== null) {
+    replay(activeTail.entries)
+  }
+
+  await deleteOrphanSegments(directory, segments, marker.state.activeSegmentSeqNo)
+  if (activeTail !== null && activeTail.cleanEnd < activeTail.segmentLength) {
+    await truncateSegmentTail(directory, activeTail.key, activeTail.cleanEnd)
   }
 
   return { highestSeqNo, highestPrimaryTerm }
@@ -171,35 +225,6 @@ async function deleteOrphanSegments(
       await directory.remove(key)
     }
   }
-}
-
-async function readSegmentForRecovery(
-  directory: DurableDirectory,
-  key: string,
-  startSeqNo: number,
-  marker: CommitMarkerState,
-): Promise<ReplicationLogEntry[]> {
-  const bytes = await directory.read(key)
-  if (bytes === null) {
-    return []
-  }
-
-  if (startSeqNo < marker.activeSegmentSeqNo) {
-    const header = checkSegmentHeader(bytes)
-    if (!header.ok) {
-      throw new NarsilError(ErrorCodes.PERSISTENCE_WAL_CORRUPT, `Sealed WAL segment header invalid: ${header.reason}`, {
-        key,
-        reason: header.reason,
-      })
-    }
-    return readDurableRegion(bytes, bytes.length)
-  }
-
-  const entries = readDurableRegion(bytes, marker.durableByteLength)
-  if (marker.durableByteLength < bytes.length) {
-    await truncateSegmentTail(directory, key, marker.durableByteLength)
-  }
-  return entries
 }
 
 async function truncateSegmentTail(directory: DurableDirectory, key: string, durableByteLength: number): Promise<void> {

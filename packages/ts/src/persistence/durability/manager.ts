@@ -47,12 +47,33 @@ export function createDurabilityManager(
   let checkpointTimer: ReturnType<typeof setInterval> | null = null
   let asyncFlushTimer: ReturnType<typeof setInterval> | null = null
   let shuttingDown = false
+  let fatalError: Error | null = null
+
+  function markFatal(error: Error): void {
+    if (fatalError !== null) {
+      return
+    }
+    fatalError = error
+    if (checkpointTimer !== null) {
+      clearInterval(checkpointTimer)
+      checkpointTimer = null
+    }
+    if (asyncFlushTimer !== null) {
+      clearInterval(asyncFlushTimer)
+      asyncFlushTimer = null
+    }
+    hooks.onFatalError(error)
+  }
+
+  function toError(err: unknown): Error {
+    return err instanceof Error ? err : new Error(String(err))
+  }
 
   async function closeWriterReportingFailure(closePromise: Promise<void>): Promise<void> {
     try {
       await closePromise
     } catch (err) {
-      hooks.onFatalError(err instanceof Error ? err : new Error(String(err)))
+      markFatal(toError(err))
     }
   }
 
@@ -82,7 +103,7 @@ export function createDurabilityManager(
   }
 
   function startCheckpointTimer(): void {
-    if (checkpointTimer !== null || shuttingDown || checkpointIntervalMs <= 0) {
+    if (checkpointTimer !== null || shuttingDown || fatalError !== null || checkpointIntervalMs <= 0) {
       return
     }
     checkpointTimer = setInterval(() => {
@@ -94,7 +115,7 @@ export function createDurabilityManager(
   }
 
   function startAsyncFlushTimer(): void {
-    if (mode !== 'async' || asyncFlushTimer !== null || shuttingDown || flushIntervalMs <= 0) {
+    if (mode !== 'async' || asyncFlushTimer !== null || shuttingDown || fatalError !== null || flushIntervalMs <= 0) {
       return
     }
     asyncFlushTimer = setInterval(() => {
@@ -106,29 +127,33 @@ export function createDurabilityManager(
   }
 
   async function flushAllPartitions(): Promise<void> {
+    if (fatalError !== null) {
+      return
+    }
     for (const indexState of indexes.values()) {
       for (const partition of indexState.partitions.values()) {
-        if (partition.failed) {
+        if (partition.failed !== null || fatalError !== null) {
           continue
         }
-        const flushed = partition.appendChain.then(() => partition.walWriter.commit())
-        partition.appendChain = flushed.catch(() => undefined)
         try {
-          await flushed
+          await partition.walWriter.commit()
         } catch (err) {
-          partition.failed = err instanceof Error ? err : new Error(String(err))
-          hooks.onFatalError(partition.failed)
+          partition.failed = toError(err)
+          markFatal(partition.failed)
         }
       }
     }
   }
 
   async function runScheduledCheckpoints(): Promise<void> {
+    if (fatalError !== null) {
+      return
+    }
     for (const indexName of [...indexes.keys()]) {
       try {
         await checkpointIndex(indexName)
       } catch (err) {
-        hooks.onFatalError(err instanceof Error ? err : new Error(String(err)))
+        markFatal(toError(err))
       }
     }
   }
@@ -230,12 +255,18 @@ export function createDurabilityManager(
     },
 
     async recordMutation(record: MutationRecord): Promise<number> {
+      if (fatalError !== null) {
+        throw fatalError
+      }
       const indexState = getOrCreateIndexState(record.indexName)
       const partition = getOrCreatePartition(record.indexName, record.partitionId, 0)
 
       let allocatedSeqNo = 0
-      const buffered = partition.appendChain.then(async () => {
-        if (partition.failed) {
+      const appended = partition.appendChain.then(async () => {
+        if (fatalError !== null) {
+          throw fatalError
+        }
+        if (partition.failed !== null) {
           throw partition.failed
         }
         await record.apply()
@@ -243,26 +274,32 @@ export function createDurabilityManager(
         try {
           const entry = buildMutationEntry(record, allocatedSeqNo)
           await partition.walWriter.append(entry)
-          if (mode === 'sync') {
-            await partition.walWriter.commit()
-          } else {
-            await partition.walWriter.commitSoft()
-          }
         } catch (err) {
-          partition.failed = err instanceof Error ? err : new Error(String(err))
-          throw err
+          partition.failed = toError(err)
+          markFatal(partition.failed)
+          throw partition.failed
         }
         partition.appliedSeqNo = allocatedSeqNo
       })
-      partition.appendChain = buffered.catch(() => undefined)
-      await buffered
+      partition.appendChain = appended.catch(() => undefined)
+      await appended
+
+      if (mode === 'sync') {
+        try {
+          await partition.walWriter.commit()
+        } catch (err) {
+          partition.failed = toError(err)
+          markFatal(partition.failed)
+          throw partition.failed
+        }
+      }
 
       indexState.mutationsSinceCheckpoint += 1
       startCheckpointTimer()
       startAsyncFlushTimer()
       if (indexState.mutationsSinceCheckpoint >= checkpointMutationThreshold) {
         void checkpointIndex(record.indexName).catch(err => {
-          hooks.onFatalError(err instanceof Error ? err : new Error(String(err)))
+          markFatal(toError(err))
         })
       }
       return allocatedSeqNo
