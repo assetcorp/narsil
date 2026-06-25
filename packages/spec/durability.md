@@ -89,13 +89,17 @@ loss, subject to the platform fsync semantics in
 
 ### async
 
-A write is acknowledged before its WAL record is fsynced. A background
-task fsyncs every `flush_interval_ms` (default `1000`).
+A write is appended to the segment and acknowledged without an fsync. A
+background task fsyncs the segment and advances the commit marker every
+`flush_interval_ms` (default `1000`). The marker therefore tracks only
+the fsynced frontier; records appended since the last fsync sit beyond
+it.
 
 **Guarantee:** on power loss, acknowledged writes from the last fsync
 window (up to `flush_interval_ms`) can be lost. A clean process crash
-loses nothing, because the operating system still flushes the buffered
-bytes.
+loses nothing, because the operating system flushes the buffered bytes
+and recovery replays the records beyond the frontier (see
+[Reading a segment](#reading-a-segment)).
 
 ### fsync errors are fatal
 
@@ -210,6 +214,16 @@ When a node creates a new segment file, or the marker file for the first
 time, it fsyncs the partition directory so the new directory entry
 survives a crash.
 
+The marker always names the current active segment. When a node rolls to
+a new segment, it advances the marker to the new segment as part of the
+roll, so the marker never names a sealed segment, and a checkpoint never
+deletes the segment the marker names active (see
+[Checkpoint and Truncation](#checkpoint-and-truncation)). In sync mode
+this flush runs for every group commit. In async mode it runs only on
+the `flush_interval_ms` timer, so the marker lags the appended records by
+up to one interval, and those records are recovered as described in
+[Reading a segment](#reading-a-segment).
+
 ### Reading a segment
 
 Recovery uses the commit marker to find the durable region of each
@@ -226,26 +240,34 @@ segment, then reads records within that region.
 3. A segment whose `startSeqNo` is below `active_segment_seq_no` was
    sealed before the active segment opened, so it is durable in full.
    Read every record in it.
-4. For the active segment, read only the first `durable_byte_length`
-   bytes. Bytes beyond that offset are an un-acknowledged tail; truncate
-   the segment to `durable_byte_length` and fsync it, so later appends
-   continue from a clean boundary.
-5. Within a region the marker reports durable, every record must be
-   complete and valid. A `record_length` that overruns the region, a
-   `frame_crc32` mismatch, or a payload that fails to decode is mid-log
-   corruption. Recovery refuses to start and surfaces
+4. For the active segment, the first `durable_byte_length` bytes are the
+   fsynced frontier. Read the records inside the frontier by byte offset,
+   never by trusting a record's own length to find where the frontier
+   ends.
+5. Inside the frontier, every record must be complete and valid. A
+   `record_length` that overruns the frontier, a `frame_crc32` mismatch,
+   a payload that fails to decode, a failed entry checksum, or an
+   out-of-order `seqNo` is corruption of acknowledged, fsynced data.
+   Recovery refuses to start and surfaces `PERSISTENCE_WAL_CORRUPT`.
+6. After reading every segment up to the frontier, the highest `seqNo`
+   read must equal `highest_durable_seq_no`. A lower value means a
+   durable record is missing, which is corruption; refuse and surface
    `PERSISTENCE_WAL_CORRUPT`.
-6. Sequence numbers within a partition must strictly increase across the
-   records read. A gap or an out-of-order `seqNo` is corruption; refuse
-   and surface `PERSISTENCE_WAL_CORRUPT`.
-7. After reading all segments, the highest `seqNo` read must equal
-   `highest_durable_seq_no`. A lower value means a durable record is
-   missing, which is corruption; refuse and surface
-   `PERSISTENCE_WAL_CORRUPT`.
+7. Beyond `durable_byte_length` in the active segment lie records that
+   were appended but not yet fsynced, which exist only in async mode.
+   Recovery parses them one by one and replays each record that is
+   complete and valid and whose `seqNo` is greater than
+   `highest_durable_seq_no`. It stops at the first record that is
+   incomplete or fails its checksum, treats that as the torn tail,
+   truncates the segment to the end of the last good record, and fsyncs
+   it.
 
-A truncated active-segment tail is the normal end-of-log signal after a
-crash. Every other failure above is corruption and stops recovery rather
-than silently dropping data.
+The fsynced frontier is read deterministically and any failure inside it
+is fatal, so acknowledged, fsynced data is never silently dropped. Only
+the async tail beyond the frontier is parsed best-effort, which is the
+window the async guarantee already permits to be lost: a clean async
+crash keeps the operating-system-flushed tail, and a power loss keeps
+only the records up to the first torn frame.
 
 ---
 
@@ -325,7 +347,9 @@ the last checkpoint. The procedure:
    atomic write has returned), delete, for each partition, every WAL
    segment whose highest `seqNo` is less than or equal to `N_p`. Keep
    the segment that contains `N_p` (it also holds records greater than
-   `N_p`) and every newer segment.
+   `N_p`) and every newer segment. Never delete the segment named by the
+   partition's commit marker, even if all of its current records are at
+   or below `N_p`, because new writes will extend it.
 
 **Ordering rule:** the snapshot must be fully durable before any WAL
 segment it covers is deleted. This ordering is never reversed. A crash
