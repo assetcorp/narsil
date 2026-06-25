@@ -338,15 +338,52 @@ index files to load without scanning storage keys.
 
 ---
 
+### Snapshot Bundle Payload
+
+A durability checkpoint persists the whole index as a single
+envelope at the key `<indexName>/snapshot`. The envelope uses the
+same 32-byte header with the checksum flag set; the payload is the
+snapshot bundle described in
+[durability.md](durability.md#snapshot-checkpoint-format).
+
+```text
+{
+  version:       uint8  (2)
+  schema:        map[string, string]
+  language:      string
+  partitions:    array[bytes]   (per-partition payload, one entry per partition)
+  vectorIndexes: map[string, VectorIndexPayload]
+  checkpoint:    array[PartitionCheckpoint]
+}
+
+PartitionCheckpoint {
+  partition_id: uint32
+  last_seq_no:  uint64   (highest WAL seqNo this snapshot contains)
+  primary_term: uint64
+}
+```
+
+The bundle differs from the per-partition partition payload above:
+it carries every partition in one envelope so a checkpoint replaces
+the whole index atomically. `checkpoint` records where WAL replay
+resumes for each partition. It is additive; a reader that omits it
+treats every `last_seq_no` as `0`. See
+[durability.md](durability.md) for the WAL format, recovery, and
+checkpoint rules.
+
+---
+
 ## Storage Path Convention
 
 Persistence adapters use string keys that map to storage locations:
 
-| Key Pattern                          | Content              |
-|--------------------------------------|----------------------|
-| `<indexName>/meta`                   | Index metadata       |
-| `<indexName>/partition_<N>`          | Partition N data     |
-| `<indexName>/vector/<fieldName>`     | Vector index data    |
+| Key Pattern                              | Content                       |
+|------------------------------------------|-------------------------------|
+| `<indexName>/meta`                       | Index metadata                |
+| `<indexName>/partition_<N>`              | Partition N data              |
+| `<indexName>/vector/<fieldName>`         | Vector index data             |
+| `<indexName>/snapshot`                   | Durability checkpoint bundle  |
+| `<indexName>/wal/<partitionId>/<seqNo>`  | WAL segment (durability)      |
 
 For filesystem adapters, keys map to file paths:
 `data/<indexName>/partition_0.nrsl`,

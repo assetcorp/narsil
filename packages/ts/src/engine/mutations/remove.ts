@@ -15,7 +15,17 @@ export async function removeDocument(ctx: MutationContext, indexName: string, do
 
   await ctx.pluginRegistry.runHook('beforeRemove', { indexName, docId })
 
+  if (ctx.durability && !ctx.requireManager(indexName).has(docId)) {
+    throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
+  }
+
+  const durableWrite = ctx.durability ? await ctx.durability.recordRemove(indexName, docId) : null
+
   await ctx.executor.execute({ type: 'remove', indexName, docId, requestId: docId })
+
+  if (durableWrite && ctx.durability) {
+    ctx.durability.confirmApplied(durableWrite)
+  }
 
   const removeManager = ctx.requireManager(indexName)
   const removeVecIndexes = removeManager.getVectorIndexes()

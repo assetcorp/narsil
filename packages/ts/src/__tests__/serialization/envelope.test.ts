@@ -155,10 +155,29 @@ describe('partition envelope', () => {
     }
   })
 
+  it('writes the v1 partition envelope with header version 1', async () => {
+    const envelope = await writePartitionEnvelope(makePartition())
+    expect(envelope[4]).toBe(1)
+    const { header } = await readPartitionEnvelope(envelope)
+    expect(header.envelopeFormatVersion).toBe(1)
+  })
+
   it('rejects a future envelope format version', async () => {
     const envelope = await writePartitionEnvelope(makePartition())
     const modified = new Uint8Array(envelope)
     modified[4] = 99
+    await expect(readPartitionEnvelope(modified)).rejects.toThrow(NarsilError)
+    try {
+      await readPartitionEnvelope(modified)
+    } catch (e) {
+      expect((e as NarsilError).code).toBe(ErrorCodes.ENVELOPE_VERSION_MISMATCH)
+    }
+  })
+
+  it('rejects a version 2 header through the v1 partition reader', async () => {
+    const envelope = await writePartitionEnvelope(makePartition())
+    const modified = new Uint8Array(envelope)
+    modified[4] = 2
     await expect(readPartitionEnvelope(modified)).rejects.toThrow(NarsilError)
     try {
       await readPartitionEnvelope(modified)

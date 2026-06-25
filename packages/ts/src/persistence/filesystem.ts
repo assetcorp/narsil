@@ -90,6 +90,7 @@ export function createFilesystemPersistence(config: FilesystemPersistenceConfig)
   const baseDir = config.directory
 
   return {
+    directory: baseDir,
     async save(key: string, data: Uint8Array): Promise<void> {
       const resolvedPath = await resolveAndGuard(baseDir, key)
       const fs = await getFs()

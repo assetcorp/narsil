@@ -3,6 +3,7 @@ export interface PersistenceAdapter {
   load(key: string): Promise<Uint8Array | null>
   delete(key: string): Promise<void>
   list(prefix: string): Promise<string[]>
+  readonly directory?: string
 }
 
 export interface InvalidationAdapter {
