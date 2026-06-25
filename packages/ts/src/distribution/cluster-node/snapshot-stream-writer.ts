@@ -26,6 +26,10 @@ export interface SingleResponseSink {
   closed: boolean
 }
 
+export interface StreamSnapshotOptions {
+  closeOnEnd?: boolean
+}
+
 export function createSingleResponseSink(respond: (response: TransportMessage) => void): SingleResponseSink {
   const sink = ((response: TransportMessage) => {
     if (sink.closed) {
@@ -44,6 +48,7 @@ export async function streamSnapshotToReplica(
   indexName: string,
   build: SnapshotBuildResult,
   metadata: SnapshotHeaderMetadata,
+  options: StreamSnapshotOptions = {},
 ): Promise<void> {
   const snapshotBytes = build.bytes
   const totalBytes = snapshotBytes.byteLength
@@ -104,7 +109,9 @@ export async function streamSnapshotToReplica(
   const endBytes = encode(endPayload)
   assertMessageWithinLimit(endBytes, 'SNAPSHOT_END')
   respondMessage(sink, ReplicationMessageTypes.SNAPSHOT_END, nodeId, requestId, endBytes)
-  sink.closed = true
+  if (options.closeOnEnd !== false) {
+    sink.closed = true
+  }
 }
 
 function now(): number {

@@ -74,9 +74,25 @@ export function makeMockEngine(options: MockEngineOptions = {}): MockEngineHandl
   }
 }
 
-export function makeMockCoordinator(schema: Record<string, string> | null): ClusterCoordinator {
+export function makeMockCoordinator(schema: Record<string, string> | null, partitionCount = 1): ClusterCoordinator {
+  const assignments = new Map()
+  for (let partitionId = 0; partitionId < partitionCount; partitionId += 1) {
+    assignments.set(partitionId, {
+      primary: 'primary-node',
+      replicas: ['replica-node'],
+      inSyncSet: [],
+      state: 'INITIALISING',
+      primaryTerm: 1,
+    })
+  }
   return {
     getSchema: vi.fn().mockResolvedValue(schema),
+    getAllocation: vi.fn().mockResolvedValue({
+      indexName: 'products',
+      version: 1,
+      replicationFactor: 1,
+      assignments,
+    }),
   } as unknown as ClusterCoordinator
 }
 

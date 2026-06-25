@@ -24,38 +24,47 @@ function cloneAssignments(assignments: Map<number, PartitionAssignment>): Map<nu
   return cloned
 }
 
+function markUnassigned(assignment: PartitionAssignment): void {
+  assignment.primary = null
+  assignment.replicas = []
+  assignment.inSyncSet = []
+  assignment.state = 'UNASSIGNED'
+}
+
 function handleLostNodes(assignments: Map<number, PartitionAssignment>, activeNodeIds: Set<string>): void {
   for (const assignment of assignments.values()) {
-    if (assignment.primary !== null && !activeNodeIds.has(assignment.primary)) {
+    const primaryWasLost = assignment.primary !== null && !activeNodeIds.has(assignment.primary)
+
+    if (primaryWasLost) {
       assignment.primary = null
     }
 
     assignment.replicas = assignment.replicas.filter(id => activeNodeIds.has(id))
     assignment.inSyncSet = assignment.inSyncSet.filter(id => activeNodeIds.has(id))
 
-    if (assignment.primary === null && assignment.replicas.length > 0) {
-      const inSyncCandidates = assignment.replicas.filter(id => assignment.inSyncSet.includes(id))
-
-      if (inSyncCandidates.length > 0) {
-        const promoted = inSyncCandidates[0]
-        assignment.primary = promoted
-        assignment.replicas = assignment.replicas.filter(id => id !== promoted)
-        assignment.inSyncSet = assignment.inSyncSet.filter(id => id !== promoted)
-      } else {
-        assignment.primary = assignment.replicas[0]
-        assignment.replicas = assignment.replicas.slice(1)
+    if (!primaryWasLost) {
+      if (assignment.primary === null) {
+        markUnassigned(assignment)
       }
-
-      assignment.primaryTerm += 1
+      continue
     }
 
-    if (assignment.primary === null && assignment.replicas.length === 0) {
-      assignment.state = 'UNASSIGNED'
+    const inSyncCandidates = assignment.replicas.filter(id => assignment.inSyncSet.includes(id))
+
+    if (inSyncCandidates.length === 0) {
+      markUnassigned(assignment)
+      continue
     }
+
+    const promoted = inSyncCandidates[0]
+    assignment.primary = promoted
+    assignment.replicas = assignment.replicas.filter(id => id !== promoted)
+    assignment.inSyncSet = assignment.inSyncSet.filter(id => id !== promoted)
+    assignment.primaryTerm += 1
   }
 }
 
-function fillUnassignedSlots(
+function fillReplicaSlots(
   assignments: Map<number, PartitionAssignment>,
   sortedNodes: NodeRegistration[],
   nodeMap: Map<string, NodeRegistration>,
@@ -67,26 +76,7 @@ function fillUnassignedSlots(
 
   for (const [partitionId, assignment] of assignments) {
     if (assignment.primary === null) {
-      const nodeAssignmentCounts = countNodeAssignments(assignments)
-      const weights = computeNodeWeights(sortedNodes, assignments)
-
-      const primaryContext: Omit<DeciderContext, 'candidateNodeId'> = {
-        partitionId,
-        role: 'primary',
-        currentAssignment: assignment,
-        allAssignments: assignments,
-        nodeAssignmentCounts,
-        nodes: nodeMap,
-        constraints,
-      }
-
-      const primaryNodeId = findBestNode(candidateNodeIds, weights, deciders, primaryContext)
-
-      if (primaryNodeId !== null) {
-        assignment.primary = primaryNodeId
-        assignment.primaryTerm += 1
-        assignment.state = 'INITIALISING'
-      }
+      continue
     }
 
     while (assignment.replicas.length < replicationFactor) {
@@ -147,27 +137,6 @@ function rebalanceForBalance(
     for (const [partitionId, assignment] of assignments) {
       if (moved) break
 
-      if (assignment.primary === mostLoaded.nodeId) {
-        const nodeAssignmentCounts = countNodeAssignments(assignments)
-        const moveContext: Omit<DeciderContext, 'candidateNodeId'> = {
-          partitionId,
-          role: 'primary',
-          currentAssignment: assignment,
-          allAssignments: assignments,
-          nodeAssignmentCounts,
-          nodes: nodeMap,
-          constraints,
-        }
-
-        const target = findBestNode([leastLoaded.nodeId], weights, deciders, moveContext)
-        if (target !== null) {
-          assignment.primary = target
-          assignment.primaryTerm += 1
-          moved = true
-          continue
-        }
-      }
-
       const replicaIndex = assignment.replicas.indexOf(mostLoaded.nodeId)
       if (replicaIndex >= 0) {
         const removedReplica = assignment.replicas[replicaIndex]
@@ -222,7 +191,7 @@ export function rebalanceAllocate(
 
   handleLostNodes(assignments, activeNodeIds)
 
-  fillUnassignedSlots(assignments, sortedNodes, nodeMap, currentTable.replicationFactor, constraints, deciders)
+  fillReplicaSlots(assignments, sortedNodes, nodeMap, currentTable.replicationFactor, constraints, deciders)
 
   rebalanceForBalance(assignments, sortedNodes, nodeMap, constraints, deciders)
 

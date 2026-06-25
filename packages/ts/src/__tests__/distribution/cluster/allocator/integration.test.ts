@@ -4,6 +4,7 @@ import type {
   AllocationConstraints,
   AllocationTable,
   NodeRegistration,
+  PartitionAssignment,
 } from '../../../../distribution/coordinator/types'
 
 function makeNode(nodeId: string, memoryBytes: number, metadata?: Record<string, string>): NodeRegistration {
@@ -43,6 +44,33 @@ function verifyNoColocationViolations(table: AllocationTable): void {
     const allNodes = [assignment.primary, ...assignment.replicas]
     const unique = new Set(allNodes)
     expect(unique.size).toBe(allNodes.length)
+  }
+}
+
+function activateTable(table: AllocationTable): AllocationTable {
+  const assignments = new Map<number, PartitionAssignment>()
+
+  for (const [partitionId, assignment] of table.assignments) {
+    if (assignment.primary === null) {
+      assignments.set(partitionId, {
+        ...assignment,
+        replicas: [],
+        inSyncSet: [],
+        state: 'UNASSIGNED',
+      })
+      continue
+    }
+
+    assignments.set(partitionId, {
+      ...assignment,
+      inSyncSet: [assignment.primary, ...assignment.replicas],
+      state: 'ACTIVE',
+    })
+  }
+
+  return {
+    ...table,
+    assignments,
   }
 }
 
@@ -92,7 +120,7 @@ describe('allocator integration', () => {
       makeNode('node-c', 4_000_000_000),
       makeNode('node-d', 4_000_000_000),
     ]
-    const initialTable = allocate(initialNodes, null, 'products', 12, 1, defaultConstraints).table
+    const initialTable = activateTable(allocate(initialNodes, null, 'products', 12, 1, defaultConstraints).table)
 
     const reducedNodes = [
       makeNode('node-a', 4_000_000_000),

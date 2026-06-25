@@ -90,6 +90,52 @@ describe('ReplicationLog append', () => {
   })
 })
 
+describe('ReplicationLog appendCommitted', () => {
+  it('stores an already-numbered primary entry without changing seqNo or checksum', () => {
+    const primaryLog = createReplicationLog(0)
+    const primaryEntry = primaryLog.append(makeIndexEntry({ documentId: 'doc-committed' }))
+    const replicaLog = createReplicationLog(0)
+
+    const replicaEntry = replicaLog.appendCommitted(primaryEntry)
+
+    expect(replicaEntry.seqNo).toBe(primaryEntry.seqNo)
+    expect(replicaEntry.checksum).toBe(primaryEntry.checksum)
+    expect(replicaLog.newestSeqNo).toBe(primaryEntry.seqNo)
+  })
+
+  it('is idempotent for duplicate entries with the same checksum', () => {
+    const primaryLog = createReplicationLog(0)
+    const primaryEntry = primaryLog.append(makeIndexEntry({ documentId: 'doc-duplicate' }))
+    const replicaLog = createReplicationLog(0)
+
+    replicaLog.appendCommitted(primaryEntry)
+    const duplicate = replicaLog.appendCommitted(primaryEntry)
+
+    expect(duplicate.seqNo).toBe(primaryEntry.seqNo)
+    expect(replicaLog.entryCount).toBe(1)
+  })
+
+  it('rejects conflicting duplicate sequence numbers', () => {
+    const primaryLog = createReplicationLog(0)
+    const first = primaryLog.append(makeIndexEntry({ documentId: 'doc-a' }))
+    const second = { ...primaryLog.append(makeIndexEntry({ documentId: 'doc-b' })), seqNo: first.seqNo }
+    const replicaLog = createReplicationLog(0)
+
+    replicaLog.appendCommitted(first)
+
+    expect(() => replicaLog.appendCommitted(second)).toThrow(/Conflicting replication entry/)
+  })
+
+  it('rejects out-of-order committed entries', () => {
+    const primaryLog = createReplicationLog(0)
+    primaryLog.append(makeIndexEntry({ documentId: 'doc-a' }))
+    const second = primaryLog.append(makeIndexEntry({ documentId: 'doc-b' }))
+    const replicaLog = createReplicationLog(0)
+
+    expect(() => replicaLog.appendCommitted(second)).toThrow(/Out-of-order replication entry/)
+  })
+})
+
 describe('ReplicationLog startSeqNo', () => {
   it('begins assigning from the provided startSeqNo', () => {
     const log = createReplicationLog(0, { startSeqNo: 100 })

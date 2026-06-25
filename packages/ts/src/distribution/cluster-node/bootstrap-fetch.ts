@@ -82,6 +82,7 @@ export async function fetchSnapshotFromAnyTarget(
   deadline: number,
   deps: FetchFromTargetsDeps,
   abortCheck: () => boolean,
+  partitionId: number,
 ): Promise<SnapshotStreamResult> {
   let lastFailure: SnapshotStreamFailure = {
     ok: false,
@@ -114,7 +115,7 @@ export async function fetchSnapshotFromAnyTarget(
       }
     }
 
-    const attempt = await fetchSnapshotFromTarget(indexName, target, deadline, deps)
+    const attempt = await fetchSnapshotFromTarget(indexName, partitionId, target, deadline, deps)
     if (attempt.ok) {
       return attempt
     }
@@ -226,11 +227,12 @@ function sleepForMs(ms: number): Promise<void> {
 
 async function fetchSnapshotFromTarget(
   indexName: string,
+  partitionId: number,
   target: string,
   deadline: number,
   deps: FetchFromTargetsDeps,
 ): Promise<SnapshotStreamResult> {
-  const requestPayload: SnapshotSyncRequestPayload = { indexName }
+  const requestPayload: SnapshotSyncRequestPayload = { indexName, partitionId }
   const request: TransportMessage = {
     type: ReplicationMessageTypes.SNAPSHOT_SYNC_REQUEST,
     sourceId: deps.sourceNodeId,
