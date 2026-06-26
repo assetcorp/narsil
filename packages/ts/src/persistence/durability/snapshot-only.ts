@@ -1,4 +1,4 @@
-import { readMetadataEnvelope, writeMetadataEnvelope } from '../../serialization/envelope'
+import { concatEnvelopeParts, readMetadataEnvelope, writeMetadataEnvelope } from '../../serialization/envelope'
 import type { PersistenceAdapter } from '../../types/adapters'
 import { buildSnapshotBundleBytes, snapshotStorageKey } from './checkpoint'
 import { loadSnapshotBundleBytes } from './recovery'
@@ -79,7 +79,7 @@ export function createSnapshotOnlyManager(
       primaryTermByPartition.set(i, SINGLE_NODE_PRIMARY_TERM)
     }
 
-    const { bytes } = await buildSnapshotBundleBytes({
+    const { parts } = await buildSnapshotBundleBytes({
       indexName,
       schema: metadata.schema,
       language: metadata.language,
@@ -88,7 +88,7 @@ export function createSnapshotOnlyManager(
       seqNoByPartition,
       primaryTermByPartition,
     })
-    await adapter.save(snapshotStorageKey(indexName), bytes)
+    await adapter.save(snapshotStorageKey(indexName), concatEnvelopeParts(parts))
     indexState.mutationsSinceCheckpoint = 0
   }
 

@@ -8,6 +8,11 @@ import {
   encodeSnapshotBundle,
   type SnapshotBundle,
 } from '../../../persistence/durability/snapshot-bundle'
+import { concatEnvelopeParts } from '../../../serialization/envelope'
+
+async function encodeBundleBytes(bundle: SnapshotBundle): Promise<Uint8Array> {
+  return concatEnvelopeParts(await encodeSnapshotBundle(bundle))
+}
 
 function sampleBundle(): SnapshotBundle {
   return {
@@ -25,7 +30,7 @@ function sampleBundle(): SnapshotBundle {
 
 describe('snapshot bundle', () => {
   it('round-trips through the envelope with a checksum', async () => {
-    const bytes = await encodeSnapshotBundle(sampleBundle())
+    const bytes = await encodeBundleBytes(sampleBundle())
     const decoded = await decodeSnapshotBundle(bytes)
 
     expect(decoded.version).toBe(2)
@@ -42,18 +47,18 @@ describe('snapshot bundle', () => {
   })
 
   it('writes envelope_format_version 2 in the header byte', async () => {
-    const bytes = await encodeSnapshotBundle(sampleBundle())
+    const bytes = await encodeBundleBytes(sampleBundle())
     expect(bytes[4]).toBe(2)
   })
 
   it('sets the mandatory checksum flag in the header', async () => {
-    const bytes = await encodeSnapshotBundle(sampleBundle())
+    const bytes = await encodeBundleBytes(sampleBundle())
     const flagBits = (bytes[12] << 8) | bytes[13]
     expect((flagBits >> 3) & 1).toBe(1)
   })
 
   it('round-trips a v2-header bundle through the snapshot reader', async () => {
-    const bytes = await encodeSnapshotBundle(sampleBundle())
+    const bytes = await encodeBundleBytes(sampleBundle())
     expect(bytes[4]).toBe(2)
     const decoded = await decodeSnapshotBundle(bytes)
     expect(decoded.version).toBe(2)
@@ -61,7 +66,7 @@ describe('snapshot bundle', () => {
   })
 
   it('detects payload corruption via the envelope CRC', async () => {
-    const bytes = await encodeSnapshotBundle(sampleBundle())
+    const bytes = await encodeBundleBytes(sampleBundle())
     bytes[bytes.length - 1] = bytes[bytes.length - 1] ^ 0xff
     await expect(decodeSnapshotBundle(bytes)).rejects.toBeInstanceOf(NarsilError)
   })
@@ -77,7 +82,7 @@ describe('snapshot bundle', () => {
 
   it('treats a missing checkpoint array as replay-from-zero', async () => {
     const bundle = sampleBundle()
-    const bytes = await encodeSnapshotBundle({ ...bundle, checkpoint: [] })
+    const bytes = await encodeBundleBytes({ ...bundle, checkpoint: [] })
     const decoded = await decodeSnapshotBundle(bytes)
     expect(decoded.checkpoint).toEqual([])
     expect(checkpointLastSeqNo(decoded.checkpoint, 0)).toBe(0)
