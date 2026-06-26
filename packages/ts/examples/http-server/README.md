@@ -51,6 +51,18 @@ Every setting reads from an environment variable, so the same image runs locally
 | `NARSIL_MAX_IMPORT_BYTES` | `104857600` | Caps NDJSON import and restore bodies (100 MiB)               |
 | `NARSIL_MAX_CONCURRENT`   | _unbounded_ | Caps requests running engine work at once                     |
 
+## Durability
+
+By default the server keeps everything in memory, so a restart starts empty. Set `NARSIL_DURABILITY_DIR` to a writable path and the engine writes every change to a write-ahead log, takes periodic snapshots, and replays the log automatically the next time it starts, so your data survives a restart. In your own code you set this on the engine and hand it to the server:
+
+```ts
+const engine = await createNarsil({ durability: { directory: '/var/lib/narsil' } })
+const server = createServer(engine)
+await server.listen()
+```
+
+The default mode is `sync`: a write isn't acknowledged until it's on disk, so a crash never loses a write your client already saw succeed. Switch to `mode: 'async'` and writes ack right away while the log flushes about once a second, which runs faster but can lose that last second on a hard crash. Durability needs a real filesystem; back it with a store that has none and you get snapshot-only durability, which holds your data as of the most recent snapshot.
+
 ## Secure by default
 
 The server binds to `127.0.0.1` by default, so nothing reaches it from the network until you say so. Bind to a public address like `0.0.0.0` with no API key and the server refuses to start, because the admin endpoints (`restore`, `drop`, `clear`, `rebalance`, and `optimize`) would hand anyone who reaches the port a one-request data wipe. Set `NARSIL_API_KEY` to require a token, or set `NARSIL_ALLOW_INSECURE=true` when the address sits on a trusted private network. Put a reverse proxy in front to terminate TLS. The health probes (`/livez` and `/readyz`) always answer without a key, so a load balancer can reach them.
