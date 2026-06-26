@@ -92,7 +92,7 @@ export function createAdminHandlers(deps: HandlerDeps) {
       respondError(ctx, err)
       return
     }
-    const record = tasks.start('optimizeVectors', name, () => engine.optimizeVectors(name, body.field))
+    const record = await tasks.start('optimizeVectors', name, () => engine.optimizeVectors(name, body.field))
     respondJson(ctx, taskResponse(record), 202)
   }
 
@@ -111,7 +111,7 @@ export function createAdminHandlers(deps: HandlerDeps) {
       respondError(ctx, err)
       return
     }
-    const record = tasks.start('rebalance', name, () => engine.rebalance(name, target))
+    const record = await tasks.start('rebalance', name, () => engine.rebalance(name, target))
     respondJson(ctx, taskResponse(record), 202)
   }
 
@@ -123,12 +123,12 @@ export function createAdminHandlers(deps: HandlerDeps) {
     }
     const name = ctx.params[0]
     const bytes = new Uint8Array(raw)
-    const record = tasks.start('restore', name, () => engine.restore(name, bytes))
+    const record = await tasks.start('restore', name, () => engine.restore(name, bytes))
     respondJson(ctx, taskResponse(record), 202)
   }
 
-  function getTask(ctx: RouteContext): void {
-    const record = tasks.get(ctx.params[0])
+  async function getTask(ctx: RouteContext): Promise<void> {
+    const record = await tasks.get(ctx.params[0])
     if (!record) {
       sendError(ctx.res, 404, ServerErrorCodes.TASK_NOT_FOUND, `Task "${ctx.params[0]}" not found`)
       return
@@ -136,8 +136,8 @@ export function createAdminHandlers(deps: HandlerDeps) {
     respondJson(ctx, record)
   }
 
-  function listTasks(ctx: RouteContext): void {
-    respondJson(ctx, { tasks: tasks.list() })
+  async function listTasks(ctx: RouteContext): Promise<void> {
+    respondJson(ctx, { tasks: await tasks.list() })
   }
 
   return {

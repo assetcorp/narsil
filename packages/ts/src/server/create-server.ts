@@ -1,4 +1,6 @@
 import type { TemplatedApp, us_listen_socket, us_socket } from 'uWebSockets.js'
+import { randomUUID } from 'node:crypto'
+import { ErrorCodes, NarsilError } from '../errors'
 import type { Narsil } from '../narsil'
 import type { EmbeddingAdapter } from '../types/adapters'
 import { corsWriter, resolveCors, writeCorsOrigin } from './cors'
@@ -13,6 +15,7 @@ import { createSearchHandlers } from './handlers/search'
 import { createRouteRunner, type RouteHandler, type RouteOptions } from './request'
 import { sendError } from './response'
 import { loadUWebSockets, type UWebSockets } from './runtime'
+import { InMemoryTaskStore } from './task-store'
 import { TaskRegistry } from './tasks'
 import type { NarsilServer, ServerLimits, ServerOptions } from './types'
 
@@ -26,6 +29,23 @@ function resolveLimits(limits: ServerLimits | undefined): ResolvedLimits {
     importBatchSize: limits?.importBatchSize ?? 1000,
     maxConcurrentRequests: limits?.maxConcurrentRequests ?? 0,
   }
+}
+
+function isLoopback(host: string): boolean {
+  return host === '127.0.0.1' || host === '::1' || host === 'localhost' || host.startsWith('127.')
+}
+
+/** Refuses to expose destructive admin endpoints on a public interface without
+ * authentication. An unauthenticated non-loopback bind turns restore/drop/clear
+ * into a one-request data-wipe, so the server fails fast unless the operator
+ * authenticates requests or explicitly accepts the risk on a trusted network. */
+function assertSecureBinding(host: string, options: ServerOptions): void {
+  if (isLoopback(host) || options.onRequest || options.allowInsecure) return
+  throw new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    `Refusing to start: bound to a non-loopback address ("${host}") with no onRequest auth hook. The server exposes destructive admin endpoints (restore, drop, clear, rebalance, optimize). Resolve one of: (1) set options.onRequest to authenticate requests, (2) bind to 127.0.0.1, or (3) set options.allowInsecure: true if this address is on a trusted private network.`,
+    { host },
+  )
 }
 
 class NarsilHttpServer implements NarsilServer {
@@ -42,9 +62,11 @@ class NarsilHttpServer implements NarsilServer {
     this.port = options.port ?? 9876
     this.options = options
     const adapters: Record<string, EmbeddingAdapter> = options.embeddingAdapters ?? {}
+    const taskStore = options.taskStore ?? new InMemoryTaskStore()
+    const instanceId = options.instanceId ?? randomUUID()
     this.deps = {
       engine,
-      tasks: new TaskRegistry(),
+      tasks: new TaskRegistry(taskStore, instanceId),
       adapters,
       limits: resolveLimits(options.limits),
       isReady: () => this.ready,
@@ -52,6 +74,7 @@ class NarsilHttpServer implements NarsilServer {
   }
 
   async listen(): Promise<void> {
+    assertSecureBinding(this.host, this.options)
     const uws = await loadUWebSockets()
     this.uws = uws
     const app = uws.App()
@@ -66,6 +89,7 @@ class NarsilHttpServer implements NarsilServer {
         }
       })
     })
+    await this.deps.tasks.reconcile()
     this.ready = true
   }
 
