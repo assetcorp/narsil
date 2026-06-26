@@ -5,11 +5,19 @@ import type { ChecksumWorkerMessage } from './crc32-worker'
 const CHECKSUM_TIMEOUT_MS = 120_000
 const YIELD_CHUNK_BYTES = 4 * 1024 * 1024
 
+export interface ChecksumResult {
+  checksum: number
+  payload: Uint8Array
+}
+
 interface WorkerHandle {
   postMessage(msg: unknown, transfer?: ArrayBuffer[]): void
   on(event: string, handler: (...args: unknown[]) => void): void
   terminate(): void | Promise<void>
 }
+
+let workerUsable = true
+let failNextWorkerForTests = false
 
 function resolveWorkerEntryPoint(): string {
   const base = import.meta.url
@@ -48,16 +56,8 @@ async function chunkedChecksum(payload: Uint8Array): Promise<number> {
   return crc32Final(state)
 }
 
-async function workerChecksum(payload: Uint8Array): Promise<number> {
-  const worker = await spawnWorker()
-  if (worker === null) {
-    throw new Error('No worker thread support available')
-  }
-
-  const copy = new Uint8Array(payload.length)
-  copy.set(payload)
-
-  return new Promise<number>((resolve, reject) => {
+function runWorkerChecksum(worker: WorkerHandle, payload: Uint8Array): Promise<ChecksumResult> {
+  return new Promise<ChecksumResult>((resolve, reject) => {
     let settled = false
 
     const timeoutId = setTimeout(
@@ -73,7 +73,7 @@ async function workerChecksum(payload: Uint8Array): Promise<number> {
       settled = true
       clearTimeout(timeoutId)
       try {
-        void worker?.terminate()
+        void worker.terminate()
       } catch {
         /* termination failure is non-critical; the timeout is already cleared */
       }
@@ -83,7 +83,8 @@ async function workerChecksum(payload: Uint8Array): Promise<number> {
     worker.on('message', (msg: unknown) => {
       const response = msg as ChecksumWorkerMessage
       if (response.type === 'success') {
-        settle(() => resolve(response.checksum >>> 0))
+        const returned = new Uint8Array(response.buffer, response.byteOffset, response.byteLength)
+        settle(() => resolve({ checksum: response.checksum >>> 0, payload: returned }))
       } else {
         settle(() => reject(new Error(response.message)))
       }
@@ -94,22 +95,42 @@ async function workerChecksum(payload: Uint8Array): Promise<number> {
     })
 
     try {
-      worker.postMessage({ buffer: copy.buffer, byteOffset: copy.byteOffset, byteLength: copy.byteLength }, [
-        copy.buffer,
-      ])
+      const buffer = payload.buffer as ArrayBuffer
+      worker.postMessage({ buffer, byteOffset: payload.byteOffset, byteLength: payload.byteLength }, [buffer])
     } catch (err) {
       settle(() => reject(err instanceof Error ? err : new Error('Failed to post message to checksum worker')))
     }
   })
 }
 
-export async function computeOffThreadChecksum(payload: Uint8Array): Promise<number> {
-  if (detectRuntime().supportsWorkerThreads) {
-    try {
-      return await workerChecksum(payload)
-    } catch {
-      return chunkedChecksum(payload)
-    }
+export async function computeOffThreadChecksum(payload: Uint8Array): Promise<ChecksumResult> {
+  if (failNextWorkerForTests) {
+    failNextWorkerForTests = false
+    workerUsable = false
+    throw new Error('simulated checksum worker failure')
   }
-  return chunkedChecksum(payload)
+  if (detectRuntime().supportsWorkerThreads && workerUsable) {
+    const worker = await spawnWorker()
+    if (worker !== null) {
+      try {
+        return await runWorkerChecksum(worker, payload)
+      } catch {
+        workerUsable = false
+        throw new Error(
+          'Checksum worker failed mid-transfer; the snapshot payload was consumed and the checkpoint must retry',
+        )
+      }
+    }
+    workerUsable = false
+  }
+  return { checksum: await chunkedChecksum(payload), payload }
+}
+
+export function resetChecksumWorkerLatch(): void {
+  workerUsable = true
+  failNextWorkerForTests = false
+}
+
+export function __failNextChecksumWorkerForTests(): void {
+  failNextWorkerForTests = true
 }
