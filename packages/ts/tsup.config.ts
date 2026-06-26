@@ -58,6 +58,7 @@ export default defineConfig([
       distribution: 'src/distribution/index.ts',
       'distribution/coordinator/in-memory': 'src/distribution/coordinator/in-memory.ts',
       'distribution/coordinator/etcd': 'src/distribution/coordinator/etcd/index.ts',
+      server: 'src/server/index.ts',
     },
     format: ['esm'],
     dts: true,
@@ -65,7 +66,7 @@ export default defineConfig([
     clean: true,
     treeshake: true,
     outExtension: () => ({ js: '.mjs' }),
-    external: [...NODE_EXTERNAL, 'etcd3'],
+    external: [...NODE_EXTERNAL, 'etcd3', 'uWebSockets.js'],
   },
   {
     entry: { 'index.browser': 'src/index.ts' },

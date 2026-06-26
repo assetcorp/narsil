@@ -9,6 +9,15 @@ import { insertDocumentVectors, prepareDocumentVectors, validateVectorDimensions
 import type { MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
 
+/** Resolves a document's own `id` field as its identifier when present, so a
+ * caller that embeds an id in the document (the cross-language convention) keeps
+ * it. Returns undefined for an absent or non-string id, leaving the caller to
+ * fall back to an explicit id argument or generation. */
+function providedDocId(document: AnyDocument): string | undefined {
+  const id = (document as { id?: unknown }).id
+  return typeof id === 'string' && id.length > 0 ? id : undefined
+}
+
 export async function insertDocument(
   ctx: MutationContext,
   indexName: string,
@@ -19,7 +28,7 @@ export async function insertDocument(
   ctx.guardShutdown()
   const entry = ctx.requireIndex(indexName)
 
-  const resolvedDocId = docId ?? ctx.idGenerator()
+  const resolvedDocId = docId ?? providedDocId(document) ?? ctx.idGenerator()
   validateDocId(resolvedDocId)
 
   if (ctx.bufferIfRebalancing(indexName, { action: 'insert', docId: resolvedDocId, document, indexName })) {
@@ -199,7 +208,7 @@ export async function insertDocumentBatch(
       if (ctx.abortController.signal.aborted) break
       if (chunkFailedIndexes.has(i)) continue
 
-      const batchDocId = ctx.idGenerator()
+      const batchDocId = providedDocId(documents[i]) ?? ctx.idGenerator()
       try {
         validateDocId(batchDocId)
 
