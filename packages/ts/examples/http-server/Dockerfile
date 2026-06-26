@@ -16,5 +16,9 @@ COPY --from=build /repo /repo
 WORKDIR /repo/packages/ts
 ENV NARSIL_HOST=0.0.0.0
 ENV NARSIL_PORT=7700
+# Binding to 0.0.0.0 with no auth is refused unless explicitly allowed. This is
+# acceptable only on a trusted private network; set NARSIL_API_KEY to require
+# auth, or run behind a proxy that terminates it.
+ENV NARSIL_ALLOW_INSECURE=true
 EXPOSE 7700
 CMD ["node", "--experimental-strip-types", "examples/http-server/server.ts"]

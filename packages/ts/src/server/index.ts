@@ -1,5 +1,6 @@
 export { createServer } from './create-server'
 export { httpStatusForNarsilError, ServerErrorCodes } from './errors'
+export { InMemoryTaskStore } from './task-store'
 export type {
   CorsOptions,
   CreateIndexEmbedding,
@@ -14,5 +15,6 @@ export type {
   ServerOptions,
   TaskRecord,
   TaskStatus,
+  TaskStore,
   TaskType,
 } from './types'

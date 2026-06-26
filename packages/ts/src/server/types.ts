@@ -61,6 +61,43 @@ export interface ServerOptions {
    */
   embeddingAdapters?: Record<string, EmbeddingAdapter>
   limits?: ServerLimits
+  /**
+   * Backing store for long-running task records. Defaults to an in-memory store
+   * that is lost on restart and not shared across instances. Supply any store
+   * that satisfies {@link TaskStore} (Redis, Upstash over HTTP, DynamoDB, a
+   * database) to survive restarts and share task status across instances.
+   */
+  taskStore?: TaskStore
+  /**
+   * Stable identifier for this server instance, stamped on every task it owns.
+   * Supply a stable value (a pod or container name) so that after a restart the
+   * instance can mark its own previously-running tasks as failed instead of
+   * leaving them stuck. Defaults to a random id, which disables that recovery.
+   */
+  instanceId?: string
+  /**
+   * Allows binding to a non-loopback address without an {@link onRequest} auth
+   * hook. The server otherwise refuses to start in that configuration because it
+   * exposes destructive admin endpoints. Set this only when the address is on a
+   * trusted private network where access is controlled elsewhere.
+   */
+  allowInsecure?: boolean
+}
+
+/**
+ * Pluggable backing store for task records. Every method is async so any
+ * backend works — an in-memory map, Redis, an HTTP key-value service, or a
+ * database. `set` upserts by `record.id`; `get` returns null for an unknown id.
+ * `ttlMs`, when honored by the backend, expires the record so terminal tasks do
+ * not accumulate. The server never calls a method that mutates a record it did
+ * not construct, so a backend may treat records as immutable snapshots.
+ */
+export interface TaskStore {
+  set(record: TaskRecord, ttlMs?: number): Promise<void>
+  get(id: string): Promise<TaskRecord | null>
+  list(): Promise<TaskRecord[]>
+  delete(id: string): Promise<void>
+  shutdown?(): Promise<void>
 }
 
 export interface NarsilServer {
@@ -85,6 +122,8 @@ export interface TaskRecord {
   type: TaskType
   indexName: string
   status: TaskStatus
+  /** Identifier of the server instance running this task; see ServerOptions.instanceId. */
+  owner: string
   createdAt: number
   startedAt?: number
   completedAt?: number

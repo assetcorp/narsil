@@ -59,8 +59,10 @@ async function buildEngine(): Promise<Narsil> {
 }
 
 async function main(): Promise<void> {
-  const host = process.env.NARSIL_HOST ?? '0.0.0.0'
+  const host = process.env.NARSIL_HOST ?? '127.0.0.1'
   const port = intFromEnv('NARSIL_PORT') ?? 7700
+  const allowInsecure = process.env.NARSIL_ALLOW_INSECURE === 'true'
+  const instanceId = process.env.NARSIL_INSTANCE_ID
 
   const engine = await buildEngine()
   const server = createServer(engine, {
@@ -68,6 +70,8 @@ async function main(): Promise<void> {
     port,
     onRequest: buildAuthHook(),
     limits: buildLimits(),
+    allowInsecure,
+    instanceId,
   })
 
   await server.listen()
