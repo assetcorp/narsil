@@ -10,7 +10,7 @@ export interface PartitionCheckpoint {
 }
 
 export interface SnapshotBundle {
-  version: 2
+  version: 1
   schema: Record<string, string>
   language: string
   partitions: Uint8Array[]
@@ -29,7 +29,7 @@ interface RawSnapshotBundle {
 
 export async function encodeSnapshotBundle(bundle: SnapshotBundle): Promise<EnvelopeParts> {
   const payload = encode({
-    version: 2,
+    version: 1,
     schema: bundle.schema,
     language: bundle.language,
     partitions: bundle.partitions,
@@ -47,10 +47,10 @@ export async function decodeSnapshotBundle(data: Uint8Array): Promise<SnapshotBu
   const { payloadBytes } = await unpackEnvelopeBytes(data)
   const raw = decode(payloadBytes) as RawSnapshotBundle
 
-  if (raw.version !== 2) {
+  if (raw.version !== 1) {
     throw new NarsilError(
       ErrorCodes.PERSISTENCE_LOAD_FAILED,
-      `Unsupported snapshot bundle version ${raw.version}; expected 2`,
+      `Unsupported snapshot bundle version ${raw.version}; expected 1`,
       { version: raw.version },
     )
   }
@@ -65,7 +65,7 @@ export async function decodeSnapshotBundle(data: Uint8Array): Promise<SnapshotBu
   }
 
   return {
-    version: 2,
+    version: 1,
     schema: raw.schema,
     language: raw.language,
     partitions: raw.partitions,

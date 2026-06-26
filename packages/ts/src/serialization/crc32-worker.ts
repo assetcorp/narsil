@@ -11,6 +11,9 @@ export interface ChecksumRequest {
 export interface ChecksumResponse {
   type: 'success'
   checksum: number
+  buffer: ArrayBuffer
+  byteOffset: number
+  byteLength: number
 }
 
 export interface ChecksumError {
@@ -20,7 +23,7 @@ export interface ChecksumError {
 
 export type ChecksumWorkerMessage = ChecksumResponse | ChecksumError
 
-function handleRequest(raw: unknown): number {
+function handleRequest(raw: unknown): ChecksumResponse {
   const request = raw as ChecksumRequest
   if (!(request.buffer instanceof ArrayBuffer)) {
     throw new Error('Checksum request is missing a transferable buffer')
@@ -32,14 +35,12 @@ function handleRequest(raw: unknown): number {
   if (byteOffset + byteLength > request.buffer.byteLength) {
     throw new Error('Checksum request range exceeds the buffer bounds')
   }
-  return crc32(new Uint8Array(request.buffer, byteOffset, byteLength))
+  const checksum = crc32(new Uint8Array(request.buffer, byteOffset, byteLength))
+  return { type: 'success', checksum, buffer: request.buffer, byteOffset, byteLength }
 }
 
 async function setupAsync(): Promise<void> {
-  let parentPort: {
-    on: (event: string, handler: (msg: unknown) => void) => void
-    postMessage: (msg: unknown) => void
-  } | null = null
+  let parentPort: import('node:worker_threads').MessagePort | null = null
 
   try {
     const workerThreads = await import('node:worker_threads')
@@ -52,8 +53,8 @@ async function setupAsync(): Promise<void> {
     const port = parentPort
     port.on('message', (raw: unknown) => {
       try {
-        const checksum = handleRequest(raw)
-        port.postMessage({ type: 'success', checksum } satisfies ChecksumResponse)
+        const result = handleRequest(raw)
+        port.postMessage(result, [result.buffer])
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         port.postMessage({ type: 'error', message } satisfies ChecksumError)
@@ -66,12 +67,12 @@ async function setupAsync(): Promise<void> {
   if (globalSelf && typeof (globalSelf as { postMessage?: unknown }).postMessage === 'function') {
     const webSelf = globalSelf as unknown as {
       onmessage: ((event: { data: unknown }) => void) | null
-      postMessage: (msg: unknown) => void
+      postMessage: (msg: unknown, transfer?: ArrayBuffer[]) => void
     }
     webSelf.onmessage = (event: { data: unknown }) => {
       try {
-        const checksum = handleRequest(event.data)
-        webSelf.postMessage({ type: 'success', checksum } satisfies ChecksumResponse)
+        const result = handleRequest(event.data)
+        webSelf.postMessage(result, [result.buffer])
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         webSelf.postMessage({ type: 'error', message } satisfies ChecksumError)

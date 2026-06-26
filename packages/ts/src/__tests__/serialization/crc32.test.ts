@@ -76,19 +76,20 @@ describe('crc32 incremental', () => {
 })
 
 describe('computeOffThreadChecksum', () => {
-  it('matches the synchronous checksum for payloads of varied sizes', async () => {
+  it('matches the synchronous checksum and returns the payload bytes intact', async () => {
     for (const size of [0, 1, 4095, 4096, 4097, 1_000_000]) {
       const data = new Uint8Array(size)
       for (let i = 0; i < size; i++) {
         data[i] = (i * 13 + 5) & 0xff
       }
-      expect(await computeOffThreadChecksum(data)).toBe(crc32(data))
-    }
-  })
+      const expectedChecksum = crc32(data)
+      const expectedBytes = Uint8Array.from(data)
 
-  it('does not mutate or detach the payload it is given', async () => {
-    const data = new Uint8Array([10, 20, 30, 40, 50])
-    await computeOffThreadChecksum(data)
-    expect([...data]).toEqual([10, 20, 30, 40, 50])
+      const { checksum, payload } = await computeOffThreadChecksum(data)
+
+      expect(checksum).toBe(expectedChecksum)
+      expect(payload.length).toBe(size)
+      expect([...payload]).toEqual([...expectedBytes])
+    }
   })
 })

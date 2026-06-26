@@ -16,7 +16,7 @@ async function encodeBundleBytes(bundle: SnapshotBundle): Promise<Uint8Array> {
 
 function sampleBundle(): SnapshotBundle {
   return {
-    version: 2,
+    version: 1,
     schema: { title: 'string', year: 'number' },
     language: 'english',
     partitions: [new Uint8Array([1, 2, 3]), new Uint8Array([4, 5])],
@@ -33,7 +33,7 @@ describe('snapshot bundle', () => {
     const bytes = await encodeBundleBytes(sampleBundle())
     const decoded = await decodeSnapshotBundle(bytes)
 
-    expect(decoded.version).toBe(2)
+    expect(decoded.version).toBe(1)
     expect(decoded.schema).toEqual({ title: 'string', year: 'number' })
     expect(decoded.language).toBe('english')
     expect(decoded.partitions.map(p => [...p])).toEqual([
@@ -61,7 +61,7 @@ describe('snapshot bundle', () => {
     const bytes = await encodeBundleBytes(sampleBundle())
     expect(bytes[4]).toBe(2)
     const decoded = await decodeSnapshotBundle(bytes)
-    expect(decoded.version).toBe(2)
+    expect(decoded.version).toBe(1)
     expect(decoded.language).toBe('english')
   })
 

@@ -166,7 +166,7 @@ export async function packEnvelopeBytes(payloadBytes: Uint8Array, options: Envel
 }
 
 export async function packSnapshotEnvelopeParts(payloadBytes: Uint8Array): Promise<EnvelopeParts> {
-  const checksum = await computeOffThreadChecksum(payloadBytes)
+  const { checksum, payload } = await computeOffThreadChecksum(payloadBytes)
   const [major, minor, patch] = parseEngineVersion(VERSION)
 
   const header: NrslHeader = {
@@ -175,7 +175,7 @@ export async function packSnapshotEnvelopeParts(payloadBytes: Uint8Array): Promi
     engineVersionMajor: major,
     engineVersionMinor: minor,
     engineVersionPatch: patch,
-    payloadLength: payloadBytes.length,
+    payloadLength: payload.length,
     flags: {
       compressionEnabled: false,
       compressionAlgorithm: 'none',
@@ -186,7 +186,7 @@ export async function packSnapshotEnvelopeParts(payloadBytes: Uint8Array): Promi
     reserved: new Uint8Array(14),
   }
 
-  return { header: writeHeader(header), payload: payloadBytes }
+  return { header: writeHeader(header), payload }
 }
 
 export function concatEnvelopeParts(parts: EnvelopeParts): Uint8Array {

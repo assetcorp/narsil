@@ -3,7 +3,7 @@ import type { EnvelopeParts } from '../../serialization/envelope'
 import type { VectorIndex, VectorIndexPayload } from '../../vector/vector-index'
 import { readCommitMarker } from './commit-marker'
 import type { DurableDirectory } from './durable-filesystem'
-import { encodeSnapshotBundle, type PartitionCheckpoint } from './snapshot-bundle'
+import { encodeSnapshotBundle, type PartitionCheckpoint, type SnapshotBundle } from './snapshot-bundle'
 
 export interface CheckpointInput {
   indexName: string
@@ -43,14 +43,24 @@ export async function buildSnapshotBundleBytes(
     vectorPayloads[fieldPath] = vecIndex.serialize()
   }
 
-  const parts = await encodeSnapshotBundle({
-    version: 2,
+  const bundle: SnapshotBundle = {
+    version: 1,
     schema: input.schema,
     language: input.language,
     partitions: partitionBuffers,
     vectorIndexes: vectorPayloads,
     checkpoint,
-  })
+  }
+
+  let parts: EnvelopeParts
+  try {
+    parts = await encodeSnapshotBundle(bundle)
+  } catch {
+    // The checksum worker consumed the first encoded payload before it failed; the bundle here is
+    // still intact, so re-encode it. The worker is now latched off, so this attempt checksums inline
+    // and the checkpoint succeeds instead of putting durability into a fatal state.
+    parts = await encodeSnapshotBundle(bundle)
+  }
 
   return { parts, checkpoint }
 }
