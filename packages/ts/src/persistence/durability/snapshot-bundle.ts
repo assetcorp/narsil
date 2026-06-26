@@ -1,6 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { packEnvelopeBytes, unpackEnvelopeBytes } from '../../serialization/envelope'
+import { type EnvelopeParts, packSnapshotEnvelopeParts, unpackEnvelopeBytes } from '../../serialization/envelope'
 import type { VectorIndexPayload } from '../../vector/vector-index'
 
 export interface PartitionCheckpoint {
@@ -27,7 +27,7 @@ interface RawSnapshotBundle {
   checkpoint?: Array<{ partitionId?: number; lastSeqNo?: number; primaryTerm?: number }>
 }
 
-export async function encodeSnapshotBundle(bundle: SnapshotBundle): Promise<Uint8Array> {
+export async function encodeSnapshotBundle(bundle: SnapshotBundle): Promise<EnvelopeParts> {
   const payload = encode({
     version: 2,
     schema: bundle.schema,
@@ -40,7 +40,7 @@ export async function encodeSnapshotBundle(bundle: SnapshotBundle): Promise<Uint
       primaryTerm: c.primaryTerm,
     })),
   })
-  return packEnvelopeBytes(payload, { checksum: true })
+  return packSnapshotEnvelopeParts(payload)
 }
 
 export async function decodeSnapshotBundle(data: Uint8Array): Promise<SnapshotBundle> {

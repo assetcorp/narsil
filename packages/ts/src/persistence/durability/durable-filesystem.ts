@@ -48,7 +48,7 @@ export interface DurableDirectory {
   readonly root: string
   appendHandle(key: string): Promise<AppendHandle>
   markerHandle(key: string): Promise<MarkerHandle>
-  atomicWrite(key: string, data: Uint8Array): Promise<void>
+  atomicWrite(key: string, data: Uint8Array | readonly Uint8Array[]): Promise<void>
   syncDirectoryOf(key: string): Promise<void>
   read(key: string): Promise<Uint8Array | null>
   remove(key: string): Promise<void>
@@ -78,6 +78,21 @@ async function openReadWriteCreating(filePath: string, fs: FsModule): Promise<Fi
       throw err
     }
     return fs.open(filePath, 'r+')
+  }
+}
+
+async function writeFully(handle: FileHandle, buffer: Uint8Array, key: string): Promise<void> {
+  let offset = 0
+  while (offset < buffer.length) {
+    const { bytesWritten } = await handle.write(buffer, offset, buffer.length - offset)
+    if (bytesWritten <= 0) {
+      throw new NarsilError(
+        ErrorCodes.PERSISTENCE_SAVE_FAILED,
+        `Write to "${key}" made no progress; the snapshot would be truncated and is not acknowledged`,
+        { key, written: offset, total: buffer.length },
+      )
+    }
+    offset += bytesWritten
   }
 }
 
@@ -195,7 +210,7 @@ export function createDurableDirectory(root: string): DurableDirectory {
       await fsyncDirectory(pathMod.dirname(filePath), fs)
     },
 
-    async atomicWrite(key: string, data: Uint8Array): Promise<void> {
+    async atomicWrite(key: string, data: Uint8Array | readonly Uint8Array[]): Promise<void> {
       const { path: filePath, pathMod } = await resolve(key)
       const fs = await getFs()
       await ensureDir(filePath, pathMod, fs)
@@ -203,11 +218,14 @@ export function createDurableDirectory(root: string): DurableDirectory {
       const dir = pathMod.dirname(filePath)
       const tempName = `${pathMod.basename(filePath)}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
       const tempPath = pathMod.join(dir, tempName)
+      const buffers = Array.isArray(data) ? data : [data as Uint8Array]
 
       let handle: FileHandle | null = null
       try {
         handle = await fs.open(tempPath, 'w')
-        await handle.write(data)
+        for (const buffer of buffers) {
+          await writeFully(handle, buffer, tempPath)
+        }
         try {
           await handle.sync()
         } catch (err: unknown) {

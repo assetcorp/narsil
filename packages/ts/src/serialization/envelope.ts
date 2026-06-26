@@ -1,10 +1,16 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { VERSION } from '../index'
 import type { IndexMetadata, SerializablePartition } from '../types/internal'
+import { computeOffThreadChecksum } from './checksum-dispatch'
 import { crc32 } from './crc32'
 import type { NrslFlags, NrslHeader } from './header'
 import { HEADER_SIZE, readHeader, writeHeader } from './header'
 import { deserializeMetadata, deserializePayloadV1, serializeMetadata, serializePayloadV1 } from './payload-v1'
+
+export interface EnvelopeParts {
+  header: Uint8Array
+  payload: Uint8Array
+}
 
 const CURRENT_ENVELOPE_VERSION = 1
 const SNAPSHOT_ENVELOPE_VERSION = 2
@@ -157,6 +163,37 @@ async function unpackEnvelope(
 
 export async function packEnvelopeBytes(payloadBytes: Uint8Array, options: EnvelopeOptions = {}): Promise<Uint8Array> {
   return packEnvelope(payloadBytes, { ...options, envelopeFormatVersion: SNAPSHOT_ENVELOPE_VERSION })
+}
+
+export async function packSnapshotEnvelopeParts(payloadBytes: Uint8Array): Promise<EnvelopeParts> {
+  const checksum = await computeOffThreadChecksum(payloadBytes)
+  const [major, minor, patch] = parseEngineVersion(VERSION)
+
+  const header: NrslHeader = {
+    magic: 'NRSL',
+    envelopeFormatVersion: SNAPSHOT_ENVELOPE_VERSION,
+    engineVersionMajor: major,
+    engineVersionMinor: minor,
+    engineVersionPatch: patch,
+    payloadLength: payloadBytes.length,
+    flags: {
+      compressionEnabled: false,
+      compressionAlgorithm: 'none',
+      checksumPresent: true,
+      encryptionEnabled: false,
+    },
+    checksum,
+    reserved: new Uint8Array(14),
+  }
+
+  return { header: writeHeader(header), payload: payloadBytes }
+}
+
+export function concatEnvelopeParts(parts: EnvelopeParts): Uint8Array {
+  const combined = new Uint8Array(parts.header.length + parts.payload.length)
+  combined.set(parts.header, 0)
+  combined.set(parts.payload, parts.header.length)
+  return combined
 }
 
 export async function unpackEnvelopeBytes(data: Uint8Array): Promise<{ header: NrslHeader; payloadBytes: Uint8Array }> {

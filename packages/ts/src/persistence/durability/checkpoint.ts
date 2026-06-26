@@ -1,4 +1,5 @@
 import type { PartitionManager } from '../../partitioning/manager'
+import type { EnvelopeParts } from '../../serialization/envelope'
 import type { VectorIndex, VectorIndexPayload } from '../../vector/vector-index'
 import { readCommitMarker } from './commit-marker'
 import type { DurableDirectory } from './durable-filesystem'
@@ -24,7 +25,7 @@ function walPrefix(indexName: string, partitionId: number): string {
 
 export async function buildSnapshotBundleBytes(
   input: CheckpointInput,
-): Promise<{ bytes: Uint8Array; checkpoint: PartitionCheckpoint[] }> {
+): Promise<{ parts: EnvelopeParts; checkpoint: PartitionCheckpoint[] }> {
   const partitionBuffers: Uint8Array[] = []
   const checkpoint: PartitionCheckpoint[] = []
 
@@ -42,7 +43,7 @@ export async function buildSnapshotBundleBytes(
     vectorPayloads[fieldPath] = vecIndex.serialize()
   }
 
-  const bytes = await encodeSnapshotBundle({
+  const parts = await encodeSnapshotBundle({
     version: 2,
     schema: input.schema,
     language: input.language,
@@ -51,7 +52,7 @@ export async function buildSnapshotBundleBytes(
     checkpoint,
   })
 
-  return { bytes, checkpoint }
+  return { parts, checkpoint }
 }
 
 export function snapshotStorageKey(indexName: string): string {
@@ -59,8 +60,8 @@ export function snapshotStorageKey(indexName: string): string {
 }
 
 export async function writeCheckpoint(directory: DurableDirectory, input: CheckpointInput): Promise<void> {
-  const { bytes, checkpoint } = await buildSnapshotBundleBytes(input)
-  await directory.atomicWrite(snapshotKey(input.indexName), bytes)
+  const { parts, checkpoint } = await buildSnapshotBundleBytes(input)
+  await directory.atomicWrite(snapshotKey(input.indexName), [parts.header, parts.payload])
   await truncateCoveredSegments(directory, input.indexName, checkpoint)
 }
 

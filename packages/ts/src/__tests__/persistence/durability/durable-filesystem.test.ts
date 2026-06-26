@@ -59,6 +59,29 @@ describe('durable directory', () => {
     expect([...(data ?? [])]).toEqual([2, 2])
   })
 
+  it('writes multiple buffers as one contiguous file in order', async () => {
+    const header = new Uint8Array([1, 2, 3, 4])
+    const payload = new Uint8Array([5, 6, 7, 8, 9])
+    await directory.atomicWrite('movies/snapshot', [header, payload])
+    const onDisk = await readFile(join(root, 'movies', 'snapshot'))
+    expect([...onDisk]).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
+  })
+
+  it('produces the same bytes whether written as one buffer or several', async () => {
+    const whole = new Uint8Array([10, 11, 12, 13, 14, 15])
+    await directory.atomicWrite('movies/combined', whole)
+    await directory.atomicWrite('movies/split', [whole.subarray(0, 2), whole.subarray(2, 4), whole.subarray(4)])
+    const combined = await directory.read('movies/combined')
+    const split = await directory.read('movies/split')
+    expect([...(split ?? [])]).toEqual([...(combined ?? [])])
+  })
+
+  it('writes an empty leading buffer without corrupting the payload', async () => {
+    await directory.atomicWrite('movies/snapshot', [new Uint8Array(0), new Uint8Array([7, 7, 7])])
+    const data = await directory.read('movies/snapshot')
+    expect([...(data ?? [])]).toEqual([7, 7, 7])
+  })
+
   it('returns null when reading a missing key', async () => {
     expect(await directory.read('movies/missing')).toBeNull()
   })
