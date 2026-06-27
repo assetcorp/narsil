@@ -69,13 +69,21 @@ export function snapshotStorageKey(indexName: string): string {
   return snapshotKey(indexName)
 }
 
-export async function writeCheckpoint(directory: DurableDirectory, input: CheckpointInput): Promise<void> {
+export async function writeSnapshotFile(
+  directory: DurableDirectory,
+  input: CheckpointInput,
+): Promise<PartitionCheckpoint[]> {
   const { parts, checkpoint } = await buildSnapshotBundleBytes(input)
   await directory.atomicWrite(snapshotKey(input.indexName), [parts.header, parts.payload])
+  return checkpoint
+}
+
+export async function writeCheckpoint(directory: DurableDirectory, input: CheckpointInput): Promise<void> {
+  const checkpoint = await writeSnapshotFile(directory, input)
   await truncateCoveredSegments(directory, input.indexName, checkpoint)
 }
 
-async function truncateCoveredSegments(
+export async function truncateCoveredSegments(
   directory: DurableDirectory,
   indexName: string,
   checkpoint: PartitionCheckpoint[],

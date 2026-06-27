@@ -92,19 +92,27 @@ interface ActiveTail {
   segmentLength: number
 }
 
-export async function replayWal(
+type CommitMarker = NonNullable<ReturnType<typeof readCommitMarker>>
+
+interface WalReadResult {
+  marker: CommitMarker
+  segments: SegmentRef[]
+  durableEntries: ReplicationLogEntry[]
+  activeTail: ActiveTail | null
+  highestReadFromWal: number
+}
+
+async function readWalSegments(
   directory: DurableDirectory,
   indexName: string,
   partitionId: number,
-  fromSeqNoExclusive: number,
-  deps: ReplayDeps,
-): Promise<{ highestSeqNo: number; highestPrimaryTerm: number }> {
+): Promise<WalReadResult | null> {
   const prefix = `${indexName}/wal/${partitionId}/`
   const markerBytes = await directory.read(`${prefix}commit`)
   const marker = markerBytes === null ? null : readCommitMarker(markerBytes)
 
   if (marker === null) {
-    return { highestSeqNo: fromSeqNoExclusive, highestPrimaryTerm: 0 }
+    return null
   }
 
   const segments = await collectSegments(directory, prefix)
@@ -157,6 +165,22 @@ export async function replayWal(
     activeTail = { key, entries: tail.entries, cleanEnd: tail.cleanEnd, segmentLength: bytes.length }
   }
 
+  return { marker, segments, durableEntries, activeTail, highestReadFromWal }
+}
+
+export async function replayWal(
+  directory: DurableDirectory,
+  indexName: string,
+  partitionId: number,
+  fromSeqNoExclusive: number,
+  deps: ReplayDeps,
+): Promise<{ highestSeqNo: number; highestPrimaryTerm: number }> {
+  const read = await readWalSegments(directory, indexName, partitionId)
+  if (read === null) {
+    return { highestSeqNo: fromSeqNoExclusive, highestPrimaryTerm: 0 }
+  }
+  const { marker, segments, durableEntries, activeTail, highestReadFromWal } = read
+
   if (Math.max(fromSeqNoExclusive, highestReadFromWal) < marker.state.highestDurableSeqNo) {
     throw new NarsilError(
       ErrorCodes.PERSISTENCE_WAL_CORRUPT,
@@ -194,6 +218,49 @@ export async function replayWal(
     await truncateSegmentTail(directory, activeTail.key, activeTail.cleanEnd)
   }
 
+  return { highestSeqNo, highestPrimaryTerm }
+}
+
+export async function replayWalUpTo(
+  directory: DurableDirectory,
+  indexName: string,
+  partitionId: number,
+  fromSeqNoExclusive: number,
+  upToSeqNoInclusive: number,
+  deps: ReplayDeps,
+): Promise<{ highestSeqNo: number; highestPrimaryTerm: number }> {
+  const read = await readWalSegments(directory, indexName, partitionId)
+  if (read === null) {
+    return { highestSeqNo: fromSeqNoExclusive, highestPrimaryTerm: 0 }
+  }
+
+  if (Math.max(fromSeqNoExclusive, read.highestReadFromWal) < read.marker.state.highestDurableSeqNo) {
+    throw new NarsilError(
+      ErrorCodes.PERSISTENCE_WAL_CORRUPT,
+      'A durable WAL record is missing: the highest recovered seqNo is below the commit marker',
+      {
+        indexName,
+        partitionId,
+        highestRead: read.highestReadFromWal,
+        highestDurable: read.marker.state.highestDurableSeqNo,
+      },
+    )
+  }
+
+  let highestSeqNo = fromSeqNoExclusive
+  let highestPrimaryTerm = 0
+  for (const entry of read.durableEntries) {
+    if (entry.seqNo <= fromSeqNoExclusive || entry.seqNo > upToSeqNoInclusive) {
+      continue
+    }
+    applyEntry(entry, deps)
+    if (entry.seqNo > highestSeqNo) {
+      highestSeqNo = entry.seqNo
+    }
+    if (entry.primaryTerm > highestPrimaryTerm) {
+      highestPrimaryTerm = entry.primaryTerm
+    }
+  }
   return { highestSeqNo, highestPrimaryTerm }
 }
 

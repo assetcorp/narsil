@@ -18,6 +18,21 @@ interface WorkerHandle {
 
 let workerUsable = true
 let failNextWorkerForTests = false
+let mainThreadResolved = false
+let onMainThread = true
+
+async function isOnMainThread(): Promise<boolean> {
+  if (!mainThreadResolved) {
+    try {
+      const workerThreads = await import('node:worker_threads')
+      onMainThread = workerThreads.isMainThread
+    } catch {
+      onMainThread = true
+    }
+    mainThreadResolved = true
+  }
+  return onMainThread
+}
 
 function resolveWorkerEntryPoint(): string {
   const base = import.meta.url
@@ -109,7 +124,7 @@ export async function computeOffThreadChecksum(payload: Uint8Array): Promise<Che
     workerUsable = false
     throw new Error('simulated checksum worker failure')
   }
-  if (detectRuntime().supportsWorkerThreads && workerUsable) {
+  if (detectRuntime().supportsWorkerThreads && workerUsable && (await isOnMainThread())) {
     const worker = await spawnWorker()
     if (worker !== null) {
       try {
