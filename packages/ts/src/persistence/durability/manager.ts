@@ -1,10 +1,12 @@
 import { buildEntry } from '../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
-import { writeCheckpoint } from './checkpoint'
+import { truncateCoveredSegments, writeCheckpoint } from './checkpoint'
+import { runCheckpointOnWorker } from './checkpoint-worker-dispatch'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
 import { listPersistedIndexes, loadMetadata, loadSnapshot, replayWal, snapshotCheckpointFor } from './recovery'
 import { createSeqOwner, type SeqOwner, SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
+import type { PartitionCheckpoint } from './snapshot-bundle'
 import {
   DEFAULT_CHECKPOINT_INTERVAL_MS,
   DEFAULT_CHECKPOINT_MUTATION_THRESHOLD,
@@ -37,6 +39,7 @@ export function createDurabilityManager(
   directoryOverride?: DurableDirectory,
 ): DurabilityManager {
   const directory = directoryOverride ?? createDurableDirectory(config.directory ?? '')
+  const canOffloadCheckpoint = directoryOverride === undefined
   const segmentMaxBytes = config.segmentMaxBytes ?? DEFAULT_SEGMENT_MAX_BYTES
   const checkpointIntervalMs = config.checkpointIntervalMs ?? DEFAULT_CHECKPOINT_INTERVAL_MS
   const checkpointMutationThreshold = config.checkpointMutationThreshold ?? DEFAULT_CHECKPOINT_MUTATION_THRESHOLD
@@ -195,23 +198,46 @@ export function createDurabilityManager(
       return
     }
 
-    const seqNoByPartition = new Map<number, number>()
-    const primaryTermByPartition = new Map<number, number>()
+    const targets: PartitionCheckpoint[] = []
     for (let i = 0; i < manager.partitionCount; i += 1) {
       const partition = indexState.partitions.get(i)
-      seqNoByPartition.set(i, partition?.appliedSeqNo ?? 0)
-      primaryTermByPartition.set(i, partition?.seqOwner.primaryTerm ?? SINGLE_NODE_PRIMARY_TERM)
+      targets.push({
+        partitionId: i,
+        lastSeqNo: partition?.appliedSeqNo ?? 0,
+        primaryTerm: partition?.seqOwner.primaryTerm ?? SINGLE_NODE_PRIMARY_TERM,
+      })
+      if (partition !== undefined) {
+        try {
+          await partition.walWriter.commit()
+        } catch (err) {
+          partition.failed = toError(err)
+          markFatal(partition.failed)
+          throw partition.failed
+        }
+      }
     }
 
-    await writeCheckpoint(directory, {
-      indexName,
-      schema: metadata.schema,
-      language: metadata.language,
-      manager,
-      vectorIndexes: hooks.getVectorIndexes(indexName),
-      seqNoByPartition,
-      primaryTermByPartition,
-    })
+    const offloaded = canOffloadCheckpoint && (await runCheckpointOnWorker({ root: directory.root, metadata, targets }))
+
+    if (offloaded) {
+      await truncateCoveredSegments(directory, indexName, targets)
+    } else {
+      const seqNoByPartition = new Map<number, number>()
+      const primaryTermByPartition = new Map<number, number>()
+      for (const target of targets) {
+        seqNoByPartition.set(target.partitionId, target.lastSeqNo)
+        primaryTermByPartition.set(target.partitionId, target.primaryTerm)
+      }
+      await writeCheckpoint(directory, {
+        indexName,
+        schema: metadata.schema,
+        language: metadata.language,
+        manager,
+        vectorIndexes: hooks.getVectorIndexes(indexName),
+        seqNoByPartition,
+        primaryTermByPartition,
+      })
+    }
     indexState.mutationsSinceCheckpoint = 0
   }
 
