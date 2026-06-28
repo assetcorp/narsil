@@ -6,8 +6,7 @@ import { runCheckpointOnWorker, terminateCheckpointWorker } from './checkpoint-w
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
 import { listPersistedIndexes, loadMetadata, loadSnapshot, replayWal, snapshotCheckpointFor } from './recovery'
 import {
-  DEFAULT_INITIAL_BUCKET_COUNT,
-  DEFAULT_TARGET_BUCKET_BYTES,
+  DEFAULT_COMPACTION_THRESHOLD,
   readSegmentManifest,
   reclaimOrphanedSegments,
   writeSegmentedCheckpoint,
@@ -50,8 +49,7 @@ export function createDurabilityManager(
   const segmentMaxBytes = config.segmentMaxBytes ?? DEFAULT_SEGMENT_MAX_BYTES
   const checkpointIntervalMs = config.checkpointIntervalMs ?? DEFAULT_CHECKPOINT_INTERVAL_MS
   const checkpointMutationThreshold = config.checkpointMutationThreshold ?? DEFAULT_CHECKPOINT_MUTATION_THRESHOLD
-  const initialBucketCount = config.bucketCount ?? DEFAULT_INITIAL_BUCKET_COUNT
-  const targetBucketBytes = config.targetBucketBytes ?? DEFAULT_TARGET_BUCKET_BYTES
+  const compactionThreshold = config.compactionThreshold ?? DEFAULT_COMPACTION_THRESHOLD
   const mode = config.mode ?? 'sync'
   const flushIntervalMs = config.flushIntervalMs ?? DEFAULT_ASYNC_FLUSH_INTERVAL_MS
 
@@ -232,12 +230,11 @@ export function createDurabilityManager(
         root: directory.root,
         metadata,
         targets,
-        initialBucketCount,
-        targetBucketBytes,
+        compactionThreshold,
       }))
 
     if (!offloaded) {
-      await writeSegmentedCheckpoint({ directory, metadata, targets, initialBucketCount, targetBucketBytes })
+      await writeSegmentedCheckpoint({ directory, metadata, targets, compactionThreshold })
     }
     await truncateCoveredSegments(directory, indexName, targets)
     indexState.mutationsSinceCheckpoint = 0

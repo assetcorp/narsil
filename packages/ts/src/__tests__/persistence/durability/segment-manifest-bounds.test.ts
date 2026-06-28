@@ -8,7 +8,7 @@ import { createDurableDirectory } from '../../../persistence/durability/durable-
 import { loadSegmentedSnapshot } from '../../../persistence/durability/segment/load'
 import {
   decodeSegmentManifest,
-  MAX_BUCKET_COUNT,
+  MAX_SEGMENTS_PER_PARTITION,
   SEGMENT_MANIFEST_VERSION,
   type SegmentManifest,
 } from '../../../persistence/durability/segment/manifest'
@@ -24,142 +24,107 @@ async function encodeRawManifest(payload: Record<string, unknown>): Promise<Uint
 }
 
 describe('segment manifest decode bounds', () => {
-  it('rejects an initial bucket count above the maximum', async () => {
+  it('rejects an unsupported manifest version', async () => {
     const bytes = await encodeRawManifest({
-      version: SEGMENT_MANIFEST_VERSION,
-      initialBucketCount: MAX_BUCKET_COUNT + 1,
+      version: 2,
       schema: { title: 'string' },
       language: 'english',
       checkpoint: [],
-      partitions: [{ partitionId: 0, globalDepth: 0, directory: [0], buckets: [], vectors: [] }],
+      partitions: [],
     })
-    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(NarsilError)
-    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/initial bucket count/)
+    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/Unsupported segment manifest version/)
   })
 
-  it('accepts an initial bucket count at the maximum', async () => {
+  it('accepts a well-formed manifest', async () => {
     const bytes = await encodeRawManifest({
       version: SEGMENT_MANIFEST_VERSION,
-      initialBucketCount: MAX_BUCKET_COUNT,
-      schema: { title: 'string' },
-      language: 'english',
-      checkpoint: [],
-      partitions: [{ partitionId: 0, globalDepth: 0, directory: [0], buckets: [], vectors: [] }],
-    })
-    const manifest = await decodeSegmentManifest(bytes)
-    expect(manifest.initialBucketCount).toBe(MAX_BUCKET_COUNT)
-  })
-
-  it('rejects a global depth above the supported maximum without allocating', async () => {
-    const bytes = await encodeRawManifest({
-      version: SEGMENT_MANIFEST_VERSION,
-      initialBucketCount: 4,
-      schema: { title: 'string' },
-      language: 'english',
-      checkpoint: [],
-      partitions: [{ partitionId: 0, globalDepth: 30, directory: [], buckets: [], vectors: [] }],
-    })
-    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/global depth/)
-  })
-
-  it('rejects a directory whose size does not match the global depth', async () => {
-    const bytes = await encodeRawManifest({
-      version: SEGMENT_MANIFEST_VERSION,
-      initialBucketCount: 4,
-      schema: { title: 'string' },
-      language: 'english',
-      checkpoint: [],
-      partitions: [{ partitionId: 0, globalDepth: 2, directory: [0, 1], buckets: [], vectors: [] }],
-    })
-    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/directory size/)
-  })
-
-  it('migrates a version-1 fixed-count manifest to directory routing', async () => {
-    const bytes = await encodeRawManifest({
-      version: 1,
-      bucketCount: 4,
       schema: { title: 'string' },
       language: 'english',
       checkpoint: [{ partitionId: 0, lastSeqNo: 7, primaryTerm: 1 }],
       partitions: [
         {
           partitionId: 0,
-          buckets: [{ bucketId: 1, generation: 3, key: 'docs/segments/0/b1-g3' }],
+          nextSegmentId: 2,
+          segments: [{ id: 1, key: 'docs/segments/0/s0000000000000001', docCount: 5, tombstoneCount: 0 }],
           vectors: [],
         },
       ],
     })
     const manifest = await decodeSegmentManifest(bytes)
-    expect(manifest.version).toBe(SEGMENT_MANIFEST_VERSION)
-    expect(manifest.initialBucketCount).toBe(4)
-    expect(manifest.partitions[0].globalDepth).toBe(2)
-    expect(manifest.partitions[0].directory).toEqual([0, 1, 2, 3])
-    expect(manifest.partitions[0].buckets[0]).toEqual({
-      bucketId: 1,
-      localDepth: 2,
-      generation: 3,
-      key: 'docs/segments/0/b1-g3',
-    })
+    expect(manifest.partitions[0].segments[0].id).toBe(1)
+    expect(manifest.partitions[0].nextSegmentId).toBe(2)
   })
 
-  it('rejects a directory slot that references an out-of-range bucket id', async () => {
+  it('rejects a segment list above the maximum', async () => {
+    const segments = []
+    for (let i = 0; i <= MAX_SEGMENTS_PER_PARTITION; i += 1) {
+      segments.push({ id: i, key: `docs/segments/0/s${i}`, docCount: 1, tombstoneCount: 0 })
+    }
     const bytes = await encodeRawManifest({
       version: SEGMENT_MANIFEST_VERSION,
-      initialBucketCount: 4,
       schema: { title: 'string' },
       language: 'english',
       checkpoint: [],
-      partitions: [{ partitionId: 0, globalDepth: 1, directory: [0, 5], buckets: [], vectors: [] }],
+      partitions: [{ partitionId: 0, nextSegmentId: segments.length, segments, vectors: [] }],
     })
-    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(NarsilError)
-    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/dense range/)
+    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/exceeding the maximum/)
   })
 
-  it('accepts a directory whose slots reference an empty bucket absent from the bucket list', async () => {
+  it('rejects a manifest that reuses a segment id', async () => {
     const bytes = await encodeRawManifest({
       version: SEGMENT_MANIFEST_VERSION,
-      initialBucketCount: 4,
-      schema: { title: 'string' },
-      language: 'english',
-      checkpoint: [],
-      partitions: [{ partitionId: 0, globalDepth: 1, directory: [0, 1], buckets: [], vectors: [] }],
-    })
-    const manifest = await decodeSegmentManifest(bytes)
-    expect(manifest.partitions[0].directory).toEqual([0, 1])
-    expect(manifest.partitions[0].buckets).toEqual([])
-  })
-
-  it('rejects a bucket segment that no directory slot references', async () => {
-    const bytes = await encodeRawManifest({
-      version: SEGMENT_MANIFEST_VERSION,
-      initialBucketCount: 4,
       schema: { title: 'string' },
       language: 'english',
       checkpoint: [],
       partitions: [
         {
           partitionId: 0,
-          globalDepth: 1,
-          directory: [0, 1],
-          buckets: [{ bucketId: 2, localDepth: 1, generation: 1, key: 'docs/segments/0/b2-g1' }],
+          nextSegmentId: 2,
+          segments: [
+            { id: 1, key: 'docs/segments/0/s-a', docCount: 1, tombstoneCount: 0 },
+            { id: 1, key: 'docs/segments/0/s-b', docCount: 1, tombstoneCount: 0 },
+          ],
+          vectors: [],
+        },
+      ],
+    })
+    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/reuses segment id/)
+  })
+
+  it('rejects a next segment id that does not exceed an existing segment id', async () => {
+    const bytes = await encodeRawManifest({
+      version: SEGMENT_MANIFEST_VERSION,
+      schema: { title: 'string' },
+      language: 'english',
+      checkpoint: [],
+      partitions: [
+        {
+          partitionId: 0,
+          nextSegmentId: 1,
+          segments: [{ id: 1, key: 'docs/segments/0/s1', docCount: 1, tombstoneCount: 0 }],
+          vectors: [],
+        },
+      ],
+    })
+    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/does not exceed an existing segment id/)
+  })
+
+  it('rejects a segment reference with a negative document count', async () => {
+    const bytes = await encodeRawManifest({
+      version: SEGMENT_MANIFEST_VERSION,
+      schema: { title: 'string' },
+      language: 'english',
+      checkpoint: [],
+      partitions: [
+        {
+          partitionId: 0,
+          nextSegmentId: 1,
+          segments: [{ id: 0, key: 'docs/segments/0/s0', docCount: -1, tombstoneCount: 0 }],
           vectors: [],
         },
       ],
     })
     await expect(decodeSegmentManifest(bytes)).rejects.toThrow(NarsilError)
-    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/no directory slot references/)
-  })
-
-  it('rejects a version-1 manifest with a non-power-of-two bucket count', async () => {
-    const bytes = await encodeRawManifest({
-      version: 1,
-      bucketCount: 6,
-      schema: { title: 'string' },
-      language: 'english',
-      checkpoint: [],
-      partitions: [{ partitionId: 0, buckets: [], vectors: [] }],
-    })
-    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/not a power of two/)
   })
 })
 
@@ -176,13 +141,12 @@ describe('segment load partition bounds', () => {
 
     const manifest: SegmentManifest = {
       version: SEGMENT_MANIFEST_VERSION,
-      initialBucketCount: 8,
       schema: { title: 'string' },
       language: 'english',
       checkpoint: [],
       partitions: [
-        { partitionId: 0, globalDepth: 0, directory: [0], buckets: [], vectors: [] },
-        { partitionId: 1, globalDepth: 0, directory: [0], buckets: [], vectors: [] },
+        { partitionId: 0, nextSegmentId: 0, segments: [], vectors: [] },
+        { partitionId: 1, nextSegmentId: 0, segments: [], vectors: [] },
       ],
     }
 

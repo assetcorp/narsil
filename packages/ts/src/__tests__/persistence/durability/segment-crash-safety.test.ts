@@ -69,7 +69,7 @@ describe('segmented checkpoint crash safety', () => {
   })
 
   it('keeps the prior checkpoint recoverable when the manifest write fails', async () => {
-    const writer = await createNarsil({ durability: { directory: root, bucketCount: 8 } })
+    const writer = await createNarsil({ durability: { directory: root } })
     await writer.createIndex('docs', SCHEMA)
     for (let i = 0; i < 30; i += 1) {
       await writer.insert('docs', doc(i), `d${i}`)
@@ -105,16 +105,14 @@ describe('segmented checkpoint crash safety', () => {
     const manifestAfter = await decodeSegmentManifest(manifestBytes)
     expect(manifestAfter.checkpoint[0].lastSeqNo).toBe(firstManifest.checkpoint[0].lastSeqNo)
 
-    const reader = await createNarsil({ durability: { directory: root, bucketCount: 8 } })
+    const reader = await createNarsil({ durability: { directory: root } })
     expect(await reader.countDocuments('docs')).toBe(45)
     expect(await reader.get('docs', 'd44')).toMatchObject({ title: 'Document 44' })
     await reader.shutdown()
   })
 
-  it('preserves the pre-split bucket set when a splitting checkpoint fails on the manifest write', async () => {
-    const writer = await createNarsil({
-      durability: { directory: root, bucketCount: 1, targetBucketBytes: 1024 },
-    })
+  it('preserves the prior segment set when an incremental checkpoint fails on the manifest write', async () => {
+    const writer = await createNarsil({ durability: { directory: root } })
     await writer.createIndex('docs', SCHEMA)
     for (let i = 0; i < 30; i += 1) {
       await writer.insert('docs', doc(i), `d${i}`)
@@ -125,7 +123,7 @@ describe('segmented checkpoint crash safety', () => {
       throw new Error('first manifest missing')
     }
     const firstManifest = await decodeSegmentManifest(firstManifestBytes)
-    const firstGlobalDepth = firstManifest.partitions[0].globalDepth
+    const firstSegmentKeys = firstManifest.partitions[0].segments.map(s => s.key)
 
     for (let i = 30; i < 90; i += 1) {
       await writer.insert('docs', doc(i), `d${i}`)
@@ -145,8 +143,7 @@ describe('segmented checkpoint crash safety', () => {
         directory: faulty,
         metadata,
         targets: [{ partitionId: 0, lastSeqNo, primaryTerm: SINGLE_NODE_PRIMARY_TERM }],
-        initialBucketCount: 1,
-        targetBucketBytes: 1024,
+        compactionThreshold: 12,
       }),
     ).rejects.toThrow(/simulated crash/)
 
@@ -155,12 +152,10 @@ describe('segmented checkpoint crash safety', () => {
       throw new Error('manifest missing after crash')
     }
     const manifestAfter = await decodeSegmentManifest(manifestAfterBytes)
-    expect(manifestAfter.partitions[0].globalDepth).toBe(firstGlobalDepth)
+    expect(manifestAfter.partitions[0].segments.map(s => s.key)).toEqual(firstSegmentKeys)
     expect(manifestAfter.checkpoint[0].lastSeqNo).toBe(firstManifest.checkpoint[0].lastSeqNo)
 
-    const reader = await createNarsil({
-      durability: { directory: root, bucketCount: 1, targetBucketBytes: 1024 },
-    })
+    const reader = await createNarsil({ durability: { directory: root } })
     expect(await reader.countDocuments('docs')).toBe(90)
     expect(await reader.get('docs', 'd0')).toMatchObject({ title: 'Document 0' })
     expect(await reader.get('docs', 'd89')).toMatchObject({ title: 'Document 89' })
@@ -181,7 +176,6 @@ async function rebuildIntoFaulty(
     directory: faulty,
     metadata,
     targets: [{ partitionId: 0, lastSeqNo, primaryTerm: SINGLE_NODE_PRIMARY_TERM }],
-    initialBucketCount: 8,
-    targetBucketBytes: 65_536,
+    compactionThreshold: 12,
   })
 }

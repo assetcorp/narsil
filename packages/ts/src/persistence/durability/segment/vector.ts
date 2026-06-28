@@ -3,7 +3,7 @@ import { applyDeleteEntry, applyIndexEntry } from '../../../distribution/replica
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
 import { createPartitionManager } from '../../../partitioning/manager'
 import { createPartitionRouter } from '../../../partitioning/router'
-import { packSnapshotEnvelopeParts, unpackEnvelopeBytes } from '../../../serialization/envelope'
+import { packSnapshotEnvelopePartsRetrying, unpackEnvelopeBytes } from '../../../serialization/envelope'
 import type { LanguageModule } from '../../../types/language'
 import type { IndexConfig } from '../../../types/schema'
 import { createVectorIndex, type VectorIndex, type VectorIndexPayload } from '../../../vector/vector-index'
@@ -68,7 +68,7 @@ export async function writePartitionVectors(input: VectorWriteInput): Promise<Ve
   for (const [fieldPath, vecIndex] of vectorIndexes) {
     const generation = (priorByField.get(fieldPath)?.generation ?? 0) + 1
     const key = vectorSegmentKey(input.indexName, input.partitionId, fieldPath, generation)
-    const parts = await packSnapshotEnvelopeParts(encode(vecIndex.serialize()))
+    const parts = await packSnapshotEnvelopePartsRetrying(() => encode(vecIndex.serialize()))
     await input.directory.atomicWrite(key, [parts.header, parts.payload])
     result.push({ fieldPath, generation, key })
   }

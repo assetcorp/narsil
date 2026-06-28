@@ -1,7 +1,6 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { reconstructSchemaFromMetadata } from '../../../engine/recovery-schema'
 import { getLanguage } from '../../../languages/registry'
@@ -11,8 +10,6 @@ import { createPartitionRouter } from '../../../partitioning/router'
 import { writeSnapshotFile } from '../../../persistence/durability/checkpoint'
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
 import { loadMetadata, loadSnapshot } from '../../../persistence/durability/recovery'
-import { decodeSegmentManifest } from '../../../persistence/durability/segment/manifest'
-import { packSnapshotEnvelopeParts } from '../../../serialization/envelope'
 import type { IndexConfig } from '../../../types/schema'
 
 const SCHEMA: IndexConfig = {
@@ -79,7 +76,7 @@ describe('segmented snapshot recovery', () => {
   })
 
   it('recovers from a legacy single-file snapshot when no manifest exists', async () => {
-    const writer = await createNarsil({ durability: { directory: root, bucketCount: 8 } })
+    const writer = await createNarsil({ durability: { directory: root } })
     await writer.createIndex('docs', SCHEMA)
     for (let i = 0; i < 25; i += 1) {
       await writer.insert('docs', doc(i), `d${i}`)
@@ -102,52 +99,8 @@ describe('segmented snapshot recovery', () => {
     await reader.shutdown()
   })
 
-  it('recovers from a version-1 fixed-count manifest by migrating it to directory routing', async () => {
-    const writer = await createNarsil({ durability: { directory: root, bucketCount: 8 } })
-    await writer.createIndex('docs', SCHEMA)
-    for (let i = 0; i < 40; i += 1) {
-      await writer.insert('docs', doc(i), `d${i}`)
-    }
-    await writer.checkpoint('docs')
-    await writer.shutdown()
-
-    const directory = createDurableDirectory(root)
-    const currentBytes = await directory.read('docs/manifest')
-    if (currentBytes === null) {
-      throw new Error('manifest missing')
-    }
-    const current = await decodeSegmentManifest(currentBytes)
-
-    const legacyPayload = {
-      version: 1,
-      bucketCount: current.initialBucketCount,
-      schema: current.schema,
-      language: current.language,
-      checkpoint: current.checkpoint.map(c => ({
-        partitionId: c.partitionId,
-        lastSeqNo: c.lastSeqNo,
-        primaryTerm: c.primaryTerm,
-      })),
-      partitions: current.partitions.map(p => ({
-        partitionId: p.partitionId,
-        buckets: p.buckets.map(b => ({ bucketId: b.bucketId, generation: b.generation, key: b.key })),
-        vectors: p.vectors.map(v => ({ fieldPath: v.fieldPath, generation: v.generation, key: v.key })),
-      })),
-    }
-    const parts = await packSnapshotEnvelopeParts(encode(legacyPayload))
-    await directory.atomicWrite('docs/manifest', [parts.header, parts.payload])
-
-    const reader = await createNarsil({ durability: { directory: root, bucketCount: 8 } })
-    expect(await reader.countDocuments('docs')).toBe(40)
-    expect(await reader.get('docs', 'd0')).toMatchObject({ title: 'Document 0' })
-    expect(await reader.get('docs', 'd39')).toMatchObject({ title: 'Document 39' })
-    const result = await reader.query('docs', { term: 'quick brown fox' })
-    expect(result.hits.length).toBeGreaterThan(0)
-    await reader.shutdown()
-  })
-
   it('reproduces BM25 ranking identical to a fresh monolithic build', async () => {
-    const durable = await createNarsil({ durability: { directory: root, bucketCount: 8 } })
+    const durable = await createNarsil({ durability: { directory: root } })
     await durable.createIndex('docs', SCHEMA)
     for (let i = 0; i < 60; i += 1) {
       await durable.insert('docs', doc(i), `d${i}`)
@@ -157,7 +110,7 @@ describe('segmented snapshot recovery', () => {
     await durable.checkpoint('docs')
     await durable.shutdown()
 
-    const recovered = await createNarsil({ durability: { directory: root, bucketCount: 8 } })
+    const recovered = await createNarsil({ durability: { directory: root } })
     const recoveredResult = await recovered.query('docs', { term: 'quick brown fox', limit: 100 })
     await recovered.shutdown()
 
@@ -192,7 +145,7 @@ describe('segmented snapshot recovery', () => {
       schema: { title: 'string', embedding: 'vector[4]' },
       language: 'english',
     }
-    const writer = await createNarsil({ durability: { directory: root, bucketCount: 8 } })
+    const writer = await createNarsil({ durability: { directory: root } })
     await writer.createIndex('docs', vectorSchema)
     await writer.insert('docs', { title: 'near', embedding: [1, 0, 0, 0] }, 'near')
     await writer.insert('docs', { title: 'mid', embedding: [0.5, 0.5, 0, 0] }, 'mid')
@@ -201,7 +154,7 @@ describe('segmented snapshot recovery', () => {
     await writer.checkpoint('docs')
     await writer.shutdown()
 
-    const reader = await createNarsil({ durability: { directory: root, bucketCount: 8 } })
+    const reader = await createNarsil({ durability: { directory: root } })
     expect(await reader.countDocuments('docs')).toBe(3)
     const result = await reader.query('docs', {
       vector: { field: 'embedding', value: [1, 0, 0, 0], metric: 'cosine' },

@@ -1,8 +1,6 @@
 import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { unpackEnvelopeBytes } from '../../../serialization/envelope'
-import { deserializePayloadV2 } from '../../../serialization/payload-v2'
-import type { SerializablePartition } from '../../../types/internal'
 import type { VectorIndexPayload } from '../../../vector/vector-index'
 import type { DurableDirectory } from '../durable-filesystem'
 import type { ReplayDeps } from '../recovery'
@@ -14,7 +12,8 @@ import {
   type PartitionManifestEntry,
   type SegmentManifest,
 } from './manifest'
-import { mergeBucketPartitions } from './merge'
+import { mergeTimeOrderedSegments } from './merge'
+import { readSegmentContents, type SegmentContents } from './segment-file'
 
 export async function readSegmentManifest(
   directory: DurableDirectory,
@@ -71,20 +70,12 @@ async function loadPartition(
   partition: PartitionManifestEntry,
   deps: ReplayDeps,
 ): Promise<void> {
-  const decoded: SerializablePartition[] = []
-  for (const bucket of partition.buckets) {
-    const bytes = await directory.read(bucket.key)
-    if (bytes === null) {
-      throw new NarsilError(
-        ErrorCodes.PERSISTENCE_LOAD_FAILED,
-        `Segment manifest references a missing bucket segment "${bucket.key}"`,
-        { indexName, partitionId: partition.partitionId, bucketId: bucket.bucketId, key: bucket.key },
-      )
-    }
-    decoded.push(deserializePayloadV2(await unwrapSegment(bytes)))
+  const ordered: SegmentContents[] = []
+  for (const segment of partition.segments) {
+    ordered.push(await readSegmentContents(directory, segment.key))
   }
 
-  const merged = mergeBucketPartitions(decoded, {
+  const merged = mergeTimeOrderedSegments(ordered, {
     indexName,
     partitionId: partition.partitionId,
     totalPartitions: deps.manager.partitionCount,
@@ -118,11 +109,6 @@ async function loadVectorSegment(
     )
   }
   vecIndex.deserialize(await decodeVectorSegment(bytes))
-}
-
-async function unwrapSegment(bytes: Uint8Array): Promise<Uint8Array> {
-  const { payloadBytes } = await unpackEnvelopeBytes(bytes)
-  return payloadBytes
 }
 
 async function decodeVectorSegment(bytes: Uint8Array): Promise<VectorIndexPayload> {

@@ -11,7 +11,7 @@ import { readCommitMarker } from '../../../persistence/durability/commit-marker'
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
 import { rebuildSnapshotFromDurable } from '../../../persistence/durability/rebuild'
 import { loadMetadata } from '../../../persistence/durability/recovery'
-import { DEFAULT_INITIAL_BUCKET_COUNT, DEFAULT_TARGET_BUCKET_BYTES } from '../../../persistence/durability/segment'
+import { DEFAULT_COMPACTION_THRESHOLD } from '../../../persistence/durability/segment'
 import { SINGLE_NODE_PRIMARY_TERM } from '../../../persistence/durability/seq-owner'
 import type { IndexConfig } from '../../../types/schema'
 
@@ -118,8 +118,7 @@ describe('off-thread checkpoint worker', () => {
       root,
       metadata,
       [{ partitionId: 0, lastSeqNo, primaryTerm: SINGLE_NODE_PRIMARY_TERM }],
-      DEFAULT_INITIAL_BUCKET_COUNT,
-      DEFAULT_TARGET_BUCKET_BYTES,
+      DEFAULT_COMPACTION_THRESHOLD,
     )
 
     const reader = await createNarsil({ durability: { directory: root } })
@@ -148,8 +147,7 @@ describe('off-thread checkpoint worker', () => {
       root,
       metadata,
       [{ partitionId: 0, lastSeqNo, primaryTerm: SINGLE_NODE_PRIMARY_TERM }],
-      DEFAULT_INITIAL_BUCKET_COUNT,
-      DEFAULT_TARGET_BUCKET_BYTES,
+      DEFAULT_COMPACTION_THRESHOLD,
     )
     expect(await directory.read('docs/manifest')).not.toBeNull()
 
