@@ -22,6 +22,8 @@ export interface DurabilityConfig {
   segmentMaxBytes?: number
   checkpointIntervalMs?: number
   checkpointMutationThreshold?: number
+  bucketCount?: number
+  targetBucketBytes?: number
 }
 
 export interface WorkerConfig {

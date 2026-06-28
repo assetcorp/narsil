@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FieldType, SchemaDefinition } from '../../types/schema'
 import {
+  FIELD_NAME_PATTERN,
   isPlainObject,
   MAX_NESTING_DEPTH,
   PROTOTYPE_POLLUTION_KEYS,
@@ -26,6 +27,14 @@ function validateSchemaFields(schema: SchemaDefinition, depth: number, prefix: s
         field,
         path,
       })
+    }
+
+    if (!FIELD_NAME_PATTERN.test(field)) {
+      throw new NarsilError(
+        ErrorCodes.SCHEMA_INVALID_TYPE,
+        `Field name "${field}" contains characters that are not allowed; use letters, digits, and underscores only`,
+        { field, path },
+      )
     }
 
     if (depth === 1 && RESERVED_ROOT_FIELDS.has(field)) {
