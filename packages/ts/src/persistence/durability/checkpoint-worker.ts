@@ -6,8 +6,7 @@ export interface CheckpointWorkerRequest {
   root: string
   metadata: IndexMetadata
   targets: PartitionCheckpoint[]
-  initialBucketCount: number
-  targetBucketBytes: number
+  compactionThreshold: number
 }
 
 export interface CheckpointWorkerSuccess {
@@ -32,19 +31,10 @@ async function handleRequest(raw: unknown): Promise<CheckpointWorkerSuccess> {
   if (!Array.isArray(request.targets)) {
     throw new Error('Checkpoint request is missing partition targets')
   }
-  if (!Number.isInteger(request.initialBucketCount) || request.initialBucketCount <= 0) {
-    throw new Error('Checkpoint request has an invalid initial bucket count')
+  if (!Number.isInteger(request.compactionThreshold) || request.compactionThreshold <= 0) {
+    throw new Error('Checkpoint request has an invalid compaction threshold')
   }
-  if (!Number.isInteger(request.targetBucketBytes) || request.targetBucketBytes <= 0) {
-    throw new Error('Checkpoint request has an invalid target bucket size')
-  }
-  await rebuildSnapshotFromDurable(
-    request.root,
-    request.metadata,
-    request.targets,
-    request.initialBucketCount,
-    request.targetBucketBytes,
-  )
+  await rebuildSnapshotFromDurable(request.root, request.metadata, request.targets, request.compactionThreshold)
   return { type: 'success' }
 }
 

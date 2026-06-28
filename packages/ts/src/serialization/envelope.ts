@@ -189,6 +189,16 @@ export async function packSnapshotEnvelopeParts(payloadBytes: Uint8Array): Promi
   return { header: writeHeader(header), payload }
 }
 
+export async function packSnapshotEnvelopePartsRetrying(buildPayload: () => Uint8Array): Promise<EnvelopeParts> {
+  try {
+    return await packSnapshotEnvelopeParts(buildPayload())
+  } catch {
+    // A failing checksum worker consumes the transferred payload and latches itself off; rebuilding the
+    // bytes and retrying checksums inline so a worker fault degrades the checkpoint instead of failing it.
+    return packSnapshotEnvelopeParts(buildPayload())
+  }
+}
+
 export function concatEnvelopeParts(parts: EnvelopeParts): Uint8Array {
   const combined = new Uint8Array(parts.header.length + parts.payload.length)
   combined.set(parts.header, 0)

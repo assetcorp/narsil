@@ -7,9 +7,8 @@ export async function rebuildSnapshotFromDurable(
   root: string,
   metadata: IndexMetadata,
   targets: PartitionCheckpoint[],
-  initialBucketCount: number,
-  targetBucketBytes: number,
+  compactionThreshold: number,
 ): Promise<void> {
   const directory = createDurableDirectory(root)
-  await writeSegmentedCheckpoint({ directory, metadata, targets, initialBucketCount, targetBucketBytes })
+  await writeSegmentedCheckpoint({ directory, metadata, targets, compactionThreshold })
 }
