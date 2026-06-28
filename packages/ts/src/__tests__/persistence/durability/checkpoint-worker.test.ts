@@ -11,6 +11,7 @@ import { readCommitMarker } from '../../../persistence/durability/commit-marker'
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
 import { rebuildSnapshotFromDurable } from '../../../persistence/durability/rebuild'
 import { loadMetadata } from '../../../persistence/durability/recovery'
+import { DEFAULT_INITIAL_BUCKET_COUNT, DEFAULT_TARGET_BUCKET_BYTES } from '../../../persistence/durability/segment'
 import { SINGLE_NODE_PRIMARY_TERM } from '../../../persistence/durability/seq-owner'
 import type { IndexConfig } from '../../../types/schema'
 
@@ -113,9 +114,13 @@ describe('off-thread checkpoint worker', () => {
     }
     const lastSeqNo = await highestDurableSeqNo(root, 'docs')
 
-    await rebuildSnapshotFromDurable(root, metadata, [
-      { partitionId: 0, lastSeqNo, primaryTerm: SINGLE_NODE_PRIMARY_TERM },
-    ])
+    await rebuildSnapshotFromDurable(
+      root,
+      metadata,
+      [{ partitionId: 0, lastSeqNo, primaryTerm: SINGLE_NODE_PRIMARY_TERM }],
+      DEFAULT_INITIAL_BUCKET_COUNT,
+      DEFAULT_TARGET_BUCKET_BYTES,
+    )
 
     const reader = await createNarsil({ durability: { directory: root } })
     expect(await reader.countDocuments('docs')).toBe(20)
@@ -139,10 +144,14 @@ describe('off-thread checkpoint worker', () => {
     }
     const lastSeqNo = await highestDurableSeqNo(root, 'docs')
 
-    await rebuildSnapshotFromDurable(root, metadata, [
-      { partitionId: 0, lastSeqNo, primaryTerm: SINGLE_NODE_PRIMARY_TERM },
-    ])
-    expect(await directory.read('docs/snapshot')).not.toBeNull()
+    await rebuildSnapshotFromDurable(
+      root,
+      metadata,
+      [{ partitionId: 0, lastSeqNo, primaryTerm: SINGLE_NODE_PRIMARY_TERM }],
+      DEFAULT_INITIAL_BUCKET_COUNT,
+      DEFAULT_TARGET_BUCKET_BYTES,
+    )
+    expect(await directory.read('docs/manifest')).not.toBeNull()
 
     const reader = await createNarsil({ durability: { directory: root } })
     expect(await reader.countDocuments('docs')).toBe(15)

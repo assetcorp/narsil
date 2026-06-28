@@ -8,6 +8,7 @@ import type { IndexMetadata } from '../../types/internal'
 import type { VectorIndex } from '../../vector/vector-index'
 import { readCommitMarker } from './commit-marker'
 import type { DurableDirectory } from './durable-filesystem'
+import { loadSegmentedSnapshot, readSegmentManifest } from './segment'
 import { checkpointLastSeqNo, decodeSnapshotBundle, type PartitionCheckpoint } from './snapshot-bundle'
 import { checkSegmentHeader, readDurableRegion, readTailBeyondFrontier, SEGMENT_HEADER_SIZE } from './wal-framing'
 
@@ -66,6 +67,10 @@ export async function loadSnapshot(
   indexName: string,
   deps: ReplayDeps,
 ): Promise<PartitionCheckpoint[]> {
+  const manifest = await readSegmentManifest(directory, indexName)
+  if (manifest !== null) {
+    return loadSegmentedSnapshot(directory, indexName, manifest, deps)
+  }
   const bytes = await directory.read(`${indexName}/snapshot`)
   if (bytes === null) {
     return []
@@ -317,4 +322,39 @@ function applyEntry(entry: ReplicationLogEntry, deps: ReplayDeps): void {
 
 export function snapshotCheckpointFor(checkpoint: PartitionCheckpoint[], partitionId: number): number {
   return checkpointLastSeqNo(checkpoint, partitionId)
+}
+
+export async function collectWalEntriesInRange(
+  directory: DurableDirectory,
+  indexName: string,
+  partitionId: number,
+  fromSeqNoExclusive: number,
+  upToSeqNoInclusive: number,
+): Promise<ReplicationLogEntry[]> {
+  const read = await readWalSegments(directory, indexName, partitionId)
+  if (read === null) {
+    return []
+  }
+
+  if (Math.max(fromSeqNoExclusive, read.highestReadFromWal) < read.marker.state.highestDurableSeqNo) {
+    throw new NarsilError(
+      ErrorCodes.PERSISTENCE_WAL_CORRUPT,
+      'A durable WAL record is missing: the highest recovered seqNo is below the commit marker',
+      {
+        indexName,
+        partitionId,
+        highestRead: read.highestReadFromWal,
+        highestDurable: read.marker.state.highestDurableSeqNo,
+      },
+    )
+  }
+
+  const entries: ReplicationLogEntry[] = []
+  for (const entry of read.durableEntries) {
+    if (entry.seqNo <= fromSeqNoExclusive || entry.seqNo > upToSeqNoInclusive) {
+      continue
+    }
+    entries.push(entry)
+  }
+  return entries
 }

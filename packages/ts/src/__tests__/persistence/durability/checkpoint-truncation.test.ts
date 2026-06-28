@@ -61,7 +61,7 @@ describe('checkpoint and truncation', () => {
     await reader.shutdown()
   })
 
-  it('writes a snapshot that survives a crash before truncation', async () => {
+  it('writes a durable manifest that survives a crash before truncation', async () => {
     const narsil = await createNarsil({ durability: { directory: root } })
     await narsil.createIndex('movies', SCHEMA)
     await narsil.insert('movies', { title: 'Dune', year: 2021 }, 'm1')
@@ -69,7 +69,9 @@ describe('checkpoint and truncation', () => {
     await narsil.shutdown()
 
     const directory = createDurableDirectory(root)
-    const snapshot = await directory.read('movies/snapshot')
-    expect(snapshot).not.toBeNull()
+    const manifest = await directory.read('movies/manifest')
+    expect(manifest).not.toBeNull()
+    const segments = await directory.list('movies/segments/')
+    expect(segments.length).toBeGreaterThan(0)
   })
 })

@@ -1,10 +1,17 @@
 import { buildEntry } from '../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
-import { truncateCoveredSegments, writeCheckpoint } from './checkpoint'
-import { runCheckpointOnWorker } from './checkpoint-worker-dispatch'
+import { truncateCoveredSegments } from './checkpoint'
+import { runCheckpointOnWorker, terminateCheckpointWorker } from './checkpoint-worker-dispatch'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
 import { listPersistedIndexes, loadMetadata, loadSnapshot, replayWal, snapshotCheckpointFor } from './recovery'
+import {
+  DEFAULT_INITIAL_BUCKET_COUNT,
+  DEFAULT_TARGET_BUCKET_BYTES,
+  readSegmentManifest,
+  reclaimOrphanedSegments,
+  writeSegmentedCheckpoint,
+} from './segment'
 import { createSeqOwner, type SeqOwner, SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import type { PartitionCheckpoint } from './snapshot-bundle'
 import {
@@ -43,6 +50,8 @@ export function createDurabilityManager(
   const segmentMaxBytes = config.segmentMaxBytes ?? DEFAULT_SEGMENT_MAX_BYTES
   const checkpointIntervalMs = config.checkpointIntervalMs ?? DEFAULT_CHECKPOINT_INTERVAL_MS
   const checkpointMutationThreshold = config.checkpointMutationThreshold ?? DEFAULT_CHECKPOINT_MUTATION_THRESHOLD
+  const initialBucketCount = config.bucketCount ?? DEFAULT_INITIAL_BUCKET_COUNT
+  const targetBucketBytes = config.targetBucketBytes ?? DEFAULT_TARGET_BUCKET_BYTES
   const mode = config.mode ?? 'sync'
   const flushIntervalMs = config.flushIntervalMs ?? DEFAULT_ASYNC_FLUSH_INTERVAL_MS
 
@@ -217,27 +226,20 @@ export function createDurabilityManager(
       }
     }
 
-    const offloaded = canOffloadCheckpoint && (await runCheckpointOnWorker({ root: directory.root, metadata, targets }))
+    const offloaded =
+      canOffloadCheckpoint &&
+      (await runCheckpointOnWorker({
+        root: directory.root,
+        metadata,
+        targets,
+        initialBucketCount,
+        targetBucketBytes,
+      }))
 
-    if (offloaded) {
-      await truncateCoveredSegments(directory, indexName, targets)
-    } else {
-      const seqNoByPartition = new Map<number, number>()
-      const primaryTermByPartition = new Map<number, number>()
-      for (const target of targets) {
-        seqNoByPartition.set(target.partitionId, target.lastSeqNo)
-        primaryTermByPartition.set(target.partitionId, target.primaryTerm)
-      }
-      await writeCheckpoint(directory, {
-        indexName,
-        schema: metadata.schema,
-        language: metadata.language,
-        manager,
-        vectorIndexes: hooks.getVectorIndexes(indexName),
-        seqNoByPartition,
-        primaryTermByPartition,
-      })
+    if (!offloaded) {
+      await writeSegmentedCheckpoint({ directory, metadata, targets, initialBucketCount, targetBucketBytes })
     }
+    await truncateCoveredSegments(directory, indexName, targets)
     indexState.mutationsSinceCheckpoint = 0
   }
 
@@ -259,6 +261,11 @@ export function createDurabilityManager(
     }
 
     const checkpoint = await loadSnapshot(directory, indexName, deps)
+
+    const manifest = await readSegmentManifest(directory, indexName)
+    if (manifest !== null) {
+      await reclaimOrphanedSegments(directory, indexName, manifest)
+    }
 
     for (let partitionId = 0; partitionId < manager.partitionCount; partitionId += 1) {
       const fromSeqNo = snapshotCheckpointFor(checkpoint, partitionId)
@@ -383,6 +390,7 @@ export function createDurabilityManager(
         }
       }
       indexes.clear()
+      terminateCheckpointWorker()
     },
   }
 }

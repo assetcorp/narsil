@@ -3,14 +3,21 @@ import type { CheckpointWorkerMessage, CheckpointWorkerRequest } from './checkpo
 
 const CHECKPOINT_WORKER_TIMEOUT_MS = 600_000
 
+const TIMEOUT_RECOVERY_BACKOFF_MS = 50
+
 interface WorkerHandle {
   postMessage(msg: unknown, transfer?: ArrayBuffer[]): void
   on(event: string, handler: (...args: unknown[]) => void): void
+  off(event: string, handler: (...args: unknown[]) => void): void
+  unref?(): void
   terminate(): void | Promise<void>
 }
 
 let workerUsable = true
 let failNextWorkerForTests = false
+let pooledWorker: WorkerHandle | null = null
+let workerBusy = false
+let spawnedWorkerCount = 0
 
 function resolveWorkerEntryPoint(): string {
   const base = import.meta.url
@@ -24,53 +31,91 @@ function resolveWorkerEntryPoint(): string {
 async function spawnWorker(): Promise<WorkerHandle | null> {
   try {
     const workerThreads = await import('node:worker_threads')
-    return new workerThreads.Worker(new URL(resolveWorkerEntryPoint())) as unknown as WorkerHandle
+    const worker = new workerThreads.Worker(new URL(resolveWorkerEntryPoint())) as unknown as WorkerHandle
+    if (typeof worker.unref === 'function') {
+      worker.unref()
+    }
+    spawnedWorkerCount += 1
+    return worker
   } catch {
     return null
   }
 }
 
-function runWorker(worker: WorkerHandle, request: CheckpointWorkerRequest): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
+function discardWorker(worker: WorkerHandle): void {
+  if (pooledWorker === worker) {
+    pooledWorker = null
+  }
+  try {
+    void worker.terminate()
+  } catch {
+    /* termination failure is non-critical; the handle is already dropped from the pool */
+  }
+}
+
+interface WorkerRunOutcome {
+  ok: boolean
+  timedOut: boolean
+}
+
+function runWorker(worker: WorkerHandle, request: CheckpointWorkerRequest): Promise<WorkerRunOutcome> {
+  return new Promise<WorkerRunOutcome>(resolve => {
     let settled = false
 
-    const timeoutId = setTimeout(
-      () => settle(() => reject(new Error(`Checkpoint worker timed out after ${CHECKPOINT_WORKER_TIMEOUT_MS}ms`))),
-      CHECKPOINT_WORKER_TIMEOUT_MS,
-    )
+    const onMessage = (msg: unknown): void => {
+      const response = msg as CheckpointWorkerMessage
+      if (response.type === 'success') {
+        settle({ ok: true, timedOut: false }, false)
+      } else {
+        settle({ ok: false, timedOut: false }, true)
+      }
+    }
+
+    const onError = (): void => {
+      settle({ ok: false, timedOut: false }, true)
+    }
+
+    const onExit = (): void => {
+      settle({ ok: false, timedOut: false }, true)
+    }
+
+    const timeoutId = setTimeout(() => settle({ ok: false, timedOut: true }, true), CHECKPOINT_WORKER_TIMEOUT_MS)
     if (typeof (timeoutId as { unref?: () => void }).unref === 'function') {
       ;(timeoutId as { unref: () => void }).unref()
     }
 
-    function settle(action: () => void): void {
-      if (settled) return
+    function settle(outcome: WorkerRunOutcome, discard: boolean): void {
+      if (settled) {
+        return
+      }
       settled = true
       clearTimeout(timeoutId)
-      try {
-        void worker.terminate()
-      } catch {
-        /* termination failure is non-critical; the timeout is already cleared */
+      worker.off('message', onMessage)
+      worker.off('error', onError)
+      worker.off('exit', onExit)
+      if (discard) {
+        discardWorker(worker)
       }
-      action()
+      resolve(outcome)
     }
 
-    worker.on('message', (msg: unknown) => {
-      const response = msg as CheckpointWorkerMessage
-      if (response.type === 'success') {
-        settle(() => resolve())
-      } else {
-        settle(() => reject(new Error(response.message)))
-      }
-    })
-
-    worker.on('error', (err: unknown) => {
-      settle(() => reject(err instanceof Error ? err : new Error('Checkpoint worker failed')))
-    })
+    worker.on('message', onMessage)
+    worker.on('error', onError)
+    worker.on('exit', onExit)
 
     try {
       worker.postMessage(request)
-    } catch (err) {
-      settle(() => reject(err instanceof Error ? err : new Error('Failed to post message to checkpoint worker')))
+    } catch {
+      settle({ ok: false, timedOut: false }, true)
+    }
+  })
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise<void>(resolve => {
+    const timer = setTimeout(resolve, ms)
+    if (typeof (timer as { unref?: () => void }).unref === 'function') {
+      ;(timer as { unref: () => void }).unref()
     }
   })
 }
@@ -84,23 +129,56 @@ export async function runCheckpointOnWorker(request: CheckpointWorkerRequest): P
   if (!runtime.supportsWorkerThreads || !runtime.supportsFileSystem || !workerUsable) {
     return false
   }
-  const worker = await spawnWorker()
-  if (worker === null) {
-    workerUsable = false
+  if (workerBusy) {
     return false
   }
+
+  workerBusy = true
   try {
-    await runWorker(worker, request)
-    return true
-  } catch {
-    workerUsable = false
+    if (pooledWorker === null) {
+      pooledWorker = await spawnWorker()
+    }
+    const worker = pooledWorker
+    if (worker === null) {
+      workerUsable = false
+      return false
+    }
+
+    const outcome = await runWorker(worker, request)
+    if (outcome.ok) {
+      return true
+    }
+    if (outcome.timedOut) {
+      await delay(TIMEOUT_RECOVERY_BACKOFF_MS)
+    }
     return false
+  } finally {
+    workerBusy = false
   }
 }
 
 export function resetCheckpointWorkerLatch(): void {
   workerUsable = true
   failNextWorkerForTests = false
+  spawnedWorkerCount = 0
+  terminateCheckpointWorker()
+}
+
+export function terminateCheckpointWorker(): void {
+  const worker = pooledWorker
+  if (worker === null) {
+    return
+  }
+  pooledWorker = null
+  try {
+    void worker.terminate()
+  } catch {
+    /* termination failure is non-critical at shutdown; the handle is already dropped */
+  }
+}
+
+export function __checkpointWorkerSpawnCountForTests(): number {
+  return spawnedWorkerCount
 }
 
 export function __failNextCheckpointWorkerForTests(): void {
