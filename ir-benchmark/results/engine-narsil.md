@@ -2,8 +2,7 @@
 
 ## Environment
 
-- Captured: 2026-06-29T10:31:26.423743+00:00
-- Machine: Apple M3 Pro, macOS 26.5.1
+- Captured: 2026-06-29T14:06:57.126764+00:00
 - OS / arch: Linux 6.12.76-linuxkit / aarch64 (containerized: True)
 - CPU: aarch64 (7 logical)
 - Memory: 9.4 GB
@@ -19,14 +18,22 @@ Retrieval quality vs Anserini BM25 reference:
 | Dataset | nDCG@10 | Reference | Delta | Status | Recall@100 | MAP | MRR |
 |---|---|---|---|---|---|---|---|
 | beir/scifact/test | 0.6781 | 0.6790 | -0.0009 | within margin | 0.9320 | 0.6379 | 0.6456 |
-| beir/nfcorpus/test | 0.3269 | 0.3220 | +0.0049 | within margin | 0.2491 | 0.1530 | 0.5284 |
 
-Operational metrics:
+Operational metrics. Latency below is the engine's own reported query time (server-side); the client round-trip is reported separately underneath.
 
-| Dataset | Docs | Ingest docs/s | Build s | Index size | p50 ms | p95 ms | p99 ms |
+| Dataset | Docs | Ingest docs/s | Build s | Index size | Server p50 ms | Server p95 ms | Server p99 ms |
 |---|---|---|---|---|---|---|---|
-| beir/scifact/test | 5183 | 5687 | 0.91 | 17.8 MB | 0.81 | 1.33 | 1.66 |
-| beir/nfcorpus/test | 3633 | 6125 | 0.59 | 13.3 MB | 0.41 | 0.77 | 0.97 |
+| beir/scifact/test | 5183 | 5209 | 0.99 | 17.8 MB | 0.45 | 0.88 | 1.18 |
+
+Client round-trip latency (wall-clock around the HTTP call, includes transport and JSON), measured over the same queries and repeats:
+
+| Dataset | Client p50 ms | Client p95 ms | Client p99 ms |
+|---|---|---|---|
+| beir/scifact/test | 0.81 | 1.29 | 1.59 |
+
+Server-side time source per dataset:
+
+- beir/scifact/test: response `elapsed` field (floating-millisecond resolution)
 
 ## Vector track
 
@@ -39,21 +46,30 @@ Retrieval quality vs human judgements:
 | Dataset | nDCG@10 | Recall@100 | MAP | MRR |
 |---|---|---|---|---|
 | beir/scifact/test | 0.6239 | 0.9227 | 0.5797 | 0.5849 |
-| beir/nfcorpus/test | 0.3145 | 0.3094 | 0.1575 | 0.5168 |
 
 Recall operating point (latency below is measured here, the matched-recall rule for ANN search):
 
 | Dataset | Knob | Value | ANN recall@k | Target met | Secondary value | Secondary recall |
 |---|---|---|---|---|---|---|
-| beir/scifact/test | efSearch | 64 | 0.9967 | yes | 16 | 0.9607 |
-| beir/nfcorpus/test | efSearch | 128 | 0.9944 | yes | 32 | 0.9567 |
+| beir/scifact/test | efSearch | 64 | 0.9967 | yes | 16 | 0.9617 |
 
-Operational metrics (latency at the operating point):
+Latency is measured at the operating point.
 
-| Dataset | Docs | Ingest docs/s | Build s | Index size | p50 ms | p95 ms | p99 ms |
+Operational metrics. Latency below is the engine's own reported query time (server-side); the client round-trip is reported separately underneath.
+
+| Dataset | Docs | Ingest docs/s | Build s | Index size | Server p50 ms | Server p95 ms | Server p99 ms |
 |---|---|---|---|---|---|---|---|
-| beir/scifact/test | 5183 | 635 | 8.16 | 33.9 MB | 2.66 | 3.38 | 4.60 |
-| beir/nfcorpus/test | 3633 | 640 | 5.68 | 24.6 MB | 3.10 | 5.26 | 10.99 |
+| beir/scifact/test | 5183 | 640 | 8.10 | 33.9 MB | 0.42 | 0.59 | 0.86 |
+
+Client round-trip latency (wall-clock around the HTTP call, includes transport and JSON), measured over the same queries and repeats:
+
+| Dataset | Client p50 ms | Client p95 ms | Client p99 ms |
+|---|---|---|---|
+| beir/scifact/test | 2.59 | 3.08 | 3.80 |
+
+Server-side time source per dataset:
+
+- beir/scifact/test: response `elapsed` field (floating-millisecond resolution)
 
 ## Hybrid track
 
@@ -65,11 +81,19 @@ Retrieval quality vs human judgements:
 | Dataset | nDCG@10 | Recall@100 | MAP | MRR |
 |---|---|---|---|---|
 | beir/scifact/test | 0.7015 | 0.9643 | 0.6532 | 0.6596 |
-| beir/nfcorpus/test | 0.3555 | 0.3239 | 0.1877 | 0.5727 |
 
-Operational metrics:
+Operational metrics. Latency below is the engine's own reported query time (server-side); the client round-trip is reported separately underneath.
 
-| Dataset | Docs | Ingest docs/s | Build s | Index size | p50 ms | p95 ms | p99 ms |
+| Dataset | Docs | Ingest docs/s | Build s | Index size | Server p50 ms | Server p95 ms | Server p99 ms |
 |---|---|---|---|---|---|---|---|
-| beir/scifact/test | 5183 | 604 | 8.58 | 33.9 MB | 3.41 | 4.46 | 6.74 |
-| beir/nfcorpus/test | 3633 | 576 | 6.31 | 24.6 MB | 3.17 | 3.86 | 4.47 |
+| beir/scifact/test | 5183 | 548 | 9.45 | 33.9 MB | 1.29 | 2.24 | 3.40 |
+
+Client round-trip latency (wall-clock around the HTTP call, includes transport and JSON), measured over the same queries and repeats:
+
+| Dataset | Client p50 ms | Client p95 ms | Client p99 ms |
+|---|---|---|---|
+| beir/scifact/test | 3.52 | 4.94 | 6.45 |
+
+Server-side time source per dataset:
+
+- beir/scifact/test: response `elapsed` field (floating-millisecond resolution)

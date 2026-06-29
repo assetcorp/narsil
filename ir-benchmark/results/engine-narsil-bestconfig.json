@@ -1,0 +1,212 @@
+{
+  "environment": {
+    "captured_at": "2026-06-29T14:09:36.128776+00:00",
+    "harness_version": "0.3.0",
+    "containerized": true,
+    "machine_label": "",
+    "os": "Linux 6.12.76-linuxkit",
+    "arch": "aarch64",
+    "cpu_model": null,
+    "logical_cpus": 7,
+    "total_memory_bytes": 9364418560,
+    "python_version": "3.12.13",
+    "ir_datasets_version": "0.6.1",
+    "pytrec_eval_version": "0.5.10"
+  },
+  "engine": {
+    "name": "narsil",
+    "run_tag": "narsil_bm25",
+    "ranking": "bm25",
+    "url": "http://narsil:7700",
+    "version": "source (node:22-trixie-slim)",
+    "tracks": [
+      "keyword",
+      "vector",
+      "hybrid"
+    ],
+    "keyword_setup": "BM25 k1=0.9 b=0.4; Narsil english analyzer (Porter stemmer, 70-word stop list)",
+    "vector_profile": "best-config"
+  },
+  "config": {
+    "k1": 0.9,
+    "b": 0.4,
+    "run_depth": 1000,
+    "memory_cap_bytes": 8589934592,
+    "vector_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "vector_dims": 384,
+    "vector_metric": "cosine",
+    "recall_target": 0.99,
+    "recall_k": 10,
+    "vector_profile": "best-config"
+  },
+  "datasets": [
+    {
+      "dataset_id": "beir/scifact/test",
+      "track": "vector",
+      "run_tag": "narsil_vector_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "HNSW over the shared precomputed vectors, SQ8 scalar quantization with full-precision rerank, cosine",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.6238596288000929,
+        "recall_100": 0.9226666666666667,
+        "map": 0.5797156406807212,
+        "recip_rank": 0.5848884643178871
+      },
+      "calibration": null,
+      "operating_point": {
+        "knob": "efSearch",
+        "recall_metric": "ann_recall@10",
+        "recall_k": 10,
+        "target": 0.99,
+        "chosen_value": 64,
+        "achieved_recall": 0.9966666666666665,
+        "met_target": true,
+        "secondary_target": 0.95,
+        "secondary_value": 16,
+        "secondary_recall": 0.9603333333333334,
+        "sweep": [
+          {
+            "value": 16,
+            "recall": 0.9603333333333334
+          },
+          {
+            "value": 32,
+            "recall": 0.9873333333333333
+          },
+          {
+            "value": 64,
+            "recall": 0.9966666666666665
+          }
+        ]
+      },
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 9.137746670999832,
+        "ingest_docs_per_sec": 567.2076701851582,
+        "index_size_bytes": 37826427,
+        "raw_stats": {
+          "index_size_bytes": 37826427,
+          "raw": {
+            "documentCount": 5183,
+            "partitionCount": 1,
+            "estimatedMemoryBytes": 37826427,
+            "language": "english",
+            "schema": {
+              "text": "string",
+              "embedding": "vector[384]"
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "top_k": 10,
+        "mean_ms": 2.564470364,
+        "p50_ms": 2.489542,
+        "p90_ms": 2.815459,
+        "p95_ms": 3.098208,
+        "p99_ms": 4.153167,
+        "max_ms": 8.958459,
+        "client": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 2.564470364,
+          "p50_ms": 2.489542,
+          "p90_ms": 2.815459,
+          "p95_ms": 3.098208,
+          "p99_ms": 4.153167,
+          "max_ms": 8.958459
+        },
+        "server": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 0.36808754533333315,
+          "p50_ms": 0.3316250000207219,
+          "p90_ms": 0.4572500000067521,
+          "p95_ms": 0.5964169999933802,
+          "p99_ms": 1.3172919999924488,
+          "max_ms": 2.5849159999925178
+        },
+        "server_time_source": "response `elapsed` field",
+        "server_time_resolution": "floating-millisecond"
+      },
+      "run_file": "runs/bench_beir_scifact_test.narsil_vector_bestconfig.run"
+    },
+    {
+      "dataset_id": "beir/scifact/test",
+      "track": "hybrid",
+      "run_tag": "narsil_hybrid_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "BM25 (text) fused with SQ8-quantized HNSW vector search (full-precision rerank) via Reciprocal Rank Fusion",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.7014743830816104,
+        "recall_100": 0.9643333333333334,
+        "map": 0.6531522314658491,
+        "recip_rank": 0.6596198813011699
+      },
+      "calibration": null,
+      "operating_point": {
+        "fusion": "RRF (k=60)",
+        "vector_knob": "efSearch",
+        "vector_value": 64,
+        "vector_ef_from_vector_track": true
+      },
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 9.036261462000084,
+        "ingest_docs_per_sec": 573.5779140295921,
+        "index_size_bytes": 37826427,
+        "raw_stats": {
+          "index_size_bytes": 37826427,
+          "raw": {
+            "documentCount": 5183,
+            "partitionCount": 1,
+            "estimatedMemoryBytes": 37826427,
+            "language": "english",
+            "schema": {
+              "text": "string",
+              "embedding": "vector[384]"
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "top_k": 10,
+        "mean_ms": 3.473168946,
+        "p50_ms": 3.336125,
+        "p90_ms": 4.113208,
+        "p95_ms": 4.4615,
+        "p99_ms": 6.459459,
+        "max_ms": 32.045042,
+        "client": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 3.473168946,
+          "p50_ms": 3.336125,
+          "p90_ms": 4.113208,
+          "p95_ms": 4.4615,
+          "p99_ms": 6.459459,
+          "max_ms": 32.045042
+        },
+        "server": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 1.212173843999471,
+          "p50_ms": 1.1185420000110753,
+          "p90_ms": 1.7169170000124723,
+          "p95_ms": 2.0050829999963753,
+          "p99_ms": 2.985458999988623,
+          "max_ms": 26.080875000043306
+        },
+        "server_time_source": "response `elapsed` field",
+        "server_time_resolution": "floating-millisecond"
+      },
+      "run_file": "runs/bench_beir_scifact_test.narsil_hybrid_bestconfig.run"
+    }
+  ]
+}

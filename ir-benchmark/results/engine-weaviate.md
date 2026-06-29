@@ -2,8 +2,7 @@
 
 ## Environment
 
-- Captured: 2026-06-29T10:40:25.851702+00:00
-- Machine: Apple M3 Pro, macOS 26.5.1
+- Captured: 2026-06-29T14:24:21.423709+00:00
 - OS / arch: Linux 6.12.76-linuxkit / aarch64 (containerized: True)
 - CPU: aarch64 (7 logical)
 - Memory: 9.4 GB
@@ -23,21 +22,30 @@ Retrieval quality vs human judgements:
 | Dataset | nDCG@10 | Recall@100 | MAP | MRR |
 |---|---|---|---|---|
 | beir/scifact/test | 0.6239 | 0.9227 | 0.5797 | 0.5849 |
-| beir/nfcorpus/test | 0.3145 | 0.3094 | 0.1575 | 0.5168 |
 
 Recall operating point (latency below is measured here, the matched-recall rule for ANN search):
 
 | Dataset | Knob | Value | ANN recall@k | Target met | Secondary value | Secondary recall |
 |---|---|---|---|---|---|---|
-| beir/scifact/test | ef | 64 | 0.9950 | yes | 32 | 0.9840 |
-| beir/nfcorpus/test | ef | 128 | 0.9923 | yes | 64 | 0.9755 |
+| beir/scifact/test | ef | 64 | 0.9950 | yes | 32 | 0.9817 |
 
-Operational metrics (latency at the operating point):
+Latency is measured at the operating point.
 
-| Dataset | Docs | Ingest docs/s | Build s | Index size | p50 ms | p95 ms | p99 ms |
+Operational metrics. Latency below is the engine's own reported query time (server-side); the client round-trip is reported separately underneath.
+
+| Dataset | Docs | Ingest docs/s | Build s | Index size | Server p50 ms | Server p95 ms | Server p99 ms |
 |---|---|---|---|---|---|---|---|
-| beir/scifact/test | 5183 | 1462 | 3.55 | n/a | 1.81 | 3.70 | 6.70 |
-| beir/nfcorpus/test | 3633 | 1593 | 2.28 | n/a | 1.73 | 2.10 | 4.14 |
+| beir/scifact/test | 5183 | 1683 | 3.08 | n/a | n/a | n/a | n/a |
+
+Client round-trip latency (wall-clock around the HTTP call, includes transport and JSON), measured over the same queries and repeats:
+
+| Dataset | Client p50 ms | Client p95 ms | Client p99 ms |
+|---|---|---|---|
+| beir/scifact/test | 1.65 | 2.01 | 4.75 |
+
+Server-side time source per dataset:
+
+- beir/scifact/test: client round-trip only (no server-side query time exposed)
 
 ## Hybrid track
 
@@ -49,11 +57,19 @@ Retrieval quality vs human judgements:
 | Dataset | nDCG@10 | Recall@100 | MAP | MRR |
 |---|---|---|---|---|
 | beir/scifact/test | 0.6885 | 0.9577 | 0.6405 | 0.6513 |
-| beir/nfcorpus/test | 0.3431 | 0.3180 | 0.1812 | 0.5600 |
 
-Operational metrics:
+Operational metrics. Latency below is the engine's own reported query time (server-side); the client round-trip is reported separately underneath.
 
-| Dataset | Docs | Ingest docs/s | Build s | Index size | p50 ms | p95 ms | p99 ms |
+| Dataset | Docs | Ingest docs/s | Build s | Index size | Server p50 ms | Server p95 ms | Server p99 ms |
 |---|---|---|---|---|---|---|---|
-| beir/scifact/test | 5183 | 1339 | 3.87 | n/a | 2.62 | 3.99 | 7.30 |
-| beir/nfcorpus/test | 3633 | 1694 | 2.15 | n/a | 2.26 | 4.08 | 6.00 |
+| beir/scifact/test | 5183 | 1730 | 3.00 | n/a | n/a | n/a | n/a |
+
+Client round-trip latency (wall-clock around the HTTP call, includes transport and JSON), measured over the same queries and repeats:
+
+| Dataset | Client p50 ms | Client p95 ms | Client p99 ms |
+|---|---|---|---|
+| beir/scifact/test | 2.67 | 3.89 | 8.02 |
+
+Server-side time source per dataset:
+
+- beir/scifact/test: client round-trip only (no server-side query time exposed)

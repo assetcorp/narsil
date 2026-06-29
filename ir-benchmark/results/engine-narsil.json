@@ -1,9 +1,9 @@
 {
   "environment": {
-    "captured_at": "2026-06-29T10:31:26.423743+00:00",
+    "captured_at": "2026-06-29T14:06:57.126764+00:00",
     "harness_version": "0.3.0",
     "containerized": true,
-    "machine_label": "Apple M3 Pro, macOS 26.5.1",
+    "machine_label": "",
     "os": "Linux 6.12.76-linuxkit",
     "arch": "aarch64",
     "cpu_model": null,
@@ -24,7 +24,8 @@
       "vector",
       "hybrid"
     ],
-    "keyword_setup": "BM25 k1=0.9 b=0.4; Narsil english analyzer (Porter stemmer, 70-word stop list)"
+    "keyword_setup": "BM25 k1=0.9 b=0.4; Narsil english analyzer (Porter stemmer, 70-word stop list)",
+    "vector_profile": "equal-precision"
   },
   "config": {
     "k1": 0.9,
@@ -35,7 +36,8 @@
     "vector_dims": 384,
     "vector_metric": "cosine",
     "recall_target": 0.99,
-    "recall_k": 10
+    "recall_k": 10,
+    "vector_profile": "equal-precision"
   },
   "datasets": [
     {
@@ -61,8 +63,8 @@
       "operating_point": null,
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 0.9113797090000162,
-        "ingest_docs_per_sec": 5686.981999727523,
+        "build_seconds": 0.9949262089999138,
+        "ingest_docs_per_sec": 5209.431567000211,
         "index_size_bytes": 17826406,
         "raw_stats": {
           "index_size_bytes": 17826406,
@@ -80,12 +82,34 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 0.8389897066666667,
-        "p50_ms": 0.812959,
-        "p90_ms": 1.128417,
-        "p95_ms": 1.330334,
-        "p99_ms": 1.660708,
-        "max_ms": 3.271916
+        "mean_ms": 0.828666154,
+        "p50_ms": 0.80625,
+        "p90_ms": 1.121375,
+        "p95_ms": 1.287834,
+        "p99_ms": 1.586917,
+        "max_ms": 2.161875,
+        "client": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 0.828666154,
+          "p50_ms": 0.80625,
+          "p90_ms": 1.121375,
+          "p95_ms": 1.287834,
+          "p99_ms": 1.586917,
+          "max_ms": 2.161875
+        },
+        "server": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 0.46839877533333796,
+          "p50_ms": 0.4519159999999829,
+          "p90_ms": 0.7264159999995172,
+          "p95_ms": 0.8820409999998446,
+          "p99_ms": 1.1815829999995913,
+          "max_ms": 1.7677089999997406
+        },
+        "server_time_source": "response `elapsed` field",
+        "server_time_resolution": "floating-millisecond"
       },
       "run_file": "runs/bench_beir_scifact_test.narsil_bm25.run"
     },
@@ -93,6 +117,7 @@
       "dataset_id": "beir/scifact/test",
       "track": "vector",
       "run_tag": "narsil_vector",
+      "vector_profile": "equal-precision",
       "setup": "HNSW over the shared precomputed vectors, full precision (SQ8 quantization off), cosine",
       "queries": 300,
       "judged_queries": 300,
@@ -113,15 +138,15 @@
         "met_target": true,
         "secondary_target": 0.95,
         "secondary_value": 16,
-        "secondary_recall": 0.9606666666666668,
+        "secondary_recall": 0.9616666666666667,
         "sweep": [
           {
             "value": 16,
-            "recall": 0.9606666666666668
+            "recall": 0.9616666666666667
           },
           {
             "value": 32,
-            "recall": 0.9870000000000001
+            "recall": 0.9869999999999999
           },
           {
             "value": 64,
@@ -131,8 +156,8 @@
       },
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 8.162601961999997,
-        "ingest_docs_per_sec": 634.9690973697882,
+        "build_seconds": 8.104128420000052,
+        "ingest_docs_per_sec": 639.5505761247508,
         "index_size_bytes": 33887051,
         "raw_stats": {
           "index_size_bytes": 33887051,
@@ -151,12 +176,34 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 2.788499734,
-        "p50_ms": 2.656,
-        "p90_ms": 3.135625,
-        "p95_ms": 3.38225,
-        "p99_ms": 4.600292,
-        "max_ms": 66.532875
+        "mean_ms": 2.641746454,
+        "p50_ms": 2.59125,
+        "p90_ms": 2.874792,
+        "p95_ms": 3.082792,
+        "p99_ms": 3.800709,
+        "max_ms": 17.296375,
+        "client": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 2.641746454,
+          "p50_ms": 2.59125,
+          "p90_ms": 2.874792,
+          "p95_ms": 3.082792,
+          "p99_ms": 3.800709,
+          "max_ms": 17.296375
+        },
+        "server": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 0.43467265733349875,
+          "p50_ms": 0.4153329999971902,
+          "p90_ms": 0.5208330000023125,
+          "p95_ms": 0.5850420000060694,
+          "p99_ms": 0.8582919999898877,
+          "max_ms": 8.098415999993449
+        },
+        "server_time_source": "response `elapsed` field",
+        "server_time_resolution": "floating-millisecond"
       },
       "run_file": "runs/bench_beir_scifact_test.narsil_vector.run"
     },
@@ -164,6 +211,7 @@
       "dataset_id": "beir/scifact/test",
       "track": "hybrid",
       "run_tag": "narsil_hybrid",
+      "vector_profile": "equal-precision",
       "setup": "BM25 (text) fused with HNSW vector search via Reciprocal Rank Fusion",
       "queries": 300,
       "judged_queries": 300,
@@ -182,8 +230,8 @@
       },
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 8.58027025399997,
-        "ingest_docs_per_sec": 604.0602273085486,
+        "build_seconds": 9.449571046000074,
+        "ingest_docs_per_sec": 548.4905055234144,
         "index_size_bytes": 33887051,
         "raw_stats": {
           "index_size_bytes": 33887051,
@@ -202,191 +250,36 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 3.54428912,
-        "p50_ms": 3.40825,
-        "p90_ms": 4.092833,
-        "p95_ms": 4.457084,
-        "p99_ms": 6.737917,
-        "max_ms": 27.52725
+        "mean_ms": 3.7111381433333337,
+        "p50_ms": 3.521625,
+        "p90_ms": 4.395292,
+        "p95_ms": 4.939166,
+        "p99_ms": 6.452625,
+        "max_ms": 50.27875,
+        "client": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 3.7111381433333337,
+          "p50_ms": 3.521625,
+          "p90_ms": 4.395292,
+          "p95_ms": 4.939166,
+          "p99_ms": 6.452625,
+          "max_ms": 50.27875
+        },
+        "server": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 1.395686965333162,
+          "p50_ms": 1.292583000002196,
+          "p90_ms": 1.9379580000240821,
+          "p95_ms": 2.244166000018595,
+          "p99_ms": 3.4037919999973383,
+          "max_ms": 18.26279199999408
+        },
+        "server_time_source": "response `elapsed` field",
+        "server_time_resolution": "floating-millisecond"
       },
       "run_file": "runs/bench_beir_scifact_test.narsil_hybrid.run"
-    },
-    {
-      "dataset_id": "beir/nfcorpus/test",
-      "track": "keyword",
-      "run_tag": "narsil_bm25",
-      "setup": "BM25 k1=0.9 b=0.4; Narsil english analyzer (Porter stemmer, 70-word stop list)",
-      "queries": 323,
-      "judged_queries": 323,
-      "metrics": {
-        "ndcg_cut_10": 0.3268937200190016,
-        "recall_100": 0.24910963434856712,
-        "map": 0.15303944036831896,
-        "recip_rank": 0.5284067089293295
-      },
-      "calibration": {
-        "baseline_ndcg10": 0.322,
-        "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
-        "margin": 0.02,
-        "delta": 0.004893720019001568,
-        "within_margin": true
-      },
-      "operating_point": null,
-      "operational": {
-        "documents_indexed": 3633,
-        "build_seconds": 0.5931365829999322,
-        "ingest_docs_per_sec": 6125.064789673267,
-        "index_size_bytes": 13342470,
-        "raw_stats": {
-          "index_size_bytes": 13342470,
-          "raw": {
-            "documentCount": 3633,
-            "partitionCount": 1,
-            "estimatedMemoryBytes": 13342470,
-            "language": "english",
-            "schema": {
-              "text": "string"
-            }
-          }
-        }
-      },
-      "latency": {
-        "samples": 1615,
-        "top_k": 10,
-        "mean_ms": 0.44642228854489163,
-        "p50_ms": 0.409083,
-        "p90_ms": 0.669959,
-        "p95_ms": 0.76875,
-        "p99_ms": 0.973,
-        "max_ms": 1.57625
-      },
-      "run_file": "runs/bench_beir_nfcorpus_test.narsil_bm25.run"
-    },
-    {
-      "dataset_id": "beir/nfcorpus/test",
-      "track": "vector",
-      "run_tag": "narsil_vector",
-      "setup": "HNSW over the shared precomputed vectors, full precision (SQ8 quantization off), cosine",
-      "queries": 323,
-      "judged_queries": 323,
-      "metrics": {
-        "ndcg_cut_10": 0.31453393519371436,
-        "recall_100": 0.3094260094121505,
-        "map": 0.15745513985275994,
-        "recip_rank": 0.5168401508608532
-      },
-      "calibration": null,
-      "operating_point": {
-        "knob": "efSearch",
-        "recall_metric": "ann_recall@10",
-        "recall_k": 10,
-        "target": 0.99,
-        "chosen_value": 128,
-        "achieved_recall": 0.9944272445820435,
-        "met_target": true,
-        "secondary_target": 0.95,
-        "secondary_value": 32,
-        "secondary_recall": 0.9566563467492264,
-        "sweep": [
-          {
-            "value": 16,
-            "recall": 0.9080495356037156
-          },
-          {
-            "value": 32,
-            "recall": 0.9566563467492264
-          },
-          {
-            "value": 64,
-            "recall": 0.9854489164086689
-          },
-          {
-            "value": 128,
-            "recall": 0.9944272445820435
-          }
-        ]
-      },
-      "operational": {
-        "documents_indexed": 3633,
-        "build_seconds": 5.676124919000017,
-        "ingest_docs_per_sec": 640.0493385617804,
-        "index_size_bytes": 24600182,
-        "raw_stats": {
-          "index_size_bytes": 24600182,
-          "raw": {
-            "documentCount": 3633,
-            "partitionCount": 1,
-            "estimatedMemoryBytes": 24600182,
-            "language": "english",
-            "schema": {
-              "text": "string",
-              "embedding": "vector[384]"
-            }
-          }
-        }
-      },
-      "latency": {
-        "samples": 1615,
-        "top_k": 10,
-        "mean_ms": 3.552270759133127,
-        "p50_ms": 3.099125,
-        "p90_ms": 4.216292,
-        "p95_ms": 5.262791,
-        "p99_ms": 10.993,
-        "max_ms": 62.081333
-      },
-      "run_file": "runs/bench_beir_nfcorpus_test.narsil_vector.run"
-    },
-    {
-      "dataset_id": "beir/nfcorpus/test",
-      "track": "hybrid",
-      "run_tag": "narsil_hybrid",
-      "setup": "BM25 (text) fused with HNSW vector search via Reciprocal Rank Fusion",
-      "queries": 323,
-      "judged_queries": 323,
-      "metrics": {
-        "ndcg_cut_10": 0.355456332699901,
-        "recall_100": 0.3239208475386061,
-        "map": 0.18773700158358486,
-        "recip_rank": 0.5727188272169407
-      },
-      "calibration": null,
-      "operating_point": {
-        "fusion": "RRF (k=60)",
-        "vector_knob": "efSearch",
-        "vector_value": 128,
-        "vector_ef_from_vector_track": true
-      },
-      "operational": {
-        "documents_indexed": 3633,
-        "build_seconds": 6.305216337000047,
-        "ingest_docs_per_sec": 576.1895874501495,
-        "index_size_bytes": 24600182,
-        "raw_stats": {
-          "index_size_bytes": 24600182,
-          "raw": {
-            "documentCount": 3633,
-            "partitionCount": 1,
-            "estimatedMemoryBytes": 24600182,
-            "language": "english",
-            "schema": {
-              "text": "string",
-              "embedding": "vector[384]"
-            }
-          }
-        }
-      },
-      "latency": {
-        "samples": 1615,
-        "top_k": 10,
-        "mean_ms": 3.2245096476780186,
-        "p50_ms": 3.166084,
-        "p90_ms": 3.664875,
-        "p95_ms": 3.857917,
-        "p99_ms": 4.469541,
-        "max_ms": 6.198167
-      },
-      "run_file": "runs/bench_beir_nfcorpus_test.narsil_hybrid.run"
     }
   ]
 }

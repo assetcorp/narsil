@@ -1,6 +1,6 @@
 {
   "environment": {
-    "captured_at": "2026-06-29T14:24:21.423709+00:00",
+    "captured_at": "2026-06-29T14:24:55.990147+00:00",
     "harness_version": "0.3.0",
     "containerized": true,
     "machine_label": "",
@@ -24,7 +24,7 @@
       "hybrid"
     ],
     "keyword_setup": null,
-    "vector_profile": "equal-precision"
+    "vector_profile": "best-config"
   },
   "config": {
     "k1": 0.9,
@@ -36,15 +36,15 @@
     "vector_metric": "cosine",
     "recall_target": 0.99,
     "recall_k": 10,
-    "vector_profile": "equal-precision"
+    "vector_profile": "best-config"
   },
   "datasets": [
     {
       "dataset_id": "beir/scifact/test",
       "track": "vector",
-      "run_tag": "weaviate_vector",
-      "vector_profile": "equal-precision",
-      "setup": "HNSW dense vectors, distance cosine, over the shared precomputed vectors",
+      "run_tag": "weaviate_vector_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "HNSW dense vectors with 8-bit Rotational Quantization and full-precision rescore, distance cosine, over the shared precomputed vectors",
       "queries": 300,
       "judged_queries": 300,
       "metrics": {
@@ -60,30 +60,30 @@
         "recall_k": 10,
         "target": 0.99,
         "chosen_value": 64,
-        "achieved_recall": 0.9949999999999998,
+        "achieved_recall": 0.9953333333333331,
         "met_target": true,
         "secondary_target": 0.95,
         "secondary_value": 32,
-        "secondary_recall": 0.9816666666666667,
+        "secondary_recall": 0.9806666666666666,
         "sweep": [
           {
             "value": 16,
-            "recall": 0.9490000000000002
+            "recall": 0.9446666666666668
           },
           {
             "value": 32,
-            "recall": 0.9816666666666667
+            "recall": 0.9806666666666666
           },
           {
             "value": 64,
-            "recall": 0.9949999999999998
+            "recall": 0.9953333333333331
           }
         ]
       },
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 3.078817541999797,
-        "ingest_docs_per_sec": 1683.4385049766427,
+        "build_seconds": 3.0519779179999205,
+        "ingest_docs_per_sec": 1698.242955636003,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
@@ -176,7 +176,7 @@
               },
               "rq": {
                 "bits": 8,
-                "enabled": false,
+                "enabled": true,
                 "rescoreLimit": 20
               },
               "skip": false,
@@ -202,41 +202,41 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 1.7614281486666665,
-        "p50_ms": 1.648375,
-        "p90_ms": 1.83875,
-        "p95_ms": 2.01375,
-        "p99_ms": 4.75425,
-        "max_ms": 9.580375,
+        "mean_ms": 1.8587269800000001,
+        "p50_ms": 1.707917,
+        "p90_ms": 2.015125,
+        "p95_ms": 2.37,
+        "p99_ms": 4.7,
+        "max_ms": 16.8575,
         "client": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 1.7614281486666665,
-          "p50_ms": 1.648375,
-          "p90_ms": 1.83875,
-          "p95_ms": 2.01375,
-          "p99_ms": 4.75425,
-          "max_ms": 9.580375
+          "mean_ms": 1.8587269800000001,
+          "p50_ms": 1.707917,
+          "p90_ms": 2.015125,
+          "p95_ms": 2.37,
+          "p99_ms": 4.7,
+          "max_ms": 16.8575
         },
         "server": null,
         "server_time_source": "client round-trip only",
         "server_time_resolution": "not-available"
       },
-      "run_file": "runs/bench_beir_scifact_test.weaviate_vector.run"
+      "run_file": "runs/bench_beir_scifact_test.weaviate_vector_bestconfig.run"
     },
     {
       "dataset_id": "beir/scifact/test",
       "track": "hybrid",
-      "run_tag": "weaviate_hybrid",
-      "vector_profile": "equal-precision",
-      "setup": "BM25 over text fused with dense vectors via the hybrid operator (rankedFusion, alpha=0.5)",
+      "run_tag": "weaviate_hybrid_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "BM25 over text fused with RQ-quantized dense vectors (full-precision rescore) via the hybrid operator (rankedFusion, alpha=0.5)",
       "queries": 300,
       "judged_queries": 300,
       "metrics": {
         "ndcg_cut_10": 0.6885279880068063,
         "recall_100": 0.9576666666666667,
-        "map": 0.6405213014119217,
-        "recip_rank": 0.651281294199304
+        "map": 0.640523665375173,
+        "recip_rank": 0.6512836581625554
       },
       "calibration": null,
       "operating_point": {
@@ -247,8 +247,8 @@
       },
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 2.9959049180001784,
-        "ingest_docs_per_sec": 1730.028202450346,
+        "build_seconds": 3.04836675200022,
+        "ingest_docs_per_sec": 1700.2547336533953,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
@@ -341,7 +341,7 @@
               },
               "rq": {
                 "bits": 8,
-                "enabled": false,
+                "enabled": true,
                 "rescoreLimit": 20
               },
               "skip": false,
@@ -367,27 +367,27 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 2.8839708186666666,
-        "p50_ms": 2.666208,
-        "p90_ms": 3.110959,
-        "p95_ms": 3.888375,
-        "p99_ms": 8.023667,
-        "max_ms": 13.473333,
+        "mean_ms": 3.0236638793333332,
+        "p50_ms": 2.711833,
+        "p90_ms": 3.414917,
+        "p95_ms": 4.991375,
+        "p99_ms": 7.9335,
+        "max_ms": 36.205125,
         "client": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 2.8839708186666666,
-          "p50_ms": 2.666208,
-          "p90_ms": 3.110959,
-          "p95_ms": 3.888375,
-          "p99_ms": 8.023667,
-          "max_ms": 13.473333
+          "mean_ms": 3.0236638793333332,
+          "p50_ms": 2.711833,
+          "p90_ms": 3.414917,
+          "p95_ms": 4.991375,
+          "p99_ms": 7.9335,
+          "max_ms": 36.205125
         },
         "server": null,
         "server_time_source": "client round-trip only",
         "server_time_resolution": "not-available"
       },
-      "run_file": "runs/bench_beir_scifact_test.weaviate_hybrid.run"
+      "run_file": "runs/bench_beir_scifact_test.weaviate_hybrid_bestconfig.run"
     }
   ]
 }

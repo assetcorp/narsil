@@ -1,6 +1,6 @@
 {
   "environment": {
-    "captured_at": "2026-06-29T14:23:51.636972+00:00",
+    "captured_at": "2026-06-29T14:24:06.587482+00:00",
     "harness_version": "0.3.0",
     "containerized": true,
     "machine_label": "",
@@ -24,7 +24,7 @@
       "hybrid"
     ],
     "keyword_setup": null,
-    "vector_profile": "equal-precision"
+    "vector_profile": "best-config"
   },
   "config": {
     "k1": 0.9,
@@ -36,15 +36,15 @@
     "vector_metric": "cosine",
     "recall_target": 0.99,
     "recall_k": 10,
-    "vector_profile": "equal-precision"
+    "vector_profile": "best-config"
   },
   "datasets": [
     {
       "dataset_id": "beir/scifact/test",
       "track": "vector",
-      "run_tag": "qdrant_vector",
-      "vector_profile": "equal-precision",
-      "setup": "HNSW dense vectors, distance Cosine, over the shared precomputed vectors",
+      "run_tag": "qdrant_vector_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "HNSW dense vectors with int8 scalar quantization and full-precision rescore (oversampling 2.0x), distance Cosine, over the shared precomputed vectors",
       "queries": 300,
       "judged_queries": 300,
       "metrics": {
@@ -60,30 +60,30 @@
         "recall_k": 10,
         "target": 0.99,
         "chosen_value": 64,
-        "achieved_recall": 0.9976666666666665,
+        "achieved_recall": 0.9986666666666667,
         "met_target": true,
         "secondary_target": 0.95,
         "secondary_value": 16,
-        "secondary_recall": 0.9596666666666676,
+        "secondary_recall": 0.975666666666667,
         "sweep": [
           {
             "value": 16,
-            "recall": 0.9596666666666676
+            "recall": 0.975666666666667
           },
           {
             "value": 32,
-            "recall": 0.9870000000000002
+            "recall": 0.9886666666666666
           },
           {
             "value": 64,
-            "recall": 0.9976666666666665
+            "recall": 0.9986666666666667
           }
         ]
       },
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 3.483691584999633,
-        "ingest_docs_per_sec": 1487.7895684903306,
+        "build_seconds": 3.202433001999907,
+        "ingest_docs_per_sec": 1618.4569659266053,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
@@ -139,7 +139,13 @@
                 "wal_segments_ahead": 0,
                 "wal_retain_closed": 1
               },
-              "quantization_config": null
+              "quantization_config": {
+                "scalar": {
+                  "type": "int8",
+                  "quantile": 0.99,
+                  "always_ram": true
+                }
+              }
             },
             "payload_schema": {},
             "update_queue": {
@@ -151,43 +157,43 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 0.7567703920000001,
-        "p50_ms": 0.730459,
-        "p90_ms": 0.865917,
-        "p95_ms": 0.933125,
-        "p99_ms": 1.12575,
-        "max_ms": 1.606083,
+        "mean_ms": 0.6885783846666667,
+        "p50_ms": 0.67825,
+        "p90_ms": 0.731,
+        "p95_ms": 0.779375,
+        "p99_ms": 0.846167,
+        "max_ms": 1.093375,
         "client": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 0.7567703920000001,
-          "p50_ms": 0.730459,
-          "p90_ms": 0.865917,
-          "p95_ms": 0.933125,
-          "p99_ms": 1.12575,
-          "max_ms": 1.606083
+          "mean_ms": 0.6885783846666667,
+          "p50_ms": 0.67825,
+          "p90_ms": 0.731,
+          "p95_ms": 0.779375,
+          "p99_ms": 0.846167,
+          "max_ms": 1.093375
         },
         "server": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 0.2554734026666667,
-          "p50_ms": 0.24575,
-          "p90_ms": 0.301916,
-          "p95_ms": 0.344167,
-          "p99_ms": 0.412084,
-          "max_ms": 0.541834
+          "mean_ms": 0.19139609066666666,
+          "p50_ms": 0.18554199999999998,
+          "p90_ms": 0.21825,
+          "p95_ms": 0.22924999999999998,
+          "p99_ms": 0.25645799999999996,
+          "max_ms": 0.36312500000000003
         },
         "server_time_source": "top-level `time` field (seconds, converted to ms)",
         "server_time_resolution": "floating-millisecond"
       },
-      "run_file": "runs/bench_beir_scifact_test.qdrant_vector.run"
+      "run_file": "runs/bench_beir_scifact_test.qdrant_vector_bestconfig.run"
     },
     {
       "dataset_id": "beir/scifact/test",
       "track": "hybrid",
-      "run_tag": "qdrant_hybrid",
-      "vector_profile": "equal-precision",
-      "setup": "Dense HNSW fused with BM25 sparse vectors (fastembed Qdrant/bm25, server IDF) via RRF",
+      "run_tag": "qdrant_hybrid_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "int8-quantized dense HNSW (full-precision rescore) fused with BM25 sparse vectors (fastembed Qdrant/bm25, server IDF) via RRF",
       "queries": 300,
       "judged_queries": 300,
       "metrics": {
@@ -205,8 +211,8 @@
       },
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 2.9424658350003483,
-        "ingest_docs_per_sec": 1761.4478096393552,
+        "build_seconds": 2.951008627000192,
+        "ingest_docs_per_sec": 1756.3486438427353,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
@@ -262,7 +268,13 @@
                 "wal_segments_ahead": 0,
                 "wal_retain_closed": 1
               },
-              "quantization_config": null
+              "quantization_config": {
+                "scalar": {
+                  "type": "int8",
+                  "quantile": 0.99,
+                  "always_ram": true
+                }
+              }
             },
             "payload_schema": {},
             "update_queue": {
@@ -274,36 +286,36 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 0.8511001313333333,
-        "p50_ms": 0.821208,
-        "p90_ms": 0.953958,
-        "p95_ms": 1.027417,
-        "p99_ms": 1.374125,
-        "max_ms": 2.900166,
+        "mean_ms": 0.7767334373333333,
+        "p50_ms": 0.759583,
+        "p90_ms": 0.831708,
+        "p95_ms": 0.894042,
+        "p99_ms": 1.106667,
+        "max_ms": 2.056125,
         "client": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 0.8511001313333333,
-          "p50_ms": 0.821208,
-          "p90_ms": 0.953958,
-          "p95_ms": 1.027417,
-          "p99_ms": 1.374125,
-          "max_ms": 2.900166
+          "mean_ms": 0.7767334373333333,
+          "p50_ms": 0.759583,
+          "p90_ms": 0.831708,
+          "p95_ms": 0.894042,
+          "p99_ms": 1.106667,
+          "max_ms": 2.056125
         },
         "server": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 0.287843284,
-          "p50_ms": 0.28049999999999997,
-          "p90_ms": 0.323916,
-          "p95_ms": 0.351375,
-          "p99_ms": 0.48070799999999997,
-          "max_ms": 1.24525
+          "mean_ms": 0.22083136866666667,
+          "p50_ms": 0.217583,
+          "p90_ms": 0.24850000000000003,
+          "p95_ms": 0.261458,
+          "p99_ms": 0.308458,
+          "max_ms": 0.494125
         },
         "server_time_source": "top-level `time` field (seconds, converted to ms)",
         "server_time_resolution": "floating-millisecond"
       },
-      "run_file": "runs/bench_beir_scifact_test.qdrant_hybrid.run"
+      "run_file": "runs/bench_beir_scifact_test.qdrant_hybrid_bestconfig.run"
     }
   ]
 }

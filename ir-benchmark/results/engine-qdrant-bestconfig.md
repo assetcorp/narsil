@@ -1,8 +1,8 @@
-# qdrant retrieval (vector, hybrid)
+# qdrant retrieval (vector, hybrid, best-config vector profile)
 
 ## Environment
 
-- Captured: 2026-06-29T14:23:51.636972+00:00
+- Captured: 2026-06-29T14:24:06.587482+00:00
 - OS / arch: Linux 6.12.76-linuxkit / aarch64 (containerized: True)
 - CPU: aarch64 (7 logical)
 - Memory: 9.4 GB
@@ -14,7 +14,7 @@
 ## Vector track
 
 - Embedding model: sentence-transformers/all-MiniLM-L6-v2 (384 dim, cosine)
-- Index setup: HNSW dense vectors, distance Cosine, over the shared precomputed vectors
+- Index setup: HNSW dense vectors with int8 scalar quantization and full-precision rescore (oversampling 2.0x), distance Cosine, over the shared precomputed vectors
 - Operating point: search knob tuned to ann_recall@10 >= 0.99 against exact kNN over the same vectors
 
 Retrieval quality vs human judgements:
@@ -27,7 +27,7 @@ Recall operating point (latency below is measured here, the matched-recall rule 
 
 | Dataset | Knob | Value | ANN recall@k | Target met | Secondary value | Secondary recall |
 |---|---|---|---|---|---|---|
-| beir/scifact/test | hnsw_ef | 64 | 0.9977 | yes | 16 | 0.9597 |
+| beir/scifact/test | hnsw_ef | 64 | 0.9987 | yes | 16 | 0.9757 |
 
 Latency is measured at the operating point.
 
@@ -35,13 +35,13 @@ Operational metrics. Latency below is the engine's own reported query time (serv
 
 | Dataset | Docs | Ingest docs/s | Build s | Index size | Server p50 ms | Server p95 ms | Server p99 ms |
 |---|---|---|---|---|---|---|---|
-| beir/scifact/test | 5183 | 1488 | 3.48 | n/a | 0.25 | 0.34 | 0.41 |
+| beir/scifact/test | 5183 | 1618 | 3.20 | n/a | 0.19 | 0.23 | 0.26 |
 
 Client round-trip latency (wall-clock around the HTTP call, includes transport and JSON), measured over the same queries and repeats:
 
 | Dataset | Client p50 ms | Client p95 ms | Client p99 ms |
 |---|---|---|---|
-| beir/scifact/test | 0.73 | 0.93 | 1.13 |
+| beir/scifact/test | 0.68 | 0.78 | 0.85 |
 
 Server-side time source per dataset:
 
@@ -49,7 +49,7 @@ Server-side time source per dataset:
 
 ## Hybrid track
 
-- Setup: Dense HNSW fused with BM25 sparse vectors (fastembed Qdrant/bm25, server IDF) via RRF
+- Setup: int8-quantized dense HNSW (full-precision rescore) fused with BM25 sparse vectors (fastembed Qdrant/bm25, server IDF) via RRF
 - Fusion: RRF (Query API fusion)
 
 Retrieval quality vs human judgements:
@@ -62,13 +62,13 @@ Operational metrics. Latency below is the engine's own reported query time (serv
 
 | Dataset | Docs | Ingest docs/s | Build s | Index size | Server p50 ms | Server p95 ms | Server p99 ms |
 |---|---|---|---|---|---|---|---|
-| beir/scifact/test | 5183 | 1761 | 2.94 | n/a | 0.28 | 0.35 | 0.48 |
+| beir/scifact/test | 5183 | 1756 | 2.95 | n/a | 0.22 | 0.26 | 0.31 |
 
 Client round-trip latency (wall-clock around the HTTP call, includes transport and JSON), measured over the same queries and repeats:
 
 | Dataset | Client p50 ms | Client p95 ms | Client p99 ms |
 |---|---|---|---|
-| beir/scifact/test | 0.82 | 1.03 | 1.37 |
+| beir/scifact/test | 0.76 | 0.89 | 1.11 |
 
 Server-side time source per dataset:
 

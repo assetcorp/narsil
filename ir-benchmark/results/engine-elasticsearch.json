@@ -1,9 +1,9 @@
 {
   "environment": {
-    "captured_at": "2026-06-29T10:36:43.793067+00:00",
+    "captured_at": "2026-06-29T14:53:06.524085+00:00",
     "harness_version": "0.3.0",
     "containerized": true,
-    "machine_label": "Apple M3 Pro, macOS 26.5.1",
+    "machine_label": "",
     "os": "Linux 6.12.76-linuxkit",
     "arch": "aarch64",
     "cpu_model": null,
@@ -24,7 +24,8 @@
       "vector",
       "hybrid"
     ],
-    "keyword_setup": "BM25 k1=0.9 b=0.4 (custom default similarity); Elasticsearch `english` analyzer (Porter stemmer, English stop words)"
+    "keyword_setup": "BM25 k1=0.9 b=0.4 (custom default similarity); Elasticsearch `english` analyzer (Porter stemmer, English stop words)",
+    "vector_profile": "equal-precision"
   },
   "config": {
     "k1": 0.9,
@@ -35,7 +36,8 @@
     "vector_dims": 384,
     "vector_metric": "cosine",
     "recall_target": 0.99,
-    "recall_k": 10
+    "recall_k": 10,
+    "vector_profile": "equal-precision"
   },
   "datasets": [
     {
@@ -61,14 +63,14 @@
       "operating_point": null,
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 0.9352605419999236,
-        "ingest_docs_per_sec": 5541.771268268071,
-        "index_size_bytes": 7017305,
+        "build_seconds": 1.408952125999999,
+        "ingest_docs_per_sec": 3678.6203763462745,
+        "index_size_bytes": 7036733,
         "raw_stats": {
-          "index_size_bytes": 7017305,
+          "index_size_bytes": 7036733,
           "raw": {
-            "size_in_bytes": 7017305,
-            "total_data_set_size_in_bytes": 7017305,
+            "size_in_bytes": 7036733,
+            "total_data_set_size_in_bytes": 7036733,
             "reserved_in_bytes": 0
           }
         }
@@ -76,12 +78,34 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 1.0953993313333334,
-        "p50_ms": 1.051666,
-        "p90_ms": 1.365375,
-        "p95_ms": 1.510709,
-        "p99_ms": 2.286167,
-        "max_ms": 5.494708
+        "mean_ms": 1.0213174293333334,
+        "p50_ms": 0.966625,
+        "p90_ms": 1.233959,
+        "p95_ms": 1.37025,
+        "p99_ms": 2.466458,
+        "max_ms": 19.444708,
+        "client": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 1.0213174293333334,
+          "p50_ms": 0.966625,
+          "p90_ms": 1.233959,
+          "p95_ms": 1.37025,
+          "p99_ms": 2.466458,
+          "max_ms": 19.444708
+        },
+        "server": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 0.017333333333333333,
+          "p50_ms": 0.0,
+          "p90_ms": 0.0,
+          "p95_ms": 0.0,
+          "p99_ms": 1.0,
+          "max_ms": 3.0
+        },
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond"
       },
       "run_file": "runs/bench_beir_scifact_test.elasticsearch_bm25.run"
     },
@@ -89,6 +113,7 @@
       "dataset_id": "beir/scifact/test",
       "track": "vector",
       "run_tag": "elasticsearch_vector",
+      "vector_profile": "equal-precision",
       "setup": "dense_vector HNSW, similarity cosine, over the shared precomputed vectors",
       "queries": 300,
       "judged_queries": 300,
@@ -105,19 +130,20 @@
         "recall_k": 10,
         "target": 0.99,
         "chosen_value": 64,
+        "rescore_oversample": null,
         "achieved_recall": 0.9926666666666665,
         "met_target": true,
         "secondary_target": 0.95,
         "secondary_value": 16,
-        "secondary_recall": 0.9526666666666667,
+        "secondary_recall": 0.9556666666666668,
         "sweep": [
           {
             "value": 16,
-            "recall": 0.9526666666666667
+            "recall": 0.9556666666666668
           },
           {
             "value": 32,
-            "recall": 0.9816666666666669
+            "recall": 0.9816666666666667
           },
           {
             "value": 64,
@@ -125,16 +151,17 @@
           }
         ]
       },
+      "vector_oversample": null,
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 3.8211405849999664,
-        "ingest_docs_per_sec": 1356.4012850890817,
-        "index_size_bytes": 15150088,
+        "build_seconds": 3.779752208999998,
+        "ingest_docs_per_sec": 1371.2539112110887,
+        "index_size_bytes": 15149384,
         "raw_stats": {
-          "index_size_bytes": 15150088,
+          "index_size_bytes": 15149384,
           "raw": {
-            "size_in_bytes": 15150088,
-            "total_data_set_size_in_bytes": 15150088,
+            "size_in_bytes": 15149384,
+            "total_data_set_size_in_bytes": 15149384,
             "reserved_in_bytes": 0
           }
         }
@@ -142,12 +169,34 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 1.2325162473333333,
-        "p50_ms": 1.177417,
-        "p90_ms": 1.420625,
-        "p95_ms": 1.514625,
-        "p99_ms": 2.158375,
-        "max_ms": 16.815292
+        "mean_ms": 1.2838867093333333,
+        "p50_ms": 1.10125,
+        "p90_ms": 1.534416,
+        "p95_ms": 2.01825,
+        "p99_ms": 3.600084,
+        "max_ms": 77.707125,
+        "client": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 1.2838867093333333,
+          "p50_ms": 1.10125,
+          "p90_ms": 1.534416,
+          "p95_ms": 2.01825,
+          "p99_ms": 3.600084,
+          "max_ms": 77.707125
+        },
+        "server": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 0.10333333333333333,
+          "p50_ms": 0.0,
+          "p90_ms": 0.0,
+          "p95_ms": 0.0,
+          "p99_ms": 1.0,
+          "max_ms": 76.0
+        },
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond"
       },
       "run_file": "runs/bench_beir_scifact_test.elasticsearch_vector.run"
     },
@@ -155,13 +204,14 @@
       "dataset_id": "beir/scifact/test",
       "track": "hybrid",
       "run_tag": "elasticsearch_hybrid",
+      "vector_profile": "equal-precision",
       "setup": "BM25 match fused with dense_vector kNN via the RRF retriever",
       "queries": 300,
       "judged_queries": 300,
       "metrics": {
         "ndcg_cut_10": 0.705330531832667,
         "recall_100": 0.9610000000000001,
-        "map": 0.6587118978302187,
+        "map": 0.6587121163807913,
         "recip_rank": 0.6643168549517746
       },
       "calibration": null,
@@ -169,18 +219,19 @@
         "fusion": "RRF retriever (rank_constant=60)",
         "vector_knob": "num_candidates",
         "vector_value": 64,
-        "vector_ef_from_vector_track": true
+        "vector_ef_from_vector_track": true,
+        "rescore_oversample": null
       },
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 3.748678752000046,
-        "ingest_docs_per_sec": 1382.6204758769193,
-        "index_size_bytes": 15147976,
+        "build_seconds": 3.6810330429999993,
+        "ingest_docs_per_sec": 1408.0286537650625,
+        "index_size_bytes": 15148232,
         "raw_stats": {
-          "index_size_bytes": 15147976,
+          "index_size_bytes": 15148232,
           "raw": {
-            "size_in_bytes": 15147976,
-            "total_data_set_size_in_bytes": 15147976,
+            "size_in_bytes": 15148232,
+            "total_data_set_size_in_bytes": 15148232,
             "reserved_in_bytes": 0
           }
         }
@@ -188,177 +239,36 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 2.560937994,
-        "p50_ms": 1.92525,
-        "p90_ms": 3.931417,
-        "p95_ms": 5.112958,
-        "p99_ms": 10.750708,
-        "max_ms": 108.783583
+        "mean_ms": 1.955325776,
+        "p50_ms": 1.727083,
+        "p90_ms": 2.630583,
+        "p95_ms": 3.133667,
+        "p99_ms": 4.904292,
+        "max_ms": 42.862041,
+        "client": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 1.955325776,
+          "p50_ms": 1.727083,
+          "p90_ms": 2.630583,
+          "p95_ms": 3.133667,
+          "p99_ms": 4.904292,
+          "max_ms": 42.862041
+        },
+        "server": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 0.5693333333333334,
+          "p50_ms": 0.0,
+          "p90_ms": 1.0,
+          "p95_ms": 2.0,
+          "p99_ms": 3.0,
+          "max_ms": 41.0
+        },
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond"
       },
       "run_file": "runs/bench_beir_scifact_test.elasticsearch_hybrid.run"
-    },
-    {
-      "dataset_id": "beir/nfcorpus/test",
-      "track": "keyword",
-      "run_tag": "elasticsearch_bm25",
-      "setup": "BM25 k1=0.9 b=0.4 (custom default similarity); Elasticsearch `english` analyzer (Porter stemmer, English stop words)",
-      "queries": 323,
-      "judged_queries": 323,
-      "metrics": {
-        "ndcg_cut_10": 0.3205549311607387,
-        "recall_100": 0.24567990783971763,
-        "map": 0.1502679707391434,
-        "recip_rank": 0.5255303093599589
-      },
-      "calibration": {
-        "baseline_ndcg10": 0.322,
-        "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
-        "margin": 0.02,
-        "delta": -0.001445068839261321,
-        "within_margin": true
-      },
-      "operating_point": null,
-      "operational": {
-        "documents_indexed": 3633,
-        "build_seconds": 0.3562022920000345,
-        "ingest_docs_per_sec": 10199.260593190254,
-        "index_size_bytes": 5106002,
-        "raw_stats": {
-          "index_size_bytes": 5106002,
-          "raw": {
-            "size_in_bytes": 5106002,
-            "total_data_set_size_in_bytes": 5106002,
-            "reserved_in_bytes": 0
-          }
-        }
-      },
-      "latency": {
-        "samples": 1615,
-        "top_k": 10,
-        "mean_ms": 0.6315652712074303,
-        "p50_ms": 0.5805,
-        "p90_ms": 0.692208,
-        "p95_ms": 0.762334,
-        "p99_ms": 1.445917,
-        "max_ms": 21.080458
-      },
-      "run_file": "runs/bench_beir_nfcorpus_test.elasticsearch_bm25.run"
-    },
-    {
-      "dataset_id": "beir/nfcorpus/test",
-      "track": "vector",
-      "run_tag": "elasticsearch_vector",
-      "setup": "dense_vector HNSW, similarity cosine, over the shared precomputed vectors",
-      "queries": 323,
-      "judged_queries": 323,
-      "metrics": {
-        "ndcg_cut_10": 0.31453393519371436,
-        "recall_100": 0.3094260094121505,
-        "map": 0.15745288100672242,
-        "recip_rank": 0.5168401333752117
-      },
-      "calibration": null,
-      "operating_point": {
-        "knob": "num_candidates",
-        "recall_metric": "ann_recall@10",
-        "recall_k": 10,
-        "target": 0.99,
-        "chosen_value": 128,
-        "achieved_recall": 0.9931888544891643,
-        "met_target": true,
-        "secondary_target": 0.95,
-        "secondary_value": 32,
-        "secondary_recall": 0.9526315789473684,
-        "sweep": [
-          {
-            "value": 16,
-            "recall": 0.892569659442725
-          },
-          {
-            "value": 32,
-            "recall": 0.9526315789473684
-          },
-          {
-            "value": 64,
-            "recall": 0.9835913312693502
-          },
-          {
-            "value": 128,
-            "recall": 0.9931888544891643
-          }
-        ]
-      },
-      "operational": {
-        "documents_indexed": 3633,
-        "build_seconds": 2.8635511260000612,
-        "ingest_docs_per_sec": 1268.7044303185673,
-        "index_size_bytes": 10809480,
-        "raw_stats": {
-          "index_size_bytes": 10809480,
-          "raw": {
-            "size_in_bytes": 10809480,
-            "total_data_set_size_in_bytes": 10809480,
-            "reserved_in_bytes": 0
-          }
-        }
-      },
-      "latency": {
-        "samples": 1615,
-        "top_k": 10,
-        "mean_ms": 1.15487560123839,
-        "p50_ms": 1.09075,
-        "p90_ms": 1.370875,
-        "p95_ms": 1.585834,
-        "p99_ms": 2.089667,
-        "max_ms": 3.150167
-      },
-      "run_file": "runs/bench_beir_nfcorpus_test.elasticsearch_vector.run"
-    },
-    {
-      "dataset_id": "beir/nfcorpus/test",
-      "track": "hybrid",
-      "run_tag": "elasticsearch_hybrid",
-      "setup": "BM25 match fused with dense_vector kNN via the RRF retriever",
-      "queries": 323,
-      "judged_queries": 323,
-      "metrics": {
-        "ndcg_cut_10": 0.35171048496476787,
-        "recall_100": 0.321314329473915,
-        "map": 0.18671936104121342,
-        "recip_rank": 0.5632852708691976
-      },
-      "calibration": null,
-      "operating_point": {
-        "fusion": "RRF retriever (rank_constant=60)",
-        "vector_knob": "num_candidates",
-        "vector_value": 128,
-        "vector_ef_from_vector_track": true
-      },
-      "operational": {
-        "documents_indexed": 3633,
-        "build_seconds": 2.3067960009999524,
-        "ingest_docs_per_sec": 1574.9116950199166,
-        "index_size_bytes": 10810952,
-        "raw_stats": {
-          "index_size_bytes": 10810952,
-          "raw": {
-            "size_in_bytes": 10810952,
-            "total_data_set_size_in_bytes": 10810952,
-            "reserved_in_bytes": 0
-          }
-        }
-      },
-      "latency": {
-        "samples": 1615,
-        "top_k": 10,
-        "mean_ms": 1.4995643919504642,
-        "p50_ms": 1.391375,
-        "p90_ms": 1.823791,
-        "p95_ms": 2.072708,
-        "p99_ms": 2.837083,
-        "max_ms": 20.984042
-      },
-      "run_file": "runs/bench_beir_nfcorpus_test.elasticsearch_hybrid.run"
     }
   ]
 }

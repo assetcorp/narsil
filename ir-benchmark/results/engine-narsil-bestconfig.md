@@ -1,20 +1,20 @@
-# qdrant retrieval (vector, hybrid)
+# narsil retrieval (keyword, vector, hybrid, best-config vector profile)
 
 ## Environment
 
-- Captured: 2026-06-29T14:23:51.636972+00:00
+- Captured: 2026-06-29T14:09:36.128776+00:00
 - OS / arch: Linux 6.12.76-linuxkit / aarch64 (containerized: True)
 - CPU: aarch64 (7 logical)
 - Memory: 9.4 GB
 - Memory cap per engine: 8.6 GB
-- Tracks: vector, hybrid
-- Keyword setup: None
-- Run depth: 1000; run tag: qdrant
+- Tracks: keyword, vector, hybrid
+- Keyword setup: BM25 k1=0.9 b=0.4; Narsil english analyzer (Porter stemmer, 70-word stop list)
+- Run depth: 1000; run tag: narsil_bm25
 
 ## Vector track
 
 - Embedding model: sentence-transformers/all-MiniLM-L6-v2 (384 dim, cosine)
-- Index setup: HNSW dense vectors, distance Cosine, over the shared precomputed vectors
+- Index setup: HNSW over the shared precomputed vectors, SQ8 scalar quantization with full-precision rerank, cosine
 - Operating point: search knob tuned to ann_recall@10 >= 0.99 against exact kNN over the same vectors
 
 Retrieval quality vs human judgements:
@@ -27,7 +27,7 @@ Recall operating point (latency below is measured here, the matched-recall rule 
 
 | Dataset | Knob | Value | ANN recall@k | Target met | Secondary value | Secondary recall |
 |---|---|---|---|---|---|---|
-| beir/scifact/test | hnsw_ef | 64 | 0.9977 | yes | 16 | 0.9597 |
+| beir/scifact/test | efSearch | 64 | 0.9967 | yes | 16 | 0.9603 |
 
 Latency is measured at the operating point.
 
@@ -35,41 +35,41 @@ Operational metrics. Latency below is the engine's own reported query time (serv
 
 | Dataset | Docs | Ingest docs/s | Build s | Index size | Server p50 ms | Server p95 ms | Server p99 ms |
 |---|---|---|---|---|---|---|---|
-| beir/scifact/test | 5183 | 1488 | 3.48 | n/a | 0.25 | 0.34 | 0.41 |
+| beir/scifact/test | 5183 | 567 | 9.14 | 37.8 MB | 0.33 | 0.60 | 1.32 |
 
 Client round-trip latency (wall-clock around the HTTP call, includes transport and JSON), measured over the same queries and repeats:
 
 | Dataset | Client p50 ms | Client p95 ms | Client p99 ms |
 |---|---|---|---|
-| beir/scifact/test | 0.73 | 0.93 | 1.13 |
+| beir/scifact/test | 2.49 | 3.10 | 4.15 |
 
 Server-side time source per dataset:
 
-- beir/scifact/test: top-level `time` field (seconds, converted to ms) (floating-millisecond resolution)
+- beir/scifact/test: response `elapsed` field (floating-millisecond resolution)
 
 ## Hybrid track
 
-- Setup: Dense HNSW fused with BM25 sparse vectors (fastembed Qdrant/bm25, server IDF) via RRF
-- Fusion: RRF (Query API fusion)
+- Setup: BM25 (text) fused with SQ8-quantized HNSW vector search (full-precision rerank) via Reciprocal Rank Fusion
+- Fusion: RRF (k=60)
 
 Retrieval quality vs human judgements:
 
 | Dataset | nDCG@10 | Recall@100 | MAP | MRR |
 |---|---|---|---|---|
-| beir/scifact/test | 0.7155 | 0.9577 | 0.6730 | 0.6762 |
+| beir/scifact/test | 0.7015 | 0.9643 | 0.6532 | 0.6596 |
 
 Operational metrics. Latency below is the engine's own reported query time (server-side); the client round-trip is reported separately underneath.
 
 | Dataset | Docs | Ingest docs/s | Build s | Index size | Server p50 ms | Server p95 ms | Server p99 ms |
 |---|---|---|---|---|---|---|---|
-| beir/scifact/test | 5183 | 1761 | 2.94 | n/a | 0.28 | 0.35 | 0.48 |
+| beir/scifact/test | 5183 | 574 | 9.04 | 37.8 MB | 1.12 | 2.01 | 2.99 |
 
 Client round-trip latency (wall-clock around the HTTP call, includes transport and JSON), measured over the same queries and repeats:
 
 | Dataset | Client p50 ms | Client p95 ms | Client p99 ms |
 |---|---|---|---|
-| beir/scifact/test | 0.82 | 1.03 | 1.37 |
+| beir/scifact/test | 3.34 | 4.46 | 6.46 |
 
 Server-side time source per dataset:
 
-- beir/scifact/test: top-level `time` field (seconds, converted to ms) (floating-millisecond resolution)
+- beir/scifact/test: response `elapsed` field (floating-millisecond resolution)
