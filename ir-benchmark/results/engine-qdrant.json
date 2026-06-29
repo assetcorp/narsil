@@ -1,9 +1,9 @@
 {
   "environment": {
-    "captured_at": "2026-06-29T10:39:54.297689+00:00",
+    "captured_at": "2026-06-29T14:23:51.636972+00:00",
     "harness_version": "0.3.0",
     "containerized": true,
-    "machine_label": "Apple M3 Pro, macOS 26.5.1",
+    "machine_label": "",
     "os": "Linux 6.12.76-linuxkit",
     "arch": "aarch64",
     "cpu_model": null,
@@ -23,7 +23,8 @@
       "vector",
       "hybrid"
     ],
-    "keyword_setup": null
+    "keyword_setup": null,
+    "vector_profile": "equal-precision"
   },
   "config": {
     "k1": 0.9,
@@ -34,13 +35,15 @@
     "vector_dims": 384,
     "vector_metric": "cosine",
     "recall_target": 0.99,
-    "recall_k": 10
+    "recall_k": 10,
+    "vector_profile": "equal-precision"
   },
   "datasets": [
     {
       "dataset_id": "beir/scifact/test",
       "track": "vector",
       "run_tag": "qdrant_vector",
+      "vector_profile": "equal-precision",
       "setup": "HNSW dense vectors, distance Cosine, over the shared precomputed vectors",
       "queries": 300,
       "judged_queries": 300,
@@ -57,30 +60,30 @@
         "recall_k": 10,
         "target": 0.99,
         "chosen_value": 64,
-        "achieved_recall": 0.9970000000000001,
+        "achieved_recall": 0.9976666666666665,
         "met_target": true,
         "secondary_target": 0.95,
         "secondary_value": 16,
-        "secondary_recall": 0.9600000000000005,
+        "secondary_recall": 0.9596666666666676,
         "sweep": [
           {
             "value": 16,
-            "recall": 0.9600000000000005
+            "recall": 0.9596666666666676
           },
           {
             "value": 32,
-            "recall": 0.9893333333333332
+            "recall": 0.9870000000000002
           },
           {
             "value": 64,
-            "recall": 0.9970000000000001
+            "recall": 0.9976666666666665
           }
         ]
       },
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 3.3549357929999815,
-        "ingest_docs_per_sec": 1544.88798587867,
+        "build_seconds": 3.483691584999633,
+        "ingest_docs_per_sec": 1487.7895684903306,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
@@ -148,12 +151,34 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 0.8721478393333334,
-        "p50_ms": 0.764,
-        "p90_ms": 0.936,
-        "p95_ms": 1.019542,
-        "p99_ms": 1.480459,
-        "max_ms": 37.863167
+        "mean_ms": 0.7567703920000001,
+        "p50_ms": 0.730459,
+        "p90_ms": 0.865917,
+        "p95_ms": 0.933125,
+        "p99_ms": 1.12575,
+        "max_ms": 1.606083,
+        "client": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 0.7567703920000001,
+          "p50_ms": 0.730459,
+          "p90_ms": 0.865917,
+          "p95_ms": 0.933125,
+          "p99_ms": 1.12575,
+          "max_ms": 1.606083
+        },
+        "server": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 0.2554734026666667,
+          "p50_ms": 0.24575,
+          "p90_ms": 0.301916,
+          "p95_ms": 0.344167,
+          "p99_ms": 0.412084,
+          "max_ms": 0.541834
+        },
+        "server_time_source": "top-level `time` field (seconds, converted to ms)",
+        "server_time_resolution": "floating-millisecond"
       },
       "run_file": "runs/bench_beir_scifact_test.qdrant_vector.run"
     },
@@ -161,6 +186,7 @@
       "dataset_id": "beir/scifact/test",
       "track": "hybrid",
       "run_tag": "qdrant_hybrid",
+      "vector_profile": "equal-precision",
       "setup": "Dense HNSW fused with BM25 sparse vectors (fastembed Qdrant/bm25, server IDF) via RRF",
       "queries": 300,
       "judged_queries": 300,
@@ -179,8 +205,8 @@
       },
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 3.1042765009999584,
-        "ingest_docs_per_sec": 1669.632198784624,
+        "build_seconds": 2.9424658350003483,
+        "ingest_docs_per_sec": 1761.4478096393552,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
@@ -248,238 +274,36 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 0.8633252733333334,
-        "p50_ms": 0.810459,
-        "p90_ms": 0.981917,
-        "p95_ms": 1.093041,
-        "p99_ms": 1.46275,
-        "max_ms": 20.193666
+        "mean_ms": 0.8511001313333333,
+        "p50_ms": 0.821208,
+        "p90_ms": 0.953958,
+        "p95_ms": 1.027417,
+        "p99_ms": 1.374125,
+        "max_ms": 2.900166,
+        "client": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 0.8511001313333333,
+          "p50_ms": 0.821208,
+          "p90_ms": 0.953958,
+          "p95_ms": 1.027417,
+          "p99_ms": 1.374125,
+          "max_ms": 2.900166
+        },
+        "server": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 0.287843284,
+          "p50_ms": 0.28049999999999997,
+          "p90_ms": 0.323916,
+          "p95_ms": 0.351375,
+          "p99_ms": 0.48070799999999997,
+          "max_ms": 1.24525
+        },
+        "server_time_source": "top-level `time` field (seconds, converted to ms)",
+        "server_time_resolution": "floating-millisecond"
       },
       "run_file": "runs/bench_beir_scifact_test.qdrant_hybrid.run"
-    },
-    {
-      "dataset_id": "beir/nfcorpus/test",
-      "track": "vector",
-      "run_tag": "qdrant_vector",
-      "setup": "HNSW dense vectors, distance Cosine, over the shared precomputed vectors",
-      "queries": 323,
-      "judged_queries": 323,
-      "metrics": {
-        "ndcg_cut_10": 0.31453393519371436,
-        "recall_100": 0.3094260094121505,
-        "map": 0.15745329723767204,
-        "recip_rank": 0.5168401333752117
-      },
-      "calibration": null,
-      "operating_point": {
-        "knob": "hnsw_ef",
-        "recall_metric": "ann_recall@10",
-        "recall_k": 10,
-        "target": 0.99,
-        "chosen_value": 128,
-        "achieved_recall": 0.9978328173374612,
-        "met_target": true,
-        "secondary_target": 0.95,
-        "secondary_value": 32,
-        "secondary_recall": 0.9708978328173377,
-        "sweep": [
-          {
-            "value": 16,
-            "recall": 0.9315789473684213
-          },
-          {
-            "value": 32,
-            "recall": 0.9708978328173377
-          },
-          {
-            "value": 64,
-            "recall": 0.9879256965944275
-          },
-          {
-            "value": 128,
-            "recall": 0.9978328173374612
-          }
-        ]
-      },
-      "operational": {
-        "documents_indexed": 3633,
-        "build_seconds": 2.5787202100000286,
-        "ingest_docs_per_sec": 1408.8383787863359,
-        "index_size_bytes": null,
-        "raw_stats": {
-          "index_size_bytes": null,
-          "raw": {
-            "status": "green",
-            "optimizer_status": "ok",
-            "indexed_vectors_count": 7266,
-            "points_count": 3633,
-            "segments_count": 3,
-            "config": {
-              "params": {
-                "vectors": {
-                  "dense": {
-                    "size": 384,
-                    "distance": "Cosine",
-                    "hnsw_config": {
-                      "m": 16,
-                      "ef_construct": 200,
-                      "full_scan_threshold": 10
-                    }
-                  }
-                },
-                "shard_number": 1,
-                "replication_factor": 1,
-                "write_consistency_factor": 1,
-                "on_disk_payload": true,
-                "sparse_vectors": {
-                  "text": {
-                    "modifier": "idf"
-                  }
-                }
-              },
-              "hnsw_config": {
-                "m": 16,
-                "ef_construct": 100,
-                "full_scan_threshold": 10000,
-                "max_indexing_threads": 0,
-                "on_disk": false
-              },
-              "optimizer_config": {
-                "deleted_threshold": 0.2,
-                "vacuum_min_vector_number": 1000,
-                "default_segment_number": 0,
-                "max_segment_size": null,
-                "memmap_threshold": null,
-                "indexing_threshold": 100,
-                "flush_interval_sec": 5,
-                "max_optimization_threads": null,
-                "prevent_unoptimized": null
-              },
-              "wal_config": {
-                "wal_capacity_mb": 32,
-                "wal_segments_ahead": 0,
-                "wal_retain_closed": 1
-              },
-              "quantization_config": null
-            },
-            "payload_schema": {},
-            "update_queue": {
-              "length": 0
-            }
-          }
-        }
-      },
-      "latency": {
-        "samples": 1615,
-        "top_k": 10,
-        "mean_ms": 0.8669674829721362,
-        "p50_ms": 0.792333,
-        "p90_ms": 1.011625,
-        "p95_ms": 1.155,
-        "p99_ms": 1.614625,
-        "max_ms": 26.828208
-      },
-      "run_file": "runs/bench_beir_nfcorpus_test.qdrant_vector.run"
-    },
-    {
-      "dataset_id": "beir/nfcorpus/test",
-      "track": "hybrid",
-      "run_tag": "qdrant_hybrid",
-      "setup": "Dense HNSW fused with BM25 sparse vectors (fastembed Qdrant/bm25, server IDF) via RRF",
-      "queries": 323,
-      "judged_queries": 323,
-      "metrics": {
-        "ndcg_cut_10": 0.3504370063268428,
-        "recall_100": 0.32380662801952037,
-        "map": 0.18221837416313402,
-        "recip_rank": 0.5634177982549521
-      },
-      "calibration": null,
-      "operating_point": {
-        "fusion": "RRF (Query API fusion)",
-        "vector_knob": "hnsw_ef",
-        "vector_value": 128,
-        "vector_ef_from_vector_track": true
-      },
-      "operational": {
-        "documents_indexed": 3633,
-        "build_seconds": 2.3667127089998985,
-        "ingest_docs_per_sec": 1535.0405590779103,
-        "index_size_bytes": null,
-        "raw_stats": {
-          "index_size_bytes": null,
-          "raw": {
-            "status": "green",
-            "optimizer_status": "ok",
-            "indexed_vectors_count": 7266,
-            "points_count": 3633,
-            "segments_count": 3,
-            "config": {
-              "params": {
-                "vectors": {
-                  "dense": {
-                    "size": 384,
-                    "distance": "Cosine",
-                    "hnsw_config": {
-                      "m": 16,
-                      "ef_construct": 200,
-                      "full_scan_threshold": 10
-                    }
-                  }
-                },
-                "shard_number": 1,
-                "replication_factor": 1,
-                "write_consistency_factor": 1,
-                "on_disk_payload": true,
-                "sparse_vectors": {
-                  "text": {
-                    "modifier": "idf"
-                  }
-                }
-              },
-              "hnsw_config": {
-                "m": 16,
-                "ef_construct": 100,
-                "full_scan_threshold": 10000,
-                "max_indexing_threads": 0,
-                "on_disk": false
-              },
-              "optimizer_config": {
-                "deleted_threshold": 0.2,
-                "vacuum_min_vector_number": 1000,
-                "default_segment_number": 0,
-                "max_segment_size": null,
-                "memmap_threshold": null,
-                "indexing_threshold": 100,
-                "flush_interval_sec": 5,
-                "max_optimization_threads": null,
-                "prevent_unoptimized": null
-              },
-              "wal_config": {
-                "wal_capacity_mb": 32,
-                "wal_segments_ahead": 0,
-                "wal_retain_closed": 1
-              },
-              "quantization_config": null
-            },
-            "payload_schema": {},
-            "update_queue": {
-              "length": 0
-            }
-          }
-        }
-      },
-      "latency": {
-        "samples": 1615,
-        "top_k": 10,
-        "mean_ms": 1.0170203034055727,
-        "p50_ms": 0.892458,
-        "p90_ms": 1.2485,
-        "p95_ms": 1.565375,
-        "p99_ms": 2.759584,
-        "max_ms": 12.38975
-      },
-      "run_file": "runs/bench_beir_nfcorpus_test.qdrant_hybrid.run"
     }
   ]
 }

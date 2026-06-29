@@ -1,0 +1,225 @@
+{
+  "environment": {
+    "captured_at": "2026-06-29T14:54:05.362552+00:00",
+    "harness_version": "0.3.0",
+    "containerized": true,
+    "machine_label": "",
+    "os": "Linux 6.12.76-linuxkit",
+    "arch": "aarch64",
+    "cpu_model": null,
+    "logical_cpus": 7,
+    "total_memory_bytes": 9364418560,
+    "python_version": "3.12.13",
+    "ir_datasets_version": "0.6.1",
+    "pytrec_eval_version": "0.5.10"
+  },
+  "engine": {
+    "name": "elasticsearch",
+    "run_tag": "elasticsearch_bm25",
+    "ranking": "bm25",
+    "url": "http://elasticsearch:9200",
+    "version": "9.4.2",
+    "tracks": [
+      "keyword",
+      "vector",
+      "hybrid"
+    ],
+    "keyword_setup": "BM25 k1=0.9 b=0.4 (custom default similarity); Elasticsearch `english` analyzer (Porter stemmer, English stop words)",
+    "vector_profile": "best-config"
+  },
+  "config": {
+    "k1": 0.9,
+    "b": 0.4,
+    "run_depth": 1000,
+    "memory_cap_bytes": 8589934592,
+    "vector_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "vector_dims": 384,
+    "vector_metric": "cosine",
+    "recall_target": 0.99,
+    "recall_k": 10,
+    "vector_profile": "best-config"
+  },
+  "datasets": [
+    {
+      "dataset_id": "beir/scifact/test",
+      "track": "vector",
+      "run_tag": "elasticsearch_vector_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "dense_vector BBQ (bbq_hnsw, binary quantization) with full-precision rescore (oversample tuned to the recall target), similarity cosine",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.6238596288000929,
+        "recall_100": 0.9226666666666667,
+        "map": 0.5797156406807212,
+        "recip_rank": 0.5848884643178871
+      },
+      "calibration": null,
+      "operating_point": {
+        "knob": "num_candidates",
+        "recall_metric": "ann_recall@10",
+        "recall_k": 10,
+        "target": 0.99,
+        "chosen_value": 512,
+        "rescore_oversample": 8.0,
+        "achieved_recall": 0.996,
+        "met_target": true,
+        "secondary_target": 0.95,
+        "secondary_value": 128,
+        "secondary_recall": 0.9506666666666672,
+        "sweep": [
+          {
+            "value": 16,
+            "recall": 0.9416666666666672
+          },
+          {
+            "value": 32,
+            "recall": 0.9426666666666673
+          },
+          {
+            "value": 64,
+            "recall": 0.9493333333333339
+          },
+          {
+            "value": 128,
+            "recall": 0.9506666666666672
+          },
+          {
+            "value": 256,
+            "recall": 0.9510000000000006
+          },
+          {
+            "value": 512,
+            "recall": 0.951333333333334
+          },
+          {
+            "value": 1024,
+            "recall": 0.951333333333334
+          },
+          {
+            "value": 2048,
+            "recall": 0.951333333333334
+          }
+        ]
+      },
+      "vector_oversample": 8.0,
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 3.344671918000003,
+        "ingest_docs_per_sec": 1549.6288207242917,
+        "index_size_bytes": 15487052,
+        "raw_stats": {
+          "index_size_bytes": 15487052,
+          "raw": {
+            "size_in_bytes": 15487052,
+            "total_data_set_size_in_bytes": 15487052,
+            "reserved_in_bytes": 0
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "top_k": 10,
+        "mean_ms": 1.7558636380000001,
+        "p50_ms": 1.224083,
+        "p90_ms": 2.2395,
+        "p95_ms": 3.660917,
+        "p99_ms": 9.540459,
+        "max_ms": 77.565583,
+        "client": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 1.7558636380000001,
+          "p50_ms": 1.224083,
+          "p90_ms": 2.2395,
+          "p95_ms": 3.660917,
+          "p99_ms": 9.540459,
+          "max_ms": 77.565583
+        },
+        "server": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 0.33266666666666667,
+          "p50_ms": 0.0,
+          "p90_ms": 1.0,
+          "p95_ms": 1.0,
+          "p99_ms": 5.0,
+          "max_ms": 65.0
+        },
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond"
+      },
+      "run_file": "runs/bench_beir_scifact_test.elasticsearch_vector_bestconfig.run"
+    },
+    {
+      "dataset_id": "beir/scifact/test",
+      "track": "hybrid",
+      "run_tag": "elasticsearch_hybrid_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "BM25 match fused with BBQ dense_vector kNN (full-precision rescore) via the RRF retriever",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.705330531832667,
+        "recall_100": 0.9610000000000001,
+        "map": 0.6587118978302187,
+        "recip_rank": 0.6643168549517746
+      },
+      "calibration": null,
+      "operating_point": {
+        "fusion": "RRF retriever (rank_constant=60)",
+        "vector_knob": "num_candidates",
+        "vector_value": 512,
+        "vector_ef_from_vector_track": true,
+        "rescore_oversample": 8.0
+      },
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 3.5040161259999962,
+        "ingest_docs_per_sec": 1479.159859323092,
+        "index_size_bytes": 15486988,
+        "raw_stats": {
+          "index_size_bytes": 15486988,
+          "raw": {
+            "size_in_bytes": 15486988,
+            "total_data_set_size_in_bytes": 15486988,
+            "reserved_in_bytes": 0
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "top_k": 10,
+        "mean_ms": 1.5967934506666668,
+        "p50_ms": 1.541625,
+        "p90_ms": 1.83125,
+        "p95_ms": 1.994334,
+        "p99_ms": 2.927375,
+        "max_ms": 8.774791,
+        "client": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 1.5967934506666668,
+          "p50_ms": 1.541625,
+          "p90_ms": 1.83125,
+          "p95_ms": 1.994334,
+          "p99_ms": 2.927375,
+          "max_ms": 8.774791
+        },
+        "server": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 0.29,
+          "p50_ms": 0.0,
+          "p90_ms": 1.0,
+          "p95_ms": 1.0,
+          "p99_ms": 1.0,
+          "max_ms": 2.0
+        },
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond"
+      },
+      "run_file": "runs/bench_beir_scifact_test.elasticsearch_hybrid_bestconfig.run"
+    }
+  ]
+}
