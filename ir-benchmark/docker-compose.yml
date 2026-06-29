@@ -1,0 +1,43 @@
+name: narsil-ir-benchmark
+
+services:
+  narsil:
+    build:
+      context: ..
+      dockerfile: ir-benchmark/narsil-server.Dockerfile
+    environment:
+      NARSIL_HOST: "0.0.0.0"
+      NARSIL_PORT: "7700"
+      NARSIL_ALLOW_INSECURE: "true"
+      NARSIL_MAX_BODY_BYTES: "67108864"
+      NARSIL_MAX_IMPORT_BYTES: "268435456"
+    expose:
+      - "7700"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:7700/readyz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  harness:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      narsil:
+        condition: service_healthy
+    environment:
+      NARSIL_URL: "http://narsil:7700"
+      BENCH_MACHINE_LABEL: "${BENCH_MACHINE_LABEL:-}"
+    volumes:
+      - ir_datasets_cache:/data/ir_datasets
+      - ./runs:/app/runs
+      - ./results:/app/results
+
+volumes:
+  ir_datasets_cache:
