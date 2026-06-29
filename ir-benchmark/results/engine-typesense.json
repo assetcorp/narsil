@@ -1,9 +1,9 @@
 {
   "environment": {
-    "captured_at": "2026-06-29T02:27:14.680769+00:00",
+    "captured_at": "2026-06-29T10:41:28.730600+00:00",
     "harness_version": "0.3.0",
     "containerized": true,
-    "machine_label": "",
+    "machine_label": "Apple M3 Pro, macOS 26.5.1",
     "os": "Linux 6.12.76-linuxkit",
     "arch": "aarch64",
     "cpu_model": null,
@@ -37,6 +37,75 @@
   },
   "datasets": [
     {
+      "dataset_id": "beir/scifact/test",
+      "track": "keyword",
+      "run_tag": "typesense_textmatch",
+      "setup": "Native token match/proximity scoring (text_match), not BM25; english locale, Snowball stemming enabled, default typo tolerance",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.3727985427961379,
+        "recall_100": 0.3922777777777777,
+        "map": 0.36592763272179535,
+        "recip_rank": 0.37839985494401757
+      },
+      "calibration": {
+        "baseline_ndcg10": 0.679,
+        "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
+        "margin": 0.02,
+        "delta": -0.30620145720386216,
+        "within_margin": false
+      },
+      "operating_point": null,
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 1.307580583999993,
+        "ingest_docs_per_sec": 3963.809239308824,
+        "index_size_bytes": null,
+        "raw_stats": {
+          "index_size_bytes": null,
+          "raw": {
+            "created_at": 1782729691,
+            "curation_sets": [],
+            "default_sorting_field": "",
+            "enable_nested_fields": false,
+            "fields": [
+              {
+                "facet": false,
+                "index": true,
+                "infix": false,
+                "locale": "en",
+                "name": "text",
+                "optional": false,
+                "sort": false,
+                "stem": true,
+                "stem_dictionary": "",
+                "store": true,
+                "truncate_len": 100,
+                "type": "string"
+              }
+            ],
+            "name": "bench_beir_scifact_test",
+            "num_documents": 5183,
+            "symbols_to_index": [],
+            "synonym_sets": [],
+            "token_separators": []
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "top_k": 10,
+        "mean_ms": 17.613585136666664,
+        "p50_ms": 12.183667,
+        "p90_ms": 42.057667,
+        "p95_ms": 52.739,
+        "p99_ms": 75.099583,
+        "max_ms": 122.047666
+      },
+      "run_file": "runs/bench_beir_scifact_test.typesense_textmatch.run"
+    },
+    {
       "dataset_id": "beir/nfcorpus/test",
       "track": "keyword",
       "run_tag": "typesense_textmatch",
@@ -59,13 +128,13 @@
       "operating_point": null,
       "operational": {
         "documents_indexed": 3633,
-        "build_seconds": 1.4067477090000011,
-        "ingest_docs_per_sec": 2582.5526331104174,
+        "build_seconds": 1.0689491669998006,
+        "ingest_docs_per_sec": 3398.664887121501,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
           "raw": {
-            "created_at": 1782700037,
+            "created_at": 1782729741,
             "curation_sets": [],
             "default_sorting_field": "",
             "enable_nested_fields": false,
@@ -96,12 +165,12 @@
       "latency": {
         "samples": 1615,
         "top_k": 10,
-        "mean_ms": 1.5128424086687307,
-        "p50_ms": 0.623458,
-        "p90_ms": 3.519,
-        "p95_ms": 5.098917,
-        "p99_ms": 10.796625,
-        "max_ms": 23.985375
+        "mean_ms": 1.395327226006192,
+        "p50_ms": 0.599375,
+        "p90_ms": 3.25525,
+        "p95_ms": 4.653416,
+        "p99_ms": 9.751,
+        "max_ms": 19.653459
       },
       "run_file": "runs/bench_beir_nfcorpus_test.typesense_textmatch.run"
     }

@@ -1,9 +1,9 @@
 {
   "environment": {
-    "captured_at": "2026-06-29T02:22:34.554508+00:00",
+    "captured_at": "2026-06-29T10:40:25.851702+00:00",
     "harness_version": "0.3.0",
     "containerized": true,
-    "machine_label": "",
+    "machine_label": "Apple M3 Pro, macOS 26.5.1",
     "os": "Linux 6.12.76-linuxkit",
     "arch": "aarch64",
     "cpu_model": null,
@@ -38,6 +38,328 @@
   },
   "datasets": [
     {
+      "dataset_id": "beir/scifact/test",
+      "track": "vector",
+      "run_tag": "weaviate_vector",
+      "setup": "HNSW dense vectors, distance cosine, over the shared precomputed vectors",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.6238596288000929,
+        "recall_100": 0.9226666666666667,
+        "map": 0.5797156406807212,
+        "recip_rank": 0.5848884643178871
+      },
+      "calibration": null,
+      "operating_point": {
+        "knob": "ef",
+        "recall_metric": "ann_recall@10",
+        "recall_k": 10,
+        "target": 0.99,
+        "chosen_value": 64,
+        "achieved_recall": 0.9949999999999997,
+        "met_target": true,
+        "secondary_target": 0.95,
+        "secondary_value": 32,
+        "secondary_recall": 0.984,
+        "sweep": [
+          {
+            "value": 16,
+            "recall": 0.9480000000000001
+          },
+          {
+            "value": 32,
+            "recall": 0.984
+          },
+          {
+            "value": 64,
+            "recall": 0.9949999999999997
+          }
+        ]
+      },
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 3.54613796000001,
+        "ingest_docs_per_sec": 1461.5900617696175,
+        "index_size_bytes": null,
+        "raw_stats": {
+          "index_size_bytes": null,
+          "raw": {
+            "class": "BenchBeirScifactTest",
+            "invertedIndexConfig": {
+              "bm25": {
+                "b": 0.75,
+                "k1": 1.2
+              },
+              "cleanupIntervalSeconds": 60,
+              "stopwords": {
+                "additions": null,
+                "preset": "en",
+                "removals": null
+              },
+              "usingBlockMaxWAND": true
+            },
+            "multiTenancyConfig": {
+              "autoTenantActivation": false,
+              "autoTenantCreation": false,
+              "enabled": false
+            },
+            "properties": [
+              {
+                "dataType": [
+                  "text"
+                ],
+                "indexFilterable": true,
+                "indexRangeFilters": false,
+                "indexSearchable": false,
+                "name": "docId",
+                "tokenization": "word"
+              },
+              {
+                "dataType": [
+                  "text"
+                ],
+                "indexFilterable": true,
+                "indexRangeFilters": false,
+                "indexSearchable": true,
+                "name": "text",
+                "tokenization": "word"
+              }
+            ],
+            "shardingConfig": {
+              "actualCount": 1,
+              "actualVirtualCount": 128,
+              "desiredCount": 1,
+              "desiredVirtualCount": 128,
+              "function": "murmur3",
+              "key": "_id",
+              "strategy": "hash",
+              "virtualPerPhysical": 128
+            },
+            "vectorIndexConfig": {
+              "bq": {
+                "enabled": false
+              },
+              "cleanupIntervalSeconds": 300,
+              "distance": "cosine",
+              "dynamicEfFactor": 8,
+              "dynamicEfMax": 500,
+              "dynamicEfMin": 100,
+              "ef": 64,
+              "efConstruction": 200,
+              "filterStrategy": "acorn",
+              "flatSearchCutoff": 40000,
+              "maxConnections": 16,
+              "multivector": {
+                "aggregation": "maxSim",
+                "enabled": false,
+                "muvera": {
+                  "dprojections": 16,
+                  "enabled": false,
+                  "ksim": 4,
+                  "repetitions": 10
+                }
+              },
+              "pq": {
+                "bitCompression": false,
+                "centroids": 256,
+                "enabled": false,
+                "encoder": {
+                  "distribution": "log-normal",
+                  "type": "kmeans"
+                },
+                "segments": 0,
+                "trainingLimit": 100000
+              },
+              "rq": {
+                "bits": 8,
+                "enabled": false,
+                "rescoreLimit": 20
+              },
+              "skip": false,
+              "skipDefaultQuantization": false,
+              "sq": {
+                "enabled": false,
+                "rescoreLimit": 20,
+                "trainingLimit": 100000
+              },
+              "trackDefaultQuantization": false,
+              "vectorCacheMaxObjects": 1000000000000
+            },
+            "vectorIndexType": "hnsw",
+            "vectorizer": "none",
+            "replicationConfig": {
+              "deletionStrategy": "TimeBasedResolution",
+              "factor": 1,
+              "asyncEnabled": false
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "top_k": 10,
+        "mean_ms": 2.238906972,
+        "p50_ms": 1.810167,
+        "p90_ms": 2.71675,
+        "p95_ms": 3.700791,
+        "p99_ms": 6.703417,
+        "max_ms": 168.155833
+      },
+      "run_file": "runs/bench_beir_scifact_test.weaviate_vector.run"
+    },
+    {
+      "dataset_id": "beir/scifact/test",
+      "track": "hybrid",
+      "run_tag": "weaviate_hybrid",
+      "setup": "BM25 over text fused with dense vectors via the hybrid operator (rankedFusion, alpha=0.5)",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.6885279880068063,
+        "recall_100": 0.9576666666666667,
+        "map": 0.6405254097219124,
+        "recip_rank": 0.6512826013888465
+      },
+      "calibration": null,
+      "operating_point": {
+        "fusion": "rankedFusion (alpha=0.5)",
+        "vector_knob": "ef",
+        "vector_value": 64,
+        "vector_ef_from_vector_track": true
+      },
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 3.871562711000024,
+        "ingest_docs_per_sec": 1338.7359025010426,
+        "index_size_bytes": null,
+        "raw_stats": {
+          "index_size_bytes": null,
+          "raw": {
+            "class": "BenchBeirScifactTest",
+            "invertedIndexConfig": {
+              "bm25": {
+                "b": 0.75,
+                "k1": 1.2
+              },
+              "cleanupIntervalSeconds": 60,
+              "stopwords": {
+                "additions": null,
+                "preset": "en",
+                "removals": null
+              },
+              "usingBlockMaxWAND": true
+            },
+            "multiTenancyConfig": {
+              "autoTenantActivation": false,
+              "autoTenantCreation": false,
+              "enabled": false
+            },
+            "properties": [
+              {
+                "dataType": [
+                  "text"
+                ],
+                "indexFilterable": true,
+                "indexRangeFilters": false,
+                "indexSearchable": false,
+                "name": "docId",
+                "tokenization": "word"
+              },
+              {
+                "dataType": [
+                  "text"
+                ],
+                "indexFilterable": true,
+                "indexRangeFilters": false,
+                "indexSearchable": true,
+                "name": "text",
+                "tokenization": "word"
+              }
+            ],
+            "shardingConfig": {
+              "actualCount": 1,
+              "actualVirtualCount": 128,
+              "desiredCount": 1,
+              "desiredVirtualCount": 128,
+              "function": "murmur3",
+              "key": "_id",
+              "strategy": "hash",
+              "virtualPerPhysical": 128
+            },
+            "vectorIndexConfig": {
+              "bq": {
+                "enabled": false
+              },
+              "cleanupIntervalSeconds": 300,
+              "distance": "cosine",
+              "dynamicEfFactor": 8,
+              "dynamicEfMax": 500,
+              "dynamicEfMin": 100,
+              "ef": 64,
+              "efConstruction": 200,
+              "filterStrategy": "acorn",
+              "flatSearchCutoff": 40000,
+              "maxConnections": 16,
+              "multivector": {
+                "aggregation": "maxSim",
+                "enabled": false,
+                "muvera": {
+                  "dprojections": 16,
+                  "enabled": false,
+                  "ksim": 4,
+                  "repetitions": 10
+                }
+              },
+              "pq": {
+                "bitCompression": false,
+                "centroids": 256,
+                "enabled": false,
+                "encoder": {
+                  "distribution": "log-normal",
+                  "type": "kmeans"
+                },
+                "segments": 0,
+                "trainingLimit": 100000
+              },
+              "rq": {
+                "bits": 8,
+                "enabled": false,
+                "rescoreLimit": 20
+              },
+              "skip": false,
+              "skipDefaultQuantization": false,
+              "sq": {
+                "enabled": false,
+                "rescoreLimit": 20,
+                "trainingLimit": 100000
+              },
+              "trackDefaultQuantization": false,
+              "vectorCacheMaxObjects": 1000000000000
+            },
+            "vectorIndexType": "hnsw",
+            "vectorizer": "none",
+            "replicationConfig": {
+              "deletionStrategy": "TimeBasedResolution",
+              "factor": 1,
+              "asyncEnabled": false
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "top_k": 10,
+        "mean_ms": 2.835907741333333,
+        "p50_ms": 2.623625,
+        "p90_ms": 3.065875,
+        "p95_ms": 3.993834,
+        "p99_ms": 7.304709,
+        "max_ms": 11.621833
+      },
+      "run_file": "runs/bench_beir_scifact_test.weaviate_hybrid.run"
+    },
+    {
       "dataset_id": "beir/nfcorpus/test",
       "track": "vector",
       "run_tag": "weaviate_vector",
@@ -47,8 +369,8 @@
       "metrics": {
         "ndcg_cut_10": 0.31453393519371436,
         "recall_100": 0.3094260094121505,
-        "map": 0.15745697863316915,
-        "recip_rank": 0.5168401745103769
+        "map": 0.1574510177310732,
+        "recip_rank": 0.5168403748169847
       },
       "calibration": null,
       "operating_point": {
@@ -57,34 +379,34 @@
         "recall_k": 10,
         "target": 0.99,
         "chosen_value": 128,
-        "achieved_recall": 0.9947368421052631,
+        "achieved_recall": 0.9922600619195047,
         "met_target": true,
         "secondary_target": 0.95,
         "secondary_value": 64,
-        "secondary_recall": 0.9798761609907121,
+        "secondary_recall": 0.9755417956656347,
         "sweep": [
           {
             "value": 16,
-            "recall": 0.8752321981424152
+            "recall": 0.8764705882352942
           },
           {
             "value": 32,
-            "recall": 0.9452012383900933
+            "recall": 0.9390092879256969
           },
           {
             "value": 64,
-            "recall": 0.9798761609907121
+            "recall": 0.9755417956656347
           },
           {
             "value": 128,
-            "recall": 0.9947368421052631
+            "recall": 0.9922600619195047
           }
         ]
       },
       "operational": {
         "documents_indexed": 3633,
-        "build_seconds": 2.205281042000024,
-        "ingest_docs_per_sec": 1647.409074312425,
+        "build_seconds": 2.280518710000024,
+        "ingest_docs_per_sec": 1593.0586248073193,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
@@ -203,12 +525,12 @@
       "latency": {
         "samples": 1615,
         "top_k": 10,
-        "mean_ms": 1.7827850866873067,
-        "p50_ms": 1.650333,
-        "p90_ms": 1.903584,
-        "p95_ms": 2.335542,
-        "p99_ms": 4.440916,
-        "max_ms": 7.108959
+        "mean_ms": 1.8202922718266255,
+        "p50_ms": 1.726792,
+        "p90_ms": 1.909583,
+        "p95_ms": 2.101875,
+        "p99_ms": 4.1405,
+        "max_ms": 6.072291
       },
       "run_file": "runs/bench_beir_nfcorpus_test.weaviate_vector.run"
     },
@@ -220,10 +542,10 @@
       "queries": 323,
       "judged_queries": 323,
       "metrics": {
-        "ndcg_cut_10": 0.34253465462891386,
+        "ndcg_cut_10": 0.34313086908628176,
         "recall_100": 0.3179929069375337,
-        "map": 0.18040784260840234,
-        "recip_rank": 0.5584469785212324
+        "map": 0.18118092961110968,
+        "recip_rank": 0.5599953411700201
       },
       "calibration": null,
       "operating_point": {
@@ -234,8 +556,8 @@
       },
       "operational": {
         "documents_indexed": 3633,
-        "build_seconds": 2.088431458999935,
-        "ingest_docs_per_sec": 1739.5830657232564,
+        "build_seconds": 2.1452430429999367,
+        "ingest_docs_per_sec": 1693.5144070760225,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
@@ -354,12 +676,12 @@
       "latency": {
         "samples": 1615,
         "top_k": 10,
-        "mean_ms": 2.3379220191950463,
-        "p50_ms": 2.163375,
-        "p90_ms": 2.580375,
-        "p95_ms": 3.507583,
-        "p99_ms": 5.238542,
-        "max_ms": 7.433917
+        "mean_ms": 2.540043629102167,
+        "p50_ms": 2.255958,
+        "p90_ms": 3.253792,
+        "p95_ms": 4.08375,
+        "p99_ms": 5.998,
+        "max_ms": 51.613333
       },
       "run_file": "runs/bench_beir_nfcorpus_test.weaviate_hybrid.run"
     }
