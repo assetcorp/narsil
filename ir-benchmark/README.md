@@ -16,7 +16,7 @@ reads directly against an authoritative number. Both datasets land inside a ±0.
 absolute nDCG@10 margin:
 
 | Dataset | Narsil nDCG@10 | Published BM25 | Delta | Recall@100 |
-|---|---|---|---|---|
+| ------- | --------------- | --------------- | ----- | ---------- |
 | SciFact | 0.6614 | 0.679 | −0.0176 | 0.910 |
 | NFCorpus | 0.3112 | 0.322 | −0.0108 | 0.236 |
 
@@ -51,7 +51,7 @@ Loaded through `ir_datasets` ([ir-datasets.com](https://ir-datasets.com/beir.htm
 which downloads fixed, hash-verified corpora, queries, and relevance judgements.
 
 | Dataset | ir_datasets id | Documents | Test queries | Judgements |
-|---|---|---|---|---|
+| ------- | --------------- | --------------- | ----- | ---------- |
 | SciFact | `beir/scifact/test` | 5,183 | 300 | binary |
 | NFCorpus | `beir/nfcorpus/test` | 3,633 | 323 | graded (0–2) |
 
