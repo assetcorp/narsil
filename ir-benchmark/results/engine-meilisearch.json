@@ -1,9 +1,9 @@
 {
   "environment": {
-    "captured_at": "2026-06-29T02:27:26.159181+00:00",
+    "captured_at": "2026-06-29T10:42:28.834615+00:00",
     "harness_version": "0.3.0",
     "containerized": true,
-    "machine_label": "",
+    "machine_label": "Apple M3 Pro, macOS 26.5.1",
     "os": "Linux 6.12.76-linuxkit",
     "arch": "aarch64",
     "cpu_model": null,
@@ -37,6 +37,60 @@
   },
   "datasets": [
     {
+      "dataset_id": "beir/scifact/test",
+      "track": "keyword",
+      "run_tag": "meilisearch_rankrules",
+      "setup": "Bucket-sort ranking rules (words, typo, proximity, attribute, sort, exactness), not BM25; _rankingScore for ordering; default typo tolerance and prefix search; no stemming or stop-word removal",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.37483418326603796,
+        "recall_100": 0.5301666666666667,
+        "map": 0.3467324477146494,
+        "recip_rank": 0.35335127625580887
+      },
+      "calibration": {
+        "baseline_ndcg10": 0.679,
+        "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
+        "margin": 0.02,
+        "delta": -0.3041658167339621,
+        "within_margin": false
+      },
+      "operating_point": null,
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 2.935238292999884,
+        "ingest_docs_per_sec": 1765.7850854428755,
+        "index_size_bytes": null,
+        "raw_stats": {
+          "index_size_bytes": null,
+          "raw": {
+            "numberOfDocuments": 5183,
+            "rawDocumentDbSize": 15044608,
+            "avgDocumentSize": 2894,
+            "isIndexing": false,
+            "numberOfEmbeddings": 0,
+            "numberOfEmbeddedDocuments": 0,
+            "fieldDistribution": {
+              "id": 5183,
+              "text": 5183
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "top_k": 10,
+        "mean_ms": 1.585041586,
+        "p50_ms": 1.433125,
+        "p90_ms": 2.435917,
+        "p95_ms": 3.189917,
+        "p99_ms": 3.993291,
+        "max_ms": 5.008667
+      },
+      "run_file": "runs/bench_beir_scifact_test.meilisearch_rankrules.run"
+    },
+    {
       "dataset_id": "beir/nfcorpus/test",
       "track": "keyword",
       "run_tag": "meilisearch_rankrules",
@@ -59,8 +113,8 @@
       "operating_point": null,
       "operational": {
         "documents_indexed": 3633,
-        "build_seconds": 1.8951431680000042,
-        "ingest_docs_per_sec": 1917.005565249196,
+        "build_seconds": 1.9002889580001465,
+        "ingest_docs_per_sec": 1911.8145083700053,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
@@ -81,12 +135,12 @@
       "latency": {
         "samples": 1615,
         "top_k": 10,
-        "mean_ms": 0.9546417151702786,
-        "p50_ms": 0.869333,
-        "p90_ms": 1.396292,
-        "p95_ms": 1.651709,
-        "p99_ms": 2.089458,
-        "max_ms": 3.07075
+        "mean_ms": 0.9326733721362229,
+        "p50_ms": 0.850708,
+        "p90_ms": 1.360208,
+        "p95_ms": 1.573459,
+        "p99_ms": 2.027167,
+        "max_ms": 2.66875
       },
       "run_file": "runs/bench_beir_nfcorpus_test.meilisearch_rankrules.run"
     }

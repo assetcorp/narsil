@@ -2,7 +2,8 @@
 
 ## Environment
 
-- Captured: 2026-06-29T02:25:51.931223+00:00
+- Captured: 2026-06-29T10:38:11.376386+00:00
+- Machine: Apple M3 Pro, macOS 26.5.1
 - OS / arch: Linux 6.12.76-linuxkit / aarch64 (containerized: True)
 - CPU: aarch64 (7 logical)
 - Memory: 9.4 GB
@@ -17,13 +18,15 @@ Retrieval quality vs Anserini BM25 reference:
 
 | Dataset | nDCG@10 | Reference | Delta | Status | Recall@100 | MAP | MRR |
 |---|---|---|---|---|---|---|---|
+| beir/scifact/test | 0.6789 | 0.6790 | -0.0001 | within margin | 0.9253 | 0.6401 | 0.6506 |
 | beir/nfcorpus/test | 0.3206 | 0.3220 | -0.0014 | within margin | 0.2457 | 0.1503 | 0.5255 |
 
 Operational metrics:
 
 | Dataset | Docs | Ingest docs/s | Build s | Index size | p50 ms | p95 ms | p99 ms |
 |---|---|---|---|---|---|---|---|
-| beir/nfcorpus/test | 3633 | 5410 | 0.67 | 5.1 MB | 0.83 | 1.31 | 2.00 |
+| beir/scifact/test | 5183 | 7398 | 0.70 | 7.0 MB | 1.06 | 2.04 | 3.54 |
+| beir/nfcorpus/test | 3633 | 3218 | 1.13 | 5.1 MB | 0.79 | 3.35 | 9.63 |
 
 ## Vector track
 
@@ -35,19 +38,22 @@ Retrieval quality vs human judgements:
 
 | Dataset | nDCG@10 | Recall@100 | MAP | MRR |
 |---|---|---|---|---|
+| beir/scifact/test | 0.6239 | 0.9227 | 0.5797 | 0.5849 |
 | beir/nfcorpus/test | 0.3145 | 0.3094 | 0.1575 | 0.5168 |
 
 Recall operating point (latency below is measured here, the matched-recall rule for ANN search):
 
 | Dataset | Knob | Value | ANN recall@k | Target met | Secondary value | Secondary recall |
 |---|---|---|---|---|---|---|
+| beir/scifact/test | ef_search | 64 | 0.9970 | yes | 16 | 0.9500 |
 | beir/nfcorpus/test | ef_search | 128 | 0.9935 | yes | 64 | 0.9780 |
 
 Operational metrics (latency at the operating point):
 
 | Dataset | Docs | Ingest docs/s | Build s | Index size | p50 ms | p95 ms | p99 ms |
 |---|---|---|---|---|---|---|---|
-| beir/nfcorpus/test | 3633 | 1422 | 2.55 | 16.8 MB | 1.16 | 2.20 | 5.13 |
+| beir/scifact/test | 5183 | 1328 | 3.90 | 23.7 MB | 1.18 | 1.89 | 4.55 |
+| beir/nfcorpus/test | 3633 | 1261 | 2.88 | 16.8 MB | 1.04 | 1.49 | 3.09 |
 
 ## Hybrid track
 
@@ -58,10 +64,12 @@ Retrieval quality vs human judgements:
 
 | Dataset | nDCG@10 | Recall@100 | MAP | MRR |
 |---|---|---|---|---|
+| beir/scifact/test | 0.7053 | 0.9610 | 0.6587 | 0.6643 |
 | beir/nfcorpus/test | 0.3517 | 0.3213 | 0.1867 | 0.5633 |
 
 Operational metrics:
 
 | Dataset | Docs | Ingest docs/s | Build s | Index size | p50 ms | p95 ms | p99 ms |
 |---|---|---|---|---|---|---|---|
-| beir/nfcorpus/test | 3633 | 1527 | 2.38 | 16.8 MB | 1.37 | 1.65 | 1.84 |
+| beir/scifact/test | 5183 | 1327 | 3.91 | 23.7 MB | 2.05 | 3.94 | 7.42 |
+| beir/nfcorpus/test | 3633 | 1644 | 2.21 | 16.8 MB | 1.32 | 1.62 | 2.12 |

@@ -2,7 +2,8 @@
 
 ## Environment
 
-- Captured: 2026-06-29T02:22:34.554508+00:00
+- Captured: 2026-06-29T10:40:25.851702+00:00
+- Machine: Apple M3 Pro, macOS 26.5.1
 - OS / arch: Linux 6.12.76-linuxkit / aarch64 (containerized: True)
 - CPU: aarch64 (7 logical)
 - Memory: 9.4 GB
@@ -21,19 +22,22 @@ Retrieval quality vs human judgements:
 
 | Dataset | nDCG@10 | Recall@100 | MAP | MRR |
 |---|---|---|---|---|
+| beir/scifact/test | 0.6239 | 0.9227 | 0.5797 | 0.5849 |
 | beir/nfcorpus/test | 0.3145 | 0.3094 | 0.1575 | 0.5168 |
 
 Recall operating point (latency below is measured here, the matched-recall rule for ANN search):
 
 | Dataset | Knob | Value | ANN recall@k | Target met | Secondary value | Secondary recall |
 |---|---|---|---|---|---|---|
-| beir/nfcorpus/test | ef | 128 | 0.9947 | yes | 64 | 0.9799 |
+| beir/scifact/test | ef | 64 | 0.9950 | yes | 32 | 0.9840 |
+| beir/nfcorpus/test | ef | 128 | 0.9923 | yes | 64 | 0.9755 |
 
 Operational metrics (latency at the operating point):
 
 | Dataset | Docs | Ingest docs/s | Build s | Index size | p50 ms | p95 ms | p99 ms |
 |---|---|---|---|---|---|---|---|
-| beir/nfcorpus/test | 3633 | 1647 | 2.21 | n/a | 1.65 | 2.34 | 4.44 |
+| beir/scifact/test | 5183 | 1462 | 3.55 | n/a | 1.81 | 3.70 | 6.70 |
+| beir/nfcorpus/test | 3633 | 1593 | 2.28 | n/a | 1.73 | 2.10 | 4.14 |
 
 ## Hybrid track
 
@@ -44,10 +48,12 @@ Retrieval quality vs human judgements:
 
 | Dataset | nDCG@10 | Recall@100 | MAP | MRR |
 |---|---|---|---|---|
-| beir/nfcorpus/test | 0.3425 | 0.3180 | 0.1804 | 0.5584 |
+| beir/scifact/test | 0.6885 | 0.9577 | 0.6405 | 0.6513 |
+| beir/nfcorpus/test | 0.3431 | 0.3180 | 0.1812 | 0.5600 |
 
 Operational metrics:
 
 | Dataset | Docs | Ingest docs/s | Build s | Index size | p50 ms | p95 ms | p99 ms |
 |---|---|---|---|---|---|---|---|
-| beir/nfcorpus/test | 3633 | 1740 | 2.09 | n/a | 2.16 | 3.51 | 5.24 |
+| beir/scifact/test | 5183 | 1339 | 3.87 | n/a | 2.62 | 3.99 | 7.30 |
+| beir/nfcorpus/test | 3633 | 1694 | 2.15 | n/a | 2.26 | 4.08 | 6.00 |

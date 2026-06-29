@@ -1,0 +1,2226 @@
+{
+  "environment": {
+    "captured_at": "2026-06-29T10:31:26.423743+00:00",
+    "harness_version": "0.3.0",
+    "containerized": true,
+    "machine_label": "Apple M3 Pro, macOS 26.5.1",
+    "os": "Linux 6.12.76-linuxkit",
+    "arch": "aarch64",
+    "cpu_model": null,
+    "logical_cpus": 7,
+    "total_memory_bytes": 9364418560,
+    "python_version": "3.12.13",
+    "ir_datasets_version": "0.6.1",
+    "pytrec_eval_version": "0.5.10"
+  },
+  "config": {
+    "k1": 0.9,
+    "b": 0.4,
+    "run_depth": 1000,
+    "memory_cap_bytes": 8589934592,
+    "vector_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "vector_dims": 384,
+    "vector_metric": "cosine",
+    "recall_target": 0.99,
+    "recall_k": 10
+  },
+  "engines": [
+    {
+      "name": "narsil",
+      "version": "source (node:22-trixie-slim)",
+      "tracks": [
+        "keyword",
+        "vector",
+        "hybrid"
+      ],
+      "keyword_setup": "BM25 k1=0.9 b=0.4; Narsil english analyzer (Porter stemmer, 70-word stop list)"
+    },
+    {
+      "name": "elasticsearch",
+      "version": "9.4.2",
+      "tracks": [
+        "keyword",
+        "vector",
+        "hybrid"
+      ],
+      "keyword_setup": "BM25 k1=0.9 b=0.4 (custom default similarity); Elasticsearch `english` analyzer (Porter stemmer, English stop words)"
+    },
+    {
+      "name": "meilisearch",
+      "version": "1.48.2",
+      "tracks": [
+        "keyword"
+      ],
+      "keyword_setup": "Bucket-sort ranking rules (words, typo, proximity, attribute, sort, exactness), not BM25; _rankingScore for ordering; default typo tolerance and prefix search; no stemming or stop-word removal"
+    },
+    {
+      "name": "opensearch",
+      "version": "3.7.0",
+      "tracks": [
+        "keyword",
+        "vector",
+        "hybrid"
+      ],
+      "keyword_setup": "BM25 k1=0.9 b=0.4 (custom default similarity, native Lucene BM25Similarity in 3.x); OpenSearch `english` analyzer (Porter stemmer, English stop words)"
+    },
+    {
+      "name": "qdrant",
+      "version": "v1.18.2",
+      "tracks": [
+        "vector",
+        "hybrid"
+      ],
+      "keyword_setup": null
+    },
+    {
+      "name": "typesense",
+      "version": "30.2",
+      "tracks": [
+        "keyword"
+      ],
+      "keyword_setup": "Native token match/proximity scoring (text_match), not BM25; english locale, Snowball stemming enabled, default typo tolerance"
+    },
+    {
+      "name": "weaviate",
+      "version": "1.38.2",
+      "tracks": [
+        "vector",
+        "hybrid"
+      ],
+      "keyword_setup": null
+    }
+  ],
+  "tracks": [
+    {
+      "track": "keyword",
+      "datasets": [
+        {
+          "dataset_id": "beir/scifact/test",
+          "rows": [
+            {
+              "engine": "narsil",
+              "metrics": {
+                "ndcg_cut_10": 0.6781384972656637,
+                "recall_100": 0.932,
+                "map": 0.6378585587262384,
+                "recip_rank": 0.6455791235879702
+              },
+              "latency": {
+                "samples": 1500,
+                "top_k": 10,
+                "mean_ms": 0.8389897066666667,
+                "p50_ms": 0.812959,
+                "p90_ms": 1.128417,
+                "p95_ms": 1.330334,
+                "p99_ms": 1.660708,
+                "max_ms": 3.271916
+              },
+              "operational": {
+                "documents_indexed": 5183,
+                "build_seconds": 0.9113797090000162,
+                "ingest_docs_per_sec": 5686.981999727523,
+                "index_size_bytes": 17826406,
+                "raw_stats": {
+                  "index_size_bytes": 17826406,
+                  "raw": {
+                    "documentCount": 5183,
+                    "partitionCount": 1,
+                    "estimatedMemoryBytes": 17826406,
+                    "language": "english",
+                    "schema": {
+                      "text": "string"
+                    }
+                  }
+                }
+              },
+              "operating_point": null,
+              "setup": "BM25 k1=0.9 b=0.4; Narsil english analyzer (Porter stemmer, 70-word stop list)"
+            },
+            {
+              "engine": "elasticsearch",
+              "metrics": {
+                "ndcg_cut_10": 0.6789094274508305,
+                "recall_100": 0.9253333333333335,
+                "map": 0.6401081582475062,
+                "recip_rank": 0.6506007366108916
+              },
+              "latency": {
+                "samples": 1500,
+                "top_k": 10,
+                "mean_ms": 1.0953993313333334,
+                "p50_ms": 1.051666,
+                "p90_ms": 1.365375,
+                "p95_ms": 1.510709,
+                "p99_ms": 2.286167,
+                "max_ms": 5.494708
+              },
+              "operational": {
+                "documents_indexed": 5183,
+                "build_seconds": 0.9352605419999236,
+                "ingest_docs_per_sec": 5541.771268268071,
+                "index_size_bytes": 7017305,
+                "raw_stats": {
+                  "index_size_bytes": 7017305,
+                  "raw": {
+                    "size_in_bytes": 7017305,
+                    "total_data_set_size_in_bytes": 7017305,
+                    "reserved_in_bytes": 0
+                  }
+                }
+              },
+              "operating_point": null,
+              "setup": "BM25 k1=0.9 b=0.4 (custom default similarity); Elasticsearch `english` analyzer (Porter stemmer, English stop words)"
+            },
+            {
+              "engine": "meilisearch",
+              "metrics": {
+                "ndcg_cut_10": 0.37483418326603796,
+                "recall_100": 0.5301666666666667,
+                "map": 0.3467324477146494,
+                "recip_rank": 0.35335127625580887
+              },
+              "latency": {
+                "samples": 1500,
+                "top_k": 10,
+                "mean_ms": 1.585041586,
+                "p50_ms": 1.433125,
+                "p90_ms": 2.435917,
+                "p95_ms": 3.189917,
+                "p99_ms": 3.993291,
+                "max_ms": 5.008667
+              },
+              "operational": {
+                "documents_indexed": 5183,
+                "build_seconds": 2.935238292999884,
+                "ingest_docs_per_sec": 1765.7850854428755,
+                "index_size_bytes": null,
+                "raw_stats": {
+                  "index_size_bytes": null,
+                  "raw": {
+                    "numberOfDocuments": 5183,
+                    "rawDocumentDbSize": 15044608,
+                    "avgDocumentSize": 2894,
+                    "isIndexing": false,
+                    "numberOfEmbeddings": 0,
+                    "numberOfEmbeddedDocuments": 0,
+                    "fieldDistribution": {
+                      "id": 5183,
+                      "text": 5183
+                    }
+                  }
+                }
+              },
+              "operating_point": null,
+              "setup": "Bucket-sort ranking rules (words, typo, proximity, attribute, sort, exactness), not BM25; _rankingScore for ordering; default typo tolerance and prefix search; no stemming or stop-word removal"
+            },
+            {
+              "engine": "opensearch",
+              "metrics": {
+                "ndcg_cut_10": 0.6789094274508305,
+                "recall_100": 0.9253333333333335,
+                "map": 0.6401081582475062,
+                "recip_rank": 0.6506007366108916
+              },
+              "latency": {
+                "samples": 1500,
+                "top_k": 10,
+                "mean_ms": 1.226165988,
+                "p50_ms": 1.06475,
+                "p90_ms": 1.599917,
+                "p95_ms": 2.042084,
+                "p99_ms": 3.543708,
+                "max_ms": 32.893083
+              },
+              "operational": {
+                "documents_indexed": 5183,
+                "build_seconds": 0.7005738340000107,
+                "ingest_docs_per_sec": 7398.22092756025,
+                "index_size_bytes": 6966018,
+                "raw_stats": {
+                  "index_size_bytes": 6966018,
+                  "raw": {
+                    "size_in_bytes": 6966018,
+                    "reserved_in_bytes": 0
+                  }
+                }
+              },
+              "operating_point": null,
+              "setup": "BM25 k1=0.9 b=0.4 (custom default similarity, native Lucene BM25Similarity in 3.x); OpenSearch `english` analyzer (Porter stemmer, English stop words)"
+            },
+            {
+              "engine": "typesense",
+              "metrics": {
+                "ndcg_cut_10": 0.3727985427961379,
+                "recall_100": 0.3922777777777777,
+                "map": 0.36592763272179535,
+                "recip_rank": 0.37839985494401757
+              },
+              "latency": {
+                "samples": 1500,
+                "top_k": 10,
+                "mean_ms": 17.613585136666664,
+                "p50_ms": 12.183667,
+                "p90_ms": 42.057667,
+                "p95_ms": 52.739,
+                "p99_ms": 75.099583,
+                "max_ms": 122.047666
+              },
+              "operational": {
+                "documents_indexed": 5183,
+                "build_seconds": 1.307580583999993,
+                "ingest_docs_per_sec": 3963.809239308824,
+                "index_size_bytes": null,
+                "raw_stats": {
+                  "index_size_bytes": null,
+                  "raw": {
+                    "created_at": 1782729691,
+                    "curation_sets": [],
+                    "default_sorting_field": "",
+                    "enable_nested_fields": false,
+                    "fields": [
+                      {
+                        "facet": false,
+                        "index": true,
+                        "infix": false,
+                        "locale": "en",
+                        "name": "text",
+                        "optional": false,
+                        "sort": false,
+                        "stem": true,
+                        "stem_dictionary": "",
+                        "store": true,
+                        "truncate_len": 100,
+                        "type": "string"
+                      }
+                    ],
+                    "name": "bench_beir_scifact_test",
+                    "num_documents": 5183,
+                    "symbols_to_index": [],
+                    "synonym_sets": [],
+                    "token_separators": []
+                  }
+                }
+              },
+              "operating_point": null,
+              "setup": "Native token match/proximity scoring (text_match), not BM25; english locale, Snowball stemming enabled, default typo tolerance"
+            }
+          ]
+        },
+        {
+          "dataset_id": "beir/nfcorpus/test",
+          "rows": [
+            {
+              "engine": "narsil",
+              "metrics": {
+                "ndcg_cut_10": 0.3268937200190016,
+                "recall_100": 0.24910963434856712,
+                "map": 0.15303944036831896,
+                "recip_rank": 0.5284067089293295
+              },
+              "latency": {
+                "samples": 1615,
+                "top_k": 10,
+                "mean_ms": 0.44642228854489163,
+                "p50_ms": 0.409083,
+                "p90_ms": 0.669959,
+                "p95_ms": 0.76875,
+                "p99_ms": 0.973,
+                "max_ms": 1.57625
+              },
+              "operational": {
+                "documents_indexed": 3633,
+                "build_seconds": 0.5931365829999322,
+                "ingest_docs_per_sec": 6125.064789673267,
+                "index_size_bytes": 13342470,
+                "raw_stats": {
+                  "index_size_bytes": 13342470,
+                  "raw": {
+                    "documentCount": 3633,
+                    "partitionCount": 1,
+                    "estimatedMemoryBytes": 13342470,
+                    "language": "english",
+                    "schema": {
+                      "text": "string"
+                    }
+                  }
+                }
+              },
+              "operating_point": null,
+              "setup": "BM25 k1=0.9 b=0.4; Narsil english analyzer (Porter stemmer, 70-word stop list)"
+            },
+            {
+              "engine": "elasticsearch",
+              "metrics": {
+                "ndcg_cut_10": 0.3205549311607387,
+                "recall_100": 0.24567990783971763,
+                "map": 0.1502679707391434,
+                "recip_rank": 0.5255303093599589
+              },
+              "latency": {
+                "samples": 1615,
+                "top_k": 10,
+                "mean_ms": 0.6315652712074303,
+                "p50_ms": 0.5805,
+                "p90_ms": 0.692208,
+                "p95_ms": 0.762334,
+                "p99_ms": 1.445917,
+                "max_ms": 21.080458
+              },
+              "operational": {
+                "documents_indexed": 3633,
+                "build_seconds": 0.3562022920000345,
+                "ingest_docs_per_sec": 10199.260593190254,
+                "index_size_bytes": 5106002,
+                "raw_stats": {
+                  "index_size_bytes": 5106002,
+                  "raw": {
+                    "size_in_bytes": 5106002,
+                    "total_data_set_size_in_bytes": 5106002,
+                    "reserved_in_bytes": 0
+                  }
+                }
+              },
+              "operating_point": null,
+              "setup": "BM25 k1=0.9 b=0.4 (custom default similarity); Elasticsearch `english` analyzer (Porter stemmer, English stop words)"
+            },
+            {
+              "engine": "meilisearch",
+              "metrics": {
+                "ndcg_cut_10": 0.25497535946025596,
+                "recall_100": 0.17014487558461489,
+                "map": 0.11670467736478676,
+                "recip_rank": 0.4337675637860514
+              },
+              "latency": {
+                "samples": 1615,
+                "top_k": 10,
+                "mean_ms": 0.9326733721362229,
+                "p50_ms": 0.850708,
+                "p90_ms": 1.360208,
+                "p95_ms": 1.573459,
+                "p99_ms": 2.027167,
+                "max_ms": 2.66875
+              },
+              "operational": {
+                "documents_indexed": 3633,
+                "build_seconds": 1.9002889580001465,
+                "ingest_docs_per_sec": 1911.8145083700053,
+                "index_size_bytes": null,
+                "raw_stats": {
+                  "index_size_bytes": null,
+                  "raw": {
+                    "numberOfDocuments": 3633,
+                    "rawDocumentDbSize": 11599872,
+                    "avgDocumentSize": 3184,
+                    "isIndexing": false,
+                    "numberOfEmbeddings": 0,
+                    "numberOfEmbeddedDocuments": 0,
+                    "fieldDistribution": {
+                      "id": 3633,
+                      "text": 3633
+                    }
+                  }
+                }
+              },
+              "operating_point": null,
+              "setup": "Bucket-sort ranking rules (words, typo, proximity, attribute, sort, exactness), not BM25; _rankingScore for ordering; default typo tolerance and prefix search; no stemming or stop-word removal"
+            },
+            {
+              "engine": "opensearch",
+              "metrics": {
+                "ndcg_cut_10": 0.3205549311607387,
+                "recall_100": 0.24567990783971763,
+                "map": 0.1502679707391434,
+                "recip_rank": 0.5255303093599589
+              },
+              "latency": {
+                "samples": 1615,
+                "top_k": 10,
+                "mean_ms": 1.268284985758514,
+                "p50_ms": 0.787084,
+                "p90_ms": 2.207334,
+                "p95_ms": 3.350458,
+                "p99_ms": 9.629583,
+                "max_ms": 24.093292
+              },
+              "operational": {
+                "documents_indexed": 3633,
+                "build_seconds": 1.1290147089999891,
+                "ingest_docs_per_sec": 3217.850016513855,
+                "index_size_bytes": 5100379,
+                "raw_stats": {
+                  "index_size_bytes": 5100379,
+                  "raw": {
+                    "size_in_bytes": 5100379,
+                    "reserved_in_bytes": 0
+                  }
+                }
+              },
+              "operating_point": null,
+              "setup": "BM25 k1=0.9 b=0.4 (custom default similarity, native Lucene BM25Similarity in 3.x); OpenSearch `english` analyzer (Porter stemmer, English stop words)"
+            },
+            {
+              "engine": "typesense",
+              "metrics": {
+                "ndcg_cut_10": 0.18168390894988823,
+                "recall_100": 0.11233775070898366,
+                "map": 0.08388924478298482,
+                "recip_rank": 0.33720627749924703
+              },
+              "latency": {
+                "samples": 1615,
+                "top_k": 10,
+                "mean_ms": 1.395327226006192,
+                "p50_ms": 0.599375,
+                "p90_ms": 3.25525,
+                "p95_ms": 4.653416,
+                "p99_ms": 9.751,
+                "max_ms": 19.653459
+              },
+              "operational": {
+                "documents_indexed": 3633,
+                "build_seconds": 1.0689491669998006,
+                "ingest_docs_per_sec": 3398.664887121501,
+                "index_size_bytes": null,
+                "raw_stats": {
+                  "index_size_bytes": null,
+                  "raw": {
+                    "created_at": 1782729741,
+                    "curation_sets": [],
+                    "default_sorting_field": "",
+                    "enable_nested_fields": false,
+                    "fields": [
+                      {
+                        "facet": false,
+                        "index": true,
+                        "infix": false,
+                        "locale": "en",
+                        "name": "text",
+                        "optional": false,
+                        "sort": false,
+                        "stem": true,
+                        "stem_dictionary": "",
+                        "store": true,
+                        "truncate_len": 100,
+                        "type": "string"
+                      }
+                    ],
+                    "name": "bench_beir_nfcorpus_test",
+                    "num_documents": 3633,
+                    "symbols_to_index": [],
+                    "synonym_sets": [],
+                    "token_separators": []
+                  }
+                }
+              },
+              "operating_point": null,
+              "setup": "Native token match/proximity scoring (text_match), not BM25; english locale, Snowball stemming enabled, default typo tolerance"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "track": "vector",
+      "datasets": [
+        {
+          "dataset_id": "beir/scifact/test",
+          "rows": [
+            {
+              "engine": "narsil",
+              "metrics": {
+                "ndcg_cut_10": 0.6238596288000929,
+                "recall_100": 0.9226666666666667,
+                "map": 0.5797156406807212,
+                "recip_rank": 0.5848884643178871
+              },
+              "latency": {
+                "samples": 1500,
+                "top_k": 10,
+                "mean_ms": 2.788499734,
+                "p50_ms": 2.656,
+                "p90_ms": 3.135625,
+                "p95_ms": 3.38225,
+                "p99_ms": 4.600292,
+                "max_ms": 66.532875
+              },
+              "operational": {
+                "documents_indexed": 5183,
+                "build_seconds": 8.162601961999997,
+                "ingest_docs_per_sec": 634.9690973697882,
+                "index_size_bytes": 33887051,
+                "raw_stats": {
+                  "index_size_bytes": 33887051,
+                  "raw": {
+                    "documentCount": 5183,
+                    "partitionCount": 1,
+                    "estimatedMemoryBytes": 33887051,
+                    "language": "english",
+                    "schema": {
+                      "text": "string",
+                      "embedding": "vector[384]"
+                    }
+                  }
+                }
+              },
+              "operating_point": {
+                "knob": "efSearch",
+                "recall_metric": "ann_recall@10",
+                "recall_k": 10,
+                "target": 0.99,
+                "chosen_value": 64,
+                "achieved_recall": 0.9966666666666665,
+                "met_target": true,
+                "secondary_target": 0.95,
+                "secondary_value": 16,
+                "secondary_recall": 0.9606666666666668,
+                "sweep": [
+                  {
+                    "value": 16,
+                    "recall": 0.9606666666666668
+                  },
+                  {
+                    "value": 32,
+                    "recall": 0.9870000000000001
+                  },
+                  {
+                    "value": 64,
+                    "recall": 0.9966666666666665
+                  }
+                ]
+              },
+              "setup": "HNSW over the shared precomputed vectors, full precision (SQ8 quantization off), cosine"
+            },
+            {
+              "engine": "elasticsearch",
+              "metrics": {
+                "ndcg_cut_10": 0.6238596288000929,
+                "recall_100": 0.9226666666666667,
+                "map": 0.5797156406807212,
+                "recip_rank": 0.5848884643178871
+              },
+              "latency": {
+                "samples": 1500,
+                "top_k": 10,
+                "mean_ms": 1.2325162473333333,
+                "p50_ms": 1.177417,
+                "p90_ms": 1.420625,
+                "p95_ms": 1.514625,
+                "p99_ms": 2.158375,
+                "max_ms": 16.815292
+              },
+              "operational": {
+                "documents_indexed": 5183,
+                "build_seconds": 3.8211405849999664,
+                "ingest_docs_per_sec": 1356.4012850890817,
+                "index_size_bytes": 15150088,
+                "raw_stats": {
+                  "index_size_bytes": 15150088,
+                  "raw": {
+                    "size_in_bytes": 15150088,
+                    "total_data_set_size_in_bytes": 15150088,
+                    "reserved_in_bytes": 0
+                  }
+                }
+              },
+              "operating_point": {
+                "knob": "num_candidates",
+                "recall_metric": "ann_recall@10",
+                "recall_k": 10,
+                "target": 0.99,
+                "chosen_value": 64,
+                "achieved_recall": 0.9926666666666665,
+                "met_target": true,
+                "secondary_target": 0.95,
+                "secondary_value": 16,
+                "secondary_recall": 0.9526666666666667,
+                "sweep": [
+                  {
+                    "value": 16,
+                    "recall": 0.9526666666666667
+                  },
+                  {
+                    "value": 32,
+                    "recall": 0.9816666666666669
+                  },
+                  {
+                    "value": 64,
+                    "recall": 0.9926666666666665
+                  }
+                ]
+              },
+              "setup": "dense_vector HNSW, similarity cosine, over the shared precomputed vectors"
+            },
+            {
+              "engine": "opensearch",
+              "metrics": {
+                "ndcg_cut_10": 0.6238596288000929,
+                "recall_100": 0.9226666666666667,
+                "map": 0.5797156406807212,
+                "recip_rank": 0.5848884643178871
+              },
+              "latency": {
+                "samples": 1500,
+                "top_k": 10,
+                "mean_ms": 1.31474714,
+                "p50_ms": 1.184625,
+                "p90_ms": 1.534292,
+                "p95_ms": 1.888333,
+                "p99_ms": 4.553375,
+                "max_ms": 7.468709
+              },
+              "operational": {
+                "documents_indexed": 5183,
+                "build_seconds": 3.9041665019999527,
+                "ingest_docs_per_sec": 1327.5560858751671,
+                "index_size_bytes": 23681385,
+                "raw_stats": {
+                  "index_size_bytes": 23681385,
+                  "raw": {
+                    "size_in_bytes": 23681385,
+                    "reserved_in_bytes": 0
+                  }
+                }
+              },
+              "operating_point": {
+                "knob": "ef_search",
+                "recall_metric": "ann_recall@10",
+                "recall_k": 10,
+                "target": 0.99,
+                "chosen_value": 64,
+                "achieved_recall": 0.9970000000000001,
+                "met_target": true,
+                "secondary_target": 0.95,
+                "secondary_value": 16,
+                "secondary_recall": 0.9500000000000004,
+                "sweep": [
+                  {
+                    "value": 16,
+                    "recall": 0.9500000000000004
+                  },
+                  {
+                    "value": 32,
+                    "recall": 0.9839999999999995
+                  },
+                  {
+                    "value": 64,
+                    "recall": 0.9970000000000001
+                  }
+                ]
+              },
+              "setup": "knn_vector HNSW (faiss engine, inner product on L2-normalized vectors = cosine), over the shared precomputed vectors"
+            },
+            {
+              "engine": "qdrant",
+              "metrics": {
+                "ndcg_cut_10": 0.6238596288000929,
+                "recall_100": 0.9226666666666667,
+                "map": 0.5797156406807212,
+                "recip_rank": 0.5848884643178871
+              },
+              "latency": {
+                "samples": 1500,
+                "top_k": 10,
+                "mean_ms": 0.8721478393333334,
+                "p50_ms": 0.764,
+                "p90_ms": 0.936,
+                "p95_ms": 1.019542,
+                "p99_ms": 1.480459,
+                "max_ms": 37.863167
+              },
+              "operational": {
+                "documents_indexed": 5183,
+                "build_seconds": 3.3549357929999815,
+                "ingest_docs_per_sec": 1544.88798587867,
+                "index_size_bytes": null,
+                "raw_stats": {
+                  "index_size_bytes": null,
+                  "raw": {
+                    "status": "green",
+                    "optimizer_status": "ok",
+                    "indexed_vectors_count": 10366,
+                    "points_count": 5183,
+                    "segments_count": 3,
+                    "config": {
+                      "params": {
+                        "vectors": {
+                          "dense": {
+                            "size": 384,
+                            "distance": "Cosine",
+                            "hnsw_config": {
+                              "m": 16,
+                              "ef_construct": 200,
+                              "full_scan_threshold": 10
+                            }
+                          }
+                        },
+                        "shard_number": 1,
+                        "replication_factor": 1,
+                        "write_consistency_factor": 1,
+                        "on_disk_payload": true,
+                        "sparse_vectors": {
+                          "text": {
+                            "modifier": "idf"
+                          }
+                        }
+                      },
+                      "hnsw_config": {
+                        "m": 16,
+                        "ef_construct": 100,
+                        "full_scan_threshold": 10000,
+                        "max_indexing_threads": 0,
+                        "on_disk": false
+                      },
+                      "optimizer_config": {
+                        "deleted_threshold": 0.2,
+                        "vacuum_min_vector_number": 1000,
+                        "default_segment_number": 0,
+                        "max_segment_size": null,
+                        "memmap_threshold": null,
+                        "indexing_threshold": 100,
+                        "flush_interval_sec": 5,
+                        "max_optimization_threads": null,
+                        "prevent_unoptimized": null
+                      },
+                      "wal_config": {
+                        "wal_capacity_mb": 32,
+                        "wal_segments_ahead": 0,
+                        "wal_retain_closed": 1
+                      },
+                      "quantization_config": null
+                    },
+                    "payload_schema": {},
+                    "update_queue": {
+                      "length": 0
+                    }
+                  }
+                }
+              },
+              "operating_point": {
+                "knob": "hnsw_ef",
+                "recall_metric": "ann_recall@10",
+                "recall_k": 10,
+                "target": 0.99,
+                "chosen_value": 64,
+                "achieved_recall": 0.9970000000000001,
+                "met_target": true,
+                "secondary_target": 0.95,
+                "secondary_value": 16,
+                "secondary_recall": 0.9600000000000005,
+                "sweep": [
+                  {
+                    "value": 16,
+                    "recall": 0.9600000000000005
+                  },
+                  {
+                    "value": 32,
+                    "recall": 0.9893333333333332
+                  },
+                  {
+                    "value": 64,
+                    "recall": 0.9970000000000001
+                  }
+                ]
+              },
+              "setup": "HNSW dense vectors, distance Cosine, over the shared precomputed vectors"
+            },
+            {
+              "engine": "weaviate",
+              "metrics": {
+                "ndcg_cut_10": 0.6238596288000929,
+                "recall_100": 0.9226666666666667,
+                "map": 0.5797156406807212,
+                "recip_rank": 0.5848884643178871
+              },
+              "latency": {
+                "samples": 1500,
+                "top_k": 10,
+                "mean_ms": 2.238906972,
+                "p50_ms": 1.810167,
+                "p90_ms": 2.71675,
+                "p95_ms": 3.700791,
+                "p99_ms": 6.703417,
+                "max_ms": 168.155833
+              },
+              "operational": {
+                "documents_indexed": 5183,
+                "build_seconds": 3.54613796000001,
+                "ingest_docs_per_sec": 1461.5900617696175,
+                "index_size_bytes": null,
+                "raw_stats": {
+                  "index_size_bytes": null,
+                  "raw": {
+                    "class": "BenchBeirScifactTest",
+                    "invertedIndexConfig": {
+                      "bm25": {
+                        "b": 0.75,
+                        "k1": 1.2
+                      },
+                      "cleanupIntervalSeconds": 60,
+                      "stopwords": {
+                        "additions": null,
+                        "preset": "en",
+                        "removals": null
+                      },
+                      "usingBlockMaxWAND": true
+                    },
+                    "multiTenancyConfig": {
+                      "autoTenantActivation": false,
+                      "autoTenantCreation": false,
+                      "enabled": false
+                    },
+                    "properties": [
+                      {
+                        "dataType": [
+                          "text"
+                        ],
+                        "indexFilterable": true,
+                        "indexRangeFilters": false,
+                        "indexSearchable": false,
+                        "name": "docId",
+                        "tokenization": "word"
+                      },
+                      {
+                        "dataType": [
+                          "text"
+                        ],
+                        "indexFilterable": true,
+                        "indexRangeFilters": false,
+                        "indexSearchable": true,
+                        "name": "text",
+                        "tokenization": "word"
+                      }
+                    ],
+                    "shardingConfig": {
+                      "actualCount": 1,
+                      "actualVirtualCount": 128,
+                      "desiredCount": 1,
+                      "desiredVirtualCount": 128,
+                      "function": "murmur3",
+                      "key": "_id",
+                      "strategy": "hash",
+                      "virtualPerPhysical": 128
+                    },
+                    "vectorIndexConfig": {
+                      "bq": {
+                        "enabled": false
+                      },
+                      "cleanupIntervalSeconds": 300,
+                      "distance": "cosine",
+                      "dynamicEfFactor": 8,
+                      "dynamicEfMax": 500,
+                      "dynamicEfMin": 100,
+                      "ef": 64,
+                      "efConstruction": 200,
+                      "filterStrategy": "acorn",
+                      "flatSearchCutoff": 40000,
+                      "maxConnections": 16,
+                      "multivector": {
+                        "aggregation": "maxSim",
+                        "enabled": false,
+                        "muvera": {
+                          "dprojections": 16,
+                          "enabled": false,
+                          "ksim": 4,
+                          "repetitions": 10
+                        }
+                      },
+                      "pq": {
+                        "bitCompression": false,
+                        "centroids": 256,
+                        "enabled": false,
+                        "encoder": {
+                          "distribution": "log-normal",
+                          "type": "kmeans"
+                        },
+                        "segments": 0,
+                        "trainingLimit": 100000
+                      },
+                      "rq": {
+                        "bits": 8,
+                        "enabled": false,
+                        "rescoreLimit": 20
+                      },
+                      "skip": false,
+                      "skipDefaultQuantization": false,
+                      "sq": {
+                        "enabled": false,
+                        "rescoreLimit": 20,
+                        "trainingLimit": 100000
+                      },
+                      "trackDefaultQuantization": false,
+                      "vectorCacheMaxObjects": 1000000000000
+                    },
+                    "vectorIndexType": "hnsw",
+                    "vectorizer": "none",
+                    "replicationConfig": {
+                      "deletionStrategy": "TimeBasedResolution",
+                      "factor": 1,
+                      "asyncEnabled": false
+                    }
+                  }
+                }
+              },
+              "operating_point": {
+                "knob": "ef",
+                "recall_metric": "ann_recall@10",
+                "recall_k": 10,
+                "target": 0.99,
+                "chosen_value": 64,
+                "achieved_recall": 0.9949999999999997,
+                "met_target": true,
+                "secondary_target": 0.95,
+                "secondary_value": 32,
+                "secondary_recall": 0.984,
+                "sweep": [
+                  {
+                    "value": 16,
+                    "recall": 0.9480000000000001
+                  },
+                  {
+                    "value": 32,
+                    "recall": 0.984
+                  },
+                  {
+                    "value": 64,
+                    "recall": 0.9949999999999997
+                  }
+                ]
+              },
+              "setup": "HNSW dense vectors, distance cosine, over the shared precomputed vectors"
+            }
+          ]
+        },
+        {
+          "dataset_id": "beir/nfcorpus/test",
+          "rows": [
+            {
+              "engine": "narsil",
+              "metrics": {
+                "ndcg_cut_10": 0.31453393519371436,
+                "recall_100": 0.3094260094121505,
+                "map": 0.15745513985275994,
+                "recip_rank": 0.5168401508608532
+              },
+              "latency": {
+                "samples": 1615,
+                "top_k": 10,
+                "mean_ms": 3.552270759133127,
+                "p50_ms": 3.099125,
+                "p90_ms": 4.216292,
+                "p95_ms": 5.262791,
+                "p99_ms": 10.993,
+                "max_ms": 62.081333
+              },
+              "operational": {
+                "documents_indexed": 3633,
+                "build_seconds": 5.676124919000017,
+                "ingest_docs_per_sec": 640.0493385617804,
+                "index_size_bytes": 24600182,
+                "raw_stats": {
+                  "index_size_bytes": 24600182,
+                  "raw": {
+                    "documentCount": 3633,
+                    "partitionCount": 1,
+                    "estimatedMemoryBytes": 24600182,
+                    "language": "english",
+                    "schema": {
+                      "text": "string",
+                      "embedding": "vector[384]"
+                    }
+                  }
+                }
+              },
+              "operating_point": {
+                "knob": "efSearch",
+                "recall_metric": "ann_recall@10",
+                "recall_k": 10,
+                "target": 0.99,
+                "chosen_value": 128,
+                "achieved_recall": 0.9944272445820435,
+                "met_target": true,
+                "secondary_target": 0.95,
+                "secondary_value": 32,
+                "secondary_recall": 0.9566563467492264,
+                "sweep": [
+                  {
+                    "value": 16,
+                    "recall": 0.9080495356037156
+                  },
+                  {
+                    "value": 32,
+                    "recall": 0.9566563467492264
+                  },
+                  {
+                    "value": 64,
+                    "recall": 0.9854489164086689
+                  },
+                  {
+                    "value": 128,
+                    "recall": 0.9944272445820435
+                  }
+                ]
+              },
+              "setup": "HNSW over the shared precomputed vectors, full precision (SQ8 quantization off), cosine"
+            },
+            {
+              "engine": "elasticsearch",
+              "metrics": {
+                "ndcg_cut_10": 0.31453393519371436,
+                "recall_100": 0.3094260094121505,
+                "map": 0.15745288100672242,
+                "recip_rank": 0.5168401333752117
+              },
+              "latency": {
+                "samples": 1615,
+                "top_k": 10,
+                "mean_ms": 1.15487560123839,
+                "p50_ms": 1.09075,
+                "p90_ms": 1.370875,
+                "p95_ms": 1.585834,
+                "p99_ms": 2.089667,
+                "max_ms": 3.150167
+              },
+              "operational": {
+                "documents_indexed": 3633,
+                "build_seconds": 2.8635511260000612,
+                "ingest_docs_per_sec": 1268.7044303185673,
+                "index_size_bytes": 10809480,
+                "raw_stats": {
+                  "index_size_bytes": 10809480,
+                  "raw": {
+                    "size_in_bytes": 10809480,
+                    "total_data_set_size_in_bytes": 10809480,
+                    "reserved_in_bytes": 0
+                  }
+                }
+              },
+              "operating_point": {
+                "knob": "num_candidates",
+                "recall_metric": "ann_recall@10",
+                "recall_k": 10,
+                "target": 0.99,
+                "chosen_value": 128,
+                "achieved_recall": 0.9931888544891643,
+                "met_target": true,
+                "secondary_target": 0.95,
+                "secondary_value": 32,
+                "secondary_recall": 0.9526315789473684,
+                "sweep": [
+                  {
+                    "value": 16,
+                    "recall": 0.892569659442725
+                  },
+                  {
+                    "value": 32,
+                    "recall": 0.9526315789473684
+                  },
+                  {
+                    "value": 64,
+                    "recall": 0.9835913312693502
+                  },
+                  {
+                    "value": 128,
+                    "recall": 0.9931888544891643
+                  }
+                ]
+              },
+              "setup": "dense_vector HNSW, similarity cosine, over the shared precomputed vectors"
+            },
+            {
+              "engine": "opensearch",
+              "metrics": {
+                "ndcg_cut_10": 0.31453393519371436,
+                "recall_100": 0.3094260094121505,
+                "map": 0.15745898124549199,
+                "recip_rank": 0.516840195829426
+              },
+              "latency": {
+                "samples": 1615,
+                "top_k": 10,
+                "mean_ms": 1.1332924835913312,
+                "p50_ms": 1.03975,
+                "p90_ms": 1.291,
+                "p95_ms": 1.494625,
+                "p99_ms": 3.093625,
+                "max_ms": 8.331375
+              },
+              "operational": {
+                "documents_indexed": 3633,
+                "build_seconds": 2.880432793000068,
+                "ingest_docs_per_sec": 1261.268795727085,
+                "index_size_bytes": 16817520,
+                "raw_stats": {
+                  "index_size_bytes": 16817520,
+                  "raw": {
+                    "size_in_bytes": 16817520,
+                    "reserved_in_bytes": 0
+                  }
+                }
+              },
+              "operating_point": {
+                "knob": "ef_search",
+                "recall_metric": "ann_recall@10",
+                "recall_k": 10,
+                "target": 0.99,
+                "chosen_value": 128,
+                "achieved_recall": 0.993498452012384,
+                "met_target": true,
+                "secondary_target": 0.95,
+                "secondary_value": 64,
+                "secondary_recall": 0.9780185758513933,
+                "sweep": [
+                  {
+                    "value": 16,
+                    "recall": 0.8832817337461304
+                  },
+                  {
+                    "value": 32,
+                    "recall": 0.9452012383900927
+                  },
+                  {
+                    "value": 64,
+                    "recall": 0.9780185758513933
+                  },
+                  {
+                    "value": 128,
+                    "recall": 0.993498452012384
+                  }
+                ]
+              },
+              "setup": "knn_vector HNSW (faiss engine, inner product on L2-normalized vectors = cosine), over the shared precomputed vectors"
+            },
+            {
+              "engine": "qdrant",
+              "metrics": {
+                "ndcg_cut_10": 0.31453393519371436,
+                "recall_100": 0.3094260094121505,
+                "map": 0.15745329723767204,
+                "recip_rank": 0.5168401333752117
+              },
+              "latency": {
+                "samples": 1615,
+                "top_k": 10,
+                "mean_ms": 0.8669674829721362,
+                "p50_ms": 0.792333,
+                "p90_ms": 1.011625,
+                "p95_ms": 1.155,
+                "p99_ms": 1.614625,
+                "max_ms": 26.828208
+              },
+              "operational": {
+                "documents_indexed": 3633,
+                "build_seconds": 2.5787202100000286,
+                "ingest_docs_per_sec": 1408.8383787863359,
+                "index_size_bytes": null,
+                "raw_stats": {
+                  "index_size_bytes": null,
+                  "raw": {
+                    "status": "green",
+                    "optimizer_status": "ok",
+                    "indexed_vectors_count": 7266,
+                    "points_count": 3633,
+                    "segments_count": 3,
+                    "config": {
+                      "params": {
+                        "vectors": {
+                          "dense": {
+                            "size": 384,
+                            "distance": "Cosine",
+                            "hnsw_config": {
+                              "m": 16,
+                              "ef_construct": 200,
+                              "full_scan_threshold": 10
+                            }
+                          }
+                        },
+                        "shard_number": 1,
+                        "replication_factor": 1,
+                        "write_consistency_factor": 1,
+                        "on_disk_payload": true,
+                        "sparse_vectors": {
+                          "text": {
+                            "modifier": "idf"
+                          }
+                        }
+                      },
+                      "hnsw_config": {
+                        "m": 16,
+                        "ef_construct": 100,
+                        "full_scan_threshold": 10000,
+                        "max_indexing_threads": 0,
+                        "on_disk": false
+                      },
+                      "optimizer_config": {
+                        "deleted_threshold": 0.2,
+                        "vacuum_min_vector_number": 1000,
+                        "default_segment_number": 0,
+                        "max_segment_size": null,
+                        "memmap_threshold": null,
+                        "indexing_threshold": 100,
+                        "flush_interval_sec": 5,
+                        "max_optimization_threads": null,
+                        "prevent_unoptimized": null
+                      },
+                      "wal_config": {
+                        "wal_capacity_mb": 32,
+                        "wal_segments_ahead": 0,
+                        "wal_retain_closed": 1
+                      },
+                      "quantization_config": null
+                    },
+                    "payload_schema": {},
+                    "update_queue": {
+                      "length": 0
+                    }
+                  }
+                }
+              },
+              "operating_point": {
+                "knob": "hnsw_ef",
+                "recall_metric": "ann_recall@10",
+                "recall_k": 10,
+                "target": 0.99,
+                "chosen_value": 128,
+                "achieved_recall": 0.9978328173374612,
+                "met_target": true,
+                "secondary_target": 0.95,
+                "secondary_value": 32,
+                "secondary_recall": 0.9708978328173377,
+                "sweep": [
+                  {
+                    "value": 16,
+                    "recall": 0.9315789473684213
+                  },
+                  {
+                    "value": 32,
+                    "recall": 0.9708978328173377
+                  },
+                  {
+                    "value": 64,
+                    "recall": 0.9879256965944275
+                  },
+                  {
+                    "value": 128,
+                    "recall": 0.9978328173374612
+                  }
+                ]
+              },
+              "setup": "HNSW dense vectors, distance Cosine, over the shared precomputed vectors"
+            },
+            {
+              "engine": "weaviate",
+              "metrics": {
+                "ndcg_cut_10": 0.31453393519371436,
+                "recall_100": 0.3094260094121505,
+                "map": 0.1574510177310732,
+                "recip_rank": 0.5168403748169847
+              },
+              "latency": {
+                "samples": 1615,
+                "top_k": 10,
+                "mean_ms": 1.8202922718266255,
+                "p50_ms": 1.726792,
+                "p90_ms": 1.909583,
+                "p95_ms": 2.101875,
+                "p99_ms": 4.1405,
+                "max_ms": 6.072291
+              },
+              "operational": {
+                "documents_indexed": 3633,
+                "build_seconds": 2.280518710000024,
+                "ingest_docs_per_sec": 1593.0586248073193,
+                "index_size_bytes": null,
+                "raw_stats": {
+                  "index_size_bytes": null,
+                  "raw": {
+                    "class": "BenchBeirNfcorpusTest",
+                    "invertedIndexConfig": {
+                      "bm25": {
+                        "b": 0.75,
+                        "k1": 1.2
+                      },
+                      "cleanupIntervalSeconds": 60,
+                      "stopwords": {
+                        "additions": null,
+                        "preset": "en",
+                        "removals": null
+                      },
+                      "usingBlockMaxWAND": true
+                    },
+                    "multiTenancyConfig": {
+                      "autoTenantActivation": false,
+                      "autoTenantCreation": false,
+                      "enabled": false
+                    },
+                    "properties": [
+                      {
+                        "dataType": [
+                          "text"
+                        ],
+                        "indexFilterable": true,
+                        "indexRangeFilters": false,
+                        "indexSearchable": false,
+                        "name": "docId",
+                        "tokenization": "word"
+                      },
+                      {
+                        "dataType": [
+                          "text"
+                        ],
+                        "indexFilterable": true,
+                        "indexRangeFilters": false,
+                        "indexSearchable": true,
+                        "name": "text",
+                        "tokenization": "word"
+                      }
+                    ],
+                    "shardingConfig": {
+                      "actualCount": 1,
+                      "actualVirtualCount": 128,
+                      "desiredCount": 1,
+                      "desiredVirtualCount": 128,
+                      "function": "murmur3",
+                      "key": "_id",
+                      "strategy": "hash",
+                      "virtualPerPhysical": 128
+                    },
+                    "vectorIndexConfig": {
+                      "bq": {
+                        "enabled": false
+                      },
+                      "cleanupIntervalSeconds": 300,
+                      "distance": "cosine",
+                      "dynamicEfFactor": 8,
+                      "dynamicEfMax": 500,
+                      "dynamicEfMin": 100,
+                      "ef": 128,
+                      "efConstruction": 200,
+                      "filterStrategy": "acorn",
+                      "flatSearchCutoff": 40000,
+                      "maxConnections": 16,
+                      "multivector": {
+                        "aggregation": "maxSim",
+                        "enabled": false,
+                        "muvera": {
+                          "dprojections": 16,
+                          "enabled": false,
+                          "ksim": 4,
+                          "repetitions": 10
+                        }
+                      },
+                      "pq": {
+                        "bitCompression": false,
+                        "centroids": 256,
+                        "enabled": false,
+                        "encoder": {
+                          "distribution": "log-normal",
+                          "type": "kmeans"
+                        },
+                        "segments": 0,
+                        "trainingLimit": 100000
+                      },
+                      "rq": {
+                        "bits": 8,
+                        "enabled": false,
+                        "rescoreLimit": 20
+                      },
+                      "skip": false,
+                      "skipDefaultQuantization": false,
+                      "sq": {
+                        "enabled": false,
+                        "rescoreLimit": 20,
+                        "trainingLimit": 100000
+                      },
+                      "trackDefaultQuantization": false,
+                      "vectorCacheMaxObjects": 1000000000000
+                    },
+                    "vectorIndexType": "hnsw",
+                    "vectorizer": "none",
+                    "replicationConfig": {
+                      "deletionStrategy": "TimeBasedResolution",
+                      "factor": 1,
+                      "asyncEnabled": false
+                    }
+                  }
+                }
+              },
+              "operating_point": {
+                "knob": "ef",
+                "recall_metric": "ann_recall@10",
+                "recall_k": 10,
+                "target": 0.99,
+                "chosen_value": 128,
+                "achieved_recall": 0.9922600619195047,
+                "met_target": true,
+                "secondary_target": 0.95,
+                "secondary_value": 64,
+                "secondary_recall": 0.9755417956656347,
+                "sweep": [
+                  {
+                    "value": 16,
+                    "recall": 0.8764705882352942
+                  },
+                  {
+                    "value": 32,
+                    "recall": 0.9390092879256969
+                  },
+                  {
+                    "value": 64,
+                    "recall": 0.9755417956656347
+                  },
+                  {
+                    "value": 128,
+                    "recall": 0.9922600619195047
+                  }
+                ]
+              },
+              "setup": "HNSW dense vectors, distance cosine, over the shared precomputed vectors"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "track": "hybrid",
+      "datasets": [
+        {
+          "dataset_id": "beir/scifact/test",
+          "rows": [
+            {
+              "engine": "narsil",
+              "metrics": {
+                "ndcg_cut_10": 0.7014743830816104,
+                "recall_100": 0.9643333333333334,
+                "map": 0.6531522314658491,
+                "recip_rank": 0.6596198813011699
+              },
+              "latency": {
+                "samples": 1500,
+                "top_k": 10,
+                "mean_ms": 3.54428912,
+                "p50_ms": 3.40825,
+                "p90_ms": 4.092833,
+                "p95_ms": 4.457084,
+                "p99_ms": 6.737917,
+                "max_ms": 27.52725
+              },
+              "operational": {
+                "documents_indexed": 5183,
+                "build_seconds": 8.58027025399997,
+                "ingest_docs_per_sec": 604.0602273085486,
+                "index_size_bytes": 33887051,
+                "raw_stats": {
+                  "index_size_bytes": 33887051,
+                  "raw": {
+                    "documentCount": 5183,
+                    "partitionCount": 1,
+                    "estimatedMemoryBytes": 33887051,
+                    "language": "english",
+                    "schema": {
+                      "text": "string",
+                      "embedding": "vector[384]"
+                    }
+                  }
+                }
+              },
+              "operating_point": {
+                "fusion": "RRF (k=60)",
+                "vector_knob": "efSearch",
+                "vector_value": 64,
+                "vector_ef_from_vector_track": true
+              },
+              "setup": "BM25 (text) fused with HNSW vector search via Reciprocal Rank Fusion"
+            },
+            {
+              "engine": "elasticsearch",
+              "metrics": {
+                "ndcg_cut_10": 0.705330531832667,
+                "recall_100": 0.9610000000000001,
+                "map": 0.6587118978302187,
+                "recip_rank": 0.6643168549517746
+              },
+              "latency": {
+                "samples": 1500,
+                "top_k": 10,
+                "mean_ms": 2.560937994,
+                "p50_ms": 1.92525,
+                "p90_ms": 3.931417,
+                "p95_ms": 5.112958,
+                "p99_ms": 10.750708,
+                "max_ms": 108.783583
+              },
+              "operational": {
+                "documents_indexed": 5183,
+                "build_seconds": 3.748678752000046,
+                "ingest_docs_per_sec": 1382.6204758769193,
+                "index_size_bytes": 15147976,
+                "raw_stats": {
+                  "index_size_bytes": 15147976,
+                  "raw": {
+                    "size_in_bytes": 15147976,
+                    "total_data_set_size_in_bytes": 15147976,
+                    "reserved_in_bytes": 0
+                  }
+                }
+              },
+              "operating_point": {
+                "fusion": "RRF retriever (rank_constant=60)",
+                "vector_knob": "num_candidates",
+                "vector_value": 64,
+                "vector_ef_from_vector_track": true
+              },
+              "setup": "BM25 match fused with dense_vector kNN via the RRF retriever"
+            },
+            {
+              "engine": "opensearch",
+              "metrics": {
+                "ndcg_cut_10": 0.705330531832667,
+                "recall_100": 0.9610000000000001,
+                "map": 0.6587121814969413,
+                "recip_rank": 0.6643169200679244
+              },
+              "latency": {
+                "samples": 1500,
+                "top_k": 10,
+                "mean_ms": 2.3445273613333333,
+                "p50_ms": 2.048917,
+                "p90_ms": 3.150458,
+                "p95_ms": 3.940542,
+                "p99_ms": 7.417459,
+                "max_ms": 14.110667
+              },
+              "operational": {
+                "documents_indexed": 5183,
+                "build_seconds": 3.905126293999956,
+                "ingest_docs_per_sec": 1327.2298025196874,
+                "index_size_bytes": 23681385,
+                "raw_stats": {
+                  "index_size_bytes": 23681385,
+                  "raw": {
+                    "size_in_bytes": 23681385,
+                    "reserved_in_bytes": 0
+                  }
+                }
+              },
+              "operating_point": {
+                "fusion": "score-ranker-processor RRF (rank_constant=60)",
+                "vector_knob": "ef_search",
+                "vector_value": 64,
+                "vector_ef_from_vector_track": true
+              },
+              "setup": "BM25 match fused with knn via a hybrid query and an RRF search pipeline"
+            },
+            {
+              "engine": "qdrant",
+              "metrics": {
+                "ndcg_cut_10": 0.71548113296036,
+                "recall_100": 0.9576666666666667,
+                "map": 0.6729718759797705,
+                "recip_rank": 0.6762048138523998
+              },
+              "latency": {
+                "samples": 1500,
+                "top_k": 10,
+                "mean_ms": 0.8633252733333334,
+                "p50_ms": 0.810459,
+                "p90_ms": 0.981917,
+                "p95_ms": 1.093041,
+                "p99_ms": 1.46275,
+                "max_ms": 20.193666
+              },
+              "operational": {
+                "documents_indexed": 5183,
+                "build_seconds": 3.1042765009999584,
+                "ingest_docs_per_sec": 1669.632198784624,
+                "index_size_bytes": null,
+                "raw_stats": {
+                  "index_size_bytes": null,
+                  "raw": {
+                    "status": "green",
+                    "optimizer_status": "ok",
+                    "indexed_vectors_count": 10366,
+                    "points_count": 5183,
+                    "segments_count": 3,
+                    "config": {
+                      "params": {
+                        "vectors": {
+                          "dense": {
+                            "size": 384,
+                            "distance": "Cosine",
+                            "hnsw_config": {
+                              "m": 16,
+                              "ef_construct": 200,
+                              "full_scan_threshold": 10
+                            }
+                          }
+                        },
+                        "shard_number": 1,
+                        "replication_factor": 1,
+                        "write_consistency_factor": 1,
+                        "on_disk_payload": true,
+                        "sparse_vectors": {
+                          "text": {
+                            "modifier": "idf"
+                          }
+                        }
+                      },
+                      "hnsw_config": {
+                        "m": 16,
+                        "ef_construct": 100,
+                        "full_scan_threshold": 10000,
+                        "max_indexing_threads": 0,
+                        "on_disk": false
+                      },
+                      "optimizer_config": {
+                        "deleted_threshold": 0.2,
+                        "vacuum_min_vector_number": 1000,
+                        "default_segment_number": 0,
+                        "max_segment_size": null,
+                        "memmap_threshold": null,
+                        "indexing_threshold": 100,
+                        "flush_interval_sec": 5,
+                        "max_optimization_threads": null,
+                        "prevent_unoptimized": null
+                      },
+                      "wal_config": {
+                        "wal_capacity_mb": 32,
+                        "wal_segments_ahead": 0,
+                        "wal_retain_closed": 1
+                      },
+                      "quantization_config": null
+                    },
+                    "payload_schema": {},
+                    "update_queue": {
+                      "length": 0
+                    }
+                  }
+                }
+              },
+              "operating_point": {
+                "fusion": "RRF (Query API fusion)",
+                "vector_knob": "hnsw_ef",
+                "vector_value": 64,
+                "vector_ef_from_vector_track": true
+              },
+              "setup": "Dense HNSW fused with BM25 sparse vectors (fastembed Qdrant/bm25, server IDF) via RRF"
+            },
+            {
+              "engine": "weaviate",
+              "metrics": {
+                "ndcg_cut_10": 0.6885279880068063,
+                "recall_100": 0.9576666666666667,
+                "map": 0.6405254097219124,
+                "recip_rank": 0.6512826013888465
+              },
+              "latency": {
+                "samples": 1500,
+                "top_k": 10,
+                "mean_ms": 2.835907741333333,
+                "p50_ms": 2.623625,
+                "p90_ms": 3.065875,
+                "p95_ms": 3.993834,
+                "p99_ms": 7.304709,
+                "max_ms": 11.621833
+              },
+              "operational": {
+                "documents_indexed": 5183,
+                "build_seconds": 3.871562711000024,
+                "ingest_docs_per_sec": 1338.7359025010426,
+                "index_size_bytes": null,
+                "raw_stats": {
+                  "index_size_bytes": null,
+                  "raw": {
+                    "class": "BenchBeirScifactTest",
+                    "invertedIndexConfig": {
+                      "bm25": {
+                        "b": 0.75,
+                        "k1": 1.2
+                      },
+                      "cleanupIntervalSeconds": 60,
+                      "stopwords": {
+                        "additions": null,
+                        "preset": "en",
+                        "removals": null
+                      },
+                      "usingBlockMaxWAND": true
+                    },
+                    "multiTenancyConfig": {
+                      "autoTenantActivation": false,
+                      "autoTenantCreation": false,
+                      "enabled": false
+                    },
+                    "properties": [
+                      {
+                        "dataType": [
+                          "text"
+                        ],
+                        "indexFilterable": true,
+                        "indexRangeFilters": false,
+                        "indexSearchable": false,
+                        "name": "docId",
+                        "tokenization": "word"
+                      },
+                      {
+                        "dataType": [
+                          "text"
+                        ],
+                        "indexFilterable": true,
+                        "indexRangeFilters": false,
+                        "indexSearchable": true,
+                        "name": "text",
+                        "tokenization": "word"
+                      }
+                    ],
+                    "shardingConfig": {
+                      "actualCount": 1,
+                      "actualVirtualCount": 128,
+                      "desiredCount": 1,
+                      "desiredVirtualCount": 128,
+                      "function": "murmur3",
+                      "key": "_id",
+                      "strategy": "hash",
+                      "virtualPerPhysical": 128
+                    },
+                    "vectorIndexConfig": {
+                      "bq": {
+                        "enabled": false
+                      },
+                      "cleanupIntervalSeconds": 300,
+                      "distance": "cosine",
+                      "dynamicEfFactor": 8,
+                      "dynamicEfMax": 500,
+                      "dynamicEfMin": 100,
+                      "ef": 64,
+                      "efConstruction": 200,
+                      "filterStrategy": "acorn",
+                      "flatSearchCutoff": 40000,
+                      "maxConnections": 16,
+                      "multivector": {
+                        "aggregation": "maxSim",
+                        "enabled": false,
+                        "muvera": {
+                          "dprojections": 16,
+                          "enabled": false,
+                          "ksim": 4,
+                          "repetitions": 10
+                        }
+                      },
+                      "pq": {
+                        "bitCompression": false,
+                        "centroids": 256,
+                        "enabled": false,
+                        "encoder": {
+                          "distribution": "log-normal",
+                          "type": "kmeans"
+                        },
+                        "segments": 0,
+                        "trainingLimit": 100000
+                      },
+                      "rq": {
+                        "bits": 8,
+                        "enabled": false,
+                        "rescoreLimit": 20
+                      },
+                      "skip": false,
+                      "skipDefaultQuantization": false,
+                      "sq": {
+                        "enabled": false,
+                        "rescoreLimit": 20,
+                        "trainingLimit": 100000
+                      },
+                      "trackDefaultQuantization": false,
+                      "vectorCacheMaxObjects": 1000000000000
+                    },
+                    "vectorIndexType": "hnsw",
+                    "vectorizer": "none",
+                    "replicationConfig": {
+                      "deletionStrategy": "TimeBasedResolution",
+                      "factor": 1,
+                      "asyncEnabled": false
+                    }
+                  }
+                }
+              },
+              "operating_point": {
+                "fusion": "rankedFusion (alpha=0.5)",
+                "vector_knob": "ef",
+                "vector_value": 64,
+                "vector_ef_from_vector_track": true
+              },
+              "setup": "BM25 over text fused with dense vectors via the hybrid operator (rankedFusion, alpha=0.5)"
+            }
+          ]
+        },
+        {
+          "dataset_id": "beir/nfcorpus/test",
+          "rows": [
+            {
+              "engine": "narsil",
+              "metrics": {
+                "ndcg_cut_10": 0.355456332699901,
+                "recall_100": 0.3239208475386061,
+                "map": 0.18773700158358486,
+                "recip_rank": 0.5727188272169407
+              },
+              "latency": {
+                "samples": 1615,
+                "top_k": 10,
+                "mean_ms": 3.2245096476780186,
+                "p50_ms": 3.166084,
+                "p90_ms": 3.664875,
+                "p95_ms": 3.857917,
+                "p99_ms": 4.469541,
+                "max_ms": 6.198167
+              },
+              "operational": {
+                "documents_indexed": 3633,
+                "build_seconds": 6.305216337000047,
+                "ingest_docs_per_sec": 576.1895874501495,
+                "index_size_bytes": 24600182,
+                "raw_stats": {
+                  "index_size_bytes": 24600182,
+                  "raw": {
+                    "documentCount": 3633,
+                    "partitionCount": 1,
+                    "estimatedMemoryBytes": 24600182,
+                    "language": "english",
+                    "schema": {
+                      "text": "string",
+                      "embedding": "vector[384]"
+                    }
+                  }
+                }
+              },
+              "operating_point": {
+                "fusion": "RRF (k=60)",
+                "vector_knob": "efSearch",
+                "vector_value": 128,
+                "vector_ef_from_vector_track": true
+              },
+              "setup": "BM25 (text) fused with HNSW vector search via Reciprocal Rank Fusion"
+            },
+            {
+              "engine": "elasticsearch",
+              "metrics": {
+                "ndcg_cut_10": 0.35171048496476787,
+                "recall_100": 0.321314329473915,
+                "map": 0.18671936104121342,
+                "recip_rank": 0.5632852708691976
+              },
+              "latency": {
+                "samples": 1615,
+                "top_k": 10,
+                "mean_ms": 1.4995643919504642,
+                "p50_ms": 1.391375,
+                "p90_ms": 1.823791,
+                "p95_ms": 2.072708,
+                "p99_ms": 2.837083,
+                "max_ms": 20.984042
+              },
+              "operational": {
+                "documents_indexed": 3633,
+                "build_seconds": 2.3067960009999524,
+                "ingest_docs_per_sec": 1574.9116950199166,
+                "index_size_bytes": 10810952,
+                "raw_stats": {
+                  "index_size_bytes": 10810952,
+                  "raw": {
+                    "size_in_bytes": 10810952,
+                    "total_data_set_size_in_bytes": 10810952,
+                    "reserved_in_bytes": 0
+                  }
+                }
+              },
+              "operating_point": {
+                "fusion": "RRF retriever (rank_constant=60)",
+                "vector_knob": "num_candidates",
+                "vector_value": 128,
+                "vector_ef_from_vector_track": true
+              },
+              "setup": "BM25 match fused with dense_vector kNN via the RRF retriever"
+            },
+            {
+              "engine": "opensearch",
+              "metrics": {
+                "ndcg_cut_10": 0.35171048496476787,
+                "recall_100": 0.321314329473915,
+                "map": 0.186719242078462,
+                "recip_rank": 0.5632867283079969
+              },
+              "latency": {
+                "samples": 1615,
+                "top_k": 10,
+                "mean_ms": 1.3654694804953562,
+                "p50_ms": 1.316375,
+                "p90_ms": 1.506208,
+                "p95_ms": 1.619167,
+                "p99_ms": 2.115458,
+                "max_ms": 17.707584
+              },
+              "operational": {
+                "documents_indexed": 3633,
+                "build_seconds": 2.2102022509999415,
+                "ingest_docs_per_sec": 1643.7409736400166,
+                "index_size_bytes": 16817520,
+                "raw_stats": {
+                  "index_size_bytes": 16817520,
+                  "raw": {
+                    "size_in_bytes": 16817520,
+                    "reserved_in_bytes": 0
+                  }
+                }
+              },
+              "operating_point": {
+                "fusion": "score-ranker-processor RRF (rank_constant=60)",
+                "vector_knob": "ef_search",
+                "vector_value": 128,
+                "vector_ef_from_vector_track": true
+              },
+              "setup": "BM25 match fused with knn via a hybrid query and an RRF search pipeline"
+            },
+            {
+              "engine": "qdrant",
+              "metrics": {
+                "ndcg_cut_10": 0.3504370063268428,
+                "recall_100": 0.32380662801952037,
+                "map": 0.18221837416313402,
+                "recip_rank": 0.5634177982549521
+              },
+              "latency": {
+                "samples": 1615,
+                "top_k": 10,
+                "mean_ms": 1.0170203034055727,
+                "p50_ms": 0.892458,
+                "p90_ms": 1.2485,
+                "p95_ms": 1.565375,
+                "p99_ms": 2.759584,
+                "max_ms": 12.38975
+              },
+              "operational": {
+                "documents_indexed": 3633,
+                "build_seconds": 2.3667127089998985,
+                "ingest_docs_per_sec": 1535.0405590779103,
+                "index_size_bytes": null,
+                "raw_stats": {
+                  "index_size_bytes": null,
+                  "raw": {
+                    "status": "green",
+                    "optimizer_status": "ok",
+                    "indexed_vectors_count": 7266,
+                    "points_count": 3633,
+                    "segments_count": 3,
+                    "config": {
+                      "params": {
+                        "vectors": {
+                          "dense": {
+                            "size": 384,
+                            "distance": "Cosine",
+                            "hnsw_config": {
+                              "m": 16,
+                              "ef_construct": 200,
+                              "full_scan_threshold": 10
+                            }
+                          }
+                        },
+                        "shard_number": 1,
+                        "replication_factor": 1,
+                        "write_consistency_factor": 1,
+                        "on_disk_payload": true,
+                        "sparse_vectors": {
+                          "text": {
+                            "modifier": "idf"
+                          }
+                        }
+                      },
+                      "hnsw_config": {
+                        "m": 16,
+                        "ef_construct": 100,
+                        "full_scan_threshold": 10000,
+                        "max_indexing_threads": 0,
+                        "on_disk": false
+                      },
+                      "optimizer_config": {
+                        "deleted_threshold": 0.2,
+                        "vacuum_min_vector_number": 1000,
+                        "default_segment_number": 0,
+                        "max_segment_size": null,
+                        "memmap_threshold": null,
+                        "indexing_threshold": 100,
+                        "flush_interval_sec": 5,
+                        "max_optimization_threads": null,
+                        "prevent_unoptimized": null
+                      },
+                      "wal_config": {
+                        "wal_capacity_mb": 32,
+                        "wal_segments_ahead": 0,
+                        "wal_retain_closed": 1
+                      },
+                      "quantization_config": null
+                    },
+                    "payload_schema": {},
+                    "update_queue": {
+                      "length": 0
+                    }
+                  }
+                }
+              },
+              "operating_point": {
+                "fusion": "RRF (Query API fusion)",
+                "vector_knob": "hnsw_ef",
+                "vector_value": 128,
+                "vector_ef_from_vector_track": true
+              },
+              "setup": "Dense HNSW fused with BM25 sparse vectors (fastembed Qdrant/bm25, server IDF) via RRF"
+            },
+            {
+              "engine": "weaviate",
+              "metrics": {
+                "ndcg_cut_10": 0.34313086908628176,
+                "recall_100": 0.3179929069375337,
+                "map": 0.18118092961110968,
+                "recip_rank": 0.5599953411700201
+              },
+              "latency": {
+                "samples": 1615,
+                "top_k": 10,
+                "mean_ms": 2.540043629102167,
+                "p50_ms": 2.255958,
+                "p90_ms": 3.253792,
+                "p95_ms": 4.08375,
+                "p99_ms": 5.998,
+                "max_ms": 51.613333
+              },
+              "operational": {
+                "documents_indexed": 3633,
+                "build_seconds": 2.1452430429999367,
+                "ingest_docs_per_sec": 1693.5144070760225,
+                "index_size_bytes": null,
+                "raw_stats": {
+                  "index_size_bytes": null,
+                  "raw": {
+                    "class": "BenchBeirNfcorpusTest",
+                    "invertedIndexConfig": {
+                      "bm25": {
+                        "b": 0.75,
+                        "k1": 1.2
+                      },
+                      "cleanupIntervalSeconds": 60,
+                      "stopwords": {
+                        "additions": null,
+                        "preset": "en",
+                        "removals": null
+                      },
+                      "usingBlockMaxWAND": true
+                    },
+                    "multiTenancyConfig": {
+                      "autoTenantActivation": false,
+                      "autoTenantCreation": false,
+                      "enabled": false
+                    },
+                    "properties": [
+                      {
+                        "dataType": [
+                          "text"
+                        ],
+                        "indexFilterable": true,
+                        "indexRangeFilters": false,
+                        "indexSearchable": false,
+                        "name": "docId",
+                        "tokenization": "word"
+                      },
+                      {
+                        "dataType": [
+                          "text"
+                        ],
+                        "indexFilterable": true,
+                        "indexRangeFilters": false,
+                        "indexSearchable": true,
+                        "name": "text",
+                        "tokenization": "word"
+                      }
+                    ],
+                    "shardingConfig": {
+                      "actualCount": 1,
+                      "actualVirtualCount": 128,
+                      "desiredCount": 1,
+                      "desiredVirtualCount": 128,
+                      "function": "murmur3",
+                      "key": "_id",
+                      "strategy": "hash",
+                      "virtualPerPhysical": 128
+                    },
+                    "vectorIndexConfig": {
+                      "bq": {
+                        "enabled": false
+                      },
+                      "cleanupIntervalSeconds": 300,
+                      "distance": "cosine",
+                      "dynamicEfFactor": 8,
+                      "dynamicEfMax": 500,
+                      "dynamicEfMin": 100,
+                      "ef": 128,
+                      "efConstruction": 200,
+                      "filterStrategy": "acorn",
+                      "flatSearchCutoff": 40000,
+                      "maxConnections": 16,
+                      "multivector": {
+                        "aggregation": "maxSim",
+                        "enabled": false,
+                        "muvera": {
+                          "dprojections": 16,
+                          "enabled": false,
+                          "ksim": 4,
+                          "repetitions": 10
+                        }
+                      },
+                      "pq": {
+                        "bitCompression": false,
+                        "centroids": 256,
+                        "enabled": false,
+                        "encoder": {
+                          "distribution": "log-normal",
+                          "type": "kmeans"
+                        },
+                        "segments": 0,
+                        "trainingLimit": 100000
+                      },
+                      "rq": {
+                        "bits": 8,
+                        "enabled": false,
+                        "rescoreLimit": 20
+                      },
+                      "skip": false,
+                      "skipDefaultQuantization": false,
+                      "sq": {
+                        "enabled": false,
+                        "rescoreLimit": 20,
+                        "trainingLimit": 100000
+                      },
+                      "trackDefaultQuantization": false,
+                      "vectorCacheMaxObjects": 1000000000000
+                    },
+                    "vectorIndexType": "hnsw",
+                    "vectorizer": "none",
+                    "replicationConfig": {
+                      "deletionStrategy": "TimeBasedResolution",
+                      "factor": 1,
+                      "asyncEnabled": false
+                    }
+                  }
+                }
+              },
+              "operating_point": {
+                "fusion": "rankedFusion (alpha=0.5)",
+                "vector_knob": "ef",
+                "vector_value": 128,
+                "vector_ef_from_vector_track": true
+              },
+              "setup": "BM25 over text fused with dense vectors via the hybrid operator (rankedFusion, alpha=0.5)"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

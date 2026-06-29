@@ -1,9 +1,9 @@
 {
   "environment": {
-    "captured_at": "2026-06-29T02:17:52.368430+00:00",
+    "captured_at": "2026-06-29T10:31:26.423743+00:00",
     "harness_version": "0.3.0",
     "containerized": true,
-    "machine_label": "",
+    "machine_label": "Apple M3 Pro, macOS 26.5.1",
     "os": "Linux 6.12.76-linuxkit",
     "arch": "aarch64",
     "cpu_model": null,
@@ -39,6 +39,179 @@
   },
   "datasets": [
     {
+      "dataset_id": "beir/scifact/test",
+      "track": "keyword",
+      "run_tag": "narsil_bm25",
+      "setup": "BM25 k1=0.9 b=0.4; Narsil english analyzer (Porter stemmer, 70-word stop list)",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.6781384972656637,
+        "recall_100": 0.932,
+        "map": 0.6378585587262384,
+        "recip_rank": 0.6455791235879702
+      },
+      "calibration": {
+        "baseline_ndcg10": 0.679,
+        "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
+        "margin": 0.02,
+        "delta": -0.0008615027343363835,
+        "within_margin": true
+      },
+      "operating_point": null,
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 0.9113797090000162,
+        "ingest_docs_per_sec": 5686.981999727523,
+        "index_size_bytes": 17826406,
+        "raw_stats": {
+          "index_size_bytes": 17826406,
+          "raw": {
+            "documentCount": 5183,
+            "partitionCount": 1,
+            "estimatedMemoryBytes": 17826406,
+            "language": "english",
+            "schema": {
+              "text": "string"
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "top_k": 10,
+        "mean_ms": 0.8389897066666667,
+        "p50_ms": 0.812959,
+        "p90_ms": 1.128417,
+        "p95_ms": 1.330334,
+        "p99_ms": 1.660708,
+        "max_ms": 3.271916
+      },
+      "run_file": "runs/bench_beir_scifact_test.narsil_bm25.run"
+    },
+    {
+      "dataset_id": "beir/scifact/test",
+      "track": "vector",
+      "run_tag": "narsil_vector",
+      "setup": "HNSW over the shared precomputed vectors, full precision (SQ8 quantization off), cosine",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.6238596288000929,
+        "recall_100": 0.9226666666666667,
+        "map": 0.5797156406807212,
+        "recip_rank": 0.5848884643178871
+      },
+      "calibration": null,
+      "operating_point": {
+        "knob": "efSearch",
+        "recall_metric": "ann_recall@10",
+        "recall_k": 10,
+        "target": 0.99,
+        "chosen_value": 64,
+        "achieved_recall": 0.9966666666666665,
+        "met_target": true,
+        "secondary_target": 0.95,
+        "secondary_value": 16,
+        "secondary_recall": 0.9606666666666668,
+        "sweep": [
+          {
+            "value": 16,
+            "recall": 0.9606666666666668
+          },
+          {
+            "value": 32,
+            "recall": 0.9870000000000001
+          },
+          {
+            "value": 64,
+            "recall": 0.9966666666666665
+          }
+        ]
+      },
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 8.162601961999997,
+        "ingest_docs_per_sec": 634.9690973697882,
+        "index_size_bytes": 33887051,
+        "raw_stats": {
+          "index_size_bytes": 33887051,
+          "raw": {
+            "documentCount": 5183,
+            "partitionCount": 1,
+            "estimatedMemoryBytes": 33887051,
+            "language": "english",
+            "schema": {
+              "text": "string",
+              "embedding": "vector[384]"
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "top_k": 10,
+        "mean_ms": 2.788499734,
+        "p50_ms": 2.656,
+        "p90_ms": 3.135625,
+        "p95_ms": 3.38225,
+        "p99_ms": 4.600292,
+        "max_ms": 66.532875
+      },
+      "run_file": "runs/bench_beir_scifact_test.narsil_vector.run"
+    },
+    {
+      "dataset_id": "beir/scifact/test",
+      "track": "hybrid",
+      "run_tag": "narsil_hybrid",
+      "setup": "BM25 (text) fused with HNSW vector search via Reciprocal Rank Fusion",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.7014743830816104,
+        "recall_100": 0.9643333333333334,
+        "map": 0.6531522314658491,
+        "recip_rank": 0.6596198813011699
+      },
+      "calibration": null,
+      "operating_point": {
+        "fusion": "RRF (k=60)",
+        "vector_knob": "efSearch",
+        "vector_value": 64,
+        "vector_ef_from_vector_track": true
+      },
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 8.58027025399997,
+        "ingest_docs_per_sec": 604.0602273085486,
+        "index_size_bytes": 33887051,
+        "raw_stats": {
+          "index_size_bytes": 33887051,
+          "raw": {
+            "documentCount": 5183,
+            "partitionCount": 1,
+            "estimatedMemoryBytes": 33887051,
+            "language": "english",
+            "schema": {
+              "text": "string",
+              "embedding": "vector[384]"
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "top_k": 10,
+        "mean_ms": 3.54428912,
+        "p50_ms": 3.40825,
+        "p90_ms": 4.092833,
+        "p95_ms": 4.457084,
+        "p99_ms": 6.737917,
+        "max_ms": 27.52725
+      },
+      "run_file": "runs/bench_beir_scifact_test.narsil_hybrid.run"
+    },
+    {
       "dataset_id": "beir/nfcorpus/test",
       "track": "keyword",
       "run_tag": "narsil_bm25",
@@ -46,30 +219,30 @@
       "queries": 323,
       "judged_queries": 323,
       "metrics": {
-        "ndcg_cut_10": 0.3111960869717613,
-        "recall_100": 0.2364387917431378,
-        "map": 0.13944232267274412,
-        "recip_rank": 0.5133318023344291
+        "ndcg_cut_10": 0.3268937200190016,
+        "recall_100": 0.24910963434856712,
+        "map": 0.15303944036831896,
+        "recip_rank": 0.5284067089293295
       },
       "calibration": {
         "baseline_ndcg10": 0.322,
         "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
         "margin": 0.02,
-        "delta": -0.010803913028238687,
+        "delta": 0.004893720019001568,
         "within_margin": true
       },
       "operating_point": null,
       "operational": {
         "documents_indexed": 3633,
-        "build_seconds": 0.6655191670000704,
-        "ingest_docs_per_sec": 5458.896122220347,
-        "index_size_bytes": 14492658,
+        "build_seconds": 0.5931365829999322,
+        "ingest_docs_per_sec": 6125.064789673267,
+        "index_size_bytes": 13342470,
         "raw_stats": {
-          "index_size_bytes": 14492658,
+          "index_size_bytes": 13342470,
           "raw": {
             "documentCount": 3633,
             "partitionCount": 1,
-            "estimatedMemoryBytes": 14492658,
+            "estimatedMemoryBytes": 13342470,
             "language": "english",
             "schema": {
               "text": "string"
@@ -80,12 +253,12 @@
       "latency": {
         "samples": 1615,
         "top_k": 10,
-        "mean_ms": 0.5595735678018576,
-        "p50_ms": 0.471334,
-        "p90_ms": 0.953209,
-        "p95_ms": 1.139875,
-        "p99_ms": 1.569792,
-        "max_ms": 2.326958
+        "mean_ms": 0.44642228854489163,
+        "p50_ms": 0.409083,
+        "p90_ms": 0.669959,
+        "p95_ms": 0.76875,
+        "p99_ms": 0.973,
+        "max_ms": 1.57625
       },
       "run_file": "runs/bench_beir_nfcorpus_test.narsil_bm25.run"
     },
@@ -99,7 +272,7 @@
       "metrics": {
         "ndcg_cut_10": 0.31453393519371436,
         "recall_100": 0.3094260094121505,
-        "map": 0.15745514380629685,
+        "map": 0.15745513985275994,
         "recip_rank": 0.5168401508608532
       },
       "calibration": null,
@@ -113,19 +286,19 @@
         "met_target": true,
         "secondary_target": 0.95,
         "secondary_value": 32,
-        "secondary_recall": 0.9569659442724464,
+        "secondary_recall": 0.9566563467492264,
         "sweep": [
           {
             "value": 16,
-            "recall": 0.908668730650155
+            "recall": 0.9080495356037156
           },
           {
             "value": 32,
-            "recall": 0.9569659442724464
+            "recall": 0.9566563467492264
           },
           {
             "value": 64,
-            "recall": 0.985139318885449
+            "recall": 0.9854489164086689
           },
           {
             "value": 128,
@@ -135,15 +308,15 @@
       },
       "operational": {
         "documents_indexed": 3633,
-        "build_seconds": 11.350420922000012,
-        "ingest_docs_per_sec": 320.0762354952246,
-        "index_size_bytes": 26041010,
+        "build_seconds": 5.676124919000017,
+        "ingest_docs_per_sec": 640.0493385617804,
+        "index_size_bytes": 24600182,
         "raw_stats": {
-          "index_size_bytes": 26041010,
+          "index_size_bytes": 24600182,
           "raw": {
             "documentCount": 3633,
             "partitionCount": 1,
-            "estimatedMemoryBytes": 26041010,
+            "estimatedMemoryBytes": 24600182,
             "language": "english",
             "schema": {
               "text": "string",
@@ -155,12 +328,12 @@
       "latency": {
         "samples": 1615,
         "top_k": 10,
-        "mean_ms": 3.8442686513931887,
-        "p50_ms": 3.2875,
-        "p90_ms": 4.561875,
-        "p95_ms": 5.853708,
-        "p99_ms": 10.527375,
-        "max_ms": 128.336834
+        "mean_ms": 3.552270759133127,
+        "p50_ms": 3.099125,
+        "p90_ms": 4.216292,
+        "p95_ms": 5.262791,
+        "p99_ms": 10.993,
+        "max_ms": 62.081333
       },
       "run_file": "runs/bench_beir_nfcorpus_test.narsil_vector.run"
     },
@@ -172,10 +345,10 @@
       "queries": 323,
       "judged_queries": 323,
       "metrics": {
-        "ndcg_cut_10": 0.34166725500153927,
-        "recall_100": 0.32260759095357244,
-        "map": 0.17695910011246066,
-        "recip_rank": 0.562545495168515
+        "ndcg_cut_10": 0.355456332699901,
+        "recall_100": 0.3239208475386061,
+        "map": 0.18773700158358486,
+        "recip_rank": 0.5727188272169407
       },
       "calibration": null,
       "operating_point": {
@@ -186,15 +359,15 @@
       },
       "operational": {
         "documents_indexed": 3633,
-        "build_seconds": 12.228905048000001,
-        "ingest_docs_per_sec": 297.08301648757714,
-        "index_size_bytes": 26041010,
+        "build_seconds": 6.305216337000047,
+        "ingest_docs_per_sec": 576.1895874501495,
+        "index_size_bytes": 24600182,
         "raw_stats": {
-          "index_size_bytes": 26041010,
+          "index_size_bytes": 24600182,
           "raw": {
             "documentCount": 3633,
             "partitionCount": 1,
-            "estimatedMemoryBytes": 26041010,
+            "estimatedMemoryBytes": 24600182,
             "language": "english",
             "schema": {
               "text": "string",
@@ -206,12 +379,12 @@
       "latency": {
         "samples": 1615,
         "top_k": 10,
-        "mean_ms": 3.609341466873065,
-        "p50_ms": 3.516167,
-        "p90_ms": 4.043333,
-        "p95_ms": 4.34775,
-        "p99_ms": 5.075958,
-        "max_ms": 14.001333
+        "mean_ms": 3.2245096476780186,
+        "p50_ms": 3.166084,
+        "p90_ms": 3.664875,
+        "p95_ms": 3.857917,
+        "p99_ms": 4.469541,
+        "max_ms": 6.198167
       },
       "run_file": "runs/bench_beir_nfcorpus_test.narsil_hybrid.run"
     }
