@@ -18,6 +18,27 @@ def best_effort(action, label: str):
         return None
 
 
+def bulk_load_begin(driver, index: str, spec) -> None:
+    """Apply an engine's documented fast-ingest configuration before a large-corpus
+    load (for example pausing periodic index refresh). Only large datasets opt in,
+    so the small BEIR runs ingest exactly as before, and engines without a hook are
+    left untouched."""
+
+    if not getattr(spec, "large", False):
+        return
+    hook = getattr(driver, "bulk_load_begin", None)
+    if hook is not None:
+        best_effort(lambda: hook(index), "bulk-load tuning")
+
+
+def bulk_load_end(driver, index: str, spec) -> None:
+    if not getattr(spec, "large", False):
+        return
+    hook = getattr(driver, "bulk_load_end", None)
+    if hook is not None:
+        best_effort(lambda: hook(index), "bulk-load restore")
+
+
 def index_size_bytes(stats: dict | None) -> int | None:
     if not stats:
         return None

@@ -61,10 +61,12 @@ names the method per engine rather than claiming one shared method.
 - The same datasets, the same metrics (nDCG@10, Recall@100, MAP, and MRR via
   pytrec_eval), the same run depth of 1000, and the same latency sampling apply to
   every engine on every track.
-- Each engine container gets the same 8 GiB memory cap, set in
-  `docker-compose.yml` and recorded in every results file. Engines run one at a
-  time, so the cap never contends and latency compares directly. At these corpus
-  sizes no engine approaches the cap.
+- Each engine container gets the same memory cap, set in `docker-compose.yml` and
+  recorded in every results file. It defaults to 8 GiB for the small sets and is
+  raised for large corpora with `BENCH_MEM_CAP`, which moves the container limit
+  and the recorded value together so the number in the results always matches what
+  was enforced. Engines run one at a time, so the cap never contends and latency
+  compares directly. At the small corpus sizes no engine approaches the cap.
 - One run-file ordering rule applies to every engine. `trec_eval` ignores the rank
   column, re-sorts hits by score, and breaks equal-score ties by document id in
   reverse-lexical order, which can reshuffle a ranking and change nDCG. The harness
@@ -225,6 +227,14 @@ hash-verified corpora, queries, and relevance judgements.
 | ------- | -------------- | --------- | ------------ | ---------- |
 | SciFact | `beir/scifact/test` | 5,183 | 300 | binary |
 | NFCorpus | `beir/nfcorpus/test` | 3,633 | 323 | graded (0 to 2) |
+
+A default run uses the two small sets above. Two large standard corpora are
+configured for the publish phase and run only when you select them on a sized
+machine: MS MARCO passage (`beir/msmarco/dev`, 8.84M passages, BEIR in-domain dev
+split) and Natural Questions (`beir/nq`, 2.68M passages). They are flagged `large`
+in `config/benchmark.toml`, so a laptop run skips them. To run one, rent a VM and
+follow [docs/large-datasets.md](docs/large-datasets.md), which gives the VM size,
+the exact command, and how to copy the results back.
 
 ## Layout
 

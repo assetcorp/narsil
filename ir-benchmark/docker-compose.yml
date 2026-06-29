@@ -2,10 +2,11 @@ name: ir-benchmark
 
 # One engine runs at a time. The orchestration script (run-all.sh) brings up a
 # single engine behind its profile, runs the harness against it, then tears it
-# down before the next. Every engine container gets the same 8 GiB ceiling so
-# the latency numbers compare at an equal cap.
-
-x-mem-cap: &mem_cap "8g"
+# down before the next. Every engine container gets the same ceiling so the
+# latency numbers compare at an equal cap. The ceiling defaults to 8 GiB for the
+# small BEIR sets on a laptop and is raised for million-passage corpora on a
+# sized machine with BENCH_MEM_CAP (and BENCH_JVM_HEAP for the JVM engines); the
+# value used is recorded in every results file.
 
 services:
   narsil:
@@ -13,7 +14,7 @@ services:
     build:
       context: ..
       dockerfile: ir-benchmark/narsil-server.Dockerfile
-    mem_limit: *mem_cap
+    mem_limit: "${BENCH_MEM_CAP:-8g}"
     environment:
       NARSIL_HOST: "0.0.0.0"
       NARSIL_PORT: "7700"
@@ -26,7 +27,7 @@ services:
   elasticsearch:
     profiles: ["elasticsearch"]
     image: docker.elastic.co/elasticsearch/elasticsearch:9.4.2
-    mem_limit: *mem_cap
+    mem_limit: "${BENCH_MEM_CAP:-8g}"
     environment:
       discovery.type: "single-node"
       xpack.security.enabled: "false"
@@ -35,7 +36,7 @@ services:
       # the self-generated trial unlocks it so Elasticsearch can be evaluated on
       # the same RRF fusion family as the other engines.
       xpack.license.self_generated.type: "trial"
-      ES_JAVA_OPTS: "-Xms2g -Xmx2g"
+      ES_JAVA_OPTS: "-Xms${BENCH_JVM_HEAP:-2g} -Xmx${BENCH_JVM_HEAP:-2g}"
     ulimits:
       memlock:
         soft: -1
@@ -46,11 +47,11 @@ services:
   opensearch:
     profiles: ["opensearch"]
     image: opensearchproject/opensearch:3.7.0
-    mem_limit: *mem_cap
+    mem_limit: "${BENCH_MEM_CAP:-8g}"
     environment:
       discovery.type: "single-node"
       DISABLE_SECURITY_PLUGIN: "true"
-      OPENSEARCH_JAVA_OPTS: "-Xms2g -Xmx2g"
+      OPENSEARCH_JAVA_OPTS: "-Xms${BENCH_JVM_HEAP:-2g} -Xmx${BENCH_JVM_HEAP:-2g}"
     ulimits:
       memlock:
         soft: -1
@@ -61,7 +62,7 @@ services:
   qdrant:
     profiles: ["qdrant"]
     image: qdrant/qdrant:v1.18.2
-    mem_limit: *mem_cap
+    mem_limit: "${BENCH_MEM_CAP:-8g}"
     volumes:
       - qdrant_data:/qdrant/storage
     expose:
@@ -70,7 +71,7 @@ services:
   weaviate:
     profiles: ["weaviate"]
     image: cr.weaviate.io/semitechnologies/weaviate:1.38.2
-    mem_limit: *mem_cap
+    mem_limit: "${BENCH_MEM_CAP:-8g}"
     environment:
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
       PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
@@ -85,7 +86,7 @@ services:
   typesense:
     profiles: ["typesense"]
     image: typesense/typesense:30.2
-    mem_limit: *mem_cap
+    mem_limit: "${BENCH_MEM_CAP:-8g}"
     command: ["--data-dir", "/data", "--api-key=${BENCH_API_KEY:-localdev}", "--enable-cors"]
     volumes:
       - typesense_data:/data
@@ -95,7 +96,7 @@ services:
   meilisearch:
     profiles: ["meilisearch"]
     image: getmeili/meilisearch:v1.48.2
-    mem_limit: *mem_cap
+    mem_limit: "${BENCH_MEM_CAP:-8g}"
     environment:
       MEILI_MASTER_KEY: "${BENCH_API_KEY:-localdev}"
       MEILI_ENV: "development"
@@ -113,6 +114,10 @@ services:
       BENCH_API_KEY: "${BENCH_API_KEY:-localdev}"
       BENCH_MACHINE_LABEL: "${BENCH_MACHINE_LABEL:-}"
       BENCH_EMBEDDINGS_DIR: "/data/embeddings"
+      BENCH_MEM_CAP: "${BENCH_MEM_CAP:-8g}"
+      BENCH_DATASETS: "${BENCH_DATASETS:-}"
+      IR_DATASETS_DL_TRIES: "${IR_DATASETS_DL_TRIES:-10}"
+      IR_DATASETS_DL_TIMEOUT: "${IR_DATASETS_DL_TIMEOUT:-60}"
     volumes:
       - ir_datasets_cache:/data/ir_datasets
       - embeddings_cache:/data/embeddings
