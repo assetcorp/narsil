@@ -11,7 +11,7 @@ from .core.environment import capture_environment
 from .core.harness import run_engine
 from .core.registry import build_driver
 from .core.reporter import build_engine_report, render_engine_markdown, write_json
-from .core.types import HYBRID, VECTOR
+from .core.types import BEST_CONFIG, EQUAL_PRECISION, HYBRID, VECTOR, VECTOR_PROFILES
 
 
 def _embeddings_dir() -> Path:
@@ -30,11 +30,22 @@ def main(argv: list[str] | None = None) -> int:
         help="comma-separated subset of configured dataset ids (or $BENCH_DATASETS); "
         "the default runs every dataset not flagged large",
     )
+    parser.add_argument(
+        "--vector-profile",
+        default=None,
+        choices=VECTOR_PROFILES,
+        help="vector/hybrid precision profile (or $BENCH_VECTOR_PROFILE); "
+        f"'{EQUAL_PRECISION}' (default) holds every engine at full float, "
+        f"'{BEST_CONFIG}' lets each engine use its recommended production quantization",
+    )
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
     engine_cfg = select_engine(config, args.engine)
     specs = select_datasets(config, args.datasets or os.environ.get("BENCH_DATASETS"))
+    vector_profile = args.vector_profile or os.environ.get("BENCH_VECTOR_PROFILE") or EQUAL_PRECISION
+    if vector_profile not in VECTOR_PROFILES:
+        raise SystemExit(f"unknown vector profile '{vector_profile}'; allowed: {', '.join(VECTOR_PROFILES)}")
 
     driver = build_driver(engine_cfg, config.bm25)
     environment = capture_environment()
@@ -46,6 +57,7 @@ def main(argv: list[str] | None = None) -> int:
         "version": os.environ.get("ENGINE_VERSION"),
         "tracks": list(engine_cfg.tracks),
         "keyword_setup": getattr(driver, "keyword_setup", None),
+        "vector_profile": vector_profile,
     }
     config_summary = {
         "k1": config.bm25.k1,
@@ -68,15 +80,21 @@ def main(argv: list[str] | None = None) -> int:
     store = EmbeddingStore(config.vector, _embeddings_dir()) if (needs_vectors and config.vector) else None
 
     try:
-        print(f"waiting for {engine_cfg.name} at {engine_cfg.url}", flush=True)
-        results = run_engine(driver, engine_cfg, config, specs, args.runs_dir, store)
+        print(f"waiting for {engine_cfg.name} at {engine_cfg.url} (vector profile: {vector_profile})", flush=True)
+        results = run_engine(driver, engine_cfg, config, specs, args.runs_dir, store, vector_profile)
     finally:
         driver.close()
 
+    if not results:
+        print(f"no tracks ran for {engine_cfg.name} under the {vector_profile} profile; nothing to write", flush=True)
+        return 0
+
+    config_summary["vector_profile"] = vector_profile
     report = build_engine_report(environment, engine_info, config_summary, results)
-    write_json(args.results_dir / f"engine-{engine_cfg.name}.json", report)
+    suffix = "-bestconfig" if vector_profile == BEST_CONFIG else ""
+    write_json(args.results_dir / f"engine-{engine_cfg.name}{suffix}.json", report)
     markdown = render_engine_markdown(report)
-    (args.results_dir / f"engine-{engine_cfg.name}.md").write_text(markdown, encoding="utf-8")
+    (args.results_dir / f"engine-{engine_cfg.name}{suffix}.md").write_text(markdown, encoding="utf-8")
     print("\n" + markdown, flush=True)
 
     outside = [

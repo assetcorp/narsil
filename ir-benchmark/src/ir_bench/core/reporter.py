@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .types import HYBRID, KEYWORD, VECTOR
+from .latency_report import client_summary, disclosure, server_summary
+from .types import EQUAL_PRECISION, HYBRID, KEYWORD, VECTOR
 
 
 def build_engine_report(environment: dict, engine: dict, config_summary: dict, datasets: list[dict]) -> dict:
@@ -42,12 +43,15 @@ def _quality_columns(rows: list[dict]) -> list[str]:
 
 def _operational_columns(rows: list[dict]) -> list[str]:
     lines = [
-        "| Dataset | Docs | Ingest docs/s | Build s | Index size | p50 ms | p95 ms | p99 ms |",
+        "Operational metrics. Latency below is the engine's own reported query time "
+        "(server-side); the client round-trip is reported separately underneath.",
+        "",
+        "| Dataset | Docs | Ingest docs/s | Build s | Index size | Server p50 ms | Server p95 ms | Server p99 ms |",
         "|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         ops = row.get("operational", {})
-        latency = row.get("latency", {})
+        server = server_summary(row.get("latency", {}))
         size = ops.get("index_size_bytes")
         lines.append(
             "| {id} | {docs} | {rate} | {build} | {size} | {p50} | {p95} | {p99} |".format(
@@ -56,11 +60,43 @@ def _operational_columns(rows: list[dict]) -> list[str]:
                 rate=_fmt(ops.get("ingest_docs_per_sec"), 0),
                 build=_fmt(ops.get("build_seconds"), 2),
                 size="n/a" if size is None else f"{size / 1e6:.1f} MB",
-                p50=_fmt(latency.get("p50_ms"), 2),
-                p95=_fmt(latency.get("p95_ms"), 2),
-                p99=_fmt(latency.get("p99_ms"), 2),
+                p50="n/a" if server is None else _fmt(server.get("p50_ms"), 2),
+                p95="n/a" if server is None else _fmt(server.get("p95_ms"), 2),
+                p99="n/a" if server is None else _fmt(server.get("p99_ms"), 2),
             )
         )
+    lines.append("")
+    lines.extend(_client_latency_columns(rows))
+    lines.append("")
+    lines.extend(_server_time_disclosure(rows))
+    return lines
+
+
+def _client_latency_columns(rows: list[dict]) -> list[str]:
+    lines = [
+        "Client round-trip latency (wall-clock around the HTTP call, includes "
+        "transport and JSON), measured over the same queries and repeats:",
+        "",
+        "| Dataset | Client p50 ms | Client p95 ms | Client p99 ms |",
+        "|---|---|---|---|",
+    ]
+    for row in rows:
+        client = client_summary(row.get("latency", {}))
+        lines.append(
+            "| {id} | {p50} | {p95} | {p99} |".format(
+                id=row["dataset_id"],
+                p50=_fmt(client.get("p50_ms"), 2),
+                p95=_fmt(client.get("p95_ms"), 2),
+                p99=_fmt(client.get("p99_ms"), 2),
+            )
+        )
+    return lines
+
+
+def _server_time_disclosure(rows: list[dict]) -> list[str]:
+    lines = ["Server-side time source per dataset:", ""]
+    for row in rows:
+        lines.append(f"- {row['dataset_id']}: {disclosure(row.get('latency', {}))}")
     return lines
 
 
@@ -85,8 +121,6 @@ def _keyword_section(rows: list[dict]) -> list[str]:
                 mrr=_fmt(metrics.get("recip_rank")),
             )
         )
-    lines.append("")
-    lines.append("Operational metrics:")
     lines.append("")
     lines.extend(_operational_columns(rows))
     lines.append("")
@@ -134,7 +168,7 @@ def _vector_section(rows: list[dict], config: dict) -> list[str]:
     lines.extend(_quality_columns(rows))
     lines.append("")
     lines.extend(_operating_point_lines(rows))
-    lines.append("Operational metrics (latency at the operating point):")
+    lines.append("Latency is measured at the operating point.")
     lines.append("")
     lines.extend(_operational_columns(rows))
     lines.append("")
@@ -154,8 +188,6 @@ def _hybrid_section(rows: list[dict]) -> list[str]:
         "",
     ]
     lines.extend(_quality_columns(rows))
-    lines.append("")
-    lines.append("Operational metrics:")
     lines.append("")
     lines.extend(_operational_columns(rows))
     lines.append("")
@@ -189,7 +221,9 @@ def render_engine_markdown(report: dict) -> str:
     config = report["config"]
     results = report["datasets"]
     tracks = ", ".join(engine.get("tracks", []))
-    lines: list[str] = [f"# {engine['name']} retrieval ({tracks})", ""]
+    profile = engine.get("vector_profile", EQUAL_PRECISION)
+    profile_note = "" if profile == EQUAL_PRECISION else f", {profile} vector profile"
+    lines: list[str] = [f"# {engine['name']} retrieval ({tracks}{profile_note})", ""]
     lines.extend(_environment_lines(report))
 
     keyword_rows = _by_track(results, KEYWORD)

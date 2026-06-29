@@ -8,7 +8,15 @@ from typing import Iterable, Iterator
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
-from ..core.types import EngineError, Hit, ImportResult, SearchResponse
+from ..core.types import (
+    INTEGER_MS,
+    EngineError,
+    Hit,
+    ImportResult,
+    SearchResponse,
+    ServerTimeSource,
+    coerce_server_ms,
+)
 
 
 def _chunked(items: Iterable[tuple[str, str]], size: int) -> Iterator[list[tuple[str, str]]]:
@@ -37,6 +45,7 @@ class MeilisearchDriver:
             "exactness), not BM25; _rankingScore for ordering; default typo "
             "tolerance and prefix search; no stemming or stop-word removal"
         )
+        self.server_time = ServerTimeSource(source="response `processingTimeMs` field", resolution=INTEGER_MS)
         api_key = os.environ.get("BENCH_API_KEY", "localdev")
         self._client = httpx.Client(
             base_url=engine.url,
@@ -133,7 +142,9 @@ class MeilisearchDriver:
             for hit in payload.get("hits", [])
         ]
         count = int(payload.get("estimatedTotalHits", len(hits)))
-        return SearchResponse(hits=hits, count=count, server_elapsed_ms=float(payload.get("processingTimeMs", 0.0)))
+        return SearchResponse(
+            hits=hits, count=count, server_elapsed_ms=coerce_server_ms(payload.get("processingTimeMs"))
+        )
 
     def index_stats(self, index: str) -> dict | None:
         response = self._client.get(f"/indexes/{index}/stats")

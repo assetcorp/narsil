@@ -6,7 +6,26 @@ from typing import Iterable, Iterator
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
-from ..core.types import EngineError, Hit, ImportResult, SearchResponse, VectorDoc, VectorIndexParams
+from ..core.types import (
+    BEST_CONFIG,
+    EQUAL_PRECISION,
+    FLOATING_MS,
+    EngineError,
+    Hit,
+    ImportResult,
+    SearchResponse,
+    ServerTimeSource,
+    VectorDoc,
+    VectorIndexParams,
+    coerce_server_ms,
+)
+
+_SECONDS_TO_MS = 1000.0
+_SCALAR_QUANTILE = 0.99
+_SCALAR_OVERSAMPLING = 2.0
+# Scalar int8 is near-lossless, so the recommended 2x rescore usually clears the recall
+# target on its own; the sweep escalates the rescore oversample only if it does not.
+_SCALAR_OVERSAMPLING_GRID = (2.0, 3.0, 5.0, 8.0)
 
 _DENSE = "dense"
 _SPARSE = "text"
@@ -45,9 +64,18 @@ class QdrantDriver:
         self.hybrid_setup = "Dense HNSW fused with BM25 sparse vectors (fastembed Qdrant/bm25, server IDF) via RRF"
         self.hybrid_fusion = "RRF (Query API fusion)"
         self.vector_knob = "hnsw_ef"
+        self.server_time = ServerTimeSource(
+            source="top-level `time` field (seconds, converted to ms)", resolution=FLOATING_MS
+        )
+        self._vector_profile = EQUAL_PRECISION
+        self.rescore_oversample_grid = _SCALAR_OVERSAMPLING_GRID
+        self._rescore_oversample: float | None = None
         self._sparse_model_name = "Qdrant/bm25"
         self._sparse = None
         self._client = httpx.Client(base_url=engine.url, timeout=120.0)
+
+    def set_rescore_oversample(self, value: float | None) -> None:
+        self._rescore_oversample = value
 
     def close(self) -> None:
         self._client.close()
@@ -70,7 +98,8 @@ class QdrantDriver:
             _raise(response)
 
     def create_vector_index(self, index: str, params: VectorIndexParams) -> None:
-        body = {
+        self._vector_profile = params.profile
+        body: dict = {
             "vectors": {
                 _DENSE: {
                     "size": params.dims,
@@ -85,8 +114,29 @@ class QdrantDriver:
             "sparse_vectors": {_SPARSE: {"modifier": "idf"}},
             "optimizers_config": {"indexing_threshold": _INDEXING_THRESHOLD},
         }
+        if params.profile == BEST_CONFIG:
+            body["quantization_config"] = {
+                "scalar": {"type": "int8", "quantile": _SCALAR_QUANTILE, "always_ram": True}
+            }
+            self.vector_setup = (
+                "HNSW dense vectors with int8 scalar quantization and full-precision rescore "
+                f"(oversampling {_SCALAR_OVERSAMPLING}x), distance Cosine, over the shared precomputed vectors"
+            )
+            self.hybrid_setup = (
+                "int8-quantized dense HNSW (full-precision rescore) fused with BM25 sparse vectors "
+                "(fastembed Qdrant/bm25, server IDF) via RRF"
+            )
         response = self._client.put(f"/collections/{index}", json=body)
         _raise(response)
+
+    def _search_params(self, ef: int | None) -> dict | None:
+        params: dict = {}
+        if ef is not None:
+            params["hnsw_ef"] = ef
+        if self._vector_profile == BEST_CONFIG:
+            oversampling = self._rescore_oversample if self._rescore_oversample is not None else _SCALAR_OVERSAMPLING
+            params["quantization"] = {"rescore": True, "oversampling": oversampling}
+        return params or None
 
     def _sparse_model(self):
         if self._sparse is None:
@@ -144,12 +194,17 @@ class QdrantDriver:
 
     def _parse(self, response: httpx.Response) -> SearchResponse:
         _raise(response)
-        points = response.json().get("result", {}).get("points", [])
+        payload = response.json()
+        points = payload.get("result", {}).get("points", [])
         hits = [
             Hit(doc_id=str(point.get("payload", {}).get("doc_id")), score=float(point.get("score", 0.0)))
             for point in points
         ]
-        return SearchResponse(hits=hits, count=len(hits), server_elapsed_ms=0.0)
+        return SearchResponse(
+            hits=hits,
+            count=len(hits),
+            server_elapsed_ms=coerce_server_ms(payload.get("time"), _SECONDS_TO_MS),
+        )
 
     def vector_search(self, index: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
         query: dict = {
@@ -158,15 +213,17 @@ class QdrantDriver:
             "limit": limit,
             "with_payload": ["doc_id"],
         }
-        if ef is not None:
-            query["params"] = {"hnsw_ef": ef}
+        params = self._search_params(ef)
+        if params is not None:
+            query["params"] = params
         return self._parse(self._client.post(f"/collections/{index}/points/query", json=query))
 
     def hybrid_search(self, index: str, term: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
         sparse_results = list(self._sparse_model().query_embed(term))
         dense_prefetch: dict = {"query": vector, "using": _DENSE, "limit": limit}
-        if ef is not None:
-            dense_prefetch["params"] = {"hnsw_ef": ef}
+        params = self._search_params(ef)
+        if params is not None:
+            dense_prefetch["params"] = params
         prefetch = [dense_prefetch]
         if sparse_results and len(sparse_results[0].indices) > 0:
             sparse_vec = sparse_results[0]

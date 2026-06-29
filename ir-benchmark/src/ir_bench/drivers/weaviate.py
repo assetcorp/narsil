@@ -7,7 +7,17 @@ from typing import Iterable, Iterator
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
-from ..core.types import EngineError, Hit, ImportResult, SearchResponse, VectorDoc, VectorIndexParams
+from ..core.types import (
+    BEST_CONFIG,
+    EQUAL_PRECISION,
+    SERVER_TIME_UNAVAILABLE,
+    EngineError,
+    Hit,
+    ImportResult,
+    SearchResponse,
+    VectorDoc,
+    VectorIndexParams,
+)
 
 _HYBRID_ALPHA = 0.5
 
@@ -52,6 +62,8 @@ class WeaviateDriver:
         )
         self.hybrid_fusion = f"rankedFusion (alpha={_HYBRID_ALPHA})"
         self.vector_knob = "ef"
+        self.server_time = SERVER_TIME_UNAVAILABLE
+        self._vector_profile = EQUAL_PRECISION
         self._client = httpx.Client(base_url=engine.url, timeout=120.0)
         self._ef_cache: dict[str, int] = {}
 
@@ -77,16 +89,28 @@ class WeaviateDriver:
 
     def create_vector_index(self, index: str, params: VectorIndexParams) -> None:
         self._ef_cache.pop(_class_name(index), None)
+        self._vector_profile = params.profile
+        vector_index_config: dict = {
+            "distance": "cosine",
+            "efConstruction": params.ef_construction,
+            "maxConnections": params.m,
+            "ef": -1,
+        }
+        if params.profile == BEST_CONFIG:
+            vector_index_config["rq"] = {"enabled": True, "bits": 8}
+            self.vector_setup = (
+                "HNSW dense vectors with 8-bit Rotational Quantization and full-precision "
+                "rescore, distance cosine, over the shared precomputed vectors"
+            )
+            self.hybrid_setup = (
+                f"BM25 over text fused with RQ-quantized dense vectors (full-precision rescore) "
+                f"via the hybrid operator (rankedFusion, alpha={_HYBRID_ALPHA})"
+            )
         body = {
             "class": _class_name(index),
             "vectorizer": "none",
             "vectorIndexType": "hnsw",
-            "vectorIndexConfig": {
-                "distance": "cosine",
-                "efConstruction": params.ef_construction,
-                "maxConnections": params.m,
-                "ef": -1,
-            },
+            "vectorIndexConfig": vector_index_config,
             "properties": [
                 {"name": "docId", "dataType": ["text"], "indexSearchable": False, "indexFilterable": True},
                 {"name": "text", "dataType": ["text"]},
@@ -155,7 +179,7 @@ class WeaviateDriver:
             if score_key == "distance":
                 score = 1.0 - score
             hits.append(Hit(doc_id=str(row.get("docId")), score=score))
-        return SearchResponse(hits=hits, count=len(hits), server_elapsed_ms=0.0)
+        return SearchResponse(hits=hits, count=len(hits), server_elapsed_ms=None)
 
     def vector_search(self, index: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
         klass = _class_name(index)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Iterable, Protocol, runtime_checkable
 
-from .types import ImportResult, SearchResponse, VectorDoc, VectorIndexParams
+from .types import ImportResult, SearchResponse, ServerTimeSource, VectorDoc, VectorIndexParams
 
 
 @runtime_checkable
@@ -15,11 +15,16 @@ class EngineDriver(Protocol):
     Meilisearch identically. The harness applies one uniform run-file ordering
     rule to whatever hits come back, so a driver returns hits in the engine's own
     ranked order and never rewrites scores for the scorer.
+
+    `server_time` advertises whether the engine reports its own query time and at
+    what resolution, so the latency measurement records the engine-reported time as
+    the headline and the reporter discloses its provenance without naming engines.
     """
 
     name: str
     run_tag: str
     keyword_setup: str
+    server_time: ServerTimeSource
 
     def wait_until_ready(self) -> None: ...
 

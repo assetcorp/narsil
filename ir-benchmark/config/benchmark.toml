@@ -88,6 +88,11 @@ metric = "cosine"
 hnsw_m = 16
 hnsw_ef_construction = 200
 ef_search_grid = [16, 32, 64, 128, 256, 512]
+# Best-config (recommended-production) runs enable each engine's own quantization,
+# which needs a higher search-effort ceiling to still clear the recall target, so
+# the sweep is extended upward; an engine that cannot reach the target even here
+# reports its best achievable recall rather than being dropped.
+ef_search_grid_best_config = [16, 32, 64, 128, 256, 512, 1024, 2048]
 recall_target = 0.99
 recall_target_secondary = 0.95
 recall_k = 10
