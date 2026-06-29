@@ -22,5 +22,5 @@ RUN pip install --no-index --find-links=/wheels -r requirements.txt && rm -rf /w
 COPY src ./src
 COPY config ./config
 
-ENTRYPOINT ["python", "-m", "narsil_ir_bench.cli"]
+ENTRYPOINT ["python", "-m", "ir_bench.cli"]
 CMD ["--config", "config/benchmark.toml"]

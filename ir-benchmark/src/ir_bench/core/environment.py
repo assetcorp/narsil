@@ -5,7 +5,7 @@ import platform
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import __version__
+from .. import __version__
 from .datasets import dataset_version
 from .scoring import pytrec_eval_version
 

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from time import perf_counter_ns
 
-from .client import NarsilClient
 from .config import LatencyConfig
+from .driver import EngineDriver
 
 
 def _percentile(sorted_values: list[float], fraction: float) -> float:
@@ -14,20 +14,20 @@ def _percentile(sorted_values: list[float], fraction: float) -> float:
 
 
 def measure_query_latency(
-    client: NarsilClient,
+    driver: EngineDriver,
     index: str,
     queries: list[str],
     config: LatencyConfig,
 ) -> dict[str, float]:
     for _ in range(config.warmup):
         for term in queries:
-            client.search(index, term, config.top_k)
+            driver.search(index, term, config.top_k)
 
     samples_ms: list[float] = []
     for _ in range(config.repeats):
         for term in queries:
             start = perf_counter_ns()
-            client.search(index, term, config.top_k)
+            driver.search(index, term, config.top_k)
             samples_ms.append((perf_counter_ns() - start) / 1_000_000)
 
     samples_ms.sort()
