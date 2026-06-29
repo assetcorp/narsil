@@ -1,11 +1,10 @@
 import type { ScoredDocument } from '../../types/internal'
 import type { VectorMetric } from '../brute-force'
-import type { QuantizedQuery } from '../scalar-quantization'
 import { magnitude } from '../similarity'
 import { nearestFromHeap, searchLayer } from './graph-ops'
 import {
   type DistancePair,
-  getEntry,
+  entryForOrd,
   type HNSWGraphState,
   SQ8_OVERSELECTION_FACTOR,
   toDistance,
@@ -25,41 +24,53 @@ export function search(
     throw new Error(`Query dimension mismatch: expected ${state.dimension}, got ${query.length}`)
   }
 
-  const liveSize = state.nodes.size - state.tombstones.size
-  if (state.entryPointId === null || liveSize === 0) {
+  const liveSize = state.nodeCount - state.tombstoneCount
+  if (state.entryPointOrd === -1 || liveSize === 0) {
     return []
   }
 
   const useQuantized = state.quantizer?.isCalibrated() === true && state.quantizer.size > 0
   const defaultEf = 50
   let ef = Math.max(efSearch ?? defaultEf, k)
-  if (filterDocIds && filterDocIds.size < liveSize) {
-    const selectivity = filterDocIds.size / liveSize
-    ef = Math.max(ef, Math.ceil(k / Math.max(selectivity, 0.01)))
-    ef = Math.min(ef, liveSize)
+
+  let filterOrds: Set<number> | undefined
+  if (filterDocIds) {
+    filterOrds = new Set<number>()
+    for (const docId of filterDocIds) {
+      const o = state.store.getOrdinal(docId)
+      if (o !== undefined) filterOrds.add(o)
+    }
+    if (filterOrds.size < liveSize) {
+      const selectivity = filterOrds.size / liveSize
+      ef = Math.max(ef, Math.ceil(k / Math.max(selectivity, 0.01)))
+      ef = Math.min(ef, liveSize)
+    }
   }
 
   const qMag = magnitude(query)
 
-  let quantizedDistFn: ((nodeId: string) => number) | undefined
-  let prepared: QuantizedQuery | null = null
+  let quantizedDistFn: ((ord: number) => number) | undefined
   if (useQuantized && state.quantizer) {
-    prepared = state.quantizer.prepareQuery(query)
-    if (prepared) {
-      const p = prepared
-      const metric = searchMetric
-      const q = state.quantizer
-      quantizedDistFn = (nodeId: string) => q.distanceFromPrepared(p, nodeId, metric)
+    const q = state.quantizer
+    const metric = searchMetric
+    const arenaQuery = q.prepareQueryArena(query)
+    if (arenaQuery) {
+      quantizedDistFn = (ord: number) => q.distanceFromArena(arenaQuery, ord, metric)
+    } else {
+      const prepared = q.prepareQuery(query)
+      if (prepared) {
+        quantizedDistFn = (ord: number) => q.distanceFromPreparedByOrdinal(prepared, ord, metric)
+      }
     }
   }
 
-  let currentEPs = [state.entryPointId]
+  let currentEPs = [state.entryPointOrd]
 
   for (let layer = state.topLayer; layer >= 1; layer--) {
     const heap = searchLayer(state, query, qMag, currentEPs, 1, layer, searchMetric, true, quantizedDistFn)
     const nearest = nearestFromHeap(heap)
     if (nearest) {
-      currentEPs = [nearest.docId]
+      currentEPs = [nearest.ord]
     }
   }
 
@@ -67,16 +78,18 @@ export function search(
   const candidateArray = candidateHeap.toSortedArray().reverse()
 
   if (useQuantized) {
-    return rerankWithFullPrecision(state, candidateArray, query, qMag, k, searchMetric, minSimilarity, filterDocIds)
+    return rerankWithFullPrecision(state, candidateArray, query, qMag, k, searchMetric, minSimilarity, filterOrds)
   }
 
   const results: ScoredDocument[] = []
   for (const cand of candidateArray) {
-    if (filterDocIds && !filterDocIds.has(cand.docId)) continue
+    if (filterOrds && !filterOrds.has(cand.ord)) continue
     const score = toScore(cand.distance, searchMetric)
     if (score < minSimilarity) continue
+    const docId = state.store.docIdForOrdinal(cand.ord)
+    if (docId === undefined) continue
     results.push({
-      docId: cand.docId,
+      docId,
       score,
       termFrequencies: {},
       fieldLengths: {},
@@ -96,23 +109,26 @@ function rerankWithFullPrecision(
   k: number,
   metric: VectorMetric,
   minSimilarity: number,
-  filterDocIds?: Set<string>,
+  filterOrds?: Set<number>,
 ): ScoredDocument[] {
   const reranked: ScoredDocument[] = []
   const rerankLimit = Math.max(k * SQ8_OVERSELECTION_FACTOR, 10)
 
   for (const cand of candidates) {
-    if (filterDocIds && !filterDocIds.has(cand.docId)) continue
+    if (filterOrds && !filterOrds.has(cand.ord)) continue
 
-    const entry = getEntry(state, cand.docId)
+    const entry = entryForOrd(state, cand.ord)
     if (!entry) continue
 
     const fullDistance = toDistance(query, entry.vector, qMag, entry.magnitude, metric)
     const score = toScore(fullDistance, metric)
     if (score < minSimilarity) continue
 
+    const docId = state.store.docIdForOrdinal(cand.ord)
+    if (docId === undefined) continue
+
     reranked.push({
-      docId: cand.docId,
+      docId,
       score,
       termFrequencies: {},
       fieldLengths: {},

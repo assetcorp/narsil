@@ -9,13 +9,12 @@ export const COMPACTION_ABSOLUTE_THRESHOLD = 1000
 export const SQ8_OVERSELECTION_FACTOR = 2
 
 export interface HNSWNode {
-  docId: string
   maxLayer: number
-  connections: Set<string>[]
+  connections: number[][]
 }
 
 export interface DistancePair {
-  docId: string
+  ord: number
   distance: number
 }
 
@@ -43,10 +42,44 @@ export interface HNSWGraphState {
   readonly efCons: number
   readonly buildMetric: VectorMetric
   readonly mL: number
-  readonly nodes: Map<string, HNSWNode>
-  readonly tombstones: Set<string>
-  entryPointId: string | null
+  nodesByOrd: Array<HNSWNode | undefined>
+  tombstones: Uint8Array
+  tombstoneCount: number
+  nodeCount: number
+  capacity: number
+  visited: Uint32Array
+  visitStamp: number
+  entryPointOrd: number
   topLayer: number
+}
+
+export function ensureCapacity(state: HNSWGraphState, needed: number): void {
+  if (needed <= state.capacity) return
+  let newCap = state.capacity === 0 ? 16 : state.capacity
+  while (newCap < needed) newCap *= 2
+  const nextTombstones = new Uint8Array(newCap)
+  nextTombstones.set(state.tombstones)
+  state.tombstones = nextTombstones
+  state.visited = new Uint32Array(newCap)
+  state.visitStamp = 0
+  state.capacity = newCap
+}
+
+export function nextVisitStamp(state: HNSWGraphState): number {
+  state.visitStamp++
+  if (state.visitStamp === 0xffffffff) {
+    state.visited.fill(0)
+    state.visitStamp = 1
+  }
+  return state.visitStamp
+}
+
+export function isTombstoned(state: HNSWGraphState, ord: number): boolean {
+  return state.tombstones[ord] === 1
+}
+
+export function nodeExists(state: HNSWGraphState, ord: number): boolean {
+  return state.nodesByOrd[ord] !== undefined
 }
 
 export function toDistance(a: Float32Array, b: Float32Array, magA: number, magB: number, metric: VectorMetric): number {
@@ -80,29 +113,33 @@ export function randomLevel(mL: number): number {
   return Math.min(Math.floor(-Math.log(u) * mL), MAX_LAYER_CAP)
 }
 
-export function getEntry(state: HNSWGraphState, docId: string): VectorStoreEntry | undefined {
-  return state.store.get(docId)
+export function entryForOrd(state: HNSWGraphState, ord: number): VectorStoreEntry | undefined {
+  return state.store.entryForOrdinal(ord)
 }
 
-export function nodeDistance(state: HNSWGraphState, aId: string, bId: string, metric: VectorMetric): number {
-  const a = getEntry(state, aId)
-  const b = getEntry(state, bId)
-  if (!a || !b) return Number.POSITIVE_INFINITY
-  return toDistance(a.vector, b.vector, a.magnitude, b.magnitude, metric)
+export function nodeDistanceByOrd(state: HNSWGraphState, aOrd: number, bOrd: number, metric: VectorMetric): number {
+  return state.store.distanceByOrdinal(aOrd, bOrd, metric)
 }
 
-export function queryDistance(
+export function queryDistanceByOrd(
   state: HNSWGraphState,
   qVec: Float32Array,
   qMag: number,
-  nodeId: string,
+  ord: number,
   metric: VectorMetric,
 ): number {
-  const entry = getEntry(state, nodeId)
+  const entry = state.store.entryForOrdinal(ord)
   if (!entry) return Number.POSITIVE_INFINITY
   return toDistance(qVec, entry.vector, qMag, entry.magnitude, metric)
 }
 
 export function maxConns(state: HNSWGraphState, layer: number): number {
   return layer === 0 ? state.Mmax0 : state.M
+}
+
+export function addConnection(connections: number[], ord: number): void {
+  for (let i = 0; i < connections.length; i++) {
+    if (connections[i] === ord) return
+  }
+  connections.push(ord)
 }
