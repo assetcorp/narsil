@@ -145,6 +145,20 @@ function splitText(text: string, language: LanguageModule): string[] {
   return text.split(pattern)
 }
 
+const CHAR_APOSTROPHE = 0x27
+const CHAR_S = 0x73
+
+function stripPossessive(token: string): string {
+  const len = token.length
+  if (len >= 2 && token.charCodeAt(len - 1) === CHAR_S && token.charCodeAt(len - 2) === CHAR_APOSTROPHE) {
+    return token.slice(0, -2)
+  }
+  if (len >= 1 && token.charCodeAt(len - 1) === CHAR_APOSTROPHE) {
+    return token.slice(0, -1)
+  }
+  return token
+}
+
 function isAscii(text: string): boolean {
   for (let i = 0; i < text.length; i++) {
     if (text.charCodeAt(i) > 127) return false
@@ -175,23 +189,26 @@ export function tokenize(text: string, language: LanguageModule, options?: Token
 
   const effectiveDiacritics = removeDiacritics || (language.tokenizer?.normalizeDiacritics ?? false)
   const stopWords = removeStopWords ? resolveStopWords(language, stopWordOverride) : new Set<string>()
+  const stripPossessives = language.tokenizer?.stripPossessive ?? false
 
   const tokens: Array<{ token: string; position: number }> = []
   const originalTokens: string[] = []
   let position = 0
 
   for (const part of rawParts) {
-    if (part.length < minLength) {
+    const candidate = stripPossessives ? stripPossessive(part) : part
+
+    if (candidate.length < minLength) {
       position++
       continue
     }
 
-    if (stopWords.has(part)) {
+    if (stopWords.has(candidate)) {
       position++
       continue
     }
 
-    const processed = transformToken(part, language, stem, effectiveDiacritics)
+    const processed = transformToken(candidate, language, stem, effectiveDiacritics)
 
     if (processed.length > 0) {
       tokens.push({ token: processed, position })
@@ -231,21 +248,24 @@ export function* tokenizeIterator(
 
   const effectiveDiacritics = removeDiacritics || (language.tokenizer?.normalizeDiacritics ?? false)
   const stopWords = removeStopWords ? resolveStopWords(language, stopWordOverride) : new Set<string>()
+  const stripPossessives = language.tokenizer?.stripPossessive ?? false
 
   let position = 0
 
   for (const part of rawParts) {
-    if (part.length < minLength) {
+    const candidate = stripPossessives ? stripPossessive(part) : part
+
+    if (candidate.length < minLength) {
       position++
       continue
     }
 
-    if (stopWords.has(part)) {
+    if (stopWords.has(candidate)) {
       position++
       continue
     }
 
-    const processed = transformToken(part, language, stem, effectiveDiacritics)
+    const processed = transformToken(candidate, language, stem, effectiveDiacritics)
 
     if (processed.length > 0) {
       yield { token: processed, position }

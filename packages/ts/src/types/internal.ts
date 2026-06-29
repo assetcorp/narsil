@@ -152,4 +152,5 @@ export interface InternalSearchParams {
   maxResults?: number
   termMatch?: import('../types/search').TermMatchPolicy
   filterBitset?: Uint32Array
+  collectComponents?: boolean
 }
