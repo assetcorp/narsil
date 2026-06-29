@@ -27,6 +27,7 @@ class DatasetSpec:
     baseline_ndcg10: float | None
     margin: float
     baseline_source: str
+    large: bool = False
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,25 @@ def _require(table: dict, key: str, where: str):
     if key not in table:
         raise ValueError(f"missing required key '{key}' in {where}")
     return table[key]
+
+
+def parse_size(value: str) -> int:
+    """Parse a Docker-style size such as '8g', '40gb', or a raw byte count into
+    bytes, using binary units to match how Docker interprets mem_limit."""
+
+    text = value.strip().lower()
+    if not text:
+        raise ValueError("empty size value")
+    if text.endswith("b"):
+        text = text[:-1]
+    if text.endswith("i"):
+        text = text[:-1]
+    units = {"k": 1024, "m": 1024**2, "g": 1024**3, "t": 1024**4}
+    multiplier = 1
+    if text and text[-1] in units:
+        multiplier = units[text[-1]]
+        text = text[:-1]
+    return int(float(text) * multiplier)
 
 
 def _load_tracks(name: str, entry: dict) -> tuple[str, ...]:
@@ -160,6 +180,9 @@ def load_config(path: Path) -> BenchmarkConfig:
     fairness = raw.get("fairness", {})
     cap_raw = fairness.get("memory_cap_bytes")
     memory_cap_bytes = None if cap_raw is None else int(cap_raw)
+    env_cap = os.environ.get("BENCH_MEM_CAP")
+    if env_cap and env_cap.strip():
+        memory_cap_bytes = parse_size(env_cap)
 
     lat_raw = raw.get("latency", {})
     latency = LatencyConfig(
@@ -183,6 +206,7 @@ def load_config(path: Path) -> BenchmarkConfig:
                 baseline_ndcg10=None if baseline is None else float(baseline),
                 margin=float(entry.get("margin", 0.02)),
                 baseline_source=str(entry.get("baseline_source", "")),
+                large=bool(entry.get("large", False)),
             )
         )
 
@@ -196,6 +220,21 @@ def load_config(path: Path) -> BenchmarkConfig:
         engines=_load_engines(raw),
         vector=_load_vector(raw),
     )
+
+
+def select_datasets(config: BenchmarkConfig, only: str | None) -> tuple[DatasetSpec, ...]:
+    """Resolve which datasets a run touches. A comma-separated selection matches
+    configured ids exactly and may include large datasets. With no selection the
+    default set is every dataset not flagged `large`, so the small BEIR suite runs
+    on a laptop while million-passage corpora stay opt-in for a sized machine."""
+
+    if only and only.strip():
+        wanted = {name.strip() for name in only.split(",") if name.strip()}
+        selected = tuple(spec for spec in config.datasets if spec.dataset_id in wanted)
+        if not selected:
+            raise SystemExit(f"no configured datasets matched: {sorted(wanted)}")
+        return selected
+    return tuple(spec for spec in config.datasets if not spec.large)
 
 
 def select_engine(config: BenchmarkConfig, name: str | None) -> EngineConfig:

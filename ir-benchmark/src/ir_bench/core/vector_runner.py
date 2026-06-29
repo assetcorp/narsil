@@ -6,12 +6,11 @@ from time import perf_counter
 from . import datasets as ds
 from .config import BenchmarkConfig, DatasetSpec, VectorConfig
 from .embeddings import EmbeddingStore
-from .ground_truth import exact_top_k
 from .latency import measure_latency
 from .recall_tuning import TuningResult, tune_to_recall
 from .runfile import run_mapping, strict_ranking, write_run_file
 from .scoring import evaluate
-from .track_common import best_effort, index_name, index_size_bytes, verify_indexed
+from .track_common import bulk_load_begin, bulk_load_end, best_effort, index_name, index_size_bytes, verify_indexed
 from .types import HYBRID, VECTOR, VectorDoc, VectorIndexParams
 
 
@@ -28,10 +27,12 @@ def _create_and_load(driver, config: BenchmarkConfig, spec: DatasetSpec, store: 
 
     driver.drop_index(index)
     driver.create_vector_index(index, params)
+    bulk_load_begin(driver, index, spec)
     build_start = perf_counter()
     imported = driver.import_vectors(index, documents(), config.import_batch)
     driver.build_vectors(index)
     build_seconds = perf_counter() - build_start
+    bulk_load_end(driver, index, spec)
     indexed = verify_indexed(driver, index, imported, spec.dataset_id)
     return index, indexed, build_seconds
 
@@ -59,7 +60,6 @@ def run_vector_track(
     assert vec is not None
     print(f"[{driver.name}:{spec.dataset_id}:vector] loading judgements and vectors", flush=True)
     qrels = ds.load_qrels(spec.dataset_id)
-    corpus = store.corpus(spec.dataset_id)
     qset = store.queries(spec.dataset_id)
     query_vectors = [qset.vectors[i].tolist() for i in range(len(qset.ids))]
 
@@ -67,7 +67,7 @@ def run_vector_track(
     index, indexed, build_seconds = _create_and_load(driver, config, spec, store)
     ingest_rate = indexed / build_seconds if build_seconds > 0 else 0.0
 
-    truth = exact_top_k(qset.ids, qset.vectors, corpus.ids, corpus.vectors, vec.recall_k)
+    truth = store.truth(spec.dataset_id, vec.recall_k)
 
     def run_at(ef: int) -> dict[str, list[str]]:
         approx: dict[str, list[str]] = {}

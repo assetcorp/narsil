@@ -9,7 +9,7 @@ from .embeddings import EmbeddingStore
 from .latency import measure_query_latency
 from .runfile import run_mapping, strict_ranking, write_run_file
 from .scoring import evaluate
-from .track_common import best_effort, index_name, index_size_bytes, verify_indexed
+from .track_common import bulk_load_begin, bulk_load_end, best_effort, index_name, index_size_bytes, verify_indexed
 from .types import EngineError, HYBRID, KEYWORD, VECTOR
 from .vector_runner import run_hybrid_track, run_vector_track
 
@@ -24,9 +24,11 @@ def run_keyword_track(driver, config: BenchmarkConfig, spec: DatasetSpec, runs_d
     driver.create_index(index)
 
     print(f"[{driver.name}:{spec.dataset_id}:keyword] ingesting corpus", flush=True)
+    bulk_load_begin(driver, index, spec)
     build_start = perf_counter()
     imported = driver.import_documents(index, ds.iter_documents(spec.dataset_id), config.import_batch)
     build_seconds = perf_counter() - build_start
+    bulk_load_end(driver, index, spec)
     indexed = verify_indexed(driver, index, imported, spec.dataset_id)
     ingest_rate = indexed / build_seconds if build_seconds > 0 else 0.0
 

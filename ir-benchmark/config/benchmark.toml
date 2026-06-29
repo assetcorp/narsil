@@ -23,6 +23,9 @@ import_batch = 2000
 [fairness]
 # Equal memory ceiling applied identically to every engine container (8 GiB).
 # Recorded here for transparency; enforced by mem_limit in docker-compose.yml.
+# Override for a large-corpus run by setting BENCH_MEM_CAP (for example "40g"),
+# which raises the container limit and the recorded value together so the number
+# in the results always matches what was enforced.
 memory_cap_bytes = 8589934592
 
 [latency]
@@ -41,6 +44,26 @@ id = "beir/nfcorpus/test"
 baseline_ndcg10 = 0.322
 margin = 0.02
 baseline_source = "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4"
+
+# Large standard IR corpora for the publish phase. They are flagged large, so a
+# default run skips them and the small BEIR suite above still runs on a laptop;
+# select one explicitly (--datasets or BENCH_DATASETS) on a sized machine. See
+# docs/large-datasets.md for VM sizing and the exact commands. MS MARCO is the
+# BEIR in-domain set (dev split, 6,980 queries); the corpus loads from the
+# beir/msmarco parent while queries and qrels come from the dev subset.
+[[datasets]]
+id = "beir/msmarco/dev"
+baseline_ndcg10 = 0.228
+margin = 0.02
+baseline_source = "BEIR (Thakur et al., NeurIPS 2021), Table 2, BM25 nDCG@10 (in-domain dev)"
+large = true
+
+[[datasets]]
+id = "beir/nq"
+baseline_ndcg10 = 0.305
+margin = 0.02
+baseline_source = "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4"
+large = true
 
 # Dense vector and hybrid tracks.
 #

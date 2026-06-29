@@ -1,21 +1,28 @@
 #!/usr/bin/env bash
-# Run the keyword-search comparison one engine at a time.
+# Run the search comparison one engine at a time.
 #
-# Each engine starts behind its compose profile with the same 8 GiB memory cap,
-# the harness runs against it for every configured dataset, then the engine is
-# torn down before the next. The ir_datasets cache volume is preserved across
-# engines, so the corpora download once. A final step aggregates the per-engine
-# results into a cross-engine comparison.
+# Each engine starts behind its compose profile with the same memory cap, the
+# harness runs against it for every selected dataset, then the engine is torn
+# down before the next. The ir_datasets cache volume is preserved across engines,
+# so the corpora download once. A final step aggregates the per-engine results
+# into a cross-engine comparison.
+#
+# By default this runs the small BEIR sets (scifact, nfcorpus). Large standard
+# corpora (MS MARCO passage, Natural Questions) are opt-in: select one with
+# BENCH_DATASETS on a sized machine and raise the caps. See docs/large-datasets.md.
 #
 # Usage:
-#   ./run-all.sh                         # all engines
-#   ./run-all.sh narsil elasticsearch    # a subset, in the given order
+#   ./run-all.sh                         # all engines, small BEIR sets
+#   ./run-all.sh narsil elasticsearch    # a subset of engines, in the given order
 #   BENCH_MACHINE_LABEL="Apple M3 Pro" ./run-all.sh
+#   BENCH_DATASETS=beir/nq BENCH_MEM_CAP=16g BENCH_JVM_HEAP=8g ./run-all.sh
 
 set -uo pipefail
 cd "$(dirname "$0")"
 
 export BENCH_API_KEY="${BENCH_API_KEY:-localdev}"
+
+echo "datasets: ${BENCH_DATASETS:-default (small BEIR sets)}; memory cap: ${BENCH_MEM_CAP:-8g}"
 
 if [ "$#" -gt 0 ]; then
   ENGINES=("$@")

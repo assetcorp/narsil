@@ -5,7 +5,7 @@ import os
 import sys
 from pathlib import Path
 
-from .core.config import BenchmarkConfig, DatasetSpec, load_config, select_engine
+from .core.config import load_config, select_datasets, select_engine
 from .core.embeddings import EmbeddingStore
 from .core.environment import capture_environment
 from .core.harness import run_engine
@@ -18,28 +18,23 @@ def _embeddings_dir() -> Path:
     return Path(os.environ.get("BENCH_EMBEDDINGS_DIR", "/data/embeddings"))
 
 
-def _select(config: BenchmarkConfig, only: str | None) -> tuple[DatasetSpec, ...]:
-    if not only:
-        return config.datasets
-    wanted = {name.strip() for name in only.split(",") if name.strip()}
-    selected = tuple(spec for spec in config.datasets if spec.dataset_id in wanted)
-    if not selected:
-        raise SystemExit(f"no configured datasets matched: {sorted(wanted)}")
-    return selected
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Benchmark one search engine over HTTP and score keyword retrieval.")
     parser.add_argument("--config", type=Path, default=Path("config/benchmark.toml"))
     parser.add_argument("--engine", default=None, help="engine name from the config (default: $ENGINE or narsil)")
     parser.add_argument("--results-dir", type=Path, default=Path("results"))
     parser.add_argument("--runs-dir", type=Path, default=Path("runs"))
-    parser.add_argument("--datasets", default=None, help="comma-separated subset of configured dataset ids")
+    parser.add_argument(
+        "--datasets",
+        default=None,
+        help="comma-separated subset of configured dataset ids (or $BENCH_DATASETS); "
+        "the default runs every dataset not flagged large",
+    )
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
     engine_cfg = select_engine(config, args.engine)
-    specs = _select(config, args.datasets)
+    specs = select_datasets(config, args.datasets or os.environ.get("BENCH_DATASETS"))
 
     driver = build_driver(engine_cfg, config.bm25)
     environment = capture_environment()

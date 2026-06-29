@@ -122,6 +122,18 @@ class LuceneRestDriver:
         refresh = self._client.post(f"/{index}/_refresh")
         _raise(refresh)
 
+    def _put_settings(self, index: str, settings: dict) -> None:
+        response = self._client.put(f"/{index}/_settings", json=settings)
+        _raise(response)
+
+    def bulk_load_begin(self, index: str) -> None:
+        self._put_settings(index, {"index": {"refresh_interval": "-1"}})
+
+    def bulk_load_end(self, index: str) -> None:
+        self._put_settings(index, {"index": {"refresh_interval": "1s"}})
+        refresh = self._client.post(f"/{index}/_refresh")
+        _raise(refresh)
+
     def count(self, index: str) -> int:
         response = self._client.get(f"/{index}/_count")
         _raise(response)
