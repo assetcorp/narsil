@@ -15,7 +15,6 @@ import {
   COMPACTION_TOMBSTONE_RATIO,
   type HNSWConfig,
   type HNSWGraphState,
-  type HNSWNode,
   type SerializedHNSWGraph,
 } from './shared'
 
@@ -74,33 +73,46 @@ export function createHNSWIndex(
     efCons,
     buildMetric,
     mL,
-    nodes: new Map<string, HNSWNode>(),
-    tombstones: new Set<string>(),
-    entryPointId: null,
+    nodesByOrd: [],
+    tombstones: new Uint8Array(0),
+    tombstoneCount: 0,
+    nodeCount: 0,
+    capacity: 0,
+    visited: new Uint32Array(0),
+    visitStamp: 0,
+    entryPointOrd: -1,
     topLayer: -1,
   }
 
   function clear(): void {
-    state.nodes.clear()
-    state.tombstones.clear()
-    state.entryPointId = null
+    state.nodesByOrd = []
+    state.tombstones = new Uint8Array(0)
+    state.tombstoneCount = 0
+    state.nodeCount = 0
+    state.capacity = 0
+    state.visited = new Uint32Array(0)
+    state.visitStamp = 0
+    state.entryPointOrd = -1
     state.topLayer = -1
   }
 
   function* entriesIterator(): IterableIterator<[string, VectorEntry]> {
-    for (const [docId] of state.nodes) {
-      if (state.tombstones.has(docId)) continue
-      const entry = state.store.get(docId)
+    for (let ord = 0; ord < state.nodesByOrd.length; ord++) {
+      if (state.nodesByOrd[ord] === undefined) continue
+      if (state.tombstones[ord] === 1) continue
+      const docId = state.store.docIdForOrdinal(ord)
+      if (docId === undefined) continue
+      const entry = state.store.entryForOrdinal(ord)
       if (!entry) continue
       yield [docId, { docId, vector: entry.vector, magnitude: entry.magnitude }]
     }
   }
 
   function compactionNeeded(): boolean {
-    if (state.nodes.size === 0) return false
+    if (state.nodeCount === 0) return false
     return (
-      state.tombstones.size / state.nodes.size > COMPACTION_TOMBSTONE_RATIO ||
-      state.tombstones.size > COMPACTION_ABSOLUTE_THRESHOLD
+      state.tombstoneCount / state.nodeCount > COMPACTION_TOMBSTONE_RATIO ||
+      state.tombstoneCount > COMPACTION_ABSOLUTE_THRESHOLD
     )
   }
 
@@ -109,13 +121,13 @@ export function createHNSWIndex(
       return state.dimension
     },
     get size() {
-      return state.nodes.size - state.tombstones.size
+      return state.nodeCount - state.tombstoneCount
     },
     get tombstoneCount() {
-      return state.tombstones.size
+      return state.tombstoneCount
     },
     get entryPointId() {
-      return state.entryPointId
+      return state.entryPointOrd === -1 ? null : (state.store.docIdForOrdinal(state.entryPointOrd) ?? null)
     },
     get topLayer() {
       return state.topLayer
@@ -131,8 +143,14 @@ export function createHNSWIndex(
     },
     insertNode: (docId: string) => insertNodeOp(state, docId),
     markTombstone: (docId: string) => markTombstoneOp(state, docId),
-    has: (docId: string) => state.nodes.has(docId) && !state.tombstones.has(docId),
-    isTombstoned: (docId: string) => state.tombstones.has(docId),
+    has: (docId: string) => {
+      const ord = state.store.getOrdinal(docId)
+      return ord !== undefined && state.nodesByOrd[ord] !== undefined && state.tombstones[ord] !== 1
+    },
+    isTombstoned: (docId: string) => {
+      const ord = state.store.getOrdinal(docId)
+      return ord !== undefined && state.tombstones[ord] === 1
+    },
     search: (
       query: Float32Array,
       k: number,
