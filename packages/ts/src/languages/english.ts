@@ -355,4 +355,8 @@ export const english: LanguageModule = {
   name: 'english',
   stemmer: stemWord,
   stopWords,
+  tokenizer: {
+    splitPattern: /[^\p{L}\p{N}_']+/u,
+    stripPossessive: true,
+  },
 }

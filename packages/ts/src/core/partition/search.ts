@@ -10,11 +10,52 @@ import type { PartitionState } from './utils'
 
 const DEFAULT_MAX_RESULTS = 1000
 
+const EMPTY_COMPONENTS: Record<string, number> = Object.freeze({})
+
 interface ScoreAccumulator {
   score: number
   termFrequencies: Record<string, number>
   fieldLengths: Record<string, number>
   idf: Record<string, number>
+}
+
+function accumulateTermScore(
+  docScores: Map<number, ScoreAccumulator>,
+  internalId: number,
+  termScore: number,
+  collect: boolean,
+  fieldName: string,
+  token: string,
+  termFrequency: number,
+  fieldLength: number,
+  idf: number,
+): void {
+  const existing = docScores.get(internalId)
+  if (existing) {
+    existing.score += termScore
+    if (collect) {
+      existing.termFrequencies[`${fieldName}:${token}`] = termFrequency
+      existing.fieldLengths[fieldName] = fieldLength
+      existing.idf[token] = idf
+    }
+    return
+  }
+
+  if (collect) {
+    docScores.set(internalId, {
+      score: termScore,
+      termFrequencies: { [`${fieldName}:${token}`]: termFrequency },
+      fieldLengths: { [fieldName]: fieldLength },
+      idf: { [token]: idf },
+    })
+  } else {
+    docScores.set(internalId, {
+      score: termScore,
+      termFrequencies: EMPTY_COMPONENTS,
+      fieldLengths: EMPTY_COMPONENTS,
+      idf: EMPTY_COMPONENTS,
+    })
+  }
 }
 
 interface ResolvedTokenPostings {
@@ -42,6 +83,8 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
     termMatch,
     filterBitset,
   } = params
+
+  const collectComponents = params.collectComponents !== false
 
   if (queryTokens.length === 0) {
     return { scored: [], totalMatched: 0 }
@@ -113,20 +156,17 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
           let termScore = scoreFn(termFrequency, match.docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
           termScore *= fieldBoost
 
-          const existing = docScores.get(internalId)
-          if (existing) {
-            existing.score += termScore
-            existing.termFrequencies[`${fieldName}:${match.token}`] = termFrequency
-            existing.fieldLengths[fieldName] = actualFieldLength
-            existing.idf[match.token] = match.idf
-          } else {
-            docScores.set(internalId, {
-              score: termScore,
-              termFrequencies: { [`${fieldName}:${match.token}`]: termFrequency },
-              fieldLengths: { [fieldName]: actualFieldLength },
-              idf: { [match.token]: match.idf },
-            })
-          }
+          accumulateTermScore(
+            docScores,
+            internalId,
+            termScore,
+            collectComponents,
+            fieldName,
+            match.token,
+            termFrequency,
+            actualFieldLength,
+            match.idf,
+          )
         }
       }
     }
@@ -169,20 +209,17 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
           let termScore = scoreFn(termFrequency, docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
           termScore *= fieldBoost
 
-          const existing = docScores.get(internalId)
-          if (existing) {
-            existing.score += termScore
-            existing.termFrequencies[`${fieldName}:${match.token}`] = termFrequency
-            existing.fieldLengths[fieldName] = actualFieldLength
-            existing.idf[match.token] = idf
-          } else {
-            docScores.set(internalId, {
-              score: termScore,
-              termFrequencies: { [`${fieldName}:${match.token}`]: termFrequency },
-              fieldLengths: { [fieldName]: actualFieldLength },
-              idf: { [match.token]: idf },
-            })
-          }
+          accumulateTermScore(
+            docScores,
+            internalId,
+            termScore,
+            collectComponents,
+            fieldName,
+            match.token,
+            termFrequency,
+            actualFieldLength,
+            idf,
+          )
         }
       }
     }

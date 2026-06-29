@@ -9,4 +9,5 @@ export interface TokenizerConfig {
   splitPattern?: RegExp
   normalizeDiacritics?: boolean
   minTokenLength?: number
+  stripPossessive?: boolean
 }
