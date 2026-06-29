@@ -5,6 +5,8 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from .types import KEYWORD, TRACKS
+
 
 @dataclass(frozen=True)
 class BM25Params:
@@ -35,6 +37,27 @@ class EngineConfig:
     ranking: str
     analyzer: str | None
     language: str | None
+    tracks: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class VectorConfig:
+    """Settings shared by the vector and hybrid tracks. The dense vectors come
+    from one model run once and fed identically to every engine, so the metric,
+    dimension, and build-time HNSW parameters are fixed here for all of them."""
+
+    model: str
+    sparse_model: str
+    dims: int
+    metric: str
+    hnsw_m: int
+    hnsw_ef_construction: int
+    ef_search_grid: tuple[int, ...]
+    recall_target: float
+    recall_target_secondary: float
+    recall_k: int
+    query_prefix: str
+    passage_prefix: str
 
 
 @dataclass(frozen=True)
@@ -46,12 +69,26 @@ class BenchmarkConfig:
     latency: LatencyConfig
     datasets: tuple[DatasetSpec, ...]
     engines: dict[str, EngineConfig]
+    vector: VectorConfig | None
 
 
 def _require(table: dict, key: str, where: str):
     if key not in table:
         raise ValueError(f"missing required key '{key}' in {where}")
     return table[key]
+
+
+def _load_tracks(name: str, entry: dict) -> tuple[str, ...]:
+    raw = entry.get("tracks", [KEYWORD])
+    if not isinstance(raw, list) or not raw:
+        raise ValueError(f"[engines.{name}].tracks must be a non-empty array")
+    tracks: list[str] = []
+    for track in raw:
+        if track not in TRACKS:
+            raise ValueError(f"[engines.{name}].tracks has unknown track '{track}'; allowed: {', '.join(TRACKS)}")
+        if track not in tracks:
+            tracks.append(str(track))
+    return tuple(tracks)
 
 
 def _load_engines(raw: dict) -> dict[str, EngineConfig]:
@@ -71,8 +108,39 @@ def _load_engines(raw: dict) -> dict[str, EngineConfig]:
             ranking=ranking,
             analyzer=entry.get("analyzer"),
             language=entry.get("language"),
+            tracks=_load_tracks(name, entry),
         )
     return engines
+
+
+def _load_vector(raw: dict) -> VectorConfig | None:
+    vec = raw.get("vector")
+    if not vec:
+        return None
+    metric = str(vec.get("metric", "cosine"))
+    grid_raw = vec.get("ef_search_grid", [16, 32, 64, 128, 256, 512])
+    if not isinstance(grid_raw, list) or not grid_raw:
+        raise ValueError("[vector].ef_search_grid must be a non-empty array of integers")
+    grid = tuple(sorted({int(value) for value in grid_raw}))
+    if any(value < 1 for value in grid):
+        raise ValueError("[vector].ef_search_grid values must be positive")
+    recall_k = int(vec.get("recall_k", 10))
+    if recall_k < 1:
+        raise ValueError("[vector].recall_k must be positive")
+    return VectorConfig(
+        model=str(_require(vec, "model", "[vector]")),
+        sparse_model=str(vec.get("sparse_model", "Qdrant/bm25")),
+        dims=int(_require(vec, "dims", "[vector]")),
+        metric=metric,
+        hnsw_m=int(vec.get("hnsw_m", 16)),
+        hnsw_ef_construction=int(vec.get("hnsw_ef_construction", 200)),
+        ef_search_grid=grid,
+        recall_target=float(vec.get("recall_target", 0.99)),
+        recall_target_secondary=float(vec.get("recall_target_secondary", 0.95)),
+        recall_k=recall_k,
+        query_prefix=str(vec.get("query_prefix", "")),
+        passage_prefix=str(vec.get("passage_prefix", "")),
+    )
 
 
 def load_config(path: Path) -> BenchmarkConfig:
@@ -126,6 +194,7 @@ def load_config(path: Path) -> BenchmarkConfig:
         latency=latency,
         datasets=tuple(datasets),
         engines=_load_engines(raw),
+        vector=_load_vector(raw),
     )
 
 
@@ -144,5 +213,6 @@ def select_engine(config: BenchmarkConfig, name: str | None) -> EngineConfig:
             ranking=engine.ranking,
             analyzer=engine.analyzer,
             language=engine.language,
+            tracks=engine.tracks,
         )
     return engine

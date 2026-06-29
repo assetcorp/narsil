@@ -7,9 +7,11 @@ from typing import Iterable, Iterator
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
-from ..core.types import EngineError, Hit, ImportResult, SearchResponse
+from ..core.types import EngineError, Hit, ImportResult, SearchResponse, VectorDoc, VectorIndexParams
 
 _MEMORY_KEYS = ("estimatedMemoryBytes", "memoryBytes", "memoryEstimateBytes", "memory", "bytes")
+_VECTOR_FIELD = "embedding"
+_RRF_K = 60
 
 
 def _raise_for_envelope(response: httpx.Response) -> None:
@@ -45,9 +47,14 @@ class NarsilDriver:
             f"BM25 k1={bm25.k1} b={bm25.b}; Narsil english analyzer "
             "(Porter stemmer, 70-word stop list)"
         )
+        self.vector_setup = "HNSW over the shared precomputed vectors, full precision (SQ8 quantization off), cosine"
+        self.hybrid_setup = "BM25 (text) fused with HNSW vector search via Reciprocal Rank Fusion"
+        self.hybrid_fusion = f"RRF (k={_RRF_K})"
+        self.vector_knob = "efSearch"
         self._k1 = bm25.k1
         self._b = bm25.b
         self._language = engine.language
+        self._metric = "cosine"
         self._client = httpx.Client(base_url=engine.url, timeout=120.0)
 
     def close(self) -> None:
@@ -77,12 +84,12 @@ class NarsilDriver:
         response = self._client.post("/indexes", json={"name": index, "config": config})
         _raise_for_envelope(response)
 
-    def import_documents(self, index: str, documents: Iterable[tuple[str, str]], batch_size: int) -> ImportResult:
+    def _import_docs(self, index: str, documents: Iterable[dict], batch_size: int) -> ImportResult:
         submitted = 0
         indexed = 0
         failures: list[object] = []
         for batch in _chunked(documents, batch_size):
-            body = "\n".join(json.dumps({"id": doc_id, "text": text}) for doc_id, text in batch)
+            body = "\n".join(json.dumps(doc) for doc in batch)
             response = self._client.post(
                 f"/indexes/{index}/documents/_import",
                 content=body.encode("utf-8"),
@@ -97,16 +104,16 @@ class NarsilDriver:
             raise EngineError(f"Narsil rejected {len(failures)} document(s); first error: {failures[0]}")
         return ImportResult(submitted=submitted, indexed=indexed)
 
+    def import_documents(self, index: str, documents: Iterable[tuple[str, str]], batch_size: int) -> ImportResult:
+        return self._import_docs(index, ({"id": doc_id, "text": text} for doc_id, text in documents), batch_size)
+
     def count(self, index: str) -> int:
         response = self._client.get(f"/indexes/{index}/count")
         _raise_for_envelope(response)
         return int(response.json().get("count", 0))
 
-    def search(self, index: str, term: str, limit: int) -> SearchResponse:
-        response = self._client.post(
-            f"/indexes/{index}/search",
-            json={"term": term, "fields": ["text"], "limit": limit},
-        )
+    def _post_search(self, index: str, body: dict) -> SearchResponse:
+        response = self._client.post(f"/indexes/{index}/search", json=body)
         _raise_for_envelope(response)
         payload = response.json()
         hits = [Hit(doc_id=str(hit["id"]), score=float(hit["score"])) for hit in payload.get("hits", [])]
@@ -114,6 +121,86 @@ class NarsilDriver:
             hits=hits,
             count=int(payload.get("count", len(hits))),
             server_elapsed_ms=float(payload.get("elapsed", 0.0)),
+        )
+
+    def search(self, index: str, term: str, limit: int) -> SearchResponse:
+        return self._post_search(index, {"term": term, "fields": ["text"], "limit": limit})
+
+    def create_vector_index(self, index: str, params: VectorIndexParams) -> None:
+        self._metric = params.metric
+        config: dict[str, object] = {
+            "schema": {"text": "string", _VECTOR_FIELD: f"vector[{params.dims}]"},
+            "bm25": {"k1": self._k1, "b": self._b},
+            "vectorPromotion": {
+                "threshold": 1,
+                "quantization": "none",
+                "hnswConfig": {"m": params.m, "efConstruction": params.ef_construction, "metric": params.metric},
+            },
+        }
+        if self._language:
+            config["language"] = self._language
+        response = self._client.post("/indexes", json={"name": index, "config": config})
+        _raise_for_envelope(response)
+
+    def import_vectors(self, index: str, documents: Iterable[VectorDoc], batch_size: int) -> ImportResult:
+        return self._import_docs(
+            index,
+            ({"id": doc.doc_id, "text": doc.text, _VECTOR_FIELD: list(doc.vector)} for doc in documents),
+            batch_size,
+        )
+
+    def build_vectors(self, index: str) -> None:
+        response = self._client.post(f"/indexes/{index}/vectors/_optimize", json={"field": _VECTOR_FIELD})
+        _raise_for_envelope(response)
+        task_id = response.json().get("taskId")
+        if task_id is not None:
+            self._wait_task(str(task_id))
+        self._wait_graph_ready(index)
+
+    def _wait_task(self, task_id: str, timeout_seconds: float = 600.0) -> None:
+        deadline = time.perf_counter() + timeout_seconds
+        while time.perf_counter() < deadline:
+            response = self._client.get(f"/tasks/{task_id}")
+            _raise_for_envelope(response)
+            status = response.json().get("status")
+            if status == "succeeded":
+                return
+            if status == "failed":
+                raise EngineError(f"Narsil vector task {task_id} failed")
+            time.sleep(0.25)
+        raise EngineError(f"Narsil vector task {task_id} did not finish within {timeout_seconds}s")
+
+    def _wait_graph_ready(self, index: str, timeout_seconds: float = 600.0) -> None:
+        deadline = time.perf_counter() + timeout_seconds
+        while time.perf_counter() < deadline:
+            response = self._client.get(f"/indexes/{index}/vector-maintenance")
+            _raise_for_envelope(response)
+            fields = response.json().get("fields", [])
+            if all(not field.get("building", False) for field in fields):
+                return
+            time.sleep(0.25)
+        raise EngineError(f"Narsil vector graph for {index} did not finish building within {timeout_seconds}s")
+
+    def _vector_clause(self, vector: list[float], ef: int | None) -> dict:
+        clause: dict[str, object] = {"field": _VECTOR_FIELD, "value": vector, "metric": self._metric}
+        if ef is not None:
+            clause["efSearch"] = ef
+        return clause
+
+    def vector_search(self, index: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
+        return self._post_search(index, {"mode": "vector", "limit": limit, "vector": self._vector_clause(vector, ef)})
+
+    def hybrid_search(self, index: str, term: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
+        return self._post_search(
+            index,
+            {
+                "mode": "hybrid",
+                "term": term,
+                "fields": ["text"],
+                "limit": limit,
+                "vector": self._vector_clause(vector, ef),
+                "hybrid": {"strategy": "rrf", "k": _RRF_K},
+            },
         )
 
     def index_stats(self, index: str) -> dict | None:
