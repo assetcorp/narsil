@@ -1,0 +1,6 @@
+runs/*.run
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.python-version

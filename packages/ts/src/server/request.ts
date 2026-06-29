@@ -58,7 +58,11 @@ export function readBody(res: HttpResponse, maxBytes: number, abort: ResponseAbo
         reject(new Error('payload too large'))
         return
       }
-      chunks.push(Buffer.from(chunk))
+      // uWebSockets.js reuses the chunk's backing memory after this callback
+      // returns, so the bytes must be copied out before the next onData
+      // overwrites them. Buffer.from(ArrayBuffer) only creates a view, which
+      // corrupts any body that arrives in more than one chunk.
+      chunks.push(Buffer.from(new Uint8Array(chunk)))
       if (isLast) {
         done = true
         resolve(Buffer.concat(chunks))

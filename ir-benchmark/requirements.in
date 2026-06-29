@@ -1,0 +1,10 @@
+# Direct dependencies. Recompile the version-pinned lock with:
+#   pip-compile --strip-extras --output-file=requirements.txt requirements.in
+#
+# pytrec-eval-terrier is the wheel-distributed build of NIST's trec_eval
+# (imported as `pytrec_eval`); it produces the same numbers as the C tool that
+# the BEIR leaderboard reports. It ships no Linux arm64 wheel, so the Docker
+# builder stage compiles it from source for that architecture.
+ir-datasets
+pytrec-eval-terrier
+httpx

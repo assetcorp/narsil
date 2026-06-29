@@ -1,0 +1,38 @@
+# Keyword-retrieval benchmark configuration.
+#
+# Each corpus is indexed as a single concatenated text field (title + body) with
+# BM25 k1=0.9, b=0.4 to match the Anserini/Pyserini "flat" BM25 configuration
+# whose nDCG@10 is published per dataset, so Narsil's measured nDCG@10 reads
+# directly against an authoritative baseline.
+# Baseline source: Pyserini 2CR BEIR (https://castorini.github.io/pyserini/2cr/beir.html),
+# cross-checked against Kamalloo et al., SIGIR 2024 (arXiv:2306.07471).
+
+run_tag = "narsil_bm25"
+
+[server]
+url = "http://narsil:7700"
+
+[bm25]
+k1 = 0.9
+b = 0.4
+
+[retrieval]
+run_depth = 1000
+import_batch = 2000
+
+[latency]
+warmup = 2
+repeats = 5
+top_k = 10
+
+[[datasets]]
+id = "beir/scifact/test"
+baseline_ndcg10 = 0.679
+margin = 0.02
+baseline_source = "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4"
+
+[[datasets]]
+id = "beir/nfcorpus/test"
+baseline_ndcg10 = 0.322
+margin = 0.02
+baseline_source = "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4"
