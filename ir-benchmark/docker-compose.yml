@@ -1,10 +1,19 @@
-name: narsil-ir-benchmark
+name: ir-benchmark
+
+# One engine runs at a time. The orchestration script (run-all.sh) brings up a
+# single engine behind its profile, runs the harness against it, then tears it
+# down before the next. Every engine container gets the same 8 GiB ceiling so
+# the latency numbers compare at an equal cap.
+
+x-mem-cap: &mem_cap "8g"
 
 services:
   narsil:
+    profiles: ["narsil"]
     build:
       context: ..
       dockerfile: ir-benchmark/narsil-server.Dockerfile
+    mem_limit: *mem_cap
     environment:
       NARSIL_HOST: "0.0.0.0"
       NARSIL_PORT: "7700"
@@ -13,26 +22,67 @@ services:
       NARSIL_MAX_IMPORT_BYTES: "268435456"
     expose:
       - "7700"
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - "require('http').get('http://127.0.0.1:7700/readyz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
-      interval: 5s
-      timeout: 3s
-      retries: 30
-      start_period: 10s
+
+  elasticsearch:
+    profiles: ["elasticsearch"]
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.4.2
+    mem_limit: *mem_cap
+    environment:
+      discovery.type: "single-node"
+      xpack.security.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      ES_JAVA_OPTS: "-Xms2g -Xmx2g"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    expose:
+      - "9200"
+
+  opensearch:
+    profiles: ["opensearch"]
+    image: opensearchproject/opensearch:3.7.0
+    mem_limit: *mem_cap
+    environment:
+      discovery.type: "single-node"
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms2g -Xmx2g"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    expose:
+      - "9200"
+
+  typesense:
+    profiles: ["typesense"]
+    image: typesense/typesense:30.2
+    mem_limit: *mem_cap
+    command: ["--data-dir", "/data", "--api-key=${BENCH_API_KEY:-localdev}", "--enable-cors"]
+    volumes:
+      - typesense_data:/data
+    expose:
+      - "8108"
+
+  meilisearch:
+    profiles: ["meilisearch"]
+    image: getmeili/meilisearch:v1.48.2
+    mem_limit: *mem_cap
+    environment:
+      MEILI_MASTER_KEY: "${BENCH_API_KEY:-localdev}"
+      MEILI_ENV: "development"
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - meili_data:/meili_data
+    expose:
+      - "7700"
 
   harness:
     build:
       context: .
       dockerfile: Dockerfile
-    depends_on:
-      narsil:
-        condition: service_healthy
     environment:
-      NARSIL_URL: "http://narsil:7700"
+      BENCH_API_KEY: "${BENCH_API_KEY:-localdev}"
       BENCH_MACHINE_LABEL: "${BENCH_MACHINE_LABEL:-}"
     volumes:
       - ir_datasets_cache:/data/ir_datasets
@@ -41,3 +91,5 @@ services:
 
 volumes:
   ir_datasets_cache:
+  typesense_data:
+  meili_data:

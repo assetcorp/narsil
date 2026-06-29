@@ -28,15 +28,24 @@ class DatasetSpec:
 
 
 @dataclass(frozen=True)
-class BenchmarkConfig:
-    server_url: str
+class EngineConfig:
+    name: str
+    url: str
+    run_tag: str
+    ranking: str
+    analyzer: str | None
     language: str | None
+
+
+@dataclass(frozen=True)
+class BenchmarkConfig:
     bm25: BM25Params
     run_depth: int
     import_batch: int
+    memory_cap_bytes: int | None
     latency: LatencyConfig
-    run_tag: str
     datasets: tuple[DatasetSpec, ...]
+    engines: dict[str, EngineConfig]
 
 
 def _require(table: dict, key: str, where: str):
@@ -45,13 +54,29 @@ def _require(table: dict, key: str, where: str):
     return table[key]
 
 
-def load_config(path: Path, server_url_override: str | None = None) -> BenchmarkConfig:
-    raw = tomllib.loads(Path(path).read_text(encoding="utf-8"))
+def _load_engines(raw: dict) -> dict[str, EngineConfig]:
+    engines_raw = raw.get("engines")
+    if not engines_raw or not isinstance(engines_raw, dict):
+        raise ValueError("at least one [engines.<name>] section is required")
+    engines: dict[str, EngineConfig] = {}
+    for name, entry in engines_raw.items():
+        url = str(_require(entry, "url", f"[engines.{name}]")).rstrip("/")
+        ranking = str(entry.get("ranking", "bm25"))
+        if ranking not in ("bm25", "native"):
+            raise ValueError(f"[engines.{name}].ranking must be 'bm25' or 'native'")
+        engines[name] = EngineConfig(
+            name=name,
+            url=url,
+            run_tag=str(entry.get("run_tag", f"{name}")),
+            ranking=ranking,
+            analyzer=entry.get("analyzer"),
+            language=entry.get("language"),
+        )
+    return engines
 
-    server = raw.get("server", {})
-    server_url = server_url_override or os.environ.get("NARSIL_URL") or server.get("url")
-    if not server_url:
-        raise ValueError("server url is required (config [server].url, NARSIL_URL, or --server-url)")
+
+def load_config(path: Path) -> BenchmarkConfig:
+    raw = tomllib.loads(Path(path).read_text(encoding="utf-8"))
 
     bm25_raw = _require(raw, "bm25", "config")
     bm25 = BM25Params(k1=float(_require(bm25_raw, "k1", "[bm25]")), b=float(_require(bm25_raw, "b", "[bm25]")))
@@ -63,6 +88,10 @@ def load_config(path: Path, server_url_override: str | None = None) -> Benchmark
         raise ValueError("retrieval.run_depth must be at least 100 to compute Recall@100")
     if import_batch < 1:
         raise ValueError("retrieval.import_batch must be positive")
+
+    fairness = raw.get("fairness", {})
+    cap_raw = fairness.get("memory_cap_bytes")
+    memory_cap_bytes = None if cap_raw is None else int(cap_raw)
 
     lat_raw = raw.get("latency", {})
     latency = LatencyConfig(
@@ -76,7 +105,6 @@ def load_config(path: Path, server_url_override: str | None = None) -> Benchmark
     datasets_raw = raw.get("datasets")
     if not datasets_raw:
         raise ValueError("at least one [[datasets]] entry is required")
-
     datasets: list[DatasetSpec] = []
     for entry in datasets_raw:
         dataset_id = _require(entry, "id", "[[datasets]]")
@@ -91,12 +119,30 @@ def load_config(path: Path, server_url_override: str | None = None) -> Benchmark
         )
 
     return BenchmarkConfig(
-        server_url=str(server_url).rstrip("/"),
-        language=raw.get("server", {}).get("language"),
         bm25=bm25,
         run_depth=run_depth,
         import_batch=import_batch,
+        memory_cap_bytes=memory_cap_bytes,
         latency=latency,
-        run_tag=str(raw.get("run_tag", "narsil_bm25")),
         datasets=tuple(datasets),
+        engines=_load_engines(raw),
     )
+
+
+def select_engine(config: BenchmarkConfig, name: str | None) -> EngineConfig:
+    chosen = name or os.environ.get("ENGINE") or "narsil"
+    if chosen not in config.engines:
+        available = ", ".join(sorted(config.engines))
+        raise SystemExit(f"unknown engine '{chosen}'; configured engines: {available}")
+    engine = config.engines[chosen]
+    url_override = os.environ.get("ENGINE_URL")
+    if url_override:
+        engine = EngineConfig(
+            name=engine.name,
+            url=url_override.rstrip("/"),
+            run_tag=engine.run_tag,
+            ranking=engine.ranking,
+            analyzer=engine.analyzer,
+            language=engine.language,
+        )
+    return engine

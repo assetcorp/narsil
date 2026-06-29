@@ -1,16 +1,16 @@
 # Keyword-retrieval benchmark configuration.
 #
-# Each corpus is indexed as a single concatenated text field (title + body) with
-# BM25 k1=0.9, b=0.4 to match the Anserini/Pyserini "flat" BM25 configuration
-# whose nDCG@10 is published per dataset, so Narsil's measured nDCG@10 reads
-# directly against an authoritative baseline.
-# Baseline source: Pyserini 2CR BEIR (https://castorini.github.io/pyserini/2cr/beir.html),
+# Every engine indexes each corpus as a single concatenated text field
+# (title + body) and is scored identically: the same datasets, the same metrics
+# (nDCG@10, Recall@100, MAP, MRR via pytrec_eval), the same run depth, and the
+# same strictly-decreasing run-file ordering rule.
+#
+# BM25-capable engines (Narsil, Elasticsearch, OpenSearch) use k1=0.9, b=0.4 to
+# match the Anserini/Pyserini "flat" BM25 reference whose nDCG@10 is published
+# per dataset. Typesense and Meilisearch do not implement BM25; each runs its own
+# documented keyword ranking, recorded per engine in the report. Reference
+# source: Pyserini 2CR BEIR (https://castorini.github.io/pyserini/2cr/beir.html),
 # cross-checked against Kamalloo et al., SIGIR 2024 (arXiv:2306.07471).
-
-run_tag = "narsil_bm25"
-
-[server]
-url = "http://narsil:7700"
 
 [bm25]
 k1 = 0.9
@@ -19,6 +19,11 @@ b = 0.4
 [retrieval]
 run_depth = 1000
 import_batch = 2000
+
+[fairness]
+# Equal memory ceiling applied identically to every engine container (8 GiB).
+# Recorded here for transparency; enforced by mem_limit in docker-compose.yml.
+memory_cap_bytes = 8589934592
 
 [latency]
 warmup = 2
@@ -36,3 +41,30 @@ id = "beir/nfcorpus/test"
 baseline_ndcg10 = 0.322
 margin = 0.02
 baseline_source = "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4"
+
+[engines.narsil]
+url = "http://narsil:7700"
+run_tag = "narsil_bm25"
+ranking = "bm25"
+
+[engines.elasticsearch]
+url = "http://elasticsearch:9200"
+run_tag = "elasticsearch_bm25"
+ranking = "bm25"
+analyzer = "english"
+
+[engines.opensearch]
+url = "http://opensearch:9200"
+run_tag = "opensearch_bm25"
+ranking = "bm25"
+analyzer = "english"
+
+[engines.typesense]
+url = "http://typesense:8108"
+run_tag = "typesense_textmatch"
+ranking = "native"
+
+[engines.meilisearch]
+url = "http://meilisearch:7700"
+run_tag = "meilisearch_rankrules"
+ranking = "native"

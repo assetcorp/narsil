@@ -1,0 +1,118 @@
+{
+  "environment": {
+    "captured_at": "2026-06-29T01:07:50.773125+00:00",
+    "harness_version": "0.2.0",
+    "containerized": true,
+    "machine_label": "",
+    "os": "Linux 6.12.76-linuxkit",
+    "arch": "aarch64",
+    "cpu_model": null,
+    "logical_cpus": 7,
+    "total_memory_bytes": 9364418560,
+    "python_version": "3.12.13",
+    "ir_datasets_version": "0.6.1",
+    "pytrec_eval_version": "0.5.10"
+  },
+  "engine": {
+    "name": "elasticsearch",
+    "run_tag": "elasticsearch_bm25",
+    "ranking": "bm25",
+    "url": "http://elasticsearch:9200",
+    "version": "9.4.2",
+    "keyword_setup": "BM25 k1=0.9 b=0.4 (custom default similarity); Elasticsearch `english` analyzer (Porter stemmer, English stop words)"
+  },
+  "config": {
+    "k1": 0.9,
+    "b": 0.4,
+    "run_depth": 1000,
+    "memory_cap_bytes": 8589934592
+  },
+  "datasets": [
+    {
+      "dataset_id": "beir/scifact/test",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.6789094274508305,
+        "recall_100": 0.9253333333333335,
+        "map": 0.6401081582475062,
+        "recip_rank": 0.6506007366108916
+      },
+      "calibration": {
+        "baseline_ndcg10": 0.679,
+        "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
+        "margin": 0.02,
+        "delta": -9.057254916955415e-05,
+        "within_margin": true
+      },
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 0.9744398340000089,
+        "ingest_docs_per_sec": 5318.953330062605,
+        "index_size_bytes": 7064097,
+        "raw_stats": {
+          "index_size_bytes": 7064097,
+          "raw": {
+            "size_in_bytes": 7064097,
+            "total_data_set_size_in_bytes": 7064097,
+            "reserved_in_bytes": 0
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "top_k": 10,
+        "mean_ms": 1.115885552,
+        "p50_ms": 1.002875,
+        "p90_ms": 1.430833,
+        "p95_ms": 1.775709,
+        "p99_ms": 3.16625,
+        "max_ms": 16.551166
+      },
+      "run_file": "runs/bench_beir_scifact_test.elasticsearch_bm25.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.3205549311607387,
+        "recall_100": 0.24567990783971763,
+        "map": 0.1502679707391434,
+        "recip_rank": 0.5255303093599589
+      },
+      "calibration": {
+        "baseline_ndcg10": 0.322,
+        "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
+        "margin": 0.02,
+        "delta": -0.001445068839261321,
+        "within_margin": true
+      },
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 1.468154917999982,
+        "ingest_docs_per_sec": 2474.5345027683547,
+        "index_size_bytes": 5106002,
+        "raw_stats": {
+          "index_size_bytes": 5106002,
+          "raw": {
+            "size_in_bytes": 5106002,
+            "total_data_set_size_in_bytes": 5106002,
+            "reserved_in_bytes": 0
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "top_k": 10,
+        "mean_ms": 0.6827859962848297,
+        "p50_ms": 0.667125,
+        "p90_ms": 0.809708,
+        "p95_ms": 0.881,
+        "p99_ms": 1.129417,
+        "max_ms": 6.03675
+      },
+      "run_file": "runs/bench_beir_nfcorpus_test.elasticsearch_bm25.run"
+    }
+  ]
+}

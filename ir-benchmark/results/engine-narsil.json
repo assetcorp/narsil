@@ -1,0 +1,126 @@
+{
+  "environment": {
+    "captured_at": "2026-06-29T01:00:27.491420+00:00",
+    "harness_version": "0.2.0",
+    "containerized": true,
+    "machine_label": "",
+    "os": "Linux 6.12.76-linuxkit",
+    "arch": "aarch64",
+    "cpu_model": null,
+    "logical_cpus": 7,
+    "total_memory_bytes": 9364418560,
+    "python_version": "3.12.13",
+    "ir_datasets_version": "0.6.1",
+    "pytrec_eval_version": "0.5.10"
+  },
+  "engine": {
+    "name": "narsil",
+    "run_tag": "narsil_bm25",
+    "ranking": "bm25",
+    "url": "http://narsil:7700",
+    "version": "source (node:22-trixie-slim)",
+    "keyword_setup": "BM25 k1=0.9 b=0.4; Narsil english analyzer (Porter stemmer, 70-word stop list)"
+  },
+  "config": {
+    "k1": 0.9,
+    "b": 0.4,
+    "run_depth": 1000,
+    "memory_cap_bytes": 8589934592
+  },
+  "datasets": [
+    {
+      "dataset_id": "beir/scifact/test",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.6613913568445492,
+        "recall_100": 0.9097777777777778,
+        "map": 0.6223362395655624,
+        "recip_rank": 0.6290156405497208
+      },
+      "calibration": {
+        "baseline_ndcg10": 0.679,
+        "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
+        "margin": 0.02,
+        "delta": -0.017608643155450854,
+        "within_margin": true
+      },
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 1.283902167000008,
+        "ingest_docs_per_sec": 4036.9119495379496,
+        "index_size_bytes": 19968898,
+        "raw_stats": {
+          "index_size_bytes": 19968898,
+          "raw": {
+            "documentCount": 5183,
+            "partitionCount": 1,
+            "estimatedMemoryBytes": 19968898,
+            "language": "english",
+            "schema": {
+              "text": "string"
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "top_k": 10,
+        "mean_ms": 2.64737564,
+        "p50_ms": 2.09025,
+        "p90_ms": 4.630292,
+        "p95_ms": 6.313542,
+        "p99_ms": 11.056666,
+        "max_ms": 25.161709
+      },
+      "run_file": "runs/bench_beir_scifact_test.narsil_bm25.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.3111960869717613,
+        "recall_100": 0.2364387917431378,
+        "map": 0.13944232267274412,
+        "recip_rank": 0.5133318023344291
+      },
+      "calibration": {
+        "baseline_ndcg10": 0.322,
+        "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
+        "margin": 0.02,
+        "delta": -0.010803913028238687,
+        "within_margin": true
+      },
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 0.9641755839999746,
+        "ingest_docs_per_sec": 3767.9858941544153,
+        "index_size_bytes": 14492658,
+        "raw_stats": {
+          "index_size_bytes": 14492658,
+          "raw": {
+            "documentCount": 3633,
+            "partitionCount": 1,
+            "estimatedMemoryBytes": 14492658,
+            "language": "english",
+            "schema": {
+              "text": "string"
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "top_k": 10,
+        "mean_ms": 0.7364861987616099,
+        "p50_ms": 0.537375,
+        "p90_ms": 1.504208,
+        "p95_ms": 1.810625,
+        "p99_ms": 2.690958,
+        "max_ms": 15.796625
+      },
+      "run_file": "runs/bench_beir_nfcorpus_test.narsil_bm25.run"
+    }
+  ]
+}

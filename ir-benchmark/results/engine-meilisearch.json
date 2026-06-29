@@ -1,0 +1,132 @@
+{
+  "environment": {
+    "captured_at": "2026-06-29T01:09:49.721561+00:00",
+    "harness_version": "0.2.0",
+    "containerized": true,
+    "machine_label": "",
+    "os": "Linux 6.12.76-linuxkit",
+    "arch": "aarch64",
+    "cpu_model": null,
+    "logical_cpus": 7,
+    "total_memory_bytes": 9364418560,
+    "python_version": "3.12.13",
+    "ir_datasets_version": "0.6.1",
+    "pytrec_eval_version": "0.5.10"
+  },
+  "engine": {
+    "name": "meilisearch",
+    "run_tag": "meilisearch_rankrules",
+    "ranking": "native",
+    "url": "http://meilisearch:7700",
+    "version": "1.48.2",
+    "keyword_setup": "Bucket-sort ranking rules (words, typo, proximity, attribute, sort, exactness), not BM25; _rankingScore for ordering; default typo tolerance and prefix search; no stemming or stop-word removal"
+  },
+  "config": {
+    "k1": 0.9,
+    "b": 0.4,
+    "run_depth": 1000,
+    "memory_cap_bytes": 8589934592
+  },
+  "datasets": [
+    {
+      "dataset_id": "beir/scifact/test",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.37483418326603796,
+        "recall_100": 0.5301666666666667,
+        "map": 0.3467324477146494,
+        "recip_rank": 0.35335127625580887
+      },
+      "calibration": {
+        "baseline_ndcg10": 0.679,
+        "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
+        "margin": 0.02,
+        "delta": -0.3041658167339621,
+        "within_margin": false
+      },
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 2.901735584999983,
+        "ingest_docs_per_sec": 1786.1723951667464,
+        "index_size_bytes": null,
+        "raw_stats": {
+          "index_size_bytes": null,
+          "raw": {
+            "numberOfDocuments": 5183,
+            "rawDocumentDbSize": 15040512,
+            "avgDocumentSize": 2893,
+            "isIndexing": false,
+            "numberOfEmbeddings": 0,
+            "numberOfEmbeddedDocuments": 0,
+            "fieldDistribution": {
+              "id": 5183,
+              "text": 5183
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "top_k": 10,
+        "mean_ms": 1.8697641366666666,
+        "p50_ms": 1.668958,
+        "p90_ms": 2.888375,
+        "p95_ms": 3.59625,
+        "p99_ms": 4.577875,
+        "max_ms": 9.221292
+      },
+      "run_file": "runs/bench_beir_scifact_test.meilisearch_rankrules.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.25497535946025596,
+        "recall_100": 0.17014487558461489,
+        "map": 0.11670467736478676,
+        "recip_rank": 0.4337675637860514
+      },
+      "calibration": {
+        "baseline_ndcg10": 0.322,
+        "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
+        "margin": 0.02,
+        "delta": -0.06702464053974405,
+        "within_margin": false
+      },
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 1.5916476680000642,
+        "ingest_docs_per_sec": 2282.5403341714027,
+        "index_size_bytes": null,
+        "raw_stats": {
+          "index_size_bytes": null,
+          "raw": {
+            "numberOfDocuments": 3633,
+            "rawDocumentDbSize": 11599872,
+            "avgDocumentSize": 3184,
+            "isIndexing": false,
+            "numberOfEmbeddings": 0,
+            "numberOfEmbeddedDocuments": 0,
+            "fieldDistribution": {
+              "id": 3633,
+              "text": 3633
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "top_k": 10,
+        "mean_ms": 1.1804991170278638,
+        "p50_ms": 1.045958,
+        "p90_ms": 1.728667,
+        "p95_ms": 2.023625,
+        "p99_ms": 2.739208,
+        "max_ms": 12.87325
+      },
+      "run_file": "runs/bench_beir_nfcorpus_test.meilisearch_rankrules.run"
+    }
+  ]
+}

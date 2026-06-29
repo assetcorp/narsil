@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 
-def build_report(environment: dict, config_summary: dict, datasets: list[dict]) -> dict:
-    return {"environment": environment, "config": config_summary, "datasets": datasets}
+def build_engine_report(environment: dict, engine: dict, config_summary: dict, datasets: list[dict]) -> dict:
+    return {"environment": environment, "engine": engine, "config": config_summary, "datasets": datasets}
 
 
 def write_json(path: Path, report: dict) -> None:
@@ -20,11 +20,12 @@ def _fmt(value: float | None, places: int = 4) -> str:
 def _calibration_label(calibration: dict | None) -> str:
     if not calibration or calibration.get("baseline_ndcg10") is None:
         return "no baseline"
-    return "within margin" if calibration.get("within_margin") else "OUTSIDE margin"
+    return "within margin" if calibration.get("within_margin") else "outside margin"
 
 
-def render_markdown(report: dict) -> str:
-    lines: list[str] = ["# Narsil keyword retrieval benchmark", ""]
+def render_engine_markdown(report: dict) -> str:
+    engine = report["engine"]
+    lines: list[str] = [f"# {engine['name']} keyword retrieval", ""]
 
     env = report["environment"]
     lines.append("## Environment")
@@ -36,14 +37,16 @@ def render_markdown(report: dict) -> str:
     lines.append(f"- CPU: {env.get('cpu_model') or env.get('arch')} ({env.get('logical_cpus')} logical)")
     memory = env.get("total_memory_bytes")
     lines.append(f"- Memory: {'n/a' if memory is None else f'{memory / 1e9:.1f} GB'}")
-    lines.append(f"- Python {env.get('python_version')}, ir_datasets {env.get('ir_datasets_version')}, pytrec_eval {env.get('pytrec_eval_version')}")
     cfg = report["config"]
-    lines.append(f"- Narsil BM25: k1={cfg.get('k1')}, b={cfg.get('b')}; run depth {cfg.get('run_depth')}")
+    cap = cfg.get("memory_cap_bytes")
+    lines.append(f"- Memory cap per engine: {'n/a' if cap is None else f'{cap / 1e9:.1f} GB'}")
+    lines.append(f"- Keyword setup: {engine.get('keyword_setup')}")
+    lines.append(f"- Run depth: {cfg.get('run_depth')}; run tag: {engine.get('run_tag')}")
     lines.append("")
 
-    lines.append("## Retrieval quality vs published baseline")
+    lines.append("## Retrieval quality vs Anserini BM25 reference")
     lines.append("")
-    lines.append("| Dataset | nDCG@10 | Baseline | Delta | Status | Recall@100 | MAP | MRR |")
+    lines.append("| Dataset | nDCG@10 | Reference | Delta | Status | Recall@100 | MAP | MRR |")
     lines.append("|---|---|---|---|---|---|---|---|")
     for dataset in report["datasets"]:
         metrics = dataset.get("metrics", {})
@@ -66,21 +69,19 @@ def render_markdown(report: dict) -> str:
 
     lines.append("## Operational metrics")
     lines.append("")
-    lines.append("| Dataset | Docs | Ingest docs/s | Build s | Index mem | Snapshot | p50 ms | p95 ms | p99 ms |")
-    lines.append("|---|---|---|---|---|---|---|---|---|")
+    lines.append("| Dataset | Docs | Ingest docs/s | Build s | Index size | p50 ms | p95 ms | p99 ms |")
+    lines.append("|---|---|---|---|---|---|---|---|")
     for dataset in report["datasets"]:
         ops = dataset.get("operational", {})
         latency = dataset.get("latency", {})
-        mem = ops.get("index_memory_bytes")
-        snap = ops.get("snapshot_bytes")
+        size = ops.get("index_size_bytes")
         lines.append(
-            "| {id} | {docs} | {rate} | {build} | {mem} | {snap} | {p50} | {p95} | {p99} |".format(
+            "| {id} | {docs} | {rate} | {build} | {size} | {p50} | {p95} | {p99} |".format(
                 id=dataset["dataset_id"],
                 docs=ops.get("documents_indexed", "n/a"),
                 rate=_fmt(ops.get("ingest_docs_per_sec"), 0),
                 build=_fmt(ops.get("build_seconds"), 2),
-                mem="n/a" if mem is None else f"{mem / 1e6:.1f} MB",
-                snap="n/a" if snap is None else f"{snap / 1e6:.1f} MB",
+                size="n/a" if size is None else f"{size / 1e6:.1f} MB",
                 p50=_fmt(latency.get("p50_ms"), 2),
                 p95=_fmt(latency.get("p95_ms"), 2),
                 p99=_fmt(latency.get("p99_ms"), 2),

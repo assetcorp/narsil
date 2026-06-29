@@ -3,11 +3,17 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from .client import Hit
+from .types import Hit
 
-# trec_eval ignores the rank column and re-sorts hits by score, breaking ties by
-# doc-id string. To make the scored ranking match the order Narsil returned, the
-# emitted scores must be strictly decreasing in that order.
+# Uniform run-file ordering rule, applied identically to every engine.
+#
+# trec_eval (and the pytrec_eval binding) ignores the rank column, re-sorts hits
+# by score, and breaks equal-score ties by doc-id string in reverse-lexical
+# order. That tie-break can reshuffle an engine's returned ranking and silently
+# change nDCG. To make the scored ranking match the order the engine returned,
+# the emitted scores are forced strictly decreasing in that order. This is a
+# fairness rule of the harness, not a property of any one engine, so it runs over
+# whatever hits a driver produces.
 def strict_ranking(hits: list[Hit]) -> list[tuple[str, float]]:
     ranked: list[tuple[str, float]] = []
     previous = math.inf
