@@ -10,7 +10,7 @@ from .latency import measure_query_latency
 from .runfile import run_mapping, strict_ranking, write_run_file
 from .scoring import evaluate
 from .track_common import bulk_load_begin, bulk_load_end, best_effort, index_name, index_size_bytes, verify_indexed
-from .types import EngineError, HYBRID, KEYWORD, VECTOR
+from .types import BEST_CONFIG, EQUAL_PRECISION, EngineError, HYBRID, KEYWORD, VECTOR
 from .vector_runner import run_hybrid_track, run_vector_track
 
 
@@ -91,28 +91,37 @@ def run_engine(
     specs: tuple[DatasetSpec, ...],
     runs_dir: Path,
     store: EmbeddingStore | None,
+    vector_profile: str = EQUAL_PRECISION,
 ) -> list[dict]:
     results: list[dict] = []
     driver.wait_until_ready()
+    suffix = "_bestconfig" if vector_profile == BEST_CONFIG else ""
     for spec in specs:
         chosen_vector_ef: int | None = None
+        chosen_vector_oversample: float | None = None
         for track in engine_cfg.tracks:
             if track == KEYWORD:
+                if vector_profile == BEST_CONFIG:
+                    continue
                 results.append(run_keyword_track(driver, config, spec, runs_dir))
             elif track == VECTOR:
                 if store is None or config.vector is None:
                     raise EngineError("vector track requires an embedding store and a [vector] config section")
-                result = run_vector_track(driver, config, spec, runs_dir, store, f"{engine_cfg.name}_vector")
+                result = run_vector_track(
+                    driver, config, spec, runs_dir, store, f"{engine_cfg.name}_vector{suffix}", vector_profile
+                )
                 point = result.get("operating_point")
                 if point and point.get("chosen_value") is not None:
                     chosen_vector_ef = int(point["chosen_value"])
+                chosen_vector_oversample = result.get("vector_oversample")
                 results.append(result)
             elif track == HYBRID:
                 if store is None or config.vector is None:
                     raise EngineError("hybrid track requires an embedding store and a [vector] config section")
                 results.append(
                     run_hybrid_track(
-                        driver, config, spec, runs_dir, store, f"{engine_cfg.name}_hybrid", chosen_vector_ef
+                        driver, config, spec, runs_dir, store, f"{engine_cfg.name}_hybrid{suffix}",
+                        chosen_vector_ef, vector_profile, chosen_vector_oversample,
                     )
                 )
     return results

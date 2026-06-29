@@ -7,7 +7,19 @@ from typing import Iterable, Iterator
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
-from ..core.types import EngineError, Hit, ImportResult, SearchResponse, VectorDoc, VectorIndexParams
+from ..core.types import (
+    BEST_CONFIG,
+    EQUAL_PRECISION,
+    FLOATING_MS,
+    EngineError,
+    Hit,
+    ImportResult,
+    SearchResponse,
+    ServerTimeSource,
+    VectorDoc,
+    VectorIndexParams,
+    coerce_server_ms,
+)
 
 _MEMORY_KEYS = ("estimatedMemoryBytes", "memoryBytes", "memoryEstimateBytes", "memory", "bytes")
 _VECTOR_FIELD = "embedding"
@@ -51,6 +63,8 @@ class NarsilDriver:
         self.hybrid_setup = "BM25 (text) fused with HNSW vector search via Reciprocal Rank Fusion"
         self.hybrid_fusion = f"RRF (k={_RRF_K})"
         self.vector_knob = "efSearch"
+        self.server_time = ServerTimeSource(source="response `elapsed` field", resolution=FLOATING_MS)
+        self._vector_profile = EQUAL_PRECISION
         self._k1 = bm25.k1
         self._b = bm25.b
         self._language = engine.language
@@ -120,7 +134,7 @@ class NarsilDriver:
         return SearchResponse(
             hits=hits,
             count=int(payload.get("count", len(hits))),
-            server_elapsed_ms=float(payload.get("elapsed", 0.0)),
+            server_elapsed_ms=coerce_server_ms(payload.get("elapsed")),
         )
 
     def search(self, index: str, term: str, limit: int) -> SearchResponse:
@@ -128,12 +142,25 @@ class NarsilDriver:
 
     def create_vector_index(self, index: str, params: VectorIndexParams) -> None:
         self._metric = params.metric
+        self._vector_profile = params.profile
+        if params.profile == BEST_CONFIG:
+            quantization = "sq8"
+            self.vector_setup = (
+                "HNSW over the shared precomputed vectors, SQ8 scalar quantization with "
+                "full-precision rerank, cosine"
+            )
+            self.hybrid_setup = (
+                "BM25 (text) fused with SQ8-quantized HNSW vector search (full-precision rerank) "
+                "via Reciprocal Rank Fusion"
+            )
+        else:
+            quantization = "none"
         config: dict[str, object] = {
             "schema": {"text": "string", _VECTOR_FIELD: f"vector[{params.dims}]"},
             "bm25": {"k1": self._k1, "b": self._b},
             "vectorPromotion": {
                 "threshold": 1,
-                "quantization": "none",
+                "quantization": quantization,
                 "hnswConfig": {"m": params.m, "efConstruction": params.ef_construction, "metric": params.metric},
             },
         }

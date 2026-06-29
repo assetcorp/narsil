@@ -11,9 +11,14 @@
 # corpora (MS MARCO passage, Natural Questions) are opt-in: select one with
 # BENCH_DATASETS on a sized machine and raise the caps. See docs/large-datasets.md.
 #
+# Vector/hybrid run at full float (equal precision) by default. Set BENCH_BEST_CONFIG=1
+# to additionally run each vector engine under its own recommended production
+# quantization, producing a second, clearly-labeled best-config comparison.
+#
 # Usage:
-#   ./run-all.sh                         # all engines, small BEIR sets
+#   ./run-all.sh                         # all engines, small BEIR sets, equal precision
 #   ./run-all.sh narsil elasticsearch    # a subset of engines, in the given order
+#   BENCH_BEST_CONFIG=1 ./run-all.sh     # also run the best-config (quantized) comparison
 #   BENCH_MACHINE_LABEL="Apple M3 Pro" ./run-all.sh
 #   BENCH_DATASETS=beir/nq BENCH_MEM_CAP=16g BENCH_JVM_HEAP=8g ./run-all.sh
 
@@ -43,6 +48,13 @@ version_of() {
   esac
 }
 
+is_vector_engine() {
+  case "$1" in
+    narsil|elasticsearch|opensearch|qdrant|weaviate) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 echo "building harness image"
 docker compose build harness || exit 1
 
@@ -59,10 +71,23 @@ for engine in "${ENGINES[@]}"; do
       -e ENGINE="$engine" \
       -e ENGINE_VERSION="$(version_of "$engine")" \
       harness; then
-    echo "[${engine}] done"
+    echo "[${engine}] done (equal precision)"
   else
-    echo "[${engine}] FAILED"
+    echo "[${engine}] FAILED (equal precision)"
     failed+=("$engine")
+  fi
+  if [ "${BENCH_BEST_CONFIG:-}" = "1" ] && is_vector_engine "$engine"; then
+    echo "---------------- ${engine} (best config) ----------------"
+    if docker compose run --rm \
+        -e ENGINE="$engine" \
+        -e ENGINE_VERSION="$(version_of "$engine")" \
+        -e BENCH_VECTOR_PROFILE="best-config" \
+        harness; then
+      echo "[${engine}] done (best config)"
+    else
+      echo "[${engine}] FAILED (best config)"
+      failed+=("${engine}-bestconfig")
+    fi
   fi
   docker compose --profile "$engine" down
 done

@@ -8,7 +8,15 @@ from typing import Iterable, Iterator
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
-from ..core.types import EngineError, Hit, ImportResult, SearchResponse
+from ..core.types import (
+    INTEGER_MS,
+    EngineError,
+    Hit,
+    ImportResult,
+    SearchResponse,
+    ServerTimeSource,
+    coerce_server_ms,
+)
 
 _PER_PAGE = 250
 
@@ -38,6 +46,7 @@ class TypesenseDriver:
             "Native token match/proximity scoring (text_match), not BM25; "
             "english locale, Snowball stemming enabled, default typo tolerance"
         )
+        self.server_time = ServerTimeSource(source="response `search_time_ms` field", resolution=INTEGER_MS)
         api_key = os.environ.get("BENCH_API_KEY", "localdev")
         self._client = httpx.Client(
             base_url=engine.url,
@@ -104,6 +113,7 @@ class TypesenseDriver:
         page = 1
         per_page = min(_PER_PAGE, limit)
         max_pages = (limit + per_page - 1) // per_page
+        server_ms: float | None = None
         while page <= max_pages and len(hits) < limit:
             response = self._client.get(
                 f"/collections/{index}/documents/search",
@@ -119,6 +129,9 @@ class TypesenseDriver:
             _raise(response)
             payload = response.json()
             found = int(payload.get("found", 0))
+            page_ms = coerce_server_ms(payload.get("search_time_ms"))
+            if page_ms is not None:
+                server_ms = page_ms if server_ms is None else server_ms + page_ms
             page_hits = payload.get("hits", [])
             if not page_hits:
                 break
@@ -126,7 +139,7 @@ class TypesenseDriver:
                 doc_id = str(hit.get("document", {}).get("id"))
                 hits.append(Hit(doc_id=doc_id, score=float(hit.get("text_match", 0))))
             page += 1
-        return SearchResponse(hits=hits[:limit], count=found, server_elapsed_ms=0.0)
+        return SearchResponse(hits=hits[:limit], count=found, server_elapsed_ms=server_ms)
 
     def index_stats(self, index: str) -> dict | None:
         response = self._client.get(f"/collections/{index}")

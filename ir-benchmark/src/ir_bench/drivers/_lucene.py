@@ -7,7 +7,16 @@ from typing import Iterable, Iterator
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
-from ..core.types import EngineError, Hit, ImportResult, SearchResponse, VectorDoc
+from ..core.types import (
+    INTEGER_MS,
+    EngineError,
+    Hit,
+    ImportResult,
+    SearchResponse,
+    ServerTimeSource,
+    VectorDoc,
+    coerce_server_ms,
+)
 
 _VECTOR_FIELD = "embedding"
 
@@ -42,6 +51,7 @@ class LuceneRestDriver:
         self.name = engine.name
         self.run_tag = engine.run_tag
         self.keyword_setup = ""
+        self.server_time = ServerTimeSource(source="response `took` field", resolution=INTEGER_MS)
         self._k1 = bm25.k1
         self._b = bm25.b
         self._analyzer = engine.analyzer or "english"
@@ -151,7 +161,7 @@ class LuceneRestDriver:
         ]
         total = hit_block.get("total", {})
         count = int(total.get("value", len(hits))) if isinstance(total, dict) else int(total)
-        return SearchResponse(hits=hits, count=count, server_elapsed_ms=float(payload.get("took", 0.0)))
+        return SearchResponse(hits=hits, count=count, server_elapsed_ms=coerce_server_ms(payload.get("took")))
 
     def search(self, index: str, term: str, limit: int) -> SearchResponse:
         return self._post_search(index, {"query": {"match": {"text": term}}, "size": limit, "_source": False})
