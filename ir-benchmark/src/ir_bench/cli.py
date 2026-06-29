@@ -6,10 +6,16 @@ import sys
 from pathlib import Path
 
 from .core.config import BenchmarkConfig, DatasetSpec, load_config, select_engine
+from .core.embeddings import EmbeddingStore
 from .core.environment import capture_environment
 from .core.harness import run_engine
 from .core.registry import build_driver
 from .core.reporter import build_engine_report, render_engine_markdown, write_json
+from .core.types import HYBRID, VECTOR
+
+
+def _embeddings_dir() -> Path:
+    return Path(os.environ.get("BENCH_EMBEDDINGS_DIR", "/data/embeddings"))
 
 
 def _select(config: BenchmarkConfig, only: str | None) -> tuple[DatasetSpec, ...]:
@@ -43,7 +49,8 @@ def main(argv: list[str] | None = None) -> int:
         "ranking": engine_cfg.ranking,
         "url": engine_cfg.url,
         "version": os.environ.get("ENGINE_VERSION"),
-        "keyword_setup": driver.keyword_setup,
+        "tracks": list(engine_cfg.tracks),
+        "keyword_setup": getattr(driver, "keyword_setup", None),
     }
     config_summary = {
         "k1": config.bm25.k1,
@@ -51,10 +58,23 @@ def main(argv: list[str] | None = None) -> int:
         "run_depth": config.run_depth,
         "memory_cap_bytes": config.memory_cap_bytes,
     }
+    if config.vector is not None:
+        config_summary.update(
+            {
+                "vector_model": config.vector.model,
+                "vector_dims": config.vector.dims,
+                "vector_metric": config.vector.metric,
+                "recall_target": config.vector.recall_target,
+                "recall_k": config.vector.recall_k,
+            }
+        )
+
+    needs_vectors = any(track in (VECTOR, HYBRID) for track in engine_cfg.tracks)
+    store = EmbeddingStore(config.vector, _embeddings_dir()) if (needs_vectors and config.vector) else None
 
     try:
         print(f"waiting for {engine_cfg.name} at {engine_cfg.url}", flush=True)
-        results = run_engine(driver, config, specs, args.runs_dir)
+        results = run_engine(driver, engine_cfg, config, specs, args.runs_dir, store)
     finally:
         driver.close()
 

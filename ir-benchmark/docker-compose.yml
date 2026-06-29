@@ -31,6 +31,10 @@ services:
       discovery.type: "single-node"
       xpack.security.enabled: "false"
       xpack.security.enrollment.enabled: "false"
+      # The RRF retriever used by the hybrid track requires a non-basic license;
+      # the self-generated trial unlocks it so Elasticsearch can be evaluated on
+      # the same RRF fusion family as the other engines.
+      xpack.license.self_generated.type: "trial"
       ES_JAVA_OPTS: "-Xms2g -Xmx2g"
     ulimits:
       memlock:
@@ -53,6 +57,30 @@ services:
         hard: -1
     expose:
       - "9200"
+
+  qdrant:
+    profiles: ["qdrant"]
+    image: qdrant/qdrant:v1.18.2
+    mem_limit: *mem_cap
+    volumes:
+      - qdrant_data:/qdrant/storage
+    expose:
+      - "6333"
+
+  weaviate:
+    profiles: ["weaviate"]
+    image: cr.weaviate.io/semitechnologies/weaviate:1.38.2
+    mem_limit: *mem_cap
+    environment:
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+      DEFAULT_VECTORIZER_MODULE: "none"
+      QUERY_DEFAULTS_LIMIT: "25"
+      CLUSTER_HOSTNAME: "node1"
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    expose:
+      - "8080"
 
   typesense:
     profiles: ["typesense"]
@@ -84,12 +112,17 @@ services:
     environment:
       BENCH_API_KEY: "${BENCH_API_KEY:-localdev}"
       BENCH_MACHINE_LABEL: "${BENCH_MACHINE_LABEL:-}"
+      BENCH_EMBEDDINGS_DIR: "/data/embeddings"
     volumes:
       - ir_datasets_cache:/data/ir_datasets
+      - embeddings_cache:/data/embeddings
       - ./runs:/app/runs
       - ./results:/app/results
 
 volumes:
   ir_datasets_cache:
+  embeddings_cache:
+  qdrant_data:
+  weaviate_data:
   typesense_data:
   meili_data:

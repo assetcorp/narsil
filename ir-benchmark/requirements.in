@@ -8,3 +8,8 @@
 ir-datasets
 pytrec-eval-terrier
 httpx
+# numpy backs the exact-kNN ground truth and ANN-recall measurement; fastembed
+# (ONNX, no PyTorch) computes the shared dense vectors with all-MiniLM-L6-v2 and
+# the Qdrant/bm25 sparse vectors for Qdrant's hybrid keyword side.
+numpy
+fastembed

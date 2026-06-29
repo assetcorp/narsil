@@ -42,29 +42,78 @@ baseline_ndcg10 = 0.322
 margin = 0.02
 baseline_source = "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4"
 
+# Dense vector and hybrid tracks.
+#
+# One model embeds every corpus and query once; the same vectors feed every
+# engine, so the comparison measures the index, not the embedder. Vectors are
+# L2-normalized in the harness, so cosine and inner product are equivalent and
+# every engine uses cosine. Build-time HNSW parameters are held identical across
+# engines. Latency on the vector track is compared only at a matched ANN recall
+# operating point: the search-time knob is swept upward until the engine clears
+# the recall target against the exact (brute-force) top-k over the same vectors.
+#
+# Model: sentence-transformers/all-MiniLM-L6-v2 (384-dim), the standard small
+# sentence-transformers model and the model Narsil's transformers.js adapter
+# ships (https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2). Computed
+# with fastembed's ONNX export (no PyTorch). Qdrant's hybrid keyword side uses
+# the Qdrant/bm25 sparse model with server-side IDF.
+[vector]
+model = "sentence-transformers/all-MiniLM-L6-v2"
+sparse_model = "Qdrant/bm25"
+dims = 384
+metric = "cosine"
+hnsw_m = 16
+hnsw_ef_construction = 200
+ef_search_grid = [16, 32, 64, 128, 256, 512]
+recall_target = 0.99
+recall_target_secondary = 0.95
+recall_k = 10
+query_prefix = ""
+passage_prefix = ""
+
+# tracks: which of keyword, vector, hybrid each engine runs. Narsil,
+# Elasticsearch, and OpenSearch run all three. Qdrant and Weaviate are vector
+# databases (vector + hybrid only). Typesense and Meilisearch run keyword only.
 [engines.narsil]
 url = "http://narsil:7700"
 run_tag = "narsil_bm25"
 ranking = "bm25"
+tracks = ["keyword", "vector", "hybrid"]
 
 [engines.elasticsearch]
 url = "http://elasticsearch:9200"
 run_tag = "elasticsearch_bm25"
 ranking = "bm25"
 analyzer = "english"
+tracks = ["keyword", "vector", "hybrid"]
 
 [engines.opensearch]
 url = "http://opensearch:9200"
 run_tag = "opensearch_bm25"
 ranking = "bm25"
 analyzer = "english"
+tracks = ["keyword", "vector", "hybrid"]
+
+[engines.qdrant]
+url = "http://qdrant:6333"
+run_tag = "qdrant"
+ranking = "native"
+tracks = ["vector", "hybrid"]
+
+[engines.weaviate]
+url = "http://weaviate:8080"
+run_tag = "weaviate"
+ranking = "native"
+tracks = ["vector", "hybrid"]
 
 [engines.typesense]
 url = "http://typesense:8108"
 run_tag = "typesense_textmatch"
 ranking = "native"
+tracks = ["keyword"]
 
 [engines.meilisearch]
 url = "http://meilisearch:7700"
 run_tag = "meilisearch_rankrules"
 ranking = "native"
+tracks = ["keyword"]

@@ -20,7 +20,7 @@ export BENCH_API_KEY="${BENCH_API_KEY:-localdev}"
 if [ "$#" -gt 0 ]; then
   ENGINES=("$@")
 else
-  ENGINES=(narsil elasticsearch opensearch typesense meilisearch)
+  ENGINES=(narsil elasticsearch opensearch qdrant weaviate typesense meilisearch)
 fi
 
 version_of() {
@@ -28,6 +28,8 @@ version_of() {
     narsil) echo "source (node:22-trixie-slim)" ;;
     elasticsearch) echo "9.4.2" ;;
     opensearch) echo "3.7.0" ;;
+    qdrant) echo "v1.18.2" ;;
+    weaviate) echo "1.38.2" ;;
     typesense) echo "30.2" ;;
     meilisearch) echo "1.48.2" ;;
     *) echo "unknown" ;;
@@ -36,6 +38,11 @@ version_of() {
 
 echo "building harness image"
 docker compose build harness || exit 1
+
+# Embed every corpus and query once, into the shared cache volume, so each engine
+# indexes identical vectors. Idempotent: skips datasets already cached.
+echo "================ embeddings ================"
+docker compose run --rm --entrypoint python harness -m ir_bench.embed || exit 1
 
 failed=()
 for engine in "${ENGINES[@]}"; do
