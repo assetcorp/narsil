@@ -51,7 +51,7 @@ def per_engine_lines(result: dict) -> list[str]:
         "Client-limited marks a level where the harness, not the engine, capped the rate:",
         "",
         "| Concurrency | QPS | Errors | Under-load p95 ms | Achieved concurrency | Client-limited |",
-        "|---|---|---|---|---|---|",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     for level in found:
         client = level.get("client_latency_ms", {})
@@ -77,20 +77,21 @@ def comparison_lines(rows: list[dict]) -> list[str]:
     if not measured:
         return []
     best_qps = max(measured)
+    has_distinct_best = len(set(measured)) > 1
     lines = [
         "Throughput under concurrent load, higher is better (* marks the best). Peak QPS is the highest "
         "sustained rate across the configured concurrency levels; client-limited marks an engine whose peak "
         "was capped by the harness rather than the engine:",
         "",
         "| Engine | Peak QPS | At concurrency | Under-load p95 ms | Client-limited |",
-        "|---|---|---|---|---|",
+        "| --- | --- | --- | --- | --- |",
     ]
     for engine, peak in peaks:
         if not peak:
             lines.append(f"| {engine} | n/a | n/a | n/a | n/a |")
             continue
         qps = peak.get("qps")
-        marker = "*" if isinstance(qps, (int, float)) and abs(qps - best_qps) < 1e-9 else ""
+        marker = "\\*" if has_distinct_best and isinstance(qps, (int, float)) and abs(qps - best_qps) < 1e-9 else ""
         client = peak.get("client_latency_ms", {})
         lines.append(
             "| {engine} | {qps}{marker} | {c} | {p95} | {bound} |".format(

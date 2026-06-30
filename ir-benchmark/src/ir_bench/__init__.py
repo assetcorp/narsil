@@ -10,4 +10,4 @@ tracks feed every engine identical precomputed vectors and compare latency at a
 matched ANN-recall operating point, so the numbers compare directly.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.1.0"
