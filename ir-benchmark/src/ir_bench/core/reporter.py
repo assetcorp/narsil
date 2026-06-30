@@ -51,7 +51,7 @@ def _calibration_label(calibration: dict | None) -> str:
 
 
 def _quality_columns(rows: list[dict]) -> list[str]:
-    lines = ["| Dataset | nDCG@10 | Recall@100 | MAP | MRR |", "|---|---|---|---|---|"]
+    lines = ["| Dataset | nDCG@10 | Recall@100 | MAP | MRR |", "| --- | --- | --- | --- | --- |"]
     for row in rows:
         metrics = row.get("metrics", {})
         lines.append(
@@ -67,7 +67,7 @@ def _operational_columns(rows: list[dict]) -> list[str]:
         "(server-side); the client round-trip is reported separately underneath.",
         "",
         "| Dataset | Docs | Ingest docs/s | Build s | Index size | Server p50 ms | Server p95 ms | Server p99 ms |",
-        "|---|---|---|---|---|---|---|---|",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in rows:
         ops = row.get("operational", {})
@@ -105,7 +105,7 @@ def _client_latency_columns(rows: list[dict]) -> list[str]:
         "transport and JSON), measured over the same queries and repeats:",
         "",
         "| Dataset | Client p50 ms | Client p95 ms | Client p99 ms |",
-        "|---|---|---|---|",
+        "| --- | --- | --- | --- |",
     ]
     for row in rows:
         client = client_summary(row.get("latency", {}))
@@ -130,7 +130,7 @@ def _server_time_disclosure(rows: list[dict]) -> list[str]:
 def _keyword_section(rows: list[dict]) -> list[str]:
     lines = ["## Keyword track", "", "Retrieval quality vs Anserini BM25 reference:", ""]
     lines.append("| Dataset | nDCG@10 | Reference | Delta | Status | Recall@100 | MAP | MRR |")
-    lines.append("|---|---|---|---|---|---|---|---|")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
     for row in rows:
         metrics = row.get("metrics", {})
         calibration = row.get("calibration")
@@ -159,7 +159,7 @@ def _operating_point_lines(rows: list[dict]) -> list[str]:
         "Recall operating point (latency below is measured here, the matched-recall rule for ANN search):",
         "",
         "| Dataset | Knob | Value | ANN recall@k | Target met | Secondary value | Secondary recall |",
-        "|---|---|---|---|---|---|---|",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in rows:
         point = row.get("operating_point") or {}

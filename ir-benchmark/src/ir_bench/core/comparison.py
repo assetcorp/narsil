@@ -125,7 +125,7 @@ def _server_rank(rows: list[dict], engine: str, key: str) -> tuple[int, int]:
 def _cell(value: float | None, best: float | None, places: int) -> str:
     if value is None:
         return "n/a"
-    marker = "*" if best is not None and abs(value - best) < 1e-9 else ""
+    marker = "\\*" if best is not None and abs(value - best) < 1e-9 else ""
     return f"{value:.{places}f}{marker}"
 
 
@@ -142,11 +142,30 @@ def _fmt_opt(value: float | None, places: int) -> str:
     return "n/a" if value is None else f"{value:.{places}f}"
 
 
+def _head(labels: list[str]) -> list[str]:
+    """A table's header row and its delimiter row, built from one label list so the
+    delimiter always has exactly one column per header cell; a mismatch stops the block
+    rendering as a table at all."""
+
+    return ["| " + " | ".join(labels) + " |", "| " + " | ".join("---" for _ in labels) + " |"]
+
+
+def _distinct_best(values: list[float | None], higher_is_better: bool) -> float | None:
+    """The value to mark as best, or None when there is no distinct winner. When every
+    engine reports the same value, as on the vector track at matched recall where all
+    engines search identical vectors, nothing is marked, since a marker on every cell
+    highlights nothing."""
+
+    present = [value for value in values if value is not None]
+    if len(present) < 2 or len(set(present)) < 2:
+        return None
+    return max(present) if higher_is_better else min(present)
+
+
 def _quality_table(rows: list[dict]) -> list[str]:
     columns = [("ndcg_cut_10", "nDCG@10"), ("recall_100", "Recall@100"), ("map", "MAP"), ("recip_rank", "MRR")]
-    bests = {key: _best(rows, "metrics", key, True)[1] for key, _ in columns}
-    out = ["| Engine | " + " | ".join(label for _, label in columns) + " |"]
-    out.append("|---|" + "|".join("---" for _ in columns) + "|")
+    bests = {key: _distinct_best([_value(r, "metrics", key) for r in rows], True) for key, _ in columns}
+    out = _head(["Engine"] + [label for _, label in columns])
     for row in rows:
         cells = [_cell(_value(row, "metrics", key), bests[key], 4) for key, _ in columns]
         out.append(f"| {row['engine']} | " + " | ".join(cells) + " |")
@@ -164,11 +183,10 @@ def _operational_table(rows: list[dict]) -> list[str]:
     bests = {}
     for group, key, label, _, hib in columns:
         if group == "latency_server":
-            bests[label] = _server_best(rows, key)[1]
+            bests[label] = _distinct_best([_server_rankable(r, key) for r in rows], False)
         else:
-            bests[label] = _best(rows, group, key, hib)[1]
-    out = ["| Engine | " + " | ".join(label for _, _, label, _, _ in columns) + " |"]
-    out.append("|---|" + "|".join("---" for _ in columns) + "|")
+            bests[label] = _distinct_best([_value(r, group, key) for r in rows], hib)
+    out = _head(["Engine"] + [label for _, _, label, _, _ in columns])
     for row in rows:
         cells = [_cell(_value(row, group, key), bests[label], places) for group, key, label, places, _ in columns]
         out.append(f"| {row['engine']} | " + " | ".join(cells) + " |")
@@ -181,9 +199,8 @@ def _client_latency_table(rows: list[dict]) -> list[str]:
         ("latency_client", "p95_ms", "Client p95 ms", 2),
         ("latency_client", "p99_ms", "Client p99 ms", 2),
     ]
-    bests = {label: _best(rows, group, key, False)[1] for group, key, label, _ in columns}
-    out = ["| Engine | " + " | ".join(label for _, _, label, _ in columns) + " |"]
-    out.append("|---|" + "|".join("---" for _ in columns) + "|")
+    bests = {label: _distinct_best([_value(r, group, key) for r in rows], False) for group, key, label, _ in columns}
+    out = _head(["Engine"] + [label for _, _, label, _ in columns])
     for row in rows:
         cells = [_cell(_value(row, group, key), bests[label], places) for group, key, label, places in columns]
         out.append(f"| {row['engine']} | " + " | ".join(cells) + " |")
@@ -200,7 +217,7 @@ def _server_time_disclosure(rows: list[dict]) -> list[str]:
 def _operating_table(rows: list[dict]) -> list[str]:
     out = [
         "| Engine | Knob | Value | ANN recall@k | Target met |",
-        "|---|---|---|---|---|",
+        "| --- | --- | --- | --- | --- |",
     ]
     for row in rows:
         point = row.get("operating_point") or {}
@@ -290,7 +307,7 @@ def render_comparison_markdown(comparison: dict) -> str:
     lines.append("## Engines and tracks")
     lines.append("")
     lines.append("| Engine | Version | Build | Tracks |")
-    lines.append("|---|---|---|---|")
+    lines.append("| --- | --- | --- | --- |")
     for engine in comparison["engines"]:
         lines.append(
             f"| {engine['name']} | {engine.get('version') or 'n/a'} | {_build_cell(engine)} | "
@@ -299,11 +316,11 @@ def render_comparison_markdown(comparison: dict) -> str:
     lines.append("")
 
     for track in comparison["tracks"]:
-        lines.append(f"# {_TRACK_TITLES.get(track['track'], track['track'])}")
+        lines.append(f"## {_TRACK_TITLES.get(track['track'], track['track'])}")
         lines.append("")
         for dataset in track["datasets"]:
             rows = dataset["rows"]
-            lines.append(f"## {dataset['dataset_id']}")
+            lines.append(f"### {dataset['dataset_id']}")
             lines.append("")
             lines.append("Retrieval quality, higher is better (* marks the best in each column):")
             lines.append("")
