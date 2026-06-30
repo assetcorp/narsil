@@ -27,6 +27,13 @@ cd "$(dirname "$0")"
 
 export BENCH_API_KEY="${BENCH_API_KEY:-localdev}"
 
+# Mint one run id for the whole pass and thread it to every engine container and the
+# final aggregate through the compose environment. Every engine's result and the
+# comparison built from them land together under results/runs/<run id>/, so a later
+# pass writes a fresh directory instead of overwriting this one. An id supplied in the
+# environment is honored so a run can be named or resumed.
+export BENCH_RUN_ID="${BENCH_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
+
 # Stamp the Narsil image with the source commit it is built from. Narsil is the one
 # engine built from this repo's source, so its build identity comes from the host's
 # git checkout; the .git directory is excluded from the Docker build context, so the
@@ -55,6 +62,7 @@ image_digest_of() {
     "$image_id" 2>/dev/null || true
 }
 
+echo "run id: ${BENCH_RUN_ID}"
 echo "datasets: ${BENCH_DATASETS:-default (small BEIR sets)}; memory cap: ${BENCH_MEM_CAP:-8g}"
 
 if [ "$#" -gt 0 ]; then

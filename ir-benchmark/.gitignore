@@ -1,4 +1,4 @@
-runs/*.run
+*.run
 __pycache__/
 *.pyc
 .venv/

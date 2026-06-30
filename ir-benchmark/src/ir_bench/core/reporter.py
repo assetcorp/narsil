@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from .latency_report import client_summary, disclosure, server_summary
@@ -12,9 +13,27 @@ def build_engine_report(environment: dict, engine: dict, config_summary: dict, d
     return {"environment": environment, "engine": engine, "config": config_summary, "datasets": datasets}
 
 
-def write_json(path: Path, report: dict) -> None:
+def write_text_atomic(path: Path, text: str) -> None:
+    """Write through a sibling temp file and rename into place, so a crash mid-write
+    leaves either the previous file or nothing, never a truncated result a later
+    aggregation would read as valid. The temp carries the writer's pid so two
+    processes writing the same path never clobber each other's in-progress file."""
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(report, indent=2, sort_keys=False), encoding="utf-8")
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def write_json(path: Path, report: dict) -> None:
+    write_text_atomic(path, json.dumps(report, indent=2, sort_keys=False))
 
 
 def _fmt(value: float | None, places: int = 4) -> str:
