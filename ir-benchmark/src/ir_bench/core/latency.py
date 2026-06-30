@@ -4,30 +4,14 @@ from time import perf_counter_ns
 from typing import Any, Callable
 
 from .config import LatencyConfig
-from .driver import EngineDriver
+from .stats import summarize_ms
 from .types import NOT_AVAILABLE, SERVER_TIME_UNAVAILABLE, ServerTimeSource
 
 
-def _percentile(sorted_values: list[float], fraction: float) -> float:
-    if not sorted_values:
-        return 0.0
-    rank = max(0, min(len(sorted_values) - 1, round(fraction * (len(sorted_values) - 1))))
-    return sorted_values[rank]
-
-
 def _summarize(samples_ms: list[float], top_k: int) -> dict[str, float]:
-    ordered = sorted(samples_ms)
-    sample_count = len(ordered)
-    return {
-        "samples": sample_count,
-        "top_k": top_k,
-        "mean_ms": sum(ordered) / sample_count if sample_count else 0.0,
-        "p50_ms": _percentile(ordered, 0.50),
-        "p90_ms": _percentile(ordered, 0.90),
-        "p95_ms": _percentile(ordered, 0.95),
-        "p99_ms": _percentile(ordered, 0.99),
-        "max_ms": ordered[-1] if ordered else 0.0,
-    }
+    summary = summarize_ms(samples_ms)
+    summary["top_k"] = top_k
+    return summary
 
 
 def measure_latency(
@@ -73,15 +57,3 @@ def measure_latency(
     record["server_time_source"] = server_time.source
     record["server_time_resolution"] = server_time.resolution if server_available else NOT_AVAILABLE
     return record
-
-
-def measure_query_latency(
-    driver: EngineDriver,
-    index: str,
-    queries: list[str],
-    config: LatencyConfig,
-) -> dict[str, Any]:
-    server_time = getattr(driver, "server_time", SERVER_TIME_UNAVAILABLE)
-    return measure_latency(
-        lambda term: driver.search(index, term, config.top_k), queries, config, server_time
-    )

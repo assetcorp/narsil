@@ -55,6 +55,13 @@ export interface ServerOptions {
   /** Authentication or admission gate run before every routed request. */
   onRequest?: OnRequestHook
   /**
+   * Build identity reported verbatim at `/version`: the package version and the
+   * git commit the server was built from, with a dirty-tree flag. Supply it from
+   * the build (a stamped env var or build arg); omit it and `/version` reports
+   * nulls. The values are descriptive only and never gate a request.
+   */
+  build?: { version?: string; gitSha?: string; dirty?: boolean }
+  /**
    * Named embedding adapters a JSON `createIndex` request can reference by name.
    * Embedding adapters are functions and cannot cross JSON, so an index that
    * needs query-time or ingest-time embedding names a server-registered adapter.

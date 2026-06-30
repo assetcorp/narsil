@@ -16,5 +16,17 @@ WORKDIR /repo
 RUN corepack enable
 COPY --from=build /repo /repo
 WORKDIR /repo/packages/ts
+# Narsil is the one engine built from source here, so the source commit is stamped
+# into the image at build time, the way the vendored engine images already carry
+# their vendors' build hashes. The benchmark then reads every engine's build
+# identity the same way, from its own /version-style endpoint. The build args are
+# supplied by the orchestrator from the host's git checkout; the .git directory is
+# excluded from the build context, so the commit cannot be read inside the image.
+ARG NARSIL_GIT_SHA=
+ARG NARSIL_GIT_DIRTY=false
+ARG NARSIL_VERSION=
+ENV NARSIL_BUILD_GIT_SHA=${NARSIL_GIT_SHA} \
+    NARSIL_BUILD_DIRTY=${NARSIL_GIT_DIRTY} \
+    NARSIL_BUILD_VERSION=${NARSIL_VERSION}
 EXPOSE 7700
 CMD ["node", "--experimental-strip-types", "examples/http-server/server.ts"]

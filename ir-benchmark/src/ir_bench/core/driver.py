@@ -42,6 +42,12 @@ class EngineDriver(Protocol):
 
     def index_stats(self, index: str) -> dict | None: ...
 
+    def build_identity(self) -> dict | None:
+        """The engine's own build identity, read from its info endpoint (version and,
+        where the engine exposes it, the git build hash and date). Returns None when
+        the engine reports nothing usable, so provenance capture never aborts a run."""
+        ...
+
     def close(self) -> None: ...
 
 

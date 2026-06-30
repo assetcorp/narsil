@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from .latency_report import client_summary, disclosure, server_summary
+from .throughput_report import per_engine_lines
 from .types import EQUAL_PRECISION, HYBRID, KEYWORD, VECTOR
 
 
@@ -69,6 +70,13 @@ def _operational_columns(rows: list[dict]) -> list[str]:
     lines.extend(_client_latency_columns(rows))
     lines.append("")
     lines.extend(_server_time_disclosure(rows))
+    for row in rows:
+        throughput = per_engine_lines(row)
+        if throughput:
+            lines.append("")
+            lines.append(f"{row['dataset_id']} throughput:")
+            lines.append("")
+            lines.extend(throughput)
     return lines
 
 
@@ -212,7 +220,41 @@ def _environment_lines(report: dict) -> list[str]:
     lines.append(f"- Tracks: {tracks}")
     lines.append(f"- Keyword setup: {engine.get('keyword_setup')}")
     lines.append(f"- Run depth: {cfg.get('run_depth')}; run tag: {engine.get('run_tag')}")
+    lines.extend(_provenance_lines(report))
     lines.append("")
+    return lines
+
+
+def _engine_build_line(engine: dict) -> str:
+    build = engine.get("build_identity") or {}
+    version = build.get("version") or engine.get("version") or "n/a"
+    commit = build.get("build_hash")
+    suffix = ""
+    if commit:
+        suffix = f", commit {commit[:12]}"
+        if build.get("dirty"):
+            suffix += " (dirty tree)"
+    return f"- Engine build: version {version}{suffix}"
+
+
+def _provenance_lines(report: dict) -> list[str]:
+    """Provenance of the exact code and data under test: the engine's own build
+    identity, the immutable image artifact it ran as, and the content hash of each
+    dataset, so a result can be tied to a precise engine build and corpus version."""
+
+    engine = report["engine"]
+    lines = [_engine_build_line(engine)]
+    digest = engine.get("image_digest")
+    if digest:
+        lines.append(f"- Engine image: {digest}")
+    seen: dict[str, str] = {}
+    for result in report["datasets"]:
+        identity = result.get("dataset_identity") or {}
+        md5 = identity.get("md5")
+        if md5 and result["dataset_id"] not in seen:
+            seen[result["dataset_id"]] = md5
+    for dataset_id, md5 in seen.items():
+        lines.append(f"- Dataset {dataset_id}: content md5 {md5}")
     return lines
 
 

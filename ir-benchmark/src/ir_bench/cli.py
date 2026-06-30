@@ -18,6 +18,16 @@ def _embeddings_dir() -> Path:
     return Path(os.environ.get("BENCH_EMBEDDINGS_DIR", "/data/embeddings"))
 
 
+def _safe_build_identity(driver) -> dict | None:
+    fetch = getattr(driver, "build_identity", None)
+    if fetch is None:
+        return None
+    try:
+        return fetch()
+    except Exception:
+        return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Benchmark one search engine over HTTP and score keyword retrieval.")
     parser.add_argument("--config", type=Path, default=Path("config/benchmark.toml"))
@@ -55,6 +65,8 @@ def main(argv: list[str] | None = None) -> int:
         "ranking": engine_cfg.ranking,
         "url": engine_cfg.url,
         "version": os.environ.get("ENGINE_VERSION"),
+        "image_digest": os.environ.get("ENGINE_IMAGE_DIGEST") or None,
+        "build_identity": None,
         "tracks": list(engine_cfg.tracks),
         "keyword_setup": getattr(driver, "keyword_setup", None),
         "vector_profile": vector_profile,
@@ -64,6 +76,12 @@ def main(argv: list[str] | None = None) -> int:
         "b": config.bm25.b,
         "run_depth": config.run_depth,
         "memory_cap_bytes": config.memory_cap_bytes,
+        "throughput": {
+            "enabled": config.throughput.enabled,
+            "concurrency": list(config.throughput.concurrency),
+            "duration_seconds": config.throughput.duration_seconds,
+            "warmup_seconds": config.throughput.warmup_seconds,
+        },
     }
     if config.vector is not None:
         config_summary.update(
@@ -82,6 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         print(f"waiting for {engine_cfg.name} at {engine_cfg.url} (vector profile: {vector_profile})", flush=True)
         results = run_engine(driver, engine_cfg, config, specs, args.runs_dir, store, vector_profile)
+        engine_info["build_identity"] = _safe_build_identity(driver)
     finally:
         driver.close()
 

@@ -6,6 +6,7 @@ from typing import Iterable, Iterator
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
+from ..core.http_client import build_client
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
@@ -72,7 +73,7 @@ class QdrantDriver:
         self._rescore_oversample: float | None = None
         self._sparse_model_name = "Qdrant/bm25"
         self._sparse = None
-        self._client = httpx.Client(base_url=engine.url, timeout=120.0)
+        self._client = build_client(engine.url)
 
     def set_rescore_oversample(self, value: float | None) -> None:
         self._rescore_oversample = value
@@ -244,3 +245,22 @@ class QdrantDriver:
         response = self._client.get(f"/collections/{index}")
         _raise(response)
         return {"index_size_bytes": None, "raw": response.json().get("result", {})}
+
+    def build_identity(self) -> dict | None:
+        """Qdrant's root endpoint reports its version and the git commit it was
+        built from (which can be null on some builds). A failure degrades to None."""
+
+        try:
+            response = self._client.get("/")
+            if not response.is_success:
+                return None
+            payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            return None
+        return {
+            "version": payload.get("version"),
+            "build_hash": payload.get("commit"),
+            "build_date": None,
+            "source_endpoint": "/",
+            "raw": payload,
+        }

@@ -1,12 +1,45 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Iterator
 
 import ir_datasets
+from ir_datasets.util import DownloadConfig
 
 
 def dataset_version() -> str:
     return getattr(ir_datasets, "__version__", "unknown")
+
+
+@lru_cache(maxsize=None)
+def dataset_content_id(dataset_id: str) -> dict:
+    """Content identity of the exact corpus and qrels under test, taken from the
+    MD5 ir_datasets verifies each source archive against on download. BEIR ships
+    one archive per dataset holding the corpus, queries, and qrels together, so
+    this single hash pins the data the run actually scored, the same content pin
+    BEIR publishes. The fields stay None when an id cannot be resolved, so a run
+    still records what it can rather than aborting."""
+
+    parts = [part for part in dataset_id.split("/") if part]
+    unresolved = {"source": "ir_datasets", "md5": None, "size_bytes": None, "subset": None, "archive": None}
+    if len(parts) < 2:
+        return unresolved
+    try:
+        contents = DownloadConfig.context(parts[0]).contents()
+    except Exception:
+        return unresolved
+    for end in range(len(parts), 1, -1):
+        subset = "/".join(parts[1:end])
+        record = contents.get(subset)
+        if isinstance(record, dict) and record.get("expected_md5"):
+            return {
+                "source": "ir_datasets",
+                "md5": record.get("expected_md5"),
+                "size_bytes": record.get("size_hint"),
+                "subset": subset,
+                "archive": record.get("cache_path"),
+            }
+    return unresolved
 
 
 def document_text(doc) -> str:

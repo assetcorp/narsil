@@ -33,6 +33,21 @@ warmup = 2
 repeats = 5
 top_k = 10
 
+# Sustained throughput under concurrent load, measured alongside the serial
+# single-query latency above (both are reported; they answer different questions:
+# one query's speed versus how many per second the engine sustains). Throughput
+# runs at the same matched-recall operating point as the latency comparison.
+# `concurrency` is one or more worker counts: a single level gives one QPS number,
+# a list (for example [8, 16, 32]) sweeps the saturation curve. The level used is
+# recorded in every result. Override the levels with BENCH_THROUGHPUT_CONCURRENCY
+# (comma-separated) or disable the whole measurement with BENCH_THROUGHPUT=off.
+# Each level must not exceed the client connection pool (256).
+[throughput]
+enabled = true
+concurrency = [16]
+duration_seconds = 5.0
+warmup_seconds = 1.0
+
 [[datasets]]
 id = "beir/scifact/test"
 baseline_ndcg10 = 0.679

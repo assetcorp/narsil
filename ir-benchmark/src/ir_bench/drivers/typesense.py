@@ -8,6 +8,7 @@ from typing import Iterable, Iterator
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
+from ..core.http_client import build_client
 from ..core.types import (
     INTEGER_MS,
     EngineError,
@@ -48,11 +49,7 @@ class TypesenseDriver:
         )
         self.server_time = ServerTimeSource(source="response `search_time_ms` field", resolution=INTEGER_MS)
         api_key = os.environ.get("BENCH_API_KEY", "localdev")
-        self._client = httpx.Client(
-            base_url=engine.url,
-            timeout=120.0,
-            headers={"X-TYPESENSE-API-KEY": api_key},
-        )
+        self._client = build_client(engine.url, headers={"X-TYPESENSE-API-KEY": api_key})
 
     def close(self) -> None:
         self._client.close()
@@ -145,3 +142,23 @@ class TypesenseDriver:
         response = self._client.get(f"/collections/{index}")
         _raise(response)
         return {"index_size_bytes": None, "raw": response.json()}
+
+    def build_identity(self) -> dict | None:
+        """Typesense's debug endpoint reports its version but no git build hash, so
+        the recorded image digest carries the commit-level identity. A failure
+        degrades to None."""
+
+        try:
+            response = self._client.get("/debug")
+            if not response.is_success:
+                return None
+            payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            return None
+        return {
+            "version": payload.get("version"),
+            "build_hash": None,
+            "build_date": None,
+            "source_endpoint": "/debug",
+            "raw": payload,
+        }

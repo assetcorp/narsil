@@ -5,6 +5,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from .http_client import POOL_CONNECTIONS
 from .types import KEYWORD, TRACKS
 
 
@@ -19,6 +20,21 @@ class LatencyConfig:
     warmup: int
     repeats: int
     top_k: int
+
+
+@dataclass(frozen=True)
+class ThroughputConfig:
+    """Sustained queries-per-second under concurrent load, measured alongside the
+    serial single-query latency. `concurrency` is one or more worker counts to
+    drive in turn, so a single level gives one throughput number and a list sweeps
+    the saturation curve. The level used is recorded with every result. Throughput
+    runs at the same matched-recall operating point as the latency comparison
+    because both reuse the same per-query closure."""
+
+    enabled: bool
+    concurrency: tuple[int, ...]
+    duration_seconds: float
+    warmup_seconds: float
 
 
 @dataclass(frozen=True)
@@ -69,6 +85,7 @@ class BenchmarkConfig:
     import_batch: int
     memory_cap_bytes: int | None
     latency: LatencyConfig
+    throughput: ThroughputConfig
     datasets: tuple[DatasetSpec, ...]
     engines: dict[str, EngineConfig]
     vector: VectorConfig | None
@@ -110,6 +127,45 @@ def _load_tracks(name: str, entry: dict) -> tuple[str, ...]:
         if track not in tracks:
             tracks.append(str(track))
     return tuple(tracks)
+
+
+def _throughput_levels(section: dict) -> tuple[int, ...]:
+    levels_raw = section.get("concurrency", [16])
+    env_levels = os.environ.get("BENCH_THROUGHPUT_CONCURRENCY")
+    if env_levels and env_levels.strip():
+        levels_raw = [part.strip() for part in env_levels.split(",") if part.strip()]
+    levels = tuple(sorted({int(value) for value in levels_raw}))
+    if not levels:
+        raise ValueError("throughput.concurrency must list at least one level")
+    for level in levels:
+        if level < 1:
+            raise ValueError("throughput.concurrency values must be positive")
+        if level > POOL_CONNECTIONS:
+            raise ValueError(
+                f"throughput.concurrency {level} exceeds the client connection pool of "
+                f"{POOL_CONNECTIONS}; lower the level or raise POOL_CONNECTIONS"
+            )
+    return levels
+
+
+def _load_throughput(raw: dict) -> ThroughputConfig:
+    section = raw.get("throughput", {})
+    enabled = bool(section.get("enabled", True))
+    toggle = os.environ.get("BENCH_THROUGHPUT", "").strip().lower()
+    if toggle in ("0", "off", "false", "no"):
+        enabled = False
+    duration = float(section.get("duration_seconds", 5.0))
+    warmup = float(section.get("warmup_seconds", 1.0))
+    if duration <= 0:
+        raise ValueError("throughput.duration_seconds must be positive")
+    if warmup < 0:
+        raise ValueError("throughput.warmup_seconds must not be negative")
+    return ThroughputConfig(
+        enabled=enabled,
+        concurrency=_throughput_levels(section),
+        duration_seconds=duration,
+        warmup_seconds=warmup,
+    )
 
 
 def _load_engines(raw: dict) -> dict[str, EngineConfig]:
@@ -204,6 +260,8 @@ def load_config(path: Path) -> BenchmarkConfig:
     if latency.repeats < 1:
         raise ValueError("latency.repeats must be positive")
 
+    throughput = _load_throughput(raw)
+
     datasets_raw = raw.get("datasets")
     if not datasets_raw:
         raise ValueError("at least one [[datasets]] entry is required")
@@ -227,6 +285,7 @@ def load_config(path: Path) -> BenchmarkConfig:
         import_batch=import_batch,
         memory_cap_bytes=memory_cap_bytes,
         latency=latency,
+        throughput=throughput,
         datasets=tuple(datasets),
         engines=_load_engines(raw),
         vector=_load_vector(raw),

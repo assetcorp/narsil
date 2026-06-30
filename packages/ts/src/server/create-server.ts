@@ -4,7 +4,7 @@ import { ErrorCodes, NarsilError } from '../errors'
 import type { Narsil } from '../narsil'
 import type { EmbeddingAdapter } from '../types/adapters'
 import { corsWriter, resolveCors, writeCorsOrigin } from './cors'
-import type { HandlerDeps, ResolvedLimits } from './deps'
+import type { HandlerDeps, ResolvedBuild, ResolvedLimits } from './deps'
 import { ServerErrorCodes } from './errors'
 import { createAdminHandlers } from './handlers/admin'
 import { createDocumentHandlers } from './handlers/documents'
@@ -12,6 +12,7 @@ import { createHealthHandlers } from './handlers/health'
 import { createImportHandler } from './handlers/import'
 import { createIndexHandlers } from './handlers/indexes'
 import { createSearchHandlers } from './handlers/search'
+import { createVersionHandler } from './handlers/version'
 import { createRouteRunner, type RouteHandler, type RouteOptions } from './request'
 import { sendError } from './response'
 import { loadUWebSockets, type UWebSockets } from './runtime'
@@ -28,6 +29,14 @@ function resolveLimits(limits: ServerLimits | undefined): ResolvedLimits {
     maxLineBytes: limits?.maxLineBytes ?? 4 * MB,
     importBatchSize: limits?.importBatchSize ?? 1000,
     maxConcurrentRequests: limits?.maxConcurrentRequests ?? 0,
+  }
+}
+
+function resolveBuild(build: ServerOptions['build']): ResolvedBuild {
+  return {
+    version: build?.version ?? null,
+    gitSha: build?.gitSha ?? null,
+    dirty: build?.dirty ?? false,
   }
 }
 
@@ -70,6 +79,7 @@ class NarsilHttpServer implements NarsilServer {
       adapters,
       limits: resolveLimits(options.limits),
       isReady: () => this.ready,
+      build: resolveBuild(options.build),
     }
   }
 
@@ -120,6 +130,7 @@ class NarsilHttpServer implements NarsilServer {
     const search = createSearchHandlers(this.deps)
     const admin = createAdminHandlers(this.deps)
     const health = createHealthHandlers(this.deps)
+    const version = createVersionHandler(this.deps)
     const importNdjson = createImportHandler(this.deps)
 
     const json = (handler: RouteHandler, opts: RouteOptions): ReturnType<typeof run> => run(handler, opts)
@@ -142,6 +153,7 @@ class NarsilHttpServer implements NarsilServer {
     app.get('/livez', json(health.livez, { maxBytes: 0, skipHooks: true }))
     app.get('/readyz', json(health.readyz, { maxBytes: 0, skipHooks: true }))
     app.get('/health', json(health.livez, { maxBytes: 0, skipHooks: true }))
+    app.get('/version', json(version.report, { maxBytes: 0, skipHooks: true }))
     app.get('/stats/memory', json(admin.memory, { maxBytes: 0 }))
     app.get('/tasks', json(admin.listTasks, { maxBytes: 0 }))
     app.get('/tasks/:id', json(admin.getTask, { paramCount: 1, maxBytes: 0 }))

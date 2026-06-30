@@ -7,6 +7,7 @@ from typing import Iterable, Iterator
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
+from ..core.http_client import build_client
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
@@ -69,7 +70,7 @@ class NarsilDriver:
         self._b = bm25.b
         self._language = engine.language
         self._metric = "cosine"
-        self._client = httpx.Client(base_url=engine.url, timeout=120.0)
+        self._client = build_client(engine.url)
 
     def close(self) -> None:
         self._client.close()
@@ -241,3 +242,25 @@ class NarsilDriver:
                 size = int(value)
                 break
         return {"index_size_bytes": size, "raw": raw}
+
+    def build_identity(self) -> dict | None:
+        """The running server's own build, read from its `/version` endpoint: the
+        package version and the git commit it was built from (with a dirty-tree
+        flag). Older servers without the endpoint degrade to None so a run still
+        completes; the recorded image identity then carries the build."""
+
+        try:
+            response = self._client.get("/version")
+            if not response.is_success:
+                return None
+            payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            return None
+        return {
+            "version": payload.get("version"),
+            "build_hash": payload.get("gitSha"),
+            "build_date": payload.get("buildTime"),
+            "dirty": payload.get("dirty"),
+            "source_endpoint": "/version",
+            "raw": payload,
+        }

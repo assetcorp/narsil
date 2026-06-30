@@ -6,11 +6,12 @@ from time import perf_counter
 from . import datasets as ds
 from .config import BenchmarkConfig, DatasetSpec, EngineConfig
 from .embeddings import EmbeddingStore
-from .latency import measure_query_latency
+from .latency import measure_latency
 from .runfile import run_mapping, strict_ranking, write_run_file
 from .scoring import evaluate
+from .throughput import measure_throughput
 from .track_common import bulk_load_begin, bulk_load_end, best_effort, index_name, index_size_bytes, verify_indexed
-from .types import BEST_CONFIG, EQUAL_PRECISION, EngineError, HYBRID, KEYWORD, VECTOR
+from .types import BEST_CONFIG, EQUAL_PRECISION, EngineError, HYBRID, KEYWORD, SERVER_TIME_UNAVAILABLE, VECTOR
 from .vector_runner import run_hybrid_track, run_vector_track
 
 
@@ -45,8 +46,15 @@ def run_keyword_track(driver, config: BenchmarkConfig, spec: DatasetSpec, runs_d
     write_run_file(run_path, run, driver.run_tag)
     metrics = evaluate(qrels, run_for_scoring)
 
-    print(f"[{driver.name}:{spec.dataset_id}:keyword] measuring query latency", flush=True)
-    latency = measure_query_latency(driver, index, list(queries.values()), config.latency)
+    print(f"[{driver.name}:{spec.dataset_id}:keyword] measuring query latency and throughput", flush=True)
+    server_time = getattr(driver, "server_time", SERVER_TIME_UNAVAILABLE)
+    query_list = list(queries.values())
+
+    def search_once(term: str):
+        return driver.search(index, term, config.latency.top_k)
+
+    latency = measure_latency(search_once, query_list, config.latency, server_time)
+    throughput = measure_throughput(search_once, query_list, config.throughput, server_time)
 
     stats = best_effort(lambda: driver.index_stats(index), "index stats")
     driver.drop_index(index)
@@ -64,6 +72,7 @@ def run_keyword_track(driver, config: BenchmarkConfig, spec: DatasetSpec, runs_d
 
     return {
         "dataset_id": spec.dataset_id,
+        "dataset_identity": ds.dataset_content_id(spec.dataset_id),
         "track": KEYWORD,
         "run_tag": driver.run_tag,
         "setup": getattr(driver, "keyword_setup", ""),
@@ -80,6 +89,7 @@ def run_keyword_track(driver, config: BenchmarkConfig, spec: DatasetSpec, runs_d
             "raw_stats": stats,
         },
         "latency": latency,
+        "throughput": throughput,
         "run_file": str(run_path),
     }
 
