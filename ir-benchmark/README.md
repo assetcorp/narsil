@@ -172,8 +172,11 @@ shared cache, then for each engine starts a single container behind its compose
 profile, runs the harness for every dataset and every track the engine supports,
 and tears it down before the next. The dataset cache and the embeddings cache
 persist across engines, so the corpora download once and the vectors are computed
-once. A final step aggregates the per-engine results into a cross-engine
-comparison. To run a subset in a chosen order:
+once. A final step aggregates that run's per-engine results into a cross-engine
+comparison. The whole pass shares one run id, and all of its files, the per-engine
+results, the comparison, and a `run.json` describing the run, sit together under
+`results/runs/<run-id>/`, so a later pass writes a new directory and never overwrites
+an earlier run. To run a subset in a chosen order:
 
 ```bash
 ./run-all.sh narsil qdrant weaviate
@@ -187,10 +190,10 @@ BENCH_MACHINE_LABEL="Apple M3 Pro, macOS 26.5.1" ./run-all.sh
 
 ## What it reports
 
-- A per-engine file at `results/engine-<name>.json` and `.md` carries, for each
-  track the engine ran, retrieval quality, operational metrics, and the recorded
-  environment. The vector track also carries the matched-recall operating point:
-  the knob value that reached `ann_recall@10 >= 0.99` and the recall it hit.
+- A per-engine file at `results/runs/<run-id>/engine-<name>.json` and `.md` carries,
+  for each track the engine ran, retrieval quality, operational metrics, and the
+  recorded environment. The vector track also carries the matched-recall operating
+  point: the knob value that reached `ann_recall@10 >= 0.99` and the recall it hit.
 - Each result carries two speed measures, because they answer different questions.
   Single-query latency times one query at a time. Throughput drives concurrent load
   and reports the queries per second an engine sustains, which still separates engines
@@ -203,12 +206,17 @@ BENCH_MACHINE_LABEL="Apple M3 Pro, macOS 26.5.1" ./run-all.sh
   the git build hash where the engine exposes one), the image digest the engine ran as,
   and each dataset's content hash. With these you can tie a number back to an exact
   engine build and corpus version.
-- A cross-engine `results/comparison-<timestamp>.json` and `.md` carries a quality
+- A cross-engine `results/runs/<run-id>/comparison.json` and `.md` carries a quality
   table, a latency table, and a peak-throughput table per track and dataset, marks the
   best value in each column, lists each engine's operating point on the vector track,
-  and states plainly where Narsil leads and where it trails.
-- A TREC run file per engine, dataset, and track lands under `runs/`, tagged
-  `<engine>_bm25`, `<engine>_vector`, or `<engine>_hybrid`.
+  and states plainly where Narsil leads and where it trails. The aggregator reads only
+  the engines in one run directory, so a comparison never blends results from different
+  runs; a best-config pass adds `comparison-best-config.json` alongside it.
+- A TREC run file per engine, dataset, and track lands under the run's own
+  `results/runs/<run-id>/runfiles/` folder, tagged `<engine>_bm25`,
+  `<engine>_vector`, or `<engine>_hybrid`. These raw rankings are the scorer's input;
+  they are large and kept out of git, so each run is self-contained on disk but only
+  its scored results and comparison are committed.
 
 ## Reproducibility
 
@@ -273,7 +281,8 @@ ir-benchmark/
       throughput.py          sustained queries per second under concurrent load
       http_client.py         pooled HTTP client shared by every driver
       environment.py         machine environment capture
-      reporter.py            per-engine, per-track results (JSON and Markdown)
+      reporter.py            per-engine, per-track results (JSON and Markdown), atomic writes
+      run_store.py           per-run result directory, run id, and path validation
       comparison.py          cross-engine, per-track comparison tables
       track_common.py        shared per-track helpers
       harness.py             keyword track and per-engine, per-track orchestration
@@ -287,8 +296,19 @@ ir-benchmark/
       meilisearch.py
     cli.py                   run one engine and all its tracks
     embed.py                 precompute the shared embeddings cache
-    aggregate.py             merge per-engine results into a comparison
-  runs/ results/             generated output
+    aggregate.py             merge one run's per-engine results into a comparison
+  results/runs/<run-id>/     one self-contained run: engine results, comparison,
+                             run.json, and runfiles/ (the raw TREC run files)
+```
+
+## Tests
+
+The result-layout and aggregation logic has unit and integration tests that run on
+the host without Docker. Install the dev extra and run them:
+
+```bash
+pip install -e ".[dev]"
+pytest
 ```
 
 ## Notes

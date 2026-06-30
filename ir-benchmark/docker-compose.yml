@@ -116,6 +116,7 @@ services:
       dockerfile: Dockerfile
     environment:
       BENCH_API_KEY: "${BENCH_API_KEY:-localdev}"
+      BENCH_RUN_ID: "${BENCH_RUN_ID:-}"
       BENCH_MACHINE_LABEL: "${BENCH_MACHINE_LABEL:-}"
       BENCH_EMBEDDINGS_DIR: "/data/embeddings"
       BENCH_MEM_CAP: "${BENCH_MEM_CAP:-8g}"
@@ -125,7 +126,6 @@ services:
     volumes:
       - ir_datasets_cache:/data/ir_datasets
       - embeddings_cache:/data/embeddings
-      - ./runs:/app/runs
       - ./results:/app/results
 
 volumes:

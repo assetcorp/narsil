@@ -3,18 +3,24 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 from .core.comparison import build_comparison, render_comparison_markdown
-from .core.reporter import write_json
+from .core.reporter import write_json, write_text_atomic
+from .core.run_store import resolve_run_id_for_read, run_directory
 from .core.types import EQUAL_PRECISION, VECTOR_PROFILES
 
 
-def _load_reports(results_dir: Path) -> list[dict]:
-    reports = [json.loads(path.read_text(encoding="utf-8")) for path in sorted(results_dir.glob("engine-*.json"))]
-    if not reports:
-        raise SystemExit(f"no engine-*.json result files found in {results_dir}")
+def _load_reports(directory: Path) -> list[dict]:
+    paths = sorted(directory.glob("engine-*.json"))
+    if not paths:
+        raise SystemExit(f"no engine-*.json result files found in {directory}")
+    reports: list[dict] = []
+    for path in paths:
+        try:
+            reports.append(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"could not read engine result {path}: {exc}") from exc
     return reports
 
 
@@ -38,12 +44,21 @@ def _ordered_for_profile(reports: list[dict], profile: str, order: list[str] | N
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Aggregate per-engine results into a cross-engine comparison.")
     parser.add_argument("--results-dir", type=Path, default=Path("results"))
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="aggregate this run id (or $BENCH_RUN_ID); defaults to the latest run on disk",
+    )
     parser.add_argument("--engines", default=None, help="comma-separated engine order for the tables")
     args = parser.parse_args(argv)
 
     order = [name.strip() for name in args.engines.split(",")] if args.engines else None
-    reports = _load_reports(args.results_dir)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    try:
+        run_id = resolve_run_id_for_read(args.results_dir, args.run_id)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    directory = run_directory(args.results_dir, run_id)
+    reports = _load_reports(directory)
 
     wrote_any = False
     for profile in VECTOR_PROFILES:
@@ -53,9 +68,9 @@ def main(argv: list[str] | None = None) -> int:
         wrote_any = True
         comparison = build_comparison(profile_reports, profile)
         suffix = "" if profile == EQUAL_PRECISION else f"-{profile}"
-        write_json(args.results_dir / f"comparison{suffix}-{stamp}.json", comparison)
+        write_json(directory / f"comparison{suffix}.json", comparison)
         markdown = render_comparison_markdown(comparison)
-        (args.results_dir / f"comparison{suffix}-{stamp}.md").write_text(markdown, encoding="utf-8")
+        write_text_atomic(directory / f"comparison{suffix}.md", markdown)
         print(markdown, flush=True)
     if not wrote_any:
         raise SystemExit("no engine results matched a known vector profile")

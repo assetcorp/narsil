@@ -10,7 +10,8 @@ from .core.embeddings import EmbeddingStore
 from .core.environment import capture_environment
 from .core.harness import run_engine
 from .core.registry import build_driver
-from .core.reporter import build_engine_report, render_engine_markdown, write_json
+from .core.reporter import build_engine_report, render_engine_markdown, write_json, write_text_atomic
+from .core.run_store import resolve_run_id_for_write, run_directory, validate_engine_name, write_run_manifest
 from .core.types import BEST_CONFIG, EQUAL_PRECISION, HYBRID, VECTOR, VECTOR_PROFILES
 
 
@@ -33,7 +34,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", type=Path, default=Path("config/benchmark.toml"))
     parser.add_argument("--engine", default=None, help="engine name from the config (default: $ENGINE or narsil)")
     parser.add_argument("--results-dir", type=Path, default=Path("results"))
-    parser.add_argument("--runs-dir", type=Path, default=Path("runs"))
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="group this engine's result under a run id (or $BENCH_RUN_ID); "
+        "defaults to a new UTC timestamp so a standalone run still gets its own directory",
+    )
     parser.add_argument(
         "--datasets",
         default=None,
@@ -98,8 +104,17 @@ def main(argv: list[str] | None = None) -> int:
     store = EmbeddingStore(config.vector, _embeddings_dir()) if (needs_vectors and config.vector) else None
 
     try:
+        run_id = resolve_run_id_for_write(args.run_id)
+        engine_name = validate_engine_name(engine_cfg.name)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    directory = run_directory(args.results_dir, run_id)
+    runfiles_dir = directory / "runfiles"
+    runfiles_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
         print(f"waiting for {engine_cfg.name} at {engine_cfg.url} (vector profile: {vector_profile})", flush=True)
-        results = run_engine(driver, engine_cfg, config, specs, args.runs_dir, store, vector_profile)
+        results = run_engine(driver, engine_cfg, config, specs, runfiles_dir, store, vector_profile)
         engine_info["build_identity"] = _safe_build_identity(driver)
     finally:
         driver.close()
@@ -111,9 +126,10 @@ def main(argv: list[str] | None = None) -> int:
     config_summary["vector_profile"] = vector_profile
     report = build_engine_report(environment, engine_info, config_summary, results)
     suffix = "-bestconfig" if vector_profile == BEST_CONFIG else ""
-    write_json(args.results_dir / f"engine-{engine_cfg.name}{suffix}.json", report)
+    write_json(directory / f"engine-{engine_name}{suffix}.json", report)
     markdown = render_engine_markdown(report)
-    (args.results_dir / f"engine-{engine_cfg.name}{suffix}.md").write_text(markdown, encoding="utf-8")
+    write_text_atomic(directory / f"engine-{engine_name}{suffix}.md", markdown)
+    write_run_manifest(args.results_dir, run_id, environment)
     print("\n" + markdown, flush=True)
 
     outside = [
