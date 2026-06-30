@@ -7,6 +7,7 @@ from typing import Iterable, Iterator
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
+from ..core.http_client import build_client
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
@@ -64,7 +65,7 @@ class WeaviateDriver:
         self.vector_knob = "ef"
         self.server_time = SERVER_TIME_UNAVAILABLE
         self._vector_profile = EQUAL_PRECISION
-        self._client = httpx.Client(base_url=engine.url, timeout=120.0)
+        self._client = build_client(engine.url)
         self._ef_cache: dict[str, int] = {}
 
     def close(self) -> None:
@@ -206,3 +207,23 @@ class WeaviateDriver:
         response = self._client.get(f"/v1/schema/{_class_name(index)}")
         _raise(response)
         return {"index_size_bytes": None, "raw": response.json()}
+
+    def build_identity(self) -> dict | None:
+        """Weaviate's meta endpoint reports a semver version but no git build hash,
+        so the recorded image digest carries the commit-level identity. A failure
+        degrades to None."""
+
+        try:
+            response = self._client.get("/v1/meta")
+            if not response.is_success:
+                return None
+            payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            return None
+        return {
+            "version": payload.get("version"),
+            "build_hash": None,
+            "build_date": None,
+            "source_endpoint": "/v1/meta",
+            "raw": {"version": payload.get("version"), "modules": payload.get("modules")},
+        }

@@ -8,6 +8,7 @@ from typing import Iterable, Iterator
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
+from ..core.http_client import build_client
 from ..core.types import (
     INTEGER_MS,
     EngineError,
@@ -47,11 +48,7 @@ class MeilisearchDriver:
         )
         self.server_time = ServerTimeSource(source="response `processingTimeMs` field", resolution=INTEGER_MS)
         api_key = os.environ.get("BENCH_API_KEY", "localdev")
-        self._client = httpx.Client(
-            base_url=engine.url,
-            timeout=120.0,
-            headers={"Authorization": f"Bearer {api_key}"},
-        )
+        self._client = build_client(engine.url, headers={"Authorization": f"Bearer {api_key}"})
 
     def close(self) -> None:
         self._client.close()
@@ -150,3 +147,22 @@ class MeilisearchDriver:
         response = self._client.get(f"/indexes/{index}/stats")
         _raise(response)
         return {"index_size_bytes": None, "raw": response.json()}
+
+    def build_identity(self) -> dict | None:
+        """Meilisearch's version endpoint reports the package version plus the git
+        commit and its date. A failure degrades to None."""
+
+        try:
+            response = self._client.get("/version")
+            if not response.is_success:
+                return None
+            payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            return None
+        return {
+            "version": payload.get("pkgVersion"),
+            "build_hash": payload.get("commitSha"),
+            "build_date": payload.get("commitDate"),
+            "source_endpoint": "/version",
+            "raw": payload,
+        }

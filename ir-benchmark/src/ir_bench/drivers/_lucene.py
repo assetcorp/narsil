@@ -7,6 +7,7 @@ from typing import Iterable, Iterator
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
+from ..core.http_client import build_client
 from ..core.types import (
     INTEGER_MS,
     EngineError,
@@ -55,7 +56,7 @@ class LuceneRestDriver:
         self._k1 = bm25.k1
         self._b = bm25.b
         self._analyzer = engine.analyzer or "english"
-        self._client = httpx.Client(base_url=engine.url, timeout=120.0)
+        self._client = build_client(engine.url)
 
     def close(self) -> None:
         self._client.close()
@@ -175,3 +176,25 @@ class LuceneRestDriver:
         if isinstance(all_block.get("size_in_bytes"), (int, float)):
             size = int(all_block["size_in_bytes"])
         return {"index_size_bytes": size, "raw": all_block}
+
+    def build_identity(self) -> dict | None:
+        """The engine's self-reported build, read from the cluster root. Both
+        Elasticsearch and OpenSearch return the git build hash and build date here,
+        so the harness records what the running binary was built from rather than a
+        hand-typed image tag. A failure degrades to None instead of aborting a run."""
+
+        try:
+            response = self._client.get("/")
+            if not response.is_success:
+                return None
+            version = response.json().get("version", {})
+        except (httpx.HTTPError, ValueError):
+            return None
+        return {
+            "version": version.get("number"),
+            "build_hash": version.get("build_hash"),
+            "build_date": version.get("build_date"),
+            "distribution": version.get("distribution"),
+            "source_endpoint": "/",
+            "raw": version,
+        }

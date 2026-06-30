@@ -15,6 +15,9 @@ import { createServer, type OnRequestHook, type ServerLimits } from '@delali/nar
  *   NARSIL_MAX_BODY_BYTES    JSON body cap            (default 16 MiB)
  *   NARSIL_MAX_IMPORT_BYTES  NDJSON / restore cap     (default 100 MiB)
  *   NARSIL_MAX_CONCURRENT    in-flight request cap    (default unbounded)
+ *   NARSIL_BUILD_VERSION     package version reported at /version
+ *   NARSIL_BUILD_GIT_SHA     git commit the image was built from, reported at /version
+ *   NARSIL_BUILD_DIRTY       "true" when that commit had uncommitted changes
  */
 
 function intFromEnv(name: string): number | undefined {
@@ -36,6 +39,19 @@ function buildLimits(): ServerLimits {
   if (maxImport !== undefined) limits.maxImportBytes = maxImport
   if (maxConcurrent !== undefined) limits.maxConcurrentRequests = maxConcurrent
   return limits
+}
+
+function stringFromEnv(name: string): string | undefined {
+  const raw = process.env[name]
+  return raw !== undefined && raw.length > 0 ? raw : undefined
+}
+
+function buildInfo(): { version?: string; gitSha?: string; dirty?: boolean } {
+  return {
+    version: stringFromEnv('NARSIL_BUILD_VERSION'),
+    gitSha: stringFromEnv('NARSIL_BUILD_GIT_SHA'),
+    dirty: process.env.NARSIL_BUILD_DIRTY === 'true',
+  }
 }
 
 function buildAuthHook(): OnRequestHook | undefined {
@@ -72,6 +88,7 @@ async function main(): Promise<void> {
     limits: buildLimits(),
     allowInsecure,
     instanceId,
+    build: buildInfo(),
   })
 
   await server.listen()

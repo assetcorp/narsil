@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .latency_report import client_summary, disclosure, server_summary
+from .throughput_report import comparison_lines as throughput_lines
 from .types import BEST_CONFIG, EQUAL_PRECISION, HYBRID, INTEGER_MS, KEYWORD, TRACKS, VECTOR
 
 _INTEGER_MS_FLOOR_MS = 1.0
@@ -16,6 +17,8 @@ def build_comparison(reports: list[dict], profile: str = EQUAL_PRECISION) -> dic
         {
             "name": r["engine"]["name"],
             "version": r["engine"].get("version"),
+            "build_identity": r["engine"].get("build_identity"),
+            "image_digest": r["engine"].get("image_digest"),
             "tracks": r["engine"].get("tracks", []),
             "keyword_setup": r["engine"].get("keyword_setup"),
         }
@@ -24,11 +27,15 @@ def build_comparison(reports: list[dict], profile: str = EQUAL_PRECISION) -> dic
 
     buckets: dict[tuple[str, str], list[dict]] = {}
     track_datasets: dict[str, list[str]] = {track: [] for track in TRACKS}
+    dataset_identities: dict[str, dict] = {}
     for report in reports:
         engine_name = report["engine"]["name"]
         for result in report["datasets"]:
             track = result.get("track", KEYWORD)
             dataset_id = result["dataset_id"]
+            identity = result.get("dataset_identity")
+            if identity and dataset_id not in dataset_identities:
+                dataset_identities[dataset_id] = identity
             key = (track, dataset_id)
             if key not in buckets:
                 buckets[key] = []
@@ -44,6 +51,7 @@ def build_comparison(reports: list[dict], profile: str = EQUAL_PRECISION) -> dic
                     "latency_client": client_summary(latency),
                     "server_time_resolution": latency.get("server_time_resolution"),
                     "server_time_disclosure": disclosure(latency),
+                    "throughput": result.get("throughput"),
                     "operational": result.get("operational", {}),
                     "operating_point": result.get("operating_point"),
                     "setup": result.get("setup"),
@@ -64,6 +72,7 @@ def build_comparison(reports: list[dict], profile: str = EQUAL_PRECISION) -> dic
         "config": reports[0]["config"] if reports else {},
         "profile": profile,
         "engines": engines,
+        "dataset_identities": dataset_identities,
         "tracks": tracks_out,
     }
 
@@ -224,6 +233,17 @@ def _standing(rows: list[dict]) -> list[str]:
     ]
 
 
+def _build_cell(engine: dict) -> str:
+    build = engine.get("build_identity") or {}
+    commit = build.get("build_hash")
+    if commit:
+        return f"{commit[:12]}{' (dirty)' if build.get('dirty') else ''}"
+    digest = engine.get("image_digest")
+    if digest:
+        return digest.split("@", 1)[-1][:19]
+    return "n/a"
+
+
 _TRACK_TITLES = {KEYWORD: "Keyword track", VECTOR: "Vector track", HYBRID: "Hybrid track"}
 
 
@@ -257,6 +277,9 @@ def render_comparison_markdown(comparison: dict) -> str:
             f">= {cfg.get('recall_target')}."
         )
     lines.append("- Same datasets, metrics, run depth, and strictly-decreasing run-file ordering for every engine.")
+    for dataset_id, identity in (comparison.get("dataset_identities") or {}).items():
+        if identity.get("md5"):
+            lines.append(f"- Dataset {dataset_id}: content md5 {identity['md5']} (ir_datasets-verified archive)")
     lines.append(
         "- Headline latency is each engine's own reported query time, captured from the same call the client "
         "round-trip is timed around. Resolution differs by engine and is disclosed per engine; an engine that "
@@ -266,11 +289,12 @@ def render_comparison_markdown(comparison: dict) -> str:
 
     lines.append("## Engines and tracks")
     lines.append("")
-    lines.append("| Engine | Version | Tracks |")
-    lines.append("|---|---|---|")
+    lines.append("| Engine | Version | Build | Tracks |")
+    lines.append("|---|---|---|---|")
     for engine in comparison["engines"]:
         lines.append(
-            f"| {engine['name']} | {engine.get('version') or 'n/a'} | {', '.join(engine.get('tracks', []))} |"
+            f"| {engine['name']} | {engine.get('version') or 'n/a'} | {_build_cell(engine)} | "
+            f"{', '.join(engine.get('tracks', []))} |"
         )
     lines.append("")
 
@@ -302,6 +326,10 @@ def render_comparison_markdown(comparison: dict) -> str:
             lines.extend(_client_latency_table(rows))
             lines.append("")
             lines.extend(_server_time_disclosure(rows))
+            throughput = throughput_lines(rows)
+            if throughput:
+                lines.append("")
+                lines.extend(throughput)
             lines.append("")
             lines.extend(_standing(rows))
     return "\n".join(lines)

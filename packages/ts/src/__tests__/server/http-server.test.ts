@@ -45,6 +45,31 @@ describe('Narsil HTTP server', () => {
     expect(ready.body.status).toBe('ready')
   })
 
+  it('reports build identity at /version, defaulting to nulls when unstamped', async () => {
+    const res = await getJson<{ name: string; version: string | null; gitSha: string | null; dirty: boolean }>(
+      srv.base,
+      '/version',
+    )
+    expect(res.status).toBe(200)
+    expect(res.body.name).toBe('narsil')
+    expect(res.body.version).toBeNull()
+    expect(res.body.gitSha).toBeNull()
+    expect(res.body.dirty).toBe(false)
+  })
+
+  it('reports the stamped build identity at /version', async () => {
+    const stamped = await startTestServer({ build: { version: '1.2.3', gitSha: 'abc123def456', dirty: true } })
+    try {
+      const res = await getJson<{ version: string; gitSha: string; dirty: boolean }>(stamped.base, '/version')
+      expect(res.status).toBe(200)
+      expect(res.body.version).toBe('1.2.3')
+      expect(res.body.gitSha).toBe('abc123def456')
+      expect(res.body.dirty).toBe(true)
+    } finally {
+      await stamped.stop()
+    }
+  })
+
   it('creates, lists, inspects, and drops an index', async () => {
     await createMovies(srv.base)
 

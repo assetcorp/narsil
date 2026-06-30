@@ -191,10 +191,22 @@ BENCH_MACHINE_LABEL="Apple M3 Pro, macOS 26.5.1" ./run-all.sh
   track the engine ran, retrieval quality, operational metrics, and the recorded
   environment. The vector track also carries the matched-recall operating point:
   the knob value that reached `ann_recall@10 >= 0.99` and the recall it hit.
+- Each result carries two speed measures, because they answer different questions.
+  Single-query latency times one query at a time. Throughput drives concurrent load
+  and reports the queries per second an engine sustains, which still separates engines
+  on the small corpora where one query's server time falls below a millisecond. Both
+  measures use the same matched-recall operating point, and the file records the
+  concurrency level. Each throughput level also records whether the engine or the
+  client set the limit, read from the client's CPU use and the concurrency it reached,
+  so you can spot a client-bound number before you trust it.
+- Each result records what produced it: the engine's build identity (its version, and
+  the git build hash where the engine exposes one), the image digest the engine ran as,
+  and each dataset's content hash. With these you can tie a number back to an exact
+  engine build and corpus version.
 - A cross-engine `results/comparison-<timestamp>.json` and `.md` carries a quality
-  table and a latency table per track and dataset, marks the best value in each
-  column, lists each engine's operating point on the vector track, and states
-  plainly where Narsil leads and where it trails.
+  table, a latency table, and a peak-throughput table per track and dataset, marks the
+  best value in each column, lists each engine's operating point on the vector track,
+  and states plainly where Narsil leads and where it trails.
 - A TREC run file per engine, dataset, and track lands under `runs/`, tagged
   `<engine>_bm25`, `<engine>_vector`, or `<engine>_hybrid`.
 
@@ -203,17 +215,19 @@ BENCH_MACHINE_LABEL="Apple M3 Pro, macOS 26.5.1" ./run-all.sh
 - Python is pinned to 3.12 and every dependency to an exact version in
   [requirements.txt](requirements.txt). Recompile the lock from
   [requirements.in](requirements.in) with `pip-compile`.
-- Every engine image is pinned to an exact tag, and the Narsil server is built
-  from this repository's source, so the engine under test is the exact code in the
-  tree. Resolve each image's per-architecture digest with
-  `docker buildx imagetools inspect <image:tag>` and record it alongside a
-  published run.
+- Every engine image is pinned to an exact tag, and the Narsil server is built from
+  this repository's source and stamped with its commit at build time. `run-all.sh`
+  records each running image's digest, and the harness reads each engine's build
+  identity from its info endpoint, so a run names the exact artifact and code under
+  test on its own.
 - The embedding model (`sentence-transformers/all-MiniLM-L6-v2`) and the BM25
   sparse model (`Qdrant/bm25`) are baked into the harness image at build time and
   read offline at run time, so every machine embeds with identical artifacts and
   no run downloads model weights.
-- `ir_datasets` pins each dataset by id and verifies its download against a known
-  hash, so the corpus, queries, and judgements are identical on any machine.
+- `ir_datasets` pins each dataset by id and verifies its download against a content
+  MD5, so the corpus, queries, and judgements are identical on any machine. The
+  harness records that MD5 with every result, so each result names the exact corpus
+  it scored.
 - Each results file records the OS, architecture, CPU, memory, memory cap, and
   library versions used for the run.
 
@@ -255,7 +269,9 @@ ir-benchmark/
       recall_tuning.py       sweep the search knob to a matched recall target
       runfile.py             TREC run-file writer and the strict-ordering rule
       scoring.py             pytrec_eval (nDCG@10, Recall@100, MAP, MRR)
-      latency.py             client-side latency percentiles
+      latency.py             serial single-query latency percentiles
+      throughput.py          sustained queries per second under concurrent load
+      http_client.py         pooled HTTP client shared by every driver
       environment.py         machine environment capture
       reporter.py            per-engine, per-track results (JSON and Markdown)
       comparison.py          cross-engine, per-track comparison tables
