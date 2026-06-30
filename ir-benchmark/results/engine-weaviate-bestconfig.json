@@ -1,9 +1,9 @@
 {
   "environment": {
-    "captured_at": "2026-06-29T14:24:55.990147+00:00",
+    "captured_at": "2026-06-29T15:34:26.496728+00:00",
     "harness_version": "0.3.0",
     "containerized": true,
-    "machine_label": "",
+    "machine_label": "Apple M3 Pro",
     "os": "Linux 6.12.76-linuxkit",
     "arch": "aarch64",
     "cpu_model": null,
@@ -60,19 +60,20 @@
         "recall_k": 10,
         "target": 0.99,
         "chosen_value": 64,
+        "rescore_oversample": null,
         "achieved_recall": 0.9953333333333331,
         "met_target": true,
         "secondary_target": 0.95,
         "secondary_value": 32,
-        "secondary_recall": 0.9806666666666666,
+        "secondary_recall": 0.98,
         "sweep": [
           {
             "value": 16,
-            "recall": 0.9446666666666668
+            "recall": 0.9470000000000005
           },
           {
             "value": 32,
-            "recall": 0.9806666666666666
+            "recall": 0.98
           },
           {
             "value": 64,
@@ -80,10 +81,11 @@
           }
         ]
       },
+      "vector_oversample": null,
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 3.0519779179999205,
-        "ingest_docs_per_sec": 1698.242955636003,
+        "build_seconds": 3.163292500999887,
+        "ingest_docs_per_sec": 1638.482688009946,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
@@ -202,21 +204,21 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 1.8587269800000001,
-        "p50_ms": 1.707917,
-        "p90_ms": 2.015125,
-        "p95_ms": 2.37,
-        "p99_ms": 4.7,
-        "max_ms": 16.8575,
+        "mean_ms": 1.7698568493333333,
+        "p50_ms": 1.656792,
+        "p90_ms": 1.838708,
+        "p95_ms": 1.97,
+        "p99_ms": 4.793333,
+        "max_ms": 8.50825,
         "client": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 1.8587269800000001,
-          "p50_ms": 1.707917,
-          "p90_ms": 2.015125,
-          "p95_ms": 2.37,
-          "p99_ms": 4.7,
-          "max_ms": 16.8575
+          "mean_ms": 1.7698568493333333,
+          "p50_ms": 1.656792,
+          "p90_ms": 1.838708,
+          "p95_ms": 1.97,
+          "p99_ms": 4.793333,
+          "max_ms": 8.50825
         },
         "server": null,
         "server_time_source": "client round-trip only",
@@ -243,12 +245,13 @@
         "fusion": "rankedFusion (alpha=0.5)",
         "vector_knob": "ef",
         "vector_value": 64,
-        "vector_ef_from_vector_track": true
+        "vector_ef_from_vector_track": true,
+        "rescore_oversample": null
       },
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 3.04836675200022,
-        "ingest_docs_per_sec": 1700.2547336533953,
+        "build_seconds": 3.0442138769999474,
+        "ingest_docs_per_sec": 1702.5741979429554,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
@@ -367,27 +370,384 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 3.0236638793333332,
-        "p50_ms": 2.711833,
-        "p90_ms": 3.414917,
-        "p95_ms": 4.991375,
-        "p99_ms": 7.9335,
-        "max_ms": 36.205125,
+        "mean_ms": 2.9334768486666665,
+        "p50_ms": 2.701583,
+        "p90_ms": 3.232042,
+        "p95_ms": 4.535792,
+        "p99_ms": 8.612583,
+        "max_ms": 11.393083,
         "client": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 3.0236638793333332,
-          "p50_ms": 2.711833,
-          "p90_ms": 3.414917,
-          "p95_ms": 4.991375,
-          "p99_ms": 7.9335,
-          "max_ms": 36.205125
+          "mean_ms": 2.9334768486666665,
+          "p50_ms": 2.701583,
+          "p90_ms": 3.232042,
+          "p95_ms": 4.535792,
+          "p99_ms": 8.612583,
+          "max_ms": 11.393083
         },
         "server": null,
         "server_time_source": "client round-trip only",
         "server_time_resolution": "not-available"
       },
       "run_file": "runs/bench_beir_scifact_test.weaviate_hybrid_bestconfig.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "track": "vector",
+      "run_tag": "weaviate_vector_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "HNSW dense vectors with 8-bit Rotational Quantization and full-precision rescore, distance cosine, over the shared precomputed vectors",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.31453393519371436,
+        "recall_100": 0.3094260094121505,
+        "map": 0.15744820212124078,
+        "recip_rank": 0.516840172665488
+      },
+      "calibration": null,
+      "operating_point": {
+        "knob": "ef",
+        "recall_metric": "ann_recall@10",
+        "recall_k": 10,
+        "target": 0.99,
+        "chosen_value": 128,
+        "rescore_oversample": null,
+        "achieved_recall": 0.9938080495356038,
+        "met_target": true,
+        "secondary_target": 0.95,
+        "secondary_value": 64,
+        "secondary_recall": 0.977089783281734,
+        "sweep": [
+          {
+            "value": 16,
+            "recall": 0.8715170278637776
+          },
+          {
+            "value": 32,
+            "recall": 0.9430340557275544
+          },
+          {
+            "value": 64,
+            "recall": 0.977089783281734
+          },
+          {
+            "value": 128,
+            "recall": 0.9938080495356038
+          }
+        ]
+      },
+      "vector_oversample": null,
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 2.0725972929999443,
+        "ingest_docs_per_sec": 1752.8730797199287,
+        "index_size_bytes": null,
+        "raw_stats": {
+          "index_size_bytes": null,
+          "raw": {
+            "class": "BenchBeirNfcorpusTest",
+            "invertedIndexConfig": {
+              "bm25": {
+                "b": 0.75,
+                "k1": 1.2
+              },
+              "cleanupIntervalSeconds": 60,
+              "stopwords": {
+                "additions": null,
+                "preset": "en",
+                "removals": null
+              },
+              "usingBlockMaxWAND": true
+            },
+            "multiTenancyConfig": {
+              "autoTenantActivation": false,
+              "autoTenantCreation": false,
+              "enabled": false
+            },
+            "properties": [
+              {
+                "dataType": [
+                  "text"
+                ],
+                "indexFilterable": true,
+                "indexRangeFilters": false,
+                "indexSearchable": false,
+                "name": "docId",
+                "tokenization": "word"
+              },
+              {
+                "dataType": [
+                  "text"
+                ],
+                "indexFilterable": true,
+                "indexRangeFilters": false,
+                "indexSearchable": true,
+                "name": "text",
+                "tokenization": "word"
+              }
+            ],
+            "shardingConfig": {
+              "actualCount": 1,
+              "actualVirtualCount": 128,
+              "desiredCount": 1,
+              "desiredVirtualCount": 128,
+              "function": "murmur3",
+              "key": "_id",
+              "strategy": "hash",
+              "virtualPerPhysical": 128
+            },
+            "vectorIndexConfig": {
+              "bq": {
+                "enabled": false
+              },
+              "cleanupIntervalSeconds": 300,
+              "distance": "cosine",
+              "dynamicEfFactor": 8,
+              "dynamicEfMax": 500,
+              "dynamicEfMin": 100,
+              "ef": 128,
+              "efConstruction": 200,
+              "filterStrategy": "acorn",
+              "flatSearchCutoff": 40000,
+              "maxConnections": 16,
+              "multivector": {
+                "aggregation": "maxSim",
+                "enabled": false,
+                "muvera": {
+                  "dprojections": 16,
+                  "enabled": false,
+                  "ksim": 4,
+                  "repetitions": 10
+                }
+              },
+              "pq": {
+                "bitCompression": false,
+                "centroids": 256,
+                "enabled": false,
+                "encoder": {
+                  "distribution": "log-normal",
+                  "type": "kmeans"
+                },
+                "segments": 0,
+                "trainingLimit": 100000
+              },
+              "rq": {
+                "bits": 8,
+                "enabled": true,
+                "rescoreLimit": 20
+              },
+              "skip": false,
+              "skipDefaultQuantization": false,
+              "sq": {
+                "enabled": false,
+                "rescoreLimit": 20,
+                "trainingLimit": 100000
+              },
+              "trackDefaultQuantization": false,
+              "vectorCacheMaxObjects": 1000000000000
+            },
+            "vectorIndexType": "hnsw",
+            "vectorizer": "none",
+            "replicationConfig": {
+              "deletionStrategy": "TimeBasedResolution",
+              "factor": 1,
+              "asyncEnabled": false
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "top_k": 10,
+        "mean_ms": 1.8205418990712074,
+        "p50_ms": 1.703458,
+        "p90_ms": 1.880375,
+        "p95_ms": 2.152,
+        "p99_ms": 5.035667,
+        "max_ms": 6.589542,
+        "client": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 1.8205418990712074,
+          "p50_ms": 1.703458,
+          "p90_ms": 1.880375,
+          "p95_ms": 2.152,
+          "p99_ms": 5.035667,
+          "max_ms": 6.589542
+        },
+        "server": null,
+        "server_time_source": "client round-trip only",
+        "server_time_resolution": "not-available"
+      },
+      "run_file": "runs/bench_beir_nfcorpus_test.weaviate_vector_bestconfig.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "track": "hybrid",
+      "run_tag": "weaviate_hybrid_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "BM25 over text fused with RQ-quantized dense vectors (full-precision rescore) via the hybrid operator (rankedFusion, alpha=0.5)",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.3420571937019266,
+        "recall_100": 0.3179929069375337,
+        "map": 0.18037789294889392,
+        "recip_rank": 0.5568994169166019
+      },
+      "calibration": null,
+      "operating_point": {
+        "fusion": "rankedFusion (alpha=0.5)",
+        "vector_knob": "ef",
+        "vector_value": 128,
+        "vector_ef_from_vector_track": true,
+        "rescore_oversample": null
+      },
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 2.035791042000028,
+        "ingest_docs_per_sec": 1784.5642922324785,
+        "index_size_bytes": null,
+        "raw_stats": {
+          "index_size_bytes": null,
+          "raw": {
+            "class": "BenchBeirNfcorpusTest",
+            "invertedIndexConfig": {
+              "bm25": {
+                "b": 0.75,
+                "k1": 1.2
+              },
+              "cleanupIntervalSeconds": 60,
+              "stopwords": {
+                "additions": null,
+                "preset": "en",
+                "removals": null
+              },
+              "usingBlockMaxWAND": true
+            },
+            "multiTenancyConfig": {
+              "autoTenantActivation": false,
+              "autoTenantCreation": false,
+              "enabled": false
+            },
+            "properties": [
+              {
+                "dataType": [
+                  "text"
+                ],
+                "indexFilterable": true,
+                "indexRangeFilters": false,
+                "indexSearchable": false,
+                "name": "docId",
+                "tokenization": "word"
+              },
+              {
+                "dataType": [
+                  "text"
+                ],
+                "indexFilterable": true,
+                "indexRangeFilters": false,
+                "indexSearchable": true,
+                "name": "text",
+                "tokenization": "word"
+              }
+            ],
+            "shardingConfig": {
+              "actualCount": 1,
+              "actualVirtualCount": 128,
+              "desiredCount": 1,
+              "desiredVirtualCount": 128,
+              "function": "murmur3",
+              "key": "_id",
+              "strategy": "hash",
+              "virtualPerPhysical": 128
+            },
+            "vectorIndexConfig": {
+              "bq": {
+                "enabled": false
+              },
+              "cleanupIntervalSeconds": 300,
+              "distance": "cosine",
+              "dynamicEfFactor": 8,
+              "dynamicEfMax": 500,
+              "dynamicEfMin": 100,
+              "ef": 128,
+              "efConstruction": 200,
+              "filterStrategy": "acorn",
+              "flatSearchCutoff": 40000,
+              "maxConnections": 16,
+              "multivector": {
+                "aggregation": "maxSim",
+                "enabled": false,
+                "muvera": {
+                  "dprojections": 16,
+                  "enabled": false,
+                  "ksim": 4,
+                  "repetitions": 10
+                }
+              },
+              "pq": {
+                "bitCompression": false,
+                "centroids": 256,
+                "enabled": false,
+                "encoder": {
+                  "distribution": "log-normal",
+                  "type": "kmeans"
+                },
+                "segments": 0,
+                "trainingLimit": 100000
+              },
+              "rq": {
+                "bits": 8,
+                "enabled": true,
+                "rescoreLimit": 20
+              },
+              "skip": false,
+              "skipDefaultQuantization": false,
+              "sq": {
+                "enabled": false,
+                "rescoreLimit": 20,
+                "trainingLimit": 100000
+              },
+              "trackDefaultQuantization": false,
+              "vectorCacheMaxObjects": 1000000000000
+            },
+            "vectorIndexType": "hnsw",
+            "vectorizer": "none",
+            "replicationConfig": {
+              "deletionStrategy": "TimeBasedResolution",
+              "factor": 1,
+              "asyncEnabled": false
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "top_k": 10,
+        "mean_ms": 2.506069652631579,
+        "p50_ms": 2.314542,
+        "p90_ms": 2.699292,
+        "p95_ms": 3.894833,
+        "p99_ms": 6.228084,
+        "max_ms": 7.774166,
+        "client": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 2.506069652631579,
+          "p50_ms": 2.314542,
+          "p90_ms": 2.699292,
+          "p95_ms": 3.894833,
+          "p99_ms": 6.228084,
+          "max_ms": 7.774166
+        },
+        "server": null,
+        "server_time_source": "client round-trip only",
+        "server_time_resolution": "not-available"
+      },
+      "run_file": "runs/bench_beir_nfcorpus_test.weaviate_hybrid_bestconfig.run"
     }
   ]
 }

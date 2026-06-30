@@ -2,8 +2,8 @@
 
 ## Environment
 
-- Captured: 2026-06-29T10:41:28.730600+00:00
-- Machine: Apple M3 Pro, macOS 26.5.1
+- Captured: 2026-06-29T15:35:20.081998+00:00
+- Machine: Apple M3 Pro
 - OS / arch: Linux 6.12.76-linuxkit / aarch64 (containerized: True)
 - CPU: aarch64 (7 logical)
 - Memory: 9.4 GB
@@ -21,9 +21,21 @@ Retrieval quality vs Anserini BM25 reference:
 | beir/scifact/test | 0.3728 | 0.6790 | -0.3062 | outside margin | 0.3923 | 0.3659 | 0.3784 |
 | beir/nfcorpus/test | 0.1817 | 0.3220 | -0.1403 | outside margin | 0.1123 | 0.0839 | 0.3372 |
 
-Operational metrics:
+Operational metrics. Latency below is the engine's own reported query time (server-side); the client round-trip is reported separately underneath.
 
-| Dataset | Docs | Ingest docs/s | Build s | Index size | p50 ms | p95 ms | p99 ms |
+| Dataset | Docs | Ingest docs/s | Build s | Index size | Server p50 ms | Server p95 ms | Server p99 ms |
 |---|---|---|---|---|---|---|---|
-| beir/scifact/test | 5183 | 3964 | 1.31 | n/a | 12.18 | 52.74 | 75.10 |
-| beir/nfcorpus/test | 3633 | 3399 | 1.07 | n/a | 0.60 | 4.65 | 9.75 |
+| beir/scifact/test | 5183 | 3086 | 1.68 | n/a | 11.00 | 50.00 | 72.00 |
+| beir/nfcorpus/test | 3633 | 3854 | 0.94 | n/a | 0.00 | 3.00 | 8.00 |
+
+Client round-trip latency (wall-clock around the HTTP call, includes transport and JSON), measured over the same queries and repeats:
+
+| Dataset | Client p50 ms | Client p95 ms | Client p99 ms |
+|---|---|---|---|
+| beir/scifact/test | 11.74 | 50.67 | 73.28 |
+| beir/nfcorpus/test | 0.55 | 4.37 | 9.46 |
+
+Server-side time source per dataset:
+
+- beir/scifact/test: response `search_time_ms` field (integer-millisecond resolution; sub-millisecond searches floor to 0-1 ms)
+- beir/nfcorpus/test: response `search_time_ms` field (integer-millisecond resolution; sub-millisecond searches floor to 0-1 ms)

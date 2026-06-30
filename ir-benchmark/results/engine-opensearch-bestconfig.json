@@ -1,9 +1,9 @@
 {
   "environment": {
-    "captured_at": "2026-06-29T14:55:45.828272+00:00",
+    "captured_at": "2026-06-29T15:31:31.284035+00:00",
     "harness_version": "0.3.0",
     "containerized": true,
-    "machine_label": "",
+    "machine_label": "Apple M3 Pro",
     "os": "Linux 6.12.76-linuxkit",
     "arch": "aarch64",
     "cpu_model": null,
@@ -85,8 +85,8 @@
       "vector_oversample": null,
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 3.407123418000026,
-        "ingest_docs_per_sec": 1521.2246121223309,
+        "build_seconds": 3.0534720440000456,
+        "ingest_docs_per_sec": 1697.4119708036608,
         "index_size_bytes": 19700913,
         "raw_stats": {
           "index_size_bytes": 19700913,
@@ -99,31 +99,31 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 1.0480048653333334,
-        "p50_ms": 0.938542,
-        "p90_ms": 1.1495,
-        "p95_ms": 1.3445,
-        "p99_ms": 2.438375,
-        "max_ms": 24.260959,
+        "mean_ms": 0.8619283673333332,
+        "p50_ms": 0.854875,
+        "p90_ms": 0.924542,
+        "p95_ms": 0.970834,
+        "p99_ms": 1.1515,
+        "max_ms": 1.435208,
         "client": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 1.0480048653333334,
-          "p50_ms": 0.938542,
-          "p90_ms": 1.1495,
-          "p95_ms": 1.3445,
-          "p99_ms": 2.438375,
-          "max_ms": 24.260959
+          "mean_ms": 0.8619283673333332,
+          "p50_ms": 0.854875,
+          "p90_ms": 0.924542,
+          "p95_ms": 0.970834,
+          "p99_ms": 1.1515,
+          "max_ms": 1.435208
         },
         "server": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 0.018,
+          "mean_ms": 0.0,
           "p50_ms": 0.0,
           "p90_ms": 0.0,
           "p95_ms": 0.0,
           "p99_ms": 0.0,
-          "max_ms": 6.0
+          "max_ms": 0.0
         },
         "server_time_source": "response `took` field",
         "server_time_resolution": "integer-millisecond"
@@ -154,8 +154,8 @@
       },
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 3.0716521260000036,
-        "ingest_docs_per_sec": 1687.3655568377974,
+        "build_seconds": 2.857859292999933,
+        "ingest_docs_per_sec": 1813.5952363698548,
         "index_size_bytes": 19700913,
         "raw_stats": {
           "index_size_bytes": 19700913,
@@ -168,36 +168,199 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 2.06105995,
-        "p50_ms": 1.721375,
-        "p90_ms": 2.320459,
-        "p95_ms": 3.461792,
-        "p99_ms": 8.193,
-        "max_ms": 37.695083,
+        "mean_ms": 1.473702774,
+        "p50_ms": 1.444083,
+        "p90_ms": 1.656833,
+        "p95_ms": 1.736417,
+        "p99_ms": 1.877792,
+        "max_ms": 9.836166,
         "client": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 2.06105995,
-          "p50_ms": 1.721375,
-          "p90_ms": 2.320459,
-          "p95_ms": 3.461792,
-          "p99_ms": 8.193,
-          "max_ms": 37.695083
+          "mean_ms": 1.473702774,
+          "p50_ms": 1.444083,
+          "p90_ms": 1.656833,
+          "p95_ms": 1.736417,
+          "p99_ms": 1.877792,
+          "max_ms": 9.836166
         },
         "server": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 1.0506666666666666,
-          "p50_ms": 1.0,
+          "mean_ms": 0.32666666666666666,
+          "p50_ms": 0.0,
           "p90_ms": 1.0,
-          "p95_ms": 2.0,
-          "p99_ms": 4.0,
-          "max_ms": 31.0
+          "p95_ms": 1.0,
+          "p99_ms": 1.0,
+          "max_ms": 6.0
         },
         "server_time_source": "response `took` field",
         "server_time_resolution": "integer-millisecond"
       },
       "run_file": "runs/bench_beir_scifact_test.opensearch_hybrid_bestconfig.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "track": "vector",
+      "run_tag": "opensearch_vector_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "knn_vector HNSW (faiss engine, 16-bit SQ / SQfp16 scalar quantization, inner product on L2-normalized vectors = cosine), over the shared precomputed vectors",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.31453393519371436,
+        "recall_100": 0.3094260094121505,
+        "map": 0.15746382736747533,
+        "recip_rank": 0.5168404437838352
+      },
+      "calibration": null,
+      "operating_point": {
+        "knob": "ef_search",
+        "recall_metric": "ann_recall@10",
+        "recall_k": 10,
+        "target": 0.99,
+        "chosen_value": 128,
+        "rescore_oversample": null,
+        "achieved_recall": 0.9941176470588234,
+        "met_target": true,
+        "secondary_target": 0.95,
+        "secondary_value": 64,
+        "secondary_recall": 0.9780185758513933,
+        "sweep": [
+          {
+            "value": 16,
+            "recall": 0.8795665634674931
+          },
+          {
+            "value": 32,
+            "recall": 0.9396284829721359
+          },
+          {
+            "value": 64,
+            "recall": 0.9780185758513933
+          },
+          {
+            "value": 128,
+            "recall": 0.9941176470588234
+          }
+        ]
+      },
+      "vector_oversample": null,
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 1.9398300420000396,
+        "ingest_docs_per_sec": 1872.844487063535,
+        "index_size_bytes": 14024528,
+        "raw_stats": {
+          "index_size_bytes": 14024528,
+          "raw": {
+            "size_in_bytes": 14024528,
+            "reserved_in_bytes": 0
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "top_k": 10,
+        "mean_ms": 0.8786159801857585,
+        "p50_ms": 0.870417,
+        "p90_ms": 0.948583,
+        "p95_ms": 0.989917,
+        "p99_ms": 1.110875,
+        "max_ms": 2.503333,
+        "client": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 0.8786159801857585,
+          "p50_ms": 0.870417,
+          "p90_ms": 0.948583,
+          "p95_ms": 0.989917,
+          "p99_ms": 1.110875,
+          "max_ms": 2.503333
+        },
+        "server": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 0.0006191950464396285,
+          "p50_ms": 0.0,
+          "p90_ms": 0.0,
+          "p95_ms": 0.0,
+          "p99_ms": 0.0,
+          "max_ms": 1.0
+        },
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond"
+      },
+      "run_file": "runs/bench_beir_nfcorpus_test.opensearch_vector_bestconfig.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "track": "hybrid",
+      "run_tag": "opensearch_hybrid_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "BM25 match fused with SQfp16-quantized knn via a hybrid query and an RRF search pipeline",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.35167804101996136,
+        "recall_100": 0.32157512494518886,
+        "map": 0.186659222221029,
+        "recip_rank": 0.5632853353463149
+      },
+      "calibration": null,
+      "operating_point": {
+        "fusion": "score-ranker-processor RRF (rank_constant=60)",
+        "vector_knob": "ef_search",
+        "vector_value": 128,
+        "vector_ef_from_vector_track": true,
+        "rescore_oversample": null
+      },
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 1.9553244169999289,
+        "ingest_docs_per_sec": 1858.003699239916,
+        "index_size_bytes": 14029239,
+        "raw_stats": {
+          "index_size_bytes": 14029239,
+          "raw": {
+            "size_in_bytes": 14029239,
+            "reserved_in_bytes": 0
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "top_k": 10,
+        "mean_ms": 1.2599407083591332,
+        "p50_ms": 1.263583,
+        "p90_ms": 1.438417,
+        "p95_ms": 1.493708,
+        "p99_ms": 1.620584,
+        "max_ms": 3.080875,
+        "client": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 1.2599407083591332,
+          "p50_ms": 1.263583,
+          "p90_ms": 1.438417,
+          "p95_ms": 1.493708,
+          "p99_ms": 1.620584,
+          "max_ms": 3.080875
+        },
+        "server": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 0.026006191950464396,
+          "p50_ms": 0.0,
+          "p90_ms": 0.0,
+          "p95_ms": 0.0,
+          "p99_ms": 1.0,
+          "max_ms": 2.0
+        },
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond"
+      },
+      "run_file": "runs/bench_beir_nfcorpus_test.opensearch_hybrid_bestconfig.run"
     }
   ]
 }
