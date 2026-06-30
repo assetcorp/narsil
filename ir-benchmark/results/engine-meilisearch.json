@@ -1,9 +1,9 @@
 {
   "environment": {
-    "captured_at": "2026-06-29T10:42:28.834615+00:00",
+    "captured_at": "2026-06-29T15:36:18.911561+00:00",
     "harness_version": "0.3.0",
     "containerized": true,
-    "machine_label": "Apple M3 Pro, macOS 26.5.1",
+    "machine_label": "Apple M3 Pro",
     "os": "Linux 6.12.76-linuxkit",
     "arch": "aarch64",
     "cpu_model": null,
@@ -22,7 +22,8 @@
     "tracks": [
       "keyword"
     ],
-    "keyword_setup": "Bucket-sort ranking rules (words, typo, proximity, attribute, sort, exactness), not BM25; _rankingScore for ordering; default typo tolerance and prefix search; no stemming or stop-word removal"
+    "keyword_setup": "Bucket-sort ranking rules (words, typo, proximity, attribute, sort, exactness), not BM25; _rankingScore for ordering; default typo tolerance and prefix search; no stemming or stop-word removal",
+    "vector_profile": "equal-precision"
   },
   "config": {
     "k1": 0.9,
@@ -33,7 +34,8 @@
     "vector_dims": 384,
     "vector_metric": "cosine",
     "recall_target": 0.99,
-    "recall_k": 10
+    "recall_k": 10,
+    "vector_profile": "equal-precision"
   },
   "datasets": [
     {
@@ -59,15 +61,15 @@
       "operating_point": null,
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 2.935238292999884,
-        "ingest_docs_per_sec": 1765.7850854428755,
+        "build_seconds": 2.9799984590001714,
+        "ingest_docs_per_sec": 1739.2626443635695,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
           "raw": {
             "numberOfDocuments": 5183,
-            "rawDocumentDbSize": 15044608,
-            "avgDocumentSize": 2894,
+            "rawDocumentDbSize": 15056896,
+            "avgDocumentSize": 2897,
             "isIndexing": false,
             "numberOfEmbeddings": 0,
             "numberOfEmbeddedDocuments": 0,
@@ -81,12 +83,34 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 1.585041586,
-        "p50_ms": 1.433125,
-        "p90_ms": 2.435917,
-        "p95_ms": 3.189917,
-        "p99_ms": 3.993291,
-        "max_ms": 5.008667
+        "mean_ms": 1.4863173166666666,
+        "p50_ms": 1.352584,
+        "p90_ms": 2.258084,
+        "p95_ms": 2.846708,
+        "p99_ms": 3.80075,
+        "max_ms": 4.678916,
+        "client": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 1.4863173166666666,
+          "p50_ms": 1.352584,
+          "p90_ms": 2.258084,
+          "p95_ms": 2.846708,
+          "p99_ms": 3.80075,
+          "max_ms": 4.678916
+        },
+        "server": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 0.554,
+          "p50_ms": 0.0,
+          "p90_ms": 1.0,
+          "p95_ms": 2.0,
+          "p99_ms": 3.0,
+          "max_ms": 4.0
+        },
+        "server_time_source": "response `processingTimeMs` field",
+        "server_time_resolution": "integer-millisecond"
       },
       "run_file": "runs/bench_beir_scifact_test.meilisearch_rankrules.run"
     },
@@ -113,15 +137,15 @@
       "operating_point": null,
       "operational": {
         "documents_indexed": 3633,
-        "build_seconds": 1.9002889580001465,
-        "ingest_docs_per_sec": 1911.8145083700053,
+        "build_seconds": 1.8759512090000499,
+        "ingest_docs_per_sec": 1936.6175317195596,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
           "raw": {
             "numberOfDocuments": 3633,
-            "rawDocumentDbSize": 11599872,
-            "avgDocumentSize": 3184,
+            "rawDocumentDbSize": 11603968,
+            "avgDocumentSize": 3186,
             "isIndexing": false,
             "numberOfEmbeddings": 0,
             "numberOfEmbeddedDocuments": 0,
@@ -135,12 +159,34 @@
       "latency": {
         "samples": 1615,
         "top_k": 10,
-        "mean_ms": 0.9326733721362229,
-        "p50_ms": 0.850708,
-        "p90_ms": 1.360208,
-        "p95_ms": 1.573459,
-        "p99_ms": 2.027167,
-        "max_ms": 2.66875
+        "mean_ms": 0.882196346749226,
+        "p50_ms": 0.80325,
+        "p90_ms": 1.276583,
+        "p95_ms": 1.458042,
+        "p99_ms": 1.893584,
+        "max_ms": 2.505875,
+        "client": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 0.882196346749226,
+          "p50_ms": 0.80325,
+          "p90_ms": 1.276583,
+          "p95_ms": 1.458042,
+          "p99_ms": 1.893584,
+          "max_ms": 2.505875
+        },
+        "server": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 0.060061919504643964,
+          "p50_ms": 0.0,
+          "p90_ms": 0.0,
+          "p95_ms": 1.0,
+          "p99_ms": 1.0,
+          "max_ms": 1.0
+        },
+        "server_time_source": "response `processingTimeMs` field",
+        "server_time_resolution": "integer-millisecond"
       },
       "run_file": "runs/bench_beir_nfcorpus_test.meilisearch_rankrules.run"
     }

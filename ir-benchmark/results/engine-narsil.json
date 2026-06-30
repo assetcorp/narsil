@@ -1,9 +1,9 @@
 {
   "environment": {
-    "captured_at": "2026-06-29T14:06:57.126764+00:00",
+    "captured_at": "2026-06-29T15:18:06.799912+00:00",
     "harness_version": "0.3.0",
     "containerized": true,
-    "machine_label": "",
+    "machine_label": "Apple M3 Pro",
     "os": "Linux 6.12.76-linuxkit",
     "arch": "aarch64",
     "cpu_model": null,
@@ -63,8 +63,8 @@
       "operating_point": null,
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 0.9949262089999138,
-        "ingest_docs_per_sec": 5209.431567000211,
+        "build_seconds": 0.8383991669999915,
+        "ingest_docs_per_sec": 6182.019500980793,
         "index_size_bytes": 17826406,
         "raw_stats": {
           "index_size_bytes": 17826406,
@@ -82,31 +82,31 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 0.828666154,
-        "p50_ms": 0.80625,
-        "p90_ms": 1.121375,
-        "p95_ms": 1.287834,
-        "p99_ms": 1.586917,
-        "max_ms": 2.161875,
+        "mean_ms": 0.801234966,
+        "p50_ms": 0.784542,
+        "p90_ms": 1.069708,
+        "p95_ms": 1.212125,
+        "p99_ms": 1.53975,
+        "max_ms": 1.736,
         "client": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 0.828666154,
-          "p50_ms": 0.80625,
-          "p90_ms": 1.121375,
-          "p95_ms": 1.287834,
-          "p99_ms": 1.586917,
-          "max_ms": 2.161875
+          "mean_ms": 0.801234966,
+          "p50_ms": 0.784542,
+          "p90_ms": 1.069708,
+          "p95_ms": 1.212125,
+          "p99_ms": 1.53975,
+          "max_ms": 1.736
         },
         "server": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 0.46839877533333796,
-          "p50_ms": 0.4519159999999829,
-          "p90_ms": 0.7264159999995172,
-          "p95_ms": 0.8820409999998446,
-          "p99_ms": 1.1815829999995913,
-          "max_ms": 1.7677089999997406
+          "mean_ms": 0.452195282,
+          "p50_ms": 0.44333300000016607,
+          "p90_ms": 0.7001669999999649,
+          "p95_ms": 0.8355410000003758,
+          "p99_ms": 1.14837499999976,
+          "max_ms": 1.3711249999996653
         },
         "server_time_source": "response `elapsed` field",
         "server_time_resolution": "floating-millisecond"
@@ -134,19 +134,20 @@
         "recall_k": 10,
         "target": 0.99,
         "chosen_value": 64,
+        "rescore_oversample": null,
         "achieved_recall": 0.9966666666666665,
         "met_target": true,
         "secondary_target": 0.95,
         "secondary_value": 16,
-        "secondary_recall": 0.9616666666666667,
+        "secondary_recall": 0.9606666666666668,
         "sweep": [
           {
             "value": 16,
-            "recall": 0.9616666666666667
+            "recall": 0.9606666666666668
           },
           {
             "value": 32,
-            "recall": 0.9869999999999999
+            "recall": 0.9883333333333333
           },
           {
             "value": 64,
@@ -154,10 +155,11 @@
           }
         ]
       },
+      "vector_oversample": null,
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 8.104128420000052,
-        "ingest_docs_per_sec": 639.5505761247508,
+        "build_seconds": 7.961548295,
+        "ingest_docs_per_sec": 651.0040268492776,
         "index_size_bytes": 33887051,
         "raw_stats": {
           "index_size_bytes": 33887051,
@@ -176,31 +178,31 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 2.641746454,
-        "p50_ms": 2.59125,
-        "p90_ms": 2.874792,
-        "p95_ms": 3.082792,
-        "p99_ms": 3.800709,
-        "max_ms": 17.296375,
+        "mean_ms": 2.6545344653333336,
+        "p50_ms": 2.566125,
+        "p90_ms": 2.73575,
+        "p95_ms": 2.9675,
+        "p99_ms": 5.113833,
+        "max_ms": 34.698541,
         "client": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 2.641746454,
-          "p50_ms": 2.59125,
-          "p90_ms": 2.874792,
-          "p95_ms": 3.082792,
-          "p99_ms": 3.800709,
-          "max_ms": 17.296375
+          "mean_ms": 2.6545344653333336,
+          "p50_ms": 2.566125,
+          "p90_ms": 2.73575,
+          "p95_ms": 2.9675,
+          "p99_ms": 5.113833,
+          "max_ms": 34.698541
         },
         "server": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 0.43467265733349875,
-          "p50_ms": 0.4153329999971902,
-          "p90_ms": 0.5208330000023125,
-          "p95_ms": 0.5850420000060694,
-          "p99_ms": 0.8582919999898877,
-          "max_ms": 8.098415999993449
+          "mean_ms": 0.4150433946666502,
+          "p50_ms": 0.38687499999650754,
+          "p90_ms": 0.4799170000042068,
+          "p95_ms": 0.5434999999997672,
+          "p99_ms": 1.036707999999635,
+          "max_ms": 12.206709000005503
         },
         "server_time_source": "response `elapsed` field",
         "server_time_resolution": "floating-millisecond"
@@ -226,12 +228,13 @@
         "fusion": "RRF (k=60)",
         "vector_knob": "efSearch",
         "vector_value": 64,
-        "vector_ef_from_vector_track": true
+        "vector_ef_from_vector_track": true,
+        "rescore_oversample": null
       },
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 9.449571046000074,
-        "ingest_docs_per_sec": 548.4905055234144,
+        "build_seconds": 7.703345711999987,
+        "ingest_docs_per_sec": 672.8245354386879,
         "index_size_bytes": 33887051,
         "raw_stats": {
           "index_size_bytes": 33887051,
@@ -250,36 +253,284 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 3.7111381433333337,
-        "p50_ms": 3.521625,
-        "p90_ms": 4.395292,
-        "p95_ms": 4.939166,
-        "p99_ms": 6.452625,
-        "max_ms": 50.27875,
+        "mean_ms": 3.228510801333333,
+        "p50_ms": 3.170708,
+        "p90_ms": 3.632042,
+        "p95_ms": 3.859625,
+        "p99_ms": 4.208375,
+        "max_ms": 16.879,
         "client": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 3.7111381433333337,
-          "p50_ms": 3.521625,
-          "p90_ms": 4.395292,
-          "p95_ms": 4.939166,
-          "p99_ms": 6.452625,
-          "max_ms": 50.27875
+          "mean_ms": 3.228510801333333,
+          "p50_ms": 3.170708,
+          "p90_ms": 3.632042,
+          "p95_ms": 3.859625,
+          "p99_ms": 4.208375,
+          "max_ms": 16.879
         },
         "server": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 1.395686965333162,
-          "p50_ms": 1.292583000002196,
-          "p90_ms": 1.9379580000240821,
-          "p95_ms": 2.244166000018595,
-          "p99_ms": 3.4037919999973383,
-          "max_ms": 18.26279199999408
+          "mean_ms": 1.007157995999713,
+          "p50_ms": 0.9817089999851305,
+          "p90_ms": 1.3841660000034608,
+          "p95_ms": 1.573207999987062,
+          "p99_ms": 1.8964580000028946,
+          "max_ms": 2.3669579999987036
         },
         "server_time_source": "response `elapsed` field",
         "server_time_resolution": "floating-millisecond"
       },
       "run_file": "runs/bench_beir_scifact_test.narsil_hybrid.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "track": "keyword",
+      "run_tag": "narsil_bm25",
+      "setup": "BM25 k1=0.9 b=0.4; Narsil english analyzer (Porter stemmer, 70-word stop list)",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.3268937200190016,
+        "recall_100": 0.24910963434856712,
+        "map": 0.15303944036831896,
+        "recip_rank": 0.5284067089293295
+      },
+      "calibration": {
+        "baseline_ndcg10": 0.322,
+        "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
+        "margin": 0.02,
+        "delta": 0.004893720019001568,
+        "within_margin": true
+      },
+      "operating_point": null,
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 0.5566512920000264,
+        "ingest_docs_per_sec": 6526.5275626088505,
+        "index_size_bytes": 13342470,
+        "raw_stats": {
+          "index_size_bytes": 13342470,
+          "raw": {
+            "documentCount": 3633,
+            "partitionCount": 1,
+            "estimatedMemoryBytes": 13342470,
+            "language": "english",
+            "schema": {
+              "text": "string"
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "top_k": 10,
+        "mean_ms": 0.4402690377708978,
+        "p50_ms": 0.404,
+        "p90_ms": 0.660917,
+        "p95_ms": 0.742583,
+        "p99_ms": 0.941833,
+        "max_ms": 1.140375,
+        "client": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 0.4402690377708978,
+          "p50_ms": 0.404,
+          "p90_ms": 0.660917,
+          "p95_ms": 0.742583,
+          "p99_ms": 0.941833,
+          "max_ms": 1.140375
+        },
+        "server": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 0.12300577523268258,
+          "p50_ms": 0.0766670000157319,
+          "p90_ms": 0.29662500001722947,
+          "p95_ms": 0.39291599998250604,
+          "p99_ms": 0.5638749999925494,
+          "max_ms": 0.7017920000071172
+        },
+        "server_time_source": "response `elapsed` field",
+        "server_time_resolution": "floating-millisecond"
+      },
+      "run_file": "runs/bench_beir_nfcorpus_test.narsil_bm25.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "track": "vector",
+      "run_tag": "narsil_vector",
+      "vector_profile": "equal-precision",
+      "setup": "HNSW over the shared precomputed vectors, full precision (SQ8 quantization off), cosine",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.31453393519371436,
+        "recall_100": 0.3094260094121505,
+        "map": 0.15745514380629685,
+        "recip_rank": 0.5168401508608532
+      },
+      "calibration": null,
+      "operating_point": {
+        "knob": "efSearch",
+        "recall_metric": "ann_recall@10",
+        "recall_k": 10,
+        "target": 0.99,
+        "chosen_value": 128,
+        "rescore_oversample": null,
+        "achieved_recall": 0.9947368421052631,
+        "met_target": true,
+        "secondary_target": 0.95,
+        "secondary_value": 32,
+        "secondary_recall": 0.9585139318885455,
+        "sweep": [
+          {
+            "value": 16,
+            "recall": 0.9095975232198146
+          },
+          {
+            "value": 32,
+            "recall": 0.9585139318885455
+          },
+          {
+            "value": 64,
+            "recall": 0.9857585139318888
+          },
+          {
+            "value": 128,
+            "recall": 0.9947368421052631
+          }
+        ]
+      },
+      "vector_oversample": null,
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 5.474696752999989,
+        "ingest_docs_per_sec": 663.5983989449666,
+        "index_size_bytes": 24600182,
+        "raw_stats": {
+          "index_size_bytes": 24600182,
+          "raw": {
+            "documentCount": 3633,
+            "partitionCount": 1,
+            "estimatedMemoryBytes": 24600182,
+            "language": "english",
+            "schema": {
+              "text": "string",
+              "embedding": "vector[384]"
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "top_k": 10,
+        "mean_ms": 2.8597194637770897,
+        "p50_ms": 2.8445,
+        "p90_ms": 3.022542,
+        "p95_ms": 3.0885,
+        "p99_ms": 3.475958,
+        "max_ms": 13.467125,
+        "client": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 2.8597194637770897,
+          "p50_ms": 2.8445,
+          "p90_ms": 3.022542,
+          "p95_ms": 3.0885,
+          "p99_ms": 3.475958,
+          "max_ms": 13.467125
+        },
+        "server": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 0.7051546198139673,
+          "p50_ms": 0.6875419999996666,
+          "p90_ms": 0.8217919999733567,
+          "p95_ms": 0.8537500000093132,
+          "p99_ms": 1.1175830000138376,
+          "max_ms": 4.354208999982802
+        },
+        "server_time_source": "response `elapsed` field",
+        "server_time_resolution": "floating-millisecond"
+      },
+      "run_file": "runs/bench_beir_nfcorpus_test.narsil_vector.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "track": "hybrid",
+      "run_tag": "narsil_hybrid",
+      "vector_profile": "equal-precision",
+      "setup": "BM25 (text) fused with HNSW vector search via Reciprocal Rank Fusion",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.355456332699901,
+        "recall_100": 0.3239208475386061,
+        "map": 0.18773700158358486,
+        "recip_rank": 0.5727188272169407
+      },
+      "calibration": null,
+      "operating_point": {
+        "fusion": "RRF (k=60)",
+        "vector_knob": "efSearch",
+        "vector_value": 128,
+        "vector_ef_from_vector_track": true,
+        "rescore_oversample": null
+      },
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 5.442122419999976,
+        "ingest_docs_per_sec": 667.5704292591081,
+        "index_size_bytes": 24600182,
+        "raw_stats": {
+          "index_size_bytes": 24600182,
+          "raw": {
+            "documentCount": 3633,
+            "partitionCount": 1,
+            "estimatedMemoryBytes": 24600182,
+            "language": "english",
+            "schema": {
+              "text": "string",
+              "embedding": "vector[384]"
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "top_k": 10,
+        "mean_ms": 2.868968710216718,
+        "p50_ms": 2.818791,
+        "p90_ms": 3.239583,
+        "p95_ms": 3.36775,
+        "p99_ms": 3.760208,
+        "max_ms": 5.009666,
+        "client": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 2.868968710216718,
+          "p50_ms": 2.818791,
+          "p90_ms": 3.239583,
+          "p95_ms": 3.36775,
+          "p99_ms": 3.760208,
+          "max_ms": 5.009666
+        },
+        "server": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 0.7156643170271222,
+          "p50_ms": 0.6454999999841675,
+          "p90_ms": 1.0249579999945126,
+          "p95_ms": 1.146208000020124,
+          "p99_ms": 1.4751669999677688,
+          "max_ms": 2.0630419999943115
+        },
+        "server_time_source": "response `elapsed` field",
+        "server_time_resolution": "floating-millisecond"
+      },
+      "run_file": "runs/bench_beir_nfcorpus_test.narsil_hybrid.run"
     }
   ]
 }

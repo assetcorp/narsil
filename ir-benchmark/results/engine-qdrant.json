@@ -1,9 +1,9 @@
 {
   "environment": {
-    "captured_at": "2026-06-29T14:23:51.636972+00:00",
+    "captured_at": "2026-06-29T15:32:34.482284+00:00",
     "harness_version": "0.3.0",
     "containerized": true,
-    "machine_label": "",
+    "machine_label": "Apple M3 Pro",
     "os": "Linux 6.12.76-linuxkit",
     "arch": "aarch64",
     "cpu_model": null,
@@ -60,30 +60,32 @@
         "recall_k": 10,
         "target": 0.99,
         "chosen_value": 64,
-        "achieved_recall": 0.9976666666666665,
+        "rescore_oversample": null,
+        "achieved_recall": 0.9973333333333331,
         "met_target": true,
         "secondary_target": 0.95,
         "secondary_value": 16,
-        "secondary_recall": 0.9596666666666676,
+        "secondary_recall": 0.9590000000000002,
         "sweep": [
           {
             "value": 16,
-            "recall": 0.9596666666666676
+            "recall": 0.9590000000000002
           },
           {
             "value": 32,
-            "recall": 0.9870000000000002
+            "recall": 0.9896666666666666
           },
           {
             "value": 64,
-            "recall": 0.9976666666666665
+            "recall": 0.9973333333333331
           }
         ]
       },
+      "vector_oversample": null,
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 3.483691584999633,
-        "ingest_docs_per_sec": 1487.7895684903306,
+        "build_seconds": 3.222115459000065,
+        "ingest_docs_per_sec": 1608.5705388125557,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
@@ -151,31 +153,31 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 0.7567703920000001,
-        "p50_ms": 0.730459,
-        "p90_ms": 0.865917,
-        "p95_ms": 0.933125,
-        "p99_ms": 1.12575,
-        "max_ms": 1.606083,
+        "mean_ms": 0.729043292,
+        "p50_ms": 0.722084,
+        "p90_ms": 0.764292,
+        "p95_ms": 0.826125,
+        "p99_ms": 0.896667,
+        "max_ms": 1.624041,
         "client": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 0.7567703920000001,
-          "p50_ms": 0.730459,
-          "p90_ms": 0.865917,
-          "p95_ms": 0.933125,
-          "p99_ms": 1.12575,
-          "max_ms": 1.606083
+          "mean_ms": 0.729043292,
+          "p50_ms": 0.722084,
+          "p90_ms": 0.764292,
+          "p95_ms": 0.826125,
+          "p99_ms": 0.896667,
+          "max_ms": 1.624041
         },
         "server": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 0.2554734026666667,
-          "p50_ms": 0.24575,
-          "p90_ms": 0.301916,
-          "p95_ms": 0.344167,
-          "p99_ms": 0.412084,
-          "max_ms": 0.541834
+          "mean_ms": 0.24170442266666664,
+          "p50_ms": 0.23900000000000002,
+          "p90_ms": 0.26108400000000004,
+          "p95_ms": 0.272,
+          "p99_ms": 0.32725,
+          "max_ms": 0.500125
         },
         "server_time_source": "top-level `time` field (seconds, converted to ms)",
         "server_time_resolution": "floating-millisecond"
@@ -201,12 +203,13 @@
         "fusion": "RRF (Query API fusion)",
         "vector_knob": "hnsw_ef",
         "vector_value": 64,
-        "vector_ef_from_vector_track": true
+        "vector_ef_from_vector_track": true,
+        "rescore_oversample": null
       },
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 2.9424658350003483,
-        "ingest_docs_per_sec": 1761.4478096393552,
+        "build_seconds": 2.935769209,
+        "ingest_docs_per_sec": 1765.4657539532768,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
@@ -274,36 +277,309 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 0.8511001313333333,
-        "p50_ms": 0.821208,
-        "p90_ms": 0.953958,
-        "p95_ms": 1.027417,
-        "p99_ms": 1.374125,
-        "max_ms": 2.900166,
+        "mean_ms": 0.8029943633333334,
+        "p50_ms": 0.798125,
+        "p90_ms": 0.845125,
+        "p95_ms": 0.880583,
+        "p99_ms": 0.976709,
+        "max_ms": 2.167375,
         "client": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 0.8511001313333333,
-          "p50_ms": 0.821208,
-          "p90_ms": 0.953958,
-          "p95_ms": 1.027417,
-          "p99_ms": 1.374125,
-          "max_ms": 2.900166
+          "mean_ms": 0.8029943633333334,
+          "p50_ms": 0.798125,
+          "p90_ms": 0.845125,
+          "p95_ms": 0.880583,
+          "p99_ms": 0.976709,
+          "max_ms": 2.167375
         },
         "server": {
           "samples": 1500,
           "top_k": 10,
-          "mean_ms": 0.287843284,
-          "p50_ms": 0.28049999999999997,
-          "p90_ms": 0.323916,
-          "p95_ms": 0.351375,
-          "p99_ms": 0.48070799999999997,
-          "max_ms": 1.24525
+          "mean_ms": 0.26573669266666666,
+          "p50_ms": 0.264459,
+          "p90_ms": 0.28904100000000005,
+          "p95_ms": 0.298709,
+          "p99_ms": 0.32162500000000005,
+          "max_ms": 0.40295800000000004
         },
         "server_time_source": "top-level `time` field (seconds, converted to ms)",
         "server_time_resolution": "floating-millisecond"
       },
       "run_file": "runs/bench_beir_scifact_test.qdrant_hybrid.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "track": "vector",
+      "run_tag": "qdrant_vector",
+      "vector_profile": "equal-precision",
+      "setup": "HNSW dense vectors, distance Cosine, over the shared precomputed vectors",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.31453393519371436,
+        "recall_100": 0.3094260094121505,
+        "map": 0.15745329182721485,
+        "recip_rank": 0.5168401333752117
+      },
+      "calibration": null,
+      "operating_point": {
+        "knob": "hnsw_ef",
+        "recall_metric": "ann_recall@10",
+        "recall_k": 10,
+        "target": 0.99,
+        "chosen_value": 128,
+        "rescore_oversample": null,
+        "achieved_recall": 0.9975232198142416,
+        "met_target": true,
+        "secondary_target": 0.95,
+        "secondary_value": 32,
+        "secondary_recall": 0.9684210526315792,
+        "sweep": [
+          {
+            "value": 16,
+            "recall": 0.9241486068111459
+          },
+          {
+            "value": 32,
+            "recall": 0.9684210526315792
+          },
+          {
+            "value": 64,
+            "recall": 0.9885448916408668
+          },
+          {
+            "value": 128,
+            "recall": 0.9975232198142416
+          }
+        ]
+      },
+      "vector_oversample": null,
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 2.1887281660000326,
+        "ingest_docs_per_sec": 1659.8680715291466,
+        "index_size_bytes": null,
+        "raw_stats": {
+          "index_size_bytes": null,
+          "raw": {
+            "status": "green",
+            "optimizer_status": "ok",
+            "indexed_vectors_count": 7266,
+            "points_count": 3633,
+            "segments_count": 3,
+            "config": {
+              "params": {
+                "vectors": {
+                  "dense": {
+                    "size": 384,
+                    "distance": "Cosine",
+                    "hnsw_config": {
+                      "m": 16,
+                      "ef_construct": 200,
+                      "full_scan_threshold": 10
+                    }
+                  }
+                },
+                "shard_number": 1,
+                "replication_factor": 1,
+                "write_consistency_factor": 1,
+                "on_disk_payload": true,
+                "sparse_vectors": {
+                  "text": {
+                    "modifier": "idf"
+                  }
+                }
+              },
+              "hnsw_config": {
+                "m": 16,
+                "ef_construct": 100,
+                "full_scan_threshold": 10000,
+                "max_indexing_threads": 0,
+                "on_disk": false
+              },
+              "optimizer_config": {
+                "deleted_threshold": 0.2,
+                "vacuum_min_vector_number": 1000,
+                "default_segment_number": 0,
+                "max_segment_size": null,
+                "memmap_threshold": null,
+                "indexing_threshold": 100,
+                "flush_interval_sec": 5,
+                "max_optimization_threads": null,
+                "prevent_unoptimized": null
+              },
+              "wal_config": {
+                "wal_capacity_mb": 32,
+                "wal_segments_ahead": 0,
+                "wal_retain_closed": 1
+              },
+              "quantization_config": null
+            },
+            "payload_schema": {},
+            "update_queue": {
+              "length": 0
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "top_k": 10,
+        "mean_ms": 0.7481934996904025,
+        "p50_ms": 0.737834,
+        "p90_ms": 0.787417,
+        "p95_ms": 0.844125,
+        "p99_ms": 0.952542,
+        "max_ms": 2.625791,
+        "client": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 0.7481934996904025,
+          "p50_ms": 0.737834,
+          "p90_ms": 0.787417,
+          "p95_ms": 0.844125,
+          "p99_ms": 0.952542,
+          "max_ms": 2.625791
+        },
+        "server": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 0.24995547925696593,
+          "p50_ms": 0.248042,
+          "p90_ms": 0.273541,
+          "p95_ms": 0.28662499999999996,
+          "p99_ms": 0.32737499999999997,
+          "max_ms": 1.009833
+        },
+        "server_time_source": "top-level `time` field (seconds, converted to ms)",
+        "server_time_resolution": "floating-millisecond"
+      },
+      "run_file": "runs/bench_beir_nfcorpus_test.qdrant_vector.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "track": "hybrid",
+      "run_tag": "qdrant_hybrid",
+      "vector_profile": "equal-precision",
+      "setup": "Dense HNSW fused with BM25 sparse vectors (fastembed Qdrant/bm25, server IDF) via RRF",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.35101935371721804,
+        "recall_100": 0.3238550026325235,
+        "map": 0.18230672930421296,
+        "recip_rank": 0.5670389489792704
+      },
+      "calibration": null,
+      "operating_point": {
+        "fusion": "RRF (Query API fusion)",
+        "vector_knob": "hnsw_ef",
+        "vector_value": 128,
+        "vector_ef_from_vector_track": true,
+        "rescore_oversample": null
+      },
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 2.1907077930000014,
+        "ingest_docs_per_sec": 1658.3681363660523,
+        "index_size_bytes": null,
+        "raw_stats": {
+          "index_size_bytes": null,
+          "raw": {
+            "status": "green",
+            "optimizer_status": "ok",
+            "indexed_vectors_count": 7266,
+            "points_count": 3633,
+            "segments_count": 3,
+            "config": {
+              "params": {
+                "vectors": {
+                  "dense": {
+                    "size": 384,
+                    "distance": "Cosine",
+                    "hnsw_config": {
+                      "m": 16,
+                      "ef_construct": 200,
+                      "full_scan_threshold": 10
+                    }
+                  }
+                },
+                "shard_number": 1,
+                "replication_factor": 1,
+                "write_consistency_factor": 1,
+                "on_disk_payload": true,
+                "sparse_vectors": {
+                  "text": {
+                    "modifier": "idf"
+                  }
+                }
+              },
+              "hnsw_config": {
+                "m": 16,
+                "ef_construct": 100,
+                "full_scan_threshold": 10000,
+                "max_indexing_threads": 0,
+                "on_disk": false
+              },
+              "optimizer_config": {
+                "deleted_threshold": 0.2,
+                "vacuum_min_vector_number": 1000,
+                "default_segment_number": 0,
+                "max_segment_size": null,
+                "memmap_threshold": null,
+                "indexing_threshold": 100,
+                "flush_interval_sec": 5,
+                "max_optimization_threads": null,
+                "prevent_unoptimized": null
+              },
+              "wal_config": {
+                "wal_capacity_mb": 32,
+                "wal_segments_ahead": 0,
+                "wal_retain_closed": 1
+              },
+              "quantization_config": null
+            },
+            "payload_schema": {},
+            "update_queue": {
+              "length": 0
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "top_k": 10,
+        "mean_ms": 0.7884672724458205,
+        "p50_ms": 0.783291,
+        "p90_ms": 0.834917,
+        "p95_ms": 0.876375,
+        "p99_ms": 0.953791,
+        "max_ms": 1.119166,
+        "client": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 0.7884672724458205,
+          "p50_ms": 0.783291,
+          "p90_ms": 0.834917,
+          "p95_ms": 0.876375,
+          "p99_ms": 0.953791,
+          "max_ms": 1.119166
+        },
+        "server": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 0.2654742866873065,
+          "p50_ms": 0.264458,
+          "p90_ms": 0.290208,
+          "p95_ms": 0.30070800000000003,
+          "p99_ms": 0.32370899999999997,
+          "max_ms": 0.403917
+        },
+        "server_time_source": "top-level `time` field (seconds, converted to ms)",
+        "server_time_resolution": "floating-millisecond"
+      },
+      "run_file": "runs/bench_beir_nfcorpus_test.qdrant_hybrid.run"
     }
   ]
 }

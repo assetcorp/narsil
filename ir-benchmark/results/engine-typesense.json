@@ -1,9 +1,9 @@
 {
   "environment": {
-    "captured_at": "2026-06-29T10:41:28.730600+00:00",
+    "captured_at": "2026-06-29T15:35:20.081998+00:00",
     "harness_version": "0.3.0",
     "containerized": true,
-    "machine_label": "Apple M3 Pro, macOS 26.5.1",
+    "machine_label": "Apple M3 Pro",
     "os": "Linux 6.12.76-linuxkit",
     "arch": "aarch64",
     "cpu_model": null,
@@ -22,7 +22,8 @@
     "tracks": [
       "keyword"
     ],
-    "keyword_setup": "Native token match/proximity scoring (text_match), not BM25; english locale, Snowball stemming enabled, default typo tolerance"
+    "keyword_setup": "Native token match/proximity scoring (text_match), not BM25; english locale, Snowball stemming enabled, default typo tolerance",
+    "vector_profile": "equal-precision"
   },
   "config": {
     "k1": 0.9,
@@ -33,7 +34,8 @@
     "vector_dims": 384,
     "vector_metric": "cosine",
     "recall_target": 0.99,
-    "recall_k": 10
+    "recall_k": 10,
+    "vector_profile": "equal-precision"
   },
   "datasets": [
     {
@@ -59,13 +61,13 @@
       "operating_point": null,
       "operational": {
         "documents_indexed": 5183,
-        "build_seconds": 1.307580583999993,
-        "ingest_docs_per_sec": 3963.809239308824,
+        "build_seconds": 1.6796741680000196,
+        "ingest_docs_per_sec": 3085.717515184135,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
           "raw": {
-            "created_at": 1782729691,
+            "created_at": 1782747323,
             "curation_sets": [],
             "default_sorting_field": "",
             "enable_nested_fields": false,
@@ -96,12 +98,34 @@
       "latency": {
         "samples": 1500,
         "top_k": 10,
-        "mean_ms": 17.613585136666664,
-        "p50_ms": 12.183667,
-        "p90_ms": 42.057667,
-        "p95_ms": 52.739,
-        "p99_ms": 75.099583,
-        "max_ms": 122.047666
+        "mean_ms": 17.056687154,
+        "p50_ms": 11.737417,
+        "p90_ms": 41.700708,
+        "p95_ms": 50.672041,
+        "p99_ms": 73.281458,
+        "max_ms": 99.264917,
+        "client": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 17.056687154,
+          "p50_ms": 11.737417,
+          "p90_ms": 41.700708,
+          "p95_ms": 50.672041,
+          "p99_ms": 73.281458,
+          "max_ms": 99.264917
+        },
+        "server": {
+          "samples": 1500,
+          "top_k": 10,
+          "mean_ms": 16.100666666666665,
+          "p50_ms": 11.0,
+          "p90_ms": 41.0,
+          "p95_ms": 50.0,
+          "p99_ms": 72.0,
+          "max_ms": 98.0
+        },
+        "server_time_source": "response `search_time_ms` field",
+        "server_time_resolution": "integer-millisecond"
       },
       "run_file": "runs/bench_beir_scifact_test.typesense_textmatch.run"
     },
@@ -128,13 +152,13 @@
       "operating_point": null,
       "operational": {
         "documents_indexed": 3633,
-        "build_seconds": 1.0689491669998006,
-        "ingest_docs_per_sec": 3398.664887121501,
+        "build_seconds": 0.942592667000099,
+        "ingest_docs_per_sec": 3854.2629570442205,
         "index_size_bytes": null,
         "raw_stats": {
           "index_size_bytes": null,
           "raw": {
-            "created_at": 1782729741,
+            "created_at": 1782747372,
             "curation_sets": [],
             "default_sorting_field": "",
             "enable_nested_fields": false,
@@ -165,12 +189,34 @@
       "latency": {
         "samples": 1615,
         "top_k": 10,
-        "mean_ms": 1.395327226006192,
-        "p50_ms": 0.599375,
-        "p90_ms": 3.25525,
-        "p95_ms": 4.653416,
-        "p99_ms": 9.751,
-        "max_ms": 19.653459
+        "mean_ms": 1.316691373993808,
+        "p50_ms": 0.553541,
+        "p90_ms": 3.139292,
+        "p95_ms": 4.369042,
+        "p99_ms": 9.461667,
+        "max_ms": 21.427291,
+        "client": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 1.316691373993808,
+          "p50_ms": 0.553541,
+          "p90_ms": 3.139292,
+          "p95_ms": 4.369042,
+          "p99_ms": 9.461667,
+          "max_ms": 21.427291
+        },
+        "server": {
+          "samples": 1615,
+          "top_k": 10,
+          "mean_ms": 0.6705882352941176,
+          "p50_ms": 0.0,
+          "p90_ms": 2.0,
+          "p95_ms": 3.0,
+          "p99_ms": 8.0,
+          "max_ms": 20.0
+        },
+        "server_time_source": "response `search_time_ms` field",
+        "server_time_resolution": "integer-millisecond"
       },
       "run_file": "runs/bench_beir_nfcorpus_test.typesense_textmatch.run"
     }
