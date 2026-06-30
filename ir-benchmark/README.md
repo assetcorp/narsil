@@ -14,6 +14,10 @@ measures the index, not the embedder. Approximate vector search trades recall fo
 speed, so the vector track compares latency only at a matched recall point
 against the exact top-k.
 
+For the current results, with charts across every track and the in-process
+comparison alongside, read [BENCHMARKS.md](../BENCHMARKS.md). This page documents
+how the harness works and how to run it.
+
 Every engine goes through one neutral driver interface, so the spine treats them
 the same way. The shared machinery (dataset loading, embedding, ground truth,
 recall tuning, scoring, run-file writing, latency, environment capture, and
