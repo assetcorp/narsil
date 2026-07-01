@@ -114,6 +114,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # Build the wheelhouse and install libgomp1 through the host's resolver.
+      # On a fresh cloud VM the default build network can't reach the host's
+      # loopback DNS stub, so pip and apt fail name resolution; the host netns
+      # already resolves (bootstrap apt and image pulls use it).
+      network: host
     environment:
       BENCH_API_KEY: "${BENCH_API_KEY:-localdev}"
       BENCH_RUN_ID: "${BENCH_RUN_ID:-}"
