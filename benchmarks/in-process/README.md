@@ -1,6 +1,6 @@
 # Narsil Comparative Benchmarks
 
-Side-by-side benchmarks comparing Narsil against other JavaScript search engines on the same Wikipedia dataset, same process, same machine.
+Side-by-side benchmarks that compare Narsil against other JavaScript search engines on the same BEIR corpora, in the same process, on the same machine.
 
 ## Engines tested
 
@@ -29,6 +29,7 @@ pnpm --filter benchmarks bench -- --tiers vector
 pnpm --filter benchmarks bench -- --tiers serial
 pnpm --filter benchmarks bench -- --tiers mutation
 pnpm --filter benchmarks bench -- --tiers relevance
+pnpm --filter benchmarks bench -- --tiers consistency
 ```
 
 ## Run storage
@@ -38,15 +39,22 @@ Results are printed to stdout and saved under `results/runs/<run-id>/`, one dire
 Each run directory holds:
 
 - `run.json`: the run manifest, recording the run id, the creation time, the build identity (git commit, branch, and a dirty-tree flag), and the runtime environment (Node version, OS, arch, CPU, total memory).
-- `results.json`: the comparative benchmark output. The memory profiler writes `memory-profile.json` and `heap.heapsnapshot` into the same run directory instead.
+- `results.json`: the comparative benchmark output that every downstream tool reads.
+- `comparison.md`: a rendered Markdown report generated from `results.json` at the end of each run, holding the same tables the run prints to stdout.
 
-The latest run is the lexically greatest valid run-id directory, so tooling resolves "the current results" by reading the newest `results/runs/<run-id>/` directory; there is no `latest` symlink. The `results/` directory is gitignored, so run output stays out of version control by default.
+The memory profiler writes `memory-profile.json` and `heap.heapsnapshot` into the run directory instead of these files.
 
-## Dataset
+The latest run is the lexically greatest valid run-id directory, so tooling resolves 'the current results' by reading the newest `results/runs/<run-id>/` directory; there is no `latest` symlink. Each run directory is tracked in git so results travel with the code that produced them; only heap snapshots stay out of version control, ignored through the global `*.heapsnapshot` rule.
 
-All benchmarks use [English Wikipedia](https://en.wikipedia.org) articles. The dataset is downloaded on first run and cached locally. Articles are processed into a standard format with `title`, `body`, `score` (derived from article length), and `category` (hashed from title) fields.
+## Datasets
 
-Scales: 1,000 / 10,000 / 50,000 / 100,000 documents.
+The suite runs entirely on [BEIR](https://github.com/beir-cellar/beir) corpora, downloaded on first run and cached under `benchmarks/datasets/`. Two groups of tiers use two groups of data.
+
+The performance tiers (text, full schema, serialization, and mutation) run on FiQA-2018, a 57,600-document financial question-answering corpus. FiQA ships passages without a title, numeric score, or category, so each document keeps its passage text as `body`, derives `score` from the body length, and derives `category` from a stable per-document hash. That gives the full-schema tier real numeric and enum fields to filter on.
+
+The quality tiers (vector search, relevance, and consistency) run on SciFact (5,183 documents) and NFCorpus (3,633 documents), both of which carry human relevance judgments.
+
+Performance scales: 1,000, 10,000, and 50,000 documents. Serialization and mutation run at 50,000.
 
 ## Tiers
 
@@ -60,25 +68,29 @@ Adds `score` (number) and `category` (enum) fields to the text schema. Measures 
 
 ### Vector Search (`--tiers vector`)
 
-Indexes synthetic 1536-dim and 3072-dim embeddings. Measures vector insert throughput, vector search latency (top-10), and memory. Orama is the only competitor with vector support; MiniSearch is excluded.
+Embeds the SciFact and NFCorpus corpora with the `Xenova/all-MiniLM-L6-v2` model (384-dim) and caches the vectors under `benchmarks/datasets/vectors/`. It measures vector insert throughput, top-10 search latency, memory, and recall@10 against an exact brute-force KNN baseline, so you see both speed and accuracy. Orama is the only competitor with vector support, so MiniSearch sits this tier out.
 
 ### Serialization (`--tiers serial`)
 
-Measures serialize time, serialized size, and deserialize+search time at 100,000 documents. Each engine is measured on the serialization format it actually ships: Narsil on its binary snapshot, Orama on its json export, and MiniSearch on its json export. The suite does not roll its own serializer or work around an engine's format.
+Measures serialize time, serialized size, and deserialize-plus-search time at 50,000 documents. Each engine runs on the serialization format it ships: Narsil on its binary snapshot, Orama on its json export, and MiniSearch on its json export. The suite doesn't roll its own serializer or work around an engine's format.
 
-Orama's official persistence plugin (`@orama/plugin-data-persistence`) defaults to `binary`, but `binary`, `dpack`, and `seqproto` all fail on this index shape at every meaningful scale (tested against version 3.1.18), so `json` is Orama's only viable shipped format here. Orama's json export builds one JavaScript string, and near 100,000 documents that string exceeds V8's single-string ceiling of about 512MB, so the serialize call throws `RangeError: Invalid string length`. The suite records this as a labeled capability limit of Orama's shipped json serialization; per-engine process isolation keeps it from affecting the other engines, and Narsil (binary) and MiniSearch (json) both complete at 100,000 documents.
+Orama's official persistence plugin (`@orama/plugin-data-persistence`) defaults to `binary`, but `binary`, `dpack`, and `seqproto` all fail on this index shape (tested against version 3.1.18), so `json` is Orama's only viable shipped format here. When an engine's shipped format can't serialize the index at all, the harness records a labeled capability limit for that engine and moves on; per-engine process isolation means one engine's failure never touches another's numbers.
 
 ### Mutations (`--tiers mutation`)
 
-Measures update and remove throughput at 100,000 documents.
+Measures remove throughput, search latency right after a bulk removal, and reinsert throughput at 50,000 documents. Engines without a remove API skip this tier.
 
 ### Relevance Quality (`--tiers relevance`)
 
 Ranking accuracy against a [BEIR](https://github.com/beir-cellar/beir) dataset with human relevance judgments. Defaults to SciFact (5,183 documents, 300 judged test queries); pick another with `--relevance-dataset nfcorpus` or `--relevance-dataset fiqa`. Measures nDCG@10, P@10, MAP, and MRR. See the [search quality methodology](#search-quality-methodology) section below for details.
 
+### Cross-Engine Consistency (`--tiers consistency`)
+
+Indexes the same SciFact corpus in every engine, runs the judged queries through all of them, and reports how far their result sets agree. It records mean hits per query per engine and the mean pairwise top-10 Jaccard overlap, and it flags any query that one engine matched while another returned nothing. This catches an engine that silently drops or mangles documents even when its latency looks healthy.
+
 ## Results
 
-Results are pending a fresh run on the current code. Run `pnpm --filter benchmarks bench` and read the output in `results/runs/<run-id>/results.json`. The suite reports insert throughput, search latency (median and p95), filtered search latency, vector insert and search, memory, and BEIR relevance quality (nDCG@10, P@10, MAP, MRR) per engine and scale.
+Run `pnpm --filter benchmarks bench` and read the rendered report at `results/runs/<run-id>/comparison.md`, or the raw `results.json` beside it. The suite reports insert throughput, search latency (median and p95), filtered search latency, vector insert, search, and recall@10, memory, mutation throughput, and BEIR relevance quality (nDCG@10, P@10, MAP, MRR) per engine and scale.
 
 ## What's measured
 
@@ -88,7 +100,7 @@ Results are pending a fresh run on the current code. Run `pnpm --filter benchmar
 
 **Filtered search latency** (ms/query) - Full-text search combined with field filters (enum equality, numeric range). Same query methodology as above.
 
-**Vector search latency** (ms/query) - Top-10 nearest neighbor search on high-dimensional embeddings. Reported as median and p95.
+**Vector search latency** (ms/query) - Top-10 nearest-neighbor search on 384-dim embeddings. Reported as median and p95, alongside recall@10 against an exact KNN baseline.
 
 **Memory usage** (MB) - Heap memory consumed by the index after inserting all documents. Measured by diffing `process.memoryUsage().heapUsed` before and after, with forced garbage collection (requires `--expose-gc`).
 
