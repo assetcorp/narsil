@@ -1,6 +1,10 @@
 import os from 'node:os'
 import { BEIR_DATASETS, type BeirDatasetName } from './data/beir'
+import { EMBEDDING_DIM, EMBEDDING_MODEL } from './data/vectors'
 import { downloadAndCacheWiki, loadWikiArticles, type WikiArticle } from './data-wiki'
+import { SEARCH_REPEAT_ROUNDS, SEARCH_WARMUP_ROUNDS } from './measure'
+import { printConsistencyReport } from './print'
+import { runConsistencyCheck } from './runner/consistency'
 import type { EngineId } from './runner/jobs'
 import { ProgressStore } from './runner/progress'
 import { prepareRunArtifact } from './runner/run-paths'
@@ -13,13 +17,7 @@ import type { BenchmarkOutput } from './types'
 const DEFAULT_RELEVANCE_DATASET: BeirDatasetName = 'scifact'
 
 const SCALES = [1_000, 10_000, 50_000, 100_000]
-const VECTOR_SCALES_BY_DIM: Record<number, number[]> = {
-  1536: [10_000, 50_000, 100_000],
-  3072: [10_000, 50_000],
-}
-const VECTOR_DIMS = [1536, 3072]
-const VECTOR_SCALES = [10_000, 50_000, 100_000]
-const VECTOR_DIM = 1536
+const VECTOR_DATASETS: BeirDatasetName[] = ['scifact', 'nfcorpus']
 const SEED = 42
 const SEARCH_QUERY_COUNT = 100
 const WIKI_MAX_ARTICLES = 100_000
@@ -27,8 +25,8 @@ const WIKI_MAX_ARTICLES = 100_000
 const ENGINE_ORDER: EngineId[] = ['narsil', 'orama', 'minisearch']
 const VECTOR_ENGINE_ORDER: EngineId[] = ['narsil', 'orama']
 
-type TierName = 'text' | 'full' | 'vector' | 'serial' | 'mutation' | 'relevance'
-const ALL_TIERS: TierName[] = ['text', 'full', 'vector', 'serial', 'mutation', 'relevance']
+type TierName = 'text' | 'full' | 'vector' | 'serial' | 'mutation' | 'relevance' | 'consistency'
+const ALL_TIERS: TierName[] = ['text', 'full', 'vector', 'serial', 'mutation', 'relevance', 'consistency']
 
 // Tiers that read the Wikipedia corpus; a run without any of them skips the corpus load.
 const WIKI_TIERS: TierName[] = ['text', 'full', 'serial', 'mutation']
@@ -107,17 +105,20 @@ async function main() {
     timestamp: new Date().toISOString(),
     config: {
       scales: activeScales,
-      vectorScales: VECTOR_SCALES,
-      vectorDimension: VECTOR_DIM,
+      vectorModel: EMBEDDING_MODEL,
+      vectorDimension: EMBEDDING_DIM,
+      vectorDatasets: VECTOR_DATASETS,
       insertIterations: 5,
       warmupIterations: 2,
+      searchWarmupRounds: SEARCH_WARMUP_ROUNDS,
+      searchRepeatRounds: SEARCH_REPEAT_ROUNDS,
       searchQueryCount: SEARCH_QUERY_COUNT,
       seed: SEED,
       dataSource: 'wiki',
       wikiArticleCount: needsWiki ? articles.length : undefined,
     },
     engines: engineVersions,
-    tiers: { textOnly: {}, fullSchema: {}, vector: {} },
+    tiers: { textOnly: {}, fullSchema: {} },
   }
   const store = new ProgressStore({ outputPath, initial })
   store.flush()
@@ -155,20 +156,13 @@ async function main() {
   }
 
   if (tiers.has('vector')) {
-    for (const dim of VECTOR_DIMS) {
-      const scales = VECTOR_SCALES_BY_DIM[dim] ?? [10_000, 50_000]
-      await runVectorTier(
-        {
-          engines: buildEngineMetas(engineVersions, VECTOR_ENGINE_ORDER),
-          scales,
-          dimension: dim,
-          seed: SEED,
-          searchQueryCount: SEARCH_QUERY_COUNT,
-        },
-        store,
-      )
-    }
-    store.promoteVectorPrimary(VECTOR_DIMS[0])
+    await runVectorTier(
+      {
+        engines: buildEngineMetas(engineVersions, VECTOR_ENGINE_ORDER),
+        datasets: VECTOR_DATASETS,
+      },
+      store,
+    )
   }
 
   if (tiers.has('serial')) {
@@ -206,6 +200,11 @@ async function main() {
       },
       store,
     )
+  }
+
+  if (tiers.has('consistency')) {
+    const report = await runConsistencyCheck(relevanceDataset, ENGINE_ORDER, store)
+    if (report) printConsistencyReport(report)
   }
 
   store.flush()

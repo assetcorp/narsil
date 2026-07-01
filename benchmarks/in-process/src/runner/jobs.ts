@@ -4,7 +4,7 @@ import type {
   RelevanceQualityResult,
   ScaleResult,
   SerializationResult,
-  VectorScaleResult,
+  VectorRelevanceResult,
 } from '../types'
 
 export type EngineId = 'narsil' | 'orama' | 'minisearch'
@@ -27,10 +27,7 @@ export interface TextJobSpec {
 export interface VectorJobSpec {
   kind: 'vector'
   engine: EngineId
-  scale: number
-  dimension: number
-  seed: number
-  searchQueryCount: number
+  dataset: BeirDatasetName
 }
 
 export interface SerializationJobSpec {
@@ -65,7 +62,7 @@ export interface JobSuccessText {
 
 export interface JobSuccessVector {
   kind: 'vector'
-  result: VectorScaleResult
+  result: VectorRelevanceResult
 }
 
 export interface JobSuccessSerialization {

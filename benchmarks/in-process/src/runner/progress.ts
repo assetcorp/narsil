@@ -1,19 +1,16 @@
 import type {
   BenchmarkOutput,
+  ConsistencyReport,
   MutationResult,
   RelevanceDatasetInfo,
   RelevanceQualityResult,
   ScaleResult,
   SerializationResult,
-  VectorScaleResult,
+  VectorRelevanceResult,
 } from '../types'
 import { writeJsonAtomicSync } from './atomic-write'
 
-interface BenchmarkOutputExtras {
-  vectorByDimension?: Record<number, Record<string, Record<number, VectorScaleResult>>>
-}
-
-export type LiveBenchmarkOutput = BenchmarkOutput & BenchmarkOutputExtras
+export type LiveBenchmarkOutput = BenchmarkOutput
 
 export interface ProgressStoreOptions {
   outputPath: string
@@ -21,14 +18,6 @@ export interface ProgressStoreOptions {
 }
 
 function ensureRecord<V>(parent: Record<string, V>, key: string, factory: () => V): V {
-  const existing = parent[key]
-  if (existing !== undefined) return existing
-  const created = factory()
-  parent[key] = created
-  return created
-}
-
-function ensureNumericKeyed<V>(parent: Record<number, V>, key: number, factory: () => V): V {
   const existing = parent[key]
   if (existing !== undefined) return existing
   const created = factory()
@@ -47,20 +36,10 @@ function ensureScaleBucket(
   return created
 }
 
-function ensureVectorBucket(state: BenchmarkOutput): Record<string, Record<number, VectorScaleResult>> {
-  const current = state.tiers.vector
-  if (current !== undefined) return current
-  const created: Record<string, Record<number, VectorScaleResult>> = {}
-  state.tiers.vector = created
-  return created
-}
-
-function ensureVectorByDimension(
-  state: LiveBenchmarkOutput,
-): Record<number, Record<string, Record<number, VectorScaleResult>>> {
-  if (state.vectorByDimension !== undefined) return state.vectorByDimension
-  const created: Record<number, Record<string, Record<number, VectorScaleResult>>> = {}
-  state.vectorByDimension = created
+function ensureVectorRelevanceBucket(state: BenchmarkOutput): Record<string, Record<string, VectorRelevanceResult>> {
+  if (state.vectorRelevance !== undefined) return state.vectorRelevance
+  const created: Record<string, Record<string, VectorRelevanceResult>> = {}
+  state.vectorRelevance = created
   return created
 }
 
@@ -109,19 +88,10 @@ export class ProgressStore {
     this.flush()
   }
 
-  setVectorScale(engine: string, scale: number, dimension: number, result: VectorScaleResult): void {
-    const primary = ensureVectorBucket(this.state)
-    const primaryBucket = ensureRecord(primary, engine, () => ({}) as Record<number, VectorScaleResult>)
-    primaryBucket[scale] = result
-
-    const byDim = ensureVectorByDimension(this.state)
-    const dimBucket = ensureNumericKeyed(
-      byDim,
-      dimension,
-      () => ({}) as Record<string, Record<number, VectorScaleResult>>,
-    )
-    const dimEngineBucket = ensureRecord(dimBucket, engine, () => ({}) as Record<number, VectorScaleResult>)
-    dimEngineBucket[scale] = result
+  setVectorRelevance(engine: string, dataset: string, result: VectorRelevanceResult): void {
+    const bucket = ensureVectorRelevanceBucket(this.state)
+    const engineBucket = ensureRecord(bucket, engine, () => ({}) as Record<string, VectorRelevanceResult>)
+    engineBucket[dataset] = result
     this.flush()
   }
 
@@ -148,12 +118,8 @@ export class ProgressStore {
     this.flush()
   }
 
-  promoteVectorPrimary(dimension: number): void {
-    const byDim = this.state.vectorByDimension
-    if (!byDim) return
-    const dimBucket = byDim[dimension]
-    if (!dimBucket) return
-    this.state.tiers.vector = dimBucket
+  setConsistency(report: ConsistencyReport): void {
+    this.state.consistency = report
     this.flush()
   }
 }

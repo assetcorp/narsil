@@ -1,3 +1,4 @@
+import { recallAtK } from './data/knn'
 import { median, tryGc } from './stats'
 import type {
   BenchDocument,
@@ -12,6 +13,39 @@ import type {
 const INSERT_ITERATIONS = 5
 const WARMUP_ITERATIONS = 2
 const VECTOR_K = 10
+
+export const SEARCH_WARMUP_ROUNDS = 2
+export const SEARCH_REPEAT_ROUNDS = 5
+const MUTATION_SEARCH_QUERY_COUNT = 50
+
+function nowNs(): bigint {
+  return process.hrtime.bigint()
+}
+
+// Mirrors the server suite's latency methodology: discard `warmupRounds` full
+// passes over every item, then time each item individually across `repeatRounds`
+// more passes and pool the samples. Per-item nanosecond timing keeps sub-millisecond
+// queries measurable, and pooling repeatRounds*items samples makes the reported
+// percentiles stable where a single pass per query left the tail dominated by noise.
+async function measureLatencyMs<T>(
+  items: readonly T[],
+  runOne: (item: T) => Promise<unknown>,
+  warmupRounds = SEARCH_WARMUP_ROUNDS,
+  repeatRounds = SEARCH_REPEAT_ROUNDS,
+): Promise<number[]> {
+  for (let round = 0; round < warmupRounds; round++) {
+    for (const item of items) await runOne(item)
+  }
+  const samples: number[] = []
+  for (let round = 0; round < repeatRounds; round++) {
+    for (const item of items) {
+      const start = nowNs()
+      await runOne(item)
+      samples.push(Number(nowNs() - start) / 1_000_000)
+    }
+  }
+  return samples
+}
 
 export async function measureInsert<T>(
   engine: { create(): Promise<void>; insert(docs: T[]): Promise<void>; teardown(): Promise<void> },
@@ -36,21 +70,9 @@ export async function measureSearch(
 ): Promise<number[]> {
   await engine.create()
   await engine.insert(documents)
-
-  for (const query of queries.slice(0, 10)) {
-    await engine.search(query)
-  }
-
-  const times: number[] = []
-  for (const query of queries) {
-    const start = performance.now()
-    await engine.search(query)
-    const elapsed = performance.now() - start
-    times.push(elapsed)
-  }
-
+  const samples = await measureLatencyMs(queries, q => engine.search(q))
   await engine.teardown()
-  return times
+  return samples
 }
 
 export async function measureSearchTermMatchAll(
@@ -58,24 +80,13 @@ export async function measureSearchTermMatchAll(
   documents: BenchDocument[],
   queries: string[],
 ): Promise<number[]> {
-  if (!engine.searchTermMatchAll) return []
+  const runOne = engine.searchTermMatchAll
+  if (!runOne) return []
   await engine.create()
   await engine.insert(documents)
-
-  for (const query of queries.slice(0, 10)) {
-    await engine.searchTermMatchAll(query)
-  }
-
-  const times: number[] = []
-  for (const query of queries) {
-    const start = performance.now()
-    await engine.searchTermMatchAll(query)
-    const elapsed = performance.now() - start
-    times.push(elapsed)
-  }
-
+  const samples = await measureLatencyMs(queries, q => runOne.call(engine, q))
   await engine.teardown()
-  return times
+  return samples
 }
 
 export async function measureFilteredSearch(
@@ -83,24 +94,13 @@ export async function measureFilteredSearch(
   documents: BenchDocument[],
   queries: string[],
 ): Promise<number[]> {
-  if (!engine.searchWithFilter) return []
+  const runOne = engine.searchWithFilter
+  if (!runOne) return []
   await engine.create()
   await engine.insert(documents)
-
-  for (const query of queries.slice(0, 10)) {
-    await engine.searchWithFilter(query)
-  }
-
-  const times: number[] = []
-  for (const query of queries) {
-    const start = performance.now()
-    await engine.searchWithFilter(query)
-    const elapsed = performance.now() - start
-    times.push(elapsed)
-  }
-
+  const samples = await measureLatencyMs(queries, q => runOne.call(engine, q))
   await engine.teardown()
-  return times
+  return samples
 }
 
 export async function measureVectorSearch(
@@ -110,21 +110,27 @@ export async function measureVectorSearch(
 ): Promise<number[]> {
   await engine.create()
   await engine.insert(documents)
-
-  for (const qv of queryVectors.slice(0, 10)) {
-    await engine.searchVector(qv, VECTOR_K)
-  }
-
-  const times: number[] = []
-  for (const qv of queryVectors) {
-    const start = performance.now()
-    await engine.searchVector(qv, VECTOR_K)
-    const elapsed = performance.now() - start
-    times.push(elapsed)
-  }
-
+  const samples = await measureLatencyMs(queryVectors, qv => engine.searchVector(qv, VECTOR_K))
   await engine.teardown()
-  return times
+  return samples
+}
+
+export async function measureVectorRecall(
+  engine: VectorSearchEngine,
+  documents: VectorBenchDocument[],
+  queryVectors: number[][],
+  groundTruth: string[][],
+  k: number,
+): Promise<number> {
+  await engine.create()
+  await engine.insert(documents)
+  let sum = 0
+  for (let i = 0; i < queryVectors.length; i++) {
+    const ids = await engine.searchVectorWithIds(queryVectors[i], k)
+    sum += recallAtK(ids, groundTruth[i])
+  }
+  await engine.teardown()
+  return queryVectors.length > 0 ? sum / queryVectors.length : 0
 }
 
 export async function measureMemory<T>(
@@ -198,12 +204,7 @@ export async function measureMutations(
   const removeMs = performance.now() - removeStart
   const removeDocsPerSec = Math.round(removeCount / (removeMs / 1000))
 
-  const searchTimes: number[] = []
-  for (const q of queries.slice(0, 50)) {
-    const s = performance.now()
-    await engine.search(q)
-    searchTimes.push(performance.now() - s)
-  }
+  const searchSamples = await measureLatencyMs(queries.slice(0, MUTATION_SEARCH_QUERY_COUNT), q => engine.search(q))
 
   const reinsertDocs = documents.slice(documents.length - removeCount).map((d, i) => ({
     ...d,
@@ -219,7 +220,7 @@ export async function measureMutations(
   return {
     removeDocsPerSec,
     removeMedianMs: removeMs,
-    searchAfterRemoveMedianMs: median(searchTimes),
+    searchAfterRemoveMedianMs: median(searchSamples),
     reinsertDocsPerSec: Math.round(removeCount / (reinsertMs / 1000)),
   }
 }

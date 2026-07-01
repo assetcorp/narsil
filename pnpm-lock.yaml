@@ -23,6 +23,12 @@ importers:
       '@delali/narsil':
         specifier: workspace:*
         version: link:../../packages/ts
+      '@delali/narsil-embeddings-transformers':
+        specifier: workspace:*
+        version: link:../../packages/embeddings-transformers
+      '@huggingface/transformers':
+        specifier: 3.8.1
+        version: 3.8.1
       '@orama/orama':
         specifier: 3.1.18
         version: 3.1.18

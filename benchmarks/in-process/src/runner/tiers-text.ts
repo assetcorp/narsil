@@ -1,4 +1,4 @@
-import { printScaleTable, printSpeedupTable, printVarianceWarnings } from '../print'
+import { printFilteredSearchTable, printScaleTable, printSpeedupTable, printVarianceWarnings } from '../print'
 import { fmt, fmtPct } from '../stats'
 import type { ScaleResult } from '../types'
 import { formatFailureLine, makeScaleErrorRecord } from './error-records'
@@ -71,8 +71,12 @@ export async function runTextTier(
       console.log(
         `    insert: ${fmt(r.insertDocsPerSec)} docs/sec (median ${r.insertMedianMs.toFixed(1)}ms, CV=${fmtPct(r.insertCV)})`,
       )
+      const sl = r.searchLatency
       console.log(
-        `    search: ${r.searchMedianMs.toFixed(3)}ms median, ${r.searchP95Ms.toFixed(3)}ms p95, CV=${fmtPct(r.searchCV)}`,
+        sl
+          ? `    search: p50 ${sl.p50Ms.toFixed(3)}ms, p95 ${sl.p95Ms.toFixed(3)}ms, p99 ${sl.p99Ms.toFixed(3)}ms, ` +
+              `95% CI [${sl.ciLowerMs.toFixed(3)}, ${sl.ciUpperMs.toFixed(3)}]ms, n=${sl.samples}`
+          : `    search: ${r.searchMedianMs.toFixed(3)}ms median, ${r.searchP95Ms.toFixed(3)}ms p95, CV=${fmtPct(r.searchCV)}`,
       )
       if (r.searchAllTermsMedianMs !== undefined) {
         console.log(
@@ -100,10 +104,16 @@ function printSummary(config: TextTierConfig, results: Record<string, Record<num
   const scales = config.scales
 
   printScaleTable('Insert Throughput (docs/sec)', scales, results, enginesMeta, r => fmt(r.insertDocsPerSec))
-  printScaleTable('Search Latency (ms)', scales, results, enginesMeta, r => {
+  printScaleTable('Search Latency p50 ms (p95 / p99)', scales, results, enginesMeta, r => {
     const sr = r as ScaleResult
+    const sl = sr.searchLatency
+    if (sl) return `${sl.p50Ms.toFixed(3)} (${sl.p95Ms.toFixed(3)} / ${sl.p99Ms.toFixed(3)})`
     return `${sr.searchMedianMs.toFixed(3)} (p95: ${sr.searchP95Ms.toFixed(3)})`
   })
+  console.log(
+    '\n> Caveat: MiniSearch ranks and returns all matching documents, while Narsil and Orama return the top 10. ' +
+      'Plain-search latency above is not directly comparable across these engines on this tier.',
+  )
 
   const allTermsEngines = enginesMeta.filter(e =>
     scales.some(s => (results[e.name]?.[s] as ScaleResult | undefined)?.searchAllTermsMedianMs !== undefined),
@@ -116,15 +126,11 @@ function printSummary(config: TextTierConfig, results: Record<string, Record<num
     })
   }
 
-  const filteredEngines = enginesMeta.filter(e =>
+  const anyFilterCapable = enginesMeta.some(e =>
     scales.some(s => (results[e.name]?.[s] as ScaleResult | undefined)?.filteredSearchMedianMs !== undefined),
   )
-  if (filteredEngines.length > 0) {
-    printScaleTable('Filtered Search Latency (ms)', scales, results, filteredEngines, r => {
-      const sr = r as ScaleResult
-      if (sr.filteredSearchMedianMs === undefined) return 'n/a'
-      return `${sr.filteredSearchMedianMs.toFixed(3)} (p95: ${sr.filteredSearchP95Ms?.toFixed(3) ?? 'n/a'})`
-    })
+  if (anyFilterCapable) {
+    printFilteredSearchTable(scales, results, enginesMeta)
   }
 
   printScaleTable('Memory (MB)', scales, results, enginesMeta, r => r.memoryMb.toFixed(1))
@@ -132,9 +138,12 @@ function printSummary(config: TextTierConfig, results: Record<string, Record<num
     const sr = r as ScaleResult
     return sr.insertCV > 0.1 ? `${fmtPct(sr.insertCV)} [!]` : fmtPct(sr.insertCV)
   })
-  printScaleTable('Search CV', scales, results, enginesMeta, r => {
-    const sr = r as ScaleResult
-    return sr.searchCV > 0.1 ? `${fmtPct(sr.searchCV)} [!]` : fmtPct(sr.searchCV)
+  printScaleTable('Search Latency median 95% CI (ms)', scales, results, enginesMeta, r => {
+    const sl = (r as ScaleResult).searchLatency
+    if (!sl || sl.p50Ms <= 0) return 'n/a'
+    const widthPct = (sl.ciUpperMs - sl.ciLowerMs) / sl.p50Ms
+    const flag = widthPct > 0.25 ? ' [!]' : ''
+    return `[${sl.ciLowerMs.toFixed(3)}, ${sl.ciUpperMs.toFixed(3)}]${flag}`
   })
 
   for (const scale of scales) {

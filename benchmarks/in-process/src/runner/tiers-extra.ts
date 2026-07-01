@@ -3,6 +3,7 @@ import { printMutationTable, printRelevanceQualityTable, printSerializationTable
 import { fmt } from '../stats'
 import type { MutationResult, RelevanceQualityResult, SerializationResult } from '../types'
 import {
+  describeSerializationLimit,
   formatFailureLine,
   makeMutationErrorRecord,
   makeRelevanceErrorRecord,
@@ -58,8 +59,14 @@ export async function runSerializationTier(
     })
     if (outcome.outcome.kind === 'failure') {
       const failure = outcome.outcome.failure
-      const record = makeSerializationErrorRecord(failure)
-      console.log(`    ERROR ${formatFailureLine(failure)}`)
+      const limit = describeSerializationLimit(failure)
+      const labeledFailure = limit ? { ...failure, message: `${limit} (underlying: ${failure.message})` } : failure
+      const record = makeSerializationErrorRecord(labeledFailure)
+      if (limit) {
+        console.log(`    capability limit: ${limit}`)
+      } else {
+        console.log(`    ERROR ${formatFailureLine(failure)}`)
+      }
       results[engineMeta.name] = record
       store.setSerialization(engineMeta.name, record)
       continue
