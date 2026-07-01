@@ -1,0 +1,30 @@
+{
+  "name": "benchmarks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "node --expose-gc --import tsx src/run.ts",
+    "beir:update-pins": "node --import tsx src/data/beir/update-pins.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@delali/narsil": "workspace:*",
+    "@delali/narsil-embeddings-transformers": "workspace:*",
+    "@huggingface/transformers": "3.8.1",
+    "@orama/orama": "3.1.18",
+    "fflate": "0.8.3",
+    "minisearch": "7.2.0",
+    "stemmer": "2.0.1",
+    "tsx": "4.21.0",
+    "unbzip2-stream": "1.4.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.4",
+    "@types/node": "22.15.18",
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
+  }
+}

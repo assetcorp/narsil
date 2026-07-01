@@ -7,6 +7,7 @@ export interface FilesystemPersistenceConfig {
 
 type FsModule = typeof import('node:fs/promises')
 type PathModule = typeof import('node:path')
+type FileHandle = import('node:fs/promises').FileHandle
 
 let cachedFs: FsModule | null = null
 let cachedPath: PathModule | null = null
@@ -42,6 +43,26 @@ async function resolveAndGuard(baseDir: string, key: string): Promise<string> {
   }
 
   return resolvedPath
+}
+
+async function fsyncDirectory(dirPath: string, fs: FsModule): Promise<void> {
+  let handle: FileHandle | null = null
+  try {
+    handle = await fs.open(dirPath, 'r')
+    await handle.sync()
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'EISDIR' || code === 'EPERM' || code === 'EINVAL' || code === 'ENOTSUP') {
+      return
+    }
+    throw new NarsilError(ErrorCodes.PERSISTENCE_FSYNC_FAILED, `fsync failed for directory "${dirPath}"`, {
+      cause: err instanceof Error ? err.message : String(err),
+    })
+  } finally {
+    if (handle !== null) {
+      await handle.close().catch(() => undefined)
+    }
+  }
 }
 
 async function listDirectoryRecursive(
@@ -90,13 +111,39 @@ export function createFilesystemPersistence(config: FilesystemPersistenceConfig)
   const baseDir = config.directory
 
   return {
+    directory: baseDir,
     async save(key: string, data: Uint8Array): Promise<void> {
       const resolvedPath = await resolveAndGuard(baseDir, key)
       const fs = await getFs()
       const pathMod = await getPath()
       const dir = pathMod.dirname(resolvedPath)
       await fs.mkdir(dir, { recursive: true })
-      await fs.writeFile(resolvedPath, data)
+
+      const tempName = `${pathMod.basename(resolvedPath)}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      const tempPath = pathMod.join(dir, tempName)
+      let handle: FileHandle | null = null
+      try {
+        handle = await fs.open(tempPath, 'w')
+        await handle.write(data)
+        try {
+          await handle.sync()
+        } catch (err: unknown) {
+          throw new NarsilError(ErrorCodes.PERSISTENCE_FSYNC_FAILED, `fsync failed for "${key}"`, {
+            key,
+            cause: err instanceof Error ? err.message : String(err),
+          })
+        }
+        await handle.close()
+        handle = null
+        await fs.rename(tempPath, resolvedPath)
+        await fsyncDirectory(dir, fs)
+      } catch (err: unknown) {
+        if (handle !== null) {
+          await handle.close().catch(() => undefined)
+        }
+        await fs.unlink(tempPath).catch(() => undefined)
+        throw err
+      }
     },
 
     async load(key: string): Promise<Uint8Array | null> {

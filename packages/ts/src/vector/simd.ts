@@ -103,3 +103,52 @@ export function simdSquaredEuclideanDistance(a: Float32Array, b: Float32Array): 
 export function isSimdAvailable(): boolean {
   return wasmExports !== null
 }
+
+export interface ArenaSimd {
+  memory: WebAssembly.Memory
+  dot_product: (ptrA: number, ptrB: number, len: number) => number
+  squared_euclidean_distance: (ptrA: number, ptrB: number, len: number) => number
+  dot_u8: (ptrA: number, ptrB: number, len: number) => number
+  sqdist_u8: (ptrA: number, ptrB: number, len: number) => number
+}
+
+let arenaModule: WebAssembly.Module | null | undefined
+
+function getArenaModule(): WebAssembly.Module | null {
+  if (arenaModule !== undefined) return arenaModule
+  try {
+    const bytes = decodeBase64(SIMD_DISTANCE_WASM_BASE64)
+    const wasmBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+    if (
+      typeof WebAssembly === 'undefined' ||
+      typeof WebAssembly.validate !== 'function' ||
+      !WebAssembly.validate(wasmBuffer)
+    ) {
+      arenaModule = null
+      return null
+    }
+    arenaModule = new WebAssembly.Module(wasmBuffer)
+  } catch {
+    arenaModule = null
+  }
+  return arenaModule
+}
+
+export function createArenaSimd(): ArenaSimd | null {
+  try {
+    const module = getArenaModule()
+    if (module === null) return null
+    const instance = new WebAssembly.Instance(module)
+    const exports = instance.exports as unknown as ArenaSimd
+    if (
+      typeof exports.dot_u8 !== 'function' ||
+      typeof exports.sqdist_u8 !== 'function' ||
+      !(exports.memory instanceof WebAssembly.Memory)
+    ) {
+      return null
+    }
+    return exports
+  } catch {
+    return null
+  }
+}

@@ -19,4 +19,7 @@ export type NarsilEventMap = {
     oldCount: number
     newCount: number
   }
+  durabilityError: {
+    error: Error
+  }
 }

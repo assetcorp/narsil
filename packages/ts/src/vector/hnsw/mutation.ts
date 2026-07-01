@@ -1,211 +1,273 @@
 import { nearestFromHeap, pruneConnections, searchLayer, selectNeighborsHeuristic } from './graph-ops'
-import { type DistancePair, type HNSWGraphState, type HNSWNode, maxConns, nodeDistance, randomLevel } from './shared'
+import {
+  addConnection,
+  type DistancePair,
+  ensureCapacity,
+  type HNSWGraphState,
+  type HNSWNode,
+  maxConns,
+  nodeDistanceByOrd,
+  randomLevel,
+} from './shared'
+
+function removeFromArray(arr: number[], ord: number): void {
+  const idx = arr.indexOf(ord)
+  if (idx !== -1) arr.splice(idx, 1)
+}
+
+function clearTombstone(state: HNSWGraphState, ord: number): void {
+  if (state.tombstones[ord] === 1) {
+    state.tombstones[ord] = 0
+    state.tombstoneCount--
+  }
+}
+
+function reassignEntryPoint(state: HNSWGraphState): void {
+  let bestOrd = -1
+  let bestLayer = -1
+  for (let ord = 0; ord < state.nodesByOrd.length; ord++) {
+    const n = state.nodesByOrd[ord]
+    if (!n) continue
+    if (state.tombstones[ord] === 1) continue
+    if (n.maxLayer > bestLayer) {
+      bestLayer = n.maxLayer
+      bestOrd = ord
+    }
+  }
+  if (bestOrd === -1) {
+    for (let ord = 0; ord < state.nodesByOrd.length; ord++) {
+      const n = state.nodesByOrd[ord]
+      if (!n) continue
+      if (n.maxLayer > bestLayer) {
+        bestLayer = n.maxLayer
+        bestOrd = ord
+      }
+    }
+  }
+  state.entryPointOrd = bestOrd
+  state.topLayer = bestOrd === -1 ? -1 : bestLayer
+}
 
 export function insertNode(state: HNSWGraphState, docId: string): void {
-  const vecEntry = state.store.get(docId)
-  if (!vecEntry) {
+  const ord = state.store.getOrdinal(docId)
+  if (ord === undefined) {
     throw new Error(`Cannot insert HNSW node: vector for "${docId}" not found in VectorStore`)
   }
-
-  if (vecEntry.vector.length !== state.dimension) {
-    throw new Error(`Vector dimension mismatch: expected ${state.dimension}, got ${vecEntry.vector.length}`)
+  const entry = state.store.entryForOrdinal(ord)
+  if (!entry) {
+    throw new Error(`Cannot insert HNSW node: vector for "${docId}" not found in VectorStore`)
+  }
+  if (entry.vector.length !== state.dimension) {
+    throw new Error(`Vector dimension mismatch: expected ${state.dimension}, got ${entry.vector.length}`)
   }
 
-  if (state.nodes.has(docId)) {
-    removeNodeEager(state, docId)
+  ensureCapacity(state, ord + 1)
+
+  if (state.nodesByOrd[ord] !== undefined) {
+    removeNodeEager(state, ord)
   }
 
-  state.tombstones.delete(docId)
+  clearTombstone(state, ord)
   const l = randomLevel(state.mL)
 
   const node: HNSWNode = {
-    docId,
     maxLayer: l,
-    connections: Array.from({ length: l + 1 }, () => new Set<string>()),
+    connections: Array.from({ length: l + 1 }, () => [] as number[]),
   }
 
-  state.nodes.set(docId, node)
+  state.nodesByOrd[ord] = node
+  state.nodeCount++
 
-  if (state.entryPointId === null) {
-    state.entryPointId = docId
+  if (state.entryPointOrd === -1) {
+    state.entryPointOrd = ord
     state.topLayer = l
     return
   }
 
   const metric = state.buildMetric
-  let currentEPs = [state.entryPointId]
+  const insertDistFn = (candOrd: number) => nodeDistanceByOrd(state, ord, candOrd, metric)
+  let currentEPs = [state.entryPointOrd]
 
   for (let layer = state.topLayer; layer > l; layer--) {
-    const heap = searchLayer(state, vecEntry.vector, vecEntry.magnitude, currentEPs, 1, layer, metric, false)
+    const heap = searchLayer(state, entry.vector, entry.magnitude, currentEPs, 1, layer, metric, false, insertDistFn)
     const nearest = nearestFromHeap(heap)
     if (nearest) {
-      currentEPs = [nearest.docId]
+      currentEPs = [nearest.ord]
     }
   }
 
   for (let layer = Math.min(l, state.topLayer); layer >= 0; layer--) {
-    const heap = searchLayer(state, vecEntry.vector, vecEntry.magnitude, currentEPs, state.efCons, layer, metric, false)
+    const heap = searchLayer(
+      state,
+      entry.vector,
+      entry.magnitude,
+      currentEPs,
+      state.efCons,
+      layer,
+      metric,
+      false,
+      insertDistFn,
+    )
     const candidates = heap.toSortedArray().reverse()
     const mc = maxConns(state, layer)
-    const neighbors = selectNeighborsHeuristic(state, docId, candidates, mc, layer, metric, false, true)
+    const neighbors = selectNeighborsHeuristic(state, ord, candidates, mc, layer, metric, false, true)
 
     for (const neighbor of neighbors) {
-      node.connections[layer].add(neighbor.docId)
-      const neighborNode = state.nodes.get(neighbor.docId)
+      addConnection(node.connections[layer], neighbor.ord)
+      const neighborNode = state.nodesByOrd[neighbor.ord]
       if (neighborNode && layer < neighborNode.connections.length) {
-        neighborNode.connections[layer].add(docId)
-        pruneConnections(state, neighbor.docId, layer, metric)
+        addConnection(neighborNode.connections[layer], ord)
+        pruneConnections(state, neighbor.ord, layer, metric)
       }
     }
 
     if (candidates.length > 0) {
-      currentEPs = candidates.map(n => n.docId)
+      currentEPs = candidates.map(n => n.ord)
     }
   }
 
   if (l > state.topLayer) {
-    state.entryPointId = docId
+    state.entryPointOrd = ord
     state.topLayer = l
   }
 }
 
-export function removeNodeEager(state: HNSWGraphState, docId: string, excludeDocIds?: Set<string>): void {
-  const node = state.nodes.get(docId)
+export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?: Set<number>): void {
+  const node = state.nodesByOrd[ord]
   if (!node) return
 
   const metric = state.buildMetric
 
   for (let layer = 0; layer <= node.maxLayer; layer++) {
     if (layer >= node.connections.length) continue
-    const formerNeighborIds = new Set(node.connections[layer])
+    const formerNeighbors = [...node.connections[layer]]
 
-    for (const neighborId of formerNeighborIds) {
-      const neighborNode = state.nodes.get(neighborId)
+    for (const neighborOrd of formerNeighbors) {
+      const neighborNode = state.nodesByOrd[neighborOrd]
       if (neighborNode && layer < neighborNode.connections.length) {
-        neighborNode.connections[layer].delete(docId)
+        removeFromArray(neighborNode.connections[layer], ord)
       }
     }
 
-    for (const neighborId of formerNeighborIds) {
-      const neighborNode = state.nodes.get(neighborId)
+    for (const neighborOrd of formerNeighbors) {
+      const neighborNode = state.nodesByOrd[neighborOrd]
       if (!neighborNode || layer >= neighborNode.connections.length) continue
 
       const mc = maxConns(state, layer)
-      if (neighborNode.connections[layer].size >= mc) continue
+      if (neighborNode.connections[layer].length >= mc) continue
 
-      const candidateIds = new Set(neighborNode.connections[layer])
-      for (const otherId of formerNeighborIds) {
-        if (otherId !== neighborId && otherId !== docId) {
-          if (excludeDocIds?.has(otherId)) continue
-          candidateIds.add(otherId)
+      const candidateOrds = new Set<number>(neighborNode.connections[layer])
+      for (const otherOrd of formerNeighbors) {
+        if (otherOrd !== neighborOrd && otherOrd !== ord) {
+          if (excludeOrds?.has(otherOrd)) continue
+          candidateOrds.add(otherOrd)
         }
       }
 
       const candidates: DistancePair[] = []
-      for (const candId of candidateIds) {
-        const dist = nodeDistance(state, neighborId, candId, metric)
+      for (const candOrd of candidateOrds) {
+        const dist = nodeDistanceByOrd(state, neighborOrd, candOrd, metric)
         if (dist === Number.POSITIVE_INFINITY) continue
-        candidates.push({ docId: candId, distance: dist })
+        candidates.push({ ord: candOrd, distance: dist })
       }
 
-      const selected = selectNeighborsHeuristic(state, neighborId, candidates, mc, layer, metric, false, true)
-      const newConns = new Set(selected.map(s => s.docId))
+      const selected = selectNeighborsHeuristic(state, neighborOrd, candidates, mc, layer, metric, false, true)
+      const newConns: number[] = []
+      for (const s of selected) addConnection(newConns, s.ord)
       neighborNode.connections[layer] = newConns
 
-      for (const newConnId of newConns) {
-        const newConnNode = state.nodes.get(newConnId)
+      for (const newConnOrd of newConns) {
+        const newConnNode = state.nodesByOrd[newConnOrd]
         if (newConnNode && layer < newConnNode.connections.length) {
-          newConnNode.connections[layer].add(neighborId)
-          pruneConnections(state, newConnId, layer, metric)
+          addConnection(newConnNode.connections[layer], neighborOrd)
+          pruneConnections(state, newConnOrd, layer, metric)
         }
       }
     }
   }
 
-  state.nodes.delete(docId)
+  state.nodesByOrd[ord] = undefined
+  state.nodeCount--
+  clearTombstone(state, ord)
 
-  if (state.entryPointId === docId) {
-    if (state.nodes.size === 0) {
-      state.entryPointId = null
+  if (state.entryPointOrd === ord) {
+    if (state.nodeCount === 0) {
+      state.entryPointOrd = -1
       state.topLayer = -1
       return
     }
-    let newEntryId: string | null = null
-    let newTopLayer = -1
-    for (const [nId, n] of state.nodes) {
-      if (state.tombstones.has(nId)) continue
-      if (n.maxLayer > newTopLayer) {
-        newTopLayer = n.maxLayer
-        newEntryId = nId
-      }
-    }
-    if (newEntryId === null) {
-      for (const [nId, n] of state.nodes) {
-        if (n.maxLayer > newTopLayer) {
-          newTopLayer = n.maxLayer
-          newEntryId = nId
-        }
-      }
-    }
-    state.entryPointId = newEntryId
-    state.topLayer = newTopLayer
+    reassignEntryPoint(state)
   }
 }
 
 export function markTombstone(state: HNSWGraphState, docId: string): void {
-  if (!state.nodes.has(docId)) return
-  state.tombstones.add(docId)
+  const ord = state.store.getOrdinal(docId)
+  if (ord === undefined || state.nodesByOrd[ord] === undefined) return
 
-  if (state.entryPointId === docId) {
-    let newEntryId: string | null = null
-    let newTopLayer = -1
-    for (const [nId, n] of state.nodes) {
-      if (state.tombstones.has(nId)) continue
-      if (n.maxLayer > newTopLayer) {
-        newTopLayer = n.maxLayer
-        newEntryId = nId
+  if (state.tombstones[ord] === 0) {
+    state.tombstones[ord] = 1
+    state.tombstoneCount++
+  }
+
+  if (state.entryPointOrd === ord) {
+    let bestOrd = -1
+    let bestLayer = -1
+    for (let o = 0; o < state.nodesByOrd.length; o++) {
+      const n = state.nodesByOrd[o]
+      if (!n) continue
+      if (state.tombstones[o] === 1) continue
+      if (n.maxLayer > bestLayer) {
+        bestLayer = n.maxLayer
+        bestOrd = o
       }
     }
-    if (newEntryId !== null) {
-      state.entryPointId = newEntryId
-      state.topLayer = newTopLayer
+    if (bestOrd !== -1) {
+      state.entryPointOrd = bestOrd
+      state.topLayer = bestLayer
     } else {
-      state.entryPointId = null
+      state.entryPointOrd = -1
       state.topLayer = -1
     }
   }
 }
 
 export function compactTombstones(state: HNSWGraphState): void {
-  if (state.tombstones.size === 0) return
+  if (state.tombstoneCount === 0) return
 
-  const tombstonedDocIds = Array.from(state.tombstones)
-
-  for (const docId of tombstonedDocIds) {
-    removeNodeEager(state, docId, state.tombstones)
-  }
-
-  state.tombstones.clear()
-}
-
-export function rebuild(state: HNSWGraphState): void {
-  if (state.tombstones.size === 0 && state.nodes.size === 0) return
-
-  const liveDocIds: string[] = []
-  for (const [docId] of state.nodes) {
-    if (!state.tombstones.has(docId)) {
-      liveDocIds.push(docId)
+  const tombstonedOrds: number[] = []
+  for (let ord = 0; ord < state.nodesByOrd.length; ord++) {
+    if (state.tombstones[ord] === 1 && state.nodesByOrd[ord] !== undefined) {
+      tombstonedOrds.push(ord)
     }
   }
 
-  state.nodes.clear()
-  state.tombstones.clear()
-  state.entryPointId = null
+  const excl = new Set<number>(tombstonedOrds)
+  for (const ord of tombstonedOrds) {
+    removeNodeEager(state, ord, excl)
+  }
+}
+
+export function rebuild(state: HNSWGraphState): void {
+  if (state.tombstoneCount === 0 && state.nodeCount === 0) return
+
+  const liveOrds: number[] = []
+  for (let ord = 0; ord < state.nodesByOrd.length; ord++) {
+    if (state.nodesByOrd[ord] !== undefined && state.tombstones[ord] !== 1) {
+      liveOrds.push(ord)
+    }
+  }
+
+  state.nodesByOrd = []
+  state.tombstones.fill(0)
+  state.tombstoneCount = 0
+  state.nodeCount = 0
+  state.entryPointOrd = -1
   state.topLayer = -1
 
-  for (const docId of liveDocIds) {
-    const entry = state.store.get(docId)
-    if (!entry) continue
+  for (const ord of liveOrds) {
+    const docId = state.store.docIdForOrdinal(ord)
+    if (docId === undefined) continue
+    if (state.store.entryForOrdinal(ord) === undefined) continue
     insertNode(state, docId)
   }
 }

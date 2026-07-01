@@ -18,14 +18,23 @@ importers:
         specifier: 22.5.4
         version: 22.5.4
 
-  packages/benchmarks:
+  benchmarks/in-process:
     dependencies:
       '@delali/narsil':
         specifier: workspace:*
-        version: link:../ts
+        version: link:../../packages/ts
+      '@delali/narsil-embeddings-transformers':
+        specifier: workspace:*
+        version: link:../../packages/embeddings-transformers
+      '@huggingface/transformers':
+        specifier: 3.8.1
+        version: 3.8.1
       '@orama/orama':
         specifier: 3.1.18
         version: 3.1.18
+      fflate:
+        specifier: 0.8.3
+        version: 0.8.3
       minisearch:
         specifier: 7.2.0
         version: 7.2.0
@@ -136,6 +145,9 @@ importers:
       typescript:
         specifier: 5.9.3
         version: 5.9.3
+      uWebSockets.js:
+        specifier: github:uNetworking/uWebSockets.js#v20.58.0
+        version: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/ba110e817908b56c61d625b02f367b4ec9cfc8ab
       vitest:
         specifier: 4.0.18
         version: 4.0.18(@types/node@22.15.32)(jiti@2.7.0)(jsdom@28.1.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)
@@ -3717,6 +3729,9 @@ packages:
   fflate@0.8.2:
     resolution: {integrity: sha512-cPJU47OaAoCbg0pBvzsgpTPhmhqI5eJjh/JIu8tPj5q+T7iLvW/JAYUqmE7KOB4R1ZyEhzBaIQpQpardBF5z8A==}
 
+  fflate@0.8.3:
+    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
+
   figures@3.2.0:
     resolution: {integrity: sha512-yaduQFRKLXYOGgEn6AZau90j3ggSOyiqXU0F9JZfeXYhNa+Jk4X+s45A2zg5jns87GAFa34BBm2kXw4XpNcbdg==}
     engines: {node: '>=8'}
@@ -4954,6 +4969,10 @@ packages:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
     hasBin: true
+
+  uWebSockets.js@https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/ba110e817908b56c61d625b02f367b4ec9cfc8ab:
+    resolution: {tarball: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/ba110e817908b56c61d625b02f367b4ec9cfc8ab}
+    version: 20.58.0
 
   ufo@1.6.3:
     resolution: {integrity: sha512-yDJTmhydvl5lJzBmy/hyOAA0d+aqCBuwl818haVdYCRrWV84o7YyeVm4QlVHStqNrrJSTb6jKuFAVqAFsr+K3Q==}
@@ -9056,6 +9075,8 @@ snapshots:
 
   fflate@0.8.2: {}
 
+  fflate@0.8.3: {}
+
   figures@3.2.0:
     dependencies:
       escape-string-regexp: 1.0.5
@@ -10391,6 +10412,8 @@ snapshots:
   typescript@6.0.2: {}
 
   typescript@6.0.3: {}
+
+  uWebSockets.js@https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/ba110e817908b56c61d625b02f367b4ec9cfc8ab: {}
 
   ufo@1.6.3: {}
 

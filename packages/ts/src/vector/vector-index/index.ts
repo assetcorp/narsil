@@ -63,6 +63,7 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     ? { ...config.hnswConfig, m: rawHnswM !== undefined ? Math.max(rawHnswM, 2) : undefined }
     : undefined
   const dimensionScale = dimension / 256
+  const store = createVectorStore()
 
   const state: VectorIndexState = {
     fieldName,
@@ -72,10 +73,10 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     filterThreshold,
     quantizationMode,
     hnswConfig,
-    store: createVectorStore(),
+    store,
     tombstones: new Set<string>(),
     buffer: new Set<string>(),
-    sq8: quantizationMode === 'sq8' ? createScalarQuantizer(dimension) : null,
+    sq8: quantizationMode === 'sq8' ? createScalarQuantizer(dimension, store) : null,
     hnsw: null,
     building: false,
     buildScheduled: false,

@@ -13,6 +13,13 @@ describe('Index Lifecycle Integration', () => {
     await narsil.shutdown()
   })
 
+  it('rejects a field name that cannot be encoded in a segment key at createIndex', async () => {
+    await expect(
+      narsil.createIndex('media', { schema: { title: 'string', 'image-embedding': 'vector[4]' } }),
+    ).rejects.toThrow(/not allowed/)
+    expect(narsil.listIndexes().length).toBe(0)
+  })
+
   it('creates an index, populates it, queries, updates, removes, drops, and shuts down', async () => {
     await narsil.createIndex('products', indexConfig)
 

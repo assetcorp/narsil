@@ -11,7 +11,9 @@
       "!!**/dist",
       "!.claude",
       "!**/results.json",
-      "!packages/benchmarks/runs",
+      "!benchmarks/in-process/results",
+      "!benchmarks/server",
+      "!benchmarks/datasets",
       "!data/**/*.json",
       "!**/fixtures/**/*.json"
     ]

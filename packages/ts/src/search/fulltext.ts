@@ -71,6 +71,9 @@ export function fulltextSearch(
       : undefined
   const maxResults = requestedLimit !== undefined && !needsAllResults ? requestedLimit : undefined
 
+  const collectComponents =
+    params.includeScoreComponents === true || (params.termMatch !== undefined && params.termMatch !== 'any')
+
   const rawResult = partition.searchFulltext({
     queryTokens,
     fields: params.fields,
@@ -83,6 +86,7 @@ export function fulltextSearch(
     maxResults,
     termMatch: params.termMatch,
     filterBitset,
+    collectComponents,
   })
 
   let scored = rawResult.scored

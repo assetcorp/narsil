@@ -1,0 +1,162 @@
+# Keyword-retrieval benchmark configuration.
+#
+# Every engine indexes each corpus as a single concatenated text field
+# (title + body) and is scored identically: the same datasets, the same metrics
+# (nDCG@10, Recall@100, MAP, MRR via pytrec_eval), the same run depth, and the
+# same strictly-decreasing run-file ordering rule.
+#
+# BM25-capable engines (Narsil, Elasticsearch, OpenSearch) use k1=0.9, b=0.4 to
+# match the Anserini/Pyserini "flat" BM25 reference whose nDCG@10 is published
+# per dataset. Typesense and Meilisearch do not implement BM25; each runs its own
+# documented keyword ranking, recorded per engine in the report. Reference
+# source: Pyserini 2CR BEIR (https://castorini.github.io/pyserini/2cr/beir.html),
+# cross-checked against Kamalloo et al., SIGIR 2024 (arXiv:2306.07471).
+
+[bm25]
+k1 = 0.9
+b = 0.4
+
+[retrieval]
+run_depth = 1000
+import_batch = 2000
+
+[fairness]
+# Equal memory ceiling applied identically to every engine container (8 GiB).
+# Recorded here for transparency; enforced by mem_limit in docker-compose.yml.
+# Override for a large-corpus run by setting BENCH_MEM_CAP (for example "40g"),
+# which raises the container limit and the recorded value together so the number
+# in the results always matches what was enforced.
+memory_cap_bytes = 8589934592
+
+[latency]
+warmup = 2
+repeats = 5
+top_k = 10
+
+# Sustained throughput under concurrent load, measured alongside the serial
+# single-query latency above (both are reported; they answer different questions:
+# one query's speed versus how many per second the engine sustains). Throughput
+# runs at the same matched-recall operating point as the latency comparison.
+# `concurrency` is one or more worker counts: a single level gives one QPS number,
+# a list (for example [8, 16, 32]) sweeps the saturation curve. The level used is
+# recorded in every result. Override the levels with BENCH_THROUGHPUT_CONCURRENCY
+# (comma-separated) or disable the whole measurement with BENCH_THROUGHPUT=off.
+# Each level must not exceed the client connection pool (256).
+[throughput]
+enabled = true
+concurrency = [16]
+duration_seconds = 5.0
+warmup_seconds = 1.0
+
+[[datasets]]
+id = "beir/scifact/test"
+baseline_ndcg10 = 0.679
+margin = 0.02
+baseline_source = "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4"
+
+[[datasets]]
+id = "beir/nfcorpus/test"
+baseline_ndcg10 = 0.322
+margin = 0.02
+baseline_source = "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4"
+
+# Large standard IR corpora for the publish phase. They are flagged large, so a
+# default run skips them and the small BEIR suite above still runs on a laptop;
+# select one explicitly (--datasets or BENCH_DATASETS) on a sized machine. See
+# docs/large-datasets.md for VM sizing and the exact commands. MS MARCO is the
+# BEIR in-domain set (dev split, 6,980 queries); the corpus loads from the
+# beir/msmarco parent while queries and qrels come from the dev subset.
+[[datasets]]
+id = "beir/msmarco/dev"
+baseline_ndcg10 = 0.228
+margin = 0.02
+baseline_source = "BEIR (Thakur et al., NeurIPS 2021), Table 2, BM25 nDCG@10 (in-domain dev)"
+large = true
+
+[[datasets]]
+id = "beir/nq"
+baseline_ndcg10 = 0.305
+margin = 0.02
+baseline_source = "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4"
+large = true
+
+# Dense vector and hybrid tracks.
+#
+# One model embeds every corpus and query once; the same vectors feed every
+# engine, so the comparison measures the index, not the embedder. Vectors are
+# L2-normalized in the harness, so cosine and inner product are equivalent and
+# every engine uses cosine. Build-time HNSW parameters are held identical across
+# engines. Latency on the vector track is compared only at a matched ANN recall
+# operating point: the search-time knob is swept upward until the engine clears
+# the recall target against the exact (brute-force) top-k over the same vectors.
+#
+# Model: sentence-transformers/all-MiniLM-L6-v2 (384-dim), the standard small
+# sentence-transformers model and the model Narsil's transformers.js adapter
+# ships (https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2). Computed
+# with fastembed's ONNX export (no PyTorch). Qdrant's hybrid keyword side uses
+# the Qdrant/bm25 sparse model with server-side IDF.
+[vector]
+model = "sentence-transformers/all-MiniLM-L6-v2"
+sparse_model = "Qdrant/bm25"
+dims = 384
+metric = "cosine"
+hnsw_m = 16
+hnsw_ef_construction = 200
+ef_search_grid = [16, 32, 64, 128, 256, 512]
+# Best-config (recommended-production) runs enable each engine's own quantization,
+# which needs a higher search-effort ceiling to still clear the recall target, so
+# the sweep is extended upward; an engine that cannot reach the target even here
+# reports its best achievable recall rather than being dropped.
+ef_search_grid_best_config = [16, 32, 64, 128, 256, 512, 1024, 2048]
+recall_target = 0.99
+recall_target_secondary = 0.95
+recall_k = 10
+query_prefix = ""
+passage_prefix = ""
+
+# tracks: which of keyword, vector, hybrid each engine runs. Narsil,
+# Elasticsearch, and OpenSearch run all three. Qdrant and Weaviate are vector
+# databases (vector + hybrid only). Typesense and Meilisearch run keyword only.
+[engines.narsil]
+url = "http://narsil:7700"
+run_tag = "narsil_bm25"
+ranking = "bm25"
+tracks = ["keyword", "vector", "hybrid"]
+
+[engines.elasticsearch]
+url = "http://elasticsearch:9200"
+run_tag = "elasticsearch_bm25"
+ranking = "bm25"
+analyzer = "english"
+tracks = ["keyword", "vector", "hybrid"]
+
+[engines.opensearch]
+url = "http://opensearch:9200"
+run_tag = "opensearch_bm25"
+ranking = "bm25"
+analyzer = "english"
+tracks = ["keyword", "vector", "hybrid"]
+
+[engines.qdrant]
+url = "http://qdrant:6333"
+run_tag = "qdrant"
+ranking = "native"
+tracks = ["vector", "hybrid"]
+
+[engines.weaviate]
+url = "http://weaviate:8080"
+run_tag = "weaviate"
+ranking = "native"
+tracks = ["vector", "hybrid"]
+
+[engines.typesense]
+url = "http://typesense:8108"
+run_tag = "typesense_textmatch"
+ranking = "native"
+tracks = ["keyword"]
+
+[engines.meilisearch]
+url = "http://meilisearch:7700"
+run_tag = "meilisearch_rankrules"
+ranking = "native"
+tracks = ["keyword"]

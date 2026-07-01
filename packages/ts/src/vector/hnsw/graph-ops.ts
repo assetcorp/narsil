@@ -1,41 +1,44 @@
 import { type BinaryHeap, createMinHeap } from '../../core/heap'
 import type { VectorMetric } from '../brute-force'
 import {
+  addConnection,
   type DistancePair,
   distanceAsc,
   distanceDesc,
   type HNSWGraphState,
   maxConns,
-  nodeDistance,
-  queryDistance,
+  nextVisitStamp,
+  nodeDistanceByOrd,
+  queryDistanceByOrd,
 } from './shared'
 
 export function searchLayer(
   state: HNSWGraphState,
   qVec: Float32Array,
   qMag: number,
-  eps: string[],
+  eps: number[],
   ef: number,
   layer: number,
   metric: VectorMetric,
   skipTombstones: boolean,
-  distFn?: (nodeId: string) => number,
+  distFn?: (ord: number) => number,
 ): BinaryHeap<DistancePair> {
-  const getDistance = distFn ?? ((nodeId: string) => queryDistance(state, qVec, qMag, nodeId, metric))
-  const visited = new Set<string>()
+  const getDistance = distFn ?? ((ord: number) => queryDistanceByOrd(state, qVec, qMag, ord, metric))
+  const visited = state.visited
+  const stamp = nextVisitStamp(state)
   const candidates = createMinHeap<DistancePair>(distanceAsc)
   const results = createMinHeap<DistancePair>(distanceDesc)
   let furthestDist = Number.POSITIVE_INFINITY
 
-  for (const epId of eps) {
-    if (visited.has(epId)) continue
-    visited.add(epId)
-    const node = state.nodes.get(epId)
+  for (const epOrd of eps) {
+    if (visited[epOrd] === stamp) continue
+    visited[epOrd] = stamp
+    const node = state.nodesByOrd[epOrd]
     if (!node) continue
-    if (skipTombstones && state.tombstones.has(epId)) continue
-    const dist = getDistance(epId)
+    if (skipTombstones && state.tombstones[epOrd] === 1) continue
+    const dist = getDistance(epOrd)
     if (dist === Number.POSITIVE_INFINITY) continue
-    const pair = { docId: epId, distance: dist }
+    const pair = { ord: epOrd, distance: dist }
     candidates.push(pair)
     results.push(pair)
     if (results.size > ef) {
@@ -51,23 +54,23 @@ export function searchLayer(
     if (!nearest) break
     if (nearest.distance > furthestDist) break
 
-    const node = state.nodes.get(nearest.docId)
+    const node = state.nodesByOrd[nearest.ord]
     if (!node || layer >= node.connections.length) continue
 
-    for (const neighborId of node.connections[layer]) {
-      if (visited.has(neighborId)) continue
-      visited.add(neighborId)
+    for (const neighborOrd of node.connections[layer]) {
+      if (visited[neighborOrd] === stamp) continue
+      visited[neighborOrd] = stamp
 
-      if (skipTombstones && state.tombstones.has(neighborId)) continue
+      if (skipTombstones && state.tombstones[neighborOrd] === 1) continue
 
-      const neighborNode = state.nodes.get(neighborId)
+      const neighborNode = state.nodesByOrd[neighborOrd]
       if (!neighborNode) continue
 
-      const dist = getDistance(neighborId)
+      const dist = getDistance(neighborOrd)
       if (dist === Number.POSITIVE_INFINITY) continue
 
       if (dist < furthestDist || results.size < ef) {
-        const pair = { docId: neighborId, distance: dist }
+        const pair = { ord: neighborOrd, distance: dist }
         candidates.push(pair)
         results.push(pair)
         if (results.size > ef) {
@@ -92,7 +95,7 @@ export function nearestFromHeap(heap: BinaryHeap<DistancePair>): DistancePair | 
 
 export function selectNeighborsHeuristic(
   state: HNSWGraphState,
-  targetId: string,
+  targetOrd: number,
   candidates: DistancePair[],
   maxConnections: number,
   layer: number,
@@ -103,16 +106,16 @@ export function selectNeighborsHeuristic(
   const working = [...candidates]
 
   if (extendCandidates) {
-    const existing = new Set(working.map(c => c.docId))
+    const existing = new Set<number>(working.map(c => c.ord))
     for (const cand of candidates) {
-      const candNode = state.nodes.get(cand.docId)
+      const candNode = state.nodesByOrd[cand.ord]
       if (!candNode || layer >= candNode.connections.length) continue
-      for (const adjId of candNode.connections[layer]) {
-        if (existing.has(adjId)) continue
-        existing.add(adjId)
-        const dist = nodeDistance(state, targetId, adjId, metric)
+      for (const adjOrd of candNode.connections[layer]) {
+        if (existing.has(adjOrd)) continue
+        existing.add(adjOrd)
+        const dist = nodeDistanceByOrd(state, targetOrd, adjOrd, metric)
         if (dist === Number.POSITIVE_INFINITY) continue
-        working.push({ docId: adjId, distance: dist })
+        working.push({ ord: adjOrd, distance: dist })
       }
     }
   }
@@ -127,7 +130,7 @@ export function selectNeighborsHeuristic(
 
     let accepted = true
     for (const sel of selected) {
-      const distBetween = nodeDistance(state, candidate.docId, sel.docId, metric)
+      const distBetween = nodeDistanceByOrd(state, candidate.ord, sel.ord, metric)
       if (candidate.distance >= distBetween) {
         accepted = false
         break
@@ -151,19 +154,21 @@ export function selectNeighborsHeuristic(
   return selected
 }
 
-export function pruneConnections(state: HNSWGraphState, nodeId: string, layer: number, metric: VectorMetric): void {
-  const node = state.nodes.get(nodeId)
+export function pruneConnections(state: HNSWGraphState, ord: number, layer: number, metric: VectorMetric): void {
+  const node = state.nodesByOrd[ord]
   if (!node) return
   const mc = maxConns(state, layer)
-  if (node.connections[layer].size <= mc) return
+  if (node.connections[layer].length <= mc) return
 
   const conns: DistancePair[] = []
-  for (const connId of node.connections[layer]) {
-    const dist = nodeDistance(state, nodeId, connId, metric)
+  for (const connOrd of node.connections[layer]) {
+    const dist = nodeDistanceByOrd(state, ord, connOrd, metric)
     if (dist === Number.POSITIVE_INFINITY) continue
-    conns.push({ docId: connId, distance: dist })
+    conns.push({ ord: connOrd, distance: dist })
   }
 
-  const pruned = selectNeighborsHeuristic(state, nodeId, conns, mc, layer, metric, false, true)
-  node.connections[layer] = new Set(pruned.map(p => p.docId))
+  const pruned = selectNeighborsHeuristic(state, ord, conns, mc, layer, metric, false, true)
+  const next: number[] = []
+  for (const p of pruned) addConnection(next, p.ord)
+  node.connections[layer] = next
 }

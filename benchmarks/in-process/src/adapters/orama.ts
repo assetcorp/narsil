@@ -1,0 +1,227 @@
+import {
+  type AnyOrama,
+  create,
+  insertMultiple,
+  load,
+  remove as removeDoc,
+  removeMultiple,
+  save,
+  search,
+  searchVector,
+} from '@orama/orama'
+import { LUCENE_ENGLISH_STOP_WORDS } from '../stopwords'
+import type { BenchDocument, SearchEngine, SerializableEngine, VectorBenchDocument, VectorSearchEngine } from '../types'
+
+const ORAMA_TOKENIZER_CONFIG = {
+  language: 'english' as const,
+  stemming: true,
+  stopWords: [...LUCENE_ENGLISH_STOP_WORDS],
+}
+
+export function createOramaTextOnlyAdapter(): SearchEngine {
+  let db: AnyOrama | null = null
+
+  return {
+    name: 'orama',
+
+    async create() {
+      db = create({
+        schema: { title: 'string' as const, body: 'string' as const },
+        components: { tokenizer: ORAMA_TOKENIZER_CONFIG },
+      })
+    },
+
+    async insert(documents: BenchDocument[]) {
+      if (!db) return
+      const docs = documents.map(d => ({ title: d.title, body: d.body }))
+      await insertMultiple(db, docs)
+    },
+
+    async search(query: string) {
+      if (!db) return 0
+      const result = await search(db, { term: query })
+      return result.count
+    },
+
+    async teardown() {
+      db = null
+    },
+  }
+}
+
+export function createOramaFullSchemaAdapter(): SearchEngine {
+  let db: AnyOrama | null = null
+  const trackedIds: string[] = []
+
+  return {
+    name: 'orama',
+    insertedIds: trackedIds,
+
+    async create() {
+      db = create({
+        schema: {
+          title: 'string' as const,
+          body: 'string' as const,
+          score: 'number' as const,
+          category: 'enum' as const,
+        },
+        components: { tokenizer: ORAMA_TOKENIZER_CONFIG },
+      })
+      trackedIds.length = 0
+    },
+
+    async insert(documents: BenchDocument[]) {
+      if (!db) return
+      const docs = documents.map(({ id, ...doc }) => doc)
+      const ids = await insertMultiple(db, docs)
+      for (const id of ids) {
+        trackedIds.push(id)
+      }
+    },
+
+    async search(query: string) {
+      if (!db) return 0
+      const result = await search(db, { term: query })
+      return result.count
+    },
+
+    async searchWithFilter(query: string) {
+      if (!db) return 0
+      const result = await search(db, {
+        term: query,
+        where: {
+          category: { eq: 'engineering' },
+          score: { gte: 50 },
+        },
+      })
+      return result.count
+    },
+
+    async searchWithIds(query: string) {
+      if (!db) return []
+      const result = await search(db, { term: query, limit: 10 })
+      return result.hits.map(h => h.id)
+    },
+
+    async insertWithIds(documents: BenchDocument[]) {
+      if (!db) return
+      const ids = await insertMultiple(db, documents)
+      for (const id of ids) {
+        trackedIds.push(id)
+      }
+    },
+
+    async remove(docId: string) {
+      if (!db) return
+      await removeDoc(db, docId)
+    },
+
+    async removeBatch(docIds: string[]) {
+      if (!db) return
+      await removeMultiple(db, docIds)
+    },
+
+    async teardown() {
+      db = null
+    },
+  }
+}
+
+export function createOramaSerializableAdapter(): SerializableEngine {
+  let db: AnyOrama | null = null
+
+  return {
+    name: 'orama',
+
+    async create() {
+      db = create({
+        schema: {
+          title: 'string' as const,
+          body: 'string' as const,
+          score: 'number' as const,
+          category: 'enum' as const,
+        },
+        components: { tokenizer: ORAMA_TOKENIZER_CONFIG },
+      })
+    },
+
+    async insert(documents: BenchDocument[]) {
+      if (!db) return
+      const docs = documents.map(({ id, ...doc }) => doc)
+      await insertMultiple(db, docs)
+    },
+
+    async serialize() {
+      if (!db) return ''
+      return JSON.stringify(save(db))
+    },
+
+    async deserializeAndSearch(serialized: Uint8Array | string, query: string) {
+      const fresh = create({
+        schema: {
+          title: 'string' as const,
+          body: 'string' as const,
+          score: 'number' as const,
+          category: 'enum' as const,
+        },
+        components: { tokenizer: ORAMA_TOKENIZER_CONFIG },
+      })
+      load(fresh, JSON.parse(serialized as string))
+      const result = await search(fresh, { term: query })
+      return result.count
+    },
+
+    async teardown() {
+      db = null
+    },
+  }
+}
+
+export function createOramaVectorAdapter(dimension: number): VectorSearchEngine {
+  let db: AnyOrama | null = null
+
+  return {
+    name: 'orama',
+
+    async create() {
+      db = create({
+        schema: {
+          title: 'string' as const,
+          embedding: `vector[${dimension}]` as const,
+        },
+        components: { tokenizer: ORAMA_TOKENIZER_CONFIG },
+      })
+    },
+
+    async insert(documents: VectorBenchDocument[]) {
+      if (!db) return
+      await insertMultiple(db, documents)
+    },
+
+    async searchVector(queryVector: number[], k: number) {
+      if (!db) return 0
+      const result = await searchVector(db, {
+        mode: 'vector',
+        vector: { value: queryVector, property: 'embedding' },
+        similarity: 0,
+        limit: k,
+      })
+      return result.count
+    },
+
+    async searchVectorWithIds(queryVector: number[], k: number) {
+      if (!db) return []
+      const result = await searchVector(db, {
+        mode: 'vector',
+        vector: { value: queryVector, property: 'embedding' },
+        similarity: 0,
+        limit: k,
+      })
+      return result.hits.map(hit => String(hit.id))
+    },
+
+    async teardown() {
+      db = null
+    },
+  }
+}

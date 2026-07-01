@@ -1,16 +1,24 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { VERSION } from '../index'
 import type { IndexMetadata, SerializablePartition } from '../types/internal'
+import { computeOffThreadChecksum } from './checksum-dispatch'
 import { crc32 } from './crc32'
 import type { NrslFlags, NrslHeader } from './header'
 import { HEADER_SIZE, readHeader, writeHeader } from './header'
 import { deserializeMetadata, deserializePayloadV1, serializeMetadata, serializePayloadV1 } from './payload-v1'
 
+export interface EnvelopeParts {
+  header: Uint8Array
+  payload: Uint8Array
+}
+
 const CURRENT_ENVELOPE_VERSION = 1
+const SNAPSHOT_ENVELOPE_VERSION = 2
 
 export interface EnvelopeOptions {
   compression?: 'none' | 'gzip'
   checksum?: boolean
+  envelopeFormatVersion?: number
 }
 
 function parseEngineVersion(version: string): [number, number, number] {
@@ -75,10 +83,11 @@ async function packEnvelope(payloadBytes: Uint8Array, options: EnvelopeOptions):
 
   const checksum = flags.checksumPresent ? crc32(finalPayload) : 0
   const [major, minor, patch] = parseEngineVersion(VERSION)
+  const envelopeFormatVersion = options.envelopeFormatVersion ?? CURRENT_ENVELOPE_VERSION
 
   const header: NrslHeader = {
     magic: 'NRSL',
-    envelopeFormatVersion: CURRENT_ENVELOPE_VERSION,
+    envelopeFormatVersion,
     engineVersionMajor: major,
     engineVersionMinor: minor,
     engineVersionPatch: patch,
@@ -96,10 +105,13 @@ async function packEnvelope(payloadBytes: Uint8Array, options: EnvelopeOptions):
   return envelope
 }
 
-async function unpackEnvelope(data: Uint8Array): Promise<{ header: NrslHeader; payloadBytes: Uint8Array }> {
+async function unpackEnvelope(
+  data: Uint8Array,
+  maxAcceptedVersion: number = CURRENT_ENVELOPE_VERSION,
+): Promise<{ header: NrslHeader; payloadBytes: Uint8Array }> {
   const header = readHeader(data)
 
-  if (header.envelopeFormatVersion > CURRENT_ENVELOPE_VERSION) {
+  if (header.envelopeFormatVersion > maxAcceptedVersion) {
     throw new NarsilError(
       ErrorCodes.ENVELOPE_VERSION_MISMATCH,
       `This data was written by Narsil envelope format v${header.envelopeFormatVersion}` +
@@ -149,6 +161,55 @@ async function unpackEnvelope(data: Uint8Array): Promise<{ header: NrslHeader; p
   return { header, payloadBytes }
 }
 
+export async function packEnvelopeBytes(payloadBytes: Uint8Array, options: EnvelopeOptions = {}): Promise<Uint8Array> {
+  return packEnvelope(payloadBytes, { ...options, envelopeFormatVersion: SNAPSHOT_ENVELOPE_VERSION })
+}
+
+export async function packSnapshotEnvelopeParts(payloadBytes: Uint8Array): Promise<EnvelopeParts> {
+  const { checksum, payload } = await computeOffThreadChecksum(payloadBytes)
+  const [major, minor, patch] = parseEngineVersion(VERSION)
+
+  const header: NrslHeader = {
+    magic: 'NRSL',
+    envelopeFormatVersion: SNAPSHOT_ENVELOPE_VERSION,
+    engineVersionMajor: major,
+    engineVersionMinor: minor,
+    engineVersionPatch: patch,
+    payloadLength: payload.length,
+    flags: {
+      compressionEnabled: false,
+      compressionAlgorithm: 'none',
+      checksumPresent: true,
+      encryptionEnabled: false,
+    },
+    checksum,
+    reserved: new Uint8Array(14),
+  }
+
+  return { header: writeHeader(header), payload }
+}
+
+export async function packSnapshotEnvelopePartsRetrying(buildPayload: () => Uint8Array): Promise<EnvelopeParts> {
+  try {
+    return await packSnapshotEnvelopeParts(buildPayload())
+  } catch {
+    // A failing checksum worker consumes the transferred payload and latches itself off; rebuilding the
+    // bytes and retrying checksums inline so a worker fault degrades the checkpoint instead of failing it.
+    return packSnapshotEnvelopeParts(buildPayload())
+  }
+}
+
+export function concatEnvelopeParts(parts: EnvelopeParts): Uint8Array {
+  const combined = new Uint8Array(parts.header.length + parts.payload.length)
+  combined.set(parts.header, 0)
+  combined.set(parts.payload, parts.header.length)
+  return combined
+}
+
+export async function unpackEnvelopeBytes(data: Uint8Array): Promise<{ header: NrslHeader; payloadBytes: Uint8Array }> {
+  return unpackEnvelope(data, SNAPSHOT_ENVELOPE_VERSION)
+}
+
 export async function writePartitionEnvelope(
   partition: SerializablePartition,
   options: EnvelopeOptions = {},
@@ -176,4 +237,4 @@ export async function readMetadataEnvelope(data: Uint8Array): Promise<{ header: 
   return { header, metadata }
 }
 
-export { CURRENT_ENVELOPE_VERSION }
+export { CURRENT_ENVELOPE_VERSION, SNAPSHOT_ENVELOPE_VERSION }

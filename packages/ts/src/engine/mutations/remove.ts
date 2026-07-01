@@ -1,8 +1,10 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { BatchResult } from '../../types/results'
+import type { AnyDocument } from '../../types/schema'
 import { BATCH_CHUNK_SIZE, validateDocId } from '../validation'
 import { removeDocumentVectors } from '../vector-coordinator'
 import type { MutationContext } from './context'
+import { rollbackRemovedDocument } from './durable-rollback'
 
 export async function removeDocument(ctx: MutationContext, indexName: string, docId: string): Promise<void> {
   ctx.guardShutdown()
@@ -15,19 +17,35 @@ export async function removeDocument(ctx: MutationContext, indexName: string, do
 
   await ctx.pluginRegistry.runHook('beforeRemove', { indexName, docId })
 
-  await ctx.executor.execute({ type: 'remove', indexName, docId, requestId: docId })
+  if (ctx.durability && !ctx.requireManager(indexName).has(docId)) {
+    throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
+  }
 
-  const removeManager = ctx.requireManager(indexName)
-  const removeVecIndexes = removeManager.getVectorIndexes()
-  removeDocumentVectors(docId, removeVecIndexes)
+  const restoreRef = ctx.durability ? ctx.requireManager(indexName).getRef(docId) : undefined
+  const restoreDoc: AnyDocument | undefined = restoreRef ? (structuredClone(restoreRef) as AnyDocument) : undefined
+
+  const applyRemove = async (): Promise<void> => {
+    await ctx.executor.execute({ type: 'remove', indexName, docId, requestId: docId })
+    const removeVecIndexes = ctx.requireManager(indexName).getVectorIndexes()
+    removeDocumentVectors(docId, removeVecIndexes)
+  }
+
+  if (ctx.durability) {
+    try {
+      await ctx.durability.recordRemove(indexName, docId, applyRemove)
+    } catch (err) {
+      await rollbackRemovedDocument(ctx, indexName, docId, restoreDoc, err)
+      throw err
+    }
+  } else {
+    await applyRemove()
+  }
 
   try {
     await ctx.pluginRegistry.runHook('afterRemove', { indexName, docId })
   } catch (err) {
     console.warn('afterRemove plugin hook error:', err instanceof Error ? err.message : String(err))
   }
-
-  ctx.flushManager?.markDirty(indexName, 0)
 
   await ctx.orchestrator.replicateToWorkers({
     type: 'remove',

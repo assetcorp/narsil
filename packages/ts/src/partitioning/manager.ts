@@ -91,6 +91,20 @@ export function createPartitionManager(
     }
   }
 
+  function resolveInsertOptions(options?: PartitionInsertOptions): PartitionInsertOptions | undefined {
+    const applyStrict = config.strict === true
+    const applyAnalyzer = config.stopWords !== undefined || config.tokenizer !== undefined
+    if (!applyStrict && !applyAnalyzer) return options
+
+    const resolved: PartitionInsertOptions = { ...options }
+    if (applyStrict) resolved.strict = true
+    if (applyAnalyzer) {
+      resolved.stopWordOverride = options?.stopWordOverride ?? config.stopWords
+      resolved.customTokenizer = options?.customTokenizer ?? config.tokenizer
+    }
+    return resolved
+  }
+
   function rebuildDocPartitionMap(): void {
     docPartitionMap.clear()
     for (let i = 0; i < partitions.length; i++) {
@@ -185,7 +199,7 @@ export function createPartitionManager(
         }
       }
       const pid = router.route(docId, partitions.length)
-      const insertOpts = config.strict ? { ...options, strict: true } : options
+      const insertOpts = resolveInsertOptions(options)
       partitions[pid].insert(docId, document, config.schema, language, insertOpts)
       docPartitionMap.set(docId, pid)
     },
@@ -216,7 +230,7 @@ export function createPartitionManager(
       if (pid === undefined) {
         throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
       }
-      const updateOpts = config.strict ? { ...options, strict: true } : options
+      const updateOpts = resolveInsertOptions(options)
       partitions[pid].update(docId, document, config.schema, language, updateOpts)
     },
 

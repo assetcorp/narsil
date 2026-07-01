@@ -87,7 +87,7 @@ Three scoring modes handle the partition-skew problem:
 
 ### Vector search
 
-Store and query high-dimensional embeddings with cosine similarity, dot product, or Euclidean distance. Small vector sets use brute-force linear scan. When a field exceeds 10,000 vectors, the engine builds an HNSW graph in the background and swaps the search backend transparently.
+Store and query high-dimensional embeddings with cosine similarity, dot product, or Euclidean distance. Small vector sets use an exact brute-force scan. Once a field crosses 1,024 vectors, the engine builds an HNSW graph and switches the field to approximate search. The threshold is configurable per index.
 
 ### Hybrid search
 
@@ -242,23 +242,25 @@ import '@delali/narsil/languages/twi'
 | Vector | `mode: 'vector'` | Cosine similarity, dot product, or Euclidean distance |
 | Hybrid | `mode: 'hybrid'` | Weighted combination of BM25 + vector similarity |
 
-## Search quality
+## Benchmarks
 
-Ranking quality validated against the [Cranfield Collection](https://ir-datasets.com/cranfield.html), the foundational information retrieval benchmark with 1,400 documents and 225 queries scored by domain experts. All engines use identical stop words, Porter stemming, and default BM25 parameters.
+Narsil is portable, so it competes in two classes. Run as a search server, it goes up against Elasticsearch, OpenSearch, Qdrant, Weaviate, Typesense, and Meilisearch. Embedded inside one process, it goes up against the JavaScript libraries Orama and MiniSearch. [BENCHMARKS.md](BENCHMARKS.md) holds the full results, with charts for every track.
+
+### Production search servers
+
+On the [BEIR](https://github.com/beir-cellar/beir) information-retrieval datasets, served over HTTP, Narsil's BM25 ranks level with the Lucene engines on SciFact and takes the top nDCG@10, Recall@100, MAP, and MRR on NFCorpus. On the hybrid track it takes the top nDCG@10 on NFCorpus. Its BM25 reproduces the published Anserini baseline to within 0.005 nDCG@10 on both datasets, which is the calibration that makes the comparison trustworthy. The keyword, vector, and hybrid numbers for all six engines are in [BENCHMARKS.md](BENCHMARKS.md).
+
+### In-process libraries
+
+On the [Cranfield Collection](https://ir-datasets.com/cranfield.html), a 1,400-document set with exhaustive human relevance judgements, Narsil ranks ahead of both libraries. Every engine uses the same stop words, the same Porter stemmer, and default BM25 parameters.
 
 | Engine | nDCG@10 | P@10 | MAP | MRR |
 | --- | ---: | ---: | ---: | ---: |
-| **Narsil 0.1.1** | **0.3739** | **0.2458** | **0.2614** | **0.5638** |
+| **Narsil** | **0.3739** | **0.2458** | **0.2614** | **0.5638** |
 | Orama 3.1.18 | 0.2911 | 0.1836 | 0.1846 | 0.4821 |
 | MiniSearch 7.2.0 | 0.0077 | 0.0067 | 0.0027 | 0.0139 |
 
-nDCG@10 measures how well relevant documents are ranked in the top 10 results. P@10 is the fraction of top-10 results that are relevant. MAP tracks where relevant documents appear across the full result set. MRR is the average position of the first relevant result (higher means closer to position 1).
-
-Reproduce these results with `pnpm -C packages/benchmarks bench --tiers quality`.
-
-## Performance
-
-Throughput, latency, and memory benchmarks run on 100,000 Wikipedia articles across six tiers (text-only, full schema with filters, vector search, serialization, mutations, and ranking quality). See [`packages/benchmarks`](packages/benchmarks) for methodology, results, and reproduction instructions.
+The same embedded engine inserts faster than both libraries at every scale. It also runs vector search, where it leads Orama on speed and MiniSearch has no equivalent. The throughput, latency, and memory tables across 1,000 to 100,000 Wikipedia documents are in [BENCHMARKS.md](BENCHMARKS.md), with the method and reproduction steps in [`packages/benchmarks`](packages/benchmarks).
 
 ## Configuration
 

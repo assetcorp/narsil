@@ -65,7 +65,7 @@ export function deserialize(state: VectorIndexState, payload: VectorIndexPayload
 
   if (payload.sq8) {
     if (state.quantizationMode === 'sq8') {
-      state.sq8 = deserializeScalarQuantizer(payload.sq8, state.dimension)
+      state.sq8 = deserializeScalarQuantizer(payload.sq8, state.dimension, state.store)
     }
   }
 

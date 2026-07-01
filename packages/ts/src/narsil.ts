@@ -1,4 +1,5 @@
 import { createEngineCore, type EngineCore, type EventHandler, getVectorFieldPaths } from './engine/core'
+import { shutdownEngine } from './engine/lifecycle'
 import {
   insertDocument,
   insertDocumentBatch,
@@ -61,6 +62,7 @@ export interface Narsil {
   suggest(indexName: string, params: SuggestParams): Promise<SuggestResult>
   snapshot(indexName: string): Promise<Uint8Array>
   restore(indexName: string, data: Uint8Array): Promise<void>
+  checkpoint(indexName: string): Promise<void>
   clear(indexName: string): Promise<void>
   rebalance(indexName: string, targetPartitionCount: number): Promise<void>
   updatePartitionConfig(indexName: string, config: Partial<PartitionConfig>): Promise<void>
@@ -75,6 +77,9 @@ export interface Narsil {
 
 export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
   const core = createEngineCore(config)
+  if (core.durability) {
+    await core.durability.manager.recover()
+  }
   return createNarsilFromCore(core, config)
 }
 
@@ -82,7 +87,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
   const {
     executor,
     pluginRegistry,
-    flushManager,
+    durability,
     indexRegistry,
     eventHandlers,
     shutdownState,
@@ -120,6 +125,9 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         embeddingAdapter: resolvedEmbeddingAdapter,
         vectorFieldPaths,
       })
+      if (durability) {
+        await durability.manager.persistMetadata(name)
+      }
       await pluginRegistry.runHook('onIndexCreate', { indexName: name, config: indexConfig })
     },
 
@@ -128,6 +136,9 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       const entry = requireIndex(name)
       executor.dropIndex(name)
       indexRegistry.delete(name)
+      if (durability) {
+        await durability.manager.removeIndex(name)
+      }
       await pluginRegistry.runHook('onIndexDrop', { indexName: name, config: entry.config })
     },
 
@@ -275,6 +286,14 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       )
     },
 
+    async checkpoint(indexName: string): Promise<void> {
+      guardShutdown()
+      requireIndex(indexName)
+      if (durability) {
+        await durability.manager.checkpoint(indexName)
+      }
+    },
+
     async clear(indexName: string): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
@@ -369,32 +388,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       if (shutdownState.isShutdown) return
       shutdownState.isShutdown = true
       abortController.abort()
-
-      for (const [name] of indexRegistry) {
-        const mgr = executor.getManager(name)
-        if (mgr) {
-          for (const [, vecIdx] of mgr.getVectorIndexes()) {
-            vecIdx.dispose()
-          }
-        }
-      }
-
-      if (flushManager) await flushManager.shutdown()
-      const adaptersToShutdown = new Set<EmbeddingAdapter>()
-      for (const [, entry] of indexRegistry) {
-        if (entry.embeddingAdapter?.shutdown) adaptersToShutdown.add(entry.embeddingAdapter)
-      }
-      for (const adapter of adaptersToShutdown) {
-        try {
-          await adapter.shutdown?.()
-        } catch (_) {
-          /* best-effort */
-        }
-      }
-      await orchestrator.shutdown()
-      await executor.shutdown()
-      eventHandlers.clear()
-      indexRegistry.clear()
+      await shutdownEngine(core)
     },
   }
 

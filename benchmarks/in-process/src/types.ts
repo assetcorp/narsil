@@ -1,0 +1,175 @@
+export interface BenchDocument {
+  id: string
+  title: string
+  body: string
+  score: number
+  category: string
+}
+
+export interface VectorBenchDocument {
+  id: string
+  title: string
+  embedding: number[]
+}
+
+export interface SearchEngine {
+  name: string
+  create(): Promise<void>
+  insert(documents: BenchDocument[]): Promise<void>
+  search(query: string): Promise<number>
+  searchTermMatchAll?(query: string): Promise<number>
+  searchWithFilter?(query: string): Promise<number>
+  searchWithIds?(query: string): Promise<string[]>
+  remove?(docId: string): Promise<void>
+  removeBatch?(docIds: string[]): Promise<void>
+  insertWithIds?(documents: BenchDocument[]): Promise<void>
+  insertedIds?: string[]
+  teardown(): Promise<void>
+}
+
+export interface SerializableEngine {
+  name: string
+  create(): Promise<void>
+  insert(documents: BenchDocument[]): Promise<void>
+  serialize(): Promise<Uint8Array | string>
+  deserializeAndSearch(serialized: Uint8Array | string, query: string): Promise<number>
+  teardown(): Promise<void>
+}
+
+export interface SerializationResult {
+  serializeMs: number
+  serializedBytes: number
+  deserializeAndSearchMs: number
+}
+
+export interface VectorSearchEngine {
+  name: string
+  create(): Promise<void>
+  insert(documents: VectorBenchDocument[]): Promise<void>
+  searchVector(queryVector: number[], k: number): Promise<number>
+  searchVectorWithIds(queryVector: number[], k: number): Promise<string[]>
+  teardown(): Promise<void>
+}
+
+export interface LatencySummary {
+  samples: number
+  meanMs: number
+  p50Ms: number
+  p90Ms: number
+  p95Ms: number
+  p99Ms: number
+  maxMs: number
+  ciLowerMs: number
+  ciUpperMs: number
+}
+
+export interface ScaleResult {
+  insertMedianMs: number
+  insertDocsPerSec: number
+  insertCV: number
+  searchMedianMs: number
+  searchP95Ms: number
+  searchCV: number
+  searchStdDevMs: number
+  searchAllTermsMedianMs?: number
+  searchAllTermsP95Ms?: number
+  filteredSearchMedianMs?: number
+  filteredSearchP95Ms?: number
+  memoryMb: number
+  insertSamples?: number[]
+  searchSamples?: number[]
+  searchLatency?: LatencySummary
+  allTermsLatency?: LatencySummary
+  filteredLatency?: LatencySummary
+}
+
+export interface VectorRelevanceResult {
+  dataset: string
+  model: string
+  dim: number
+  docCount: number
+  queryCount: number
+  insertMedianMs: number
+  insertDocsPerSec: number
+  memoryMb: number
+  searchLatency: LatencySummary
+  meanRecallAt10: number
+}
+
+export interface EnvironmentInfo {
+  node: string
+  os: string
+  arch: string
+  cpu: string
+  totalMemory: string
+}
+
+export interface BenchmarkConfig {
+  scales: number[]
+  vectorModel: string
+  vectorDimension: number
+  vectorDatasets: string[]
+  insertIterations: number
+  warmupIterations: number
+  searchWarmupRounds: number
+  searchRepeatRounds: number
+  searchQueryCount: number
+  seed: number
+  dataSource: 'fiqa' | 'synthetic'
+  perfCorpusDocCount?: number
+}
+
+export interface TierResults {
+  textOnly: Record<string, Record<number, ScaleResult>>
+  fullSchema: Record<string, Record<number, ScaleResult>>
+}
+
+export interface MutationResult {
+  removeDocsPerSec: number
+  removeMedianMs: number
+  searchAfterRemoveMedianMs: number
+  reinsertDocsPerSec: number
+}
+
+export interface RelevanceQualityResult {
+  dataset: string
+  meanNdcg10: number
+  meanPrecision10: number
+  meanMap: number
+  meanMrr: number
+  queryCount: number
+  docCount: number
+}
+
+export interface ConsistencyReport {
+  dataset: string
+  queryCount: number
+  engines: string[]
+  meanHitsByEngine: Record<string, number>
+  zeroDivergenceCount: number
+  zeroDivergenceSamples: Array<{ queryId: string; counts: Record<string, number> }>
+  meanPairwiseTop10Jaccard: number
+}
+
+export interface RelevanceDatasetInfo {
+  name: string
+  archiveSha256: string
+  corpusFingerprint: string
+  documents: number
+  queries: number
+  qrels: number
+}
+
+export interface BenchmarkOutput {
+  env: EnvironmentInfo
+  timestamp: string
+  config: BenchmarkConfig
+  engines: Record<string, string>
+  tiers: TierResults
+  vectorRelevance?: Record<string, Record<string, VectorRelevanceResult>>
+  serialization?: Record<string, SerializationResult>
+  mutations?: Record<string, MutationResult>
+  relevanceQuality?: Record<string, RelevanceQualityResult>
+  relevanceDataset?: RelevanceDatasetInfo
+  consistency?: ConsistencyReport
+}

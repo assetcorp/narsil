@@ -1,0 +1,36 @@
+[project]
+name = "ir-bench"
+description = "Engine-neutral information-retrieval benchmark harness that scores keyword, dense vector, and hybrid retrieval across search engines against published BEIR baselines and at matched ANN recall."
+readme = "README.md"
+dynamic = ["version"]
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "ir-datasets",
+    "pytrec-eval-terrier",
+    "httpx",
+    "numpy",
+    "fastembed",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+ir-bench = "ir_bench.cli:main"
+ir-bench-aggregate = "ir_bench.aggregate:main"
+ir-bench-embed = "ir_bench.embed:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/ir_bench/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ir_bench"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

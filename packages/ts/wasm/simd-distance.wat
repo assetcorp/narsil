@@ -197,4 +197,140 @@
     )
   )
 
+  ;; dot_u8(ptr_a: i32, ptr_b: i32, len: i32) -> i32
+  ;; Integer dot product of two uint8 vectors. len is the number of u8 elements.
+  ;; Processes 16 bytes per SIMD step via unsigned widen + i32x4.dot_i16x8_s.
+  (func (export "dot_u8") (param $a i32) (param $b i32) (param $len i32) (result i32)
+    (local $i i32)
+    (local $acc v128)
+    (local $va v128)
+    (local $vb v128)
+    (local $sum i32)
+    (local $simd_end i32)
+
+    (local.set $simd_end (i32.and (local.get $len) (i32.const -16)))
+    (local.set $acc (i32x4.splat (i32.const 0)))
+    (local.set $i (i32.const 0))
+
+    (block $brk
+      (loop $lp
+        (br_if $brk (i32.ge_u (local.get $i) (local.get $simd_end)))
+        (local.set $va (v128.load (i32.add (local.get $a) (local.get $i))))
+        (local.set $vb (v128.load (i32.add (local.get $b) (local.get $i))))
+        (local.set $acc
+          (i32x4.add
+            (local.get $acc)
+            (i32x4.dot_i16x8_s
+              (i16x8.extend_low_i8x16_u (local.get $va))
+              (i16x8.extend_low_i8x16_u (local.get $vb))
+            )
+          )
+        )
+        (local.set $acc
+          (i32x4.add
+            (local.get $acc)
+            (i32x4.dot_i16x8_s
+              (i16x8.extend_high_i8x16_u (local.get $va))
+              (i16x8.extend_high_i8x16_u (local.get $vb))
+            )
+          )
+        )
+        (local.set $i (i32.add (local.get $i) (i32.const 16)))
+        (br $lp)
+      )
+    )
+
+    (local.set $sum
+      (i32.add
+        (i32.add (i32x4.extract_lane 0 (local.get $acc)) (i32x4.extract_lane 1 (local.get $acc)))
+        (i32.add (i32x4.extract_lane 2 (local.get $acc)) (i32x4.extract_lane 3 (local.get $acc)))
+      )
+    )
+
+    (block $rbrk
+      (loop $rlp
+        (br_if $rbrk (i32.ge_u (local.get $i) (local.get $len)))
+        (local.set $sum
+          (i32.add
+            (local.get $sum)
+            (i32.mul
+              (i32.load8_u (i32.add (local.get $a) (local.get $i)))
+              (i32.load8_u (i32.add (local.get $b) (local.get $i)))
+            )
+          )
+        )
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $rlp)
+      )
+    )
+
+    (local.get $sum)
+  )
+
+  ;; sqdist_u8(ptr_a: i32, ptr_b: i32, len: i32) -> i32
+  ;; Integer sum of squared differences of two uint8 vectors.
+  (func (export "sqdist_u8") (param $a i32) (param $b i32) (param $len i32) (result i32)
+    (local $i i32)
+    (local $acc v128)
+    (local $va v128)
+    (local $vb v128)
+    (local $dl v128)
+    (local $dh v128)
+    (local $sum i32)
+    (local $d i32)
+    (local $simd_end i32)
+
+    (local.set $simd_end (i32.and (local.get $len) (i32.const -16)))
+    (local.set $acc (i32x4.splat (i32.const 0)))
+    (local.set $i (i32.const 0))
+
+    (block $brk
+      (loop $lp
+        (br_if $brk (i32.ge_u (local.get $i) (local.get $simd_end)))
+        (local.set $va (v128.load (i32.add (local.get $a) (local.get $i))))
+        (local.set $vb (v128.load (i32.add (local.get $b) (local.get $i))))
+        (local.set $dl
+          (i16x8.sub
+            (i16x8.extend_low_i8x16_u (local.get $va))
+            (i16x8.extend_low_i8x16_u (local.get $vb))
+          )
+        )
+        (local.set $dh
+          (i16x8.sub
+            (i16x8.extend_high_i8x16_u (local.get $va))
+            (i16x8.extend_high_i8x16_u (local.get $vb))
+          )
+        )
+        (local.set $acc (i32x4.add (local.get $acc) (i32x4.dot_i16x8_s (local.get $dl) (local.get $dl))))
+        (local.set $acc (i32x4.add (local.get $acc) (i32x4.dot_i16x8_s (local.get $dh) (local.get $dh))))
+        (local.set $i (i32.add (local.get $i) (i32.const 16)))
+        (br $lp)
+      )
+    )
+
+    (local.set $sum
+      (i32.add
+        (i32.add (i32x4.extract_lane 0 (local.get $acc)) (i32x4.extract_lane 1 (local.get $acc)))
+        (i32.add (i32x4.extract_lane 2 (local.get $acc)) (i32x4.extract_lane 3 (local.get $acc)))
+      )
+    )
+
+    (block $rbrk
+      (loop $rlp
+        (br_if $rbrk (i32.ge_u (local.get $i) (local.get $len)))
+        (local.set $d
+          (i32.sub
+            (i32.load8_u (i32.add (local.get $a) (local.get $i)))
+            (i32.load8_u (i32.add (local.get $b) (local.get $i)))
+          )
+        )
+        (local.set $sum (i32.add (local.get $sum) (i32.mul (local.get $d) (local.get $d))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $rlp)
+      )
+    )
+
+    (local.get $sum)
+  )
+
 )

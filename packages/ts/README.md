@@ -396,7 +396,7 @@ Ranking quality is measured against the [Cranfield Collection](https://ir-datase
 
 | Engine | nDCG@10 | P@10 | MAP | MRR |
 | --- | ---: | ---: | ---: | ---: |
-| **Narsil 0.1.1** | **0.3739** | **0.2458** | **0.2614** | **0.5638** |
+| **Narsil** | **0.3739** | **0.2458** | **0.2614** | **0.5638** |
 | Orama 3.1.18 | 0.2911 | 0.1836 | 0.1846 | 0.4821 |
 | MiniSearch 7.2.0 | 0.0077 | 0.0067 | 0.0027 | 0.0139 |
 
@@ -410,6 +410,8 @@ Ranking quality is measured against the [Cranfield Collection](https://ir-datase
 These scores fall within the expected range for BM25 on standard IR benchmarks (published BM25 baselines on BEIR datasets range from 0.24 to 0.63 nDCG@10). Narsil also runs a [Cranfield regression test](src/__tests__/relevance/cranfield.test.ts) in CI that fails the build if ranking quality drops below calibrated thresholds.
 
 Reproduce: `pnpm -C packages/benchmarks bench --tiers quality`
+
+Narsil also runs as a search server. On the BEIR information-retrieval datasets it is measured against Elasticsearch, OpenSearch, Qdrant, Weaviate, Typesense, and Meilisearch across keyword, vector, and hybrid retrieval. See [the full benchmarks](https://github.com/assetcorp/narsil/blob/main/BENCHMARKS.md) for those results.
 
 ## Runtime support (TypeScript)
 

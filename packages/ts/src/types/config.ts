@@ -11,8 +11,18 @@ export interface NarsilConfig {
   idGenerator?: () => string
   workers?: WorkerConfig
   flush?: FlushConfig
-  eagerLoad?: boolean
   embedding?: EmbeddingAdapter
+  durability?: DurabilityConfig
+}
+
+export interface DurabilityConfig {
+  directory?: string
+  mode?: 'sync' | 'async'
+  flushIntervalMs?: number
+  segmentMaxBytes?: number
+  checkpointIntervalMs?: number
+  checkpointMutationThreshold?: number
+  compactionThreshold?: number
 }
 
 export interface WorkerConfig {
