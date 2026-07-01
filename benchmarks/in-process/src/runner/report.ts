@@ -71,8 +71,8 @@ function headerSection(output: BenchmarkOutput): string[] {
     '',
   )
 
-  const dataSource = config.wikiArticleCount
-    ? `${config.dataSource} (${fmt(config.wikiArticleCount)} articles)`
+  const dataSource = config.perfCorpusDocCount
+    ? `BEIR ${config.dataSource} (${fmt(config.perfCorpusDocCount)} docs)`
     : config.dataSource
   lines.push('## Methodology', '')
   lines.push(

@@ -11,7 +11,7 @@ export type EngineId = 'narsil' | 'orama' | 'minisearch'
 
 export type AdapterKind = 'text-only' | 'full-schema' | 'serializable' | 'vector'
 
-export type DataSource = 'wiki' | 'synthetic'
+export type DataSource = 'fiqa' | 'synthetic'
 
 export interface TextJobSpec {
   kind: 'text'

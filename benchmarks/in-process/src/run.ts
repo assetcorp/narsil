@@ -1,7 +1,6 @@
 import os from 'node:os'
 import { BEIR_DATASETS, type BeirDatasetName } from './data/beir'
 import { EMBEDDING_DIM, EMBEDDING_MODEL } from './data/vectors'
-import { downloadAndCacheWiki, loadWikiArticles, type WikiArticle } from './data-wiki'
 import { SEARCH_REPEAT_ROUNDS, SEARCH_WARMUP_ROUNDS } from './measure'
 import { printConsistencyReport } from './print'
 import { runConsistencyCheck } from './runner/consistency'
@@ -12,25 +11,22 @@ import { prepareRunArtifact } from './runner/run-paths'
 import { runMutationTier, runRelevanceTier, runSerializationTier } from './runner/tiers-extra'
 import { runTextTier } from './runner/tiers-text'
 import { runVectorTier } from './runner/tiers-vector'
-import { fmt, getPackageVersion } from './stats'
+import { getPackageVersion } from './stats'
 import type { BenchmarkOutput } from './types'
 
 const DEFAULT_RELEVANCE_DATASET: BeirDatasetName = 'scifact'
 
-const SCALES = [1_000, 10_000, 50_000, 100_000]
+const SCALES = [1_000, 10_000, 50_000]
 const VECTOR_DATASETS: BeirDatasetName[] = ['scifact', 'nfcorpus']
 const SEED = 42
 const SEARCH_QUERY_COUNT = 100
-const WIKI_MAX_ARTICLES = 100_000
+const PERF_MAX_DOCS = 50_000
 
 const ENGINE_ORDER: EngineId[] = ['narsil', 'orama', 'minisearch']
 const VECTOR_ENGINE_ORDER: EngineId[] = ['narsil', 'orama']
 
 type TierName = 'text' | 'full' | 'vector' | 'serial' | 'mutation' | 'relevance' | 'consistency'
 const ALL_TIERS: TierName[] = ['text', 'full', 'vector', 'serial', 'mutation', 'relevance', 'consistency']
-
-// Tiers that read the Wikipedia corpus; a run without any of them skips the corpus load.
-const WIKI_TIERS: TierName[] = ['text', 'full', 'serial', 'mutation']
 
 function parseTiers(args: string[]): Set<TierName> {
   const tiersIdx = args.indexOf('--tiers')
@@ -61,8 +57,6 @@ function buildEngineMetas(versions: Record<string, string>, names: EngineId[]) {
 
 async function main() {
   const args = process.argv.slice(2)
-  const refreshWiki = args.includes('--refresh-wiki')
-  const noDownload = args.includes('--no-download')
   const tiers = parseTiers(args)
   const relevanceDataset = parseRelevanceDataset(args)
 
@@ -74,30 +68,19 @@ async function main() {
     totalMemory: `${Math.round(os.totalmem() / 1024 ** 3)}GB`,
   }
 
-  console.log('Narsil Comparative Benchmarks (Wikipedia data)')
+  console.log('Narsil Comparative Benchmarks (BEIR data)')
   console.log(`${env.node} | ${env.os} ${env.arch} | ${env.totalMemory} RAM`)
   console.log(`CPU: ${env.cpu}`)
   console.log(`Seed: ${SEED} | Search queries: ${SEARCH_QUERY_COUNT}`)
   console.log(`Tiers: ${Array.from(tiers).join(', ')}`)
   if (tiers.has('relevance')) console.log(`Relevance dataset: ${relevanceDataset}`)
 
-  const needsWiki = WIKI_TIERS.some(t => tiers.has(t))
-  let articles: WikiArticle[] = []
-  if (needsWiki) {
-    if (refreshWiki) {
-      articles = await downloadAndCacheWiki(WIKI_MAX_ARTICLES)
-    } else {
-      articles = await loadWikiArticles(WIKI_MAX_ARTICLES, { noDownload })
-    }
-    console.log(`\nUsing ${fmt(articles.length)} Wikipedia articles`)
-  }
-
   const engineVersions: Record<string, string> = {
     narsil: getPackageVersion('@delali/narsil'),
     orama: getPackageVersion('@orama/orama'),
     minisearch: getPackageVersion('minisearch'),
   }
-  const activeScales = needsWiki ? SCALES.filter(s => s <= articles.length) : SCALES
+  const activeScales = SCALES
   const { runDir, artifactPath: outputPath } = prepareRunArtifact('comparative')
   console.log(`Run folder: ${runDir}`)
 
@@ -115,8 +98,8 @@ async function main() {
       searchRepeatRounds: SEARCH_REPEAT_ROUNDS,
       searchQueryCount: SEARCH_QUERY_COUNT,
       seed: SEED,
-      dataSource: 'wiki',
-      wikiArticleCount: needsWiki ? articles.length : undefined,
+      dataSource: 'fiqa',
+      perfCorpusDocCount: PERF_MAX_DOCS,
     },
     engines: engineVersions,
     tiers: { textOnly: {}, fullSchema: {} },
@@ -127,12 +110,12 @@ async function main() {
   if (tiers.has('text')) {
     await runTextTier(
       {
-        tierName: 'Tier 1: Text-Only Search (Wikipedia)',
+        tierName: 'Tier 1: Text-Only Search (BEIR FiQA)',
         section: 'textOnly',
         adapter: 'text-only',
         engines: buildEngineMetas(engineVersions, ENGINE_ORDER),
         scales: activeScales,
-        dataSource: 'wiki',
+        dataSource: 'fiqa',
         seed: SEED,
         searchQueryCount: SEARCH_QUERY_COUNT,
       },
@@ -143,12 +126,12 @@ async function main() {
   if (tiers.has('full')) {
     await runTextTier(
       {
-        tierName: 'Tier 2: Full Schema (Wikipedia + derived score/category)',
+        tierName: 'Tier 2: Full Schema (BEIR FiQA + derived score/category)',
         section: 'fullSchema',
         adapter: 'full-schema',
         engines: buildEngineMetas(engineVersions, ENGINE_ORDER),
         scales: activeScales,
-        dataSource: 'wiki',
+        dataSource: 'fiqa',
         seed: SEED,
         searchQueryCount: SEARCH_QUERY_COUNT,
       },
@@ -167,12 +150,11 @@ async function main() {
   }
 
   if (tiers.has('serial')) {
-    const maxDocs = Math.min(100_000, articles.length)
     await runSerializationTier(
       {
         engines: buildEngineMetas(engineVersions, ENGINE_ORDER),
-        docCount: maxDocs,
-        dataSource: 'wiki',
+        docCount: PERF_MAX_DOCS,
+        dataSource: 'fiqa',
         seed: SEED,
       },
       store,
@@ -180,12 +162,11 @@ async function main() {
   }
 
   if (tiers.has('mutation')) {
-    const maxDocs = Math.min(100_000, articles.length)
     await runMutationTier(
       {
         engines: buildEngineMetas(engineVersions, ENGINE_ORDER),
-        docCount: maxDocs,
-        dataSource: 'wiki',
+        docCount: PERF_MAX_DOCS,
+        dataSource: 'fiqa',
         seed: SEED,
         searchQueryCount: SEARCH_QUERY_COUNT,
       },
