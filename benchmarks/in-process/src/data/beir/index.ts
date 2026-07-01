@@ -71,3 +71,18 @@ export async function loadBeirDataset(rawName: string, options: LoadBeirOptions 
     corpusFingerprint: fingerprint,
   }
 }
+
+/*
+ * Warm the on-disk archive cache for the datasets a run will need. Tiers that
+ * load with `noDownload` (vector, relevance, consistency) fail on a fresh
+ * machine unless their archive is already cached, so callers prepare the cache
+ * up front and keep downloads out of the measured path.
+ */
+export async function ensureBeirArchives(names: Iterable<BeirDatasetName>): Promise<void> {
+  const prepared = new Set<BeirDatasetName>()
+  for (const name of names) {
+    if (prepared.has(name)) continue
+    prepared.add(name)
+    await fetchArchive(name, {})
+  }
+}
