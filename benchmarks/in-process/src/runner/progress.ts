@@ -1,7 +1,8 @@
 import type {
   BenchmarkOutput,
-  CranfieldQualityResult,
   MutationResult,
+  RelevanceDatasetInfo,
+  RelevanceQualityResult,
   ScaleResult,
   SerializationResult,
   VectorScaleResult,
@@ -77,10 +78,10 @@ function ensureMutationBucket(state: BenchmarkOutput): Record<string, MutationRe
   return created
 }
 
-function ensureCranfieldBucket(state: BenchmarkOutput): Record<string, CranfieldQualityResult> {
-  if (state.cranfieldQuality !== undefined) return state.cranfieldQuality
-  const created: Record<string, CranfieldQualityResult> = {}
-  state.cranfieldQuality = created
+function ensureRelevanceBucket(state: BenchmarkOutput): Record<string, RelevanceQualityResult> {
+  if (state.relevanceQuality !== undefined) return state.relevanceQuality
+  const created: Record<string, RelevanceQualityResult> = {}
+  state.relevanceQuality = created
   return created
 }
 
@@ -136,9 +137,14 @@ export class ProgressStore {
     this.flush()
   }
 
-  setCranfield(engine: string, result: CranfieldQualityResult): void {
-    const bucket = ensureCranfieldBucket(this.state)
+  setRelevance(engine: string, result: RelevanceQualityResult): void {
+    const bucket = ensureRelevanceBucket(this.state)
     bucket[engine] = result
+    this.flush()
+  }
+
+  setRelevanceDataset(info: RelevanceDatasetInfo): void {
+    this.state.relevanceDataset = info
     this.flush()
   }
 

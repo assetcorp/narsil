@@ -70,13 +70,13 @@ Measures serialize time, serialized size, and deserialize+search time at 100,000
 
 Measures update and remove throughput at 100,000 documents.
 
-### Cranfield Relevance (`--tiers relevance`)
+### Relevance Quality (`--tiers relevance`)
 
-Ranking accuracy against the [Cranfield Collection](https://ir-datasets.com/cranfield.html) with 1,400 documents and 225 queries with exhaustive human relevance judgments. Measures nDCG@10, P@10, MAP, and MRR. See the [search quality methodology](#search-quality-methodology) section below for details.
+Ranking accuracy against a [BEIR](https://github.com/beir-cellar/beir) dataset with human relevance judgments. Defaults to SciFact (5,183 documents, 300 judged test queries); pick another with `--relevance-dataset nfcorpus` or `--relevance-dataset fiqa`. Measures nDCG@10, P@10, MAP, and MRR. See the [search quality methodology](#search-quality-methodology) section below for details.
 
 ## Results
 
-Results are pending a fresh run on the current code. Run `pnpm --filter benchmarks bench` and read the output in `results/runs/<run-id>/results.json`. The suite reports insert throughput, search latency (median and p95), filtered search latency, vector insert and search, memory, and Cranfield relevance (nDCG@10, P@10, MAP, MRR) per engine and scale.
+Results are pending a fresh run on the current code. Run `pnpm --filter benchmarks bench` and read the output in `results/runs/<run-id>/results.json`. The suite reports insert throughput, search latency (median and p95), filtered search latency, vector insert and search, memory, and BEIR relevance quality (nDCG@10, P@10, MAP, MRR) per engine and scale.
 
 ## What's measured
 
@@ -92,11 +92,17 @@ Results are pending a fresh run on the current code. Run `pnpm --filter benchmar
 
 ## Search quality methodology
 
-The Cranfield tier measures ranking accuracy against the [Cranfield Collection](https://ir-datasets.com/cranfield.html), created in the 1960s at Cranfield University. It contains 1,400 aerodynamics journal abstracts, 225 natural-language queries, and 1,837 graded relevance judgments made by domain experts.
+The relevance tier measures ranking accuracy against a [BEIR](https://github.com/beir-cellar/beir) dataset with human relevance judgments. Three datasets are available: SciFact (5,183 documents, 300 judged queries), NFCorpus (3,633 documents, 323 judged queries), and FiQA-2018 (57,600 documents, 648 judged queries). SciFact is the default because it runs in a few seconds.
 
-### Why Cranfield
+### Why BEIR
 
-Cranfield has **exhaustive** relevance judgments: every query-document pair was judged by experts on a 5-point scale. This eliminates the problem of unjudged relevant documents being treated as non-relevant, which plagues larger datasets with sparse judgments. The collection is small enough to run in CI (under 5 seconds) and has been the standard IR evaluation dataset for over 60 years.
+BEIR is the standard modern benchmark for zero-shot retrieval, so scores here line up with published baselines and with the server suite, which scores the same corpora against Elasticsearch, OpenSearch, Qdrant, and others. Reusing one dataset family across both suites means a single number characterizes ranking quality whether Narsil runs in-process or as a server.
+
+### Dataset sourcing and pinning
+
+The corpora carry non-commercial and share-alike licenses, so the suite fetches each archive at run time rather than committing it. The first run downloads the dataset zip from the [BEIR distribution](https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/) and caches it under `benchmarks/datasets/` (gitignored). A committed manifest per dataset (`src/data/beir/manifests/`) pins the archive SHA-256, the document/query/judgment counts, and a corpus content fingerprint; every run verifies the loaded data against that pin and aborts on any mismatch. Regenerate the pins with `pnpm --filter benchmarks beir:update-pins` when intentionally moving to a new dataset version.
+
+The fingerprint hashes the indexed text (`title` and `text` joined with a single space, both trimmed) of every document, so it proves the in-process and server suites scored the identical corpus, not just a dataset of the same name. It is recorded under `relevanceDataset` in each run's `results.json`.
 
 ### Fairness measures
 
@@ -108,28 +114,18 @@ All three engines are configured identically:
 - **Term matching**: All default to OR semantics (documents matching any query term are candidates)
 - **No prefix or fuzzy matching** enabled for any engine
 - **Default BM25 parameters** for all engines (no custom tuning)
-- **Same document IDs**: All engines insert documents with the original Cranfield numeric IDs, and search results are matched against human judgments using these IDs
+- **Same document IDs**: All engines insert documents with the original BEIR document IDs, and search results are matched against human judgments using these IDs
 
 ### Metrics
 
+Each engine returns its top 10 results per query, and the metrics are computed over that depth:
+
 - **nDCG@10**: Normalized Discounted Cumulative Gain at rank 10 using exponential gain (2^rel - 1). Measures ranking quality with graded relevance.
 - **P@10**: Fraction of the top 10 results that are relevant (relevance > 0).
-- **MAP**: Mean Average Precision computed from the top 10 results. Tracks precision at each rank where a relevant document appears.
+- **MAP**: Mean Average Precision over the returned results. Tracks precision at each rank where a relevant document appears.
 - **MRR**: Mean Reciprocal Rank, the reciprocal of the position of the first relevant result.
 
-Queries where no relevant documents exist in the judgment set are excluded from the mean computation.
-
-### Relevance grade normalization
-
-The original Cranfield grades are inverted (1 = most relevant). The benchmark normalizes them to the standard convention (higher = more relevant):
-
-| Original | Meaning | Normalized |
-| --- | --- | ---: |
-| 1 | Complete answer | 4 |
-| 2 | High relevance | 3 |
-| 3 | Useful background | 2 |
-| 4 | Minimum interest | 1 |
-| -1 | Not relevant | 0 |
+Queries with no relevant documents in the judgment set are excluded from the mean. BEIR grades already follow the standard convention (higher is more relevant, 0 is non-relevant), so no grade remapping is applied.
 
 ## Methodology notes
 

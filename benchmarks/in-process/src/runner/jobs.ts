@@ -1,6 +1,7 @@
+import type { BeirDatasetName } from '../data/beir'
 import type {
-  CranfieldQualityResult,
   MutationResult,
+  RelevanceQualityResult,
   ScaleResult,
   SerializationResult,
   VectorScaleResult,
@@ -49,13 +50,13 @@ export interface MutationJobSpec {
   searchQueryCount: number
 }
 
-export interface CranfieldJobSpec {
-  kind: 'cranfield'
+export interface RelevanceJobSpec {
+  kind: 'relevance'
   engine: EngineId
-  fixturesDir: string
+  dataset: BeirDatasetName
 }
 
-export type JobSpec = TextJobSpec | VectorJobSpec | SerializationJobSpec | MutationJobSpec | CranfieldJobSpec
+export type JobSpec = TextJobSpec | VectorJobSpec | SerializationJobSpec | MutationJobSpec | RelevanceJobSpec
 
 export interface JobSuccessText {
   kind: 'text'
@@ -77,9 +78,9 @@ export interface JobSuccessMutation {
   result: MutationResult | null
 }
 
-export interface JobSuccessCranfield {
-  kind: 'cranfield'
-  result: CranfieldQualityResult
+export interface JobSuccessRelevance {
+  kind: 'relevance'
+  result: RelevanceQualityResult
 }
 
 export type JobSuccess =
@@ -87,7 +88,7 @@ export type JobSuccess =
   | JobSuccessVector
   | JobSuccessSerialization
   | JobSuccessMutation
-  | JobSuccessCranfield
+  | JobSuccessRelevance
 
 export interface JobFailure {
   kind: 'error'
@@ -106,7 +107,7 @@ export function isJobOutcome(value: unknown): value is JobOutcome {
     record.kind === 'vector' ||
     record.kind === 'serialization' ||
     record.kind === 'mutation' ||
-    record.kind === 'cranfield' ||
+    record.kind === 'relevance' ||
     record.kind === 'error'
   )
 }

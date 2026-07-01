@@ -1,12 +1,12 @@
 import type {
-  CranfieldQualityResult,
   MutationResult,
+  RelevanceQualityResult,
   ScaleResult,
   SerializationResult,
   VectorScaleResult,
 } from '../types'
 
-export type FailurePhase = 'text-tier' | 'vector-tier' | 'serialization-tier' | 'mutation-tier' | 'cranfield-tier'
+export type FailurePhase = 'text-tier' | 'vector-tier' | 'serialization-tier' | 'mutation-tier' | 'relevance-tier'
 
 export type FailureCode =
   | 'engine-threw'
@@ -45,7 +45,7 @@ export interface MutationResultWithError extends MutationResult {
   error?: FailureRecord
 }
 
-export interface CranfieldQualityResultWithError extends CranfieldQualityResult {
+export interface RelevanceQualityResultWithError extends RelevanceQualityResult {
   error?: FailureRecord
 }
 
@@ -93,12 +93,14 @@ export function makeMutationErrorRecord(failure: FailureRecord): MutationResultW
   }
 }
 
-export function makeCranfieldErrorRecord(
+export function makeRelevanceErrorRecord(
   failure: FailureRecord,
+  dataset: string,
   docCount: number,
   queryCount: number,
-): CranfieldQualityResultWithError {
+): RelevanceQualityResultWithError {
   return {
+    dataset,
     meanNdcg10: -1,
     meanPrecision10: -1,
     meanMap: -1,

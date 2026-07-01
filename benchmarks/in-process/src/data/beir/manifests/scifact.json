@@ -1,0 +1,15 @@
+{
+  "name": "scifact",
+  "source": "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip",
+  "license": "CC BY-NC 2.0",
+  "archiveBytes": 2816079,
+  "archiveSha256": "536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165",
+  "counts": {
+    "documents": 5183,
+    "queries": 300,
+    "qrels": 339
+  },
+  "corpusFingerprint": "7eef964b1e3042197cafe04e912a8065b91bab2dd3e591cb277dcd369d6fa381",
+  "documentTextRule": "title + ' ' + text (both trimmed; the non-empty side alone when one is empty)",
+  "fingerprintAlgorithm": "sha256/len-framed/id-byte-sorted/v1"
+}

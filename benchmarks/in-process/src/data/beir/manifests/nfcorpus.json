@@ -1,0 +1,15 @@
+{
+  "name": "nfcorpus",
+  "source": "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/nfcorpus.zip",
+  "license": "CC BY-SA 4.0",
+  "archiveBytes": 2448432,
+  "archiveSha256": "efe5be03f8c5b86a5870102d0599d227c8c6e2484328e68c6522560385671b0b",
+  "counts": {
+    "documents": 3633,
+    "queries": 323,
+    "qrels": 12334
+  },
+  "corpusFingerprint": "4a844c96e864b1c4c8ff43e76c5bf1e681bd258e219d6b33e706a7f32f07a467",
+  "documentTextRule": "title + ' ' + text (both trimmed; the non-empty side alone when one is empty)",
+  "fingerprintAlgorithm": "sha256/len-framed/id-byte-sorted/v1"
+}

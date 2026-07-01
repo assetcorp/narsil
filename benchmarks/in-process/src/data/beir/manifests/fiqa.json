@@ -1,0 +1,15 @@
+{
+  "name": "fiqa",
+  "source": "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/fiqa.zip",
+  "license": "CC BY-SA 4.0",
+  "archiveBytes": 17948027,
+  "archiveSha256": "32c7df99ed21252fdfb2cf3f5673502a8d245ee0c44c4a133570d92ce2b3ad02",
+  "counts": {
+    "documents": 57600,
+    "queries": 648,
+    "qrels": 1706
+  },
+  "corpusFingerprint": "626dbb646363baa1aea63b16a56f4cc23e150632597b067976cd9d543a155225",
+  "documentTextRule": "title + ' ' + text (both trimmed; the non-empty side alone when one is empty)",
+  "fingerprintAlgorithm": "sha256/len-framed/id-byte-sorted/v1"
+}
