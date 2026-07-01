@@ -57,21 +57,6 @@ export function printSerializationTable(
   }
 }
 
-export function printQualityTable(
-  results: Record<string, { meanNdcg10: number; queryCount: number }>,
-  engines: Array<{ name: string; version: string }>,
-): void {
-  const alignRow = '---:'
-  console.log('\n### Search Quality Results (Self-Referential BM25)\n')
-  console.log('| Engine | Mean nDCG@10 | Queries Evaluated |')
-  console.log(`| --- | ${alignRow} | ${alignRow} |`)
-  for (const { name, version } of engines) {
-    const r = results[name]
-    if (!r) continue
-    console.log(`| ${name} v${version} | ${r.meanNdcg10.toFixed(4)} | ${r.queryCount} |`)
-  }
-}
-
 export function printCranfieldQualityTable(
   results: Record<string, CranfieldQualityResult>,
   engines: Array<{ name: string; version: string }>,

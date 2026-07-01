@@ -1,20 +1,12 @@
 import type {
   CranfieldQualityResult,
   MutationResult,
-  QualityResult,
   ScaleResult,
   SerializationResult,
   VectorScaleResult,
 } from '../types'
 
-export type FailurePhase =
-  | 'text-tier'
-  | 'vector-tier'
-  | 'serialization-tier'
-  | 'mutation-tier'
-  | 'quality-tier'
-  | 'cranfield-tier'
-  | 'scenario'
+export type FailurePhase = 'text-tier' | 'vector-tier' | 'serialization-tier' | 'mutation-tier' | 'cranfield-tier'
 
 export type FailureCode =
   | 'engine-threw'
@@ -50,10 +42,6 @@ export interface SerializationResultWithError extends SerializationResult {
 }
 
 export interface MutationResultWithError extends MutationResult {
-  error?: FailureRecord
-}
-
-export interface QualityResultWithError extends QualityResult {
   error?: FailureRecord
 }
 
@@ -101,15 +89,6 @@ export function makeMutationErrorRecord(failure: FailureRecord): MutationResultW
     removeMedianMs: -1,
     searchAfterRemoveMedianMs: -1,
     reinsertDocsPerSec: -1,
-    error: failure,
-  }
-}
-
-export function makeQualityErrorRecord(failure: FailureRecord, docCount: number): QualityResultWithError {
-  return {
-    meanNdcg10: -1,
-    queryCount: 0,
-    docCount,
     error: failure,
   }
 }

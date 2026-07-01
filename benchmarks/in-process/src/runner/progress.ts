@@ -2,7 +2,6 @@ import type {
   BenchmarkOutput,
   CranfieldQualityResult,
   MutationResult,
-  QualityResult,
   ScaleResult,
   SerializationResult,
   VectorScaleResult,
@@ -10,7 +9,6 @@ import type {
 import { writeJsonAtomicSync } from './atomic-write'
 
 interface BenchmarkOutputExtras {
-  scenarios?: unknown
   vectorByDimension?: Record<number, Record<string, Record<number, VectorScaleResult>>>
 }
 
@@ -79,13 +77,6 @@ function ensureMutationBucket(state: BenchmarkOutput): Record<string, MutationRe
   return created
 }
 
-function ensureQualityBucket(state: BenchmarkOutput): Record<string, QualityResult> {
-  if (state.quality !== undefined) return state.quality
-  const created: Record<string, QualityResult> = {}
-  state.quality = created
-  return created
-}
-
 function ensureCranfieldBucket(state: BenchmarkOutput): Record<string, CranfieldQualityResult> {
   if (state.cranfieldQuality !== undefined) return state.cranfieldQuality
   const created: Record<string, CranfieldQualityResult> = {}
@@ -141,12 +132,6 @@ export class ProgressStore {
 
   setMutation(engine: string, result: MutationResult): void {
     const bucket = ensureMutationBucket(this.state)
-    bucket[engine] = result
-    this.flush()
-  }
-
-  setQuality(engine: string, result: QualityResult): void {
-    const bucket = ensureQualityBucket(this.state)
     bucket[engine] = result
     this.flush()
   }

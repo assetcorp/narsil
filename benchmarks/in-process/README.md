@@ -5,8 +5,10 @@ Side-by-side benchmarks comparing Narsil against other JavaScript search engines
 ## Engines tested
 
 - [Narsil](https://github.com/assetcorp/narsil) - Distributed full-text and vector search engine
-- [Orama](https://github.com/assetcorp/orama) v3.1.18 - Full-text and vector search engine
-- [MiniSearch](https://github.com/lucaong/minisearch) v7.2.0 - In-memory full-text search
+- [Orama](https://github.com/assetcorp/orama) - Full-text and vector search engine
+- [MiniSearch](https://github.com/lucaong/minisearch) - In-memory full-text search
+
+Engine versions are read from the installed packages at run time and recorded in each run's output, so reported results stay tied to whatever versions you actually ran.
 
 ## Quick start
 
@@ -26,14 +28,19 @@ pnpm --filter benchmarks bench -- --tiers full
 pnpm --filter benchmarks bench -- --tiers vector
 pnpm --filter benchmarks bench -- --tiers serial
 pnpm --filter benchmarks bench -- --tiers mutation
-pnpm --filter benchmarks bench -- --tiers quality
+pnpm --filter benchmarks bench -- --tiers cranfield
 ```
 
-Results are printed to stdout and saved under `runs/<timestamp>/`. The `runs/latest` symlink always points to the most recent invocation, so tooling that reads "the current results" can follow `runs/latest/results.json` (or `synthetic-results.json`, `scenario-results.json`, `memory-profile.json` depending on which entry point ran).
+## Run storage
 
-Each run folder also contains a `META.txt` with the ISO timestamp, git commit SHA, branch name, and a dirty-tree flag. The `runs/` directory is gitignored by default, but a specific baseline can be pinned with `git add -f packages/benchmarks/runs/<timestamp>/`.
+Results are printed to stdout and saved under `results/runs/<run-id>/`, one directory per invocation. A run id is a UTC timestamp such as `20260630T160034Z`, so runs sort chronologically and a new run never overwrites a prior one. This mirrors the server suite's run store.
 
-One folder is created per bench invocation. Two consecutive invocations produce two folders, and `latest` points at the second.
+Each run directory holds:
+
+- `run.json`: the run manifest, recording the run id, the creation time, the build identity (git commit, branch, and a dirty-tree flag), and the runtime environment (Node version, OS, arch, CPU, total memory).
+- `results.json`: the comparative benchmark output. The memory profiler writes `memory-profile.json` and `heap.heapsnapshot` into the same run directory instead.
+
+The latest run is the lexically greatest valid run-id directory, so tooling resolves "the current results" by reading the newest `results/runs/<run-id>/` directory; there is no `latest` symlink. The `results/` directory is gitignored, so run output stays out of version control by default.
 
 ## Dataset
 
@@ -43,79 +50,33 @@ Scales: 1,000 / 10,000 / 50,000 / 100,000 documents.
 
 ## Tiers
 
-### Tier 1: Text-Only Search
+### Text-Only Search (`--tiers text`)
 
 Indexes `title` (string) and `body` (string) fields. Measures insert throughput, search latency, and memory at each scale.
 
-### Tier 2: Full Schema (with filters)
+### Full Schema (`--tiers full`)
 
-Adds `score` (number) and `category` (enum) fields to the text schema. Measures the same metrics as Tier 1 plus filtered search latency (text search combined with field filters).
+Adds `score` (number) and `category` (enum) fields to the text schema. Measures the same metrics as the text tier plus filtered search latency (text search combined with field filters).
 
-### Tier 3: Vector Search
+### Vector Search (`--tiers vector`)
 
 Indexes synthetic 1536-dim and 3072-dim embeddings. Measures vector insert throughput, vector search latency (top-10), and memory. Orama is the only competitor with vector support; MiniSearch is excluded.
 
-### Tier 4: Serialization
+### Serialization (`--tiers serial`)
 
 Measures serialize time, serialized size, and deserialize+search time at 100,000 documents.
 
-### Tier 5: Mutations
+### Mutations (`--tiers mutation`)
 
 Measures update and remove throughput at 100,000 documents.
 
-### Tier 6: Search Quality (Cranfield)
+### Cranfield Relevance (`--tiers cranfield`)
 
-Ranking accuracy against the [Cranfield Collection](https://ir-datasets.com/cranfield.html) with 1,400 documents and 225 queries with exhaustive human relevance judgments. Measures nDCG@10, P@10, MAP, and MRR. See the [quality methodology](#search-quality-methodology) section below for details.
+Ranking accuracy against the [Cranfield Collection](https://ir-datasets.com/cranfield.html) with 1,400 documents and 225 queries with exhaustive human relevance judgments. Measures nDCG@10, P@10, MAP, and MRR. See the [search quality methodology](#search-quality-methodology) section below for details.
 
-## Latest results (Apple M3 Pro, 18GB, Node.js v22)
+## Results
 
-### Insert throughput (docs/sec, Wikipedia data)
-
-| Engine | 1K | 10K | 50K | 100K |
-| --- | ---: | ---: | ---: | ---: |
-| **Narsil** | **7,246** | **7,546** | **8,450** | **7,375** |
-| Orama 3.1.18 | 4,261 | 1,858 | 4,477 | 3,801 |
-| MiniSearch 7.2.0 | 5,399 | 4,698 | 5,059 | 4,715 |
-
-### Search latency (ms median / p95, Wikipedia data)
-
-| Engine | 1K | 10K | 50K | 100K |
-| --- | ---: | ---: | ---: | ---: |
-| Narsil | 0.036 / 0.18 | 0.058 / 1.41 | 0.070 / 3.35 | 0.366 / 15.5 |
-| Orama 3.1.18 | 0.020 / 0.09 | 0.057 / 1.40 | 0.179 / 5.37 | 0.405 / 34.9 |
-| MiniSearch 7.2.0 | 0.018 / 0.15 | 0.036 / 1.19 | 0.143 / 4.98 | 0.255 / 15.0 |
-
-### Filtered search latency (ms median, full schema)
-
-| Engine | 1K | 10K | 50K | 100K |
-| --- | ---: | ---: | ---: | ---: |
-| **Narsil** | **0.014** | **0.024** | **0.119** | **0.250** |
-| Orama 3.1.18 | 0.027 | 0.142 | 2.413 | 4.569 |
-
-MiniSearch does not support field filters.
-
-### Vector search (1536-dim, top-10)
-
-| Engine | 10K insert/s | 50K insert/s | 100K insert/s | 100K search ms |
-| --- | ---: | ---: | ---: | ---: |
-| **Narsil** | **57,867** | **48,167** | **40,494** | **65.7** |
-| Orama 3.1.18 | 54,697 | 40,638 | 32,960 | 180.5 |
-
-### Memory (MB, Wikipedia data)
-
-| Engine | 1K | 10K | 50K | 100K |
-| --- | ---: | ---: | ---: | ---: |
-| Narsil | 23.0 | 132.3 | 398.8 | 734.3 |
-| Orama 3.1.18 | 22.5 | 168.7 | 607.2 | 1,184.2 |
-| MiniSearch 7.2.0 | 14.8 | 94.6 | 323.4 | 625.2 |
-
-### Search quality (Cranfield Collection)
-
-| Engine | nDCG@10 | P@10 | MAP | MRR |
-| --- | ---: | ---: | ---: | ---: |
-| **Narsil** | **0.3739** | **0.2458** | **0.2614** | **0.5638** |
-| Orama 3.1.18 | 0.2911 | 0.1836 | 0.1846 | 0.4821 |
-| MiniSearch 7.2.0 | 0.0077 | 0.0067 | 0.0027 | 0.0139 |
+Results are pending a fresh run on the current code. Run `pnpm --filter benchmarks bench` and read the output in `results/runs/<run-id>/results.json`. The suite reports insert throughput, search latency (median and p95), filtered search latency, vector insert and search, memory, and Cranfield relevance (nDCG@10, P@10, MAP, MRR) per engine and scale.
 
 ## What's measured
 
@@ -131,7 +92,7 @@ MiniSearch does not support field filters.
 
 ## Search quality methodology
 
-The quality tier measures ranking accuracy against the [Cranfield Collection](https://ir-datasets.com/cranfield.html), created in the 1960s at Cranfield University. It contains 1,400 aerodynamics journal abstracts, 225 natural-language queries, and 1,837 graded relevance judgments made by domain experts.
+The Cranfield tier measures ranking accuracy against the [Cranfield Collection](https://ir-datasets.com/cranfield.html), created in the 1960s at Cranfield University. It contains 1,400 aerodynamics journal abstracts, 225 natural-language queries, and 1,837 graded relevance judgments made by domain experts.
 
 ### Why Cranfield
 

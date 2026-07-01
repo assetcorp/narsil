@@ -46,7 +46,7 @@ if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
 else
   NARSIL_GIT_DIRTY="false"
 fi
-NARSIL_VERSION="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' ../packages/ts/package.json 2>/dev/null | head -1)"
+NARSIL_VERSION="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' ../../packages/ts/package.json 2>/dev/null | head -1)"
 export NARSIL_GIT_SHA NARSIL_GIT_DIRTY NARSIL_VERSION
 
 # Resolve the immutable image artifact a running engine was started from. A pulled

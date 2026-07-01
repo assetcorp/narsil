@@ -108,12 +108,6 @@ export interface MutationResult {
   reinsertDocsPerSec: number
 }
 
-export interface QualityResult {
-  meanNdcg10: number
-  queryCount: number
-  docCount: number
-}
-
 export interface CranfieldQualityResult {
   meanNdcg10: number
   meanPrecision10: number
@@ -131,36 +125,5 @@ export interface BenchmarkOutput {
   tiers: TierResults
   serialization?: Record<string, SerializationResult>
   mutations?: Record<string, MutationResult>
-  quality?: Record<string, QualityResult>
   cranfieldQuality?: Record<string, CranfieldQualityResult>
-}
-
-export interface TimeSeriesPoint {
-  checkpoint: number
-  label?: string
-  insertThroughput?: number
-  searchMedianMs?: number
-  searchP95Ms?: number
-  memoryBytes?: number
-  partitionCount?: number
-}
-
-export interface ComparisonRow {
-  label: string
-  metrics: Record<string, number | string>
-}
-
-export interface ScenarioResult {
-  name: string
-  description: string
-  config: Record<string, unknown>
-  timeSeries?: TimeSeriesPoint[]
-  comparisons?: ComparisonRow[]
-  durationMs: number
-}
-
-export interface ScenarioOutput {
-  env: EnvironmentInfo
-  timestamp: string
-  scenarios: ScenarioResult[]
 }

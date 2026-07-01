@@ -4,4 +4,4 @@
 **/coverage
 **/*.log
 .DS_Store
-ir-benchmark
+benchmarks

@@ -18,11 +18,11 @@ importers:
         specifier: 22.5.4
         version: 22.5.4
 
-  packages/benchmarks:
+  benchmarks/in-process:
     dependencies:
       '@delali/narsil':
         specifier: workspace:*
-        version: link:../ts
+        version: link:../../packages/ts
       '@orama/orama':
         specifier: 3.1.18
         version: 3.1.18

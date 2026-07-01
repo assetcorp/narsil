@@ -1,22 +1,14 @@
-import { printCranfieldQualityTable, printMutationTable, printQualityTable, printSerializationTable } from '../print'
+import { printCranfieldQualityTable, printMutationTable, printSerializationTable } from '../print'
 import { fmt } from '../stats'
-import type { CranfieldQualityResult, MutationResult, QualityResult, SerializationResult } from '../types'
+import type { CranfieldQualityResult, MutationResult, SerializationResult } from '../types'
 import {
   formatFailureLine,
   makeCranfieldErrorRecord,
   makeMutationErrorRecord,
-  makeQualityErrorRecord,
   makeSerializationErrorRecord,
 } from './error-records'
 import { runInIsolation } from './isolate'
-import type {
-  CranfieldJobSpec,
-  DataSource,
-  EngineId,
-  MutationJobSpec,
-  QualityJobSpec,
-  SerializationJobSpec,
-} from './jobs'
+import type { CranfieldJobSpec, DataSource, EngineId, MutationJobSpec, SerializationJobSpec } from './jobs'
 import type { ProgressStore } from './progress'
 
 interface IsolationConfig {
@@ -37,14 +29,6 @@ export interface MutationTierConfig extends IsolationConfig {
   dataSource: DataSource
   seed: number
   searchQueryCount: number
-}
-
-export interface QualityTierConfig extends IsolationConfig {
-  engines: Array<{ name: EngineId; version: string }>
-  docCount: number
-  queryCount: number
-  dataSource: DataSource
-  seed: number
 }
 
 export interface CranfieldTierConfig extends IsolationConfig {
@@ -156,56 +140,6 @@ export async function runMutationTier(
     store.setMutation(engineMeta.name, r)
   }
   printMutationTable(results, config.engines)
-  return results
-}
-
-export async function runQualityTier(
-  config: QualityTierConfig,
-  store: ProgressStore,
-): Promise<Record<string, QualityResult>> {
-  console.log(`\n## Tier 6: Search Quality nDCG@10 (${fmt(config.docCount)} docs, ${config.queryCount} queries)\n`)
-  const results: Record<string, QualityResult> = {}
-  for (const engineMeta of config.engines) {
-    console.log(`  ${engineMeta.name} v${engineMeta.version}`)
-    const job: QualityJobSpec = {
-      kind: 'quality',
-      engine: engineMeta.name,
-      docCount: config.docCount,
-      queryCount: config.queryCount,
-      dataSource: config.dataSource,
-      seed: config.seed,
-    }
-    const outcome = await runInIsolation(job, {
-      timeoutMs: config.perJobTimeoutMs,
-      maxOldSpaceMb: config.perJobMaxOldSpaceMb,
-    })
-    if (outcome.outcome.kind === 'failure') {
-      const failure = outcome.outcome.failure
-      const record = makeQualityErrorRecord(failure, config.docCount)
-      console.log(`    ERROR ${formatFailureLine(failure)}`)
-      results[engineMeta.name] = record
-      store.setQuality(engineMeta.name, record)
-      continue
-    }
-    if (outcome.outcome.kind !== 'quality') {
-      const failure = {
-        code: 'engine-ipc-corrupt' as const,
-        message: `worker returned unexpected kind ${outcome.outcome.kind}`,
-        phase: 'quality-tier' as const,
-        engine: engineMeta.name,
-      }
-      const record = makeQualityErrorRecord(failure, config.docCount)
-      console.log(`    ERROR ${formatFailureLine(failure)}`)
-      results[engineMeta.name] = record
-      store.setQuality(engineMeta.name, record)
-      continue
-    }
-    const r = outcome.outcome.result
-    console.log(`    mean nDCG@10: ${r.meanNdcg10.toFixed(4)} (over ${r.queryCount} queries with results)`)
-    results[engineMeta.name] = r
-    store.setQuality(engineMeta.name, r)
-  }
-  printQualityTable(results, config.engines)
   return results
 }
 

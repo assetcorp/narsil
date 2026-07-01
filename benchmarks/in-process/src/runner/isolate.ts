@@ -68,8 +68,6 @@ function jobPhase(job: JobSpec): FailureRecord['phase'] {
       return 'serialization-tier'
     case 'mutation':
       return 'mutation-tier'
-    case 'quality':
-      return 'quality-tier'
     case 'cranfield':
       return 'cranfield-tier'
   }
