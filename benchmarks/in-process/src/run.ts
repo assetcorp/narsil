@@ -1,5 +1,5 @@
 import os from 'node:os'
-import { BEIR_DATASETS, type BeirDatasetName } from './data/beir'
+import { BEIR_DATASETS, type BeirDatasetName, ensureBeirArchives } from './data/beir'
 import { EMBEDDING_DIM, EMBEDDING_MODEL } from './data/vectors'
 import { SEARCH_REPEAT_ROUNDS, SEARCH_WARMUP_ROUNDS } from './measure'
 import { printConsistencyReport } from './print'
@@ -49,6 +49,20 @@ function parseRelevanceDataset(args: string[]): BeirDatasetName {
   if ((BEIR_DATASETS as readonly string[]).includes(value)) return value as BeirDatasetName
   console.log(`Unknown relevance dataset "${value}". Valid datasets: ${BEIR_DATASETS.join(', ')}`)
   process.exit(1)
+}
+
+function requiredDatasets(tiers: Set<TierName>, relevanceDataset: BeirDatasetName): BeirDatasetName[] {
+  const needed = new Set<BeirDatasetName>()
+  if (tiers.has('text') || tiers.has('full') || tiers.has('serial') || tiers.has('mutation')) {
+    needed.add('fiqa')
+  }
+  if (tiers.has('vector')) {
+    for (const dataset of VECTOR_DATASETS) needed.add(dataset)
+  }
+  if (tiers.has('relevance') || tiers.has('consistency')) {
+    needed.add(relevanceDataset)
+  }
+  return [...needed]
 }
 
 function buildEngineMetas(versions: Record<string, string>, names: EngineId[]) {
@@ -106,6 +120,12 @@ async function main() {
   }
   const store = new ProgressStore({ outputPath, initial })
   store.flush()
+
+  const datasets = requiredDatasets(tiers, relevanceDataset)
+  if (datasets.length > 0) {
+    console.log(`Preparing BEIR datasets (download if missing): ${datasets.join(', ')}`)
+    await ensureBeirArchives(datasets)
+  }
 
   if (tiers.has('text')) {
     await runTextTier(

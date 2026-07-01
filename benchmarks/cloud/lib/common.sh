@@ -68,8 +68,11 @@ cmd_up() {
 # Package exactly what git tracks or leaves untracked-but-not-ignored, plus the
 # .git directory so both suites can stamp the build commit. Delegating the file
 # set to git keeps this identical on macOS and Linux and never drifts from
-# .gitignore, so node_modules, dist, cached datasets, and old run directories
-# are excluded because git already ignores them.
+# .gitignore, so node_modules, dist, and cached datasets are excluded because
+# git already ignores them. Committed result runs still ship (they match HEAD,
+# so they stay clean), but untracked result folders are skipped: they are
+# generated output, and shipping a stray local run would show up as a dirty
+# working tree on the VM and pollute the git status each run records.
 cmd_sync() {
   command -v git >/dev/null 2>&1 || die "git is required to package the working tree"
   log "package the working tree via git (honours .gitignore, keeps .git for the build stamp)"
@@ -83,7 +86,8 @@ cmd_sync() {
   filelist="$(mktemp "${TMPDIR:-/tmp}/narsil-files.XXXXXX")"
   {
     git -C "$REPO_ROOT" ls-files -z
-    git -C "$REPO_ROOT" ls-files --others --exclude-standard -z
+    git -C "$REPO_ROOT" ls-files --others --exclude-standard -z \
+      -- . ':(exclude)benchmarks/in-process/results/runs' ':(exclude)benchmarks/server/results/runs'
     printf '.git\0'
   } >"$filelist"
   tar czf "$tarball" -C "$REPO_ROOT" --null -T "$filelist"
