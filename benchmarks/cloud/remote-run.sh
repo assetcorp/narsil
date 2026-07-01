@@ -33,12 +33,16 @@ pnpm run build || status=1
 
 if [ "$SUITES" = "both" ] || [ "$SUITES" = "inprocess" ]; then
   stamp "in-process suite (Orama, MiniSearch, Narsil)"
-  pnpm --filter benchmarks bench || status=1
+  inproc_args=()
+  [ -n "${BENCH_INPROCESS_TIERS:-}" ] && inproc_args=(-- --tiers "$BENCH_INPROCESS_TIERS")
+  pnpm --filter benchmarks bench "${inproc_args[@]}" || status=1
 fi
 
 if [ "$SUITES" = "both" ] || [ "$SUITES" = "server" ]; then
   stamp "server suite (Elasticsearch, OpenSearch, Qdrant, Weaviate, Typesense, Meilisearch, Narsil)"
-  ( cd benchmarks/server && BENCH_MACHINE_LABEL="$LABEL" ./run-all.sh ) || status=1
+  server_args=()
+  [ -n "${BENCH_SERVER_ENGINES:-}" ] && read -r -a server_args <<<"$BENCH_SERVER_ENGINES"
+  ( cd benchmarks/server && BENCH_MACHINE_LABEL="$LABEL" ./run-all.sh "${server_args[@]}" ) || status=1
 fi
 
 stamp "finished with status $status"
