@@ -20,6 +20,12 @@
 #   ./run-on-gcp.sh status           # show the VM state
 #   ./run-on-gcp.sh down             # delete the VM
 #
+# Flags (any command): --yes skips the billing prompt, --teardown deletes on
+# success, --dry-run prints the commands it would run instead of running them.
+#
+# A cheap end-to-end smoke, then clean up:
+#   SUITES=inprocess BENCH_INPROCESS_TIERS=text ./run-on-gcp.sh all --teardown
+#
 # Everything is configurable through the environment:
 #   GCP_PROJECT     defaults to the active gcloud project
 #   GCP_ZONE        default us-central1-a
@@ -29,6 +35,8 @@
 #   DISK_SIZE       default 60GB
 #   SUITES          both | inprocess | server
 #   USE_IAP         1 to tunnel SSH/SCP through IAP instead of a public IP
+#   BENCH_INPROCESS_TIERS  restrict the in-process suite (e.g. "text" for a smoke)
+#   BENCH_SERVER_ENGINES   restrict the server suite (e.g. "narsil" for a smoke)
 #   BENCH_BEST_CONFIG / BENCH_DATASETS / BENCH_MEM_CAP / BENCH_JVM_HEAP
 #     forwarded to the server suite unchanged.
 
@@ -45,6 +53,7 @@ DISK_SIZE="${DISK_SIZE:-60GB}"
 IMAGE_FAMILY="${IMAGE_FAMILY:-ubuntu-2404-lts-amd64}"
 IMAGE_PROJECT="${IMAGE_PROJECT:-ubuntu-os-cloud}"
 SUITES="${SUITES:-both}"
+DRY_RUN="${DRY_RUN:-0}"
 MACHINE_LABEL="${BENCH_MACHINE_LABEL:-GCP ${MACHINE_TYPE}, ${IMAGE_FAMILY}, ${ZONE}}"
 
 IAP_FLAG=""
@@ -55,17 +64,27 @@ log() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 
 [ -n "$PROJECT" ] || die "no GCP project set; export GCP_PROJECT or run 'gcloud config set project'"
 
+# Single choke point for every side-effecting external command, so --dry-run can
+# show the plan without touching the cloud.
+_run() {
+  if [ "$DRY_RUN" = "1" ]; then
+    printf 'DRY-RUN: %s\n' "$*"
+    return 0
+  fi
+  "$@"
+}
+
 _ssh() {
-  gcloud compute ssh "$VM_NAME" --project "$PROJECT" --zone "$ZONE" $IAP_FLAG --command "$1"
+  _run gcloud compute ssh "$VM_NAME" --project "$PROJECT" --zone "$ZONE" $IAP_FLAG --command "$1"
 }
 _ssh_interactive() {
-  gcloud compute ssh "$VM_NAME" --project "$PROJECT" --zone "$ZONE" $IAP_FLAG
+  _run gcloud compute ssh "$VM_NAME" --project "$PROJECT" --zone "$ZONE" $IAP_FLAG
 }
 _scp() {
-  gcloud compute scp --project "$PROJECT" --zone "$ZONE" $IAP_FLAG "$@"
+  _run gcloud compute scp --project "$PROJECT" --zone "$ZONE" $IAP_FLAG "$@"
 }
 _scp_r() {
-  gcloud compute scp --recurse --project "$PROJECT" --zone "$ZONE" $IAP_FLAG "$@"
+  _run gcloud compute scp --recurse --project "$PROJECT" --zone "$ZONE" $IAP_FLAG "$@"
 }
 
 approx_hourly() {
@@ -79,23 +98,30 @@ approx_hourly() {
 }
 
 cmd_up() {
-  if gcloud compute instances describe "$VM_NAME" --project "$PROJECT" --zone "$ZONE" >/dev/null 2>&1; then
+  if [ "$DRY_RUN" != "1" ] &&
+    gcloud compute instances describe "$VM_NAME" --project "$PROJECT" --zone "$ZONE" >/dev/null 2>&1; then
     log "VM $VM_NAME already exists in $ZONE"
     return 0
   fi
   log "create $VM_NAME ($MACHINE_TYPE, $(approx_hourly "$MACHINE_TYPE")/hr) in $ZONE"
-  if [ "${ASSUME_YES:-0}" != "1" ]; then
+  if [ "$DRY_RUN" != "1" ] && [ "${ASSUME_YES:-0}" != "1" ]; then
     read -r -p "This starts billing until you run 'down'. Proceed? [y/N] " reply
     [ "$reply" = "y" ] || [ "$reply" = "Y" ] || die "aborted"
   fi
-  local extra=()
-  [ -n "${MIN_CPU_PLATFORM:-}" ] && extra+=(--min-cpu-platform "$MIN_CPU_PLATFORM")
-  gcloud compute instances create "$VM_NAME" \
-    --project "$PROJECT" --zone "$ZONE" \
-    --machine-type "$MACHINE_TYPE" \
-    --image-family "$IMAGE_FAMILY" --image-project "$IMAGE_PROJECT" \
-    --boot-disk-size "$DISK_SIZE" --boot-disk-type pd-balanced \
-    "${extra[@]}"
+  # Keep the required flags in the array so it is never empty; expanding an empty
+  # array under 'set -u' aborts on the bash 3.2 that ships with macOS.
+  local -a create_flags=(
+    --project "$PROJECT" --zone "$ZONE"
+    --machine-type "$MACHINE_TYPE"
+    --image-family "$IMAGE_FAMILY" --image-project "$IMAGE_PROJECT"
+    --boot-disk-size "$DISK_SIZE" --boot-disk-type pd-balanced
+  )
+  [ -n "${MIN_CPU_PLATFORM:-}" ] && create_flags+=(--min-cpu-platform "$MIN_CPU_PLATFORM")
+  _run gcloud compute instances create "$VM_NAME" "${create_flags[@]}"
+  if [ "$DRY_RUN" = "1" ]; then
+    log "(dry-run) would wait for SSH, then continue"
+    return 0
+  fi
   log "wait for SSH"
   local attempt
   for ((attempt = 1; attempt <= 40; attempt++)); do
@@ -116,6 +142,11 @@ cmd_up() {
 cmd_sync() {
   command -v git >/dev/null 2>&1 || die "git is required to package the working tree"
   log "package the working tree via git (honours .gitignore, keeps .git for the build stamp)"
+  if [ "$DRY_RUN" = "1" ]; then
+    _scp "<working-tree>.tgz" "$VM_NAME:~/narsil.tgz"
+    _ssh "unpack ~/narsil.tgz into ~/narsil"
+    return 0
+  fi
   local tarball filelist
   tarball="$(mktemp "${TMPDIR:-/tmp}/narsil-sync.XXXXXX")"
   filelist="$(mktemp "${TMPDIR:-/tmp}/narsil-files.XXXXXX")"
@@ -133,7 +164,7 @@ cmd_sync() {
 }
 
 cmd_setup() {
-  log "install Docker, Node 22, pnpm, and kernel settings on the VM"
+  log "install Docker, Node 24, pnpm, and kernel settings on the VM"
   _ssh "bash ~/narsil/benchmarks/cloud/remote-bootstrap.sh"
 }
 
@@ -142,7 +173,8 @@ cmd_run() {
   local forward
   forward="$(printf '%q ' "SUITES=$SUITES" "BENCH_MACHINE_LABEL=$MACHINE_LABEL")"
   local v
-  for v in BENCH_BEST_CONFIG BENCH_DATASETS BENCH_MEM_CAP BENCH_JVM_HEAP; do
+  for v in BENCH_INPROCESS_TIERS BENCH_SERVER_ENGINES \
+    BENCH_BEST_CONFIG BENCH_DATASETS BENCH_MEM_CAP BENCH_JVM_HEAP; do
     if [ -n "${!v:-}" ]; then
       forward+="$(printf '%q ' "$v=${!v}")"
     fi
@@ -152,6 +184,10 @@ cmd_run() {
 }
 
 cmd_logs() {
+  if [ "$DRY_RUN" = "1" ]; then
+    log "(dry-run) would stream ~/bench.log until the run finishes"
+    return 0
+  fi
   log "stream ~/bench.log until the run finishes (Ctrl-C detaches, run keeps going)"
   _ssh 'tail -n +1 --follow=name --pid=$(cat ~/bench.pid 2>/dev/null || echo 1) ~/bench.log' || true
   local st
@@ -167,6 +203,10 @@ cmd_logs() {
 
 fetch_suite() {
   local remote="$1" dest="$REPO_ROOT/$1"
+  if [ "$DRY_RUN" = "1" ]; then
+    log "(dry-run) would fetch new run directories from $remote"
+    return 0
+  fi
   local ids
   ids="$(_ssh "ls ~/narsil/$remote 2>/dev/null || true" | tr -d '\r')"
   [ -n "$ids" ] || { log "no runs under $remote yet"; return 0; }
@@ -189,15 +229,20 @@ cmd_fetch() {
 }
 
 cmd_down() {
-  if ! gcloud compute instances describe "$VM_NAME" --project "$PROJECT" --zone "$ZONE" >/dev/null 2>&1; then
+  if [ "$DRY_RUN" != "1" ] &&
+    ! gcloud compute instances describe "$VM_NAME" --project "$PROJECT" --zone "$ZONE" >/dev/null 2>&1; then
     log "VM $VM_NAME not found; nothing to delete"
     return 0
   fi
   log "delete $VM_NAME"
-  gcloud compute instances delete "$VM_NAME" --project "$PROJECT" --zone "$ZONE" --quiet
+  _run gcloud compute instances delete "$VM_NAME" --project "$PROJECT" --zone "$ZONE" --quiet
 }
 
 cmd_status() {
+  if [ "$DRY_RUN" = "1" ]; then
+    log "(dry-run) would describe $VM_NAME in $ZONE"
+    return 0
+  fi
   gcloud compute instances describe "$VM_NAME" --project "$PROJECT" --zone "$ZONE" \
     --format='value(name,status,machineType.scope(machineTypes),zone.scope(zones))' 2>/dev/null \
     || log "VM $VM_NAME not found"
@@ -223,6 +268,7 @@ main() {
     case "$arg" in
       --yes) ASSUME_YES=1 ;;
       --teardown) TEARDOWN=1 ;;
+      --dry-run) DRY_RUN=1 ;;
       *) die "unknown option: $arg" ;;
     esac
   done
@@ -238,7 +284,7 @@ main() {
     down) cmd_down ;;
     all) cmd_all ;;
     ""|help|-h|--help)
-      sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# //;s/^#//'
+      sed -n '2,45p' "${BASH_SOURCE[0]}" | sed 's/^# //;s/^#//'
       ;;
     *) die "unknown command: $sub (try '$0 help')" ;;
   esac

@@ -32,6 +32,30 @@ the run succeeds, and `--yes` to skip the billing confirmation:
 ./run-on-gcp.sh all --yes --teardown
 ```
 
+## Test it before you trust it
+
+Two flags make a real run cheap to rehearse. `--dry-run` prints every command the
+toolkit would run, touching nothing and spending nothing:
+
+```bash
+./run-on-gcp.sh all --dry-run
+```
+
+For an end-to-end check against a real VM for pennies, restrict the work to one
+fast tier and tear down afterwards. `BENCH_INPROCESS_TIERS` limits the in-process
+suite (any of `text`, `full`, `vector`, `serial`, `mutation`, `relevance`,
+`consistency`), and `BENCH_SERVER_ENGINES` limits the server suite to named
+engines:
+
+```bash
+SUITES=inprocess BENCH_INPROCESS_TIERS=text ./run-on-gcp.sh all --yes --teardown
+SUITES=server BENCH_SERVER_ENGINES=narsil ./run-on-gcp.sh all --yes --teardown
+```
+
+That exercises create, sync, setup, the detached run, fetch, and teardown in a
+few minutes, so a full run afterwards is the same path with more time on the
+clock.
+
 ## Why c3, not e2
 
 The default machine is `c3-standard-8` (8 vCPU, 32 GB) at about $0.40/hour. Its
@@ -79,6 +103,8 @@ Every default is an environment variable:
 | `DISK_SIZE` | `60GB` | Boot disk size |
 | `SUITES` | `both` | `both`, `inprocess`, or `server` |
 | `USE_IAP` | `0` | Set `1` to tunnel SSH through IAP with no public IP |
+| `BENCH_INPROCESS_TIERS` | unset | Restrict the in-process suite to named tiers |
+| `BENCH_SERVER_ENGINES` | unset | Restrict the server suite to named engines |
 | `BENCH_MACHINE_LABEL` | derived | Host label recorded in server results |
 
 The server suite reads `BENCH_BEST_CONFIG`, `BENCH_DATASETS`, `BENCH_MEM_CAP`,
