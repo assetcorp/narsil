@@ -18,12 +18,18 @@ corepack enable >/dev/null 2>&1 || true
 
 stamp() { printf '\n[%s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 
-if ! docker ps >/dev/null 2>&1; then
-  stamp "docker is not usable in this session; setup may not have completed"
-  echo 1 > "$HOME/bench.status"
-  touch "$HOME/bench.done"
-  exit 1
-fi
+# Only the server suite uses Docker; the in-process suite is pure Node, so it
+# runs on a plain host (or a container) without a Docker daemon.
+case "$SUITES" in
+  both | server)
+    if ! docker ps >/dev/null 2>&1; then
+      stamp "docker is not usable in this session; the server suite needs it"
+      echo 1 > "$HOME/bench.status"
+      touch "$HOME/bench.done"
+      exit 1
+    fi
+    ;;
+esac
 
 stamp "pnpm install"
 pnpm install || status=1
