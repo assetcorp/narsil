@@ -28,8 +28,11 @@ const WIKI_MAX_ARTICLES = 100_000
 const ENGINE_ORDER: EngineId[] = ['narsil', 'orama', 'minisearch']
 const VECTOR_ENGINE_ORDER: EngineId[] = ['narsil', 'orama']
 
-type TierName = 'text' | 'full' | 'vector' | 'serial' | 'mutation' | 'cranfield'
-const ALL_TIERS: TierName[] = ['text', 'full', 'vector', 'serial', 'mutation', 'cranfield']
+type TierName = 'text' | 'full' | 'vector' | 'serial' | 'mutation' | 'relevance'
+const ALL_TIERS: TierName[] = ['text', 'full', 'vector', 'serial', 'mutation', 'relevance']
+
+// Tiers that read the Wikipedia corpus; a run without any of them skips the corpus load.
+const WIKI_TIERS: TierName[] = ['text', 'full', 'serial', 'mutation']
 
 function parseTiers(args: string[]): Set<TierName> {
   const tiersIdx = args.indexOf('--tiers')
@@ -69,20 +72,23 @@ async function main() {
   console.log(`Seed: ${SEED} | Search queries: ${SEARCH_QUERY_COUNT}`)
   console.log(`Tiers: ${Array.from(tiers).join(', ')}`)
 
-  let articles: WikiArticle[]
-  if (refreshWiki) {
-    articles = await downloadAndCacheWiki(WIKI_MAX_ARTICLES)
-  } else {
-    articles = await loadWikiArticles(WIKI_MAX_ARTICLES, { noDownload })
+  const needsWiki = WIKI_TIERS.some(t => tiers.has(t))
+  let articles: WikiArticle[] = []
+  if (needsWiki) {
+    if (refreshWiki) {
+      articles = await downloadAndCacheWiki(WIKI_MAX_ARTICLES)
+    } else {
+      articles = await loadWikiArticles(WIKI_MAX_ARTICLES, { noDownload })
+    }
+    console.log(`\nUsing ${fmt(articles.length)} Wikipedia articles`)
   }
-  console.log(`\nUsing ${fmt(articles.length)} Wikipedia articles`)
 
   const engineVersions: Record<string, string> = {
     narsil: getPackageVersion('@delali/narsil'),
     orama: getPackageVersion('@orama/orama'),
     minisearch: getPackageVersion('minisearch'),
   }
-  const activeScales = SCALES.filter(s => s <= articles.length)
+  const activeScales = needsWiki ? SCALES.filter(s => s <= articles.length) : SCALES
   const { runDir, artifactPath: outputPath } = prepareRunArtifact('comparative')
   console.log(`Run folder: ${runDir}`)
 
@@ -98,7 +104,7 @@ async function main() {
       searchQueryCount: SEARCH_QUERY_COUNT,
       seed: SEED,
       dataSource: 'wiki',
-      wikiArticleCount: articles.length,
+      wikiArticleCount: needsWiki ? articles.length : undefined,
     },
     engines: engineVersions,
     tiers: { textOnly: {}, fullSchema: {}, vector: {} },
@@ -182,7 +188,7 @@ async function main() {
     )
   }
 
-  if (tiers.has('cranfield')) {
+  if (tiers.has('relevance')) {
     const fixturesDir = resolve(
       __dirname,
       '..',

@@ -5,7 +5,7 @@ Side-by-side benchmarks comparing Narsil against other JavaScript search engines
 ## Engines tested
 
 - [Narsil](https://github.com/assetcorp/narsil) - Distributed full-text and vector search engine
-- [Orama](https://github.com/assetcorp/orama) - Full-text and vector search engine
+- [Orama](https://github.com/oramasearch/orama) - Full-text and vector search engine
 - [MiniSearch](https://github.com/lucaong/minisearch) - In-memory full-text search
 
 Engine versions are read from the installed packages at run time and recorded in each run's output, so reported results stay tied to whatever versions you actually ran.
@@ -28,7 +28,7 @@ pnpm --filter benchmarks bench -- --tiers full
 pnpm --filter benchmarks bench -- --tiers vector
 pnpm --filter benchmarks bench -- --tiers serial
 pnpm --filter benchmarks bench -- --tiers mutation
-pnpm --filter benchmarks bench -- --tiers cranfield
+pnpm --filter benchmarks bench -- --tiers relevance
 ```
 
 ## Run storage
@@ -70,7 +70,7 @@ Measures serialize time, serialized size, and deserialize+search time at 100,000
 
 Measures update and remove throughput at 100,000 documents.
 
-### Cranfield Relevance (`--tiers cranfield`)
+### Cranfield Relevance (`--tiers relevance`)
 
 Ranking accuracy against the [Cranfield Collection](https://ir-datasets.com/cranfield.html) with 1,400 documents and 225 queries with exhaustive human relevance judgments. Measures nDCG@10, P@10, MAP, and MRR. See the [search quality methodology](#search-quality-methodology) section below for details.
 
