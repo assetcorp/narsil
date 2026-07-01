@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
-import { Readable, type Transform } from 'node:stream'
+import { PassThrough, Readable, type Transform } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 
 // @ts-expect-error no type declarations
@@ -64,15 +64,18 @@ export async function downloadWikiArticles(maxCount: number): Promise<WikiArticl
   }
 
   const nodeStream = Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0])
-  const decompressed = nodeStream.pipe(unbzip2() as Transform)
+  const inflated = nodeStream.pipe(unbzip2() as Transform)
+  const decompressed = new PassThrough()
+  inflated.pipe(decompressed)
 
   const MAX_BUFFER_SIZE = 10 * 1024 * 1024
   let buffer = ''
   const articles: WikiArticle[] = []
   let inPage = false
 
-  decompressed.on('error', () => {})
   nodeStream.on('error', () => {})
+  inflated.on('error', () => {})
+  decompressed.on('error', () => {})
 
   for await (const chunk of decompressed) {
     buffer += chunk.toString('utf-8')

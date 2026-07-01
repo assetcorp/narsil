@@ -4,6 +4,7 @@ import {
   insertMultiple,
   load,
   remove as removeDoc,
+  removeMultiple,
   save,
   search,
   searchVector,
@@ -117,9 +118,7 @@ export function createOramaFullSchemaAdapter(): SearchEngine {
 
     async removeBatch(docIds: string[]) {
       if (!db) return
-      for (const id of docIds) {
-        await removeDoc(db, id)
-      }
+      await removeMultiple(db, docIds)
     },
 
     async teardown() {
@@ -196,8 +195,7 @@ export function createOramaVectorAdapter(dimension: number): VectorSearchEngine 
 
     async insert(documents: VectorBenchDocument[]) {
       if (!db) return
-      const docs = documents.map(({ id, ...doc }) => doc)
-      await insertMultiple(db, docs)
+      await insertMultiple(db, documents)
     },
 
     async searchVector(queryVector: number[], k: number) {
@@ -209,6 +207,17 @@ export function createOramaVectorAdapter(dimension: number): VectorSearchEngine 
         limit: k,
       })
       return result.count
+    },
+
+    async searchVectorWithIds(queryVector: number[], k: number) {
+      if (!db) return []
+      const result = await searchVector(db, {
+        mode: 'vector',
+        vector: { value: queryVector, property: 'embedding' },
+        similarity: 0,
+        limit: k,
+      })
+      return result.hits.map(hit => String(hit.id))
     },
 
     async teardown() {

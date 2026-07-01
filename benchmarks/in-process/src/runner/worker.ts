@@ -1,5 +1,6 @@
-import { generateQueryVectors, generateVectorDocuments } from '../data'
 import { loadBeirDataset } from '../data/beir'
+import { exactKnnTopK } from '../data/knn'
+import { loadEmbeddedVectors, vectorRow } from '../data/vectors'
 import {
   measureFilteredSearch,
   measureInsert,
@@ -8,11 +9,12 @@ import {
   measureSearch,
   measureSearchTermMatchAll,
   measureSerialization,
+  measureVectorRecall,
   measureVectorSearch,
 } from '../measure'
 import { evaluateRelevance } from '../quality'
-import { coefficientOfVariation, median, percentile, stddev } from '../stats'
-import type { ScaleResult, SerializationResult, VectorBenchDocument, VectorScaleResult } from '../types'
+import { coefficientOfVariation, median, stddev, summarizeLatency } from '../stats'
+import type { ScaleResult, SerializationResult, VectorBenchDocument, VectorRelevanceResult } from '../types'
 import type {
   JobOutcome,
   JobSpec,
@@ -35,18 +37,15 @@ async function runTextJob(spec: TextJobSpec): Promise<ScaleResult> {
   const insertCv = coefficientOfVariation(insertTimes)
 
   const searchTimes = await measureSearch(engine, docs, queries)
-  const searchMedian = median(searchTimes)
-  const searchP95 = percentile(searchTimes, 95)
+  const searchLatency = summarizeLatency(searchTimes)
   const searchCv = coefficientOfVariation(searchTimes)
   const searchSd = stddev(searchTimes)
 
   const allTermsTimes = await measureSearchTermMatchAll(engine, docs, multiTermQueries)
-  const allTermsMedian = allTermsTimes.length > 0 ? median(allTermsTimes) : undefined
-  const allTermsP95 = allTermsTimes.length > 0 ? percentile(allTermsTimes, 95) : undefined
+  const allTermsLatency = allTermsTimes.length > 0 ? summarizeLatency(allTermsTimes) : undefined
 
   const filteredTimes = await measureFilteredSearch(engine, docs, filteredQueries)
-  const filteredMedian = filteredTimes.length > 0 ? median(filteredTimes) : undefined
-  const filteredP95 = filteredTimes.length > 0 ? percentile(filteredTimes, 95) : undefined
+  const filteredLatency = filteredTimes.length > 0 ? summarizeLatency(filteredTimes) : undefined
 
   const memoryBytes = await measureMemory(engine, docs)
   const memoryMb = memoryBytes / (1024 * 1024)
@@ -55,42 +54,65 @@ async function runTextJob(spec: TextJobSpec): Promise<ScaleResult> {
     insertMedianMs: insertMedian,
     insertDocsPerSec: docsPerSec,
     insertCV: insertCv,
-    searchMedianMs: searchMedian,
-    searchP95Ms: searchP95,
+    searchMedianMs: searchLatency.p50Ms,
+    searchP95Ms: searchLatency.p95Ms,
     searchCV: searchCv,
     searchStdDevMs: searchSd,
-    searchAllTermsMedianMs: allTermsMedian,
-    searchAllTermsP95Ms: allTermsP95,
-    filteredSearchMedianMs: filteredMedian,
-    filteredSearchP95Ms: filteredP95,
+    searchAllTermsMedianMs: allTermsLatency?.p50Ms,
+    searchAllTermsP95Ms: allTermsLatency?.p95Ms,
+    filteredSearchMedianMs: filteredLatency?.p50Ms,
+    filteredSearchP95Ms: filteredLatency?.p95Ms,
     memoryMb,
     insertSamples: [...insertTimes],
     searchSamples: [...searchTimes],
+    searchLatency,
+    allTermsLatency,
+    filteredLatency,
   }
 }
 
-async function runVectorJob(spec: VectorJobSpec): Promise<VectorScaleResult> {
-  const engine = vectorAdapter(spec.engine, spec.dimension)
-  const docs: VectorBenchDocument[] = generateVectorDocuments(spec.scale, spec.dimension, spec.seed)
-  const queryVecs = generateQueryVectors(spec.searchQueryCount, spec.dimension, spec.seed + 3)
+const VECTOR_RECALL_K = 10
 
-  const insertTimes = await measureInsert(engine, docs)
+async function runVectorJob(spec: VectorJobSpec): Promise<VectorRelevanceResult> {
+  const embedded = await loadEmbeddedVectors(spec.dataset, { noEmbed: true })
+  const dim = embedded.dim
+  const docCount = embedded.docIds.length
+  const queryCount = embedded.queryIds.length
+
+  // Orama nulls the embedding property of documents it returns as search hits, and
+  // it stores caller docs by reference, so a docs array reused across phases would be
+  // corrupted after the first search. Each phase gets its own array; the build happens
+  // outside the measured insert window, so insert throughput carries no extra cost.
+  const buildDocs = (): VectorBenchDocument[] =>
+    embedded.docIds.map((id, i) => ({ id, title: '', embedding: vectorRow(embedded.docVectors, i) }))
+  const queryVecs: number[][] = embedded.queryIds.map((_, i) => vectorRow(embedded.queryVectors, i))
+  const groundTruth = exactKnnTopK(embedded.docVectors, embedded.docIds, embedded.queryVectors, VECTOR_RECALL_K, dim)
+
+  const engine = vectorAdapter(spec.engine, dim)
+
+  const insertTimes = await measureInsert(engine, buildDocs())
   const insertMedian = median(insertTimes)
-  const docsPerSec = Math.round(spec.scale / (insertMedian / 1000))
+  const docsPerSec = Math.round(docCount / (insertMedian / 1000))
 
-  const searchTimes = await measureVectorSearch(engine, docs, queryVecs)
-  const searchMedian = median(searchTimes)
-  const searchP95 = percentile(searchTimes, 95)
+  const searchTimes = await measureVectorSearch(engine, buildDocs(), queryVecs)
+  const searchLatency = summarizeLatency(searchTimes)
 
-  const memoryBytes = await measureMemory(engine, docs)
+  const meanRecallAt10 = await measureVectorRecall(engine, buildDocs(), queryVecs, groundTruth, VECTOR_RECALL_K)
+
+  const memoryBytes = await measureMemory(engine, buildDocs())
   const memoryMb = memoryBytes / (1024 * 1024)
 
   return {
+    dataset: spec.dataset,
+    model: embedded.model,
+    dim,
+    docCount,
+    queryCount,
     insertMedianMs: insertMedian,
     insertDocsPerSec: docsPerSec,
-    searchMedianMs: searchMedian,
-    searchP95Ms: searchP95,
     memoryMb,
+    searchLatency,
+    meanRecallAt10,
   }
 }
 

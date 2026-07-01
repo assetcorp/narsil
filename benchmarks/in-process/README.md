@@ -64,7 +64,9 @@ Indexes synthetic 1536-dim and 3072-dim embeddings. Measures vector insert throu
 
 ### Serialization (`--tiers serial`)
 
-Measures serialize time, serialized size, and deserialize+search time at 100,000 documents.
+Measures serialize time, serialized size, and deserialize+search time at 100,000 documents. Each engine is measured on the serialization format it actually ships: Narsil on its binary snapshot, Orama on its json export, and MiniSearch on its json export. The suite does not roll its own serializer or work around an engine's format.
+
+Orama's official persistence plugin (`@orama/plugin-data-persistence`) defaults to `binary`, but `binary`, `dpack`, and `seqproto` all fail on this index shape at every meaningful scale (tested against version 3.1.18), so `json` is Orama's only viable shipped format here. Orama's json export builds one JavaScript string, and near 100,000 documents that string exceeds V8's single-string ceiling of about 512MB, so the serialize call throws `RangeError: Invalid string length`. The suite records this as a labeled capability limit of Orama's shipped json serialization; per-engine process isolation keeps it from affecting the other engines, and Narsil (binary) and MiniSearch (json) both complete at 100,000 documents.
 
 ### Mutations (`--tiers mutation`)
 
@@ -108,7 +110,7 @@ The fingerprint hashes the indexed text (`title` and `text` joined with a single
 
 All three engines are configured identically:
 
-- **Stop words**: Lucene English list (35 terms) from `src/stopwords.ts`, applied to all engines
+- **Stop words**: Lucene English list (33 terms) from `src/stopwords.ts`, applied to all engines
 - **Stemming**: Porter stemmer for all engines (Narsil built-in, MiniSearch via `stemmer@2.0.1`, Orama via `stemming: true`)
 - **Query processing**: All engines apply stop word removal and stemming to both indexing and search queries
 - **Term matching**: All default to OR semantics (documents matching any query term are candidates)
@@ -132,7 +134,8 @@ Queries with no relevant documents in the judgment set are excluded from the mea
 - Each engine runs with its default configuration for the English language. No custom tuning.
 - Engines are benchmarked sequentially in the same process. GC is forced between measurements to reduce cross-contamination.
 - All engines apply English stemming via a Porter stemmer. MiniSearch receives a custom `processTerm` function that applies the same stop words and stemmer used by Narsil and Orama.
-- MiniSearch search returns all matching results (no internal pagination). Narsil and Orama default to returning 10 results. The scoring and ranking work is equivalent; the difference is in result serialization.
+- All three engines index without a defensive deep-copy of the caller's documents. Narsil runs with `skipClone: true`, and Orama's `insertMultiple` and MiniSearch's `addAll` likewise index the passed-in objects directly, so insert throughput compares the same work across engines.
+- Plain-search latency is not directly comparable across all three engines. MiniSearch ranks and returns every matching document, while Narsil and Orama return the top 10 by default. MiniSearch's search options expose no result limit that reduces its internal ranking work, so the extra ranking cost stays in its measured latency and cannot be equalized in code. Each engine runs at its natural default and the tier output repeats this caveat.
 - Absolute numbers vary by hardware. The value is in the relative comparison between engines on the same machine.
 - Statistical confidence intervals (bootstrap 95% CI) are computed for insert speedup comparisons and included in the full output.
 

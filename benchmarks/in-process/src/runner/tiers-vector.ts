@@ -1,6 +1,8 @@
-import { printScaleTable } from '../print'
+import type { BeirDatasetName } from '../data/beir'
+import { EMBEDDING_MODEL, loadEmbeddedVectors } from '../data/vectors'
+import { printVectorRelevanceTable } from '../print'
 import { fmt } from '../stats'
-import type { VectorScaleResult } from '../types'
+import type { VectorRelevanceResult } from '../types'
 import { formatFailureLine, makeVectorErrorRecord } from './error-records'
 import { runInIsolation } from './isolate'
 import type { EngineId, VectorJobSpec } from './jobs'
@@ -8,10 +10,7 @@ import type { ProgressStore } from './progress'
 
 export interface VectorTierConfig {
   engines: Array<{ name: EngineId; version: string }>
-  scales: number[]
-  dimension: number
-  seed: number
-  searchQueryCount: number
+  datasets: BeirDatasetName[]
   perJobTimeoutMs?: number
   perJobMaxOldSpaceMb?: number
 }
@@ -19,34 +18,30 @@ export interface VectorTierConfig {
 export async function runVectorTier(
   config: VectorTierConfig,
   store: ProgressStore,
-): Promise<Record<string, Record<number, VectorScaleResult>>> {
-  console.log(`\n## Tier 3: Vector Search (${config.dimension}-dim, top-10)\n`)
+): Promise<Record<string, Record<string, VectorRelevanceResult>>> {
+  console.log(`\n## Tier 3: Vector Search (${EMBEDDING_MODEL}, recall@10 vs exact KNN)\n`)
 
-  const results: Record<string, Record<number, VectorScaleResult>> = {}
+  const results: Record<string, Record<string, VectorRelevanceResult>> = {}
   for (const adapter of config.engines) results[adapter.name] = {}
 
-  for (const scale of config.scales) {
-    console.log(`--- ${fmt(scale)} documents ---`)
+  for (const dataset of config.datasets) {
+    console.log(`--- ${dataset} ---`)
+    const embedded = await loadEmbeddedVectors(dataset)
+    console.log(`  ${fmt(embedded.docIds.length)} docs, ${embedded.queryIds.length} queries, ${embedded.dim}-dim`)
+
     for (const engineMeta of config.engines) {
       console.log(`  ${engineMeta.name} v${engineMeta.version}`)
-      const job: VectorJobSpec = {
-        kind: 'vector',
-        engine: engineMeta.name,
-        scale,
-        dimension: config.dimension,
-        seed: config.seed,
-        searchQueryCount: config.searchQueryCount,
-      }
+      const job: VectorJobSpec = { kind: 'vector', engine: engineMeta.name, dataset }
       const outcome = await runInIsolation(job, {
         timeoutMs: config.perJobTimeoutMs,
         maxOldSpaceMb: config.perJobMaxOldSpaceMb,
       })
       if (outcome.outcome.kind === 'failure') {
         const failure = outcome.outcome.failure
-        const record = makeVectorErrorRecord(failure)
+        const record = makeVectorErrorRecord(failure, dataset)
         console.log(`    ERROR ${formatFailureLine(failure)}`)
-        results[engineMeta.name][scale] = record
-        store.setVectorScale(engineMeta.name, scale, config.dimension, record)
+        results[engineMeta.name][dataset] = record
+        store.setVectorRelevance(engineMeta.name, dataset, record)
         continue
       }
       if (outcome.outcome.kind !== 'vector') {
@@ -55,33 +50,27 @@ export async function runVectorTier(
           message: `worker returned unexpected kind ${outcome.outcome.kind}`,
           phase: 'vector-tier' as const,
           engine: engineMeta.name,
-          scale,
-          dimension: config.dimension,
+          dataset,
         }
-        const record = makeVectorErrorRecord(failure)
+        const record = makeVectorErrorRecord(failure, dataset)
         console.log(`    ERROR ${formatFailureLine(failure)}`)
-        results[engineMeta.name][scale] = record
-        store.setVectorScale(engineMeta.name, scale, config.dimension, record)
+        results[engineMeta.name][dataset] = record
+        store.setVectorRelevance(engineMeta.name, dataset, record)
         continue
       }
       const r = outcome.outcome.result
       console.log(`    insert: ${fmt(r.insertDocsPerSec)} docs/sec (median ${r.insertMedianMs.toFixed(1)}ms)`)
-      console.log(`    vector search: ${r.searchMedianMs.toFixed(3)}ms median, ${r.searchP95Ms.toFixed(3)}ms p95`)
+      console.log(
+        `    vector search: p50 ${r.searchLatency.p50Ms.toFixed(3)}ms, p95 ${r.searchLatency.p95Ms.toFixed(3)}ms`,
+      )
+      console.log(`    recall@10 vs exact KNN: ${(r.meanRecallAt10 * 100).toFixed(1)}%`)
       console.log(`    memory: ${r.memoryMb.toFixed(1)}MB`)
-      results[engineMeta.name][scale] = r
-      store.setVectorScale(engineMeta.name, scale, config.dimension, r)
+      results[engineMeta.name][dataset] = r
+      store.setVectorRelevance(engineMeta.name, dataset, r)
     }
     console.log()
   }
 
-  const enginesMeta = config.engines.map(e => ({ name: e.name, version: e.version }))
-  printScaleTable('Vector Insert Throughput (docs/sec)', config.scales, results, enginesMeta, r =>
-    fmt(r.insertDocsPerSec),
-  )
-  printScaleTable('Vector Search Latency (ms)', config.scales, results, enginesMeta, r => {
-    return `${r.searchMedianMs.toFixed(3)} (p95: ${r.searchP95Ms.toFixed(3)})`
-  })
-  printScaleTable('Vector Memory (MB)', config.scales, results, enginesMeta, r => r.memoryMb.toFixed(1))
-
+  printVectorRelevanceTable(results, config.engines, config.datasets)
   return results
 }

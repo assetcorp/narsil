@@ -47,7 +47,20 @@ export interface VectorSearchEngine {
   create(): Promise<void>
   insert(documents: VectorBenchDocument[]): Promise<void>
   searchVector(queryVector: number[], k: number): Promise<number>
+  searchVectorWithIds(queryVector: number[], k: number): Promise<string[]>
   teardown(): Promise<void>
+}
+
+export interface LatencySummary {
+  samples: number
+  meanMs: number
+  p50Ms: number
+  p90Ms: number
+  p95Ms: number
+  p99Ms: number
+  maxMs: number
+  ciLowerMs: number
+  ciUpperMs: number
 }
 
 export interface ScaleResult {
@@ -65,14 +78,22 @@ export interface ScaleResult {
   memoryMb: number
   insertSamples?: number[]
   searchSamples?: number[]
+  searchLatency?: LatencySummary
+  allTermsLatency?: LatencySummary
+  filteredLatency?: LatencySummary
 }
 
-export interface VectorScaleResult {
+export interface VectorRelevanceResult {
+  dataset: string
+  model: string
+  dim: number
+  docCount: number
+  queryCount: number
   insertMedianMs: number
   insertDocsPerSec: number
-  searchMedianMs: number
-  searchP95Ms: number
   memoryMb: number
+  searchLatency: LatencySummary
+  meanRecallAt10: number
 }
 
 export interface EnvironmentInfo {
@@ -85,10 +106,13 @@ export interface EnvironmentInfo {
 
 export interface BenchmarkConfig {
   scales: number[]
-  vectorScales: number[]
+  vectorModel: string
   vectorDimension: number
+  vectorDatasets: string[]
   insertIterations: number
   warmupIterations: number
+  searchWarmupRounds: number
+  searchRepeatRounds: number
   searchQueryCount: number
   seed: number
   dataSource: 'wiki' | 'synthetic'
@@ -98,7 +122,6 @@ export interface BenchmarkConfig {
 export interface TierResults {
   textOnly: Record<string, Record<number, ScaleResult>>
   fullSchema: Record<string, Record<number, ScaleResult>>
-  vector: Record<string, Record<number, VectorScaleResult>>
 }
 
 export interface MutationResult {
@@ -118,6 +141,16 @@ export interface RelevanceQualityResult {
   docCount: number
 }
 
+export interface ConsistencyReport {
+  dataset: string
+  queryCount: number
+  engines: string[]
+  meanHitsByEngine: Record<string, number>
+  zeroDivergenceCount: number
+  zeroDivergenceSamples: Array<{ queryId: string; counts: Record<string, number> }>
+  meanPairwiseTop10Jaccard: number
+}
+
 export interface RelevanceDatasetInfo {
   name: string
   archiveSha256: string
@@ -133,8 +166,10 @@ export interface BenchmarkOutput {
   config: BenchmarkConfig
   engines: Record<string, string>
   tiers: TierResults
+  vectorRelevance?: Record<string, Record<string, VectorRelevanceResult>>
   serialization?: Record<string, SerializationResult>
   mutations?: Record<string, MutationResult>
   relevanceQuality?: Record<string, RelevanceQualityResult>
   relevanceDataset?: RelevanceDatasetInfo
+  consistency?: ConsistencyReport
 }

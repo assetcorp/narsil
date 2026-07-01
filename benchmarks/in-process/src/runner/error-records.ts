@@ -1,12 +1,25 @@
 import type {
+  LatencySummary,
   MutationResult,
   RelevanceQualityResult,
   ScaleResult,
   SerializationResult,
-  VectorScaleResult,
+  VectorRelevanceResult,
 } from '../types'
 
 export type FailurePhase = 'text-tier' | 'vector-tier' | 'serialization-tier' | 'mutation-tier' | 'relevance-tier'
+
+const EMPTY_LATENCY: LatencySummary = {
+  samples: 0,
+  meanMs: 0,
+  p50Ms: 0,
+  p90Ms: 0,
+  p95Ms: 0,
+  p99Ms: 0,
+  maxMs: 0,
+  ciLowerMs: 0,
+  ciUpperMs: 0,
+}
 
 export type FailureCode =
   | 'engine-threw'
@@ -24,6 +37,7 @@ export interface FailureRecord {
   engine: string
   scale?: number
   dimension?: number
+  dataset?: string
   exitCode?: number | null
   signal?: string | null
   stack?: string
@@ -33,7 +47,7 @@ export interface ScaleResultWithError extends ScaleResult {
   error?: FailureRecord
 }
 
-export interface VectorScaleResultWithError extends VectorScaleResult {
+export interface VectorRelevanceResultWithError extends VectorRelevanceResult {
   error?: FailureRecord
 }
 
@@ -63,13 +77,18 @@ export function makeScaleErrorRecord(failure: FailureRecord): ScaleResultWithErr
   }
 }
 
-export function makeVectorErrorRecord(failure: FailureRecord): VectorScaleResultWithError {
+export function makeVectorErrorRecord(failure: FailureRecord, dataset: string): VectorRelevanceResultWithError {
   return {
+    dataset,
+    model: 'unknown',
+    dim: -1,
+    docCount: -1,
+    queryCount: -1,
     insertMedianMs: -1,
     insertDocsPerSec: -1,
-    searchMedianMs: -1,
-    searchP95Ms: -1,
     memoryMb: -1,
+    searchLatency: EMPTY_LATENCY,
+    meanRecallAt10: -1,
     error: failure,
   }
 }
@@ -117,4 +136,19 @@ export function formatFailureLine(failure: FailureRecord): string {
   if (failure.signal !== undefined && failure.signal !== null) parts.push(`signal=${failure.signal}`)
   parts.push(`message=${failure.message}`)
   return parts.join(' ')
+}
+
+export const STRING_SERIALIZATION_LIMIT_LABEL =
+  "json serialization exceeds the V8 single-string limit (~512MB); this is a limit of the engine's shipped json format at this scale"
+
+export const STRING_SERIALIZATION_LIMIT_CELL = 'json exceeds V8 ~512MB string limit'
+
+function isStringLengthLimit(failure: FailureRecord): boolean {
+  return failure.phase === 'serialization-tier' && /invalid string length/i.test(failure.message)
+}
+
+export function describeSerializationLimit(failure: FailureRecord | undefined): string | null {
+  if (!failure) return null
+  if (isStringLengthLimit(failure)) return STRING_SERIALIZATION_LIMIT_LABEL
+  return null
 }

@@ -208,7 +208,7 @@ export function createNarsilVectorAdapter(dimension: number): VectorSearchEngine
 
     async insert(documents: VectorBenchDocument[]) {
       if (!instance) return
-      const docs = documents.map(({ id, ...doc }) => doc)
+      const docs = documents.map(d => ({ id: d.id, title: d.title, embedding: d.embedding }))
       await instance.insertBatch('bench', docs, { skipClone: true })
     },
 
@@ -219,6 +219,15 @@ export function createNarsilVectorAdapter(dimension: number): VectorSearchEngine
         limit: k,
       })
       return result.count
+    },
+
+    async searchVectorWithIds(queryVector: number[], k: number) {
+      if (!instance) return []
+      const result = await instance.query('bench', {
+        vector: { field: 'embedding', value: queryVector, metric: 'cosine' },
+        limit: k,
+      })
+      return result.hits.map(hit => hit.id)
     },
 
     async teardown() {

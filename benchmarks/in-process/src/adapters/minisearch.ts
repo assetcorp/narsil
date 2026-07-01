@@ -47,6 +47,11 @@ const FULL_SCHEMA_OPTIONS = {
   processTerm,
 }
 
+const MUTATION_SCHEMA_OPTIONS = {
+  ...FULL_SCHEMA_OPTIONS,
+  autoVacuum: false as const,
+}
+
 export function createMiniSearchFullSchemaAdapter(): SearchEngine {
   let ms: MiniSearch<BenchDocument> | null = null
   const trackedIds: string[] = []
@@ -56,7 +61,7 @@ export function createMiniSearchFullSchemaAdapter(): SearchEngine {
     insertedIds: trackedIds,
 
     async create() {
-      ms = new MiniSearch<BenchDocument>(FULL_SCHEMA_OPTIONS)
+      ms = new MiniSearch<BenchDocument>(MUTATION_SCHEMA_OPTIONS)
       trackedIds.length = 0
     },
 
@@ -92,13 +97,13 @@ export function createMiniSearchFullSchemaAdapter(): SearchEngine {
     async remove(docId: string) {
       if (!ms) return
       ms.discard(docId)
+      await ms.vacuum()
     },
 
     async removeBatch(docIds: string[]) {
       if (!ms) return
-      for (const id of docIds) {
-        ms.discard(id)
-      }
+      ms.discardAll(docIds)
+      await ms.vacuum()
     },
 
     async teardown() {

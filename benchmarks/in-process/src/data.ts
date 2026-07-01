@@ -1,4 +1,4 @@
-import type { BenchDocument, VectorBenchDocument } from './types'
+import type { BenchDocument } from './types'
 
 function createRng(seed: number): () => number {
   let s = seed | 0
@@ -299,82 +299,6 @@ export function generateMultiTermQueries(count: number, seed: number): string[] 
     queries.push(generateSentence(rng, wordCount))
   }
   return queries
-}
-
-function generateUnitVector(rng: () => number, dimension: number): number[] {
-  const vec: number[] = new Array(dimension)
-  let magnitude = 0
-  for (let i = 0; i < dimension; i++) {
-    const g = (rng() + rng() + rng() - 1.5) * 2
-    vec[i] = g
-    magnitude += g * g
-  }
-  magnitude = Math.sqrt(magnitude)
-  if (magnitude > 0) {
-    for (let i = 0; i < dimension; i++) {
-      vec[i] /= magnitude
-    }
-  }
-  return vec
-}
-
-export function generateVectorDocuments(count: number, dimension: number, seed: number): VectorBenchDocument[] {
-  const rng = createRng(seed)
-  const docs: VectorBenchDocument[] = []
-  for (let i = 0; i < count; i++) {
-    const titleLength = 3 + Math.floor(rng() * 10)
-    docs.push({
-      id: `vec-${String(i).padStart(7, '0')}`,
-      title: generateSentence(rng, titleLength),
-      embedding: generateUnitVector(rng, dimension),
-    })
-  }
-  return docs
-}
-
-export function generateQueryVectors(count: number, dimension: number, seed: number): number[][] {
-  const rng = createRng(seed)
-  const vectors: number[][] = []
-  for (let i = 0; i < count; i++) {
-    vectors.push(generateUnitVector(rng, dimension))
-  }
-  return vectors
-}
-
-export function generateDocumentBatch(count: number, seed: number, offset: number): BenchDocument[] {
-  const rng = createRng(seed)
-  const docs: BenchDocument[] = []
-  for (let i = 0; i < count; i++) {
-    const titleLength = 3 + Math.floor(rng() * 10)
-    const bodyLength = 30 + Math.floor(rng() * 70 + rng() * 70)
-    docs.push({
-      id: `doc-${String(offset + i).padStart(7, '0')}`,
-      title: generateSentence(rng, titleLength),
-      body: generateSentence(rng, bodyLength),
-      score: Math.floor(rng() * 100),
-      category: CATEGORIES[Math.floor(rng() * CATEGORIES.length)],
-    })
-  }
-  return docs
-}
-
-export function generateVectorDocumentBatch(
-  count: number,
-  dimension: number,
-  seed: number,
-  offset: number,
-): VectorBenchDocument[] {
-  const rng = createRng(seed)
-  const docs: VectorBenchDocument[] = []
-  for (let i = 0; i < count; i++) {
-    const titleLength = 3 + Math.floor(rng() * 10)
-    docs.push({
-      id: `vec-${String(offset + i).padStart(7, '0')}`,
-      title: generateSentence(rng, titleLength),
-      embedding: generateUnitVector(rng, dimension),
-    })
-  }
-  return docs
 }
 
 export function generateFilteredQueries(count: number, seed: number): string[] {
