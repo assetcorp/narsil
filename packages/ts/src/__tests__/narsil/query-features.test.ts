@@ -212,4 +212,34 @@ describe('Narsil query features', () => {
       expect(result.elapsed).toBeGreaterThanOrEqual(0)
     })
   })
+
+  describe('index-time analyzer overrides', () => {
+    it('applies a stopWords override at index time so a default stop word stays searchable', async () => {
+      await narsil.createIndex('articles', {
+        schema: { title: 'string' as const },
+        language: 'english',
+        stopWords: new Set<string>(),
+      })
+      await narsil.insert('articles', { title: 'research during pregnancy' }, 'a1')
+
+      const result = await narsil.query('articles', { term: 'during' })
+      expect(result.hits.map(h => h.id)).toEqual(['a1'])
+    })
+  })
+
+  describe('score components', () => {
+    it('returns components only when requested without changing ranking or scores', async () => {
+      await narsil.createIndex('products', indexConfig)
+      await narsil.insert('products', { title: 'wireless mouse', category: 'electronics', price: 25 }, 'p1')
+      await narsil.insert('products', { title: 'wireless wireless keyboard', category: 'electronics', price: 45 }, 'p2')
+
+      const lean = await narsil.query('products', { term: 'wireless' })
+      const explained = await narsil.query('products', { term: 'wireless', includeScoreComponents: true })
+
+      expect(lean.hits.map(h => h.id)).toEqual(explained.hits.map(h => h.id))
+      expect(lean.hits.map(h => h.score)).toEqual(explained.hits.map(h => h.score))
+      expect(lean.hits[0].scoreComponents).toBeUndefined()
+      expect(Object.keys(explained.hits[0].scoreComponents?.idf ?? {}).length).toBeGreaterThan(0)
+    })
+  })
 })

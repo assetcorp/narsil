@@ -10,6 +10,7 @@ import {
   validateVectorDimensions,
 } from '../vector-coordinator'
 import type { MutationContext } from './context'
+import { rollbackUpdatedDocument } from './durable-rollback'
 
 function extractVectorFromDocForUpdate(document: Record<string, unknown>, fieldPath: string): Float32Array | null {
   return extractVectorFromDoc(document, fieldPath)
@@ -84,34 +85,46 @@ export async function updateDocument(
 
   const { partitionDoc } = prepareUpdatePartitionDoc(document as Record<string, unknown>, updateExtractedVectors)
 
-  await ctx.executor.execute({
-    type: 'update',
-    indexName,
-    docId,
-    document: partitionDoc as AnyDocument,
-    requestId: docId,
-  })
-
-  try {
-    updateDocumentVectors(docId, updateExtractedVectors, updateVecIndexes)
-  } catch (err) {
-    if (rollbackDoc) {
-      try {
-        await ctx.executor.execute({
-          type: 'update',
-          indexName,
-          docId,
-          document: rollbackDoc,
-          requestId: docId,
-        })
-      } catch (rollbackErr) {
-        console.warn(
-          `Rollback failed for doc "${docId}" during update atomicity:`,
-          rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
-        )
+  const applyUpdate = async (): Promise<void> => {
+    await ctx.executor.execute({
+      type: 'update',
+      indexName,
+      docId,
+      document: partitionDoc as AnyDocument,
+      requestId: docId,
+    })
+    try {
+      updateDocumentVectors(docId, updateExtractedVectors, updateVecIndexes)
+    } catch (err) {
+      if (rollbackDoc) {
+        try {
+          await ctx.executor.execute({
+            type: 'update',
+            indexName,
+            docId,
+            document: rollbackDoc,
+            requestId: docId,
+          })
+        } catch (rollbackErr) {
+          console.warn(
+            `Rollback failed for doc "${docId}" during update atomicity:`,
+            rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+          )
+        }
       }
+      throw err
     }
-    throw err
+  }
+
+  if (ctx.durability) {
+    try {
+      await ctx.durability.recordInsertOrUpdate(indexName, docId, document, applyUpdate)
+    } catch (err) {
+      await rollbackUpdatedDocument(ctx, indexName, docId, rollbackDoc, err)
+      throw err
+    }
+  } else {
+    await applyUpdate()
   }
 
   try {
@@ -124,8 +137,6 @@ export async function updateDocument(
   } catch (err) {
     console.warn('afterUpdate plugin hook error:', err instanceof Error ? err.message : String(err))
   }
-
-  ctx.flushManager?.markDirty(indexName, 0)
 
   await ctx.orchestrator.replicateToWorkers({
     type: 'update',

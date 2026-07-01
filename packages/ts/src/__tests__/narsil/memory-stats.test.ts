@@ -12,6 +12,13 @@ function ensureProcessMemoryAvailable(stats: MemoryStats): NonNullable<MemorySta
   return stats.process
 }
 
+function expectValidProcessSnapshot(snapshot: NonNullable<MemoryStats['process']>): void {
+  expect(snapshot.heapUsed).toBeGreaterThan(0)
+  expect(snapshot.heapTotal).toBeGreaterThanOrEqual(snapshot.heapUsed)
+  expect(snapshot.rss).toBeGreaterThan(0)
+  expect(snapshot.external).toBeGreaterThanOrEqual(0)
+}
+
 describe('Narsil memory reporting', () => {
   let narsil: Narsil
 
@@ -24,23 +31,16 @@ describe('Narsil memory reporting', () => {
   })
 
   describe('getMemoryStats process measurements', () => {
-    it('reports a process snapshot whose heapUsed grows with inserts', async () => {
+    it('reports a well-formed process snapshot before and after inserts', async () => {
       await narsil.createIndex('products', indexConfig)
 
-      const before = await narsil.getMemoryStats()
-      const beforeProcess = ensureProcessMemoryAvailable(before)
-      expect(beforeProcess.heapUsed).toBeGreaterThan(0)
-      expect(beforeProcess.heapTotal).toBeGreaterThanOrEqual(beforeProcess.heapUsed)
-      expect(beforeProcess.rss).toBeGreaterThan(0)
-      expect(beforeProcess.external).toBeGreaterThanOrEqual(0)
+      expectValidProcessSnapshot(ensureProcessMemoryAvailable(await narsil.getMemoryStats()))
 
       for (let i = 0; i < SAMPLE_DOC_COUNT; i++) {
         await narsil.insert('products', { title: `Item ${i}`, category: 'electronics', price: i })
       }
 
-      const after = await narsil.getMemoryStats()
-      const afterProcess = ensureProcessMemoryAvailable(after)
-      expect(afterProcess.heapUsed).toBeGreaterThanOrEqual(beforeProcess.heapUsed)
+      expectValidProcessSnapshot(ensureProcessMemoryAvailable(await narsil.getMemoryStats()))
     })
 
     it('is the same order of magnitude as process.memoryUsage().heapUsed', async () => {

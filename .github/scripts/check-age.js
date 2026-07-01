@@ -6,6 +6,12 @@ const LOCKFILE = 'pnpm-lock.yaml'
 const REGISTRY_URL = 'https://registry.npmjs.org'
 const FETCH_TIMEOUT_MS = 10_000
 
+// uWebSockets.js is published only through GitHub, never the npm registry, so it
+// has no registry publish date to gate on; the supply-chain gate verifies its pin.
+const ALLOWED_URL_DEPENDENCIES = new Set(['uWebSockets.js'])
+
+const isUrlSourcedVersion = version => /^(https?:|git:|git\+|github:)/.test(version)
+
 const minAgeDays = parsePositiveInteger(process.env.MIN_AGE_DAYS || '4')
 const minimumPublishedAt = Date.now() - minAgeDays * DAY_MS
 
@@ -29,6 +35,12 @@ const main = async () => {
 
   for (const pkg of addedPackages) {
     const packageKey = createPackageKey(pkg)
+
+    if (ALLOWED_URL_DEPENDENCIES.has(pkg.name) && isUrlSourcedVersion(pkg.version)) {
+      console.log(`Skipping ${packageKey}: pinned URL dependency, verified by the supply-chain gate.`)
+      continue
+    }
+
     let metadata
 
     try {

@@ -37,6 +37,8 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.PERSISTENCE_LOAD_FAILED).toBe('PERSISTENCE_LOAD_FAILED')
     expect(ErrorCodes.PERSISTENCE_DELETE_FAILED).toBe('PERSISTENCE_DELETE_FAILED')
     expect(ErrorCodes.PERSISTENCE_CRC_MISMATCH).toBe('PERSISTENCE_CRC_MISMATCH')
+    expect(ErrorCodes.PERSISTENCE_WAL_CORRUPT).toBe('PERSISTENCE_WAL_CORRUPT')
+    expect(ErrorCodes.PERSISTENCE_FSYNC_FAILED).toBe('PERSISTENCE_FSYNC_FAILED')
   })
 
   it('has all expected search error codes', () => {
@@ -118,8 +120,8 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.SNAPSHOT_SYNC_ABORTED).toBe('SNAPSHOT_SYNC_ABORTED')
   })
 
-  it('has exactly 78 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(78)
+  it('has exactly 80 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(80)
   })
 
   it('has unique values for every code', () => {

@@ -21,7 +21,7 @@ async function main() {
   }
 
   const base64 = Buffer.from(wasmBytes).toString('base64')
-  const tsContent = `export const SIMD_DISTANCE_WASM_BASE64 = '${base64}'\n`
+  const tsContent = `export const SIMD_DISTANCE_WASM_BASE64 =\n  '${base64}'\n`
   writeFileSync(outputPath, tsContent)
 
   console.log(`Compiled ${wasmBytes.byteLength} bytes -> ${outputPath}`)

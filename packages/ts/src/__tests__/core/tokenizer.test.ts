@@ -87,6 +87,26 @@ describe('tokenize', () => {
     expect(words).toContain('world')
   })
 
+  it('splits hyphenated compounds for the english analyzer', () => {
+    const result = tokenize('fast-twitch muscle covid-19', english, { stem: false, removeStopWords: false })
+    expect(result.tokens.map(t => t.token)).toEqual(['fast', 'twitch', 'muscle', 'covid', '19'])
+  })
+
+  it('strips english possessives', () => {
+    const result = tokenize("the patient's records and dogs' bones", english, { stem: false, removeStopWords: false })
+    const words = result.tokens.map(t => t.token)
+    expect(words).toContain('patient')
+    expect(words).not.toContain("patient's")
+    expect(words).toContain('dogs')
+    expect(words).not.toContain("dogs'")
+  })
+
+  it('keeps hyphenated tokens for languages without a tokenizer override', () => {
+    const plain: LanguageModule = { name: 'plain', stemmer: null, stopWords: new Set() }
+    const result = tokenize('fast-twitch', plain, { stem: false, removeStopWords: false })
+    expect(result.tokens.map(t => t.token)).toEqual(['fast-twitch'])
+  })
+
   it('tracks positions correctly with stop word gaps', () => {
     const result = tokenize('the quick brown fox', english, { stem: false, removeStopWords: true })
     expect(result.tokens[0]).toEqual({ token: 'quick', position: 1 })

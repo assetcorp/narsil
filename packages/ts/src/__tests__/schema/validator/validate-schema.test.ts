@@ -154,6 +154,35 @@ describe('validateSchema', () => {
     ).toThrow(NarsilError)
   })
 
+  it('rejects a field name that cannot be encoded in a segment key', () => {
+    expect(() => validateSchema({ 'image-embedding': 'vector[4]' })).toThrow(NarsilError)
+
+    try {
+      validateSchema({ 'image-embedding': 'vector[4]' })
+    } catch (e) {
+      expect((e as NarsilError).code).toBe(ErrorCodes.SCHEMA_INVALID_TYPE)
+      expect((e as NarsilError).message).toContain('not allowed')
+      expect((e as NarsilError).details.field).toBe('image-embedding')
+    }
+  })
+
+  it('rejects a field name containing a dot since the dot separates path segments', () => {
+    expect(() => validateSchema({ 'a.b': 'string' })).toThrow(NarsilError)
+  })
+
+  it('rejects a nested field name with disallowed characters', () => {
+    try {
+      validateSchema({ metadata: { 'bad-name': 'string' } })
+    } catch (e) {
+      expect((e as NarsilError).code).toBe(ErrorCodes.SCHEMA_INVALID_TYPE)
+      expect((e as NarsilError).details.path).toBe('metadata.bad-name')
+    }
+  })
+
+  it('accepts field names with underscores and digits', () => {
+    expect(() => validateSchema({ title_1: 'string', field_2: 'number' })).not.toThrow()
+  })
+
   it('reports the correct path for nested field errors', () => {
     try {
       validateSchema({

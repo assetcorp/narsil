@@ -7,6 +7,16 @@ import { embedBatchDocumentFields, embedDocumentFields } from '../embed'
 import { BATCH_CHUNK_SIZE, validateDocId } from '../validation'
 import { insertDocumentVectors, prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
 import type { MutationContext } from './context'
+import { rollbackInsertedDocument } from './durable-rollback'
+
+/** Resolves a document's own `id` field as its identifier when present, so a
+ * caller that embeds an id in the document (the cross-language convention) keeps
+ * it. Returns undefined for an absent or non-string id, leaving the caller to
+ * fall back to an explicit id argument or generation. */
+function providedDocId(document: AnyDocument): string | undefined {
+  const id = (document as { id?: unknown }).id
+  return typeof id === 'string' && id.length > 0 ? id : undefined
+}
 
 export async function insertDocument(
   ctx: MutationContext,
@@ -18,7 +28,7 @@ export async function insertDocument(
   ctx.guardShutdown()
   const entry = ctx.requireIndex(indexName)
 
-  const resolvedDocId = docId ?? ctx.idGenerator()
+  const resolvedDocId = docId ?? providedDocId(document) ?? ctx.idGenerator()
   validateDocId(resolvedDocId)
 
   if (ctx.bufferIfRebalancing(indexName, { action: 'insert', docId: resolvedDocId, document, indexName })) {
@@ -53,27 +63,42 @@ export async function insertDocument(
     validateVectorDimensions(extractedVectors, insertVecIndexes)
   }
 
-  await ctx.executor.execute({
-    type: 'insert',
-    indexName,
-    docId: resolvedDocId,
-    document: partitionDoc as AnyDocument,
-    requestId: resolvedDocId,
-    skipClone: extractedVectors.size > 0 ? true : options?.skipClone,
-  })
-
-  try {
-    insertDocumentVectors(resolvedDocId, extractedVectors, insertVecIndexes)
-  } catch (err) {
+  let inserted = false
+  const applyInsert = async (): Promise<void> => {
+    await ctx.executor.execute({
+      type: 'insert',
+      indexName,
+      docId: resolvedDocId,
+      document: partitionDoc as AnyDocument,
+      requestId: resolvedDocId,
+      skipClone: extractedVectors.size > 0 ? true : options?.skipClone,
+    })
+    inserted = true
     try {
-      await ctx.executor.execute({ type: 'remove', indexName, docId: resolvedDocId, requestId: resolvedDocId })
-    } catch (rollbackErr) {
-      console.warn(
-        `Rollback failed for doc "${resolvedDocId}" during insert atomicity:`,
-        rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
-      )
+      insertDocumentVectors(resolvedDocId, extractedVectors, insertVecIndexes)
+    } catch (err) {
+      try {
+        await ctx.executor.execute({ type: 'remove', indexName, docId: resolvedDocId, requestId: resolvedDocId })
+        inserted = false
+      } catch (rollbackErr) {
+        console.warn(
+          `Rollback failed for doc "${resolvedDocId}" during insert atomicity:`,
+          rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+        )
+      }
+      throw err
     }
-    throw err
+  }
+
+  if (ctx.durability) {
+    try {
+      await ctx.durability.recordInsertOrUpdate(indexName, resolvedDocId, document, applyInsert)
+    } catch (err) {
+      await rollbackInsertedDocument(ctx, indexName, resolvedDocId, inserted, err)
+      throw err
+    }
+  } else {
+    await applyInsert()
   }
 
   try {
@@ -81,8 +106,6 @@ export async function insertDocument(
   } catch (err) {
     console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
   }
-
-  ctx.flushManager?.markDirty(indexName, 0)
 
   await ctx.orchestrator.replicateToWorkers({
     type: 'insert',
@@ -185,7 +208,7 @@ export async function insertDocumentBatch(
       if (ctx.abortController.signal.aborted) break
       if (chunkFailedIndexes.has(i)) continue
 
-      const batchDocId = ctx.idGenerator()
+      const batchDocId = providedDocId(documents[i]) ?? ctx.idGenerator()
       try {
         validateDocId(batchDocId)
 
@@ -203,30 +226,45 @@ export async function insertDocumentBatch(
           validateVectorDimensions(extractedVectors, batchVecIndexes)
         }
 
-        const result = ctx.executor.execute({
-          type: 'insert',
-          indexName,
-          docId: batchDocId,
-          document: partitionDoc as AnyDocument,
-          requestId: batchDocId,
-          skipClone: extractedVectors.size > 0 ? true : options?.skipClone,
-        })
-        if (result && typeof (result as Promise<unknown>).then === 'function') {
-          await result
+        let batchInserted = false
+        const applyBatchInsert = async (): Promise<void> => {
+          const result = ctx.executor.execute({
+            type: 'insert',
+            indexName,
+            docId: batchDocId,
+            document: partitionDoc as AnyDocument,
+            requestId: batchDocId,
+            skipClone: extractedVectors.size > 0 ? true : options?.skipClone,
+          })
+          if (result && typeof (result as Promise<unknown>).then === 'function') {
+            await result
+          }
+          batchInserted = true
+          try {
+            insertDocumentVectors(batchDocId, extractedVectors, batchVecIndexes)
+          } catch (vecErr) {
+            try {
+              await ctx.executor.execute({ type: 'remove', indexName, docId: batchDocId, requestId: batchDocId })
+              batchInserted = false
+            } catch (rollbackErr) {
+              console.warn(
+                `Rollback failed for doc "${batchDocId}" during batch insert atomicity:`,
+                rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+              )
+            }
+            throw vecErr
+          }
         }
 
-        try {
-          insertDocumentVectors(batchDocId, extractedVectors, batchVecIndexes)
-        } catch (vecErr) {
+        if (ctx.durability) {
           try {
-            await ctx.executor.execute({ type: 'remove', indexName, docId: batchDocId, requestId: batchDocId })
-          } catch (rollbackErr) {
-            console.warn(
-              `Rollback failed for doc "${batchDocId}" during batch insert atomicity:`,
-              rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
-            )
+            await ctx.durability.recordInsertOrUpdate(indexName, batchDocId, documents[i], applyBatchInsert)
+          } catch (durableErr) {
+            await rollbackInsertedDocument(ctx, indexName, batchDocId, batchInserted, durableErr)
+            throw durableErr
           }
-          throw vecErr
+        } else {
+          await applyBatchInsert()
         }
 
         for (const fieldPath of extractedVectors.keys()) {
@@ -255,8 +293,6 @@ export async function insertDocumentBatch(
       await new Promise<void>(r => setTimeout(r, 0))
     }
   }
-
-  ctx.flushManager?.markDirty(indexName, 0)
 
   for (let i = 0; i < succeeded.length; i++) {
     await ctx.orchestrator.replicateToWorkers({

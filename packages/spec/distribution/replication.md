@@ -98,7 +98,7 @@ ReplicationLogEntry {
   indexName:   string
   documentId:  string
   document:    bytes or null  (MessagePack-encoded document, present for INDEX)
-  checksum:    uint32         (CRC32 of the entry bytes)
+  checksum:    uint32         (CRC32 of the seven content fields; see below)
 }
 ```
 
@@ -160,10 +160,31 @@ For `DELETE` operations: `null`.
 
 #### checksum
 
-CRC32 of the log entry bytes (all fields except the checksum
-itself), using the IEEE polynomial. Replicas must verify the
-checksum before applying the entry. A mismatch indicates
-corruption in transit and must be reported as an error.
+The checksum covers the seven content fields, which is every field
+except `checksum` itself. An implementation encodes those fields as a
+MessagePack array in this exact declared order:
+
+```text
+[seqNo, primaryTerm, operation, partitionId, indexName, documentId, document]
+```
+
+and computes CRC32 with the IEEE polynomial over the resulting bytes.
+The positional array form and this field order are the contract. The
+checksum input is a MessagePack array, not the keyed map that stores and
+transmits the entry, so every language implementation derives identical
+bytes and an identical checksum for the same entry.
+
+This logical checksum is distinct from the WAL frame checksum in
+[durability.md](../durability.md#record-frame). The frame checksum covers
+the framed payload bytes on disk, whereas this checksum covers the seven
+content fields and travels with the entry across nodes.
+
+Adding, removing, or reordering a content field changes these bytes and
+the checksum, so it is a breaking format change that must raise the WAL
+framing version rather than alter the layout in place. Replicas verify
+the checksum before applying an entry, and recovery recomputes it while
+reading a segment. A mismatch means corruption and must be reported as
+an error; recovery raises `PERSISTENCE_WAL_CORRUPT`.
 
 ---
 

@@ -88,7 +88,6 @@ async function restoreReplicationPartition(
   }
   const manager = core.requireManager(indexName)
   manager.deserializePartition(partitionId, partition)
-  core.flushManager?.markDirty(indexName, partitionId)
   await core.orchestrator.replicateToWorkers({
     type: 'deserialize',
     indexName,
@@ -282,7 +281,6 @@ async function applyReplicationEntry(core: EngineCore, entry: ReplicationLogEntr
 
   if (entry.operation === 'INDEX') {
     applyIndexEntry(entry, manager, indexEntry.vectorFieldPaths, vecIndexes)
-    core.flushManager?.markDirty(entry.indexName, entry.partitionId)
     const appliedDocument = manager.get(entry.documentId)
     if (appliedDocument !== undefined) {
       await core.orchestrator.replicateToWorkers({
@@ -297,7 +295,6 @@ async function applyReplicationEntry(core: EngineCore, entry: ReplicationLogEntr
   }
 
   applyDeleteEntry(entry, manager, vecIndexes)
-  core.flushManager?.markDirty(entry.indexName, entry.partitionId)
   await core.orchestrator.replicateToWorkers({
     type: 'remove',
     indexName: entry.indexName,

@@ -108,6 +108,10 @@
     "./distribution/coordinator/etcd": {
       "import": "./dist/distribution/coordinator/etcd.mjs",
       "types": "./dist/distribution/coordinator/etcd.d.ts"
+    },
+    "./server": {
+      "import": "./dist/server.mjs",
+      "types": "./dist/server.d.ts"
     }
   },
   "files": [
@@ -126,14 +130,19 @@
     "selfsigned": "5.5.0",
     "tsup": "8.5.1",
     "typescript": "5.9.3",
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.58.0",
     "vitest": "4.0.18",
     "wabt": "1.0.39"
   },
   "peerDependencies": {
-    "etcd3": "1.1.2"
+    "etcd3": "1.1.2",
+    "uWebSockets.js": ">=20.0.0"
   },
   "peerDependenciesMeta": {
     "etcd3": {
+      "optional": true
+    },
+    "uWebSockets.js": {
       "optional": true
     }
   }
