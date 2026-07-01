@@ -154,7 +154,7 @@ fetch_suite() {
 cmd_fetch() {
   fetch_suite "benchmarks/in-process/results/runs"
   fetch_suite "benchmarks/server/results/runs"
-  log "results copied under benchmarks/*/results/runs/ in this repo"
+  [ "$DRY_RUN" = "1" ] || log "results copied under benchmarks/*/results/runs/ in this repo"
 }
 
 cmd_down() {
@@ -182,6 +182,8 @@ cmd_all() {
   cmd_fetch
   if [ "${TEARDOWN:-0}" = "1" ]; then
     cmd_down
+  elif [ "$DRY_RUN" = "1" ]; then
+    log "(dry-run) nothing was created; a real run would leave the VM up until you run 'down'"
   else
     log "VM left running and billing. Delete it with: PROVIDER=${PROVIDER} run-cloud.sh down"
   fi
