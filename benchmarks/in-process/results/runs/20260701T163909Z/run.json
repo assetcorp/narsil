@@ -1,0 +1,16 @@
+{
+  "runId": "20260701T163909Z",
+  "createdAt": "2026-07-01T16:39:09.690Z",
+  "git": {
+    "branch": "derability-improvements",
+    "commit": "034a7e2957527c0d8c6ad7983f173700c09f17c2",
+    "dirty": false
+  },
+  "environment": {
+    "node": "v24.16.0",
+    "os": "Darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Pro",
+    "totalMemory": "18GB"
+  }
+}
