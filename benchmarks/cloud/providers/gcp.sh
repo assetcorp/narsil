@@ -24,6 +24,9 @@ prov_hourly() {
     c3-standard-8) echo "~\$0.40" ;;
     c3-standard-4) echo "~\$0.20" ;;
     n2-standard-8) echo "~\$0.39" ;;
+    e2-standard-2) echo "~\$0.07" ;;
+    e2-medium) echo "~\$0.03" ;;
+    e2-small) echo "~\$0.02" ;;
     *) echo "unknown" ;;
   esac
 }
