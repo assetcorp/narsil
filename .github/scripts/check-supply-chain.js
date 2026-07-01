@@ -6,6 +6,18 @@ const MINIMUM_RELEASE_AGE_DAYS = 4
 const MINIMUM_RELEASE_AGE_MINUTES = MINIMUM_RELEASE_AGE_DAYS * 24 * 60
 const PACKAGE_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies']
 
+// uWebSockets.js is published only through GitHub, never the npm registry, so a
+// pinned URL dependency is its only supported install path. Each allowed name is
+// locked to its exact source so the exception cannot be repointed at a fork.
+const ALLOWED_URL_DEPENDENCIES = new Map([['uWebSockets.js', 'github:uNetworking/uWebSockets.js#']])
+
+const isImmutablePinnedRef = specifier => {
+  const hashIndex = specifier.lastIndexOf('#')
+  if (hashIndex === -1) return false
+  const ref = specifier.slice(hashIndex + 1)
+  return /^[0-9a-f]{40}$/i.test(ref) || /^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(ref)
+}
+
 const main = () => {
   const failures = [...checkWorkflows(), ...checkPackageManifests(), ...checkDependencyCooldowns(), ...checkLockfile()]
 
@@ -67,7 +79,14 @@ const checkPackageManifests = () => {
         }
 
         if (/^(github:|git\+|https?:\/\/)/.test(specifier)) {
-          failures.push(`${file}: ${section}.${name} must not use a remote git or URL dependency`)
+          const allowedSource = ALLOWED_URL_DEPENDENCIES.get(name)
+          if (allowedSource === undefined) {
+            failures.push(`${file}: ${section}.${name} must not use a remote git or URL dependency`)
+          } else if (!specifier.startsWith(allowedSource) || !isImmutablePinnedRef(specifier)) {
+            failures.push(
+              `${file}: ${section}.${name} URL dependency must be '${allowedSource}<version tag or commit SHA>'`,
+            )
+          }
         }
       }
     }
