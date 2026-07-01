@@ -1,11 +1,10 @@
 import { generateDocuments, generateFilteredQueries, generateMultiTermQueries, generateQueries } from '../data'
 import {
-  generateWikiFilteredQueries,
-  generateWikiMultiTermQueries,
-  generateWikiQueries,
-  loadWikiArticles,
-  wikiToBenchDocuments,
-} from '../data-wiki'
+  generatePerfFilteredQueries,
+  generatePerfMultiTermQueries,
+  generatePerfQueries,
+  loadPerfDocuments,
+} from '../perf-corpus'
 import type { BenchDocument } from '../types'
 import type { DataSource, TextJobSpec } from './jobs'
 
@@ -17,14 +16,13 @@ export interface TextDataset {
 }
 
 export async function loadTextDataset(spec: TextJobSpec): Promise<TextDataset> {
-  if (spec.dataSource === 'wiki') {
-    const articles = await loadWikiArticles(spec.scale, { noDownload: true })
-    const slice = articles.slice(0, spec.scale)
+  if (spec.dataSource === 'fiqa') {
+    const docs = await loadPerfDocuments(spec.scale)
     return {
-      docs: wikiToBenchDocuments(slice),
-      queries: generateWikiQueries(slice, spec.searchQueryCount, spec.seed + 1),
-      multiTermQueries: generateWikiMultiTermQueries(slice, spec.searchQueryCount, spec.seed + 2),
-      filteredQueries: generateWikiFilteredQueries(slice, spec.searchQueryCount, spec.seed + 3),
+      docs,
+      queries: generatePerfQueries(docs, spec.searchQueryCount, spec.seed + 1),
+      multiTermQueries: generatePerfMultiTermQueries(docs, spec.searchQueryCount, spec.seed + 2),
+      filteredQueries: generatePerfFilteredQueries(docs, spec.searchQueryCount, spec.seed + 3),
     }
   }
   return {
@@ -41,13 +39,9 @@ export async function loadDocsAndQueries(
   seed: number,
   queryCount: number,
 ): Promise<{ docs: BenchDocument[]; queries: string[] }> {
-  if (dataSource === 'wiki') {
-    const articles = await loadWikiArticles(docCount, { noDownload: true })
-    const slice = articles.slice(0, docCount)
-    return {
-      docs: wikiToBenchDocuments(slice),
-      queries: generateWikiQueries(slice, queryCount, seed + 1),
-    }
+  if (dataSource === 'fiqa') {
+    const docs = await loadPerfDocuments(docCount)
+    return { docs, queries: generatePerfQueries(docs, queryCount, seed + 1) }
   }
   return {
     docs: generateDocuments(docCount, seed),
@@ -60,17 +54,9 @@ export async function loadSerializationDocs(
   docCount: number,
   seed: number,
 ): Promise<{ docs: BenchDocument[]; query: string }> {
-  if (dataSource === 'wiki') {
-    const articles = await loadWikiArticles(docCount, { noDownload: true })
-    const slice = articles.slice(0, docCount)
-    return {
-      docs: wikiToBenchDocuments(slice),
-      query: generateWikiQueries(
-        [{ title: 'United States', body: 'The United States of America is a country.' }],
-        1,
-        seed + 1,
-      )[0],
-    }
+  if (dataSource === 'fiqa') {
+    const docs = await loadPerfDocuments(docCount)
+    return { docs, query: generatePerfQueries(docs, 1, seed + 1)[0] }
   }
   return {
     docs: generateDocuments(docCount, seed),

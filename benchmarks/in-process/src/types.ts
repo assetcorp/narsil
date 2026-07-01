@@ -115,8 +115,8 @@ export interface BenchmarkConfig {
   searchRepeatRounds: number
   searchQueryCount: number
   seed: number
-  dataSource: 'wiki' | 'synthetic'
-  wikiArticleCount?: number
+  dataSource: 'fiqa' | 'synthetic'
+  perfCorpusDocCount?: number
 }
 
 export interface TierResults {
