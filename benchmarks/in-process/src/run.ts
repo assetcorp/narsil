@@ -5,7 +5,7 @@ import { downloadAndCacheWiki, loadWikiArticles, type WikiArticle } from './data
 import type { EngineId } from './runner/jobs'
 import { ProgressStore } from './runner/progress'
 import { prepareRunArtifact } from './runner/run-paths'
-import { runCranfieldTier, runMutationTier, runQualityTier, runSerializationTier } from './runner/tiers-extra'
+import { runCranfieldTier, runMutationTier, runSerializationTier } from './runner/tiers-extra'
 import { runTextTier } from './runner/tiers-text'
 import { runVectorTier } from './runner/tiers-vector'
 import { fmt, getPackageVersion } from './stats'
@@ -28,8 +28,8 @@ const WIKI_MAX_ARTICLES = 100_000
 const ENGINE_ORDER: EngineId[] = ['narsil', 'orama', 'minisearch']
 const VECTOR_ENGINE_ORDER: EngineId[] = ['narsil', 'orama']
 
-type TierName = 'text' | 'full' | 'vector' | 'serial' | 'mutation' | 'quality'
-const ALL_TIERS: TierName[] = ['text', 'full', 'vector', 'serial', 'mutation', 'quality']
+type TierName = 'text' | 'full' | 'vector' | 'serial' | 'mutation' | 'cranfield'
+const ALL_TIERS: TierName[] = ['text', 'full', 'vector', 'serial', 'mutation', 'cranfield']
 
 function parseTiers(args: string[]): Set<TierName> {
   const tiersIdx = args.indexOf('--tiers')
@@ -182,18 +182,19 @@ async function main() {
     )
   }
 
-  if (tiers.has('quality')) {
-    await runQualityTier(
-      {
-        engines: buildEngineMetas(engineVersions, ENGINE_ORDER),
-        docCount: 10_000,
-        queryCount: 50,
-        dataSource: 'wiki',
-        seed: SEED,
-      },
-      store,
+  if (tiers.has('cranfield')) {
+    const fixturesDir = resolve(
+      __dirname,
+      '..',
+      '..',
+      '..',
+      'packages',
+      'ts',
+      'src',
+      '__tests__',
+      'relevance',
+      'fixtures',
     )
-    const fixturesDir = resolve(__dirname, '..', '..', 'ts', 'src', '__tests__', 'relevance', 'fixtures')
     await runCranfieldTier(
       {
         engines: buildEngineMetas(engineVersions, ENGINE_ORDER),

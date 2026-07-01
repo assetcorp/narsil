@@ -77,23 +77,3 @@ export async function loadSerializationDocs(
     query: generateQueries(1, seed + 1)[0],
   }
 }
-
-export async function loadQualityDocs(
-  dataSource: DataSource,
-  docCount: number,
-  queryCount: number,
-  seed: number,
-): Promise<{ docs: BenchDocument[]; queries: string[] }> {
-  if (dataSource === 'wiki') {
-    const articles = await loadWikiArticles(Math.max(docCount, 100), { noDownload: true })
-    const slice = articles.slice(0, docCount)
-    return {
-      docs: wikiToBenchDocuments(slice),
-      queries: generateWikiQueries(slice, queryCount, seed + 10),
-    }
-  }
-  return {
-    docs: generateDocuments(docCount, seed),
-    queries: generateQueries(queryCount, seed + 10),
-  }
-}

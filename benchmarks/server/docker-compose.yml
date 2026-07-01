@@ -12,8 +12,8 @@ services:
   narsil:
     profiles: ["narsil"]
     build:
-      context: ..
-      dockerfile: ir-benchmark/narsil-server.Dockerfile
+      context: ../..
+      dockerfile: benchmarks/server/narsil-server.Dockerfile
       args:
         NARSIL_GIT_SHA: "${NARSIL_GIT_SHA:-}"
         NARSIL_GIT_DIRTY: "${NARSIL_GIT_DIRTY:-false}"

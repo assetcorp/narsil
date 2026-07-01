@@ -80,7 +80,7 @@ BM25, which is why they sit lower on these graded judgements.
 
 Keyword nDCG@10, SciFact (higher is better):
 
-```
+```text
 Elasticsearch ██████████████████████████████ 0.6789
 OpenSearch    ██████████████████████████████ 0.6789
 Narsil        ██████████████████████████████ 0.6781
@@ -90,7 +90,7 @@ Typesense     ████████████████▌              0
 
 Keyword nDCG@10, NFCorpus (higher is better):
 
-```
+```text
 Narsil        ██████████████████████████████ 0.3269
 Elasticsearch █████████████████████████████▍ 0.3206
 OpenSearch    █████████████████████████████▍ 0.3206
@@ -103,7 +103,7 @@ Meilisearch on SciFact.
 
 Keyword throughput, SciFact (higher is better):
 
-```
+```text
 Meilisearch   ██████████████████████████████ 1,443 QPS
 Narsil        ████████████████████████████▊  1,385 QPS
 OpenSearch    ████████████████████████▎      1,168 QPS
@@ -113,7 +113,7 @@ Typesense     █████▋                         269 QPS
 
 Keyword throughput, NFCorpus (higher is better):
 
-```
+```text
 Narsil        ██████████████████████████████ 2,125 QPS
 Meilisearch   █████████████████████████▎     1,789 QPS
 Typesense     █████████████████████████▏     1,781 QPS
@@ -149,7 +149,7 @@ a modest search effort. The large-dataset phase is where this trade-off opens up
 
 Vector throughput at matched recall, SciFact (higher is better):
 
-```
+```text
 Qdrant        ██████████████████████████████ 1,604 QPS
 Elasticsearch ████████████████▋              891 QPS
 OpenSearch    ██████████████▍                768 QPS
@@ -159,7 +159,7 @@ Weaviate      ███▉                           209 QPS
 
 Vector throughput at matched recall, NFCorpus (higher is better):
 
-```
+```text
 OpenSearch    ██████████████████████████████ 1,343 QPS
 Qdrant        █████████████████████████▋     1,147 QPS
 Elasticsearch █████████████████              759 QPS
@@ -181,7 +181,7 @@ fused query API is fast.
 
 Hybrid nDCG@10, SciFact (higher is better):
 
-```
+```text
 Qdrant        ██████████████████████████████ 0.7155
 Elasticsearch █████████████████████████████▋ 0.7053
 OpenSearch    █████████████████████████████▋ 0.7053
@@ -191,7 +191,7 @@ Weaviate      ██████████████████████
 
 Hybrid nDCG@10, NFCorpus (higher is better):
 
-```
+```text
 Narsil        ██████████████████████████████ 0.3555
 OpenSearch    █████████████████████████████▋ 0.3517
 Elasticsearch █████████████████████████████▋ 0.3516
@@ -201,7 +201,7 @@ Weaviate      ██████████████████████
 
 Hybrid throughput, SciFact (higher is better):
 
-```
+```text
 Qdrant        ██████████████████████████████ 1,477 QPS
 OpenSearch    █████████▎                     456 QPS
 Narsil        █████████▏                     448 QPS
@@ -211,7 +211,7 @@ Weaviate      ███▊                           182 QPS
 
 Hybrid throughput, NFCorpus (higher is better):
 
-```
+```text
 OpenSearch    ██████████████████████████████ 1,025 QPS
 Qdrant        ██████████████████████████████ 1,024 QPS
 Narsil        ████████████████▋              570 QPS
@@ -261,7 +261,7 @@ so the gap comes from ranking quality alone.
 
 Ranking quality, Cranfield nDCG@10 (higher is better):
 
-```
+```text
 Narsil        ██████████████████████████████ 0.3739
 Orama         ███████████████████████▍       0.2911
 MiniSearch    ▋                              0.0077
@@ -278,7 +278,7 @@ At 100,000 documents it indexes 7,375 documents per second.
 
 Insert throughput at 100,000 documents (higher is better):
 
-```
+```text
 Narsil        ██████████████████████████████ 7,375 docs/s
 MiniSearch    ███████████████████▏           4,715 docs/s
 Orama         ███████████████▌               3,801 docs/s
@@ -291,7 +291,7 @@ table.
 
 Vector insert throughput at 100,000 documents, 1536-dim (higher is better):
 
-```
+```text
 Narsil        ██████████████████████████████ 40,494 docs/s
 Orama         ████████████████████████▍      32,960 docs/s
 ```

@@ -9,7 +9,7 @@ import {
   measureSerialization,
   measureVectorSearch,
 } from '../measure'
-import { computeGroundTruthBM25, computeNDCG, evaluateCranfield, loadCranfieldData } from '../quality'
+import { evaluateCranfield, loadCranfieldData } from '../quality'
 import { coefficientOfVariation, median, percentile, stddev } from '../stats'
 import type { ScaleResult, SerializationResult, VectorBenchDocument, VectorScaleResult } from '../types'
 import type {
@@ -17,13 +17,12 @@ import type {
   JobOutcome,
   JobSpec,
   MutationJobSpec,
-  QualityJobSpec,
   SerializationJobSpec,
   TextJobSpec,
   VectorJobSpec,
 } from './jobs'
 import { fullSchemaAdapter, serializableAdapter, textAdapter, vectorAdapter } from './worker-adapters'
-import { loadDocsAndQueries, loadQualityDocs, loadSerializationDocs, loadTextDataset } from './worker-data'
+import { loadDocsAndQueries, loadSerializationDocs, loadTextDataset } from './worker-data'
 
 async function runTextJob(spec: TextJobSpec): Promise<ScaleResult> {
   const engine = textAdapter(spec.engine, spec.adapter)
@@ -107,30 +106,6 @@ async function runMutationJob(spec: MutationJobSpec): Promise<JobOutcome> {
   return { kind: 'mutation', result }
 }
 
-async function runQualityJob(spec: QualityJobSpec): Promise<JobOutcome> {
-  const engine = fullSchemaAdapter(spec.engine)
-  if (!engine.searchWithIds || !engine.insertWithIds) {
-    return { kind: 'quality', result: { meanNdcg10: 0, queryCount: 0, docCount: spec.docCount } }
-  }
-  const { docs, queries } = await loadQualityDocs(spec.dataSource, spec.docCount, spec.queryCount, spec.seed)
-
-  await engine.create()
-  await engine.insertWithIds(docs)
-  const ndcgScores: number[] = []
-  for (const query of queries) {
-    const predicted = await engine.searchWithIds(query)
-    const groundTruth = computeGroundTruthBM25(docs, query, 10)
-    if (groundTruth.length === 0) continue
-    ndcgScores.push(computeNDCG(predicted, groundTruth, 10))
-  }
-  await engine.teardown()
-  const meanNdcg = ndcgScores.length > 0 ? ndcgScores.reduce((a, b) => a + b, 0) / ndcgScores.length : 0
-  return {
-    kind: 'quality',
-    result: { meanNdcg10: meanNdcg, queryCount: ndcgScores.length, docCount: spec.docCount },
-  }
-}
-
 async function runCranfieldJob(spec: CranfieldJobSpec): Promise<JobOutcome> {
   const engine = fullSchemaAdapter(spec.engine)
   if (!engine.searchWithIds || !engine.insertWithIds) {
@@ -168,8 +143,6 @@ async function dispatch(job: JobSpec): Promise<JobOutcome> {
     }
     case 'mutation':
       return runMutationJob(job)
-    case 'quality':
-      return runQualityJob(job)
     case 'cranfield':
       return runCranfieldJob(job)
   }

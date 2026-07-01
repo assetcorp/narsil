@@ -1,5 +1,6 @@
 packages:
   - 'packages/*'
   - 'packages/ts/examples/*'
+  - 'benchmarks/*'
 
 minimumReleaseAge: 5760

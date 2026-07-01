@@ -1,7 +1,6 @@
 import type {
   CranfieldQualityResult,
   MutationResult,
-  QualityResult,
   ScaleResult,
   SerializationResult,
   VectorScaleResult,
@@ -50,28 +49,13 @@ export interface MutationJobSpec {
   searchQueryCount: number
 }
 
-export interface QualityJobSpec {
-  kind: 'quality'
-  engine: EngineId
-  docCount: number
-  queryCount: number
-  dataSource: DataSource
-  seed: number
-}
-
 export interface CranfieldJobSpec {
   kind: 'cranfield'
   engine: EngineId
   fixturesDir: string
 }
 
-export type JobSpec =
-  | TextJobSpec
-  | VectorJobSpec
-  | SerializationJobSpec
-  | MutationJobSpec
-  | QualityJobSpec
-  | CranfieldJobSpec
+export type JobSpec = TextJobSpec | VectorJobSpec | SerializationJobSpec | MutationJobSpec | CranfieldJobSpec
 
 export interface JobSuccessText {
   kind: 'text'
@@ -93,11 +77,6 @@ export interface JobSuccessMutation {
   result: MutationResult | null
 }
 
-export interface JobSuccessQuality {
-  kind: 'quality'
-  result: QualityResult
-}
-
 export interface JobSuccessCranfield {
   kind: 'cranfield'
   result: CranfieldQualityResult
@@ -108,7 +87,6 @@ export type JobSuccess =
   | JobSuccessVector
   | JobSuccessSerialization
   | JobSuccessMutation
-  | JobSuccessQuality
   | JobSuccessCranfield
 
 export interface JobFailure {
@@ -128,7 +106,6 @@ export function isJobOutcome(value: unknown): value is JobOutcome {
     record.kind === 'vector' ||
     record.kind === 'serialization' ||
     record.kind === 'mutation' ||
-    record.kind === 'quality' ||
     record.kind === 'cranfield' ||
     record.kind === 'error'
   )
