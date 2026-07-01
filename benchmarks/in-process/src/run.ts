@@ -7,6 +7,7 @@ import { printConsistencyReport } from './print'
 import { runConsistencyCheck } from './runner/consistency'
 import type { EngineId } from './runner/jobs'
 import { ProgressStore } from './runner/progress'
+import { writeReport } from './runner/report'
 import { prepareRunArtifact } from './runner/run-paths'
 import { runMutationTier, runRelevanceTier, runSerializationTier } from './runner/tiers-extra'
 import { runTextTier } from './runner/tiers-text'
@@ -208,7 +209,9 @@ async function main() {
   }
 
   store.flush()
+  const reportPath = writeReport(store.snapshot(), runDir)
   console.log(`\nResults saved to ${outputPath}`)
+  console.log(`Report written to ${reportPath}`)
 }
 
 main().catch(err => {

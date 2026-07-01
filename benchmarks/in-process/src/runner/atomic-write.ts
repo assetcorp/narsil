@@ -44,14 +44,8 @@ function writeAllSync(fd: number, payload: Uint8Array): void {
   }
 }
 
-export function writeJsonAtomicSync<T>(target: string, value: T, options: AtomicWriteOptions = {}): void {
+function writeBytesAtomicSync(target: string, payload: Uint8Array): void {
   ensureSafePath(target)
-  const indent = options.prettyIndent ?? 2
-  const serialized = JSON.stringify(value, null, indent)
-  if (typeof serialized !== 'string') {
-    throw new TypeError('atomic-write: value did not serialize to JSON (likely circular or BigInt)')
-  }
-  const payload = new TextEncoder().encode(serialized)
   const tempPath = buildTempPath(target)
 
   let fd: number | null = null
@@ -73,4 +67,20 @@ export function writeJsonAtomicSync<T>(target: string, value: T, options: Atomic
   }
 
   renameSync(tempPath, target)
+}
+
+export function writeJsonAtomicSync<T>(target: string, value: T, options: AtomicWriteOptions = {}): void {
+  const indent = options.prettyIndent ?? 2
+  const serialized = JSON.stringify(value, null, indent)
+  if (typeof serialized !== 'string') {
+    throw new TypeError('atomic-write: value did not serialize to JSON (likely circular or BigInt)')
+  }
+  writeBytesAtomicSync(target, new TextEncoder().encode(serialized))
+}
+
+export function writeTextAtomicSync(target: string, text: string): void {
+  if (typeof text !== 'string') {
+    throw new TypeError('atomic-write: text must be a string')
+  }
+  writeBytesAtomicSync(target, new TextEncoder().encode(text))
 }
