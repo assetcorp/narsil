@@ -90,7 +90,11 @@ cmd_sync() {
       -- . ':(exclude)benchmarks/in-process/results/runs' ':(exclude)benchmarks/server/results/runs'
     printf '.git\0'
   } >"$filelist"
-  tar czf "$tarball" -C "$REPO_ROOT" --null -T "$filelist"
+  # COPYFILE_DISABLE stops macOS tar from embedding AppleDouble '._*' sidecar
+  # files (they carry extended attributes like com.apple.provenance). On the
+  # Linux VM those extract as untracked junk and show up as a dirty working tree,
+  # polluting the git status each run records. The variable is a no-op on GNU tar.
+  COPYFILE_DISABLE=1 tar czf "$tarball" -C "$REPO_ROOT" --null -T "$filelist"
   rm -f "$filelist"
   log "upload and unpack to ~/narsil"
   prov_scp_up "$tarball" "narsil.tgz"
