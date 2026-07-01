@@ -1,5 +1,5 @@
 import { type BootstrapCI, bootstrapSpeedupCI, fmt, fmtPct } from './stats'
-import type { CranfieldQualityResult, ScaleResult, VectorScaleResult } from './types'
+import type { RelevanceQualityResult, ScaleResult, VectorScaleResult } from './types'
 
 export function printScaleTable(
   title: string,
@@ -57,12 +57,16 @@ export function printSerializationTable(
   }
 }
 
-export function printCranfieldQualityTable(
-  results: Record<string, CranfieldQualityResult>,
+export function printRelevanceQualityTable(
+  results: Record<string, RelevanceQualityResult>,
   engines: Array<{ name: string; version: string }>,
 ): void {
   const a = '---:'
-  console.log('\n### Cranfield Relevance (Human Judgments, 1400 docs, 225 queries)\n')
+  const sample = Object.values(results)[0]
+  const heading = sample
+    ? `Relevance Quality (BEIR ${sample.dataset}, ${fmt(sample.docCount)} docs, human judgments)`
+    : 'Relevance Quality (BEIR, human judgments)'
+  console.log(`\n### ${heading}\n`)
   console.log(`| Engine | nDCG@10 | P@10 | MAP | MRR | Queries |`)
   console.log(`| --- | ${a} | ${a} | ${a} | ${a} | ${a} |`)
   for (const { name, version } of engines) {

@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "bench": "node --expose-gc --import tsx src/run.ts",
+    "beir:update-pins": "node --import tsx src/data/beir/update-pins.ts",
     "profile:memory": "node --expose-gc --max-old-space-size=4096 --import tsx src/profile-memory.ts",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -13,6 +14,7 @@
   "dependencies": {
     "@delali/narsil": "workspace:*",
     "@orama/orama": "3.1.18",
+    "fflate": "0.8.3",
     "minisearch": "7.2.0",
     "stemmer": "2.0.1",
     "tsx": "4.21.0",

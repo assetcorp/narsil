@@ -1,32 +1,7 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import type { BenchDocument, CranfieldQualityResult } from './types'
+import type { Qrels } from './data/beir'
+import type { RelevanceQualityResult } from './types'
 
 type RelevanceMap = Map<string, number>
-
-interface CranfieldDoc {
-  id: number
-  title: string
-  author: string
-  body: string
-}
-
-interface CranfieldQuery {
-  id: number
-  text: string
-}
-
-interface CranfieldQrel {
-  queryId: number
-  docId: number
-  relevance: number
-}
-
-interface CranfieldData {
-  documents: BenchDocument[]
-  queries: CranfieldQuery[]
-  qrelLookup: Map<number, { judgments: RelevanceMap; totalRelevant: number }>
-}
 
 export function ndcgAtK(ranked: string[], judgments: RelevanceMap, k: number): number {
   const n = Math.min(ranked.length, k)
@@ -78,66 +53,45 @@ export function reciprocalRank(ranked: string[], judgments: RelevanceMap): numbe
   return 0
 }
 
-export function loadCranfieldData(fixturesDir: string): CranfieldData {
-  const rawDocs = JSON.parse(readFileSync(resolve(fixturesDir, 'cranfield-documents.json'), 'utf-8')) as CranfieldDoc[]
-  const rawQueries = JSON.parse(
-    readFileSync(resolve(fixturesDir, 'cranfield-queries.json'), 'utf-8'),
-  ) as CranfieldQuery[]
-  const rawQrels = JSON.parse(readFileSync(resolve(fixturesDir, 'cranfield-qrels.json'), 'utf-8')) as CranfieldQrel[]
-
-  const documents: BenchDocument[] = rawDocs.map(d => ({
-    id: String(d.id),
-    title: d.title,
-    body: d.body,
-    score: 0,
-    category: 'aerodynamics',
-  }))
-
-  const qrelLookup = new Map<number, { judgments: RelevanceMap; totalRelevant: number }>()
-  for (const qrel of rawQrels) {
-    let entry = qrelLookup.get(qrel.queryId)
-    if (entry === undefined) {
-      entry = { judgments: new Map(), totalRelevant: 0 }
-      qrelLookup.set(qrel.queryId, entry)
-    }
-    entry.judgments.set(String(qrel.docId), qrel.relevance)
-    if (qrel.relevance > 0) entry.totalRelevant++
+function countRelevant(judgments: RelevanceMap): number {
+  let total = 0
+  for (const relevance of judgments.values()) {
+    if (relevance > 0) total++
   }
-
-  return { documents, queries: rawQueries, qrelLookup }
+  return total
 }
 
-export function evaluateCranfield(
-  top10Results: Map<number, string[]>,
-  fullResults: Map<number, string[]>,
-  data: CranfieldData,
-): CranfieldQualityResult {
+export function evaluateRelevance(
+  rankings: Map<string, string[]>,
+  qrels: Qrels,
+  dataset: string,
+  docCount: number,
+): RelevanceQualityResult {
   let ndcgSum = 0
   let pSum = 0
   let mapSum = 0
   let mrrSum = 0
   let evaluated = 0
 
-  for (const query of data.queries) {
-    const entry = data.qrelLookup.get(query.id)
-    if (entry === undefined || entry.totalRelevant === 0) continue
+  for (const [queryId, judgments] of qrels) {
+    const totalRelevant = countRelevant(judgments)
+    if (totalRelevant === 0) continue
 
-    const top10 = top10Results.get(query.id) ?? []
-    const full = fullResults.get(query.id) ?? []
-
-    ndcgSum += ndcgAtK(top10, entry.judgments, 10)
-    pSum += precisionAtK(top10, entry.judgments, 10)
-    mapSum += averagePrecision(full, entry.judgments, entry.totalRelevant)
-    mrrSum += reciprocalRank(top10, entry.judgments)
+    const ranked = rankings.get(queryId) ?? []
+    ndcgSum += ndcgAtK(ranked, judgments, 10)
+    pSum += precisionAtK(ranked, judgments, 10)
+    mapSum += averagePrecision(ranked, judgments, totalRelevant)
+    mrrSum += reciprocalRank(ranked, judgments)
     evaluated++
   }
 
   return {
+    dataset,
     meanNdcg10: evaluated > 0 ? ndcgSum / evaluated : 0,
     meanPrecision10: evaluated > 0 ? pSum / evaluated : 0,
     meanMap: evaluated > 0 ? mapSum / evaluated : 0,
     meanMrr: evaluated > 0 ? mrrSum / evaluated : 0,
     queryCount: evaluated,
-    docCount: data.documents.length,
+    docCount,
   }
 }

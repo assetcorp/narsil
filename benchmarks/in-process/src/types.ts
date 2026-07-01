@@ -108,13 +108,23 @@ export interface MutationResult {
   reinsertDocsPerSec: number
 }
 
-export interface CranfieldQualityResult {
+export interface RelevanceQualityResult {
+  dataset: string
   meanNdcg10: number
   meanPrecision10: number
   meanMap: number
   meanMrr: number
   queryCount: number
   docCount: number
+}
+
+export interface RelevanceDatasetInfo {
+  name: string
+  archiveSha256: string
+  corpusFingerprint: string
+  documents: number
+  queries: number
+  qrels: number
 }
 
 export interface BenchmarkOutput {
@@ -125,5 +135,6 @@ export interface BenchmarkOutput {
   tiers: TierResults
   serialization?: Record<string, SerializationResult>
   mutations?: Record<string, MutationResult>
-  cranfieldQuality?: Record<string, CranfieldQualityResult>
+  relevanceQuality?: Record<string, RelevanceQualityResult>
+  relevanceDataset?: RelevanceDatasetInfo
 }

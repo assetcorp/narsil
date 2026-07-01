@@ -1,17 +1,16 @@
 import os from 'node:os'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { BEIR_DATASETS, type BeirDatasetName } from './data/beir'
 import { downloadAndCacheWiki, loadWikiArticles, type WikiArticle } from './data-wiki'
 import type { EngineId } from './runner/jobs'
 import { ProgressStore } from './runner/progress'
 import { prepareRunArtifact } from './runner/run-paths'
-import { runCranfieldTier, runMutationTier, runSerializationTier } from './runner/tiers-extra'
+import { runMutationTier, runRelevanceTier, runSerializationTier } from './runner/tiers-extra'
 import { runTextTier } from './runner/tiers-text'
 import { runVectorTier } from './runner/tiers-vector'
 import { fmt, getPackageVersion } from './stats'
 import type { BenchmarkOutput } from './types'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
+const DEFAULT_RELEVANCE_DATASET: BeirDatasetName = 'scifact'
 
 const SCALES = [1_000, 10_000, 50_000, 100_000]
 const VECTOR_SCALES_BY_DIM: Record<number, number[]> = {
@@ -48,6 +47,15 @@ function parseTiers(args: string[]): Set<TierName> {
   return new Set(names)
 }
 
+function parseRelevanceDataset(args: string[]): BeirDatasetName {
+  const idx = args.indexOf('--relevance-dataset')
+  if (idx === -1 || idx + 1 >= args.length) return DEFAULT_RELEVANCE_DATASET
+  const value = args[idx + 1]
+  if ((BEIR_DATASETS as readonly string[]).includes(value)) return value as BeirDatasetName
+  console.log(`Unknown relevance dataset "${value}". Valid datasets: ${BEIR_DATASETS.join(', ')}`)
+  process.exit(1)
+}
+
 function buildEngineMetas(versions: Record<string, string>, names: EngineId[]) {
   return names.map(name => ({ name, version: versions[name] ?? 'unknown' }))
 }
@@ -57,6 +65,7 @@ async function main() {
   const refreshWiki = args.includes('--refresh-wiki')
   const noDownload = args.includes('--no-download')
   const tiers = parseTiers(args)
+  const relevanceDataset = parseRelevanceDataset(args)
 
   const env = {
     node: process.version,
@@ -71,6 +80,7 @@ async function main() {
   console.log(`CPU: ${env.cpu}`)
   console.log(`Seed: ${SEED} | Search queries: ${SEARCH_QUERY_COUNT}`)
   console.log(`Tiers: ${Array.from(tiers).join(', ')}`)
+  if (tiers.has('relevance')) console.log(`Relevance dataset: ${relevanceDataset}`)
 
   const needsWiki = WIKI_TIERS.some(t => tiers.has(t))
   let articles: WikiArticle[] = []
@@ -189,22 +199,10 @@ async function main() {
   }
 
   if (tiers.has('relevance')) {
-    const fixturesDir = resolve(
-      __dirname,
-      '..',
-      '..',
-      '..',
-      'packages',
-      'ts',
-      'src',
-      '__tests__',
-      'relevance',
-      'fixtures',
-    )
-    await runCranfieldTier(
+    await runRelevanceTier(
       {
         engines: buildEngineMetas(engineVersions, ENGINE_ORDER),
-        fixturesDir,
+        dataset: relevanceDataset,
       },
       store,
     )

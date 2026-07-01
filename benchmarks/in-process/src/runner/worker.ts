@@ -1,4 +1,5 @@
 import { generateQueryVectors, generateVectorDocuments } from '../data'
+import { loadBeirDataset } from '../data/beir'
 import {
   measureFilteredSearch,
   measureInsert,
@@ -9,14 +10,14 @@ import {
   measureSerialization,
   measureVectorSearch,
 } from '../measure'
-import { evaluateCranfield, loadCranfieldData } from '../quality'
+import { evaluateRelevance } from '../quality'
 import { coefficientOfVariation, median, percentile, stddev } from '../stats'
 import type { ScaleResult, SerializationResult, VectorBenchDocument, VectorScaleResult } from '../types'
 import type {
-  CranfieldJobSpec,
   JobOutcome,
   JobSpec,
   MutationJobSpec,
+  RelevanceJobSpec,
   SerializationJobSpec,
   TextJobSpec,
   VectorJobSpec,
@@ -106,25 +107,32 @@ async function runMutationJob(spec: MutationJobSpec): Promise<JobOutcome> {
   return { kind: 'mutation', result }
 }
 
-async function runCranfieldJob(spec: CranfieldJobSpec): Promise<JobOutcome> {
+async function runRelevanceJob(spec: RelevanceJobSpec): Promise<JobOutcome> {
   const engine = fullSchemaAdapter(spec.engine)
+  const data = await loadBeirDataset(spec.dataset, { noDownload: true })
   if (!engine.searchWithIds || !engine.insertWithIds) {
     return {
-      kind: 'cranfield',
-      result: { meanNdcg10: 0, meanPrecision10: 0, meanMap: 0, meanMrr: 0, queryCount: 0, docCount: 0 },
+      kind: 'relevance',
+      result: {
+        dataset: spec.dataset,
+        meanNdcg10: 0,
+        meanPrecision10: 0,
+        meanMap: 0,
+        meanMrr: 0,
+        queryCount: 0,
+        docCount: data.counts.documents,
+      },
     }
   }
-  const data = loadCranfieldData(spec.fixturesDir)
   await engine.create()
   await engine.insertWithIds(data.documents)
-  const top10Results = new Map<number, string[]>()
+  const rankings = new Map<string, string[]>()
   for (const query of data.queries) {
-    const ranked = await engine.searchWithIds(query.text)
-    top10Results.set(query.id, ranked)
+    rankings.set(query.id, await engine.searchWithIds(query.text))
   }
   await engine.teardown()
-  const result = evaluateCranfield(top10Results, top10Results, data)
-  return { kind: 'cranfield', result }
+  const result = evaluateRelevance(rankings, data.qrels, spec.dataset, data.counts.documents)
+  return { kind: 'relevance', result }
 }
 
 async function dispatch(job: JobSpec): Promise<JobOutcome> {
@@ -143,8 +151,8 @@ async function dispatch(job: JobSpec): Promise<JobOutcome> {
     }
     case 'mutation':
       return runMutationJob(job)
-    case 'cranfield':
-      return runCranfieldJob(job)
+    case 'relevance':
+      return runRelevanceJob(job)
   }
 }
 

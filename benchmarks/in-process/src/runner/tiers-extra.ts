@@ -1,14 +1,15 @@
-import { printCranfieldQualityTable, printMutationTable, printSerializationTable } from '../print'
+import { type BeirDatasetName, loadBeirDataset } from '../data/beir'
+import { printMutationTable, printRelevanceQualityTable, printSerializationTable } from '../print'
 import { fmt } from '../stats'
-import type { CranfieldQualityResult, MutationResult, SerializationResult } from '../types'
+import type { MutationResult, RelevanceQualityResult, SerializationResult } from '../types'
 import {
   formatFailureLine,
-  makeCranfieldErrorRecord,
   makeMutationErrorRecord,
+  makeRelevanceErrorRecord,
   makeSerializationErrorRecord,
 } from './error-records'
 import { runInIsolation } from './isolate'
-import type { CranfieldJobSpec, DataSource, EngineId, MutationJobSpec, SerializationJobSpec } from './jobs'
+import type { DataSource, EngineId, MutationJobSpec, RelevanceJobSpec, SerializationJobSpec } from './jobs'
 import type { ProgressStore } from './progress'
 
 interface IsolationConfig {
@@ -31,9 +32,9 @@ export interface MutationTierConfig extends IsolationConfig {
   searchQueryCount: number
 }
 
-export interface CranfieldTierConfig extends IsolationConfig {
+export interface RelevanceTierConfig extends IsolationConfig {
   engines: Array<{ name: EngineId; version: string }>
-  fixturesDir: string
+  dataset: BeirDatasetName
 }
 
 export async function runSerializationTier(
@@ -143,18 +144,32 @@ export async function runMutationTier(
   return results
 }
 
-export async function runCranfieldTier(
-  config: CranfieldTierConfig,
+export async function runRelevanceTier(
+  config: RelevanceTierConfig,
   store: ProgressStore,
-): Promise<Record<string, CranfieldQualityResult>> {
-  console.log('\n## Cranfield Relevance (human judgments)\n')
-  const results: Record<string, CranfieldQualityResult> = {}
+): Promise<Record<string, RelevanceQualityResult>> {
+  console.log(`\n## Relevance Quality (BEIR ${config.dataset}, human judgments)\n`)
+  const loaded = await loadBeirDataset(config.dataset, {})
+  store.setRelevanceDataset({
+    name: loaded.name,
+    archiveSha256: loaded.archiveSha256,
+    corpusFingerprint: loaded.corpusFingerprint,
+    documents: loaded.counts.documents,
+    queries: loaded.counts.queries,
+    qrels: loaded.counts.qrels,
+  })
+  console.log(
+    `  ${fmt(loaded.counts.documents)} docs, ${loaded.counts.queries} judged queries, ` +
+      `fingerprint ${loaded.corpusFingerprint.slice(0, 12)}`,
+  )
+
+  const results: Record<string, RelevanceQualityResult> = {}
   for (const engineMeta of config.engines) {
     console.log(`  ${engineMeta.name} v${engineMeta.version}`)
-    const job: CranfieldJobSpec = {
-      kind: 'cranfield',
+    const job: RelevanceJobSpec = {
+      kind: 'relevance',
       engine: engineMeta.name,
-      fixturesDir: config.fixturesDir,
+      dataset: config.dataset,
     }
     const outcome = await runInIsolation(job, {
       timeoutMs: config.perJobTimeoutMs,
@@ -162,23 +177,23 @@ export async function runCranfieldTier(
     })
     if (outcome.outcome.kind === 'failure') {
       const failure = outcome.outcome.failure
-      const record = makeCranfieldErrorRecord(failure, 0, 0)
+      const record = makeRelevanceErrorRecord(failure, config.dataset, loaded.counts.documents, loaded.counts.queries)
       console.log(`    ERROR ${formatFailureLine(failure)}`)
       results[engineMeta.name] = record
-      store.setCranfield(engineMeta.name, record)
+      store.setRelevance(engineMeta.name, record)
       continue
     }
-    if (outcome.outcome.kind !== 'cranfield') {
+    if (outcome.outcome.kind !== 'relevance') {
       const failure = {
         code: 'engine-ipc-corrupt' as const,
         message: `worker returned unexpected kind ${outcome.outcome.kind}`,
-        phase: 'cranfield-tier' as const,
+        phase: 'relevance-tier' as const,
         engine: engineMeta.name,
       }
-      const record = makeCranfieldErrorRecord(failure, 0, 0)
+      const record = makeRelevanceErrorRecord(failure, config.dataset, loaded.counts.documents, loaded.counts.queries)
       console.log(`    ERROR ${formatFailureLine(failure)}`)
       results[engineMeta.name] = record
-      store.setCranfield(engineMeta.name, record)
+      store.setRelevance(engineMeta.name, record)
       continue
     }
     const r = outcome.outcome.result
@@ -186,8 +201,8 @@ export async function runCranfieldTier(
       `    nDCG@10: ${r.meanNdcg10.toFixed(4)}  P@10: ${r.meanPrecision10.toFixed(4)}  MAP: ${r.meanMap.toFixed(4)}  MRR: ${r.meanMrr.toFixed(4)}`,
     )
     results[engineMeta.name] = r
-    store.setCranfield(engineMeta.name, r)
+    store.setRelevance(engineMeta.name, r)
   }
-  printCranfieldQualityTable(results, config.engines)
+  printRelevanceQualityTable(results, config.engines)
   return results
 }
