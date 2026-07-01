@@ -9,7 +9,6 @@ coverage/
 .env.*
 !.env.example
 packages/ts/benchmarks/results/*.json
-benchmarks/in-process/results/
 benchmarks/datasets/
 *.heapsnapshot
 .turbo/
