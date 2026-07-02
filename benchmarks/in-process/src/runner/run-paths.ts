@@ -44,6 +44,8 @@ export interface RunEnvironment {
   arch: string
   cpu: string
   totalMemory: string
+  /** Operator-supplied hardware label from BENCH_MACHINE_LABEL, absent when unset. */
+  machineLabel?: string
 }
 
 export interface RunGitIdentity {
@@ -159,12 +161,14 @@ function collectGitIdentity(cwd: string): RunGitIdentity {
 }
 
 function collectEnvironment(): RunEnvironment {
+  const machineLabel = process.env.BENCH_MACHINE_LABEL?.trim()
   return {
     node: process.version,
     os: os.type(),
     arch: os.arch(),
     cpu: os.cpus()[0]?.model?.trim() ?? 'unknown',
     totalMemory: `${Math.round(os.totalmem() / 1024 ** 3)}GB`,
+    ...(machineLabel ? { machineLabel } : {}),
   }
 }
 

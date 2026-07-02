@@ -24,10 +24,10 @@
     },
     "changelog": {
       "automaticFromRef": true,
-      "workspaceChangelog": {
+      "workspaceChangelog": false,
+      "projectChangelogs": {
         "createRelease": "github"
-      },
-      "projectChangelogs": false
+      }
     },
     "git": {
       "commit": true,
