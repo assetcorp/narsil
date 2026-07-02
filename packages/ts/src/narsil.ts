@@ -23,7 +23,7 @@ import { ErrorCodes, NarsilError } from './errors'
 import { getLanguage } from './languages/registry'
 import { readProcessMemory } from './runtime/process-memory'
 import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from './schema/embedding-validator'
-import { validateSchema } from './schema/validator'
+import { validateSchema, validateVectorPromotion } from './schema/validator'
 import type { EmbeddingAdapter } from './types/adapters'
 import type { NarsilConfig } from './types/config'
 import type { NarsilEventMap } from './types/events'
@@ -109,6 +109,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         throw new NarsilError(ErrorCodes.INDEX_ALREADY_EXISTS, `Index "${name}" already exists`, { indexName: name })
       }
       validateSchema(indexConfig.schema)
+      validateVectorPromotion(indexConfig.vectorPromotion)
       let resolvedEmbeddingAdapter: EmbeddingAdapter | null = null
       if (indexConfig.embedding) {
         resolvedEmbeddingAdapter = validateEmbeddingConfig(indexConfig.embedding, indexConfig.schema, config?.embedding)
