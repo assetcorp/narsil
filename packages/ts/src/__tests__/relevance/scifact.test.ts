@@ -1,17 +1,44 @@
+import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createNarsil, type Narsil } from '../../narsil'
-import cranfieldDocuments from './fixtures/cranfield-documents.json'
-import cranfieldQrels from './fixtures/cranfield-qrels.json'
-import cranfieldQueries from './fixtures/cranfield-queries.json'
 import { averagePrecision, ndcgAtK, precisionAtK, type RelevanceMap, reciprocalRank } from './metrics'
 
-vi.setConfig({ testTimeout: 30_000 })
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 60_000 })
+
+interface ScifactDoc {
+  id: number
+  title: string
+  text: string
+}
+
+interface ScifactQuery {
+  id: number
+  text: string
+}
+
+interface ScifactQrel {
+  queryId: number
+  docId: number
+  relevance: number
+}
+
+function loadFixture<T>(fileName: string): T[] {
+  const parsed = JSON.parse(readFileSync(new URL(`./fixtures/${fileName}`, import.meta.url), 'utf-8')) as unknown
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error(`fixture ${fileName} is not a non-empty JSON array`)
+  }
+  return parsed as T[]
+}
+
+const scifactDocuments = loadFixture<ScifactDoc>('scifact-documents.json')
+const scifactQueries = loadFixture<ScifactQuery>('scifact-queries.json')
+const scifactQrels = loadFixture<ScifactQrel>('scifact-qrels.json')
 
 const THRESHOLDS = {
-  ndcg10: 0.32,
-  precision10: 0.21,
-  map: 0.27,
-  mrr: 0.48,
+  ndcg10: 0.66,
+  precision10: 0.088,
+  map: 0.61,
+  mrr: 0.62,
 }
 
 type QrelLookup = Map<number, { judgments: RelevanceMap; totalRelevant: number }>
@@ -19,7 +46,7 @@ type QrelLookup = Map<number, { judgments: RelevanceMap; totalRelevant: number }
 function buildQrelLookup(): QrelLookup {
   const lookup: QrelLookup = new Map()
 
-  for (const qrel of cranfieldQrels) {
+  for (const qrel of scifactQrels) {
     let entry = lookup.get(qrel.queryId)
     if (entry === undefined) {
       entry = { judgments: new Map(), totalRelevant: 0 }
@@ -32,7 +59,7 @@ function buildQrelLookup(): QrelLookup {
   return lookup
 }
 
-describe('Cranfield Relevance Evaluation', () => {
+describe('SciFact Relevance Evaluation', () => {
   let narsil: Narsil
   let qrelLookup: QrelLookup
   const top10Results = new Map<number, string[]>()
@@ -42,19 +69,19 @@ describe('Cranfield Relevance Evaluation', () => {
 
   beforeAll(async () => {
     narsil = await createNarsil()
-    await narsil.createIndex('cranfield', {
-      schema: { title: 'string' as const, body: 'string' as const },
+    await narsil.createIndex('scifact', {
+      schema: { title: 'string' as const, text: 'string' as const },
       language: 'english',
     })
 
-    for (const doc of cranfieldDocuments) {
-      await narsil.insert('cranfield', { title: doc.title, body: doc.body }, String(doc.id))
+    for (const doc of scifactDocuments) {
+      await narsil.insert('scifact', { title: doc.title, text: doc.text }, String(doc.id))
     }
 
     qrelLookup = buildQrelLookup()
 
-    for (const query of cranfieldQueries) {
-      const result = await narsil.query('cranfield', { term: query.text, limit: 100 })
+    for (const query of scifactQueries) {
+      const result = await narsil.query('scifact', { term: query.text, limit: 100 })
       const allIds = result.hits.map(h => h.id)
 
       top10Results.set(query.id, allIds.slice(0, 10))
@@ -65,7 +92,7 @@ describe('Cranfield Relevance Evaluation', () => {
       if (entry === undefined || entry.totalRelevant === 0) queriesWithZeroRelevant++
     }
 
-    console.log(`  Cranfield setup: ${cranfieldDocuments.length} docs, ${cranfieldQueries.length} queries`)
+    console.log(`  SciFact setup: ${scifactDocuments.length} docs, ${scifactQueries.length} queries`)
     console.log(`  Queries with zero results: ${queriesWithZeroResults}`)
     console.log(`  Queries with zero relevant docs: ${queriesWithZeroRelevant}`)
   })
@@ -82,7 +109,7 @@ describe('Cranfield Relevance Evaluation', () => {
     let sum = 0
     let count = 0
 
-    for (const query of cranfieldQueries) {
+    for (const query of scifactQueries) {
       const entry = qrelLookup.get(query.id)
       if (entry === undefined || entry.totalRelevant === 0) continue
 

@@ -16,25 +16,25 @@ export type {
 export { AppDispatchContext, AppStateContext, BackendContext, useAppDispatch, useAppState, useBackend } from './context'
 export { cn } from './lib/utils'
 export type {
-  CranfieldDataset,
   CustomDataset,
   Dataset,
   DatasetId,
   DatasetTier,
+  ScifactDataset,
   TmdbDataset,
   WikiLanguage,
   WikipediaDataset,
 } from './manifest'
 export {
   COMMITTED_SIZE_THRESHOLD,
-  cranfield,
   custom,
   datasets,
+  scifact,
   tmdb,
   wikipedia,
 } from './manifest'
 export type { SchemaDefinition } from './schemas'
-export { cranfieldSchema, tmdbSchema, wikipediaSchema } from './schemas'
+export { scifactSchema, tmdbSchema, wikipediaSchema } from './schemas'
 export type { BM25Config, RecomputedHit } from './scoring'
 export { computeFieldAverages, DEFAULT_BM25_CONFIG, recomputeScores } from './scoring'
 export { appReducer, createInitialState } from './state'
@@ -43,10 +43,10 @@ export type {
   AppState,
   DatasetLoadPhase,
   DatasetLoadProgress,
-  LoadCranfieldRequest,
   LoadCustomRequest,
   LoadDatasetRequest,
   LoadedIndex,
+  LoadScifactRequest,
   LoadTmdbRequest,
   LoadWikipediaRequest,
   TabId,
