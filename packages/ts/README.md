@@ -392,24 +392,18 @@ import '@delali/narsil/languages/twi'
 
 ## Search quality
 
-Ranking quality is measured against the [Cranfield Collection](https://ir-datasets.com/cranfield.html), the foundational information retrieval benchmark created in the 1960s. It contains 1,400 documents and 225 queries with exhaustive human relevance judgments, meaning every query-document pair was scored by domain experts. All engines in this comparison use identical stop words (Lucene English, 35 terms), Porter stemming, and default BM25 parameters.
-
-| Engine | nDCG@10 | P@10 | MAP | MRR |
-| --- | ---: | ---: | ---: | ---: |
-| **Narsil** | **0.3739** | **0.2458** | **0.2614** | **0.5638** |
-| Orama 3.1.18 | 0.2911 | 0.1836 | 0.1846 | 0.4821 |
-| MiniSearch 7.2.0 | 0.0077 | 0.0067 | 0.0027 | 0.0139 |
+Ranking quality is measured against the [BEIR](https://github.com/beir-cellar/beir) SciFact corpus, 5,183 documents with 300 judged queries, where a human relevance judgment scores each query-document pair. Narsil runs in one process against Orama and MiniSearch, and every engine uses identical stop words (Lucene English, 35 terms), Porter stemming, and default BM25 parameters. Narsil takes the top nDCG@10 of the three.
 
 **What these metrics mean:**
 
-- **nDCG@10** measures whether the most relevant documents appear near the top of the results. A score of 1.0 would mean perfect ranking; 0.0 means no relevant documents in the top 10.
-- **P@10** is the fraction of the top 10 results that are relevant. Narsil averages about 2.5 relevant results in every top-10 list.
-- **MAP** tracks precision at every rank where a relevant document appears. Higher MAP means relevant documents cluster near the top rather than being spread through the result set.
-- **MRR** measures how far a user scrolls to find the first relevant result. Narsil's 0.56 means the first relevant document typically appears at position 2.
+- **nDCG@10** measures whether the most relevant documents appear near the top of the results. A score of 1.0 means perfect ranking, and 0.0 means no relevant documents appear in the top 10.
+- **P@10** is the fraction of the top 10 results that are relevant.
+- **MAP** tracks precision at every rank where a relevant document appears. A higher MAP means relevant documents cluster near the top of the ranking.
+- **MRR** measures how soon the first relevant result appears. A higher value means the first relevant document sits closer to the top.
 
-These scores fall within the expected range for BM25 on standard IR benchmarks (published BM25 baselines on BEIR datasets range from 0.24 to 0.63 nDCG@10). Narsil also runs a [Cranfield regression test](src/__tests__/relevance/cranfield.test.ts) in CI that fails the build if ranking quality drops below calibrated thresholds.
+A separate [Cranfield regression test](src/__tests__/relevance/cranfield.test.ts) runs in CI and fails the build if ranking quality drops below calibrated thresholds.
 
-Reproduce: `pnpm -C packages/benchmarks bench --tiers quality`
+Reproduce these scores with `pnpm --filter benchmarks bench -- --tiers relevance`. The full quality, throughput, latency, and memory tables for all three engines are in [BENCHMARKS.md](https://github.com/assetcorp/narsil/blob/main/BENCHMARKS.md).
 
 Narsil also runs as a search server. On the BEIR information-retrieval datasets it is measured against Elasticsearch, OpenSearch, Qdrant, Weaviate, Typesense, and Meilisearch across keyword, vector, and hybrid retrieval. See [the full benchmarks](https://github.com/assetcorp/narsil/blob/main/BENCHMARKS.md) for those results.
 
