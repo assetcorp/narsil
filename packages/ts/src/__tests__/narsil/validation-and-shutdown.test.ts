@@ -79,8 +79,26 @@ describe('Narsil index validation, shutdown, and batch operations', () => {
       ).rejects.toThrow(NarsilError)
     })
 
-    it('accepts a positive integer threshold', async () => {
-      await narsil.createIndex('vectors', { schema: vectorSchema, vectorPromotion: { threshold: 256 } })
+    it('rejects an unknown quantization mode instead of silently disabling it', async () => {
+      await expect(
+        narsil.createIndex('vectors', {
+          schema: vectorSchema,
+          vectorPromotion: { quantization: 'sq16' as unknown as 'sq8' },
+        }),
+      ).rejects.toThrow(NarsilError)
+    })
+
+    it('rejects a non-positive-integer hnsw m', async () => {
+      await expect(
+        narsil.createIndex('vectors', { schema: vectorSchema, vectorPromotion: { hnswConfig: { m: 0 } } }),
+      ).rejects.toThrow(NarsilError)
+    })
+
+    it('accepts a positive integer threshold and valid graph parameters', async () => {
+      await narsil.createIndex('vectors', {
+        schema: vectorSchema,
+        vectorPromotion: { threshold: 256, hnswConfig: { m: 16, efConstruction: 200, metric: 'cosine' } },
+      })
       expect(narsil.listIndexes().map(i => i.name)).toContain('vectors')
     })
   })
