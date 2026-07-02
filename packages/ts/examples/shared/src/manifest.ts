@@ -1,6 +1,6 @@
 const RELEASE_BASE = 'https://github.com/assetcorp/narsil/releases/download/data-v0'
 
-export type DatasetId = 'tmdb' | 'wikipedia' | 'cranfield' | 'custom'
+export type DatasetId = 'tmdb' | 'wikipedia' | 'scifact' | 'custom'
 
 export interface DatasetTier {
   label: string
@@ -38,14 +38,16 @@ export interface WikipediaDataset {
   languages: WikiLanguage[]
 }
 
-export interface CranfieldDataset {
-  id: 'cranfield'
+export interface ScifactDataset {
+  id: 'scifact'
   name: string
   docsFile: string
   queriesFile: string
   qrelsFile: string
+  docsSizeBytes: number
   docCount: number
   queryCount: number
+  qrelCount: number
 }
 
 export interface CustomDataset {
@@ -53,7 +55,7 @@ export interface CustomDataset {
   name: string
 }
 
-export type Dataset = TmdbDataset | WikipediaDataset | CranfieldDataset | CustomDataset
+export type Dataset = TmdbDataset | WikipediaDataset | ScifactDataset | CustomDataset
 
 export const COMMITTED_SIZE_THRESHOLD = 10 * 1024 * 1024
 
@@ -154,14 +156,16 @@ export const wikipedia: WikipediaDataset = {
   ],
 }
 
-export const cranfield: CranfieldDataset = {
-  id: 'cranfield',
-  name: 'Cranfield Collection',
-  docsFile: 'cranfield-docs.json',
-  queriesFile: 'cranfield-queries.json',
-  qrelsFile: 'cranfield-qrels.json',
-  docCount: 1400,
-  queryCount: 225,
+export const scifact: ScifactDataset = {
+  id: 'scifact',
+  name: 'SciFact',
+  docsFile: 'scifact-docs.json',
+  queriesFile: 'scifact-queries.json',
+  qrelsFile: 'scifact-qrels.json',
+  docsSizeBytes: 8_088_180,
+  docCount: 5_183,
+  queryCount: 300,
+  qrelCount: 339,
 }
 
 export const custom: CustomDataset = {
@@ -169,4 +173,4 @@ export const custom: CustomDataset = {
   name: 'Your Dataset',
 }
 
-export const datasets: Dataset[] = [tmdb, wikipedia, cranfield, custom]
+export const datasets: Dataset[] = [tmdb, wikipedia, scifact, custom]

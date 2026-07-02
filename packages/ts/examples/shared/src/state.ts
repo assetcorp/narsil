@@ -2,14 +2,14 @@ import type { AppAction, AppState, TabId, TabStatus } from './types'
 
 function computeTabStatus(state: AppState): Record<TabId, TabStatus> {
   const hasAnyIndex = state.indexes.length > 0
-  const hasNonCranfieldDocs = state.indexes.some(idx => idx.datasetId !== 'cranfield' && idx.documentCount > 0)
-  const hasCranfield = state.cranfieldLoaded
+  const hasNonScifactDocs = state.indexes.some(idx => idx.datasetId !== 'scifact' && idx.documentCount > 0)
+  const hasScifact = state.scifactLoaded
 
   return {
     datasets: 'ready',
-    search: hasNonCranfieldDocs ? 'ready' : 'locked',
-    relevance: hasNonCranfieldDocs ? 'ready' : 'locked',
-    benchmark: hasCranfield ? 'ready' : 'locked',
+    search: hasNonScifactDocs ? 'ready' : 'locked',
+    relevance: hasNonScifactDocs ? 'ready' : 'locked',
+    benchmark: hasScifact ? 'ready' : 'locked',
     inspector: hasAnyIndex ? 'ready' : 'locked',
   }
 }
@@ -19,7 +19,7 @@ export function createInitialState(): AppState {
     indexes: [],
     activeIndexName: null,
     loadingDatasets: new Map(),
-    cranfieldLoaded: false,
+    scifactLoaded: false,
     restoring: true,
     tabStatus: {
       datasets: 'ready',
@@ -44,13 +44,13 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       const indexes = [...existing, action.payload]
       const loadingDatasets = new Map(state.loadingDatasets)
       loadingDatasets.delete(action.payload.datasetId)
-      const cranfieldLoaded = state.cranfieldLoaded || action.payload.datasetId === 'cranfield'
+      const scifactLoaded = state.scifactLoaded || action.payload.datasetId === 'scifact'
       const next: AppState = {
         ...state,
         indexes,
         activeIndexName: state.activeIndexName ?? action.payload.name,
         loadingDatasets,
-        cranfieldLoaded,
+        scifactLoaded,
         tabStatus: state.tabStatus,
       }
       next.tabStatus = computeTabStatus(next)
@@ -61,8 +61,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       const indexes = state.indexes.filter(i => i.name !== action.payload)
       const activeIndexName =
         state.activeIndexName === action.payload ? (indexes[0]?.name ?? null) : state.activeIndexName
-      const cranfieldLoaded = action.payload === 'cranfield' ? false : state.cranfieldLoaded
-      const next: AppState = { ...state, indexes, activeIndexName, cranfieldLoaded, tabStatus: state.tabStatus }
+      const scifactLoaded = action.payload === 'scifact' ? false : state.scifactLoaded
+      const next: AppState = { ...state, indexes, activeIndexName, scifactLoaded, tabStatus: state.tabStatus }
       next.tabStatus = computeTabStatus(next)
       return next
     }
@@ -71,8 +71,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, activeIndexName: action.payload }
     }
 
-    case 'CRANFIELD_LOADED': {
-      const next: AppState = { ...state, cranfieldLoaded: true, tabStatus: state.tabStatus }
+    case 'SCIFACT_LOADED': {
+      const next: AppState = { ...state, scifactLoaded: true, tabStatus: state.tabStatus }
       next.tabStatus = computeTabStatus(next)
       return next
     }

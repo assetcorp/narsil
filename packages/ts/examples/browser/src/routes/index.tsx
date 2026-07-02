@@ -1,5 +1,5 @@
 import type { DatasetId, DatasetLoadProgress, LoadDatasetRequest } from '@delali/narsil-example-shared'
-import { cranfield, tmdb, useAppDispatch, useAppState, useBackend, wikipedia } from '@delali/narsil-example-shared'
+import { scifact, tmdb, useAppDispatch, useAppState, useBackend, wikipedia } from '@delali/narsil-example-shared'
 import { INDEX_NAME_PATTERN, SchemaEditor } from '@delali/narsil-example-shared/components/SchemaEditor'
 import { parseFile } from '@delali/narsil-example-shared/lib/file-parser'
 import { buildSchema, type DetectedField, detectSchema } from '@delali/narsil-example-shared/lib/schema-detector'
@@ -108,27 +108,27 @@ function WikiConfig({ selected, toggle }: { selected: Set<string>; toggle: (code
   )
 }
 
-function CranfieldConfig() {
+function ScifactConfig() {
   return (
     <div className="flex flex-col gap-4">
       <div>
         <p className="text-sm text-muted-foreground">
-          The Cranfield collection is a fixed dataset: 1,400 aeronautics abstracts, 225 queries, and expert relevance
-          judgments. No configuration needed.
+          SciFact is a fixed dataset from the BEIR benchmark: 5,183 scientific paper abstracts, 300 claim queries, and
+          expert relevance judgments. No configuration needed.
         </p>
       </div>
       <Separator />
       <div className="flex gap-6 text-sm">
         <div>
-          <span className="block font-mono text-lg font-semibold">1,400</span>
+          <span className="block font-mono text-lg font-semibold">5,183</span>
           <span className="text-xs text-muted-foreground">documents</span>
         </div>
         <div>
-          <span className="block font-mono text-lg font-semibold">225</span>
+          <span className="block font-mono text-lg font-semibold">300</span>
           <span className="text-xs text-muted-foreground">queries</span>
         </div>
         <div>
-          <span className="block font-mono text-lg font-semibold">1,837</span>
+          <span className="block font-mono text-lg font-semibold">339</span>
           <span className="text-xs text-muted-foreground">judgments</span>
         </div>
       </div>
@@ -374,12 +374,12 @@ const datasetMeta: DatasetMeta[] = [
     sheetDescription: 'Select languages and text depth.',
   },
   {
-    id: 'cranfield',
-    title: 'Cranfield Collection',
+    id: 'scifact',
+    title: 'SciFact',
     description:
-      'Classic IR test collection with 1,400 documents, 225 queries, and human relevance judgments for measuring retrieval quality.',
+      'Scientific fact-checking collection from the BEIR benchmark with 5,183 research abstracts, 300 claim queries, and expert relevance judgments for measuring retrieval quality.',
     icon: BookOpen,
-    license: 'Public Domain',
+    license: 'CC BY 4.0 / ODC-By 1.0',
     sheetDescription: 'Fixed IR test collection.',
   },
   {
@@ -468,10 +468,10 @@ function DatasetCard({
             ))}
           </div>
         )}
-        {ds.id === 'cranfield' && (
+        {ds.id === 'scifact' && (
           <div className="mt-3 flex gap-3 text-xs text-muted-foreground">
-            <span>{cranfield.docCount} docs</span>
-            <span>{cranfield.queryCount} queries</span>
+            <span>{scifact.docCount} docs</span>
+            <span>{scifact.queryCount} queries</span>
           </div>
         )}
       </CardContent>
@@ -586,8 +586,8 @@ function HomePage() {
         case 'wikipedia':
           request = { datasetId: 'wikipedia', languages: [...wikiLangs] }
           break
-        case 'cranfield':
-          request = { datasetId: 'cranfield' }
+        case 'scifact':
+          request = { datasetId: 'scifact' }
           break
         case 'custom': {
           if (!customConfig) return
@@ -614,7 +614,7 @@ function HomePage() {
           if (
             (datasetId === 'tmdb' && idx.name.startsWith('tmdb-')) ||
             (datasetId === 'wikipedia' && idx.name.startsWith('wikipedia-')) ||
-            (datasetId === 'cranfield' && idx.name === 'cranfield') ||
+            (datasetId === 'scifact' && idx.name === 'scifact') ||
             (datasetId === 'custom' && customConfig && idx.name === customConfig.indexName)
           ) {
             dispatch({
@@ -670,7 +670,7 @@ function HomePage() {
   const configContent: Record<DatasetId, React.ReactNode> = {
     tmdb: <TmdbConfig tier={tmdbTier} setTier={setTmdbTier} />,
     wikipedia: <WikiConfig selected={wikiLangs} toggle={toggleWikiLang} />,
-    cranfield: <CranfieldConfig />,
+    scifact: <ScifactConfig />,
     custom: <CustomConfig onReady={setCustomConfig} />,
   }
 

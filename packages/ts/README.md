@@ -401,7 +401,7 @@ Ranking quality is measured against the [BEIR](https://github.com/beir-cellar/be
 - **MAP** tracks precision at every rank where a relevant document appears. A higher MAP means relevant documents cluster near the top of the ranking.
 - **MRR** measures how soon the first relevant result appears. A higher value means the first relevant document sits closer to the top.
 
-A separate [Cranfield regression test](src/__tests__/relevance/cranfield.test.ts) runs in CI and fails the build if ranking quality drops below calibrated thresholds.
+A separate [SciFact regression test](src/__tests__/relevance/scifact.test.ts) runs in CI on the same corpus and fails the build if ranking quality drops below calibrated thresholds.
 
 Reproduce these scores with `pnpm --filter benchmarks bench -- --tiers relevance`. The full quality, throughput, latency, and memory tables for all three engines are in [BENCHMARKS.md](https://github.com/assetcorp/narsil/blob/main/BENCHMARKS.md).
 

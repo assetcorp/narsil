@@ -22,8 +22,7 @@ export const wikipediaSchema: SchemaDefinition = {
   categories: 'string[]',
 }
 
-export const cranfieldSchema: SchemaDefinition = {
+export const scifactSchema: SchemaDefinition = {
   title: 'string',
-  author: 'string',
-  body: 'string',
+  text: 'string',
 }

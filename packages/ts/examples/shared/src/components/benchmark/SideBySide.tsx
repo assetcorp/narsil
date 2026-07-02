@@ -8,13 +8,10 @@ interface SideBySideProps {
   backend: NarsilBackend
 }
 
-const GRADE_LABELS = ['Not relevant', 'Marginally', 'Relevant', 'Highly', 'Key']
+const GRADE_LABELS = ['Not relevant', 'Relevant']
 const GRADE_COLORS = [
   'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-  'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
   'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
 ]
 
 export function SideBySide({ query, backend }: SideBySideProps) {
@@ -22,7 +19,7 @@ export function SideBySide({ query, backend }: SideBySideProps) {
 
   useEffect(() => {
     let cancelled = false
-    backend.query({ indexName: 'cranfield', term: query.queryText, limit: 10 }).then(res => {
+    backend.query({ indexName: 'scifact', term: query.queryText, limit: 10 }).then(res => {
       if (!cancelled) setNarsilHits(res.hits)
     })
     return () => {
@@ -50,8 +47,8 @@ export function SideBySide({ query, backend }: SideBySideProps) {
               <div key={docId} className="flex items-center gap-2 border-b px-3 py-1.5 text-xs last:border-b-0">
                 <span className="w-4 font-mono text-muted-foreground">{i + 1}</span>
                 <span className="flex-1 truncate font-mono">Doc {docId}</span>
-                <Badge className={`text-[10px] ${GRADE_COLORS[Math.min(rel, 4)]}`}>
-                  {GRADE_LABELS[Math.min(rel, 4)]}
+                <Badge className={`text-[10px] ${GRADE_COLORS[Math.min(rel, 1)]}`}>
+                  {GRADE_LABELS[Math.min(rel, 1)]}
                 </Badge>
               </div>
             ))}
@@ -79,7 +76,7 @@ export function SideBySide({ query, backend }: SideBySideProps) {
                       {displacement > 0 ? `\u2191${displacement}` : `\u2193${Math.abs(displacement)}`}
                     </span>
                   )}
-                  <Badge className={`text-[10px] ${GRADE_COLORS[Math.min(rel, 4)]}`}>{rel}</Badge>
+                  <Badge className={`text-[10px] ${GRADE_COLORS[Math.min(rel, 1)]}`}>{rel}</Badge>
                 </div>
               )
             })}

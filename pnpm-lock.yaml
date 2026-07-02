@@ -136,6 +136,9 @@ importers:
       etcd3:
         specifier: 1.1.2
         version: 1.1.2
+      fflate:
+        specifier: 0.8.3
+        version: 0.8.3
       selfsigned:
         specifier: 5.5.0
         version: 5.5.0
@@ -3725,9 +3728,6 @@ packages:
 
   fflate@0.6.10:
     resolution: {integrity: sha512-IQrh3lEPM93wVCEczc9SaAOvkmcoQn/G8Bo1e8ZPlY3X3bnAxWaBdvTdvM1hP62iZp0BXWDy4vTAy4fF0+Dlpg==}
-
-  fflate@0.8.2:
-    resolution: {integrity: sha512-cPJU47OaAoCbg0pBvzsgpTPhmhqI5eJjh/JIu8tPj5q+T7iLvW/JAYUqmE7KOB4R1ZyEhzBaIQpQpardBF5z8A==}
 
   fflate@0.8.3:
     resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
@@ -8226,7 +8226,7 @@ snapshots:
       '@types/stats.js': 0.17.4
       '@types/webxr': 0.5.24
       '@webgpu/types': 0.1.69
-      fflate: 0.8.2
+      fflate: 0.8.3
       meshoptimizer: 1.0.1
 
   '@types/webxr@0.5.24': {}
@@ -9072,8 +9072,6 @@ snapshots:
   fetchdts@0.1.7: {}
 
   fflate@0.6.10: {}
-
-  fflate@0.8.2: {}
 
   fflate@0.8.3: {}
 

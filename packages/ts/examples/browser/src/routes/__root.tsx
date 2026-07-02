@@ -52,7 +52,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 function inferDatasetId(indexName: string): DatasetId {
   if (indexName.startsWith('tmdb-')) return 'tmdb'
   if (indexName.startsWith('wikipedia-')) return 'wikipedia'
-  if (indexName === 'cranfield') return 'cranfield'
+  if (indexName === 'scifact') return 'scifact'
   return 'custom'
 }
 

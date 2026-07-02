@@ -17,8 +17,8 @@ import type {
   SuggestResponse,
 } from '@delali/narsil-example-shared/backend'
 import type { DatasetId } from '@delali/narsil-example-shared/manifest'
-import { cranfield, tmdb, wikipedia } from '@delali/narsil-example-shared/manifest'
-import { cranfieldSchema, tmdbSchema, wikipediaSchema } from '@delali/narsil-example-shared/schemas'
+import { scifact, tmdb, wikipedia } from '@delali/narsil-example-shared/manifest'
+import { scifactSchema, tmdbSchema, wikipediaSchema } from '@delali/narsil-example-shared/schemas'
 import type { LoadDatasetRequest } from '@delali/narsil-example-shared/types'
 
 type Narsil = Awaited<ReturnType<typeof createNarsil>>
@@ -168,13 +168,13 @@ export class ServerBackend implements NarsilBackend {
           break
         }
 
-        case 'cranfield': {
-          const indexName = 'cranfield'
+        case 'scifact': {
+          const indexName = 'scifact'
           const existing = inst.listIndexes()
           if (!existing.some(idx => idx.name === indexName)) {
-            const filePath = safeDataPath(dataRoot, 'cranfield', cranfield.docsFile)
+            const filePath = safeDataPath(dataRoot, 'scifact', scifact.docsFile)
             const docs = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>[]
-            await inst.createIndex(indexName, { schema: cranfieldSchema as SchemaType, language: 'english' })
+            await inst.createIndex(indexName, { schema: scifactSchema as SchemaType, language: 'english' })
             await this.indexBatched(inst, indexName, docs, request.datasetId)
           }
           this.emit('ready', { indexName })
