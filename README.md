@@ -18,7 +18,6 @@ Narsil is a distributed search engine with full-text, vector, hybrid, and geosea
 | --- | --- |
 | [`@delali/narsil`](packages/ts) | Core search engine (full-text, vector, hybrid, geo) |
 | [`@delali/narsil-embeddings-transformers`](packages/embeddings-transformers) | Local embedding adapter using Hugging Face Transformers.js |
-| [`benchmarks`](benchmarks/in-process) | Comparative benchmarks against Orama and MiniSearch on the BEIR corpora |
 
 ## Getting started (TypeScript)
 
