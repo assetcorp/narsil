@@ -265,7 +265,7 @@ the exact command, and how to copy the results back.
 ## Layout
 
 ```text
-ir-benchmark/
+benchmarks/server/
   run-all.sh                 orchestration: embed once, then one engine at a time, then aggregate
   docker-compose.yml         engine services (profiled, 8 GiB cap) plus harness
   Dockerfile                 harness image (wheelhouse build, slim runtime, baked models)

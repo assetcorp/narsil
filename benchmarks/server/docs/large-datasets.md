@@ -62,7 +62,7 @@ get the source:
 
 ```bash
 git clone <your-narsil-remote> narsil
-cd narsil/ir-benchmark
+cd narsil/benchmarks/server
 ```
 
 On a Linux VM, Docker enforces the memory cap against host RAM directly, so there
@@ -114,15 +114,14 @@ IR_DATASETS_DL_TRIES=20 IR_DATASETS_DL_TIMEOUT=120 BENCH_DATASETS=beir/msmarco/d
 
 ## Copy the results back
 
-The harness writes results and run files to bind-mounted host directories
-(`./results` and `./runs`). Copy them to your machine after the run:
+The harness writes every results file and run record under one bind-mounted host
+directory, `./results`. Copy it to your machine after the run:
 
 ```bash
-rsync -avz user@vm-host:/path/to/narsil/ir-benchmark/results/ ./results-msmarco/
-rsync -avz user@vm-host:/path/to/narsil/ir-benchmark/runs/ ./runs-msmarco/
+rsync -avz user@vm-host:/path/to/narsil/benchmarks/server/results/ ./results-msmarco/
 ```
 
-Each `results/engine-<name>.json` records the machine label, the memory cap used,
+Each `results/runs/<run-id>/engine-<name>.json` records the machine label, the memory cap used,
 and the metrics, so a published large-corpus run carries the same provenance as
 the small ones.
 

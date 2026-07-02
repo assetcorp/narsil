@@ -18,7 +18,7 @@ Narsil is a distributed search engine with full-text, vector, hybrid, and geosea
 | --- | --- |
 | [`@delali/narsil`](packages/ts) | Core search engine (full-text, vector, hybrid, geo) |
 | [`@delali/narsil-embeddings-transformers`](packages/embeddings-transformers) | Local embedding adapter using Hugging Face Transformers.js |
-| [`benchmarks`](packages/benchmarks) | Comparative benchmarks against Orama and MiniSearch on Wikipedia data |
+| [`benchmarks`](benchmarks/in-process) | Comparative benchmarks against Orama and MiniSearch on the BEIR corpora |
 
 ## Getting started (TypeScript)
 
@@ -252,15 +252,7 @@ On the [BEIR](https://github.com/beir-cellar/beir) information-retrieval dataset
 
 ### In-process libraries
 
-On the [Cranfield Collection](https://ir-datasets.com/cranfield.html), a 1,400-document set with exhaustive human relevance judgements, Narsil ranks ahead of both libraries. Every engine uses the same stop words, the same Porter stemmer, and default BM25 parameters.
-
-| Engine | nDCG@10 | P@10 | MAP | MRR |
-| --- | ---: | ---: | ---: | ---: |
-| **Narsil** | **0.3739** | **0.2458** | **0.2614** | **0.5638** |
-| Orama 3.1.18 | 0.2911 | 0.1836 | 0.1846 | 0.4821 |
-| MiniSearch 7.2.0 | 0.0077 | 0.0067 | 0.0027 | 0.0139 |
-
-The same embedded engine inserts faster than both libraries at every scale. It also runs vector search, where it leads Orama on speed and MiniSearch has no equivalent. The throughput, latency, and memory tables across 1,000 to 100,000 Wikipedia documents are in [BENCHMARKS.md](BENCHMARKS.md), with the method and reproduction steps in [`packages/benchmarks`](packages/benchmarks).
+Measured in one process against Orama and MiniSearch, with the same stop words, the same Porter stemmer, and default BM25 parameters, Narsil takes the top nDCG@10 on the BEIR SciFact corpus. It inserts text faster than both libraries at every scale, and it returns searches faster than both as the corpus grows. On vector search, where MiniSearch has no equivalent, Narsil answers queries faster than Orama at matched recall on SciFact and NFCorpus, while Orama inserts vectors faster and holds a smaller footprint. The full quality, throughput, latency, and memory tables are in [BENCHMARKS.md](BENCHMARKS.md), and the method and reproduction steps are in [`benchmarks/in-process`](benchmarks/in-process).
 
 ## Configuration
 
