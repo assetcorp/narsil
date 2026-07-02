@@ -61,6 +61,30 @@ describe('Narsil index validation, shutdown, and batch operations', () => {
     })
   })
 
+  describe('vector promotion config validation', () => {
+    const vectorSchema: SchemaDefinition = { embedding: 'vector[8]' as const }
+
+    it('rejects a zero threshold that would rebuild on every insert', async () => {
+      await expect(
+        narsil.createIndex('vectors', { schema: vectorSchema, vectorPromotion: { threshold: 0 } }),
+      ).rejects.toThrow(NarsilError)
+    })
+
+    it('rejects a non-numeric threshold that would keep the field on a linear scan', async () => {
+      await expect(
+        narsil.createIndex('vectors', {
+          schema: vectorSchema,
+          vectorPromotion: { threshold: 'abc' as unknown as number },
+        }),
+      ).rejects.toThrow(NarsilError)
+    })
+
+    it('accepts a positive integer threshold', async () => {
+      await narsil.createIndex('vectors', { schema: vectorSchema, vectorPromotion: { threshold: 256 } })
+      expect(narsil.listIndexes().map(i => i.name)).toContain('vectors')
+    })
+  })
+
   describe('operations after shutdown', () => {
     it('throws on insert after shutdown', async () => {
       await narsil.createIndex('products', indexConfig)
