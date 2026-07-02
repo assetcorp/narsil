@@ -66,7 +66,7 @@ class QdrantDriver:
         self.hybrid_fusion = "RRF (Query API fusion)"
         self.vector_knob = "hnsw_ef"
         self.server_time = ServerTimeSource(
-            source="top-level `time` field (seconds, converted to ms)", resolution=FLOATING_MS
+            source="top-level `time` field, seconds converted to ms", resolution=FLOATING_MS
         )
         self._vector_profile = EQUAL_PRECISION
         self.rescore_oversample_grid = _SCALAR_OVERSAMPLING_GRID

@@ -79,9 +79,9 @@ def comparison_lines(rows: list[dict]) -> list[str]:
     best_qps = max(measured)
     has_distinct_best = len(set(measured)) > 1
     lines = [
-        "Throughput under concurrent load, higher is better (* marks the best). Peak QPS is the highest "
-        "sustained rate across the configured concurrency levels; client-limited marks an engine whose peak "
-        "was capped by the harness rather than the engine:",
+        "Throughput under concurrent load (higher is better). Peak QPS is the highest sustained rate across the "
+        "tested concurrency levels, and 'client-limited' flags an engine whose peak the harness capped, not the "
+        "engine itself. A star marks the best:",
         "",
         "| Engine | Peak QPS | At concurrency | Under-load p95 ms | Client-limited |",
         "| --- | --- | --- | --- | --- |",

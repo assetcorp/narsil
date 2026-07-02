@@ -82,13 +82,40 @@ def _value(row: dict, group: str, key: str) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
 
 
-def _best(rows: list[dict], group: str, key: str, higher_is_better: bool) -> tuple[str | None, float | None]:
-    candidates = [(r["engine"], _value(r, group, key)) for r in rows]
-    candidates = [(name, value) for name, value in candidates if value is not None]
-    if not candidates:
-        return None, None
-    chooser = max if higher_is_better else min
-    return chooser(candidates, key=lambda pair: pair[1])
+def _and_join(names: list[str]) -> str:
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} and {names[1]}"
+    return ", ".join(names[:-1]) + ", and " + names[-1]
+
+
+def _rank_info(pairs: list[tuple[str, float | None]], engine: str, places: int, higher_is_better: bool) -> dict | None:
+    """Standard-competition rank of `engine` among the engines that report a value, judged
+    at the precision the value is displayed so engines whose printed numbers match count as
+    tied and share a rank. Reports the rank, how many engines are ranked, whether the engine
+    sits in the top group, and that group's display value and members; None when the engine
+    has no value."""
+
+    scored = [(name, value) for name, value in pairs if value is not None]
+    displayed = {name: f"{value:.{places}f}" for name, value in scored}
+    if engine not in displayed:
+        return None
+    engine_value = float(displayed[engine])
+    if higher_is_better:
+        ahead = sum(1 for text in displayed.values() if float(text) > engine_value)
+        top = max(displayed.values(), key=float)
+    else:
+        ahead = sum(1 for text in displayed.values() if float(text) < engine_value)
+        top = min(displayed.values(), key=float)
+    return {
+        "rank": ahead + 1,
+        "total": len(scored),
+        "engine_display": displayed[engine],
+        "top_display": top,
+        "at_top": [name for name, text in displayed.items() if text == top],
+        "engine_at_top": displayed[engine] == top,
+    }
 
 
 def _server_rankable(row: dict, key: str) -> float | None:
@@ -105,37 +132,38 @@ def _server_rankable(row: dict, key: str) -> float | None:
     return value
 
 
-def _server_best(rows: list[dict], key: str) -> tuple[str | None, float | None]:
-    candidates = [(r["engine"], _server_rankable(r, key)) for r in rows]
-    candidates = [(name, value) for name, value in candidates if value is not None]
-    if not candidates:
-        return None, None
-    return min(candidates, key=lambda pair: pair[1])
+def _server_best_mark(rows: list[dict], key: str, places: int) -> float | None:
+    """The server-side latency to mark as fastest, or None when the column cannot be
+    ranked honestly. If any engine reports a time below its resolution floor, its true
+    latency is hidden below what its timer resolves, so no engine is crowned; the
+    per-engine standing still states narsil's rank among engines above the floor."""
+
+    rankable: list[float | None] = []
+    for row in rows:
+        if _value(row, "latency_server", key) is None:
+            continue
+        eligible = _server_rankable(row, key)
+        if eligible is None:
+            return None
+        rankable.append(eligible)
+    return _distinct_best(rankable, False, places)
 
 
-def _server_rank(rows: list[dict], engine: str, key: str) -> tuple[int, int]:
-    scored = [(r["engine"], _server_rankable(r, key)) for r in rows]
-    scored = [(name, value) for name, value in scored if value is not None]
-    scored.sort(key=lambda pair: pair[1])
-    names = [name for name, _ in scored]
-    position = names.index(engine) + 1 if engine in names else 0
-    return position, len(names)
+def _server_cell(row: dict, key: str, best: float | None, places: int) -> str:
+    value = _value(row, "latency_server", key)
+    if value is None:
+        return "n/a"
+    if row.get("server_time_resolution") == INTEGER_MS and value < _INTEGER_MS_FLOOR_MS:
+        return "&lt;1"
+    marker = "\\*" if best is not None and f"{value:.{places}f}" == f"{best:.{places}f}" else ""
+    return f"{value:.{places}f}{marker}"
 
 
 def _cell(value: float | None, best: float | None, places: int) -> str:
     if value is None:
         return "n/a"
-    marker = "\\*" if best is not None and abs(value - best) < 1e-9 else ""
+    marker = "\\*" if best is not None and f"{value:.{places}f}" == f"{best:.{places}f}" else ""
     return f"{value:.{places}f}{marker}"
-
-
-def _rank(rows: list[dict], engine: str, group: str, key: str, higher_is_better: bool) -> tuple[int, int]:
-    scored = [(r["engine"], _value(r, group, key)) for r in rows]
-    scored = [(name, value) for name, value in scored if value is not None]
-    scored.sort(key=lambda pair: pair[1], reverse=higher_is_better)
-    names = [name for name, _ in scored]
-    position = names.index(engine) + 1 if engine in names else 0
-    return position, len(names)
 
 
 def _fmt_opt(value: float | None, places: int) -> str:
@@ -150,21 +178,22 @@ def _head(labels: list[str]) -> list[str]:
     return ["| " + " | ".join(labels) + " |", "| " + " | ".join("---" for _ in labels) + " |"]
 
 
-def _distinct_best(values: list[float | None], higher_is_better: bool) -> float | None:
-    """The value to mark as best, or None when there is no distinct winner. When every
-    engine reports the same value, as on the vector track at matched recall where all
-    engines search identical vectors, nothing is marked, since a marker on every cell
-    highlights nothing."""
+def _distinct_best(values: list[float | None], higher_is_better: bool, places: int) -> float | None:
+    """The value to mark as best, or None when there is no distinct winner. Distinctness
+    is judged at the precision each cell displays, so engines that render the same number
+    are treated as tied: they either share the marker or, when every engine shows the same
+    value (as on the vector track at matched recall), none is marked, since a marker on
+    every cell highlights nothing."""
 
     present = [value for value in values if value is not None]
-    if len(present) < 2 or len(set(present)) < 2:
+    if len(present) < 2 or len({f"{value:.{places}f}" for value in present}) < 2:
         return None
     return max(present) if higher_is_better else min(present)
 
 
 def _quality_table(rows: list[dict]) -> list[str]:
     columns = [("ndcg_cut_10", "nDCG@10"), ("recall_100", "Recall@100"), ("map", "MAP"), ("recip_rank", "MRR")]
-    bests = {key: _distinct_best([_value(r, "metrics", key) for r in rows], True) for key, _ in columns}
+    bests = {key: _distinct_best([_value(r, "metrics", key) for r in rows], True, 4) for key, _ in columns}
     out = _head(["Engine"] + [label for _, label in columns])
     for row in rows:
         cells = [_cell(_value(row, "metrics", key), bests[key], 4) for key, _ in columns]
@@ -181,14 +210,19 @@ def _operational_table(rows: list[dict]) -> list[str]:
         ("latency_server", "p99_ms", "Server p99 ms", 2, False),
     ]
     bests = {}
-    for group, key, label, _, hib in columns:
+    for group, key, label, places, hib in columns:
         if group == "latency_server":
-            bests[label] = _distinct_best([_server_rankable(r, key) for r in rows], False)
+            bests[label] = _server_best_mark(rows, key, places)
         else:
-            bests[label] = _distinct_best([_value(r, group, key) for r in rows], hib)
+            bests[label] = _distinct_best([_value(r, group, key) for r in rows], hib, places)
     out = _head(["Engine"] + [label for _, _, label, _, _ in columns])
     for row in rows:
-        cells = [_cell(_value(row, group, key), bests[label], places) for group, key, label, places, _ in columns]
+        cells = []
+        for group, key, label, places, _ in columns:
+            if group == "latency_server":
+                cells.append(_server_cell(row, key, bests[label], places))
+            else:
+                cells.append(_cell(_value(row, group, key), bests[label], places))
         out.append(f"| {row['engine']} | " + " | ".join(cells) + " |")
     return out
 
@@ -199,7 +233,7 @@ def _client_latency_table(rows: list[dict]) -> list[str]:
         ("latency_client", "p95_ms", "Client p95 ms", 2),
         ("latency_client", "p99_ms", "Client p99 ms", 2),
     ]
-    bests = {label: _distinct_best([_value(r, group, key) for r in rows], False) for group, key, label, _ in columns}
+    bests = {label: _distinct_best([_value(r, group, key) for r in rows], False, places) for group, key, label, places in columns}
     out = _head(["Engine"] + [label for _, _, label, _ in columns])
     for row in rows:
         cells = [_cell(_value(row, group, key), bests[label], places) for group, key, label, places in columns]
@@ -233,21 +267,39 @@ def _operating_table(rows: list[dict]) -> list[str]:
     return out
 
 
+def _ndcg_clause(info: dict) -> str:
+    if info["engine_at_top"]:
+        if len(info["at_top"]) == 1:
+            return f"has the best nDCG@10 at {info['engine_display']}"
+        return f"ties for the best nDCG@10 ({len(info['at_top'])}-way tie at {info['engine_display']})"
+    leaders = info["at_top"]
+    label = "tied best" if len(leaders) > 1 else "best"
+    return f"ranks {info['rank']}/{info['total']} on nDCG@10 ({label}: {_and_join(leaders)}, {info['top_display']})"
+
+
+def _p50_clause(info: dict) -> str:
+    floor = "among engines above the measurement floor"
+    if info["engine_at_top"]:
+        if len(info["at_top"]) == 1:
+            return f"has the fastest server-side p50 latency at {info['engine_display']} ms ({floor})"
+        return (
+            f"ties for the fastest server-side p50 latency "
+            f"({len(info['at_top'])}-way tie at {info['engine_display']} ms, {floor})"
+        )
+    leaders = info["at_top"]
+    label = "tied fastest" if len(leaders) > 1 else "fastest"
+    return (
+        f"ranks {info['rank']}/{info['total']} on server-side p50 latency "
+        f"({label}: {_and_join(leaders)}, {info['top_display']} ms, {floor})"
+    )
+
+
 def _standing(rows: list[dict]) -> list[str]:
-    ndcg_pos, ndcg_total = _rank(rows, "narsil", "metrics", "ndcg_cut_10", True)
-    p50_pos, p50_total = _server_rank(rows, "narsil", "p50_ms")
-    if not (ndcg_pos and p50_pos):
+    ndcg = _rank_info([(row["engine"], _value(row, "metrics", "ndcg_cut_10")) for row in rows], "narsil", 4, True)
+    p50 = _rank_info([(row["engine"], _server_rankable(row, "p50_ms")) for row in rows], "narsil", 2, False)
+    if not (ndcg and p50):
         return []
-    ndcg_best_name, ndcg_best = _best(rows, "metrics", "ndcg_cut_10", True)
-    p50_best_name, p50_best = _server_best(rows, "p50_ms")
-    return [
-        f"Narsil standing: nDCG@10 rank {ndcg_pos}/{ndcg_total} "
-        f"(best {ndcg_best_name} {_fmt_opt(ndcg_best, 4)}); "
-        f"server-side p50 latency rank {p50_pos}/{p50_total} "
-        f"(fastest {p50_best_name} {_fmt_opt(p50_best, 2)} ms, among engines whose server-side timing "
-        f"is above the measurement floor).",
-        "",
-    ]
+    return [f"Narsil {_ndcg_clause(ndcg)} and {_p50_clause(p50)}.", ""]
 
 
 def _build_cell(engine: dict) -> str:
@@ -276,8 +328,8 @@ def render_comparison_markdown(comparison: dict) -> str:
     if profile == BEST_CONFIG:
         lines.append(
             "- Vector and hybrid tracks use each engine's own recommended production quantization (Narsil SQ8, "
-            "Elasticsearch BBQ, OpenSearch SQfp16, Qdrant int8 scalar, Weaviate 8-bit RQ), every engine held to "
-            "the same recall target via its own search-effort knob. Compression differs by engine by design."
+            "Elasticsearch BBQ, OpenSearch SQfp16, Qdrant int8 scalar, Weaviate 8-bit RQ). Every engine meets the "
+            "same recall target through its own search-effort knob, so compression differs by engine by design."
         )
     else:
         lines.append("- Vector and hybrid tracks hold every engine at full float (no quantization) for an equal-precision comparison.")
@@ -293,14 +345,14 @@ def render_comparison_markdown(comparison: dict) -> str:
             f"latency on the vector track is compared at matched ANN recall@{cfg.get('recall_k')} "
             f">= {cfg.get('recall_target')}."
         )
-    lines.append("- Same datasets, metrics, run depth, and strictly-decreasing run-file ordering for every engine.")
+    lines.append("- Every engine uses the same datasets, metrics, run depth, and strictly-decreasing run-file ordering.")
     for dataset_id, identity in (comparison.get("dataset_identities") or {}).items():
         if identity.get("md5"):
             lines.append(f"- Dataset {dataset_id}: content md5 {identity['md5']} (ir_datasets-verified archive)")
     lines.append(
-        "- Headline latency is each engine's own reported query time, captured from the same call the client "
-        "round-trip is timed around. Resolution differs by engine and is disclosed per engine; an engine that "
-        "reports no server-side time shows it as not-available and is compared on client round-trip only."
+        "- Headline latency is each engine's own reported query time, read from the same response the client "
+        "round-trip wraps. Resolution differs by engine and is disclosed below; an engine that exposes no "
+        "server-side time is marked not-available and compared on client round-trip only."
     )
     lines.append("")
 
@@ -322,7 +374,7 @@ def render_comparison_markdown(comparison: dict) -> str:
             rows = dataset["rows"]
             lines.append(f"### {dataset['dataset_id']}")
             lines.append("")
-            lines.append("Retrieval quality, higher is better (* marks the best in each column):")
+            lines.append("Retrieval quality (higher is better). A star marks the best in each column:")
             lines.append("")
             lines.extend(_quality_table(rows))
             lines.append("")
@@ -332,13 +384,13 @@ def render_comparison_markdown(comparison: dict) -> str:
                 lines.extend(_operating_table(rows))
                 lines.append("")
             lines.append(
-                "Ingest and latency, latency lower is better (* marks the best in each column). "
-                "The headline latency is each engine's own reported query time (server-side):"
+                "Ingest throughput (higher is better) and query latency (lower is better). The headline latency "
+                "is each engine's own server-side query time; a star marks the best in each column:"
             )
             lines.append("")
             lines.extend(_operational_table(rows))
             lines.append("")
-            lines.append("Client round-trip latency, the same queries timed around the HTTP call:")
+            lines.append("Client round-trip latency for the same queries, timed around the HTTP call:")
             lines.append("")
             lines.extend(_client_latency_table(rows))
             lines.append("")

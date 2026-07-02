@@ -1,0 +1,341 @@
+{
+  "environment": {
+    "captured_at": "2026-07-02T00:43:40.079433+00:00",
+    "harness_version": "0.1.0",
+    "containerized": true,
+    "machine_label": "GCP c3-standard-8, us-central1-a",
+    "os": "Linux 6.17.0-1020-gcp",
+    "arch": "x86_64",
+    "cpu_model": "Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz",
+    "logical_cpus": 8,
+    "total_memory_bytes": 33648001024,
+    "python_version": "3.12.13",
+    "ir_datasets_version": "0.6.1",
+    "pytrec_eval_version": "0.5.10"
+  },
+  "engine": {
+    "name": "typesense",
+    "run_tag": "typesense_textmatch",
+    "ranking": "native",
+    "url": "http://typesense:8108",
+    "version": "30.2",
+    "image_digest": "typesense/typesense@sha256:610f2d34b1f93d00762869da2c67736775e5798d19a2c8b91b014b8a0cc1e110",
+    "build_identity": {
+      "version": "30.2",
+      "build_hash": null,
+      "build_date": null,
+      "source_endpoint": "/debug",
+      "raw": {
+        "state": 1,
+        "version": "30.2"
+      }
+    },
+    "tracks": [
+      "keyword"
+    ],
+    "keyword_setup": "Native token match/proximity scoring (text_match), not BM25; english locale, Snowball stemming enabled, default typo tolerance",
+    "vector_profile": "equal-precision"
+  },
+  "config": {
+    "k1": 0.9,
+    "b": 0.4,
+    "run_depth": 1000,
+    "memory_cap_bytes": 8589934592,
+    "throughput": {
+      "enabled": true,
+      "concurrency": [
+        16
+      ],
+      "duration_seconds": 5.0,
+      "warmup_seconds": 1.0
+    },
+    "vector_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "vector_dims": 384,
+    "vector_metric": "cosine",
+    "recall_target": 0.99,
+    "recall_k": 10,
+    "vector_profile": "equal-precision"
+  },
+  "datasets": [
+    {
+      "dataset_id": "beir/scifact/test",
+      "dataset_identity": {
+        "source": "ir_datasets",
+        "md5": "5f7d1de60b170fc8027bb7898e2efca1",
+        "size_bytes": 2816079,
+        "subset": "scifact",
+        "archive": "scifact/source.zip",
+        "corpus_fingerprint": "7eef964b1e3042197cafe04e912a8065b91bab2dd3e591cb277dcd369d6fa381",
+        "fingerprint_algorithm": "sha256/len-framed/id-byte-sorted/v1"
+      },
+      "track": "keyword",
+      "run_tag": "typesense_textmatch",
+      "setup": "Native token match/proximity scoring (text_match), not BM25; english locale, Snowball stemming enabled, default typo tolerance",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.3727985427961379,
+        "recall_100": 0.3922777777777777,
+        "map": 0.36592763272179535,
+        "recip_rank": 0.37839985494401757
+      },
+      "calibration": {
+        "baseline_ndcg10": 0.679,
+        "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
+        "margin": 0.02,
+        "delta": -0.30620145720386216,
+        "within_margin": false
+      },
+      "operating_point": null,
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 2.5486928919999627,
+        "ingest_docs_per_sec": 2033.5914210255803,
+        "index_size_bytes": null,
+        "raw_stats": {
+          "index_size_bytes": null,
+          "raw": {
+            "created_at": 1782953022,
+            "curation_sets": [],
+            "default_sorting_field": "",
+            "enable_nested_fields": false,
+            "fields": [
+              {
+                "facet": false,
+                "index": true,
+                "infix": false,
+                "locale": "en",
+                "name": "text",
+                "optional": false,
+                "sort": false,
+                "stem": true,
+                "stem_dictionary": "",
+                "store": true,
+                "truncate_len": 100,
+                "type": "string"
+              }
+            ],
+            "name": "bench_beir_scifact_test",
+            "num_documents": 5183,
+            "symbols_to_index": [],
+            "synonym_sets": [],
+            "token_separators": []
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "mean_ms": 30.563521574666666,
+        "p50_ms": 22.156061,
+        "p90_ms": 70.089288,
+        "p95_ms": 89.375495,
+        "p99_ms": 115.888677,
+        "max_ms": 156.349347,
+        "top_k": 10,
+        "client": {
+          "samples": 1500,
+          "mean_ms": 30.563521574666666,
+          "p50_ms": 22.156061,
+          "p90_ms": 70.089288,
+          "p95_ms": 89.375495,
+          "p99_ms": 115.888677,
+          "max_ms": 156.349347,
+          "top_k": 10
+        },
+        "server": {
+          "samples": 1500,
+          "mean_ms": 28.925333333333334,
+          "p50_ms": 20.0,
+          "p90_ms": 68.0,
+          "p95_ms": 88.0,
+          "p99_ms": 114.0,
+          "max_ms": 154.0,
+          "top_k": 10
+        },
+        "server_time_source": "response `search_time_ms` field",
+        "server_time_resolution": "integer-millisecond"
+      },
+      "throughput": {
+        "warmup_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "server_time_source": "response `search_time_ms` field",
+        "server_time_resolution": "integer-millisecond",
+        "levels": [
+          {
+            "concurrency": 16,
+            "qps": 188.12722228734327,
+            "completed": 967,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.140138616000058,
+            "client_latency_ms": {
+              "samples": 967,
+              "mean_ms": 80.50822148294266,
+              "p50_ms": 56.57065400009742,
+              "p90_ms": 181.23568500004694,
+              "p95_ms": 240.03673199968034,
+              "p99_ms": 329.5180100003563,
+              "max_ms": 511.2260830001105
+            },
+            "server_latency_ms": {
+              "samples": 967,
+              "mean_ms": 75.99689762150983,
+              "p50_ms": 51.0,
+              "p90_ms": 176.0,
+              "p95_ms": 238.0,
+              "p99_ms": 327.0,
+              "max_ms": 509.0
+            },
+            "achieved_concurrency": 15.14578807888022,
+            "client_cpu_seconds": 1.2124062169999998,
+            "client_cores_busy": 0.23587033494117468,
+            "client_busy_fraction": 0.029483791867646835,
+            "logical_cpus": 8,
+            "client_bound": false
+          }
+        ]
+      },
+      "run_file": "results/runs/20260702T000321Z/runfiles/bench_beir_scifact_test.typesense_textmatch.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "dataset_identity": {
+        "source": "ir_datasets",
+        "md5": "a89dba18a62ef92f7d323ec890a0d38d",
+        "size_bytes": 2448432,
+        "subset": "nfcorpus",
+        "archive": "nfcorpus/source.zip",
+        "corpus_fingerprint": "4a844c96e864b1c4c8ff43e76c5bf1e681bd258e219d6b33e706a7f32f07a467",
+        "fingerprint_algorithm": "sha256/len-framed/id-byte-sorted/v1"
+      },
+      "track": "keyword",
+      "run_tag": "typesense_textmatch",
+      "setup": "Native token match/proximity scoring (text_match), not BM25; english locale, Snowball stemming enabled, default typo tolerance",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.18168390894988823,
+        "recall_100": 0.11233775070898366,
+        "map": 0.08388924478298482,
+        "recip_rank": 0.33720627749924703
+      },
+      "calibration": {
+        "baseline_ndcg10": 0.322,
+        "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
+        "margin": 0.02,
+        "delta": -0.14031609105011178,
+        "within_margin": false
+      },
+      "operating_point": null,
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 1.8889029880001544,
+        "ingest_docs_per_sec": 1923.338584924565,
+        "index_size_bytes": null,
+        "raw_stats": {
+          "index_size_bytes": null,
+          "raw": {
+            "created_at": 1782953113,
+            "curation_sets": [],
+            "default_sorting_field": "",
+            "enable_nested_fields": false,
+            "fields": [
+              {
+                "facet": false,
+                "index": true,
+                "infix": false,
+                "locale": "en",
+                "name": "text",
+                "optional": false,
+                "sort": false,
+                "stem": true,
+                "stem_dictionary": "",
+                "store": true,
+                "truncate_len": 100,
+                "type": "string"
+              }
+            ],
+            "name": "bench_beir_nfcorpus_test",
+            "num_documents": 3633,
+            "symbols_to_index": [],
+            "synonym_sets": [],
+            "token_separators": []
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "mean_ms": 2.7013962191950465,
+        "p50_ms": 1.258673,
+        "p90_ms": 6.218485,
+        "p95_ms": 8.265662,
+        "p99_ms": 17.634535,
+        "max_ms": 33.720523,
+        "top_k": 10,
+        "client": {
+          "samples": 1615,
+          "mean_ms": 2.7013962191950465,
+          "p50_ms": 1.258673,
+          "p90_ms": 6.218485,
+          "p95_ms": 8.265662,
+          "p99_ms": 17.634535,
+          "max_ms": 33.720523,
+          "top_k": 10
+        },
+        "server": {
+          "samples": 1615,
+          "mean_ms": 1.4823529411764707,
+          "p50_ms": 0.0,
+          "p90_ms": 5.0,
+          "p95_ms": 7.0,
+          "p99_ms": 16.0,
+          "max_ms": 32.0,
+          "top_k": 10
+        },
+        "server_time_source": "response `search_time_ms` field",
+        "server_time_resolution": "integer-millisecond"
+      },
+      "throughput": {
+        "warmup_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "server_time_source": "response `search_time_ms` field",
+        "server_time_resolution": "integer-millisecond",
+        "levels": [
+          {
+            "concurrency": 16,
+            "qps": 831.0130955261347,
+            "completed": 4171,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.019174815000042,
+            "client_latency_ms": {
+              "samples": 4171,
+              "mean_ms": 19.099743561494634,
+              "p50_ms": 16.920928999752505,
+              "p90_ms": 29.28315700000894,
+              "p95_ms": 35.38962799984802,
+              "p99_ms": 54.7930580000866,
+              "max_ms": 137.2266580001451
+            },
+            "server_latency_ms": {
+              "samples": 4171,
+              "mean_ms": 2.431311436106449,
+              "p50_ms": 0.0,
+              "p90_ms": 7.0,
+              "p95_ms": 11.0,
+              "p99_ms": 39.0,
+              "max_ms": 130.0
+            },
+            "achieved_concurrency": 15.872137020793017,
+            "client_cpu_seconds": 5.200786695,
+            "client_cores_busy": 1.036183613182231,
+            "client_busy_fraction": 0.12952295164777888,
+            "logical_cpus": 8,
+            "client_bound": false
+          }
+        ]
+      },
+      "run_file": "results/runs/20260702T000321Z/runfiles/bench_beir_nfcorpus_test.typesense_textmatch.run"
+    }
+  ]
+}
