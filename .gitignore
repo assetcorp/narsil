@@ -15,6 +15,10 @@ benchmarks/datasets/
 .cache/
 .venv/
 
+# Python bytecode caches, written when the writeup tool runs on the host
+__pycache__/
+*.py[cod]
+
 # Raw datasets (too large to commit)
 data/raw/
 # Processed datasets > 10MB committed via Git LFS or kept local

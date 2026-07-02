@@ -81,6 +81,16 @@ jobs:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-ts:test:etcd
 
+  benchmarks-writeup:
+    name: Benchmark writeup up to date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Check BENCHMARKS.md matches the latest recorded runs
+        run: python3 benchmarks/writeup/generate.py --check
+
   detect-vector-changes:
     name: Detect vector changes
     runs-on: ubuntu-latest
