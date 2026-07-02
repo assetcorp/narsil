@@ -86,7 +86,7 @@ Three scoring modes handle the partition-skew problem:
 
 ### Vector search
 
-Store and query high-dimensional embeddings with cosine similarity, dot product, or Euclidean distance. Small vector sets use an exact brute-force scan. Once a field crosses 1,024 vectors, the engine builds an HNSW graph and switches the field to approximate search. The threshold is configurable per index.
+Store and query high-dimensional embeddings with cosine similarity, dot product, or Euclidean distance. Small vector sets use an exact brute-force scan. Once a field reaches 1,024 vectors, the engine builds an HNSW graph and switches the field to approximate search. That 1,024-vector cutoff is the default, and you can configure it per index.
 
 ### Hybrid search
 
