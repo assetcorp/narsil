@@ -1,8 +1,8 @@
 {
-  "name": "@delali/narsil-example-server",
+  "name": "@delali/narsil-example-server-app",
   "private": true,
   "version": "0.0.1",
-  "description": "Narsil server example: full-text search with server functions and filesystem persistence.",
+  "description": "Narsil server-app example: a web application backed by the Narsil HTTP server over REST.",
   "type": "module",
   "imports": {
     "#/*": "./src/*"

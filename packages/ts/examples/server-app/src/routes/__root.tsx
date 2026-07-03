@@ -22,8 +22,8 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'Narsil - Server Example' },
-      { name: 'description', content: 'Full-text search with server functions and filesystem persistence.' },
+      { title: 'Narsil - Server App Example' },
+      { name: 'description', content: 'A web application backed by the Narsil HTTP server over REST.' },
     ],
     links: [{ rel: 'stylesheet', href: appCss }],
   }),

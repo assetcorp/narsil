@@ -1,11 +1,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import process from 'node:process'
 import tailwindcss from '@tailwindcss/vite'
 import { devtools } from '@tanstack/devtools-vite'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
 import { defineConfig, type Plugin, type ViteDevServer } from 'vite'
 import tsconfigPaths from 'vite-tsconfig-paths'
+import { ensureDemoNarsilServer } from './demo-server'
 
 const monorepoRoot = path.resolve(import.meta.dirname, '../../../..')
 const dataDir = path.join(monorepoRoot, 'data', 'processed')
@@ -40,6 +42,25 @@ function serveDataPlugin(): Plugin {
   }
 }
 
+function narsilServerPlugin(): Plugin {
+  return {
+    name: 'narsil-demo-server',
+    // Vitest also runs Vite in serve mode; the demo server must only back
+    // interactive dev, and its open socket would keep the test runner alive.
+    apply: (_config, env) => env.command === 'serve' && env.mode !== 'test',
+    async configureServer() {
+      const external = process.env.NARSIL_SERVER_URL
+      if (external && external.trim().length > 0) {
+        console.log(`[narsil] using the Narsil server at ${external}`)
+        return
+      }
+      const { url } = await ensureDemoNarsilServer()
+      process.env.NARSIL_SERVER_URL = url
+      console.log(`[narsil] demo Narsil server listening at ${url}`)
+    },
+  }
+}
+
 function readRequestBody(req: import('node:http').IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
@@ -68,7 +89,7 @@ function streamingLoadPlugin(): Plugin {
           const { queries } = JSON.parse(body) as { queries: unknown[] }
 
           const mod = (await viteServer.ssrLoadModule('./src/lib/get-backend.ts')) as {
-            getBackend: () => Promise<import('./src/lib/server-backend').ServerBackend>
+            getBackend: () => Promise<import('./src/lib/rest-backend').RestBackend>
           }
           const backend = await mod.getBackend()
 
@@ -104,7 +125,7 @@ function streamingLoadPlugin(): Plugin {
           const request = JSON.parse(body)
 
           const mod = (await viteServer.ssrLoadModule('./src/lib/get-backend.ts')) as {
-            getBackend: () => Promise<import('./src/lib/server-backend').ServerBackend>
+            getBackend: () => Promise<import('./src/lib/rest-backend').RestBackend>
           }
           const backend = await mod.getBackend()
 
@@ -140,6 +161,7 @@ function streamingLoadPlugin(): Plugin {
 
 const config = defineConfig({
   plugins: [
+    narsilServerPlugin(),
     serveDataPlugin(),
     streamingLoadPlugin(),
     devtools(),

@@ -38,4 +38,4 @@ data/processed/wikipedia/wikipedia-yo.json
 # Example app build artifacts and runtime data
 packages/ts/examples/*/dist/
 packages/ts/examples/*/.output/
-packages/ts/examples/server/data/
+packages/ts/examples/server-app/data/
