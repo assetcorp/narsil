@@ -13,15 +13,15 @@ import { twi } from '@delali/narsil/languages/twi'
 import { yoruba } from '@delali/narsil/languages/yoruba'
 import { zulu } from '@delali/narsil/languages/zulu'
 import { createServer, type OnRequestHook } from '@delali/narsil/server'
+import {
+  type DemoNarsilServer,
+  demoServerPromise,
+  setDemoEngineStatus,
+  setDemoServerPromise,
+} from './src/lib/demo-server-state'
 import { EMBEDDING_ADAPTER_NAME, readEmbeddingConfig } from './src/lib/embedding-config'
 
-export interface DemoNarsilServer {
-  url: string
-  close(): Promise<void>
-}
-
-const STATE_KEY = Symbol.for('narsil-server-app-demo-server')
-const g = globalThis as unknown as Record<symbol, Promise<DemoNarsilServer> | undefined>
+export type { DemoNarsilServer } from './src/lib/demo-server-state'
 
 function apiKeyHook(apiKey: string): OnRequestHook {
   return ctx => {
@@ -101,14 +101,25 @@ export async function startDemoNarsilServer(): Promise<DemoNarsilServer> {
  * NARSIL_DATA_DIR) and are recovered on the next start, so loaded datasets
  * survive dev-server restarts. The directory has no cross-process lock; run
  * one dev server per data directory.
+ *
+ * NARSIL_SERVER_URL is set here, in a then-handler registered before any
+ * other awaiter, so code that awaits the returned promise always finds the
+ * URL in the environment. The status record backs /api/engine-status.
  */
 export function ensureDemoNarsilServer(): Promise<DemoNarsilServer> {
-  const existing = g[STATE_KEY]
+  const existing = demoServerPromise()
   if (existing) return existing
+  setDemoEngineStatus({ phase: 'starting' })
   const starting = startDemoNarsilServer()
-  g[STATE_KEY] = starting
-  starting.catch(() => {
-    g[STATE_KEY] = undefined
-  })
+  setDemoServerPromise(starting)
+  starting
+    .then(server => {
+      process.env.NARSIL_SERVER_URL = server.url
+      setDemoEngineStatus({ phase: 'ready' })
+    })
+    .catch((err: unknown) => {
+      setDemoServerPromise(undefined)
+      setDemoEngineStatus({ phase: 'error', error: err instanceof Error ? err.message : String(err) })
+    })
   return starting
 }

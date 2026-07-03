@@ -4,7 +4,7 @@ import { INDEX_NAME_PATTERN, SchemaEditor } from '@delali/narsil-example-shared/
 import { parseFile } from '@delali/narsil-example-shared/lib/file-parser'
 import { buildSchema, type DetectedField, detectSchema } from '@delali/narsil-example-shared/lib/schema-detector'
 import { createFileRoute } from '@tanstack/react-router'
-import { BookOpen, Check, FileUp, Film, Globe, Loader2, Settings2, Trash2, Upload } from 'lucide-react'
+import { BookOpen, Check, FileUp, Film, Globe, Loader2, Settings2, Trash2, TriangleAlert, Upload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
@@ -20,6 +20,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '#/components/ui/sheet'
+import { type EngineStatusPhase, useEngineStatus } from '../lib/engine-status'
 
 export const Route = createFileRoute('/')({ component: HomePage })
 
@@ -397,6 +398,7 @@ interface DatasetCardProps {
   loaded: boolean
   loading: boolean
   restoring: boolean
+  enginePhase: EngineStatusPhase
   progress: DatasetLoadProgress | undefined
   onLoad: (datasetId: DatasetId) => void
   onRemove: (datasetId: DatasetId) => void
@@ -409,6 +411,7 @@ function DatasetCard({
   loaded,
   loading,
   restoring,
+  enginePhase,
   progress,
   onLoad,
   onRemove,
@@ -417,7 +420,8 @@ function DatasetCard({
 }: DatasetCardProps) {
   const [sheetOpen, setSheetOpen] = useState(false)
   const Icon = ds.icon
-  const busy = loading || restoring
+  const busy = loading || restoring || enginePhase === 'checking' || enginePhase === 'starting'
+  const engineFailed = enginePhase === 'error'
 
   function handleLoadClick() {
     setSheetOpen(false)
@@ -479,12 +483,19 @@ function DatasetCard({
       {progress && progress.phase !== 'complete' && <ProgressBar progress={progress} />}
 
       <CardFooter>
-        {busy ? (
+        {busy && (
           <Button type="button" variant="outline" className="w-full" disabled>
             <Loader2 className="size-3.5 animate-spin" />
-            {restoring ? 'Restoring...' : 'Loading...'}
+            {loading ? 'Loading...' : 'Restoring...'}
           </Button>
-        ) : (
+        )}
+        {!busy && engineFailed && (
+          <Button type="button" variant="outline" className="w-full" disabled>
+            <TriangleAlert className="size-3.5" />
+            Server unavailable
+          </Button>
+        )}
+        {!busy && !engineFailed && (
           <div className="flex w-full gap-1.5">
             <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
               <SheetTrigger asChild>
@@ -538,6 +549,7 @@ function HomePage() {
   const backend = useBackend()
   const state = useAppState()
   const dispatch = useAppDispatch()
+  const engineStatus = useEngineStatus()
 
   const [tmdbTier, setTmdbTier] = useState('10k')
   const [wikiLangs, setWikiLangs] = useState<Set<string>>(new Set(['en']))
@@ -692,6 +704,7 @@ function HomePage() {
             loaded={isLoaded(ds.id)}
             loading={isLoading(ds.id)}
             restoring={state.restoring}
+            enginePhase={engineStatus.phase}
             progress={state.loadingDatasets.get(ds.id)}
             onLoad={handleLoad}
             onRemove={handleRemove}

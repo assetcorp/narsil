@@ -10,6 +10,8 @@ import viteReact from '@vitejs/plugin-react'
 import { defineConfig, type Plugin, type ViteDevServer } from 'vite'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { ensureDemoNarsilServer } from './demo-server'
+import { demoEngineStatus } from './src/lib/demo-server-state'
+import type { EngineStatus } from './src/lib/engine-status'
 import { openSseSession } from './sse'
 
 const monorepoRoot = path.resolve(import.meta.dirname, '../../../..')
@@ -48,21 +50,42 @@ function serveDataPlugin(): Plugin {
   }
 }
 
+function respondEngineStatus(res: ServerResponse): void {
+  const status: EngineStatus = demoEngineStatus() ?? { phase: process.env.NARSIL_SERVER_URL ? 'ready' : 'starting' }
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+  res.end(JSON.stringify(status))
+}
+
 function narsilServerPlugin(): Plugin {
   return {
     name: 'narsil-demo-server',
     // Vitest also runs Vite in serve mode; the demo server must only back
     // interactive dev, and its open socket would keep the test runner alive.
     apply: (_config, env) => env.command === 'serve' && env.mode !== 'test',
-    async configureServer() {
+    configureServer(server) {
+      server.middlewares.use('/api/engine-status', (req, res, next) => {
+        if (req.method !== 'GET') {
+          next()
+          return
+        }
+        respondEngineStatus(res)
+      })
+
       const external = process.env.NARSIL_SERVER_URL
       if (external && external.trim().length > 0) {
         console.log(`[narsil] using the Narsil server at ${external}`)
         return
       }
-      const { url } = await ensureDemoNarsilServer()
-      process.env.NARSIL_SERVER_URL = url
-      console.log(`[narsil] demo Narsil server listening at ${url}`)
+      /* Recovering persisted indexes can take a while; starting the demo
+       * server without awaiting lets Vite listen immediately while the app
+       * shows recovery progress from /api/engine-status. */
+      ensureDemoNarsilServer()
+        .then(({ url }) => {
+          console.log(`[narsil] demo Narsil server listening at ${url}`)
+        })
+        .catch((err: unknown) => {
+          console.error(`[narsil] the demo Narsil server failed to start: ${errorMessage(err)}`)
+        })
     },
   }
 }
