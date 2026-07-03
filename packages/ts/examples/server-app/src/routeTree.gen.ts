@@ -14,6 +14,7 @@ import { Route as RelevanceRouteImport } from './routes/relevance'
 import { Route as InspectorRouteImport } from './routes/inspector'
 import { Route as BenchmarkRouteImport } from './routes/benchmark'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiAskRouteImport } from './routes/api/ask'
 
 const SearchRoute = SearchRouteImport.update({
   id: '/search',
@@ -40,6 +41,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAskRoute = ApiAskRouteImport.update({
+  id: '/api/ask',
+  path: '/api/ask',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -47,6 +53,7 @@ export interface FileRoutesByFullPath {
   '/inspector': typeof InspectorRoute
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
+  '/api/ask': typeof ApiAskRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -54,6 +61,7 @@ export interface FileRoutesByTo {
   '/inspector': typeof InspectorRoute
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
+  '/api/ask': typeof ApiAskRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -62,13 +70,27 @@ export interface FileRoutesById {
   '/inspector': typeof InspectorRoute
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
+  '/api/ask': typeof ApiAskRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/benchmark' | '/inspector' | '/relevance' | '/search'
+  fullPaths:
+    | '/'
+    | '/benchmark'
+    | '/inspector'
+    | '/relevance'
+    | '/search'
+    | '/api/ask'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/benchmark' | '/inspector' | '/relevance' | '/search'
-  id: '__root__' | '/' | '/benchmark' | '/inspector' | '/relevance' | '/search'
+  to: '/' | '/benchmark' | '/inspector' | '/relevance' | '/search' | '/api/ask'
+  id:
+    | '__root__'
+    | '/'
+    | '/benchmark'
+    | '/inspector'
+    | '/relevance'
+    | '/search'
+    | '/api/ask'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -77,6 +99,7 @@ export interface RootRouteChildren {
   InspectorRoute: typeof InspectorRoute
   RelevanceRoute: typeof RelevanceRoute
   SearchRoute: typeof SearchRoute
+  ApiAskRoute: typeof ApiAskRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -116,6 +139,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/ask': {
+      id: '/api/ask'
+      path: '/api/ask'
+      fullPath: '/api/ask'
+      preLoaderRoute: typeof ApiAskRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -125,6 +155,7 @@ const rootRouteChildren: RootRouteChildren = {
   InspectorRoute: InspectorRoute,
   RelevanceRoute: RelevanceRoute,
   SearchRoute: SearchRoute,
+  ApiAskRoute: ApiAskRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
