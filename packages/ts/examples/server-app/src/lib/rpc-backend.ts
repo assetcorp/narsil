@@ -74,9 +74,11 @@ export class RpcBackend implements NarsilBackend {
         const line = part.trim()
         if (!line.startsWith('data: ')) continue
         try {
-          const progress = JSON.parse(line.slice(6)) as { phase?: string; error?: string }
+          const progress = JSON.parse(line.slice(6)) as { datasetId?: string; phase?: string; error?: string }
           this.emit('progress', progress)
-          if (progress.phase === 'error') {
+          /* An error naming another dataset must not fail this load; one with
+           * no dataset can only be about this request's own stream. */
+          if (progress.phase === 'error' && (progress.datasetId ?? request.datasetId) === request.datasetId) {
             failure = progress.error ?? 'The dataset failed to load'
           }
         } catch {

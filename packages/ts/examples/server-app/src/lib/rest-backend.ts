@@ -11,39 +11,14 @@ import type {
   SuggestRequest,
   SuggestResponse,
 } from '@delali/narsil-example-shared/backend'
-import type { DatasetId } from '@delali/narsil-example-shared/manifest'
 import { scifact, tmdb, wikipedia } from '@delali/narsil-example-shared/manifest'
 import { scifactSchema, tmdbSchema, wikipediaSchema } from '@delali/narsil-example-shared/schemas'
 import type { LoadDatasetRequest } from '@delali/narsil-example-shared/types'
 import { findDataRoot, readDocumentsFile } from './dataset-files'
-import {
-  EMBEDDING_ADAPTER_NAME,
-  EMBEDDING_FIELD,
-  type EmbeddingProviderConfig,
-  embeddingSourceFields,
-  readEmbeddingConfig,
-  WIKIPEDIA_LEAD_FIELD,
-  WIKIPEDIA_LEAD_MAX_CHARS,
-} from './embedding-config'
+import { dedupeDocumentsById, type IndexLoadPlan, languageName, planEmbedding } from './dataset-plan'
+import { EMBEDDING_ADAPTER_NAME, EMBEDDING_FIELD, readEmbeddingConfig } from './embedding-config'
 import { NarsilServerClient } from './narsil-server-client'
 import type { NarsilServerConfig } from './server-config'
-
-const WIKIPEDIA_LANGUAGE_NAMES: Record<string, string> = {
-  en: 'english',
-  fr: 'french',
-  ee: 'ewe',
-  zu: 'zulu',
-  tw: 'twi',
-  yo: 'yoruba',
-  sw: 'swahili',
-  ha: 'hausa',
-  dag: 'dagbani',
-  ig: 'igbo',
-}
-
-function languageName(code: string): string {
-  return WIKIPEDIA_LANGUAGE_NAMES[code] ?? 'english'
-}
 
 /* The Narsil server rejects JSON bodies above 16 MiB. The byte budget counts
  * UTF-16 code units, which understate UTF-8 bytes by up to 3x for non-ASCII
@@ -57,50 +32,46 @@ const MAX_BATCH_DOCS = 500
  * tokens, so 256 documents ≈ 100k tokens leaves 3x headroom per request. */
 const MAX_BATCH_DOCS_WITH_EMBEDDING = 256
 
+/* One transient embedding failure fails its whole batch on the server, so
+ * failed batches get spaced retries of the documents not yet accepted
+ * instead of scrapping the entire paid load. */
+const BATCH_INSERT_RETRY_LIMIT = 2
+const BATCH_INSERT_RETRY_BASE_DELAY_MS = 1_000
+
+interface BatchEntry {
+  docId: string | null
+  json: string
+}
+
 /**
- * The server rejects inserting a document whose ID already exists, and the
- * bundled corpora contain occasional repeated rows (movies-100000.json ships
- * two IDs twice), so repeated IDs collapse to their first occurrence.
+ * Documents from a partly failed batch that are safe to resubmit. Null when
+ * the safe set cannot be determined: once the server accepted some documents,
+ * matching survivors needs the string IDs the server echoes back, and
+ * documents without a string ID get server-generated IDs that never match.
  */
-export function dedupeDocumentsById(docs: Record<string, unknown>[]): Record<string, unknown>[] {
-  const seen = new Set<string | number>()
-  const unique: Record<string, unknown>[] = []
-  for (const doc of docs) {
-    const id = doc.id
-    if (typeof id === 'string' || typeof id === 'number') {
-      if (seen.has(id)) continue
-      seen.add(id)
+export function uninsertedEntries(entries: BatchEntry[], succeeded: string[]): BatchEntry[] | null {
+  if (succeeded.length === 0) return entries
+  if (entries.some(entry => entry.docId === null)) return null
+  const inserted = new Set(succeeded)
+  return entries.filter(entry => entry.docId !== null && !inserted.has(entry.docId))
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason as Error)
+      return
     }
-    unique.push(doc)
-  }
-  return unique
-}
-
-interface IndexLoadPlan {
-  indexName: string
-  datasetId: DatasetId
-  schema: Record<string, unknown>
-  language: string
-  docs: Record<string, unknown>[]
-  embedding?: {
-    sourceFields: string[]
-    dimensions: number
-  }
-}
-
-/**
- * Cuts the article lead for the embedding input, breaking on a word boundary
- * so the vector never ends mid-word.
- */
-export function articleLead(text: string, maxChars: number = WIKIPEDIA_LEAD_MAX_CHARS): string {
-  if (text.length <= maxChars) return text
-  const slice = text.slice(0, maxChars)
-  const lastSpace = slice.lastIndexOf(' ')
-  return lastSpace > maxChars / 2 ? slice.slice(0, lastSpace) : slice
-}
-
-function withEmbeddingField(schema: Record<string, unknown>, dimensions: number): Record<string, unknown> {
-  return { ...schema, [EMBEDDING_FIELD]: `vector[${dimensions}]` }
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal?.reason as Error)
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 /**
@@ -121,33 +92,6 @@ function stripStoredVectors(response: QueryResponse): QueryResponse {
     }
   }
   return response
-}
-
-/**
- * Attaches the embedding arrangement to a dataset load when an embedding
- * provider is configured: the schema gains the vector field, and the create
- * request names the server-registered adapter so the search server embeds
- * each document at insert and each query at search time. Without a provider
- * the plan is exactly the keyword-only load this app always performed.
- */
-function planEmbedding(plan: IndexLoadPlan, embedding: EmbeddingProviderConfig | null): IndexLoadPlan {
-  if (!embedding) return plan
-  const sourceFields = embeddingSourceFields(plan.datasetId)
-  if (!sourceFields) return plan
-
-  let schema = withEmbeddingField(plan.schema, embedding.dimensions)
-  let docs = plan.docs
-  if (plan.datasetId === 'wikipedia') {
-    schema = { ...schema, [WIKIPEDIA_LEAD_FIELD]: 'string' }
-    docs = docs.map(doc => ({ ...doc, [WIKIPEDIA_LEAD_FIELD]: articleLead(String(doc.text ?? '')) }))
-  }
-
-  return {
-    ...plan,
-    schema,
-    docs,
-    embedding: { sourceFields, dimensions: embedding.dimensions },
-  }
 }
 
 /**
@@ -182,16 +126,11 @@ export class RestBackend implements NarsilBackend {
     this.emit('progress', { datasetId: plan.datasetId, phase: 'indexing', totalDocs: total, indexedDocs: 0 })
 
     const maxBatchDocs = plan.embedding ? MAX_BATCH_DOCS_WITH_EMBEDDING : MAX_BATCH_DOCS
-    let batch: string[] = []
+    let batch: BatchEntry[] = []
     let batchLength = 0
     const flush = async (): Promise<void> => {
       if (batch.length === 0) return
-      signal?.throwIfAborted()
-      const result = await this.client.insertBatchSerialized(plan.indexName, batch, signal)
-      if (result.failed.length > 0) {
-        const first = result.failed[0]
-        throw new Error(`${result.failed.length} documents failed to index (first: ${first.error.message})`)
-      }
+      await this.insertBatchWithRetry(plan.indexName, batch, signal)
       indexed += batch.length
       batch = []
       batchLength = 0
@@ -203,10 +142,31 @@ export class RestBackend implements NarsilBackend {
       if (batch.length > 0 && (batchLength + json.length > MAX_BATCH_JSON_LENGTH || batch.length >= maxBatchDocs)) {
         await flush()
       }
-      batch.push(json)
+      const id = doc.id
+      batch.push({ docId: typeof id === 'string' && id.length > 0 ? id : null, json })
       batchLength += json.length
     }
     await flush()
+  }
+
+  private async insertBatchWithRetry(indexName: string, entries: BatchEntry[], signal?: AbortSignal): Promise<void> {
+    let pending = entries
+    for (let attempt = 0; ; attempt++) {
+      signal?.throwIfAborted()
+      const result = await this.client.insertBatchSerialized(
+        indexName,
+        pending.map(entry => entry.json),
+        signal,
+      )
+      if (result.failed.length === 0) return
+      const remaining = attempt < BATCH_INSERT_RETRY_LIMIT ? uninsertedEntries(pending, result.succeeded) : null
+      if (remaining === null || remaining.length === 0) {
+        const first = result.failed[0]
+        throw new Error(`${result.failed.length} documents failed to index (first: ${first.error.message})`)
+      }
+      pending = remaining
+      await sleep(BATCH_INSERT_RETRY_BASE_DELAY_MS * 2 ** attempt, signal)
+    }
   }
 
   /** Creates the index and fills it. A partially filled index is dropped on

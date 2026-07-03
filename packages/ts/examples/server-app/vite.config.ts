@@ -122,7 +122,15 @@ async function handleLoadRequest(viteServer: ViteDevServer, req: IncomingMessage
   }
 
   const session = openSseSession(req, res)
-  const onProgress = (payload: unknown) => session.sendLatest(payload)
+  let errorFrameSent = false
+  /* The backend emitter is shared across concurrent loads, so only this
+   * request's dataset may reach this response stream. */
+  const onProgress = (payload: unknown) => {
+    const event = payload as { datasetId?: string; phase?: string }
+    if (event.datasetId !== request.datasetId) return
+    if (event.phase === 'error') errorFrameSent = true
+    session.sendLatest(payload)
+  }
   backend.subscribe('progress', onProgress)
   try {
     await backend.loadDataset(request as Parameters<RestBackendInstance['loadDataset']>[0], {
@@ -130,7 +138,11 @@ async function handleLoadRequest(viteServer: ViteDevServer, req: IncomingMessage
     })
     session.close()
   } catch (err) {
-    session.fail({ datasetId: request.datasetId, phase: 'error', error: errorMessage(err) })
+    if (errorFrameSent) {
+      session.close()
+    } else {
+      session.fail({ datasetId: request.datasetId, phase: 'error', error: errorMessage(err) })
+    }
   } finally {
     backend.unsubscribe('progress', onProgress)
   }
