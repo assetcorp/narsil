@@ -85,6 +85,10 @@
       "import": "./src/components/search/SearchPlayground.tsx",
       "types": "./src/components/search/SearchPlayground.tsx"
     },
+    "./components/search/ResultDetail": {
+      "import": "./src/components/search/ResultDetail.tsx",
+      "types": "./src/components/search/ResultDetail.tsx"
+    },
     "./hooks/use-search": {
       "import": "./src/hooks/use-search.ts",
       "types": "./src/hooks/use-search.ts"

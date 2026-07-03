@@ -1,13 +1,14 @@
 import type { TabId } from '@delali/narsil-example-shared'
 import { useAppState } from '@delali/narsil-example-shared'
 import { Link } from '@tanstack/react-router'
-import { BarChart3, Check, Database, FlaskConical, Inspect, Loader2, Lock, Search } from 'lucide-react'
+import { BarChart3, Check, Database, FlaskConical, Inspect, Loader2, Lock, MessagesSquare, Search } from 'lucide-react'
 import { Badge } from '#/components/ui/badge'
 import ThemeToggle from './ThemeToggle'
 
 const tabs: Array<{ to: string; label: string; icon: typeof Database; tabId: TabId }> = [
   { to: '/', label: 'Datasets', icon: Database, tabId: 'datasets' },
   { to: '/search', label: 'Search', icon: Search, tabId: 'search' },
+  { to: '/ask', label: 'Ask', icon: MessagesSquare, tabId: 'ask' },
   { to: '/relevance', label: 'Relevance', icon: FlaskConical, tabId: 'relevance' },
   { to: '/benchmark', label: 'Benchmark', icon: BarChart3, tabId: 'benchmark' },
   { to: '/inspector', label: 'Inspector', icon: Inspect, tabId: 'inspector' },

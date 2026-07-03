@@ -101,7 +101,10 @@ function RootLayout() {
             </main>
             <Footer />
           </div>
-          <CommandPalette navigate={handleNavigate} />
+          <CommandPalette
+            navigate={handleNavigate}
+            availableTabs={['datasets', 'search', 'relevance', 'benchmark', 'inspector']}
+          />
         </AppDispatchContext>
       </AppStateContext>
     </BackendContext>
