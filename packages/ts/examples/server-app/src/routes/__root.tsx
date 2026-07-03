@@ -8,9 +8,11 @@ import {
 } from '@delali/narsil-example-shared'
 import { CommandPalette } from '@delali/narsil-example-shared/components/CommandPalette'
 import { createRootRoute, HeadContent, Outlet, Scripts, useNavigate } from '@tanstack/react-router'
-import { useCallback, useEffect, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import EngineStatusBanner from '../components/EngineStatusBanner'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
+import { type EngineStatus, EngineStatusContext, fetchEngineStatus } from '../lib/engine-status'
 import { RpcBackend } from '../lib/rpc-backend'
 
 import appCss from '../styles.css?url'
@@ -54,6 +56,8 @@ function inferDatasetId(indexName: string): DatasetId {
   return 'custom'
 }
 
+const ENGINE_STATUS_POLL_MS = 1_000
+
 function RootLayout() {
   const backendRef = useRef<RpcBackend | null>(null)
   if (!backendRef.current) {
@@ -61,8 +65,39 @@ function RootLayout() {
   }
   const backend = backendRef.current
   const [state, dispatch] = useReducer(appReducer, undefined, createInitialState)
+  const [engineStatus, setEngineStatus] = useState<EngineStatus>({ phase: 'checking' })
 
   useEffect(() => {
+    let cancelled = false
+    const controller = new AbortController()
+
+    async function poll(): Promise<void> {
+      while (!cancelled) {
+        try {
+          const status = await fetchEngineStatus(controller.signal)
+          if (cancelled) return
+          setEngineStatus(status)
+          if (status.phase !== 'starting') return
+        } catch {
+          if (cancelled) return
+        }
+        await new Promise(resolve => setTimeout(resolve, ENGINE_STATUS_POLL_MS))
+      }
+    }
+
+    void poll()
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (engineStatus.phase === 'checking' || engineStatus.phase === 'starting') return
+    if (engineStatus.phase === 'error') {
+      dispatch({ type: 'SET_RESTORING', payload: false })
+      return
+    }
     backend
       .listIndexes()
       .then(indexes => {
@@ -82,7 +117,7 @@ function RootLayout() {
       .finally(() => {
         dispatch({ type: 'SET_RESTORING', payload: false })
       })
-  }, [backend])
+  }, [backend, engineStatus.phase])
 
   const navigate = useNavigate()
 
@@ -92,14 +127,17 @@ function RootLayout() {
     <BackendContext value={backend}>
       <AppStateContext value={state}>
         <AppDispatchContext value={dispatch}>
-          <div className="flex min-h-dvh flex-col">
-            <Header />
-            <main className="flex-1">
-              <Outlet />
-            </main>
-            <Footer />
-          </div>
-          <CommandPalette navigate={handleNavigate} />
+          <EngineStatusContext value={engineStatus}>
+            <div className="flex min-h-dvh flex-col">
+              <Header />
+              <EngineStatusBanner status={engineStatus} />
+              <main className="flex-1">
+                <Outlet />
+              </main>
+              <Footer />
+            </div>
+            <CommandPalette navigate={handleNavigate} />
+          </EngineStatusContext>
         </AppDispatchContext>
       </AppStateContext>
     </BackendContext>
