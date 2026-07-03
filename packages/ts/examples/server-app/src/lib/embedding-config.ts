@@ -8,7 +8,7 @@ export interface EmbeddingProviderConfig {
   dimensions: number
 }
 
-export const EMBEDDING_FIELD = 'embedding'
+export { EMBEDDING_FIELD } from './ask/types'
 export const EMBEDDING_ADAPTER_NAME = 'openai'
 export const DEFAULT_EMBEDDING_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small'

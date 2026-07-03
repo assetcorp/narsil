@@ -78,15 +78,22 @@ function writeAssistantText(writer: UIMessageStreamWriter<AskUIMessage>, id: str
   writer.write({ type: 'text-end', id })
 }
 
+/** Provider errors can echo credential fragments (OpenAI 401 bodies quote a
+ * masked key); anything shaped like a secret is removed before the message
+ * reaches the page. */
+function redactSecrets(message: string): string {
+  return message.replace(/\b(?:sk|rk)-[\w*.-]+/gi, '[redacted]').replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
+}
+
 /** Maps a failure to text safe to show in the chat. Narsil and configuration
- * errors carry actionable operator messages; anything else stays generic so
- * provider internals never reach the page. */
+ * errors carry actionable operator messages; provider messages are kept
+ * because they explain setup mistakes, but only after secret redaction. */
 function publicErrorMessage(err: unknown): string {
   if (err instanceof RetrievalModeUnavailableError || err instanceof NarsilServerError) {
     return err.message
   }
   if (err instanceof Error && err.message.length > 0 && err.message.length <= 600) {
-    return err.message
+    return redactSecrets(err.message)
   }
   return 'Something went wrong while answering. Check the app server logs and try again.'
 }

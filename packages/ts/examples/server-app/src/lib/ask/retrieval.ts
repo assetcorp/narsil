@@ -102,7 +102,7 @@ function buildQueryRequest(
   query: string,
   stringFields: string[],
 ): QueryRequest {
-  const highlight = { fields: stringFields, maxSnippetLength: PASSAGE_MAX_CHARS }
+  const highlight = stringFields.length > 0 ? { fields: stringFields, maxSnippetLength: PASSAGE_MAX_CHARS } : undefined
   switch (mode) {
     case 'keyword':
       return { indexName, term: query, limit: MAX_SOURCES, highlight }

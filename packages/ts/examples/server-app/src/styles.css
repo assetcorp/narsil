@@ -1,10 +1,30 @@
 @import url("https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
+/* scroll-fade and shimmer utilities used by the chat components */
+@import "shadcn/tailwind.css";
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+}
+
+@utility scrollbar-gutter-stable {
+  scrollbar-gutter: stable;
+}
 
 @plugin "@tailwindcss/typography";
 
 @source "../../shared/src";
+/* Streamdown renders markdown with Tailwind classes that live in its dist */
+@source "../node_modules/streamdown/dist/*.js";
+@source "../node_modules/@streamdown/code/dist/*.js";
+@source "../node_modules/@streamdown/cjk/dist/*.js";
+@source "../node_modules/@streamdown/math/dist/*.js";
+@source "../node_modules/@streamdown/mermaid/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
 

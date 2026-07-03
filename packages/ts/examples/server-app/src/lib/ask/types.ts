@@ -1,5 +1,10 @@
 import type { UIMessage } from 'ai'
 
+/** Schema field that holds document vectors on embedding-enabled indexes.
+ * Lives here rather than in the server-only embedding config so client code
+ * can check schemas for it without pulling node:process into the bundle. */
+export const EMBEDDING_FIELD = 'embedding'
+
 export type RetrievalMode = 'keyword' | 'semantic' | 'hybrid'
 
 export const RETRIEVAL_MODES: RetrievalMode[] = ['keyword', 'semantic', 'hybrid']
