@@ -21,7 +21,7 @@ pnpm --filter @delali/narsil build
 pnpm --filter @delali/narsil-example-server-app dev
 ```
 
-`pnpm dev` starts a demo Narsil server on a loopback port automatically and prints its address, so one command gives you the full setup. The demo server registers every language the Wikipedia dataset uses and keeps its indexes in memory for the lifetime of the dev process.
+`pnpm dev` starts a demo Narsil server on a loopback port automatically and prints its address, so one command gives you the full setup. The demo server registers every language the Wikipedia dataset uses and persists its indexes to `.narsil-data` in this package (override the location with `NARSIL_DATA_DIR`). Loaded datasets survive dev-server restarts through the engine's snapshot and write-ahead-log recovery, and documents embedded with your OpenAI key recover with their vectors, so a restart never repeats an embedding spend. Delete the `.narsil-data` directory to reset every index. The directory has no cross-process lock, so run one dev server per data directory.
 
 The app itself serves on [http://localhost:3000](http://localhost:3000). Five views exercise the server: the search playground, the Ask view (chat with grounded answers), the relevance lab, the benchmark view (SciFact with relevance judgments), and the index inspector.
 

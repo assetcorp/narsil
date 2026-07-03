@@ -184,4 +184,16 @@ export class NarsilServerClient {
   async dropIndex(indexName: string): Promise<void> {
     await this.request('DELETE', `/indexes/${encodeURIComponent(indexName)}`)
   }
+
+  /** The first checkpoint after a load serialises the whole index, so this
+   * shares the batch-write timeout. */
+  async checkpoint(indexName: string, signal?: AbortSignal): Promise<void> {
+    await this.request(
+      'POST',
+      `/indexes/${encodeURIComponent(indexName)}/_checkpoint`,
+      undefined,
+      BATCH_WRITE_TIMEOUT_MS,
+      signal,
+    )
+  }
 }

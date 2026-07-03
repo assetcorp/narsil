@@ -7,7 +7,7 @@ import { createSnapshotOnlyManager } from '../persistence/durability/snapshot-on
 import type { IndexDurabilityHooks } from '../persistence/durability/types'
 import type { PersistenceAdapter } from '../types/adapters'
 import type { DurabilityConfig } from '../types/config'
-import type { IndexMetadata } from '../types/internal'
+import type { IndexEmbeddingMetadata, IndexMetadata } from '../types/internal'
 import type { AnyDocument } from '../types/schema'
 
 export type DurabilityTier =
@@ -37,9 +37,15 @@ export interface DurabilityIntegrationHooks {
   getManager: IndexDurabilityHooks['getManager']
   getVectorFieldPaths: IndexDurabilityHooks['getVectorFieldPaths']
   getVectorIndexes: IndexDurabilityHooks['getVectorIndexes']
-  getIndexConfig: (
-    indexName: string,
-  ) => { schema: Record<string, string>; language: string; k1: number; b: number } | undefined
+  getIndexConfig: (indexName: string) =>
+    | {
+        schema: Record<string, string>
+        language: string
+        k1: number
+        b: number
+        embedding?: IndexEmbeddingMetadata
+      }
+    | undefined
   createIndexFromMetadata: IndexDurabilityHooks['createIndexFromMetadata']
   onFatalError: IndexDurabilityHooks['onFatalError']
 }
@@ -50,7 +56,7 @@ function buildMetadata(indexName: string, hooks: DurabilityIntegrationHooks): In
   if (config === undefined || manager === undefined) {
     return undefined
   }
-  return {
+  const metadata: IndexMetadata = {
     indexName,
     schema: config.schema,
     language: config.language,
@@ -59,6 +65,10 @@ function buildMetadata(indexName: string, hooks: DurabilityIntegrationHooks): In
     createdAt: Date.now(),
     engineVersion: VERSION,
   }
+  if (config.embedding) {
+    metadata.embedding = config.embedding
+  }
+  return metadata
 }
 
 export function createDurabilityIntegration(

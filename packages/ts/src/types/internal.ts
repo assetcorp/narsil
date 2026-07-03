@@ -118,6 +118,14 @@ export interface IndexMetadata {
   createdAt: number
   engineVersion: string
   vectorFields?: Record<string, { dimension: number; metric: string; quantization: string }>
+  embedding?: IndexEmbeddingMetadata
+}
+
+/** Persisted so recovery can restore field mappings and rebind the adapter by
+ * name; the name is absent when the index was configured with a bare instance. */
+export interface IndexEmbeddingMetadata {
+  adapter?: string
+  fields: Record<string, string | string[]>
 }
 
 export interface GlobalStatistics {

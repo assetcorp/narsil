@@ -331,7 +331,21 @@ On index creation and on schema-affecting changes, a node persists the
 index metadata at `<indexName>/meta` using the metadata payload from
 [envelope.md](envelope.md#index-metadata-payload). Metadata lets
 recovery rebuild an index (schema, language, partition count, vector
-fields) without any application call.
+fields, embedding configuration) without any application call.
+
+When the metadata carries an `embedding` block, recovery restores the
+field mappings and rebinds the embedding adapter by its registered
+name. Rebinding validates the adapter's dimensions against every
+mapped vector field before the index uses it. When no adapter with
+that name is registered at recovery time, the index still recovers in
+full: every document, term, and stored vector is available, and
+keyword queries work. Operations that need the adapter (embedding a
+text query, embedding an inserted document that lacks its vectors)
+fail with `EMBEDDING_CONFIG_INVALID` and name the missing adapter
+until it is registered. Registering the adapter later rebinds every
+recovered index that references it; no data is rebuilt and no
+document is embedded again, because the write-ahead log and snapshots
+store documents with their vectors already computed.
 
 ---
 

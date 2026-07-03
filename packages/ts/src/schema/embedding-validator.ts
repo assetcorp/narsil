@@ -18,6 +18,14 @@ export function validateEmbeddingConfig(
     )
   }
 
+  if (typeof embeddingConfig.adapter === 'string') {
+    throw new NarsilError(
+      ErrorCodes.EMBEDDING_CONFIG_INVALID,
+      `Embedding adapter "${embeddingConfig.adapter}" must be resolved against the engine registry before validation`,
+      { adapter: embeddingConfig.adapter },
+    )
+  }
+
   const resolvedAdapter = embeddingConfig.adapter ?? instanceAdapter
   if (!resolvedAdapter) {
     throw new NarsilError(
@@ -95,6 +103,26 @@ export function validateEmbeddingConfig(
   }
 
   return resolvedAdapter
+}
+
+export function validateRegisteredAdapter(name: string, adapter: EmbeddingAdapter): void {
+  if (typeof name !== 'string' || name.trim().length === 0) {
+    throw new NarsilError(ErrorCodes.EMBEDDING_CONFIG_INVALID, 'Embedding adapter names must be non-empty strings')
+  }
+  if (typeof adapter?.embed !== 'function') {
+    throw new NarsilError(
+      ErrorCodes.EMBEDDING_CONFIG_INVALID,
+      `Embedding adapter "${name}" must provide an embed function`,
+      { adapter: name },
+    )
+  }
+  if (typeof adapter.dimensions !== 'number' || !Number.isInteger(adapter.dimensions) || adapter.dimensions <= 0) {
+    throw new NarsilError(
+      ErrorCodes.EMBEDDING_CONFIG_INVALID,
+      `Embedding adapter "${name}" dimensions must be a positive integer, got ${adapter.dimensions}`,
+      { adapter: name, dimensions: adapter.dimensions },
+    )
+  }
 }
 
 export function validateRequiredFieldsInSchema(required: string[], schema: SchemaDefinition): void {

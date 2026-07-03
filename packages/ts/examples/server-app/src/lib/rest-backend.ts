@@ -232,6 +232,12 @@ export class RestBackend implements NarsilBackend {
       }
       throw err
     }
+
+    try {
+      await this.client.checkpoint(plan.indexName)
+    } catch {
+      console.log('Manual checkpoint failed; the server will checkpoint on its own cadence')
+    }
   }
 
   private async loadIndexIfMissing(plan: IndexLoadPlan, signal?: AbortSignal): Promise<void> {

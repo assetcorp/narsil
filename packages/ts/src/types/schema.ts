@@ -31,7 +31,9 @@ export interface VectorIndexConfig {
 export type VectorPromotionConfig = VectorIndexConfig
 
 export interface EmbeddingFieldConfig {
-  adapter?: EmbeddingAdapter
+  /** An adapter instance, or a registered adapter name. Only a name survives
+   * durability recovery, since instances cannot be serialised. */
+  adapter?: EmbeddingAdapter | string
   fields: Record<string, string | string[]>
 }
 

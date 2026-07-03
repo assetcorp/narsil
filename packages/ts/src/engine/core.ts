@@ -6,6 +6,7 @@ import { createRebalancer, type Rebalancer } from '../partitioning/rebalancer'
 import { createPartitionRouter, type PartitionRouter } from '../partitioning/router'
 import type { createWriteAheadQueue, WAQEntry } from '../partitioning/write-ahead-queue'
 import { createPluginRegistry, type PluginRegistry } from '../plugins/registry'
+import { validateEmbeddingConfig, validateRegisteredAdapter } from '../schema/embedding-validator'
 import { extractVectorFieldsFromSchema, flattenSchema } from '../schema/validator'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
@@ -25,6 +26,9 @@ export type IndexRegistryEntry = {
   config: IndexConfig
   language: LanguageModule
   embeddingAdapter: EmbeddingAdapter | null
+  /** Registry name the adapter was resolved from; lets durability metadata
+   * persist the binding and lets late registration rebind recovered indexes. */
+  embeddingAdapterName: string | null
   vectorFieldPaths: Set<string>
 }
 
@@ -41,6 +45,7 @@ export interface EngineCore {
   readonly durability: DurabilityIntegration | null
   readonly idGenerator: () => string
   readonly indexRegistry: Map<string, IndexRegistryEntry>
+  readonly embeddingAdapters: Map<string, EmbeddingAdapter>
   readonly eventHandlers: Map<string, Set<EventHandler>>
   readonly shutdownState: ShutdownState
   readonly abortController: AbortController
@@ -130,11 +135,18 @@ function createDurabilityFromConfig(
       if (entry === undefined) {
         return undefined
       }
+      const embedding = entry.config.embedding
+        ? {
+            fields: entry.config.embedding.fields,
+            ...(entry.embeddingAdapterName !== null ? { adapter: entry.embeddingAdapterName } : {}),
+          }
+        : undefined
       return {
         schema: flattenSchema(entry.config.schema) as Record<string, string>,
         language: entry.language.name,
         k1: entry.config.bm25?.k1 ?? 1.2,
         b: entry.config.bm25?.b ?? 0.75,
+        ...(embedding !== undefined ? { embedding } : {}),
       }
     },
     createIndexFromMetadata: wiring.createIndexFromMetadata,
@@ -156,6 +168,13 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
 
   const idGenerator = config?.idGenerator ?? generateId
   const indexRegistry = new Map<string, IndexRegistryEntry>()
+  const embeddingAdapters = new Map<string, EmbeddingAdapter>()
+  if (config?.embeddingAdapters) {
+    for (const [name, adapter] of Object.entries(config.embeddingAdapters)) {
+      validateRegisteredAdapter(name, adapter)
+      embeddingAdapters.set(name, adapter)
+    }
+  }
   const eventHandlers = new Map<string, Set<EventHandler>>()
   const shutdownState: ShutdownState = { isShutdown: false }
   const abortController = new AbortController()
@@ -212,11 +231,40 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     }
     const indexConfig = reconstructSchemaFromMetadata(metadata)
     const language = getLanguage(indexConfig.language ?? 'english')
+
+    const adapterName = metadata.embedding?.adapter ?? null
+    let embeddingAdapter: EmbeddingAdapter | null = null
+    if (metadata.embedding) {
+      const candidate =
+        adapterName !== null ? (embeddingAdapters.get(adapterName) ?? null) : (config?.embedding ?? null)
+      if (candidate) {
+        // A dimension change between runs can never work against the stored
+        // vectors, so recovery fails loudly instead of binding a broken pair.
+        try {
+          validateEmbeddingConfig(
+            { fields: metadata.embedding.fields, adapter: candidate },
+            indexConfig.schema,
+            undefined,
+          )
+        } catch (err) {
+          if (err instanceof NarsilError) {
+            throw new NarsilError(err.code, `Recovery of index "${metadata.indexName}" failed: ${err.message}`, {
+              indexName: metadata.indexName,
+              adapter: adapterName ?? undefined,
+            })
+          }
+          throw err
+        }
+        embeddingAdapter = candidate
+      }
+    }
+
     executor.createIndex(metadata.indexName, indexConfig, language)
     indexRegistry.set(metadata.indexName, {
       config: indexConfig,
       language,
-      embeddingAdapter: null,
+      embeddingAdapter,
+      embeddingAdapterName: adapterName,
       vectorFieldPaths: getVectorFieldPaths(indexConfig.schema),
     })
   }
@@ -263,6 +311,7 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     durability,
     idGenerator,
     indexRegistry,
+    embeddingAdapters,
     eventHandlers,
     shutdownState,
     abortController,
