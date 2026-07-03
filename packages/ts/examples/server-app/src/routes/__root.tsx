@@ -1,4 +1,4 @@
-import type { DatasetId } from '@delali/narsil-example-shared'
+import type { DatasetId, DatasetLoadProgress } from '@delali/narsil-example-shared'
 import {
   AppDispatchContext,
   AppStateContext,
@@ -13,6 +13,7 @@ import EngineStatusBanner from '../components/EngineStatusBanner'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
 import { type EngineStatus, EngineStatusContext, fetchEngineStatus } from '../lib/engine-status'
+import { fetchLoadJobs, watchLoadJob } from '../lib/load-status-client'
 import { RpcBackend } from '../lib/rpc-backend'
 
 import appCss from '../styles.css?url'
@@ -117,6 +118,55 @@ function RootLayout() {
       .finally(() => {
         dispatch({ type: 'SET_RESTORING', payload: false })
       })
+  }, [backend, engineStatus.phase])
+
+  /* Loads run as server-side jobs, so one that was started before this page
+   * loaded (or survived a reload) is picked up here and followed to the end. */
+  useEffect(() => {
+    if (engineStatus.phase !== 'ready') return
+    let cancelled = false
+
+    const followJob = async (job: DatasetLoadProgress): Promise<void> => {
+      dispatch({ type: 'SET_LOADING', payload: job })
+      try {
+        await watchLoadJob(job.datasetId, progress => {
+          if (!cancelled) dispatch({ type: 'SET_LOADING', payload: progress })
+        })
+        if (cancelled) return
+        const indexes = await backend.listIndexes()
+        if (cancelled) return
+        for (const idx of indexes) {
+          dispatch({
+            type: 'INDEX_READY',
+            payload: {
+              name: idx.name,
+              datasetId: inferDatasetId(idx.name),
+              documentCount: idx.documentCount,
+              language: idx.language,
+            },
+          })
+        }
+      } catch (err) {
+        if (cancelled) return
+        dispatch({
+          type: 'LOADING_ERROR',
+          payload: { datasetId: job.datasetId, error: err instanceof Error ? err.message : String(err) },
+        })
+      }
+    }
+
+    void fetchLoadJobs()
+      .then(runningJobs => {
+        if (cancelled) return
+        for (const job of runningJobs) {
+          if (job.phase === 'fetching' || job.phase === 'indexing') void followJob(job)
+        }
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
   }, [backend, engineStatus.phase])
 
   const navigate = useNavigate()

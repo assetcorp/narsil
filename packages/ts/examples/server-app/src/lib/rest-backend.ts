@@ -17,7 +17,7 @@ import type { LoadDatasetRequest } from '@delali/narsil-example-shared/types'
 import { findDataRoot, readDocumentsFile } from './dataset-files'
 import { dedupeDocumentsById, type IndexLoadPlan, languageName, planEmbedding } from './dataset-plan'
 import { EMBEDDING_ADAPTER_NAME, EMBEDDING_FIELD, readEmbeddingConfig } from './embedding-config'
-import { NarsilServerClient } from './narsil-server-client'
+import { EMBEDDING_BATCH_WRITE_TIMEOUT_MS, NarsilServerClient } from './narsil-server-client'
 import type { NarsilServerConfig } from './server-config'
 
 /* The Narsil server rejects JSON bodies above 16 MiB. The byte budget counts
@@ -128,9 +128,10 @@ export class RestBackend implements NarsilBackend {
     const maxBatchDocs = plan.embedding ? MAX_BATCH_DOCS_WITH_EMBEDDING : MAX_BATCH_DOCS
     let batch: BatchEntry[] = []
     let batchLength = 0
+    const batchTimeoutMs = plan.embedding ? EMBEDDING_BATCH_WRITE_TIMEOUT_MS : undefined
     const flush = async (): Promise<void> => {
       if (batch.length === 0) return
-      await this.insertBatchWithRetry(plan.indexName, batch, signal)
+      await this.insertBatchWithRetry(plan.indexName, batch, signal, batchTimeoutMs)
       indexed += batch.length
       batch = []
       batchLength = 0
@@ -149,7 +150,12 @@ export class RestBackend implements NarsilBackend {
     await flush()
   }
 
-  private async insertBatchWithRetry(indexName: string, entries: BatchEntry[], signal?: AbortSignal): Promise<void> {
+  private async insertBatchWithRetry(
+    indexName: string,
+    entries: BatchEntry[],
+    signal?: AbortSignal,
+    timeoutMs?: number,
+  ): Promise<void> {
     let pending = entries
     for (let attempt = 0; ; attempt++) {
       signal?.throwIfAborted()
@@ -157,6 +163,7 @@ export class RestBackend implements NarsilBackend {
         indexName,
         pending.map(entry => entry.json),
         signal,
+        timeoutMs,
       )
       if (result.failed.length === 0) return
       const remaining = attempt < BATCH_INSERT_RETRY_LIMIT ? uninsertedEntries(pending, result.succeeded) : null

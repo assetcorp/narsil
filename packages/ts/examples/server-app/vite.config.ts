@@ -133,41 +133,47 @@ async function loadBackend(viteServer: ViteDevServer): Promise<RestBackendInstan
   return mod.getBackend()
 }
 
-async function handleLoadRequest(viteServer: ViteDevServer, req: IncomingMessage, res: ServerResponse): Promise<void> {
-  let request: { datasetId?: string }
-  let backend: RestBackendInstance
+type LoadJobsModule = typeof import('./src/lib/load-jobs')
+
+async function loadJobs(viteServer: ViteDevServer): Promise<LoadJobsModule> {
+  return (await viteServer.ssrLoadModule('./src/lib/load-jobs.ts')) as LoadJobsModule
+}
+
+function respondJson(res: ServerResponse, status: number, body: unknown): void {
+  if (res.writableEnded || res.destroyed) return
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+  res.end(JSON.stringify(body))
+}
+
+async function handleLoadStart(viteServer: ViteDevServer, req: IncomingMessage, res: ServerResponse): Promise<void> {
   try {
-    request = JSON.parse(await readRequestBody(req)) as { datasetId?: string }
-    backend = await loadBackend(viteServer)
+    const request = JSON.parse(await readRequestBody(req)) as Parameters<LoadJobsModule['startLoadJob']>[0]
+    const jobs = await loadJobs(viteServer)
+    respondJson(res, 202, jobs.startLoadJob(request))
   } catch (err) {
     respondJsonError(res, errorMessage(err))
-    return
   }
+}
 
-  const session = openSseSession(req, res)
-  let errorFrameSent = false
-  /* The backend emitter is shared across concurrent loads, so only this
-   * request's dataset may reach this response stream. */
-  const onProgress = (payload: unknown) => {
-    const event = payload as { datasetId?: string; phase?: string }
-    if (event.datasetId !== request.datasetId) return
-    if (event.phase === 'error') errorFrameSent = true
-    session.sendLatest(payload)
-  }
-  backend.subscribe('progress', onProgress)
+async function handleLoadStatus(viteServer: ViteDevServer, _req: IncomingMessage, res: ServerResponse): Promise<void> {
   try {
-    await backend.loadDataset(request as Parameters<RestBackendInstance['loadDataset']>[0], {
-      signal: session.signal,
-    })
-    session.close()
+    const jobs = await loadJobs(viteServer)
+    respondJson(res, 200, { jobs: jobs.listLoadJobs() })
   } catch (err) {
-    if (errorFrameSent) {
-      session.close()
-    } else {
-      session.fail({ datasetId: request.datasetId, phase: 'error', error: errorMessage(err) })
+    respondJsonError(res, errorMessage(err))
+  }
+}
+
+async function handleLoadCancel(viteServer: ViteDevServer, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const request = JSON.parse(await readRequestBody(req)) as { datasetId?: string }
+    if (typeof request.datasetId !== 'string') {
+      throw new Error('The request body must contain a "datasetId" string')
     }
-  } finally {
-    backend.unsubscribe('progress', onProgress)
+    const jobs = await loadJobs(viteServer)
+    respondJson(res, 200, { cancelled: jobs.cancelLoadJob(request.datasetId) })
+  } catch (err) {
+    respondJsonError(res, errorMessage(err))
   }
 }
 
@@ -208,9 +214,9 @@ function streamingLoadPlugin(): Plugin {
   return {
     name: 'streaming-load',
     configureServer(server) {
-      const route = (handler: typeof handleLoadRequest) => {
+      const route = (method: string, handler: typeof handleBatchQueryRequest) => {
         return (req: IncomingMessage, res: ServerResponse, next: () => void) => {
-          if (req.method !== 'POST') {
+          if (req.method !== method) {
             next()
             return
           }
@@ -221,8 +227,10 @@ function streamingLoadPlugin(): Plugin {
         }
       }
 
-      server.middlewares.use('/api/batch-query', route(handleBatchQueryRequest))
-      server.middlewares.use('/api/load', route(handleLoadRequest))
+      server.middlewares.use('/api/batch-query', route('POST', handleBatchQueryRequest))
+      server.middlewares.use('/api/load-status', route('GET', handleLoadStatus))
+      server.middlewares.use('/api/load-cancel', route('POST', handleLoadCancel))
+      server.middlewares.use('/api/load', route('POST', handleLoadStart))
     },
   }
 }

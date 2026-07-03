@@ -6,6 +6,7 @@ import { CustomConfig, type CustomDatasetConfig } from '#/components/datasets/Cu
 import { DatasetCard, datasetMeta } from '#/components/datasets/DatasetCard'
 import { ScifactConfig, TmdbConfig, WikiConfig } from '#/components/datasets/DatasetConfigs'
 import { useEngineStatus } from '#/lib/engine-status'
+import { requestLoadCancel } from '#/lib/load-status-client'
 
 export const Route = createFileRoute('/')({ component: HomePage })
 
@@ -109,6 +110,10 @@ function HomePage() {
     [backend, dispatch, tmdbTier, wikiLangs, customConfig],
   )
 
+  const handleCancel = useCallback((datasetId: DatasetId) => {
+    void requestLoadCancel(datasetId)
+  }, [])
+
   const handleRemove = useCallback(
     async (datasetId: DatasetId) => {
       const indexesForDataset = state.indexes.filter(idx => idx.datasetId === datasetId)
@@ -167,6 +172,7 @@ function HomePage() {
             progress={state.loadingDatasets.get(ds.id)}
             onLoad={handleLoad}
             onRemove={handleRemove}
+            onCancel={handleCancel}
             configContent={configContent[ds.id]}
             loadDisabled={isLoadDisabled(ds.id)}
           />
