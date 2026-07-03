@@ -4,7 +4,7 @@ This example is a TanStack Start web application backed by a real Narsil HTTP se
 
 ## How it works
 
-The browser never talks to the Narsil server directly. The app's own server side (TanStack server functions plus two streaming endpoints) holds the REST client, keeps the API key out of the client bundle, and streams dataset-loading progress to the page as server-sent events.
+The browser never talks to the Narsil server directly. The app's own server side (TanStack server functions plus a few API routes) holds the REST client and keeps the API key out of the client bundle. Dataset loads run as background jobs on the app server: the page polls their progress, keeps working while a long load runs, and reattaches to a running load after a reload.
 
 ```text
 Browser  ->  app server (TanStack Start)  ->  Narsil HTTP server (REST)

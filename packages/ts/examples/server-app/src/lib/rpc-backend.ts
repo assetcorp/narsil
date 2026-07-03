@@ -12,6 +12,7 @@ import type {
   SuggestResponse,
 } from '@delali/narsil-example-shared/backend'
 import type { LoadDatasetRequest } from '@delali/narsil-example-shared/types'
+import { watchLoadJob } from './load-status-client'
 import {
   deleteIndexFn,
   getMemoryStatsFn,
@@ -37,6 +38,8 @@ export class RpcBackend implements NarsilBackend {
     }
   }
 
+  /** Starts a server-side load job and follows it by polling. The job runs to
+   * completion on the app server even if this page reloads or closes. */
   async loadDataset(request: LoadDatasetRequest): Promise<void> {
     const response = await fetch('/api/load', {
       method: 'POST',
@@ -44,7 +47,7 @@ export class RpcBackend implements NarsilBackend {
       body: JSON.stringify(request),
     })
 
-    if (!response.ok || !response.body) {
+    if (!response.ok) {
       const text = await response.text()
       let message = `Load failed: ${response.status}`
       try {
@@ -57,40 +60,9 @@ export class RpcBackend implements NarsilBackend {
       throw new Error(message)
     }
 
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let failure: string | undefined
-
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const parts = buffer.split('\n\n')
-      buffer = parts.pop() ?? ''
-
-      for (const part of parts) {
-        const line = part.trim()
-        if (!line.startsWith('data: ')) continue
-        try {
-          const progress = JSON.parse(line.slice(6)) as { datasetId?: string; phase?: string; error?: string }
-          this.emit('progress', progress)
-          /* An error naming another dataset must not fail this load; one with
-           * no dataset can only be about this request's own stream. */
-          if (progress.phase === 'error' && (progress.datasetId ?? request.datasetId) === request.datasetId) {
-            failure = progress.error ?? 'The dataset failed to load'
-          }
-        } catch {
-          // Malformed event, skip
-        }
-      }
-    }
-
-    if (failure !== undefined) {
-      throw new Error(failure)
-    }
-    this.emit('progress', { datasetId: request.datasetId, phase: 'complete' })
+    await watchLoadJob(request.datasetId, progress => {
+      this.emit('progress', progress)
+    })
   }
 
   async query(request: QueryRequest): Promise<QueryResponse> {

@@ -1,6 +1,6 @@
 import type { DatasetId, DatasetLoadProgress } from '@delali/narsil-example-shared'
 import { scifact, tmdb, wikipedia } from '@delali/narsil-example-shared'
-import { BookOpen, Check, Film, Globe, Loader2, Settings2, Trash2, TriangleAlert, Upload } from 'lucide-react'
+import { BookOpen, Check, Film, Globe, Loader2, Settings2, Trash2, TriangleAlert, Upload, X } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
@@ -117,6 +117,7 @@ interface DatasetCardProps {
   progress: DatasetLoadProgress | undefined
   onLoad: (datasetId: DatasetId) => void
   onRemove: (datasetId: DatasetId) => void
+  onCancel: (datasetId: DatasetId) => void
   configContent: React.ReactNode
   loadDisabled: boolean
 }
@@ -130,6 +131,7 @@ export function DatasetCard({
   progress,
   onLoad,
   onRemove,
+  onCancel,
   configContent,
   loadDisabled,
 }: DatasetCardProps) {
@@ -146,6 +148,10 @@ export function DatasetCard({
   const handleRemoveClick = useCallback(() => {
     onRemove(ds.id)
   }, [ds.id, onRemove])
+
+  const handleCancelClick = useCallback(() => {
+    onCancel(ds.id)
+  }, [ds.id, onCancel])
 
   return (
     <Card className="flex flex-col">
@@ -199,10 +205,24 @@ export function DatasetCard({
 
       <CardFooter>
         {busy && (
-          <Button type="button" variant="outline" className="w-full" disabled>
-            <Loader2 className="size-3.5 animate-spin" />
-            {loading ? 'Loading...' : 'Restoring...'}
-          </Button>
+          <div className="flex w-full gap-1.5">
+            <Button type="button" variant="outline" className="flex-1" disabled>
+              <Loader2 className="size-3.5 animate-spin" />
+              {loading ? 'Loading...' : 'Restoring...'}
+            </Button>
+            {loading && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-destructive"
+                onClick={handleCancelClick}
+              >
+                <X className="size-3.5" />
+                <span className="sr-only">Cancel load</span>
+              </Button>
+            )}
+          </div>
         )}
         {!busy && engineFailed && (
           <Button type="button" variant="outline" className="w-full" disabled>

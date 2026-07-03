@@ -11,6 +11,13 @@ import type { NarsilServerConfig } from './server-config'
 const READ_TIMEOUT_MS = 30_000
 const BATCH_WRITE_TIMEOUT_MS = 120_000
 
+/* A batch on an embedding-enabled index can spend up to ~210s inside the
+ * server's OpenAI adapter alone (4 attempts x 30s timeout + 3 waits that
+ * Retry-After can stretch to 30s each), so the outer deadline must cover that
+ * retry stack plus insert work. 120s sat inside it and killed recoverable
+ * batches. */
+export const EMBEDDING_BATCH_WRITE_TIMEOUT_MS = 300_000
+
 interface ErrorEnvelope {
   error?: { code?: string; message?: string }
 }
@@ -118,13 +125,14 @@ export class NarsilServerClient {
     indexName: string,
     documentJsons: string[],
     signal?: AbortSignal,
+    timeoutMs: number = BATCH_WRITE_TIMEOUT_MS,
   ): Promise<BatchInsertResult> {
     const body = `{"action":"insert","documents":[${documentJsons.join(',')}],"options":{"skipClone":true}}`
     return this.request<BatchInsertResult>(
       'POST',
       `/indexes/${encodeURIComponent(indexName)}/documents/_batch`,
       body,
-      BATCH_WRITE_TIMEOUT_MS,
+      timeoutMs,
       signal,
     )
   }
@@ -186,13 +194,13 @@ export class NarsilServerClient {
   }
 
   /** The first checkpoint after a load serialises the whole index, so this
-   * shares the batch-write timeout. */
+   * gets the same generous deadline as load-scale writes. */
   async checkpoint(indexName: string, signal?: AbortSignal): Promise<void> {
     await this.request(
       'POST',
       `/indexes/${encodeURIComponent(indexName)}/_checkpoint`,
       undefined,
-      BATCH_WRITE_TIMEOUT_MS,
+      EMBEDDING_BATCH_WRITE_TIMEOUT_MS,
       signal,
     )
   }
