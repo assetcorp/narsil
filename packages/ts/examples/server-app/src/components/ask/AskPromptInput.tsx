@@ -48,33 +48,33 @@ export function AskPromptInput({
   )
 
   return (
-    <PromptInput onSubmit={handleSubmit} className="shrink-0">
+    <PromptInput onSubmit={handleSubmit} className="shrink-0 [&>div]:rounded-xl [&>div]:shadow-sm">
       <PromptInputBody>
         <PromptInputTextarea
-          placeholder="Ask this dataset anything..."
+          placeholder={`Ask ${indexName} anything...`}
           maxLength={MAX_QUESTION_CHARS}
           disabled={disabled}
         />
-        <PromptInputFooter>
-          <PromptInputTools>
-            <PromptInputSelect value={indexName} onValueChange={onIndexChange}>
-              <PromptInputSelectTrigger size="sm" className="gap-1.5 text-xs">
-                <Database className="size-3.5" />
-                <PromptInputSelectValue placeholder="Pick an index" />
-              </PromptInputSelectTrigger>
-              <PromptInputSelectContent>
-                {indexes.map(index => (
-                  <PromptInputSelectItem key={index.name} value={index.name} className="text-xs">
-                    <span className="font-mono">{index.name}</span>
-                    <span className="text-muted-foreground">{index.documentCount.toLocaleString()} docs</span>
-                  </PromptInputSelectItem>
-                ))}
-              </PromptInputSelectContent>
-            </PromptInputSelect>
-          </PromptInputTools>
-          <PromptInputSubmit status={status} onStop={onStop} disabled={disabled} />
-        </PromptInputFooter>
       </PromptInputBody>
+      <PromptInputFooter>
+        <PromptInputTools>
+          <PromptInputSelect value={indexName} onValueChange={onIndexChange}>
+            <PromptInputSelectTrigger size="sm" className="gap-1.5 text-xs">
+              <Database className="size-3.5" />
+              <PromptInputSelectValue placeholder="Pick an index" />
+            </PromptInputSelectTrigger>
+            <PromptInputSelectContent>
+              {indexes.map(index => (
+                <PromptInputSelectItem key={index.name} value={index.name} className="text-xs">
+                  <span className="font-mono">{index.name}</span>
+                  <span className="text-muted-foreground">{index.documentCount.toLocaleString()} docs</span>
+                </PromptInputSelectItem>
+              ))}
+            </PromptInputSelectContent>
+          </PromptInputSelect>
+        </PromptInputTools>
+        <PromptInputSubmit status={status} onStop={onStop} disabled={disabled} />
+      </PromptInputFooter>
     </PromptInput>
   )
 }
