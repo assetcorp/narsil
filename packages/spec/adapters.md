@@ -487,7 +487,10 @@ to concurrent `embed()` calls.
 Embedding failure during insert results in `EMBEDDING_FAILED`. For
 single insert, this throws. For batch insert, the individual document
 goes to `BatchResult.failed` and processing continues for remaining
-documents.
+documents. Each failed entry carries the document's own `id` field as
+its `docId` when the document provides a non-empty string id; when it
+does not, `docId` is an empty string, because no identifier is
+generated for a document that was never indexed.
 
 ### Query Behavior
 

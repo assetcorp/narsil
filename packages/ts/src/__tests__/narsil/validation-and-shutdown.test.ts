@@ -28,12 +28,32 @@ describe('Narsil index validation, shutdown, and batch operations', () => {
       const documents = [
         { title: 'Valid Item One', price: 10 },
         { title: 'Valid Item Two', price: 20 },
-        { title: 'Invalid Item', price: 'not-a-number' as unknown as number },
+        { id: 'bad-price', title: 'Invalid Item', price: 'not-a-number' as unknown as number },
       ]
 
       const result = await narsil.insertBatch('strict', documents)
       expect(result.succeeded.length).toBe(2)
       expect(result.failed.length).toBe(1)
+      expect(result.failed[0].docId).toBe('bad-price')
+    })
+
+    it('carries provided document ids on failed entries for required-field violations', async () => {
+      const schema: SchemaDefinition = {
+        title: 'string' as const,
+        price: 'number' as const,
+      }
+
+      await narsil.createIndex('inventory', { schema, language: 'english', required: ['price'] })
+
+      const result = await narsil.insertBatch('inventory', [
+        { id: 'has-price', title: 'Complete Item', price: 5 },
+        { id: 'missing-price', title: 'Incomplete Item' },
+        { title: 'Incomplete Item Without Id' },
+      ])
+
+      expect(result.succeeded).toEqual(['has-price'])
+      expect(result.failed.length).toBe(2)
+      expect(result.failed.map(entry => entry.docId).sort()).toEqual(['', 'missing-price'])
     })
   })
 
