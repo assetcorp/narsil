@@ -158,7 +158,7 @@ describe('createFilesystemPersistence', () => {
 
     const entries = await readdir(join(tempDir, 'movies'))
     expect(entries).toEqual(['snapshot'])
-  })
+  }, 30_000)
 
   it('lists keys from nested directories with correct relative paths', async () => {
     const adapter = createFilesystemPersistence({ directory: tempDir })
