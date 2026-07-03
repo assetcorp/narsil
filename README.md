@@ -1,3 +1,5 @@
+![Narsil, a distributed search engine for Node, Bun, Deno, and the browser](https://raw.githubusercontent.com/assetcorp/narsil/main/assets/banner.png)
+
 # Narsil
 
 [![CI](https://github.com/assetcorp/narsil/actions/workflows/ci.yml/badge.svg)](https://github.com/assetcorp/narsil/actions/workflows/ci.yml)
@@ -8,7 +10,7 @@
 
 Distributed search, reforged.
 
-Narsil is a distributed search engine with full-text, vector, hybrid, and geosearch. It auto-partitions large indexes across workers, serializes them into a cross-language binary format (.nrsl), and merges results back into a single ranked answer. The TypeScript package is the first implementation.
+Narsil is a distributed search engine with full-text, vector, hybrid, and geosearch. It partitions large indexes across workers, serializes them into a cross-language binary format (.nrsl), and merges results back into a single ranked answer. The TypeScript package is the first implementation.
 
 > *narsil* is the sword of Elendil in Tolkien's Lord of the Rings, shattered into shards and later reforged. The name maps to the architecture: data shatters into partitions, each shard is independently persisted, and every query reforges them into a unified result.
 
@@ -16,10 +18,11 @@ Narsil is a distributed search engine with full-text, vector, hybrid, and geosea
 
 | Package | Description |
 | --- | --- |
-| [`@delali/narsil`](packages/ts) | Core search engine (full-text, vector, hybrid, geo) |
-| [`@delali/narsil-embeddings-transformers`](packages/embeddings-transformers) | Local embedding adapter using Hugging Face Transformers.js |
+| [`@delali/narsil`](packages/ts) | The core search engine ships full-text, vector, hybrid, and geosearch, plus an HTTP server subpath. |
+| [`@delali/narsil-embeddings-transformers`](packages/embeddings-transformers) | The adapter runs local embedding models through Hugging Face Transformers.js. |
+| [`@delali/narsil-certutil`](packages/certutil) | The CLI generates and manages the TLS certificates Narsil clusters use, covering CA creation, node certificate signing, inspection, and format conversion. |
 
-## Getting started (TypeScript)
+## Getting started
 
 ```bash
 pnpm add @delali/narsil
@@ -54,192 +57,39 @@ await narsil.insert('products', {
 const results = await narsil.query('products', {
   term: 'mechanical keyboard',
   filters: {
-    inStock: { eq: true },
-    price: { lte: 200 },
+    fields: {
+      inStock: { eq: true },
+      price: { lte: 200 },
+    },
   },
   boost: { title: 2.0 },
   limit: 10,
 })
 ```
 
+The [TypeScript package README](packages/ts/README.md) documents every feature with a working example. The highlights, each linked to its section:
+
 ## Features
 
-### Full-text search
+**Search.** [Full-text search](packages/ts/README.md#full-text-search) scores with BM25 and supports field boosting, [fuzzy matching](packages/ts/README.md#fuzzy-matching) via bounded Levenshtein distance, and [term-coverage and score thresholds](packages/ts/README.md#score-and-coverage-thresholds). Queries compose with [filters](packages/ts/README.md#filters), [facets](packages/ts/README.md#facets), [sorting](packages/ts/README.md#sort), [grouping](packages/ts/README.md#grouping), [highlighting](packages/ts/README.md#highlighting), [cursor pagination](packages/ts/README.md#pagination), [pinned results](packages/ts/README.md#pinning), and [autocomplete suggestions](packages/ts/README.md#suggestions).
 
-BM25 scoring with field boosting, fuzzy matching via bounded Levenshtein distance, exact phrase search, and configurable term matching policies. Specify how many query terms a document must match, set minimum score thresholds, and sort by any field.
+**Vector and hybrid retrieval.** [Vector search](packages/ts/README.md#vector-search) serves cosine, dot-product, and Euclidean queries, starts on an exact scan, and promotes a field to an HNSW graph as it grows, with scalar quantization on by default. [Hybrid search](packages/ts/README.md#hybrid-search) fuses BM25 and vector rankings through reciprocal rank fusion or linear blending, and [embedding adapters](packages/ts/README.md#embedding-adapters) turn text into vectors automatically on insert and query, through OpenAI, local Transformers.js models, or your own adapter.
 
-### Auto-partitioning
+**Geosearch.** [Geo filters](packages/ts/README.md#geosearch) match by radius (Haversine or Vincenty distance) or polygon containment, and they compose with every other query feature.
 
-Indexes split into shards when they grow beyond a configurable threshold. Partition assignment uses FNV-1a hashing for deterministic routing. Background rebalancing redistributes documents across new partitions without blocking queries, using a write-ahead queue for zero-downtime resharding.
+**Storage.** [Persistence adapters](packages/ts/README.md#persistence) plug in filesystem, IndexedDB, memory, or custom backends. [Durability](packages/ts/README.md#durability) adds a write-ahead log with periodic checkpoints and automatic recovery, and [snapshots](packages/ts/README.md#snapshots-and-restore) capture a whole index as one portable byte array. The `.nrsl` serialization format is specified in [`packages/spec`](packages/spec) so other language implementations read and write the same files.
 
-### Worker isolation
+**Scale.** [Partitioned indexes](packages/ts/README.md#partitions-and-rebalancing) route documents by deterministic hash and reshape online through `rebalance()`, with writes buffering in a write-ahead queue during the reshape. [Worker promotion](packages/ts/README.md#workers) moves search off the main thread once document counts cross a threshold, and [three scoring modes](packages/ts/README.md#scoring-modes) handle BM25 statistics skew across partitions and instances.
 
-Search operations move off the main thread through worker threads (Node.js, Bun) or Web Workers (browser, Deno). The engine starts in direct mode for small indexes and auto-promotes to workers once document counts cross a threshold. You keep using the same API throughout.
+**Operations.** The [HTTP server](packages/ts/README.md#http-server) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. [Events](packages/ts/README.md#events), [typed errors](packages/ts/README.md#errors), [plugins](packages/ts/README.md#plugins), and [memory reporting](packages/ts/README.md#memory-reporting) cover observability, and [language modules](packages/ts/README.md#language-support) ship for 39 languages as separate entry points.
 
-### Distributed BM25 scoring
+## Examples
 
-Three scoring modes handle the partition-skew problem:
-
-- **Local**: each partition scores with its own statistics (fastest, default)
-- **DFS (Distributed Frequency Statistics)**: a two-phase query collects global term statistics first, then scores with unified IDF values
-- **Broadcast**: instances share statistics through the invalidation adapter for pre-computed global scoring
-
-### Vector search
-
-Store and query high-dimensional embeddings with cosine similarity, dot product, or Euclidean distance. Small vector sets use an exact brute-force scan. Once a field reaches 1,024 vectors, the engine builds an HNSW graph and switches the field to approximate search. That 1,024-vector cutoff is the default, and you can configure it per index.
-
-### Hybrid search
-
-Combine full-text BM25 scores with vector similarity scores using weighted alpha blending. A single query searches both text and embeddings, normalizes both score sets to [0,1], and returns a merged ranking.
-
-### Geosearch
-
-Index latitude/longitude points and query by radius (Haversine or Vincenty distance) or polygon containment (ray casting). High-precision mode switches to Vincenty's iterative formula for long-distance accuracy.
-
-### Filters
-
-Filter on any indexed field using comparison operators (`eq`, `ne`, `gt`, `lt`, `gte`, `lte`, `between`), string operators (`in`, `nin`, `startsWith`, `endsWith`), array operators (`containsAll`, `matchesAny`, `size`), and presence checks (`exists`, `isEmpty`). Combine filters with explicit `and`, `or`, and `not` boolean combinators.
-
-```ts
-const results = await narsil.query('products', {
-  term: 'wireless',
-  filters: {
-    or: [
-      { category: { eq: 'electronics' } },
-      { category: { eq: 'accessories' } },
-    ],
-    price: { between: [10, 100] },
-    tags: { containsAll: ['bluetooth'] },
-  },
-})
-```
-
-### Faceted search
-
-Get aggregate value counts alongside search results for building filter UIs.
-
-```ts
-const results = await narsil.query('products', {
-  term: 'laptop',
-  facets: {
-    category: { limit: 10, sort: 'desc' },
-    price: { ranges: [{ from: 0, to: 500 }, { from: 500, to: 1000 }, { from: 1000, to: 5000 }] },
-  },
-})
-// results.facets.category.values => { electronics: 42, computers: 28, ... }
-```
-
-### Grouping
-
-Group results by field values with optional custom reducers.
-
-### Match highlighting
-
-Get snippets with customizable pre/post tags marking where query terms appear in the original text.
-
-```ts
-const results = await narsil.query('products', {
-  term: 'mechanical',
-  highlight: {
-    fields: ['title', 'description'],
-    preTag: '<mark>',
-    postTag: '</mark>',
-  },
-})
-// hit.highlights.title.snippet => '<mark>Mechanical</mark> Keyboard'
-```
-
-### Cursor-based pagination
-
-Deep pagination using `searchAfter` cursors that track position across partitions. No offset-based performance degradation for deep result sets.
-
-### Results pinning
-
-Inject specific documents at fixed positions in the result set, useful for sponsored or editorial content.
-
-### Persistence
-
-Plug in any storage backend through the persistence adapter interface. Three built-in adapters ship with the package:
-
-| Adapter | Import | Environment |
-| --- | --- | --- |
-| Memory | `@delali/narsil/adapters/memory` | All |
-| Filesystem | `@delali/narsil/adapters/filesystem` | Node.js, Bun, Deno |
-| IndexedDB | `@delali/narsil/adapters/indexeddb` | Browser |
-
-Persistence uses debounced flushing: dirty partitions serialize on a timer or after a mutation count threshold, whichever fires first. The serialization format is `.nrsl`, a 32-byte header followed by a MessagePack payload. The format is cross-language portable, so a Python or Rust implementation can read and write the same files.
-
-### Multi-instance invalidation
-
-When multiple instances share the same persistence backend, the invalidation adapter coordinates cache eviction. A filesystem adapter uses marker files for multi-process deployments. A BroadcastChannel adapter handles cross-tab coordination in browsers.
-
-### Plugin system
-
-Hook into the document and search lifecycle with plugins. Plugins can run before/after insert, remove, update, and search operations, and respond to index creation, partition splits, and worker promotions.
-
-### Embedding adapters
-
-Auto-embed text fields into vectors on insert and query. Narsil ships with an OpenAI adapter (subpath export, zero dependencies) and a local Transformers.js adapter (separate package). Asymmetric models like E5 and BGE are supported through document/query purpose prefixes. Bring your own adapter by implementing the `EmbeddingAdapter` interface.
-
-```ts
-import { createNarsil } from '@delali/narsil'
-import { createOpenAIEmbedding } from '@delali/narsil/embeddings/openai'
-
-const narsil = await createNarsil({
-  embedding: createOpenAIEmbedding({
-    apiKey: process.env.OPENAI_API_KEY,
-    model: 'text-embedding-3-small',
-    dimensions: 1536,
-  }),
-})
-```
-
-### Term suggestions
-
-Autocomplete suggestions from the index's term dictionary. The API tokenizes the input, extracts the last word, and matches it against stored terms across all partitions, ranked by document frequency.
-
-```ts
-const suggestions = await narsil.suggest('products', {
-  prefix: 'mech',
-  limit: 5,
-})
-```
-
-### Schema validation
-
-Define typed schemas with support for `string`, `number`, `boolean`, `enum`, `geopoint`, `vector[N]`, and array variants (`string[]`, `number[]`, `boolean[]`, `enum[]`). Nested objects up to 4 levels deep. Documents are validated against the schema at insertion time.
-
-## Language support
-
-Narsil ships with language modules for tokenization, stemming (Snowball algorithm), and stop word removal.
-
-### Full support (tokenizer + stemmer + stop words)
-
-Arabic, Armenian, Bulgarian, Danish, Dutch, English, Finnish, French, German, Greek, Hindi, Hungarian, Indonesian, Irish, Italian, Nepali, Norwegian, Portuguese, Romanian, Russian, Sanskrit, Serbian, Slovenian, Spanish, Swahili, Swedish, Tamil, Turkish, Ukrainian
-
-### CJK support (character n-gram tokenizer + stop words)
-
-Chinese (Mandarin), Japanese
-
-### African language support
-
-Full stemmer support ships for Swahili. Tokenization and stop word support is available for Dagbani, Ewe, Ga, Hausa, Igbo, Twi (Akan), Yoruba, and Zulu.
-
-Each language module is a separate entry point, so you only bundle the languages your application needs:
-
-```ts
-import '@delali/narsil/languages/french'
-import '@delali/narsil/languages/swahili'
-import '@delali/narsil/languages/twi'
-```
-
-## Search modes
-
-| Mode | Method | Scoring |
-| --- | --- | --- |
-| Full-text | `mode: 'fulltext'` | BM25 with field boosting |
-| Vector | `mode: 'vector'` | Cosine similarity, dot product, or Euclidean distance |
-| Hybrid | `mode: 'hybrid'` | Weighted combination of BM25 + vector similarity |
+| Example | What it shows |
+| --- | --- |
+| [HTTP server](packages/ts/examples/http-server) | The launcher runs the engine as a REST service with durability, API-key auth, and Docker packaging, and its README documents the full API surface. |
+| [Browser](packages/ts/examples/browser) | The app embeds the engine in a browser with IndexedDB persistence and Web Worker search. |
+| [Server app](packages/ts/examples/server-app) | The app pairs a search UI with the HTTP server, including dataset loading and an embedding-backed Ask view. |
 
 ## Benchmarks
 
@@ -255,7 +105,11 @@ Measured in one process against Orama and MiniSearch, with the same stop words, 
 
 ## Configuration
 
-See the [TypeScript package README](packages/ts/README.md#configuration) for `NarsilConfig` options and tokenizer cache configuration.
+The [TypeScript package README](packages/ts/README.md#configuration) documents `NarsilConfig`, worker and flush tuning, durability settings, and the tokenizer cache.
+
+## Distribution status
+
+The multi-node cluster mode under `@delali/narsil/distribution` is under active development and highly experimental. It runs only in-process today, and its APIs change without notice. The design is specified in [`packages/spec/distribution`](packages/spec/distribution).
 
 ## Runtime support
 
