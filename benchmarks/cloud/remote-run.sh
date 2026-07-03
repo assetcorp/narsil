@@ -36,7 +36,7 @@ pnpm install || status=1
 
 stamp "build workspace libraries (the example apps are not part of either suite)"
 pnpm exec nx run-many -t build \
-  --exclude=@delali/narsil-example-browser,@delali/narsil-example-server || status=1
+  --exclude=@delali/narsil-example-browser,@delali/narsil-example-server-app || status=1
 
 if [ "$SUITES" = "both" ] || [ "$SUITES" = "inprocess" ]; then
   stamp "in-process suite (Orama, MiniSearch, Narsil)"

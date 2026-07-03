@@ -25,7 +25,7 @@ export default function Header() {
           </div>
           <span className="text-sm font-semibold tracking-tight">Narsil</span>
           <Badge variant="secondary" className="text-[10px]">
-            server
+            server-app
           </Badge>
         </Link>
 
