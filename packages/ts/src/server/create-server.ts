@@ -2,7 +2,6 @@ import type { TemplatedApp, us_listen_socket, us_socket } from 'uWebSockets.js'
 import { randomUUID } from 'node:crypto'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { Narsil } from '../narsil'
-import type { EmbeddingAdapter } from '../types/adapters'
 import { corsWriter, resolveCors, writeCorsOrigin } from './cors'
 import type { HandlerDeps, ResolvedBuild, ResolvedLimits } from './deps'
 import { ServerErrorCodes } from './errors'
@@ -70,13 +69,16 @@ class NarsilHttpServer implements NarsilServer {
     this.host = options.host ?? '127.0.0.1'
     this.port = options.port ?? 9876
     this.options = options
-    const adapters: Record<string, EmbeddingAdapter> = options.embeddingAdapters ?? {}
+    // Engine-side registration lets index metadata persist adapter names and
+    // rebinds indexes that were recovered before the server constructed.
+    for (const [name, adapter] of Object.entries(options.embeddingAdapters ?? {})) {
+      engine.registerEmbeddingAdapter(name, adapter)
+    }
     const taskStore = options.taskStore ?? new InMemoryTaskStore()
     const instanceId = options.instanceId ?? randomUUID()
     this.deps = {
       engine,
       tasks: new TaskRegistry(taskStore, instanceId),
-      adapters,
       limits: resolveLimits(options.limits),
       isReady: () => this.ready,
       build: resolveBuild(options.build),

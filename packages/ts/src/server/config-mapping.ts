@@ -1,5 +1,4 @@
 import { ErrorCodes, NarsilError } from '../errors'
-import type { EmbeddingAdapter } from '../types/adapters'
 import type { EmbeddingFieldConfig, IndexConfig, SchemaDefinition } from '../types/schema'
 import type { HttpIndexConfig } from './types'
 
@@ -7,11 +6,13 @@ import type { HttpIndexConfig } from './types'
  * Translates the declarative JSON index config accepted over HTTP into the
  * engine's {@link IndexConfig}. Function-valued engine options (custom
  * tokenizer, stopWords-as-function, group reducer, embedding adapter object)
- * cannot cross JSON; `stopWords` arrives as an array and is rebuilt into a Set,
- * and the embedding adapter is resolved by name from the server registry. Schema
- * and field-level validation stays with the engine's createIndex.
+ * cannot cross JSON; `stopWords` arrives as an array and is rebuilt into a Set.
+ * The embedding adapter name passes through untouched: the engine resolves it
+ * against its adapter registry, which also lets the name persist in durability
+ * metadata. Schema and field-level validation stays with the engine's
+ * createIndex.
  */
-export function mapHttpIndexConfig(http: HttpIndexConfig, adapters: Record<string, EmbeddingAdapter>): IndexConfig {
+export function mapHttpIndexConfig(http: HttpIndexConfig): IndexConfig {
   if (typeof http !== 'object' || http === null) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Index config must be an object')
   }
@@ -38,16 +39,13 @@ export function mapHttpIndexConfig(http: HttpIndexConfig, adapters: Record<strin
   }
 
   if (http.embedding !== undefined) {
-    config.embedding = mapEmbedding(http.embedding, adapters)
+    config.embedding = mapEmbedding(http.embedding)
   }
 
   return config
 }
 
-function mapEmbedding(
-  embedding: NonNullable<HttpIndexConfig['embedding']>,
-  adapters: Record<string, EmbeddingAdapter>,
-): EmbeddingFieldConfig {
+function mapEmbedding(embedding: NonNullable<HttpIndexConfig['embedding']>): EmbeddingFieldConfig {
   if (typeof embedding !== 'object' || embedding === null) {
     throw new NarsilError(ErrorCodes.EMBEDDING_CONFIG_INVALID, 'Field "embedding" must be an object')
   }
@@ -56,15 +54,13 @@ function mapEmbedding(
   }
   const mapped: EmbeddingFieldConfig = { fields: embedding.fields }
   if (embedding.adapter !== undefined) {
-    const adapter = adapters[embedding.adapter]
-    if (!adapter) {
+    if (typeof embedding.adapter !== 'string' || embedding.adapter.length === 0) {
       throw new NarsilError(
         ErrorCodes.EMBEDDING_CONFIG_INVALID,
-        `Embedding adapter "${embedding.adapter}" is not registered on this server`,
-        { available: Object.keys(adapters) },
+        'Field "embedding.adapter" must be a non-empty adapter name',
       )
     }
-    mapped.adapter = adapter
+    mapped.adapter = embedding.adapter
   }
   return mapped
 }

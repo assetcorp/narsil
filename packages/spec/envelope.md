@@ -323,6 +323,7 @@ a different payload structure:
   created_at:      uint64  (Unix timestamp in milliseconds)
   engine_version:  string  (e.g., "0.1.0")
   vector_fields:   map[string, VectorFieldMeta]
+  embedding:       EmbeddingMeta  (optional)
 }
 
 VectorFieldMeta {
@@ -330,11 +331,28 @@ VectorFieldMeta {
   metric:       string
   quantization: string
 }
+
+EmbeddingMeta {
+  adapter: string  (optional; the name the adapter was registered under)
+  fields:  map[string, string | array[string]]
+}
 ```
 
 The `vector_fields` map lists all vector fields and their
 configuration. This allows the engine to discover which vector
 index files to load without scanning storage keys.
+
+The `embedding` block records the index's automatic embedding
+configuration: the field mappings defined in
+[adapters.md](adapters.md#embedding-configuration) and the name the
+embedding adapter was registered under. The block is additive; a
+reader that omits it treats the index as having no automatic
+embedding, which matches every metadata payload written before the
+block existed. The `adapter` name is present only when the index was
+created with a named adapter, because adapter instances hold live
+resources and cannot be serialised. Recovery uses the name to rebind
+the adapter from the engine's registry, as described in
+[durability.md](durability.md#index-metadata).
 
 ---
 
