@@ -60,6 +60,7 @@ export class RpcBackend implements NarsilBackend {
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
+    let failure: string | undefined
 
     for (;;) {
       const { done, value } = await reader.read()
@@ -73,14 +74,20 @@ export class RpcBackend implements NarsilBackend {
         const line = part.trim()
         if (!line.startsWith('data: ')) continue
         try {
-          const progress = JSON.parse(line.slice(6))
+          const progress = JSON.parse(line.slice(6)) as { phase?: string; error?: string }
           this.emit('progress', progress)
+          if (progress.phase === 'error') {
+            failure = progress.error ?? 'The dataset failed to load'
+          }
         } catch {
           // Malformed event, skip
         }
       }
     }
 
+    if (failure !== undefined) {
+      throw new Error(failure)
+    }
     this.emit('progress', { datasetId: request.datasetId, phase: 'complete' })
   }
 
@@ -105,10 +112,11 @@ export class RpcBackend implements NarsilBackend {
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
+    let failure: string | undefined
 
     for (;;) {
       const { done, value } = await reader.read()
-      if (done) break
+      if (done || failure !== undefined) break
 
       buffer += decoder.decode(value, { stream: true })
       const parts = buffer.split('\n\n')
@@ -118,12 +126,23 @@ export class RpcBackend implements NarsilBackend {
         const line = part.trim()
         if (!line.startsWith('data: ')) continue
         try {
-          const { i, response: qr } = JSON.parse(line.slice(6)) as { i: number; response: QueryResponse }
-          onResult(i, qr)
+          const parsed = JSON.parse(line.slice(6)) as { i?: number; response?: QueryResponse; error?: string }
+          if (typeof parsed.error === 'string') {
+            failure = parsed.error
+            break
+          }
+          if (typeof parsed.i === 'number' && parsed.response !== undefined) {
+            onResult(parsed.i, parsed.response)
+          }
         } catch {
           // Malformed event, skip
         }
       }
+    }
+
+    if (failure !== undefined) {
+      await reader.cancel().catch(() => {})
+      throw new Error(failure)
     }
   }
 
