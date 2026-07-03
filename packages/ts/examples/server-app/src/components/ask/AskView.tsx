@@ -4,7 +4,7 @@ import { useAppDispatch, useAppState } from '@delali/narsil-example-shared'
 import { DefaultChatTransport } from 'ai'
 import { MessagesSquare, Plus, TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Suggestion, Suggestions } from '#/components/ai-elements/suggestion'
+import { Suggestion } from '#/components/ai-elements/suggestion'
 import { Button } from '#/components/ui/button'
 import { Marker, MarkerContent, MarkerIcon } from '#/components/ui/marker'
 import {
@@ -47,29 +47,45 @@ function vectorModesDisabledReason(
   return null
 }
 
-interface EmptyConversationProps {
+interface HeroHeadingProps {
   index: LoadedIndex
-  onSuggestion: (text: string) => void
 }
 
-function EmptyConversation({ index, onSuggestion }: EmptyConversationProps) {
+function HeroHeading({ index }: HeroHeadingProps) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-6 px-4 text-center">
-      <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10">
+    <div className="flex flex-col items-center gap-5 text-center">
+      <div className="flex size-12 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
         <MessagesSquare className="size-6 text-primary" />
       </div>
-      <div className="max-w-md space-y-1.5">
-        <h2 className="font-serif text-2xl tracking-tight">Ask {index.name}</h2>
-        <p className="text-sm text-muted-foreground">
+      <div className="space-y-2">
+        <h2 className="font-serif text-3xl tracking-tight text-balance sm:text-4xl">Ask {index.name}</h2>
+        <p className="mx-auto max-w-md text-sm leading-relaxed text-muted-foreground text-pretty">
           Answers come only from the {index.documentCount.toLocaleString()} documents in this index, with the retrieved
           passages shown beside every answer. Switch retrieval modes to watch the same question pull different evidence.
         </p>
       </div>
-      <Suggestions className="max-w-xl">
-        {suggestionsForDataset(index.datasetId).map(text => (
-          <Suggestion key={text} suggestion={text} onClick={onSuggestion} className="text-xs" />
-        ))}
-      </Suggestions>
+    </div>
+  )
+}
+
+interface HeroSuggestionsProps {
+  index: LoadedIndex
+  disabled: boolean
+  onSuggestion: (text: string) => void
+}
+
+function HeroSuggestions({ index, disabled, onSuggestion }: HeroSuggestionsProps) {
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-2">
+      {suggestionsForDataset(index.datasetId).map(text => (
+        <Suggestion
+          key={text}
+          suggestion={text}
+          onClick={onSuggestion}
+          disabled={disabled}
+          className="h-auto whitespace-normal py-1.5 text-xs font-normal text-muted-foreground hover:text-foreground"
+        />
+      ))}
     </div>
   )
 }
@@ -233,9 +249,11 @@ export function AskView() {
     )
   }
 
+  const hasConversation = messages.length > 0
+
   return (
-    <div className="mx-auto flex h-[calc(100dvh-3.5rem)] max-w-6xl flex-col gap-3 px-4 pt-5 pb-4">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+    <div className="mx-auto flex h-[calc(100dvh-3.5rem)] max-w-6xl flex-col px-4 pt-5 pb-4">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 pb-4">
         <div>
           <h1 className="font-serif text-2xl tracking-tight">Ask</h1>
           <p className="text-xs text-muted-foreground">
@@ -244,7 +262,7 @@ export function AskView() {
         </div>
         <div className="flex items-center gap-2">
           <ModeToggle mode={mode} onModeChange={handleModeChange} vectorModesDisabledReason={disabledReason} />
-          {messages.length > 0 && (
+          {hasConversation && (
             <Button type="button" variant="outline" size="sm" onClick={handleNewChat}>
               <Plus className="size-3.5" />
               New chat
@@ -253,17 +271,13 @@ export function AskView() {
         </div>
       </div>
 
-      <SetupNotice capabilities={capabilities} capabilitiesError={capabilitiesError} />
-
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_19rem]">
-        <section className="flex min-h-0 min-w-0 flex-col gap-3">
-          <MessageScrollerProvider autoScroll>
-            <MessageScroller className="flex-1 rounded-xl border bg-card/30">
-              <MessageScrollerViewport>
-                {messages.length === 0 ? (
-                  <EmptyConversation index={selectedIndex} onSuggestion={handleSubmitText} />
-                ) : (
-                  <MessageScrollerContent className="gap-6 px-4 py-5">
+      {hasConversation ? (
+        <div className="grid min-h-0 min-w-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
+          <section className="flex min-h-0 min-w-0 flex-col">
+            <MessageScrollerProvider autoScroll>
+              <MessageScroller className="flex-1">
+                <MessageScrollerViewport>
+                  <MessageScrollerContent className="mx-auto w-full max-w-3xl px-1.5 py-6">
                     {messages.map((message, i) =>
                       message.role === 'user' ? (
                         <MessageScrollerItem key={message.id} messageId={message.id} scrollAnchor>
@@ -300,27 +314,49 @@ export function AskView() {
                       </MessageScrollerItem>
                     )}
                   </MessageScrollerContent>
-                )}
-              </MessageScrollerViewport>
-              <MessageScrollerButton />
-            </MessageScroller>
-          </MessageScrollerProvider>
+                </MessageScrollerViewport>
+                <MessageScrollerButton />
+              </MessageScroller>
+            </MessageScrollerProvider>
 
-          <AskPromptInput
-            indexes={indexes}
-            indexName={indexName}
-            onIndexChange={handleIndexChange}
-            status={status}
-            disabled={inputDisabled}
-            onSubmitText={handleSubmitText}
-            onStop={stop}
-          />
-        </section>
+            <div className="mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-3 pt-3">
+              <SetupNotice capabilities={capabilities} capabilitiesError={capabilitiesError} />
+              <AskPromptInput
+                indexes={indexes}
+                indexName={indexName}
+                onIndexChange={handleIndexChange}
+                status={status}
+                disabled={inputDisabled}
+                onSubmitText={handleSubmitText}
+                onStop={stop}
+              />
+            </div>
+          </section>
 
-        <div className="hidden min-h-0 lg:block">
-          <SourcesRail retrieval={latestRetrieval} onOpenSource={setOpenSource} />
+          <div className="hidden min-h-0 lg:block">
+            <SourcesRail retrieval={latestRetrieval} onOpenSource={setOpenSource} />
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <div className="m-auto flex w-full max-w-2xl flex-col gap-7 py-8 lg:pb-16">
+            <HeroHeading index={selectedIndex} />
+            <div className="flex flex-col gap-3">
+              <SetupNotice capabilities={capabilities} capabilitiesError={capabilitiesError} />
+              <AskPromptInput
+                indexes={indexes}
+                indexName={indexName}
+                onIndexChange={handleIndexChange}
+                status={status}
+                disabled={inputDisabled}
+                onSubmitText={handleSubmitText}
+                onStop={stop}
+              />
+            </div>
+            <HeroSuggestions index={selectedIndex} disabled={inputDisabled} onSuggestion={handleSubmitText} />
+          </div>
+        </div>
+      )}
 
       <SourceDocumentSheet source={openSource} onClose={handleCloseSource} />
     </div>
