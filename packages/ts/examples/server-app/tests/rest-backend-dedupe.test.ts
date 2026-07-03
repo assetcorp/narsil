@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dedupeDocumentsById } from '../src/lib/rest-backend'
+import { dedupeDocumentsById } from '../src/lib/dataset-plan'
 
 describe('dedupeDocumentsById', () => {
   it('keeps the first occurrence of a repeated ID', () => {
