@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
-import { createMockAdapter, vectorSchema, vectorSchemaWithCategory } from './fixtures'
+import { createFailingAdapter, createMockAdapter, vectorSchema, vectorSchemaWithCategory } from './fixtures'
 
 describe('Integration: embedding through Narsil insert/query', () => {
   let narsil: Narsil
@@ -122,12 +122,37 @@ describe('Integration: embedding through Narsil insert/query', () => {
     })
 
     const result = await narsil.insertBatch('articles', [
-      { title: 'Valid Doc', body: 'Has body' },
-      { category: 'tech' },
+      { id: 'doc-valid', title: 'Valid Doc', body: 'Has body' },
+      { id: 'doc-no-source', category: 'tech' },
     ])
 
-    expect(result.succeeded.length).toBe(1)
+    expect(result.succeeded).toEqual(['doc-valid'])
     expect(result.failed.length).toBe(1)
+    expect(result.failed[0].docId).toBe('doc-no-source')
     expect(result.failed[0].error.code).toBe(ErrorCodes.EMBEDDING_NO_SOURCE)
+  })
+
+  it('carries provided document ids on failed entries when the adapter crashes during batch embedding', async () => {
+    narsil = await createNarsil()
+    await narsil.createIndex('articles', {
+      schema: vectorSchema,
+      language: 'english',
+      embedding: {
+        adapter: createFailingAdapter(384),
+        fields: { embedding: ['title'] },
+      },
+    })
+
+    const result = await narsil.insertBatch('articles', [
+      { id: 'crash-one', title: 'First document' },
+      { title: 'Document without an id' },
+    ])
+
+    expect(result.succeeded.length).toBe(0)
+    expect(result.failed.length).toBe(2)
+    expect(result.failed[0].docId).toBe('crash-one')
+    expect(result.failed[0].error.code).toBe(ErrorCodes.EMBEDDING_FAILED)
+    expect(result.failed[1].docId).toBe('')
+    expect(result.failed[1].error.code).toBe(ErrorCodes.EMBEDDING_FAILED)
   })
 })

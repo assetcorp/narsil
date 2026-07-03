@@ -172,7 +172,7 @@ export async function insertDocumentBatch(
         } catch (err) {
           chunkFailedIndexes.add(i)
           failed.push({
-            docId: '',
+            docId: providedDocId(documents[i]) ?? '',
             error: err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, String(err)),
           })
         }
@@ -200,14 +200,14 @@ export async function insertDocumentBatch(
           for (const [sliceIndex, error] of embedResult.failed) {
             const originalIdx = embeddableOriginalIndexes[sliceIndex]
             chunkFailedIndexes.add(originalIdx)
-            failed.push({ docId: '', error })
+            failed.push({ docId: providedDocId(documents[originalIdx]) ?? '', error })
           }
         } catch (err) {
           const embeddingError =
             err instanceof NarsilError ? err : new NarsilError(ErrorCodes.EMBEDDING_FAILED, String(err))
           for (const originalIdx of embeddableOriginalIndexes) {
             chunkFailedIndexes.add(originalIdx)
-            failed.push({ docId: '', error: embeddingError })
+            failed.push({ docId: providedDocId(documents[originalIdx]) ?? '', error: embeddingError })
           }
         }
       }
@@ -223,7 +223,7 @@ export async function insertDocumentBatch(
         } catch (err) {
           chunkFailedIndexes.add(i)
           failed.push({
-            docId: '',
+            docId: providedDocId(documents[i]) ?? '',
             error: err instanceof NarsilError ? err : new NarsilError(ErrorCodes.EMBEDDING_FAILED, String(err)),
           })
         }

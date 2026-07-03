@@ -128,6 +128,7 @@ describe('durability recovery of embedding configuration', () => {
 
     const batch = await engine.insertBatch('articles', [{ id: 'f', title: 'glacier retreat', body: 'ice and time' }])
     expect(batch.succeeded).toHaveLength(0)
+    expect(batch.failed[0]?.docId).toBe('f')
     expect(batch.failed[0]?.error.message).toContain('"stub"')
 
     const ownVector = new Float32Array(DIMENSIONS).fill(0.5)
