@@ -51,20 +51,30 @@ export class NarsilServerClient {
     this.apiKey = config.apiKey
   }
 
-  private async request<T>(method: string, path: string, body?: string, timeoutMs = READ_TIMEOUT_MS): Promise<T> {
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: string,
+    timeoutMs = READ_TIMEOUT_MS,
+    signal?: AbortSignal,
+  ): Promise<T> {
     const headers: Record<string, string> = {}
     if (body !== undefined) headers['content-type'] = 'application/json'
     if (this.apiKey) headers.authorization = `Bearer ${this.apiKey}`
 
+    const timeout = AbortSignal.timeout(timeoutMs)
     let response: Response
     try {
       response = await fetch(`${this.baseUrl}${path}`, {
         method,
         headers,
         body,
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
       })
     } catch (err) {
+      if (signal?.aborted) {
+        throw err
+      }
       if (err instanceof Error && err.name === 'TimeoutError') {
         throw new Error(`The Narsil server did not respond within ${timeoutMs}ms (${method} ${path})`)
       }
@@ -100,13 +110,18 @@ export class NarsilServerClient {
    * assembled from the per-document strings so each document is stringified
    * exactly once across batch sizing and transport.
    */
-  async insertBatchSerialized(indexName: string, documentJsons: string[]): Promise<BatchInsertResult> {
+  async insertBatchSerialized(
+    indexName: string,
+    documentJsons: string[],
+    signal?: AbortSignal,
+  ): Promise<BatchInsertResult> {
     const body = `{"action":"insert","documents":[${documentJsons.join(',')}],"options":{"skipClone":true}}`
     return this.request<BatchInsertResult>(
       'POST',
       `/indexes/${encodeURIComponent(indexName)}/documents/_batch`,
       body,
       BATCH_WRITE_TIMEOUT_MS,
+      signal,
     )
   }
 

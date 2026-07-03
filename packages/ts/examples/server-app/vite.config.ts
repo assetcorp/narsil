@@ -1,6 +1,8 @@
 import fs from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import path from 'node:path'
 import process from 'node:process'
+import { pipeline } from 'node:stream'
 import tailwindcss from '@tailwindcss/vite'
 import { devtools } from '@tanstack/devtools-vite'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
@@ -8,6 +10,7 @@ import viteReact from '@vitejs/plugin-react'
 import { defineConfig, type Plugin, type ViteDevServer } from 'vite'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { ensureDemoNarsilServer } from './demo-server'
+import { openSseSession } from './sse'
 
 const monorepoRoot = path.resolve(import.meta.dirname, '../../../..')
 const dataDir = path.join(monorepoRoot, 'data', 'processed')
@@ -36,7 +39,10 @@ function serveDataPlugin(): Plugin {
         if (filePath.endsWith('.json')) {
           res.setHeader('Content-Type', 'application/json')
         }
-        fs.createReadStream(filePath).pipe(res)
+        // pipeline destroys both streams when either side fails (a client
+        // leaving mid-download would otherwise crash the dev process through
+        // an unconsumed response 'error' and leak the file descriptor).
+        pipeline(fs.createReadStream(filePath), res, () => {})
       })
     },
   }
@@ -61,100 +67,127 @@ function narsilServerPlugin(): Plugin {
   }
 }
 
-function readRequestBody(req: import('node:http').IncomingMessage): Promise<string> {
+function readRequestBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
+    let settled = false
+    const settle = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      fn()
+    }
     req.on('data', (chunk: Buffer) => chunks.push(chunk))
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')))
-    req.on('error', reject)
+    req.on('end', () => settle(() => resolve(Buffer.concat(chunks).toString('utf-8'))))
+    req.on('error', err => settle(() => reject(err)))
+    // Without this a connection dropped mid-body leaves the promise pending
+    // forever, holding the handler and its captured buffers alive.
+    req.on('close', () => settle(() => reject(new Error('The connection closed before the request body finished'))))
   })
 }
 
-function streamingLoadPlugin(): Plugin {
-  let viteServer: ViteDevServer
+type BackendModule = {
+  getBackend: () => Promise<import('./src/lib/rest-backend').RestBackend>
+}
 
+type RestBackendInstance = Awaited<ReturnType<BackendModule['getBackend']>>
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+function respondJsonError(res: ServerResponse, message: string): void {
+  if (res.writableEnded || res.destroyed) return
+  if (res.headersSent) {
+    res.end()
+    return
+  }
+  res.writeHead(500, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify({ error: message }))
+}
+
+async function loadBackend(viteServer: ViteDevServer): Promise<RestBackendInstance> {
+  const mod = (await viteServer.ssrLoadModule('./src/lib/get-backend.ts')) as BackendModule
+  return mod.getBackend()
+}
+
+async function handleLoadRequest(viteServer: ViteDevServer, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  let request: { datasetId?: string }
+  let backend: RestBackendInstance
+  try {
+    request = JSON.parse(await readRequestBody(req)) as { datasetId?: string }
+    backend = await loadBackend(viteServer)
+  } catch (err) {
+    respondJsonError(res, errorMessage(err))
+    return
+  }
+
+  const session = openSseSession(req, res)
+  const onProgress = (payload: unknown) => session.sendLatest(payload)
+  backend.subscribe('progress', onProgress)
+  try {
+    await backend.loadDataset(request as Parameters<RestBackendInstance['loadDataset']>[0], {
+      signal: session.signal,
+    })
+    session.close()
+  } catch (err) {
+    session.fail({ datasetId: request.datasetId, phase: 'error', error: errorMessage(err) })
+  } finally {
+    backend.unsubscribe('progress', onProgress)
+  }
+}
+
+async function handleBatchQueryRequest(
+  viteServer: ViteDevServer,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  let queries: unknown[]
+  let backend: RestBackendInstance
+  try {
+    const parsed = JSON.parse(await readRequestBody(req)) as { queries?: unknown[] }
+    if (!Array.isArray(parsed.queries)) {
+      throw new Error('The request body must contain a "queries" array')
+    }
+    queries = parsed.queries
+    backend = await loadBackend(viteServer)
+  } catch (err) {
+    respondJsonError(res, errorMessage(err))
+    return
+  }
+
+  const session = openSseSession(req, res)
+  try {
+    for (let i = 0; i < queries.length; i++) {
+      if (session.signal.aborted) break
+      const response = await backend.query(queries[i] as Parameters<RestBackendInstance['query']>[0])
+      const delivered = await session.send({ i, response })
+      if (!delivered) break
+    }
+    session.close()
+  } catch (err) {
+    session.fail({ error: errorMessage(err) })
+  }
+}
+
+function streamingLoadPlugin(): Plugin {
   return {
     name: 'streaming-load',
     configureServer(server) {
-      viteServer = server
-
-      server.middlewares.use('/api/batch-query', async (req, res, next) => {
-        if (req.method !== 'POST') {
-          next()
-          return
+      const route = (handler: typeof handleLoadRequest) => {
+        return (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+          if (req.method !== 'POST') {
+            next()
+            return
+          }
+          // An unconsumed response 'error' event would crash the dev process;
+          // openSseSession aborts in-flight work on the same event.
+          res.on('error', () => {})
+          void handler(server, req, res)
         }
+      }
 
-        try {
-          const body = await readRequestBody(req)
-          const { queries } = JSON.parse(body) as { queries: unknown[] }
-
-          const mod = (await viteServer.ssrLoadModule('./src/lib/get-backend.ts')) as {
-            getBackend: () => Promise<import('./src/lib/rest-backend').RestBackend>
-          }
-          const backend = await mod.getBackend()
-
-          res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
-          })
-
-          for (let i = 0; i < queries.length; i++) {
-            const response = await backend.query(queries[i] as Parameters<typeof backend.query>[0])
-            res.write(`data: ${JSON.stringify({ i, response })}\n\n`)
-          }
-
-          res.end()
-        } catch (err) {
-          if (!res.headersSent) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
-          }
-          const message = err instanceof Error ? err.message : String(err)
-          res.end(JSON.stringify({ error: message }))
-        }
-      })
-
-      server.middlewares.use('/api/load', async (req, res, next) => {
-        if (req.method !== 'POST') {
-          next()
-          return
-        }
-
-        try {
-          const body = await readRequestBody(req)
-          const request = JSON.parse(body)
-
-          const mod = (await viteServer.ssrLoadModule('./src/lib/get-backend.ts')) as {
-            getBackend: () => Promise<import('./src/lib/rest-backend').RestBackend>
-          }
-          const backend = await mod.getBackend()
-
-          res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
-          })
-
-          const onProgress = (payload: unknown) => {
-            res.write(`data: ${JSON.stringify(payload)}\n\n`)
-          }
-
-          backend.subscribe('progress', onProgress)
-
-          try {
-            await backend.loadDataset(request)
-          } finally {
-            backend.unsubscribe('progress', onProgress)
-            res.end()
-          }
-        } catch (err) {
-          if (!res.headersSent) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
-          }
-          const message = err instanceof Error ? err.message : String(err)
-          res.end(JSON.stringify({ error: message }))
-        }
-      })
+      server.middlewares.use('/api/batch-query', route(handleBatchQueryRequest))
+      server.middlewares.use('/api/load', route(handleLoadRequest))
     },
   }
 }
