@@ -8,7 +8,9 @@ export interface EmbeddingProviderConfig {
   dimensions: number
 }
 
-export { EMBEDDING_FIELD } from './ask/types'
+/* The .ts extension keeps this file loadable by plain Node with type
+ * stripping, which the demo Narsil server's child process runs under. */
+export { EMBEDDING_FIELD } from './ask/types.ts'
 export const EMBEDDING_ADAPTER_NAME = 'openai'
 export const DEFAULT_EMBEDDING_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small'

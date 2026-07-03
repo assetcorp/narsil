@@ -1,3 +1,4 @@
+import { fork } from 'node:child_process'
 import path from 'node:path'
 import process from 'node:process'
 import type { EmbeddingAdapter } from '@delali/narsil'
@@ -13,15 +14,20 @@ import { twi } from '@delali/narsil/languages/twi'
 import { yoruba } from '@delali/narsil/languages/yoruba'
 import { zulu } from '@delali/narsil/languages/zulu'
 import { createServer, type OnRequestHook } from '@delali/narsil/server'
+/* Relative imports carry the .ts extension because demo-server-child.ts runs
+ * this file under plain Node with type stripping, which resolves ESM
+ * specifiers exactly as written. */
 import {
   type DemoNarsilServer,
   demoServerPromise,
   setDemoEngineStatus,
   setDemoServerPromise,
-} from './src/lib/demo-server-state'
-import { EMBEDDING_ADAPTER_NAME, readEmbeddingConfig } from './src/lib/embedding-config'
+} from './src/lib/demo-server-state.ts'
+import { EMBEDDING_ADAPTER_NAME, readEmbeddingConfig } from './src/lib/embedding-config.ts'
 
-export type { DemoNarsilServer } from './src/lib/demo-server-state'
+export type { DemoNarsilServer } from './src/lib/demo-server-state.ts'
+
+export type DemoServerChildMessage = { type: 'ready'; url: string } | { type: 'error'; error: string }
 
 function apiKeyHook(apiKey: string): OnRequestHook {
   return ctx => {
@@ -93,9 +99,70 @@ export async function startDemoNarsilServer(): Promise<DemoNarsilServer> {
   }
 }
 
+const CHILD_EXIT_GRACE_MS = 5_000
+
+/**
+ * Runs the demo server in a child process. Checkpoint recovery is CPU-bound
+ * work that would otherwise stall the app dev server's event loop, leaving
+ * the page unable to load until recovery finished.
+ */
+function spawnDemoNarsilServer(onExitAfterReady: (detail: string) => void): Promise<DemoNarsilServer> {
+  return new Promise((resolve, reject) => {
+    const child = fork(path.resolve(import.meta.dirname, 'demo-server-child.ts'), {
+      execArgv: ['--experimental-strip-types'],
+      stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+    })
+
+    let settled = false
+    let closing = false
+    const settle = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      fn()
+    }
+
+    const close = async (): Promise<void> => {
+      closing = true
+      if (child.exitCode !== null || child.signalCode !== null) return
+      const exited = new Promise<void>(resolveExit => {
+        child.once('exit', () => resolveExit())
+      })
+      child.kill('SIGTERM')
+      const killTimer = setTimeout(() => {
+        child.kill('SIGKILL')
+      }, CHILD_EXIT_GRACE_MS)
+      killTimer.unref()
+      await exited
+      clearTimeout(killTimer)
+    }
+
+    child.on('message', (message: DemoServerChildMessage) => {
+      if (message.type === 'ready') {
+        const url = message.url
+        settle(() => resolve({ url, close }))
+      } else if (message.type === 'error') {
+        const error = message.error
+        settle(() => {
+          void close()
+          reject(new Error(error))
+        })
+      }
+    })
+    child.on('error', err => settle(() => reject(err)))
+    child.on('exit', (code, signal) => {
+      if (!settled) {
+        settle(() => reject(new Error(`The demo Narsil server process exited before it was ready (${signal ?? code})`)))
+        return
+      }
+      if (!closing) onExitAfterReady(String(signal ?? code))
+    })
+  })
+}
+
 /**
  * Starts the local Narsil HTTP server that backs the demo when no external
- * server is configured. The instance is cached on globalThis so Vite config
+ * server is configured. It runs in its own process so recovery never blocks
+ * the dev server, and the promise is cached on globalThis so Vite config
  * reloads within one dev process reuse the running server instead of
  * competing for the port. Indexes persist under `.narsil-data` (override with
  * NARSIL_DATA_DIR) and are recovered on the next start, so loaded datasets
@@ -110,7 +177,10 @@ export function ensureDemoNarsilServer(): Promise<DemoNarsilServer> {
   const existing = demoServerPromise()
   if (existing) return existing
   setDemoEngineStatus({ phase: 'starting' })
-  const starting = startDemoNarsilServer()
+  const starting = spawnDemoNarsilServer(detail => {
+    setDemoServerPromise(undefined)
+    setDemoEngineStatus({ phase: 'error', error: `The demo Narsil server exited unexpectedly (${detail})` })
+  })
   setDemoServerPromise(starting)
   starting
     .then(server => {
