@@ -1,6 +1,6 @@
 import type { DatasetId } from './manifest'
 
-export type TabId = 'datasets' | 'search' | 'relevance' | 'benchmark' | 'inspector'
+export type TabId = 'datasets' | 'search' | 'ask' | 'relevance' | 'benchmark' | 'inspector'
 
 export type TabStatus = 'locked' | 'ready'
 

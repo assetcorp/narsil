@@ -1,5 +1,6 @@
 import process from 'node:process'
 import { createNarsil, registerLanguage } from '@delali/narsil'
+import { createOpenAIEmbedding } from '@delali/narsil/embeddings/openai'
 import { dagbani } from '@delali/narsil/languages/dagbani'
 import { ewe } from '@delali/narsil/languages/ewe'
 import { french } from '@delali/narsil/languages/french'
@@ -9,7 +10,9 @@ import { swahili } from '@delali/narsil/languages/swahili'
 import { twi } from '@delali/narsil/languages/twi'
 import { yoruba } from '@delali/narsil/languages/yoruba'
 import { zulu } from '@delali/narsil/languages/zulu'
+import type { EmbeddingAdapter } from '@delali/narsil'
 import { createServer, type OnRequestHook } from '@delali/narsil/server'
+import { EMBEDDING_ADAPTER_NAME, readEmbeddingConfig } from './src/lib/embedding-config'
 
 export interface DemoNarsilServer {
   url: string
@@ -38,6 +41,19 @@ function portFromEnv(): number {
   return value
 }
 
+function embeddingAdaptersFromEnv(): Record<string, EmbeddingAdapter> | undefined {
+  const config = readEmbeddingConfig()
+  if (!config) return undefined
+  return {
+    [EMBEDDING_ADAPTER_NAME]: createOpenAIEmbedding({
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      model: config.model,
+      dimensions: config.dimensions,
+    }),
+  }
+}
+
 async function start(): Promise<DemoNarsilServer> {
   for (const language of [french, ewe, zulu, twi, yoruba, swahili, hausa, dagbani, igbo]) {
     registerLanguage(language)
@@ -49,6 +65,7 @@ async function start(): Promise<DemoNarsilServer> {
     host: '127.0.0.1',
     port: portFromEnv(),
     onRequest: apiKey && apiKey.length > 0 ? apiKeyHook(apiKey) : undefined,
+    embeddingAdapters: embeddingAdaptersFromEnv(),
   })
   await server.listen()
   return { url: `http://127.0.0.1:${server.listeningPort}` }

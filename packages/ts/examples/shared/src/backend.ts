@@ -10,8 +10,28 @@ export type BackendEventPayload = {
 
 export type BackendEventHandler<T extends BackendEventType> = (payload: BackendEventPayload[T]) => void
 
+export type SearchMode = 'fulltext' | 'vector' | 'hybrid'
+
+export interface VectorQueryRequest {
+  field: string
+  value?: number[]
+  text?: string
+  similarity?: number
+  metric?: 'cosine' | 'dotProduct' | 'euclidean'
+  efSearch?: number
+}
+
+export interface HybridQueryRequest {
+  strategy?: 'rrf' | 'linear'
+  k?: number
+  alpha?: number
+}
+
 export interface QueryRequest {
   indexName: string
+  mode?: SearchMode
+  vector?: VectorQueryRequest
+  hybrid?: HybridQueryRequest
   term?: string
   fields?: string[]
   filters?: Record<string, unknown>

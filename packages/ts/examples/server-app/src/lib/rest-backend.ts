@@ -16,6 +16,15 @@ import { scifact, tmdb, wikipedia } from '@delali/narsil-example-shared/manifest
 import { scifactSchema, tmdbSchema, wikipediaSchema } from '@delali/narsil-example-shared/schemas'
 import type { LoadDatasetRequest } from '@delali/narsil-example-shared/types'
 import { findDataRoot, readDocumentsFile } from './dataset-files'
+import {
+  EMBEDDING_ADAPTER_NAME,
+  EMBEDDING_FIELD,
+  type EmbeddingProviderConfig,
+  embeddingSourceFields,
+  readEmbeddingConfig,
+  WIKIPEDIA_LEAD_FIELD,
+  WIKIPEDIA_LEAD_MAX_CHARS,
+} from './embedding-config'
 import { NarsilServerClient } from './narsil-server-client'
 import type { NarsilServerConfig } from './server-config'
 
@@ -42,6 +51,12 @@ function languageName(code: string): string {
 const MAX_BATCH_JSON_LENGTH = 4 * 1024 * 1024
 const MAX_BATCH_DOCS = 500
 
+/* Each insert batch becomes one embedding request on the search server, and
+ * OpenAI rejects embedding requests past 300k total tokens. The largest
+ * embedded source (title plus abstract or article lead) is ~1.6k chars ≈ 400
+ * tokens, so 256 documents ≈ 100k tokens leaves 3x headroom per request. */
+const MAX_BATCH_DOCS_WITH_EMBEDDING = 256
+
 /**
  * The server rejects inserting a document whose ID already exists, and the
  * bundled corpora contain occasional repeated rows (movies-100000.json ships
@@ -67,6 +82,72 @@ interface IndexLoadPlan {
   schema: Record<string, unknown>
   language: string
   docs: Record<string, unknown>[]
+  embedding?: {
+    sourceFields: string[]
+    dimensions: number
+  }
+}
+
+/**
+ * Cuts the article lead for the embedding input, breaking on a word boundary
+ * so the vector never ends mid-word.
+ */
+export function articleLead(text: string, maxChars: number = WIKIPEDIA_LEAD_MAX_CHARS): string {
+  if (text.length <= maxChars) return text
+  const slice = text.slice(0, maxChars)
+  const lastSpace = slice.lastIndexOf(' ')
+  return lastSpace > maxChars / 2 ? slice.slice(0, lastSpace) : slice
+}
+
+function withEmbeddingField(schema: Record<string, unknown>, dimensions: number): Record<string, unknown> {
+  return { ...schema, [EMBEDDING_FIELD]: `vector[${dimensions}]` }
+}
+
+/**
+ * Removes stored vector values from query hits before they leave the app
+ * server. A 1536-dimension vector serializes to ~12 KB of JSON per hit and
+ * carries no meaning for result rendering or answer prompts.
+ */
+function stripStoredVectors(response: QueryResponse): QueryResponse {
+  const strip = (hit: QueryResponse['hits'][number]) => {
+    if (EMBEDDING_FIELD in hit.document) {
+      delete hit.document[EMBEDDING_FIELD]
+    }
+  }
+  for (const hit of response.hits) strip(hit)
+  if (response.groups) {
+    for (const group of response.groups) {
+      for (const hit of group.hits) strip(hit)
+    }
+  }
+  return response
+}
+
+/**
+ * Attaches the embedding arrangement to a dataset load when an embedding
+ * provider is configured: the schema gains the vector field, and the create
+ * request names the server-registered adapter so the search server embeds
+ * each document at insert and each query at search time. Without a provider
+ * the plan is exactly the keyword-only load this app always performed.
+ */
+function planEmbedding(plan: IndexLoadPlan, embedding: EmbeddingProviderConfig | null): IndexLoadPlan {
+  if (!embedding) return plan
+  const sourceFields = embeddingSourceFields(plan.datasetId)
+  if (!sourceFields) return plan
+
+  let schema = withEmbeddingField(plan.schema, embedding.dimensions)
+  let docs = plan.docs
+  if (plan.datasetId === 'wikipedia') {
+    schema = { ...schema, [WIKIPEDIA_LEAD_FIELD]: 'string' }
+    docs = docs.map(doc => ({ ...doc, [WIKIPEDIA_LEAD_FIELD]: articleLead(String(doc.text ?? '')) }))
+  }
+
+  return {
+    ...plan,
+    schema,
+    docs,
+    embedding: { sourceFields, dimensions: embedding.dimensions },
+  }
 }
 
 /**
@@ -100,6 +181,7 @@ export class RestBackend implements NarsilBackend {
     let indexed = 0
     this.emit('progress', { datasetId: plan.datasetId, phase: 'indexing', totalDocs: total, indexedDocs: 0 })
 
+    const maxBatchDocs = plan.embedding ? MAX_BATCH_DOCS_WITH_EMBEDDING : MAX_BATCH_DOCS
     let batch: string[] = []
     let batchLength = 0
     const flush = async (): Promise<void> => {
@@ -118,7 +200,7 @@ export class RestBackend implements NarsilBackend {
 
     for (const doc of docs) {
       const json = JSON.stringify(doc)
-      if (batch.length > 0 && (batchLength + json.length > MAX_BATCH_JSON_LENGTH || batch.length >= MAX_BATCH_DOCS)) {
+      if (batch.length > 0 && (batchLength + json.length > MAX_BATCH_JSON_LENGTH || batch.length >= maxBatchDocs)) {
         await flush()
       }
       batch.push(json)
@@ -130,7 +212,16 @@ export class RestBackend implements NarsilBackend {
   /** Creates the index and fills it. A partially filled index is dropped on
    * failure so a retry starts clean instead of being skipped as loaded. */
   private async createAndFill(plan: IndexLoadPlan, signal?: AbortSignal): Promise<void> {
-    await this.client.createIndex(plan.indexName, { schema: plan.schema, language: plan.language })
+    await this.client.createIndex(plan.indexName, {
+      schema: plan.schema,
+      language: plan.language,
+      embedding: plan.embedding
+        ? {
+            fields: { [EMBEDDING_FIELD]: plan.embedding.sourceFields },
+            adapter: EMBEDDING_ADAPTER_NAME,
+          }
+        : undefined,
+    })
     try {
       await this.insertBatched(plan, signal)
     } catch (err) {
@@ -158,19 +249,23 @@ export class RestBackend implements NarsilBackend {
 
     try {
       const dataRoot = findDataRoot()
+      const embedding = readEmbeddingConfig()
 
       switch (request.datasetId) {
         case 'tmdb': {
           const tierData = tmdb.tiers.find(t => t.label === request.tier)
           if (!tierData) throw new Error(`Unknown TMDB tier: ${request.tier}`)
           await this.loadIndexIfMissing(
-            {
-              indexName: `tmdb-${request.tier}`,
-              datasetId: request.datasetId,
-              schema: tmdbSchema as Record<string, unknown>,
-              language: 'english',
-              docs: await readDocumentsFile(dataRoot, 'tmdb', tierData.file),
-            },
+            planEmbedding(
+              {
+                indexName: `tmdb-${request.tier}`,
+                datasetId: request.datasetId,
+                schema: tmdbSchema as Record<string, unknown>,
+                language: 'english',
+                docs: await readDocumentsFile(dataRoot, 'tmdb', tierData.file),
+              },
+              embedding,
+            ),
             signal,
           )
           break
@@ -181,13 +276,16 @@ export class RestBackend implements NarsilBackend {
             const langData = wikipedia.languages.find(l => l.code === langCode)
             if (!langData) continue
             await this.loadIndexIfMissing(
-              {
-                indexName: `wikipedia-${langCode}`,
-                datasetId: request.datasetId,
-                schema: wikipediaSchema as Record<string, unknown>,
-                language: languageName(langCode),
-                docs: await readDocumentsFile(dataRoot, 'wikipedia', langData.file),
-              },
+              planEmbedding(
+                {
+                  indexName: `wikipedia-${langCode}`,
+                  datasetId: request.datasetId,
+                  schema: wikipediaSchema as Record<string, unknown>,
+                  language: languageName(langCode),
+                  docs: await readDocumentsFile(dataRoot, 'wikipedia', langData.file),
+                },
+                embedding,
+              ),
               signal,
             )
           }
@@ -196,13 +294,16 @@ export class RestBackend implements NarsilBackend {
 
         case 'scifact': {
           await this.loadIndexIfMissing(
-            {
-              indexName: 'scifact',
-              datasetId: request.datasetId,
-              schema: scifactSchema as Record<string, unknown>,
-              language: 'english',
-              docs: await readDocumentsFile(dataRoot, 'scifact', scifact.docsFile),
-            },
+            planEmbedding(
+              {
+                indexName: 'scifact',
+                datasetId: request.datasetId,
+                schema: scifactSchema as Record<string, unknown>,
+                language: 'english',
+                docs: await readDocumentsFile(dataRoot, 'scifact', scifact.docsFile),
+              },
+              embedding,
+            ),
             signal,
           )
           break
@@ -238,9 +339,10 @@ export class RestBackend implements NarsilBackend {
     }
   }
 
-  async query(request: QueryRequest): Promise<QueryResponse> {
+  async query(request: QueryRequest, signal?: AbortSignal): Promise<QueryResponse> {
     const { indexName, ...params } = request
-    return this.client.search(indexName, params as Record<string, unknown>)
+    const response = await this.client.search(indexName, params as Record<string, unknown>, signal)
+    return stripStoredVectors(response)
   }
 
   async suggest(request: SuggestRequest): Promise<SuggestResponse> {
@@ -248,6 +350,14 @@ export class RestBackend implements NarsilBackend {
       prefix: request.prefix,
       limit: request.limit,
     })
+  }
+
+  async getDocument(indexName: string, docId: string): Promise<Record<string, unknown> | null> {
+    const document = await this.client.getDocument(indexName, docId)
+    if (document && EMBEDDING_FIELD in document) {
+      delete document[EMBEDDING_FIELD]
+    }
+    return document
   }
 
   async getStats(indexName: string): Promise<IndexStats> {

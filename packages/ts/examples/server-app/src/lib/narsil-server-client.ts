@@ -23,6 +23,10 @@ export interface BatchInsertResult {
 export interface CreateIndexConfig {
   schema: Record<string, unknown>
   language: string
+  embedding?: {
+    fields: Record<string, string | string[]>
+    adapter: string
+  }
 }
 
 export class NarsilServerError extends Error {
@@ -125,12 +129,27 @@ export class NarsilServerClient {
     )
   }
 
-  async search(indexName: string, params: Record<string, unknown>): Promise<QueryResponse> {
+  async search(indexName: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<QueryResponse> {
     return this.request<QueryResponse>(
       'POST',
       `/indexes/${encodeURIComponent(indexName)}/search`,
       JSON.stringify(params),
+      READ_TIMEOUT_MS,
+      signal,
     )
+  }
+
+  async getDocument(indexName: string, docId: string): Promise<Record<string, unknown> | null> {
+    try {
+      const result = await this.request<{ document: Record<string, unknown> }>(
+        'GET',
+        `/indexes/${encodeURIComponent(indexName)}/documents/${encodeURIComponent(docId)}`,
+      )
+      return result.document
+    } catch (err) {
+      if (err instanceof NarsilServerError && err.status === 404) return null
+      throw err
+    }
   }
 
   async suggest(indexName: string, params: { prefix: string; limit?: number }): Promise<SuggestResponse> {

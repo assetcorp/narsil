@@ -52,3 +52,28 @@ export const deleteIndexFn = createServerFn({ method: 'POST' })
     const backend = await getBackend()
     await backend.deleteIndex(data.indexName)
   })
+
+export const askCapabilitiesFn = createServerFn({ method: 'POST' }).handler(async () => {
+  const [{ readLlmConfig }, { readEmbeddingConfig }] = await Promise.all([
+    import('./ask/config'),
+    import('./embedding-config'),
+  ])
+  const llm = readLlmConfig()
+  const embeddings = readEmbeddingConfig()
+  return {
+    llmConfigured: llm !== null,
+    llmModel: llm?.model ?? null,
+    embeddingsConfigured: embeddings !== null,
+    embeddingModel: embeddings?.model ?? null,
+    embeddingDimensions: embeddings?.dimensions ?? null,
+  }
+})
+
+export const getDocumentFn = createServerFn({ method: 'POST' })
+  .inputValidator((d: unknown) => d as { indexName: string; docId: string })
+  .handler(async ({ data }) => {
+    const { getBackend } = await import('./get-backend')
+    const backend = await getBackend()
+    const document = await backend.getDocument(data.indexName, data.docId)
+    return document as Record<string, NonNullable<unknown>> | null
+  })

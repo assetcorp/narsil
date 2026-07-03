@@ -2,6 +2,7 @@ export type {
   BackendEventHandler,
   BackendEventPayload,
   BackendEventType,
+  HybridQueryRequest,
   IndexListEntry,
   IndexStats,
   MemoryStatsResponse,
@@ -10,8 +11,10 @@ export type {
   QueryHit,
   QueryRequest,
   QueryResponse,
+  SearchMode,
   SuggestRequest,
   SuggestResponse,
+  VectorQueryRequest,
 } from './backend'
 export { AppDispatchContext, AppStateContext, BackendContext, useAppDispatch, useAppState, useBackend } from './context'
 export { cn } from './lib/utils'

@@ -5,9 +5,12 @@ function computeTabStatus(state: AppState): Record<TabId, TabStatus> {
   const hasNonScifactDocs = state.indexes.some(idx => idx.datasetId !== 'scifact' && idx.documentCount > 0)
   const hasScifact = state.scifactLoaded
 
+  const hasAnyDocs = state.indexes.some(idx => idx.documentCount > 0)
+
   return {
     datasets: 'ready',
     search: hasNonScifactDocs ? 'ready' : 'locked',
+    ask: hasAnyDocs ? 'ready' : 'locked',
     relevance: hasNonScifactDocs ? 'ready' : 'locked',
     benchmark: hasScifact ? 'ready' : 'locked',
     inspector: hasAnyIndex ? 'ready' : 'locked',
@@ -24,6 +27,7 @@ export function createInitialState(): AppState {
     tabStatus: {
       datasets: 'ready',
       search: 'locked',
+      ask: 'locked',
       relevance: 'locked',
       benchmark: 'locked',
       inspector: 'locked',
