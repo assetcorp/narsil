@@ -14,14 +14,14 @@ interface BenchmarkViewProps {
 
 export function BenchmarkView({ backend, state }: BenchmarkViewProps) {
   const benchmark = useBenchmark(backend)
-  const cranfieldLoaded = state.cranfieldLoaded
+  const scifactLoaded = state.scifactLoaded
 
-  if (!cranfieldLoaded) {
+  if (!scifactLoaded) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-8">
         <h1 className="mb-2 font-serif text-3xl tracking-tight">Quality Benchmark</h1>
         <p className="text-sm text-muted-foreground">
-          Load the Cranfield collection from the Datasets tab to run retrieval quality benchmarks.
+          Load the SciFact dataset from the Datasets tab to run retrieval quality benchmarks.
         </p>
       </div>
     )
@@ -33,7 +33,7 @@ export function BenchmarkView({ backend, state }: BenchmarkViewProps) {
         <div>
           <h1 className="mb-1 font-serif text-3xl tracking-tight">Quality Benchmark</h1>
           <p className="text-sm text-muted-foreground">
-            Evaluates retrieval quality across 225 Cranfield queries with expert relevance judgments.
+            Evaluates retrieval quality across 300 SciFact claim queries with expert relevance judgments.
           </p>
         </div>
         <div className="flex gap-2">

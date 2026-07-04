@@ -7,6 +7,28 @@ export interface BatchEmbedResult {
   failed: Map<number, NarsilError>
 }
 
+/** With an embedding config but no bound adapter (recovery before the named
+ * adapter is registered), only documents that bring their own vectors may
+ * index; anything else must fail instead of losing its vectors silently. */
+export function assertDocumentCarriesMappedVectors(
+  document: Record<string, unknown>,
+  embeddingConfig: EmbeddingFieldConfig,
+  adapterName: string | null,
+): void {
+  for (const targetField of Object.keys(embeddingConfig.fields)) {
+    const existing = resolveFieldValue(document, targetField)
+    if (existing === undefined || existing === null) {
+      throw new NarsilError(
+        ErrorCodes.EMBEDDING_CONFIG_INVALID,
+        adapterName
+          ? `The index embeds "${targetField}" via adapter "${adapterName}", which is not registered on this engine. Register the adapter or supply the vector on the document.`
+          : `The index embeds "${targetField}" automatically but no embedding adapter is bound. Bind an adapter or supply the vector on the document.`,
+        adapterName ? { field: targetField, adapter: adapterName } : { field: targetField },
+      )
+    }
+  }
+}
+
 function validateVector(vector: unknown, targetField: string, expectedDimensions: number): Float32Array {
   if (!(vector instanceof Float32Array)) {
     throw new NarsilError(

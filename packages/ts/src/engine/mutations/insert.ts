@@ -3,7 +3,7 @@ import { validateRequiredFields } from '../../schema/validator'
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, EmbeddingFieldConfig, InsertOptions } from '../../types/schema'
-import { embedBatchDocumentFields, embedDocumentFields } from '../embed'
+import { assertDocumentCarriesMappedVectors, embedBatchDocumentFields, embedDocumentFields } from '../embed'
 import { BATCH_CHUNK_SIZE, validateDocId } from '../validation'
 import { insertDocumentVectors, prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
 import type { MutationContext } from './context'
@@ -41,13 +41,21 @@ export async function insertDocument(
     validateRequiredFields(document as Record<string, unknown>, entry.config.required)
   }
 
-  if (entry.embeddingAdapter && entry.config.embedding) {
-    await embedDocumentFields(
-      document as Record<string, unknown>,
-      entry.config.embedding,
-      entry.embeddingAdapter,
-      ctx.abortController.signal,
-    )
+  if (entry.config.embedding) {
+    if (entry.embeddingAdapter) {
+      await embedDocumentFields(
+        document as Record<string, unknown>,
+        entry.config.embedding,
+        entry.embeddingAdapter,
+        ctx.abortController.signal,
+      )
+    } else {
+      assertDocumentCarriesMappedVectors(
+        document as Record<string, unknown>,
+        entry.config.embedding,
+        entry.embeddingAdapterName,
+      )
+    }
   }
 
   const insertManager = ctx.requireManager(indexName)
@@ -144,6 +152,7 @@ export async function insertDocumentBatch(
   const hasAfterHook = ctx.pluginRegistry.hasHooks('afterInsert')
   const hasRequired = entry.config.required && entry.config.required.length > 0
   const hasEmbedding = entry.embeddingAdapter && entry.config.embedding
+  const embeddingUnbound = !entry.embeddingAdapter && entry.config.embedding
 
   const batchManager = ctx.requireManager(indexName)
   const batchVecIndexes = batchManager.getVectorIndexes()
@@ -163,7 +172,7 @@ export async function insertDocumentBatch(
         } catch (err) {
           chunkFailedIndexes.add(i)
           failed.push({
-            docId: '',
+            docId: providedDocId(documents[i]) ?? '',
             error: err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, String(err)),
           })
         }
@@ -191,15 +200,32 @@ export async function insertDocumentBatch(
           for (const [sliceIndex, error] of embedResult.failed) {
             const originalIdx = embeddableOriginalIndexes[sliceIndex]
             chunkFailedIndexes.add(originalIdx)
-            failed.push({ docId: '', error })
+            failed.push({ docId: providedDocId(documents[originalIdx]) ?? '', error })
           }
         } catch (err) {
           const embeddingError =
             err instanceof NarsilError ? err : new NarsilError(ErrorCodes.EMBEDDING_FAILED, String(err))
           for (const originalIdx of embeddableOriginalIndexes) {
             chunkFailedIndexes.add(originalIdx)
-            failed.push({ docId: '', error: embeddingError })
+            failed.push({ docId: providedDocId(documents[originalIdx]) ?? '', error: embeddingError })
           }
+        }
+      }
+    } else if (embeddingUnbound) {
+      for (let i = chunkStart; i < chunkEnd; i++) {
+        if (chunkFailedIndexes.has(i)) continue
+        try {
+          assertDocumentCarriesMappedVectors(
+            documents[i] as Record<string, unknown>,
+            entry.config.embedding as EmbeddingFieldConfig,
+            entry.embeddingAdapterName,
+          )
+        } catch (err) {
+          chunkFailedIndexes.add(i)
+          failed.push({
+            docId: providedDocId(documents[i]) ?? '',
+            error: err instanceof NarsilError ? err : new NarsilError(ErrorCodes.EMBEDDING_FAILED, String(err)),
+          })
         }
       }
     }

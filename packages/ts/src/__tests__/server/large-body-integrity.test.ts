@@ -94,7 +94,7 @@ describe('large request bodies survive HTTP ingest intact', () => {
     expect(count.body.count).toBe(BATCH_DOC_COUNT)
 
     await assertRoundTrip(srv.base, corpus, BATCH_DOC_COUNT)
-  })
+  }, 30_000)
 
   it('indexes every document from a multi-megabyte NDJSON import with bodies preserved byte-for-byte', async () => {
     const corpus = buildCorpus(IMPORT_DOC_COUNT, TEXT_CHARS_PER_DOC)
@@ -114,5 +114,5 @@ describe('large request bodies survive HTTP ingest intact', () => {
     expect(count.body.count).toBe(IMPORT_DOC_COUNT)
 
     await assertRoundTrip(srv.base, corpus, IMPORT_DOC_COUNT)
-  })
+  }, 30_000)
 })

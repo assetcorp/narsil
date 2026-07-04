@@ -118,6 +118,66 @@ describe('OpenAI adapter HTTP interactions (mocked fetch)', () => {
     expect(result.length).toBe(1536)
   })
 
+  it('retries when a 2xx response carries an unparseable body and succeeds on the next attempt', async () => {
+    let callCount = 0
+    const mockFetch = vi
+      .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+      .mockImplementation(async () => {
+        callCount++
+        if (callCount === 1) {
+          return new Response('<html>Bad gateway</html>', { status: 200 })
+        }
+        return new Response(
+          JSON.stringify({
+            data: [{ index: 0, embedding: Array.from({ length: 1536 }, () => 0.3) }],
+          }),
+          { status: 200 },
+        )
+      })
+    globalThis.fetch = mockFetch
+
+    const adapter = createOpenAIEmbedding({
+      baseUrl: 'https://api.openai.com/v1',
+      apiKey: 'sk-test-key',
+      model: 'text-embedding-3-small',
+      dimensions: 1536,
+      maxRetries: 1,
+      timeout: 10_000,
+    })
+
+    const result = await adapter.embed('truncated body test', 'document')
+
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(result).toBeInstanceOf(Float32Array)
+    expect(result.length).toBe(1536)
+  })
+
+  it('fails with the invalid-JSON error once retries are exhausted', async () => {
+    const mockFetch = vi
+      .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+      .mockImplementation(async () => new Response('not json', { status: 200 }))
+    globalThis.fetch = mockFetch
+
+    const adapter = createOpenAIEmbedding({
+      baseUrl: 'https://api.openai.com/v1',
+      apiKey: 'sk-test-key',
+      model: 'text-embedding-3-small',
+      dimensions: 1536,
+      maxRetries: 0,
+    })
+
+    try {
+      await adapter.embed('always invalid', 'document')
+      expect.fail('Expected error for unparseable response body')
+    } catch (err) {
+      expect(err).toBeInstanceOf(NarsilError)
+      expect((err as NarsilError).code).toBe(ErrorCodes.EMBEDDING_FAILED)
+      expect((err as NarsilError).message).toContain('invalid JSON')
+    }
+
+    expect(mockFetch).toHaveBeenCalledOnce()
+  })
+
   it('does not retry on 400 and fails immediately', async () => {
     const mockFetch = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockResolvedValue(
       new Response(JSON.stringify({ error: { type: 'invalid_request_error', message: 'Bad request' } }), {

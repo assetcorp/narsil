@@ -6,6 +6,7 @@ export async function resolveVectorText(
   params: QueryParams,
   embeddingAdapter: EmbeddingAdapter | null,
   signal: AbortSignal,
+  embeddingAdapterName?: string | null,
 ): Promise<QueryParams> {
   if (!params.vector) return params
   if (params.vector.text === undefined && params.vector.value === undefined) return params
@@ -18,7 +19,10 @@ export async function resolveVectorText(
   if (!embeddingAdapter) {
     throw new NarsilError(
       ErrorCodes.EMBEDDING_CONFIG_INVALID,
-      "Vector query with 'text' requires an embedding adapter on the index or instance",
+      embeddingAdapterName
+        ? `Vector query with 'text' needs embedding adapter "${embeddingAdapterName}", which is not registered on this engine. Register it with registerEmbeddingAdapter or supply a raw vector.`
+        : "Vector query with 'text' requires an embedding adapter on the index or instance",
+      embeddingAdapterName ? { adapter: embeddingAdapterName } : undefined,
     )
   }
 
