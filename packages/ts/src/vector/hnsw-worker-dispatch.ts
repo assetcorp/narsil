@@ -1,3 +1,4 @@
+import { spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime } from '../runtime/detect'
 import type { HNSWConfig, SerializedHNSWGraph } from './hnsw'
 import type { HNSWBuildRequestBinary, HNSWWorkerMessage } from './hnsw-build-worker'
@@ -40,9 +41,7 @@ async function spawnWorker(): Promise<WorkerHandle | null> {
 
   if (runtime.supportsWorkerThreads) {
     try {
-      const workerThreads = await import('node:worker_threads')
-      const instance = new workerThreads.Worker(new URL(entryPoint))
-      return instance as unknown as WorkerHandle
+      return await spawnNodeWorker(new URL(entryPoint))
     } catch {
       return null
     }

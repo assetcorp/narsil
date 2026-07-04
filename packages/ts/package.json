@@ -22,6 +22,14 @@
     "#platform/vector-promoter": {
       "browser": "./src/vector/promoter.browser.ts",
       "default": "./src/vector/promoter.ts"
+    },
+    "#platform/durable-fs": {
+      "browser": "./src/persistence/durability/node-fs.browser.ts",
+      "default": "./src/persistence/durability/node-fs.ts"
+    },
+    "#platform/node-worker": {
+      "browser": "./src/workers/node-worker.browser.ts",
+      "default": "./src/workers/node-worker.ts"
     }
   },
   "sideEffects": false,
@@ -38,7 +46,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node scripts/check-browser-bundle.mjs",
     "test": "vitest run --exclude='**/vector/recall.test.ts'",
     "test:etcd": "vitest run src/__tests__/distribution/coordinator/etcd-integration/*.test.ts",
     "test:watch": "vitest",
