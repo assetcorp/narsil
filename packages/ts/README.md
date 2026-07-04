@@ -1,4 +1,4 @@
-![Narsil, a distributed search engine for Node, Bun, Deno, and the browser](https://raw.githubusercontent.com/assetcorp/narsil/main/assets/banner.png)
+![Narsil, a distributed search engine](https://raw.githubusercontent.com/assetcorp/narsil/main/assets/banner.png)
 
 # Narsil
 
@@ -10,7 +10,9 @@
 
 Distributed search, reforged.
 
-Narsil is a distributed search engine with full-text, vector, hybrid, and geosearch. It partitions large indexes across workers, serializes them into a cross-language binary format (.nrsl), and merges results back into a single ranked answer. The TypeScript package is the first implementation.
+Narsil is a distributed search engine with full-text, vector, hybrid, and geosearch. One codebase runs in two contexts: embedded in your application process, where queries answer without a network hop, and as a standalone search server with a REST API, a write-ahead log, and bulk NDJSON ingest. Both contexts run the same engine and store indexes in the same cross-language binary format (.nrsl), so an index built in one loads in the other.
+
+The engine partitions large indexes across workers and merges partition results into a single ranked answer. Its BM25 ranking matches the Anserini reference within 0.005 nDCG@10 on the BEIR datasets, and one node answers 1,020 keyword queries per second on BEIR SciFact ([benchmarks](https://github.com/assetcorp/narsil/blob/main/BENCHMARKS.md)). The TypeScript package is the first implementation.
 
 > *narsil* is the sword of Elendil in Tolkien's Lord of the Rings, shattered into shards and later reforged. The name maps to the architecture: data shatters into partitions, each shard is independently persisted, and every query reforges them into a unified result.
 
