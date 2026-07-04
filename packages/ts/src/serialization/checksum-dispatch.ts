@@ -1,3 +1,4 @@
+import { isNodeMainThread, spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime } from '../runtime/detect'
 import { crc32Final, crc32Init, crc32Update } from './crc32'
 import type { ChecksumWorkerMessage } from './crc32-worker'
@@ -23,12 +24,7 @@ let onMainThread = true
 
 async function isOnMainThread(): Promise<boolean> {
   if (!mainThreadResolved) {
-    try {
-      const workerThreads = await import('node:worker_threads')
-      onMainThread = workerThreads.isMainThread
-    } catch {
-      onMainThread = true
-    }
+    onMainThread = await isNodeMainThread()
     mainThreadResolved = true
   }
   return onMainThread
@@ -45,8 +41,7 @@ function resolveWorkerEntryPoint(): string {
 
 async function spawnWorker(): Promise<WorkerHandle | null> {
   try {
-    const workerThreads = await import('node:worker_threads')
-    return new workerThreads.Worker(new URL(resolveWorkerEntryPoint())) as unknown as WorkerHandle
+    return await spawnNodeWorker(new URL(resolveWorkerEntryPoint()))
   } catch {
     return null
   }

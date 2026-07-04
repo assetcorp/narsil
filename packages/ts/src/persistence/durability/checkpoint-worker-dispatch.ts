@@ -1,3 +1,4 @@
+import { spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime } from '../../runtime/detect'
 import type { CheckpointWorkerMessage, CheckpointWorkerRequest } from './checkpoint-worker'
 
@@ -30,8 +31,10 @@ function resolveWorkerEntryPoint(): string {
 
 async function spawnWorker(): Promise<WorkerHandle | null> {
   try {
-    const workerThreads = await import('node:worker_threads')
-    const worker = new workerThreads.Worker(new URL(resolveWorkerEntryPoint())) as unknown as WorkerHandle
+    const worker = await spawnNodeWorker(new URL(resolveWorkerEntryPoint()))
+    if (worker === null) {
+      return null
+    }
     if (typeof worker.unref === 'function') {
       worker.unref()
     }

@@ -1,25 +1,7 @@
+import { type FsModule, getFs, getPath, type PathModule } from '#platform/durable-fs'
 import { ErrorCodes, NarsilError } from '../../errors'
 
-type FsModule = typeof import('node:fs/promises')
-type PathModule = typeof import('node:path')
 type FileHandle = import('node:fs/promises').FileHandle
-
-let cachedFs: FsModule | null = null
-let cachedPath: PathModule | null = null
-
-async function getFs(): Promise<FsModule> {
-  if (cachedFs === null) {
-    cachedFs = await import('node:fs/promises')
-  }
-  return cachedFs
-}
-
-async function getPath(): Promise<PathModule> {
-  if (cachedPath === null) {
-    cachedPath = await import('node:path')
-  }
-  return cachedPath
-}
 
 function validateRelativeKey(key: string): void {
   if (key.length === 0) {

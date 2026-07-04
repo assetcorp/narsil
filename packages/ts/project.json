@@ -4,7 +4,7 @@
     "build": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "pnpm tsup",
+        "command": "pnpm run build",
         "cwd": "packages/ts"
       }
     },
