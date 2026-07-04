@@ -170,6 +170,13 @@ async function executeWithRetry(
       try {
         parsed = await response.json()
       } catch {
+        /* A 2xx body that fails to parse is a truncated or proxy-mangled
+         * response, so it retries like a 5xx instead of failing the batch. */
+        lastError = new Error('invalid JSON in a 2xx response body')
+        if (attempt < maxRetries) {
+          await sleep(computeBackoffMs(attempt, null), signal)
+          continue
+        }
         throw new NarsilError(ErrorCodes.EMBEDDING_FAILED, 'OpenAI returned invalid JSON in response body')
       }
       if (parsed === null || typeof parsed !== 'object') {

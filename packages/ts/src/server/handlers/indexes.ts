@@ -5,7 +5,7 @@ import type { RouteContext } from '../request'
 import type { CreateIndexRequest } from '../types'
 
 export function createIndexHandlers(deps: HandlerDeps) {
-  const { engine, adapters } = deps
+  const { engine } = deps
 
   async function create(ctx: RouteContext): Promise<void> {
     const body = parseJson<CreateIndexRequest>(ctx)
@@ -19,7 +19,7 @@ export function createIndexHandlers(deps: HandlerDeps) {
       return
     }
     try {
-      const config = mapHttpIndexConfig(body.config, adapters)
+      const config = mapHttpIndexConfig(body.config)
       await engine.createIndex(body.name, config)
       respondJson(ctx, { name: body.name }, 201)
     } catch (err) {

@@ -3,12 +3,12 @@ import type { NarsilBackend, QueryResponse } from '../backend'
 import type { BenchmarkResult, QueryMetrics, RelevanceMap } from '../lib/metrics'
 import { averagePrecision, ndcgAtK, precisionAtK, reciprocalRank } from '../lib/metrics'
 
-interface CranfieldQuery {
+interface ScifactQuery {
   id: number
   text: string
 }
 
-interface CranfieldQrel {
+interface ScifactQrel {
   queryId: number
   docId: number
   relevance: number
@@ -48,16 +48,16 @@ export function useBenchmark(backend: NarsilBackend) {
 
     try {
       const [queriesResp, qrelsResp] = await Promise.all([
-        fetch('/data/processed/cranfield/cranfield-queries.json'),
-        fetch('/data/processed/cranfield/cranfield-qrels.json'),
+        fetch('/data/processed/scifact/scifact-queries.json'),
+        fetch('/data/processed/scifact/scifact-qrels.json'),
       ])
 
       if (!queriesResp.ok || !qrelsResp.ok) {
-        throw new Error('Failed to fetch Cranfield data files. Ensure cranfield data is available.')
+        throw new Error('Failed to fetch SciFact data files. Ensure scifact data is available.')
       }
 
-      const queries: CranfieldQuery[] = await queriesResp.json()
-      const qrels: CranfieldQrel[] = await qrelsResp.json()
+      const queries: ScifactQuery[] = await queriesResp.json()
+      const qrels: ScifactQrel[] = await qrelsResp.json()
 
       const qrelsByQuery = new Map<number, RelevanceMap>()
       for (const qrel of qrels) {
@@ -122,7 +122,7 @@ export function useBenchmark(backend: NarsilBackend) {
       }
 
       const queryRequests = queries.map(q => ({
-        indexName: 'cranfield',
+        indexName: 'scifact',
         term: q.text,
         limit: 100,
       }))

@@ -38,6 +38,7 @@ export interface MutationContext {
     config: IndexConfig
     language: LanguageModule
     embeddingAdapter: EmbeddingAdapter | null
+    embeddingAdapterName: string | null
     vectorFieldPaths: Set<string>
   }
   requireManager: (name: string) => PartitionManager

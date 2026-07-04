@@ -1,4 +1,5 @@
 import { createEngineCore, type EngineCore, type EventHandler, getVectorFieldPaths } from './engine/core'
+import { createEngineIndex, dropEngineIndex, registerEngineEmbeddingAdapter } from './engine/index-lifecycle'
 import { shutdownEngine } from './engine/lifecycle'
 import {
   insertDocument,
@@ -13,17 +14,13 @@ import { executeRebalance } from './engine/rebalance-executor'
 import { resolveVectorText } from './engine/resolve-vector-text'
 import { createSnapshot, restoreFromSnapshot } from './engine/snapshot'
 import { executeSuggest } from './engine/suggest'
-import { validateIndexName } from './engine/validation'
 import {
   compactVectors as executeCompactVectors,
   optimizeVectors as executeOptimizeVectors,
   getVectorMaintenanceStatus,
 } from './engine/vector-maintenance'
 import { ErrorCodes, NarsilError } from './errors'
-import { getLanguage } from './languages/registry'
 import { readProcessMemory } from './runtime/process-memory'
-import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from './schema/embedding-validator'
-import { validateSchema, validateVectorPromotion } from './schema/validator'
 import type { EmbeddingAdapter } from './types/adapters'
 import type { NarsilConfig } from './types/config'
 import type { NarsilEventMap } from './types/events'
@@ -43,6 +40,9 @@ import type { QueryParams, SuggestParams } from './types/search'
 
 export interface Narsil {
   createIndex(name: string, config: IndexConfig): Promise<void>
+  /** Registers an adapter under a name that index configs can reference and
+   * durability metadata can persist; re-registering rebinds referencing indexes. */
+  registerEmbeddingAdapter(name: string, adapter: EmbeddingAdapter): void
   dropIndex(name: string): Promise<void>
   listIndexes(): IndexInfo[]
   getStats(indexName: string): IndexStats
@@ -102,45 +102,16 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
   } = core
 
   const narsil: Narsil = {
-    async createIndex(name: string, indexConfig: IndexConfig): Promise<void> {
-      guardShutdown()
-      validateIndexName(name)
-      if (indexRegistry.has(name)) {
-        throw new NarsilError(ErrorCodes.INDEX_ALREADY_EXISTS, `Index "${name}" already exists`, { indexName: name })
-      }
-      validateSchema(indexConfig.schema)
-      validateVectorPromotion(indexConfig.vectorPromotion)
-      let resolvedEmbeddingAdapter: EmbeddingAdapter | null = null
-      if (indexConfig.embedding) {
-        resolvedEmbeddingAdapter = validateEmbeddingConfig(indexConfig.embedding, indexConfig.schema, config?.embedding)
-      }
-      if (indexConfig.required && indexConfig.required.length > 0) {
-        validateRequiredFieldsInSchema(indexConfig.required, indexConfig.schema)
-      }
-      const language = getLanguage(indexConfig.language ?? 'english')
-      executor.createIndex(name, indexConfig, language)
-      const vectorFieldPaths = getVectorFieldPaths(indexConfig.schema)
-      indexRegistry.set(name, {
-        config: indexConfig,
-        language,
-        embeddingAdapter: resolvedEmbeddingAdapter,
-        vectorFieldPaths,
-      })
-      if (durability) {
-        await durability.manager.persistMetadata(name)
-      }
-      await pluginRegistry.runHook('onIndexCreate', { indexName: name, config: indexConfig })
+    createIndex(name: string, indexConfig: IndexConfig): Promise<void> {
+      return createEngineIndex(core, config, name, indexConfig)
     },
 
-    async dropIndex(name: string): Promise<void> {
-      guardShutdown()
-      const entry = requireIndex(name)
-      executor.dropIndex(name)
-      indexRegistry.delete(name)
-      if (durability) {
-        await durability.manager.removeIndex(name)
-      }
-      await pluginRegistry.runHook('onIndexDrop', { indexName: name, config: entry.config })
+    registerEmbeddingAdapter(name: string, adapter: EmbeddingAdapter): void {
+      registerEngineEmbeddingAdapter(core, name, adapter)
+    },
+
+    dropIndex(name: string): Promise<void> {
+      return dropEngineIndex(core, name)
     },
 
     listIndexes(): IndexInfo[] {
@@ -223,7 +194,12 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       const entry = requireIndex(indexName)
       const manager = requireManager(indexName)
 
-      const resolvedParams = await resolveVectorText(params, entry.embeddingAdapter, abortController.signal)
+      const resolvedParams = await resolveVectorText(
+        params,
+        entry.embeddingAdapter,
+        abortController.signal,
+        entry.embeddingAdapterName,
+      )
 
       await pluginRegistry.runHook('beforeSearch', { indexName, params: resolvedParams })
 
@@ -254,7 +230,12 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       guardShutdown()
       const entry = requireIndex(indexName)
       const manager = requireManager(indexName)
-      const resolvedParams = await resolveVectorText(params, entry.embeddingAdapter, abortController.signal)
+      const resolvedParams = await resolveVectorText(
+        params,
+        entry.embeddingAdapter,
+        abortController.signal,
+        entry.embeddingAdapterName,
+      )
       const workerSearch = orchestrator.isPromoted() ? orchestrator.searchViaWorker.bind(orchestrator) : undefined
       return executePreflight(resolvedParams, {
         manager,

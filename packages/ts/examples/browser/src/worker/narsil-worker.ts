@@ -1,6 +1,6 @@
 import { createNarsil, registerLanguage } from '@delali/narsil'
-import { COMMITTED_SIZE_THRESHOLD, cranfield, tmdb, wikipedia } from '@delali/narsil-example-shared/manifest'
-import { cranfieldSchema, tmdbSchema, wikipediaSchema } from '@delali/narsil-example-shared/schemas'
+import { COMMITTED_SIZE_THRESHOLD, scifact, tmdb, wikipedia } from '@delali/narsil-example-shared/manifest'
+import { scifactSchema, tmdbSchema, wikipediaSchema } from '@delali/narsil-example-shared/schemas'
 import type { DatasetLoadProgress } from '@delali/narsil-example-shared/types'
 import type {
   IndexNamePayload,
@@ -305,28 +305,28 @@ async function loadWikipedia(languages: string[]) {
   return results
 }
 
-async function loadCranfield() {
+async function loadScifact() {
   const instance = await getNarsil()
-  const indexName = 'cranfield'
+  const indexName = 'scifact'
   const existing = instance.listIndexes()
 
   if (existing.some(idx => idx.name === indexName)) {
     postProgress({
-      datasetId: 'cranfield',
+      datasetId: 'scifact',
       phase: 'complete',
-      totalDocs: cranfield.docCount,
-      indexedDocs: cranfield.docCount,
+      totalDocs: scifact.docCount,
+      indexedDocs: scifact.docCount,
     })
-    return { name: indexName, documentCount: cranfield.docCount, language: 'english' }
+    return { name: indexName, documentCount: scifact.docCount, language: 'english' }
   }
 
-  const docs = await fetchJson('/data/processed/cranfield/', cranfield.docsFile, null, 500_000, 'cranfield')
+  const docs = await fetchJson('/data/processed/scifact/', scifact.docsFile, null, scifact.docsSizeBytes, 'scifact')
 
-  await instance.createIndex(indexName, { schema: cranfieldSchema as SchemaType, language: 'english' })
-  await indexDocuments(instance, indexName, docs, 'cranfield')
+  await instance.createIndex(indexName, { schema: scifactSchema as SchemaType, language: 'english' })
+  await indexDocuments(instance, indexName, docs, 'scifact')
   await persistIndex(instance, indexName)
 
-  postProgress({ datasetId: 'cranfield', phase: 'complete', totalDocs: docs.length, indexedDocs: docs.length })
+  postProgress({ datasetId: 'scifact', phase: 'complete', totalDocs: docs.length, indexedDocs: docs.length })
   return { name: indexName, documentCount: docs.length, language: 'english' }
 }
 
@@ -361,8 +361,8 @@ async function handleLoadDataset(payload: LoadDatasetPayload) {
       return loadTmdb(request.tier)
     case 'wikipedia':
       return loadWikipedia(request.languages)
-    case 'cranfield':
-      return loadCranfield()
+    case 'scifact':
+      return loadScifact()
     case 'custom':
       return loadCustom(request)
   }

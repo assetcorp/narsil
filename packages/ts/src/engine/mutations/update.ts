@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
-import { embedDocumentFields } from '../embed'
+import { assertDocumentCarriesMappedVectors, embedDocumentFields } from '../embed'
 import { BATCH_CHUNK_SIZE, validateDocId } from '../validation'
 import {
   deleteNestedValue,
@@ -46,13 +46,21 @@ export async function updateDocument(
     return
   }
 
-  if (entry.embeddingAdapter && entry.config.embedding) {
-    await embedDocumentFields(
-      document as Record<string, unknown>,
-      entry.config.embedding,
-      entry.embeddingAdapter,
-      ctx.abortController.signal,
-    )
+  if (entry.config.embedding) {
+    if (entry.embeddingAdapter) {
+      await embedDocumentFields(
+        document as Record<string, unknown>,
+        entry.config.embedding,
+        entry.embeddingAdapter,
+        ctx.abortController.signal,
+      )
+    } else {
+      assertDocumentCarriesMappedVectors(
+        document as Record<string, unknown>,
+        entry.config.embedding,
+        entry.embeddingAdapterName,
+      )
+    }
   }
 
   const updateManager = ctx.requireManager(indexName)

@@ -49,8 +49,8 @@ function getSearchableFields(state: AppState): string[] {
       return ['title', 'overview', 'tagline']
     case 'wikipedia':
       return ['title', 'text']
-    case 'cranfield':
-      return ['title', 'body']
+    case 'scifact':
+      return ['title', 'text']
     default:
       return []
   }

@@ -50,8 +50,8 @@ function getSearchableFields(state: AppState): string[] {
       return ['title', 'overview', 'tagline']
     case 'wikipedia':
       return ['title', 'text']
-    case 'cranfield':
-      return ['title', 'body']
+    case 'scifact':
+      return ['title', 'text']
     default:
       return []
   }
@@ -79,8 +79,8 @@ function getAllFields(state: AppState): string[] {
       ]
     case 'wikipedia':
       return ['title', 'text', 'language', 'categories']
-    case 'cranfield':
-      return ['title', 'author', 'body']
+    case 'scifact':
+      return ['title', 'text']
     default:
       return []
   }

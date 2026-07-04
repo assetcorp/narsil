@@ -1,6 +1,6 @@
 import type { DatasetId } from './manifest'
 
-export type TabId = 'datasets' | 'search' | 'relevance' | 'benchmark' | 'inspector'
+export type TabId = 'datasets' | 'search' | 'ask' | 'relevance' | 'benchmark' | 'inspector'
 
 export type TabStatus = 'locked' | 'ready'
 
@@ -33,8 +33,8 @@ export interface LoadWikipediaRequest {
   languages: string[]
 }
 
-export interface LoadCranfieldRequest {
-  datasetId: 'cranfield'
+export interface LoadScifactRequest {
+  datasetId: 'scifact'
 }
 
 export interface LoadCustomRequest {
@@ -45,13 +45,13 @@ export interface LoadCustomRequest {
   language?: string
 }
 
-export type LoadDatasetRequest = LoadTmdbRequest | LoadWikipediaRequest | LoadCranfieldRequest | LoadCustomRequest
+export type LoadDatasetRequest = LoadTmdbRequest | LoadWikipediaRequest | LoadScifactRequest | LoadCustomRequest
 
 export interface AppState {
   indexes: LoadedIndex[]
   activeIndexName: string | null
   loadingDatasets: Map<DatasetId, DatasetLoadProgress>
-  cranfieldLoaded: boolean
+  scifactLoaded: boolean
   restoring: boolean
   tabStatus: Record<TabId, TabStatus>
 }
@@ -61,6 +61,6 @@ export type AppAction =
   | { type: 'INDEX_READY'; payload: LoadedIndex }
   | { type: 'REMOVE_INDEX'; payload: string }
   | { type: 'SET_ACTIVE_INDEX'; payload: string }
-  | { type: 'CRANFIELD_LOADED' }
+  | { type: 'SCIFACT_LOADED' }
   | { type: 'LOADING_ERROR'; payload: { datasetId: DatasetId; error: string } }
   | { type: 'SET_RESTORING'; payload: boolean }

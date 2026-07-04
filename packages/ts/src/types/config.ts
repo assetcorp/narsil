@@ -12,6 +12,8 @@ export interface NarsilConfig {
   workers?: WorkerConfig
   flush?: FlushConfig
   embedding?: EmbeddingAdapter
+  /** Named adapters; names persist in index metadata so recovery can rebind. */
+  embeddingAdapters?: Record<string, EmbeddingAdapter>
   durability?: DurabilityConfig
 }
 

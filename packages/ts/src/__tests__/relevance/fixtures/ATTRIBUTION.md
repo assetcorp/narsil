@@ -1,15 +1,37 @@
-# Cranfield Collection
+# SciFact
 
-The fixtures in this directory are derived from the Cranfield Collection,
-the foundational test collection for information retrieval evaluation.
+The fixtures in this directory are derived from SciFact, a scientific
+claim verification dataset created by the Allen Institute for AI, as
+packaged for retrieval evaluation by the BEIR benchmark.
 
-- **Source**: University of Glasgow, Information Retrieval Group
-- **URL**: <http://ir.dcs.gla.ac.uk/resources/test_collections/cran/>
-- **Archive MD5**: 1730f7be572d95a5a4b56c59a7b900a5 (cran.tar.gz)
-- **Original creator**: Cyril W. Cleverdon, Cranfield University, 1960s
-- **Relevance judgments**: Donna Harman (NIST), graded scale 1-4 plus -1
+- **Creators**: David Wadden, Shanchuan Lin, Kyle Lo, Lucy Lu Wang, Madeleine van Zuylen, Arman Cohan, and Hannaneh Hajishirzi (Allen Institute for AI)
+- **Source repository**: <https://github.com/allenai/scifact>
+- **BEIR packaging**: <https://github.com/beir-cellar/beir>
+- **Archive**: <https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip>
+- **Archive SHA-256**: 536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165
 
-The relevance grades have been normalized so higher values indicate
-greater relevance (original Cranfield uses 1 = most relevant).
+## Licenses
 
-This data is freely redistributable for research and evaluation purposes.
+- The claim queries and relevance judgments are licensed under
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+- The corpus abstracts are part of the Semantic Scholar
+  [S2ORC](https://github.com/allenai/s2orc) dataset and are licensed under
+  [ODC-By 1.0](https://opendatacommons.org/licenses/by/1-0/).
+
+## Conversion notes
+
+The JSON files were produced by `scripts/convert-scifact.ts` from the
+archive above: document and query IDs were converted from integer strings
+to numbers, queries were filtered to the 300 test-split claims that carry
+relevance judgments, and the binary judgments were kept unchanged.
+
+## Citation
+
+```bibtex
+@inproceedings{Wadden2020FactOF,
+  title={Fact or Fiction: Verifying Scientific Claims},
+  author={David Wadden and Shanchuan Lin and Kyle Lo and Lucy Lu Wang and Madeleine van Zuylen and Arman Cohan and Hannaneh Hajishirzi},
+  booktitle={EMNLP},
+  year={2020},
+}
+```

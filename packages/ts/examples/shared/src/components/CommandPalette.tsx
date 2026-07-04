@@ -1,4 +1,4 @@
-import { BarChart3, Database, FlaskConical, Inspect, Search } from 'lucide-react'
+import { BarChart3, Database, FlaskConical, Inspect, MessagesSquare, Search } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import type { SuggestResponse } from '../backend'
 import { useAppDispatch, useAppState, useBackend } from '../context'
@@ -7,6 +7,7 @@ import { CommandDialog, CommandGroup, CommandInput, CommandItem, CommandList, Co
 const NAV_ITEMS = [
   { to: '/', label: 'Datasets', icon: Database, tabId: 'datasets' as const },
   { to: '/search', label: 'Search', icon: Search, tabId: 'search' as const },
+  { to: '/ask', label: 'Ask', icon: MessagesSquare, tabId: 'ask' as const },
   { to: '/relevance', label: 'Relevance Lab', icon: FlaskConical, tabId: 'relevance' as const },
   { to: '/benchmark', label: 'Quality Benchmark', icon: BarChart3, tabId: 'benchmark' as const },
   { to: '/inspector', label: 'Index Inspector', icon: Inspect, tabId: 'inspector' as const },
@@ -14,9 +15,11 @@ const NAV_ITEMS = [
 
 interface CommandPaletteProps {
   navigate: (to: string) => void
+  /** Tabs the host app routes; nav items outside this list are hidden. */
+  availableTabs?: readonly string[]
 }
 
-export function CommandPalette({ navigate }: CommandPaletteProps) {
+export function CommandPalette({ navigate, availableTabs }: CommandPaletteProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [suggestions, setSuggestions] = useState<SuggestResponse['terms']>([])
@@ -104,7 +107,7 @@ export function CommandPalette({ navigate }: CommandPaletteProps) {
         {!hasQuery && (
           <>
             <CommandGroup heading="Navigate">
-              {NAV_ITEMS.map(item => {
+              {NAV_ITEMS.filter(item => !availableTabs || availableTabs.includes(item.tabId)).map(item => {
                 const status = state.tabStatus[item.tabId]
                 const locked = status === 'locked'
                 return (

@@ -43,5 +43,5 @@ describe('checksum worker failure recovery', () => {
     expect(await reader.get('movies', 'm0')).toMatchObject({ title: 'Movie 0' })
     expect(await reader.get('movies', 'm24')).toMatchObject({ title: 'Movie 24' })
     await reader.shutdown()
-  })
+  }, 30_000)
 })

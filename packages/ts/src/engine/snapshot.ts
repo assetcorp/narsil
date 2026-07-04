@@ -85,7 +85,13 @@ export async function restoreFromSnapshot(
   const indexConfig: IndexConfig = { schema, language: envelope.language }
   executor.createIndex(indexName, indexConfig, language)
   const vectorFieldPaths = getVectorFieldPaths(schema)
-  indexRegistry.set(indexName, { config: indexConfig, language, embeddingAdapter: null, vectorFieldPaths })
+  indexRegistry.set(indexName, {
+    config: indexConfig,
+    language,
+    embeddingAdapter: null,
+    embeddingAdapterName: null,
+    vectorFieldPaths,
+  })
 
   try {
     const manager = requireManager(indexName)

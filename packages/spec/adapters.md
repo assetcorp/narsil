@@ -398,7 +398,7 @@ The embedding adapter is configured at two levels:
     "contentVec": "vector[1536]"
   },
   "embedding": {
-    "adapter": "EmbeddingAdapter instance (optional if instance-level is set)",
+    "adapter": "EmbeddingAdapter instance, or the name of a registered adapter",
     "fields": {
       "contentVec": ["title", "description"],
       "titleVec": "title"
@@ -406,6 +406,37 @@ The embedding adapter is configured at two levels:
   }
 }
 ```
+
+The index-level `adapter` is optional when an instance-level adapter
+is set.
+
+### Named Adapter Registration
+
+The engine keeps a registry of embedding adapters keyed by
+caller-chosen names. Adapters enter the registry through the engine
+configuration (`embeddingAdapters`, a map of name to instance) or at
+any later point through `registerEmbeddingAdapter(name, adapter)`.
+An index-level `adapter` given as a string resolves against this
+registry at `createIndex` time; an unknown name throws
+`EMBEDDING_CONFIG_INVALID` and lists the registered names.
+
+Names exist for durability. An adapter instance holds live resources
+(API clients, ONNX sessions) and cannot be serialised, so an index
+created with a bare instance loses its adapter binding across a
+restart. An index created with a registered name persists that name
+in its metadata, and recovery rebinds the adapter from the registry,
+as described in [durability.md](durability.md#index-metadata). Servers
+and any deployment that persists indexes should register adapters by
+name; bare instances remain suited to short-lived, in-process use.
+
+Registering a name that is already registered replaces the binding
+and rebinds every index that references the name. Rebinding validates
+the adapter's dimensions against every mapped vector field of every
+affected index before any binding changes; a mismatch throws
+`EMBEDDING_DIMENSION_MISMATCH` and names the offending index, and in
+that case no index is rebound and the registry keeps its previous
+entry. Replacement supports credential rotation: a caller registers a
+fresh adapter under the same name and every index follows it.
 
 ### Field Mapping Rules
 
@@ -456,7 +487,10 @@ to concurrent `embed()` calls.
 Embedding failure during insert results in `EMBEDDING_FAILED`. For
 single insert, this throws. For batch insert, the individual document
 goes to `BatchResult.failed` and processing continues for remaining
-documents.
+documents. Each failed entry carries the document's own `id` field as
+its `docId` when the document provides a non-empty string id; when it
+does not, `docId` is an empty string, because no identifier is
+generated for a document that was never indexed.
 
 ### Query Behavior
 
@@ -580,7 +614,7 @@ Configuration:
 - Dimensions are auto-detected from the model output on first call
   (warm-up inference).
 - `documentPrefix`/`queryPrefix` are prepended based on the `purpose`
-  parameter. This handles models like E5 (`passage: `/`query: `) and
+  parameter. This handles models like E5 (`passage:`/`query:`) and
   BGE (query instruction prefix). Models that need no prefix (MiniLM,
   GTE) leave these unset.
 - `pipelineOptions` is an escape hatch for advanced transformers.js
