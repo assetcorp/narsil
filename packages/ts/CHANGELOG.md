@@ -1,3 +1,14 @@
+## 0.1.10 (2026-07-04)
+
+### 🚀 Features
+
+- improve TypeScript package with durable filesystem and worker thread integration, updating build scripts and improving worker spawning logic ([f2cea39](https://github.com/assetcorp/narsil/commit/f2cea39))
+- add browser compatibility checks and Node.js module handling for filesystem and worker threads ([8f95608](https://github.com/assetcorp/narsil/commit/8f95608))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.1.9 (2026-07-04)
 
 ### 🚀 Features
