@@ -314,6 +314,17 @@ const results = await narsil.query('products', {
 })
 ```
 
+### Search as you type
+
+`prefix: true` treats the last word of the query as an unfinished word, so `secur` matches documents containing `security`. Earlier words must match fully, and `tolerance` keeps applying to them while the unfinished word is completed instead of typo-corrected. Completions score against a shared document frequency and rank below full-word matches, so a document containing the exact typed word comes first. The option is off by default; turn it on for queries fired on every keystroke.
+
+```ts
+const results = await narsil.query('products', {
+  term: 'mechanical keyb',
+  prefix: true,
+})
+```
+
 ### Score and coverage thresholds
 
 `minScore` drops hits scoring below a floor. `termMatch` sets how many query terms a document must match: `'any'` (the default) accepts one term, `'all'` requires every term, and a number requires at least that many terms.
@@ -476,11 +487,11 @@ const { count, elapsed } = await narsil.preflight('products', { term: 'keyboard'
 
 ### Suggestions
 
-`suggest(indexName, params)` returns autocomplete candidates from the index's term dictionary. It tokenizes the input, takes the last word as the prefix, and ranks matching terms by document frequency.
+`suggest(indexName, params)` returns autocomplete candidates. It tokenizes the input, takes the last word as the prefix, and ranks completions by the number of documents they match. Suggestions are returned as the words that appear in your documents, not as the stemmed tokens the index stores internally, so a catalogue containing "mechanical" suggests `mechanical` rather than the stem `mechan`.
 
 ```ts
 const suggestions = await narsil.suggest('products', { prefix: 'mech', limit: 5 })
-// suggestions.terms => [{ term: 'mechan', documentFrequency: 12 }, ...]
+// suggestions.terms => [{ term: 'mechanical', documentFrequency: 12 }, ...]
 ```
 
 ## Vector search

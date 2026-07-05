@@ -107,10 +107,26 @@ describe('suggest', () => {
     expect(lower.terms.map(t => t.term)).toEqual(upper.terms.map(t => t.term))
   })
 
-  it('finds stemmed terms via prefix of the original word', async () => {
+  it('returns display words instead of stemmed index terms', async () => {
+    const result = await narsil.suggest('test', { prefix: 'runn' })
+    const terms = result.terms.map(t => t.term)
+    expect(terms).toContain('running')
+    expect(terms).not.toContain('run')
+  })
+
+  it('collapses spellings sharing a stem into the most frequent surface', async () => {
     const result = await narsil.suggest('test', { prefix: 'learn' })
     const terms = result.terms.map(t => t.term)
-    expect(terms.some(t => t === 'learn')).toBe(true)
+    expect(terms).toContain('learning')
+
+    const learning = result.terms.find(t => t.term === 'learning')
+    expect(learning?.documentFrequency).toBeGreaterThanOrEqual(2)
+  })
+
+  it('ranks a suggestion by the document frequency of its stem', async () => {
+    const result = await narsil.suggest('test', { prefix: 'runn' })
+    const running = result.terms.find(t => t.term === 'running')
+    expect(running?.documentFrequency).toBe(2)
   })
 
   it('throws for non-existent index', async () => {
@@ -148,9 +164,8 @@ describe('suggest', () => {
     }
 
     const result = await narsil.suggest('multi', { prefix: 'run' })
-    const runTerm = result.terms.find(t => t.term === 'run')
-    if (runTerm) {
-      expect(runTerm.documentFrequency).toBeGreaterThanOrEqual(1)
-    }
+    const running = result.terms.find(t => t.term === 'running')
+    expect(running).toBeDefined()
+    expect(running?.documentFrequency).toBe(2)
   })
 })

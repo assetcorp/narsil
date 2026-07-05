@@ -5,12 +5,19 @@ import type { CustomTokenizer } from '../types/schema'
 export interface TokenizerResult {
   tokens: Array<{ token: string; position: number }>
   originalTokens: string[]
+  /**
+   * Normalised-but-unstemmed form of each token, parallel to `tokens`.
+   * Present only when `collectSurfaces` is set. With a custom tokenizer the
+   * surface is the token itself.
+   */
+  surfaces?: string[]
 }
 
 export interface TokenizeOptions {
   stem?: boolean
   removeStopWords?: boolean
   removeDiacritics?: boolean
+  collectSurfaces?: boolean
   customTokenizer?: CustomTokenizer
   stopWordOverride?: Set<string> | ((defaults: Set<string>) => Set<string>)
 }
@@ -171,15 +178,18 @@ export function tokenize(text: string, language: LanguageModule, options?: Token
     stem = true,
     removeStopWords = true,
     removeDiacritics = false,
+    collectSurfaces = false,
     customTokenizer,
     stopWordOverride,
   } = options ?? {}
 
   if (customTokenizer) {
     const customResult = customTokenizer.tokenize(text)
+    const originals = customResult.map(t => t.token)
     return {
       tokens: customResult,
-      originalTokens: customResult.map(t => t.token),
+      originalTokens: originals,
+      surfaces: collectSurfaces ? originals : undefined,
     }
   }
 
@@ -193,6 +203,7 @@ export function tokenize(text: string, language: LanguageModule, options?: Token
 
   const tokens: Array<{ token: string; position: number }> = []
   const originalTokens: string[] = []
+  const surfaces: string[] | undefined = collectSurfaces ? [] : undefined
   let position = 0
 
   for (const part of rawParts) {
@@ -213,23 +224,27 @@ export function tokenize(text: string, language: LanguageModule, options?: Token
     if (processed.length > 0) {
       tokens.push({ token: processed, position })
       originalTokens.push(part)
+      if (surfaces) {
+        surfaces.push(stem ? transformToken(candidate, language, false, effectiveDiacritics) : processed)
+      }
     }
 
     position++
   }
 
-  return { tokens, originalTokens }
+  return { tokens, originalTokens, surfaces }
 }
 
 export function* tokenizeIterator(
   text: string,
   language: LanguageModule,
   options?: TokenizeOptions,
-): Generator<{ token: string; position: number }> {
+): Generator<{ token: string; position: number; surface?: string }> {
   const {
     stem = true,
     removeStopWords = true,
     removeDiacritics = false,
+    collectSurfaces = false,
     customTokenizer,
     stopWordOverride,
   } = options ?? {}
@@ -237,7 +252,7 @@ export function* tokenizeIterator(
   if (customTokenizer) {
     const customResult = customTokenizer.tokenize(text)
     for (const entry of customResult) {
-      yield entry
+      yield collectSurfaces ? { token: entry.token, position: entry.position, surface: entry.token } : entry
     }
     return
   }
@@ -268,7 +283,12 @@ export function* tokenizeIterator(
     const processed = transformToken(candidate, language, stem, effectiveDiacritics)
 
     if (processed.length > 0) {
-      yield { token: processed, position }
+      if (collectSurfaces) {
+        const surface = stem ? transformToken(candidate, language, false, effectiveDiacritics) : processed
+        yield { token: processed, position, surface }
+      } else {
+        yield { token: processed, position }
+      }
     }
 
     position++

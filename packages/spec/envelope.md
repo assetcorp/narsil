@@ -153,6 +153,7 @@ A v1 partition payload is a MessagePack map with these fields:
   documents:        map[string, Document]
   inverted_index:   map[string, PostingList]
   field_indexes:    FieldIndexes
+  surface_forms:    map[string, SurfaceForm]   (optional, added in v1.1)
   statistics:       Statistics
 }
 ```
@@ -227,6 +228,32 @@ GeopointEntry {
 
 Numeric entries are stored in sorted order by value to enable binary
 search on deserialisation.
+
+### Surface Forms
+
+The `surface_forms` field maps each surface form to a `SurfaceForm`
+value. A surface form is the normalised but unstemmed spelling of an
+indexed token, exactly as the analyser produced it before stemming:
+lowercased, possessives stripped, and diacritics handled per
+language. The engine reads this map to return words a user
+recognises from suggestion and prefix queries while the inverted
+index stays stemmed.
+
+```text
+SurfaceForm = uint32                  when the surface equals its index token
+            | [uint32, string]        [occurrence_count, index_token] otherwise
+```
+
+`occurrence_count` records how many times the surface occurred
+across all indexed text in the partition. The engine removes an
+entry when its count reaches zero and uses the count to choose
+between spellings sharing an index token. Scoring ignores the count.
+Readers resolve a surface's document frequency at read time from the
+posting list of its index token.
+
+The field is optional (added in envelope format v1.1). Readers fill
+in an empty map for payloads written before v1.1, and suggestion and
+prefix queries then fall back to raw index terms.
 
 ### Statistics
 
