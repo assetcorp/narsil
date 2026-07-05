@@ -6,6 +6,12 @@ export interface HighlightOptions {
   preTag?: string
   postTag?: string
   maxSnippetLength?: number
+  /**
+   * Unstemmed last query token of a prefix (search-as-you-type) query.
+   * Field tokens that start with it are highlighted whole, so completions
+   * like "security" light up when the user has typed "secur".
+   */
+  prefixToken?: string
 }
 
 interface CharRange {
@@ -150,11 +156,17 @@ export function highlightField(
   })
 
   const matchedRanges: CharRange[] = []
+  const prefixToken = options?.prefixToken
 
   for (let i = 0; i < fieldResult.tokens.length; i++) {
     if (i >= charOffsets.length) break
     const fieldToken = fieldResult.tokens[i].token
     const stemmedField = language.stemmer ? language.stemmer(fieldToken) : fieldToken
+
+    if (prefixToken !== undefined && fieldToken.startsWith(prefixToken)) {
+      matchedRanges.push({ start: charOffsets[i].start, end: charOffsets[i].end })
+      continue
+    }
 
     for (const stemmedQuery of stemmedQueryTokens) {
       if (stemmedField === stemmedQuery) {

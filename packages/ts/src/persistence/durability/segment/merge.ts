@@ -42,6 +42,7 @@ export function mergeTimeOrderedSegments(ordered: SegmentContents[], fallback: M
     collectDocuments(merged, part, winner, segIndex)
     collectInvertedIndex(merged, part, winner, segIndex)
     collectFieldIndexes(merged, part, winner, segIndex)
+    collectSurfaceForms(merged, part)
   }
 
   recomputeStatistics(merged)
@@ -192,6 +193,34 @@ function collectFieldIndexes(
       }
       target.push(entry)
     }
+  }
+}
+
+/**
+ * Surface occurrence counts cannot be recomputed structurally (that would
+ * require re-tokenising every document), so segment counts are summed. Docs
+ * re-indexed across segments overcount slightly; suggestion visibility stays
+ * correct because dead tokens are filtered by document frequency at read
+ * time, and counts only break ties between display spellings.
+ */
+function collectSurfaceForms(merged: SerializablePartition, part: SerializablePartition): void {
+  if (!part.surfaceForms) return
+  let target = merged.surfaceForms
+  if (!target) {
+    target = Object.create(null) as NonNullable<SerializablePartition['surfaceForms']>
+    merged.surfaceForms = target
+  }
+  for (const [surface, value] of Object.entries(part.surfaceForms)) {
+    const count = typeof value === 'number' ? value : value[0]
+    const token = typeof value === 'number' ? surface : value[1]
+    const existing = target[surface]
+    if (existing === undefined) {
+      target[surface] = value
+      continue
+    }
+    const existingCount = typeof existing === 'number' ? existing : existing[0]
+    const total = existingCount + count
+    target[surface] = token === surface ? total : [total, token]
   }
 }
 

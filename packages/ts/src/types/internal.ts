@@ -79,6 +79,7 @@ export interface SerializablePartition {
     enum: Record<string, Record<string, string[]>>
     geopoint: Record<string, Array<{ lat: number; lon: number; docId: string }>>
   }
+  surfaceForms?: SerializedSurfaceForms
   vectorData?: Record<
     string,
     {
@@ -148,8 +149,22 @@ export interface InternalSearchResult {
   totalMatched: number
 }
 
+/**
+ * Persisted surface-form dictionary of one partition. Keys are the
+ * unstemmed display tokens; the value is the occurrence count when the
+ * surface equals its index token, or `[count, indexToken]` when stemming
+ * changed it.
+ */
+export type SerializedSurfaceForms = Record<string, number | [number, string]>
+
 export interface InternalSearchParams {
   queryTokens: Array<{ token: string; position: number }>
+  /**
+   * Present when the query treats its last token as an unfinished word.
+   * `token` is the stemmed last query token; `terms` are the index terms
+   * its typed prefix expands to (the exact token itself excluded).
+   */
+  prefixExpansion?: { token: string; terms: string[] }
   fields?: string[]
   boost?: Record<string, number>
   tolerance?: number

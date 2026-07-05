@@ -16,16 +16,20 @@ import type { FacetConfig } from '../../types/search'
 import { createDocumentStore } from '../document-store'
 import { createInvertedIndex } from '../inverted-index'
 import { createPartitionStats, type PartitionStats } from '../statistics'
+import { createSurfaceRegistry } from '../surface-registry'
 import { computeFacets } from './facets'
+import { updateFieldIndexOnly } from './field-updates'
 import { applyPartitionFilters, applyPartitionFiltersBitset } from './filters'
-import { indexDocument, removeFromIndexes, updateFieldIndexOnly } from './indexing'
+import { indexDocument, removeFromIndexes } from './indexing'
 import { searchFulltext } from './search'
 import { deserializePartition, serializePartition } from './serialization'
+import { expandTermPrefix, type PartitionSuggestion, suggestDisplayTerms } from './suggestions'
 import { getFlatSchema, type PartitionInsertOptions, type PartitionState, textFieldsChanged } from './utils'
 import { serializePartitionToWirePayloadV2 } from './wire-payload'
 
 export type { GlobalStatistics, InternalSearchParams, InternalSearchResult, ScoredDocument }
 export type { PartitionInsertOptions }
+export type { PartitionSuggestion } from './suggestions'
 
 export interface PartitionIndex {
   readonly partitionId: number
@@ -59,7 +63,8 @@ export interface PartitionIndex {
   applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string>
   applyFiltersBitset(filters: FilterExpression, schema: SchemaDefinition): Uint32Array
   computeFacets(docIds: Set<string>, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult>
-  suggestTerms(prefix: string, limit: number): Array<{ term: string; documentFrequency: number }>
+  suggestTerms(surfacePrefix: string, stemmedPrefix: string, limit: number): PartitionSuggestion[]
+  expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number): string[]
 
   estimateMemoryBytes(): number
 
@@ -80,6 +85,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     invertedIdx: createInvertedIndex(fieldNameTable),
     docStore: createDocumentStore(),
     stats: createPartitionStats(),
+    surfaceRegistry: createSurfaceRegistry(),
     numericIndexes: new Map(),
     booleanIndexes: new Map(),
     enumIndexes: new Map(),
@@ -93,6 +99,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
   function clearAll(): void {
     state.invertedIdx.clear()
     state.docStore.clear()
+    state.surfaceRegistry.clear()
     for (const idx of state.numericIndexes.values()) idx.clear()
     for (const idx of state.booleanIndexes.values()) idx.clear()
     for (const idx of state.enumIndexes.values()) idx.clear()
@@ -278,6 +285,9 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       bytes += totalPostings * POSTING_ENTRY_SIZE
       bytes += termCount * PER_TERM_OVERHEAD
 
+      const SURFACE_ENTRY_OVERHEAD = 140
+      bytes += state.surfaceRegistry.size() * SURFACE_ENTRY_OVERHEAD
+
       const FIELD_ENTRY_OVERHEAD = 42
       bytes += docCount * state.numericIndexes.size * FIELD_ENTRY_OVERHEAD
       bytes += docCount * state.booleanIndexes.size * FIELD_ENTRY_OVERHEAD
@@ -303,8 +313,12 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       return computeFacets(state, docIds, config, schema)
     },
 
-    suggestTerms(prefix: string, limit: number): Array<{ term: string; documentFrequency: number }> {
-      return state.invertedIdx.prefixSearch(prefix, limit)
+    suggestTerms(surfacePrefix: string, stemmedPrefix: string, limit: number): PartitionSuggestion[] {
+      return suggestDisplayTerms(state, surfacePrefix, stemmedPrefix, limit)
+    },
+
+    expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number): string[] {
+      return expandTermPrefix(state, surfacePrefix, stemmedToken, maxExpansions)
     },
 
     serialize(

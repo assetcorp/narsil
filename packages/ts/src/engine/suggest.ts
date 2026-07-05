@@ -4,6 +4,11 @@ import type { LanguageModule } from '../types/language'
 import type { SuggestResult } from '../types/results'
 import type { SuggestParams } from '../types/search'
 
+interface MergedSuggestion {
+  documentFrequency: number
+  surfaceOccurrences: Map<string, number>
+}
+
 export function executeSuggest(
   manager: PartitionManager,
   language: LanguageModule,
@@ -26,29 +31,41 @@ export function executeSuggest(
   }
 
   const stemmed = language.stemmer ? language.stemmer(lastToken) : lastToken
-  const prefixes = stemmed !== lastToken ? [lastToken, stemmed] : [lastToken]
 
-  const partitions = manager.getAllPartitions()
-  const merged = new Map<string, number>()
+  const merged = new Map<string, MergedSuggestion>()
   const perPartitionLimit = limit * 2
 
-  for (const partition of partitions) {
-    const seen = new Set<string>()
-    for (const prefix of prefixes) {
-      const suggestions = partition.suggestTerms(prefix, perPartitionLimit)
-      for (const s of suggestions) {
-        if (seen.has(s.term)) continue
-        seen.add(s.term)
-        merged.set(s.term, (merged.get(s.term) ?? 0) + s.documentFrequency)
+  for (const partition of manager.getAllPartitions()) {
+    for (const suggestion of partition.suggestTerms(lastToken, stemmed, perPartitionLimit)) {
+      let entry = merged.get(suggestion.token)
+      if (!entry) {
+        entry = { documentFrequency: 0, surfaceOccurrences: new Map() }
+        merged.set(suggestion.token, entry)
+      }
+      entry.documentFrequency += suggestion.documentFrequency
+      for (const s of suggestion.surfaces) {
+        entry.surfaceOccurrences.set(s.surface, (entry.surfaceOccurrences.get(s.surface) ?? 0) + s.occurrences)
       }
     }
   }
 
-  const terms = Array.from(merged.entries())
-    .map(([term, documentFrequency]) => ({ term, documentFrequency }))
-    .sort((a, b) => b.documentFrequency - a.documentFrequency)
+  const terms = Array.from(merged.values())
+    .map(entry => ({ term: pickDisplaySurface(entry.surfaceOccurrences), documentFrequency: entry.documentFrequency }))
+    .sort((a, b) => b.documentFrequency - a.documentFrequency || (a.term < b.term ? -1 : 1))
 
   if (terms.length > limit) terms.length = limit
 
   return { terms, elapsed: performance.now() - t0 }
+}
+
+function pickDisplaySurface(surfaceOccurrences: Map<string, number>): string {
+  let best = ''
+  let bestCount = -1
+  for (const [surface, occurrences] of surfaceOccurrences) {
+    if (occurrences > bestCount || (occurrences === bestCount && surface < best)) {
+      best = surface
+      bestCount = occurrences
+    }
+  }
+  return best
 }

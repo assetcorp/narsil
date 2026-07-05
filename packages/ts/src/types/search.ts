@@ -14,6 +14,15 @@ export interface QueryParams {
   termMatch?: TermMatchPolicy
   tolerance?: number
   prefixLength?: number
+  /**
+   * Treat the last query token as an unfinished word so it also matches
+   * indexed terms that complete it ("secur" matches "security"). Earlier
+   * tokens must match fully; `tolerance` keeps applying to them but not to
+   * the prefix token. Completions score against a shared document frequency
+   * and are demoted below full-word matches. Ignored when `exact` is true.
+   * Off by default.
+   */
+  prefix?: boolean
   exact?: boolean
   facets?: FacetConfig
   sort?: Record<string, 'asc' | 'desc'>

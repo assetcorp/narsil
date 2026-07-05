@@ -6,11 +6,13 @@ import type { DocumentStore } from '../document-store'
 import type { BooleanFieldIndex, EnumFieldIndex, NumericFieldIndex } from '../field-index'
 import type { InvertedIndex } from '../inverted-index'
 import type { PartitionStats } from '../statistics'
+import type { SurfaceRegistry } from '../surface-registry'
 
 export interface PartitionState {
   invertedIdx: InvertedIndex
   docStore: DocumentStore
   stats: PartitionStats
+  surfaceRegistry: SurfaceRegistry
   numericIndexes: Map<string, NumericFieldIndex>
   booleanIndexes: Map<string, BooleanFieldIndex>
   enumIndexes: Map<string, EnumFieldIndex>
@@ -87,6 +89,7 @@ export function tokenizeOptions(options?: PartitionInsertOptions) {
   return {
     stem: true,
     removeStopWords: true,
+    collectSurfaces: true,
     stopWordOverride: options?.stopWordOverride,
     customTokenizer: options?.customTokenizer,
   }
