@@ -344,4 +344,50 @@ describe('InvertedIndex', () => {
       expect(list?.termFrequencies.length).toBeGreaterThanOrEqual(10)
     })
   })
+
+  describe('total term frequency', () => {
+    it('sums term frequencies across inserts', () => {
+      const titleIdx = fieldIdx(table, 'title')
+      idx.insert('sword', 0, 3, titleIdx, null)
+      idx.insert('sword', 1, 2, titleIdx, null)
+      expect(idx.lookup('sword')?.totalTermFrequency).toBe(5)
+    })
+
+    it('drops removed occurrences after compaction', () => {
+      const titleIdx = fieldIdx(table, 'title')
+      for (let i = 0; i < 10; i++) {
+        idx.insert('sword', i, 2, titleIdx, null)
+      }
+      for (let i = 0; i < 6; i++) {
+        idx.remove('sword', i)
+      }
+      // The sixth remove crosses the compaction threshold again, leaving
+      // exactly the four live occurrences counted.
+      expect(idx.lookup('sword')?.totalTermFrequency).toBe(8)
+    })
+
+    it('subtracts the old occurrences when a document is re-inserted', () => {
+      const titleIdx = fieldIdx(table, 'title')
+      idx.insert('sword', 0, 4, titleIdx, null)
+      idx.insert('sword', 1, 1, titleIdx, null)
+      idx.remove('sword', 0)
+      idx.insert('sword', 0, 2, titleIdx, null)
+      expect(idx.lookup('sword')?.totalTermFrequency).toBe(3)
+    })
+
+    it('recomputes totals from postings on deserialize', () => {
+      const titleIdx = fieldIdx(table, 'title')
+      idx.insert('sword', 0, 3, titleIdx, null)
+      idx.insert('sword', 1, 4, titleIdx, null)
+      const resolver = createTestResolver([
+        [0, 'doc-a'],
+        [1, 'doc-b'],
+      ])
+      const data = idx.serialize(resolver)
+
+      const restored = createInvertedIndex(createTable())
+      restored.deserialize(data, resolver)
+      expect(restored.lookup('sword')?.totalTermFrequency).toBe(7)
+    })
+  })
 })

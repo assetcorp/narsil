@@ -7,14 +7,15 @@ export interface SurfaceFormCandidate {
 }
 
 /**
- * Tracks the unstemmed surface form behind every indexed token so
- * suggestions and prefix expansion can work in the vocabulary users
- * actually type, while the inverted index stays stemmed.
+ * Maps stem-changed surface forms to their index tokens. Surfaces equal to
+ * their token are never stored; read paths derive their counts as total
+ * term frequency minus `stemChangedTotalFor(token)`.
  */
 export interface SurfaceRegistry {
   add(surface: string, token: string, occurrences: number): void
   subtract(surface: string, occurrences: number): void
   candidatesForPrefix(prefix: string): SurfaceFormCandidate[]
+  stemChangedTotalFor(token: string): number
   size(): number
   clear(): void
   serialize(): SerializedSurfaceForms
@@ -29,6 +30,7 @@ interface SurfaceEntry {
 export function createSurfaceRegistry(): SurfaceRegistry {
   const entries = new Map<string, SurfaceEntry>()
   const buckets = new Map<string, Set<string>>()
+  let totalsByToken: Map<string, number> | null = null
 
   function track(surface: string): void {
     const ch = surface[0]
@@ -49,23 +51,35 @@ export function createSurfaceRegistry(): SurfaceRegistry {
     }
   }
 
+  function adjustTotals(token: string, delta: number): void {
+    if (!totalsByToken || delta === 0) return
+    const next = (totalsByToken.get(token) ?? 0) + delta
+    if (next <= 0) totalsByToken.delete(token)
+    else totalsByToken.set(token, next)
+  }
+
   return {
     add(surface: string, token: string, occurrences: number): void {
       if (surface.length === 0 || token.length === 0 || occurrences <= 0) return
+      if (surface === token) return
       const existing = entries.get(surface)
       if (existing) {
         existing.count += occurrences
+        adjustTotals(existing.token, occurrences)
         return
       }
       entries.set(surface, { token, count: occurrences })
       track(surface)
+      adjustTotals(token, occurrences)
     },
 
     subtract(surface: string, occurrences: number): void {
       if (occurrences <= 0) return
       const existing = entries.get(surface)
       if (!existing) return
+      const removed = Math.min(occurrences, existing.count)
       existing.count -= occurrences
+      adjustTotals(existing.token, -removed)
       if (existing.count <= 0) {
         entries.delete(surface)
         untrack(surface)
@@ -86,6 +100,16 @@ export function createSurfaceRegistry(): SurfaceRegistry {
       return results
     },
 
+    stemChangedTotalFor(token: string): number {
+      if (!totalsByToken) {
+        totalsByToken = new Map()
+        for (const entry of entries.values()) {
+          totalsByToken.set(entry.token, (totalsByToken.get(entry.token) ?? 0) + entry.count)
+        }
+      }
+      return totalsByToken.get(token) ?? 0
+    },
+
     size(): number {
       return entries.size
     },
@@ -93,12 +117,13 @@ export function createSurfaceRegistry(): SurfaceRegistry {
     clear(): void {
       entries.clear()
       buckets.clear()
+      totalsByToken = null
     },
 
     serialize(): SerializedSurfaceForms {
       const result: SerializedSurfaceForms = Object.create(null)
       for (const [surface, entry] of entries) {
-        result[surface] = entry.token === surface ? entry.count : [entry.count, entry.token]
+        result[surface] = [entry.count, entry.token]
       }
       return result
     },
@@ -106,21 +131,14 @@ export function createSurfaceRegistry(): SurfaceRegistry {
     deserialize(data: SerializedSurfaceForms): void {
       entries.clear()
       buckets.clear()
+      totalsByToken = null
       for (const surface of Object.keys(data)) {
         if (surface.length === 0) continue
         const value = data[surface]
-        let token: string
-        let count: number
-        if (typeof value === 'number') {
-          token = surface
-          count = value
-        } else if (Array.isArray(value) && typeof value[0] === 'number' && typeof value[1] === 'string') {
-          count = value[0]
-          token = value[1]
-        } else {
-          continue
-        }
-        if (!Number.isFinite(count) || count <= 0 || token.length === 0) continue
+        if (!Array.isArray(value) || typeof value[0] !== 'number' || typeof value[1] !== 'string') continue
+        const count = value[0]
+        const token = value[1]
+        if (!Number.isFinite(count) || count <= 0 || token.length === 0 || token === surface) continue
         entries.set(surface, { token, count: Math.floor(count) })
         track(surface)
       }

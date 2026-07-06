@@ -6,11 +6,11 @@ export interface TokenizerResult {
   tokens: Array<{ token: string; position: number }>
   originalTokens: string[]
   /**
-   * Normalised-but-unstemmed form of each token, parallel to `tokens`.
-   * Present only when `collectSurfaces` is set. With a custom tokenizer the
-   * surface is the token itself.
+   * Stem-changed surface per token, parallel to `tokens`; `undefined` where
+   * the surface equals the token. Present only when `producesSurfaceForms`
+   * holds for the call.
    */
-  surfaces?: string[]
+  surfaces?: Array<string | undefined>
 }
 
 export interface TokenizeOptions {
@@ -20,6 +20,12 @@ export interface TokenizeOptions {
   collectSurfaces?: boolean
   customTokenizer?: CustomTokenizer
   stopWordOverride?: Set<string> | ((defaults: Set<string>) => Set<string>)
+}
+
+// Only a stemmer can make a surface differ from its index token.
+export function producesSurfaceForms(language: LanguageModule, options?: TokenizeOptions): boolean {
+  if (!options?.collectSurfaces || options.customTokenizer) return false
+  return (options.stem ?? true) && language.stemmer !== undefined
 }
 
 const DEFAULT_SPLIT_PATTERN = /[^\p{L}\p{N}_'-]+/u
@@ -57,7 +63,8 @@ function computeDefaultCacheSize(): number {
   return Math.max(CACHE_SIZE_FLOOR, Math.min(200_000, CACHE_SIZE_CEILING))
 }
 
-const normalizationCache = new Map<string, string>()
+const normalizationCache = new Map<string, Map<string, string>>()
+let normalizationCacheSize = 0
 let maxCacheSize = computeDefaultCacheSize()
 
 export function configureNormalizationCache(maxSize: number): void {
@@ -81,20 +88,14 @@ export function configureNormalizationCache(maxSize: number): void {
     )
   }
   maxCacheSize = Math.max(CACHE_SIZE_FLOOR, Math.min(Math.floor(maxSize), CACHE_SIZE_CEILING))
-  if (normalizationCache.size > maxCacheSize) {
-    const excess = normalizationCache.size - maxCacheSize
-    let count = 0
-    for (const key of normalizationCache.keys()) {
-      if (count >= excess) break
-      normalizationCache.delete(key)
-      count++
-    }
+  if (normalizationCacheSize > maxCacheSize) {
+    evictOldestEntries(normalizationCacheSize - maxCacheSize)
   }
 }
 
 let cachedLangName = ''
 let cachedFlags = ''
-let cachedPrefix = ''
+let cachedBucket: Map<string, string> | null = null
 
 function stripDiacritics(text: string): string {
   return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -109,19 +110,48 @@ function resolveStopWords(
   return override(language.stopWords)
 }
 
-function getCachePrefix(language: LanguageModule, flags: string): string {
-  if (language.name === cachedLangName && flags === cachedFlags) return cachedPrefix
+// Buckets keyed by language + flags avoid a per-token key concatenation on
+// the hot path; lookups hash only the raw token.
+function getCacheBucket(language: LanguageModule, flags: string): Map<string, string> {
+  if (cachedBucket && language.name === cachedLangName && flags === cachedFlags) return cachedBucket
+  const key = `${language.name}:${flags}`
+  let bucket = normalizationCache.get(key)
+  if (!bucket) {
+    bucket = new Map()
+    normalizationCache.set(key, bucket)
+  }
   cachedLangName = language.name
   cachedFlags = flags
-  cachedPrefix = `${language.name}:${flags}:`
-  return cachedPrefix
+  cachedBucket = bucket
+  return bucket
+}
+
+function evictOldestEntries(count: number): void {
+  let remaining = count
+  for (const [key, bucket] of normalizationCache) {
+    if (remaining <= 0) break
+    if (bucket.size <= remaining) {
+      remaining -= bucket.size
+      normalizationCacheSize -= bucket.size
+      normalizationCache.delete(key)
+      if (bucket === cachedBucket) cachedBucket = null
+    } else {
+      let deleted = 0
+      for (const raw of bucket.keys()) {
+        if (deleted >= remaining) break
+        bucket.delete(raw)
+        deleted++
+      }
+      normalizationCacheSize -= deleted
+      remaining = 0
+    }
+  }
 }
 
 function transformToken(raw: string, language: LanguageModule, stem: boolean, removeDiacritics: boolean): string {
   const flags = (stem ? 's' : '') + (removeDiacritics ? 'd' : '')
-  const prefix = getCachePrefix(language, flags)
-  const cacheKey = prefix + raw
-  const cached = normalizationCache.get(cacheKey)
+  let bucket = getCacheBucket(language, flags)
+  const cached = bucket.get(raw)
   if (cached !== undefined) return cached
 
   let normalized = raw
@@ -134,16 +164,14 @@ function transformToken(raw: string, language: LanguageModule, stem: boolean, re
     normalized = language.stemmer(normalized)
   }
 
-  if (normalizationCache.size >= maxCacheSize) {
-    const evictCount = Math.max(1, maxCacheSize >>> 2)
-    let count = 0
-    for (const key of normalizationCache.keys()) {
-      if (count >= evictCount) break
-      normalizationCache.delete(key)
-      count++
-    }
+  if (normalizationCacheSize >= maxCacheSize) {
+    evictOldestEntries(Math.max(1, maxCacheSize >>> 2))
+    // Eviction can drop the whole bucket; writing to it then would leak the
+    // entry outside the cache and desync the size counter.
+    bucket = getCacheBucket(language, flags)
   }
-  normalizationCache.set(cacheKey, normalized)
+  bucket.set(raw, normalized)
+  normalizationCacheSize++
   return normalized
 }
 
@@ -189,7 +217,6 @@ export function tokenize(text: string, language: LanguageModule, options?: Token
     return {
       tokens: customResult,
       originalTokens: originals,
-      surfaces: collectSurfaces ? originals : undefined,
     }
   }
 
@@ -198,12 +225,13 @@ export function tokenize(text: string, language: LanguageModule, options?: Token
   const minLength = language.tokenizer?.minTokenLength ?? DEFAULT_MIN_TOKEN_LENGTH
 
   const effectiveDiacritics = removeDiacritics || (language.tokenizer?.normalizeDiacritics ?? false)
+  const stemsTokens = stem && language.stemmer !== undefined
   const stopWords = removeStopWords ? resolveStopWords(language, stopWordOverride) : new Set<string>()
   const stripPossessives = language.tokenizer?.stripPossessive ?? false
 
   const tokens: Array<{ token: string; position: number }> = []
   const originalTokens: string[] = []
-  const surfaces: string[] | undefined = collectSurfaces ? [] : undefined
+  const surfaces: Array<string | undefined> | undefined = collectSurfaces && stemsTokens ? [] : undefined
   let position = 0
 
   for (const part of rawParts) {
@@ -225,7 +253,9 @@ export function tokenize(text: string, language: LanguageModule, options?: Token
       tokens.push({ token: processed, position })
       originalTokens.push(part)
       if (surfaces) {
-        surfaces.push(stem ? transformToken(candidate, language, false, effectiveDiacritics) : processed)
+        // Unstemmed with no diacritic stripping is the identity transform.
+        const surface = effectiveDiacritics ? transformToken(candidate, language, false, true) : candidate
+        surfaces.push(surface === processed ? undefined : surface)
       }
     }
 
@@ -252,7 +282,7 @@ export function* tokenizeIterator(
   if (customTokenizer) {
     const customResult = customTokenizer.tokenize(text)
     for (const entry of customResult) {
-      yield collectSurfaces ? { token: entry.token, position: entry.position, surface: entry.token } : entry
+      yield entry
     }
     return
   }
@@ -262,6 +292,8 @@ export function* tokenizeIterator(
   const minLength = language.tokenizer?.minTokenLength ?? DEFAULT_MIN_TOKEN_LENGTH
 
   const effectiveDiacritics = removeDiacritics || (language.tokenizer?.normalizeDiacritics ?? false)
+  const stemsTokens = stem && language.stemmer !== undefined
+  const wantSurfaces = collectSurfaces && stemsTokens
   const stopWords = removeStopWords ? resolveStopWords(language, stopWordOverride) : new Set<string>()
   const stripPossessives = language.tokenizer?.stripPossessive ?? false
 
@@ -283,9 +315,10 @@ export function* tokenizeIterator(
     const processed = transformToken(candidate, language, stem, effectiveDiacritics)
 
     if (processed.length > 0) {
-      if (collectSurfaces) {
-        const surface = stem ? transformToken(candidate, language, false, effectiveDiacritics) : processed
-        yield { token: processed, position, surface }
+      if (wantSurfaces) {
+        // Unstemmed with no diacritic stripping is the identity transform.
+        const surface = effectiveDiacritics ? transformToken(candidate, language, false, true) : candidate
+        yield { token: processed, position, surface: surface === processed ? undefined : surface }
       } else {
         yield { token: processed, position }
       }
@@ -297,13 +330,15 @@ export function* tokenizeIterator(
 
 export function clearNormalizationCache(): void {
   normalizationCache.clear()
+  normalizationCacheSize = 0
+  cachedBucket = null
 }
 
 export function resetNormalizationCache(): void {
-  normalizationCache.clear()
+  clearNormalizationCache()
   maxCacheSize = computeDefaultCacheSize()
 }
 
 export function getNormalizationCacheSize(): number {
-  return normalizationCache.size
+  return normalizationCacheSize
 }

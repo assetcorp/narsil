@@ -5,6 +5,7 @@ import type { IndexConfig } from '../../types/schema'
 const indexConfig: IndexConfig = {
   schema: { title: 'string', body: 'string' },
   language: 'english',
+  surfaceForms: true,
 }
 
 const documents = [

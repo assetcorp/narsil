@@ -38,6 +38,7 @@ export interface PartitionInsertOptions {
   skipClone?: boolean
   stopWordOverride?: Set<string> | ((defaults: Set<string>) => Set<string>)
   customTokenizer?: CustomTokenizer
+  collectSurfaces?: boolean
 }
 
 const VECTOR_PATTERN = /^vector\[(\d+)]$/
@@ -89,7 +90,7 @@ export function tokenizeOptions(options?: PartitionInsertOptions) {
   return {
     stem: true,
     removeStopWords: true,
-    collectSurfaces: true,
+    collectSurfaces: options?.collectSurfaces === true,
     stopWordOverride: options?.stopWordOverride,
     customTokenizer: options?.customTokenizer,
   }

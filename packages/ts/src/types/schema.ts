@@ -50,6 +50,11 @@ export interface IndexConfig {
   strict?: boolean
   embedding?: EmbeddingFieldConfig
   required?: string[]
+  /**
+   * Return the words users typed from suggest() and prefix expansion
+   * instead of index stems, at an insert-throughput cost. Default false.
+   */
+  surfaceForms?: boolean
 }
 
 export interface BM25Params {

@@ -141,8 +141,11 @@ describe('fulltextSearch prefix matching with a stemming language', () => {
       { title: 'security guidelines', body: 'security policies of the platform' },
       textSchema,
       stemming,
+      { collectSurfaces: true },
     )
-    partition.insert('org-doc', { title: 'organization chart', body: 'the organization grows' }, textSchema, stemming)
+    partition.insert('org-doc', { title: 'organization chart', body: 'the organization grows' }, textSchema, stemming, {
+      collectSurfaces: true,
+    })
   })
 
   it('matches when the typed prefix is longer than the indexed stem', () => {

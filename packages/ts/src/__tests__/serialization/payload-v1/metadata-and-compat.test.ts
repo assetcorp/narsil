@@ -37,6 +37,14 @@ describe('serializeMetadata / deserializeMetadata', () => {
     expect(restored.bm25Params.k1).toBeCloseTo(1.5)
     expect(restored.bm25Params.b).toBeCloseTo(0.5)
   })
+
+  it('persists the surface-forms setting and omits it when off', () => {
+    const enabled = deserializeMetadata(serializeMetadata({ ...makeMetadata(), surfaceForms: true }))
+    expect(enabled.surfaceForms).toBe(true)
+
+    const disabled = deserializeMetadata(serializeMetadata(makeMetadata()))
+    expect(disabled.surfaceForms).toBeUndefined()
+  })
 })
 
 describe('payload-v1 backward compat: vector_data read path', () => {
