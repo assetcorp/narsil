@@ -78,7 +78,7 @@ export function createRebalancer(): Rebalancer {
 
       const newPartitions: PartitionIndex[] = []
       for (let i = 0; i < newPartitionCount; i++) {
-        newPartitions.push(createPartitionIndex(i))
+        newPartitions.push(createPartitionIndex(i, manager.config.trackPositions ?? true))
       }
 
       let documentsProcessed = 0
