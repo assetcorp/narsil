@@ -67,11 +67,29 @@ interface ResolvedTokenPostings {
     postingList: CompactPostingList
   }>
   totalPostings: number
+  isPrefix?: boolean
+}
+
+interface PrefixMatch {
+  token: string
+  factor: number
+  postingList: CompactPostingList
+  docFreq: number
+  idf: number
+}
+
+interface PrefixContribution {
+  score: number
+  token: string
+  idf: number
+  termFrequencies: Record<string, number>
+  fieldLengths: Record<string, number>
 }
 
 export function searchFulltext(state: PartitionState, params: InternalSearchParams): InternalSearchResult {
   const {
     queryTokens,
+    prefixExpansion,
     fields,
     boost,
     tolerance = 0,
@@ -102,9 +120,150 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
   const fieldNames = state.fieldNameTable.names
   const resolver = state.docStore.resolver()
 
+  function resolveFieldLength(internalId: number, fieldName: string, avgLen: number): number {
+    let cachedLengths = fieldLengthCache.get(internalId)
+    if (cachedLengths === undefined) {
+      const externalId = resolver.toExternal(internalId)
+      const storedDoc = externalId !== undefined ? state.docStore.get(externalId) : undefined
+      cachedLengths = storedDoc?.fieldLengths ?? null
+      fieldLengthCache.set(internalId, cachedLengths)
+    }
+    return cachedLengths?.[fieldName] ?? avgLen
+  }
+
+  function resolvePrefixMatches(token: string, expansionTerms: string[]): PrefixMatch[] {
+    const found: Array<{ token: string; postingList: CompactPostingList; docFreq: number }> = []
+    const seen = new Set<string>()
+    for (const term of [token, ...expansionTerms]) {
+      if (seen.has(term)) continue
+      seen.add(term)
+      const postingList = state.invertedIdx.lookup(term)
+      if (!postingList) continue
+      const docFreq = globalStats ? (globalDocFreqs[term] ?? postingList.docIdSet.size) : postingList.docIdSet.size
+      found.push({ token: term, postingList, docFreq })
+    }
+    if (found.length === 0) return []
+
+    let blendedDf = 0
+    for (const f of found) {
+      if (f.docFreq > blendedDf) blendedDf = f.docFreq
+    }
+    const blendedIdf = computeIDF(blendedDf, totalDocs)
+
+    return found.map(f => ({
+      token: f.token,
+      factor: Math.min(1, token.length / f.token.length),
+      postingList: f.postingList,
+      docFreq: blendedDf,
+      idf: blendedIdf,
+    }))
+  }
+
+  function computePrefixContributions(matches: PrefixMatch[], collect: boolean): Map<number, PrefixContribution> {
+    const best = new Map<number, PrefixContribution>()
+
+    for (const match of matches) {
+      const perTerm = new Map<number, PrefixContribution>()
+      const list = match.postingList
+      const hasDeleted = list.deletedDocs.size > 0
+
+      for (let pi = 0; pi < list.length; pi++) {
+        const internalId = list.docIds[pi]
+        if (hasDeleted && list.deletedDocs.has(internalId)) continue
+        if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
+        const fieldName = fieldNames[list.fieldNameIndices[pi]]
+        if (fields && !fields.includes(fieldName)) continue
+
+        const termFrequency = list.termFrequencies[pi]
+        const fieldBoost = boost?.[fieldName] ?? 1
+        const avgLen = avgFieldLengths[fieldName] ?? 1
+        const actualFieldLength = resolveFieldLength(internalId, fieldName, avgLen)
+
+        const termScore =
+          scoreFn(termFrequency, match.docFreq, totalDocs, actualFieldLength, avgLen, bm25Params) *
+          fieldBoost *
+          match.factor
+
+        const existing = perTerm.get(internalId)
+        if (existing) {
+          existing.score += termScore
+          if (collect) {
+            existing.termFrequencies[`${fieldName}:${match.token}`] = termFrequency
+            existing.fieldLengths[fieldName] = actualFieldLength
+          }
+        } else if (collect) {
+          perTerm.set(internalId, {
+            score: termScore,
+            token: match.token,
+            idf: match.idf,
+            termFrequencies: { [`${fieldName}:${match.token}`]: termFrequency },
+            fieldLengths: { [fieldName]: actualFieldLength },
+          })
+        } else {
+          perTerm.set(internalId, {
+            score: termScore,
+            token: match.token,
+            idf: match.idf,
+            termFrequencies: EMPTY_COMPONENTS,
+            fieldLengths: EMPTY_COMPONENTS,
+          })
+        }
+      }
+
+      for (const [internalId, contribution] of perTerm) {
+        const current = best.get(internalId)
+        if (!current || contribution.score > current.score) {
+          best.set(internalId, contribution)
+        }
+      }
+    }
+
+    return best
+  }
+
+  function mergePrefixContribution(internalId: number, contribution: PrefixContribution, collect: boolean): void {
+    const existing = docScores.get(internalId)
+    if (existing) {
+      existing.score += contribution.score
+      if (collect) {
+        Object.assign(existing.termFrequencies, contribution.termFrequencies)
+        Object.assign(existing.fieldLengths, contribution.fieldLengths)
+        existing.idf[contribution.token] = contribution.idf
+      }
+      return
+    }
+
+    if (collect) {
+      docScores.set(internalId, {
+        score: contribution.score,
+        termFrequencies: contribution.termFrequencies,
+        fieldLengths: contribution.fieldLengths,
+        idf: { [contribution.token]: contribution.idf },
+      })
+    } else {
+      docScores.set(internalId, {
+        score: contribution.score,
+        termFrequencies: EMPTY_COMPONENTS,
+        fieldLengths: EMPTY_COMPONENTS,
+        idf: EMPTY_COMPONENTS,
+      })
+    }
+  }
+
   if (useIntersection) {
     const resolved: ResolvedTokenPostings[] = []
+    let prefixMatches: PrefixMatch[] = []
     for (const qt of queryTokens) {
+      if (prefixExpansion && qt.token === prefixExpansion.token) {
+        prefixMatches = resolvePrefixMatches(qt.token, prefixExpansion.terms)
+        let totalPostings = 0
+        for (const m of prefixMatches) {
+          totalPostings += m.postingList.length
+        }
+        resolved.push({ token: qt.token, matches: [], totalPostings, isPrefix: true })
+        continue
+      }
+
       const rawMatches = exact
         ? (() => {
             const postingList = state.invertedIdx.lookup(qt.token)
@@ -129,6 +288,15 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
     resolved.sort((a, b) => a.totalPostings - b.totalPostings)
 
     for (let tokenIndex = 0; tokenIndex < resolved.length; tokenIndex++) {
+      if (resolved[tokenIndex].isPrefix) {
+        const contributions = computePrefixContributions(prefixMatches, collectComponents)
+        for (const [internalId, contribution] of contributions) {
+          if (tokenIndex > 0 && !docScores.has(internalId)) continue
+          mergePrefixContribution(internalId, contribution, collectComponents)
+        }
+        continue
+      }
+
       for (const match of resolved[tokenIndex].matches) {
         const list = match.postingList
         const hasDeleted = list.deletedDocs.size > 0
@@ -172,6 +340,17 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
     }
   } else {
     for (const qt of queryTokens) {
+      if (prefixExpansion && qt.token === prefixExpansion.token) {
+        const contributions = computePrefixContributions(
+          resolvePrefixMatches(qt.token, prefixExpansion.terms),
+          collectComponents,
+        )
+        for (const [internalId, contribution] of contributions) {
+          mergePrefixContribution(internalId, contribution, collectComponents)
+        }
+        continue
+      }
+
       const matchingPostings = exact
         ? (() => {
             const postingList = state.invertedIdx.lookup(qt.token)

@@ -107,6 +107,7 @@ export function serializePartition(
       enum: serializedEnum,
       geopoint: serializedGeo,
     },
+    surfaceForms: state.surfaceRegistry.serialize(),
     statistics: serializedStats,
   }
 }
@@ -195,6 +196,7 @@ export function deserializePartition(
     state.geoIndexes.set(path, geoIdx)
   }
 
+  state.surfaceRegistry.deserialize(data.surfaceForms ?? {})
   state.stats.deserialize(data.statistics as SerializedPartitionStats)
 
   const flatSchema = getFlatSchema(state, schema)

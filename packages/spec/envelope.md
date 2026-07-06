@@ -153,6 +153,7 @@ A v1 partition payload is a MessagePack map with these fields:
   documents:        map[string, Document]
   inverted_index:   map[string, PostingList]
   field_indexes:    FieldIndexes
+  surface_forms:    map[string, SurfaceForm]   (optional, added in v1.1)
   statistics:       Statistics
 }
 ```
@@ -227,6 +228,41 @@ GeopointEntry {
 
 Numeric entries are stored in sorted order by value to enable binary
 search on deserialisation.
+
+### Surface Forms
+
+The `surface_forms` field maps each surface form to a `SurfaceForm`
+value. A surface form is the normalised but unstemmed spelling of an
+indexed token, exactly as the analyser produced it before stemming:
+lowercased, possessives stripped, and diacritics handled per
+language. The engine reads this map to return words a user
+recognises from suggestion and prefix queries while the inverted
+index stays stemmed.
+
+```text
+SurfaceForm = [uint32, string]        [occurrence_count, index_token]
+```
+
+Writers record a surface only when stemming changed it, so the
+stored token always differs from the surface. A word the stemmer
+left unchanged is already an index token, and readers derive its
+occurrence count on demand: the token's total term frequency minus
+the counts of the stored surfaces mapped to it. A token's total term
+frequency is the sum of the `term_freq` values in its posting list.
+Readers must skip entries whose value is not a two-element array of
+that shape and entries whose token equals the surface.
+
+`occurrence_count` records how many times the surface occurred
+across all indexed text in the partition. The engine removes an
+entry when its count reaches zero and uses counts only to choose
+between spellings sharing an index token. Scoring ignores the
+counts. Readers resolve a surface's document frequency at read time
+from the posting list of its index token.
+
+The field is optional (added in envelope format v1.1) and is written
+only for indexes configured to collect surface forms. Readers fill
+in an empty map when the field is absent, and suggestion and prefix
+queries then fall back to raw index terms.
 
 ### Statistics
 
@@ -324,6 +360,7 @@ a different payload structure:
   engine_version:  string  (e.g., "0.1.0")
   vector_fields:   map[string, VectorFieldMeta]
   embedding:       EmbeddingMeta  (optional)
+  surface_forms_enabled: bool  (optional)
 }
 
 VectorFieldMeta {
@@ -353,6 +390,13 @@ created with a named adapter, because adapter instances hold live
 resources and cannot be serialised. Recovery uses the name to rebind
 the adapter from the engine's registry, as described in
 [durability.md](durability.md#index-metadata).
+
+The `surface_forms_enabled` field records that the index collects
+surface forms, as described in [Surface Forms](#surface-forms).
+Writers include the field only when collection is turned on. Readers
+treat an absent field as off, which matches every metadata payload
+written before the field existed, and recovery reads the value so
+the index keeps collecting surfaces after a restart.
 
 ---
 

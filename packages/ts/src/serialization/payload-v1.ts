@@ -1,5 +1,21 @@
 import { decode, encode } from '@msgpack/msgpack'
-import type { IndexMetadata, SerializablePartition } from '../types/internal'
+import type { IndexMetadata, SerializablePartition, SerializedSurfaceForms } from '../types/internal'
+
+export function sanitizeSurfaceForms(raw: unknown): SerializedSurfaceForms | undefined {
+  if (raw === undefined || raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const result: SerializedSurfaceForms = Object.create(null)
+  let count = 0
+  for (const [surface, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === 'number') {
+      result[surface] = value
+      count++
+    } else if (Array.isArray(value) && typeof value[0] === 'number' && typeof value[1] === 'string') {
+      result[surface] = [value[0], value[1]]
+      count++
+    }
+  }
+  return count > 0 ? result : undefined
+}
 
 export interface RawPartitionPayload {
   index_name: string
@@ -28,6 +44,7 @@ export interface RawPartitionPayload {
     enum: Record<string, Record<string, string[]>>
     geopoint: Record<string, Array<{ lat: number; lon: number; doc_id: string }>>
   }
+  surface_forms?: SerializedSurfaceForms
   vector_data?: Record<
     string,
     {
@@ -68,6 +85,7 @@ interface RawMetadataPayload {
   engine_version: string
   vector_fields?: Record<string, { dimension: number; metric: string; quantization: string }>
   embedding?: { adapter?: string; fields: Record<string, string | string[]> }
+  surface_forms_enabled?: boolean
 }
 
 function partitionToWire(partition: SerializablePartition): RawPartitionPayload {
@@ -123,6 +141,7 @@ function partitionToWire(partition: SerializablePartition): RawPartitionPayload 
       enum: partition.fieldIndexes.enum,
       geopoint: wireGeopoint,
     },
+    surface_forms: partition.surfaceForms,
     statistics: {
       total_documents: partition.statistics.totalDocuments,
       total_field_lengths: partition.statistics.totalFieldLengths,
@@ -222,6 +241,7 @@ function wireToPartition(raw: RawPartitionPayload): SerializablePartition {
       enum: raw.field_indexes?.enum ?? {},
       geopoint,
     },
+    surfaceForms: sanitizeSurfaceForms(raw.surface_forms),
     vectorData,
     statistics: {
       totalDocuments: raw.statistics?.total_documents ?? 0,
@@ -265,6 +285,9 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
         ? { adapter: meta.embedding.adapter, fields: meta.embedding.fields }
         : { fields: meta.embedding.fields }
   }
+  if (meta.surfaceForms === true) {
+    wire.surface_forms_enabled = true
+  }
   return wire
 }
 
@@ -286,6 +309,9 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
       typeof raw.embedding.adapter === 'string'
         ? { adapter: raw.embedding.adapter, fields: raw.embedding.fields }
         : { fields: raw.embedding.fields }
+  }
+  if (raw.surface_forms_enabled === true) {
+    meta.surfaceForms = true
   }
   return meta
 }

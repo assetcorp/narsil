@@ -103,6 +103,7 @@ export function serializePartitionToWirePayload(
       enum: wireEnum,
       geopoint: wireGeo,
     },
+    surface_forms: state.surfaceRegistry.serialize(),
     statistics: {
       total_documents: serializedStats.totalDocuments,
       total_field_lengths: serializedStats.totalFieldLengths,
@@ -229,6 +230,7 @@ export function serializePartitionToWirePayloadV2(
       enum: wireEnum,
       geopoint: wireGeo,
     },
+    surface_forms: state.surfaceRegistry.serialize(),
     statistics: {
       total_documents: serializedStats.totalDocuments,
       total_field_lengths: serializedStats.totalFieldLengths,

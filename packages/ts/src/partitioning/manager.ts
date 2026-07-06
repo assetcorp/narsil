@@ -94,7 +94,8 @@ export function createPartitionManager(
   function resolveInsertOptions(options?: PartitionInsertOptions): PartitionInsertOptions | undefined {
     const applyStrict = config.strict === true
     const applyAnalyzer = config.stopWords !== undefined || config.tokenizer !== undefined
-    if (!applyStrict && !applyAnalyzer) return options
+    const applySurfaces = config.surfaceForms === true
+    if (!applyStrict && !applyAnalyzer && !applySurfaces) return options
 
     const resolved: PartitionInsertOptions = { ...options }
     if (applyStrict) resolved.strict = true
@@ -102,6 +103,7 @@ export function createPartitionManager(
       resolved.stopWordOverride = options?.stopWordOverride ?? config.stopWords
       resolved.customTokenizer = options?.customTokenizer ?? config.tokenizer
     }
+    if (applySurfaces) resolved.collectSurfaces = true
     return resolved
   }
 
@@ -209,7 +211,10 @@ export function createPartitionManager(
       if (pid === undefined) {
         throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
       }
-      partitions[pid].remove(docId, config.schema, language)
+      // Removal re-tokenises the stored document, so it must run with the
+      // same analyzer options as insertion or index and registry entries
+      // written under those options survive the remove.
+      partitions[pid].remove(docId, config.schema, language, resolveInsertOptions())
       docPartitionMap.delete(docId)
     },
 

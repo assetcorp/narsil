@@ -214,6 +214,44 @@ describe('Rebalancer', () => {
     expect(rebalancer.isRebalancing()).toBe(false)
   })
 
+  it('keeps position tracking disabled after a rebalance when the index opted out', async () => {
+    const router = createPartitionRouter()
+    const manager = createPartitionManager('test-index', { schema, trackPositions: false }, english, router, 2)
+    insertDocs(manager, makeDocs(20))
+
+    const rebalancer = createRebalancer()
+    await rebalancer.rebalance(manager, 4, router)
+
+    for (let partitionId = 0; partitionId < manager.partitionCount; partitionId++) {
+      const serialized = manager.serializePartition(partitionId)
+      for (const list of Object.values(serialized.invertedIndex)) {
+        for (const posting of list.postings) {
+          expect(posting.positions).toEqual([])
+        }
+      }
+    }
+  })
+
+  it('keeps recording positions after a rebalance by default', async () => {
+    const router = createPartitionRouter()
+    const manager = createPartitionManager('test-index', { schema }, english, router, 2)
+    insertDocs(manager, makeDocs(20))
+
+    const rebalancer = createRebalancer()
+    await rebalancer.rebalance(manager, 4, router)
+
+    let positionCount = 0
+    for (let partitionId = 0; partitionId < manager.partitionCount; partitionId++) {
+      const serialized = manager.serializePartition(partitionId)
+      for (const list of Object.values(serialized.invertedIndex)) {
+        for (const posting of list.postings) {
+          positionCount += posting.positions.length
+        }
+      }
+    }
+    expect(positionCount).toBeGreaterThan(0)
+  })
+
   it('handles large document sets across chunk boundaries', async () => {
     const router = createPartitionRouter()
     const manager = createPartitionManager('test-index', { schema }, english, router, 1)
