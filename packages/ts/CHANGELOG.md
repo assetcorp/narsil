@@ -1,3 +1,16 @@
+## 0.1.12 (2026-07-06)
+
+### 🚀 Features
+
+- **ts:** add surface_forms_enabled field to envelope and update documentation for surface forms feature ([d488fd0](https://github.com/assetcorp/narsil/commit/d488fd0))
+- **ts:** improve rebalancer functionality to maintain position tracking settings during rebalances and improve deserialization safety ([4a802b8](https://github.com/assetcorp/narsil/commit/4a802b8))
+- **ts:** improve surface forms feature and total term frequency calculations in inverted index and surface registry ([fc6446e](https://github.com/assetcorp/narsil/commit/fc6446e))
+- **ts:** implement surface forms and prefix matching ([4455c79](https://github.com/assetcorp/narsil/commit/4455c79))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.1.11 (2026-07-06)
 
 This was a version bump only for narsil-ts to align it with other projects, there were no code changes.
