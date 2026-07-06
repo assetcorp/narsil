@@ -44,6 +44,7 @@ export interface DurabilityIntegrationHooks {
         k1: number
         b: number
         embedding?: IndexEmbeddingMetadata
+        surfaceForms?: boolean
       }
     | undefined
   createIndexFromMetadata: IndexDurabilityHooks['createIndexFromMetadata']
@@ -67,6 +68,9 @@ function buildMetadata(indexName: string, hooks: DurabilityIntegrationHooks): In
   }
   if (config.embedding) {
     metadata.embedding = config.embedding
+  }
+  if (config.surfaceForms) {
+    metadata.surfaceForms = true
   }
   return metadata
 }

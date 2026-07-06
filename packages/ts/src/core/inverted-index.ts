@@ -98,6 +98,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
         positions: null,
         docIdSet: new Set(),
         deletedDocs: new Set(),
+        totalTermFrequency: 0,
       }
       index.set(token, list)
       trackToken(token)
@@ -132,6 +133,8 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
           }
         }
         writeIdx++
+      } else {
+        list.totalTermFrequency -= list.termFrequencies[i]
       }
     }
     list.docIds.length = writeIdx
@@ -153,6 +156,8 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
           }
         }
         writeIdx++
+      } else {
+        list.totalTermFrequency -= list.termFrequencies[i]
       }
     }
     list.docIds.length = writeIdx
@@ -183,6 +188,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       list.docIds.push(internalId)
       list.termFrequencies[idx] = termFrequency > MAX_TERM_FREQUENCY ? MAX_TERM_FREQUENCY : termFrequency
       list.fieldNameIndices[idx] = fieldNameIndex
+      list.totalTermFrequency += list.termFrequencies[idx]
 
       if (positions !== null) {
         if (!list.positions) {
@@ -340,6 +346,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
         const fieldNameIndices = new Uint8Array(count)
         let hasPositions = false
         let validCount = 0
+        let totalTermFrequency = 0
 
         for (let i = 0; i < count; i++) {
           const p = src.postings[i]
@@ -348,6 +355,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
 
           docIds[validCount] = internalId
           termFrequencies[validCount] = p.termFrequency > MAX_TERM_FREQUENCY ? MAX_TERM_FREQUENCY : p.termFrequency
+          totalTermFrequency += termFrequencies[validCount]
 
           let fnIndex = fieldNameTable.indexMap.get(p.fieldName)
           if (fnIndex === undefined) {
@@ -388,6 +396,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
           positions,
           docIdSet,
           deletedDocs: new Set(),
+          totalTermFrequency,
         })
         trackToken(token)
       }

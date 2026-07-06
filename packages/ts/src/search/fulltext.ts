@@ -16,6 +16,49 @@ export interface FulltextSearchOptions {
   globalStats?: GlobalStatistics
 }
 
+const PREFIX_MAX_EXPANSIONS = 50
+
+function resolvePrefixExpansion(
+  partition: PartitionIndex,
+  params: QueryParams,
+  language: LanguageModule,
+  options: FulltextSearchOptions | undefined,
+  queryTokens: Array<{ token: string; position: number }>,
+  lastToken: { token: string; position: number },
+): { token: string; terms: string[] } | undefined {
+  const term = params.term
+  if (term === undefined) return undefined
+
+  const unstemmed = tokenize(term, language, {
+    stem: false,
+    removeStopWords: true,
+    customTokenizer: options?.customTokenizer,
+    stopWordOverride: options?.stopWords,
+  })
+
+  let surfacePrefix: string | undefined
+  for (const t of unstemmed.tokens) {
+    if (t.position === lastToken.position) {
+      surfacePrefix = t.token
+      break
+    }
+  }
+  if (surfacePrefix === undefined || surfacePrefix.length === 0) return undefined
+
+  const expansions = partition.expandTermPrefix(surfacePrefix, lastToken.token, PREFIX_MAX_EXPANSIONS)
+  const terms: string[] = []
+  for (const expanded of expansions) {
+    if (expanded !== lastToken.token) terms.push(expanded)
+  }
+
+  for (const qt of queryTokens) {
+    if (qt.token === lastToken.token) {
+      return { token: qt.token, terms }
+    }
+  }
+  return undefined
+}
+
 export function fulltextSearch(
   partition: PartitionIndex,
   params: QueryParams,
@@ -50,6 +93,12 @@ export function fulltextSearch(
 
   const queryTokens = deduplicateTokens(queryTokenResult.tokens)
 
+  let prefixExpansion: { token: string; terms: string[] } | undefined
+  if (params.prefix === true && params.exact !== true) {
+    const lastToken = queryTokenResult.tokens[queryTokenResult.tokens.length - 1]
+    prefixExpansion = resolvePrefixExpansion(partition, params, language, options, queryTokens, lastToken)
+  }
+
   let filterBitset: Uint32Array | undefined
   if (params.filters) {
     filterBitset = partition.applyFiltersBitset(params.filters, schema)
@@ -76,6 +125,7 @@ export function fulltextSearch(
 
   const rawResult = partition.searchFulltext({
     queryTokens,
+    prefixExpansion,
     fields: params.fields,
     boost: params.boost,
     tolerance: params.tolerance ?? 0,
@@ -93,7 +143,14 @@ export function fulltextSearch(
 
   const termMatch = params.termMatch ?? 'any'
   if (termMatch !== 'any') {
-    scored = filterByTermCoverage(scored, queryTokens, termMatch, params.tolerance ?? 0, params.exact ?? false)
+    scored = filterByTermCoverage(
+      scored,
+      queryTokens,
+      termMatch,
+      params.tolerance ?? 0,
+      params.exact ?? false,
+      prefixExpansion,
+    )
   }
 
   if (params.minScore !== undefined && params.minScore > 0) {
@@ -141,14 +198,17 @@ function filterByTermCoverage(
   policy: TermMatchPolicy,
   tolerance: number,
   exact: boolean,
+  prefixExpansion?: { token: string; terms: string[] },
 ): ScoredDocument[] {
   const requiredCount = policy === 'all' ? queryTokens.length : (policy as number)
 
   if (requiredCount <= 0) return scored
   if (requiredCount > queryTokens.length) return []
 
+  const expansionTerms = prefixExpansion ? new Set(prefixExpansion.terms) : undefined
+
   return scored.filter(doc => {
-    const matched = countDocTermMatches(doc, queryTokens, tolerance, exact)
+    const matched = countDocTermMatches(doc, queryTokens, tolerance, exact, prefixExpansion?.token, expansionTerms)
     return matched >= requiredCount
   })
 }
@@ -158,17 +218,33 @@ function countDocTermMatches(
   queryTokens: Array<{ token: string; position: number }>,
   tolerance: number,
   exact: boolean,
+  prefixToken?: string,
+  expansionTerms?: Set<string>,
 ): number {
   const indexTokens = Object.keys(doc.idf)
   if (indexTokens.length === 0) return 0
 
   let count = 0
   for (const qt of queryTokens) {
+    if (prefixToken !== undefined && qt.token === prefixToken) {
+      if (prefixTokenSatisfied(qt.token, indexTokens, expansionTerms)) {
+        count++
+      }
+      continue
+    }
     if (queryTermSatisfied(qt.token, indexTokens, tolerance, exact)) {
       count++
     }
   }
   return count
+}
+
+function prefixTokenSatisfied(prefixToken: string, indexTokens: string[], expansionTerms?: Set<string>): boolean {
+  for (const indexToken of indexTokens) {
+    if (indexToken === prefixToken) return true
+    if (expansionTerms?.has(indexToken)) return true
+  }
+  return false
 }
 
 function queryTermSatisfied(queryToken: string, indexTokens: string[], tolerance: number, exact: boolean): boolean {

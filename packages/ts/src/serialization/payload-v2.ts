@@ -1,5 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
-import type { SerializablePartition } from '../types/internal'
+import type { SerializablePartition, SerializedSurfaceForms } from '../types/internal'
+import { sanitizeSurfaceForms } from './payload-v1'
 
 interface ColumnarPostingList {
   df: number
@@ -29,6 +30,7 @@ export interface RawPartitionPayloadV2 {
     enum: Record<string, Record<string, string[]>>
     geopoint: Record<string, Array<{ lat: number; lon: number; doc_id: string }>>
   }
+  surface_forms?: SerializedSurfaceForms
   vector_data?: Record<
     string,
     {
@@ -161,6 +163,7 @@ export function deserializePayloadV2(data: Uint8Array): SerializablePartition {
       enum: raw.field_indexes?.enum ?? {},
       geopoint,
     },
+    surfaceForms: sanitizeSurfaceForms(raw.surface_forms),
     vectorData,
     statistics: {
       totalDocuments: raw.statistics?.total_documents ?? 0,

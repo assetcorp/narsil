@@ -39,20 +39,20 @@ docker run --rm -p 7700:7700 narsil-server
 
 Every setting reads from an environment variable, so the same image runs locally and in a container.
 
-| Variable                  | Default     | What it does                                                   |
-| ------------------------- | ----------- | -------------------------------------------------------------- |
-| `NARSIL_HOST`             | `127.0.0.1` | Sets the address the server binds to.                          |
-| `NARSIL_PORT`             | `7700`      | Sets the port the server binds to.                             |
-| `NARSIL_DURABILITY_DIR`   | unset       | Enables filesystem durability rooted at this path.             |
-| `NARSIL_API_KEY`          | unset       | Requires this token via `Authorization: Bearer` or `x-api-key`.|
-| `NARSIL_ALLOW_INSECURE`   | `false`     | Permits a non-loopback bind with no API key (see below).       |
+| Variable                  | Default     | What it does                                                         |
+| ------------------------- | ----------- | -------------------------------------------------------------------- |
+| `NARSIL_HOST`             | `127.0.0.1` | Sets the address the server binds to.                                |
+| `NARSIL_PORT`             | `7700`      | Sets the port the server binds to.                                   |
+| `NARSIL_DURABILITY_DIR`   | unset       | Enables filesystem durability rooted at this path.                   |
+| `NARSIL_API_KEY`          | unset       | Requires this token via `Authorization: Bearer` or `x-api-key`.      |
+| `NARSIL_ALLOW_INSECURE`   | `false`     | Permits a non-loopback bind with no API key (see below).             |
 | `NARSIL_INSTANCE_ID`      | random      | Sets a stable id that lets a restart fail this instance's own tasks. |
-| `NARSIL_MAX_BODY_BYTES`   | `16777216`  | Caps the JSON request body (16 MiB).                           |
-| `NARSIL_MAX_IMPORT_BYTES` | `104857600` | Caps NDJSON import and restore bodies (100 MiB).               |
-| `NARSIL_MAX_CONCURRENT`   | unbounded   | Caps requests running engine work at once.                     |
-| `NARSIL_BUILD_VERSION`    | unset       | Sets the package version reported at `GET /version`.           |
-| `NARSIL_BUILD_GIT_SHA`    | unset       | Sets the git commit reported at `GET /version`.                |
-| `NARSIL_BUILD_DIRTY`      | `false`     | Marks the build as coming from a dirty working tree.           |
+| `NARSIL_MAX_BODY_BYTES`   | `16777216`  | Caps the JSON request body (16 MiB).                                 |
+| `NARSIL_MAX_IMPORT_BYTES` | `104857600` | Caps NDJSON import and restore bodies (100 MiB).                     |
+| `NARSIL_MAX_CONCURRENT`   | unbounded   | Caps requests running engine work at once.                           |
+| `NARSIL_BUILD_VERSION`    | unset       | Sets the package version reported at `GET /version`.                 |
+| `NARSIL_BUILD_GIT_SHA`    | unset       | Sets the git commit reported at `GET /version`.                      |
+| `NARSIL_BUILD_DIRTY`      | `false`     | Marks the build as coming from a dirty working tree.                 |
 
 ## Durability
 
@@ -98,7 +98,7 @@ The probes and `/version` skip the authentication hook; every other endpoint run
 
 ### Indexes
 
-**`POST /indexes`** creates an index. The body carries a name and a declarative config: `schema` is required, and `language`, `partitions`, `defaultScoring`, `bm25`, `stopWords` (an array of strings), `trackPositions`, `vectorPromotion`, `strict`, `embedding`, and `required` are optional. Function-valued engine options (a custom tokenizer or a group reducer) cannot cross JSON; an embedding adapter is referenced by the name it was registered under on the server.
+**`POST /indexes`** creates an index. The body carries a name and a declarative config: `schema` is required, and `language`, `partitions`, `defaultScoring`, `bm25`, `stopWords` (an array of strings), `trackPositions`, `surfaceForms`, `vectorPromotion`, `strict`, `embedding`, and `required` are optional. Function-valued engine options (a custom tokenizer or a group reducer) cannot cross JSON; an embedding adapter is referenced by the name it was registered under on the server.
 
 ```bash
 curl -X POST localhost:7700/indexes \
@@ -170,7 +170,7 @@ Each entry in `errors` carries a `code`, a `message`, and either the `line` numb
 
 ### Search
 
-**`POST /indexes/{name}/search`** takes the same query parameters as the embedded `query()` method, documented in the [package README](../../README.md#search): `term`, `fields`, `filters`, `boost`, `mode`, `vector`, `hybrid`, `facets`, `sort`, `group`, `limit`, `offset`, `searchAfter`, `highlight`, `pinned`, `minScore`, `termMatch`, `tolerance`, `prefixLength`, `exact`, `scoring`, and `includeScoreComponents`. The response is the engine's result: `{ "hits", "count", "elapsed", "cursor"?, "facets"?, "groups"? }`. Custom group reducers are functions and cannot cross JSON, so a body carrying `group.reduce` fails with 400; `group.fields` and `group.maxPerGroup` work over HTTP.
+**`POST /indexes/{name}/search`** takes the same query parameters as the embedded `query()` method, documented in the [package README](../../README.md#search): `term`, `fields`, `filters`, `boost`, `mode`, `vector`, `hybrid`, `facets`, `sort`, `group`, `limit`, `offset`, `searchAfter`, `highlight`, `pinned`, `minScore`, `termMatch`, `tolerance`, `prefix`, `prefixLength`, `exact`, `scoring`, and `includeScoreComponents`. The response is the engine's result: `{ "hits", "count", "elapsed", "cursor"?, "facets"?, "groups"? }`. Custom group reducers are functions and cannot cross JSON, so a body carrying `group.reduce` fails with 400; `group.fields` and `group.maxPerGroup` work over HTTP.
 
 ```bash
 curl -X POST localhost:7700/indexes/movies/search \
@@ -185,7 +185,7 @@ curl -X POST localhost:7700/indexes/movies/search \
 
 **`POST /indexes/{name}/search/preflight`** takes the same body and returns `{ "count", "elapsed" }` without materializing hits, which sizes a result set before an expensive query.
 
-**`POST /indexes/{name}/suggest`** takes `{ "prefix": "mat", "limit"?: 5 }` and returns autocomplete candidates ranked by document frequency: `{ "terms": [{ "term", "documentFrequency" }], "elapsed" }`.
+**`POST /indexes/{name}/suggest`** takes `{ "prefix": "mat", "limit"?: 5 }` and returns autocomplete candidates ranked by document frequency: `{ "terms": [{ "term", "documentFrequency" }], "elapsed" }`. Candidates are stemmed index terms; an index created with `surfaceForms: true` returns the original spellings.
 
 ### Snapshots and checkpoints
 

@@ -196,6 +196,7 @@ await narsil.createIndex('articles', {
 | `stopWords` | `Set<string> \| (defaults: Set<string>) => Set<string>` | Replaces or transforms the language module's stop word set. |
 | `tokenizer` | `CustomTokenizer` | Replaces the built-in tokenizer with your own `tokenize(text)` implementation. |
 | `trackPositions` | `boolean` | Stores token positions for highlighting. The default is `true`. |
+| `surfaceForms` | `boolean` | Records the original spellings of stemmed words for suggestions and prefix completions. The default is `false`. See [Suggestions](#suggestions). |
 | `vectorPromotion` | `VectorIndexConfig` | Tunes the HNSW promotion threshold, graph parameters, and quantization. See [Vector search](#vector-search). |
 | `strict` | `boolean` | Rejects documents that carry fields missing from the schema. |
 | `embedding` | `EmbeddingFieldConfig` | Maps text fields to vector fields for auto-embedding. See [Embedding adapters](#embedding-adapters). |
@@ -311,6 +312,19 @@ const results = await narsil.query('products', {
   term: 'keybaord',
   tolerance: 2,
   prefixLength: 3,
+})
+```
+
+### Search as you type
+
+`prefix: true` treats the last word of the query as an unfinished word, so `secur` matches documents containing `security`. Earlier words must match fully, and `tolerance` keeps applying to them while the unfinished word is completed instead of typo-corrected. Completions score against a shared document frequency and rank below full-word matches, so a document containing the exact typed word comes first. The option is off by default; turn it on for queries fired on every keystroke.
+
+Completions match against the term dictionary, which stores stemmed tokens, so a typed word that runs past the end of a stem stops matching: `security` is indexed as `secur`, and the query `securi` finds nothing. Create the index with `surfaceForms: true` to match completions against the original spellings instead; the same setting gives [suggestions](#suggestions) their display words.
+
+```ts
+const results = await narsil.query('products', {
+  term: 'mechanical keyb',
+  prefix: true,
 })
 ```
 
@@ -476,11 +490,16 @@ const { count, elapsed } = await narsil.preflight('products', { term: 'keyboard'
 
 ### Suggestions
 
-`suggest(indexName, params)` returns autocomplete candidates from the index's term dictionary. It tokenizes the input, takes the last word as the prefix, and ranks matching terms by document frequency.
+`suggest(indexName, params)` returns autocomplete candidates. It tokenizes the input, takes the last word as the prefix, and ranks completions by the number of documents they match. By default the candidates are the stemmed tokens the index stores, so a catalogue containing "mechanical" suggests the stem `mechan`. Create the index with `surfaceForms: true` to suggest the words as they appear in your documents; the engine then records the original spelling of every word the stemmer changed and suggests `mechanical` instead.
 
 ```ts
+await narsil.createIndex('products', {
+  schema: { title: 'string', description: 'string' },
+  surfaceForms: true,
+})
+
 const suggestions = await narsil.suggest('products', { prefix: 'mech', limit: 5 })
-// suggestions.terms => [{ term: 'mechan', documentFrequency: 12 }, ...]
+// suggestions.terms => [{ term: 'mechanical', documentFrequency: 12 }, ...]
 ```
 
 ## Vector search
