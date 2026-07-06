@@ -11,6 +11,7 @@ const schema: SchemaDefinition = {
 const indexConfig: IndexConfig = {
   schema,
   language: 'english',
+  surfaceForms: true,
 }
 
 const documents = [
@@ -137,6 +138,7 @@ describe('suggest', () => {
     await narsil.createIndex('partitioned', {
       schema,
       language: 'english',
+      surfaceForms: true,
       partitions: { maxDocsPerPartition: 3, maxPartitions: 3 },
     })
 
@@ -156,6 +158,7 @@ describe('suggest', () => {
     await narsil.createIndex('multi', {
       schema,
       language: 'english',
+      surfaceForms: true,
       partitions: { maxDocsPerPartition: 3, maxPartitions: 3 },
     })
 
@@ -167,5 +170,32 @@ describe('suggest', () => {
     const running = result.terms.find(t => t.term === 'running')
     expect(running).toBeDefined()
     expect(running?.documentFrequency).toBe(2)
+  })
+
+  it('returns index stems when surface forms are off, which is the default', async () => {
+    await narsil.createIndex('plain', { schema, language: 'english' })
+    await narsil.insertBatch(
+      'plain',
+      documents.map((doc, i) => ({ ...doc, _id: `plain-${i}` })),
+    )
+
+    const result = await narsil.suggest('plain', { prefix: 'run' })
+    const terms = result.terms.map(t => t.term)
+    expect(terms).toContain('run')
+    expect(terms).not.toContain('running')
+  })
+
+  it('picks the display spelling users wrote most often, counting unchanged words', async () => {
+    await narsil.createIndex('spellings', {
+      schema: { body: 'string' },
+      language: 'english',
+      surfaceForms: true,
+    })
+    await narsil.insert('spellings', { body: 'run run run running' })
+
+    const result = await narsil.suggest('spellings', { prefix: 'run' })
+    const terms = result.terms.map(t => t.term)
+    expect(terms).toContain('run')
+    expect(terms).not.toContain('running')
   })
 })

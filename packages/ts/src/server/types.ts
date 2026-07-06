@@ -159,6 +159,7 @@ export interface HttpIndexConfig {
   bm25?: { k1?: number; b?: number }
   stopWords?: string[]
   trackPositions?: boolean
+  surfaceForms?: boolean
   vectorPromotion?: Record<string, unknown>
   strict?: boolean
   embedding?: CreateIndexEmbedding

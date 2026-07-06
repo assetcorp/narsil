@@ -1,4 +1,4 @@
-import { createPartitionIndex, type PartitionIndex } from '../core/partition'
+import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../core/partition'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { PartitionManager } from './manager'
 import type { PartitionRouter } from './router'
@@ -83,6 +83,15 @@ export function createRebalancer(): Rebalancer {
 
       let documentsProcessed = 0
 
+      // Re-insertion must tokenise exactly as the original inserts did, or
+      // the rebuilt partitions hold different tokens and surface counts.
+      const insertOptions: PartitionInsertOptions = {
+        validate: false,
+        stopWordOverride: manager.config.stopWords,
+        customTokenizer: manager.config.tokenizer,
+        collectSurfaces: manager.config.surfaceForms === true,
+      }
+
       for (let chunkStart = 0; chunkStart < collectedDocs.length; chunkStart += CHUNK_SIZE) {
         const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, collectedDocs.length)
 
@@ -95,7 +104,7 @@ export function createRebalancer(): Rebalancer {
             continue
           }
 
-          targetPartition.insert(docId, document, manager.schema, manager.language, { validate: false })
+          targetPartition.insert(docId, document, manager.schema, manager.language, insertOptions)
           documentsProcessed++
         }
 

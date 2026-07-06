@@ -15,19 +15,19 @@ const schema: SchemaDefinition = { title: 'string' }
 
 function buildPartition() {
   const partition = createPartitionIndex(0)
-  partition.insert('d1', { title: 'security running fox' }, schema, stemming)
-  partition.insert('d2', { title: 'security fox' }, schema, stemming)
+  partition.insert('d1', { title: 'security running fox' }, schema, stemming, { collectSurfaces: true })
+  partition.insert('d2', { title: 'security fox' }, schema, stemming, { collectSurfaces: true })
   return partition
 }
 
 describe('surface forms in serialized partitions', () => {
-  it('serializes surfaces with counts, storing the token only when stemming changed it', () => {
+  it('serializes only stem-changed surfaces with their counts and tokens', () => {
     const partition = buildPartition()
     const serialized = partition.serialize('idx', 1, 'test-stemming', schema)
 
     expect(serialized.surfaceForms?.security).toEqual([2, 'secur'])
     expect(serialized.surfaceForms?.running).toEqual([1, 'runn'])
-    expect(serialized.surfaceForms?.fox).toBe(2)
+    expect(serialized.surfaceForms?.fox).toBeUndefined()
   })
 
   it('round-trips surface forms through payload v1', () => {
@@ -51,7 +51,7 @@ describe('surface forms in serialized partitions', () => {
     const decoded = deserializePayloadV2(bytes)
 
     expect(decoded.surfaceForms?.security).toEqual([2, 'secur'])
-    expect(decoded.surfaceForms?.fox).toBe(2)
+    expect(decoded.surfaceForms?.fox).toBeUndefined()
   })
 
   it('loads payloads without surface forms and falls back to index terms', () => {

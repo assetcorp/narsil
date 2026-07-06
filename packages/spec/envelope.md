@@ -240,20 +240,29 @@ recognises from suggestion and prefix queries while the inverted
 index stays stemmed.
 
 ```text
-SurfaceForm = uint32                  when the surface equals its index token
-            | [uint32, string]        [occurrence_count, index_token] otherwise
+SurfaceForm = [uint32, string]        [occurrence_count, index_token]
 ```
+
+Writers record a surface only when stemming changed it, so the
+stored token always differs from the surface. A word the stemmer
+left unchanged is already an index token, and readers derive its
+occurrence count on demand: the token's total term frequency minus
+the counts of the stored surfaces mapped to it. A token's total term
+frequency is the sum of the `term_freq` values in its posting list.
+Readers must skip entries whose value is not a two-element array of
+that shape and entries whose token equals the surface.
 
 `occurrence_count` records how many times the surface occurred
 across all indexed text in the partition. The engine removes an
-entry when its count reaches zero and uses the count to choose
-between spellings sharing an index token. Scoring ignores the count.
-Readers resolve a surface's document frequency at read time from the
-posting list of its index token.
+entry when its count reaches zero and uses counts only to choose
+between spellings sharing an index token. Scoring ignores the
+counts. Readers resolve a surface's document frequency at read time
+from the posting list of its index token.
 
-The field is optional (added in envelope format v1.1). Readers fill
-in an empty map for payloads written before v1.1, and suggestion and
-prefix queries then fall back to raw index terms.
+The field is optional (added in envelope format v1.1) and is written
+only for indexes configured to collect surface forms. Readers fill
+in an empty map when the field is absent, and suggestion and prefix
+queries then fall back to raw index terms.
 
 ### Statistics
 

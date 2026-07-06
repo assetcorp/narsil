@@ -147,6 +147,7 @@ function createDurabilityFromConfig(
         k1: entry.config.bm25?.k1 ?? 1.2,
         b: entry.config.bm25?.b ?? 0.75,
         ...(embedding !== undefined ? { embedding } : {}),
+        ...(entry.config.surfaceForms === true ? { surfaceForms: true } : {}),
       }
     },
     createIndexFromMetadata: wiring.createIndexFromMetadata,

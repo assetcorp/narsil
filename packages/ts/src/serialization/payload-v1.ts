@@ -85,6 +85,7 @@ interface RawMetadataPayload {
   engine_version: string
   vector_fields?: Record<string, { dimension: number; metric: string; quantization: string }>
   embedding?: { adapter?: string; fields: Record<string, string | string[]> }
+  surface_forms_enabled?: boolean
 }
 
 function partitionToWire(partition: SerializablePartition): RawPartitionPayload {
@@ -284,6 +285,9 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
         ? { adapter: meta.embedding.adapter, fields: meta.embedding.fields }
         : { fields: meta.embedding.fields }
   }
+  if (meta.surfaceForms === true) {
+    wire.surface_forms_enabled = true
+  }
   return wire
 }
 
@@ -305,6 +309,9 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
       typeof raw.embedding.adapter === 'string'
         ? { adapter: raw.embedding.adapter, fields: raw.embedding.fields }
         : { fields: raw.embedding.fields }
+  }
+  if (raw.surface_forms_enabled === true) {
+    meta.surfaceForms = true
   }
   return meta
 }

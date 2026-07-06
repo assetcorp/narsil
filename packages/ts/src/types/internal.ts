@@ -23,6 +23,8 @@ export interface CompactPostingList {
   positions: number[][] | null
   docIdSet: Set<number>
   deletedDocs: Set<number>
+  /** Sum of live termFrequencies; stale-high between remove and compaction. */
+  totalTermFrequency: number
 }
 
 export interface StoredDocument {
@@ -120,6 +122,8 @@ export interface IndexMetadata {
   engineVersion: string
   vectorFields?: Record<string, { dimension: number; metric: string; quantization: string }>
   embedding?: IndexEmbeddingMetadata
+  /** Persisted so recovered indexes keep collecting surface forms. */
+  surfaceForms?: boolean
 }
 
 /** Persisted so recovery can restore field mappings and rebind the adapter by

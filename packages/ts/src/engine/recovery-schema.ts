@@ -35,5 +35,8 @@ export function reconstructSchemaFromMetadata(metadata: IndexMetadata): IndexCon
         ? { adapter: metadata.embedding.adapter, fields: metadata.embedding.fields }
         : { fields: metadata.embedding.fields }
   }
+  if (metadata.surfaceForms === true) {
+    config.surfaceForms = true
+  }
   return config
 }

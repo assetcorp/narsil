@@ -260,13 +260,14 @@ export function removeFromIndexes(
   const tokensByField: Record<string, string[]> = {}
   const fields = storedDoc.fields
   const internalId = resolveInternalId(state, docId)
+  const opts = tokenizeOptions(options)
 
   for (const [fieldPath, fieldType] of Object.entries(flatSchema)) {
     const value = getNestedValue(fields as Record<string, unknown>, fieldPath)
     if (value === undefined || value === null) continue
 
     if (fieldType === 'string') {
-      const result = tokenize(value as string, language, tokenizeOptions(options))
+      const result = tokenize(value as string, language, opts)
       fieldLengths[fieldPath] = result.tokens.length
       const uniqueTokens = new Set<string>()
       const fieldTokenList: string[] = []
@@ -294,7 +295,7 @@ export function removeFromIndexes(
       const fieldTokenList: string[] = []
       const surfaceCounts: SurfaceCounts = new Map()
       for (const item of arr) {
-        const result = tokenize(item, language, tokenizeOptions(options))
+        const result = tokenize(item, language, opts)
         for (let i = 0; i < result.tokens.length; i++) {
           const t = result.tokens[i]
           uniqueTokens.add(t.token)
