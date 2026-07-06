@@ -360,6 +360,7 @@ a different payload structure:
   engine_version:  string  (e.g., "0.1.0")
   vector_fields:   map[string, VectorFieldMeta]
   embedding:       EmbeddingMeta  (optional)
+  surface_forms_enabled: bool  (optional)
 }
 
 VectorFieldMeta {
@@ -389,6 +390,13 @@ created with a named adapter, because adapter instances hold live
 resources and cannot be serialised. Recovery uses the name to rebind
 the adapter from the engine's registry, as described in
 [durability.md](durability.md#index-metadata).
+
+The `surface_forms_enabled` field records that the index collects
+surface forms, as described in [Surface Forms](#surface-forms).
+Writers include the field only when collection is turned on. Readers
+treat an absent field as off, which matches every metadata payload
+written before the field existed, and recovery reads the value so
+the index keeps collecting surfaces after a restart.
 
 ---
 
