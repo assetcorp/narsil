@@ -1,0 +1,69 @@
+name: Bug report
+description: Report something that does not work as documented.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report a bug. Please fill in the sections below so the problem is easy to reproduce.
+  - type: input
+    id: version
+    attributes:
+      label: Narsil version
+      description: The version of @delali/narsil you are running.
+      placeholder: 0.1.11
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime
+      options:
+        - Node.js
+        - Bun
+        - Deno
+        - Browser
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which part
+      description: Where the problem happens.
+      options:
+        - Embedded engine
+        - Server (@delali/narsil/server)
+        - Distribution (@delali/narsil/distribution)
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: A minimal code sample or a sequence of steps that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and errors
+      description: Any error messages, stack traces, or logs. This will be formatted as code, so no backticks are needed.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I am running a supported runtime and the latest version.
+          required: true
