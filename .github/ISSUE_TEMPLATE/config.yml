@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Read the documentation
+    url: https://github.com/assetcorp/narsil#readme
+    about: The README and the package documentation cover most questions about usage and configuration.
+  - name: Read the roadmap
+    url: https://github.com/assetcorp/narsil/blob/main/ROADMAP.md
+    about: Check the roadmap before you request a feature, in case the work is already planned.
