@@ -36,7 +36,13 @@ function costUSD(modelId: string | undefined, usage: Record<string, number>): nu
 }
 
 function currency(value: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
+  const maximumFractionDigits = value > 0 && value < 0.01 ? 4 : 2
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits,
+  }).format(value)
 }
 
 function compact(value: number): string {
