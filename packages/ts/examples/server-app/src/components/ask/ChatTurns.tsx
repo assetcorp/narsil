@@ -1,9 +1,30 @@
 import { BookOpen, Check, Copy, Globe, RefreshCcw, Search } from 'lucide-react'
-import { memo, useCallback, useState } from 'react'
+import { memo, useCallback, useMemo, useState } from 'react'
+import { getUsage } from 'tokenlens'
+import { openaiModels } from 'tokenlens/providers/openai'
+import {
+  ChainOfThought,
+  ChainOfThoughtContent,
+  ChainOfThoughtHeader,
+  ChainOfThoughtSearchResult,
+  ChainOfThoughtSearchResults,
+  ChainOfThoughtStep,
+} from '#/components/ai-elements/chain-of-thought'
+import {
+  Context,
+  ContextCacheUsage,
+  ContextContent,
+  ContextContentBody,
+  ContextContentFooter,
+  ContextContentHeader,
+  ContextInputUsage,
+  ContextOutputUsage,
+  ContextReasoningUsage,
+  ContextTrigger,
+} from '#/components/ai-elements/context'
 import { MessageAction, MessageActions, MessageResponse, MessageToolbar } from '#/components/ai-elements/message'
 import { Reasoning, ReasoningContent, ReasoningTrigger } from '#/components/ai-elements/reasoning'
 import { Source, Sources, SourcesContent, SourcesTrigger } from '#/components/ai-elements/sources'
-import { Tool, ToolContent, ToolHeader } from '#/components/ai-elements/tool'
 import { Bubble, BubbleContent } from '#/components/ui/bubble'
 import { Marker, MarkerContent, MarkerIcon } from '#/components/ui/marker'
 import { Message, MessageContent } from '#/components/ui/message'
@@ -21,9 +42,11 @@ import { AnswerSourcesDisclosure, CitationChips } from './AnswerSources'
 type AskMessagePart = AskUIMessage['parts'][number]
 type SearchPart = Extract<AskMessagePart, { type: 'tool-search' }>
 type ReadPart = Extract<AskMessagePart, { type: 'tool-readDocument' }>
-type ReasoningPart = Extract<AskMessagePart, { type: 'reasoning' }>
+type ToolPart = SearchPart | ReadPart
+type StepStatus = 'complete' | 'active' | 'pending'
 
 const READ_PREVIEW_CHARS = 240
+const DEFAULT_CONTEXT_TOKENS = 128_000
 
 interface UserTurnProps {
   message: AskUIMessage
@@ -109,100 +132,107 @@ function WebSources({ message }: { message: AskUIMessage }) {
   )
 }
 
-function SearchStep({ part }: { part: SearchPart }) {
+function toolStatus(part: ToolPart, isStreaming: boolean): StepStatus {
+  if (part.state === 'output-available' || part.state === 'output-error') return 'complete'
+  return isStreaming ? 'active' : 'pending'
+}
+
+function SearchTraceStep({ part, isStreaming }: { part: SearchPart; isStreaming: boolean }) {
   const input = part.input as AskSearchInput | undefined
   const query = input?.query
   const output = part.state === 'output-available' ? part.output : null
-  const count = output?.results.length ?? 0
+  const status = toolStatus(part, isStreaming)
+  const results = output?.results ?? []
 
-  const title = (
-    <span>
-      {query ? `Searched "${query}"` : 'Searching the index'}
-      {output && (
-        <span className="font-normal text-muted-foreground"> — {count === 1 ? '1 result' : `${count} results`}</span>
-      )}
-    </span>
-  )
+  const label = output
+    ? `Searched ${query ? `“${query}”` : 'the index'} — ${results.length === 1 ? '1 result' : `${results.length} results`}`
+    : query
+      ? `Searching “${query}”`
+      : 'Searching the index'
 
   return (
-    <Tool>
-      <ToolHeader state={part.state} icon={<Search className="size-4" />} title={title} />
-      {output && output.results.length > 0 && (
-        <ToolContent>
-          <ul className="space-y-1 border-t px-3 py-2 text-xs text-muted-foreground">
-            {output.results.map(result => (
-              <li key={result.docId} className="truncate">
-                {result.title}
-              </li>
-            ))}
-          </ul>
-        </ToolContent>
+    <ChainOfThoughtStep icon={Search} label={label} status={status}>
+      {results.length > 0 && (
+        <ChainOfThoughtSearchResults>
+          {results.map(result => (
+            <ChainOfThoughtSearchResult key={result.docId}>{result.title}</ChainOfThoughtSearchResult>
+          ))}
+        </ChainOfThoughtSearchResults>
       )}
-    </Tool>
+    </ChainOfThoughtStep>
   )
 }
 
-function ReadStep({ part }: { part: ReadPart }) {
+function ReadTraceStep({ part, isStreaming }: { part: ReadPart; isStreaming: boolean }) {
   const input = part.input as AskReadInput | undefined
   const output = part.state === 'output-available' ? part.output : null
   const errored = output && isAskReadError(output) ? output : null
   const page = output && !isAskReadError(output) ? output : null
+  const status = toolStatus(part, isStreaming)
 
-  const title = page
-    ? `Read ${page.title} (part ${page.page + 1}/${page.totalPages})`
+  const label = page
+    ? `Read ${page.title} · part ${page.page + 1}/${page.totalPages}`
     : errored
       ? "Couldn't open that document"
       : `Reading ${input?.docId ? `document ${input.docId}` : 'a document'}`
 
-  const preview = page ? page.text.slice(0, READ_PREVIEW_CHARS).trim() : null
+  const description = errored
+    ? errored.error
+    : page
+      ? `${page.text.slice(0, READ_PREVIEW_CHARS).trim()}${page.text.length > READ_PREVIEW_CHARS ? '…' : ''}`
+      : undefined
+
+  return <ChainOfThoughtStep icon={BookOpen} label={label} description={description} status={status} />
+}
+
+function AgentTrace({ toolParts, isStreaming }: { toolParts: ToolPart[]; isStreaming: boolean }) {
+  const [open, setOpen] = useState(false)
+  const summary = isStreaming
+    ? 'Working through the index'
+    : `Worked through ${toolParts.length} ${toolParts.length === 1 ? 'step' : 'steps'}`
 
   return (
-    <Tool>
-      <ToolHeader state={part.state} icon={<BookOpen className="size-4" />} title={title} />
-      {errored && (
-        <ToolContent>
-          <p className="border-t px-3 py-2 text-xs text-destructive">{errored.error}</p>
-        </ToolContent>
-      )}
-      {preview && preview.length > 0 && (
-        <ToolContent>
-          <p className="border-t px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-            {preview}
-            {page && page.text.length > READ_PREVIEW_CHARS ? '…' : ''}
-          </p>
-        </ToolContent>
-      )}
-    </Tool>
+    <ChainOfThought open={open || isStreaming} onOpenChange={setOpen}>
+      <ChainOfThoughtHeader>{summary}</ChainOfThoughtHeader>
+      <ChainOfThoughtContent>
+        {toolParts.map(part =>
+          part.type === 'tool-search' ? (
+            <SearchTraceStep key={part.toolCallId} part={part} isStreaming={isStreaming} />
+          ) : (
+            <ReadTraceStep key={part.toolCallId} part={part} isStreaming={isStreaming} />
+          ),
+        )}
+      </ChainOfThoughtContent>
+    </ChainOfThought>
   )
 }
 
-function ReasoningStep({ part }: { part: ReasoningPart }) {
-  if (part.text.length === 0) return null
+function contextWindowFor(modelId: string | undefined): number {
+  if (!modelId) return DEFAULT_CONTEXT_TOKENS
+  const context = getUsage({ modelId, usage: { input: 0, output: 0 }, providers: openaiModels }).context
+  return context?.combinedMax ?? context?.totalMax ?? DEFAULT_CONTEXT_TOKENS
+}
+
+function ContextChip({ message }: { message: AskUIMessage }) {
+  const usage = message.metadata?.usage
+  const modelId = message.metadata?.modelId
+  const usedTokens = usage?.totalTokens ?? (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0)
+  if (!usage || usedTokens === 0) return null
+
   return (
-    <Reasoning isStreaming={part.state === 'streaming'}>
-      <ReasoningTrigger />
-      <ReasoningContent>{part.text}</ReasoningContent>
-    </Reasoning>
-  )
-}
-
-function AssistantPart({ part }: { part: AskMessagePart }) {
-  if (part.type === 'text') {
-    return part.text.length > 0 ? <MessageResponse>{part.text}</MessageResponse> : null
-  }
-  if (part.type === 'reasoning') return <ReasoningStep part={part} />
-  if (part.type === 'tool-search') return <SearchStep part={part} />
-  if (part.type === 'tool-readDocument') return <ReadStep part={part} />
-  return null
-}
-
-function hasVisiblePart(message: AskUIMessage): boolean {
-  return message.parts.some(
-    part =>
-      (part.type === 'text' && part.text.length > 0) ||
-      (part.type === 'reasoning' && part.text.length > 0) ||
-      part.type === 'tool-search' ||
-      part.type === 'tool-readDocument',
+    <Context usedTokens={usedTokens} maxTokens={contextWindowFor(modelId)} usage={usage} modelId={modelId}>
+      <ContextTrigger className="h-8 gap-1.5 px-2 text-xs" />
+      <ContextContent>
+        <ContextContentHeader />
+        <ContextContentBody>
+          <ContextInputUsage />
+          <ContextOutputUsage />
+          <ContextReasoningUsage />
+          <ContextCacheUsage />
+        </ContextContentBody>
+        <ContextContentFooter />
+      </ContextContent>
+    </Context>
   )
 }
 
@@ -215,10 +245,11 @@ interface AssistantTurnProps {
 }
 
 /**
- * One agentic answer, rendered in the order it happened: each search and read
- * appears as a concise step card as the model works, then the markdown answer
- * with [n] citations, then the chips mapping those citations back to the
- * documents the agent opened.
+ * One agentic answer. The model's private thinking is consolidated into a single
+ * Reasoning block, every search and document read becomes a labeled step in a
+ * Chain of Thought trace, then the markdown answer with [n] citations, the chips
+ * mapping those citations back to the opened documents, and a Context chip
+ * reporting how much of the model's window the answer consumed.
  */
 export const AssistantTurn = memo(function AssistantTurn({
   message,
@@ -233,6 +264,27 @@ export const AssistantTurn = memo(function AssistantTurn({
     ? (RETRIEVAL_MODE_OPTIONS.find(option => option.id === retrieval.mode)?.label ?? retrieval.mode)
     : null
 
+  const reasoningText = useMemo(
+    () =>
+      message.parts
+        .flatMap(part => (part.type === 'reasoning' ? [part.text] : []))
+        .join('\n\n')
+        .trim(),
+    [message.parts],
+  )
+  const lastPart = message.parts.at(-1)
+  const isReasoningStreaming = isStreaming && lastPart?.type === 'reasoning'
+
+  const toolParts = useMemo(
+    () =>
+      message.parts.filter(
+        (part): part is ToolPart => part.type === 'tool-search' || part.type === 'tool-readDocument',
+      ),
+    [message.parts],
+  )
+
+  const hasVisiblePart = text.length > 0 || reasoningText.length > 0 || toolParts.length > 0
+
   return (
     <Message>
       <MessageContent>
@@ -243,17 +295,22 @@ export const AssistantTurn = memo(function AssistantTurn({
           </div>
         )}
 
-        {message.parts.map((part, index) => (
-          <AssistantPart key={`${part.type}-${index}`} part={part} />
-        ))}
+        {reasoningText.length > 0 && (
+          <Reasoning isStreaming={isReasoningStreaming}>
+            <ReasoningTrigger />
+            <ReasoningContent>{reasoningText}</ReasoningContent>
+          </Reasoning>
+        )}
+
+        {toolParts.length > 0 && <AgentTrace toolParts={toolParts} isStreaming={isStreaming} />}
+
+        {text.length > 0 && <MessageResponse>{text}</MessageResponse>}
 
         {isStreaming && text.length === 0 && (
           <SearchingMarker phase="generating" indexName={retrieval?.indexName ?? ''} />
         )}
 
-        {!isStreaming && !hasVisiblePart(message) && (
-          <p className="text-sm text-muted-foreground">No answer was produced.</p>
-        )}
+        {!isStreaming && !hasVisiblePart && <p className="text-sm text-muted-foreground">No answer was produced.</p>}
 
         {retrieval && <AnswerSourcesDisclosure retrieval={retrieval} onOpenSource={onOpenSource} />}
 
@@ -271,6 +328,7 @@ export const AssistantTurn = memo(function AssistantTurn({
                 </MessageAction>
               )}
             </MessageActions>
+            <ContextChip message={message} />
           </MessageToolbar>
         )}
       </MessageContent>
