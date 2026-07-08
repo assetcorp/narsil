@@ -48,7 +48,14 @@ export const InlineCitationCardTrigger = ({ sources, className, ...props }: Inli
 export type InlineCitationCardBodyProps = ComponentProps<'div'>
 
 export const InlineCitationCardBody = ({ className, ...props }: InlineCitationCardBodyProps) => (
-  <HoverCardContent className={cn('relative w-80 p-0', className)} {...props} />
+  <HoverCardContent
+    collisionPadding={12}
+    className={cn(
+      'relative w-80 max-h-[min(24rem,var(--radix-hover-card-content-available-height))] overflow-y-auto p-0',
+      className,
+    )}
+    {...props}
+  />
 )
 
 const CarouselApiContext = createContext<CarouselApi | undefined>(undefined)
@@ -190,7 +197,13 @@ export const InlineCitationSource = ({
 export type InlineCitationQuoteProps = ComponentProps<'blockquote'>
 
 export const InlineCitationQuote = ({ children, className, ...props }: InlineCitationQuoteProps) => (
-  <blockquote className={cn('border-muted border-l-2 pl-3 text-muted-foreground text-sm italic', className)} {...props}>
+  <blockquote
+    className={cn(
+      'line-clamp-6 border-muted border-l-2 pl-3 text-muted-foreground text-sm italic break-words',
+      className,
+    )}
+    {...props}
+  >
     {children}
   </blockquote>
 )

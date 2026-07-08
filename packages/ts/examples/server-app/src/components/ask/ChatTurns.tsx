@@ -1,6 +1,7 @@
-import { Check, Copy, RefreshCcw, Search } from 'lucide-react'
+import { Check, Copy, Globe, RefreshCcw, Search } from 'lucide-react'
 import { memo, useCallback, useState } from 'react'
 import { MessageAction, MessageActions, MessageResponse, MessageToolbar } from '#/components/ai-elements/message'
+import { Source, Sources, SourcesContent, SourcesTrigger } from '#/components/ai-elements/sources'
 import { Bubble, BubbleContent } from '#/components/ui/bubble'
 import { Marker, MarkerContent, MarkerIcon } from '#/components/ui/marker'
 import { Message, MessageContent } from '#/components/ui/message'
@@ -63,6 +64,36 @@ function CopyAction({ message }: { message: AskUIMessage }) {
   )
 }
 
+function webSourceLabel(url: string, title?: string): string {
+  if (title && title.length > 0) return title
+  try {
+    return new URL(url).hostname
+  } catch {
+    return url
+  }
+}
+
+function WebSources({ message }: { message: AskUIMessage }) {
+  const webSources = message.parts.flatMap(part => (part.type === 'source-url' ? [part] : []))
+  if (webSources.length === 0) return null
+
+  return (
+    <Sources>
+      <SourcesTrigger count={webSources.length}>
+        <Globe className="size-3.5" />
+        <p className="font-medium">
+          {webSources.length} web {webSources.length === 1 ? 'result' : 'results'}
+        </p>
+      </SourcesTrigger>
+      <SourcesContent>
+        {webSources.map(part => (
+          <Source key={part.sourceId} href={part.url} title={webSourceLabel(part.url, part.title)} />
+        ))}
+      </SourcesContent>
+    </Sources>
+  )
+}
+
 interface AssistantTurnProps {
   message: AskUIMessage
   isLast: boolean
@@ -108,6 +139,8 @@ export const AssistantTurn = memo(function AssistantTurn({
         )}
 
         {retrieval && text.length > 0 && <CitationChips sources={retrieval.sources} onOpenSource={onOpenSource} />}
+
+        {text.length > 0 && <WebSources message={message} />}
 
         {text.length > 0 && !isStreaming && (
           <MessageToolbar className="mt-0">

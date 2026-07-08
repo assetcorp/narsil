@@ -22,6 +22,7 @@ export interface AskRequest {
   indexName: string
   mode: RetrievalMode
   question: string
+  webSearch: boolean
 }
 
 export function messageText(message: UIMessage): string {
@@ -46,13 +47,16 @@ export function parseAskRequest(body: unknown): AskRequest {
   if (typeof body !== 'object' || body === null) {
     throw new AskRequestError('The request body must be a JSON object')
   }
-  const { messages, indexName, mode } = body as Record<string, unknown>
+  const { messages, indexName, mode, webSearch } = body as Record<string, unknown>
 
   if (typeof indexName !== 'string' || !INDEX_NAME_PATTERN.test(indexName)) {
     throw new AskRequestError('Field "indexName" must name an index')
   }
   if (typeof mode !== 'string' || !RETRIEVAL_MODES.includes(mode as RetrievalMode)) {
     throw new AskRequestError(`Field "mode" must be one of: ${RETRIEVAL_MODES.join(', ')}`)
+  }
+  if (webSearch !== undefined && typeof webSearch !== 'boolean') {
+    throw new AskRequestError('Field "webSearch" must be a boolean')
   }
   if (!Array.isArray(messages) || messages.length === 0 || messages.length > MAX_REQUEST_MESSAGES) {
     throw new AskRequestError(`Field "messages" must be a non-empty array of at most ${MAX_REQUEST_MESSAGES} messages`)
@@ -73,7 +77,13 @@ export function parseAskRequest(body: unknown): AskRequest {
     throw new AskRequestError(`The question is longer than ${MAX_QUESTION_CHARS} characters`)
   }
 
-  return { messages: messages as UIMessage[], indexName, mode: mode as RetrievalMode, question }
+  return {
+    messages: messages as UIMessage[],
+    indexName,
+    mode: mode as RetrievalMode,
+    question,
+    webSearch: webSearch === true,
+  }
 }
 
 /**

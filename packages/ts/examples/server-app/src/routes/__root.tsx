@@ -181,12 +181,14 @@ function RootLayout() {
 
   const handleNavigate = useCallback((to: string) => navigate({ to }), [navigate])
 
+  const handleSearch = useCallback((term: string) => navigate({ to: '/search', search: { q: term } }), [navigate])
+
   return (
     <BackendContext value={backend}>
       <AppStateContext value={state}>
         <AppDispatchContext value={dispatch}>
           <EngineStatusContext value={engineStatus}>
-            <CommandPaletteProvider navigate={handleNavigate}>
+            <CommandPaletteProvider navigate={handleNavigate} onSearch={handleSearch}>
               <div className="flex min-h-dvh flex-col">
                 <Header />
                 <EngineStatusBanner status={engineStatus} />
