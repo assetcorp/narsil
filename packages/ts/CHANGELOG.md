@@ -1,3 +1,7 @@
+## 0.1.14 (2026-07-08)
+
+This was a version bump only for narsil-ts to align it with other projects, there were no code changes.
+
 ## 0.1.13 (2026-07-08)
 
 This was a version bump only for narsil-ts to align it with other projects, there were no code changes.
