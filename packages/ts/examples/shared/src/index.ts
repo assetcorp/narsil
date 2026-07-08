@@ -16,7 +16,17 @@ export type {
   SuggestResponse,
   VectorQueryRequest,
 } from './backend'
-export { AppDispatchContext, AppStateContext, BackendContext, useAppDispatch, useAppState, useBackend } from './context'
+export type { CommandPaletteControls } from './context'
+export {
+  AppDispatchContext,
+  AppStateContext,
+  BackendContext,
+  CommandPaletteContext,
+  useAppDispatch,
+  useAppState,
+  useBackend,
+  useCommandPalette,
+} from './context'
 export { cn } from './lib/utils'
 export type {
   CustomDataset,
