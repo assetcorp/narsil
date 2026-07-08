@@ -101,11 +101,13 @@ function PaletteSearchRow({ term, onSearch }: { term: string; onSearch: (term: s
 
 interface CommandPaletteViewProps {
   navigate: (to: string) => void
+  /** Runs a search for the given term on the Search page, passing it as a typed route search param. */
+  onSearch: (term: string) => void
   /** Tabs the host app routes; nav items outside this list are hidden. */
   availableTabs?: readonly string[]
 }
 
-function CommandPaletteView({ navigate, availableTabs }: CommandPaletteViewProps) {
+function CommandPaletteView({ navigate, onSearch, availableTabs }: CommandPaletteViewProps) {
   const { open, setOpen } = useCommandPalette()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<IndexSuggestions[]>([])
@@ -173,17 +175,17 @@ function CommandPaletteView({ navigate, availableTabs }: CommandPaletteViewProps
     (indexName: string, term: string) => {
       setOpen(false)
       dispatch({ type: 'SET_ACTIVE_INDEX', payload: indexName })
-      navigate(`/search?q=${encodeURIComponent(term)}`)
+      onSearch(term)
     },
-    [navigate, dispatch, setOpen],
+    [onSearch, dispatch, setOpen],
   )
 
   const handleSearchTerm = useCallback(
     (term: string) => {
       setOpen(false)
-      navigate(`/search?q=${encodeURIComponent(term)}`)
+      onSearch(term)
     },
-    [navigate, setOpen],
+    [onSearch, setOpen],
   )
 
   const term = query.trim()
@@ -270,7 +272,7 @@ interface CommandPaletteProviderProps extends CommandPaletteViewProps {
   children: ReactNode
 }
 
-export function CommandPaletteProvider({ navigate, availableTabs, children }: CommandPaletteProviderProps) {
+export function CommandPaletteProvider({ navigate, onSearch, availableTabs, children }: CommandPaletteProviderProps) {
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
@@ -289,7 +291,7 @@ export function CommandPaletteProvider({ navigate, availableTabs, children }: Co
   return (
     <CommandPaletteContext value={controls}>
       {children}
-      <CommandPaletteView navigate={navigate} availableTabs={availableTabs} />
+      <CommandPaletteView navigate={navigate} onSearch={onSearch} availableTabs={availableTabs} />
     </CommandPaletteContext>
   )
 }

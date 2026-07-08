@@ -98,12 +98,15 @@ function RootLayout() {
 
   const handleNavigate = useCallback((to: string) => navigate({ to }), [navigate])
 
+  const handleSearch = useCallback((term: string) => navigate({ to: '/search', search: { q: term } }), [navigate])
+
   return (
     <BackendContext value={backend}>
       <AppStateContext value={state}>
         <AppDispatchContext value={dispatch}>
           <CommandPaletteProvider
             navigate={handleNavigate}
+            onSearch={handleSearch}
             availableTabs={['datasets', 'search', 'relevance', 'benchmark', 'inspector']}
           >
             <div className="flex min-h-dvh flex-col">

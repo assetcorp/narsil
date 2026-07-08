@@ -1,10 +1,11 @@
 import type { LoadedIndex } from '@delali/narsil-example-shared'
 import type { ChatStatus } from 'ai'
-import { Database } from 'lucide-react'
+import { Database, Globe } from 'lucide-react'
 import { useCallback } from 'react'
 import {
   PromptInput,
   PromptInputBody,
+  PromptInputButton,
   PromptInputFooter,
   type PromptInputMessage,
   PromptInputSelect,
@@ -24,6 +25,8 @@ interface AskPromptInputProps {
   onIndexChange: (indexName: string) => void
   status: ChatStatus
   disabled: boolean
+  webSearch: boolean
+  onWebSearchChange: (value: boolean) => void
   onSubmitText: (text: string) => void
   onStop: () => void
 }
@@ -34,6 +37,8 @@ export function AskPromptInput({
   onIndexChange,
   status,
   disabled,
+  webSearch,
+  onWebSearchChange,
   onSubmitText,
   onStop,
 }: AskPromptInputProps) {
@@ -46,6 +51,10 @@ export function AskPromptInput({
     },
     [onSubmitText, status],
   )
+
+  const toggleWebSearch = useCallback(() => {
+    onWebSearchChange(!webSearch)
+  }, [onWebSearchChange, webSearch])
 
   return (
     <PromptInput onSubmit={handleSubmit} className="shrink-0 [&>div]:rounded-xl [&>div]:shadow-sm">
@@ -72,6 +81,15 @@ export function AskPromptInput({
               ))}
             </PromptInputSelectContent>
           </PromptInputSelect>
+          <PromptInputButton
+            variant={webSearch ? 'default' : 'ghost'}
+            onClick={toggleWebSearch}
+            disabled={disabled}
+            tooltip="Search the web to augment answers when the index falls short"
+          >
+            <Globe className="size-3.5" />
+            <span>Web</span>
+          </PromptInputButton>
         </PromptInputTools>
         <PromptInputSubmit status={status} onStop={onStop} disabled={disabled} />
       </PromptInputFooter>

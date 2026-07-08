@@ -28,9 +28,12 @@ const REWRITE_MAX_OUTPUT_TOKENS = 512
  */
 const ANSWER_MAX_OUTPUT_TOKENS = 4096
 
+function askProvider(llm: LlmProviderConfig) {
+  return createOpenAI({ apiKey: llm.apiKey, baseURL: llm.baseUrl })
+}
+
 function chatModel(llm: LlmProviderConfig) {
-  const provider = createOpenAI({ apiKey: llm.apiKey, baseURL: llm.baseUrl })
-  return provider.chat(llm.model)
+  return askProvider(llm).chat(llm.model)
 }
 
 /**
@@ -130,22 +133,26 @@ export function createAskResponse(
         },
       })
 
-      if (retrieval.sources.length === 0) {
+      // With web search off, an empty corpus result is a dead end. With it on,
+      // the model can still answer from the web, so the generation proceeds.
+      if (retrieval.sources.length === 0 && !request.webSearch) {
         writeAssistantText(writer, crypto.randomUUID(), noSourcesMessage(request))
         return
       }
 
       writer.write({ type: 'data-ask-status', data: { phase: 'generating' }, transient: true })
 
+      const provider = askProvider(llm)
       const answer = streamText({
-        model: chatModel(llm),
-        instructions: answerInstructions(request.indexName, retrieval.sources),
+        model: request.webSearch ? provider.responses(llm.model) : provider.chat(llm.model),
+        tools: request.webSearch ? { web_search: provider.tools.webSearch({}) } : undefined,
+        instructions: answerInstructions(request.indexName, retrieval.sources, request.webSearch),
         messages: await convertToModelMessages(boundHistory(request.messages)),
         maxOutputTokens: ANSWER_MAX_OUTPUT_TOKENS,
         abortSignal: signal,
       })
 
-      writer.merge(toUIMessageStream({ stream: answer.stream }))
+      writer.merge(toUIMessageStream({ stream: answer.stream, sendSources: true }))
     },
   })
 

@@ -15,7 +15,7 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from '#/components/ui/message-scroller'
-import { sourcesPartOf, suggestionsForDataset } from '#/lib/ask/client'
+import { sourcesPartOf, suggestionsForIndex } from '#/lib/ask/client'
 import {
   type AskCapabilities,
   type AskSource,
@@ -77,7 +77,7 @@ interface HeroSuggestionsProps {
 function HeroSuggestions({ index, disabled, onSuggestion }: HeroSuggestionsProps) {
   return (
     <div className="flex flex-wrap items-center justify-center gap-2">
-      {suggestionsForDataset(index.datasetId).map(text => (
+      {suggestionsForIndex(index).map(text => (
         <Suggestion
           key={text}
           suggestion={text}
@@ -104,6 +104,7 @@ export function AskView() {
 
   const [mode, setMode] = useState<RetrievalMode>('keyword')
   const userChoseMode = useRef(false)
+  const [webSearch, setWebSearch] = useState(false)
   const [capabilities, setCapabilities] = useState<AskCapabilities | null>(null)
   const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null)
   const [vectorReadyByIndex, setVectorReadyByIndex] = useState<Record<string, boolean>>({})
@@ -112,12 +113,16 @@ export function AskView() {
 
   const indexNameRef = useRef(indexName)
   const modeRef = useRef(mode)
+  const webSearchRef = useRef(webSearch)
   useEffect(() => {
     indexNameRef.current = indexName
   }, [indexName])
   useEffect(() => {
     modeRef.current = mode
   }, [mode])
+  useEffect(() => {
+    webSearchRef.current = webSearch
+  }, [webSearch])
 
   useEffect(() => {
     let cancelled = false
@@ -167,7 +172,11 @@ export function AskView() {
     () =>
       new DefaultChatTransport({
         api: '/api/ask',
-        body: () => ({ indexName: indexNameRef.current, mode: modeRef.current }),
+        body: () => ({
+          indexName: indexNameRef.current,
+          mode: modeRef.current,
+          webSearch: webSearchRef.current,
+        }),
       }),
     [],
   )
@@ -327,6 +336,8 @@ export function AskView() {
                 onIndexChange={handleIndexChange}
                 status={status}
                 disabled={inputDisabled}
+                webSearch={webSearch}
+                onWebSearchChange={setWebSearch}
                 onSubmitText={handleSubmitText}
                 onStop={stop}
               />
@@ -349,6 +360,8 @@ export function AskView() {
                 onIndexChange={handleIndexChange}
                 status={status}
                 disabled={inputDisabled}
+                webSearch={webSearch}
+                onWebSearchChange={setWebSearch}
                 onSubmitText={handleSubmitText}
                 onStop={stop}
               />
