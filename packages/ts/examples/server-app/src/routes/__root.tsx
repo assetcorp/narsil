@@ -6,7 +6,7 @@ import {
   BackendContext,
   createInitialState,
 } from '@delali/narsil-example-shared'
-import { CommandPalette } from '@delali/narsil-example-shared/components/CommandPalette'
+import { CommandPaletteProvider } from '@delali/narsil-example-shared/components/CommandPalette'
 import { createRootRoute, HeadContent, Outlet, Scripts, useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import EngineStatusBanner from '../components/EngineStatusBanner'
@@ -186,15 +186,16 @@ function RootLayout() {
       <AppStateContext value={state}>
         <AppDispatchContext value={dispatch}>
           <EngineStatusContext value={engineStatus}>
-            <div className="flex min-h-dvh flex-col">
-              <Header />
-              <EngineStatusBanner status={engineStatus} />
-              <main className="flex-1">
-                <Outlet />
-              </main>
-              <Footer />
-            </div>
-            <CommandPalette navigate={handleNavigate} />
+            <CommandPaletteProvider navigate={handleNavigate}>
+              <div className="flex min-h-dvh flex-col">
+                <Header />
+                <EngineStatusBanner status={engineStatus} />
+                <main className="flex-1">
+                  <Outlet />
+                </main>
+                <Footer />
+              </div>
+            </CommandPaletteProvider>
           </EngineStatusContext>
         </AppDispatchContext>
       </AppStateContext>

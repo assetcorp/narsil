@@ -6,7 +6,7 @@ import {
   BackendContext,
   createInitialState,
 } from '@delali/narsil-example-shared'
-import { CommandPalette } from '@delali/narsil-example-shared/components/CommandPalette'
+import { CommandPaletteProvider } from '@delali/narsil-example-shared/components/CommandPalette'
 import { createRootRoute, HeadContent, Outlet, Scripts, useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 import Footer from '../components/Footer'
@@ -102,17 +102,18 @@ function RootLayout() {
     <BackendContext value={backend}>
       <AppStateContext value={state}>
         <AppDispatchContext value={dispatch}>
-          <div className="flex min-h-dvh flex-col">
-            <Header />
-            <main className="flex-1">
-              <Outlet />
-            </main>
-            <Footer />
-          </div>
-          <CommandPalette
+          <CommandPaletteProvider
             navigate={handleNavigate}
             availableTabs={['datasets', 'search', 'relevance', 'benchmark', 'inspector']}
-          />
+          >
+            <div className="flex min-h-dvh flex-col">
+              <Header />
+              <main className="flex-1">
+                <Outlet />
+              </main>
+              <Footer />
+            </div>
+          </CommandPaletteProvider>
         </AppDispatchContext>
       </AppStateContext>
     </BackendContext>

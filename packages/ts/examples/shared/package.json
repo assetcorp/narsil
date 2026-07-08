@@ -160,6 +160,10 @@
     "./ui/command": {
       "import": "./src/components/ui/command.tsx",
       "types": "./src/components/ui/command.tsx"
+    },
+    "./ui/dialog": {
+      "import": "./src/components/ui/dialog.tsx",
+      "types": "./src/components/ui/dialog.tsx"
     }
   },
   "scripts": {

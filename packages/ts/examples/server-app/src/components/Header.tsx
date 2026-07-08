@@ -1,8 +1,10 @@
 import type { TabId } from '@delali/narsil-example-shared'
-import { useAppState } from '@delali/narsil-example-shared'
+import { useAppState, useCommandPalette } from '@delali/narsil-example-shared'
 import { Link } from '@tanstack/react-router'
 import { BarChart3, Check, Database, FlaskConical, Inspect, Loader2, Lock, MessagesSquare, Search } from 'lucide-react'
+import { useCallback } from 'react'
 import { Badge } from '#/components/ui/badge'
+import { Button } from '#/components/ui/button'
 import ThemeToggle from './ThemeToggle'
 
 const tabs: Array<{ to: string; label: string; icon: typeof Database; tabId: TabId }> = [
@@ -16,6 +18,8 @@ const tabs: Array<{ to: string; label: string; icon: typeof Database; tabId: Tab
 
 export default function Header() {
   const state = useAppState()
+  const { setOpen } = useCommandPalette()
+  const openSearch = useCallback(() => setOpen(true), [setOpen])
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-md">
@@ -60,9 +64,29 @@ export default function Header() {
               <span className="hidden sm:inline">Loading...</span>
             </div>
           )}
-          <kbd className="hidden items-center gap-0.5 rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground sm:inline-flex">
-            <span className="text-xs">Cmd</span>K
-          </kbd>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={openSearch}
+            className="hidden text-muted-foreground sm:inline-flex"
+          >
+            <Search className="size-3.5" />
+            <span className="text-xs">Search</span>
+            <kbd className="ml-1 inline-flex items-center gap-0.5 rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+              <span className="text-xs">Cmd</span>K
+            </kbd>
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={openSearch}
+            aria-label="Open search"
+            className="sm:hidden"
+          >
+            <Search className="size-4" />
+          </Button>
           <ThemeToggle />
           <a
             href="https://github.com/assetcorp/narsil"
