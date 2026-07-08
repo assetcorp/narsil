@@ -1,4 +1,4 @@
-import type { UIMessage } from 'ai'
+import type { LanguageModelUsage, UIMessage } from 'ai'
 
 /** Schema field that holds document vectors on embedding-enabled indexes.
  * Lives here rather than in the server-only embedding config so client code
@@ -84,7 +84,15 @@ export type AskUITools = {
   readDocument: { input: AskReadInput; output: AskReadOutput }
 }
 
-export type AskUIMessage = UIMessage<never, AskDataParts, AskUITools>
+/** Per-answer token accounting, attached on the stream's finish event so the
+ * Context chip can show how much of the model's window the answer consumed.
+ * `modelId` is the tokenlens-style `provider:model` identifier used for pricing. */
+export interface AskMessageMetadata {
+  usage?: LanguageModelUsage
+  modelId?: string
+}
+
+export type AskUIMessage = UIMessage<AskMessageMetadata, AskDataParts, AskUITools>
 
 export interface AskCapabilities {
   llmConfigured: boolean

@@ -143,7 +143,15 @@ export function createAskResponse(
         abortSignal: signal,
       })
 
-      writer.merge(toUIMessageStream({ stream: answer.stream, sendReasoning: true, sendSources: request.webSearch }))
+      writer.merge(
+        toUIMessageStream({
+          stream: answer.stream,
+          sendReasoning: true,
+          sendSources: request.webSearch,
+          messageMetadata: ({ part }) =>
+            part.type === 'finish' ? { usage: part.totalUsage, modelId: `openai:${llm.model}` } : undefined,
+        }),
+      )
     },
   })
 
