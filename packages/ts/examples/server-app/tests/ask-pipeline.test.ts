@@ -35,26 +35,110 @@ const stubAdapter: EmbeddingAdapter = {
   },
 }
 
+interface OpenAiMessage {
+  role: string
+  content: unknown
+}
+
 interface LlmCall {
-  stream: boolean
-  messages: Array<{ role: string; content: string }>
+  messages: OpenAiMessage[]
 }
 
 interface StubLlm {
   server: http.Server
   baseUrl: string
   calls: LlmCall[]
-  rewriteReply: string
   streamedAnswer: string[]
 }
 
+function messageContentText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content
+      .map(part => (part && typeof part === 'object' && 'text' in part ? String((part as { text: unknown }).text) : ''))
+      .join('')
+  }
+  return ''
+}
+
+function lastUserQuery(messages: OpenAiMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') return messageContentText(messages[i].content)
+  }
+  return ''
+}
+
+/** The agent hands search results back to the model as a `tool` message; the
+ * stub reads the candidate docIds out of it, in ranking order, so its
+ * readDocument calls target real documents without hard-coding engine-assigned
+ * ids. */
+function candidateDocIds(messages: OpenAiMessage[]): string[] {
+  const searchMessage = messages.find(
+    message => message.role === 'tool' && JSON.stringify(message).includes('"results"'),
+  )
+  if (!searchMessage) return []
+  const ids: string[] = []
+  const pattern = /"docId":"([^"]+)"/g
+  const serialized = JSON.stringify(searchMessage)
+  let match = pattern.exec(serialized)
+  while (match) {
+    if (!ids.includes(match[1])) ids.push(match[1])
+    match = pattern.exec(serialized)
+  }
+  return ids
+}
+
+/**
+ * A stub OpenAI Chat Completions endpoint that plays the agent loop: it emits a
+ * `search` tool call on the first turn, then reads the top two distinct
+ * candidates one per turn, then emits the final cited answer. When a search
+ * returns nothing, it answers straight away without reading.
+ */
 function startStubLlm(): Promise<StubLlm> {
   const stub: StubLlm = {
     server: http.createServer(),
     baseUrl: '',
     calls: [],
-    rewriteReply: 'standalone rewritten query',
     streamedAnswer: ['The handbook covers ', 'incident response [1].'],
+  }
+
+  const frame = (res: http.ServerResponse, choice: unknown): void => {
+    res.write(
+      `data: ${JSON.stringify({
+        id: 'chatcmpl-stub',
+        object: 'chat.completion.chunk',
+        created: 0,
+        model: 'stub-model',
+        choices: [choice],
+      })}\n\n`,
+    )
+  }
+
+  const emitToolCall = (res: http.ServerResponse, name: string, args: unknown): void => {
+    frame(res, { index: 0, delta: { role: 'assistant' }, finish_reason: null })
+    frame(res, {
+      index: 0,
+      delta: { tool_calls: [{ index: 0, id: `call_${name}`, type: 'function', function: { name, arguments: '' } }] },
+      finish_reason: null,
+    })
+    frame(res, {
+      index: 0,
+      delta: { tool_calls: [{ index: 0, function: { arguments: JSON.stringify(args) } }] },
+      finish_reason: null,
+    })
+    frame(res, { index: 0, delta: {}, finish_reason: 'tool_calls' })
+    res.write('data: [DONE]\n\n')
+    res.end()
+  }
+
+  const emitAnswer = (res: http.ServerResponse): void => {
+    frame(res, { index: 0, delta: { role: 'assistant' }, finish_reason: null })
+    for (const piece of stub.streamedAnswer) {
+      frame(res, { index: 0, delta: { content: piece }, finish_reason: null })
+    }
+    frame(res, { index: 0, delta: {}, finish_reason: 'stop' })
+    res.write('data: [DONE]\n\n')
+    res.end()
   }
 
   stub.server.on('request', (req, res) => {
@@ -65,54 +149,23 @@ function startStubLlm(): Promise<StubLlm> {
     const chunks: Buffer[] = []
     req.on('data', chunk => chunks.push(chunk as Buffer))
     req.on('end', () => {
-      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
-        stream?: boolean
-        messages: Array<{ role: string; content: string }>
-      }
-      stub.calls.push({ stream: body.stream === true, messages: body.messages })
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { messages: OpenAiMessage[] }
+      stub.calls.push({ messages: body.messages })
 
-      if (body.stream === true) {
-        res.writeHead(200, { 'content-type': 'text/event-stream' })
-        const frame = (payload: unknown) => res.write(`data: ${JSON.stringify(payload)}\n\n`)
-        frame({
-          id: 'chatcmpl-stub',
-          object: 'chat.completion.chunk',
-          created: 0,
-          model: 'stub-model',
-          choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }],
-        })
-        for (const piece of stub.streamedAnswer) {
-          frame({
-            id: 'chatcmpl-stub',
-            object: 'chat.completion.chunk',
-            created: 0,
-            model: 'stub-model',
-            choices: [{ index: 0, delta: { content: piece }, finish_reason: null }],
-          })
-        }
-        frame({
-          id: 'chatcmpl-stub',
-          object: 'chat.completion.chunk',
-          created: 0,
-          model: 'stub-model',
-          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-        })
-        res.write('data: [DONE]\n\n')
-        res.end()
+      res.writeHead(200, { 'content-type': 'text/event-stream' })
+      const toolMessages = body.messages.filter(message => message.role === 'tool')
+
+      if (toolMessages.length === 0) {
+        emitToolCall(res, 'search', { query: lastUserQuery(body.messages) })
         return
       }
-
-      res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(
-        JSON.stringify({
-          id: 'chatcmpl-stub',
-          object: 'chat.completion',
-          created: 0,
-          model: 'stub-model',
-          choices: [{ index: 0, message: { role: 'assistant', content: stub.rewriteReply }, finish_reason: 'stop' }],
-          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-        }),
-      )
+      const readCount = toolMessages.length - 1
+      const docIds = candidateDocIds(body.messages)
+      if (readCount < 2 && docIds[readCount]) {
+        emitToolCall(res, 'readDocument', { docId: docIds[readCount] })
+        return
+      }
+      emitAnswer(res)
     })
   })
 
@@ -162,7 +215,7 @@ function textOfChunks(chunks: StreamedChunk[]): string {
     .join('')
 }
 
-describe('ask pipeline against a live Narsil server', () => {
+describe('agentic ask pipeline against a live Narsil server', () => {
   let engine: Narsil
   let narsilServer: NarsilServer
   let backend: RestBackend
@@ -214,7 +267,8 @@ describe('ask pipeline against a live Narsil server', () => {
     return readUiChunks(response)
   }
 
-  it('streams sources before the answer in keyword mode', async () => {
+  it('searches, reads the top candidate, then answers with opened-doc sources in keyword mode', async () => {
+    const before = llm.calls.length
     const chunks = await ask({
       indexName: 'handbook',
       mode: 'keyword',
@@ -239,9 +293,11 @@ describe('ask pipeline against a live Narsil server', () => {
     expect(data.sources[0].snippet).toContain('<mark>')
 
     expect(textOfChunks(chunks)).toBe('The handbook covers incident response [1].')
+    // At least search, one read, and the answer run as separate model steps.
+    expect(llm.calls.length - before).toBeGreaterThanOrEqual(3)
   })
 
-  it('answers in semantic and hybrid modes via server-side query embedding', async () => {
+  it('reads several distinct documents before answering when the search returns many', async () => {
     for (const mode of ['semantic', 'hybrid'] as const) {
       const chunks = await ask({
         indexName: 'handbook',
@@ -250,46 +306,30 @@ describe('ask pipeline against a live Narsil server', () => {
       })
       const sources = chunks.find(chunk => chunk.type === 'data-ask-sources')
       expect(sources, `${mode} sources part`).toBeDefined()
-      const data = (sources as StreamedChunk).data as { mode: string; sources: unknown[] }
+      const data = (sources as StreamedChunk).data as { mode: string; sources: Array<{ rank: number }> }
       expect(data.mode).toBe(mode)
-      expect(data.sources.length).toBeGreaterThan(0)
+      // The loop reads at least two distinct documents, so the answer is never grounded on one.
+      expect(data.sources.length).toBeGreaterThanOrEqual(2)
+      expect(data.sources.map(source => source.rank)).toEqual(data.sources.map((_source, index) => index + 1))
       expect(textOfChunks(chunks).length).toBeGreaterThan(0)
     }
   })
 
-  it('skips the model and says so when retrieval finds nothing', async () => {
+  it('answers without opening any document when the search finds nothing', async () => {
     const before = llm.calls.length
     const chunks = await ask({
       indexName: 'handbook',
       mode: 'keyword',
       messages: [userMessage('m1', 'zzzqqqxxyy')],
     })
-    const sources = chunks.find(chunk => chunk.type === 'data-ask-sources')
-    expect(((sources as StreamedChunk).data as { sources: unknown[] }).sources).toHaveLength(0)
-    expect(textOfChunks(chunks)).toContain('found nothing relevant')
-    expect(llm.calls.length).toBe(before)
-  })
-
-  it('rewrites follow-up questions into standalone retrieval queries', async () => {
-    llm.rewriteReply = 'incident response severity owner'
-    const chunks = await ask({
-      indexName: 'handbook',
-      mode: 'keyword',
-      messages: [
-        userMessage('m1', 'How does incident response work?'),
-        assistantMessage('m2', 'Every incident gets a severity and an owner [1].'),
-        userMessage('m3', 'Who owns them?'),
-      ],
-    })
-    const sources = chunks.find(chunk => chunk.type === 'data-ask-sources')
-    const data = (sources as StreamedChunk).data as { query: string }
-    expect(data.query).toBe('incident response severity owner')
-
-    const rewriteCall = llm.calls.find(call => !call.stream)
-    expect(rewriteCall).toBeDefined()
+    expect(chunks.find(chunk => chunk.type === 'data-ask-sources')).toBeUndefined()
+    expect(textOfChunks(chunks).length).toBeGreaterThan(0)
+    // search returns nothing, so the model skips readDocument: one search step plus the answer.
+    expect(llm.calls.length - before).toBe(2)
   })
 
   it('reports a clear error when vector modes hit an index without embeddings', async () => {
+    const before = llm.calls.length
     const chunks = await ask({
       indexName: 'keyword-only',
       mode: 'semantic',
@@ -298,6 +338,8 @@ describe('ask pipeline against a live Narsil server', () => {
     const errorChunk = chunks.find(chunk => chunk.type === 'error')
     expect(errorChunk).toBeDefined()
     expect(String((errorChunk as StreamedChunk).errorText)).toContain('needs vector embeddings')
+    // The mode is rejected before any model call.
+    expect(llm.calls.length).toBe(before)
   })
 
   it('rejects malformed requests before any retrieval', () => {
