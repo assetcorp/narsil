@@ -23,22 +23,68 @@ export interface AskSource {
 export interface AskSourcesData {
   mode: RetrievalMode
   indexName: string
-  /** The query string retrieval ran with (a follow-up may be rewritten). */
+  /** The query the agent's first search ran with; the rail labels the evidence with it. */
   query: string
   elapsedMs: number
   sources: AskSource[]
 }
 
-export interface AskStatusData {
-  phase: 'searching' | 'generating'
-}
-
 export type AskDataParts = {
   'ask-sources': AskSourcesData
-  'ask-status': AskStatusData
 }
 
-export type AskUIMessage = UIMessage<never, AskDataParts>
+/** One candidate the `search` tool hands the model: enough to decide what to open, no full text. */
+export interface AskSearchResult {
+  docId: string
+  title: string
+  snippet: string
+  score: number
+}
+
+export interface AskSearchInput {
+  query: string
+}
+
+export interface AskSearchOutput {
+  query: string
+  mode: RetrievalMode
+  results: AskSearchResult[]
+}
+
+export interface AskReadInput {
+  docId: string
+  page?: number
+}
+
+/** A page of an opened document, plus the stable citation number the answer cites it by. */
+export interface AskReadPage {
+  docId: string
+  title: string
+  citation: number
+  page: number
+  totalPages: number
+  hasMore: boolean
+  text: string
+}
+
+export interface AskReadError {
+  docId: string
+  error: string
+}
+
+export type AskReadOutput = AskReadPage | AskReadError
+
+export function isAskReadError(output: AskReadOutput): output is AskReadError {
+  return 'error' in output
+}
+
+/** Maps each tool name to its input/output so `message.parts` narrows tool parts with typed `.input`/`.output`. */
+export type AskUITools = {
+  search: { input: AskSearchInput; output: AskSearchOutput }
+  readDocument: { input: AskReadInput; output: AskReadOutput }
+}
+
+export type AskUIMessage = UIMessage<never, AskDataParts, AskUITools>
 
 export interface AskCapabilities {
   llmConfigured: boolean

@@ -108,7 +108,6 @@ export function AskView() {
   const [capabilities, setCapabilities] = useState<AskCapabilities | null>(null)
   const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null)
   const [vectorReadyByIndex, setVectorReadyByIndex] = useState<Record<string, boolean>>({})
-  const [phase, setPhase] = useState<'searching' | 'generating' | null>(null)
   const [openSource, setOpenSource] = useState<AskSource | null>(null)
 
   const indexNameRef = useRef(indexName)
@@ -181,20 +180,9 @@ export function AskView() {
     [],
   )
 
-  const handleData = useCallback((dataPart: { type: string; data: unknown }) => {
-    if (dataPart.type === 'data-ask-status') {
-      setPhase((dataPart.data as { phase: 'searching' | 'generating' }).phase)
-    }
-  }, [])
-
   const { messages, status, error, sendMessage, stop, regenerate, setMessages, clearError } = useChat<AskUIMessage>({
     transport,
-    onData: handleData,
   })
-
-  useEffect(() => {
-    if (status === 'ready' || status === 'error') setPhase(null)
-  }, [status])
 
   const handleModeChange = useCallback((next: RetrievalMode) => {
     userChoseMode.current = true
@@ -306,7 +294,7 @@ export function AskView() {
                     )}
                     {awaitingAssistant && (
                       <MessageScrollerItem messageId="pending-answer">
-                        <SearchingMarker phase={phase ?? 'searching'} indexName={indexName} />
+                        <SearchingMarker phase="searching" indexName={indexName} />
                       </MessageScrollerItem>
                     )}
                     {error && (
