@@ -27,6 +27,7 @@ data/processed/tmdb/movies-50000.json
 data/processed/tmdb/movies-100000.json
 data/processed/tmdb/*-vectors-*.bin
 data/processed/tmdb/*-umap-*.bin
+!data/processed/tmdb/movies-10000-umap-3d.bin
 data/processed/wikipedia/wikipedia-en.json
 data/processed/wikipedia/wikipedia-fr.json
 data/processed/wikipedia/wikipedia-dag.json
