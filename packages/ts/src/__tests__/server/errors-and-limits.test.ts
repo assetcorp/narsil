@@ -128,6 +128,15 @@ describe('Narsil HTTP server result-window and fetch limits', () => {
     expect(res.body.error.code).toBe('INVALID_REQUEST')
   })
 
+  it('rejects a search whose facet limit exceeds the result window', async () => {
+    const res = await postJson<ErrorBody>(srv.base, '/indexes/movies/search', {
+      term: 'x',
+      facets: { title: { limit: 6 } },
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.error.code).toBe('INVALID_REQUEST')
+  })
+
   it('accepts a search at the result-window boundary', async () => {
     const res = await postJson(srv.base, '/indexes/movies/search', { term: 'x', limit: 5, offset: 5 })
     expect(res.status).toBe(200)

@@ -1,4 +1,5 @@
 import type { EmbeddingAdapter } from '../types/adapters'
+import type { AnyDocument, InsertOptions } from '../types/schema'
 
 /**
  * Context handed to {@link OnRequestHook} for every inbound request, captured
@@ -157,6 +158,32 @@ export interface CreateIndexRequest {
 export interface CreateIndexEmbedding {
   adapter?: string
   fields: Record<string, string | string[]>
+}
+
+export interface InsertBody {
+  document: AnyDocument
+  id?: string
+  options?: InsertOptions
+}
+
+export interface DocumentBody {
+  document: AnyDocument
+}
+
+export interface MultiGetBody {
+  docIds: string[]
+}
+
+export interface BatchBody {
+  action?: 'insert' | 'update' | 'delete'
+  documents?: AnyDocument[]
+  updates?: Array<{ docId: string; document: AnyDocument }>
+  docIds?: string[]
+  options?: InsertOptions
+}
+
+export interface RebalanceBody {
+  targetPartitionCount?: number
 }
 
 export interface HttpIndexConfig {
