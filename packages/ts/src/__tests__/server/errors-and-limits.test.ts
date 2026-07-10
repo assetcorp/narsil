@@ -94,6 +94,60 @@ describe('Narsil HTTP server body limits', () => {
   })
 })
 
+describe('Narsil HTTP server result-window and fetch limits', () => {
+  let srv: TestServer
+
+  beforeEach(async () => {
+    srv = await startTestServer({ limits: { maxResultWindow: 5, maxFetchDocuments: 3 } })
+    await postJson(srv.base, '/indexes', { name: 'movies', config: { schema: { title: 'string' } } })
+  })
+
+  afterEach(async () => {
+    await srv.stop()
+  })
+
+  it('rejects a search whose limit exceeds the result window', async () => {
+    const res = await postJson<ErrorBody>(srv.base, '/indexes/movies/search', { term: 'x', limit: 6 })
+    expect(res.status).toBe(400)
+    expect(res.body.error.code).toBe('INVALID_REQUEST')
+    expect(res.body.error.details).toMatchObject({ limit: 5 })
+  })
+
+  it('rejects a search whose offset exceeds the result window', async () => {
+    const res = await postJson<ErrorBody>(srv.base, '/indexes/movies/search', { term: 'x', offset: 6 })
+    expect(res.status).toBe(400)
+    expect(res.body.error.code).toBe('INVALID_REQUEST')
+  })
+
+  it('rejects a search whose group.maxPerGroup exceeds the result window', async () => {
+    const res = await postJson<ErrorBody>(srv.base, '/indexes/movies/search', {
+      term: 'x',
+      group: { fields: ['title'], maxPerGroup: 6 },
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.error.code).toBe('INVALID_REQUEST')
+  })
+
+  it('accepts a search at the result-window boundary', async () => {
+    const res = await postJson(srv.base, '/indexes/movies/search', { term: 'x', limit: 5, offset: 5 })
+    expect(res.status).toBe(200)
+  })
+
+  it('rejects a multi-get requesting more ids than the fetch limit', async () => {
+    const res = await postJson<ErrorBody>(srv.base, '/indexes/movies/documents/_multi-get', {
+      docIds: ['a', 'b', 'c', 'd'],
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.error.code).toBe('INVALID_REQUEST')
+    expect(res.body.error.details).toMatchObject({ count: 4, limit: 3 })
+  })
+
+  it('accepts a multi-get at the fetch-limit boundary', async () => {
+    const res = await postJson(srv.base, '/indexes/movies/documents/_multi-get', { docIds: ['a', 'b', 'c'] })
+    expect(res.status).toBe(200)
+  })
+})
+
 describe('Narsil HTTP server auth hook', () => {
   let srv: TestServer
 

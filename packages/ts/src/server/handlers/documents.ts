@@ -31,7 +31,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 export function createDocumentHandlers(deps: HandlerDeps) {
-  const { engine } = deps
+  const { engine, limits } = deps
 
   async function insert(ctx: RouteContext): Promise<void> {
     const body = parseJson<InsertBody>(ctx)
@@ -127,6 +127,13 @@ export function createDocumentHandlers(deps: HandlerDeps) {
     if (!body) return
     if (!Array.isArray(body.docIds)) {
       badRequest(ctx.res, 'Field "docIds" is required and must be an array of strings')
+      return
+    }
+    if (body.docIds.length > limits.maxFetchDocuments) {
+      badRequest(ctx.res, `Field "docIds" exceeds the maximum of ${limits.maxFetchDocuments} ids per request`, {
+        count: body.docIds.length,
+        limit: limits.maxFetchDocuments,
+      })
       return
     }
     try {

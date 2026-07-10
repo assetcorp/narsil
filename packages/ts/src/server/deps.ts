@@ -7,6 +7,8 @@ export interface ResolvedLimits {
   maxLineBytes: number
   importBatchSize: number
   maxConcurrentRequests: number
+  maxResultWindow: number
+  maxFetchDocuments: number
 }
 
 /** Build identity the server reports at `/version`, resolved from the optional

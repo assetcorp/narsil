@@ -14,13 +14,33 @@ function rejectsCustomReducer(ctx: RouteContext, params: QueryParams): boolean {
   return false
 }
 
+function rejectsResultWindow(ctx: RouteContext, params: QueryParams, maxWindow: number): boolean {
+  const overField = (label: string, value: unknown): boolean => {
+    if (typeof value === 'number' && value > maxWindow) {
+      badRequest(ctx.res, `Field "${label}" exceeds the maximum result window of ${maxWindow}`, {
+        value,
+        limit: maxWindow,
+      })
+      return true
+    }
+    return false
+  }
+  if (overField('limit', params.limit)) return true
+  if (overField('offset', params.offset)) return true
+  if (params.group && typeof params.group === 'object' && overField('group.maxPerGroup', params.group.maxPerGroup)) {
+    return true
+  }
+  return false
+}
+
 export function createSearchHandlers(deps: HandlerDeps) {
-  const { engine } = deps
+  const { engine, limits } = deps
 
   async function search(ctx: RouteContext): Promise<void> {
     const params = parseJson<QueryParams>(ctx)
     if (!params) return
     if (rejectsCustomReducer(ctx, params)) return
+    if (rejectsResultWindow(ctx, params, limits.maxResultWindow)) return
     try {
       respondJson(ctx, await engine.query(ctx.params[0], params))
     } catch (err) {
@@ -32,6 +52,7 @@ export function createSearchHandlers(deps: HandlerDeps) {
     const params = parseJson<QueryParams>(ctx)
     if (!params) return
     if (rejectsCustomReducer(ctx, params)) return
+    if (rejectsResultWindow(ctx, params, limits.maxResultWindow)) return
     try {
       respondJson(ctx, await engine.preflight(ctx.params[0], params))
     } catch (err) {
