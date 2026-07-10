@@ -1,8 +1,9 @@
 import { mapHttpIndexConfig } from '../config-mapping'
 import type { HandlerDeps } from '../deps'
-import { badRequest, parseJson, respondError, respondJson } from '../handler-utils'
+import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import type { RouteContext } from '../request'
 import type { CreateIndexRequest } from '../types'
+import { validateCreateIndex } from '../validation'
 
 export function createIndexHandlers(deps: HandlerDeps) {
   const { engine } = deps
@@ -10,12 +11,9 @@ export function createIndexHandlers(deps: HandlerDeps) {
   async function create(ctx: RouteContext): Promise<void> {
     const body = parseJson<CreateIndexRequest>(ctx)
     if (!body) return
-    if (typeof body.name !== 'string' || body.name.length === 0) {
-      badRequest(ctx.res, 'Field "name" is required and must be a non-empty string')
-      return
-    }
-    if (typeof body.config !== 'object' || body.config === null) {
-      badRequest(ctx.res, 'Field "config" is required and must be an object')
+    const failure = validateCreateIndex(body)
+    if (failure) {
+      rejectInvalid(ctx, failure)
       return
     }
     try {
