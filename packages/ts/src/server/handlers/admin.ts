@@ -34,7 +34,7 @@ export function createAdminHandlers(deps: HandlerDeps) {
     try {
       const bytes = await engine.snapshot(ctx.params[0])
       if (ctx.abort.aborted) return
-      sendBinary(ctx.res, bytes)
+      sendBinary(ctx.res, bytes, ctx.abort)
     } catch (err) {
       respondError(ctx, err)
     }

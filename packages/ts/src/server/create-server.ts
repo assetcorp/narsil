@@ -28,6 +28,8 @@ function resolveLimits(limits: ServerLimits | undefined): ResolvedLimits {
     maxLineBytes: limits?.maxLineBytes ?? 4 * MB,
     importBatchSize: limits?.importBatchSize ?? 1000,
     maxConcurrentRequests: limits?.maxConcurrentRequests ?? 0,
+    maxResultWindow: limits?.maxResultWindow ?? 10_000,
+    maxFetchDocuments: limits?.maxFetchDocuments ?? 10_000,
   }
 }
 

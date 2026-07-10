@@ -43,7 +43,7 @@ export function respondError(ctx: RouteContext, err: unknown): void {
 
 export function respondJson(ctx: RouteContext, data: unknown, status = 200): void {
   if (ctx.abort.aborted) return
-  sendJson(ctx.res, data, status)
+  sendJson(ctx.res, data, status, ctx.abort)
 }
 
 export function badRequest(res: HttpResponse, message: string, details?: Record<string, unknown>): void {

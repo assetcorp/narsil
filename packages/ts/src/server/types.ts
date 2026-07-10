@@ -46,6 +46,14 @@ export interface ServerLimits {
   importBatchSize?: number
   /** Maximum requests executing engine work at once; excess is shed with 503. Omit or 0 to disable. */
   maxConcurrentRequests?: number
+  /** Ceiling for a search's `limit`, `offset`, and `group.maxPerGroup`, so one
+   * request cannot ask for an unbounded result set. Excess → 400. Defaults to
+   * 10000, matching the cluster query result window. */
+  maxResultWindow?: number
+  /** Ceiling for the number of document ids in one multi-get request, so one
+   * request cannot pull an unbounded number of documents. Excess → 400.
+   * Defaults to 10000. */
+  maxFetchDocuments?: number
 }
 
 export interface ServerOptions {
