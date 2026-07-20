@@ -20,7 +20,7 @@
     "@ai-sdk/react": "4.0.5",
     "@delali/narsil": "workspace:*",
     "@delali/narsil-example-shared": "workspace:*",
-    "@delali/sirannon-db": "0.1.5",
+    "@delali/sirannon-db": "0.1.8",
     "@radix-ui/react-use-controllable-state": "1.2.3",
     "@shadcn/react": "0.1.0",
     "@streamdown/cjk": "1.0.3",

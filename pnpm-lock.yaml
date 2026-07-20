@@ -285,8 +285,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       '@delali/sirannon-db':
-        specifier: 0.1.5
-        version: 0.1.5(@grpc/grpc-js@1.14.3)(better-sqlite3@12.11.1)(croner@10.0.1)(etcd3@1.1.2)
+        specifier: 0.1.8
+        version: 0.1.8(@grpc/grpc-js@1.14.3)(better-sqlite3@12.11.1)(etcd3@1.1.2)
       '@radix-ui/react-use-controllable-state':
         specifier: 1.2.3
         version: 1.2.3(@types/react@19.2.14)(react@19.2.4)
@@ -1173,14 +1173,13 @@ packages:
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
 
-  '@delali/sirannon-db@0.1.5':
-    resolution: {integrity: sha512-+2pQbkeyfQ+CirFyeETRbDZ0TpyX4p4MF+2rDK/HJAYT+T2DOvK9mCGbt+7Z2VmvqrLmyGcc7/aU23L6p4Fztg==}
+  '@delali/sirannon-db@0.1.8':
+    resolution: {integrity: sha512-fR8VzyiO/w79NyVKe6DHnTKhDN/ig7H0mxT0zMjPqTjM1jfx53tM0V6i2QAMOO9+m1GdiLXghSQ91GLioBti6g==}
     engines: {node: '>=22'}
     peerDependencies:
       '@bufbuild/protobuf': '>=2.0.0'
       '@grpc/grpc-js': '>=1.10.0'
       better-sqlite3: '>=12.0.0'
-      croner: '>=10.0.0'
       etcd3: '>=1.1.2'
       expo-sqlite: '>=14.0.0'
       grpc-health-check: '>=2.0.0'
@@ -1192,8 +1191,6 @@ packages:
       '@grpc/grpc-js':
         optional: true
       better-sqlite3:
-        optional: true
-      croner:
         optional: true
       etcd3:
         optional: true
@@ -4039,10 +4036,6 @@ packages:
     peerDependenciesMeta:
       typescript:
         optional: true
-
-  croner@10.0.1:
-    resolution: {integrity: sha512-ixNtAJndqh173VQ4KodSdJEI6nuioBWI0V1ITNKhZZsO0pEMoDxz539T4FTTbSZ/xIOSuDnzxLVRqBVSvPNE2g==}
-    engines: {node: '>=18.0'}
 
   cross-env@7.0.3:
     resolution: {integrity: sha512-+/HKd6EgcQCJGh2PSjZuUitQBQynKor4wrFbRg4DtAgS1aWO+gU52xpH7M9ScGgXSYmAVS9bIJ8EzuaGw0oNAw==}
@@ -8184,11 +8177,10 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@delali/sirannon-db@0.1.5(@grpc/grpc-js@1.14.3)(better-sqlite3@12.11.1)(croner@10.0.1)(etcd3@1.1.2)':
+  '@delali/sirannon-db@0.1.8(@grpc/grpc-js@1.14.3)(better-sqlite3@12.11.1)(etcd3@1.1.2)':
     optionalDependencies:
       '@grpc/grpc-js': 1.14.3
       better-sqlite3: 12.11.1
-      croner: 10.0.1
       etcd3: 1.1.2
 
   '@dimforge/rapier3d-compat@0.12.0': {}
@@ -11253,9 +11245,6 @@ snapshots:
       parse-json: 5.2.0
     optionalDependencies:
       typescript: 5.9.3
-
-  croner@10.0.1:
-    optional: true
 
   cross-env@7.0.3:
     dependencies:
