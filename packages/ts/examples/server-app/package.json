@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "4.0.2",
-    "@ai-sdk/react": "4.0.5",
+    "@ai-sdk/react": "4.0.33",
     "@delali/narsil": "workspace:*",
     "@delali/narsil-example-shared": "workspace:*",
     "@delali/sirannon-db": "0.1.8",
