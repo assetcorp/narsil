@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AskUIMessage } from '#/lib/ask/types'
+import { parseStoredMessages } from '#/lib/chat/serialization'
 import type { StoredThread, ThreadSummary } from '#/lib/chat/types'
 import { deleteThreadFn, listThreadsFn, loadThreadFn } from '#/lib/server-fns'
 
@@ -50,7 +50,13 @@ export function useAskThreads(): AskThreadsController {
   const loadThread = useCallback(async (id: string): Promise<StoredThread | null> => {
     const thread = await loadThreadFn({ data: { id } })
     if (!thread) return null
-    return { ...thread, messages: thread.messages as unknown as AskUIMessage[] }
+    try {
+      const { messagesJson, ...summary } = thread
+      return { ...summary, messages: parseStoredMessages(messagesJson) }
+    } catch (error) {
+      console.error(`[ask] failed to read the stored conversation ${id}:`, error)
+      return null
+    }
   }, [])
 
   const removeThread = useCallback(async (id: string) => {

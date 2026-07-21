@@ -139,13 +139,18 @@ export function AskView() {
 
   const transport = useMemo(
     () =>
-      new DefaultChatTransport({
+      new DefaultChatTransport<AskUIMessage>({
         api: '/api/ask',
-        body: () => ({
-          indexName: indexNameRef.current,
-          mode: modeRef.current,
-          webSearch: webSearchRef.current,
-          threadId: threadIdRef.current,
+        prepareSendMessagesRequest: ({ messages, trigger, messageId }) => ({
+          body: {
+            indexName: indexNameRef.current,
+            mode: modeRef.current,
+            webSearch: webSearchRef.current,
+            threadId: threadIdRef.current,
+            trigger,
+            messageId,
+            message: trigger === 'submit-message' ? messages[messages.length - 1] : undefined,
+          },
         }),
       }),
     [threadIdRef],

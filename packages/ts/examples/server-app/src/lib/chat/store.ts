@@ -1,8 +1,26 @@
 import type { AskUIMessage } from '../ask/types'
 import { getChatDb } from './db'
-import type { StoredThread, ThreadSummary } from './types'
+import { joinMessagePayloads, parseStoredMessages } from './serialization'
+import type { SerializedThread, StoredThread, ThreadSummary } from './types'
 
 const MAX_TITLE_CHARS = 120
+
+export class ThreadConflictError extends Error {
+  constructor(threadId: string) {
+    super(`The conversation "${threadId}" changed while this turn was running`)
+    this.name = 'ThreadConflictError'
+  }
+}
+
+export interface SaveTurnParams {
+  threadId: string
+  indexName: string
+  title: string
+  expectedCount: number
+  keepCount: number
+  messages: AskUIMessage[]
+  now: number
+}
 
 interface SummaryRow {
   id: string
@@ -17,63 +35,51 @@ interface PayloadRow {
   payload: string
 }
 
+interface CountRow {
+  count: number
+}
+
 function clampTitle(title: string): string {
   return title.slice(0, MAX_TITLE_CHARS)
 }
 
-function firstUserText(messages: AskUIMessage[]): string {
-  for (const message of messages) {
-    if (message.role !== 'user') continue
-    let text = ''
-    for (const part of message.parts) {
-      if (part.type === 'text') text += part.text
-    }
-    const trimmed = text.trim()
-    if (trimmed.length > 0) return trimmed
-  }
-  return 'New chat'
-}
-
-export async function ensureThread(id: string, indexName: string, title: string, now: number): Promise<void> {
-  const db = await getChatDb()
-  await db.execute(
-    `INSERT INTO threads (id, title, index_name, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO NOTHING`,
-    [id, clampTitle(title), indexName, now, now],
-  )
-}
-
-export async function setThreadTitle(id: string, title: string): Promise<void> {
-  const db = await getChatDb()
-  await db.execute('UPDATE threads SET title = ? WHERE id = ?', [clampTitle(title), id])
-}
-
-export async function saveThreadMessages(
-  id: string,
-  indexName: string,
-  messages: AskUIMessage[],
-  now: number,
-): Promise<void> {
+export async function saveTurn(params: SaveTurnParams): Promise<void> {
+  const { threadId, indexName, title, expectedCount, keepCount, messages, now } = params
   const db = await getChatDb()
   await db.transaction(async tx => {
     await tx.execute(
       `INSERT INTO threads (id, title, index_name, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, index_name = excluded.index_name`,
-      [id, clampTitle(firstUserText(messages)), indexName, now, now],
+      [threadId, clampTitle(title), indexName, now, now],
     )
-    await tx.execute('DELETE FROM messages WHERE thread_id = ?', [id])
-    let position = 0
-    for (const message of messages) {
-      await tx.execute(
+    const rows = await tx.query<CountRow>('SELECT COUNT(*) AS count FROM messages WHERE thread_id = ?', [threadId])
+    if (rows[0].count !== expectedCount) {
+      throw new ThreadConflictError(threadId)
+    }
+    if (keepCount < expectedCount) {
+      await tx.execute('DELETE FROM messages WHERE thread_id = ? AND position >= ?', [threadId, keepCount])
+    }
+    if (messages.length > 0) {
+      await tx.executeBatch(
         `INSERT INTO messages (thread_id, position, msg_id, role, payload, created_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [id, position, message.id, message.role, JSON.stringify(message), now],
+        messages.map((message, offset) => [
+          threadId,
+          keepCount + offset,
+          message.id,
+          message.role,
+          JSON.stringify(message),
+          now,
+        ]),
       )
-      position++
     }
   })
+}
+
+export async function setThreadTitle(id: string, title: string): Promise<void> {
+  const db = await getChatDb()
+  await db.execute('UPDATE threads SET title = ? WHERE id = ?', [clampTitle(title), id])
 }
 
 export async function listThreads(limit = 100): Promise<ThreadSummary[]> {
@@ -93,7 +99,9 @@ export async function listThreads(limit = 100): Promise<ThreadSummary[]> {
   return rows.map(row => ({ ...row }))
 }
 
-export async function loadThread(id: string): Promise<StoredThread | null> {
+async function loadThreadRows(
+  id: string,
+): Promise<{ summary: Omit<SummaryRow, 'messageCount'>; payloads: string[] } | null> {
   const db = await getChatDb()
   const summary = await db.queryOne<Omit<SummaryRow, 'messageCount'>>(
     `SELECT id AS id,
@@ -109,8 +117,24 @@ export async function loadThread(id: string): Promise<StoredThread | null> {
   const rows = await db.query<PayloadRow>('SELECT payload FROM messages WHERE thread_id = ? ORDER BY position ASC', [
     id,
   ])
-  const messages = rows.map(row => JSON.parse(row.payload) as AskUIMessage)
-  return { ...summary, messageCount: messages.length, messages }
+  return { summary, payloads: rows.map(row => row.payload) }
+}
+
+export async function loadThread(id: string): Promise<StoredThread | null> {
+  const thread = await loadThreadRows(id)
+  if (!thread) return null
+  const messages = parseStoredMessages(joinMessagePayloads(thread.payloads))
+  return { ...thread.summary, messageCount: messages.length, messages }
+}
+
+export async function loadThreadSerialized(id: string): Promise<SerializedThread | null> {
+  const thread = await loadThreadRows(id)
+  if (!thread) return null
+  return {
+    ...thread.summary,
+    messageCount: thread.payloads.length,
+    messagesJson: joinMessagePayloads(thread.payloads),
+  }
 }
 
 export async function deleteThread(id: string): Promise<void> {

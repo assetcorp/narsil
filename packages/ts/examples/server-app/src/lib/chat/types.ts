@@ -13,6 +13,6 @@ export interface StoredThread extends ThreadSummary {
   messages: AskUIMessage[]
 }
 
-export interface StoredThreadWire extends ThreadSummary {
-  messages: Record<string, NonNullable<unknown>>[]
+export interface SerializedThread extends ThreadSummary {
+  messagesJson: string
 }

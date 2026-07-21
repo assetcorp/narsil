@@ -1,6 +1,6 @@
 import type { QueryRequest, SuggestRequest } from '@delali/narsil-example-shared/backend'
 import { createServerFn } from '@tanstack/react-start'
-import type { StoredThreadWire } from './chat/types'
+import { parseThreadIdInput } from './chat/validation'
 
 export const queryFn = createServerFn({ method: 'POST' })
   .inputValidator((d: unknown) => d as QueryRequest)
@@ -85,14 +85,14 @@ export const listThreadsFn = createServerFn({ method: 'POST' }).handler(async ()
 })
 
 export const loadThreadFn = createServerFn({ method: 'POST' })
-  .inputValidator((d: unknown) => d as { id: string })
-  .handler(async ({ data }): Promise<StoredThreadWire | null> => {
-    const { loadThread } = await import('./chat/store')
-    return (await loadThread(data.id)) as StoredThreadWire | null
+  .inputValidator(parseThreadIdInput)
+  .handler(async ({ data }) => {
+    const { loadThreadSerialized } = await import('./chat/store')
+    return loadThreadSerialized(data.id)
   })
 
 export const deleteThreadFn = createServerFn({ method: 'POST' })
-  .inputValidator((d: unknown) => d as { id: string })
+  .inputValidator(parseThreadIdInput)
   .handler(async ({ data }) => {
     const { deleteThread } = await import('./chat/store')
     await deleteThread(data.id)
