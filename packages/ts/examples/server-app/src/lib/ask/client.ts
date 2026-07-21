@@ -1,5 +1,5 @@
 import type { DatasetId, LoadedIndex } from '@delali/narsil-example-shared'
-import type { AskSourcesData, AskUIMessage, RetrievalMode } from './types'
+import type { AskSourcesData, AskThreadTitleData, AskUIMessage, RetrievalMode } from './types'
 
 export interface RetrievalModeOption {
   id: RetrievalMode
@@ -77,6 +77,13 @@ export function suggestionsForIndex(index: LoadedIndex): string[] {
 export function sourcesPartOf(message: AskUIMessage): AskSourcesData | null {
   for (const part of message.parts) {
     if (part.type === 'data-ask-sources') return part.data
+  }
+  return null
+}
+
+export function threadTitlePartOf(message: AskUIMessage): AskThreadTitleData | null {
+  for (const part of message.parts) {
+    if (part.type === 'data-thread-title') return part.data
   }
   return null
 }

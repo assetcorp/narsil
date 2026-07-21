@@ -4,17 +4,21 @@ import {
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
+  type LanguageModel,
   stepCountIs,
   streamText,
   type ToolSet,
   toUIMessageStream,
+  type UIMessageStreamWriter,
 } from 'ai'
+import { ensureThread, saveThreadMessages, setThreadTitle } from '../chat/store'
 import { NarsilServerError } from '../narsil-server-client'
 import type { RestBackend } from '../rest-backend'
 import type { LlmProviderConfig } from './config'
-import { type AskRequest, boundHistory } from './messages'
+import { type AskRequest, boundHistory, isFollowUp } from './messages'
 import { answerInstructions } from './prompt'
 import { RetrievalModeUnavailableError } from './retrieval'
+import { generateThreadTitle } from './title'
 import { createAskTools } from './tools'
 import { type AskSource, type AskUIMessage, EMBEDDING_FIELD } from './types'
 
@@ -61,6 +65,29 @@ function publicErrorMessage(err: unknown): string {
   return 'Something went wrong while answering. Check the app server logs and try again.'
 }
 
+const PROVISIONAL_TITLE_CHARS = 80
+
+function provisionalTitle(question: string): string {
+  const firstLine = question.split('\n', 1)[0].trim()
+  const base = firstLine.length > 0 ? firstLine : question.trim()
+  return base.slice(0, PROVISIONAL_TITLE_CHARS)
+}
+
+async function writeThreadTitle(
+  writer: UIMessageStreamWriter<AskUIMessage>,
+  model: LanguageModel,
+  request: AskRequest,
+  signal: AbortSignal,
+): Promise<void> {
+  if (isFollowUp(request.messages)) return
+  const title = await generateThreadTitle(model, request.question, signal)
+  if (title === null) return
+  writer.write({ type: 'data-thread-title', id: 'thread-title', data: { threadId: request.threadId, title } })
+  try {
+    await setThreadTitle(request.threadId, title)
+  } catch {}
+}
+
 export function createAskResponse(
   backend: RestBackend,
   llm: LlmProviderConfig,
@@ -69,10 +96,15 @@ export function createAskResponse(
 ): Response {
   const stream = createUIMessageStream<AskUIMessage>({
     onError: publicErrorMessage,
+    originalMessages: request.messages as AskUIMessage[],
+    onEnd: async ({ responseMessage }) => {
+      const messages = [...(request.messages as AskUIMessage[]), responseMessage]
+      try {
+        await saveThreadMessages(request.threadId, request.indexName, messages, Date.now())
+      } catch {}
+    },
     execute: async ({ writer }) => {
-      // Fail fast with an actionable message when a vector mode targets an index
-      // that was loaded without embeddings, rather than letting the model
-      // discover it through a tool error mid-loop.
+      await ensureThread(request.threadId, request.indexName, provisionalTitle(request.question), Date.now())
       if (request.mode !== 'keyword') {
         const stats = await backend.getStats(request.indexName)
         if (!(EMBEDDING_FIELD in (stats.schema as Record<string, unknown>))) {
@@ -95,6 +127,7 @@ export function createAskResponse(
       }
 
       const provider = askProvider(llm)
+      const titleTask = writeThreadTitle(writer, provider.chat(llm.titleModel), request, signal)
       const retrieval = createAskTools({
         backend,
         indexName: request.indexName,
@@ -107,9 +140,6 @@ export function createAskResponse(
         : retrieval.tools
       const readingTools = request.webSearch ? ['readDocument', 'web_search'] : ['readDocument']
 
-      // The Responses API streams reasoning summaries (the visible "thinking"),
-      // and it is already the model used when web search is on. The Chat API
-      // covers the default path and keeps reasoning effort low for latency.
       const answer = streamText({
         model: request.webSearch ? provider.responses(llm.model) : provider.chat(llm.model),
         tools,
@@ -152,6 +182,8 @@ export function createAskResponse(
             part.type === 'finish' ? { usage: part.totalUsage, modelId: `openai:${llm.model}` } : undefined,
         }),
       )
+
+      await titleTask
     },
   })
 

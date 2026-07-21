@@ -6,6 +6,7 @@ const MAX_HISTORY_MESSAGES = 12
 const MAX_HISTORY_CHARS = 24000
 const MAX_REQUEST_MESSAGES = 40
 const INDEX_NAME_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/
+const THREAD_ID_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/
 
 export class AskRequestError extends Error {
   readonly status: number
@@ -23,6 +24,7 @@ export interface AskRequest {
   mode: RetrievalMode
   question: string
   webSearch: boolean
+  threadId: string
 }
 
 export function messageText(message: UIMessage): string {
@@ -47,10 +49,13 @@ export function parseAskRequest(body: unknown): AskRequest {
   if (typeof body !== 'object' || body === null) {
     throw new AskRequestError('The request body must be a JSON object')
   }
-  const { messages, indexName, mode, webSearch } = body as Record<string, unknown>
+  const { messages, indexName, mode, webSearch, threadId } = body as Record<string, unknown>
 
   if (typeof indexName !== 'string' || !INDEX_NAME_PATTERN.test(indexName)) {
     throw new AskRequestError('Field "indexName" must name an index')
+  }
+  if (typeof threadId !== 'string' || !THREAD_ID_PATTERN.test(threadId)) {
+    throw new AskRequestError('Field "threadId" must identify the conversation')
   }
   if (typeof mode !== 'string' || !RETRIEVAL_MODES.includes(mode as RetrievalMode)) {
     throw new AskRequestError(`Field "mode" must be one of: ${RETRIEVAL_MODES.join(', ')}`)
@@ -83,6 +88,7 @@ export function parseAskRequest(body: unknown): AskRequest {
     mode: mode as RetrievalMode,
     question,
     webSearch: webSearch === true,
+    threadId,
   }
 }
 
