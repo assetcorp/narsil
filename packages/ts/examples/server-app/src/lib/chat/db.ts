@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import type { Database } from '@delali/sirannon-db'
-import { CHAT_MIGRATIONS } from './migrations'
+import { ensureChatSchema } from './schema'
 
 const CHAT_DB_KEY = Symbol.for('narsil-server-app-chat-db')
 const g = globalThis as unknown as Record<symbol, Promise<Database> | undefined>
@@ -30,7 +30,7 @@ async function openChatDb(): Promise<Database> {
   ])
   const sirannon = new Sirannon({ driver: betterSqlite3() })
   const db = await sirannon.open('ask-chat', dbPath)
-  await db.migrate(CHAT_MIGRATIONS)
+  await ensureChatSchema(db)
   return db
 }
 

@@ -4,7 +4,16 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { AskUIMessage } from '../ask/types'
-import { deleteThread, ensureThread, listThreads, loadThread, saveThreadMessages, setThreadTitle } from './store'
+import { parseStoredMessages } from './serialization'
+import {
+  deleteThread,
+  listThreads,
+  loadThread,
+  loadThreadSerialized,
+  saveTurn,
+  setThreadTitle,
+  ThreadConflictError,
+} from './store'
 
 let tempDir: string
 
@@ -25,44 +34,68 @@ function assistantMessage(id: string, text: string): AskUIMessage {
   return { id, role: 'assistant', parts: [{ type: 'text', text }] }
 }
 
+function turn(threadId: string, expectedCount: number, keepCount: number, messages: AskUIMessage[], now: number) {
+  return saveTurn({
+    threadId,
+    indexName: 'scifact',
+    title: 'Effects of vitamin D',
+    expectedCount,
+    keepCount,
+    messages,
+    now,
+  })
+}
+
 describe('chat store', () => {
-  it('creates a thread and lists it', async () => {
-    await ensureThread('thread-a', 'scifact', 'Effects of vitamin D', 1000)
+  it('creates a thread when the first user message is saved', async () => {
+    await turn('thread-a', 0, 0, [userMessage('u1', 'Does vitamin D help bone health?')], 1000)
     const threads = await listThreads()
     const created = threads.find(thread => thread.id === 'thread-a')
-    expect(created).toBeDefined()
     expect(created?.title).toBe('Effects of vitamin D')
     expect(created?.indexName).toBe('scifact')
-    expect(created?.messageCount).toBe(0)
+    expect(created?.messageCount).toBe(1)
   })
 
-  it('keeps the original title when ensureThread runs again', async () => {
-    await ensureThread('thread-a', 'scifact', 'A different provisional title', 2000)
+  it('appends the assistant answer without rewriting earlier rows', async () => {
+    await turn('thread-a', 1, 1, [assistantMessage('a1', 'The evidence is mixed.')], 2000)
     const thread = await loadThread('thread-a')
-    expect(thread?.title).toBe('Effects of vitamin D')
-  })
-
-  it('persists and reloads messages in order', async () => {
-    const messages = [
-      userMessage('u1', 'Does vitamin D help bone health?'),
-      assistantMessage('a1', 'The evidence is mixed.'),
-    ]
-    await saveThreadMessages('thread-a', 'scifact', messages, 3000)
-    const thread = await loadThread('thread-a')
-    expect(thread?.messageCount).toBe(2)
     expect(thread?.messages.map(message => message.id)).toEqual(['u1', 'a1'])
-    expect(thread?.messages[1].role).toBe('assistant')
+    expect(thread?.messageCount).toBe(2)
   })
 
-  it('does not overwrite an existing title when saving messages', async () => {
+  it('keeps the original title on later saves', async () => {
+    await saveTurn({
+      threadId: 'thread-a',
+      indexName: 'scifact',
+      title: 'A different provisional title',
+      expectedCount: 2,
+      keepCount: 2,
+      messages: [userMessage('u2', 'Follow-up question')],
+      now: 3000,
+    })
     const thread = await loadThread('thread-a')
     expect(thread?.title).toBe('Effects of vitamin D')
+    expect(thread?.updatedAt).toBe(3000)
   })
 
-  it('replaces messages on the next save rather than appending', async () => {
-    await saveThreadMessages('thread-a', 'scifact', [userMessage('u2', 'Follow-up question')], 4000)
+  it('rejects a save when the stored message count no longer matches', async () => {
+    await expect(turn('thread-a', 1, 1, [assistantMessage('a9', 'stale')], 4000)).rejects.toBeInstanceOf(
+      ThreadConflictError,
+    )
     const thread = await loadThread('thread-a')
-    expect(thread?.messages.map(message => message.id)).toEqual(['u2'])
+    expect(thread?.messages.map(message => message.id)).toEqual(['u1', 'a1', 'u2'])
+  })
+
+  it('truncates the tail and replaces an edited message', async () => {
+    await turn('thread-a', 3, 1, [userMessage('u1-edited', 'Does vitamin D reduce fractures?')], 5000)
+    const thread = await loadThread('thread-a')
+    expect(thread?.messages.map(message => message.id)).toEqual(['u1', 'u1-edited'])
+  })
+
+  it('truncates without appending when a turn is regenerated', async () => {
+    await turn('thread-a', 2, 1, [], 6000)
+    const thread = await loadThread('thread-a')
+    expect(thread?.messages.map(message => message.id)).toEqual(['u1'])
   })
 
   it('updates the title', async () => {
@@ -71,15 +104,27 @@ describe('chat store', () => {
     expect(thread?.title).toBe('Vitamin D and bones')
   })
 
+  it('serializes messages into JSON that parses back to the stored thread', async () => {
+    const serialized = await loadThreadSerialized('thread-a')
+    expect(serialized?.messageCount).toBe(1)
+    const parsed = parseStoredMessages(serialized?.messagesJson ?? '')
+    expect(parsed).toEqual((await loadThread('thread-a'))?.messages)
+  })
+
+  it('returns null for an unknown thread', async () => {
+    expect(await loadThread('missing-thread')).toBeNull()
+    expect(await loadThreadSerialized('missing-thread')).toBeNull()
+  })
+
   it('orders threads by most recently updated', async () => {
-    await ensureThread('thread-b', 'scifact', 'Older thread', 500)
-    await ensureThread('thread-c', 'scifact', 'Newest thread', 9000)
+    await turn('thread-b', 0, 0, [userMessage('b1', 'Older thread')], 500)
+    await turn('thread-c', 0, 0, [userMessage('c1', 'Newest thread')], 9000)
     const ids = (await listThreads()).map(thread => thread.id)
     expect(ids.indexOf('thread-c')).toBeLessThan(ids.indexOf('thread-b'))
   })
 
   it('deletes a thread and its messages', async () => {
-    await saveThreadMessages('thread-d', 'scifact', [userMessage('d1', 'Delete me')], 5000)
+    await turn('thread-d', 0, 0, [userMessage('d1', 'Delete me')], 5000)
     await deleteThread('thread-d')
     expect(await loadThread('thread-d')).toBeNull()
     const threads = await listThreads()

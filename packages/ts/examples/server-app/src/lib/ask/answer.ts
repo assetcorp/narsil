@@ -11,14 +11,15 @@ import {
   toUIMessageStream,
   type UIMessageStreamWriter,
 } from 'ai'
-import { deleteThread, ensureThread, saveThreadMessages, setThreadTitle } from '../chat/store'
+import { saveTurn, setThreadTitle } from '../chat/store'
 import { NarsilServerError } from '../narsil-server-client'
 import type { RestBackend } from '../rest-backend'
 import type { LlmProviderConfig } from './config'
-import { type AskRequest, boundHistory, isFollowUp } from './messages'
+import type { AskTurn } from './history'
+import { type AskRequest, boundHistory } from './messages'
 import { answerInstructions } from './prompt'
 import { RetrievalModeUnavailableError } from './retrieval'
-import { generateThreadTitle } from './title'
+import { generateThreadTitle, provisionalTitle } from './title'
 import { createAskTools } from './tools'
 import { type AskSource, type AskUIMessage, EMBEDDING_FIELD } from './types'
 
@@ -46,14 +47,6 @@ function publicErrorMessage(err: unknown): string {
   return 'Something went wrong while answering. Check the app server logs and try again.'
 }
 
-const PROVISIONAL_TITLE_CHARS = 80
-
-function provisionalTitle(question: string): string {
-  const firstLine = question.split('\n', 1)[0].trim()
-  const base = firstLine.length > 0 ? firstLine : question.trim()
-  return base.slice(0, PROVISIONAL_TITLE_CHARS)
-}
-
 function hasAnswerContent(message: AskUIMessage): boolean {
   for (const part of message.parts) {
     if (part.type === 'text' && part.text.trim().length > 0) return true
@@ -65,35 +58,46 @@ async function writeThreadTitle(
   writer: UIMessageStreamWriter<AskUIMessage>,
   model: LanguageModel,
   request: AskRequest,
+  turn: AskTurn,
   signal: AbortSignal,
 ): Promise<void> {
-  if (isFollowUp(request.messages)) return
-  const title = await generateThreadTitle(model, request.question, signal)
+  if (!turn.firstTurn) return
+  const title = await generateThreadTitle(model, turn.question, signal)
   if (title === null) return
   writer.write({ type: 'data-thread-title', id: 'thread-title', data: { threadId: request.threadId, title } })
   try {
     await setThreadTitle(request.threadId, title)
-  } catch {}
+  } catch (error) {
+    console.error(`[ask] failed to store the title for thread ${request.threadId}:`, error)
+  }
 }
 
 export function createAskResponse(
   backend: RestBackend,
   llm: LlmProviderConfig,
   request: AskRequest,
+  turn: AskTurn,
   signal: AbortSignal,
 ): Response {
   const stream = createUIMessageStream<AskUIMessage>({
     onError: publicErrorMessage,
-    originalMessages: request.messages as AskUIMessage[],
+    originalMessages: turn.history,
+    generateId: () => crypto.randomUUID(),
     onEnd: async ({ responseMessage }) => {
+      if (!hasAnswerContent(responseMessage)) return
       try {
-        if (hasAnswerContent(responseMessage)) {
-          const messages = [...(request.messages as AskUIMessage[]), responseMessage]
-          await saveThreadMessages(request.threadId, request.indexName, messages, Date.now())
-        } else if (!isFollowUp(request.messages)) {
-          await deleteThread(request.threadId)
-        }
-      } catch {}
+        await saveTurn({
+          threadId: request.threadId,
+          indexName: request.indexName,
+          title: provisionalTitle(turn.question),
+          expectedCount: turn.history.length,
+          keepCount: turn.history.length,
+          messages: [responseMessage],
+          now: Date.now(),
+        })
+      } catch (error) {
+        console.error(`[ask] failed to store the answer for thread ${request.threadId}:`, error)
+      }
     },
     execute: async ({ writer }) => {
       if (request.mode !== 'keyword') {
@@ -102,7 +106,6 @@ export function createAskResponse(
           throw new RetrievalModeUnavailableError(request.mode, request.indexName)
         }
       }
-      await ensureThread(request.threadId, request.indexName, provisionalTitle(request.question), Date.now())
 
       const emitSources = (sources: AskSource[], elapsedMs: number, query: string): void => {
         writer.write({
@@ -111,7 +114,7 @@ export function createAskResponse(
           data: {
             mode: request.mode,
             indexName: request.indexName,
-            query: query.length > 0 ? query : request.question,
+            query: query.length > 0 ? query : turn.question,
             elapsedMs,
             sources,
           },
@@ -119,7 +122,7 @@ export function createAskResponse(
       }
 
       const provider = askProvider(llm)
-      const titleTask = writeThreadTitle(writer, provider.chat(llm.titleModel), request, signal)
+      const titleTask = writeThreadTitle(writer, provider.chat(llm.titleModel), request, turn, signal)
       const retrieval = createAskTools({
         backend,
         indexName: request.indexName,
@@ -149,7 +152,7 @@ export function createAskResponse(
           return { activeTools: readingTools }
         },
         instructions: answerInstructions(request.indexName, request.webSearch),
-        messages: await convertToModelMessages(boundHistory(request.messages)),
+        messages: await convertToModelMessages(boundHistory(turn.history)),
         maxOutputTokens: ANSWER_MAX_OUTPUT_TOKENS,
         providerOptions: {
           openai: request.webSearch

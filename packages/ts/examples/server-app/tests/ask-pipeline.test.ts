@@ -6,11 +6,13 @@ import path from 'node:path'
 import process from 'node:process'
 import { createNarsil, type EmbeddingAdapter, type Narsil } from '@delali/narsil'
 import { createServer, type NarsilServer } from '@delali/narsil/server'
-import type { UIMessage } from 'ai'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createAskResponse } from '../src/lib/ask/answer'
 import type { LlmProviderConfig } from '../src/lib/ask/config'
+import { persistTurnStart, reconstructTurn } from '../src/lib/ask/history'
 import { parseAskRequest } from '../src/lib/ask/messages'
+import type { AskUIMessage } from '../src/lib/ask/types'
+import { loadThread } from '../src/lib/chat/store'
 import { NarsilServerClient } from '../src/lib/narsil-server-client'
 import { RestBackend } from '../src/lib/rest-backend'
 
@@ -177,12 +179,8 @@ const DOCS = [
   { id: 'doc-3', title: 'Onboarding guide', text: 'New engineers pair for two weeks and read the handbook.' },
 ]
 
-function userMessage(id: string, text: string): UIMessage {
+function userMessage(id: string, text: string): AskUIMessage {
   return { id, role: 'user', parts: [{ type: 'text', text }] }
-}
-
-function assistantMessage(id: string, text: string): UIMessage {
-  return { id, role: 'assistant', parts: [{ type: 'text', text }] }
 }
 
 interface StreamedChunk {
@@ -257,9 +255,18 @@ describe('agentic ask pipeline against a live Narsil server', () => {
     if (tempChatDir) rmSync(tempChatDir, { recursive: true, force: true })
   })
 
-  async function ask(body: unknown): Promise<StreamedChunk[]> {
-    const request = parseAskRequest({ threadId: 'pipeline-thread', ...(body as Record<string, unknown>) })
-    const response = createAskResponse(backend, llmConfig, request, new AbortController().signal)
+  let threadCounter = 0
+
+  async function ask(body: Record<string, unknown>, threadId?: string): Promise<StreamedChunk[]> {
+    threadCounter++
+    const request = parseAskRequest({
+      threadId: threadId ?? `pipeline-thread-${threadCounter}`,
+      trigger: 'submit-message',
+      ...body,
+    })
+    const turn = await reconstructTurn(request)
+    await persistTurnStart(request, turn, Date.now())
+    const response = createAskResponse(backend, llmConfig, request, turn, new AbortController().signal)
     expect(response.status).toBe(200)
     return readUiChunks(response)
   }
@@ -269,7 +276,7 @@ describe('agentic ask pipeline against a live Narsil server', () => {
     const chunks = await ask({
       indexName: 'handbook',
       mode: 'keyword',
-      messages: [userMessage('m1', 'How does incident response work?')],
+      message: userMessage('m1', 'How does incident response work?'),
     })
 
     const sourcesIndex = chunks.findIndex(chunk => chunk.type === 'data-ask-sources')
@@ -298,7 +305,7 @@ describe('agentic ask pipeline against a live Narsil server', () => {
       const chunks = await ask({
         indexName: 'handbook',
         mode,
-        messages: [userMessage('m1', 'How does incident response work?')],
+        message: userMessage('m1', 'How does incident response work?'),
       })
       const sources = chunks.find(chunk => chunk.type === 'data-ask-sources')
       expect(sources, `${mode} sources part`).toBeDefined()
@@ -315,7 +322,7 @@ describe('agentic ask pipeline against a live Narsil server', () => {
     const chunks = await ask({
       indexName: 'handbook',
       mode: 'keyword',
-      messages: [userMessage('m1', 'zzzqqqxxyy')],
+      message: userMessage('m1', 'zzzqqqxxyy'),
     })
     expect(chunks.find(chunk => chunk.type === 'data-ask-sources')).toBeUndefined()
     expect(textOfChunks(chunks).length).toBeGreaterThan(0)
@@ -327,7 +334,7 @@ describe('agentic ask pipeline against a live Narsil server', () => {
     const chunks = await ask({
       indexName: 'keyword-only',
       mode: 'semantic',
-      messages: [userMessage('m1', 'anything at all')],
+      message: userMessage('m1', 'anything at all'),
     })
     const errorChunk = chunks.find(chunk => chunk.type === 'error')
     expect(errorChunk).toBeDefined()
@@ -335,18 +342,30 @@ describe('agentic ask pipeline against a live Narsil server', () => {
     expect(llm.calls.length).toBe(before)
   })
 
+  it('persists the question and the streamed answer as one stored turn', async () => {
+    await ask(
+      { indexName: 'handbook', mode: 'keyword', message: userMessage('m1', 'How does incident response work?') },
+      'persisted-pipeline-thread',
+    )
+    const thread = await loadThread('persisted-pipeline-thread')
+    expect(thread?.messages).toHaveLength(2)
+    expect(thread?.messages[0].role).toBe('user')
+    expect(thread?.messages[1].role).toBe('assistant')
+    expect(JSON.stringify(thread?.messages[1].parts)).toContain('incident response [1].')
+  })
+
   it('rejects malformed requests before any retrieval', () => {
-    expect(() => parseAskRequest({ indexName: 'handbook', mode: 'keyword', messages: [] })).toThrow()
-    expect(() => parseAskRequest({ indexName: 'handbook', mode: 'nope', messages: [userMessage('m1', 'q')] })).toThrow()
+    const message = userMessage('m1', 'q')
+    const valid = { indexName: 'handbook', mode: 'keyword', threadId: 't1', trigger: 'submit-message', message }
+    expect(() => parseAskRequest({ ...valid, message: undefined })).toThrow()
+    expect(() => parseAskRequest({ ...valid, trigger: 'other' })).toThrow()
+    expect(() => parseAskRequest({ ...valid, mode: 'nope' })).toThrow()
+    expect(() => parseAskRequest({ ...valid, indexName: '../etc' })).toThrow()
+    expect(() => parseAskRequest({ ...valid, threadId: 'bad/thread' })).toThrow()
+    expect(() => parseAskRequest({ ...valid, message: { ...message, role: 'assistant' } })).toThrow()
+    expect(() => parseAskRequest({ ...valid, message: userMessage('m1', '') })).toThrow()
     expect(() =>
-      parseAskRequest({ indexName: '../etc', mode: 'keyword', messages: [userMessage('m1', 'q')] }),
-    ).toThrow()
-    expect(() =>
-      parseAskRequest({
-        indexName: 'handbook',
-        mode: 'keyword',
-        messages: [assistantMessage('m1', 'not a question')],
-      }),
+      parseAskRequest({ ...valid, trigger: 'regenerate-message', message: userMessage('m2', 'extra') }),
     ).toThrow()
   })
 })
