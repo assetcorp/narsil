@@ -16,7 +16,6 @@ import { RestBackend } from '../src/lib/rest-backend'
 
 const DIMENSIONS = 8
 
-/** Deterministic embedding so vector search runs without any provider. */
 function vectorFor(input: string): Float32Array {
   const vector = new Float32Array(DIMENSIONS)
   for (let i = 0; i < input.length; i++) {
@@ -72,10 +71,6 @@ function lastUserQuery(messages: OpenAiMessage[]): string {
   return ''
 }
 
-/** The agent hands search results back to the model as a `tool` message; the
- * stub reads the candidate docIds out of it, in ranking order, so its
- * readDocument calls target real documents without hard-coding engine-assigned
- * ids. */
 function candidateDocIds(messages: OpenAiMessage[]): string[] {
   const searchMessage = messages.find(
     message => message.role === 'tool' && JSON.stringify(message).includes('"results"'),
@@ -92,12 +87,6 @@ function candidateDocIds(messages: OpenAiMessage[]): string[] {
   return ids
 }
 
-/**
- * A stub OpenAI Chat Completions endpoint that plays the agent loop: it emits a
- * `search` tool call on the first turn, then reads the top two distinct
- * candidates one per turn, then emits the final cited answer. When a search
- * returns nothing, it answers straight away without reading.
- */
 function startStubLlm(): Promise<StubLlm> {
   const stub: StubLlm = {
     server: http.createServer(),
@@ -301,7 +290,6 @@ describe('agentic ask pipeline against a live Narsil server', () => {
     expect(data.sources[0].snippet).toContain('<mark>')
 
     expect(textOfChunks(chunks)).toBe('The handbook covers incident response [1].')
-    // At least search, one read, and the answer run as separate model steps.
     expect(llm.calls.length - before).toBeGreaterThanOrEqual(3)
   })
 
@@ -316,7 +304,6 @@ describe('agentic ask pipeline against a live Narsil server', () => {
       expect(sources, `${mode} sources part`).toBeDefined()
       const data = (sources as StreamedChunk).data as { mode: string; sources: Array<{ rank: number }> }
       expect(data.mode).toBe(mode)
-      // The loop reads at least two distinct documents, so the answer is never grounded on one.
       expect(data.sources.length).toBeGreaterThanOrEqual(2)
       expect(data.sources.map(source => source.rank)).toEqual(data.sources.map((_source, index) => index + 1))
       expect(textOfChunks(chunks).length).toBeGreaterThan(0)
@@ -332,7 +319,6 @@ describe('agentic ask pipeline against a live Narsil server', () => {
     })
     expect(chunks.find(chunk => chunk.type === 'data-ask-sources')).toBeUndefined()
     expect(textOfChunks(chunks).length).toBeGreaterThan(0)
-    // search returns nothing, so the model skips readDocument: one search step plus the answer.
     expect(llm.calls.length - before).toBe(2)
   })
 
@@ -346,7 +332,6 @@ describe('agentic ask pipeline against a live Narsil server', () => {
     const errorChunk = chunks.find(chunk => chunk.type === 'error')
     expect(errorChunk).toBeDefined()
     expect(String((errorChunk as StreamedChunk).errorText)).toContain('needs vector embeddings')
-    // The mode is rejected before any model call.
     expect(llm.calls.length).toBe(before)
   })
 

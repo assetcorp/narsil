@@ -22,39 +22,20 @@ import { generateThreadTitle } from './title'
 import { createAskTools } from './tools'
 import { type AskSource, type AskUIMessage, EMBEDDING_FIELD } from './types'
 
-/**
- * Output ceiling for one answer. Reasoning models spend output tokens on
- * reasoning before the visible text, so the ceiling stays well above the
- * length of a long cited answer (~600 tokens) to avoid mid-answer cutoffs
- * while still bounding a runaway generation.
- */
 const ANSWER_MAX_OUTPUT_TOKENS = 4096
 
-/**
- * Ceiling on tool + answer steps: one search, several document reads, then the
- * written answer. The last step always forces the answer, so this only bounds
- * how many documents can be read.
- */
 const MAX_STEPS = 8
 
-/** Keeps the model's private reasoning short so the first tool call arrives
- * quickly; reading and citing, not deep reasoning, is the work here. */
 const REASONING_EFFORT = 'low'
 
 function askProvider(llm: LlmProviderConfig) {
   return createOpenAI({ apiKey: llm.apiKey, baseURL: llm.baseUrl })
 }
 
-/** Provider errors can echo credential fragments (OpenAI 401 bodies quote a
- * masked key); anything shaped like a secret is removed before the message
- * reaches the page. */
 function redactSecrets(message: string): string {
   return message.replace(/\b(?:sk|rk)-[\w*.-]+/gi, '[redacted]').replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
 }
 
-/** Maps a failure to text safe to show in the chat. Narsil and configuration
- * errors carry actionable operator messages; provider messages are kept
- * because they explain setup mistakes, but only after secret redaction. */
 function publicErrorMessage(err: unknown): string {
   if (err instanceof RetrievalModeUnavailableError || err instanceof NarsilServerError) {
     return err.message
@@ -156,21 +137,15 @@ export function createAskResponse(
         tools,
         stopWhen: stepCountIs(MAX_STEPS),
         prepareStep: ({ stepNumber }) => {
-          // Force one search up front.
           if (stepNumber === 0) {
             return { toolChoice: { type: 'tool', toolName: 'search' }, activeTools: ['search'] }
           }
-          // The final step always produces the written answer, so the loop can
-          // never end on a tool call with nothing to show.
           if (stepNumber >= MAX_STEPS - 1) {
             return { toolChoice: 'none' }
           }
-          // Nothing was retrieved: answer directly instead of reading.
           if (retrieval.candidateCount() === 0) {
             return { toolChoice: 'none' }
           }
-          // Read candidates, no re-searching; the model reads what it needs
-          // then answers when ready.
           return { activeTools: readingTools }
         },
         instructions: answerInstructions(request.indexName, request.webSearch),

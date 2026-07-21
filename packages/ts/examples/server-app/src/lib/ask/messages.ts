@@ -4,7 +4,6 @@ import { RETRIEVAL_MODES, type RetrievalMode } from './types'
 export const MAX_QUESTION_CHARS = 4000
 const MAX_HISTORY_MESSAGES = 12
 const MAX_HISTORY_CHARS = 24000
-const MAX_REQUEST_MESSAGES = 40
 const INDEX_NAME_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/
 const THREAD_ID_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/
 
@@ -63,8 +62,8 @@ export function parseAskRequest(body: unknown): AskRequest {
   if (webSearch !== undefined && typeof webSearch !== 'boolean') {
     throw new AskRequestError('Field "webSearch" must be a boolean')
   }
-  if (!Array.isArray(messages) || messages.length === 0 || messages.length > MAX_REQUEST_MESSAGES) {
-    throw new AskRequestError(`Field "messages" must be a non-empty array of at most ${MAX_REQUEST_MESSAGES} messages`)
+  if (!Array.isArray(messages) || messages.length === 0) {
+    throw new AskRequestError('Field "messages" must be a non-empty array')
   }
   if (!messages.every(isChatMessage)) {
     throw new AskRequestError('Every message needs an id, a user or assistant role, and a parts array')
@@ -92,11 +91,6 @@ export function parseAskRequest(body: unknown): AskRequest {
   }
 }
 
-/**
- * Bounds the conversation sent to the model: the newest messages win, and the
- * total text volume is capped so one conversation cannot grow the prompt
- * without limit. The final user question always survives.
- */
 export function boundHistory(messages: UIMessage[]): UIMessage[] {
   const recent = messages.slice(-MAX_HISTORY_MESSAGES)
   let total = 0

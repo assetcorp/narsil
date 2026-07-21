@@ -31,12 +31,6 @@ function firstNonEmpty(...values: Array<string | undefined>): string | undefined
   return undefined
 }
 
-/**
- * Resolves the answer-generation model from the environment. Returns null when
- * no API key is configured; the Ask view then explains what to set instead of
- * calling any provider. Read per request and only in server-side code so the
- * key never reaches the client bundle.
- */
 export function readLlmConfig(): LlmProviderConfig | null {
   const apiKey = firstNonEmpty(process.env.ASK_LLM_API_KEY, process.env.OPENAI_API_KEY)
   if (apiKey === undefined) return null
