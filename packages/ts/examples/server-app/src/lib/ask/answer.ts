@@ -11,7 +11,7 @@ import {
   toUIMessageStream,
   type UIMessageStreamWriter,
 } from 'ai'
-import { ensureThread, saveThreadMessages, setThreadTitle } from '../chat/store'
+import { deleteThread, ensureThread, saveThreadMessages, setThreadTitle } from '../chat/store'
 import { NarsilServerError } from '../narsil-server-client'
 import type { RestBackend } from '../rest-backend'
 import type { LlmProviderConfig } from './config'
@@ -73,6 +73,13 @@ function provisionalTitle(question: string): string {
   return base.slice(0, PROVISIONAL_TITLE_CHARS)
 }
 
+function hasAnswerContent(message: AskUIMessage): boolean {
+  for (const part of message.parts) {
+    if (part.type === 'text' && part.text.trim().length > 0) return true
+  }
+  return false
+}
+
 async function writeThreadTitle(
   writer: UIMessageStreamWriter<AskUIMessage>,
   model: LanguageModel,
@@ -98,19 +105,23 @@ export function createAskResponse(
     onError: publicErrorMessage,
     originalMessages: request.messages as AskUIMessage[],
     onEnd: async ({ responseMessage }) => {
-      const messages = [...(request.messages as AskUIMessage[]), responseMessage]
       try {
-        await saveThreadMessages(request.threadId, request.indexName, messages, Date.now())
+        if (hasAnswerContent(responseMessage)) {
+          const messages = [...(request.messages as AskUIMessage[]), responseMessage]
+          await saveThreadMessages(request.threadId, request.indexName, messages, Date.now())
+        } else if (!isFollowUp(request.messages)) {
+          await deleteThread(request.threadId)
+        }
       } catch {}
     },
     execute: async ({ writer }) => {
-      await ensureThread(request.threadId, request.indexName, provisionalTitle(request.question), Date.now())
       if (request.mode !== 'keyword') {
         const stats = await backend.getStats(request.indexName)
         if (!(EMBEDDING_FIELD in (stats.schema as Record<string, unknown>))) {
           throw new RetrievalModeUnavailableError(request.mode, request.indexName)
         }
       }
+      await ensureThread(request.threadId, request.indexName, provisionalTitle(request.question), Date.now())
 
       const emitSources = (sources: AskSource[], elapsedMs: number, query: string): void => {
         writer.write({
