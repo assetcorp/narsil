@@ -29,8 +29,14 @@ export interface AskSourcesData {
   sources: AskSource[]
 }
 
+export interface AskThreadTitleData {
+  threadId: string
+  title: string
+}
+
 export type AskDataParts = {
   'ask-sources': AskSourcesData
+  'thread-title': AskThreadTitleData
 }
 
 /** One candidate the `search` tool hands the model: enough to decide what to open, no full text. */

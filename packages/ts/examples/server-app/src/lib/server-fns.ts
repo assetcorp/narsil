@@ -1,5 +1,6 @@
 import type { QueryRequest, SuggestRequest } from '@delali/narsil-example-shared/backend'
 import { createServerFn } from '@tanstack/react-start'
+import type { StoredThreadWire } from './chat/types'
 
 export const queryFn = createServerFn({ method: 'POST' })
   .inputValidator((d: unknown) => d as QueryRequest)
@@ -76,4 +77,23 @@ export const getDocumentFn = createServerFn({ method: 'POST' })
     const backend = await getBackend()
     const document = await backend.getDocument(data.indexName, data.docId)
     return document as Record<string, NonNullable<unknown>> | null
+  })
+
+export const listThreadsFn = createServerFn({ method: 'POST' }).handler(async () => {
+  const { listThreads } = await import('./chat/store')
+  return listThreads()
+})
+
+export const loadThreadFn = createServerFn({ method: 'POST' })
+  .inputValidator((d: unknown) => d as { id: string })
+  .handler(async ({ data }): Promise<StoredThreadWire | null> => {
+    const { loadThread } = await import('./chat/store')
+    return (await loadThread(data.id)) as StoredThreadWire | null
+  })
+
+export const deleteThreadFn = createServerFn({ method: 'POST' })
+  .inputValidator((d: unknown) => d as { id: string })
+  .handler(async ({ data }) => {
+    const { deleteThread } = await import('./chat/store')
+    await deleteThread(data.id)
   })

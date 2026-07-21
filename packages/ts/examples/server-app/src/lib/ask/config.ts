@@ -4,10 +4,12 @@ export interface LlmProviderConfig {
   apiKey: string
   baseUrl: string
   model: string
+  titleModel: string
 }
 
 export const DEFAULT_LLM_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_LLM_MODEL = 'gpt-5-mini'
+export const DEFAULT_TITLE_MODEL = 'gpt-5-mini'
 
 function validatedBaseUrl(raw: string, envName: string): string {
   let parsed: URL
@@ -43,6 +45,7 @@ export function readLlmConfig(): LlmProviderConfig | null {
   const baseUrl = validatedBaseUrl(rawBaseUrl as string, 'ASK_LLM_BASE_URL')
 
   const model = firstNonEmpty(process.env.ASK_LLM_MODEL, DEFAULT_LLM_MODEL) as string
+  const titleModel = firstNonEmpty(process.env.ASK_TITLE_MODEL, DEFAULT_TITLE_MODEL) as string
 
-  return { apiKey, baseUrl, model }
+  return { apiKey, baseUrl, model, titleModel }
 }

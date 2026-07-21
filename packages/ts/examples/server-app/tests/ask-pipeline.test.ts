@@ -1,5 +1,9 @@
+import { mkdtempSync, rmSync } from 'node:fs'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import process from 'node:process'
 import { createNarsil, type EmbeddingAdapter, type Narsil } from '@delali/narsil'
 import { createServer, type NarsilServer } from '@delali/narsil/server'
 import type { UIMessage } from 'ai'
@@ -221,8 +225,11 @@ describe('agentic ask pipeline against a live Narsil server', () => {
   let backend: RestBackend
   let llm: StubLlm
   let llmConfig: LlmProviderConfig
+  let tempChatDir: string
 
   beforeAll(async () => {
+    tempChatDir = mkdtempSync(path.join(tmpdir(), 'ask-pipeline-chat-'))
+    process.env.ASK_CHAT_DB_PATH = path.join(tempChatDir, 'chat.db')
     engine = await createNarsil()
     narsilServer = createServer(engine, {
       host: '127.0.0.1',
@@ -251,17 +258,18 @@ describe('agentic ask pipeline against a live Narsil server', () => {
 
     backend = new RestBackend(config)
     llm = await startStubLlm()
-    llmConfig = { apiKey: 'stub-key', baseUrl: llm.baseUrl, model: 'stub-model' }
+    llmConfig = { apiKey: 'stub-key', baseUrl: llm.baseUrl, model: 'stub-model', titleModel: 'stub-model' }
   })
 
   afterAll(async () => {
     await narsilServer.close()
     await engine.shutdown()
     llm.server.close()
+    if (tempChatDir) rmSync(tempChatDir, { recursive: true, force: true })
   })
 
   async function ask(body: unknown): Promise<StreamedChunk[]> {
-    const request = parseAskRequest(body)
+    const request = parseAskRequest({ threadId: 'pipeline-thread', ...(body as Record<string, unknown>) })
     const response = createAskResponse(backend, llmConfig, request, new AbortController().signal)
     expect(response.status).toBe(200)
     return readUiChunks(response)
