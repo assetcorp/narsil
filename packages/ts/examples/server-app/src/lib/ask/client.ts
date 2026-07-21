@@ -32,14 +32,6 @@ const DATASET_SUGGESTIONS: Record<DatasetId, string[]> = {
   custom: ['What topics does this dataset cover?', 'Summarize the most common themes in these documents.'],
 }
 
-/**
- * Every Wikipedia edition loads as a single `wikipedia` dataset with the
- * language in the index name (`wikipedia-<code>`), so the starter questions are
- * keyed by that code. Each set names topics that actually appear among the
- * longest articles in that edition's corpus and is phrased in that language, so
- * a chip always has a grounded answer. Editions without an entry fall back to
- * the English set via the `wikipedia` dataset default above.
- */
 const WIKIPEDIA_SUGGESTIONS: Record<string, string[]> = {
   en: DATASET_SUGGESTIONS.wikipedia,
   fr: [

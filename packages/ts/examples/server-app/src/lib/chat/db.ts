@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import type { Database } from '@delali/sirannon-db'
+import { CHAT_MIGRATIONS } from './migrations'
 
 const CHAT_DB_KEY = Symbol.for('narsil-server-app-chat-db')
 const g = globalThis as unknown as Record<symbol, Promise<Database> | undefined>
@@ -19,30 +20,6 @@ function chatDbPath(): string {
   return path.join(base, 'chat.db')
 }
 
-async function initSchema(db: Database): Promise<void> {
-  await db.execute(
-    `CREATE TABLE IF NOT EXISTS threads (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      index_name TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )`,
-  )
-  await db.execute(
-    `CREATE TABLE IF NOT EXISTS messages (
-      thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
-      position INTEGER NOT NULL,
-      msg_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      PRIMARY KEY (thread_id, position)
-    )`,
-  )
-  await db.execute('CREATE INDEX IF NOT EXISTS idx_threads_updated ON threads(updated_at DESC)')
-}
-
 async function openChatDb(): Promise<Database> {
   const dbPath = chatDbPath()
   const dir = path.dirname(dbPath)
@@ -53,7 +30,7 @@ async function openChatDb(): Promise<Database> {
   ])
   const sirannon = new Sirannon({ driver: betterSqlite3() })
   const db = await sirannon.open('ask-chat', dbPath)
-  await initSchema(db)
+  await db.migrate(CHAT_MIGRATIONS)
   return db
 }
 
