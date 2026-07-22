@@ -9,6 +9,8 @@ export interface AskThreadsController {
   threadIdRef: React.RefObject<string | null>
   setActiveThreadId: (id: string | null) => void
   ensureThreadId: () => string
+  beginThread: (id: string, title: string, indexName: string) => void
+  isThreadNew: (id: string) => boolean
   refresh: () => void
   applyTitle: (threadId: string, title: string) => void
   loadThread: (id: string) => Promise<StoredThread | null>
@@ -43,8 +45,25 @@ export function useAskThreads(): AskThreadsController {
     return id
   }, [setActiveThreadId])
 
+  const newThreadIdsRef = useRef<Set<string>>(new Set())
+
+  const beginThread = useCallback((id: string, title: string, indexName: string) => {
+    setThreads(prev => {
+      if (prev.some(thread => thread.id === id)) return prev
+      newThreadIdsRef.current.add(id)
+      const now = Date.now()
+      return [{ id, title, indexName, createdAt: now, updatedAt: now, messageCount: 0 }, ...prev]
+    })
+  }, [])
+
+  const isThreadNew = useCallback((id: string) => newThreadIdsRef.current.has(id), [])
+
   const applyTitle = useCallback((threadId: string, title: string) => {
-    setThreads(prev => prev.map(thread => (thread.id === threadId ? { ...thread, title } : thread)))
+    setThreads(prev => {
+      const target = prev.find(thread => thread.id === threadId)
+      if (!target || target.title === title) return prev
+      return prev.map(thread => (thread.id === threadId ? { ...thread, title } : thread))
+    })
   }, [])
 
   const loadThread = useCallback(async (id: string): Promise<StoredThread | null> => {
@@ -70,6 +89,8 @@ export function useAskThreads(): AskThreadsController {
     threadIdRef,
     setActiveThreadId,
     ensureThreadId,
+    beginThread,
+    isThreadNew,
     refresh,
     applyTitle,
     loadThread,

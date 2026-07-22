@@ -3,15 +3,17 @@ import { useCallback } from 'react'
 import { Button } from '#/components/ui/button'
 import type { ThreadSummary } from '#/lib/chat/types'
 import { cn } from '#/lib/utils'
+import { TypingText } from './typing-text'
 
 interface ThreadRowProps {
   thread: ThreadSummary
   active: boolean
+  slideIn: boolean
   onSelect: (id: string) => void
   onDelete: (id: string) => void
 }
 
-function ThreadRow({ thread, active, onSelect, onDelete }: ThreadRowProps) {
+function ThreadRow({ thread, active, slideIn, onSelect, onDelete }: ThreadRowProps) {
   const handleSelect = useCallback(() => {
     onSelect(thread.id)
   }, [onSelect, thread.id])
@@ -21,7 +23,12 @@ function ThreadRow({ thread, active, onSelect, onDelete }: ThreadRowProps) {
   }, [onDelete, thread.id])
 
   return (
-    <div className="group relative">
+    <div
+      className={cn(
+        'group relative',
+        slideIn && 'animate-in fade-in-0 slide-in-from-bottom-4 duration-300 motion-reduce:animate-none',
+      )}
+    >
       <button
         type="button"
         onClick={handleSelect}
@@ -30,7 +37,7 @@ function ThreadRow({ thread, active, onSelect, onDelete }: ThreadRowProps) {
           active ? 'bg-muted' : 'hover:bg-muted/60',
         )}
       >
-        <span className="truncate text-sm font-medium text-foreground">{thread.title}</span>
+        <TypingText text={thread.title} className="truncate text-sm font-medium text-foreground" />
         <span className="truncate font-mono text-[11px] text-muted-foreground">{thread.indexName}</span>
       </button>
       <Button
@@ -50,12 +57,13 @@ function ThreadRow({ thread, active, onSelect, onDelete }: ThreadRowProps) {
 interface ThreadSidebarProps {
   threads: ThreadSummary[]
   activeThreadId: string | null
+  isThreadNew: (id: string) => boolean
   onSelect: (id: string) => void
   onNew: () => void
   onDelete: (id: string) => void
 }
 
-export function ThreadSidebar({ threads, activeThreadId, onSelect, onNew, onDelete }: ThreadSidebarProps) {
+export function ThreadSidebar({ threads, activeThreadId, isThreadNew, onSelect, onNew, onDelete }: ThreadSidebarProps) {
   return (
     <aside className="flex h-full flex-col gap-3">
       <Button type="button" variant="outline" size="sm" onClick={onNew} className="justify-start">
@@ -74,6 +82,7 @@ export function ThreadSidebar({ threads, activeThreadId, onSelect, onNew, onDele
                 key={thread.id}
                 thread={thread}
                 active={thread.id === activeThreadId}
+                slideIn={isThreadNew(thread.id)}
                 onSelect={onSelect}
                 onDelete={onDelete}
               />
