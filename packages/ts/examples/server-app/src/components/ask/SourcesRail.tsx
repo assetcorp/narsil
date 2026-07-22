@@ -13,8 +13,49 @@ interface SourcesRailProps {
   onOpenSource: (source: AskSource) => void
 }
 
-function modeLabel(mode: AskSourcesData['mode']): string {
+export function modeLabel(mode: AskSourcesData['mode']): string {
   return RETRIEVAL_MODE_OPTIONS.find(option => option.id === mode)?.label ?? mode
+}
+
+interface SourcesRailContentProps {
+  retrieval: AskSourcesData | null
+  onOpenSource: (source: AskSource) => void
+}
+
+export function SourcesRailContent({ retrieval, onOpenSource }: SourcesRailContentProps) {
+  if (!retrieval) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+        <FileSearch className="size-6 text-muted-foreground/50" />
+        <p className="text-xs text-muted-foreground">
+          Ask a question and the documents behind the answer appear here, with the exact passages Narsil retrieved.
+        </p>
+      </div>
+    )
+  }
+
+  if (retrieval.sources.length === 0) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6 text-center">
+        <p className="text-xs text-muted-foreground">
+          Nothing matched this question in {modeLabel(retrieval.mode).toLowerCase()} mode.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <ScrollArea className="min-h-0 flex-1">
+      <div className="flex flex-col gap-2 p-3">
+        <p className="px-1 text-[11px] text-muted-foreground">
+          Retrieved for <span className="font-medium text-foreground">{retrieval.query}</span>
+        </p>
+        {retrieval.sources.map(source => (
+          <SourceCard key={source.docId} source={source} onOpen={onOpenSource} />
+        ))}
+      </div>
+    </ScrollArea>
+  )
 }
 
 /**
@@ -63,35 +104,7 @@ export function SourcesRail({ retrieval, onOpenSource }: SourcesRailProps) {
       </CollapsibleTrigger>
 
       <CollapsibleContent className="flex min-h-0 flex-1 flex-col border-t outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-2 motion-reduce:data-[state=closed]:animate-none motion-reduce:data-[state=open]:animate-none">
-        {!retrieval && (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-            <FileSearch className="size-6 text-muted-foreground/50" />
-            <p className="text-xs text-muted-foreground">
-              Ask a question and the documents behind the answer appear here, with the exact passages Narsil retrieved.
-            </p>
-          </div>
-        )}
-
-        {retrieval && retrieval.sources.length === 0 && (
-          <div className="flex flex-1 items-center justify-center p-6 text-center">
-            <p className="text-xs text-muted-foreground">
-              Nothing matched this question in {modeLabel(retrieval.mode).toLowerCase()} mode.
-            </p>
-          </div>
-        )}
-
-        {retrieval && retrieval.sources.length > 0 && (
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="flex flex-col gap-2 p-3">
-              <p className="px-1 text-[11px] text-muted-foreground">
-                Retrieved for <span className="font-medium text-foreground">{retrieval.query}</span>
-              </p>
-              {retrieval.sources.map(source => (
-                <SourceCard key={source.docId} source={source} onOpen={onOpenSource} />
-              ))}
-            </div>
-          </ScrollArea>
-        )}
+        <SourcesRailContent retrieval={retrieval} onOpenSource={onOpenSource} />
       </CollapsibleContent>
     </Collapsible>
   )

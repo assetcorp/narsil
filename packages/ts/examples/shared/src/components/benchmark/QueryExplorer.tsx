@@ -94,8 +94,8 @@ export function QueryExplorer({ perQuery, selectedQuery, onSelect }: QueryExplor
           className="mt-2 h-7 text-xs"
         />
       </div>
-      <div className="max-h-96 overflow-y-auto">
-        <table className="w-full text-xs">
+      <div className="max-h-96 overflow-auto">
+        <table className="w-full min-w-[28rem] text-xs">
           <thead className="sticky top-0 bg-background">
             <tr className="border-b">
               <th className="cursor-pointer px-3 py-2 text-left font-medium" onClick={handleSortId}>

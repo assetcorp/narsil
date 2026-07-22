@@ -1,12 +1,59 @@
-import { type Dispatch, useCallback } from 'react'
+import { SlidersHorizontal } from 'lucide-react'
+import { type Dispatch, useCallback, useState } from 'react'
 import type { NarsilBackend } from '../../backend'
 import { useSearch } from '../../hooks/use-search'
 import type { AppAction, AppState, LoadedIndex } from '../../types'
+import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../ui/sheet'
 import { AdvancedOptions } from './AdvancedOptions'
 import { FacetSidebar } from './FacetSidebar'
 import { ResultList } from './ResultList'
 import { SearchBar } from './SearchBar'
+
+function countActiveFilters(filters: Record<string, unknown>): number {
+  const fields = filters.fields
+  if (!fields || typeof fields !== 'object') return 0
+  return Object.values(fields as Record<string, { in?: string[] }>).reduce(
+    (total, field) => total + (field.in?.length ?? 0),
+    0,
+  )
+}
+
+interface FacetSheetProps {
+  facets: Record<string, { values: Record<string, number>; count: number }>
+  filters: Record<string, unknown>
+  onFilterChange: (filters: Record<string, unknown>) => void
+}
+
+function FacetSheet({ facets, filters, onFilterChange }: FacetSheetProps) {
+  const [open, setOpen] = useState(false)
+  const activeCount = countActiveFilters(filters)
+
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <Button type="button" variant="outline" size="sm" className="lg:hidden">
+          <SlidersHorizontal className="size-3.5" />
+          Filters
+          {activeCount > 0 && (
+            <Badge variant="secondary" className="text-[10px]">
+              {activeCount}
+            </Badge>
+          )}
+        </Button>
+      </SheetTrigger>
+      <SheetContent side="left" className="w-72 gap-0">
+        <SheetHeader className="border-b">
+          <SheetTitle className="text-sm">Filters</SheetTitle>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <FacetSidebar facets={facets} filters={filters} onFilterChange={onFilterChange} />
+        </div>
+      </SheetContent>
+    </Sheet>
+  )
+}
 
 function IndexButton({
   idx,
@@ -154,6 +201,15 @@ export function SearchPlayground({ backend, state, dispatch, initialTerm }: Sear
         )}
 
         <div className="min-w-0 flex-1">
+          {search.results?.facets && Object.keys(search.results.facets).length > 0 && (
+            <div className="mb-3 lg:hidden">
+              <FacetSheet
+                facets={search.results.facets}
+                filters={search.params.filters as Record<string, unknown>}
+                onFilterChange={search.setFilter}
+              />
+            </div>
+          )}
           <ResultList
             hits={search.results?.hits ?? []}
             isLoading={search.isLoading}
