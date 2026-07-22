@@ -14,6 +14,7 @@ import {
   MessageScrollerViewport,
 } from '#/components/ui/message-scroller'
 import { sourcesPartOf, threadTitlePartOf } from '#/lib/ask/client'
+import { provisionalTitle } from '#/lib/ask/title'
 import {
   type AskCapabilities,
   type AskSource,
@@ -74,6 +75,8 @@ export function AskView() {
     threadIdRef,
     setActiveThreadId,
     ensureThreadId,
+    beginThread,
+    isThreadNew,
     refresh,
     applyTitle,
     loadThread,
@@ -182,10 +185,12 @@ export function AskView() {
 
   const handleSubmitText = useCallback(
     (text: string) => {
-      ensureThreadId()
+      const threadId = ensureThreadId()
+      const currentIndexName = indexNameRef.current
+      if (currentIndexName) beginThread(threadId, provisionalTitle(text), currentIndexName)
       void sendMessage({ text })
     },
-    [ensureThreadId, sendMessage],
+    [ensureThreadId, beginThread, sendMessage],
   )
 
   const handleRegenerate = useCallback(() => {
@@ -269,6 +274,7 @@ export function AskView() {
         <ThreadSidebar
           threads={threads}
           activeThreadId={activeThreadId}
+          isThreadNew={isThreadNew}
           onSelect={handleSelectThread}
           onNew={handleNewChat}
           onDelete={handleDeleteThread}
