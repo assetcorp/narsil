@@ -11,7 +11,7 @@ export function RankComparison({ recomputedHits }: RankComparisonProps) {
   const hasChanges = recomputedHits.some(h => h.originalRank !== h.recomputedRank)
 
   return (
-    <div className="rounded-lg border">
+    <div className="min-w-0 rounded-lg border">
       <div className="border-b px-4 py-3">
         <h3 className="text-sm font-semibold">Rank Comparison</h3>
         <p className="text-xs text-muted-foreground">
@@ -19,7 +19,7 @@ export function RankComparison({ recomputedHits }: RankComparisonProps) {
         </p>
       </div>
       <div className="max-h-64 overflow-auto">
-        <table className="w-full min-w-[28rem] text-xs">
+        <table className="w-full text-xs">
           <thead className="sticky top-0 bg-background">
             <tr className="border-b">
               <th className="px-3 py-2 text-left font-medium">Document</th>

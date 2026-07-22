@@ -33,7 +33,7 @@ export function SideBySide({ query, backend }: SideBySideProps) {
     .slice(0, 10)
 
   return (
-    <div className="rounded-lg border">
+    <div className="min-w-0 rounded-lg border">
       <div className="border-b px-4 py-3">
         <h3 className="text-sm font-semibold">Query #{query.queryId}</h3>
         <p className="mt-0.5 text-xs text-muted-foreground">{query.queryText}</p>

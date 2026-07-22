@@ -28,7 +28,7 @@ export function StatsTab({ stats, partitionStats, memoryStats }: StatsTabProps) 
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-lg border p-4">
+        <div className="min-w-0 rounded-lg border p-4">
           <h3 className="mb-2 text-sm font-semibold">Index Details</h3>
           <div className="flex flex-col gap-1.5 text-xs">
             <div className="flex justify-between">
@@ -49,10 +49,10 @@ export function StatsTab({ stats, partitionStats, memoryStats }: StatsTabProps) 
         </div>
 
         {partitionStats.length > 0 && (
-          <div className="rounded-lg border p-4">
+          <div className="min-w-0 rounded-lg border p-4">
             <h3 className="mb-2 text-sm font-semibold">Partitions</h3>
             <div className="max-h-48 overflow-auto">
-              <table className="w-full min-w-96 text-xs">
+              <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b">
                     <th className="pb-1.5 text-left font-medium">ID</th>
@@ -85,7 +85,7 @@ export function StatsTab({ stats, partitionStats, memoryStats }: StatsTabProps) 
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-        <div className="rounded-lg border p-4">
+        <div className="min-w-0 rounded-lg border p-4">
           <h3 className="mb-2 text-sm font-semibold">Runtime Memory</h3>
           <div className="grid gap-3 sm:grid-cols-2">
             <Metric label="Estimated index bytes" value={formatBytes(memoryStats?.estimatedIndexBytes ?? 0)} />
@@ -98,7 +98,7 @@ export function StatsTab({ stats, partitionStats, memoryStats }: StatsTabProps) 
           </div>
         </div>
 
-        <div className="rounded-lg border p-4">
+        <div className="min-w-0 rounded-lg border p-4">
           <div className="mb-2 flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold">Worker Reports</h3>
             <Badge variant="secondary" className="text-[10px]">
@@ -109,7 +109,7 @@ export function StatsTab({ stats, partitionStats, memoryStats }: StatsTabProps) 
             <p className="text-xs text-muted-foreground">The engine is running on the main thread for this dataset.</p>
           ) : (
             <div className="max-h-48 overflow-auto">
-              <table className="w-full min-w-96 text-xs">
+              <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b">
                     <th className="pb-1.5 text-left font-medium">Worker</th>
@@ -139,7 +139,7 @@ export function StatsTab({ stats, partitionStats, memoryStats }: StatsTabProps) 
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border p-4">
+    <div className="min-w-0 rounded-lg border p-4">
       <span className="block font-mono text-2xl font-bold">{value}</span>
       <span className="text-xs text-muted-foreground">{label}</span>
     </div>
