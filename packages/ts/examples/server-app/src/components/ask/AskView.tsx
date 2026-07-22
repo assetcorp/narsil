@@ -1,7 +1,7 @@
 import { useChat } from '@ai-sdk/react'
 import { useAppDispatch, useAppState } from '@delali/narsil-example-shared'
 import { DefaultChatTransport } from 'ai'
-import { Plus, TriangleAlert } from 'lucide-react'
+import { TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '#/components/ui/button'
 import { Marker, MarkerContent, MarkerIcon } from '#/components/ui/marker'
@@ -13,7 +13,7 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from '#/components/ui/message-scroller'
-import { sourcesPartOf, threadTitlePartOf } from '#/lib/ask/client'
+import { sourcesPartOf, threadTitlePartOf, vectorModesDisabledReason } from '#/lib/ask/client'
 import { provisionalTitle } from '#/lib/ask/title'
 import {
   type AskCapabilities,
@@ -24,6 +24,7 @@ import {
 } from '#/lib/ask/types'
 import { askCapabilitiesFn, getStatsFn } from '#/lib/server-fns'
 import { HeroHeading, HeroSuggestions } from './AskHero'
+import { SourcesSheet, ThreadsSheet } from './AskMobilePanels'
 import { AskPromptInput } from './AskPromptInput'
 import { AssistantTurn, SearchingMarker, UserTurn } from './ChatTurns'
 import { ModeToggle } from './ModeToggle'
@@ -32,22 +33,6 @@ import { SourceDocumentSheet } from './SourceDocumentSheet'
 import { SourcesRail } from './SourcesRail'
 import { ThreadSidebar } from './ThreadSidebar'
 import { useAskThreads } from './use-ask-threads'
-
-function vectorModesDisabledReason(
-  capabilities: AskCapabilities | null,
-  indexHasVectors: boolean | null,
-): string | null {
-  if (capabilities && !capabilities.embeddingsConfigured) {
-    return 'Semantic and hybrid modes need an embedding provider. Set OPENAI_API_KEY (or ASK_EMBEDDING_API_KEY), restart, and reload the dataset.'
-  }
-  if (indexHasVectors === false) {
-    return 'This index was loaded without embeddings. Remove it and load the dataset again to embed its documents.'
-  }
-  if (indexHasVectors === null) {
-    return 'Checking whether this index has embeddings...'
-  }
-  return null
-}
 
 export function AskView() {
   const state = useAppState()
@@ -289,14 +274,17 @@ export function AskView() {
               Grounded answers with receipts, straight from <span className="font-mono">{indexName}</span>.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <ModeToggle mode={mode} onModeChange={handleModeChange} vectorModesDisabledReason={disabledReason} />
-            {hasConversation && (
-              <Button type="button" variant="outline" size="sm" onClick={handleNewChat} className="lg:hidden">
-                <Plus className="size-3.5" />
-                New chat
-              </Button>
-            )}
+            <ThreadsSheet
+              threads={threads}
+              activeThreadId={activeThreadId}
+              isThreadNew={isThreadNew}
+              onSelect={handleSelectThread}
+              onNew={handleNewChat}
+              onDelete={handleDeleteThread}
+            />
+            {hasConversation && <SourcesSheet retrieval={latestRetrieval} onOpenSource={setOpenSource} />}
           </div>
         </div>
 

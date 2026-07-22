@@ -87,3 +87,19 @@ export function textOf(message: AskUIMessage): string {
   }
   return text
 }
+
+export function vectorModesDisabledReason(
+  capabilities: { embeddingsConfigured: boolean } | null,
+  indexHasVectors: boolean | null,
+): string | null {
+  if (capabilities && !capabilities.embeddingsConfigured) {
+    return 'Semantic and hybrid modes need an embedding provider. Set OPENAI_API_KEY (or ASK_EMBEDDING_API_KEY), restart, and reload the dataset.'
+  }
+  if (indexHasVectors === false) {
+    return 'This index was loaded without embeddings. Remove it and load the dataset again to embed its documents.'
+  }
+  if (indexHasVectors === null) {
+    return 'Checking whether this index has embeddings...'
+  }
+  return null
+}

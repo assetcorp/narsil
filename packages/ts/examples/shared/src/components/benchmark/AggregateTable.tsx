@@ -1,4 +1,5 @@
 import type { AggregateMetrics } from '../../lib/metrics'
+import { cn } from '../../lib/utils'
 
 interface AggregateTableProps {
   metrics: AggregateMetrics
@@ -18,9 +19,17 @@ export function AggregateTable({ metrics }: AggregateTableProps) {
         <h3 className="text-sm font-semibold">Aggregate Metrics</h3>
         <p className="text-xs text-muted-foreground">{metrics.queriesEvaluated} queries evaluated</p>
       </div>
-      <div className="grid grid-cols-4 divide-x">
-        {cells.map(cell => (
-          <div key={cell.label} className="p-4 text-center">
+      <div className="grid grid-cols-2 sm:grid-cols-4">
+        {cells.map((cell, i) => (
+          <div
+            key={cell.label}
+            className={cn(
+              'p-4 text-center',
+              i % 2 === 1 && 'border-l',
+              i >= 2 && 'border-t sm:border-t-0',
+              i === 2 && 'sm:border-l',
+            )}
+          >
             <span className="block font-mono text-2xl font-bold">{cell.value.toFixed(4)}</span>
             <span className="text-xs text-muted-foreground">{cell.label}</span>
           </div>

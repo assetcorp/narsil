@@ -39,7 +39,7 @@ export function SideBySide({ query, backend }: SideBySideProps) {
         <p className="mt-0.5 text-xs text-muted-foreground">{query.queryText}</p>
       </div>
 
-      <div className="grid grid-cols-2 divide-x">
+      <div className="grid grid-cols-1 divide-y md:grid-cols-2 md:divide-x md:divide-y-0">
         <div>
           <div className="border-b px-3 py-2 text-xs font-semibold text-muted-foreground">Expert Ranking</div>
           <div className="flex flex-col">

@@ -266,7 +266,7 @@ export default function VectorTab({ indexName }: VectorTabProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row">
         <div
           className="relative min-w-0 flex-1 cursor-grab overflow-hidden rounded-lg border bg-black/95 active:cursor-grabbing"
           style={{ height: 540 }}
@@ -289,7 +289,7 @@ export default function VectorTab({ indexName }: VectorTabProps) {
               )}
             </div>
           )}
-          <div className="pointer-events-none absolute right-3 bottom-3 flex gap-3 text-[10px] text-white/30">
+          <div className="pointer-events-none absolute right-3 bottom-3 left-3 flex flex-wrap justify-end gap-x-3 gap-y-1 text-[10px] text-white/30">
             <span>Drag to pan</span>
             <span>Scroll to zoom</span>
             <span>Right-drag to rotate</span>
@@ -298,7 +298,7 @@ export default function VectorTab({ indexName }: VectorTabProps) {
         </div>
 
         {selectedMovie && (
-          <div className="w-64 shrink-0 overflow-y-auto rounded-lg border bg-black/95 p-3">
+          <div className="max-h-80 w-full shrink-0 overflow-y-auto rounded-lg border bg-black/95 p-3 lg:max-h-none lg:w-64">
             <div className="mb-3 flex items-start justify-between">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-white/60">Selected</h4>
               <button

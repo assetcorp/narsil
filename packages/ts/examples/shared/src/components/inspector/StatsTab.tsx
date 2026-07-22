@@ -51,8 +51,8 @@ export function StatsTab({ stats, partitionStats, memoryStats }: StatsTabProps) 
         {partitionStats.length > 0 && (
           <div className="rounded-lg border p-4">
             <h3 className="mb-2 text-sm font-semibold">Partitions</h3>
-            <div className="max-h-48 overflow-y-auto">
-              <table className="w-full text-xs">
+            <div className="max-h-48 overflow-auto">
+              <table className="w-full min-w-96 text-xs">
                 <thead>
                   <tr className="border-b">
                     <th className="pb-1.5 text-left font-medium">ID</th>
@@ -108,8 +108,8 @@ export function StatsTab({ stats, partitionStats, memoryStats }: StatsTabProps) 
           {memoryStats === null || memoryStats.workers.length === 0 ? (
             <p className="text-xs text-muted-foreground">The engine is running on the main thread for this dataset.</p>
           ) : (
-            <div className="max-h-48 overflow-y-auto">
-              <table className="w-full text-xs">
+            <div className="max-h-48 overflow-auto">
+              <table className="w-full min-w-96 text-xs">
                 <thead>
                   <tr className="border-b">
                     <th className="pb-1.5 text-left font-medium">Worker</th>
