@@ -1,3 +1,15 @@
+## 0.1.15 (2026-07-23)
+
+### 🚀 Features
+
+- implement validation for request shapes and enhance error handling in server handlers ([a0e9039](https://github.com/assetcorp/narsil/commit/a0e9039))
+- add result window and fetch limits to server configuration and enhance error handling for search and multi-get requests ([f08acff](https://github.com/assetcorp/narsil/commit/f08acff))
+- integrate Chain of Thought and Context components for enhanced AI interaction in server-app ([647f821](https://github.com/assetcorp/narsil/commit/647f821))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.1.14 (2026-07-08)
 
 This was a version bump only for narsil-ts to align it with other projects, there were no code changes.
