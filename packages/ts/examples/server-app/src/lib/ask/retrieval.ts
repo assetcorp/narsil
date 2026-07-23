@@ -49,7 +49,7 @@ export function sanitizeSnippet(html: string): string {
   return html.replace(/<(?!\/?mark\b)[^>]*>/gi, match => match.replace(/</g, '&lt;').replace(/>/g, '&gt;'))
 }
 
-function stripMarkup(snippet: string): string {
+export function stripMarkup(snippet: string): string {
   return snippet.replace(/<\/?mark\b[^>]*>/gi, '')
 }
 

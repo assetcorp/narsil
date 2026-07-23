@@ -8,6 +8,13 @@ export const AppStateContext = createContext<AppState | null>(null)
 
 export const AppDispatchContext = createContext<Dispatch<AppAction> | null>(null)
 
+export interface CommandPaletteControls {
+  open: boolean
+  setOpen: (open: boolean) => void
+}
+
+export const CommandPaletteContext = createContext<CommandPaletteControls | null>(null)
+
 export function useBackend(): NarsilBackend {
   const backend = useContext(BackendContext)
   if (backend === null) {
@@ -30,4 +37,12 @@ export function useAppDispatch(): Dispatch<AppAction> {
     throw new Error('useAppDispatch must be used within an AppDispatchContext.Provider')
   }
   return dispatch
+}
+
+export function useCommandPalette(): CommandPaletteControls {
+  const controls = useContext(CommandPaletteContext)
+  if (controls === null) {
+    throw new Error('useCommandPalette must be used within a CommandPaletteProvider')
+  }
+  return controls
 }

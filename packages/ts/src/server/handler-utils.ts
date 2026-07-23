@@ -4,6 +4,7 @@ import type { BatchResult } from '../types/results'
 import { ServerErrorCodes, serializeNarsilError, toHttpError } from './errors'
 import type { RouteContext } from './request'
 import { sendError, sendJson } from './response'
+import type { ValidationFailure } from './validation'
 
 /** Parses a required JSON body. Sends 400 and returns undefined when the body is
  * empty or malformed, so a handler can `if (!body) return`. */
@@ -43,11 +44,18 @@ export function respondError(ctx: RouteContext, err: unknown): void {
 
 export function respondJson(ctx: RouteContext, data: unknown, status = 200): void {
   if (ctx.abort.aborted) return
-  sendJson(ctx.res, data, status)
+  sendJson(ctx.res, data, status, ctx.abort)
 }
 
 export function badRequest(res: HttpResponse, message: string, details?: Record<string, unknown>): void {
   sendError(res, 400, ServerErrorCodes.INVALID_REQUEST, message, details)
+}
+
+/** Sends a 400 for a failed request-shape check, unless the client already
+ * disconnected. */
+export function rejectInvalid(ctx: RouteContext, failure: ValidationFailure): void {
+  if (ctx.abort.aborted) return
+  badRequest(ctx.res, failure.message, failure.details)
 }
 
 export interface SerializedBatchResult {

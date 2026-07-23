@@ -1,4 +1,5 @@
 import type { EmbeddingAdapter } from '../types/adapters'
+import type { AnyDocument, InsertOptions } from '../types/schema'
 
 /**
  * Context handed to {@link OnRequestHook} for every inbound request, captured
@@ -46,6 +47,14 @@ export interface ServerLimits {
   importBatchSize?: number
   /** Maximum requests executing engine work at once; excess is shed with 503. Omit or 0 to disable. */
   maxConcurrentRequests?: number
+  /** Ceiling for a search's `limit`, `offset`, and `group.maxPerGroup`, so one
+   * request cannot ask for an unbounded result set. Excess → 400. Defaults to
+   * 10000, matching the cluster query result window. */
+  maxResultWindow?: number
+  /** Ceiling for the number of document ids in one multi-get request, so one
+   * request cannot pull an unbounded number of documents. Excess → 400.
+   * Defaults to 10000. */
+  maxFetchDocuments?: number
 }
 
 export interface ServerOptions {
@@ -149,6 +158,32 @@ export interface CreateIndexRequest {
 export interface CreateIndexEmbedding {
   adapter?: string
   fields: Record<string, string | string[]>
+}
+
+export interface InsertBody {
+  document: AnyDocument
+  id?: string
+  options?: InsertOptions
+}
+
+export interface DocumentBody {
+  document: AnyDocument
+}
+
+export interface MultiGetBody {
+  docIds: string[]
+}
+
+export interface BatchBody {
+  action?: 'insert' | 'update' | 'delete'
+  documents?: AnyDocument[]
+  updates?: Array<{ docId: string; document: AnyDocument }>
+  docIds?: string[]
+  options?: InsertOptions
+}
+
+export interface RebalanceBody {
+  targetPartitionCount?: number
 }
 
 export interface HttpIndexConfig {

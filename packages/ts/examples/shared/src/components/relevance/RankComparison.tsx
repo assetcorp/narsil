@@ -11,14 +11,14 @@ export function RankComparison({ recomputedHits }: RankComparisonProps) {
   const hasChanges = recomputedHits.some(h => h.originalRank !== h.recomputedRank)
 
   return (
-    <div className="rounded-lg border">
+    <div className="min-w-0 rounded-lg border">
       <div className="border-b px-4 py-3">
         <h3 className="text-sm font-semibold">Rank Comparison</h3>
         <p className="text-xs text-muted-foreground">
           {hasChanges ? 'Rankings changed with tuned parameters' : 'No rank changes with current parameters'}
         </p>
       </div>
-      <div className="max-h-64 overflow-y-auto">
+      <div className="max-h-64 overflow-auto">
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-background">
             <tr className="border-b">

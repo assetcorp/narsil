@@ -7,7 +7,8 @@ import tailwindcss from '@tailwindcss/vite'
 import { devtools } from '@tanstack/devtools-vite'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
-import { defineConfig, type Plugin, type ViteDevServer } from 'vite'
+import type { Plugin, ViteDevServer } from 'vite'
+import { defineConfig } from 'vitest/config'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { ensureDemoNarsilServer } from './demo-server'
 import { demoEngineStatus } from './src/lib/demo-server-state'
@@ -246,6 +247,26 @@ const config = defineConfig({
     tanstackStart(),
     viteReact(),
   ],
+  test: {
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'node',
+          environment: 'node',
+          include: ['tests/**/*.test.ts', 'src/**/*.test.ts'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'dom',
+          environment: 'jsdom',
+          include: ['src/**/*.test.tsx'],
+        },
+      },
+    ],
+  },
 })
 
 export default config

@@ -560,13 +560,13 @@ await narsil.optimizeVectors('docs', 'embedding')
 
 ## Hybrid search
 
-Hybrid mode runs the full-text and vector searches in one query and fuses the two rankings.
+Hybrid mode runs the full-text and vector searches in one query and fuses the two rankings. The vector side needs a query vector: pass a precomputed `value` array, or a `text` string that the index or instance embedding adapter turns into a vector. The `text` form needs an embedding adapter configured first, so passing `text` without one fails with `EMBEDDING_CONFIG_INVALID`; see [Embedding adapters](#embedding-adapters).
 
 ```ts
 const results = await narsil.query('docs', {
   mode: 'hybrid',
   term: 'how do search engines scale',
-  vector: { field: 'embedding', text: 'how do search engines scale' },
+  vector: { field: 'embedding', value: myQueryVector },
   hybrid: { strategy: 'rrf', k: 60 },
   limit: 10,
 })
@@ -581,14 +581,14 @@ Two fusion strategies are available:
 const weighted = await narsil.query('docs', {
   mode: 'hybrid',
   term: 'partition rebalancing',
-  vector: { field: 'embedding', text: 'partition rebalancing' },
+  vector: { field: 'embedding', value: myQueryVector },
   hybrid: { strategy: 'linear', alpha: 0.7 },
 })
 ```
 
 ## Geosearch
 
-Declare a `geopoint` field and insert documents with `{ lat, lon }` values. Geo conditions are filters, so they compose with terms, other filters, facets, and every other query feature.
+Declare a `geopoint` field and insert documents with `{ lat, lon }` values. Geo conditions are filters that refine a search, so a geo query pairs a `term` (or a vector query) with a location filter, and it composes with other filters, facets, and every other query feature. A query with only a location filter and no `term` matches nothing, the same way any other filter refines a term search.
 
 ```ts
 await narsil.createIndex('stores', {
@@ -604,6 +604,7 @@ await narsil.insert('stores', {
 })
 
 const nearby = await narsil.query('stores', {
+  term: 'market',
   filters: {
     fields: {
       location: {
@@ -614,6 +615,7 @@ const nearby = await narsil.query('stores', {
 })
 
 const inArea = await narsil.query('stores', {
+  term: 'market',
   filters: {
     fields: {
       location: {
@@ -707,7 +709,7 @@ engine.registerEmbeddingAdapter('openai-small', myReplacementAdapter)
 
 `registerEmbeddingAdapter` rebinds every index referencing that name, which lets you rotate credentials or swap models without recreating indexes.
 
-### Shipped adapters
+### Bundled adapters
 
 | Adapter | Package | Dependencies |
 | --- | --- | --- |
@@ -733,7 +735,7 @@ When `embedBatch` is missing, Narsil falls back to parallel `embed()` calls with
 
 ## Persistence
 
-Persistence stores serialized partitions through a pluggable adapter. Three adapters ship with the package:
+Persistence stores serialized partitions through a pluggable adapter. The package includes three adapters:
 
 | Adapter | Import | Environment |
 | --- | --- | --- |
@@ -848,7 +850,7 @@ Promotion emits the `workerPromote` event, and a crashed worker emits `workerCra
 
 ## Multi-instance invalidation
 
-When several engine instances share one persistence backend, the invalidation adapter tells the others which partitions changed so they evict stale cache instead of serving old data. Two adapters ship with the package, and `@delali/narsil/invalidation/noop` stubs the interface for single-instance deployments:
+When several engine instances share one persistence backend, the invalidation adapter tells the others which partitions changed so they evict stale cache instead of serving old data. The package includes two adapters, and `@delali/narsil/invalidation/noop` stubs the interface for single-instance deployments:
 
 | Adapter | Import | Use case |
 | --- | --- | --- |
@@ -986,7 +988,7 @@ console.log(memory.workers)
 
 ## Language support
 
-Narsil ships with language modules for tokenization, stemming (Snowball algorithm), and stop word removal.
+Narsil includes language modules for tokenization, stemming (Snowball algorithm), and stop word removal.
 
 ### Full support (tokenizer + stemmer + stop words)
 
@@ -998,17 +1000,25 @@ Chinese (Mandarin), Japanese
 
 ### African language support
 
-Full stemmer support ships for Swahili. Tokenization and stop word support is available for Dagbani, Ewe, Ga, Hausa, Igbo, Twi (Akan), Yoruba, and Zulu.
+Swahili has full stemmer support. Tokenization and stop word support is available for Dagbani, Ewe, Ga, Hausa, Igbo, Twi (Akan), Yoruba, and Zulu.
 
-Each language module is a separate entry point, so you only bundle the languages your application needs:
+Each language module is a separate entry point, so you only bundle the languages your application needs. Import the module and register it before you create an index that names it:
 
 ```ts
-import '@delali/narsil/languages/french'
-import '@delali/narsil/languages/swahili'
-import '@delali/narsil/languages/twi'
+import { createNarsil, registerLanguage } from '@delali/narsil'
+import { french } from '@delali/narsil/languages/french'
+import { swahili } from '@delali/narsil/languages/swahili'
+import { twi } from '@delali/narsil/languages/twi'
+
+registerLanguage(french)
+registerLanguage(swahili)
+registerLanguage(twi)
+
+const narsil = await createNarsil()
+await narsil.createIndex('articles', { schema: { title: 'string' }, language: 'french' })
 ```
 
-Import the module before creating an index that names it; naming a language that was never imported fails with `LANGUAGE_NOT_SUPPORTED`. English is always available. `registerLanguage(module)` adds a language of your own: a module carries a name, a tokenizer, a stemmer, and a stop word set, and any of the shipped modules serves as a reference.
+English is registered by default, so it needs no import. Naming a language you have not registered fails with `LANGUAGE_NOT_SUPPORTED`. `registerLanguage(module)` also adds a language of your own: a module carries a name, a tokenizer, a stemmer, and a stop word set, and any of the built-in language modules serves as a reference.
 
 ## HTTP server
 
@@ -1032,7 +1042,7 @@ const server = createServer(engine, {
 await server.listen()
 ```
 
-`ServerOptions` also accepts `cors`, an `onRequest` hook for authentication, `limits` for body-size and concurrency caps, `embeddingAdapters` that JSON index configs reference by name, a `taskStore` that keeps long-running task status across restarts, an `instanceId` for task recovery, and `allowInsecure` for trusted private networks. The server refuses to bind a non-loopback address without an `onRequest` hook, because the admin endpoints can destroy data.
+`ServerOptions` also accepts `cors`, an `onRequest` hook for authentication, `limits` for body-size, concurrency, result-window, and fetch-count caps, `embeddingAdapters` that JSON index configs reference by name, a `taskStore` that keeps long-running task status across restarts, an `instanceId` for task recovery, and `allowInsecure` for trusted private networks. The server refuses to bind a non-loopback address without an `onRequest` hook, because the admin endpoints can destroy data.
 
 The full surface:
 

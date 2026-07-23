@@ -29,7 +29,7 @@ export function BenchmarkView({ backend, state }: BenchmarkViewProps) {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="mb-1 font-serif text-3xl tracking-tight">Quality Benchmark</h1>
           <p className="text-sm text-muted-foreground">

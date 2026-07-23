@@ -1,11 +1,16 @@
 import type { UIMessage } from 'ai'
+import { THREAD_ID_PATTERN } from '../chat/validation'
+import type { AskUIMessage } from './types'
 import { RETRIEVAL_MODES, type RetrievalMode } from './types'
 
 export const MAX_QUESTION_CHARS = 4000
+const MAX_MESSAGE_PARTS = 32
 const MAX_HISTORY_MESSAGES = 12
 const MAX_HISTORY_CHARS = 24000
-const MAX_REQUEST_MESSAGES = 40
 const INDEX_NAME_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/
+const MESSAGE_ID_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/
+
+export type AskTrigger = 'submit-message' | 'regenerate-message'
 
 export class AskRequestError extends Error {
   readonly status: number
@@ -18,10 +23,13 @@ export class AskRequestError extends Error {
 }
 
 export interface AskRequest {
-  messages: UIMessage[]
+  threadId: string
   indexName: string
   mode: RetrievalMode
-  question: string
+  webSearch: boolean
+  trigger: AskTrigger
+  messageId: string | undefined
+  message: AskUIMessage | undefined
 }
 
 export function messageText(message: UIMessage): string {
@@ -32,56 +40,94 @@ export function messageText(message: UIMessage): string {
   return text.trim()
 }
 
-function isChatMessage(value: unknown): value is UIMessage {
-  if (typeof value !== 'object' || value === null) return false
-  const message = value as Record<string, unknown>
-  return (
-    (message.role === 'user' || message.role === 'assistant') &&
-    typeof message.id === 'string' &&
-    Array.isArray(message.parts)
-  )
+function parseUserMessage(value: unknown): AskUIMessage {
+  if (typeof value !== 'object' || value === null) {
+    throw new AskRequestError('Field "message" must be the newest user message')
+  }
+  const { id, role, parts } = value as Record<string, unknown>
+  if (typeof id !== 'string' || !MESSAGE_ID_PATTERN.test(id)) {
+    throw new AskRequestError('The message needs an id')
+  }
+  if (role !== 'user') {
+    throw new AskRequestError('The message role must be "user"')
+  }
+  if (!Array.isArray(parts) || parts.length === 0 || parts.length > MAX_MESSAGE_PARTS) {
+    throw new AskRequestError(`The message needs 1 to ${MAX_MESSAGE_PARTS} parts`)
+  }
+  const textParts: Array<{ type: 'text'; text: string }> = []
+  let totalChars = 0
+  for (const part of parts) {
+    if (typeof part !== 'object' || part === null) {
+      throw new AskRequestError('Every message part must be an object')
+    }
+    const { type, text } = part as Record<string, unknown>
+    if (type !== 'text' || typeof text !== 'string') {
+      throw new AskRequestError('User messages support text parts only')
+    }
+    totalChars += text.length
+    textParts.push({ type: 'text', text })
+  }
+  if (totalChars > MAX_QUESTION_CHARS) {
+    throw new AskRequestError(`The question is longer than ${MAX_QUESTION_CHARS} characters`)
+  }
+  const message: AskUIMessage = { id, role: 'user', parts: textParts }
+  if (messageText(message).length === 0) {
+    throw new AskRequestError('The question is empty')
+  }
+  return message
 }
 
 export function parseAskRequest(body: unknown): AskRequest {
   if (typeof body !== 'object' || body === null) {
     throw new AskRequestError('The request body must be a JSON object')
   }
-  const { messages, indexName, mode } = body as Record<string, unknown>
+  const { indexName, mode, webSearch, threadId, trigger, messageId, message } = body as Record<string, unknown>
 
   if (typeof indexName !== 'string' || !INDEX_NAME_PATTERN.test(indexName)) {
     throw new AskRequestError('Field "indexName" must name an index')
   }
+  if (typeof threadId !== 'string' || !THREAD_ID_PATTERN.test(threadId)) {
+    throw new AskRequestError('Field "threadId" must identify the conversation')
+  }
   if (typeof mode !== 'string' || !RETRIEVAL_MODES.includes(mode as RetrievalMode)) {
     throw new AskRequestError(`Field "mode" must be one of: ${RETRIEVAL_MODES.join(', ')}`)
   }
-  if (!Array.isArray(messages) || messages.length === 0 || messages.length > MAX_REQUEST_MESSAGES) {
-    throw new AskRequestError(`Field "messages" must be a non-empty array of at most ${MAX_REQUEST_MESSAGES} messages`)
+  if (webSearch !== undefined && typeof webSearch !== 'boolean') {
+    throw new AskRequestError('Field "webSearch" must be a boolean')
   }
-  if (!messages.every(isChatMessage)) {
-    throw new AskRequestError('Every message needs an id, a user or assistant role, and a parts array')
+  if (trigger !== 'submit-message' && trigger !== 'regenerate-message') {
+    throw new AskRequestError('Field "trigger" must be "submit-message" or "regenerate-message"')
   }
-
-  const last = messages[messages.length - 1] as UIMessage
-  if (last.role !== 'user') {
-    throw new AskRequestError('The final message must be the user question')
-  }
-  const question = messageText(last)
-  if (question.length === 0) {
-    throw new AskRequestError('The question is empty')
-  }
-  if (question.length > MAX_QUESTION_CHARS) {
-    throw new AskRequestError(`The question is longer than ${MAX_QUESTION_CHARS} characters`)
+  if (messageId !== undefined && (typeof messageId !== 'string' || !MESSAGE_ID_PATTERN.test(messageId))) {
+    throw new AskRequestError('Field "messageId" must identify a message')
   }
 
-  return { messages: messages as UIMessage[], indexName, mode: mode as RetrievalMode, question }
+  if (trigger === 'submit-message') {
+    return {
+      threadId,
+      indexName,
+      mode: mode as RetrievalMode,
+      webSearch: webSearch === true,
+      trigger,
+      messageId,
+      message: parseUserMessage(message),
+    }
+  }
+  if (message !== undefined) {
+    throw new AskRequestError('Regeneration reuses the stored conversation; send no "message"')
+  }
+  return {
+    threadId,
+    indexName,
+    mode: mode as RetrievalMode,
+    webSearch: webSearch === true,
+    trigger,
+    messageId,
+    message: undefined,
+  }
 }
 
-/**
- * Bounds the conversation sent to the model: the newest messages win, and the
- * total text volume is capped so one conversation cannot grow the prompt
- * without limit. The final user question always survives.
- */
-export function boundHistory(messages: UIMessage[]): UIMessage[] {
+export function boundHistory(messages: AskUIMessage[]): AskUIMessage[] {
   const recent = messages.slice(-MAX_HISTORY_MESSAGES)
   let total = 0
   for (const message of recent) total += messageText(message).length
@@ -92,12 +138,4 @@ export function boundHistory(messages: UIMessage[]): UIMessage[] {
     start++
   }
   return recent.slice(start)
-}
-
-export function isFollowUp(messages: UIMessage[]): boolean {
-  let userMessages = 0
-  for (const message of messages) {
-    if (message.role === 'user') userMessages++
-  }
-  return userMessages > 1
 }
