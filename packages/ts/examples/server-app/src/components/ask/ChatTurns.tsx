@@ -210,7 +210,7 @@ function AgentTrace({ toolParts, isStreaming }: { toolParts: ToolPart[]; isStrea
 function contextWindowFor(modelId: string | undefined): number {
   if (!modelId) return DEFAULT_CONTEXT_TOKENS
   const context = getUsage({ modelId, usage: { input: 0, output: 0 }, providers: openaiModels }).context
-  return context?.combinedMax ?? context?.totalMax ?? DEFAULT_CONTEXT_TOKENS
+  return context?.totalMax ?? context?.combinedMax ?? DEFAULT_CONTEXT_TOKENS
 }
 
 function ContextChip({ message }: { message: AskUIMessage }) {

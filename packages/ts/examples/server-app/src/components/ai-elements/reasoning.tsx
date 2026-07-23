@@ -86,6 +86,7 @@ export type ReasoningTriggerProps = ComponentProps<typeof CollapsibleTrigger> & 
 function defaultThinkingMessage(isStreaming: boolean, duration?: number): ReactNode {
   if (isStreaming || duration === 0) return <span className="shimmer">Thinking</span>
   if (duration === undefined) return <span>Thought for a few seconds</span>
+  if (duration === 1) return <span>Thought for 1 second</span>
   return <span>Thought for {duration} seconds</span>
 }
 
