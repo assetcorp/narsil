@@ -15,5 +15,5 @@ function SearchPage() {
   const dispatch = useAppDispatch()
   const { q } = useSearch({ from: '/search' })
 
-  return <SearchPlayground backend={backend} state={state} dispatch={dispatch} initialTerm={q} />
+  return <SearchPlayground key={q ?? ''} backend={backend} state={state} dispatch={dispatch} initialTerm={q} />
 }

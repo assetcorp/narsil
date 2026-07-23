@@ -152,7 +152,7 @@ curl -X POST localhost:7700/indexes/movies/documents \
 }
 ```
 
-**`POST /indexes/{name}/documents/_multi-get`** takes `{ "docIds": ["m1", "m2"] }` and returns `{ "documents": { "m1": {...}, "m2": {...} } }`, holding only the ids that exist.
+**`POST /indexes/{name}/documents/_multi-get`** takes `{ "docIds": ["m1", "m2"] }` and returns `{ "documents": { "m1": {...}, "m2": {...} } }`, holding only the ids that exist. By default a request may include at most 10,000 ids; a longer list returns 400 `INVALID_REQUEST`. Set `limits.maxFetchDocuments` on `createServer` to change the cap.
 
 **`POST /indexes/{name}/documents/_import`** streams an NDJSON corpus, one JSON document per line, with each line's `id` field becoming the document id. The stream processes in bounded batches and yields the event loop between batches, so searches and health probes stay responsive during a load. Per-line parse failures and per-document engine failures collect into the response instead of aborting the import:
 
@@ -170,7 +170,7 @@ Each entry in `errors` carries a `code`, a `message`, and either the `line` numb
 
 ### Search
 
-**`POST /indexes/{name}/search`** takes the same query parameters as the embedded `query()` method, documented in the [package README](../../README.md#search): `term`, `fields`, `filters`, `boost`, `mode`, `vector`, `hybrid`, `facets`, `sort`, `group`, `limit`, `offset`, `searchAfter`, `highlight`, `pinned`, `minScore`, `termMatch`, `tolerance`, `prefix`, `prefixLength`, `exact`, `scoring`, and `includeScoreComponents`. The response is the engine's result: `{ "hits", "count", "elapsed", "cursor"?, "facets"?, "groups"? }`. Custom group reducers are functions and cannot cross JSON, so a body carrying `group.reduce` fails with 400; `group.fields` and `group.maxPerGroup` work over HTTP.
+**`POST /indexes/{name}/search`** takes the same query parameters as the embedded `query()` method, documented in the [package README](../../README.md#search): `term`, `fields`, `filters`, `boost`, `mode`, `vector`, `hybrid`, `facets`, `sort`, `group`, `limit`, `offset`, `searchAfter`, `highlight`, `pinned`, `minScore`, `termMatch`, `tolerance`, `prefix`, `prefixLength`, `exact`, `scoring`, and `includeScoreComponents`. The response is the engine's result: `{ "hits", "count", "elapsed", "cursor"?, "facets"?, "groups"? }`. Custom group reducers are functions and cannot cross JSON, so a body carrying `group.reduce` fails with 400; `group.fields` and `group.maxPerGroup` work over HTTP. The server caps the fields that control how many rows a search returns: `limit`, `offset`, `group.maxPerGroup`, and each facet's `limit`. Each one is bounded by the result window, which defaults to 10,000, and a value above it returns 400 `INVALID_REQUEST`. Set `limits.maxResultWindow` on `createServer` to change the cap.
 
 ```bash
 curl -X POST localhost:7700/indexes/movies/search \

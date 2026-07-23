@@ -1,10 +1,8 @@
 import { useChat } from '@ai-sdk/react'
-import type { LoadedIndex } from '@delali/narsil-example-shared'
 import { useAppDispatch, useAppState } from '@delali/narsil-example-shared'
 import { DefaultChatTransport } from 'ai'
-import { MessagesSquare, Plus, TriangleAlert } from 'lucide-react'
+import { TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Suggestion } from '#/components/ai-elements/suggestion'
 import { Button } from '#/components/ui/button'
 import { Marker, MarkerContent, MarkerIcon } from '#/components/ui/marker'
 import {
@@ -15,7 +13,8 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from '#/components/ui/message-scroller'
-import { sourcesPartOf, suggestionsForDataset } from '#/lib/ask/client'
+import { sourcesPartOf, threadTitlePartOf, vectorModesDisabledReason } from '#/lib/ask/client'
+import { provisionalTitle } from '#/lib/ask/title'
 import {
   type AskCapabilities,
   type AskSource,
@@ -24,71 +23,16 @@ import {
   type RetrievalMode,
 } from '#/lib/ask/types'
 import { askCapabilitiesFn, getStatsFn } from '#/lib/server-fns'
+import { HeroHeading, HeroSuggestions } from './AskHero'
+import { SourcesSheet, ThreadsSheet } from './AskMobilePanels'
 import { AskPromptInput } from './AskPromptInput'
 import { AssistantTurn, SearchingMarker, UserTurn } from './ChatTurns'
 import { ModeToggle } from './ModeToggle'
 import { SetupNotice } from './SetupNotice'
 import { SourceDocumentSheet } from './SourceDocumentSheet'
 import { SourcesRail } from './SourcesRail'
-
-function vectorModesDisabledReason(
-  capabilities: AskCapabilities | null,
-  indexHasVectors: boolean | null,
-): string | null {
-  if (capabilities && !capabilities.embeddingsConfigured) {
-    return 'Semantic and hybrid modes need an embedding provider. Set OPENAI_API_KEY (or ASK_EMBEDDING_API_KEY), restart, and reload the dataset.'
-  }
-  if (indexHasVectors === false) {
-    return 'This index was loaded without embeddings. Remove it and load the dataset again to embed its documents.'
-  }
-  if (indexHasVectors === null) {
-    return 'Checking whether this index has embeddings...'
-  }
-  return null
-}
-
-interface HeroHeadingProps {
-  index: LoadedIndex
-}
-
-function HeroHeading({ index }: HeroHeadingProps) {
-  return (
-    <div className="flex flex-col items-center gap-5 text-center">
-      <div className="flex size-12 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
-        <MessagesSquare className="size-6 text-primary" />
-      </div>
-      <div className="space-y-2">
-        <h2 className="font-serif text-3xl tracking-tight text-balance sm:text-4xl">Ask {index.name}</h2>
-        <p className="mx-auto max-w-md text-sm leading-relaxed text-muted-foreground text-pretty">
-          Answers come only from the {index.documentCount.toLocaleString()} documents in this index, with the retrieved
-          passages shown beside every answer. Switch retrieval modes to watch the same question pull different evidence.
-        </p>
-      </div>
-    </div>
-  )
-}
-
-interface HeroSuggestionsProps {
-  index: LoadedIndex
-  disabled: boolean
-  onSuggestion: (text: string) => void
-}
-
-function HeroSuggestions({ index, disabled, onSuggestion }: HeroSuggestionsProps) {
-  return (
-    <div className="flex flex-wrap items-center justify-center gap-2">
-      {suggestionsForDataset(index.datasetId).map(text => (
-        <Suggestion
-          key={text}
-          suggestion={text}
-          onClick={onSuggestion}
-          disabled={disabled}
-          className="h-auto whitespace-normal py-1.5 text-xs font-normal text-muted-foreground hover:text-foreground"
-        />
-      ))}
-    </div>
-  )
-}
+import { ThreadSidebar } from './ThreadSidebar'
+import { useAskThreads } from './use-ask-threads'
 
 export function AskView() {
   const state = useAppState()
@@ -104,20 +48,38 @@ export function AskView() {
 
   const [mode, setMode] = useState<RetrievalMode>('keyword')
   const userChoseMode = useRef(false)
+  const [webSearch, setWebSearch] = useState(false)
   const [capabilities, setCapabilities] = useState<AskCapabilities | null>(null)
   const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null)
   const [vectorReadyByIndex, setVectorReadyByIndex] = useState<Record<string, boolean>>({})
-  const [phase, setPhase] = useState<'searching' | 'generating' | null>(null)
   const [openSource, setOpenSource] = useState<AskSource | null>(null)
+
+  const {
+    threads,
+    activeThreadId,
+    threadIdRef,
+    setActiveThreadId,
+    ensureThreadId,
+    beginThread,
+    isThreadNew,
+    refresh,
+    applyTitle,
+    loadThread,
+    removeThread,
+  } = useAskThreads()
 
   const indexNameRef = useRef(indexName)
   const modeRef = useRef(mode)
+  const webSearchRef = useRef(webSearch)
   useEffect(() => {
     indexNameRef.current = indexName
   }, [indexName])
   useEffect(() => {
     modeRef.current = mode
   }, [mode])
+  useEffect(() => {
+    webSearchRef.current = webSearch
+  }, [webSearch])
 
   useEffect(() => {
     let cancelled = false
@@ -165,27 +127,34 @@ export function AskView() {
 
   const transport = useMemo(
     () =>
-      new DefaultChatTransport({
+      new DefaultChatTransport<AskUIMessage>({
         api: '/api/ask',
-        body: () => ({ indexName: indexNameRef.current, mode: modeRef.current }),
+        prepareSendMessagesRequest: ({ messages, trigger, messageId }) => ({
+          body: {
+            indexName: indexNameRef.current,
+            mode: modeRef.current,
+            webSearch: webSearchRef.current,
+            threadId: threadIdRef.current,
+            trigger,
+            messageId,
+            message: trigger === 'submit-message' ? messages[messages.length - 1] : undefined,
+          },
+        }),
       }),
-    [],
+    [threadIdRef],
   )
-
-  const handleData = useCallback((dataPart: { type: string; data: unknown }) => {
-    if (dataPart.type === 'data-ask-status') {
-      setPhase((dataPart.data as { phase: 'searching' | 'generating' }).phase)
-    }
-  }, [])
 
   const { messages, status, error, sendMessage, stop, regenerate, setMessages, clearError } = useChat<AskUIMessage>({
     transport,
-    onData: handleData,
+    onFinish: refresh,
   })
 
   useEffect(() => {
-    if (status === 'ready' || status === 'error') setPhase(null)
-  }, [status])
+    const last = messages[messages.length - 1]
+    if (!last || last.role !== 'assistant') return
+    const titlePart = threadTitlePartOf(last)
+    if (titlePart) applyTitle(titlePart.threadId, titlePart.title)
+  }, [messages, applyTitle])
 
   const handleModeChange = useCallback((next: RetrievalMode) => {
     userChoseMode.current = true
@@ -201,9 +170,12 @@ export function AskView() {
 
   const handleSubmitText = useCallback(
     (text: string) => {
+      const threadId = ensureThreadId()
+      const currentIndexName = indexNameRef.current
+      if (currentIndexName) beginThread(threadId, provisionalTitle(text), currentIndexName)
       void sendMessage({ text })
     },
-    [sendMessage],
+    [ensureThreadId, beginThread, sendMessage],
   )
 
   const handleRegenerate = useCallback(() => {
@@ -219,7 +191,37 @@ export function AskView() {
     stop()
     clearError()
     setMessages([])
-  }, [stop, clearError, setMessages])
+    setActiveThreadId(null)
+  }, [stop, clearError, setMessages, setActiveThreadId])
+
+  const handleSelectThread = useCallback(
+    async (id: string) => {
+      if (id === threadIdRef.current) return
+      stop()
+      clearError()
+      const thread = await loadThread(id)
+      if (!thread) return
+      setActiveThreadId(id)
+      setMessages(thread.messages)
+      if (thread.indexName !== indexNameRef.current) {
+        dispatch({ type: 'SET_ACTIVE_INDEX', payload: thread.indexName })
+      }
+    },
+    [stop, clearError, loadThread, setActiveThreadId, setMessages, dispatch, threadIdRef],
+  )
+
+  const handleDeleteThread = useCallback(
+    async (id: string) => {
+      await removeThread(id)
+      if (id === threadIdRef.current) {
+        stop()
+        clearError()
+        setMessages([])
+        setActiveThreadId(null)
+      }
+    },
+    [removeThread, stop, clearError, setMessages, setActiveThreadId, threadIdRef],
+  )
 
   const handleCloseSource = useCallback(() => {
     setOpenSource(null)
@@ -252,111 +254,131 @@ export function AskView() {
   const hasConversation = messages.length > 0
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-3.5rem)] max-w-6xl flex-col px-4 pt-5 pb-4">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 pb-4">
-        <div>
-          <h1 className="font-serif text-2xl tracking-tight">Ask</h1>
-          <p className="text-xs text-muted-foreground">
-            Grounded answers with receipts, straight from <span className="font-mono">{indexName}</span>.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <ModeToggle mode={mode} onModeChange={handleModeChange} vectorModesDisabledReason={disabledReason} />
-          {hasConversation && (
-            <Button type="button" variant="outline" size="sm" onClick={handleNewChat}>
-              <Plus className="size-3.5" />
-              New chat
-            </Button>
-          )}
-        </div>
+    <div className="mx-auto flex h-[calc(100dvh-3.5rem)] max-w-6xl gap-4 px-4 pt-5 pb-4">
+      <div className="hidden w-60 shrink-0 lg:flex lg:flex-col">
+        <ThreadSidebar
+          threads={threads}
+          activeThreadId={activeThreadId}
+          isThreadNew={isThreadNew}
+          onSelect={handleSelectThread}
+          onNew={handleNewChat}
+          onDelete={handleDeleteThread}
+        />
       </div>
 
-      {hasConversation ? (
-        <div className="grid min-h-0 min-w-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
-          <section className="flex min-h-0 min-w-0 flex-col">
-            <MessageScrollerProvider autoScroll>
-              <MessageScroller className="flex-1">
-                <MessageScrollerViewport>
-                  <MessageScrollerContent className="mx-auto w-full max-w-3xl px-1.5 py-6">
-                    {messages.map((message, i) =>
-                      message.role === 'user' ? (
-                        <MessageScrollerItem key={message.id} messageId={message.id} scrollAnchor>
-                          <UserTurn message={message} />
-                        </MessageScrollerItem>
-                      ) : (
-                        <MessageScrollerItem key={message.id} messageId={message.id}>
-                          <AssistantTurn
-                            message={message}
-                            isLast={i === messages.length - 1}
-                            isStreaming={isBusy && i === messages.length - 1}
-                            onOpenSource={setOpenSource}
-                            onRegenerate={handleRegenerate}
-                          />
-                        </MessageScrollerItem>
-                      ),
-                    )}
-                    {awaitingAssistant && (
-                      <MessageScrollerItem messageId="pending-answer">
-                        <SearchingMarker phase={phase ?? 'searching'} indexName={indexName} />
-                      </MessageScrollerItem>
-                    )}
-                    {error && (
-                      <MessageScrollerItem messageId="answer-error">
-                        <Marker variant="border" className="border-destructive/40 text-destructive">
-                          <MarkerIcon>
-                            <TriangleAlert />
-                          </MarkerIcon>
-                          <MarkerContent>{error.message}</MarkerContent>
-                          <Button type="button" variant="outline" size="xs" onClick={handleRetry}>
-                            Retry
-                          </Button>
-                        </Marker>
-                      </MessageScrollerItem>
-                    )}
-                  </MessageScrollerContent>
-                </MessageScrollerViewport>
-                <MessageScrollerButton />
-              </MessageScroller>
-            </MessageScrollerProvider>
-
-            <div className="mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-3 pt-3">
-              <SetupNotice capabilities={capabilities} capabilitiesError={capabilitiesError} />
-              <AskPromptInput
-                indexes={indexes}
-                indexName={indexName}
-                onIndexChange={handleIndexChange}
-                status={status}
-                disabled={inputDisabled}
-                onSubmitText={handleSubmitText}
-                onStop={stop}
-              />
-            </div>
-          </section>
-
-          <div className="hidden min-h-0 lg:block">
-            <SourcesRail retrieval={latestRetrieval} onOpenSource={setOpenSource} />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 pb-4">
+          <div>
+            <h1 className="font-serif text-2xl tracking-tight">Ask</h1>
+            <p className="text-xs text-muted-foreground">
+              Grounded answers with receipts, straight from <span className="font-mono">{indexName}</span>.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <ModeToggle mode={mode} onModeChange={handleModeChange} vectorModesDisabledReason={disabledReason} />
+            <ThreadsSheet
+              threads={threads}
+              activeThreadId={activeThreadId}
+              isThreadNew={isThreadNew}
+              onSelect={handleSelectThread}
+              onNew={handleNewChat}
+              onDelete={handleDeleteThread}
+            />
+            {hasConversation && <SourcesSheet retrieval={latestRetrieval} onOpenSource={setOpenSource} />}
           </div>
         </div>
-      ) : (
-        <div className="flex min-h-0 min-w-0 flex-1 overflow-y-auto">
-          <div className="m-auto flex w-full max-w-2xl flex-col gap-7 py-8 lg:pb-16">
-            <HeroHeading index={selectedIndex} />
-            <div className="flex flex-col gap-3">
-              <SetupNotice capabilities={capabilities} capabilitiesError={capabilitiesError} />
-              <AskPromptInput
-                indexes={indexes}
-                indexName={indexName}
-                onIndexChange={handleIndexChange}
-                status={status}
-                disabled={inputDisabled}
-                onSubmitText={handleSubmitText}
-                onStop={stop}
-              />
+
+        {hasConversation ? (
+          <div className="grid min-h-0 min-w-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
+            <section className="flex min-h-0 min-w-0 flex-col">
+              <MessageScrollerProvider autoScroll>
+                <MessageScroller className="flex-1">
+                  <MessageScrollerViewport>
+                    <MessageScrollerContent className="mx-auto w-full max-w-3xl px-1.5 py-6">
+                      {messages.map((message, i) =>
+                        message.role === 'user' ? (
+                          <MessageScrollerItem key={message.id} messageId={message.id} scrollAnchor>
+                            <UserTurn message={message} />
+                          </MessageScrollerItem>
+                        ) : (
+                          <MessageScrollerItem key={message.id} messageId={message.id}>
+                            <AssistantTurn
+                              message={message}
+                              isLast={i === messages.length - 1}
+                              isStreaming={isBusy && i === messages.length - 1}
+                              onOpenSource={setOpenSource}
+                              onRegenerate={handleRegenerate}
+                            />
+                          </MessageScrollerItem>
+                        ),
+                      )}
+                      {awaitingAssistant && (
+                        <MessageScrollerItem messageId="pending-answer">
+                          <SearchingMarker phase="searching" indexName={indexName} />
+                        </MessageScrollerItem>
+                      )}
+                      {error && (
+                        <MessageScrollerItem messageId="answer-error">
+                          <Marker variant="border" className="border-destructive/40 text-destructive">
+                            <MarkerIcon>
+                              <TriangleAlert />
+                            </MarkerIcon>
+                            <MarkerContent>{error.message}</MarkerContent>
+                            <Button type="button" variant="outline" size="xs" onClick={handleRetry}>
+                              Retry
+                            </Button>
+                          </Marker>
+                        </MessageScrollerItem>
+                      )}
+                    </MessageScrollerContent>
+                  </MessageScrollerViewport>
+                  <MessageScrollerButton />
+                </MessageScroller>
+              </MessageScrollerProvider>
+
+              <div className="mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-3 pt-3">
+                <SetupNotice capabilities={capabilities} capabilitiesError={capabilitiesError} />
+                <AskPromptInput
+                  indexes={indexes}
+                  indexName={indexName}
+                  onIndexChange={handleIndexChange}
+                  status={status}
+                  disabled={inputDisabled}
+                  webSearch={webSearch}
+                  onWebSearchChange={setWebSearch}
+                  onSubmitText={handleSubmitText}
+                  onStop={stop}
+                />
+              </div>
+            </section>
+
+            <div className="hidden min-h-0 xl:block">
+              <SourcesRail retrieval={latestRetrieval} onOpenSource={setOpenSource} />
             </div>
-            <HeroSuggestions index={selectedIndex} disabled={inputDisabled} onSuggestion={handleSubmitText} />
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="flex min-h-0 min-w-0 flex-1 overflow-y-auto">
+            <div className="m-auto flex w-full max-w-2xl flex-col gap-7 py-8 lg:pb-16">
+              <HeroHeading index={selectedIndex} />
+              <div className="flex flex-col gap-3">
+                <SetupNotice capabilities={capabilities} capabilitiesError={capabilitiesError} />
+                <AskPromptInput
+                  indexes={indexes}
+                  indexName={indexName}
+                  onIndexChange={handleIndexChange}
+                  status={status}
+                  disabled={inputDisabled}
+                  webSearch={webSearch}
+                  onWebSearchChange={setWebSearch}
+                  onSubmitText={handleSubmitText}
+                  onStop={stop}
+                />
+              </div>
+              <HeroSuggestions index={selectedIndex} disabled={inputDisabled} onSuggestion={handleSubmitText} />
+            </div>
+          </div>
+        )}
+      </div>
 
       <SourceDocumentSheet source={openSource} onClose={handleCloseSource} />
     </div>

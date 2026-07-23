@@ -1,17 +1,14 @@
 import type { PartitionConfig } from '../../types/schema'
 import type { HandlerDeps } from '../deps'
 import { ServerErrorCodes } from '../errors'
-import { badRequest, parseJsonOptional, respondError, respondJson } from '../handler-utils'
+import { parseJsonOptional, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import type { RouteContext } from '../request'
 import { sendBinary, sendError } from '../response'
-import type { TaskRecord } from '../types'
+import type { RebalanceBody, TaskRecord } from '../types'
+import { validateRebalance } from '../validation'
 
 interface FieldBody {
   field?: string
-}
-
-interface RebalanceBody {
-  targetPartitionCount?: number
 }
 
 function taskResponse(record: TaskRecord): { taskId: string; type: string; status: string } {
@@ -34,7 +31,7 @@ export function createAdminHandlers(deps: HandlerDeps) {
     try {
       const bytes = await engine.snapshot(ctx.params[0])
       if (ctx.abort.aborted) return
-      sendBinary(ctx.res, bytes)
+      sendBinary(ctx.res, bytes, ctx.abort)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -99,11 +96,12 @@ export function createAdminHandlers(deps: HandlerDeps) {
   async function rebalance(ctx: RouteContext): Promise<void> {
     const body = parseJsonOptional<RebalanceBody>(ctx)
     if (!body) return
-    const target = body.targetPartitionCount
-    if (typeof target !== 'number' || !Number.isInteger(target) || target <= 0) {
-      badRequest(ctx.res, 'Field "targetPartitionCount" is required and must be a positive integer')
+    const failure = validateRebalance(body)
+    if (failure) {
+      rejectInvalid(ctx, failure)
       return
     }
+    const target = body.targetPartitionCount as number
     const name = ctx.params[0]
     try {
       requireIndexExists(name)

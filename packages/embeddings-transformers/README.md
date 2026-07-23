@@ -8,7 +8,7 @@ A [Transformers.js](https://huggingface.co/docs/transformers.js) embedding adapt
 pnpm add @delali/narsil-embeddings-transformers @huggingface/transformers
 ```
 
-`@huggingface/transformers` is a peer dependency. You must install it alongside this package. Any version `>=3.0.0` is supported.
+`@huggingface/transformers` is a peer dependency. You must install it alongside this package. Any 3.x version is supported (`>=3.0.0` and `<4.0.0`).
 
 ## Quick start
 

@@ -6,7 +6,7 @@ import {
   BackendContext,
   createInitialState,
 } from '@delali/narsil-example-shared'
-import { CommandPalette } from '@delali/narsil-example-shared/components/CommandPalette'
+import { CommandPaletteProvider } from '@delali/narsil-example-shared/components/CommandPalette'
 import { createRootRoute, HeadContent, Outlet, Scripts, useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import EngineStatusBanner from '../components/EngineStatusBanner'
@@ -20,6 +20,8 @@ import appCss from '../styles.css?url'
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`
 
+const asset = (name: string) => `${import.meta.env.BASE_URL}${name}`
+
 export const Route = createRootRoute({
   head: () => ({
     meta: [
@@ -28,7 +30,13 @@ export const Route = createRootRoute({
       { title: 'Narsil - Server App Example' },
       { name: 'description', content: 'A web application backed by the Narsil HTTP server over REST.' },
     ],
-    links: [{ rel: 'stylesheet', href: appCss }],
+    links: [
+      { rel: 'icon', type: 'image/svg+xml', href: asset('narsil.svg') },
+      { rel: 'icon', href: asset('narsil.ico'), sizes: 'any' },
+      { rel: 'apple-touch-icon', href: asset('narsil-apple.png') },
+      { rel: 'manifest', href: asset('manifest.json') },
+      { rel: 'stylesheet', href: appCss },
+    ],
   }),
   component: RootLayout,
   shellComponent: RootDocument,
@@ -173,20 +181,23 @@ function RootLayout() {
 
   const handleNavigate = useCallback((to: string) => navigate({ to }), [navigate])
 
+  const handleSearch = useCallback((term: string) => navigate({ to: '/search', search: { q: term } }), [navigate])
+
   return (
     <BackendContext value={backend}>
       <AppStateContext value={state}>
         <AppDispatchContext value={dispatch}>
           <EngineStatusContext value={engineStatus}>
-            <div className="flex min-h-dvh flex-col">
-              <Header />
-              <EngineStatusBanner status={engineStatus} />
-              <main className="flex-1">
-                <Outlet />
-              </main>
-              <Footer />
-            </div>
-            <CommandPalette navigate={handleNavigate} />
+            <CommandPaletteProvider navigate={handleNavigate} onSearch={handleSearch}>
+              <div className="flex min-h-dvh flex-col">
+                <Header />
+                <EngineStatusBanner status={engineStatus} />
+                <main className="flex-1">
+                  <Outlet />
+                </main>
+                <Footer />
+              </div>
+            </CommandPaletteProvider>
           </EngineStatusContext>
         </AppDispatchContext>
       </AppStateContext>

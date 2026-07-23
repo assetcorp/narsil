@@ -4,10 +4,12 @@ export interface LlmProviderConfig {
   apiKey: string
   baseUrl: string
   model: string
+  titleModel: string
 }
 
 export const DEFAULT_LLM_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_LLM_MODEL = 'gpt-5-mini'
+export const DEFAULT_TITLE_MODEL = 'gpt-5-mini'
 
 function validatedBaseUrl(raw: string, envName: string): string {
   let parsed: URL
@@ -29,12 +31,6 @@ function firstNonEmpty(...values: Array<string | undefined>): string | undefined
   return undefined
 }
 
-/**
- * Resolves the answer-generation model from the environment. Returns null when
- * no API key is configured; the Ask view then explains what to set instead of
- * calling any provider. Read per request and only in server-side code so the
- * key never reaches the client bundle.
- */
 export function readLlmConfig(): LlmProviderConfig | null {
   const apiKey = firstNonEmpty(process.env.ASK_LLM_API_KEY, process.env.OPENAI_API_KEY)
   if (apiKey === undefined) return null
@@ -43,6 +39,7 @@ export function readLlmConfig(): LlmProviderConfig | null {
   const baseUrl = validatedBaseUrl(rawBaseUrl as string, 'ASK_LLM_BASE_URL')
 
   const model = firstNonEmpty(process.env.ASK_LLM_MODEL, DEFAULT_LLM_MODEL) as string
+  const titleModel = firstNonEmpty(process.env.ASK_TITLE_MODEL, DEFAULT_TITLE_MODEL) as string
 
-  return { apiKey, baseUrl, model }
+  return { apiKey, baseUrl, model, titleModel }
 }

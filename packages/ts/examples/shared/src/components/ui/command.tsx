@@ -1,9 +1,10 @@
 import { Command as CommandPrimitive } from 'cmdk'
 import { Search } from 'lucide-react'
 import type * as React from 'react'
-import { useCallback, useEffect } from 'react'
+import { useCallback } from 'react'
 
 import { cn } from '../../lib/utils'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './dialog'
 
 function Command({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) {
   return (
@@ -25,7 +26,7 @@ function CommandInput({ className, ...props }: React.ComponentProps<typeof Comma
       <CommandPrimitive.Input
         data-slot="command-input"
         className={cn(
-          'flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50',
+          'flex h-11 w-full rounded-md bg-transparent py-3 text-base outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 sm:h-10 sm:text-sm',
           className,
         )}
         {...props}
@@ -34,11 +35,26 @@ function CommandInput({ className, ...props }: React.ComponentProps<typeof Comma
   )
 }
 
-function CommandList({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.List>) {
+function CommandList({ className, onTouchMove, ...props }: React.ComponentProps<typeof CommandPrimitive.List>) {
+  const handleTouchMove = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>): void => {
+      const active = document.activeElement
+      if (active instanceof HTMLInputElement && event.target !== active) {
+        active.blur()
+      }
+      onTouchMove?.(event)
+    },
+    [onTouchMove],
+  )
+
   return (
     <CommandPrimitive.List
       data-slot="command-list"
-      className={cn('max-h-[300px] overflow-y-auto overflow-x-hidden', className)}
+      className={cn(
+        'flex-1 min-h-0 max-h-none overflow-x-hidden overflow-y-auto overscroll-contain sm:max-h-[300px] sm:flex-none',
+        className,
+      )}
+      onTouchMove={handleTouchMove}
       {...props}
     />
   )
@@ -92,47 +108,28 @@ function CommandItem({ className, ...props }: React.ComponentProps<typeof Comman
 
 function CommandDialog({
   children,
-  open,
-  onOpenChange,
-}: {
-  children: React.ReactNode
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  useEffect(() => {
-    if (!open) return
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        onOpenChange(false)
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, onOpenChange])
-
-  const handleOverlayClick = useCallback(() => {
-    onOpenChange(false)
-  }, [onOpenChange])
-
+  className,
+  ...props
+}: React.ComponentProps<typeof Dialog> & { className?: string }) {
   return (
-    <>
-      {open && (
-        <>
-          {/* biome-ignore lint/a11y/useKeyWithClickEvents: overlay close */}
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: overlay dismiss */}
-          <div
-            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm animate-in fade-in-0"
-            onClick={handleOverlayClick}
-          />
-          <div className="fixed inset-x-0 top-[15%] z-50 mx-auto w-full max-w-lg animate-in fade-in-0 zoom-in-95 slide-in-from-top-2">
-            <Command shouldFilter={false} className="rounded-lg border shadow-lg">
-              {children}
-            </Command>
-          </div>
-        </>
-      )}
-    </>
+    <Dialog {...props}>
+      <DialogHeader className="sr-only">
+        <DialogTitle>Command Palette</DialogTitle>
+        <DialogDescription>Search commands, navigate, or find content across your indexes.</DialogDescription>
+      </DialogHeader>
+      <DialogContent
+        className={cn(
+          'inset-0 flex max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 p-0 sm:inset-auto sm:top-[15%] sm:left-[50%] sm:h-auto sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-0 sm:rounded-lg sm:border',
+          className,
+        )}
+        closeButtonClassName="sm:hidden"
+        data-slot="command-dialog"
+      >
+        <Command shouldFilter={false} className="flex h-full w-full flex-col">
+          {children}
+        </Command>
+      </DialogContent>
+    </Dialog>
   )
 }
 

@@ -83,7 +83,7 @@ export function QueryExplorer({ perQuery, selectedQuery, onSelect }: QueryExplor
   const handleSortAp = useCallback(() => toggleSort('ap'), [toggleSort])
 
   return (
-    <div className="rounded-lg border">
+    <div className="min-w-0 rounded-lg border">
       <div className="border-b px-4 py-3">
         <h3 className="text-sm font-semibold">Per-Query Results</h3>
         <Input
@@ -94,7 +94,7 @@ export function QueryExplorer({ perQuery, selectedQuery, onSelect }: QueryExplor
           className="mt-2 h-7 text-xs"
         />
       </div>
-      <div className="max-h-96 overflow-y-auto">
+      <div className="max-h-96 overflow-auto">
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-background">
             <tr className="border-b">

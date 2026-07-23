@@ -14,17 +14,17 @@ Narsil is a distributed search engine with full-text, vector, hybrid, and geosea
 
 The engine partitions large indexes across workers and merges partition results into a single ranked answer. Its BM25 ranking matches the Anserini reference within 0.005 nDCG@10 on the BEIR datasets. On BEIR SciFact it ranks level with Elasticsearch and OpenSearch at 0.678 nDCG@10 and answers 1,020 keyword queries per second, about a quarter more than either ([benchmarks](BENCHMARKS.md)). The TypeScript package is the reference implementation.
 
-Try it in your browser at [narsil.sondelali.com/demo](https://narsil.sondelali.com/demo).
+Try it in your browser at [narsil.sondelali.com/demo](https://narsil.sondelali.com/demo). Read the full documentation at [narsil.sondelali.com/docs](https://narsil.sondelali.com/docs).
 
 > *narsil* is the sword of Elendil in Tolkien's Lord of the Rings, shattered into shards and later reforged. The name maps to the architecture: data shatters into partitions, each shard is independently persisted, and every query reforges them into a unified result.
 
 ## Project status
 
-Narsil ships in three parts at two levels of maturity.
+Narsil comes in three parts at two levels of maturity.
 
 | Part | Status | Details |
 | --- | --- | --- |
-| Embedded engine (`@delali/narsil`) | Stable | You embed the engine in your process for full-text, vector, hybrid, and geosearch. It ships with 273 test files and 81 typed error codes, and its continuous integration runs on Node 22 and 24. |
+| Embedded engine (`@delali/narsil`) | Stable | You embed the engine in your process for full-text, vector, hybrid, and geosearch. It reports failures through typed error codes, and its continuous integration runs the test suite on Node 22 and 24. |
 | Single-node server (`@delali/narsil/server`) | Stable | The same engine runs behind a REST API, with a write-ahead log, bulk NDJSON import, and snapshot and restore. |
 | Multi-node cluster (`@delali/narsil/distribution`) | Experimental | The cluster provides node roles, replication, and query routing, but it runs only in-process today and its APIs change without notice. |
 
@@ -34,7 +34,7 @@ The `.nrsl` binary format is the contract that every Narsil implementation reads
 
 | Package | Description |
 | --- | --- |
-| [`@delali/narsil`](packages/ts) | The core search engine ships full-text, vector, hybrid, and geosearch, plus an HTTP server subpath. |
+| [`@delali/narsil`](packages/ts) | The core search engine provides full-text, vector, hybrid, and geosearch, plus an HTTP server subpath. |
 | [`@delali/narsil-embeddings-transformers`](packages/embeddings-transformers) | The adapter runs local embedding models through Hugging Face Transformers.js. |
 | [`@delali/narsil-certutil`](packages/certutil) | The CLI generates and manages the TLS certificates Narsil clusters use, covering CA creation, node certificate signing, inspection, and format conversion. |
 
@@ -124,7 +124,7 @@ The [TypeScript package README](packages/ts/README.md) documents every feature w
 
 **Scale.** [Partitioned indexes](packages/ts/README.md#partitions-and-rebalancing) route documents by deterministic hash and reshape online through `rebalance()`, with writes buffering in a write-ahead queue during the reshape. [Worker promotion](packages/ts/README.md#workers) moves search off the main thread once document counts cross a threshold, and [three scoring modes](packages/ts/README.md#scoring-modes) handle BM25 statistics skew across partitions and instances.
 
-**Operations.** The [HTTP server](packages/ts/README.md#http-server) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. [Events](packages/ts/README.md#events), [typed errors](packages/ts/README.md#errors), [plugins](packages/ts/README.md#plugins), and [memory reporting](packages/ts/README.md#memory-reporting) cover observability, and [language modules](packages/ts/README.md#language-support) ship for 39 languages as separate entry points.
+**Operations.** The [HTTP server](packages/ts/README.md#http-server) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. [Events](packages/ts/README.md#events), [typed errors](packages/ts/README.md#errors), [plugins](packages/ts/README.md#plugins), and [memory reporting](packages/ts/README.md#memory-reporting) cover observability, and [language modules](packages/ts/README.md#language-support) cover 39 languages as separate entry points.
 
 ## Examples
 
