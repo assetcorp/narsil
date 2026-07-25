@@ -9,10 +9,6 @@ export { ErrorCodes, NarsilError } from './errors'
 export { getLanguage, registerLanguage } from './languages/registry'
 export type { Narsil } from './narsil'
 export { createNarsil } from './narsil'
-
-export { isSimdAvailable } from './vector/simd'
-export const VERSION = '0.1.0'
-
 export type {
   EmbeddingAdapter,
   InvalidationAdapter,
@@ -83,3 +79,7 @@ export type {
   TermMatchPolicy,
   VectorQueryConfig,
 } from './types/search'
+export { isSimdAvailable } from './vector/simd'
+// Written into the engine-version bytes of every .nrsl file, for diagnostics only.
+// Change it by hand and on purpose; it does not follow the published package version.
+export const VERSION = '0.1.0'
