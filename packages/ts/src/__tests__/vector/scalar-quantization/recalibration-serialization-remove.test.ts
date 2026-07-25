@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createScalarQuantizer, deserializeScalarQuantizer } from '../../../vector/scalar-quantization'
+import { createScalarQuantizer } from '../../../vector/scalar-quantization'
+import { deserializeScalarQuantizer } from '../../../vector/scalar-quantization-restore'
 import { DIM, normalizedVector, vectorFromValues } from './fixtures'
 
 describe('ScalarQuantizer recalibration', () => {

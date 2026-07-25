@@ -1,6 +1,6 @@
 import type { ScoredDocument, VectorEntry } from '../../types/internal'
 import type { VectorMetric } from '../brute-force'
-import type { ScalarQuantizer } from '../scalar-quantization'
+import type { ScalarQuantizer } from '../scalar-quantization-types'
 import type { VectorStore } from '../vector-store'
 import {
   compactTombstones as compactTombstonesOp,
