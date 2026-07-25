@@ -1,4 +1,3 @@
-import { decode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { QueryResult } from '../../types/results'
@@ -11,13 +10,10 @@ import { createDataNodeLifecycle } from '../cluster/node-lifecycle'
 import type { DataNodeHandle } from '../cluster/node-lifecycle/types'
 import { DEFAULT_NODE_LIFECYCLE_CONFIG } from '../cluster/node-lifecycle/types'
 import type { AllocationTable, NodeRegistration, NodeRole } from '../coordinator/types'
-import { createFetchMessage, validateFetchResultPayload } from '../query/codec'
 import { distributedQuery } from '../query/routing'
-import { selectReplica } from '../query/selection'
 import type { DistributedQueryResult } from '../query/types'
-import { createReplicationLog } from '../replication/log'
 import type { ReplicationLog } from '../replication/types'
-import type { FetchDocumentId, TransportMessage } from '../transport/types'
+import type { TransportMessage } from '../transport/types'
 import { cleanupRemovedPartition } from './bootstrap-cleanup'
 import {
   clearBootstrapSyncIndex,
@@ -27,13 +23,22 @@ import {
 } from './bootstrap-sync'
 import { createClusterLocalEngine } from './local-engine'
 import { createDataNodeHandler } from './message-handler'
+import {
+  fetchDistributedDocuments as fetchDocumentsAcrossNodes,
+  resolveNodeTargets as resolveTargetsForNode,
+  sendToNode as sendMessageToNode,
+} from './node-messaging'
 import { distributedResultToLocal, localParamsToWire } from './query-conversion'
+import {
+  replicationLogKey as buildReplicationLogKey,
+  getReplicationLog as readReplicationLog,
+  seedReplicationLog as writeSeededReplicationLog,
+} from './replication-logs'
 import { createSnapshotSyncHandlerState, defaultSnapshotHeaderMetadataProvider } from './snapshot-sync-handler'
 import { createMultiplexedControllerTransport } from './transport-listener'
 import type { ClusterNamespace, ClusterNode, ClusterNodeConfig, CreateIndexOptions } from './types'
 import { DEFAULT_CAPACITY } from './types'
 import {
-  resolvePartitionId,
   routeCreateIndex,
   routeInsert,
   routeInsertBatch,
@@ -55,6 +60,34 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   const bootstrapSyncState = createBootstrapSyncState()
   const snapshotSyncHandlerState = createSnapshotSyncHandlerState()
   const replicationLogs = new Map<string, ReplicationLog>()
+
+  function replicationLogKey(indexName: string, partitionId: number): string {
+    return buildReplicationLogKey(indexName, partitionId)
+  }
+
+  function getReplicationLog(indexName: string, partitionId: number): ReplicationLog {
+    return readReplicationLog(replicationLogs, indexName, partitionId)
+  }
+
+  function seedReplicationLog(indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm = 0): void {
+    writeSeededReplicationLog(replicationLogs, indexName, partitionId, startSeqNo, lastPrimaryTerm)
+  }
+
+  async function resolveNodeTargets(targetNodeId: string): Promise<string[]> {
+    return resolveTargetsForNode(config, targetNodeId)
+  }
+
+  async function _sendToNode(targetNodeId: string, message: TransportMessage): Promise<TransportMessage> {
+    return sendMessageToNode(config, targetNodeId, message)
+  }
+
+  async function fetchDistributedDocuments<T>(
+    indexName: string,
+    result: DistributedQueryResult,
+    allocation: AllocationTable,
+  ): Promise<Map<string, T>> {
+    return fetchDocumentsAcrossNodes<T>(config, nodeId, engine, indexName, result, allocation)
+  }
 
   const forwardOnError = (error: unknown): void => {
     if (config.onError === undefined) {
@@ -299,27 +332,6 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
 
   return node
 
-  function replicationLogKey(indexName: string, partitionId: number): string {
-    return `${indexName}:${partitionId}`
-  }
-
-  function getReplicationLog(indexName: string, partitionId: number): ReplicationLog {
-    const key = replicationLogKey(indexName, partitionId)
-    let log = replicationLogs.get(key)
-    if (log === undefined) {
-      log = createReplicationLog(partitionId)
-      replicationLogs.set(key, log)
-    }
-    return log
-  }
-
-  function seedReplicationLog(indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm = 0): void {
-    replicationLogs.set(
-      replicationLogKey(indexName, partitionId),
-      createReplicationLog(partitionId, { startSeqNo, lastPrimaryTerm }),
-    )
-  }
-
   async function resolveSnapshotHeaderMetadata(indexName: string, partitionId: number | null) {
     const fallback = await defaultSnapshotHeaderMetadataProvider(config.coordinator, indexName)
     if (partitionId === null) {
@@ -335,87 +347,6 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       primaryTerm: assignment?.primaryTerm ?? fallback.primaryTerm,
       lastSeqNo: log.newestSeqNo ?? 0,
     }
-  }
-
-  async function resolveNodeTargets(targetNodeId: string): Promise<string[]> {
-    const targets = [targetNodeId]
-    const nodes = await config.coordinator.listNodes()
-    const registration = nodes.find(node => node.nodeId === targetNodeId)
-    if (registration !== undefined && registration.address.length > 0 && registration.address !== targetNodeId) {
-      targets.push(registration.address)
-    }
-    return targets
-  }
-
-  async function fetchDistributedDocuments<T>(
-    indexName: string,
-    result: DistributedQueryResult,
-    allocation: AllocationTable,
-  ): Promise<Map<string, T>> {
-    const partitionCount = allocation.assignments.size
-    const nodeToDocumentIds = new Map<string, FetchDocumentId[]>()
-
-    for (const entry of result.scored) {
-      const partitionId = resolvePartitionId(entry.docId, partitionCount)
-      const assignment = allocation.assignments.get(partitionId)
-      if (assignment === undefined) {
-        continue
-      }
-      const selectedNodeId = selectReplica(assignment, nodeId, undefined, partitionId)
-      if (selectedNodeId === null) {
-        continue
-      }
-      let documentIds = nodeToDocumentIds.get(selectedNodeId)
-      if (documentIds === undefined) {
-        documentIds = []
-        nodeToDocumentIds.set(selectedNodeId, documentIds)
-      }
-      documentIds.push({ docId: entry.docId, partitionId })
-    }
-
-    const documents = new Map<string, T>()
-    for (const [targetNodeId, documentIds] of nodeToDocumentIds) {
-      if (targetNodeId === nodeId) {
-        for (const { docId } of documentIds) {
-          const document = await engine.get(indexName, docId)
-          if (document !== undefined) {
-            documents.set(docId, document as T)
-          }
-        }
-        continue
-      }
-
-      const fetchMessage = createFetchMessage(
-        {
-          indexName,
-          documentIds,
-          fields: null,
-          highlight: null,
-        },
-        nodeId,
-      )
-      const response = await sendToNode(targetNodeId, fetchMessage)
-      const decoded = decode(response.payload)
-      const payload = validateFetchResultPayload(decoded)
-      for (const fetched of payload.documents) {
-        documents.set(fetched.docId, fetched.document as T)
-      }
-    }
-
-    return documents
-  }
-
-  async function sendToNode(targetNodeId: string, message: TransportMessage): Promise<TransportMessage> {
-    const targets = await resolveNodeTargets(targetNodeId)
-    let lastError: unknown
-    for (const target of targets) {
-      try {
-        return await config.transport.send(target, message)
-      } catch (error) {
-        lastError = error
-      }
-    }
-    throw lastError instanceof Error ? lastError : new Error(String(lastError))
   }
 }
 

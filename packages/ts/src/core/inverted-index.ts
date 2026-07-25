@@ -6,10 +6,14 @@ import type {
   PostingList,
 } from '../types/internal'
 import { boundedLevenshtein } from './fuzzy'
-
-const INITIAL_CAPACITY = 8
-const MAX_TERM_FREQUENCY = 65535
-const COMPACTION_THRESHOLD = 0.3
+import {
+  COMPACTION_THRESHOLD,
+  compactDocEntries,
+  compactList,
+  createPostingList,
+  growTypedArrays,
+  MAX_TERM_FREQUENCY,
+} from './posting-list'
 
 export interface TermSuggestion {
   term: string
@@ -90,79 +94,11 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
   function getOrCreateList(token: string): CompactPostingList {
     let list = index.get(token)
     if (!list) {
-      list = {
-        length: 0,
-        docIds: [],
-        termFrequencies: new Uint16Array(INITIAL_CAPACITY),
-        fieldNameIndices: new Uint8Array(INITIAL_CAPACITY),
-        positions: null,
-        docIdSet: new Set(),
-        deletedDocs: new Set(),
-        totalTermFrequency: 0,
-      }
+      list = createPostingList()
       index.set(token, list)
       trackToken(token)
     }
     return list
-  }
-
-  function growTypedArrays(list: CompactPostingList): void {
-    const newCap = list.termFrequencies.length * 2
-
-    const newTF = new Uint16Array(newCap)
-    newTF.set(list.termFrequencies)
-    list.termFrequencies = newTF
-
-    const newFNI = new Uint8Array(newCap)
-    newFNI.set(list.fieldNameIndices)
-    list.fieldNameIndices = newFNI
-  }
-
-  function compactList(list: CompactPostingList): void {
-    if (list.deletedDocs.size === 0) return
-
-    let writeIdx = 0
-    for (let i = 0; i < list.length; i++) {
-      if (!list.deletedDocs.has(list.docIds[i])) {
-        if (writeIdx !== i) {
-          list.docIds[writeIdx] = list.docIds[i]
-          list.termFrequencies[writeIdx] = list.termFrequencies[i]
-          list.fieldNameIndices[writeIdx] = list.fieldNameIndices[i]
-          if (list.positions) {
-            list.positions[writeIdx] = list.positions[i]
-          }
-        }
-        writeIdx++
-      } else {
-        list.totalTermFrequency -= list.termFrequencies[i]
-      }
-    }
-    list.docIds.length = writeIdx
-    if (list.positions) list.positions.length = writeIdx
-    list.length = writeIdx
-    list.deletedDocs.clear()
-  }
-
-  function compactDocEntries(list: CompactPostingList, internalId: number): void {
-    let writeIdx = 0
-    for (let i = 0; i < list.length; i++) {
-      if (list.docIds[i] !== internalId) {
-        if (writeIdx !== i) {
-          list.docIds[writeIdx] = list.docIds[i]
-          list.termFrequencies[writeIdx] = list.termFrequencies[i]
-          list.fieldNameIndices[writeIdx] = list.fieldNameIndices[i]
-          if (list.positions) {
-            list.positions[writeIdx] = list.positions[i]
-          }
-        }
-        writeIdx++
-      } else {
-        list.totalTermFrequency -= list.termFrequencies[i]
-      }
-    }
-    list.docIds.length = writeIdx
-    if (list.positions) list.positions.length = writeIdx
-    list.length = writeIdx
   }
 
   return {

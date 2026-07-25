@@ -1,6 +1,6 @@
 import type { VectorMetric } from '../brute-force'
 import type { HNSWConfig, HNSWIndex, SerializedHNSWGraph } from '../hnsw'
-import type { ScalarQuantizer, SerializedSQ8 } from '../scalar-quantization'
+import type { ScalarQuantizer, SerializedSQ8 } from '../scalar-quantization-types'
 import type { VectorStore } from '../vector-store'
 
 export const DEFAULT_PROMOTION_THRESHOLD = 1024
