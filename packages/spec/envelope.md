@@ -312,7 +312,7 @@ A durability checkpoint writes the whole index as one envelope under the key `<i
 
 ```text
 {
-  version:       uint8  (2)
+  version:       uint8  (1)
   schema:        Map<string, string>
   language:      string
   partitions:    List<bytes>   (one version 2 partition payload per entry)

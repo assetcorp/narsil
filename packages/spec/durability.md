@@ -152,11 +152,11 @@ Recovery reads the fsynced frontier deterministically and treats any failure ins
 
 A snapshot is a full-index checkpoint held in a single `.nrsl` envelope.
 
-The container is the `.nrsl` envelope from [envelope.md](envelope.md) with the checksum flag set; the CRC32 payload checksum is mandatory for a snapshot. The payload is the snapshot bundle, a MessagePack map, and the envelope's `envelope_format_version` is 2.
+The container is the `.nrsl` envelope from [envelope.md](envelope.md) with the checksum flag set; the CRC32 payload checksum is mandatory for a snapshot. The payload is the snapshot bundle, a MessagePack map. The envelope's `envelope_format_version` is 2, and the bundle's own `version` field is 1. The two are separate numbers, and a reader rejects a bundle whose `version` is anything other than 1.
 
 ```text
 SnapshotBundle {
-  version:       uint8                          (2)
+  version:       uint8                          (1)
   schema:        Map<string, string>
   language:      string
   partitions:    List<bytes>                    (version 2 partition payloads)
