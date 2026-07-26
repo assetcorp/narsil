@@ -1,123 +1,97 @@
 # Narsil Transport Specification
 
-This document defines the `NodeTransport` adapter contract and the
-message types that flow between nodes in a Narsil cluster. A single
-transport adapter handles both replication traffic (log entries,
-snapshots) and query traffic (search requests, fetch requests).
+This document defines the `NodeTransport` adapter contract and the messages that travel between nodes in a cluster. One transport adapter carries both replication traffic, meaning log entries and snapshots, and query traffic, meaning search and fetch requests.
+
+Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` a mapping from keys to values, and `T or absent` a value that may be missing, encoded as MessagePack nil on the wire. Width-tagged names such as `uint32` describe the value range, not a fixed encoding; see [Wire Format](#wire-format).
 
 ---
 
 ## NodeTransport Adapter
 
-The `NodeTransport` adapter abstracts the network layer between
-Narsil nodes. All methods are asynchronous.
-
-### NodeTransport Definition
+The `NodeTransport` adapter covers the network layer between nodes. Every method is asynchronous.
 
 ```text
 NodeTransport {
-  [async] fn send(target: string, message: TransportMessage) -> TransportMessage
-  [async] fn stream(target: string, message: TransportMessage, handler: fn(chunk: bytes) -> none) -> none
-  [async] fn listen(handler: fn(message: TransportMessage, respond: fn(TransportMessage) -> none) -> none) -> fn() -> none
-  [async] fn shutdown() -> none
+  async send(target: string, message: TransportMessage) -> TransportMessage
+  async stream(target: string, message: TransportMessage, handler: (chunk: bytes) -> nothing) -> nothing
+  async listen(handler: (message: TransportMessage, respond: (TransportMessage) -> nothing) -> nothing) -> (() -> nothing)
+  async shutdown() -> nothing
 }
 ```
 
-### Method Contracts
+### send(target, message)
 
-#### send(target, message)
+- Sends a request to the node at `target`, which is the `address` field of that node's registration, and waits for the response.
+- It carries every request-and-response exchange: query requests, fetch requests, statistics collection, and replication entry forwarding.
+- An unreachable target, or one that fails to answer within the configured timeout, produces an error.
+- The transport must serialise the message as MessagePack before sending and decode the response.
 
-- Sends a request to the node at `target` (the `address` field
-  from `NodeRegistration`) and waits for a response.
-- Used for request/response patterns: query requests, fetch
-  requests, statistics collection, replication entry forwarding.
-- If the target node is unreachable or does not respond within
-  the transport's configured timeout, the method returns an error.
-- The transport must serialise the message as MessagePack before
-  sending and deserialise the response.
+### stream(target, message, handler)
 
-#### stream(target, message, handler)
+- Sends a request and receives a streamed response, calling `handler` once per chunk.
+- It carries snapshot transfer during recovery, where the snapshot can be large enough that buffering it whole in memory is unacceptable.
+- The transport handles chunking and reassembly. Chunk boundaries are the transport's own business and must never change the meaning of what arrives.
 
-- Sends a request to the target node and receives a streamed
-  response. The `handler` callback fires for each chunk of data.
-- Used for snapshot transfer during recovery (the snapshot can be
-  large and should not be buffered entirely in memory).
-- The transport handles chunking and reassembly. Chunk boundaries
-  are transport-specific and must not affect the semantic content.
+### listen(handler)
 
-#### listen(handler)
+- Registers a handler for messages arriving from other nodes. The handler receives the message and a `respond` callback for the reply.
+- It returns an unsubscribe function that removes the handler, so a component such as the controller can tear its listener down on step-down without shutting the whole transport down.
+- A node must call `listen` before it can receive queries or replication entries.
+- Calling `listen` again replaces the previous handler, and the old unsubscribe function then does nothing.
 
-- Registers a handler for incoming messages from other nodes.
-- The handler receives the message and a `respond` callback to
-  send the reply.
-- Returns an unsubscribe function that removes the handler.
-  Calling the unsubscribe function stops the node from receiving
-  new messages through this handler. This allows components like
-  the controller to cleanly tear down their listener on
-  step-down without shutting down the entire transport.
-- A node must call `listen` before it can receive queries or
-  replication entries from other nodes.
-- Calling `listen` again replaces the previous handler. The old
-  handler's unsubscribe function becomes a no-op.
+### shutdown()
 
-#### shutdown()
-
-- Closes all connections and stops listening.
-- Must be idempotent.
+- Closes every connection and stops listening.
+- It must be idempotent.
 
 ---
 
 ## Transport Messages
 
-All messages exchanged between nodes use a common envelope. The
-envelope is serialised as MessagePack.
-
-### Message Envelope
+Every message between nodes uses one envelope, serialised as MessagePack:
 
 ```text
 TransportMessage {
   type:      string   (message type identifier)
   sourceId:  string   (nodeId of the sender)
-  requestId: string   (unique ID for request/response correlation)
-  payload:   bytes    (MessagePack-encoded payload, type-specific)
+  requestId: string   (unique ID that pairs a response with its request)
+  payload:   bytes    (MessagePack payload, shaped by the type)
 }
 ```
 
-### Message Types
-
-#### Replication Messages
+### Replication Messages
 
 | Type | Direction | Description |
-| ------------- | -------------------- |
-| `replication.forward` | Any node -> Primary | Forward a client mutation to the partition's primary |
-| `replication.entry` | Primary -> Replica | A replication log entry to apply |
-| `replication.ack` | Replica -> Primary | Acknowledgement of a replicated entry |
-| `replication.sync_request` | Replica -> Primary | Request to begin sync (sends lastSeqNo, lastPrimaryTerm) |
-| `replication.sync_entries` | Primary -> Replica | Batch of log entries for incremental catch-up |
-| `replication.snapshot_start` | Primary -> Replica | Begin snapshot transfer (sends ReplicationSnapshotHeader) |
-| `replication.snapshot_chunk` | Primary -> Replica | A chunk of snapshot data (streamed) |
-| `replication.snapshot_end` | Primary -> Replica | Snapshot transfer complete |
-| `replication.insync_remove` | Primary -> Controller | Request to remove a replica from the in-sync set |
-| `replication.insync_confirm` | Controller -> Primary | Confirmation of in-sync set update |
+|------|-----------|-------------|
+| `replication.forward` | any node to primary | Forwards a client mutation to the partition's primary |
+| `replication.entry` | primary to replica | A replication log entry to apply |
+| `replication.ack` | replica to primary | Acknowledges a replicated entry |
+| `replication.sync_request` | replica to primary | Asks to start a sync, carrying lastSeqNo and lastPrimaryTerm |
+| `replication.sync_entries` | primary to replica | A batch of log entries for incremental catch-up |
+| `replication.snapshot_start` | primary to replica | Starts a snapshot transfer, carrying the snapshot header |
+| `replication.snapshot_chunk` | primary to replica | One streamed chunk of snapshot data |
+| `replication.snapshot_end` | primary to replica | Ends the snapshot transfer |
+| `replication.insync_remove` | primary to controller | Asks to remove a replica from the in-sync set |
+| `replication.insync_confirm` | controller to primary | Confirms the in-sync set update |
 
-#### Query Messages
-
-| Type | Direction | Description |
-| ------------- | -------------------- |
-| `query.search` | Coordinator -> Data | Phase 1 query request with partitionIds and optional global stats |
-| `query.search_result` | Data -> Coordinator | Phase 1 response with scored document IDs and facet counts |
-| `query.fetch` | Coordinator -> Data | Phase 2 fetch request with specific document IDs |
-| `query.fetch_result` | Data -> Coordinator | Phase 2 response with full document bodies |
-| `query.stats` | Coordinator -> Data | DFS Phase 0 statistics collection request |
-| `query.stats_result` | Data -> Coordinator | DFS Phase 0 response with partition statistics |
-
-#### Cluster Messages
+### Query Messages
 
 | Type | Direction | Description |
-| ------------- | -------------------- |
-| `cluster.ping` | Any -> Any | Health check |
-| `cluster.pong` | Any -> Any | Health check response |
-| `cluster.bootstrap_complete` | Data -> Controller | Reports that a partition has finished bootstrapping |
+|------|-----------|-------------|
+| `query.search` | coordinator to data node | Phase 1 query with partition IDs and, under DFS, global statistics |
+| `query.search_result` | data node to coordinator | Phase 1 response with scored document IDs and facet counts |
+| `query.fetch` | coordinator to data node | Phase 2 fetch for specific document IDs |
+| `query.fetch_result` | data node to coordinator | Phase 2 response with full document bodies |
+| `query.stats` | coordinator to data node | DFS phase 0 statistics request |
+| `query.stats_result` | data node to coordinator | DFS phase 0 response with partition statistics |
+
+### Cluster Messages
+
+| Type | Direction | Description |
+|------|-----------|-------------|
+| `cluster.ping` | any to any | Health check |
+| `cluster.pong` | any to any | Health check response |
+| `cluster.bootstrap_complete` | data node to controller | Reports that a partition finished bootstrapping |
 
 ---
 
@@ -125,34 +99,25 @@ TransportMessage {
 
 ### replication.forward
 
-A client mutation forwarded to the partition's primary. The
-primary materialises this into an `INDEX` or `DELETE` replication
-log entry. The operation field uses client-facing terminology
-because the mutation has not yet been materialised.
+A client mutation forwarded to the partition's primary. The primary turns it into an `INDEX` or `DELETE` log entry. The `operation` field keeps the client-facing wording, because nothing has been materialised yet.
 
 ```text
 {
-  indexName:     string
-  documentId:    string
-  operation:     'insert' or 'remove' or 'update'
-  document:      bytes or null  (MessagePack-encoded full document for insert/update)
-  updateFields:  map[string, any] or null  (changed fields only, for update)
+  indexName:    string
+  documentId:   string
+  operation:    'insert' or 'remove' or 'update'
+  document:     bytes or absent               (the full MessagePack document, for insert and update)
+  updateFields: Map<string, value> or absent  (the changed fields alone, for update)
 }
 ```
 
-The primary processes this message by:
-
-- `insert`: Generates embeddings if configured, then writes an
-  `INDEX` entry to the replication log.
-- `update`: Fetches the existing document, merges `updateFields`,
-  generates embeddings if needed, then writes an `INDEX` entry.
-- `remove`: Writes a `DELETE` entry to the replication log.
+The primary handles each operation differently. An `insert` generates the embeddings when the index configures them and then writes an `INDEX` entry. An `update` reads the existing document, merges `updateFields`, generates any embeddings that changed, and writes an `INDEX` entry. A `remove` writes a `DELETE` entry.
 
 ### replication.entry
 
 ```text
 {
-  entry: ReplicationLogEntry  (see replication.md)
+  entry: ReplicationLogEntry   (see replication.md)
 }
 ```
 
@@ -162,7 +127,7 @@ The primary processes this message by:
 {
   seqNo:       uint64
   partitionId: uint32
-  indexName:    string
+  indexName:   string
 }
 ```
 
@@ -170,10 +135,10 @@ The primary processes this message by:
 
 ```text
 {
-  indexName:        string
-  partitionId:      uint32
-  lastSeqNo:        uint64
-  lastPrimaryTerm:  uint64
+  indexName:       string
+  partitionId:     uint32
+  lastSeqNo:       uint64
+  lastPrimaryTerm: uint64
 }
 ```
 
@@ -181,8 +146,8 @@ The primary processes this message by:
 
 ```text
 {
-  entries: array[ReplicationLogEntry]
-  isLast:  bool  (true if this is the final batch)
+  entries: List<ReplicationLogEntry>
+  isLast:  boolean   (true on the final batch)
 }
 ```
 
@@ -190,8 +155,8 @@ The primary processes this message by:
 
 ```text
 {
-  header: ReplicationSnapshotHeader  (see replication.md)
-  totalBytes: uint64  (expected total size for progress tracking)
+  header:     ReplicationSnapshotHeader   (see replication.md)
+  totalBytes: uint64                      (the expected total, for progress reporting)
 }
 ```
 
@@ -200,94 +165,81 @@ The primary processes this message by:
 ```text
 {
   partitionId: uint32
-  indexName:    string
-  offset:      uint64  (byte offset within the full snapshot)
-  data:        bytes   (chunk of snapshot data)
+  indexName:   string
+  offset:      uint64   (byte offset within the whole snapshot)
+  data:        bytes    (one chunk of snapshot data)
 }
 ```
 
-Delivered via the `stream()` method. The receiver reconstructs the
-snapshot by writing chunks in offset order.
+Chunks arrive through `stream`, and the receiver rebuilds the snapshot by writing each chunk at its offset.
 
 ### replication.snapshot_end
 
 ```text
 {
   partitionId: uint32
-  indexName:    string
-  totalBytes:  uint64  (final total for verification)
-  checksum:    uint32  (CRC32 of the complete snapshot)
+  indexName:   string
+  totalBytes:  uint64   (the final total, for verification)
+  checksum:    uint32   (CRC32 of the complete snapshot)
 }
 ```
 
-Signals that all chunks have been sent. The receiver verifies
-`totalBytes` matches the accumulated data and validates the
-checksum before loading the snapshot.
+This message says every chunk has been sent. The receiver checks that `totalBytes` matches what it accumulated and verifies the checksum before it loads the snapshot.
 
 ### replication.insync_remove
 
-Sent by the primary to the active controller (discovered via
-`getLeaseHolder('_narsil/controller')`) when a replica fails to
-acknowledge a replication entry.
+The primary sends this to the active controller, found through `getLeaseHolder('_narsil/controller')`, when a replica fails to acknowledge a replication entry.
 
 ```text
 {
-  indexName:      string
-  partitionId:    uint32
-  replicaNodeId:  string  (the failed replica's nodeId)
-  primaryTerm:    uint64  (current term, for stale-primary protection)
+  indexName:     string
+  partitionId:   uint32
+  replicaNodeId: string   (the failed replica's nodeId)
+  primaryTerm:   uint64   (the current term, which fences a stale primary)
 }
 ```
 
 ### replication.insync_confirm
 
-Sent by the controller back to the primary after updating the
-in-sync set.
+The controller sends this back to the primary once it has updated the in-sync set.
 
 ```text
 {
-  indexName:    string
-  partitionId:  uint32
-  accepted:     bool    (false if the primaryTerm was stale)
+  indexName:   string
+  partitionId: uint32
+  accepted:    boolean   (false when the primaryTerm was stale)
 }
 ```
 
 ### cluster.bootstrap_complete
 
-Sent by a data node to the controller after the sync protocol
-completes for a partition in `INITIALISING` state. The controller
-validates the request and transitions the partition to `ACTIVE`.
+A data node sends this to the controller once the sync protocol finishes for a partition in `INITIALISING`. The controller validates the request and moves the partition to `ACTIVE`.
 
-The node retries with exponential backoff if the controller is
-unreachable or rejects the request. This follows the same pattern
-as Elasticsearch's `ShardStartedClusterStateTaskExecutor`.
+The node retries with exponential backoff when the controller is unreachable or rejects the request.
 
 ```text
 {
-  indexName:    string
-  partitionId:  uint32
-  nodeId:       string  (the reporting node's nodeId)
-  primaryTerm:  uint64  (the primaryTerm at bootstrap time)
+  indexName:   string
+  partitionId: uint32
+  nodeId:      string   (the reporting node's nodeId)
+  primaryTerm: uint64   (the primaryTerm at bootstrap time)
 }
 ```
 
-The controller validates:
+The controller checks four things:
 
-- `sourceId` of the transport message matches `nodeId` in the
-  payload (prevents spoofing).
-- The node is assigned to this partition (primary or replica).
-- The `primaryTerm` matches the current assignment's term
-  (rejects stale completions from old primary terms).
-- The partition is in `INITIALISING` state (idempotent: returns
-  `true` for already-`ACTIVE` partitions).
+- The message's `sourceId` matches the `nodeId` in the payload, which blocks spoofing.
+- The node is assigned to this partition, as primary or as replica.
+- The `primaryTerm` matches the assignment's current term, which rejects a completion left over from an earlier term.
+- The partition is in `INITIALISING`. The check is idempotent, so an already-`ACTIVE` partition returns `true`.
 
-Response:
+The response is:
 
 ```text
 {
-  indexName:    string
-  partitionId:  uint32
-  accepted:     bool
+  indexName:   string
+  partitionId: uint32
+  accepted:    boolean
 }
 ```
 
@@ -295,7 +247,7 @@ Response:
 
 ```text
 {
-  timestamp: uint64  (sender's wall-clock time in milliseconds)
+  timestamp: uint64   (the sender's wall-clock time in milliseconds)
 }
 ```
 
@@ -303,8 +255,8 @@ Response:
 
 ```text
 {
-  timestamp:       uint64  (original ping timestamp, echoed back)
-  respondedAt:     uint64  (responder's wall-clock time in milliseconds)
+  timestamp:   uint64   (the ping timestamp, echoed back)
+  respondedAt: uint64   (the responder's wall-clock time in milliseconds)
 }
 ```
 
@@ -312,28 +264,28 @@ Response:
 
 ## Shared Type Definitions
 
-Types referenced by multiple message payloads.
+These types appear in more than one payload.
 
 ### QueryParams
 
 ```text
 QueryParams {
-  term:         string or null
-  filters:      FilterExpression or null
-  sort:         array[SortField] or null
-  group:        GroupConfig or null
-  facets:       array[string] or null
-  facetSize:    uint32 or null  (default: 10, max buckets per facet field)
-  limit:        uint32  (default: 10)
-  offset:       uint32  (default: 0)
-  searchAfter:  string or null  (base64-encoded cursor)
-  fields:       array[string] or null  (searched fields, null = all text fields)
-  boost:        map[string, float32] or null  (per-field boost)
-  tolerance:    uint8 or null  (fuzzy matching tolerance)
-  threshold:    float32 or null  (minimum score)
-  scoring:      'local' or 'dfs' or 'broadcast'  (default: 'local')
-  vector:       VectorQueryParams or null
-  hybrid:       HybridConfig or null
+  term:        string or absent
+  filters:     FilterExpression or absent
+  sort:        List<SortField> or absent
+  group:       GroupConfig or absent
+  facets:      List<string> or absent
+  facetSize:   uint32 or absent   (default 10, the bucket cap per facet field)
+  limit:       uint32             (default 10)
+  offset:      uint32             (default 0)
+  searchAfter: string or absent   (base64-encoded cursor)
+  fields:      List<string> or absent   (the fields searched; absent means every text field)
+  boost:       Map<string, float32> or absent   (per-field boost)
+  tolerance:   uint8 or absent    (fuzzy matching tolerance)
+  threshold:   float32 or absent  (minimum score)
+  scoring:     'local' or 'dfs' or 'broadcast'   (default 'local')
+  vector:      VectorQueryParams or absent
+  hybrid:      HybridConfig or absent
 }
 
 SortField {
@@ -343,37 +295,35 @@ SortField {
 
 GroupConfig {
   field:       string
-  maxPerGroup: uint32  (default: 1)
+  maxPerGroup: uint32   (default 1)
 }
 
 VectorQueryParams {
   field:      string
-  value:      array[float32] or null
-  text:       string or null
-  similarity: float32 or null  (score floor; null keeps every scored hit)
+  value:      List<float32> or absent
+  text:       string or absent
+  similarity: float32 or absent   (score floor; absent keeps every scored hit)
 }
-
-The enclosing QueryParams.limit field sets the top-K count for vector
-search, and VectorQueryParams omits it to keep one source of truth.
 
 HybridConfig {
   strategy: 'rrf' or 'linear'
-  k:        uint32  (RRF constant, default: 60)
-  alpha:    float32  (linear weight, default: 0.5)
+  k:        uint32    (the RRF constant, default 60)
+  alpha:    float32   (the linear weight, default 0.5)
 }
-
-FilterExpression = (implementation-defined, matching the existing
-  filter specification in the Narsil query API)
 ```
+
+The enclosing `QueryParams.limit` sets the top-k count for vector search, so `VectorQueryParams` carries no limit of its own and there is one source of truth.
+
+`FilterExpression` is implementation-defined and matches the filter form of the Narsil query API.
 
 ### GlobalStatistics
 
 ```text
 GlobalStatistics {
   totalDocuments:      uint32
-  docFrequencies:      map[string, uint32]
-  totalFieldLengths:   map[string, uint64]
-  averageFieldLengths: map[string, float32]
+  docFrequencies:      Map<string, uint32>
+  totalFieldLengths:   Map<string, uint64>
+  averageFieldLengths: Map<string, float32>
 }
 ```
 
@@ -381,10 +331,10 @@ GlobalStatistics {
 
 ```text
 HighlightConfig {
-  fields:  array[string] or null  (fields to highlight, null = all matched)
-  before:  string  (default: '<mark>')
-  after:   string  (default: '</mark>')
-  maxSnippetLength: uint32  (default: 200)
+  fields:           List<string> or absent   (fields to highlight; absent means every matched field)
+  before:           string                   (default '<mark>')
+  after:            string                   (default '</mark>')
+  maxSnippetLength: uint32                   (default 200)
 }
 ```
 
@@ -392,11 +342,11 @@ HighlightConfig {
 
 ```text
 {
-  indexName:       string
-  partitionIds:    array[uint32]
-  params:          QueryParams  (term, filters, sort, limit, offset, etc.)
-  globalStats:     GlobalStatistics or null  (present in DFS mode)
-  facetShardSize:  uint32 or null  (oversampled bucket count, set by coordinator)
+  indexName:      string
+  partitionIds:   List<uint32>
+  params:         QueryParams
+  globalStats:    GlobalStatistics or absent   (present under DFS scoring)
+  facetShardSize: uint32 or absent             (the oversampled bucket count the coordinator set)
 }
 ```
 
@@ -404,18 +354,18 @@ HighlightConfig {
 
 ```text
 {
-  results: array[{
+  results: List<{
     partitionId: uint32
-    scored:      array[ScoredEntry]
+    scored:      List<ScoredEntry>
     totalHits:   uint32
-  }]
-  facets: map[string, array[FacetBucket]] or null
+  }>
+  facets: Map<string, List<FacetBucket>> or absent
 }
 
 ScoredEntry {
   docId:      string
   score:      float32
-  sortValues: array[any] or null  (present when sort is specified)
+  sortValues: List<value> or absent   (present when the query specifies a sort)
 }
 
 FacetBucket {
@@ -428,13 +378,13 @@ FacetBucket {
 
 ```text
 {
-  indexName:    string
-  documentIds:  array[{
+  indexName:   string
+  documentIds: List<{
     docId:       string
     partitionId: uint32
-  }]
-  fields:       array[string] or null  (field projection, null = all)
-  highlight:    HighlightConfig or null
+  }>
+  fields:      List<string> or absent   (field projection; absent means every field)
+  highlight:   HighlightConfig or absent
 }
 ```
 
@@ -442,11 +392,11 @@ FacetBucket {
 
 ```text
 {
-  documents: array[{
-    docId:    string
-    document: map[string, any]
-    highlights: map[string, array[string]] or null
-  }]
+  documents: List<{
+    docId:      string
+    document:   Map<string, value>
+    highlights: Map<string, List<string>> or absent
+  }>
 }
 ```
 
@@ -455,8 +405,8 @@ FacetBucket {
 ```text
 {
   indexName:    string
-  partitionIds: array[uint32]
-  terms:        array[string]  (query terms to collect frequencies for)
+  partitionIds: List<uint32>
+  terms:        List<string>   (the query terms to collect frequencies for)
 }
 ```
 
@@ -465,8 +415,8 @@ FacetBucket {
 ```text
 {
   totalDocuments:    uint32
-  docFrequencies:    map[string, uint32]
-  totalFieldLengths: map[string, uint64]
+  docFrequencies:    Map<string, uint32>
+  totalFieldLengths: Map<string, uint64>
 }
 ```
 
@@ -474,77 +424,67 @@ FacetBucket {
 
 ## Wire Format
 
-All transport messages are serialised as MessagePack. The encoding
-follows these rules:
+Every transport message is serialised as MessagePack under these rules:
 
-- Integers use the smallest MessagePack encoding that fits the
-  value (positive fixint, uint8, uint16, uint32, uint64).
-- Strings are UTF-8 encoded.
-- Maps preserve insertion order for deterministic serialisation
-  within a single implementation. Cross-language field ordering
-  does not need to match; deserialisers must handle any key order.
-- Binary data (document bodies, snapshot chunks) uses MessagePack's
-  `bin` format.
-- Null values use MessagePack's `nil`.
+- An integer uses the smallest MessagePack encoding that holds the value, whether positive fixint, uint8, uint16, uint32, or uint64.
+- A string is UTF-8.
+- A map keeps insertion order, so one implementation encodes the same message the same way every time. Field ordering need not match across languages, and every decoder must accept any key order.
+- Binary data, meaning document bodies and snapshot chunks, uses MessagePack's `bin` format.
+- An absent value is MessagePack nil.
 
 ### Maximum Message Size
 
-Individual transport messages (excluding streamed snapshot chunks)
-must not exceed 64 MB. This prevents unbounded memory allocation
-on the receiving side. If a response would exceed this limit (e.g.,
-a fetch result with many large documents), the sender must split
-it into multiple messages or return an error.
+A transport message, streamed snapshot chunks aside, must not exceed 64 MB, which stops a sender from forcing an unbounded allocation on the receiver. A sender whose response would exceed the limit, such as a fetch result carrying many large documents, must split it across several messages or return an error.
 
-Snapshot chunks have no per-chunk size limit; the streaming
-protocol handles flow control.
+A snapshot chunk has no per-chunk limit of its own, because the streaming protocol controls the flow.
 
 ---
 
-## Transport Timeout Configuration
+## Transport Timeouts
 
 ```text
 TransportConfig {
-  connectTimeout:    uint32  (milliseconds, default: 5000)
-  requestTimeout:    uint32  (milliseconds, default: 30000)
-  replicationTimeout: uint32  (milliseconds, default: 10000)
-  snapshotTimeout:    uint32  (milliseconds, default: 300000)
+  connectTimeout:     uint32   (milliseconds, default 5000)
+  requestTimeout:     uint32   (milliseconds, default 30000)
+  replicationTimeout: uint32   (milliseconds, default 10000)
+  snapshotTimeout:    uint32   (milliseconds, default 300000)
 }
 ```
 
-| Parameter | Default | Description |
-| ------------- | -------------------- |
-| `connectTimeout` | 5,000 ms | Maximum time to establish a connection to a peer node |
-| `requestTimeout` | 30,000 ms | Maximum time to wait for a query request/response |
-| `replicationTimeout` | 10,000 ms | Maximum time to wait for a replication entry acknowledgement |
-| `snapshotTimeout` | 300,000 ms | Maximum time for a complete snapshot transfer |
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `connectTimeout` | 5,000 ms | The longest wait to open a connection to a peer node |
+| `requestTimeout` | 30,000 ms | The longest wait for a query request and its response |
+| `replicationTimeout` | 10,000 ms | The longest wait for a replication entry acknowledgement |
+| `snapshotTimeout` | 300,000 ms | The longest a complete snapshot transfer may take |
 
 ---
 
-## NodeTransport Built-in Adapters
+## Built-in Transport Adapters
 
-| Adapter | Transport | Use Case |
-| ------------- | -------------------- |
-| TcpTransport | Raw TCP with MessagePack framing | Server-to-server, lowest overhead |
+| Adapter | Transport | Use |
+|---------|-----------|-----|
+| TcpTransport | Raw TCP with MessagePack framing | Server to server, with the lowest overhead |
 | InMemoryTransport | Direct function calls | Testing and single-process development |
 
 ### Community Adapter Guidelines
 
-Community adapters (gRPC, QUIC, HTTP/2, Unix sockets, etc.) must:
+A community adapter, whether it carries gRPC, QUIC, HTTP/2, or Unix sockets, must:
 
-- Serialise all messages as MessagePack.
-- Support the `send`, `stream`, and `listen` methods.
-- Handle connection lifecycle (reconnection, backoff).
+- Serialise every message as MessagePack.
+- Support `send`, `stream`, and `listen`.
+- Manage the connection lifecycle, including reconnection and backoff.
 - Respect the timeout configuration.
-- Provide message framing that preserves message boundaries.
+- Frame messages so that message boundaries survive the transport.
 
 ---
 
 ## Error Codes
 
-| Code | When |
-| ------------- | -------------------- |
-| `TRANSPORT_CONNECT_FAILED` | Failed to establish a connection to a peer node. |
-| `TRANSPORT_TIMEOUT` | A request did not complete within the configured timeout. |
+| Code | Raised when |
+|------|-------------|
+| `TRANSPORT_CONNECT_FAILED` | Opening a connection to a peer node failed. |
+| `TRANSPORT_TIMEOUT` | A request did not finish within its configured timeout. |
 | `TRANSPORT_MESSAGE_TOO_LARGE` | A non-streaming message exceeded the 64 MB limit. |
-| `TRANSPORT_DECODE_FAILED` | Failed to deserialise a received message (corrupt or invalid MessagePack). |
-| `TRANSPORT_PEER_UNAVAILABLE` | The target node is not reachable. |
+| `TRANSPORT_DECODE_FAILED` | A received message could not be decoded, because the MessagePack was corrupt or invalid. |
+| `TRANSPORT_PEER_UNAVAILABLE` | The target node cannot be reached. |

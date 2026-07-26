@@ -1,22 +1,12 @@
 # Narsil Distribution Specification
 
-This document defines the distributed operation mode for Narsil.
-When a `ClusterCoordinator` adapter is provided, Narsil operates
-as a distributed search engine where indexes span multiple nodes,
-partitions are replicated for fault tolerance, and queries are
-routed across the cluster. All Narsil implementations must follow
-the contracts defined here. Where behaviour is left to the
-runtime, this specification says so.
+Narsil runs as a distributed search engine once a `ClusterCoordinator` adapter is supplied. Indexes then span several nodes, partitions are replicated for fault tolerance, and queries are routed across the cluster. Every implementation must follow the contracts defined here. Where a behaviour is left to the runtime, this specification says so.
 
 ---
 
 ## Architecture
 
-Narsil distribution builds on top of the existing single-instance
-architecture. The core engine (indexing, search, partitioning,
-vector indexes) is unchanged. Distribution adds a cluster-aware
-orchestration layer that coordinates multiple Narsil instances
-running on separate nodes.
+Distribution wraps the single-instance engine and changes nothing inside it. Indexing, search, partitioning, and vector indexes work exactly as they do standalone. What distribution adds is a cluster-aware layer that coordinates several Narsil instances running on separate nodes.
 
 ```mermaid
 graph TD
@@ -51,108 +41,79 @@ graph TD
 
 ## Operating Modes
 
-Narsil operates in one of two modes, determined by whether a
-`ClusterCoordinator` adapter is provided at startup.
+The presence of a `ClusterCoordinator` adapter at startup decides which of the two modes a Narsil instance runs in.
 
 ### Single-Instance Mode
 
-When no `ClusterCoordinator` is provided, Narsil operates as a
-standalone engine. All partitions live in memory on the local
-instance. Worker threads provide parallelism within the process.
-The existing `InvalidationAdapter` coordinates with other
-instances sharing the same persistence backend.
+Without a `ClusterCoordinator`, Narsil runs standalone. Every partition is held in memory on the local instance, worker threads give parallelism inside the process, and an `InvalidationAdapter` coordinates with other instances sharing the same persistence backend.
 
-This is how Narsil works today. Distribution adds no overhead and
-requires no configuration when the feature is not imported.
+A build that never imports the distribution feature pays no cost for it and needs no configuration.
 
 ### Cluster Mode
 
-When a `ClusterCoordinator` is provided alongside a
-`NodeTransport`, Narsil operates as a distributed cluster node.
-The node registers itself with the coordinator, receives partition
-assignments from the allocation table, and participates in
-replication and distributed query routing.
+With a `ClusterCoordinator` and a `NodeTransport`, Narsil runs as a cluster node. The node registers itself with the coordinator, takes its partition assignments from the allocation table, and joins replication and distributed query routing.
 
-Each node plays one or more roles (see
-[cluster.md](cluster.md#node-roles)).
+Each node carries one or more roles; see [Node Roles](cluster.md#node-roles).
 
 ---
 
-## Relationship to Existing Specifications
+## Relationship to the Rest of the Specification
 
-The distribution specification extends the existing Narsil spec
-without modifying it. Each existing specification document
-continues to apply within a single node:
+Distribution extends the rest of the specification and changes none of it. Every other document still applies inside a single node.
 
-| Existing Spec | Relationship to Distribution |
-|---|---|
-| [partitioning.md](../partitioning.md) | Partitions still operate the same way locally. Distribution adds cross-node partition assignment. |
-| [algorithms.md](../algorithms.md) | Scoring, hashing, and similarity algorithms are unchanged. DFS scoring extends to collect statistics from remote nodes. |
-| [envelope.md](../envelope.md) | The `.nrsl` format is reused for replication snapshots (with an additional metadata header). |
-| [adapters.md](../adapters.md) | Existing adapters are unchanged. Two new adapters are added: `ClusterCoordinator` and `NodeTransport`. |
-| [invalidation.md](../invalidation.md) | The invalidation protocol remains available for non-clustered multi-process deployments. In cluster mode, replication replaces invalidation. |
-| [vector-index.md](../vector-index.md) | Vector indexes operate locally on each data node. Distributed vector search follows the same two-phase query pattern as text search. |
+| Document | Relationship to distribution |
+|----------|------------------------------|
+| [partitioning.md](../partitioning.md) | Partitions work the same way locally. Distribution adds assignment of partitions to nodes. |
+| [algorithms.md](../algorithms.md) | Scoring, hashing, and similarity are unchanged. DFS scoring extends to collect statistics from remote nodes. |
+| [envelope.md](../envelope.md) | The `.nrsl` format also carries replication snapshots, with an extra metadata header. |
+| [adapters.md](../adapters.md) | The existing adapters are unchanged. Distribution adds two: `ClusterCoordinator` and `NodeTransport`. |
+| [invalidation.md](../invalidation.md) | The invalidation protocol stays available for multi-process deployments outside a cluster. In cluster mode, replication takes its place. |
+| [vector-index.md](../vector-index.md) | Vector indexes work locally on each data node. Distributed vector search follows the same two-phase pattern as text search. |
 
 ---
 
-## Distribution Specification Documents
+## Distribution Documents
 
 | Document | Contents |
-|---|---|
-| [cluster.md](cluster.md) | Cluster formation, node registration, roles, allocation table, partition state machine, `ClusterCoordinator` adapter |
-| [replication.md](replication.md) | Replication log format, sync protocol, recovery, failover, write durability, in-sync tracking |
-| [query-routing.md](query-routing.md) | Two-phase distributed query, fan-out, result merging, DFS, distributed facets, partial results, cursor pagination |
-| [transport.md](transport.md) | `NodeTransport` adapter, message types, MessagePack wire format |
+|----------|----------|
+| [cluster.md](cluster.md) | Cluster formation, node registration, roles, the allocation table, the partition state machine, and the `ClusterCoordinator` adapter |
+| [replication.md](replication.md) | Replication log format, sync protocol, recovery, failover, write durability, and in-sync tracking |
+| [query-routing.md](query-routing.md) | Two-phase distributed query, fan-out, result merging, DFS, distributed facets, partial results, and cursor pagination |
+| [transport.md](transport.md) | The `NodeTransport` adapter, message types, and the MessagePack wire format |
 
 ---
 
-## Pseudocode Convention
+## Notation
 
-This specification uses the same pseudocode convention as the
-existing Narsil spec (see [adapters.md](../adapters.md)). Type
-definitions are language-neutral and illustrative. Implementations
-use their language's native type system.
+This specification uses the same language-neutral notation as the rest of the Narsil specification; see [Notation](../adapters.md#notation). Type definitions illustrate the contract, and each implementation expresses them in its own type system.
 
-All data structures exchanged between nodes are serialised as
-MessagePack. This is the cross-language wire format for cluster
-coordination data, replication log entries, and query
-request/response payloads.
+Every structure exchanged between nodes is serialised as MessagePack. That is the cross-language wire format for coordination data, replication log entries, and query request and response payloads alike.
 
 ---
 
 ## Requirement Tiers
 
-This specification follows the same requirement tiers as the
-Sirannon specification:
+**Normative.** Every conforming implementation must follow the behaviour. Normative requirements use the lowercase word 'must'. A build that violates one does not conform.
 
-**Normative.** Behaviour that all conforming implementations must
-follow. Normative requirements use the word 'must' in lowercase.
-Violating a normative requirement means the implementation does
-not conform to this specification.
+**Implementation-defined.** The specification fixes the contract, meaning the inputs, the outputs, and the invariants, and leaves the mechanism to the runtime.
 
-**Implementation-defined.** Behaviour where the specification
-defines the contract (inputs, outputs, invariants) but leaves the
-mechanism to the runtime.
-
-**Recommended.** Suggested defaults and approaches. Other
-implementations may choose different values. Recommended items
-include a concrete default value.
+**Recommended.** These are the defaults the reference implementation uses, each stated with a concrete value. Another implementation may choose differently.
 
 ---
 
 ## Glossary
 
 | Term | Definition |
-|---|---|
-| **Allocation table** | A mapping from each partition to its primary node and replica nodes, stored in the ClusterCoordinator |
-| **Cluster mode** | Narsil's distributed operating mode, activated by providing a ClusterCoordinator adapter |
-| **Controller** | A node role responsible for running the partition allocator and managing the allocation table |
-| **Coordinator** | A node role responsible for receiving client queries, fanning out to data nodes, and merging results |
-| **Data node** | A node role responsible for holding partitions, executing local indexing and search, and participating in replication |
-| **In-sync set** | The set of replica nodes that have acknowledged all operations up to the primary's current sequence number |
-| **NodeTransport** | An adapter that carries replication and query traffic between nodes |
-| **Primary** | The node designated to accept writes for a given partition |
-| **primaryTerm** | A monotonically increasing counter that increments on primary failover, used to fence zombie primaries |
-| **Replica** | A node that holds a copy of a partition and receives replicated operations from the primary |
-| **seqNo** | A per-partition monotonically increasing counter assigned by the primary to each operation |
-| **Single-instance mode** | Narsil's standalone operating mode, identical to pre-distribution behaviour |
+|------|------------|
+| **Allocation table** | The mapping from each partition to its primary node and its replica nodes, stored in the cluster coordinator |
+| **Cluster mode** | The distributed operating mode, activated by supplying a `ClusterCoordinator` adapter |
+| **Controller** | The node role that runs the partition allocator and maintains the allocation table |
+| **Coordinator** | The node role that receives client queries, fans them out to data nodes, and merges the results |
+| **Data node** | The node role that holds partitions, runs local indexing and search, and takes part in replication |
+| **In-sync set** | The replica nodes that have acknowledged every operation up to the primary's current sequence number |
+| **NodeTransport** | The adapter that carries replication and query traffic between nodes |
+| **Primary** | The node that accepts writes for a given partition |
+| **primaryTerm** | A counter that increases on every primary failover, used to fence a primary that no longer holds authority |
+| **Replica** | A node holding a copy of a partition and receiving replicated operations from the primary |
+| **seqNo** | A per-partition counter, increasing monotonically, that the primary assigns to each operation |
+| **Single-instance mode** | The standalone operating mode, identical to running without distribution |
