@@ -1,152 +1,132 @@
 # Narsil Adapter Interface Contracts
 
-This document defines the adapter interfaces that Narsil uses to abstract
-environment-specific functionality. Adapters provide pluggable backends for
-persistence, invalidation, and tokenization. Any Narsil implementation must
-support these contracts, and any adapter (built-in or community-contributed)
-must conform to them.
+Adapters are how Narsil reaches anything outside its own memory: durable storage, coordination between instances, text analysis, and embedding models. This document defines each adapter contract. Every Narsil implementation must support these contracts, and every adapter, built in or contributed, must conform to them.
+
+---
+
+## Notation
+
+Type definitions here and throughout the specification use a language-neutral notation. It illustrates the contract, and each implementation expresses it in its own type system.
+
+| Notation | Meaning |
+|----------|---------|
+| `List<T>` | An ordered collection of elements of type `T` |
+| `Map<K, V>` | A mapping from keys of type `K` to values of type `V` |
+| `Set<T>` | An unordered collection of distinct elements of type `T` |
+| `string` | Text |
+| `integer`, `number` | A whole number, and any numeric value |
+| `boolean` | True or false |
+| `bytes` | A byte array |
+| `value` | A value of any type |
+| `T or absent` | A value that is either a `T` or missing; each language maps 'absent' to its own null, nil, None, or optional type |
+| `async ... -> T` | An asynchronous operation producing a `T` |
+| `-> nothing` | An operation that produces no value |
+| `uint8`, `uint16`, `uint32`, `uint64`, `float32`, `float64` | Exact widths in a byte layout or on the wire |
 
 ---
 
 ## PersistenceAdapter
 
-The persistence adapter handles durable storage of serialised index data
-(`.nrsl` envelopes). All methods are asynchronous. The adapter does not
-interpret the data; it stores and retrieves raw byte arrays keyed by
-string paths.
-
-### PersistenceAdapter Definition
+The persistence adapter stores serialised index data, meaning `.nrsl` envelopes, durably. Every method is asynchronous. The adapter never interprets what it stores; it saves and returns raw byte arrays keyed by string paths.
 
 ```text
 PersistenceAdapter {
-  [async] fn save(key: string, data: bytes) -> none
-  [async] fn load(key: string) -> bytes or null
-  [async] fn delete(key: string) -> none
-  [async] fn list(prefix: string) -> array[string]
+  async save(key: string, data: bytes) -> nothing
+  async load(key: string) -> bytes or absent
+  async delete(key: string) -> nothing
+  async list(prefix: string) -> List<string>
 }
 ```
 
-### PersistenceAdapter Methods
+### save(key, data)
 
-#### save(key, data)
+- Stores `data` under `key`, replacing whatever was there before.
+- The write must be atomic: either the whole write succeeds or the previous value survives untouched. A partial write must never leave corrupt data behind.
+- A failure raises `PERSISTENCE_SAVE_FAILED`.
 
-- Stores the byte array `data` at the given `key`.
-- If a value already exists at `key`, it is overwritten.
-- Must be atomic: either the full write succeeds or the previous value
-  remains intact. Partial writes must not leave corrupted data.
-- On failure, throw/return an error with code `PERSISTENCE_SAVE_FAILED`.
+### load(key)
 
-#### load(key)
+- Returns the bytes stored under `key`, or absent when the key holds nothing.
+- A failure, whether an I/O error or a permission refusal, raises `PERSISTENCE_LOAD_FAILED`.
+- The caller verifies the CRC32 checksum afterwards, when the envelope header carries one, and a mismatch raises `PERSISTENCE_CRC_MISMATCH`.
 
-- Retrieves the byte array stored at `key`.
-- Returns `null` if no value exists at `key`.
-- On failure (I/O error, permission denied), throw/return an error with
-  code `PERSISTENCE_LOAD_FAILED`.
-- After loading, the caller validates the CRC32 checksum (if present in
-  the envelope header). A mismatch raises `PERSISTENCE_CRC_MISMATCH`.
+### delete(key)
 
-#### delete(key)
+- Removes whatever is stored under `key`.
+- It must be idempotent, so deleting a key that holds nothing is not an error.
+- A failure raises `PERSISTENCE_DELETE_FAILED`.
 
-- Removes the value at `key`.
-- Must be idempotent: deleting a non-existent key is not an error.
-- On failure, throw/return an error with code `PERSISTENCE_DELETE_FAILED`.
+### list(prefix)
 
-#### list(prefix)
-
-- Returns all keys that start with the given `prefix`.
-- Used to discover indexes and partitions on startup
-  (e.g., `list("")` returns all keys,
-  `list("products/")` returns all keys for the "products" index).
-- Returns an empty array if no keys match.
+- Returns every key that starts with `prefix`, and an empty list when none match.
+- Startup discovery uses it to find indexes and partitions, so `list("")` returns every key and `list("products/")` returns every key belonging to the `products` index.
 - Key ordering is not guaranteed.
 
 ### Key Format
 
-Keys are slash-delimited string paths. The key format follows the
-convention defined in [envelope.md](envelope.md):
+Keys are slash-delimited paths following the convention in [envelope.md](envelope.md):
 
-| Key Pattern                      | Content            |
-|----------------------------------|--------------------|
-| `<indexName>/meta`               | Index metadata     |
-| `<indexName>/partition_<N>`      | Partition N data   |
-| `<indexName>/vector/<fieldName>` | Vector index data  |
+| Key | Content |
+|-----|---------|
+| `<indexName>/meta` | Index metadata |
+| `<indexName>/partition_<N>` | Partition N data |
+| `<indexName>/vector/<fieldName>` | Vector index data |
 
-### Security: Path Traversal Protection
+### Path Traversal Protection
 
-Filesystem-based adapters must verify that the resolved file path stays
-within the configured base directory. After resolving `basePath + key`
-to an absolute path, confirm the result starts with the absolute
-`basePath`. Reject any key that would escape the base directory
-(e.g., keys containing `..`) with a `PERSISTENCE_SAVE_FAILED` error.
+A filesystem-backed adapter must confirm that the resolved file path stays inside the configured base directory. Resolve `basePath + key` to an absolute path and check that the result starts with the absolute `basePath`. Reject any key that would escape, such as one containing `..`, with `PERSISTENCE_SAVE_FAILED`.
 
-### Persistence Built-in Adapters
+### Built-in Persistence Adapters
 
-| Adapter             | Environment     | Backend              |
-|---------------------|-----------------|----------------------|
-| MemoryAdapter       | All             | In-memory map        |
-| FilesystemAdapter   | Server runtimes | .nrsl files on disk  |
-| IndexedDBAdapter    | Browser         | IndexedDB store      |
+| Adapter | Environment | Backend |
+|---------|-------------|---------|
+| MemoryAdapter | all | An in-memory map |
+| FilesystemAdapter | server runtimes | `.nrsl` files on disk |
+| IndexedDBAdapter | browser | An IndexedDB store |
 
 ### Community Adapter Guidelines
 
-Community adapters (Redis, S3, PostgreSQL, etc.) should:
+A community adapter, whether it targets Redis, S3, PostgreSQL, or anything else, should:
 
-- Use the same key format as built-in adapters.
-- Store the raw `.nrsl` bytes without modification.
-- Support atomic writes (or document the lack of atomicity).
-- Handle key listing for startup discovery.
+- Use the same key format the built-in adapters use.
+- Store the raw `.nrsl` bytes unchanged.
+- Write atomically, or document plainly that it cannot.
+- Support key listing, so startup discovery works.
 
 ---
 
 ## InvalidationAdapter
 
-The invalidation adapter handles pub/sub coordination between multiple
-Narsil instances. When one instance mutates data and persists it, the
-invalidation adapter notifies other instances so they can evict stale
-partitions from memory.
-
-### InvalidationAdapter Definition
+The invalidation adapter carries publish and subscribe traffic between Narsil instances. When one instance mutates data and persists it, the adapter tells the others so that they can evict the stale partitions from memory.
 
 ```text
 InvalidationAdapter {
-  [async] fn publish(event: InvalidationEvent) -> none
-  [async] fn subscribe(handler: fn(event: InvalidationEvent) -> none) -> none
-  [async] fn shutdown() -> none
+  async publish(event: InvalidationEvent) -> nothing
+  async subscribe(handler: (event: InvalidationEvent) -> nothing) -> nothing
+  async shutdown() -> nothing
 }
 ```
 
-### InvalidationAdapter Methods
+### publish(event)
 
-#### publish(event)
+- Broadcasts the event to every subscriber, across processes, tabs, and pods alike.
+- Delivery is fire and forget, so the caller waits for no confirmation.
+- The caller must publish only after persistence confirms; see [invalidation.md](invalidation.md) for the ordering rule.
 
-- Broadcasts the event to all subscribers (including other
-  processes/tabs/pods).
-- Fire-and-forget semantics: the caller does not wait for delivery
-  confirmation.
-- Must be called AFTER persistence confirms
-  (see [invalidation.md](invalidation.md) for event flow ordering).
+### subscribe(handler)
 
-#### subscribe(handler)
+- Registers a callback that fires when an event arrives from another instance.
+- The engine's handler checks `sourceInstanceId` and drops the events this instance published itself. The adapter does no filtering of its own.
+- It may be called more than once to register several handlers.
 
-- Registers a callback that fires when an event arrives from another
-  instance.
-- Events from the current instance (identified by `sourceInstanceId`)
-  should be ignored by the handler. The adapter itself does not filter;
-  the engine's invalidation handler checks `sourceInstanceId`.
-- May be called multiple times to register multiple handlers.
+### shutdown()
 
-#### shutdown()
-
-- Cleans up resources (close connections, stop polling, remove
-  listeners).
-- Must be idempotent: calling shutdown on an already-shut-down adapter
-  is not an error.
+- Releases resources by closing connections, stopping timers, and removing listeners.
+- It must be idempotent, so shutting down an adapter that is already shut down is not an error.
 
 ### InvalidationEvent Types
 
-Two event types flow through the invalidation adapter:
-
-Partition invalidation (notifies instances to reload partitions):
+Two event types cross the adapter. A partition event tells other instances to reload the listed partitions:
 
 ```json
 {
@@ -158,7 +138,7 @@ Partition invalidation (notifies instances to reload partitions):
 }
 ```
 
-Statistics broadcast (shares partition statistics for broadcast scoring):
+A statistics event shares partition statistics for broadcast scoring:
 
 ```json
 {
@@ -173,31 +153,25 @@ Statistics broadcast (shares partition statistics for broadcast scoring):
 }
 ```
 
-See [invalidation.md](invalidation.md) for the complete event flow and
-concurrency model.
+The full event flow and the concurrency model are in [invalidation.md](invalidation.md).
 
-### Invalidation Built-in Adapters
+### Built-in Invalidation Adapters
 
-| Adapter                  | Environment     | Transport        |
-|--------------------------|-----------------|------------------|
-| NoopInvalidation         | All             | No-op            |
-| FilesystemInvalidation   | Server runtimes | JSON marker files|
-| BroadcastChannelInvalid. | Browser         | BroadcastChannel |
+| Adapter | Environment | Transport |
+|---------|-------------|-----------|
+| NoopInvalidation | all | none |
+| FilesystemInvalidation | server runtimes | JSON marker files |
+| BroadcastChannelInvalidation | browser | a broadcast channel |
 
 ---
 
 ## CustomTokenizer
 
-The tokenizer adapter allows developers to replace Narsil's built-in
-text analysis pipeline with a custom implementation. This is useful for
-domain-specific tokenization (e.g., code search, chemical formulas,
-medical terminology).
-
-### CustomTokenizer Definition
+A custom tokeniser replaces Narsil's built-in text analysis for one index, which is what domain-specific text needs: source code, chemical formulae, or medical terminology.
 
 ```text
 CustomTokenizer {
-  fn tokenize(text: string) -> array[TokenResult]
+  tokenize(text: string) -> List<TokenResult>
 }
 
 TokenResult {
@@ -206,181 +180,114 @@ TokenResult {
 }
 ```
 
-### CustomTokenizer Contract
+### tokenize(text)
 
-#### tokenize(text)
+- It receives the raw field text and returns `{ token, position }` pairs.
+- `token` is the normalised, analysis-ready token, lower-cased and stemmed as the domain requires.
+- `position` is the token's position in the text, numbered from zero, which highlighting and phrase matching read.
+- With a custom tokeniser configured, Narsil skips its whole standard pipeline, meaning NFC normalisation, lower-casing, splitting, stop word removal, and stemming, and calls this function instead.
+- The same tokeniser runs for indexing and for querying, so a token produced at index time must match the token produced at query time for the same input.
 
-- Receives raw field text.
-- Returns an array of `{ token, position }` pairs.
-- `token`: the normalised, analysis-ready token string (lowercased,
-  stemmed, etc., as appropriate for the domain).
-- `position`: zero-indexed position of the token in the text. Used
-  for highlighting and phrase matching.
-- When a custom tokenizer is configured for an index, Narsil bypasses
-  its standard pipeline (NFC normalisation, lowercasing, splitting,
-  stop word removal, stemming) entirely and delegates to this function.
-- The same tokenizer is used for both indexing and querying. Tokens
-  produced at index time must match tokens produced at query time for
-  the same input.
+### Configuration
 
-### CustomTokenizer Configuration
-
-A custom tokenizer is set per index at creation time:
+A custom tokeniser is set per index at creation time:
 
 ```json
 {
   "schema": {},
   "tokenizer": {
-    "tokenize": "fn(text: string) -> array[{ token, position }]"
+    "tokenize": "(text: string) -> List<{ token, position }>"
   }
 }
 ```
 
-When a custom tokenizer is present, the `language` setting still applies
-for stop words (unless the custom tokenizer handles stop word removal
-itself) and for any other language-specific behaviour outside
-tokenization.
+The `language` setting still applies alongside a custom tokeniser: it supplies the stop words, unless the tokeniser removes them itself, and any other language behaviour outside tokenisation.
 
 ---
 
 ## LanguageModule
 
-Language modules provide language-specific text analysis components. Each
-module is a self-contained unit that can be loaded independently
-(tree-shakeable).
-
-### LanguageModule Definition
+A language module carries the language-specific parts of text analysis. Each one is self-contained, so a build loads only the languages it uses.
 
 ```text
 LanguageModule {
   name:      string
-  stemmer:   fn(token: string) -> string or null
-  stopWords: set[string]
-  tokenizer: TokenizerConfig or null
+  stemmer:   ((token: string) -> string) or absent
+  stopWords: Set<string>
+  tokenizer: TokenizerConfig or absent
 }
 
 TokenizerConfig {
-  splitPattern:        regex or null
-  normalizeDiacritics: bool or null
-  minTokenLength:      uint32 or null
+  splitPattern:        regex or absent
+  normalizeDiacritics: boolean or absent
+  minTokenLength:      uint32 or absent
 }
 ```
 
-### LanguageModule Fields
+### name
 
-#### name
+A lower-case identifier for the language, such as `english`, `french`, or `twi`. It is the key in the language registry.
 
-A lowercase identifier for the language (e.g., `"english"`, `"french"`,
-`"twi"`). Used as the key in the language registry.
+### stemmer
 
-#### stemmer
+A function that reduces a token to its root form. It returns the stemmed form, or the input unchanged when no rule applies. A language with no stemmer, meaning one Narsil supports partially, leaves this absent.
 
-A function that reduces a token to its root form. Returns the stemmed
-form, or the input unchanged if no stemming rule applies. Set to `null`
-for languages without a stemmer (partial support).
+### stopWords
 
-#### stopWords
+A set of common words to keep out of the index. Each index can override it through the `stopWords` configuration option.
 
-A `set[string]` of common words to exclude from indexing. The set can be
-overridden per index via the `stopWords` configuration option.
+### tokenizer
 
-#### tokenizer
-
-Optional tokenizer configuration that overrides defaults for this
-language. Used by CJK languages (Chinese, Japanese) that require
-character-based tokenization instead of whitespace splitting.
+An optional configuration that overrides the tokenisation defaults for this language. Chinese and Japanese need it, because they split on characters instead of whitespace.
 
 ### Stop Word Override
 
-Per-index stop word configuration supports two modes:
-
-- **Set replacement:** Providing a `set[string]` replaces the
-  language's default stop words entirely.
-- **Function modifier:** Providing a function
-  `fn(defaults: set[string]) -> set[string]` receives the language's
-  default stop words and returns a modified set (e.g., to add
-  domain-specific words or remove words that are meaningful in
-  the domain).
+Per-index stop word configuration takes one of two forms. Supplying a set replaces the language's default stop words outright. Supplying a function of the form `(defaults: Set<string>) -> Set<string>` hands that function the language's defaults and takes back the modified set, which is how you add domain-specific words or keep a word the language treats as noise but your domain treats as meaningful.
 
 ---
 
 ## EmbeddingAdapter
 
-The embedding adapter converts text into vector embeddings. It
-abstracts the embedding provider (remote API, local ONNX model,
-custom inference server) behind a uniform interface so that Narsil
-can auto-embed documents during indexing and queries during search.
-
-### EmbeddingAdapter Definition
+The embedding adapter turns text into vectors. It hides the provider, whether that is a remote API, a local model, or a custom inference server, behind one interface, so Narsil can embed documents while indexing and queries while searching.
 
 ```text
 EmbeddingAdapter {
-  [async] fn embed(input: string, purpose: 'document' or 'query', cancel: CancelToken or null) -> float32 array
-  [async] fn embedBatch(inputs: array[string], purpose: 'document' or 'query', cancel: CancelToken or null) -> array[float32 array]  (optional)
-  [read-only] dimensions: uint32
-  [async] fn shutdown() -> none  (optional)
+  async embed(input: string, purpose: 'document' or 'query', cancel: CancelToken or absent) -> List<float32>
+  async embedBatch(inputs: List<string>, purpose: 'document' or 'query', cancel: CancelToken or absent) -> List<List<float32>>   (optional)
+  dimensions: uint32   (read-only)
+  async shutdown() -> nothing   (optional)
 }
 ```
 
-### EmbeddingAdapter Methods
+### embed(input, purpose, cancel)
 
-#### embed(input, purpose, cancel)
+- Converts one text string into a vector of 32-bit floats.
+- `purpose` says whether the input is a document being indexed or a query being searched. An asymmetric model, such as E5, BGE, Nomic, or a Cohere or Google Vertex AI model, uses it to apply the prefix or parameter that produces a different vector for a document than for a query. A symmetric model, such as MiniLM or GTE, ignores it.
+- `cancel` is an optional cancellation token for cooperative cancellation, and a cancelled call returns an abort error. Narsil passes a token during shutdown so that in-flight requests stop. Each runtime supplies its own mechanism for this.
+- A failure returns an error, which Narsil wraps in `EMBEDDING_FAILED`.
 
-- Converts a text string into a vector embedding returned as a
-  32-bit floating-point array.
-- `purpose` indicates whether the input is a document being indexed
-  or a query being searched. Asymmetric embedding models (E5, BGE,
-  Nomic, Cohere, Google Vertex AI) use this to apply model-specific
-  prefixes or parameters that produce different vectors for documents
-  vs queries. Models without asymmetric behaviour (MiniLM, GTE) ignore
-  this parameter.
-- `cancel` is an optional cancellation token for cooperative
-  cancellation. When cancelled, the method returns an abort error.
-  Narsil passes a cancellation token during shutdown to cancel
-  in-flight embedding requests. The cancellation mechanism is
-  runtime-specific (e.g., `AbortSignal` in JavaScript,
-  `context.Context` in Go, `CancellationToken` in Rust).
-- On failure, the adapter returns an error. Narsil wraps it with
-  error code `EMBEDDING_FAILED`.
+### embedBatch(inputs, purpose, cancel), optional
 
-#### embedBatch(inputs, purpose, cancel) (optional)
+- Takes a list of strings and returns a list of vectors in the same order.
+- When the adapter provides it, Narsil calls it instead of calling `embed` in a loop during a batch insert.
+- When the adapter omits it, Narsil calls `embed` for each input concurrently, using whatever concurrency the runtime offers.
+- Chunking and rate limiting belong to the adapter, not to Narsil, because the adapter is the only side that knows the provider's token limits.
+- The returned vectors must follow the order of the inputs.
 
-- Optional batch method. Accepts an array of text strings and returns
-  an array of `float32 array` vectors in the same order.
-- When provided, Narsil calls this instead of calling `embed()` in
-  a loop during `insertBatch()`.
-- When not provided, Narsil falls back to calling `embed()`
-  concurrently for each input, using the runtime's native
-  concurrency mechanism.
-- Chunking and rate limiting are the adapter's responsibility, not
-  Narsil's. For example, an OpenAI adapter knows its token limits and
-  can chunk internally.
-- The adapter must return vectors in the same order as the inputs
-  array.
+### dimensions, a read-only property
 
-#### dimensions (read-only property)
+- Reports the dimensionality of the vectors this adapter produces.
+- Narsil checks it against the schema's vector field dimensions when the index is created, and a mismatch raises `EMBEDDING_DIMENSION_MISMATCH`.
+- It must be a positive integer, and it must stay constant for the adapter's lifetime.
 
-- Reports the dimensionality of vectors produced by this adapter.
-- Narsil validates this against the schema's vector field dimensions
-  at index creation time. A mismatch throws
-  `EMBEDDING_DIMENSION_MISMATCH`.
-- Must be a positive integer.
-- Must remain constant for the lifetime of the adapter.
+### shutdown(), optional
 
-#### shutdown() (optional)
-
-- Optional cleanup method. Called during `narsil.shutdown()`.
-- Must be idempotent: calling shutdown on an already-shut-down adapter
-  is not an error.
-- Used by adapters that hold resources (ONNX sessions, open
-  connections, timers).
-- Follows the same pattern as `InvalidationAdapter.shutdown()`.
+- Releases whatever the adapter holds, such as an inference session, an open connection, or a timer. Narsil calls it during engine shutdown.
+- It must be idempotent, so shutting down an adapter that is already shut down is not an error.
 
 ### Embedding Configuration
 
-The embedding adapter is configured at two levels:
-
-**Instance-level** (default for all indexes):
+An embedding adapter is configured at two levels. The instance level sets the default for every index:
 
 ```json
 {
@@ -388,7 +295,7 @@ The embedding adapter is configured at two levels:
 }
 ```
 
-**Index-level** (overrides instance-level):
+The index level overrides that default:
 
 ```json
 {
@@ -398,7 +305,7 @@ The embedding adapter is configured at two levels:
     "contentVec": "vector[1536]"
   },
   "embedding": {
-    "adapter": "EmbeddingAdapter instance, or the name of a registered adapter",
+    "adapter": "an EmbeddingAdapter instance, or the name of a registered adapter",
     "fields": {
       "contentVec": ["title", "description"],
       "titleVec": "title"
@@ -407,117 +314,65 @@ The embedding adapter is configured at two levels:
 }
 ```
 
-The index-level `adapter` is optional when an instance-level adapter
-is set.
+The index-level `adapter` is optional whenever an instance-level adapter is set.
 
 ### Named Adapter Registration
 
-The engine keeps a registry of embedding adapters keyed by
-caller-chosen names. Adapters enter the registry through the engine
-configuration (`embeddingAdapters`, a map of name to instance) or at
-any later point through `registerEmbeddingAdapter(name, adapter)`.
-An index-level `adapter` given as a string resolves against this
-registry at `createIndex` time; an unknown name throws
-`EMBEDDING_CONFIG_INVALID` and lists the registered names.
+The engine keeps a registry of embedding adapters under names the caller chooses. An adapter enters the registry through the engine configuration, as a map of name to instance, or later through `registerEmbeddingAdapter(name, adapter)`. An index-level `adapter` given as a string resolves against that registry when the index is created, and an unknown name raises `EMBEDDING_CONFIG_INVALID` listing the names that are registered.
 
-Names exist for durability. An adapter instance holds live resources
-(API clients, ONNX sessions) and cannot be serialised, so an index
-created with a bare instance loses its adapter binding across a
-restart. An index created with a registered name persists that name
-in its metadata, and recovery rebinds the adapter from the registry,
-as described in [durability.md](durability.md#index-metadata). Servers
-and any deployment that persists indexes should register adapters by
-name; bare instances remain suited to short-lived, in-process use.
+Names exist for durability. An adapter instance holds live resources, such as an API client or an inference session, and cannot be serialised, so an index created with a bare instance loses its binding across a restart. An index created with a registered name persists that name in its metadata, and recovery rebinds the adapter from the registry; see [Index Metadata](durability.md#index-metadata). A server, and any deployment that persists indexes, should register adapters by name, and a bare instance suits short-lived in-process use.
 
-Registering a name that is already registered replaces the binding
-and rebinds every index that references the name. Rebinding validates
-the adapter's dimensions against every mapped vector field of every
-affected index before any binding changes; a mismatch throws
-`EMBEDDING_DIMENSION_MISMATCH` and names the offending index, and in
-that case no index is rebound and the registry keeps its previous
-entry. Replacement supports credential rotation: a caller registers a
-fresh adapter under the same name and every index follows it.
+Registering a name that is already taken replaces the binding and rebinds every index referencing it. Rebinding first validates the new adapter's dimensions against every mapped vector field of every affected index, and a mismatch raises `EMBEDDING_DIMENSION_MISMATCH` naming the offending index, leaving no index rebound and the registry entry unchanged. That is what makes credential rotation safe: register a fresh adapter under the same name and every index follows it.
 
 ### Field Mapping Rules
 
-- Keys in `fields` must reference vector fields in the schema.
-- Values are either a single string (one source field) or an array of
-  strings (multiple source fields concatenated).
-- Source fields must be string-typed fields in the schema.
-- When multiple source fields are specified, they are concatenated
-  with `\n` (newline) as the separator.
-- Field order in the array is semantically significant: fields listed
-  first receive higher representational weight in the embedding due to
-  positional bias in transformer models (documented in "Dwell in the
-  Beginning", ACL 2024). Place the most important field first.
-- Validation: At `createIndex` time, Narsil validates that all field
-  references exist in the schema and have the correct types. Invalid
-  mappings throw `EMBEDDING_CONFIG_INVALID`.
+- Each key in `fields` must name a vector field in the schema.
+- Each value is either one string, naming a single source field, or a list of strings naming several.
+- Each source field must be a string-typed field in the schema.
+- Several source fields are concatenated with a newline between them.
+- Order inside the list carries meaning. A field listed first carries more weight in the resulting embedding, because transformer models weight earlier positions more heavily, so put the most important field first.
+- Narsil validates every field reference and type when the index is created, and an invalid mapping raises `EMBEDDING_CONFIG_INVALID`.
 
-### Insert Behavior
+### Insert Behaviour
 
-When a document is inserted into an index with embedding
-configuration:
+Inserting a document into an index that configures embeddings runs this sequence:
 
-1. Required field validation runs first (if `required` array is
-   configured).
+1. Required field validation runs first, when the index configures a `required` list.
 2. For each mapped vector field:
-   a. If the document already contains the vector field, Narsil uses
-      it as-is (skip embedding). This preserves the "bring your own
-      vectors" path.
-   b. If the vector field is absent, Narsil collects the source field
-      values from the document.
-   c. Missing or empty source fields are skipped. If ALL source fields
-      for a mapping are missing or empty, Narsil throws
-      `EMBEDDING_NO_SOURCE`.
-   d. Present source fields are concatenated with `\n` and passed to
-      `adapter.embed(text, 'document', cancel)`.
-   e. The returned `float32 array` is assigned to the vector field on
-      the document.
-3. Schema validation runs. Vectors produced by the adapter skip
-   `validateVector()` (the adapter is trusted internal
-   infrastructure; dimensions were validated at index creation).
+   1. A document that already carries the vector field keeps it as it is, and no embedding runs. That is the path for callers who bring their own vectors.
+   2. A document missing the vector field has its source field values collected.
+   3. A missing or empty source field is skipped. When every source field for a mapping is missing or empty, Narsil raises `EMBEDDING_NO_SOURCE`.
+   4. The source values that are present are joined with newlines and passed to the adapter with `purpose` set to `document`.
+   5. The returned vector is assigned to the vector field on the document.
+3. Schema validation runs. A vector the adapter produced skips the schema's vector validation, because the adapter is trusted internal infrastructure and its dimensions were checked when the index was created.
 4. The document is indexed.
 
-For `insertBatch`, if the adapter provides `embedBatch`, Narsil
-collects all texts per mapped vector field and calls `embedBatch`
-once per field. If `embedBatch` is not provided, Narsil falls back
-to concurrent `embed()` calls.
+For a batch insert, an adapter that provides `embedBatch` receives all the texts of one mapped vector field in a single call, one call per field. An adapter without it falls back to concurrent `embed` calls.
 
-Embedding failure during insert results in `EMBEDDING_FAILED`. For
-single insert, this throws. For batch insert, the individual document
-goes to `BatchResult.failed` and processing continues for remaining
-documents. Each failed entry carries the document's own `id` field as
-its `docId` when the document provides a non-empty string id; when it
-does not, `docId` is an empty string, because no identifier is
-generated for a document that was never indexed.
+An embedding failure during insert raises `EMBEDDING_FAILED`. A single insert throws it. A batch insert moves that one document into the failed list and carries on with the rest. Each failed entry carries the document's own `id` as its `docId` when the document supplies a non-empty string id, and an empty string when it does not, because a document that was never indexed receives no generated identifier.
 
-### Query Behavior
+### Query Behaviour
 
-Vector query parameters accept either a raw vector or text for
-auto-embedding:
+Vector query parameters accept either a raw vector or text to embed:
 
 ```json
 {
   "vector": {
     "field": "contentVec",
-    "value": [0.12, -0.45, "..."],
+    "value": [0.12, -0.45],
     "text": "search query text"
   }
 }
 ```
 
-- `value`: A raw vector (`float32 array`). Current behaviour, unchanged.
-- `text`: A text string to be auto-embedded using the index's
-  embedding adapter with `purpose: 'query'`.
-- `value` and `text` are mutually exclusive. Providing both is an
-  error.
-- If `text` is provided but the index has no embedding adapter,
-  Narsil throws `EMBEDDING_CONFIG_INVALID`.
+- `value` is a raw vector of 32-bit floats.
+- `text` is a string Narsil embeds through the index's adapter with `purpose` set to `query`.
+- `value` and `text` are mutually exclusive, and supplying both is an error.
+- Supplying `text` against an index with no embedding adapter raises `EMBEDDING_CONFIG_INVALID`.
 
 ### Required Fields
 
-A separate but related feature. Indexes can declare required fields:
+An index can declare fields that every document must carry:
 
 ```json
 {
@@ -529,65 +384,49 @@ A separate but related feature. Indexes can declare required fields:
 }
 ```
 
-- `required` is an array of field names that must be present (not
-  `null`) in every inserted document.
-- Default: empty array (all fields optional, same as current
-  behaviour).
-- Validation runs before embedding, so no adapter calls are wasted on
-  documents that will fail validation.
-- Missing required fields throw `DOC_MISSING_REQUIRED_FIELD`.
-- Follows JSON Schema's `required` array pattern (used by MongoDB,
-  OpenAPI).
-- This is orthogonal to the existing strict mode (which rejects extra
-  fields). Both can be used together.
+- `required` lists the field names that must be present and non-null in every inserted document.
+- It defaults to empty, which leaves every field optional.
+- Validation runs before embedding, so a document that will fail validation never costs an adapter call.
+- A missing required field raises `DOC_MISSING_REQUIRED_FIELD`.
+- This is independent of strict mode, which rejects fields the schema does not declare. An index may use both.
 
 ### EmbeddingAdapter Error Codes
 
-| Code                           | When                                                                              | Severity      |
-|--------------------------------|-----------------------------------------------------------------------------------|---------------|
-| `EMBEDDING_FAILED`             | Adapter threw during embed/embedBatch (network error, model failure, OOM)         | Runtime       |
-| `EMBEDDING_DIMENSION_MISMATCH` | Adapter dimensions != schema vector dimensions at createIndex                     | Configuration |
-| `EMBEDDING_NO_SOURCE`          | All mapped source fields missing/empty, no manual vector provided                 | Runtime       |
-| `EMBEDDING_CONFIG_INVALID`     | Field mapping references nonexistent or wrong-type schema fields                  | Configuration |
-| `DOC_MISSING_REQUIRED_FIELD`   | Document missing a field in the required array                                    | Validation    |
+| Code | Raised when | Kind |
+|------|-------------|------|
+| `EMBEDDING_FAILED` | The adapter threw while embedding, whether from a network error, a model failure, or exhausted memory | runtime |
+| `EMBEDDING_DIMENSION_MISMATCH` | The adapter's dimensions differ from the schema's vector dimensions at index creation | configuration |
+| `EMBEDDING_NO_SOURCE` | Every mapped source field is missing or empty and no vector was supplied | runtime |
+| `EMBEDDING_CONFIG_INVALID` | A field mapping references a field that does not exist or holds the wrong type | configuration |
+| `DOC_MISSING_REQUIRED_FIELD` | A document omits a field named in the `required` list | validation |
 
-### Embedding Built-in Adapters
+### Built-in Embedding Adapters
 
-| Adapter          | Package                                  | Environment | Transport        |
-|------------------|------------------------------------------|-------------|------------------|
-| OpenAI-compat.   | `@delali/narsil/embeddings/openai`       | All         | fetch (HTTP)     |
-| Transformers.js  | `@delali/narsil-embeddings-transformers` | All         | ONNX Runtime     |
+| Adapter | Package | Environment | Transport |
+|---------|---------|-------------|-----------|
+| OpenAI-compatible | `@delali/narsil/embeddings/openai` | all | HTTP |
+| Transformers.js | `@delali/narsil-embeddings-transformers` | all | ONNX Runtime |
 
-#### OpenAI-compatible Adapter
-
-Configuration:
+#### OpenAI-Compatible Adapter
 
 ```json
 {
   "baseUrl": "https://api.openai.com/v1",
-  "apiKey": "string or fn() -> string",
+  "apiKey": "a string, or a function returning one",
   "model": "text-embedding-3-small",
   "timeout": 30000,
   "maxRetries": 3
 }
 ```
 
-- Works with any provider implementing the OpenAI `/v1/embeddings`
-  endpoint (OpenAI, Azure OpenAI, Mistral, Together AI, Fireworks,
-  Groq).
-- Uses `fetch` (no external HTTP dependencies).
-- `apiKey` accepts a string for simple use or a function for dynamic
-  resolution (vault lookups, token rotation).
-- Retries transient failures (429, 500, 502, 503) with exponential
-  backoff and jitter. Does not retry permanent failures (400, 401,
-  403).
-- The adapter never logs, serialises, or includes the API key in
-  error messages.
-- Supports cooperative cancellation via the runtime's HTTP client.
+- It works with any provider that serves the OpenAI `/v1/embeddings` endpoint, which includes OpenAI, Azure OpenAI, Mistral, Together AI, Fireworks, and Groq.
+- It uses the runtime's own HTTP client and pulls in no HTTP dependency.
+- `apiKey` takes a string for the simple case, or a function for a key resolved at call time from a vault or a rotation service.
+- It retries a transient failure, meaning status 429, 500, 502, or 503, with exponential backoff and jitter, and it never retries a permanent failure such as 400, 401, or 403.
+- It never logs, serialises, or embeds the API key in an error message.
+- It supports cooperative cancellation through the runtime's HTTP client.
 
 #### Transformers.js Adapter
-
-Configuration:
 
 ```json
 {
@@ -598,41 +437,27 @@ Configuration:
   "normalize": true,
   "documentPrefix": "passage: ",
   "queryPrefix": "query: ",
-  "progress": "fn(data) -> none",
-  "pipelineOptions": "PretrainedOptions passthrough"
+  "progress": "(data) -> nothing",
+  "pipelineOptions": "passthrough options for the underlying pipeline"
 }
 ```
 
-- Shipped as a separate package
-  (`@delali/narsil-embeddings-transformers`) because
-  `@huggingface/transformers` is a heavy dependency (~40MB with WASM
-  binaries).
-- `@huggingface/transformers` is a peer dependency so the user
-  controls the version.
-- Pipeline is created lazily on first `embed()` call (singleton
-  pattern). Subsequent calls reuse the session.
-- Dimensions are auto-detected from the model output on first call
-  (warm-up inference).
-- `documentPrefix`/`queryPrefix` are prepended based on the `purpose`
-  parameter. This handles models like E5 (`passage:`/`query:`) and
-  BGE (query instruction prefix). Models that need no prefix (MiniLM,
-  GTE) leave these unset.
-- `pipelineOptions` is an escape hatch for advanced transformers.js
-  configuration (`cache_dir`, `revision`, `local_files_only`) without
-  polluting the primary config surface.
-- `shutdown()` disposes the ONNX session and frees memory.
+- It is a separate package, because the underlying transformers library is a heavy dependency of roughly 40 MB once its WebAssembly binaries are counted.
+- That library is a peer dependency, so the caller controls its version.
+- The pipeline is created on the first `embed` call and reused afterwards.
+- Dimensions are detected from the model's output during that first call.
+- `documentPrefix` and `queryPrefix` are prepended according to the `purpose` argument, which is what E5 and BGE models need. A model that needs no prefix, such as MiniLM or GTE, leaves both unset.
+- `pipelineOptions` passes advanced options such as a cache directory, a revision, or a local-files-only flag straight through, so the primary configuration stays small.
+- `shutdown` disposes the inference session and frees its memory.
 
 ### Community Adapter Guidelines
 
-Community adapters (Cohere, Voyage AI, custom model servers, etc.)
-should:
+A community adapter, whether it targets Cohere, Voyage AI, or a custom model server, should:
 
-- Implement the `EmbeddingAdapter` interface.
-- Handle the `purpose` parameter appropriately for their model's
-  asymmetric behaviour.
-- Implement `embedBatch` when the underlying API supports batch
-  requests.
-- Implement `shutdown` when the adapter holds resources.
-- Document the model's expected dimensions clearly.
+- Satisfy the `EmbeddingAdapter` contract.
+- Handle `purpose` the way its model needs.
+- Provide `embedBatch` when the underlying API accepts batch requests.
+- Provide `shutdown` when the adapter holds resources.
+- Document the model's dimensions clearly.
 - Handle retries and rate limiting internally.
 - Support cooperative cancellation.
