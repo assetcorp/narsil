@@ -522,12 +522,14 @@ SQ8 compresses a float32 vector into uint8 values, cutting the memory a stored v
 
 ### Quantisation Formula
 
-For a vector `v` with the global statistics `alpha` and `offset`:
+`alpha` is the step size, the distance in the original value space between two consecutive uint8 values, and `offset` is the value that quantises to zero. Together they reconstruct any stored value:
 
 ```text
-quantize(v[i])   = clamp(round((v[i] - offset) / alpha * 255), 0, 255)
-dequantize(q[i]) = q[i] / 255 * alpha + offset
+quantize(v[i])   = clamp(round((v[i] - offset) / alpha), 0, 255)
+dequantize(q[i]) = q[i] * alpha + offset
 ```
+
+Every distance formula below is written in terms of this step size, so a writer must persist `alpha` as the step and never as the range it was derived from.
 
 ### Calibration
 
@@ -538,12 +540,23 @@ calibrate(vectors: List<List<float32>>) -> { alpha: float32, offset: float32 }
   allValues = every dimension of every vector, flattened
   min_val = minimum(allValues)
   max_val = maximum(allValues)
-  alpha   = max_val - min_val
-  offset  = min_val
+
+  pad     = (max_val - min_val) * 0.01
+  min_val = min_val - pad
+  max_val = max_val + pad
+
+  when min_val equals max_val:
+    min_val = min_val - 0.001
+    max_val = max_val + 0.001
+
+  alpha  = (max_val - min_val) / 255
+  offset = min_val
   return { alpha, offset }
 ```
 
-An `alpha` of zero, which happens when every value is identical, becomes 1.0 so that nothing divides by zero.
+The bounds widen by one per cent at each end so that values near the extremes keep headroom. When every value in the store is identical the padding is zero, so the bounds separate by a fixed amount instead and `alpha` stays above zero.
+
+Calibration returns nothing when the store holds no vectors, and the caller leaves quantisation switched off until it does.
 
 ### Quantised Dot Product
 
@@ -560,9 +573,8 @@ sq8DotProduct(a: List<uint8>, b: List<uint8>, dimension: uint16,
     intSumA = intSumA + a[i]
     intSumB = intSumB + b[i]
 
-  scale = alpha / 255
-  return scale * scale * intSum
-       + scale * offset * (intSumA + intSumB)
+  return alpha * alpha * intSum
+       + alpha * offset * (intSumA + intSumB)
        + offset * offset * dimension
 ```
 
@@ -578,18 +590,29 @@ sq8Cosine(a: List<uint8>, b: List<uint8>, dimension: uint16,
           sumA: float32, sumSqA: float32,
           sumB: float32, sumSqB: float32) -> float32
   dot  = sq8DotProduct(a, b, dimension, alpha, offset)
-  magA = squareRoot(sumSqA)
-  magB = squareRoot(sumSqB)
+  magA = sq8Magnitude(dimension, alpha, offset, sumA, sumSqA)
+  magB = sq8Magnitude(dimension, alpha, offset, sumB, sumSqB)
   if magA is 0 or magB is 0:
     return 0
   return dot / (magA * magB)
+
+sq8Magnitude(dimension: uint16, alpha: float32, offset: float32,
+             sum: float32, sumSq: float32) -> float32
+  value = alpha * alpha * sumSq
+        + 2 * alpha * offset * sum
+        + dimension * offset * offset
+  when value is 0 or below, return 0
+  return squareRoot(value)
 ```
 
-`sumSqA` and `sumSqB` are computed from the full-precision vectors when they are inserted:
+`sum` and `sumSq` are computed from the **quantised** uint8 values of a vector, never from the full-precision values, and a writer stores them that way in `vector_sums` and `vector_sum_sqs`:
 
 ```text
-sumSq(v) = SUM over i of v[i] * v[i]
+sum(q)   = SUM over i of q[i]
+sumSq(q) = SUM over i of q[i] * q[i]
 ```
+
+The magnitude formula expands `dequantize` inside the sum of squares, which is why it needs both accumulators and the dimension. Storing full-precision sums here yields wrong magnitudes and wrong cosine scores.
 
 ### Properties
 
