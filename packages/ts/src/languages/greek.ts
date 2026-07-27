@@ -905,8 +905,8 @@ export const greek: LanguageModule = {
   stemmer: stem,
   stopWords,
   tokenizer: {
-    splitPattern: /[^\u0370-\u03FFa-z0-9]+/gi,
-    normalizeDiacritics: true,
-    minTokenLength: 2,
+    splitPattern: /[^\u0370-\u03FF\u1F00-\u1FFFa-z0-9]+/gi,
+    normalizeDiacritics: false,
+    minTokenLength: 1,
   },
 }

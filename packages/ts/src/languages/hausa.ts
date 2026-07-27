@@ -243,7 +243,7 @@ export const hausa: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: {
-    splitPattern: /[^a-zA-Zɓɗƙƴʼ0-9]+/gi,
+    splitPattern: /[^a-zA-Zɓɗƙƴʼ'0-9]+/gi,
     normalizeDiacritics: false,
     minTokenLength: 1,
   },

@@ -465,5 +465,5 @@ export const russian: LanguageModule = {
   name: 'russian',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9а-яё]+/gi },
+  tokenizer: { splitPattern: /[^a-z0-9а-яёѣі-]+/gi },
 }

@@ -675,5 +675,5 @@ export const portuguese: LanguageModule = {
   name: 'portuguese',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9\u00e0-\u00fa]+/gi },
+  tokenizer: { splitPattern: /[^a-z0-9àáâãçéêíóôõúü]+/gi },
 }

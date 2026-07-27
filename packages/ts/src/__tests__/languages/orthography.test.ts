@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { tokenize } from '../../core/tokenizer'
+import { normalizeForSplitting, tokenize } from '../../core/tokenizer'
 import type { LanguageModule } from '../../types/language'
 import { languageFixtures } from './fixtures'
 
@@ -9,8 +9,11 @@ function analyse(text: string, module: LanguageModule): string[] {
   return tokenize(text, module, RAW_ANALYSIS).tokens.map(entry => entry.token)
 }
 
+// Distinct characters, because a split pattern either admits a character or
+// rejects it, while possessive stripping deliberately drops a repeated one.
 function meaningfulCharacters(text: string): string[] {
-  return [...text.normalize('NFC').toLowerCase()].filter(char => /[\p{L}\p{M}\p{N}]/u.test(char)).sort()
+  const kept = [...normalizeForSplitting(text)].filter(char => /[\p{L}\p{M}\p{N}]/u.test(char))
+  return [...new Set(kept)].sort()
 }
 
 describe('tokenizing published prose keeps every letter, mark, and digit', () => {
@@ -31,7 +34,7 @@ describe('a word the language writes as one word indexes as one token', () => {
     describe(fixture.module.name, () => {
       for (const word of fixture.indivisible) {
         it(`keeps "${word}" whole`, () => {
-          expect(analyse(word, fixture.module)).toEqual([word.normalize('NFC').toLowerCase()])
+          expect(analyse(word, fixture.module)).toEqual([normalizeForSplitting(word)])
         })
       }
     })
@@ -68,7 +71,7 @@ describe('every stop word survives its own language tokenizer', () => {
       const broken: string[] = []
       for (const word of fixture.module.stopWords) {
         const produced = analyse(word, fixture.module)
-        if (produced.length !== 1 || produced[0] !== word.normalize('NFC').toLowerCase()) {
+        if (produced.length !== 1 || produced[0] !== normalizeForSplitting(word)) {
           broken.push(word)
         }
       }

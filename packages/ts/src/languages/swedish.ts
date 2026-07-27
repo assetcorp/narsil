@@ -241,5 +241,5 @@ export const swedish: LanguageModule = {
   name: 'swedish',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9åäöü-]+/gi },
+  tokenizer: { splitPattern: /[^a-z0-9åäöüé-]+/gi },
 }

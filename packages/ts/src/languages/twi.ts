@@ -83,7 +83,7 @@ export const twi: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: {
-    splitPattern: /[^a-zA-ZɛɔƐƆ0-9]+/gi,
+    splitPattern: /[^a-zA-ZɛɔƐƆŋŊ0-9\p{M}']+/giu,
     normalizeDiacritics: false,
     minTokenLength: 1,
   },

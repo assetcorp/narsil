@@ -291,5 +291,5 @@ export const norwegian: LanguageModule = {
   name: 'norwegian',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9æøåäöü]+/gi },
+  tokenizer: { splitPattern: /[^a-z0-9æøåäöüéó]+/gi },
 }

@@ -286,5 +286,5 @@ export const irish: LanguageModule = {
   name: 'irish',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9áéíóú]+/gi },
+  tokenizer: { splitPattern: /[^a-z0-9áéíóú'-]+/gi },
 }

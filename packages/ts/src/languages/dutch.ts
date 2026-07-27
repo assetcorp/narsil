@@ -338,5 +338,5 @@ export const dutch: LanguageModule = {
   name: 'dutch',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9àèéìòóù'-]+/gi },
+  tokenizer: { splitPattern: /[^a-z0-9àäèéëìïòóöùü'-]+/gi },
 }
