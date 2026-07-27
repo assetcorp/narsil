@@ -28,7 +28,7 @@ export const turkishFixture = defineLanguageFixture({
   separates: [
     {
       text: 'İstanbul, iki kıtada yer alan bir şehir',
-      tokens: ['i̇stanbul', 'iki', 'kıtada', 'yer', 'alan', 'bir', 'şehir'],
+      tokens: ['istanbul', 'iki', 'kıtada', 'yer', 'alan', 'bir', 'şehir'],
     },
     {
       text: 'Kâğıt, çoğunlukla yazma işlemlerinde kullanılan',

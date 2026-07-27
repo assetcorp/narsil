@@ -10,4 +10,5 @@ export interface TokenizerConfig {
   normalizeDiacritics?: boolean
   minTokenLength?: number
   stripPossessive?: boolean
+  ngramSize?: number
 }

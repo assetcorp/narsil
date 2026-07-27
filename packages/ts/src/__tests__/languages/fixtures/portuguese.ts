@@ -13,6 +13,10 @@ export const portugueseFixture = defineLanguageFixture({
       source: PT_LANGUAGE,
     },
     {
+      text: 'É importante salientar que incluído no que se convencionou chamar português do Brasil e português europeu há um grande número de variações regionais.',
+      source: PT_LANGUAGE,
+    },
+    {
       text: 'Exemplos: qüinqüênio (pronuncia-se então "cuincuênio") e conseqüência (pronuncia-se então "consecuência").',
       source: PT_TREMA,
     },

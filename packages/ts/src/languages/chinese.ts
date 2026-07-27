@@ -252,5 +252,6 @@ export const chinese: LanguageModule = {
     splitPattern: /[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff0-9a-zA-Z]+/gi,
     normalizeDiacritics: false,
     minTokenLength: 1,
+    ngramSize: 2,
   },
 }
