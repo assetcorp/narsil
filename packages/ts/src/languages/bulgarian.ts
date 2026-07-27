@@ -337,5 +337,5 @@ export const bulgarian: LanguageModule = {
   name: 'bulgarian',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9а-яъ]+/gi },
+  tokenizer: { splitPattern: /[^a-z0-9а-яъѝЍ\p{M}]+/giu },
 }

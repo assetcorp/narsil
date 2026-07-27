@@ -452,5 +452,5 @@ export const german: LanguageModule = {
   name: 'german',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9äöüß]+/gi },
+  tokenizer: { splitPattern: /[^a-z0-9äöüßé]+/gi },
 }

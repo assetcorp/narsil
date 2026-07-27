@@ -223,5 +223,5 @@ export const swahili: LanguageModule = {
   name: 'swahili',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9]+/gi },
+  tokenizer: { splitPattern: /[^a-z0-9']+/gi },
 }

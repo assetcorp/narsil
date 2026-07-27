@@ -28,8 +28,28 @@ export function producesSurfaceForms(language: LanguageModule, options?: Tokeniz
   return (options.stem ?? true) && language.stemmer !== undefined
 }
 
-const DEFAULT_SPLIT_PATTERN = /[^\p{L}\p{N}_'-]+/u
+const DEFAULT_SPLIT_PATTERN = /[^\p{L}\p{M}\p{N}_'-]+/u
 const DEFAULT_MIN_TOKEN_LENGTH = 1
+
+// U+0130 lowercases to "i" plus U+0307, which most split patterns treat as a
+// separator, and NFC leaves a bare U+0307 only where no precomposed form
+// exists. The typographic apostrophes are the same letter as the ASCII one
+// wherever a language writes words with it.
+const DOTTED_CAPITAL_I = '\u0130'
+const COMBINING_DOT_ABOVE = '\u0307'
+const ARMENIAN_MARKS = /[\u055B-\u055F]/
+const FOLDED_FORMS = /\u0307|[\u0130\u055B-\u055F\u2019\u02BC\u02BB\uFF07]/g
+
+function foldForm(match: string): string {
+  if (match === DOTTED_CAPITAL_I) return 'i'
+  if (match === COMBINING_DOT_ABOVE || ARMENIAN_MARKS.test(match)) return ''
+  return "'"
+}
+
+export function normalizeForSplitting(text: string): string {
+  if (isAscii(text)) return text.toLowerCase()
+  return text.normalize('NFC').replace(FOLDED_FORMS, foldForm).toLowerCase()
+}
 
 const CACHE_SIZE_FLOOR = 50_000
 const CACHE_SIZE_CEILING = 2_000_000
@@ -220,7 +240,7 @@ export function tokenize(text: string, language: LanguageModule, options?: Token
     }
   }
 
-  const normalized = isAscii(text) ? text.toLowerCase() : text.normalize('NFC').toLowerCase()
+  const normalized = normalizeForSplitting(text)
   const rawParts = splitText(normalized, language)
   const minLength = language.tokenizer?.minTokenLength ?? DEFAULT_MIN_TOKEN_LENGTH
 
@@ -287,7 +307,7 @@ export function* tokenizeIterator(
     return
   }
 
-  const normalized = isAscii(text) ? text.toLowerCase() : text.normalize('NFC').toLowerCase()
+  const normalized = normalizeForSplitting(text)
   const rawParts = splitText(normalized, language)
   const minLength = language.tokenizer?.minTokenLength ?? DEFAULT_MIN_TOKEN_LENGTH
 

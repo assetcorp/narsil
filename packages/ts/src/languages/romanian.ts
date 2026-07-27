@@ -680,5 +680,5 @@ export const romanian: LanguageModule = {
   name: 'romanian',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9ăâîșț]+/gi },
+  tokenizer: { splitPattern: /[^a-z0-9ăâîșțşţ]+/gi },
 }

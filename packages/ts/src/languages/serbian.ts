@@ -277,5 +277,5 @@ export const serbian: LanguageModule = {
   name: 'serbian',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9\u0400-\u04FF]+/gi },
+  tokenizer: { splitPattern: /[^a-z0-9\u0400-\u04FFčćžđ]+/gi },
 }

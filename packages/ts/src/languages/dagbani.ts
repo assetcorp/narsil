@@ -86,7 +86,7 @@ export const dagbani: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: {
-    splitPattern: /[^a-zA-ZɛɔƐƆŋŊɣƔʒƷʊƱəƏ0-9]+/gi,
+    splitPattern: /[^a-zA-ZɛɔƐƆŋŊɣƔʒƷʊƱəƏ0-9\p{M}]+/giu,
     normalizeDiacritics: false,
     minTokenLength: 1,
   },

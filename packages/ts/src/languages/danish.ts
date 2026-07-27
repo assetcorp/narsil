@@ -255,5 +255,5 @@ export const danish: LanguageModule = {
   name: 'danish',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9æøå]+/gi },
+  tokenizer: { splitPattern: /[^a-z0-9æøåé]+/gi },
 }

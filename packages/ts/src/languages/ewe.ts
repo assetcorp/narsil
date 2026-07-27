@@ -85,7 +85,7 @@ export const ewe: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: {
-    splitPattern: /[^a-zA-ZàáèéìíòóùúãẽĩõũɛɔɖƉŋƐƆƊŊɣƔÀÁÈÉÌÍÒÓÙÚÃẼĨÕŨ0-9\p{M}]+/giu,
+    splitPattern: /[^a-zA-ZàáèéêìíòóùúãẽĩũɛɔɖƉŋƐƆŊɣƔƒƑʋƲÀÁÈÉÊÌÍÒÓÙÚÃẼĨŨ0-9\p{M}]+/giu,
     normalizeDiacritics: false,
     minTokenLength: 1,
   },

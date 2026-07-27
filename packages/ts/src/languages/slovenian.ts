@@ -527,5 +527,5 @@ export const slovenian: LanguageModule = {
   name: 'slovenian',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9čšž]+/gi },
+  tokenizer: { splitPattern: /[^a-z0-9čšžáéóú]+/gi },
 }
