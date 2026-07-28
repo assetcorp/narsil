@@ -25,6 +25,22 @@ export async function createEngineIndex(
   }
   validateSchema(indexConfig.schema)
   validateVectorPromotion(indexConfig.vectorPromotion)
+  if (core.durability) {
+    if (indexConfig.tokenizer !== undefined && typeof indexConfig.tokenizer !== 'string') {
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        `Index "${name}" cannot use a tokenizer instance while durability is configured, because a checkpoint persists no code. Register it with registerTokenizer and pass its name`,
+        { indexName: name },
+      )
+    }
+    if (typeof indexConfig.stopWords === 'function') {
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        `Index "${name}" cannot use a stop word function while durability is configured, because a checkpoint persists no code. Register it with registerStopWords and pass its name`,
+        { indexName: name },
+      )
+    }
+  }
   let resolvedEmbeddingAdapter: EmbeddingAdapter | null = null
   let embeddingAdapterName: string | null = null
   if (indexConfig.embedding) {
