@@ -84,4 +84,63 @@ describe('durability tiers', () => {
       createNarsil({ persistence: createMemoryPersistence(), durability: { mode: 'sync' } }),
     ).rejects.toMatchObject({ code: 'CONFIG_INVALID' })
   })
+
+  it('forces the snapshot tier onto a filesystem adapter when durability.tier is snapshot', async () => {
+    const adapter = createFilesystemPersistence({ directory: root })
+    const writer = await createNarsil({ persistence: adapter, durability: { tier: 'snapshot' } })
+    await writer.createIndex('movies', SCHEMA)
+    for (let i = 0; i < 4; i += 1) {
+      await writer.insert('movies', { title: `Movie ${i}`, year: 2000 + i }, `m${i}`)
+    }
+    await writer.checkpoint('movies')
+    await writer.insert('movies', { title: 'Lost', year: 2099 }, 'lost-1')
+
+    const keys = await adapter.list('movies/')
+    expect(keys).toContain('movies/snapshot')
+    expect(keys.some(k => k.startsWith('movies/wal/'))).toBe(false)
+
+    const reader = await createNarsil({
+      persistence: createFilesystemPersistence({ directory: root }),
+      durability: { tier: 'snapshot' },
+    })
+    try {
+      expect(await reader.countDocuments('movies')).toBe(4)
+      expect(await reader.has('movies', 'lost-1')).toBe(false)
+    } finally {
+      await reader.shutdown()
+    }
+    await writer.shutdown()
+  })
+
+  it('rejects the snapshot tier without a persistence adapter', async () => {
+    await expect(createNarsil({ durability: { tier: 'snapshot' } })).rejects.toMatchObject({
+      code: 'CONFIG_INVALID',
+    })
+  })
+
+  it('rejects an explicit WAL tier when no directory can be resolved', async () => {
+    await expect(
+      createNarsil({ persistence: createMemoryPersistence(), durability: { tier: 'wal' } }),
+    ).rejects.toMatchObject({ code: 'CONFIG_INVALID' })
+    await expect(createNarsil({ durability: { tier: 'wal' } })).rejects.toMatchObject({
+      code: 'CONFIG_INVALID',
+    })
+  })
+
+  it('runs the WAL tier under an explicit wal override with a filesystem adapter', async () => {
+    const writer = await createNarsil({
+      persistence: createFilesystemPersistence({ directory: root }),
+      durability: { tier: 'wal' },
+    })
+    await writer.createIndex('movies', SCHEMA)
+    await writer.insert('movies', { title: 'Durable without checkpoint', year: 2026 }, 'm-wal')
+    await writer.shutdown()
+
+    const reader = await createNarsil({ persistence: createFilesystemPersistence({ directory: root }) })
+    try {
+      expect(await reader.has('movies', 'm-wal')).toBe(true)
+    } finally {
+      await reader.shutdown()
+    }
+  })
 })

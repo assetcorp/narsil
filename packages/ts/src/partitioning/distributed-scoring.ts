@@ -1,6 +1,41 @@
+import { tokenize } from '../core/tokenizer'
 import type { InvalidationAdapter } from '../types/adapters'
 import type { GlobalStatistics } from '../types/internal'
+import type { LanguageModule } from '../types/language'
+import type { CustomTokenizer, StopWordOverride } from '../types/schema'
 import type { PartitionManager } from './manager'
+
+export interface QueryTermAnalysis {
+  stopWords?: StopWordOverride
+  customTokenizer?: CustomTokenizer
+}
+
+export function pruneStatsToQueryTerms(
+  stats: GlobalStatistics,
+  term: string,
+  language: LanguageModule,
+  analysis: QueryTermAnalysis,
+): GlobalStatistics {
+  const { tokens } = tokenize(term, language, {
+    stem: true,
+    removeStopWords: true,
+    customTokenizer: analysis.customTokenizer,
+    stopWordOverride: analysis.stopWords,
+  })
+  const docFrequencies: Record<string, number> = {}
+  for (const { token } of tokens) {
+    const frequency = stats.docFrequencies[token]
+    if (frequency !== undefined) {
+      docFrequencies[token] = frequency
+    }
+  }
+  return {
+    totalDocuments: stats.totalDocuments,
+    docFrequencies,
+    totalFieldLengths: stats.totalFieldLengths,
+    averageFieldLengths: stats.averageFieldLengths,
+  }
+}
 
 export function collectGlobalStats(manager: PartitionManager): GlobalStatistics {
   const aggregate = manager.getAggregateStats()

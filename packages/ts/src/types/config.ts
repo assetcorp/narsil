@@ -10,7 +10,6 @@ export interface NarsilConfig {
   plugins?: NarsilPlugin[]
   idGenerator?: () => string
   workers?: WorkerConfig
-  flush?: FlushConfig
   embedding?: EmbeddingAdapter
   /** Named adapters; names persist in index metadata so recovery can rebind. */
   embeddingAdapters?: Record<string, EmbeddingAdapter>
@@ -18,6 +17,7 @@ export interface NarsilConfig {
 }
 
 export interface DurabilityConfig {
+  tier?: 'wal' | 'snapshot'
   directory?: string
   mode?: 'sync' | 'async'
   flushIntervalMs?: number
@@ -33,9 +33,4 @@ export interface WorkerConfig {
   promotionThreshold?: number
   totalPromotionThreshold?: number
   bootstrapModule?: string
-}
-
-export interface FlushConfig {
-  interval?: number
-  mutationThreshold?: number
 }

@@ -3,6 +3,7 @@ import { ErrorCodes, NarsilError } from '../errors'
 import { type FanOutResult, kWayMerge } from '../partitioning/fan-out'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
+import type { GlobalStatistics } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { MemoryStats } from '../types/results'
 import type { IndexConfig } from '../types/schema'
@@ -17,7 +18,7 @@ import { createRequestId } from '../workers/protocol'
 export interface WorkerOrchestrator {
   checkPromotion(): Promise<void>
   replicateToWorkers(action: WorkerAction): Promise<void>
-  searchViaWorker(indexName: string, params: QueryParams): Promise<FanOutResult | null>
+  searchViaWorker(indexName: string, params: QueryParams, globalStats?: GlobalStatistics): Promise<FanOutResult | null>
   isPromoted(): boolean
   getWorkerMemoryStats(): Promise<MemoryStats['workers']>
   shutdown(): Promise<void>
@@ -261,7 +262,11 @@ export function createWorkerOrchestrator(
     }
   }
 
-  async function searchViaWorker(indexName: string, params: QueryParams): Promise<FanOutResult | null> {
+  async function searchViaWorker(
+    indexName: string,
+    params: QueryParams,
+    globalStats?: GlobalStatistics,
+  ): Promise<FanOutResult | null> {
     if (!workerPool) return null
     if (!promotedIndexes.has(indexName)) return null
 
@@ -281,6 +286,7 @@ export function createWorkerOrchestrator(
           indexName,
           params,
           requestId: createRequestId(),
+          ...(globalStats !== undefined ? { globalStats } : {}),
         })
       } catch (err) {
         console.warn('Worker search failed, falling back to local:', err)
@@ -302,6 +308,7 @@ export function createWorkerOrchestrator(
             params,
             requestId: createRequestId(),
             partitionIds: workerAssignments[idx],
+            ...(globalStats !== undefined ? { globalStats } : {}),
           }),
         ),
       )

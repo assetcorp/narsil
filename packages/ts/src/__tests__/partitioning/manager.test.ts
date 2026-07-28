@@ -252,6 +252,56 @@ describe('PartitionManager', () => {
     })
   })
 
+  describe('trimPartitions', () => {
+    it('shrinks the partition array and drops documents from removed partitions', () => {
+      const router = createPartitionRouter()
+      const keptDocs: string[] = []
+      const droppedDocs: string[] = []
+      for (let i = 0; i < 40; i++) {
+        const docId = `trim-doc-${i}`
+        manager.insert(docId, { title: `document ${i}` })
+        if (router.route(docId, 4) < 2) {
+          keptDocs.push(docId)
+        } else {
+          droppedDocs.push(docId)
+        }
+      }
+      expect(keptDocs.length).toBeGreaterThan(0)
+      expect(droppedDocs.length).toBeGreaterThan(0)
+
+      manager.trimPartitions(2)
+
+      expect(manager.partitionCount).toBe(2)
+      expect(manager.countDocuments()).toBe(keptDocs.length)
+      for (const docId of keptDocs) {
+        expect(manager.has(docId)).toBe(true)
+      }
+      for (const docId of droppedDocs) {
+        expect(manager.has(docId)).toBe(false)
+        expect(manager.get(docId)).toBeUndefined()
+      }
+      expect(manager.partitionAt(2)).toBeUndefined()
+    })
+
+    it('leaves the manager unchanged when the requested count is not below the current count', () => {
+      manager.insert('stay-doc', { title: 'stays put' })
+      manager.trimPartitions(4)
+      expect(manager.partitionCount).toBe(4)
+      manager.trimPartitions(9)
+      expect(manager.partitionCount).toBe(4)
+      expect(manager.has('stay-doc')).toBe(true)
+    })
+
+    it('throws CONFIG_INVALID when asked to trim below one partition', () => {
+      try {
+        manager.trimPartitions(0)
+        expect.unreachable('trimPartitions(0) must throw')
+      } catch (e) {
+        expect((e as NarsilError).code).toBe(ErrorCodes.CONFIG_INVALID)
+      }
+    })
+  })
+
   describe('readonly properties', () => {
     it('exposes indexName, schema, language, and config', () => {
       expect(manager.indexName).toBe('test-index')

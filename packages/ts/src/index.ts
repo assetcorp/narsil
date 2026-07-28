@@ -24,7 +24,7 @@ export type {
   PartitionStatistics,
   PersistenceAdapter,
 } from './types/adapters'
-export type { FlushConfig, NarsilConfig, WorkerConfig } from './types/config'
+export type { DurabilityConfig, NarsilConfig, WorkerConfig } from './types/config'
 export type { NarsilEventMap } from './types/events'
 export type {
   ArrayFilter,

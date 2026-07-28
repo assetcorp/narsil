@@ -109,7 +109,6 @@ import { createFilesystemPersistence } from '@delali/narsil/adapters/filesystem'
 const narsil = await createNarsil({
   persistence: createFilesystemPersistence({ directory: './narsil-data' }),
   workers: { enabled: true, count: 4 },
-  flush: { interval: 5000, mutationThreshold: 100 },
 })
 ```
 
@@ -122,7 +121,6 @@ const narsil = await createNarsil({
 | `plugins` | `NarsilPlugin[]` | Registers lifecycle hooks for document and search operations. See [Plugins](#plugins). |
 | `idGenerator` | `() => string` | Replaces the default UUID v7 generator for document ids. |
 | `workers` | `WorkerConfig` | Controls the worker thread pool for parallel search. See [Workers](#workers). |
-| `flush` | `FlushConfig` | Controls when dirty partitions persist to storage. |
 | `embedding` | `EmbeddingAdapter` | Sets the default adapter for auto-embedding text into vectors. See [Embedding adapters](#embedding-adapters). |
 | `embeddingAdapters` | `Record<string, EmbeddingAdapter>` | Registers named adapters that index configs reference by name. Names persist in index metadata, so durability recovery can rebind them. |
 | `durability` | `DurabilityConfig` | Enables write-ahead logging and snapshots. See [Durability](#durability). |
@@ -135,13 +133,6 @@ const narsil = await createNarsil({
 | `count` | `number` | CPU cores minus one, clamped between 2 and 8 | Sets the number of worker threads to spawn. |
 | `promotionThreshold` | `number` | `10000` | Sets the per-index document count that triggers promotion to workers. |
 | `totalPromotionThreshold` | `number` | `50000` | Sets the document count across all indexes that triggers promotion. |
-
-### FlushConfig
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `interval` | `number` | Sets the milliseconds between persistence flushes. |
-| `mutationThreshold` | `number` | Sets the mutation count that triggers a flush. |
 
 ### Tokenizer cache
 
@@ -749,11 +740,10 @@ import { createFilesystemPersistence } from '@delali/narsil/adapters/filesystem'
 
 const narsil = await createNarsil({
   persistence: createFilesystemPersistence({ directory: './narsil-data' }),
-  flush: { interval: 5000, mutationThreshold: 100 },
 })
 ```
 
-In the browser, `createIndexedDBPersistence({ dbName, storeName })` takes the same place, and both config fields are optional. Flushing is debounced: dirty partitions serialize on the `flush.interval` timer or after `flush.mutationThreshold` mutations, whichever fires first.
+In the browser, `createIndexedDBPersistence({ dbName, storeName })` takes the same place, and both config fields are optional. A filesystem adapter runs the write-ahead log durability tier, so every acknowledged write survives a crash. Every other adapter persists snapshots on the checkpoint triggers: the `durability.checkpointIntervalMs` timer or `durability.checkpointMutationThreshold` mutations, whichever fires first. See [Durability](#durability) for both tiers and the `tier` override.
 
 The serialization format is `.nrsl`, a 32-byte header followed by a MessagePack payload. The format is cross-language portable and specified in [`packages/spec`](../spec), so a Python or Rust implementation can read and write the same files.
 
@@ -761,7 +751,7 @@ A custom backend satisfies the `PersistenceAdapter` interface: `save(key, data)`
 
 ## Durability
 
-Debounced persistence can lose the writes made after the last flush. Durability closes that window with a write-ahead log: every mutation appends to the log before it is acknowledged, periodic checkpoints capture the index state, and recovery replays the log over the newest checkpoint. Enable it with a directory:
+Snapshot-only persistence can lose the writes made after the last checkpoint. Durability closes that window with a write-ahead log: every mutation appends to the log before it is acknowledged, periodic checkpoints capture the index state, and recovery replays the log over the newest checkpoint. Enable it with a directory:
 
 ```ts
 const narsil = await createNarsil({
@@ -782,6 +772,7 @@ await narsil.checkpoint('products')
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
+| `tier` | `'wal' \| 'snapshot'` | resolved from the adapter | Overrides tier selection. `'snapshot'` forces snapshot-only persistence onto any adapter, a filesystem-backed one included, which is the tier to pick when several processes share one directory, because the write-ahead log owns its directory exclusively. `'snapshot'` without a persistence adapter and `'wal'` without a resolvable directory both fail with `CONFIG_INVALID`. |
 | `directory` | `string` | none | Sets the root directory for the log and checkpoints. |
 | `mode` | `'sync' \| 'async'` | `'sync'` | Selects the acknowledgement contract described below. |
 | `flushIntervalMs` | `number` | `1000` | Sets how often the async mode flushes the log to disk. |

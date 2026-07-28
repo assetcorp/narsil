@@ -50,6 +50,9 @@ export async function loadSnapshotBundleBytes(bytes: Uint8Array, deps: ReplayDep
   while (deps.manager.partitionCount < bundle.partitions.length) {
     deps.manager.addPartition()
   }
+  if (bundle.partitions.length > 0) {
+    deps.manager.trimPartitions(bundle.partitions.length)
+  }
   for (let i = 0; i < bundle.partitions.length; i += 1) {
     deps.manager.deserializePartition(i, deserializePayloadV2(bundle.partitions[i]))
   }

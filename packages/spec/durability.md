@@ -27,6 +27,10 @@ Recovery loads the latest snapshot and then replays the log records whose sequen
 
 A persistence adapter that is not filesystem-backed cannot run a write-ahead log, because a key-to-bytes interface expresses neither append nor fsync. Such a backend persists periodic snapshots alone. Recovery restores the last snapshot and has no log to replay, so the guarantee is that the index is durable up to that snapshot and a crash loses every write made since. See [Snapshot-Only Persistence](#snapshot-only-persistence).
 
+### Tier Selection
+
+An implementation selects the tier from the backend: a filesystem-backed adapter runs Tier 1, and any other adapter runs Tier 2. The optional `durability.tier` field, `wal` or `snapshot`, overrides that selection. `tier: "snapshot"` forces snapshot-only persistence onto any adapter, a filesystem-backed one included; a deployment chooses this when several processes share one directory, because the write-ahead log requires exclusive ownership of its directory. `tier: "snapshot"` without a persistence adapter raises `CONFIG_INVALID`, and `tier: "wal"` where no directory can be resolved raises `CONFIG_INVALID`.
+
 ---
 
 ## Relationship to Other Documents
@@ -356,4 +360,4 @@ Configuring write-ahead log durability, by setting `durability.directory`, again
 | `PERSISTENCE_FSYNC_FAILED` | An fsync returned an error. The write is not acknowledged, and the error is fatal. |
 | `PERSISTENCE_LOAD_FAILED` | A snapshot or log file could not be read or decoded. |
 | `PERSISTENCE_SAVE_FAILED` | A snapshot or log file could not be written. |
-| `CONFIG_INVALID` | Write-ahead log durability was requested for a non-filesystem backend, or durability was configured without a directory. |
+| `CONFIG_INVALID` | Write-ahead log durability was requested for a non-filesystem backend, durability was configured without a directory, or the snapshot tier was requested without a persistence adapter. |
