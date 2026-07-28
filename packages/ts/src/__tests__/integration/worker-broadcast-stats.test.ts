@@ -82,6 +82,9 @@ describe.skipIf(!built)('a promoted index scores broadcast queries with merged s
     const mergedIdf = merged.hits[0].scoreComponents?.idf[token] ?? 0
     expect(mergedIdf).toBeGreaterThan(baselineIdf)
 
+    const prototypeKeyQuery = await narsil.query('prose', { term: 'constructor __proto__' })
+    expect(prototypeKeyQuery.hits).toEqual([])
+
     const workerFallbacks = warnSpy.mock.calls.filter(
       call => typeof call[0] === 'string' && call[0].includes('Worker search failed'),
     )

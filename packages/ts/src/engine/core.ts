@@ -16,6 +16,7 @@ import type { IndexConfig, SchemaDefinition } from '../types/schema'
 import { createDirectExecutor, type DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
 import { createExecutionPromoter, type ExecutionPromoter } from '../workers/promoter'
+import { resolveDurabilityTier } from './durability-config'
 import { createDurabilityIntegration, type DurabilityIntegration, type DurabilityTier } from './durability-integration'
 import { createInvalidationFromConfig, type InvalidationIntegration } from './invalidation'
 import type { MutationContext } from './mutations'
@@ -67,55 +68,6 @@ export interface EngineCore {
 
 export function getVectorFieldPaths(schema: SchemaDefinition): Set<string> {
   return new Set(extractVectorFieldsFromSchema(schema).keys())
-}
-
-function filesystemBackedDirectory(config: NarsilConfig): string | null {
-  const adapterDirectory = config.persistence?.directory
-  if (adapterDirectory !== undefined && adapterDirectory.trim().length > 0) {
-    return adapterDirectory
-  }
-  return null
-}
-
-function resolveDurabilityTier(config: NarsilConfig): DurabilityTier | null {
-  const filesystemDirectory = filesystemBackedDirectory(config)
-
-  if (config.durability?.tier === 'snapshot') {
-    if (config.persistence === undefined) {
-      throw new NarsilError(
-        ErrorCodes.CONFIG_INVALID,
-        'Snapshot durability persists through a persistence adapter. Configure persistence, or remove durability.tier',
-      )
-    }
-    return { kind: 'snapshot', config: { ...config.durability }, adapter: config.persistence }
-  }
-
-  if (config.durability) {
-    if (config.durability.directory !== undefined && config.durability.directory.trim().length > 0) {
-      return { kind: 'wal', config: { ...config.durability } }
-    }
-    if (filesystemDirectory !== null) {
-      return { kind: 'wal', config: { ...config.durability, directory: filesystemDirectory } }
-    }
-    if (config.persistence !== undefined) {
-      throw new NarsilError(
-        ErrorCodes.CONFIG_INVALID,
-        'WAL durability requires a filesystem directory, but the configured persistence adapter is not filesystem-backed. Use a filesystem persistence adapter or set durability.directory',
-      )
-    }
-    throw new NarsilError(
-      ErrorCodes.CONFIG_INVALID,
-      'Durability requires a directory. Set durability.directory explicitly, or configure a filesystem persistence adapter',
-    )
-  }
-
-  if (config.persistence === undefined) {
-    return null
-  }
-  if (filesystemDirectory !== null) {
-    return { kind: 'wal', config: { directory: filesystemDirectory } }
-  }
-  return { kind: 'snapshot', config: {}, adapter: config.persistence }
 }
 
 interface DurabilityWiring {
