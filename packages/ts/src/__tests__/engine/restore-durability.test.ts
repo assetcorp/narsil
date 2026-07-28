@@ -112,6 +112,25 @@ describe('restore on a durable engine', () => {
     expect((await engine.query('prose', { term: 'n' })).hits).toHaveLength(2)
   })
 
+  it('keeps restored vectors across a restart', async () => {
+    engine = await createNarsil({ durability: { directory: dir } })
+    await engine.createIndex('docs', { schema: { title: 'string', embedding: 'vector[4]' } })
+    await engine.insert('docs', { title: 'alpha', embedding: [0.9, 0.1, 0, 0] }, 'id-alpha')
+    await engine.insert('docs', { title: 'beta', embedding: [0.1, 0.9, 0, 0] }, 'id-beta')
+    const data = await engine.snapshot('docs')
+
+    await engine.restore('docs', data)
+    await engine.shutdown()
+
+    engine = await createNarsil({ durability: { directory: dir } })
+
+    const alpha = await engine.get('docs', 'id-alpha')
+    expect(alpha).toBeDefined()
+    expect(Array.from((alpha?.embedding as ArrayLike<number>) ?? [])).toHaveLength(4)
+    const beta = await engine.get('docs', 'id-beta')
+    expect(Array.from((beta?.embedding as ArrayLike<number>) ?? [])).toHaveLength(4)
+  })
+
   it('keeps a restored index across a restart on the snapshot-only tier', async () => {
     const store = new Map<string, Uint8Array>()
     engine = await createNarsil({ persistence: memoryAdapter(store) })

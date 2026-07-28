@@ -426,9 +426,9 @@ This specification prescribes none of those. The recall floors in [Cross-Impleme
 
 ```text
 VectorIndexConfig {
-  threshold:       uint32    (promotion threshold, default 1024)
-  filterThreshold: float32   (selectivity fallback, default 0.03)
-  quantization:    'sq8' or 'none'   (default 'sq8')
+  threshold:       uint32           (promotion threshold, default 1024)
+  filterThreshold: float32          (selectivity fallback, default 0.03)
+  quantization:    'sq8' or 'none'  (default 'sq8')
   hnswConfig {
     m:              uint8    (maximum connections, default 16)
     efConstruction: uint16   (build quality, default 200)

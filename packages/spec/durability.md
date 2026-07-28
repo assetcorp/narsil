@@ -156,15 +156,15 @@ The container is the `.nrsl` envelope from [envelope.md](envelope.md) with the c
 
 ```text
 SnapshotBundle {
-  version:       uint8                          (1)
-  schema:        Map<string, string>
-  language:      string
-  tokenizer:      string                        (optional; the name the tokeniser was registered under)
-  stop_words:     string                        (optional; the name the stop word set was registered under)
-  stop_word_list: List<string>                  (optional; the exact stop words of an index configured with a literal set)
-  partitions:     List<bytes>                   (version 2 partition payloads)
-  vectorIndexes: Map<string, VectorIndexPayload>
-  checkpoint:    List<PartitionCheckpoint>
+  version:        uint8         (1)
+  schema:         Map<string, string>
+  language:       string
+  tokenizer:      string        (optional; the registered tokeniser name)
+  stop_words:     string        (optional; the registered stop word set name)
+  stop_word_list: List<string>  (optional; the words of a literal stop word set)
+  partitions:     List<bytes>   (version 2 partition payloads)
+  vectorIndexes:  Map<string, VectorIndexPayload>
+  checkpoint:     List<PartitionCheckpoint>
 }
 
 PartitionCheckpoint {
@@ -194,7 +194,7 @@ A crash before step 4 leaves the previous snapshot intact and the temporary file
 
 ## Index Metadata
 
-On index creation, and on any change that affects the schema, a node persists the index metadata at `<indexName>/meta` using the metadata payload from [envelope.md](envelope.md#index-metadata-payload). That metadata lets recovery rebuild an index, meaning its schema, language, partition count, vector fields, and embedding configuration, with no call from the application.
+On index creation, and on any change that affects the schema, a node persists the index metadata at `<indexName>/meta` using the metadata payload from [envelope.md](envelope.md#index-metadata-payload). That metadata lets recovery rebuild an index with its full configuration, with no call from the application.
 
 When the metadata carries an `embedding` block, recovery restores the field mappings and rebinds the embedding adapter by its registered name. Rebinding validates the adapter's dimensions against every mapped vector field before the index uses it.
 

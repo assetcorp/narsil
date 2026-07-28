@@ -279,14 +279,20 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   language:              string
   partition_count:       uint32
   bm25_params:           { k1: float32, b: float32 }
-  created_at:            uint64  (milliseconds since the Unix epoch)
-  engine_version:        string  (for example "0.1.0")
+  created_at:            uint64               (milliseconds since the Unix epoch)
+  engine_version:        string               (for example "0.1.0")
   vector_fields:         Map<string, VectorFieldMeta>
-  embedding:             EmbeddingMeta  (optional)
-  surface_forms_enabled: boolean        (optional)
-  tokenizer:             string         (optional; the name the tokeniser was registered under)
-  stop_words:            string         (optional; the name the stop word set was registered under)
-  stop_word_list:        List<string>   (optional; the exact stop words of an index configured with a literal set)
+  embedding:             EmbeddingMeta        (optional)
+  surface_forms_enabled: boolean              (optional)
+  tokenizer:             string               (optional; the registered tokeniser name)
+  stop_words:            string               (optional; the registered stop word set name)
+  stop_word_list:        List<string>         (optional; the words of a literal stop word set)
+  partition_limits:      PartitionLimits      (optional)
+  default_scoring:       string               (optional; "local", "dfs", or "broadcast")
+  track_positions:       boolean              (optional)
+  strict:                boolean              (optional)
+  required:              List<string>         (optional; field paths every document must supply)
+  vector_promotion:      VectorPromotionMeta  (optional)
 }
 
 VectorFieldMeta {
@@ -299,6 +305,18 @@ EmbeddingMeta {
   adapter: string  (optional; the name the adapter was registered under)
   fields:  Map<string, string or List<string>>
 }
+
+PartitionLimits {
+  max_docs_per_partition: uint32  (optional)
+  max_partitions:         uint32  (optional)
+}
+
+VectorPromotionMeta {
+  threshold:        uint32                                                  (optional)
+  filter_threshold: uint32                                                  (optional)
+  hnsw_config:      { m: uint32, ef_construction: uint32, metric: string }  (optional; each key optional)
+  quantization:     string                                                  (optional; "sq8" or "none")
+}
 ```
 
 `vector_fields` lists every vector field with its configuration, so the engine knows which vector index files to load without scanning the storage keys.
@@ -309,6 +327,8 @@ The `surface_forms_enabled` field records that the index collects surface forms,
 
 The `tokenizer` and `stop_words` fields record the names the index resolved its analysis from, as described in [Analysis Registry](adapters.md#analysis-registry). A writer includes each field only when the index configuration gave a name, because a tokeniser instance and a stop word function are code and no payload carries code. An engine with durability configured refuses an index whose analysis is given as code, as [Analysis Registry](adapters.md#analysis-registry) requires, so an absent field means the index analyses with the language default. An index configured with a literal stop word set persists the words themselves in `stop_word_list`, and a payload carries at most one of `stop_words` and `stop_word_list`. Recovery resolves each name against the engine's analysis registry so that a recovered index analyses text the way the original did; see [Index Metadata](durability.md#index-metadata).
 
+The last six fields record the rest of the index configuration: the partition limits, the scoring mode, position tracking, strict document validation, the required field paths, and the vector promotion settings. All six are additive. A writer includes each field only when the index configuration set it, and a reader treats an absent field as that option's default, so a recovered index behaves exactly as the original did.
+
 ---
 
 ### Snapshot Bundle Payload
@@ -317,15 +337,15 @@ A durability checkpoint writes the whole index as one envelope under the key `<i
 
 ```text
 {
-  version:       uint8  (1)
-  schema:        Map<string, string>
-  language:      string
-  tokenizer:      string         (optional; the name the tokeniser was registered under)
-  stop_words:     string         (optional; the name the stop word set was registered under)
-  stop_word_list: List<string>   (optional; the exact stop words of an index configured with a literal set)
-  partitions:     List<bytes>    (one version 2 partition payload per entry)
-  vectorIndexes: Map<string, VectorIndexPayload>
-  checkpoint:    List<PartitionCheckpoint>
+  version:        uint8         (1)
+  schema:         Map<string, string>
+  language:       string
+  tokenizer:      string        (optional; the registered tokeniser name)
+  stop_words:     string        (optional; the registered stop word set name)
+  stop_word_list: List<string>  (optional; the words of a literal stop word set)
+  partitions:     List<bytes>   (one version 2 partition payload per entry)
+  vectorIndexes:  Map<string, VectorIndexPayload>
+  checkpoint:     List<PartitionCheckpoint>
 }
 
 PartitionCheckpoint {

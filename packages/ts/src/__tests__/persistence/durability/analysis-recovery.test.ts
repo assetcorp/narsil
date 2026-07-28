@@ -129,4 +129,71 @@ describe('durability recovery of index analysis', () => {
     expect(listed.stopWordList).toEqual(['an', 'the'])
     expect(bare.stopWordList).toBeUndefined()
   })
+
+  it('carries the six remaining config fields through the metadata payload', () => {
+    const base: IndexMetadata = {
+      indexName: 'prose',
+      schema: { title: 'string' },
+      language: 'english',
+      partitionCount: 1,
+      bm25Params: { k1: 1.2, b: 0.75 },
+      createdAt: 0,
+      engineVersion: '0.1.0',
+    }
+
+    const full = deserializeMetadata(
+      serializeMetadata({
+        ...base,
+        partitionLimits: { maxDocsPerPartition: 3, maxPartitions: 3 },
+        defaultScoring: 'dfs',
+        trackPositions: false,
+        strict: true,
+        required: ['title'],
+        vectorPromotion: { threshold: 5, hnswConfig: { m: 8, efConstruction: 100, metric: 'cosine' } },
+      }),
+    )
+    expect(full.partitionLimits).toEqual({ maxDocsPerPartition: 3, maxPartitions: 3 })
+    expect(full.defaultScoring).toBe('dfs')
+    expect(full.trackPositions).toBe(false)
+    expect(full.strict).toBe(true)
+    expect(full.required).toEqual(['title'])
+    expect(full.vectorPromotion).toEqual({ threshold: 5, hnswConfig: { m: 8, efConstruction: 100, metric: 'cosine' } })
+
+    const bare = deserializeMetadata(serializeMetadata(base))
+    expect(bare.partitionLimits).toBeUndefined()
+    expect(bare.defaultScoring).toBeUndefined()
+    expect(bare.trackPositions).toBeUndefined()
+    expect(bare.strict).toBeUndefined()
+    expect(bare.required).toBeUndefined()
+    expect(bare.vectorPromotion).toBeUndefined()
+  })
+
+  it('recovers the six remaining config fields across a restart', async () => {
+    engine = await createNarsil({ durability: { directory: dir } })
+    await engine.createIndex('prose', {
+      schema,
+      partitions: { maxDocsPerPartition: 3, maxPartitions: 3 },
+      defaultScoring: 'dfs',
+      trackPositions: false,
+      strict: true,
+      required: ['title'],
+      vectorPromotion: { threshold: 5 },
+    })
+    await engine.insert('prose', { title: 'machine' })
+    await engine.checkpoint('prose')
+    await engine.shutdown()
+
+    engine = await createNarsil({ durability: { directory: dir } })
+
+    await expect(engine.insert('prose', { untitled: 'no title field' })).rejects.toThrow()
+
+    const { decode } = await import('@msgpack/msgpack')
+    const snapshot = decode(await engine.snapshot('prose')) as Record<string, unknown>
+    expect(snapshot.partitionConfig).toEqual({ maxDocsPerPartition: 3, maxPartitions: 3 })
+    expect(snapshot.defaultScoring).toBe('dfs')
+    expect(snapshot.trackPositions).toBe(false)
+    expect(snapshot.strict).toBe(true)
+    expect(snapshot.required).toEqual(['title'])
+    expect(snapshot.vectorPromotion).toEqual({ threshold: 5 })
+  })
 })
