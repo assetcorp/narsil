@@ -65,7 +65,7 @@ export async function handleReplicationEntry(
 
   if (assignment.primaryTerm !== entry.primaryTerm) {
     throw new NarsilError(
-      ErrorCodes.REPLICATION_ENTRY_INVALID,
+      ErrorCodes.REPLICATION_TERM_MISMATCH,
       `Replication entry term ${entry.primaryTerm} does not match allocation term ${assignment.primaryTerm}`,
       { indexName: entry.indexName, partitionId: entry.partitionId },
     )
@@ -115,8 +115,8 @@ export async function handleReplicationEntry(
   const validation = validateReplicationEntry(entry, assignment.primaryTerm, log)
   if (!validation.valid) {
     throw new NarsilError(
-      ErrorCodes.REPLICATION_ENTRY_INVALID,
-      `Invalid replication entry ${entry.seqNo}: ${validation.error ?? 'unknown validation error'}`,
+      validation.error ?? ErrorCodes.REPLICATION_ENTRY_INVALID,
+      `Invalid replication entry ${entry.seqNo}`,
       { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo },
     )
   }

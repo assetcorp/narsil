@@ -2,7 +2,6 @@ import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
 import { linearCombination, reciprocalRankFusion } from '../../search/fusion'
 import type { ScoredDocument } from '../../types/internal'
-import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import {
@@ -10,6 +9,7 @@ import {
   collectFilterDocIds,
   type QueryContext,
   resolveVectorIndex,
+  scoringConfigFor,
   searchOptionsFor,
   vectorResultsToScored,
 } from './shared'
@@ -54,14 +54,11 @@ export function executeVectorSearch(
 
 export async function executeHybridSearch(
   params: QueryParams,
-  manager: PartitionManager,
-  language: LanguageModule,
-  config: IndexConfig,
-  workerSearch: QueryContext['workerSearch'],
-  indexName: string,
+  context: QueryContext,
   limit: number,
   offset: number,
 ): Promise<FanOutResult> {
+  const { manager, language, config, workerSearch, indexName } = context
   const { vector: _vector, mode: _mode, hybrid: _hybrid, ...textOnlyParams } = params
 
   let filterDocIds: Set<string> | undefined
@@ -82,7 +79,7 @@ export async function executeHybridSearch(
       textOnlyParams,
       language,
       config.schema,
-      { scoringMode: params.scoring ?? config.defaultScoring ?? 'local' },
+      scoringConfigFor(params, context),
       searchOptionsFor(manager),
     )
   }

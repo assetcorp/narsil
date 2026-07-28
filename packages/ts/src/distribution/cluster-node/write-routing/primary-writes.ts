@@ -3,7 +3,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
 import type { PartitionAssignment } from '../../coordinator/types'
 import type { ForwardPayload } from '../../transport/types'
-import { resolvePrimaryAssignment } from './assignment'
+import { assertSufficientActiveReplicas, resolvePrimaryAssignment } from './assignment'
 import { rollbackPrimaryInsert, rollbackPrimaryRemove } from './failures'
 import { appendDeleteReplicationEntry, appendIndexReplicationEntry, replicateEntry } from './replication'
 import type { WriteRoutingDeps } from './types'
@@ -16,6 +16,7 @@ export async function applyPrimaryInsert(
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
 ): Promise<string> {
+  assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const insertedDocId = await deps.engine.insert(indexName, document, docId)
   const storedDocument = await deps.engine.get(indexName, insertedDocId)
 
@@ -44,6 +45,7 @@ export async function applyPrimaryRemove(
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
 ): Promise<void> {
+  assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const previousDocument = await deps.engine.get(indexName, docId)
   await deps.engine.remove(indexName, docId)
   try {

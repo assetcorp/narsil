@@ -8,7 +8,7 @@ import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import { clampLimit, clampOffset, now } from '../validation'
 import { applyHighlights } from './highlight'
-import { type QueryContext, searchOptionsFor } from './shared'
+import { type QueryContext, scoringConfigFor, searchOptionsFor } from './shared'
 import { executeHybridSearch, executeVectorSearch } from './vector'
 
 export type { QueryContext } from './shared'
@@ -36,7 +36,7 @@ export async function executeQuery<T = AnyDocument>(
   if (isVectorOnly && hasGlobalVectorIndex) {
     fanOutResult = executeVectorSearch(params, manager, config, limit, offset)
   } else if (isHybridMode && hasGlobalVectorIndex) {
-    fanOutResult = await executeHybridSearch(params, manager, language, config, workerSearch, indexName, limit, offset)
+    fanOutResult = await executeHybridSearch(params, context, limit, offset)
   } else {
     const workerResult = workerSearch ? await workerSearch(indexName, params) : null
     if (workerResult) {
@@ -47,7 +47,7 @@ export async function executeQuery<T = AnyDocument>(
         params,
         language,
         config.schema,
-        { scoringMode: params.scoring ?? config.defaultScoring ?? 'local' },
+        scoringConfigFor(params, context),
         searchOptionsFor(manager),
       )
     }
@@ -154,16 +154,7 @@ export async function executePreflight(params: QueryParams, context: QueryContex
     const result = executeVectorSearch(params, manager, config, preflightLimit, preflightOffset)
     totalMatched = result.totalMatched
   } else if (isHybridMode && hasGlobalVectorIndex) {
-    const result = await executeHybridSearch(
-      params,
-      manager,
-      language,
-      config,
-      workerSearch,
-      indexName,
-      preflightLimit,
-      preflightOffset,
-    )
+    const result = await executeHybridSearch(params, context, preflightLimit, preflightOffset)
     totalMatched = result.totalMatched
   } else {
     const workerResult = workerSearch ? await workerSearch(indexName, params) : null
@@ -175,7 +166,7 @@ export async function executePreflight(params: QueryParams, context: QueryContex
         params,
         language,
         config.schema,
-        { scoringMode: params.scoring ?? config.defaultScoring ?? 'local' },
+        scoringConfigFor(params, context),
         searchOptionsFor(manager),
       )
       totalMatched = fanOutResult.totalMatched

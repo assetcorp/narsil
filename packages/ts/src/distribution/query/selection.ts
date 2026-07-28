@@ -2,6 +2,10 @@ import type { AllocationTable, PartitionAssignment } from '../coordinator/types'
 
 export type ReplicaSelector = (candidates: string[], partitionId: number) => string
 
+export function randomSelector(candidates: string[], _partitionId: number): string {
+  return candidates[Math.floor(Math.random() * candidates.length)]
+}
+
 export function hashBasedSelector(candidates: string[], partitionId: number): string {
   return candidates[partitionId % candidates.length]
 }
@@ -30,7 +34,7 @@ export function collectActiveCandidates(assignment: PartitionAssignment): string
 export function selectReplica(
   assignment: PartitionAssignment,
   localNodeId: string | null,
-  selector: ReplicaSelector = hashBasedSelector,
+  selector: ReplicaSelector = randomSelector,
   partitionId: number = 0,
 ): string | null {
   const candidates = collectActiveCandidates(assignment)
@@ -54,7 +58,7 @@ export interface PartitionRouting {
 export function selectReplicasForQuery(
   allocationTable: AllocationTable,
   localNodeId: string | null,
-  selector: ReplicaSelector = hashBasedSelector,
+  selector: ReplicaSelector = randomSelector,
 ): PartitionRouting {
   const nodeToPartitions = new Map<string, number[]>()
   const unavailablePartitions: number[] = []

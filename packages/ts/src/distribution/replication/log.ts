@@ -71,6 +71,23 @@ export function createReplicationLog(
     }
   }
 
+  function assertEntryFitsRetention(entry: {
+    indexName: string
+    documentId: string
+    document: Uint8Array | null
+    seqNo?: number
+  }): void {
+    const entrySize =
+      ENTRY_FIXED_OVERHEAD_BYTES + entry.indexName.length + entry.documentId.length + (entry.document?.byteLength ?? 0)
+    if (entrySize > retentionBytes) {
+      throw new NarsilError(
+        ErrorCodes.REPLICATION_LOG_FULL,
+        `Replication log entry of ${entrySize} bytes exceeds the log retention limit of ${retentionBytes} bytes and cannot be buffered`,
+        { partitionId, entrySize, retentionBytes, seqNo: entry.seqNo },
+      )
+    }
+  }
+
   function storeEntry(entry: ReplicationLogEntry): ReplicationLogEntry {
     entries.push(entry)
     if (entry.seqNo >= committedSeqNo) {
@@ -106,6 +123,7 @@ export function createReplicationLog(
 
   return {
     append(partial) {
+      assertEntryFitsRetention(partial)
       const seqNo = nextSeqNo
       nextSeqNo += 1
 
@@ -167,12 +185,13 @@ export function createReplicationLog(
 
       if (!verifyEntryChecksum(entry)) {
         throw new NarsilError(
-          ErrorCodes.REPLICATION_ENTRY_INVALID,
+          ErrorCodes.REPLICATION_ENTRY_CORRUPT,
           `Invalid checksum for replication entry ${entry.seqNo}`,
           { seqNo: entry.seqNo, partitionId },
         )
       }
 
+      assertEntryFitsRetention(entry)
       nextSeqNo = entry.seqNo + 1
       return storeEntry({ ...entry })
     },

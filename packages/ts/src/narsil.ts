@@ -80,6 +80,9 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
   if (core.durability) {
     await core.durability.manager.recover()
   }
+  if (core.invalidation) {
+    await core.invalidation.start()
+  }
   return createNarsilFromCore(core, config)
 }
 
@@ -100,6 +103,9 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     mutationCtx,
     rebalanceCtx,
   } = core
+
+  const invalidation = core.invalidation
+  const broadcastStats = invalidation === null ? undefined : (name: string) => invalidation.broadcastStats(name)
 
   const narsil: Narsil = {
     createIndex(name: string, indexConfig: IndexConfig): Promise<void> {
@@ -211,6 +217,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         config: entry.config,
         workerSearch,
         indexName,
+        broadcastStats,
       })
 
       try {
@@ -243,6 +250,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         config: entry.config,
         workerSearch,
         indexName,
+        broadcastStats,
       })
     },
     async suggest(indexName: string, params: SuggestParams): Promise<SuggestResult> {

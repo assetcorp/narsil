@@ -28,6 +28,7 @@ export type { PartitionRouting, ReplicaSelector } from './selection'
 export {
   collectActiveCandidates,
   hashBasedSelector,
+  randomSelector,
   selectReplica,
   selectReplicasForQuery,
 } from './selection'

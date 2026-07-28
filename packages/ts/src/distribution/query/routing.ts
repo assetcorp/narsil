@@ -5,7 +5,7 @@ import { buildCoverage, collectDistributedStats, fanOutSearch } from './fan-out'
 import { clampAlpha, distributedLinearCombination, distributedRRF } from './fusion'
 import { mergeAndTruncateScoredEntries, mergeDistributedFacets } from './merge'
 import type { ReplicaSelector } from './selection'
-import { hashBasedSelector, selectReplicasForQuery } from './selection'
+import { randomSelector, selectReplicasForQuery } from './selection'
 import type { Coverage, DistributedQueryConfig, DistributedQueryResult, QueryRoutingDeps } from './types'
 import { DEFAULT_QUERY_CONFIG } from './types'
 
@@ -58,7 +58,7 @@ export async function distributedQuery(
     }
   }
 
-  const routing = selectReplicasForQuery(allocationTable, deps.sourceNodeId, selector ?? hashBasedSelector)
+  const routing = selectReplicasForQuery(allocationTable, deps.sourceNodeId, selector ?? randomSelector)
   const totalPartitions = allocationTable.assignments.size
 
   if (routing.unavailablePartitions.length > 0 && !resolvedConfig.allowPartialResults) {

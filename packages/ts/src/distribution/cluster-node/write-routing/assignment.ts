@@ -22,7 +22,7 @@ export function requireAssignedPrimary(
 ): PartitionAssignment & { primary: string } {
   if (assignment === undefined || assignment.primary === null) {
     throw new NarsilError(
-      ErrorCodes.QUERY_ROUTING_FAILED,
+      ErrorCodes.PARTITION_UNASSIGNED,
       `No primary assigned for partition ${partitionId} of index '${indexName}'`,
       { indexName, partitionId },
     )
@@ -56,13 +56,34 @@ export async function resolvePrimaryAssignment(
 
   if (requireLocalPrimary && assignment.primary !== deps.nodeId) {
     throw new NarsilError(
-      ErrorCodes.QUERY_ROUTING_FAILED,
+      ErrorCodes.PARTITION_NOT_PRIMARY,
       `Node '${deps.nodeId}' is not primary for partition ${partitionId} of index '${indexName}'`,
       { indexName, partitionId, primaryNodeId: assignment.primary, localNodeId: deps.nodeId },
     )
   }
 
   return { partitionId, assignment }
+}
+
+export function assertSufficientActiveReplicas(
+  indexName: string,
+  partitionId: number,
+  assignment: PartitionAssignment,
+  deps: WriteRoutingDeps,
+): void {
+  const requiredActiveCopies = deps.waitForActiveReplicas ?? 1
+  if (requiredActiveCopies <= 1) {
+    return
+  }
+
+  const activeCopies = 1 + getInSyncReplicaTargets(assignment, deps.nodeId).length
+  if (activeCopies < requiredActiveCopies) {
+    throw new NarsilError(
+      ErrorCodes.INSUFFICIENT_REPLICAS,
+      `Write to partition ${partitionId} of index '${indexName}' requires ${requiredActiveCopies} active copies but only ${activeCopies} are available`,
+      { indexName, partitionId, requiredActiveCopies, activeCopies },
+    )
+  }
 }
 
 export function getInSyncReplicaTargets(assignment: PartitionAssignment, localNodeId: string): string[] {

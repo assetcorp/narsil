@@ -11,6 +11,7 @@ export interface WriteRoutingDeps {
   getReplicationLog: (indexName: string, partitionId: number) => ReplicationLog
   resetReplicationLog: (indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm?: number) => void
   resolveNodeTargets?: (nodeId: string) => Promise<string[]>
+  waitForActiveReplicas?: number
 }
 
 export interface PrimaryAssignmentResolution {
