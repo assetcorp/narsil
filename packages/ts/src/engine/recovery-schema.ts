@@ -43,6 +43,8 @@ export function reconstructSchemaFromMetadata(metadata: IndexMetadata): IndexCon
   }
   if (metadata.stopWords !== undefined) {
     config.stopWords = metadata.stopWords
+  } else if (metadata.stopWordList !== undefined) {
+    config.stopWords = new Set(metadata.stopWordList)
   }
   return config
 }

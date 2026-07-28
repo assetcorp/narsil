@@ -257,15 +257,16 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
 
     async restore(indexName: string, data: Uint8Array): Promise<void> {
       guardShutdown()
-      return restoreFromSnapshot(
-        indexName,
-        data,
+      return restoreFromSnapshot(indexName, data, {
         executor,
         indexRegistry,
         getVectorFieldPaths,
-        narsil.dropIndex.bind(narsil),
+        dropIndex: narsil.dropIndex.bind(narsil),
         requireManager,
-      )
+        durability,
+        embeddingAdapters: core.embeddingAdapters,
+        defaultEmbeddingAdapter: config?.embedding ?? null,
+      })
     },
 
     async checkpoint(indexName: string): Promise<void> {

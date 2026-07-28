@@ -47,6 +47,7 @@ export interface DurabilityIntegrationHooks {
         surfaceForms?: boolean
         tokenizer?: string
         stopWords?: string
+        stopWordList?: string[]
       }
     | undefined
   createIndexFromMetadata: IndexDurabilityHooks['createIndexFromMetadata']
@@ -79,6 +80,9 @@ function buildMetadata(indexName: string, hooks: DurabilityIntegrationHooks): In
   }
   if (config.stopWords !== undefined) {
     metadata.stopWords = config.stopWords
+  }
+  if (config.stopWordList !== undefined) {
+    metadata.stopWordList = config.stopWordList
   }
   return metadata
 }

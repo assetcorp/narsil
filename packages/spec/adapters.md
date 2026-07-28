@@ -256,7 +256,7 @@ An optional configuration that overrides the tokenisation defaults for this lang
 
 ### Stop Word Override
 
-Per-index stop word configuration takes one of three forms. A set replaces the language's default stop words outright. A function of the form `(defaults: Set<string>) -> Set<string>` receives the language's defaults and returns the modified set, which is how a caller adds domain-specific words or keeps a word the language treats as noise and the domain treats as meaningful. A string names an entry in the [Analysis Registry](#analysis-registry), and a name is the only form that reaches a worker or survives a restart.
+Per-index stop word configuration takes one of three forms. A set replaces the language's default stop words outright. A function of the form `(defaults: Set<string>) -> Set<string>` receives the language's defaults and returns the modified set, which is how a caller adds domain-specific words or keeps a word the language treats as noise and the domain treats as meaningful. A string names an entry in the [Analysis Registry](#analysis-registry). A set and a name both reach a worker and survive a restart, because a set persists as its word list in the index metadata, while a function does neither and needs a registered name for both.
 
 ---
 
@@ -297,7 +297,7 @@ An index configuration that gives a string for `tokenizer` or for `stopWords` re
 
 Names exist because no boundary carries code. A tokeniser and a stop word function are both code, and a worker thread, a restart, and a second machine each receive data alone, so an index configured with either value runs in the calling thread and loses its analysis on recovery. An index configured with a name carries the name across instead, and each side resolves that name against its own registry. The `language` setting has always worked this way, and these two settings now match it.
 
-An engine with durability configured refuses an index whose `tokenizer` is a `CustomTokenizer` or whose `stopWords` is a function, raising `CONFIG_INVALID` that names the registry as the alternative. A checkpoint re-analyses the raw documents, so an index whose analysis cannot be persisted would be rewritten with the language default on restart.
+An engine with durability configured refuses an index whose `tokenizer` is a `CustomTokenizer` or whose `stopWords` is a function, raising `CONFIG_INVALID` that names the registry as the alternative. A checkpoint re-analyses the raw documents, so an index whose analysis cannot be persisted would be rewritten with the language default on restart. A literal stop word set is data, so durability accepts it and persists the words themselves.
 
 ### Binding
 

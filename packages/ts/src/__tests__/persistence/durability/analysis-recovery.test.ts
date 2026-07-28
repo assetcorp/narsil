@@ -89,6 +89,21 @@ describe('durability recovery of index analysis', () => {
     )
   })
 
+  it('restores an index onto the literal stop word set it was created with', async () => {
+    engine = await createNarsil({ durability: { directory: dir } })
+    await engine.createIndex('prose', { schema, stopWords: new Set(['the']) })
+    await engine.insert('prose', { title: 'the rise of machines' })
+    await engine.checkpoint('prose')
+    await engine.shutdown()
+
+    engine = await createNarsil({ durability: { directory: dir } })
+
+    expect((await engine.query('prose', { term: 'of' })).hits).toHaveLength(1)
+    expect((await engine.query('prose', { term: 'the' })).hits).toHaveLength(0)
+    await engine.insert('prose', { title: 'the fall of empires' })
+    expect((await engine.query('prose', { term: 'of' })).hits).toHaveLength(2)
+  })
+
   it('carries both names through the metadata payload and leaves them out when absent', () => {
     const base: IndexMetadata = {
       indexName: 'prose',
@@ -109,5 +124,9 @@ describe('durability recovery of index analysis', () => {
     const bare = deserializeMetadata(serializeMetadata(base))
     expect(bare.tokenizer).toBeUndefined()
     expect(bare.stopWords).toBeUndefined()
+
+    const listed = deserializeMetadata(serializeMetadata({ ...base, stopWordList: ['an', 'the'] }))
+    expect(listed.stopWordList).toEqual(['an', 'the'])
+    expect(bare.stopWordList).toBeUndefined()
   })
 })

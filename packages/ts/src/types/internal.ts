@@ -126,6 +126,7 @@ export interface IndexMetadata {
   surfaceForms?: boolean
   tokenizer?: string
   stopWords?: string
+  stopWordList?: string[]
 }
 
 /** Persisted so recovery can restore field mappings and rebind the adapter by

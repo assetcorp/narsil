@@ -15,6 +15,7 @@ export interface SnapshotBundle {
   language: string
   tokenizer?: string
   stopWords?: string
+  stopWordList?: string[]
   partitions: Uint8Array[]
   vectorIndexes: Record<string, VectorIndexPayload>
   checkpoint: PartitionCheckpoint[]
@@ -26,6 +27,7 @@ interface RawSnapshotBundle {
   language?: string
   tokenizer?: unknown
   stop_words?: unknown
+  stop_word_list?: unknown
   partitions?: Uint8Array[]
   vectorIndexes?: Record<string, VectorIndexPayload>
   checkpoint?: Array<{ partitionId?: number; lastSeqNo?: number; primaryTerm?: number }>
@@ -38,6 +40,7 @@ export async function encodeSnapshotBundle(bundle: SnapshotBundle): Promise<Enve
     language: bundle.language,
     ...(bundle.tokenizer !== undefined ? { tokenizer: bundle.tokenizer } : {}),
     ...(bundle.stopWords !== undefined ? { stop_words: bundle.stopWords } : {}),
+    ...(bundle.stopWordList !== undefined ? { stop_word_list: bundle.stopWordList } : {}),
     partitions: bundle.partitions,
     vectorIndexes: bundle.vectorIndexes,
     checkpoint: bundle.checkpoint.map(c => ({
@@ -75,6 +78,7 @@ export async function decodeSnapshotBundle(data: Uint8Array): Promise<SnapshotBu
   if (raw.stop_words !== undefined && typeof raw.stop_words !== 'string') {
     throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Snapshot bundle stop_words must be a name')
   }
+  const stopWordList = normalizeStopWordList(raw.stop_word_list)
 
   return {
     version: 1,
@@ -82,10 +86,21 @@ export async function decodeSnapshotBundle(data: Uint8Array): Promise<SnapshotBu
     language: raw.language,
     ...(typeof raw.tokenizer === 'string' ? { tokenizer: raw.tokenizer } : {}),
     ...(typeof raw.stop_words === 'string' ? { stopWords: raw.stop_words } : {}),
+    ...(stopWordList !== undefined ? { stopWordList } : {}),
     partitions: raw.partitions,
     vectorIndexes: raw.vectorIndexes ?? {},
     checkpoint: normalizeCheckpoint(raw.checkpoint),
   }
+}
+
+function normalizeStopWordList(raw: unknown): string[] | undefined {
+  if (raw === undefined) {
+    return undefined
+  }
+  if (!Array.isArray(raw) || !raw.every(word => typeof word === 'string')) {
+    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Snapshot bundle stop_word_list must be a list of words')
+  }
+  return raw
 }
 
 function normalizeCheckpoint(raw: RawSnapshotBundle['checkpoint']): PartitionCheckpoint[] {
