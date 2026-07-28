@@ -1,3 +1,5 @@
+import type { ErrorCode } from '../../errors'
+
 export type ReplicationOperation = 'INDEX' | 'DELETE'
 
 export interface ReplicationLogEntry {
@@ -40,5 +42,5 @@ export interface ReplicateResult {
 
 export interface EntryValidation {
   valid: boolean
-  error?: string
+  error?: ErrorCode
 }

@@ -35,5 +35,10 @@ export interface DurabilityManager {
   checkpoint(indexName: string): Promise<void>
   checkpointAll(): Promise<void>
   removeIndex(indexName: string): Promise<void>
+  reloadIndex?(indexName: string): Promise<void>
   shutdown(): Promise<void>
+}
+
+export interface CheckpointPublisher {
+  publishPartitions(indexName: string, partitions: number[]): Promise<void>
 }

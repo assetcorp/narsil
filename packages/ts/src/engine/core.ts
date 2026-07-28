@@ -17,6 +17,7 @@ import { createDirectExecutor, type DirectExecutorExtensions } from '../workers/
 import type { Executor } from '../workers/executor'
 import { createExecutionPromoter, type ExecutionPromoter } from '../workers/promoter'
 import { createDurabilityIntegration, type DurabilityIntegration, type DurabilityTier } from './durability-integration'
+import { createInvalidationFromConfig, type InvalidationIntegration } from './invalidation'
 import type { MutationContext } from './mutations'
 import { createWorkerOrchestrator, type WorkerOrchestrator } from './orchestration'
 import type { RebalanceContext } from './rebalance-executor'
@@ -43,6 +44,7 @@ export interface EngineCore {
   readonly promoter: ExecutionPromoter
   readonly pluginRegistry: PluginRegistry
   readonly durability: DurabilityIntegration | null
+  readonly invalidation: InvalidationIntegration | null
   readonly idGenerator: () => string
   readonly indexRegistry: Map<string, IndexRegistryEntry>
   readonly embeddingAdapters: Map<string, EmbeddingAdapter>
@@ -111,21 +113,16 @@ interface DurabilityWiring {
   indexRegistry: Map<string, IndexRegistryEntry>
   createIndexFromMetadata: (metadata: IndexMetadata) => Promise<void>
   emitFatalError: (error: Error) => void
+  publishCheckpointedPartitions: (indexName: string, partitions: number[]) => Promise<void>
 }
 
-function createDurabilityFromConfig(
-  config: NarsilConfig | undefined,
-  wiring: DurabilityWiring,
-): DurabilityIntegration | null {
-  if (config === undefined) {
-    return null
-  }
-  const tier = resolveDurabilityTier(config)
+function createDurabilityFromTier(tier: DurabilityTier | null, wiring: DurabilityWiring): DurabilityIntegration | null {
   if (tier === null) {
     return null
   }
 
   return createDurabilityIntegration(tier, {
+    checkpointPublisher: { publishPartitions: wiring.publishCheckpointedPartitions },
     getManager: indexName => (wiring.indexRegistry.has(indexName) ? wiring.requireManager(indexName) : undefined),
     getVectorFieldPaths: indexName => wiring.indexRegistry.get(indexName)?.vectorFieldPaths ?? new Set<string>(),
     getVectorIndexes: indexName =>
@@ -298,7 +295,10 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     })
   }
 
-  const durability = createDurabilityFromConfig(config, {
+  const durabilityTier = config !== undefined ? resolveDurabilityTier(config) : null
+  let invalidation: InvalidationIntegration | null = null
+
+  const durability = createDurabilityFromTier(durabilityTier, {
     requireManager,
     indexRegistry,
     createIndexFromMetadata,
@@ -307,6 +307,30 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
       if (handlers) {
         for (const handler of handlers) handler({ error })
       }
+    },
+    publishCheckpointedPartitions: (indexName, partitions) =>
+      invalidation?.publishPartitions(indexName, partitions) ?? Promise.resolve(),
+  })
+
+  invalidation = createInvalidationFromConfig(config, durabilityTier?.kind ?? null, {
+    getManager: indexName => executor.getManager(indexName) ?? undefined,
+    listBroadcastIndexNames: () => {
+      const names: string[] = []
+      for (const [name, entry] of indexRegistry) {
+        if (entry.config.defaultScoring === 'broadcast') {
+          names.push(name)
+        }
+      }
+      return names
+    },
+    reloadIndex: indexName => durability?.manager.reloadIndex?.(indexName) ?? Promise.resolve(),
+    onError(error: Error) {
+      const handlers = eventHandlers.get('invalidationError')
+      if (!handlers || handlers.size === 0) {
+        console.warn('Invalidation error:', error)
+        return
+      }
+      for (const handler of handlers) handler({ error })
     },
   })
 
@@ -338,6 +362,7 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     promoter,
     pluginRegistry,
     durability,
+    invalidation,
     idGenerator,
     indexRegistry,
     embeddingAdapters,

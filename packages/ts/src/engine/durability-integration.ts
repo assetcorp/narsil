@@ -4,7 +4,7 @@ import type { ReplicationOperation } from '../distribution/replication/types'
 import { VERSION } from '../index'
 import { createDurabilityManager, type DurabilityManager } from '../persistence/durability'
 import { createSnapshotOnlyManager } from '../persistence/durability/snapshot-only'
-import type { IndexDurabilityHooks } from '../persistence/durability/types'
+import type { CheckpointPublisher, IndexDurabilityHooks } from '../persistence/durability/types'
 import type { PersistenceAdapter } from '../types/adapters'
 import type { DurabilityConfig } from '../types/config'
 import type { IndexEmbeddingMetadata, IndexMetadata } from '../types/internal'
@@ -58,6 +58,7 @@ export interface DurabilityIntegrationHooks {
     | undefined
   createIndexFromMetadata: IndexDurabilityHooks['createIndexFromMetadata']
   onFatalError: IndexDurabilityHooks['onFatalError']
+  checkpointPublisher?: CheckpointPublisher
 }
 
 function buildMetadata(indexName: string, hooks: DurabilityIntegrationHooks): IndexMetadata | undefined {
@@ -127,7 +128,7 @@ export function createDurabilityIntegration(
   const manager =
     tier.kind === 'wal'
       ? createDurabilityManager(tier.config, managerHooks)
-      : createSnapshotOnlyManager(tier.adapter, tier.config, managerHooks)
+      : createSnapshotOnlyManager(tier.adapter, tier.config, managerHooks, hooks.checkpointPublisher)
 
   function partitionFor(indexName: string, docId: string): number {
     const partitionManager = hooks.getManager(indexName)

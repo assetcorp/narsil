@@ -38,6 +38,7 @@ import { createSnapshotSyncHandlerState, defaultSnapshotHeaderMetadataProvider }
 import { createMultiplexedControllerTransport } from './transport-listener'
 import type { ClusterNamespace, ClusterNode, ClusterNodeConfig, CreateIndexOptions } from './types'
 import { DEFAULT_CAPACITY } from './types'
+import { validateClusterNodeConfig } from './validate-config'
 import {
   routeCreateIndex,
   routeInsert,
@@ -66,11 +67,11 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   }
 
   function getReplicationLog(indexName: string, partitionId: number): ReplicationLog {
-    return readReplicationLog(replicationLogs, indexName, partitionId)
+    return readReplicationLog(replicationLogs, indexName, partitionId, config.replication)
   }
 
   function seedReplicationLog(indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm = 0): void {
-    writeSeededReplicationLog(replicationLogs, indexName, partitionId, startSeqNo, lastPrimaryTerm)
+    writeSeededReplicationLog(replicationLogs, indexName, partitionId, startSeqNo, lastPrimaryTerm, config.replication)
   }
 
   async function resolveNodeTargets(targetNodeId: string): Promise<string[]> {
@@ -119,6 +120,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     getReplicationLog,
     resetReplicationLog: seedReplicationLog,
     resolveNodeTargets,
+    waitForActiveReplicas: config.replication?.waitForActiveReplicas,
   }
 
   let lifecycle: DataNodeHandle | null = null
@@ -346,37 +348,6 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       partitionId,
       primaryTerm: assignment?.primaryTerm ?? fallback.primaryTerm,
       lastSeqNo: log.newestSeqNo ?? 0,
-    }
-  }
-}
-
-function validateClusterNodeConfig(config: ClusterNodeConfig): void {
-  if (config.address.length === 0) {
-    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'ClusterNodeConfig.address must not be empty')
-  }
-
-  if (config.roles !== undefined) {
-    if (config.roles.length === 0) {
-      throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'ClusterNodeConfig.roles must contain at least one role')
-    }
-
-    const validRoles = new Set<NodeRole>(['data', 'coordinator', 'controller'])
-    for (const role of config.roles) {
-      if (!validRoles.has(role)) {
-        throw new NarsilError(ErrorCodes.CONFIG_INVALID, `Invalid role: '${role}'`, { role })
-      }
-    }
-  }
-
-  if (config.capacity !== undefined) {
-    if (config.capacity.memoryBytes <= 0 || !Number.isFinite(config.capacity.memoryBytes)) {
-      throw new NarsilError(
-        ErrorCodes.CONFIG_INVALID,
-        'ClusterNodeConfig.capacity.memoryBytes must be a positive finite number',
-      )
-    }
-    if (config.capacity.cpuCores <= 0 || !Number.isInteger(config.capacity.cpuCores)) {
-      throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'ClusterNodeConfig.capacity.cpuCores must be a positive integer')
     }
   }
 }

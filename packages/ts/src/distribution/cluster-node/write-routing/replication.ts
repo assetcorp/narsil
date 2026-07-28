@@ -20,7 +20,7 @@ export async function assertPrimaryWriteAuthority(entry: ReplicationLogEntry, de
   }
 
   throw new NarsilError(
-    ErrorCodes.QUERY_ROUTING_FAILED,
+    ErrorCodes.PARTITION_NOT_PRIMARY,
     `Primary authority changed before acknowledging write for index '${entry.indexName}' partition ${entry.partitionId}`,
     {
       indexName: entry.indexName,

@@ -102,8 +102,8 @@ export function validateSyncEntryForApply(
   const validation = validateReplicationEntry(entry, localPrimaryTerm, log)
   if (!validation.valid) {
     return new NarsilError(
-      ErrorCodes.REPLICATION_ENTRY_INVALID,
-      `Invalid sync entry ${entry.seqNo}: ${validation.error ?? 'unknown validation error'}`,
+      validation.error ?? ErrorCodes.REPLICATION_ENTRY_INVALID,
+      `Invalid sync entry ${entry.seqNo}`,
       { indexName, partitionId, seqNo: entry.seqNo },
     )
   }

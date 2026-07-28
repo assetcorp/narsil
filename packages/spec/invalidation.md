@@ -142,6 +142,10 @@ The protocol provides none of the following:
 - Leader election.
 - Conflict resolution beyond last-writer-wins at the persistence layer.
 
+### Delivery Limits
+
+Delivery is best effort across subscriber lifetimes. The at-least-once guarantee above covers a subscribed instance; an instance that is not subscribed when an event is published, because it is offline, restarting, or not yet started, never receives that event. A missed partition event leaves the instance serving its stale copy until the next event for that index arrives. An application that cannot tolerate that window must reload on its own schedule or coordinate above Narsil.
+
 ### Conflicting Mutations
 
 When two instances mutate the same partition at the same time, both persist their version under the same key and the later write replaces the earlier one. Both then publish invalidation events, and every instance, including the one whose write was replaced, reloads the surviving version. The replaced mutations are gone.

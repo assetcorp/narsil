@@ -346,6 +346,8 @@ Only a primary needs access to the embedding adapter, so a replica runs with no 
 | `REPLICATION_TERM_MISMATCH` | A replica received an entry carrying a stale primaryTerm. |
 | `REPLICATION_SYNC_FAILED` | The sync protocol, incremental or snapshot, failed to finish. |
 | `REPLICATION_ROLLBACK_FAILED` | A primary-local mutation failed before acknowledgement and the rollback failed too. |
+| `REPLICATION_ENTRY_INVALID` | A received entry is malformed, out of order, or not addressed to the receiving replica. |
+| `REPLICATION_INSYNC_REMOVAL_FAILED` | The primary could not remove a failed replica from the in-sync set, because no controller was reachable or the controller rejected the request. |
 | `PARTITION_NOT_PRIMARY` | A write reached a node that is not the primary for the target partition. |
 | `PARTITION_UNASSIGNED` | The target partition has no primary, because every copy was lost. |
 | `INSUFFICIENT_REPLICAS` | The `waitForActiveReplicas` check failed. |

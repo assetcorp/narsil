@@ -1,6 +1,8 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
+import { type ErrorCode, ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
+import { crc32 } from '../../serialization/crc32'
 import { deserializePayloadV2 } from '../../serialization/payload-v2'
 import type { VectorIndex } from '../../vector/vector-index'
 import type {
@@ -37,6 +39,7 @@ export interface SyncResult {
   newSeqNo: number
   tier: 'incremental' | 'snapshot' | 'none'
   entriesApplied: number
+  error?: NarsilError
 }
 
 export async function initiateSync(
@@ -69,7 +72,17 @@ export async function initiateSync(
     return handleSnapshotSync(response, primaryNodeId, lastPrimaryTerm, deps)
   }
 
-  return { synced: false, newSeqNo: lastSeqNo, tier: 'none', entriesApplied: 0 }
+  return {
+    synced: false,
+    newSeqNo: lastSeqNo,
+    tier: 'none',
+    entriesApplied: 0,
+    error: new NarsilError(
+      ErrorCodes.REPLICATION_SYNC_FAILED,
+      `Sync request received unexpected response type '${response.type}' from primary '${primaryNodeId}'`,
+      { indexName: deps.indexName, partitionId: deps.partitionId, responseType: response.type },
+    ),
+  }
 }
 
 function handleIncrementalSync(
@@ -91,7 +104,13 @@ function handleIncrementalSync(
   for (const entry of entries) {
     const validation = validateReplicationEntry(entry, localPrimaryTerm, deps.log)
     if (!validation.valid) {
-      return { synced: false, newSeqNo: highestSeqNo, tier: 'incremental', entriesApplied: applied }
+      return {
+        synced: false,
+        newSeqNo: highestSeqNo,
+        tier: 'incremental',
+        entriesApplied: applied,
+        error: entryValidationError(entry.seqNo, validation.error, deps),
+      }
     }
 
     applyEntry(entry, deps)
@@ -117,7 +136,17 @@ async function handleSnapshotSync(
   const expectedTotalBytes = startPayload.totalBytes
 
   if (expectedTotalBytes > MAX_SNAPSHOT_SIZE_BYTES) {
-    return { synced: false, newSeqNo: header.lastSeqNo, tier: 'snapshot', entriesApplied: 0 }
+    return {
+      synced: false,
+      newSeqNo: header.lastSeqNo,
+      tier: 'snapshot',
+      entriesApplied: 0,
+      error: new NarsilError(
+        ErrorCodes.REPLICATION_SYNC_FAILED,
+        `Snapshot of ${expectedTotalBytes} bytes exceeds the ${MAX_SNAPSHOT_SIZE_BYTES} byte limit`,
+        { indexName: deps.indexName, partitionId: deps.partitionId, totalBytes: expectedTotalBytes },
+      ),
+    }
   }
 
   const fetchMessage: TransportMessage = {
@@ -133,7 +162,13 @@ async function handleSnapshotSync(
   const streamState = createSnapshotStreamState({ indexName: deps.indexName, partitionId: deps.partitionId })
   seedSnapshotStreamStart(streamState, startPayload)
   if (streamState.failure !== null) {
-    return { synced: false, newSeqNo: header.lastSeqNo, tier: 'snapshot', entriesApplied: 0 }
+    return {
+      synced: false,
+      newSeqNo: header.lastSeqNo,
+      tier: 'snapshot',
+      entriesApplied: 0,
+      error: snapshotStreamError(streamState.failure.message, streamState.failure.code, deps),
+    }
   }
   const trailingEntries: ReplicationLogEntry[] = []
 
@@ -163,7 +198,33 @@ async function handleSnapshotSync(
 
   const finalized = finalizeSnapshotStream(streamState)
   if (!finalized.ok) {
-    return { synced: false, newSeqNo: header.lastSeqNo, tier: 'snapshot', entriesApplied: 0 }
+    return {
+      synced: false,
+      newSeqNo: header.lastSeqNo,
+      tier: 'snapshot',
+      entriesApplied: 0,
+      error: snapshotStreamError(finalized.message, finalized.code, deps),
+    }
+  }
+
+  const computedChecksum = crc32(finalized.bytes)
+  if (computedChecksum !== header.checksum) {
+    return {
+      synced: false,
+      newSeqNo: header.lastSeqNo,
+      tier: 'snapshot',
+      entriesApplied: 0,
+      error: new NarsilError(
+        ErrorCodes.REPLICATION_SNAPSHOT_CORRUPT,
+        `Snapshot checksum ${computedChecksum} does not match header checksum ${header.checksum}`,
+        {
+          indexName: deps.indexName,
+          partitionId: deps.partitionId,
+          computedChecksum,
+          headerChecksum: header.checksum,
+        },
+      ),
+    }
   }
 
   const partition = deserializePayloadV2(finalized.bytes)
@@ -175,7 +236,13 @@ async function handleSnapshotSync(
   for (const entry of trailingEntries) {
     const validation = validateReplicationEntry(entry, localPrimaryTerm, deps.log)
     if (!validation.valid) {
-      break
+      return {
+        synced: false,
+        newSeqNo: highestSeqNo,
+        tier: 'snapshot',
+        entriesApplied: applied,
+        error: entryValidationError(entry.seqNo, validation.error, deps),
+      }
     }
 
     applyEntry(entry, deps)
@@ -188,6 +255,22 @@ async function handleSnapshotSync(
   }
 
   return { synced: true, newSeqNo: highestSeqNo, tier: 'snapshot', entriesApplied: applied }
+}
+
+function entryValidationError(seqNo: number, code: ErrorCode | undefined, deps: SyncReplicaDeps): NarsilError {
+  return new NarsilError(code ?? ErrorCodes.REPLICATION_SYNC_FAILED, `Invalid replication entry ${seqNo}`, {
+    indexName: deps.indexName,
+    partitionId: deps.partitionId,
+    seqNo,
+  })
+}
+
+function snapshotStreamError(message: string, cause: ErrorCode, deps: SyncReplicaDeps): NarsilError {
+  return new NarsilError(ErrorCodes.REPLICATION_SYNC_FAILED, `Snapshot sync failed: ${message}`, {
+    indexName: deps.indexName,
+    partitionId: deps.partitionId,
+    cause,
+  })
 }
 
 function applyEntry(entry: ReplicationLogEntry, deps: SyncReplicaDeps): void {

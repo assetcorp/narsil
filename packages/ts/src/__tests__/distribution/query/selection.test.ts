@@ -3,6 +3,7 @@ import type { AllocationTable, PartitionAssignment } from '../../../distribution
 import {
   collectActiveCandidates,
   hashBasedSelector,
+  randomSelector,
   selectReplica,
   selectReplicasForQuery,
 } from '../../../distribution/query/selection'
@@ -82,6 +83,28 @@ describe('hashBasedSelector', () => {
 
   it('returns the only candidate when there is one', () => {
     expect(hashBasedSelector(['node-x'], 99)).toBe('node-x')
+  })
+})
+
+describe('randomSelector', () => {
+  it('always returns a member of the candidate list', () => {
+    const candidates = ['node-a', 'node-b', 'node-c']
+    for (let i = 0; i < 50; i += 1) {
+      expect(candidates).toContain(randomSelector(candidates, i))
+    }
+  })
+
+  it('spreads selections across more than one candidate', () => {
+    const candidates = ['node-a', 'node-b', 'node-c']
+    const seen = new Set<string>()
+    for (let i = 0; i < 200; i += 1) {
+      seen.add(randomSelector(candidates, 0))
+    }
+    expect(seen.size).toBeGreaterThan(1)
+  })
+
+  it('returns the only candidate when there is one', () => {
+    expect(randomSelector(['node-x'], 7)).toBe('node-x')
   })
 })
 
@@ -167,15 +190,34 @@ describe('selectReplicasForQuery', () => {
     expect(routing.unavailablePartitions).toEqual([])
   })
 
-  it('produces deterministic results for the same input', () => {
+  it('selects only active candidates under the random default', () => {
     const table = makeAllocationTable([
       [0, makeAssignment({ primary: 'node-a', replicas: ['node-b', 'node-c'] })],
       [1, makeAssignment({ primary: 'node-b', replicas: ['node-a', 'node-c'] })],
       [2, makeAssignment({ primary: 'node-c', replicas: ['node-a', 'node-b'] })],
     ])
 
-    const routing1 = selectReplicasForQuery(table, null)
-    const routing2 = selectReplicasForQuery(table, null)
+    for (let i = 0; i < 20; i += 1) {
+      const routing = selectReplicasForQuery(table, null)
+      expect(routing.unavailablePartitions).toEqual([])
+      const assigned: number[] = []
+      for (const [nodeId, partitions] of routing.nodeToPartitions) {
+        expect(['node-a', 'node-b', 'node-c']).toContain(nodeId)
+        assigned.push(...partitions)
+      }
+      expect(assigned.sort()).toEqual([0, 1, 2])
+    }
+  })
+
+  it('produces deterministic results when a deterministic selector is passed', () => {
+    const table = makeAllocationTable([
+      [0, makeAssignment({ primary: 'node-a', replicas: ['node-b', 'node-c'] })],
+      [1, makeAssignment({ primary: 'node-b', replicas: ['node-a', 'node-c'] })],
+      [2, makeAssignment({ primary: 'node-c', replicas: ['node-a', 'node-b'] })],
+    ])
+
+    const routing1 = selectReplicasForQuery(table, null, hashBasedSelector)
+    const routing2 = selectReplicasForQuery(table, null, hashBasedSelector)
 
     for (const [nodeId, partitions] of routing1.nodeToPartitions) {
       expect(routing2.nodeToPartitions.get(nodeId)).toEqual(partitions)

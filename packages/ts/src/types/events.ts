@@ -27,4 +27,7 @@ export type NarsilEventMap = {
   durabilityError: {
     error: Error
   }
+  invalidationError: {
+    error: Error
+  }
 }

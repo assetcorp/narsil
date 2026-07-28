@@ -89,6 +89,14 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.REPLICATION_ENTRY_INVALID).toBe('REPLICATION_ENTRY_INVALID')
     expect(ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED).toBe('REPLICATION_INSYNC_REMOVAL_FAILED')
     expect(ErrorCodes.REPLICATION_ROLLBACK_FAILED).toBe('REPLICATION_ROLLBACK_FAILED')
+    expect(ErrorCodes.REPLICATION_LOG_FULL).toBe('REPLICATION_LOG_FULL')
+    expect(ErrorCodes.REPLICATION_ENTRY_CORRUPT).toBe('REPLICATION_ENTRY_CORRUPT')
+    expect(ErrorCodes.REPLICATION_SNAPSHOT_CORRUPT).toBe('REPLICATION_SNAPSHOT_CORRUPT')
+    expect(ErrorCodes.REPLICATION_TERM_MISMATCH).toBe('REPLICATION_TERM_MISMATCH')
+    expect(ErrorCodes.REPLICATION_SYNC_FAILED).toBe('REPLICATION_SYNC_FAILED')
+    expect(ErrorCodes.PARTITION_NOT_PRIMARY).toBe('PARTITION_NOT_PRIMARY')
+    expect(ErrorCodes.PARTITION_UNASSIGNED).toBe('PARTITION_UNASSIGNED')
+    expect(ErrorCodes.INSUFFICIENT_REPLICAS).toBe('INSUFFICIENT_REPLICAS')
   })
 
   it('has all expected snapshot sync error codes', () => {
@@ -120,8 +128,8 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.SNAPSHOT_SYNC_ABORTED).toBe('SNAPSHOT_SYNC_ABORTED')
   })
 
-  it('has exactly 80 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(80)
+  it('has exactly 88 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(88)
   })
 
   it('has unique values for every code', () => {

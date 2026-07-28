@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createReplicationLog, DEFAULT_LOG_RETENTION_BYTES } from '../../../../distribution/replication'
+import type { NarsilError } from '../../../../errors'
 import { makeDeleteEntry, makeIndexEntry } from './fixtures'
 
 describe('ReplicationLog retention eviction', () => {
@@ -137,5 +138,52 @@ describe('ReplicationLog different partitions', () => {
     expect(entry1.seqNo).toBe(1)
     expect(log0.entryCount).toBe(1)
     expect(log1.entryCount).toBe(1)
+  })
+})
+
+describe('ReplicationLog full', () => {
+  function captureCode(fn: () => void): string | undefined {
+    try {
+      fn()
+    } catch (err) {
+      return (err as NarsilError).code
+    }
+    return undefined
+  }
+
+  it('throws REPLICATION_LOG_FULL when a single entry exceeds the retention limit', () => {
+    const log = createReplicationLog(0, { logRetentionBytes: 200 })
+    const code = captureCode(() =>
+      log.append(makeIndexEntry({ documentId: 'doc-huge', document: new Uint8Array(500) })),
+    )
+    expect(code).toBe('REPLICATION_LOG_FULL')
+    expect(log.entryCount).toBe(0)
+    expect(log.newestSeqNo).toBeUndefined()
+  })
+
+  it('does not burn a sequence number on a rejected oversized entry', () => {
+    const log = createReplicationLog(0, { logRetentionBytes: 200 })
+    const code = captureCode(() =>
+      log.append(makeIndexEntry({ documentId: 'doc-huge', document: new Uint8Array(500) })),
+    )
+    expect(code).toBe('REPLICATION_LOG_FULL')
+    const accepted = log.append(makeIndexEntry({ documentId: 'doc-1', document: new Uint8Array(50) }))
+    expect(accepted.seqNo).toBe(1)
+  })
+
+  it('throws REPLICATION_LOG_FULL from appendCommitted for an unbufferable entry', () => {
+    const source = createReplicationLog(0)
+    const entry = source.append(makeIndexEntry({ documentId: 'doc-huge', document: new Uint8Array(500) }))
+    const replicaLog = createReplicationLog(0, { logRetentionBytes: 200 })
+    const code = captureCode(() => replicaLog.appendCommitted(entry))
+    expect(code).toBe('REPLICATION_LOG_FULL')
+  })
+
+  it('accepts an entry exactly at the retention limit', () => {
+    const overheadBytes = 40 + 'products'.length + 'doc-1'.length
+    const log = createReplicationLog(0, { logRetentionBytes: overheadBytes + 50 })
+    const entry = log.append(makeIndexEntry({ documentId: 'doc-1', document: new Uint8Array(50) }))
+    expect(entry.seqNo).toBe(1)
+    expect(log.entryCount).toBe(1)
   })
 })
