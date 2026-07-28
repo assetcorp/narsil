@@ -27,7 +27,7 @@ export const hindiFixture = defineLanguageFixture({
         'ऍथनोलॉग',
         'के',
         'अनुसार',
-        'हिन्दी',
+        'हिंदी',
         'विश्व',
         'की',
         'तीसरी',

@@ -27,10 +27,10 @@ export const portugueseFixture = defineLanguageFixture({
   ],
   indivisible: ['conseqüência', 'qüinqüênio', 'gaüchismo', 'lingüiça', 'português', 'românica'],
   separates: [
-    { text: 'qüinqüênio e conseqüência', tokens: ['qüinqüênio', 'e', 'conseqüência'] },
+    { text: 'qüinqüênio e conseqüência', tokens: ['quinquênio', 'e', 'consequência'] },
     {
       text: 'em palavras como gaüchismo',
-      tokens: ['em', 'palavras', 'como', 'gaüchismo'],
+      tokens: ['em', 'palavras', 'como', 'gauchismo'],
     },
   ],
   equivalent: [

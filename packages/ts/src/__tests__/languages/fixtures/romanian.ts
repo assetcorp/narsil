@@ -41,9 +41,9 @@ export const romanianFixture = defineLanguageFixture({
     },
     {
       text: 'Călăuzindu-se de principiile Constituţiei Republicii Moldova;',
-      tokens: ['călăuzindu', 'se', 'de', 'principiile', 'constituţiei', 'republicii', 'moldova'],
+      tokens: ['călăuzindu', 'se', 'de', 'principiile', 'constituției', 'republicii', 'moldova'],
     },
-    { text: 'limbii şi culturii naţionale', tokens: ['limbii', 'şi', 'culturii', 'naţionale'] },
+    { text: 'limbii şi culturii naţionale', tokens: ['limbii', 'și', 'culturii', 'naționale'] },
   ],
   equivalent: [
     ['şi', 'și'],

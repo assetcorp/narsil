@@ -26,7 +26,7 @@ export const danishFixture = defineLanguageFixture({
   ],
   indivisible: ['idé', 'idéer', 'indoeuropæiske', 'påvirket', 'østnordisk', 'beslægtet'],
   separates: [
-    { text: 'En idé er en bevidst tanke', tokens: ['en', 'idé', 'er', 'en', 'bevidst', 'tanke'] },
+    { text: 'En idé er en bevidst tanke', tokens: ['en', 'ide', 'er', 'en', 'bevidst', 'tanke'] },
     {
       text: 'Dansk er et østnordisk sprog',
       tokens: ['dansk', 'er', 'et', 'østnordisk', 'sprog'],

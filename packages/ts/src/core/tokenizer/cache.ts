@@ -121,6 +121,10 @@ export function transformToken(
 
   let normalized = raw
 
+  if (language.normalizer) {
+    normalized = language.normalizer(normalized)
+  }
+
   if (removeDiacritics) {
     normalized = stripDiacritics(normalized)
   }
