@@ -150,6 +150,7 @@ function createDurabilityFromConfig(
         ...(entry.config.surfaceForms === true ? { surfaceForms: true } : {}),
         ...(typeof entry.config.tokenizer === 'string' ? { tokenizer: entry.config.tokenizer } : {}),
         ...(typeof entry.config.stopWords === 'string' ? { stopWords: entry.config.stopWords } : {}),
+        ...(entry.config.stopWords instanceof Set ? { stopWordList: [...entry.config.stopWords].sort() } : {}),
       }
     },
     createIndexFromMetadata: wiring.createIndexFromMetadata,

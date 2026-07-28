@@ -117,6 +117,32 @@ describe('snapshot bundle', () => {
     expect(raw.stopWords).toBeUndefined()
   })
 
+  it('round-trips a literal stop word list under the stop_word_list wire key', async () => {
+    const bytes = await encodeBundleBytes({ ...sampleBundle(), stopWordList: ['an', 'the'] })
+    const { unpackEnvelopeBytes } = await import('../../../serialization/envelope')
+    const { payloadBytes } = await unpackEnvelopeBytes(bytes)
+    const { decode } = await import('@msgpack/msgpack')
+    const raw = decode(payloadBytes) as Record<string, unknown>
+    expect(raw.stop_word_list).toEqual(['an', 'the'])
+
+    const decoded = await decodeSnapshotBundle(bytes)
+    expect(decoded.stopWordList).toEqual(['an', 'the'])
+
+    const bare = await decodeSnapshotBundle(await encodeBundleBytes(sampleBundle()))
+    expect(bare.stopWordList).toBeUndefined()
+  })
+
+  it('rejects a stop word list that is not a list of strings', async () => {
+    const { packEnvelopeBytes } = await import('../../../serialization/envelope')
+    const base = { version: 1, schema: { title: 'string' }, language: 'english', partitions: [] }
+
+    const notAList = await packEnvelopeBytes(encode({ ...base, stop_word_list: 'the' }), { checksum: true })
+    await expect(decodeSnapshotBundle(notAList)).rejects.toBeInstanceOf(NarsilError)
+
+    const mixedList = await packEnvelopeBytes(encode({ ...base, stop_word_list: ['the', 7] }), { checksum: true })
+    await expect(decodeSnapshotBundle(mixedList)).rejects.toBeInstanceOf(NarsilError)
+  })
+
   it('rejects a bundle whose analysis name is not a string', async () => {
     const { packEnvelopeBytes } = await import('../../../serialization/envelope')
     const base = { version: 1, schema: { title: 'string' }, language: 'english', partitions: [] }

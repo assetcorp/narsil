@@ -88,6 +88,7 @@ interface RawMetadataPayload {
   surface_forms_enabled?: boolean
   tokenizer?: string
   stop_words?: string
+  stop_word_list?: string[]
 }
 
 function partitionToWire(partition: SerializablePartition): RawPartitionPayload {
@@ -296,6 +297,9 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
   if (meta.stopWords !== undefined) {
     wire.stop_words = meta.stopWords
   }
+  if (meta.stopWordList !== undefined) {
+    wire.stop_word_list = meta.stopWordList
+  }
   return wire
 }
 
@@ -326,6 +330,9 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
   }
   if (typeof raw.stop_words === 'string') {
     meta.stopWords = raw.stop_words
+  }
+  if (Array.isArray(raw.stop_word_list) && raw.stop_word_list.every(word => typeof word === 'string')) {
+    meta.stopWordList = raw.stop_word_list
   }
   return meta
 }

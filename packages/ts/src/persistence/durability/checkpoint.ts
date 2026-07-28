@@ -11,6 +11,7 @@ export interface CheckpointInput {
   language: string
   tokenizer?: string
   stopWords?: string
+  stopWordList?: string[]
   manager: PartitionManager
   vectorIndexes: Map<string, VectorIndex>
   seqNoByPartition: Map<number, number>
@@ -51,6 +52,7 @@ export async function buildSnapshotBundleBytes(
     language: input.language,
     ...(input.tokenizer !== undefined ? { tokenizer: input.tokenizer } : {}),
     ...(input.stopWords !== undefined ? { stopWords: input.stopWords } : {}),
+    ...(input.stopWordList !== undefined ? { stopWordList: input.stopWordList } : {}),
     partitions: partitionBuffers,
     vectorIndexes: vectorPayloads,
     checkpoint,
