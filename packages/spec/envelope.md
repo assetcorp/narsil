@@ -284,6 +284,8 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   vector_fields:         Map<string, VectorFieldMeta>
   embedding:             EmbeddingMeta  (optional)
   surface_forms_enabled: boolean        (optional)
+  tokenizer:             string         (optional; the name the tokeniser was registered under)
+  stop_words:            string         (optional; the name the stop word set was registered under)
 }
 
 VectorFieldMeta {
@@ -303,6 +305,8 @@ EmbeddingMeta {
 The `embedding` block records the index's automatic embedding configuration: the field mappings defined in [Embedding Configuration](adapters.md#embedding-configuration), and the name the embedding adapter was registered under. The block is additive, so a reader that skips it treats the index as having no automatic embedding, which is exactly how every metadata payload written before the block existed behaves. The `adapter` name appears only when the index was created with a named adapter, because an adapter instance holds live resources and cannot be serialised. Recovery uses the name to rebind the adapter from the engine's registry; see [Index Metadata](durability.md#index-metadata).
 
 The `surface_forms_enabled` field records that the index collects surface forms, as described in [Surface Forms](#surface-forms). A writer includes it only when collection is on, and a reader treats an absent field as off, matching every metadata payload written before the field existed. Recovery reads the value so that the index keeps collecting surfaces after a restart.
+
+The `tokenizer` and `stop_words` fields record the names the index resolved its analysis from, as described in [Analysis Registry](adapters.md#analysis-registry). A writer includes each field only when the index configuration gave a name, because a tokeniser instance and a stop word function are code and no payload carries code. A reader treats an absent field as the language default. Recovery resolves each name against the engine's analysis registry so that a recovered index analyses text the way the original did; see [Index Metadata](durability.md#index-metadata).
 
 ---
 
