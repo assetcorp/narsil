@@ -22,6 +22,7 @@ export interface PartitionManager {
   setPartitions(partitions: PartitionIndex[]): void
   addPartition(): PartitionIndex
   removePartition(partitionId: number): void
+  trimPartitions(count: number): void
 
   insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
   remove(docId: string): void
@@ -186,6 +187,24 @@ export function createPartitionManager(
       validatePartitionId(partitionId)
       partitions.splice(partitionId, 1)
       rebuildDocPartitionMap()
+    },
+
+    trimPartitions(newCount: number): void {
+      if (newCount < 1) {
+        throw new NarsilError(ErrorCodes.CONFIG_INVALID, `Cannot trim index "${indexName}" below one partition`, {
+          indexName,
+          requestedCount: newCount,
+        })
+      }
+      if (newCount >= partitions.length) {
+        return
+      }
+      for (const [docId, pid] of docPartitionMap) {
+        if (pid >= newCount) {
+          docPartitionMap.delete(docId)
+        }
+      }
+      partitions.length = newCount
     },
 
     insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void {

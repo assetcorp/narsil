@@ -135,8 +135,9 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
           entry.language,
           entry.config.schema,
           {
-            scoringMode: entry.config.defaultScoring ?? 'local',
+            scoringMode: action.params.scoring ?? entry.config.defaultScoring ?? 'local',
             partitionIds: action.partitionIds,
+            ...(action.globalStats !== undefined ? { globalStats: action.globalStats } : {}),
           },
           entry.searchOptions,
         )

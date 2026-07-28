@@ -80,6 +80,16 @@ function filesystemBackedDirectory(config: NarsilConfig): string | null {
 function resolveDurabilityTier(config: NarsilConfig): DurabilityTier | null {
   const filesystemDirectory = filesystemBackedDirectory(config)
 
+  if (config.durability?.tier === 'snapshot') {
+    if (config.persistence === undefined) {
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        'Snapshot durability persists through a persistence adapter. Configure persistence, or remove durability.tier',
+      )
+    }
+    return { kind: 'snapshot', config: { ...config.durability }, adapter: config.persistence }
+  }
+
   if (config.durability) {
     if (config.durability.directory !== undefined && config.durability.directory.trim().length > 0) {
       return { kind: 'wal', config: { ...config.durability } }

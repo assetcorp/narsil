@@ -1,5 +1,5 @@
 import { generateId } from '../core/id-generator'
-import type { SerializablePartition } from '../types/internal'
+import type { GlobalStatistics, SerializablePartition } from '../types/internal'
 import type { AnyDocument, IndexConfig } from '../types/schema'
 import type { QueryParams } from '../types/search'
 
@@ -7,7 +7,14 @@ export type WorkerAction =
   | { type: 'insert'; indexName: string; docId: string; document: AnyDocument; requestId: string; skipClone?: boolean }
   | { type: 'remove'; indexName: string; docId: string; requestId: string }
   | { type: 'update'; indexName: string; docId: string; document: AnyDocument; requestId: string }
-  | { type: 'query'; indexName: string; params: QueryParams; requestId: string; partitionIds?: number[] }
+  | {
+      type: 'query'
+      indexName: string
+      params: QueryParams
+      requestId: string
+      partitionIds?: number[]
+      globalStats?: GlobalStatistics
+    }
   | { type: 'preflight'; indexName: string; params: QueryParams; requestId: string }
   | { type: 'get'; indexName: string; docId: string; requestId: string }
   | { type: 'has'; indexName: string; docId: string; requestId: string }

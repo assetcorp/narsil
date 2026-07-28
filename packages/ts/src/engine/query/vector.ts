@@ -5,6 +5,7 @@ import type { ScoredDocument } from '../../types/internal'
 import type { IndexConfig } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import {
+  broadcastStatsForWorker,
   clampAlpha,
   collectFilterDocIds,
   type QueryContext,
@@ -70,7 +71,10 @@ export async function executeHybridSearch(
   }
 
   let textFanOutResult: FanOutResult
-  const textWorkerResult = workerSearch ? await workerSearch(indexName, textOnlyParams) : null
+  const scoring = scoringConfigFor(params, context)
+  const textWorkerResult = workerSearch
+    ? await workerSearch(indexName, textOnlyParams, broadcastStatsForWorker(textOnlyParams, context, scoring))
+    : null
   if (textWorkerResult) {
     textFanOutResult = textWorkerResult
   } else {
@@ -79,7 +83,7 @@ export async function executeHybridSearch(
       textOnlyParams,
       language,
       config.schema,
-      scoringConfigFor(params, context),
+      scoring,
       searchOptionsFor(manager),
     )
   }

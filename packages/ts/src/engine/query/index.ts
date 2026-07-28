@@ -8,7 +8,7 @@ import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import { clampLimit, clampOffset, now } from '../validation'
 import { applyHighlights } from './highlight'
-import { type QueryContext, scoringConfigFor, searchOptionsFor } from './shared'
+import { broadcastStatsForWorker, type QueryContext, scoringConfigFor, searchOptionsFor } from './shared'
 import { executeHybridSearch, executeVectorSearch } from './vector'
 
 export type { QueryContext } from './shared'
@@ -38,18 +38,14 @@ export async function executeQuery<T = AnyDocument>(
   } else if (isHybridMode && hasGlobalVectorIndex) {
     fanOutResult = await executeHybridSearch(params, context, limit, offset)
   } else {
-    const workerResult = workerSearch ? await workerSearch(indexName, params) : null
+    const scoring = scoringConfigFor(params, context)
+    const workerResult = workerSearch
+      ? await workerSearch(indexName, params, broadcastStatsForWorker(params, context, scoring))
+      : null
     if (workerResult) {
       fanOutResult = workerResult
     } else {
-      fanOutResult = await fanOutQuery(
-        manager,
-        params,
-        language,
-        config.schema,
-        scoringConfigFor(params, context),
-        searchOptionsFor(manager),
-      )
+      fanOutResult = await fanOutQuery(manager, params, language, config.schema, scoring, searchOptionsFor(manager))
     }
   }
 
@@ -157,7 +153,10 @@ export async function executePreflight(params: QueryParams, context: QueryContex
     const result = await executeHybridSearch(params, context, preflightLimit, preflightOffset)
     totalMatched = result.totalMatched
   } else {
-    const workerResult = workerSearch ? await workerSearch(indexName, params) : null
+    const scoring = scoringConfigFor(params, context)
+    const workerResult = workerSearch
+      ? await workerSearch(indexName, params, broadcastStatsForWorker(params, context, scoring))
+      : null
     if (workerResult) {
       totalMatched = workerResult.totalMatched
     } else {
@@ -166,7 +165,7 @@ export async function executePreflight(params: QueryParams, context: QueryContex
         params,
         language,
         config.schema,
-        scoringConfigFor(params, context),
+        scoring,
         searchOptionsFor(manager),
       )
       totalMatched = fanOutResult.totalMatched
