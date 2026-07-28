@@ -349,60 +349,11 @@ The choice matters. Incremental insertion loses throughput as the index grows, b
 
 ## Serialisation
 
-Vector index data is serialised apart from partition data, and each vector field produces its own `.nrsl` file.
+Vector index data is serialised apart from partition data. The payload layout is defined once, in [Vector Index Payload](envelope.md#vector-index-payload).
 
-### Storage Path
+### Storage
 
-```text
-<indexName>/vector/<fieldName>
-```
-
-An index named `products` with a vector field `embedding` therefore stores its vector index under `products/vector/embedding`.
-
-### Vector Index Payload
-
-The payload is a MessagePack map:
-
-```text
-VectorIndexPayload {
-  field_name:  string
-  dimension:   uint16
-  vectors:     List<VectorEntry>
-  graphs:      List<HnswGraph>
-  sq8:         SQ8Data or absent
-}
-
-VectorEntry {
-  doc_id: string
-  vector: List<float32>
-}
-
-HnswGraph {
-  entry_point:     string or absent
-  max_layer:       uint8
-  m:               uint8
-  ef_construction: uint16
-  metric:          string
-  nodes:           List<HnswNode>
-}
-
-HnswNode = [
-  doc_id:      string,
-  layer:       uint8,
-  connections: List<[
-    layer_index:  uint8,
-    neighbor_ids: List<string>
-  ]>
-]
-
-SQ8Data {
-  alpha:              float32
-  offset:             float32
-  quantized_vectors:  Map<string, List<uint8>>
-  vector_sums:        Map<string, float32>
-  vector_sum_sqs:     Map<string, float32>
-}
-```
+A vector index payload is persisted in two places: as a value in the snapshot bundle's `vectorIndexes` map, and as the payload of a vector segment file at `<indexName>/segments/<partitionId>/vec-<fieldPath>-g<generation>`, written by the [segmented checkpoint](durability.md#segmented-checkpoint). A partition payload that must carry its vectors with it, such as one sent to another thread, embeds them as [Vector Data](envelope.md#vector-data) instead.
 
 ### Multi-Graph Format
 
@@ -410,7 +361,7 @@ SQ8Data {
 
 - A single-graph implementation writes a list of length 1.
 - A segment-based implementation writes one graph per segment.
-- The `vectors` list stays flat, with one entry per document whatever the graph count, and graphs reference vectors by `doc_id`.
+- The `vectors` list stays flat, with one entry per document whatever the graph count, and graphs reference vectors by `docId`.
 
 Every implementation must read a vector index file holding any number of graphs, zero included, where zero means the file stores vectors for brute-force search alone.
 

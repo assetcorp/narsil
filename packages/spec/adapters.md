@@ -64,13 +64,7 @@ PersistenceAdapter {
 
 ### Key Format
 
-Keys are slash-delimited paths following the convention in [envelope.md](envelope.md):
-
-| Key | Content |
-|-----|---------|
-| `<indexName>/meta` | Index metadata |
-| `<indexName>/partition_<N>` | Partition N data |
-| `<indexName>/vector/<fieldName>` | Vector index data |
+Keys are slash-delimited paths, every key belonging to an index starts with `<indexName>/`, and the full key table is in [Storage Path Convention](envelope.md#storage-path-convention).
 
 ### Path Traversal Protection
 

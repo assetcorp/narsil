@@ -120,6 +120,7 @@ A version 1 partition payload is a MessagePack map:
   inverted_index:   Map<string, PostingList>
   field_indexes:    FieldIndexes
   surface_forms:    Map<string, SurfaceForm>   (optional, added in v1.1)
+  vector_data:      Map<string, VectorData>    (optional)
   statistics:       Statistics
 }
 ```
@@ -213,35 +214,112 @@ Statistics {
 
 `doc_frequencies` holds the per-token document frequency across this partition. Persisting it lets DFS and broadcast scoring work straight after a reload with nothing to recompute.
 
+### Vector Data
+
+`vector_data` embeds the partition's vectors in the payload, keyed by field path. The field is optional: a writer includes it when the payload must carry its vectors with it, such as a partition sent to another thread for an off-thread graph build, and a durable checkpoint leaves it out because the checkpoint stores vectors in the [vector index payload](#vector-index-payload) instead.
+
+```text
+VectorData {
+  dimension:  uint16
+  vectors:    List<EmbeddedVectorEntry>
+  hnsw_graph: EmbeddedHnswGraph or nil
+  sq8:        EmbeddedSQ8Data or absent
+}
+
+EmbeddedVectorEntry {
+  doc_id: string
+  vector: List<float32>
+}
+
+EmbeddedHnswGraph {
+  entry_point:     string or nil
+  max_layer:       uint8
+  m:               uint8
+  ef_construction: uint16
+  metric:          string or absent
+  nodes:           List<HnswNode>
+}
+
+EmbeddedSQ8Data {
+  alpha:             float32
+  offset:            float32
+  quantized_vectors: Map<string, List<uint8>>
+  vector_sums:       Map<string, float32>
+  vector_sum_sqs:    Map<string, float32>
+}
+```
+
+`HnswNode` is defined under [Vector Index Payload](#vector-index-payload). The embedded form carries at most one graph per field, and a reader treats an unrecognised `metric` value as absent.
+
+---
+
+### Version 2 Partition Payload
+
+A version 2 partition payload is the columnar form of the same partition data, and it is what the durability checkpoint writes inside the snapshot bundle and the checkpoint segment files. It differs from version 1 in three ways: a `v` discriminator, posting lists stored as parallel columns, and field names interned into one shared list.
+
+```text
+{
+  v:                uint8                      (2)
+  index_name:       string
+  partition_id:     uint32
+  total_partitions: uint32
+  language:         string
+  schema:           Map<string, string>
+  doc_count:        uint32
+  avg_doc_length:   float32
+  documents:        Map<string, Document>
+  inverted_index:   ColumnarInvertedIndex
+  field_indexes:    FieldIndexes
+  surface_forms:    Map<string, SurfaceForm>   (optional)
+  vector_data:      Map<string, VectorData>    (optional)
+  statistics:       Statistics
+}
+
+ColumnarInvertedIndex {
+  field_names: List<string>
+  entries:     Map<string, ColumnarPostingList>
+}
+
+ColumnarPostingList {
+  df:  uint32                     (document frequency)
+  ids: List<string>               (document IDs, one per posting)
+  tf:  List<uint16>               (term frequencies)
+  fi:  bytes                      (indexes into field_names, one byte per posting)
+  pos: List<List<uint16>> or nil  (positions per posting, nil when untracked)
+}
+```
+
+Every other field keeps its version 1 meaning. The four posting columns are aligned: entry `i` of `ids`, `tf`, `fi`, and `pos` together describe one posting, and `fi` holds a byte offset into `field_names`, so a posting stores one byte where version 1 repeated the field name.
+
 ---
 
 ### Vector Index Payload
 
-Each vector field is written as its own `.nrsl` file, apart from the partition data. The full schema and the reasoning behind it are in [Serialisation](vector-index.md#serialisation).
+A vector index payload holds one vector field's full state. It appears in two places: as a value in the snapshot bundle's `vectorIndexes` map, and as the payload of a vector segment file under the [checkpoint segment keys](durability.md#segmented-checkpoint). Unlike every other payload, its field names are camelCase, because it is the one payload written without a snake_case translation layer; see [Serialisation](vector-index.md#serialisation).
 
 A version 1 vector index payload is a MessagePack map:
 
 ```text
 {
-  field_name:  string
-  dimension:   uint16
-  vectors:     List<VectorEntry>
-  graphs:      List<HnswGraph>
-  sq8:         SQ8Data or absent
+  fieldName: string
+  dimension: uint16
+  vectors:   List<VectorEntry>
+  graphs:    List<HnswGraph>
+  sq8:       SQ8Data or nil
 }
 
 VectorEntry {
-  doc_id: string
+  docId:  string
   vector: List<float32>
 }
 
 HnswGraph {
-  entry_point:     string or absent
-  max_layer:       uint8
-  m:               uint8
-  ef_construction: uint16
-  metric:          string
-  nodes:           List<HnswNode>
+  entryPoint:     string or nil
+  maxLayer:       uint8
+  m:              uint8
+  efConstruction: uint16
+  metric:         string or absent
+  nodes:          List<HnswNode>
 }
 
 HnswNode = [
@@ -254,15 +332,15 @@ HnswNode = [
 ]
 
 SQ8Data {
-  alpha:              float32
-  offset:             float32
-  quantized_vectors:  Map<string, List<uint8>>
-  vector_sums:        Map<string, float32>
-  vector_sum_sqs:     Map<string, float32>
+  alpha:            float32
+  offset:           float32
+  quantizedVectors: Map<string, List<uint8>>
+  vectorSums:       Map<string, float32>
+  vectorSumSqs:     Map<string, float32>
 }
 ```
 
-`graphs` is a list. An implementation holding one graph writes a list of length 1, and a segment-based implementation writes one graph per segment. The `vectors` list stays flat, with one entry per document whatever the graph count, and graphs reference vectors by `doc_id`.
+`graphs` is a list. An implementation holding one graph writes a list of length 1, and a segment-based implementation writes one graph per segment. The `vectors` list stays flat, with one entry per document whatever the graph count, and graphs reference vectors by `docId`.
 
 An empty `graphs` list means the implementation searches by brute force, because the vector count has not reached the promotion threshold.
 
@@ -333,7 +411,7 @@ The last six fields record the rest of the index configuration: the partition li
 
 ### Snapshot Bundle Payload
 
-A durability checkpoint writes the whole index as one envelope under the key `<indexName>/snapshot`. The envelope uses the same 32-byte header with the checksum flag set, and the payload is the snapshot bundle described in [Snapshot Checkpoint Format](durability.md#snapshot-checkpoint-format).
+The snapshot-only persistence tier writes the whole index as one envelope under the key `<indexName>/snapshot`, and the write-ahead log tier reads that key as a legacy fallback. The envelope uses the same 32-byte header with the checksum flag set, and the payload is the snapshot bundle described in [Snapshot Checkpoint Format](durability.md#snapshot-checkpoint-format).
 
 ```text
 {
@@ -366,13 +444,14 @@ A persistence adapter addresses stored bytes by string key:
 | Key | Content |
 |-----|---------|
 | `<indexName>/meta` | Index metadata |
-| `<indexName>/partition_<N>` | Partition N data |
-| `<indexName>/vector/<fieldName>` | Vector index data |
-| `<indexName>/snapshot` | Durability checkpoint bundle |
-| `<indexName>/wal/<partitionId>/<seqNo>` | Write-ahead log segment |
+| `<indexName>/manifest` | Checkpoint segment manifest |
+| `<indexName>/segments/<partitionId>/s<segmentId>` | One checkpoint segment, id zero-padded to 16 digits |
+| `<indexName>/segments/<partitionId>/vec-<fieldPath>-g<generation>` | One vector field's index at one generation |
+| `<indexName>/snapshot` | Whole-index checkpoint bundle, written by the snapshot-only tier and read as a legacy fallback |
+| `<indexName>/wal/<partitionId>/<startSeqNo>` | Write-ahead log segment, start sequence number zero-padded to 16 digits |
 | `<indexName>/wal/<partitionId>/commit` | Write-ahead log commit marker |
 
-A filesystem adapter maps each key to a file path, so an index named `products` produces `data/products/partition_0.nrsl`, `data/products/vector/embedding.nrsl`, and `data/products/meta.nrsl`.
+A filesystem adapter maps each key to a file path, so an index named `products` produces `data/products/meta`, `data/products/manifest`, and `data/products/segments/0/s0000000000000003`. The segmented keys are defined in [Segmented Checkpoint](durability.md#segmented-checkpoint).
 
 ---
 

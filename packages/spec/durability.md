@@ -150,7 +150,7 @@ Recovery reads the fsynced frontier deterministically and treats any failure ins
 
 ## Snapshot Checkpoint Format
 
-A snapshot is a full-index checkpoint held in a single `.nrsl` envelope.
+A snapshot is a full-index checkpoint held in a single `.nrsl` envelope. The snapshot-only tier writes it on every persist. The write-ahead log tier writes the [segmented checkpoint](#segmented-checkpoint) instead, and reads this bundle only as a fallback for data written before segmented checkpoints existed.
 
 The container is the `.nrsl` envelope from [envelope.md](envelope.md) with the checksum flag set; the CRC32 payload checksum is mandatory for a snapshot. The payload is the snapshot bundle, a MessagePack map. The envelope's `envelope_format_version` is 2, and the bundle's own `version` field is 1. The two are separate numbers, and a reader rejects a bundle whose `version` is anything other than 1.
 
@@ -192,6 +192,77 @@ A crash before step 4 leaves the previous snapshot intact and the temporary file
 
 ---
 
+## Segmented Checkpoint
+
+The write-ahead log tier checkpoints incrementally, so the cost of a checkpoint scales with what changed since the last one rather than with the size of the index.
+
+### Layout
+
+A segmented checkpoint is a manifest plus per-partition segment files, stored under the keys in [Storage Path Convention](envelope.md#storage-path-convention). Segment ids count up from zero within a partition and are zero-padded to 16 digits, so segment keys sort in creation order, and a partition holds at most 65536 segments.
+
+A segment file is a `.nrsl` envelope with the checksum flag set and `envelope_format_version` 2, and its payload is a MessagePack map:
+
+```text
+SegmentFile {
+  payload:    bytes         (a version 2 partition payload holding the segment's documents)
+  tombstones: List<string>  (document IDs this segment removes from older segments)
+}
+```
+
+A vector segment file is the same envelope carrying a [vector index payload](envelope.md#vector-index-payload).
+
+### Manifest
+
+The manifest commits a checkpoint. It is a `.nrsl` envelope with the same flags, and its payload is a MessagePack map. A reader rejects a manifest whose `version` is anything other than 3.
+
+```text
+SegmentManifest {
+  version:    uint8   (3)
+  schema:     Map<string, string>
+  language:   string
+  checkpoint: List<PartitionCheckpoint>
+  partitions: List<PartitionManifestEntry>
+}
+
+PartitionManifestEntry {
+  partitionId:   uint32
+  nextSegmentId: uint64
+  segments:      List<SegmentRef>
+  vectors:       List<VectorSegmentRef>
+}
+
+SegmentRef {
+  id:             uint64
+  key:            string
+  docCount:       uint32
+  tombstoneCount: uint32
+}
+
+VectorSegmentRef {
+  fieldPath:  string
+  generation: uint64
+  key:        string
+}
+```
+
+`checkpoint` carries the same list as the snapshot bundle, and recovery replays each partition's log from its `lastSeqNo + 1`.
+
+### Writing a Checkpoint
+
+1. For each partition, read the log records between the previous checkpoint's `lastSeqNo` and the new one, build one segment holding the documents those records inserted or updated and a tombstone for each document they removed, and write it under the next segment id. A partition with no changes writes no segment.
+2. When a partition changed, rewrite each of its vector fields as a new vector segment at the next generation. A partition with no changes keeps its previous vector segments.
+3. When a partition's segment count exceeds the compaction threshold, 12 by default, merge its oldest segments into one so the count returns to the threshold.
+4. Write the manifest atomically over `<indexName>/manifest` with the same atomic write as the snapshot bundle. The manifest write is the commit point: a crash before it leaves the previous manifest in force and the new files unreferenced.
+5. Once the manifest is durable, delete every key the previous manifest referenced that the new one does not, and delete the legacy `<indexName>/snapshot` bundle.
+
+### Structural-Merge Recovery
+
+Recovery loads a partition by reading its manifest-listed segments in id order and merging them: the newest occurrence of a document wins, and a tombstone removes the document from every older segment. Each vector field loads from its listed vector segment.
+
+Keys under `<indexName>/segments/` that the manifest does not reference are deleted during recovery, because a checkpoint that crashed before its manifest write leaves them behind.
+
+---
+
 ## Index Metadata
 
 On index creation, and on any change that affects the schema, a node persists the index metadata at `<indexName>/meta` using the metadata payload from [envelope.md](envelope.md#index-metadata-payload). That metadata lets recovery rebuild an index with its full configuration, with no call from the application.
@@ -209,10 +280,10 @@ When no adapter of that name is registered at recovery time, the index still rec
 An interval, a mutation count since the last checkpoint, or both together trigger a checkpoint:
 
 1. Capture each partition's current head sequence number, `N_p`.
-2. Serialise and atomically write the snapshot, with the `checkpoint` list carrying `lastSeqNo = N_p` for each partition.
-3. Once the snapshot is fully durable, meaning the directory fsync of the atomic write has returned, delete for each partition every log segment whose highest `seqNo` is at or below `N_p`. Keep the segment containing `N_p`, because it also holds records above `N_p`, and keep every newer segment. Never delete the segment the partition's commit marker names active, even when all of its current records are at or below `N_p`, because new writes will extend it.
+2. Write the [segmented checkpoint](#segmented-checkpoint), with the manifest's `checkpoint` list carrying `lastSeqNo = N_p` for each partition.
+3. Once the manifest is fully durable, meaning the directory fsync of its atomic write has returned, delete for each partition every log segment whose highest `seqNo` is at or below `N_p`. Keep the segment containing `N_p`, because it also holds records above `N_p`, and keep every newer segment. Never delete the segment the partition's commit marker names active, even when all of its current records are at or below `N_p`, because new writes will extend it.
 
-The ordering rule is absolute: the snapshot must be fully durable before any log segment it covers is deleted, and that order is never reversed. A crash between steps 2 and 3 leaves extra log segments, which recovery skips by sequence number with no harm done.
+The ordering rule is absolute: the checkpoint must be fully durable before any log segment it covers is deleted, and that order is never reversed. A crash between steps 2 and 3 leaves extra log segments, which recovery skips by sequence number with no harm done.
 
 The commit marker always references the active segment, which a checkpoint never deletes, so truncation leaves the marker alone.
 
@@ -225,14 +296,14 @@ With persistence configured, a node recovers on startup before it serves any req
 1. Enumerate the persisted indexes from their `<indexName>/meta` keys.
 2. For each index:
    1. Load `<indexName>/meta`, rebuild the schema, language, partition count, and vector fields, and create the index empty.
-   2. Load `<indexName>/snapshot` and verify the envelope CRC. With no snapshot present, every partition starts empty with `lastSeqNo` at 0.
-   3. Decode the bundle, load the partitions and vector indexes, and read each partition's `lastSeqNo`.
+   2. Load `<indexName>/manifest` and verify the envelope CRC. When no manifest exists, fall back to `<indexName>/snapshot`; with neither present, every partition starts empty with `lastSeqNo` at 0.
+   3. Load the partitions and vector indexes, by [structural merge](#structural-merge-recovery) from a manifest or by decoding the bundle from a legacy snapshot, and read each partition's `lastSeqNo`.
    4. For each partition, read its log as described in [Reading a Segment](#reading-a-segment) and replay every record whose `seqNo` is above `lastSeqNo`.
 3. After replay the index serves reads and writes, and each partition continues from the highest replayed `seqNo` plus one.
 
 Corruption is handled by kind:
 
-- A snapshot envelope CRC mismatch is fatal for that index; raise `PERSISTENCE_CRC_MISMATCH`.
+- A checkpoint envelope CRC mismatch, in the manifest, a segment, or a snapshot bundle, is fatal for that index; raise `PERSISTENCE_CRC_MISMATCH`.
 - Corruption in the middle of the log is fatal; raise `PERSISTENCE_WAL_CORRUPT`.
 - A truncated active-segment tail is normal; truncate it and carry on.
 
