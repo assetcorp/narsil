@@ -306,7 +306,7 @@ The `embedding` block records the index's automatic embedding configuration: the
 
 The `surface_forms_enabled` field records that the index collects surface forms, as described in [Surface Forms](#surface-forms). A writer includes it only when collection is on, and a reader treats an absent field as off, matching every metadata payload written before the field existed. Recovery reads the value so that the index keeps collecting surfaces after a restart.
 
-The `tokenizer` and `stop_words` fields record the names the index resolved its analysis from, as described in [Analysis Registry](adapters.md#analysis-registry). A writer includes each field only when the index configuration gave a name, because a tokeniser instance and a stop word function are code and no payload carries code. A reader treats an absent field as the language default. Recovery resolves each name against the engine's analysis registry so that a recovered index analyses text the way the original did; see [Index Metadata](durability.md#index-metadata).
+The `tokenizer` and `stop_words` fields record the names the index resolved its analysis from, as described in [Analysis Registry](adapters.md#analysis-registry). A writer includes each field only when the index configuration gave a name, because a tokeniser instance and a stop word function are code and no payload carries code. An engine with durability configured refuses an index whose analysis is given as code, as [Analysis Registry](adapters.md#analysis-registry) requires, so an absent field means the index analyses with the language default. Recovery resolves each name against the engine's analysis registry so that a recovered index analyses text the way the original did; see [Index Metadata](durability.md#index-metadata).
 
 ---
 
@@ -319,6 +319,8 @@ A durability checkpoint writes the whole index as one envelope under the key `<i
   version:       uint8  (1)
   schema:        Map<string, string>
   language:      string
+  tokenizer:     string        (optional; the name the tokeniser was registered under)
+  stop_words:    string        (optional; the name the stop word set was registered under)
   partitions:    List<bytes>   (one version 2 partition payload per entry)
   vectorIndexes: Map<string, VectorIndexPayload>
   checkpoint:    List<PartitionCheckpoint>
@@ -331,7 +333,7 @@ PartitionCheckpoint {
 }
 ```
 
-The bundle differs from the per-partition payload above: it carries every partition in one envelope, so a checkpoint replaces the whole index atomically. `checkpoint` records where write-ahead log replay resumes for each partition. It is additive, and a reader that skips it treats every `lastSeqNo` as 0. The log format, the recovery procedure, and the checkpoint rules are in [durability.md](durability.md).
+The bundle differs from the per-partition payload above: it carries every partition in one envelope, so a checkpoint replaces the whole index atomically. `checkpoint` records where write-ahead log replay resumes for each partition. It is additive, and a reader that skips it treats every `lastSeqNo` as 0. `tokenizer` and `stop_words` are additive too: they carry the same names as the index metadata payload, and a reader recreates the index with them, resolving each name as [Index Metadata](durability.md#index-metadata) describes. The log format, the recovery procedure, and the checkpoint rules are in [durability.md](durability.md).
 
 ---
 

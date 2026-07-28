@@ -297,6 +297,8 @@ An index configuration that gives a string for `tokenizer` or for `stopWords` re
 
 Names exist because no boundary carries code. A tokeniser and a stop word function are both code, and a worker thread, a restart, and a second machine each receive data alone, so an index configured with either value runs in the calling thread and loses its analysis on recovery. An index configured with a name carries the name across instead, and each side resolves that name against its own registry. The `language` setting has always worked this way, and these two settings now match it.
 
+An engine with durability configured refuses an index whose `tokenizer` is a `CustomTokenizer` or whose `stopWords` is a function, raising `CONFIG_INVALID` that names the registry as the alternative. A checkpoint re-analyses the raw documents, so an index whose analysis cannot be persisted would be rewritten with the language default on restart.
+
 ### Binding
 
 An index resolves its tokeniser and its stop words once, when the caller creates it, and it holds what it resolved for its whole life. Registering a name a second time binds the indexes created afterwards and leaves every existing index untouched. An existing index stores tokens the earlier value produced, and rebinding it would leave its stored tokens in one form and every later query in another, so the engine leaves the binding alone. An index whose analysis must change needs a fresh index and a reindex, as [Analysis Changes](#analysis-changes) describes.
