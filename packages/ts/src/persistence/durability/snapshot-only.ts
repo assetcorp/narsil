@@ -83,6 +83,8 @@ export function createSnapshotOnlyManager(
       indexName,
       schema: metadata.schema,
       language: metadata.language,
+      ...(metadata.tokenizer !== undefined ? { tokenizer: metadata.tokenizer } : {}),
+      ...(metadata.stopWords !== undefined ? { stopWords: metadata.stopWords } : {}),
       manager,
       vectorIndexes: hooks.getVectorIndexes(indexName),
       seqNoByPartition,

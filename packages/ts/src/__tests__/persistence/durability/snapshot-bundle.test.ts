@@ -94,4 +94,39 @@ describe('snapshot bundle', () => {
     const bytes = await packEnvelopeBytes(payload, { checksum: true })
     await expect(decodeSnapshotBundle(bytes)).rejects.toBeInstanceOf(NarsilError)
   })
+
+  it('round-trips the analysis names and leaves them out when absent', async () => {
+    const named = await decodeSnapshotBundle(
+      await encodeBundleBytes({ ...sampleBundle(), tokenizer: 'letters', stopWords: 'keeps-everything' }),
+    )
+    expect(named.tokenizer).toBe('letters')
+    expect(named.stopWords).toBe('keeps-everything')
+
+    const bare = await decodeSnapshotBundle(await encodeBundleBytes(sampleBundle()))
+    expect(bare.tokenizer).toBeUndefined()
+    expect(bare.stopWords).toBeUndefined()
+  })
+
+  it('encodes the stop word name under the stop_words wire key', async () => {
+    const bytes = await encodeBundleBytes({ ...sampleBundle(), stopWords: 'keeps-everything' })
+    const { unpackEnvelopeBytes } = await import('../../../serialization/envelope')
+    const { payloadBytes } = await unpackEnvelopeBytes(bytes)
+    const { decode } = await import('@msgpack/msgpack')
+    const raw = decode(payloadBytes) as Record<string, unknown>
+    expect(raw.stop_words).toBe('keeps-everything')
+    expect(raw.stopWords).toBeUndefined()
+  })
+
+  it('rejects a bundle whose analysis name is not a string', async () => {
+    const { packEnvelopeBytes } = await import('../../../serialization/envelope')
+    const base = { version: 1, schema: { title: 'string' }, language: 'english', partitions: [] }
+
+    const badTokenizer = await packEnvelopeBytes(encode({ ...base, tokenizer: 42 }), { checksum: true })
+    await expect(decodeSnapshotBundle(badTokenizer)).rejects.toBeInstanceOf(NarsilError)
+
+    const badStopWords = await packEnvelopeBytes(encode({ ...base, stop_words: { not: 'a name' } }), {
+      checksum: true,
+    })
+    await expect(decodeSnapshotBundle(badStopWords)).rejects.toBeInstanceOf(NarsilError)
+  })
 })
