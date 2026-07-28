@@ -3,6 +3,7 @@ import { defineLanguageFixture } from './types'
 
 const JA_WIKIPEDIA = "Japanese Wikipedia, article '日本語' (https://ja.wikipedia.org/wiki/日本語)"
 const JA_SOSEKI = 'Japanese Wikisource, Natsume Sōseki, 吾輩は猫である (https://ja.wikisource.org/wiki/吾輩は猫である)'
+const JA_YOSHINOYA = "Japanese Wikipedia, article '吉野家' (https://ja.wikipedia.org/wiki/吉野家)"
 
 export const japaneseFixture = defineLanguageFixture({
   module: japanese,
@@ -27,6 +28,10 @@ export const japaneseFixture = defineLanguageFixture({
       text: '日本語（族）の系統については明治以来様々な説が議論されてきたが、いずれも他の語族との同系の証明に至っておらず、不明のままである。',
       source: JA_WIKIPEDIA,
     },
+    {
+      text: '𠮷野家（よしのや）は、東京都中央区日本橋箱崎町に本社を置く、牛丼を主力商品とする日本の大手外食チェーンストアである。',
+      source: JA_YOSHINOYA,
+    },
   ],
   indivisible: ['吾輩', '人々', '様々'],
   separates: [
@@ -38,6 +43,7 @@ export const japaneseFixture = defineLanguageFixture({
     },
     { text: '人々の日本語', tokens: ['人々', 'の', '日本', '本語'] },
     { text: '様々な説', tokens: ['様々', 'な', '説'] },
+    { text: '𠮷野家（よしのや）', tokens: ['𠮷野', '野家', 'よし', 'しの', 'のや'] },
   ],
   equivalent: [
     ['ﾆｯﾎﾟﾝ', 'ニッポン'],
@@ -61,6 +67,10 @@ export const japaneseFixture = defineLanguageFixture({
     {
       query: '長編小説',
       text: '『吾輩は猫である』（わがはいはねこである）は、夏目漱石の長編小説であり、処女小説である。',
+    },
+    {
+      query: '𠮷野家',
+      text: '𠮷野家（よしのや）は、東京都中央区日本橋箱崎町に本社を置く、牛丼を主力商品とする日本の大手外食チェーンストアである。',
     },
     {
       query: '日系人',

@@ -78,12 +78,22 @@ const stopWords = new Set([
   'nnye',
 ])
 
+const GREEK_EPSILON = /ε/g
+const OPEN_O_LOOKALIKES = /[ͻↄכ]/g
+const TWI_OPEN_E = 'ɛ'
+const TWI_OPEN_O = 'ɔ'
+
+function normalize(token: string): string {
+  return token.replace(GREEK_EPSILON, TWI_OPEN_E).replace(OPEN_O_LOOKALIKES, TWI_OPEN_O)
+}
+
 export const twi: LanguageModule = {
   name: 'twi',
   stemmer: null,
   stopWords,
+  normalizer: normalize,
   tokenizer: {
-    splitPattern: /[^a-zA-ZɛɔƐƆŋŊ0-9\p{M}']+/giu,
+    splitPattern: /[^a-zA-ZɛɔƐƆŋŊεͻↄכ0-9\p{M}']+/giu,
     normalizeDiacritics: false,
     minTokenLength: 1,
   },

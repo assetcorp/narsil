@@ -36,6 +36,22 @@ function isDeterministicFailure(error: Error): boolean {
   return error instanceof NarsilError && error.code === ErrorCodes.CONFIG_INVALID
 }
 
+function workerIneligibility(
+  indexName: string,
+  config: IndexConfig,
+  bootstrapModule: string | undefined,
+): NarsilError | null {
+  try {
+    assertConfigReachesWorker(indexName, config, bootstrapModule)
+    return null
+  } catch (err) {
+    if (err instanceof NarsilError && err.code === ErrorCodes.CONFIG_INVALID) {
+      return err
+    }
+    throw err
+  }
+}
+
 function assertConfigReachesWorker(indexName: string, config: IndexConfig, bootstrapModule: string | undefined): void {
   if (config.tokenizer !== undefined && typeof config.tokenizer !== 'string') {
     throw new NarsilError(
@@ -75,17 +91,36 @@ export function createWorkerOrchestrator(
   let promotionInProgress = false
   let promotionBlocked = false
   const promotionBuffer: WorkerAction[] = []
+  const reportedIneligible = new Set<string>()
+  const promotedIndexes = new Set<string>()
   const workersEnabled = config?.workers?.enabled === true
   const bootstrapModule = config?.workers?.bootstrapModule
+
+  function reportIneligible(indexName: string, error: NarsilError): void {
+    if (reportedIneligible.has(indexName)) return
+    reportedIneligible.add(indexName)
+    callbacks?.onPromotionFailure?.('index-excluded', error, false)
+  }
+
+  function collectEligibleIndexes(): Map<string, { documentCount: number }> {
+    const eligible = new Map<string, { documentCount: number }>()
+    for (const [name, entry] of indexRegistry) {
+      const ineligibility = workerIneligibility(name, entry.config, bootstrapModule)
+      if (ineligibility) {
+        reportIneligible(name, ineligibility)
+        continue
+      }
+      const mgr = executor.getManager(name)
+      eligible.set(name, { documentCount: mgr?.countDocuments() ?? 0 })
+    }
+    return eligible
+  }
 
   async function checkPromotion(): Promise<void> {
     if (!workersEnabled || promotionInProgress || promotionBlocked || workerPool) return
 
-    const indexMap = new Map<string, { documentCount: number }>()
-    for (const [name] of indexRegistry) {
-      const mgr = executor.getManager(name)
-      indexMap.set(name, { documentCount: mgr?.countDocuments() ?? 0 })
-    }
+    const indexMap = collectEligibleIndexes()
+    if (indexMap.size === 0) return
     const result = promoter.check(indexMap)
 
     if (result.shouldPromote) {
@@ -103,8 +138,18 @@ export function createWorkerOrchestrator(
 
   async function runPromotion(reason: string): Promise<void> {
     try {
+      const promotable: string[] = []
       for (const [name, entry] of indexRegistry) {
-        assertConfigReachesWorker(name, entry.config, bootstrapModule)
+        const ineligibility = workerIneligibility(name, entry.config, bootstrapModule)
+        if (ineligibility) {
+          reportIneligible(name, ineligibility)
+          continue
+        }
+        promotable.push(name)
+      }
+      if (promotable.length === 0) {
+        promotionBuffer.length = 0
+        return
       }
 
       const factory = await createWorkerFactory()
@@ -113,7 +158,7 @@ export function createWorkerOrchestrator(
         workerFactory: factory,
       })
 
-      for (const [name] of indexRegistry) {
+      for (const name of promotable) {
         pool.addIndexToAll(name)
       }
 
@@ -131,7 +176,9 @@ export function createWorkerOrchestrator(
         )
       }
 
-      for (const [name, entry] of indexRegistry) {
+      for (const name of promotable) {
+        const entry = indexRegistry.get(name)
+        if (!entry) continue
         await Promise.all(
           allExecutors.map(workerExecutor =>
             workerExecutor.execute({
@@ -163,6 +210,9 @@ export function createWorkerOrchestrator(
       }
 
       workerPool = pool
+      for (const name of promotable) {
+        promotedIndexes.add(name)
+      }
       promoter.markPromoted()
 
       if (promotionBuffer.length > 0) {
@@ -189,6 +239,18 @@ export function createWorkerOrchestrator(
     }
     if (!workerPool) return
 
+    if (action.type === 'createIndex') {
+      const ineligibility = workerIneligibility(action.indexName, action.config, bootstrapModule)
+      if (ineligibility) {
+        reportIneligible(action.indexName, ineligibility)
+        return
+      }
+      workerPool.addIndexToAll(action.indexName)
+      promotedIndexes.add(action.indexName)
+    } else if ('indexName' in action && !promotedIndexes.has(action.indexName)) {
+      return
+    }
+
     const allExecutors = workerPool.getAllExecutors()
     const results = await Promise.allSettled(allExecutors.map(workerExecutor => workerExecutor.execute(action)))
 
@@ -201,6 +263,7 @@ export function createWorkerOrchestrator(
 
   async function searchViaWorker(indexName: string, params: QueryParams): Promise<FanOutResult | null> {
     if (!workerPool) return null
+    if (!promotedIndexes.has(indexName)) return null
 
     const manager = executor.getManager(indexName)
     if (!manager) return null
@@ -276,6 +339,7 @@ export function createWorkerOrchestrator(
     if (workerPool) {
       await workerPool.shutdown()
       workerPool = null
+      promotedIndexes.clear()
     }
   }
 

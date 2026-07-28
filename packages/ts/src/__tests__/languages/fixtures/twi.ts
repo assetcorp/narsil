@@ -32,6 +32,10 @@ export const twiFixture = defineLanguageFixture({
   equivalent: [
     ["n'adwene", 'n’adwene'],
     ['Nkran', 'nkran'],
+    ['yɛ', 'yε'],
+    ['wɔn', 'wͻn'],
+    ['wɔ', 'wↄ'],
+    ['hɔ', 'hכ'],
   ],
   retrievable: [
     { query: 'nkrɔŋ', text: 'Europa asaasepɔn so, nkuro kɛseɛ nyinaa no, Paris ni kuro kɛseɛ a ɛtɔ so nkrɔŋ.' },
