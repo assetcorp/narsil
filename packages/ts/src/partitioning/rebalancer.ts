@@ -87,8 +87,8 @@ export function createRebalancer(): Rebalancer {
       // the rebuilt partitions hold different tokens and surface counts.
       const insertOptions: PartitionInsertOptions = {
         validate: false,
-        stopWordOverride: manager.config.stopWords,
-        customTokenizer: manager.config.tokenizer,
+        stopWordOverride: manager.analysis.stopWords,
+        customTokenizer: manager.analysis.customTokenizer,
         collectSurfaces: manager.config.surfaceForms === true,
       }
 

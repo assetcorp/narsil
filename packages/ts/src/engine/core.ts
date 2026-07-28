@@ -148,6 +148,8 @@ function createDurabilityFromConfig(
         b: entry.config.bm25?.b ?? 0.75,
         ...(embedding !== undefined ? { embedding } : {}),
         ...(entry.config.surfaceForms === true ? { surfaceForms: true } : {}),
+        ...(typeof entry.config.tokenizer === 'string' ? { tokenizer: entry.config.tokenizer } : {}),
+        ...(typeof entry.config.stopWords === 'string' ? { stopWords: entry.config.stopWords } : {}),
       }
     },
     createIndexFromMetadata: wiring.createIndexFromMetadata,
@@ -186,6 +188,14 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
       if (handlers) {
         for (const handler of handlers) handler({ workerCount, reason })
       }
+    },
+    onPromotionFailure(reason, error, retryable) {
+      const handlers = eventHandlers.get('workerPromoteFailure')
+      if (!handlers || handlers.size === 0) {
+        console.warn(`Worker promotion failed (${reason}):`, error)
+        return
+      }
+      for (const handler of handlers) handler({ reason, error, retryable })
     },
   })
 
@@ -260,7 +270,18 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
       }
     }
 
-    executor.createIndex(metadata.indexName, indexConfig, language)
+    try {
+      executor.createIndex(metadata.indexName, indexConfig, language)
+    } catch (err) {
+      if (err instanceof NarsilError && err.code === ErrorCodes.CONFIG_INVALID) {
+        throw new NarsilError(err.code, `Recovery of index "${metadata.indexName}" failed: ${err.message}`, {
+          indexName: metadata.indexName,
+          tokenizer: metadata.tokenizer,
+          stopWords: metadata.stopWords,
+        })
+      }
+      throw err
+    }
     indexRegistry.set(metadata.indexName, {
       config: indexConfig,
       language,

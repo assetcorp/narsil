@@ -8,7 +8,7 @@ import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import { clampLimit, clampOffset, now } from '../validation'
 import { applyHighlights } from './highlight'
-import type { QueryContext } from './shared'
+import { type QueryContext, searchOptionsFor } from './shared'
 import { executeHybridSearch, executeVectorSearch } from './vector'
 
 export type { QueryContext } from './shared'
@@ -42,18 +42,13 @@ export async function executeQuery<T = AnyDocument>(
     if (workerResult) {
       fanOutResult = workerResult
     } else {
-      const searchOptions = {
-        bm25Params: config.bm25,
-        stopWords: config.stopWords,
-        customTokenizer: config.tokenizer,
-      }
       fanOutResult = await fanOutQuery(
         manager,
         params,
         language,
         config.schema,
         { scoringMode: params.scoring ?? config.defaultScoring ?? 'local' },
-        searchOptions,
+        searchOptionsFor(manager),
       )
     }
   }
@@ -122,7 +117,7 @@ export async function executeQuery<T = AnyDocument>(
   }
 
   if (params.highlight) {
-    applyHighlights(paginated, params, language, config)
+    applyHighlights(paginated, params, language, manager.analysis)
   }
 
   const elapsed = now() - startTime
@@ -175,18 +170,13 @@ export async function executePreflight(params: QueryParams, context: QueryContex
     if (workerResult) {
       totalMatched = workerResult.totalMatched
     } else {
-      const searchOptions = {
-        bm25Params: config.bm25,
-        stopWords: config.stopWords,
-        customTokenizer: config.tokenizer,
-      }
       const fanOutResult = await fanOutQuery(
         manager,
         params,
         language,
         config.schema,
         { scoringMode: params.scoring ?? config.defaultScoring ?? 'local' },
-        searchOptions,
+        searchOptionsFor(manager),
       )
       totalMatched = fanOutResult.totalMatched
     }

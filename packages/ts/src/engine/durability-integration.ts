@@ -45,6 +45,8 @@ export interface DurabilityIntegrationHooks {
         b: number
         embedding?: IndexEmbeddingMetadata
         surfaceForms?: boolean
+        tokenizer?: string
+        stopWords?: string
       }
     | undefined
   createIndexFromMetadata: IndexDurabilityHooks['createIndexFromMetadata']
@@ -71,6 +73,12 @@ function buildMetadata(indexName: string, hooks: DurabilityIntegrationHooks): In
   }
   if (config.surfaceForms) {
     metadata.surfaceForms = true
+  }
+  if (config.tokenizer !== undefined) {
+    metadata.tokenizer = config.tokenizer
+  }
+  if (config.stopWords !== undefined) {
+    metadata.stopWords = config.stopWords
   }
   return metadata
 }

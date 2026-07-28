@@ -38,5 +38,11 @@ export function reconstructSchemaFromMetadata(metadata: IndexMetadata): IndexCon
   if (metadata.surfaceForms === true) {
     config.surfaceForms = true
   }
+  if (metadata.tokenizer !== undefined) {
+    config.tokenizer = metadata.tokenizer
+  }
+  if (metadata.stopWords !== undefined) {
+    config.stopWords = metadata.stopWords
+  }
   return config
 }

@@ -249,7 +249,7 @@ export const chinese: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: {
-    splitPattern: /[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff0-9a-zA-Z]+/gi,
+    splitPattern: /[^\p{Script=Han}0-9a-zA-Z]+/giu,
     normalizeDiacritics: false,
     minTokenLength: 1,
     ngramSize: 2,

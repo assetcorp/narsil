@@ -1,4 +1,12 @@
 export {
+  getStopWords,
+  getTokenizer,
+  hasStopWords,
+  hasTokenizer,
+  registerStopWords,
+  registerTokenizer,
+} from './analysis/registry'
+export {
   clearNormalizationCache,
   configureNormalizationCache,
   getNormalizationCacheSize,
@@ -66,6 +74,7 @@ export type {
   PartitionConfig,
   SchemaDefinition,
   ScoringMode,
+  StopWordOverride,
 } from './types/schema'
 export type {
   FacetConfig,

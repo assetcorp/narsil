@@ -1,23 +1,23 @@
+import type { ResolvedAnalysis } from '../../analysis/registry'
 import { tokenize } from '../../core/tokenizer'
 import { highlightField } from '../../highlighting/highlighter'
 import type { LanguageModule } from '../../types/language'
 import type { HighlightMatch, Hit } from '../../types/results'
-import type { IndexConfig } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 
 export function applyHighlights<T>(
   hits: Array<Hit<T>>,
   params: QueryParams,
   language: LanguageModule,
-  config: IndexConfig,
+  analysis: ResolvedAnalysis,
 ): void {
   if (!params.highlight) return
 
   const queryTokenResult = tokenize(params.term ?? '', language, {
     stem: true,
     removeStopWords: true,
-    customTokenizer: config.tokenizer,
-    stopWordOverride: config.stopWords,
+    customTokenizer: analysis.customTokenizer,
+    stopWordOverride: analysis.stopWords,
   })
 
   let prefixToken: string | undefined
@@ -26,8 +26,8 @@ export function applyHighlights<T>(
     const unstemmed = tokenize(params.term ?? '', language, {
       stem: false,
       removeStopWords: true,
-      customTokenizer: config.tokenizer,
-      stopWordOverride: config.stopWords,
+      customTokenizer: analysis.customTokenizer,
+      stopWordOverride: analysis.stopWords,
     })
     for (const t of unstemmed.tokens) {
       if (t.position === lastPosition) {

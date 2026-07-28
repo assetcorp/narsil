@@ -1,3 +1,4 @@
+import { type ResolvedAnalysis, resolveIndexAnalysis } from '../analysis/registry'
 import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../core/partition'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { SerializablePartition } from '../types/internal'
@@ -13,6 +14,7 @@ export interface PartitionManager {
   readonly schema: SchemaDefinition
   readonly language: LanguageModule
   readonly config: IndexConfig
+  readonly analysis: ResolvedAnalysis
 
   getPartition(partitionId: number): PartitionIndex
   partitionAt(index: number): PartitionIndex | undefined
@@ -72,6 +74,7 @@ export function createPartitionManager(
   vectorIndexes?: Map<string, VectorIndex>,
 ): PartitionManager {
   const count = initialPartitionCount ?? 1
+  const analysis = resolveIndexAnalysis(config)
   const trackPositions = config.trackPositions ?? true
   const vecIndexes: Map<string, VectorIndex> = vectorIndexes ?? new Map()
   let partitions: PartitionIndex[] = []
@@ -93,15 +96,15 @@ export function createPartitionManager(
 
   function resolveInsertOptions(options?: PartitionInsertOptions): PartitionInsertOptions | undefined {
     const applyStrict = config.strict === true
-    const applyAnalyzer = config.stopWords !== undefined || config.tokenizer !== undefined
+    const applyAnalyzer = analysis.stopWords !== undefined || analysis.customTokenizer !== undefined
     const applySurfaces = config.surfaceForms === true
     if (!applyStrict && !applyAnalyzer && !applySurfaces) return options
 
     const resolved: PartitionInsertOptions = { ...options }
     if (applyStrict) resolved.strict = true
     if (applyAnalyzer) {
-      resolved.stopWordOverride = options?.stopWordOverride ?? config.stopWords
-      resolved.customTokenizer = options?.customTokenizer ?? config.tokenizer
+      resolved.stopWordOverride = options?.stopWordOverride ?? analysis.stopWords
+      resolved.customTokenizer = options?.customTokenizer ?? analysis.customTokenizer
     }
     if (applySurfaces) resolved.collectSurfaces = true
     return resolved
@@ -142,6 +145,9 @@ export function createPartitionManager(
     },
     get config() {
       return config
+    },
+    get analysis() {
+      return analysis
     },
 
     getPartition(partitionId: number): PartitionIndex {

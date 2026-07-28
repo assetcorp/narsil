@@ -1,4 +1,5 @@
 import { createWorkerFactory } from '#platform/worker-factory'
+import { ErrorCodes, NarsilError } from '../errors'
 import { type FanOutResult, kWayMerge } from '../partitioning/fan-out'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
@@ -24,6 +25,40 @@ export interface WorkerOrchestrator {
 
 export interface WorkerOrchestratorCallbacks {
   onPromotion?: (workerCount: number, reason: string) => void
+  onPromotionFailure?: (reason: string, error: Error, retryable: boolean) => void
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value))
+}
+
+function isDeterministicFailure(error: Error): boolean {
+  return error instanceof NarsilError && error.code === ErrorCodes.CONFIG_INVALID
+}
+
+function assertConfigReachesWorker(indexName: string, config: IndexConfig, bootstrapModule: string | undefined): void {
+  if (config.tokenizer !== undefined && typeof config.tokenizer !== 'string') {
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      `Index "${indexName}" holds a tokenizer instance, and no worker thread can receive one. Register the tokenizer with registerTokenizer and name it in the index config`,
+      { indexName },
+    )
+  }
+  if (typeof config.stopWords === 'function') {
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      `Index "${indexName}" holds a stop word function, and no worker thread can receive one. Register the function with registerStopWords and name it in the index config`,
+      { indexName },
+    )
+  }
+  const language = config.language ?? 'english'
+  if (language !== 'english' && bootstrapModule === undefined) {
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      `Index "${indexName}" uses language "${language}", which a worker thread registers only from a bootstrap module. Set workers.bootstrapModule to a module that registers it`,
+      { indexName, language },
+    )
+  }
 }
 
 export function createWorkerOrchestrator(
@@ -38,11 +73,13 @@ export function createWorkerOrchestrator(
 ): WorkerOrchestrator {
   let workerPool: WorkerPool | null = null
   let promotionInProgress = false
+  let promotionBlocked = false
   const promotionBuffer: WorkerAction[] = []
   const workersEnabled = config?.workers?.enabled === true
+  const bootstrapModule = config?.workers?.bootstrapModule
 
   async function checkPromotion(): Promise<void> {
-    if (!workersEnabled || promotionInProgress || workerPool) return
+    if (!workersEnabled || promotionInProgress || promotionBlocked || workerPool) return
 
     const indexMap = new Map<string, { documentCount: number }>()
     for (const [name] of indexRegistry) {
@@ -55,8 +92,10 @@ export function createWorkerOrchestrator(
       promotionInProgress = true
       setTimeout(() => {
         runPromotion(result.reason).catch(err => {
-          console.warn('Worker promotion failed:', err)
+          const error = toError(err)
+          promotionBlocked = isDeterministicFailure(error)
           promotionInProgress = false
+          callbacks?.onPromotionFailure?.(result.reason, error, !promotionBlocked)
         })
       }, 0)
     }
@@ -64,6 +103,10 @@ export function createWorkerOrchestrator(
 
   async function runPromotion(reason: string): Promise<void> {
     try {
+      for (const [name, entry] of indexRegistry) {
+        assertConfigReachesWorker(name, entry.config, bootstrapModule)
+      }
+
       const factory = await createWorkerFactory()
       const pool = createWorkerPool({
         count: config?.workers?.count,
@@ -75,6 +118,18 @@ export function createWorkerOrchestrator(
       }
 
       const allExecutors = pool.getAllExecutors()
+
+      if (bootstrapModule !== undefined) {
+        await Promise.all(
+          allExecutors.map(workerExecutor =>
+            workerExecutor.execute({
+              type: 'bootstrap',
+              moduleUrl: bootstrapModule,
+              requestId: 'promote-bootstrap',
+            }),
+          ),
+        )
+      }
 
       for (const [name, entry] of indexRegistry) {
         await Promise.all(
