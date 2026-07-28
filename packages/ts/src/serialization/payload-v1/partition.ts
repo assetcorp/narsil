@@ -1,5 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
-import type { IndexMetadata, SerializablePartition, SerializedSurfaceForms } from '../types/internal'
+import type { SerializablePartition, SerializedSurfaceForms } from '../../types/internal'
 
 export function sanitizeSurfaceForms(raw: unknown): SerializedSurfaceForms | undefined {
   if (raw === undefined || raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined
@@ -73,22 +73,6 @@ export interface RawPartitionPayload {
     average_field_lengths: Record<string, number>
     doc_frequencies: Record<string, number>
   }
-}
-
-interface RawMetadataPayload {
-  index_name: string
-  schema: Record<string, string>
-  language: string
-  partition_count: number
-  bm25_params: { k1: number; b: number }
-  created_at: number
-  engine_version: string
-  vector_fields?: Record<string, { dimension: number; metric: string; quantization: string }>
-  embedding?: { adapter?: string; fields: Record<string, string | string[]> }
-  surface_forms_enabled?: boolean
-  tokenizer?: string
-  stop_words?: string
-  stop_word_list?: string[]
 }
 
 function partitionToWire(partition: SerializablePartition): RawPartitionPayload {
@@ -267,82 +251,4 @@ export function encodeRawPayload(wire: RawPartitionPayload): Uint8Array {
 export function deserializePayloadV1(data: Uint8Array): SerializablePartition {
   const raw = decode(data) as RawPartitionPayload
   return wireToPartition(raw)
-}
-
-function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
-  const wire: RawMetadataPayload = {
-    index_name: meta.indexName,
-    schema: meta.schema,
-    language: meta.language,
-    partition_count: meta.partitionCount,
-    bm25_params: meta.bm25Params,
-    created_at: meta.createdAt,
-    engine_version: meta.engineVersion,
-  }
-  if (meta.vectorFields) {
-    wire.vector_fields = meta.vectorFields
-  }
-  if (meta.embedding) {
-    wire.embedding =
-      meta.embedding.adapter !== undefined
-        ? { adapter: meta.embedding.adapter, fields: meta.embedding.fields }
-        : { fields: meta.embedding.fields }
-  }
-  if (meta.surfaceForms === true) {
-    wire.surface_forms_enabled = true
-  }
-  if (meta.tokenizer !== undefined) {
-    wire.tokenizer = meta.tokenizer
-  }
-  if (meta.stopWords !== undefined) {
-    wire.stop_words = meta.stopWords
-  }
-  if (meta.stopWordList !== undefined) {
-    wire.stop_word_list = meta.stopWordList
-  }
-  return wire
-}
-
-function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
-  const meta: IndexMetadata = {
-    indexName: raw.index_name,
-    schema: raw.schema ?? {},
-    language: raw.language ?? 'english',
-    partitionCount: raw.partition_count ?? 1,
-    bm25Params: raw.bm25_params ?? { k1: 1.2, b: 0.75 },
-    createdAt: raw.created_at ?? 0,
-    engineVersion: raw.engine_version ?? '0.0.0',
-  }
-  if (raw.vector_fields) {
-    meta.vectorFields = raw.vector_fields
-  }
-  if (raw.embedding && typeof raw.embedding === 'object' && typeof raw.embedding.fields === 'object') {
-    meta.embedding =
-      typeof raw.embedding.adapter === 'string'
-        ? { adapter: raw.embedding.adapter, fields: raw.embedding.fields }
-        : { fields: raw.embedding.fields }
-  }
-  if (raw.surface_forms_enabled === true) {
-    meta.surfaceForms = true
-  }
-  if (typeof raw.tokenizer === 'string') {
-    meta.tokenizer = raw.tokenizer
-  }
-  if (typeof raw.stop_words === 'string') {
-    meta.stopWords = raw.stop_words
-  }
-  if (Array.isArray(raw.stop_word_list) && raw.stop_word_list.every(word => typeof word === 'string')) {
-    meta.stopWordList = raw.stop_word_list
-  }
-  return meta
-}
-
-export function serializeMetadata(meta: IndexMetadata): Uint8Array {
-  const wire = metadataToWire(meta)
-  return encode(wire)
-}
-
-export function deserializeMetadata(data: Uint8Array): IndexMetadata {
-  const raw = decode(data) as RawMetadataPayload
-  return wireToMetadata(raw)
 }

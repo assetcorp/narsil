@@ -8,7 +8,7 @@ import type { IndexDurabilityHooks } from '../persistence/durability/types'
 import type { PersistenceAdapter } from '../types/adapters'
 import type { DurabilityConfig } from '../types/config'
 import type { IndexEmbeddingMetadata, IndexMetadata } from '../types/internal'
-import type { AnyDocument } from '../types/schema'
+import type { AnyDocument, PartitionConfig, ScoringMode, VectorIndexConfig } from '../types/schema'
 
 export type DurabilityTier =
   | { kind: 'wal'; config: DurabilityConfig }
@@ -48,6 +48,12 @@ export interface DurabilityIntegrationHooks {
         tokenizer?: string
         stopWords?: string
         stopWordList?: string[]
+        partitionLimits?: PartitionConfig
+        defaultScoring?: ScoringMode
+        trackPositions?: boolean
+        strict?: boolean
+        required?: string[]
+        vectorPromotion?: VectorIndexConfig
       }
     | undefined
   createIndexFromMetadata: IndexDurabilityHooks['createIndexFromMetadata']
@@ -83,6 +89,24 @@ function buildMetadata(indexName: string, hooks: DurabilityIntegrationHooks): In
   }
   if (config.stopWordList !== undefined) {
     metadata.stopWordList = config.stopWordList
+  }
+  if (config.partitionLimits !== undefined) {
+    metadata.partitionLimits = config.partitionLimits
+  }
+  if (config.defaultScoring !== undefined) {
+    metadata.defaultScoring = config.defaultScoring
+  }
+  if (config.trackPositions !== undefined) {
+    metadata.trackPositions = config.trackPositions
+  }
+  if (config.strict !== undefined) {
+    metadata.strict = config.strict
+  }
+  if (config.required !== undefined) {
+    metadata.required = config.required
+  }
+  if (config.vectorPromotion !== undefined) {
+    metadata.vectorPromotion = config.vectorPromotion
   }
   return metadata
 }

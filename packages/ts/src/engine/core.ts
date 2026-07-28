@@ -151,6 +151,12 @@ function createDurabilityFromConfig(
         ...(typeof entry.config.tokenizer === 'string' ? { tokenizer: entry.config.tokenizer } : {}),
         ...(typeof entry.config.stopWords === 'string' ? { stopWords: entry.config.stopWords } : {}),
         ...(entry.config.stopWords instanceof Set ? { stopWordList: [...entry.config.stopWords].sort() } : {}),
+        ...(entry.config.partitions !== undefined ? { partitionLimits: entry.config.partitions } : {}),
+        ...(entry.config.defaultScoring !== undefined ? { defaultScoring: entry.config.defaultScoring } : {}),
+        ...(entry.config.trackPositions !== undefined ? { trackPositions: entry.config.trackPositions } : {}),
+        ...(entry.config.strict !== undefined ? { strict: entry.config.strict } : {}),
+        ...(entry.config.required !== undefined ? { required: entry.config.required } : {}),
+        ...(entry.config.vectorPromotion !== undefined ? { vectorPromotion: entry.config.vectorPromotion } : {}),
       }
     },
     createIndexFromMetadata: wiring.createIndexFromMetadata,

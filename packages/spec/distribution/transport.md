@@ -275,15 +275,15 @@ QueryParams {
   sort:        List<SortField> or absent
   group:       GroupConfig or absent
   facets:      List<string> or absent
-  facetSize:   uint32 or absent   (default 10, the bucket cap per facet field)
-  limit:       uint32             (default 10)
-  offset:      uint32             (default 0)
-  searchAfter: string or absent   (base64-encoded cursor)
-  fields:      List<string> or absent   (the fields searched; absent means every text field)
+  facetSize:   uint32 or absent                 (default 10, the bucket cap per facet field)
+  limit:       uint32                           (default 10)
+  offset:      uint32                           (default 0)
+  searchAfter: string or absent                 (base64-encoded cursor)
+  fields:      List<string> or absent           (the fields searched; absent means every text field)
   boost:       Map<string, float32> or absent   (per-field boost)
-  tolerance:   uint8 or absent    (fuzzy matching tolerance)
-  threshold:   float32 or absent  (minimum score)
-  scoring:     'local' or 'dfs' or 'broadcast'   (default 'local')
+  tolerance:   uint8 or absent                  (fuzzy matching tolerance)
+  threshold:   float32 or absent                (minimum score)
+  scoring:     'local' or 'dfs' or 'broadcast'  (default 'local')
   vector:      VectorQueryParams or absent
   hybrid:      HybridConfig or absent
 }

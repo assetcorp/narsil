@@ -1,3 +1,5 @@
+import type { PartitionConfig, ScoringMode, VectorIndexConfig } from './schema'
+
 export interface PostingEntry {
   docId: string
   termFrequency: number
@@ -127,6 +129,12 @@ export interface IndexMetadata {
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
+  partitionLimits?: PartitionConfig
+  defaultScoring?: ScoringMode
+  trackPositions?: boolean
+  strict?: boolean
+  required?: string[]
+  vectorPromotion?: VectorIndexConfig
 }
 
 /** Persisted so recovery can restore field mappings and rebind the adapter by

@@ -63,8 +63,8 @@ Each entry is serialised as MessagePack:
 
 ```text
 ReplicationLogEntry {
-  seqNo:       uint64    (increases monotonically within a partition)
-  primaryTerm: uint64    (increases on primary failover)
+  seqNo:       uint64           (increases monotonically within a partition)
+  primaryTerm: uint64           (increases on primary failover)
   operation:   'INDEX' or 'DELETE'
   partitionId: uint32
   indexName:   string
