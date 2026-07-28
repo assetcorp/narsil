@@ -159,6 +159,8 @@ SnapshotBundle {
   version:       uint8                          (1)
   schema:        Map<string, string>
   language:      string
+  tokenizer:     string                         (optional; the name the tokeniser was registered under)
+  stop_words:    string                         (optional; the name the stop word set was registered under)
   partitions:    List<bytes>                    (version 2 partition payloads)
   vectorIndexes: Map<string, VectorIndexPayload>
   checkpoint:    List<PartitionCheckpoint>
@@ -172,6 +174,8 @@ PartitionCheckpoint {
 ```
 
 `checkpoint` records, per partition, the highest `seqNo` the snapshot already holds, and recovery replays each partition's log from `lastSeqNo + 1`. The field is additive: a reader that does not find it treats every partition's `lastSeqNo` as 0 and replays the whole log.
+
+`tokenizer` and `stop_words` are additive as well. They carry the names from [Index Metadata](#index-metadata), so a reader recreates the index with the analysis the snapshot was taken with, and a name nothing is registered under raises `CONFIG_INVALID`.
 
 ### Atomic Snapshot Write
 
