@@ -1,4 +1,5 @@
 import type { LanguageModule } from '../types/language'
+import { removeMarks } from './support/marks'
 
 const NOUN_SUFFIXES = [
   'ovanje',
@@ -523,9 +524,16 @@ const stopWords = new Set([
   'že',
 ])
 
+const TONAL_MARKS = /[\u0300\u0301\u0302]/g
+
+function normalize(token: string): string {
+  return removeMarks(token, TONAL_MARKS)
+}
+
 export const slovenian: LanguageModule = {
   name: 'slovenian',
   stemmer: stem,
   stopWords,
+  normalizer: normalize,
   tokenizer: { splitPattern: /[^a-z0-9čšžáéóú]+/gi },
 }

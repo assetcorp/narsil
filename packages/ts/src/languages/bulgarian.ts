@@ -1,4 +1,5 @@
 import type { LanguageModule } from '../types/language'
+import { removeMarks } from './support/marks'
 
 function stem(word: string): string {
   let len = word.length
@@ -333,9 +334,16 @@ const stopWords = new Set([
   'як',
 ])
 
+const STRESS_MARK = /\u0300/g
+
+function normalize(token: string): string {
+  return removeMarks(token, STRESS_MARK)
+}
+
 export const bulgarian: LanguageModule = {
   name: 'bulgarian',
   stemmer: stem,
   stopWords,
+  normalizer: normalize,
   tokenizer: { splitPattern: /[^a-z0-9а-яъѝЍ\p{M}]+/giu },
 }

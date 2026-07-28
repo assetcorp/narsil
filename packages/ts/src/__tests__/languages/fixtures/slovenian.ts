@@ -26,8 +26,8 @@ export const slovenianFixture = defineLanguageFixture({
   ],
   indivisible: ['sladkó', 'srcé', 'razjásni', 'sinóv', 'rodú', 'otrók', 'slovenščina', 'črkopisu'],
   separates: [
-    { text: 'srcé razjásni in oko', tokens: ['srcé', 'razjásni', 'in', 'oko'] },
-    { text: 'so trte vince nam sladkó', tokens: ['so', 'trte', 'vince', 'nam', 'sladkó'] },
+    { text: 'srcé razjásni in oko', tokens: ['srce', 'razjasni', 'in', 'oko'] },
+    { text: 'so trte vince nam sladkó', tokens: ['so', 'trte', 'vince', 'nam', 'sladko'] },
   ],
   equivalent: [
     ['srcé', 'srce'],

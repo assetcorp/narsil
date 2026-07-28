@@ -43,7 +43,7 @@ export const germanFixture = defineLanguageFixture({
     },
     {
       text: 'überspannt als Dachsprache den Großteil',
-      tokens: ['überspannt', 'als', 'dachsprache', 'den', 'großteil'],
+      tokens: ['überspannt', 'als', 'dachsprache', 'den', 'grossteil'],
     },
   ],
   equivalent: [

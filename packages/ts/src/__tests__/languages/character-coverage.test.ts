@@ -69,6 +69,7 @@ describe('every character a language claims to support appears in its published 
         .concat(fixture.indivisible)
         .concat(fixture.separates.map(entry => entry.text))
         .concat(fixture.retrievable.flatMap(entry => [entry.query, entry.text]))
+        .concat(fixture.equivalent.flat())
         .concat([...fixture.module.stopWords])
         .join(' ')
         .normalize('NFC')
