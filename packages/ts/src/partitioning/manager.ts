@@ -314,8 +314,8 @@ export function createPartitionManager(
       totalFieldLengths: Record<string, number>
     } {
       let totalDocuments = 0
-      const docFrequencies: Record<string, number> = {}
-      const totalFieldLengths: Record<string, number> = {}
+      const docFrequencies: Record<string, number> = Object.create(null)
+      const totalFieldLengths: Record<string, number> = Object.create(null)
 
       for (let i = 0; i < partitions.length; i++) {
         const stats = partitions[i].stats

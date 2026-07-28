@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getLanguage } from '../../languages/registry'
 import {
   collectGlobalStats,
+  collectQueryTermStats,
   mergePartitionStats,
   pruneStatsToQueryTerms,
+  sanitizeGlobalStats,
   setupStatisticsBroadcast,
 } from '../../partitioning/distributed-scoring'
 import { createPartitionManager, type PartitionManager } from '../../partitioning/manager'
@@ -111,6 +113,119 @@ describe('distributed-scoring', () => {
       expect(result.docFrequencies.cat).toBe(2)
       expect(result.totalFieldLengths.title).toBe(40)
       expect(result.averageFieldLengths.title).toBe(5)
+    })
+  })
+
+  describe('Object.prototype key safety', () => {
+    it('sums a df key named constructor numerically in mergePartitionStats', () => {
+      const merged = mergePartitionStats([
+        { totalDocuments: 2, docFrequencies: { constructor: 1 }, totalFieldLengths: { title: 10 } },
+        { totalDocuments: 3, docFrequencies: { constructor: 2 }, totalFieldLengths: { title: 15 } },
+      ])
+      expect(merged.docFrequencies.constructor).toBe(3)
+      expect(typeof merged.docFrequencies.constructor).toBe('number')
+    })
+
+    it('aggregates a document containing the word constructor into numeric stats', () => {
+      const manager = makeManager(2)
+      manager.insert('doc1', { title: 'constructor of engines', category: 'tech' })
+      manager.insert('doc2', { title: 'engine constructor guide', category: 'tech' })
+
+      const aggregate = manager.getAggregateStats()
+      expect(aggregate.docFrequencies.constructor).toBe(2)
+      expect(typeof aggregate.docFrequencies.constructor).toBe('number')
+    })
+
+    it('never copies an inherited key into pruned statistics, keeping them clonable', () => {
+      const stats = {
+        totalDocuments: 10,
+        docFrequencies: { machin: 4 },
+        totalFieldLengths: { title: 50 },
+        averageFieldLengths: { title: 5 },
+      }
+      const pruned = pruneStatsToQueryTerms(stats, 'constructor __proto__ machine', getLanguage('english'), {})
+
+      expect(Object.hasOwn(pruned.docFrequencies, 'constructor')).toBe(false)
+      expect(Object.hasOwn(pruned.docFrequencies, '__proto__')).toBe(false)
+      expect(pruned.docFrequencies.machin).toBe(4)
+      expect(() => structuredClone(pruned)).not.toThrow()
+    })
+
+    it('sanitizes wire statistics down to finite numeric own entries', () => {
+      const dirty = {
+        totalDocuments: Number.NaN,
+        docFrequencies: { machine: 4, broken: 'text', infinite: Infinity } as unknown as Record<string, number>,
+        totalFieldLengths: { title: 50 },
+        averageFieldLengths: { title: 5 },
+      }
+      const clean = sanitizeGlobalStats(dirty)
+
+      expect(clean.totalDocuments).toBe(0)
+      expect(clean.docFrequencies).toEqual({ machine: 4 })
+      expect(Object.hasOwn(clean.docFrequencies, 'broken')).toBe(false)
+      expect(Object.hasOwn(clean.docFrequencies, 'infinite')).toBe(false)
+      expect(clean.totalFieldLengths).toEqual({ title: 50 })
+    })
+  })
+
+  describe('collectQueryTermStats', () => {
+    it('collects frequencies for the analysed query tokens alone', () => {
+      const manager = makeManager(3)
+      manager.insert('doc1', { title: 'alpha beta gamma', category: 'animals' })
+      manager.insert('doc2', { title: 'beta delta epsilon', category: 'tech' })
+      manager.insert('doc3', { title: 'alpha zeta', category: 'animals' })
+
+      const stats = collectQueryTermStats(manager, 'alpha beta', english, {})
+
+      expect(stats.docFrequencies).toEqual({ alpha: 2, beta: 2 })
+      expect(stats.totalDocuments).toBe(3)
+    })
+
+    it('matches the full aggregate on totals, averages, and shared term frequencies', () => {
+      const manager = makeManager(3)
+      manager.insert('doc1', { title: 'alpha beta gamma', category: 'animals' })
+      manager.insert('doc2', { title: 'beta delta epsilon', category: 'tech' })
+      manager.insert('doc3', { title: 'alpha zeta', category: 'animals' })
+      manager.insert('doc4', { title: 'gamma theta', category: 'science' })
+
+      const full = collectGlobalStats(manager)
+      const scoped = collectQueryTermStats(manager, 'alpha gamma', english, {})
+
+      expect(scoped.totalDocuments).toBe(full.totalDocuments)
+      expect(scoped.totalFieldLengths).toEqual(full.totalFieldLengths)
+      expect(scoped.averageFieldLengths).toEqual(full.averageFieldLengths)
+      expect(scoped.docFrequencies.alpha).toBe(full.docFrequencies.alpha)
+      expect(scoped.docFrequencies.gamma).toBe(full.docFrequencies.gamma)
+      expect(Object.keys(scoped.docFrequencies).sort()).toEqual(['alpha', 'gamma'])
+    })
+
+    it('drops stop words and deduplicates repeated tokens', () => {
+      const manager = makeManager(2)
+      manager.insert('doc1', { title: 'alpha alpha the beta', category: 'tech' })
+
+      const stats = collectQueryTermStats(manager, 'the alpha alpha alpha', english, {})
+
+      expect(stats.docFrequencies).toEqual({ alpha: 1 })
+    })
+
+    it('omits query tokens absent from every partition', () => {
+      const manager = makeManager(2)
+      manager.insert('doc1', { title: 'alpha beta', category: 'tech' })
+
+      const stats = collectQueryTermStats(manager, 'alpha missing', english, {})
+
+      expect(stats.docFrequencies).toEqual({ alpha: 1 })
+      expect(Object.hasOwn(stats.docFrequencies, 'missing')).toBe(false)
+    })
+
+    it('reads a constructor token as a number, never the inherited property', () => {
+      const manager = makeManager(2)
+      manager.insert('doc1', { title: 'constructor patterns', category: 'tech' })
+
+      const stats = collectQueryTermStats(manager, 'constructor', english, {})
+
+      expect(stats.docFrequencies.constructor).toBe(1)
+      expect(typeof stats.docFrequencies.constructor).toBe('number')
     })
   })
 

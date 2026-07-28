@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
+import { sanitizeGlobalStats } from '../partitioning/distributed-scoring'
 import { fanOutQuery } from '../partitioning/fan-out'
 import { createPartitionManager, type PartitionManager } from '../partitioning/manager'
 import { createPartitionRouter } from '../partitioning/router'
@@ -137,7 +138,7 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
           {
             scoringMode: action.params.scoring ?? entry.config.defaultScoring ?? 'local',
             partitionIds: action.partitionIds,
-            ...(action.globalStats !== undefined ? { globalStats: action.globalStats } : {}),
+            ...(action.globalStats !== undefined ? { globalStats: sanitizeGlobalStats(action.globalStats) } : {}),
           },
           entry.searchOptions,
         )

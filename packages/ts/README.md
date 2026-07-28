@@ -772,7 +772,7 @@ await narsil.checkpoint('products')
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `tier` | `'wal' \| 'snapshot'` | resolved from the adapter | Overrides tier selection. `'snapshot'` forces snapshot-only persistence onto any adapter, a filesystem-backed one included, which is the tier to pick when several processes share one directory, because the write-ahead log owns its directory exclusively. `'snapshot'` without a persistence adapter and `'wal'` without a resolvable directory both fail with `CONFIG_INVALID`. |
+| `tier` | `'wal' \| 'snapshot'` | resolved from the adapter | Overrides tier selection. `'snapshot'` forces snapshot-only persistence onto any adapter, a filesystem-backed one included, which is the tier to pick when several processes share one directory, because the write-ahead log owns its directory exclusively. `'snapshot'` without a persistence adapter and `'wal'` without a resolvable directory both fail with `CONFIG_INVALID`, and `'snapshot'` also rejects the write-ahead log fields `directory`, `mode`, `flushIntervalMs`, `segmentMaxBytes`, and `compactionThreshold`. |
 | `directory` | `string` | none | Sets the root directory for the log and checkpoints. |
 | `mode` | `'sync' \| 'async'` | `'sync'` | Selects the acknowledgement contract described below. |
 | `flushIntervalMs` | `number` | `1000` | Sets how often the async mode flushes the log to disk. |
@@ -782,6 +782,8 @@ await narsil.checkpoint('products')
 | `compactionThreshold` | `number` | `12` | Sets the checkpoint segment count that triggers compaction. |
 
 In `sync` mode a write is not acknowledged until it is on disk, so a crash never loses a write your caller saw succeed. In `async` mode writes acknowledge immediately while the log flushes on `flushIntervalMs`, which is faster but can lose the final interval on a hard crash. Durability failures surface through the `durabilityError` event; see [Events](#events).
+
+`createNarsil` validates every durability field and rejects an invalid value with `CONFIG_INVALID`: an unknown `tier` or `mode` string, a non-finite number, a negative interval, or a size or threshold below 1. An interval of `0` disables that timer.
 
 ## Snapshots and restore
 

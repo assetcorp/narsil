@@ -121,6 +121,52 @@ describe('fanOutQuery', () => {
     })
   })
 
+  describe('dfs mode collects statistics for the query terms alone', () => {
+    it('scores exactly like broadcast fed the full aggregate statistics', async () => {
+      const manager = makeManager(3)
+      manager.insert('doc1', { title: 'quick brown fox', category: 'animals' })
+      manager.insert('doc2', { title: 'lazy brown dog', category: 'animals' })
+      manager.insert('doc3', { title: 'brown bear roams', category: 'animals' })
+      manager.insert('doc4', { title: 'search engine works', category: 'tech' })
+
+      const fullStats = collectGlobalStats(manager)
+      const dfsResult = await fanOutQuery(manager, { term: 'brown fox' }, english, schema, { scoringMode: 'dfs' })
+      const broadcastResult = await fanOutQuery(manager, { term: 'brown fox' }, english, schema, {
+        scoringMode: 'broadcast',
+        globalStats: fullStats,
+      })
+
+      expect(dfsResult.scored.length).toBe(broadcastResult.scored.length)
+      for (let i = 0; i < dfsResult.scored.length; i++) {
+        expect(dfsResult.scored[i].docId).toBe(broadcastResult.scored[i].docId)
+        expect(dfsResult.scored[i].score).toBeCloseTo(broadcastResult.scored[i].score, 10)
+      }
+    })
+
+    it('returns finite scores for a term that collides with an Object.prototype key', async () => {
+      const manager = makeManager(2)
+      manager.insert('doc1', { title: 'constructor of engines', category: 'tech' })
+      manager.insert('doc2', { title: 'engine room layout', category: 'tech' })
+
+      const result = await fanOutQuery(manager, { term: 'constructor' }, english, schema, { scoringMode: 'dfs' })
+
+      expect(result.scored.length).toBe(1)
+      expect(Number.isFinite(result.scored[0].score)).toBe(true)
+      expect(result.scored[0].score).toBeGreaterThan(0)
+    })
+
+    it('returns finite scores for the __proto__ token under dfs', async () => {
+      const manager = makeManager(2)
+      manager.insert('doc1', { title: '__proto__ marker text', category: 'tech' })
+      manager.insert('doc2', { title: 'plain marker text', category: 'tech' })
+
+      const result = await fanOutQuery(manager, { term: '__proto__' }, english, schema, { scoringMode: 'dfs' })
+
+      expect(result.scored.length).toBe(1)
+      expect(Number.isFinite(result.scored[0].score)).toBe(true)
+    })
+  })
+
   describe('broadcast mode', () => {
     it('uses pre-collected stats when provided', async () => {
       const manager = makeManager(3)

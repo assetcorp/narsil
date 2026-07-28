@@ -14,6 +14,10 @@ import type { PartitionState } from './utils'
 
 const DEFAULT_MAX_RESULTS = 1000
 
+function globalDocFreqFor(docFreqs: Record<string, number>, term: string, fallback: number): number {
+  return Object.hasOwn(docFreqs, term) ? docFreqs[term] : fallback
+}
+
 export function searchFulltext(state: PartitionState, params: InternalSearchParams): InternalSearchResult {
   const {
     queryTokens,
@@ -67,7 +71,9 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
       seen.add(term)
       const postingList = state.invertedIdx.lookup(term)
       if (!postingList) continue
-      const docFreq = globalStats ? (globalDocFreqs[term] ?? postingList.docIdSet.size) : postingList.docIdSet.size
+      const docFreq = globalStats
+        ? globalDocFreqFor(globalDocFreqs, term, postingList.docIdSet.size)
+        : postingList.docIdSet.size
       found.push({ token: term, postingList, docFreq })
     }
     if (found.length === 0) return []
@@ -203,7 +209,7 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
       const matches: ResolvedTokenPostings['matches'] = []
       for (const m of rawMatches) {
         const docFreq = globalStats
-          ? (globalDocFreqs[m.token] ?? m.postingList.docIdSet.size)
+          ? globalDocFreqFor(globalDocFreqs, m.token, m.postingList.docIdSet.size)
           : m.postingList.docIdSet.size
         const idf = computeIDF(docFreq, totalDocs)
         totalPostings += m.postingList.length
@@ -288,7 +294,7 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
 
       for (const match of matchingPostings) {
         const docFreq = globalStats
-          ? (globalDocFreqs[match.token] ?? match.postingList.docIdSet.size)
+          ? globalDocFreqFor(globalDocFreqs, match.token, match.postingList.docIdSet.size)
           : match.postingList.docIdSet.size
         const idf = computeIDF(docFreq, totalDocs)
 

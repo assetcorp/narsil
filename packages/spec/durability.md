@@ -29,7 +29,7 @@ A persistence adapter that is not filesystem-backed cannot run a write-ahead log
 
 ### Tier Selection
 
-An implementation selects the tier from the backend: a filesystem-backed adapter runs Tier 1, and any other adapter runs Tier 2. The optional `durability.tier` field, `wal` or `snapshot`, overrides that selection. `tier: "snapshot"` forces snapshot-only persistence onto any adapter, a filesystem-backed one included; a deployment chooses this when several processes share one directory, because the write-ahead log requires exclusive ownership of its directory. `tier: "snapshot"` without a persistence adapter raises `CONFIG_INVALID`, and `tier: "wal"` where no directory can be resolved raises `CONFIG_INVALID`.
+An implementation selects the tier from the backend: a filesystem-backed adapter runs Tier 1, and any other adapter runs Tier 2. The optional `durability.tier` field, `wal` or `snapshot`, overrides that selection. `tier: "snapshot"` forces snapshot-only persistence onto any adapter, a filesystem-backed one included; a deployment chooses this when several processes share one directory, because the write-ahead log requires exclusive ownership of its directory. `tier: "snapshot"` without a persistence adapter raises `CONFIG_INVALID`, and `tier: "wal"` where no directory can be resolved raises `CONFIG_INVALID`. The write-ahead log fields `durability.directory`, `durability.mode`, `durability.flushIntervalMs`, `durability.segmentMaxBytes`, and `durability.compactionThreshold` cannot combine with `tier: "snapshot"`; the combination raises `CONFIG_INVALID`.
 
 ---
 
