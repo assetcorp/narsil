@@ -113,7 +113,7 @@ The early exit is what keeps this cheap: once the smallest value in a row passes
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
-| `tolerance` | 1 | The largest edit distance accepted. Zero means exact matches only. |
+| `tolerance` | 0 | The largest edit distance accepted. Zero means exact matches only, so typo tolerance is opt-in per query. |
 | `prefixLength` | 2 | The number of leading characters that must match exactly. |
 
 `prefixLength` narrows the search: only tokens sharing the same first characters are candidates, which turns a scan of every token into a scan of one prefix bucket.
