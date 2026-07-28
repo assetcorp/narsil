@@ -1,5 +1,6 @@
 import type { FanOutResult } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
+import type { FulltextSearchOptions } from '../../search/fulltext'
 import type { ScoredDocument } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
@@ -12,6 +13,14 @@ export interface QueryContext {
   config: IndexConfig
   workerSearch?: (indexName: string, params: QueryParams) => Promise<FanOutResult | null>
   indexName: string
+}
+
+export function searchOptionsFor(manager: PartitionManager): FulltextSearchOptions {
+  return {
+    bm25Params: manager.config.bm25,
+    stopWords: manager.analysis.stopWords,
+    customTokenizer: manager.analysis.customTokenizer,
+  }
 }
 
 export function collectFilterDocIds(

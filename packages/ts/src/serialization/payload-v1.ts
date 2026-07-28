@@ -86,6 +86,8 @@ interface RawMetadataPayload {
   vector_fields?: Record<string, { dimension: number; metric: string; quantization: string }>
   embedding?: { adapter?: string; fields: Record<string, string | string[]> }
   surface_forms_enabled?: boolean
+  tokenizer?: string
+  stop_words?: string
 }
 
 function partitionToWire(partition: SerializablePartition): RawPartitionPayload {
@@ -288,6 +290,12 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
   if (meta.surfaceForms === true) {
     wire.surface_forms_enabled = true
   }
+  if (meta.tokenizer !== undefined) {
+    wire.tokenizer = meta.tokenizer
+  }
+  if (meta.stopWords !== undefined) {
+    wire.stop_words = meta.stopWords
+  }
   return wire
 }
 
@@ -312,6 +320,12 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
   }
   if (raw.surface_forms_enabled === true) {
     meta.surfaceForms = true
+  }
+  if (typeof raw.tokenizer === 'string') {
+    meta.tokenizer = raw.tokenizer
+  }
+  if (typeof raw.stop_words === 'string') {
+    meta.stopWords = raw.stop_words
   }
   return meta
 }

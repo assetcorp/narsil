@@ -124,6 +124,8 @@ export interface IndexMetadata {
   embedding?: IndexEmbeddingMetadata
   /** Persisted so recovered indexes keep collecting surface forms. */
   surfaceForms?: boolean
+  tokenizer?: string
+  stopWords?: string
 }
 
 /** Persisted so recovery can restore field mappings and rebind the adapter by

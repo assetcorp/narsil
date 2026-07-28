@@ -25,6 +25,7 @@ export type WorkerAction =
       requestId: string
     }
   | { type: 'memoryReport'; requestId: string }
+  | { type: 'bootstrap'; moduleUrl: string; requestId: string }
   | { type: 'shutdown'; requestId: string }
 
 export type WorkerResponse =
@@ -47,6 +48,7 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'serialize',
   'deserialize',
   'memoryReport',
+  'bootstrap',
   'shutdown',
 ]
 

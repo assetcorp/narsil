@@ -226,6 +226,8 @@ export function createDurabilityManager(
 
     const offloaded =
       canOffloadCheckpoint &&
+      metadata.tokenizer === undefined &&
+      metadata.stopWords === undefined &&
       (await runCheckpointOnWorker({
         root: directory.root,
         metadata,

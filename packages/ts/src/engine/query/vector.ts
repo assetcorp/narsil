@@ -5,7 +5,14 @@ import type { ScoredDocument } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
-import { clampAlpha, collectFilterDocIds, type QueryContext, resolveVectorIndex, vectorResultsToScored } from './shared'
+import {
+  clampAlpha,
+  collectFilterDocIds,
+  type QueryContext,
+  resolveVectorIndex,
+  searchOptionsFor,
+  vectorResultsToScored,
+} from './shared'
 
 export function executeVectorSearch(
   params: QueryParams,
@@ -70,18 +77,13 @@ export async function executeHybridSearch(
   if (textWorkerResult) {
     textFanOutResult = textWorkerResult
   } else {
-    const searchOptions = {
-      bm25Params: config.bm25,
-      stopWords: config.stopWords,
-      customTokenizer: config.tokenizer,
-    }
     textFanOutResult = await fanOutQuery(
       manager,
       textOnlyParams,
       language,
       config.schema,
       { scoringMode: params.scoring ?? config.defaultScoring ?? 'local' },
-      searchOptions,
+      searchOptionsFor(manager),
     )
   }
 

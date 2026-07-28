@@ -32,6 +32,7 @@ export interface WorkerConfig {
   count?: number
   promotionThreshold?: number
   totalPromotionThreshold?: number
+  bootstrapModule?: string
 }
 
 export interface FlushConfig {

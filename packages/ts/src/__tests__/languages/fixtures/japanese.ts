@@ -39,7 +39,13 @@ export const japaneseFixture = defineLanguageFixture({
     { text: '人々の日本語', tokens: ['人々', 'の', '日本', '本語'] },
     { text: '様々な説', tokens: ['様々', 'な', '説'] },
   ],
-  equivalent: [],
+  equivalent: [
+    ['ﾆｯﾎﾟﾝ', 'ニッポン'],
+    ['ｶﾞｸｾｲ', 'ガクセイ'],
+    ['ﾆﾎﾝｺﾞ', 'ニホンゴ'],
+    ['ＡＢＣ', 'ABC'],
+    ['１９０５', '1905'],
+  ],
   retrievable: [
     { query: '猫', text: '『吾輩は猫である』（わがはいはねこである）は、夏目漱石の長編小説であり、処女小説である。' },
     { query: 'デル', text: 'へえアンドレア・デル・サルトがそんな事をいった事があるかい。' },
