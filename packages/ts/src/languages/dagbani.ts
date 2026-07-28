@@ -81,12 +81,20 @@ const stopWords = new Set([
   'ban',
 ])
 
+const OPEN_E_LOOKALIKES = /[εԑ]/g
+const DAGBANI_OPEN_E = 'ɛ'
+
+function normalize(token: string): string {
+  return token.replace(OPEN_E_LOOKALIKES, DAGBANI_OPEN_E)
+}
+
 export const dagbani: LanguageModule = {
   name: 'dagbani',
   stemmer: null,
   stopWords,
+  normalizer: normalize,
   tokenizer: {
-    splitPattern: /[^a-zA-ZɛɔƐƆŋŊɣƔʒƷʊƱəƏ0-9\p{M}]+/giu,
+    splitPattern: /[^a-zA-ZɛɔƐƆŋŊɣƔʒƷʊƱəƏεԑ0-9\p{M}]+/giu,
     normalizeDiacritics: false,
     minTokenLength: 1,
   },

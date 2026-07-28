@@ -36,6 +36,8 @@ export const dagbaniFixture = defineLanguageFixture({
   equivalent: [
     ['Tamale', 'tamale'],
     ["ninvuɣ'", 'ninvuɣ'],
+    ['shɛli', 'shεli'],
+    ['bɛ', 'bԑ'],
   ],
   retrievable: [
     { query: 'sunsuuni', text: 'Afa Mugtada n-nyɛ Limam zaŋ ti Zaapayim jiŋli din be Tamale sunsuuni la.' },

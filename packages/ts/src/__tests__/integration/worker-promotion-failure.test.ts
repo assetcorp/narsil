@@ -1,7 +1,11 @@
+import { existsSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { createNarsil } from '../../narsil'
 import type { NarsilEventMap } from '../../types/events'
 import type { CustomTokenizer, IndexConfig } from '../../types/schema'
+
+const distEntry = new URL('../../../dist/workers/entry.mjs', import.meta.url)
+const built = existsSync(distEntry)
 
 const schema = { title: 'string' as const }
 
@@ -87,4 +91,40 @@ describe('an index that cannot reach a worker says so instead of promoting quiet
 
     await narsil.shutdown()
   })
+})
+
+describe.skipIf(!built)('one ineligible index leaves the other indexes promotable', () => {
+  it('promotes the eligible index and reports the excluded one once', async () => {
+    const narsil = await createNarsil({ workers: { enabled: true, count: 1, promotionThreshold: 2 } })
+    await narsil.createIndex('prose', { schema })
+    await narsil.createIndex('letters', { schema, tokenizer: everyCharacter })
+
+    const failures: NarsilEventMap['workerPromoteFailure'][] = []
+    narsil.on('workerPromoteFailure', payload => {
+      failures.push(payload)
+    })
+    const promoted = new Promise<number>(resolve => {
+      narsil.on('workerPromote', payload => resolve(payload.workerCount))
+    })
+
+    await narsil.insert('letters', { title: 'machine' })
+    await narsil.insert('prose', { title: 'the rise of the machine' })
+    await narsil.insert('prose', { title: 'the fall of the empire' })
+    await narsil.insert('prose', { title: 'a quiet afternoon' })
+
+    expect(await promoted).toBe(1)
+    expect(failures).toHaveLength(1)
+    expect(failures[0].error.message).toMatch(/"letters"/)
+    expect(failures[0].retryable).toBe(false)
+
+    const stemmed = await narsil.query('prose', { term: 'machine' })
+    expect(stemmed.hits.map(hit => hit.document.title)).toEqual(['the rise of the machine'])
+
+    const perCharacter = await narsil.query('letters', { term: 'm' })
+    expect(perCharacter.hits).toHaveLength(1)
+    await narsil.insert('letters', { title: 'engine' })
+    expect((await narsil.query('letters', { term: 'g' })).hits).toHaveLength(1)
+
+    await narsil.shutdown()
+  }, 30_000)
 })
