@@ -193,6 +193,8 @@ On index creation, and on any change that affects the schema, a node persists th
 
 When the metadata carries an `embedding` block, recovery restores the field mappings and rebinds the embedding adapter by its registered name. Rebinding validates the adapter's dimensions against every mapped vector field before the index uses it.
 
+When the metadata names a tokeniser or a stop word set, recovery resolves each name against the engine's analysis registry before it creates the index. A name nothing is registered under raises `CONFIG_INVALID` and stops that index recovering, because an index whose analysis cannot be restored would answer every query against terms it never stored. An operator restores such an index by registering the missing name and starting the node again.
+
 When no adapter of that name is registered at recovery time, the index still recovers in full: every document, term, and stored vector is available and keyword queries work. The operations that need the adapter, such as embedding a text query or embedding an inserted document that arrives without its vectors, fail with `EMBEDDING_CONFIG_INVALID` and name the missing adapter until it is registered. Registering the adapter later rebinds every recovered index that references it, with no data rebuilt and no document embedded a second time, because the write-ahead log and the snapshots store documents with their vectors already computed.
 
 ---

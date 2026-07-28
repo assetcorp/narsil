@@ -273,6 +273,39 @@ workerCount = max(2, cpuCount - 1)
 
 capped at 8. A caller overrides it through `NarsilConfig.workers.count`.
 
+### What Crosses into a Worker
+
+A worker runs in its own memory with its own registries, and the engine reaches it by passing messages, so data crosses and code does not. A schema, a stop word set given as a set, and a pair of BM25 parameters all cross. A tokeniser instance, a stop word function, a stemmer, and a language module are code, and none of them crosses.
+
+An index therefore reaches a worker only when its configuration gives a name for each part of its analysis:
+
+- The `language` setting names a language, and the worker resolves that name against its own language registry.
+- The `tokenizer` and `stopWords` settings name registry entries, and the worker resolves each name against its own analysis registry, as [Analysis Registry](adapters.md#analysis-registry) describes.
+
+### Worker Bootstrap
+
+A worker starts with the engine's own registrations alone, which cover English and nothing further. The caller names a module that every worker imports before it builds any index, and that module registers whatever the caller's indexes name:
+
+```text
+workers {
+  bootstrapModule: string   (optional, a module URL)
+}
+```
+
+The engine sends the module to every worker and waits for each import to finish before it sends any other instruction. An import that fails, and a module that registers nothing an index names, each fail promotion and report it.
+
+### Promotion Failure
+
+The engine reads every index configuration before it starts a worker, and it refuses to promote when a configuration cannot cross:
+
+| Condition | Report |
+|-----------|--------|
+| An index supplies a tokeniser instance. | The engine names the index and asks the caller to register the tokeniser and name it in the index configuration. |
+| An index supplies a stop word function. | The engine names the index and asks the caller to register the function and name it in the index configuration. |
+| An index names a language other than `english` while no bootstrap module is configured. | The engine names the index and the language, and asks the caller to configure a bootstrap module that registers it. |
+
+A refusal raises `CONFIG_INVALID`, and the engine emits a `workerPromoteFailure` event carrying the reason, the error, and whether the engine will check again. A configuration failure fails the same way each time, so the engine reports it once and checks no further. A transient failure, such as a worker that fails to start, leaves the check in place. Under both failures the index answers every query in the calling thread, so a failed promotion costs throughput and leaves results correct.
+
 ---
 
 ## Partition Lifecycle

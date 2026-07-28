@@ -190,16 +190,15 @@ TokenResult {
 
 ### Configuration
 
-A custom tokeniser is set per index at creation time:
+Each index names or supplies its tokeniser when the caller creates it:
 
-```json
-{
-  "schema": {},
-  "tokenizer": {
-    "tokenize": "(text: string) -> List<{ token, position }>"
-  }
+```text
+IndexConfig {
+  tokenizer: CustomTokenizer or string or absent
 }
 ```
+
+A `CustomTokenizer` value supplies the tokeniser directly, and a string names an entry in the [Analysis Registry](#analysis-registry). A name is the only form that reaches a worker or survives a restart, because a tokeniser is code and no boundary carries code.
 
 The `language` setting still applies alongside a custom tokeniser: it supplies the stop words, unless the tokeniser removes them itself, and any other language behaviour outside tokenisation.
 
@@ -211,16 +210,19 @@ A language module carries the language-specific parts of text analysis. Each one
 
 ```text
 LanguageModule {
-  name:      string
-  stemmer:   ((token: string) -> string) or absent
-  stopWords: Set<string>
-  tokenizer: TokenizerConfig or absent
+  name:       string
+  stemmer:    ((token: string) -> string) or absent
+  stopWords:  Set<string>
+  normalizer: ((token: string) -> string) or absent
+  tokenizer:  TokenizerConfig or absent
 }
 
 TokenizerConfig {
   splitPattern:        regex or absent
   normalizeDiacritics: boolean or absent
   minTokenLength:      uint32 or absent
+  stripPossessive:     boolean or absent
+  ngramSize:           uint32 or absent
 }
 ```
 
@@ -236,13 +238,83 @@ A function that reduces a token to its root form. It returns the stemmed form, o
 
 A set of common words to keep out of the index. Each index can override it through the `stopWords` configuration option.
 
+### normalizer
+
+A function that maps two spellings of one word onto one token, which is what an orthography with optional marks needs. German expands ß to `ss`, Greek removes its accents, Serbian converts Cyrillic to Latin, and Hindi rewrites a nasal consonant with a halant as anusvara. It runs on every token of that language, at index time and at query time alike, so that a document written one way answers a query written the other way. A language whose spellings need no such repair leaves it absent.
+
 ### tokenizer
 
 An optional configuration that overrides the tokenisation defaults for this language. Chinese and Japanese need it, because they split on characters instead of whitespace.
 
+| Field | Effect |
+|-------|--------|
+| `splitPattern` | Narsil splits text on every match of this expression. It defaults to a run of characters that are none of a letter, a mark, a number, an underscore, an apostrophe, or a hyphen. |
+| `normalizeDiacritics` | Narsil strips the combining marks from U+0300 to U+036F from every token. It defaults to off. |
+| `minTokenLength` | Narsil discards a token shorter than this length. It defaults to 1. |
+| `stripPossessive` | Narsil removes a trailing apostrophe, and a trailing apostrophe followed by `s`. It defaults to off, and English turns it on. |
+| `ngramSize` | Narsil replaces each run of Han, hiragana, katakana, or hangul characters with its overlapping character n-grams of this size. It defaults to absent, which leaves every run whole, and Chinese and Japanese set it to 2. |
+
 ### Stop Word Override
 
-Per-index stop word configuration takes one of two forms. Supplying a set replaces the language's default stop words outright. Supplying a function of the form `(defaults: Set<string>) -> Set<string>` hands that function the language's defaults and takes back the modified set, which is how you add domain-specific words or keep a word the language treats as noise but your domain treats as meaningful.
+Per-index stop word configuration takes one of three forms. A set replaces the language's default stop words outright. A function of the form `(defaults: Set<string>) -> Set<string>` receives the language's defaults and returns the modified set, which is how a caller adds domain-specific words or keeps a word the language treats as noise and the domain treats as meaningful. A string names an entry in the [Analysis Registry](#analysis-registry), and a name is the only form that reaches a worker or survives a restart.
+
+---
+
+## Analysis Pipeline
+
+Narsil analyses text in a fixed order, and every implementation must follow that order, so that a port produces the same tokens as the reference implementation for the same input.
+
+1. A tokeniser configured on the index replaces every step below. Narsil calls it and takes its output as final.
+2. Narsil folds full-width and half-width forms. It maps each code point from U+FF01 to U+FF5E onto its ASCII equivalent by subtracting 0xFEE0, maps half-width katakana from U+FF61 to U+FF9D onto the matching full-width katakana, and maps the half-width voiced and semi-voiced marks U+FF9E and U+FF9F onto the combining marks U+3099 and U+309A.
+3. Narsil normalises the text to NFC, which composes each combining voice mark onto the kana before it.
+4. Narsil maps the apostrophe variants U+2019, U+02BC, and U+02BB onto U+0027, maps the dotted capital I at U+0130 onto `i`, and removes the combining dot above at U+0307 and the Armenian marks from U+055B to U+055F.
+5. Narsil lower-cases the text.
+6. Narsil splits the text on the language's `splitPattern`.
+7. Narsil expands each part into character n-grams when the language sets `ngramSize`. It cuts each part where the script changes, expands a run of Han, hiragana, katakana, or hangul characters into its overlapping n-grams, and leaves whole both a run of any other script and a run no longer than `ngramSize`.
+8. Narsil strips a possessive ending when the language sets `stripPossessive`.
+9. Narsil discards a token shorter than `minTokenLength`.
+10. Narsil discards a token the index's stop word set holds. It compares the token as step 9 leaves it, before the normaliser and the stemmer run, so a caller writes a stop word list in the language's ordinary spelling.
+11. Narsil applies the language's `normalizer`.
+12. Narsil strips the combining marks from U+0300 to U+036F when the language sets `normalizeDiacritics` or the caller asks for it.
+13. Narsil applies the language's `stemmer`.
+
+A string of ASCII characters alone skips steps 2 to 4, because no step among them changes such a string.
+
+Steps 11 to 13 read the token alone, so an implementation may cache their result under a key of the raw token, the language name, and those two flags.
+
+---
+
+## Analysis Registry
+
+The engine keeps a registry of tokenisers and stop word sets under names the caller chooses:
+
+```text
+registerTokenizer(name: string, tokenizer: CustomTokenizer) -> nothing
+registerStopWords(name: string, stopWords: Set<string> or ((defaults: Set<string>) -> Set<string>)) -> nothing
+```
+
+An index configuration that gives a string for `tokenizer` or for `stopWords` resolves that string against the registry when the caller creates the index, and an unknown name raises `CONFIG_INVALID` listing the names that are registered.
+
+Names exist because no boundary carries code. A tokeniser and a stop word function are both code, and a worker thread, a restart, and a second machine each receive data alone, so an index configured with either value runs in the calling thread and loses its analysis on recovery. An index configured with a name carries the name across instead, and each side resolves that name against its own registry. The `language` setting has always worked this way, and these two settings now match it.
+
+### Binding
+
+An index resolves its tokeniser and its stop words once, when the caller creates it, and it holds what it resolved for its whole life. Registering a name a second time binds the indexes created afterwards and leaves every existing index untouched. An existing index stores tokens the earlier value produced, and rebinding it would leave its stored tokens in one form and every later query in another, so the engine leaves the binding alone. An index whose analysis must change needs a fresh index and a reindex, as [Analysis Changes](#analysis-changes) describes.
+
+This differs from [Named Adapter Registration](#named-adapter-registration) for embedding adapters, where re-registration rebinds every referencing index. An embedding adapter produces vectors that a rebinding leaves valid, while a tokeniser produces the terms an index is built from.
+
+### Registration Rules
+
+- A name must be a non-empty string, and any other value raises `CONFIG_INVALID`.
+- A registered tokeniser must supply a `tokenize` operation, and one without it raises `CONFIG_INVALID`.
+- A registered stop word value must be a set or a function of the form above, and any other value raises `CONFIG_INVALID`.
+- The registry belongs to the process and not to one engine instance, so several engines in one process share every registration, exactly as they share the language registry.
+
+### Analysis Changes
+
+The split pattern, the n-gram size, the normaliser, the stemmer, the stop words, and the folding steps together decide which tokens an index stores. A change to any of them changes the tokens a query produces, while the tokens already stored keep their earlier form, so a query misses documents it matched before.
+
+The `.nrsl` envelope records no analysis version, so no automatic check reports the mismatch. A release that changes analysis must say so plainly, and an operator meeting such a release must create a fresh index and reindex every document into it.
 
 ---
 
