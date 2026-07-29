@@ -124,6 +124,27 @@ export async function truncateCoveredSegments(
   }
 }
 
+export async function reclaimWalBeyondCount(
+  directory: DurableDirectory,
+  indexName: string,
+  partitionCount: number,
+  partitions: Map<number, { walWriter: { close(): Promise<void> } }>,
+  onCloseError: (error: Error) => void,
+): Promise<void> {
+  for (const [partitionId, partition] of [...partitions]) {
+    if (partitionId < partitionCount) continue
+    try {
+      await partition.walWriter.close()
+    } catch (err) {
+      onCloseError(err instanceof Error ? err : new Error(String(err)))
+    }
+    partitions.delete(partitionId)
+    for (const key of await directory.list(walPrefix(indexName, partitionId))) {
+      await directory.remove(key)
+    }
+  }
+}
+
 function parseSegmentStartSeqNo(key: string, prefix: string): number | null {
   if (!key.startsWith(prefix)) {
     return null

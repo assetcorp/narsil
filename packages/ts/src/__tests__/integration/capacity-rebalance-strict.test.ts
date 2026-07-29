@@ -56,6 +56,9 @@ describe('capacity + rebalancing + strict mode integration', () => {
       expect((err as NarsilError).code).toBe(ErrorCodes.PARTITION_CAPACITY_EXCEEDED)
     }
 
+    await expect(narsil.rebalance('products', 4)).rejects.toThrow('above the maximum of 2 partitions')
+
+    await narsil.updatePartitionConfig('products', { maxDocsPerPartition: 50, maxPartitions: 4 })
     await narsil.rebalance('products', 4)
 
     expect(narsil.getStats('products').partitionCount).toBe(4)
@@ -64,7 +67,6 @@ describe('capacity + rebalancing + strict mode integration', () => {
     const result = await narsil.query('products', { term: 'wireless' })
     expect(result.count).toBe(100)
 
-    await narsil.updatePartitionConfig('products', { maxDocsPerPartition: 50, maxPartitions: 4 })
     await narsil.insert('products', {
       title: 'Post-Rebalance Wireless Item',
       category: 'electronics',

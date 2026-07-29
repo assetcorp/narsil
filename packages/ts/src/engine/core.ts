@@ -23,6 +23,7 @@ import type { MutationContext } from './mutations'
 import { createWorkerOrchestrator, type WorkerOrchestrator } from './orchestration'
 import type { RebalanceContext } from './rebalance-executor'
 import { reconstructSchemaFromMetadata } from './recovery-schema'
+import { createWatermarkNotifier, type WatermarkNotifier } from './watermark'
 
 export type IndexRegistryEntry = {
   config: IndexConfig
@@ -62,6 +63,7 @@ export interface EngineCore {
   readonly requireIndex: (indexName: string) => IndexRegistryEntry
   readonly requireManager: (indexName: string) => PartitionManager
   readonly bufferIfRebalancing: (indexName: string, entry: Omit<WAQEntry, 'sequenceNumber'>) => boolean
+  readonly watermarkNotifier: WatermarkNotifier
   readonly mutationCtx: MutationContext
   readonly rebalanceCtx: RebalanceContext
 }
@@ -147,8 +149,12 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
   const eventHandlers = new Map<string, Set<EventHandler>>()
   const shutdownState: ShutdownState = { isShutdown: false }
   const abortController = new AbortController()
+  const rebalancingIndexes = new Set<string>()
 
   const orchestrator = createWorkerOrchestrator(config, executor, promoter, indexRegistry, {
+    shouldDeferPromotion() {
+      return rebalancingIndexes.size > 0
+    },
     onPromotion(workerCount, reason) {
       const handlers = eventHandlers.get('workerPromote')
       if (handlers) {
@@ -167,7 +173,6 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
 
   const rebalancer = createRebalancer()
   const rebalanceRouter = createPartitionRouter()
-  const rebalancingIndexes = new Set<string>()
   const waqMap = new Map<string, ReturnType<typeof createWriteAheadQueue>>()
   const lastAppliedSeqMap = new Map<string, Map<number, number>>()
 
@@ -296,6 +301,17 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     },
   })
 
+  const watermarkNotifier = createWatermarkNotifier({
+    getManager: indexName => executor.getManager(indexName),
+    getPartitionConfig: indexName => indexRegistry.get(indexName)?.config.partitions,
+    emit(payload) {
+      const handlers = eventHandlers.get('partitionWatermark')
+      if (handlers) {
+        for (const handler of handlers) handler(payload)
+      }
+    },
+  })
+
   const mutationCtx: MutationContext = {
     executor,
     pluginRegistry,
@@ -307,6 +323,9 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     requireIndex,
     requireManager,
     bufferIfRebalancing,
+    isRebalancing: indexName => rebalancingIndexes.has(indexName),
+    pendingRebalanceWrites: indexName => waqMap.get(indexName)?.size ?? 0,
+    checkWatermark: watermarkNotifier.check,
   }
 
   const rebalanceCtx: RebalanceContext = {
@@ -316,6 +335,10 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     rebalancingIndexes,
     lastAppliedSeqMap,
     eventHandlers,
+    pluginRegistry,
+    orchestrator,
+    durabilityManager: durability?.manager ?? null,
+    checkWatermark: watermarkNotifier.check,
     requireIndex,
   }
 
@@ -341,6 +364,7 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     requireIndex,
     requireManager,
     bufferIfRebalancing,
+    watermarkNotifier,
     mutationCtx,
     rebalanceCtx,
   }

@@ -14,6 +14,7 @@ import { executeRebalance } from './engine/rebalance-executor'
 import { resolveVectorText } from './engine/resolve-vector-text'
 import { createSnapshot, restoreFromSnapshot } from './engine/snapshot'
 import { executeSuggest } from './engine/suggest'
+import { validatePartitionConfig } from './engine/validation'
 import {
   compactVectors as executeCompactVectors,
   optimizeVectors as executeOptimizeVectors,
@@ -290,6 +291,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       requireIndex(indexName)
       await executor.execute({ type: 'clear', indexName, requestId: indexName })
       await orchestrator.replicateToWorkers({ type: 'clear', indexName, requestId: `replicate-clear-${indexName}` })
+      core.watermarkNotifier.forget(indexName)
     },
 
     async rebalance(indexName: string, targetPartitionCount: number): Promise<void> {
@@ -308,12 +310,11 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
           `Index "${indexName}" is currently being rebalanced`,
         )
       }
+      validatePartitionConfig(partitionConfig)
       const currentDocCount = manager.countDocuments()
       const newMaxDocs = partitionConfig.maxDocsPerPartition ?? entry.config.partitions?.maxDocsPerPartition
-      const newMaxPartitions =
-        partitionConfig.maxPartitions ?? entry.config.partitions?.maxPartitions ?? manager.partitionCount
       if (newMaxDocs !== undefined) {
-        const newTotalCapacity = newMaxDocs * newMaxPartitions
+        const newTotalCapacity = newMaxDocs * manager.partitionCount
         if (newTotalCapacity < currentDocCount) {
           throw new NarsilError(
             ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
@@ -327,6 +328,9 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         entry.config.partitions.maxDocsPerPartition = partitionConfig.maxDocsPerPartition
       if (partitionConfig.maxPartitions !== undefined)
         entry.config.partitions.maxPartitions = partitionConfig.maxPartitions
+      if (partitionConfig.watermark !== undefined) entry.config.partitions.watermark = partitionConfig.watermark
+      if (durability) await durability.manager.persistMetadata(indexName)
+      core.watermarkNotifier.check(indexName)
     },
 
     async getMemoryStats(): Promise<MemoryStats> {

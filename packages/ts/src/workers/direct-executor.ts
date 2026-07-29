@@ -209,6 +209,9 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
 
       case 'deserialize': {
         const entry = requireIndex(action.indexName)
+        while (entry.manager.partitionCount <= action.partitionId) {
+          entry.manager.addPartition()
+        }
         entry.manager.deserializePartition(action.partitionId, action.data)
         return undefined as T
       }

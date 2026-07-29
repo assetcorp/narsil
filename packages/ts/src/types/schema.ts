@@ -71,6 +71,7 @@ export interface CustomTokenizer {
 export interface PartitionConfig {
   maxDocsPerPartition?: number
   maxPartitions?: number
+  watermark?: number
 }
 
 export type ScoringMode = 'local' | 'dfs' | 'broadcast'

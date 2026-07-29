@@ -24,6 +24,12 @@ export type NarsilEventMap = {
     oldCount: number
     newCount: number
   }
+  partitionWatermark: {
+    indexName: string
+    documentCount: number
+    capacity: number
+    partitionCount: number
+  }
   durabilityError: {
     error: Error
   }

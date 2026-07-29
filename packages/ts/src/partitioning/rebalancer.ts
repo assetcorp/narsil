@@ -22,7 +22,8 @@ export interface Rebalancer {
 const CHUNK_SIZE = 1000
 
 export function createRebalancer(): Rebalancer {
-  let rebalancing = false
+  const activeManagers = new WeakSet<PartitionManager>()
+  let activeCount = 0
 
   async function rebalance(
     manager: PartitionManager,
@@ -30,7 +31,7 @@ export function createRebalancer(): Rebalancer {
     router: PartitionRouter,
     onProgress?: (progress: RebalanceProgress) => void,
   ): Promise<void> {
-    if (rebalancing) {
+    if (activeManagers.has(manager)) {
       throw new NarsilError(
         ErrorCodes.PARTITION_REBALANCING_BACKPRESSURE,
         'A rebalance operation is already in progress',
@@ -53,22 +54,15 @@ export function createRebalancer(): Rebalancer {
       )
     }
 
-    rebalancing = true
+    activeManagers.add(manager)
+    activeCount++
 
     try {
-      const collectedDocs: Array<{ docId: string; document: Record<string, unknown> }> = []
       const currentPartitions = manager.getAllPartitions()
-
+      let documentsTotal = 0
       for (const partition of currentPartitions) {
-        for (const docId of partition.docIds()) {
-          const document = partition.get(docId)
-          if (document) {
-            collectedDocs.push({ docId, document: document as Record<string, unknown> })
-          }
-        }
+        documentsTotal += partition.count()
       }
-
-      const documentsTotal = collectedDocs.length
 
       onProgress?.({
         phase: 'scanning',
@@ -82,38 +76,51 @@ export function createRebalancer(): Rebalancer {
       }
 
       let documentsProcessed = 0
+      let chunkFill = 0
 
       // Re-insertion must tokenise exactly as the original inserts did, or
       // the rebuilt partitions hold different tokens and surface counts.
       const insertOptions: PartitionInsertOptions = {
         validate: false,
+        skipClone: true,
         stopWordOverride: manager.analysis.stopWords,
         customTokenizer: manager.analysis.customTokenizer,
         collectSurfaces: manager.config.surfaceForms === true,
       }
 
-      for (let chunkStart = 0; chunkStart < collectedDocs.length; chunkStart += CHUNK_SIZE) {
-        const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, collectedDocs.length)
+      for (const partition of currentPartitions) {
+        const docIds = [...partition.docIds()]
+        for (const docId of docIds) {
+          const document = partition.getRef(docId)
+          if (!document) continue
 
-        for (let i = chunkStart; i < chunkEnd; i++) {
-          const { docId, document } = collectedDocs[i]
           const targetPartitionId = router.route(docId, newPartitionCount)
           const targetPartition = newPartitions[targetPartitionId]
 
-          if (targetPartition.has(docId)) {
-            continue
+          if (!targetPartition.has(docId)) {
+            targetPartition.insert(docId, document, manager.schema, manager.language, insertOptions)
+            documentsProcessed++
           }
 
-          targetPartition.insert(docId, document, manager.schema, manager.language, insertOptions)
-          documentsProcessed++
+          chunkFill++
+          if (chunkFill >= CHUNK_SIZE) {
+            chunkFill = 0
+            onProgress?.({
+              phase: 'moving',
+              documentsProcessed,
+              documentsTotal,
+            })
+            await new Promise(resolve => setTimeout(resolve, 0))
+          }
         }
+      }
 
+      if (chunkFill > 0) {
         onProgress?.({
           phase: 'moving',
           documentsProcessed,
           documentsTotal,
         })
-
         await new Promise(resolve => setTimeout(resolve, 0))
       }
 
@@ -131,14 +138,15 @@ export function createRebalancer(): Rebalancer {
         documentsTotal,
       })
     } finally {
-      rebalancing = false
+      activeManagers.delete(manager)
+      activeCount--
     }
   }
 
   return {
     rebalance,
     isRebalancing(): boolean {
-      return rebalancing
+      return activeCount > 0
     },
   }
 }

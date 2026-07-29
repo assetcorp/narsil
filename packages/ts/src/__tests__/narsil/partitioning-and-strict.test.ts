@@ -24,6 +24,9 @@ describe('Narsil rebalance, partitioning, and strict mode', () => {
         await narsil.insert('products', { title: `Wireless Device ${i}`, category: 'electronics', price: i * 10 })
       }
 
+      await expect(narsil.rebalance('products', 4)).rejects.toThrow('above the maximum of 1 partitions')
+
+      await narsil.updatePartitionConfig('products', { maxPartitions: 4 })
       await narsil.rebalance('products', 4)
 
       expect(narsil.getStats('products').partitionCount).toBe(4)

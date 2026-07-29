@@ -10,7 +10,7 @@ import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexConfig } from '../types/schema'
 import { type EngineCore, getVectorFieldPaths, type IndexRegistryEntry } from './core'
-import { validateIndexName } from './validation'
+import { validateIndexName, validatePartitionConfig } from './validation'
 
 export async function createEngineIndex(
   core: EngineCore,
@@ -25,6 +25,9 @@ export async function createEngineIndex(
   }
   validateSchema(indexConfig.schema)
   validateVectorPromotion(indexConfig.vectorPromotion)
+  if (indexConfig.partitions) {
+    validatePartitionConfig(indexConfig.partitions)
+  }
   if (core.durability) {
     if (indexConfig.tokenizer !== undefined && typeof indexConfig.tokenizer !== 'string') {
       throw new NarsilError(
@@ -86,6 +89,7 @@ export async function dropEngineIndex(core: EngineCore, name: string): Promise<v
   const entry = core.requireIndex(name)
   core.executor.dropIndex(name)
   core.indexRegistry.delete(name)
+  core.watermarkNotifier.forget(name)
   if (core.durability) {
     await core.durability.manager.removeIndex(name)
   }
