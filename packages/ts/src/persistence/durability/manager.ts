@@ -1,7 +1,7 @@
 import { buildEntry } from '../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
-import { truncateCoveredSegments } from './checkpoint'
+import { reclaimWalBeyondCount, truncateCoveredSegments } from './checkpoint'
 import { runCheckpointOnWorker, terminateCheckpointWorker } from './checkpoint-worker-dispatch'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
 import { listPersistedIndexes, loadMetadata, loadSnapshot, replayWal, snapshotCheckpointFor } from './recovery'
@@ -239,6 +239,7 @@ export function createDurabilityManager(
       await writeSegmentedCheckpoint({ directory, metadata, targets, compactionThreshold })
     }
     await truncateCoveredSegments(directory, indexName, targets)
+    await reclaimWalBeyondCount(directory, indexName, manager.partitionCount, indexState.partitions, markFatal)
     indexState.mutationsSinceCheckpoint = 0
   }
 

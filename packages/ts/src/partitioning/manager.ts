@@ -24,6 +24,7 @@ export interface PartitionManager {
   removePartition(partitionId: number): void
   trimPartitions(count: number): void
 
+  assertCapacity(pendingWrites?: number): void
   insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
   remove(docId: string): void
   beginBatchRemove(): void
@@ -207,24 +208,27 @@ export function createPartitionManager(
       partitions.length = newCount
     },
 
-    insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void {
+    assertCapacity(pendingWrites = 0): void {
       const currentMaxDocs = config.partitions?.maxDocsPerPartition
-      if (currentMaxDocs !== undefined) {
-        const totalCapacity = currentMaxDocs * partitions.length
-        if (docPartitionMap.size >= totalCapacity) {
-          throw new NarsilError(
-            ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
-            `Index "${indexName}" has reached its capacity of ${totalCapacity} documents (${currentMaxDocs} per partition × ${partitions.length} partitions)`,
-            {
-              indexName,
-              currentCount: docPartitionMap.size,
-              totalCapacity,
-              maxDocsPerPartition: currentMaxDocs,
-              partitionCount: partitions.length,
-            },
-          )
-        }
+      if (currentMaxDocs === undefined) return
+      const totalCapacity = currentMaxDocs * partitions.length
+      if (docPartitionMap.size + pendingWrites >= totalCapacity) {
+        throw new NarsilError(
+          ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
+          `Index "${indexName}" has reached its capacity of ${totalCapacity} documents (${currentMaxDocs} per partition × ${partitions.length} partitions)`,
+          {
+            indexName,
+            currentCount: docPartitionMap.size + pendingWrites,
+            totalCapacity,
+            maxDocsPerPartition: currentMaxDocs,
+            partitionCount: partitions.length,
+          },
+        )
       }
+    },
+
+    insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void {
+      manager.assertCapacity()
       const pid = router.route(docId, partitions.length)
       const insertOpts = resolveInsertOptions(options)
       partitions[pid].insert(docId, document, config.schema, language, insertOpts)

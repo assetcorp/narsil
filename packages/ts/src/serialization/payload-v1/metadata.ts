@@ -16,7 +16,7 @@ interface RawMetadataPayload {
   tokenizer?: string
   stop_words?: string
   stop_word_list?: string[]
-  partition_limits?: { max_docs_per_partition?: unknown; max_partitions?: unknown }
+  partition_limits?: { max_docs_per_partition?: unknown; max_partitions?: unknown; watermark?: unknown }
   default_scoring?: unknown
   track_positions?: unknown
   strict?: unknown
@@ -68,6 +68,7 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
       ...(meta.partitionLimits.maxPartitions !== undefined
         ? { max_partitions: meta.partitionLimits.maxPartitions }
         : {}),
+      ...(meta.partitionLimits.watermark !== undefined ? { watermark: meta.partitionLimits.watermark } : {}),
     }
   }
   if (meta.defaultScoring !== undefined) {
@@ -143,6 +144,7 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
       ...(isPositiveInteger(raw.partition_limits.max_partitions)
         ? { maxPartitions: raw.partition_limits.max_partitions }
         : {}),
+      ...(isWatermarkFraction(raw.partition_limits.watermark) ? { watermark: raw.partition_limits.watermark } : {}),
     }
     if (Object.keys(limits).length > 0) {
       meta.partitionLimits = limits
@@ -196,6 +198,10 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
 
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1
+}
+
+function isWatermarkFraction(value: unknown): value is number {
+  return typeof value === 'number' && value > 0 && value <= 1
 }
 
 export function serializeMetadata(meta: IndexMetadata): Uint8Array {

@@ -34,35 +34,46 @@ To fetch a document by ID, compute its partition with the same hash and query th
 
 ---
 
-## Auto-Partitioning
+## Capacity
 
-An index starts with one partition. The engine tracks the document count per partition and rebalances once the count crosses the configured threshold.
-
-### Trigger
-
-A rebalance triggers when any partition holds more than `maxDocsPerPartition` documents.
-
-### Partition Count
-
-```text
-newPartitionCount = ceiling(totalDocs / maxDocsPerPartition)
-```
-
-The caller configures the threshold, and the engine derives the count. No caller sets the partition count directly.
+An index starts with `maxPartitions` partitions, numbered from 0, and the option defaults to one. The partition count changes only through an explicit rebalance. The engine never splits a partition on its own.
 
 ### Configuration
 
 ```text
 partitions {
-  maxDocsPerPartition: integer   (default 50000)
-  maxPartitions:       integer   (optional, no cap by default)
+  maxDocsPerPartition: integer   (optional, no default)
+  maxPartitions:       integer   (optional, defaults to 1)
+  watermark:           float     (optional, above 0 and at most 1)
 }
 ```
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `maxDocsPerPartition` | 50,000 | The document count above which a partition splits. |
-| `maxPartitions` | none | An upper bound on the partition count. |
+`maxDocsPerPartition` and `maxPartitions` must each be a positive integer, and `watermark` must be above 0 and at most 1. A value outside its constraint raises `CONFIG_INVALID`.
+
+### Capacity Enforcement
+
+With `maxDocsPerPartition` set, the index capacity is `maxDocsPerPartition × partitionCount`. An insert fails with `PARTITION_CAPACITY_EXCEEDED` once the document count, together with any writes buffered for an active rebalance, reaches the capacity. With `maxDocsPerPartition` absent, the engine enforces no capacity.
+
+A rebalance whose target count is above `maxPartitions` fails with `PARTITION_CAPACITY_EXCEEDED`. A configuration update whose new capacity is below the current document count fails the same way.
+
+### Watermark Event
+
+With `maxDocsPerPartition` and `watermark` both set, the engine emits a `partitionWatermark` event when the document count reaches `watermark × capacity`:
+
+```text
+partitionWatermark {
+  indexName:      string
+  documentCount:  integer
+  capacity:       integer
+  partitionCount: integer
+}
+```
+
+The engine emits the event once per crossing. The event arms again when the document count falls below the threshold or the capacity grows.
+
+### Choosing a Partition Count
+
+The caller picks the target count and passes it to the rebalance call. `ceiling(totalDocs / maxDocsPerPartition)` is the smallest count whose capacity holds the current documents, so a caller should add headroom above it.
 
 ---
 
@@ -89,14 +100,19 @@ WriteAheadEntry {
 
 The queue holds a bounded number of entries. A write that arrives once the queue is full fails with `PARTITION_REBALANCING_BACKPRESSURE`, which tells the caller to retry after a short delay.
 
+The engine validates a write and resolves its embeddings before buffering it, so a buffered document replays without further preparation. Batch writes buffer entry by entry under the same rules.
+
+With durability configured, the engine appends a buffered write to the write-ahead log before acknowledging it, so a crash during a rebalance loses no acknowledged write.
+
 ### Rebalance Steps
 
 ```text
-1. COMPUTE the new partition count:
-     newCount = ceiling(totalDocs / maxDocsPerPartition)
-   Emit a partitionRebalance event.
+1. VALIDATE the caller's target count. It must be a
+   positive integer, it must differ from the current
+   count, and it must not exceed maxPartitions.
 
-2. CREATE newCount empty partitions.
+2. CREATE newCount empty partitions, where newCount is
+   the validated target.
 
 3. REDISTRIBUTE every document held by the old partitions:
      for each document:
@@ -109,19 +125,30 @@ The queue holds a bounded number of entries. A write that arrives once the queue
    Vector data needs no redistribution, because vector
    indexes hold no partition assignment.
 
-4. REPLAY the queued writes in sequence-number order:
+4. SWAP the partition map. Reads pause for microseconds
+   while the map changes. Old partitions stay alive until
+   the reads already running against them finish, tracked
+   by reference count. Emit a partitionRebalance event
+   once the swap completes.
+
+5. REPLAY the queued writes in sequence-number order:
      for each entry ordered by seq:
        newPartitionId = fnv1a(entry.docId) modulo newCount
        apply the operation to that new partition
        skip the entry when it was applied already
+   An update whose document is absent applies as an insert,
+   matching write-ahead-log recovery.
 
-5. SWAP the partition map. Reads pause for microseconds
-   while the map changes. Old partitions stay alive until
-   the reads already running against them finish, tracked
-   by reference count.
+6. PERSIST the new layout. Write the index metadata, take
+   a checkpoint covering every new partition, and remove
+   the log segments of every partition past the new count.
 
-6. RECLAIM the old partitions once those reads finish, and
-   flush the new partitions to persistence.
+7. RESYNCHRONISE every worker replica of the index, then
+   drain and replay any writes buffered while steps 5 to 7
+   ran, and repeat until the queue is empty.
+
+8. RECLAIM the old partitions once the reads against them
+   finish.
 ```
 
 ### Concurrency During a Rebalance
@@ -131,6 +158,8 @@ The queue holds a bounded number of entries. A write that arrives once the queue
 | Reads | Run against the old partition layout. |
 | Writes | Enter the write-ahead queue with a sequence number. |
 | Queries | Fan out to the old partitions until the swap. |
+
+A second rebalance of an index already rebalancing fails with `PARTITION_REBALANCING_BACKPRESSURE`. Rebalances of different indexes run independently.
 
 ### Cooperative Yielding
 
@@ -312,11 +341,11 @@ A refusal raises `CONFIG_INVALID`, and the engine emits a `workerPromoteFailure`
 
 ### Creation
 
-A new index starts with one partition, numbered 0, created empty with its data structures initialised.
+A new index starts with `maxPartitions` partitions, defaulting to one, numbered from 0 and created empty with their data structures initialised.
 
 ### Splitting
 
-Crossing the document threshold starts a rebalance, which creates the new partitions and redistributes the documents. See the rebalancing protocol above.
+An explicit rebalance call changes the partition count, following the rebalancing protocol above. The `partitionWatermark` event tells the caller when an index approaches its capacity.
 
 ### Persistence
 

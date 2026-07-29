@@ -83,7 +83,11 @@ function restoredPartitionConfig(raw: unknown): PartitionConfig | undefined {
   if (!isPlainObject(raw)) {
     invalid('partitionConfig must be an object')
   }
-  const { maxDocsPerPartition, maxPartitions } = raw as { maxDocsPerPartition?: unknown; maxPartitions?: unknown }
+  const { maxDocsPerPartition, maxPartitions, watermark } = raw as {
+    maxDocsPerPartition?: unknown
+    maxPartitions?: unknown
+    watermark?: unknown
+  }
   if (
     maxDocsPerPartition !== undefined &&
     (typeof maxDocsPerPartition !== 'number' || !Number.isInteger(maxDocsPerPartition) || maxDocsPerPartition < 1)
@@ -96,9 +100,13 @@ function restoredPartitionConfig(raw: unknown): PartitionConfig | undefined {
   ) {
     invalid('partitionConfig maxPartitions must be a positive integer')
   }
+  if (watermark !== undefined && (typeof watermark !== 'number' || !(watermark > 0) || watermark > 1)) {
+    invalid('partitionConfig watermark must be above 0 and at most 1')
+  }
   return {
     ...(typeof maxDocsPerPartition === 'number' ? { maxDocsPerPartition } : {}),
     ...(typeof maxPartitions === 'number' ? { maxPartitions } : {}),
+    ...(typeof watermark === 'number' ? { watermark } : {}),
   }
 }
 

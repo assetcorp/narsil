@@ -14,12 +14,15 @@ import { createWorkerPool, type WorkerPool } from '../workers/pool'
 import type { ExecutionPromoter } from '../workers/promoter'
 import type { WorkerAction } from '../workers/protocol'
 import { createRequestId } from '../workers/protocol'
+import { transferIndexToPool } from './worker-resync'
 
 export interface WorkerOrchestrator {
   checkPromotion(): Promise<void>
   replicateToWorkers(action: WorkerAction): Promise<void>
   searchViaWorker(indexName: string, params: QueryParams, globalStats?: GlobalStatistics): Promise<FanOutResult | null>
   isPromoted(): boolean
+  desyncIndex(indexName: string): boolean
+  resyncIndex(indexName: string, wasPromoted: boolean): Promise<void>
   getWorkerMemoryStats(): Promise<MemoryStats['workers']>
   shutdown(): Promise<void>
 }
@@ -27,6 +30,7 @@ export interface WorkerOrchestrator {
 export interface WorkerOrchestratorCallbacks {
   onPromotion?: (workerCount: number, reason: string) => void
   onPromotionFailure?: (reason: string, error: Error, retryable: boolean) => void
+  shouldDeferPromotion?: () => boolean
 }
 
 function toError(value: unknown): Error {
@@ -91,6 +95,7 @@ export function createWorkerOrchestrator(
   let workerPool: WorkerPool | null = null
   let promotionInProgress = false
   let promotionBlocked = false
+  let promotionRun: Promise<void> | null = null
   const promotionBuffer: WorkerAction[] = []
   const reportedIneligible = new Set<string>()
   const promotedIndexes = new Set<string>()
@@ -119,6 +124,7 @@ export function createWorkerOrchestrator(
 
   async function checkPromotion(): Promise<void> {
     if (!workersEnabled || promotionInProgress || promotionBlocked || workerPool) return
+    if (callbacks?.shouldDeferPromotion?.()) return
 
     const indexMap = collectEligibleIndexes()
     if (indexMap.size === 0) return
@@ -127,11 +133,14 @@ export function createWorkerOrchestrator(
     if (result.shouldPromote) {
       promotionInProgress = true
       setTimeout(() => {
-        runPromotion(result.reason).catch(err => {
+        const run = runPromotion(result.reason).catch(err => {
           const error = toError(err)
           promotionBlocked = isDeterministicFailure(error)
           promotionInProgress = false
           callbacks?.onPromotionFailure?.(result.reason, error, !promotionBlocked)
+        })
+        promotionRun = run.then(() => {
+          promotionRun = null
         })
       }, 0)
     }
@@ -331,6 +340,27 @@ export function createWorkerOrchestrator(
     return workerPool !== null
   }
 
+  function desyncIndex(indexName: string): boolean {
+    return promotedIndexes.delete(indexName)
+  }
+
+  async function resyncIndex(indexName: string, wasPromoted: boolean): Promise<void> {
+    if (promotionRun) {
+      await promotionRun.catch(() => undefined)
+    }
+    if (!workerPool) return
+    if (!wasPromoted && !promotedIndexes.has(indexName)) return
+    const entry = indexRegistry.get(indexName)
+    if (!entry) return
+    if (workerIneligibility(indexName, entry.config, bootstrapModule)) return
+    const manager = executor.getManager(indexName)
+    if (!manager) return
+
+    promotedIndexes.delete(indexName)
+    await transferIndexToPool(indexName, workerPool, entry.config, manager)
+    promotedIndexes.add(indexName)
+  }
+
   async function getWorkerMemoryStats(): Promise<MemoryStats['workers']> {
     if (!workerPool) return []
     const reports = await workerPool.getMemoryStats()
@@ -350,5 +380,14 @@ export function createWorkerOrchestrator(
     }
   }
 
-  return { checkPromotion, replicateToWorkers, searchViaWorker, isPromoted, getWorkerMemoryStats, shutdown }
+  return {
+    checkPromotion,
+    replicateToWorkers,
+    searchViaWorker,
+    isPromoted,
+    desyncIndex,
+    resyncIndex,
+    getWorkerMemoryStats,
+    shutdown,
+  }
 }

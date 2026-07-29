@@ -31,10 +31,6 @@ export async function insertDocument(
   const resolvedDocId = docId ?? providedDocId(document) ?? ctx.idGenerator()
   validateDocId(resolvedDocId)
 
-  if (ctx.bufferIfRebalancing(indexName, { action: 'insert', docId: resolvedDocId, document, indexName })) {
-    return resolvedDocId
-  }
-
   await ctx.pluginRegistry.runHook('beforeInsert', { indexName, docId: resolvedDocId, document })
 
   if (entry.config.required && entry.config.required.length > 0) {
@@ -59,6 +55,7 @@ export async function insertDocument(
   }
 
   const insertManager = ctx.requireManager(indexName)
+  insertManager.assertCapacity(ctx.pendingRebalanceWrites(indexName))
   const insertVecIndexes = insertManager.getVectorIndexes()
 
   const { partitionDoc, extractedVectors } = prepareDocumentVectors(
@@ -72,7 +69,12 @@ export async function insertDocument(
   }
 
   let inserted = false
+  let buffered = false
   const applyInsert = async (): Promise<void> => {
+    if (ctx.bufferIfRebalancing(indexName, { action: 'insert', docId: resolvedDocId, document, indexName })) {
+      buffered = true
+      return
+    }
     await ctx.executor.execute({
       type: 'insert',
       indexName,
@@ -109,6 +111,11 @@ export async function insertDocument(
     await applyInsert()
   }
 
+  if (buffered) {
+    ctx.checkWatermark(indexName)
+    return resolvedDocId
+  }
+
   try {
     await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: resolvedDocId, document })
   } catch (err) {
@@ -131,6 +138,7 @@ export async function insertDocument(
     }
   }
 
+  ctx.checkWatermark(indexName)
   await ctx.orchestrator.checkPromotion()
 
   return resolvedDocId
@@ -158,6 +166,7 @@ export async function insertDocumentBatch(
   const batchVecIndexes = batchManager.getVectorIndexes()
   const batchVectorFieldPaths = batchVecIndexes.size > 0 ? entry.vectorFieldPaths : new Set<string>()
   const touchedVectorFields = new Set<string>()
+  const bufferedDocIds = new Set<string>()
 
   for (let chunkStart = 0; chunkStart < documents.length; chunkStart += BATCH_CHUNK_SIZE) {
     if (ctx.abortController.signal.aborted) break
@@ -252,8 +261,22 @@ export async function insertDocumentBatch(
           validateVectorDimensions(extractedVectors, batchVecIndexes)
         }
 
+        batchManager.assertCapacity(ctx.pendingRebalanceWrites(indexName))
+
         let batchInserted = false
+        let batchBuffered = false
         const applyBatchInsert = async (): Promise<void> => {
+          if (
+            ctx.bufferIfRebalancing(indexName, {
+              action: 'insert',
+              docId: batchDocId,
+              document: documents[i],
+              indexName,
+            })
+          ) {
+            batchBuffered = true
+            return
+          }
           const result = ctx.executor.execute({
             type: 'insert',
             indexName,
@@ -293,6 +316,13 @@ export async function insertDocumentBatch(
           await applyBatchInsert()
         }
 
+        if (batchBuffered) {
+          bufferedDocIds.add(batchDocId)
+          succeeded.push(batchDocId)
+          succeededDocs.push(documents[i])
+          continue
+        }
+
         for (const fieldPath of extractedVectors.keys()) {
           touchedVectorFields.add(fieldPath)
         }
@@ -321,6 +351,7 @@ export async function insertDocumentBatch(
   }
 
   for (let i = 0; i < succeeded.length; i++) {
+    if (bufferedDocIds.has(succeeded[i])) continue
     await ctx.orchestrator.replicateToWorkers({
       type: 'insert',
       indexName,
@@ -338,6 +369,7 @@ export async function insertDocumentBatch(
     }
   }
 
+  ctx.checkWatermark(indexName)
   await ctx.orchestrator.checkPromotion()
 
   return { succeeded, failed }

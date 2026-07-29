@@ -385,8 +385,9 @@ EmbeddingMeta {
 }
 
 PartitionLimits {
-  max_docs_per_partition: uint32  (optional)
-  max_partitions:         uint32  (optional)
+  max_docs_per_partition: uint32   (optional)
+  max_partitions:         uint32   (optional)
+  watermark:              float64  (optional)
 }
 
 VectorPromotionMeta {

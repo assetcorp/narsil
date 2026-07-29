@@ -67,6 +67,29 @@ export function validateDocId(docId: string): void {
   }
 }
 
+export function validatePartitionConfig(partitions: {
+  maxDocsPerPartition?: number
+  maxPartitions?: number
+  watermark?: number
+}): void {
+  const { maxDocsPerPartition, maxPartitions, watermark } = partitions
+  if (maxDocsPerPartition !== undefined && (!Number.isInteger(maxDocsPerPartition) || maxDocsPerPartition < 1)) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'partitions.maxDocsPerPartition must be a positive integer', {
+      maxDocsPerPartition,
+    })
+  }
+  if (maxPartitions !== undefined && (!Number.isInteger(maxPartitions) || maxPartitions < 1)) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'partitions.maxPartitions must be a positive integer', {
+      maxPartitions,
+    })
+  }
+  if (watermark !== undefined && (typeof watermark !== 'number' || !(watermark > 0) || watermark > 1)) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'partitions.watermark must be above 0 and at most 1', {
+      watermark,
+    })
+  }
+}
+
 export function clampLimit(limit: number | undefined): number {
   if (limit === undefined) return DEFAULT_LIMIT
   return Math.max(0, Math.min(limit, MAX_LIMIT))
