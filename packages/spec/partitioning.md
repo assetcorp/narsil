@@ -52,9 +52,9 @@ partitions {
 
 ### Capacity Enforcement
 
-With `maxDocsPerPartition` set, the index capacity is `maxDocsPerPartition × partitionCount`. An insert fails with `PARTITION_CAPACITY_EXCEEDED` once the document count, together with any writes buffered for an active rebalance, reaches the capacity. With `maxDocsPerPartition` absent, the engine enforces no capacity.
+With `maxDocsPerPartition` set, the index capacity is `maxDocsPerPartition × partitionCount`. An insert fails with `PARTITION_CAPACITY_EXCEEDED` once the document count, together with any writes buffered for an active rebalance, reaches the capacity. During a rebalance, the smaller of the current and target partition counts sets the capacity, so every acknowledged write fits the new layout. With `maxDocsPerPartition` absent, the engine enforces no capacity.
 
-A rebalance whose target count is above `maxPartitions` fails with `PARTITION_CAPACITY_EXCEEDED`. A configuration update whose new capacity is below the current document count fails the same way.
+A rebalance whose target count is above `maxPartitions` fails with `PARTITION_CAPACITY_EXCEEDED`. A configuration update fails the same way when its new capacity is below the current document count or its `maxPartitions` is below the current partition count.
 
 ### Watermark Event
 
