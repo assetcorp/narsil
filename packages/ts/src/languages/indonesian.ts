@@ -1,3 +1,8 @@
+/*
+ * Stop words sourced from:
+ *   - stopwords-iso/stopwords-id, curated subset (https://github.com/stopwords-iso), MIT
+ */
+
 import type { LanguageModule } from '../types/language'
 
 const VOWELS = new Set(['a', 'e', 'i', 'o', 'u'])

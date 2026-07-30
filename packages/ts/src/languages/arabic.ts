@@ -1,3 +1,9 @@
+/*
+ * Stop words sourced from:
+ *   - stopwords-iso/stopwords-ar, stored in normalized form (https://github.com/stopwords-iso), MIT
+ *   - Additional function words curated for Narsil
+ */
+
 import type { LanguageModule } from '../types/language'
 
 const DIACRITICS = new Set(['\u0640', '\u064B', '\u064C', '\u064D', '\u064E', '\u064F', '\u0650', '\u0651', '\u0652'])

@@ -1,7 +1,7 @@
 /*
- * Stop words compiled from:
- *   - Baidu stopwords list (https://github.com/goto456/stopwords)
- *   - Chinese NLP common stop words reference (https://github.com/stopwords-iso/stopwords-zh)
+ * Stop words sourced from:
+ *   - stopwords-iso/stopwords-zh (https://github.com/stopwords-iso/stopwords-zh), MIT
+ *   - Additional single-character function words curated for Narsil
  */
 
 import type { LanguageModule } from '../types/language'

@@ -1,8 +1,8 @@
 /*
- * Stop words compiled from:
- *   - LinguaShop Ewe pronouns (https://www.linguashop.com/ewe-personal-pronouns)
- *   - MustGo Ewe language reference (https://www.mustgo.com/worldlanguages/ewe/)
- *   - Wiktionary Ewe pronouns category (https://en.wiktionary.org/wiki/Category:Ewe_pronouns)
+ * Stop words curated for Narsil; no published Ewe stop word list exists. Consulted:
+ *   - LinguaShop Ewe pronouns (https://www.linguashop.com/ewe-personal-pronouns), no licence stated
+ *   - MustGo Ewe language reference (https://www.mustgo.com/worldlanguages/ewe/), all rights reserved
+ *   - Wiktionary Ewe pronouns category (https://en.wiktionary.org/wiki/Category:Ewe_pronouns), CC-BY-SA
  */
 
 import type { LanguageModule } from '../types/language'

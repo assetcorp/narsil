@@ -1,3 +1,8 @@
+/*
+ * Stop words sourced from:
+ *   - Apache Lucene hy stopwords (https://github.com/apache/lucene), Apache-2.0
+ */
+
 import type { LanguageModule } from '../types/language'
 
 const VOWELS = '\u0561\u0565\u0567\u056b\u0578\u0585'

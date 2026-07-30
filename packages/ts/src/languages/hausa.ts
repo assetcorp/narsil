@@ -1,8 +1,10 @@
 /*
  * Stop words sourced from:
- *   - Masakhane African Stopwords Project (https://github.com/masakhane-io/masakhanePreprocessor)
  *   - "Automatic construction of generic stop words list for Hausa text"
- *     (https://jesit.springeropen.com/articles/10.1186/s43067-024-00187-5)
+ *     (https://jesit.springeropen.com/articles/10.1186/s43067-024-00187-5), CC-BY-4.0
+ *   - NaijaSenti Project (https://github.com/hausanlp/NaijaSenti), CC-BY-4.0
+ *   - Masakhane African Stopwords Project, consulted; the repository states no licence
+ *     (https://github.com/masakhane-io/masakhanePreprocessor)
  */
 
 import type { LanguageModule } from '../types/language'

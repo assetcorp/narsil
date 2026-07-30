@@ -1,3 +1,9 @@
+/*
+ * Stop words curated for Narsil: pronouns, possessives, and prepositions in
+ * Cyrillic script. No published Serbian list matches; Lucene and Orama publish
+ * Latin-script lists with different contents.
+ */
+
 import type { LanguageModule } from '../types/language'
 
 const SUFFIXES: [string, number][] = [

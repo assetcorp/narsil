@@ -1,3 +1,8 @@
+/*
+ * Stop words sourced from:
+ *   - Snowball stop word list (https://snowballstem.org/), BSD-3-Clause
+ */
+
 import type { LanguageModule } from '../types/language'
 
 const VOWELS = 'aeiouyåæø'

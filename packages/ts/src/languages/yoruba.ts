@@ -1,7 +1,7 @@
 /*
  * Stop words sourced from:
- *   - stopwords-iso/stopwords-yo (https://github.com/stopwords-iso/stopwords-yo)
- *   - Masakhane African Stopwords Project (https://github.com/masakhane-io/masakhanePreprocessor)
+ *   - stopwords-iso/stopwords-yo (https://github.com/stopwords-iso/stopwords-yo), MIT
+ *   - Diacritized function words curated for Narsil
  *
  * Diacritics (tone marks and subdots) are preserved as they are phonemically distinct in Yoruba.
  */

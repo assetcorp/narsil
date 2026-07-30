@@ -1,6 +1,7 @@
 /*
- * Stop words compiled from:
- *   - Mabia VP Periphery Project (https://mabia-vp.com/tiki-index.php?page=Dagbani)
+ * Stop words curated for Narsil; no published Dagbani stop word list exists. Consulted:
+ *   - Mabia VP Periphery Project (https://mabia-vp.com/tiki-index.php?page=Dagbani),
+ *     no licence stated
  *
  * Verified preverbal/postverbal pronouns, tense/aspect particles,
  * negation markers, and focus particles.

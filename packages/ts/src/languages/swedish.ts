@@ -1,3 +1,9 @@
+/*
+ * Stop words sourced from:
+ *   - Snowball stop word list (https://snowballstem.org/), BSD-3-Clause
+ *   - @orama/stopwords Swedish list (https://github.com/oramasearch/orama), Apache-2.0
+ */
+
 import type { LanguageModule } from '../types/language'
 
 const VOWELS = 'aeiouyäåö'
@@ -225,7 +231,7 @@ const stopWords = new Set([
   'ditt',
   'vem',
   'vilket',
-  'sitta',
+  'sitt',
   'sådana',
   'vart',
   'dina',

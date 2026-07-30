@@ -1,3 +1,8 @@
+/*
+ * Stop words sourced from:
+ *   - @orama/stopwords Nepali list, curated subset (https://github.com/oramasearch/orama), Apache-2.0
+ */
+
 import type { LanguageModule } from '../types/language'
 
 const POSTPOSITIONS: string[] = [
