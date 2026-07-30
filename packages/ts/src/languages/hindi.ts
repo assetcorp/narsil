@@ -1,3 +1,9 @@
+/*
+ * Stop words sourced from:
+ *   - Apache Lucene hi stopwords, compiled by Jacques Savoy (https://github.com/apache/lucene), Apache-2.0
+ *   - Nuqta spellings added for Narsil
+ */
+
 import type { LanguageModule } from '../types/language'
 
 const SUFFIXES_5: string[] = ['तियों', 'ाओंगी', 'ाओंगे', 'ाओंगा', 'ाइएगी', 'ाइएगे', 'ाइएगा']

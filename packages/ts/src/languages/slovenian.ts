@@ -1,3 +1,9 @@
+/*
+ * Stop words sourced from:
+ *   - stopwords-iso/stopwords-sl (https://github.com/stopwords-iso), MIT
+ *   - Additional function words curated for Narsil
+ */
+
 import type { LanguageModule } from '../types/language'
 import { removeMarks } from './support/marks'
 

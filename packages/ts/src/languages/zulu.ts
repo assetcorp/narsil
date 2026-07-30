@@ -1,7 +1,7 @@
 /*
  * Stop words sourced from:
- *   - stopwords-iso/stopwords-zu (https://github.com/stopwords-iso/stopwords-zu)
- *   - Masakhane African Stopwords Project (https://github.com/masakhane-io/masakhanePreprocessor)
+ *   - stopwords-iso/stopwords-zu (https://github.com/stopwords-iso/stopwords-zu), MIT
+ *   - Grammatical morphemes and pronouns curated for Narsil
  */
 
 import type { LanguageModule } from '../types/language'

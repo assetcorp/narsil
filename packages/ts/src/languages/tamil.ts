@@ -1,3 +1,9 @@
+/*
+ * Stop words sourced from:
+ *   - Apache Lucene ta stopwords, from AshokR/TamilNLP, curated subset
+ *     (https://github.com/apache/lucene), Apache-2.0
+ */
+
 import type { LanguageModule } from '../types/language'
 
 const VERB_SUFFIXES: string[] = [

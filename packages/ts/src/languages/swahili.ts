@@ -1,3 +1,9 @@
+/*
+ * Stop words curated for Narsil: function words, demonstratives, interrogatives,
+ * and temporal adverbs. No published Swahili list matches; stopwords-iso and
+ * Masakhane each cover about half of this list.
+ */
+
 import type { LanguageModule } from '../types/language'
 
 const SUBJECT_PREFIXES = ['ni', 'tu', 'wa', 'vi', 'zi', 'li', 'ya', 'ku']

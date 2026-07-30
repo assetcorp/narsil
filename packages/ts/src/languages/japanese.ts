@@ -1,8 +1,7 @@
 /*
- * Stop words compiled from:
- *   - Japanese NLP particle/conjunction references (https://www.tofugu.com/japanese-grammar/particles/)
- *   - Ko-so-a-do demonstrative system (https://www.wasabi-jpn.com/japanese-grammar/japanese-demonstrative-pronoun/)
- *   - Compound postpositions reference (https://www.imabi.net/compoundparticles.htm)
+ * Stop words sourced from:
+ *   - Apache Lucene kuromoji Japanese stopwords (https://github.com/apache/lucene), Apache-2.0
+ *   - Additional particles, demonstratives, and compound postpositions curated for Narsil
  */
 
 import type { LanguageModule } from '../types/language'

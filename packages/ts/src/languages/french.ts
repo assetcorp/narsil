@@ -1,3 +1,8 @@
+/*
+ * Stop words sourced from:
+ *   - Snowball French stop word list, historic 164-word edition (https://snowballstem.org/), BSD-3-Clause
+ */
+
 import type { LanguageModule } from '../types/language'
 
 const VOWELS = 'aeiouyâàëéèïîôùûü'

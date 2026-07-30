@@ -1,3 +1,8 @@
+/*
+ * Stop words sourced from:
+ *   - stopwords-iso/stopwords-bg (https://github.com/stopwords-iso), MIT
+ */
+
 import type { LanguageModule } from '../types/language'
 import { removeMarks } from './support/marks'
 

@@ -1,3 +1,8 @@
+/*
+ * Stop words sourced from:
+ *   - stopwords-iso/stopwords-es, curated subset (https://github.com/stopwords-iso), MIT
+ */
+
 import type { LanguageModule } from '../types/language'
 
 const VOWELS = 'aeiouáéíóúü'

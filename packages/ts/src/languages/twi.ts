@@ -1,7 +1,8 @@
 /*
- * Stop words compiled from:
- *   - LearnAkan pronouns reference (https://learnakan.com/akan-pronouns/)
- *   - LearnAkan conjunctions reference (https://learnakan.com/akan-asante-twi-conjunctions/)
+ * Stop words curated for Narsil; no published Twi stop word list exists. Consulted:
+ *   - LearnAkan pronouns reference (https://learnakan.com/akan-pronouns/), all rights reserved
+ *   - LearnAkan conjunctions reference (https://learnakan.com/akan-asante-twi-conjunctions/),
+ *     all rights reserved
  */
 
 import type { LanguageModule } from '../types/language'

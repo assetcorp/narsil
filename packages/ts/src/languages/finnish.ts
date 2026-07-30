@@ -1,3 +1,9 @@
+/*
+ * Stop words sourced from:
+ *   - Snowball stop word list (https://snowballstem.org/), BSD-3-Clause
+ *   - @orama/stopwords Finnish list (https://github.com/oramasearch/orama), Apache-2.0
+ */
+
 import type { LanguageModule } from '../types/language'
 
 const VOWELS = 'aeiouyäö'
@@ -500,7 +506,6 @@ const stopWords = new Set([
   'sillä',
   'siltä',
   'sille',
-  'sinä',
   'siksi',
   'nämä',
   'näiden',
@@ -567,7 +572,6 @@ const stopWords = new Set([
   'millä',
   'miltä',
   'mille',
-  'minä',
   'miksi',
   'mitkä',
   'joka',
@@ -600,7 +604,6 @@ const stopWords = new Set([
   'mutta',
   'niin',
   'sekä',
-  'sillä',
   'tai',
   'vaan',
   'vai',
