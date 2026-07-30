@@ -133,6 +133,7 @@ const narsil = await createNarsil({
 | `count` | `number` | CPU cores minus one, clamped between 2 and 8 | Sets the number of worker threads to spawn. |
 | `promotionThreshold` | `number` | `10000` | Sets the per-index document count that triggers promotion to workers. |
 | `totalPromotionThreshold` | `number` | `50000` | Sets the document count across all indexes that triggers promotion. |
+| `bootstrapModule` | `string` | none | Names a module every worker imports at startup, so that the worker registers the languages, tokenizers, and stop word sets your indexes name. See [Workers](#workers). |
 
 ### Tokenizer cache
 
@@ -183,11 +184,11 @@ await narsil.createIndex('articles', {
 | --- | --- | --- |
 | `schema` | `SchemaDefinition` | Declares the fields and their types. This field is required. |
 | `language` | `string` | Selects the language module for tokenization and stemming. The default is `english`. |
-| `partitions` | `PartitionConfig` | Sets `maxDocsPerPartition` and `maxPartitions`. See [Partitions and rebalancing](#partitions-and-rebalancing). |
+| `partitions` | `PartitionConfig` | Sets `maxDocsPerPartition`, `maxPartitions`, and the `watermark` fraction that fires an early capacity warning. See [Partitions and rebalancing](#partitions-and-rebalancing). |
 | `defaultScoring` | `'local' \| 'dfs' \| 'broadcast'` | Sets the scoring mode used when a query does not pass one. See [Scoring modes](#scoring-modes). |
 | `bm25` | `BM25Params` | Overrides the BM25 `k1` and `b` parameters. |
-| `stopWords` | `Set<string> \| (defaults: Set<string>) => Set<string>` | Replaces or transforms the language module's stop word set. |
-| `tokenizer` | `CustomTokenizer` | Replaces the built-in tokenizer with your own `tokenize(text)` implementation. |
+| `stopWords` | `StopWordOverride \| string` | Replaces or transforms the language module's stop word set, inline or by the name of a set registered with `registerStopWords`. See [Named tokenizers and stop words](#named-tokenizers-and-stop-words). |
+| `tokenizer` | `CustomTokenizer \| string` | Replaces the built-in tokenizer with your own `tokenize(text)` implementation, inline or by the name of a tokenizer registered with `registerTokenizer`. See [Named tokenizers and stop words](#named-tokenizers-and-stop-words). |
 | `trackPositions` | `boolean` | Stores token positions for highlighting. The default is `true`. |
 | `surfaceForms` | `boolean` | Records the original spellings of stemmed words for suggestions and prefix completions. The default is `false`. See [Suggestions](#suggestions). |
 | `vectorPromotion` | `VectorIndexConfig` | Tunes the HNSW promotion threshold, graph parameters, and quantization. See [Vector search](#vector-search). |
@@ -762,7 +763,7 @@ const narsil = await createNarsil({
 })
 ```
 
-`createNarsil` runs recovery before it resolves, so indexes, documents, and named embedding adapter bindings are back before the first call. `checkpoint(indexName)` forces a checkpoint outside the automatic schedule:
+`createNarsil` runs recovery before it resolves, so every index is back before the first call with its documents and its full config: partition limits, the scoring default, position tracking, strictness, required fields, vector promotion settings, named embedding adapter bindings, and its stop words and tokenizer. A stop word `Set` persists as an explicit word list, and a named tokenizer or stop word set persists by name, so register the names before calling `createNarsil` (see [Named tokenizers and stop words](#named-tokenizers-and-stop-words)). An inline tokenizer instance and a stop word function cannot persist, so use the named forms for any index that must survive recovery unchanged. `checkpoint(indexName)` forces a checkpoint outside the automatic schedule:
 
 ```ts
 await narsil.checkpoint('products')
@@ -808,7 +809,7 @@ An index starts with the partition count set by `partitions.maxPartitions`, whic
 ```ts
 await narsil.createIndex('logs', {
   schema: { message: 'string' },
-  partitions: { maxPartitions: 4, maxDocsPerPartition: 250_000 },
+  partitions: { maxPartitions: 4, maxDocsPerPartition: 250_000, watermark: 0.8 },
 })
 
 await narsil.rebalance('logs', 8)
@@ -816,7 +817,11 @@ await narsil.rebalance('logs', 8)
 await narsil.updatePartitionConfig('logs', { maxDocsPerPartition: 500_000 })
 ```
 
-`rebalance(indexName, targetPartitionCount)` reshapes the index to a new partition count while it stays online. Writes arriving during the reshape buffer in a write-ahead queue and replay in order when the reshape completes, and queries keep answering throughout. `updatePartitionConfig` adjusts the caps at runtime; it rejects a new capacity below the current document count with `PARTITION_CAPACITY_EXCEEDED` and rejects changes while a rebalance is running with `PARTITION_REBALANCING_BACKPRESSURE`.
+`rebalance(indexName, targetPartitionCount)` reshapes the index to a new partition count while it stays online. Writes arriving during the reshape buffer in a write-ahead queue and replay in order when the reshape completes, and queries keep answering throughout.
+
+`updatePartitionConfig` adjusts `maxDocsPerPartition`, `maxPartitions`, and `watermark` at runtime, and it writes the new limits into durability metadata, so they survive recovery. Three checks reject a change: a `maxPartitions` below the current partition count and a new capacity (`maxDocsPerPartition` times the current partition count) below the current document count both fail with `PARTITION_CAPACITY_EXCEEDED`, and any change while a rebalance runs fails with `PARTITION_REBALANCING_BACKPRESSURE`.
+
+`partitions.watermark` adds an early warning before the hard cap. Set it to a fraction above 0 and at most 1, and the engine emits the `partitionWatermark` event, carrying the document count, the capacity, and the partition count, when an insert or a partition config change carries the index across `watermark * capacity` documents. The event then stays quiet while the count stays at or above that threshold, and it re-arms when the count drops back below it or when a rebalance or config change raises the capacity, so a listener can trigger one rebalance per crossing without debouncing. `createIndex` and `updatePartitionConfig` both validate the partition fields and reject a non-positive-integer cap or a watermark outside the range with `CONFIG_INVALID`.
 
 Two measured costs are worth knowing before raising partition counts:
 
@@ -841,6 +846,19 @@ const narsil = await createNarsil({
 
 Promotion emits the `workerPromote` event, and a crashed worker emits `workerCrash`; see [Events](#events). Worker heap usage appears in `getMemoryStats()`.
 
+A worker thread receives an index's config by copy, so three conditions gate promotion. An inline `tokenizer` instance cannot cross the thread boundary, a `stopWords` function cannot either, and a worker holds no language other than English until a module registers one inside it. Register tokenizers and stop word sets by name (see [Named tokenizers and stop words](#named-tokenizers-and-stop-words)), and point `workers.bootstrapModule` at a module that registers the languages and named analysis your indexes use; every worker imports it at startup.
+
+```ts
+const narsil = await createNarsil({
+  workers: {
+    enabled: true,
+    bootstrapModule: new URL('./register-analysis.mjs', import.meta.url).href,
+  },
+})
+```
+
+An index that fails these checks stays on the main thread while eligible indexes promote, and the engine reports it once through the `workerPromoteFailure` event with `retryable: false`. A promotion attempt that fails for a deterministic reason, such as a bootstrap module that does not register a needed language, blocks further attempts and reports `retryable: false`; a transient failure reports `retryable: true` and retries on the next threshold check.
+
 ## Multi-instance invalidation
 
 When several engine instances share one persistence backend, the invalidation adapter tells the others which partitions changed so they evict stale cache instead of serving old data. The package includes two adapters, and `@delali/narsil/invalidation/noop` stubs the interface for single-instance deployments:
@@ -858,10 +876,13 @@ import { createFilesystemInvalidation } from '@delali/narsil/invalidation/filesy
 const narsil = await createNarsil({
   persistence: createFilesystemPersistence({ directory: './narsil-data' }),
   invalidation: createFilesystemInvalidation({ directory: './narsil-data', pollInterval: 1000 }),
+  durability: { tier: 'snapshot' },
 })
 ```
 
-The invalidation channel also carries partition statistics for the `broadcast` scoring mode; see [Scoring modes](#scoring-modes). A custom adapter satisfies the `InvalidationAdapter` interface: `publish(event)`, `subscribe(handler)`, and `shutdown()`.
+Invalidation requires the snapshot durability tier, because the write-ahead log owns its directory exclusively and shares nothing between instances. A filesystem persistence adapter resolves to the write-ahead-log tier on its own, so the config above forces `tier: 'snapshot'`; without that line, `createNarsil` rejects the combination with `CONFIG_INVALID`. See [Durability](#durability) for the two tiers. Adapter failures never surface on the calls that trigger them, so subscribe to the `invalidationError` event in any multi-instance deployment; see [Events](#events).
+
+The invalidation channel also carries partition statistics for the `broadcast` scoring mode: each instance publishes its statistics every five seconds and drops a peer's statistics after sixty seconds without an update. See [Scoring modes](#scoring-modes). A custom adapter satisfies the `InvalidationAdapter` interface: `publish(event)`, `subscribe(handler)`, and `shutdown()`.
 
 ## Plugins
 
@@ -903,9 +924,12 @@ Hooks can be async, and `before*` hooks run to completion before the operation a
 | --- | --- | --- |
 | `persistenceError` | `{ indexName, partitionId, error, retriesExhausted }` | A partition flush failed; `retriesExhausted` reports whether the engine gave up. |
 | `durabilityError` | `{ error }` | A write-ahead log or checkpoint operation failed. |
+| `invalidationError` | `{ error }` | An invalidation adapter publish, subscribe, or reload failed. |
 | `workerCrash` | `{ workerId, indexNames, error }` | A worker died; the engine reassigns its indexes. |
 | `workerPromote` | `{ workerCount, reason }` | The engine moved search onto the worker pool. |
+| `workerPromoteFailure` | `{ reason, error, retryable }` | A promotion attempt failed, or an index cannot promote; `retryable` reports whether the engine tries again. See [Workers](#workers). |
 | `partitionRebalance` | `{ indexName, oldCount, newCount }` | A partition reshape completed. |
+| `partitionWatermark` | `{ indexName, documentCount, capacity, partitionCount }` | An index crossed its watermark fraction of capacity. See [Partitions and rebalancing](#partitions-and-rebalancing). |
 
 ```ts
 narsil.on('persistenceError', payload => {
@@ -913,7 +937,7 @@ narsil.on('persistenceError', payload => {
 })
 ```
 
-Subscribe to `persistenceError` and `durabilityError` in any deployment that persists data; they are the engine's only channel for reporting background write failures.
+Subscribe to `persistenceError` and `durabilityError` in any deployment that persists data, and to `invalidationError` in any deployment that runs several instances; the events are the engine's only channel for reporting background failures.
 
 ## Errors
 
@@ -1011,7 +1035,35 @@ const narsil = await createNarsil()
 await narsil.createIndex('articles', { schema: { title: 'string' }, language: 'french' })
 ```
 
-English is registered by default, so it needs no import. Naming a language you have not registered fails with `LANGUAGE_NOT_SUPPORTED`. `registerLanguage(module)` also adds a language of your own: a module carries a name, a tokenizer, a stemmer, and a stop word set, and any of the built-in language modules serves as a reference.
+English is registered by default, so it needs no import. Naming a language you have not registered fails with `LANGUAGE_NOT_SUPPORTED`. `registerLanguage(module)` also adds a language of your own: a module carries a name, a tokenizer, a stemmer, a stop word set, and an optional normalizer that folds token spellings before stemming, and any of the built-in language modules serves as a reference.
+
+### Named tokenizers and stop words
+
+An index config takes `stopWords` and `tokenizer` inline, and it also takes each one by name. Register the implementation once, then name it in any index config:
+
+```ts
+import { createNarsil, registerStopWords, registerTokenizer } from '@delali/narsil'
+
+registerStopWords('catalogue-noise', defaults => new Set([...defaults, 'sku', 'refurbished']))
+registerTokenizer('sku-codes', {
+  tokenize: text =>
+    text
+      .toLowerCase()
+      .split(/[\s/-]+/)
+      .map((token, position) => ({ token, position })),
+})
+
+const narsil = await createNarsil()
+await narsil.createIndex('products', {
+  schema: { title: 'string' },
+  stopWords: 'catalogue-noise',
+  tokenizer: 'sku-codes',
+})
+```
+
+A named binding works where an inline one cannot: persisted metadata cannot store a function, and a worker thread cannot receive one. Durability recovery rebinds a named tokenizer or stop word set from the registry, so register the names before calling `createNarsil` on a durable engine; an inline tokenizer or stop word function cannot persist. A worker thread resolves names from its own registry, filled by `workers.bootstrapModule`, so only an index using the named forms can promote; see [Workers](#workers).
+
+Naming a tokenizer or stop word set you have not registered fails with `CONFIG_INVALID`, and the error's `details` list the registered names. `hasTokenizer(name)` and `hasStopWords(name)` report whether a name is registered, and `getTokenizer(name)` and `getStopWords(name)` return the registered implementation.
 
 ## HTTP server
 
