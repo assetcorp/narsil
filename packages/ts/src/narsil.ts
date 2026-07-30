@@ -311,6 +311,13 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         )
       }
       validatePartitionConfig(partitionConfig)
+      if (partitionConfig.maxPartitions !== undefined && partitionConfig.maxPartitions < manager.partitionCount) {
+        throw new NarsilError(
+          ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
+          `maxPartitions (${partitionConfig.maxPartitions}) is less than the current partition count (${manager.partitionCount})`,
+          { maxPartitions: partitionConfig.maxPartitions, partitionCount: manager.partitionCount },
+        )
+      }
       const currentDocCount = manager.countDocuments()
       const newMaxDocs = partitionConfig.maxDocsPerPartition ?? entry.config.partitions?.maxDocsPerPartition
       if (newMaxDocs !== undefined) {

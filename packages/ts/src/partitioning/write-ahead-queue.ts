@@ -9,16 +9,20 @@ export interface WAQEntry {
   indexName: string
 }
 
+export type BufferedDocState = 'present' | 'absent'
+
 export interface WriteAheadQueue {
   push(entry: Omit<WAQEntry, 'sequenceNumber'>): number
   drain(): WAQEntry[]
   clear(): void
+  bufferedDocState(docId: string): BufferedDocState | undefined
   readonly size: number
   readonly isFull: boolean
 }
 
 export function createWriteAheadQueue(maxSize = 10_000): WriteAheadQueue {
   const entries: WAQEntry[] = []
+  const docStates = new Map<string, BufferedDocState>()
   let nextSequence = 1
 
   return {
@@ -32,6 +36,7 @@ export function createWriteAheadQueue(maxSize = 10_000): WriteAheadQueue {
       }
       const seq = nextSequence++
       entries.push({ ...entry, sequenceNumber: seq })
+      docStates.set(entry.docId, entry.action === 'remove' ? 'absent' : 'present')
       return seq
     },
 
@@ -43,6 +48,11 @@ export function createWriteAheadQueue(maxSize = 10_000): WriteAheadQueue {
 
     clear(): void {
       entries.length = 0
+      docStates.clear()
+    },
+
+    bufferedDocState(docId: string): BufferedDocState | undefined {
+      return docStates.get(docId)
     },
 
     get size() {

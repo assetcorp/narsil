@@ -1,5 +1,5 @@
 import type { PartitionManager } from '../../partitioning/manager'
-import type { WAQEntry } from '../../partitioning/write-ahead-queue'
+import type { BufferedDocState, WAQEntry } from '../../partitioning/write-ahead-queue'
 import type { PluginRegistry } from '../../plugins/registry'
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { LanguageModule } from '../../types/language'
@@ -45,5 +45,7 @@ export interface MutationContext {
   bufferIfRebalancing: (name: string, entry: Omit<WAQEntry, 'sequenceNumber'>) => boolean
   isRebalancing: (name: string) => boolean
   pendingRebalanceWrites: (name: string) => number
+  rebalanceTargetPartitionCount: (name: string) => number | undefined
+  bufferedDocState: (name: string, docId: string) => BufferedDocState | undefined
   checkWatermark: (name: string) => void
 }

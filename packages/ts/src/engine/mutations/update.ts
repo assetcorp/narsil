@@ -91,6 +91,16 @@ export async function updateDocument(
 
   let buffered = false
   const applyUpdate = async (): Promise<void> => {
+    if (ctx.isRebalancing(indexName)) {
+      const bufferedState = ctx.bufferedDocState(indexName, docId)
+      const exists = bufferedState !== undefined ? bufferedState === 'present' : updateManager.has(docId)
+      if (!exists) {
+        updateManager.assertCapacity(
+          ctx.pendingRebalanceWrites(indexName),
+          ctx.rebalanceTargetPartitionCount(indexName),
+        )
+      }
+    }
     if (ctx.bufferIfRebalancing(indexName, { action: 'update', docId, document, indexName })) {
       buffered = true
       return

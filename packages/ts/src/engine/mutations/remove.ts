@@ -23,6 +23,14 @@ export async function removeDocument(ctx: MutationContext, indexName: string, do
 
   let buffered = false
   const applyRemove = async (): Promise<void> => {
+    if (ctx.isRebalancing(indexName)) {
+      const bufferedState = ctx.bufferedDocState(indexName, docId)
+      const exists =
+        bufferedState !== undefined ? bufferedState === 'present' : ctx.requireManager(indexName).has(docId)
+      if (!exists) {
+        throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
+      }
+    }
     if (ctx.bufferIfRebalancing(indexName, { action: 'remove', docId, indexName })) {
       buffered = true
       return
