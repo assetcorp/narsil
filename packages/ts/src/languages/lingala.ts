@@ -1,0 +1,65 @@
+/*
+ * Stop words sourced from:
+ *   - Grammatical function words and pronouns curated for Narsil
+ */
+
+import type { LanguageModule } from '../types/language'
+
+const stopWords = new Set([
+  'awa',
+  'azalaki',
+  'azali',
+  'bango',
+  'basusu',
+  'bazali',
+  'bino',
+  'biso',
+  'bongo',
+  'boye',
+  'epai',
+  'ezalaki',
+  'ezali',
+  'kaka',
+  'kasi',
+  'kati',
+  'kuna',
+  'liboso',
+  'likolo',
+  'lisusu',
+  'lokola',
+  'mingi',
+  'misusu',
+  'moko',
+  'mosusu',
+  'mpe',
+  'mpo',
+  'na',
+  'naino',
+  'nazali',
+  'ngai',
+  'nse',
+  'nsima',
+  'nyonso',
+  'oyo',
+  'ozali',
+  'pe',
+  'sikawa',
+  'sikoyo',
+  'sima',
+  'soki',
+  'te',
+  'tii',
+  'to',
+  'tozali',
+  'wana',
+  'ya',
+  'ye',
+  'yo',
+])
+
+export const lingala: LanguageModule = {
+  name: 'lingala',
+  stemmer: null,
+  stopWords,
+  tokenizer: { splitPattern: /[^\p{Script=Latin}\p{M}0-9]+/giu },
+}
