@@ -922,8 +922,7 @@ Hooks can be async, and `before*` hooks run to completion before the operation a
 
 | Event | Payload | Meaning |
 | --- | --- | --- |
-| `persistenceError` | `{ indexName, partitionId, error, retriesExhausted }` | A partition flush failed; `retriesExhausted` reports whether the engine gave up. |
-| `durabilityError` | `{ error }` | A write-ahead log or checkpoint operation failed. |
+| `durabilityError` | `{ error }` | A write-ahead log append or a checkpoint write failed, on either tier. |
 | `invalidationError` | `{ error }` | An invalidation adapter publish, subscribe, or reload failed. |
 | `workerCrash` | `{ workerId, indexNames, error }` | A worker died; the engine reassigns its indexes. |
 | `workerPromote` | `{ workerCount, reason }` | The engine moved search onto the worker pool. |
@@ -932,12 +931,12 @@ Hooks can be async, and `before*` hooks run to completion before the operation a
 | `partitionWatermark` | `{ indexName, documentCount, capacity, partitionCount }` | An index crossed its watermark fraction of capacity. See [Partitions and rebalancing](#partitions-and-rebalancing). |
 
 ```ts
-narsil.on('persistenceError', payload => {
-  console.error(`flush failed for ${payload.indexName}:`, payload.error)
+narsil.on('durabilityError', payload => {
+  console.error('durability write failed:', payload.error)
 })
 ```
 
-Subscribe to `persistenceError` and `durabilityError` in any deployment that persists data, and to `invalidationError` in any deployment that runs several instances; the events are the engine's only channel for reporting background failures.
+Subscribe to `durabilityError` in any deployment that persists data, and to `invalidationError` in any deployment that runs several instances; the events are the engine's only channel for reporting background failures.
 
 ## Errors
 
