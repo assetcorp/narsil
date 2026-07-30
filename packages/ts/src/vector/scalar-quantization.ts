@@ -1,54 +1,14 @@
 import type { VectorMetric } from './brute-force'
+import { computeCalibrationBounds } from './scalar-quantization-calibration'
+import type {
+  ArenaQuery,
+  OrdinalSource,
+  QuantizedQuery,
+  ScalarQuantizer,
+  SerializedSQ8,
+} from './scalar-quantization-types'
 import { type ArenaSimd, createArenaSimd } from './simd'
 
-export interface SerializedSQ8 {
-  alpha: number
-  offset: number
-  quantizedVectors: Record<string, number[]>
-  vectorSums: Record<string, number>
-  vectorSumSqs: Record<string, number>
-}
-
-export interface QuantizedQuery {
-  quantized: Uint8Array
-  sum: number
-  sumSq: number
-  magnitude: number
-}
-
-export interface ArenaQuery {
-  sum: number
-  sumSq: number
-  magnitude: number
-}
-
-export interface OrdinalSource {
-  getOrdinal(docId: string): number | undefined
-}
-
-export interface ScalarQuantizer {
-  quantize(docId: string, vector: Float32Array): void
-  remove(docId: string): void
-  getQuantized(docId: string): Uint8Array | undefined
-  isCalibrated(): boolean
-  calibrate(vectors: Iterable<Float32Array>): void
-  needsRecalibration(vector: Float32Array): boolean
-  recalibrateAll(vectors: Iterable<[string, Float32Array]>): void
-  prepareQuery(query: Float32Array): QuantizedQuery | null
-  distanceFromPrepared(prepared: QuantizedQuery, docId: string, metric: VectorMetric): number
-  distanceFromPreparedByOrdinal(prepared: QuantizedQuery, ordinal: number, metric: VectorMetric): number
-  prepareQueryArena(query: Float32Array): ArenaQuery | null
-  distanceFromArena(prepared: ArenaQuery, ordinal: number, metric: VectorMetric): number
-  hasOrdinal(ordinal: number): boolean
-  readonly dimensions: number
-  readonly size: number
-  serialize(): SerializedSQ8
-  restoreCalibration(alpha: number, offset: number): void
-  restoreEntry(docId: string, quantized: Uint8Array, sum: number, sumSq: number): void
-  clear(): void
-}
-
-const PADDING_FACTOR = 0.01
 const INITIAL_CAPACITY = 16
 const PAGE_BYTES = 65536
 
@@ -165,33 +125,11 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
   }
 
   function calibrateFromVectors(vectors: Iterable<Float32Array>): void {
-    let globalMin = Number.POSITIVE_INFINITY
-    let globalMax = Number.NEGATIVE_INFINITY
-    let count = 0
+    const bounds = computeCalibrationBounds(vectors, dimensions)
+    if (bounds === null) return
 
-    for (const vec of vectors) {
-      for (let d = 0; d < dimensions; d++) {
-        const val = vec[d]
-        if (val < globalMin) globalMin = val
-        if (val > globalMax) globalMax = val
-      }
-      count++
-    }
-
-    if (count === 0) return
-
-    const range = globalMax - globalMin
-    const pad = range * PADDING_FACTOR
-    globalMin -= pad
-    globalMax += pad
-
-    if (globalMin === globalMax) {
-      globalMin -= 0.001
-      globalMax += 0.001
-    }
-
-    alpha = (globalMax - globalMin) / 255
-    offset = globalMin
+    alpha = bounds.alpha
+    offset = bounds.offset
     updateDerivedConstants()
     calibrated = true
   }
@@ -446,27 +384,4 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
       calibrated = false
     },
   }
-}
-
-export function deserializeScalarQuantizer(
-  data: SerializedSQ8,
-  dimensions: number,
-  ordinalSource?: OrdinalSource,
-): ScalarQuantizer {
-  const quantizer = createScalarQuantizer(dimensions, ordinalSource)
-
-  if (data.alpha === 0 && data.offset === 0 && Object.keys(data.quantizedVectors).length === 0) {
-    return quantizer
-  }
-
-  quantizer.restoreCalibration(data.alpha, data.offset)
-
-  for (const [docId, values] of Object.entries(data.quantizedVectors)) {
-    const quantized = new Uint8Array(values)
-    const sum = data.vectorSums[docId] ?? 0
-    const sumSq = data.vectorSumSqs[docId] ?? 0
-    quantizer.restoreEntry(docId, quantized, sum, sumSq)
-  }
-
-  return quantizer
 }

@@ -273,9 +273,53 @@ const stopWords = new Set([
   'осим',
 ])
 
+const SERBIAN_LETTERS = /[\u0430-\u045Fčćžđš]/g
+const LATIN_FORMS: Record<string, string> = {
+  '\u0430': 'a',
+  '\u0431': 'b',
+  '\u0432': 'v',
+  '\u0433': 'g',
+  '\u0434': 'd',
+  '\u0452': 'dj',
+  '\u0435': 'e',
+  '\u0436': 'z',
+  '\u0437': 'z',
+  '\u0438': 'i',
+  '\u0458': 'j',
+  '\u043A': 'k',
+  '\u043B': 'l',
+  '\u0459': 'lj',
+  '\u043C': 'm',
+  '\u043D': 'n',
+  '\u045A': 'nj',
+  '\u043E': 'o',
+  '\u043F': 'p',
+  '\u0440': 'r',
+  '\u0441': 's',
+  '\u0442': 't',
+  '\u045B': 'c',
+  '\u0443': 'u',
+  '\u0444': 'f',
+  '\u0445': 'h',
+  '\u0446': 'c',
+  '\u0447': 'c',
+  '\u045F': 'dz',
+  '\u0448': 's',
+  č: 'c',
+  ć: 'c',
+  ž: 'z',
+  đ: 'dj',
+  š: 's',
+}
+
+function normalize(token: string): string {
+  return token.replace(SERBIAN_LETTERS, letter => LATIN_FORMS[letter] ?? letter)
+}
+
 export const serbian: LanguageModule = {
   name: 'serbian',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9\u0400-\u04FF]+/gi },
+  normalizer: normalize,
+  tokenizer: { splitPattern: /[^a-z0-9\u0400-\u04FFčćžđ]+/gi },
 }

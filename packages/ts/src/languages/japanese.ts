@@ -210,8 +210,9 @@ export const japanese: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: {
-    splitPattern: /[^\u3005\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff0-9a-zA-Z]+/gi,
+    splitPattern: /[^\p{Script=Han}\u3040-\u309f\u30a0-\u30fa\u30fc-\u30ff0-9a-zA-Z]+/giu,
     normalizeDiacritics: false,
     minTokenLength: 1,
+    ngramSize: 2,
   },
 }

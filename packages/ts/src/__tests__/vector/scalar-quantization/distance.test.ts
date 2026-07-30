@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createScalarQuantizer, type ScalarQuantizer } from '../../../vector/scalar-quantization'
+import { createScalarQuantizer } from '../../../vector/scalar-quantization'
+import type { ScalarQuantizer } from '../../../vector/scalar-quantization-types'
 import { DIM, normalizedVector, vectorFromValues } from './fixtures'
 
 describe('ScalarQuantizer distance computation', () => {

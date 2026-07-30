@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createHNSWIndex, type SerializedHNSWGraph } from '../hnsw'
-import { deserializeScalarQuantizer, type SerializedSQ8 } from '../scalar-quantization'
+import { deserializeScalarQuantizer } from '../scalar-quantization-restore'
+import type { SerializedSQ8 } from '../scalar-quantization-types'
 import type { VectorIndexPayload, VectorIndexState } from './shared'
 
 export function serialize(state: VectorIndexState): VectorIndexPayload {

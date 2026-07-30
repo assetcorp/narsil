@@ -1,3 +1,4 @@
+import { type ResolvedAnalysis, resolveIndexAnalysis } from '../analysis/registry'
 import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../core/partition'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { SerializablePartition } from '../types/internal'
@@ -13,6 +14,7 @@ export interface PartitionManager {
   readonly schema: SchemaDefinition
   readonly language: LanguageModule
   readonly config: IndexConfig
+  readonly analysis: ResolvedAnalysis
 
   getPartition(partitionId: number): PartitionIndex
   partitionAt(index: number): PartitionIndex | undefined
@@ -20,7 +22,9 @@ export interface PartitionManager {
   setPartitions(partitions: PartitionIndex[]): void
   addPartition(): PartitionIndex
   removePartition(partitionId: number): void
+  trimPartitions(count: number): void
 
+  assertCapacity(pendingWrites?: number, partitionCountCap?: number): void
   insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
   remove(docId: string): void
   beginBatchRemove(): void
@@ -72,6 +76,7 @@ export function createPartitionManager(
   vectorIndexes?: Map<string, VectorIndex>,
 ): PartitionManager {
   const count = initialPartitionCount ?? 1
+  const analysis = resolveIndexAnalysis(config)
   const trackPositions = config.trackPositions ?? true
   const vecIndexes: Map<string, VectorIndex> = vectorIndexes ?? new Map()
   let partitions: PartitionIndex[] = []
@@ -93,15 +98,15 @@ export function createPartitionManager(
 
   function resolveInsertOptions(options?: PartitionInsertOptions): PartitionInsertOptions | undefined {
     const applyStrict = config.strict === true
-    const applyAnalyzer = config.stopWords !== undefined || config.tokenizer !== undefined
+    const applyAnalyzer = analysis.stopWords !== undefined || analysis.customTokenizer !== undefined
     const applySurfaces = config.surfaceForms === true
     if (!applyStrict && !applyAnalyzer && !applySurfaces) return options
 
     const resolved: PartitionInsertOptions = { ...options }
     if (applyStrict) resolved.strict = true
     if (applyAnalyzer) {
-      resolved.stopWordOverride = options?.stopWordOverride ?? config.stopWords
-      resolved.customTokenizer = options?.customTokenizer ?? config.tokenizer
+      resolved.stopWordOverride = options?.stopWordOverride ?? analysis.stopWords
+      resolved.customTokenizer = options?.customTokenizer ?? analysis.customTokenizer
     }
     if (applySurfaces) resolved.collectSurfaces = true
     return resolved
@@ -143,6 +148,9 @@ export function createPartitionManager(
     get config() {
       return config
     },
+    get analysis() {
+      return analysis
+    },
 
     getPartition(partitionId: number): PartitionIndex {
       validatePartitionId(partitionId)
@@ -182,24 +190,47 @@ export function createPartitionManager(
       rebuildDocPartitionMap()
     },
 
-    insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void {
-      const currentMaxDocs = config.partitions?.maxDocsPerPartition
-      if (currentMaxDocs !== undefined) {
-        const totalCapacity = currentMaxDocs * partitions.length
-        if (docPartitionMap.size >= totalCapacity) {
-          throw new NarsilError(
-            ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
-            `Index "${indexName}" has reached its capacity of ${totalCapacity} documents (${currentMaxDocs} per partition × ${partitions.length} partitions)`,
-            {
-              indexName,
-              currentCount: docPartitionMap.size,
-              totalCapacity,
-              maxDocsPerPartition: currentMaxDocs,
-              partitionCount: partitions.length,
-            },
-          )
+    trimPartitions(newCount: number): void {
+      if (newCount < 1) {
+        throw new NarsilError(ErrorCodes.CONFIG_INVALID, `Cannot trim index "${indexName}" below one partition`, {
+          indexName,
+          requestedCount: newCount,
+        })
+      }
+      if (newCount >= partitions.length) {
+        return
+      }
+      for (const [docId, pid] of docPartitionMap) {
+        if (pid >= newCount) {
+          docPartitionMap.delete(docId)
         }
       }
+      partitions.length = newCount
+    },
+
+    assertCapacity(pendingWrites = 0, partitionCountCap?: number): void {
+      const currentMaxDocs = config.partitions?.maxDocsPerPartition
+      if (currentMaxDocs === undefined) return
+      const effectivePartitionCount =
+        partitionCountCap === undefined ? partitions.length : Math.min(partitions.length, partitionCountCap)
+      const totalCapacity = currentMaxDocs * effectivePartitionCount
+      if (docPartitionMap.size + pendingWrites >= totalCapacity) {
+        throw new NarsilError(
+          ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
+          `Index "${indexName}" has reached its capacity of ${totalCapacity} documents (${currentMaxDocs} per partition × ${effectivePartitionCount} partitions)`,
+          {
+            indexName,
+            currentCount: docPartitionMap.size + pendingWrites,
+            totalCapacity,
+            maxDocsPerPartition: currentMaxDocs,
+            partitionCount: effectivePartitionCount,
+          },
+        )
+      }
+    },
+
+    insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void {
+      manager.assertCapacity()
       const pid = router.route(docId, partitions.length)
       const insertOpts = resolveInsertOptions(options)
       partitions[pid].insert(docId, document, config.schema, language, insertOpts)
@@ -289,8 +320,8 @@ export function createPartitionManager(
       totalFieldLengths: Record<string, number>
     } {
       let totalDocuments = 0
-      const docFrequencies: Record<string, number> = {}
-      const totalFieldLengths: Record<string, number> = {}
+      const docFrequencies: Record<string, number> = Object.create(null)
+      const totalFieldLengths: Record<string, number> = Object.create(null)
 
       for (let i = 0; i < partitions.length; i++) {
         const stats = partitions[i].stats

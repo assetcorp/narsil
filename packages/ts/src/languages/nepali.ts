@@ -270,5 +270,5 @@ export const nepali: LanguageModule = {
   name: 'nepali',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^\u0900-\u097fa-z0-9]+/gi },
+  tokenizer: { splitPattern: /[^\u0900-\u0963\u0966-\u097fa-z0-9]+/gi },
 }

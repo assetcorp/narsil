@@ -4,6 +4,7 @@ import { buildSnapshotBundleBytes, snapshotStorageKey } from './checkpoint'
 import { loadSnapshotBundleBytes } from './recovery'
 import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import {
+  type CheckpointPublisher,
   DEFAULT_CHECKPOINT_INTERVAL_MS,
   DEFAULT_CHECKPOINT_MUTATION_THRESHOLD,
   type DurabilityConfig,
@@ -26,6 +27,7 @@ export function createSnapshotOnlyManager(
   adapter: PersistenceAdapter,
   config: DurabilityConfig,
   hooks: IndexDurabilityHooks,
+  publisher?: CheckpointPublisher,
 ): DurabilityManager {
   const checkpointIntervalMs = config.checkpointIntervalMs ?? DEFAULT_CHECKPOINT_INTERVAL_MS
   const checkpointMutationThreshold = config.checkpointMutationThreshold ?? DEFAULT_CHECKPOINT_MUTATION_THRESHOLD
@@ -83,6 +85,9 @@ export function createSnapshotOnlyManager(
       indexName,
       schema: metadata.schema,
       language: metadata.language,
+      ...(metadata.tokenizer !== undefined ? { tokenizer: metadata.tokenizer } : {}),
+      ...(metadata.stopWords !== undefined ? { stopWords: metadata.stopWords } : {}),
+      ...(metadata.stopWordList !== undefined ? { stopWordList: metadata.stopWordList } : {}),
       manager,
       vectorIndexes: hooks.getVectorIndexes(indexName),
       seqNoByPartition,
@@ -90,6 +95,14 @@ export function createSnapshotOnlyManager(
     })
     await adapter.save(snapshotStorageKey(indexName), concatEnvelopeParts(parts))
     indexState.mutationsSinceCheckpoint = 0
+
+    if (publisher !== undefined) {
+      const partitionIds: number[] = []
+      for (let i = 0; i < manager.partitionCount; i += 1) {
+        partitionIds.push(i)
+      }
+      await publisher.publishPartitions(indexName, partitionIds)
+    }
   }
 
   async function checkpointIndex(indexName: string): Promise<void> {
@@ -186,6 +199,13 @@ export function createSnapshotOnlyManager(
       for (const key of await adapter.list(`${indexName}/`)) {
         await adapter.delete(key)
       }
+    },
+
+    async reloadIndex(indexName: string): Promise<void> {
+      const indexState = getOrCreateIndexState(indexName)
+      const reload = indexState.applyChain.then(() => recoverIndex(indexName))
+      indexState.applyChain = reload.catch(() => undefined)
+      await reload
     },
 
     async shutdown(): Promise<void> {

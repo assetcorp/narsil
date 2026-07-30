@@ -37,14 +37,16 @@ export interface EmbeddingFieldConfig {
   fields: Record<string, string | string[]>
 }
 
+export type StopWordOverride = Set<string> | ((defaults: Set<string>) => Set<string>)
+
 export interface IndexConfig {
   schema: SchemaDefinition
   language?: string
   partitions?: PartitionConfig
   defaultScoring?: ScoringMode
   bm25?: BM25Params
-  stopWords?: Set<string> | ((defaults: Set<string>) => Set<string>)
-  tokenizer?: CustomTokenizer
+  stopWords?: StopWordOverride | string
+  tokenizer?: CustomTokenizer | string
   trackPositions?: boolean
   vectorPromotion?: VectorIndexConfig
   strict?: boolean
@@ -69,6 +71,7 @@ export interface CustomTokenizer {
 export interface PartitionConfig {
   maxDocsPerPartition?: number
   maxPartitions?: number
+  watermark?: number
 }
 
 export type ScoringMode = 'local' | 'dfs' | 'broadcast'

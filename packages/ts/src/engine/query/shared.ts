@@ -1,6 +1,8 @@
-import type { FanOutResult } from '../../partitioning/fan-out'
+import { pruneStatsToQueryTerms } from '../../partitioning/distributed-scoring'
+import type { FanOutConfig, FanOutResult } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
-import type { ScoredDocument } from '../../types/internal'
+import type { FulltextSearchOptions } from '../../search/fulltext'
+import type { GlobalStatistics, ScoredDocument } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
@@ -10,8 +12,44 @@ export interface QueryContext {
   manager: PartitionManager
   language: LanguageModule
   config: IndexConfig
-  workerSearch?: (indexName: string, params: QueryParams) => Promise<FanOutResult | null>
+  workerSearch?: (
+    indexName: string,
+    params: QueryParams,
+    globalStats?: GlobalStatistics,
+  ) => Promise<FanOutResult | null>
   indexName: string
+  broadcastStats?: (indexName: string) => GlobalStatistics | undefined
+}
+
+export function scoringConfigFor(params: QueryParams, context: QueryContext): FanOutConfig {
+  const scoringMode = params.scoring ?? context.config.defaultScoring ?? 'local'
+  if (scoringMode !== 'broadcast') {
+    return { scoringMode }
+  }
+  return { scoringMode, globalStats: context.broadcastStats?.(context.indexName) }
+}
+
+export function broadcastStatsForWorker(
+  params: QueryParams,
+  context: QueryContext,
+  scoring: FanOutConfig,
+): GlobalStatistics | undefined {
+  if (scoring.scoringMode !== 'broadcast' || scoring.globalStats === undefined) {
+    return undefined
+  }
+  const term = params.term
+  if (term === undefined || term.trim().length === 0) {
+    return undefined
+  }
+  return pruneStatsToQueryTerms(scoring.globalStats, term, context.language, context.manager.analysis)
+}
+
+export function searchOptionsFor(manager: PartitionManager): FulltextSearchOptions {
+  return {
+    bm25Params: manager.config.bm25,
+    stopWords: manager.analysis.stopWords,
+    customTokenizer: manager.analysis.customTokenizer,
+  }
 }
 
 export function collectFilterDocIds(

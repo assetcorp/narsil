@@ -1,89 +1,21 @@
-import type {
-  CompactPostingList,
-  InternalSearchParams,
-  InternalSearchResult,
-  ScoredDocument,
-} from '../../types/internal'
+import type { CompactPostingList, InternalSearchParams, InternalSearchResult } from '../../types/internal'
 import { bitsetHas } from '../bitset'
 import { computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
+import {
+  accumulateTermScore,
+  EMPTY_COMPONENTS,
+  type PrefixContribution,
+  type PrefixMatch,
+  type ResolvedTokenPostings,
+  type ScoreAccumulator,
+  topKFromMap,
+} from './scoring'
 import type { PartitionState } from './utils'
 
 const DEFAULT_MAX_RESULTS = 1000
 
-const EMPTY_COMPONENTS: Record<string, number> = Object.freeze({})
-
-interface ScoreAccumulator {
-  score: number
-  termFrequencies: Record<string, number>
-  fieldLengths: Record<string, number>
-  idf: Record<string, number>
-}
-
-function accumulateTermScore(
-  docScores: Map<number, ScoreAccumulator>,
-  internalId: number,
-  termScore: number,
-  collect: boolean,
-  fieldName: string,
-  token: string,
-  termFrequency: number,
-  fieldLength: number,
-  idf: number,
-): void {
-  const existing = docScores.get(internalId)
-  if (existing) {
-    existing.score += termScore
-    if (collect) {
-      existing.termFrequencies[`${fieldName}:${token}`] = termFrequency
-      existing.fieldLengths[fieldName] = fieldLength
-      existing.idf[token] = idf
-    }
-    return
-  }
-
-  if (collect) {
-    docScores.set(internalId, {
-      score: termScore,
-      termFrequencies: { [`${fieldName}:${token}`]: termFrequency },
-      fieldLengths: { [fieldName]: fieldLength },
-      idf: { [token]: idf },
-    })
-  } else {
-    docScores.set(internalId, {
-      score: termScore,
-      termFrequencies: EMPTY_COMPONENTS,
-      fieldLengths: EMPTY_COMPONENTS,
-      idf: EMPTY_COMPONENTS,
-    })
-  }
-}
-
-interface ResolvedTokenPostings {
-  token: string
-  matches: Array<{
-    token: string
-    docFreq: number
-    idf: number
-    postingList: CompactPostingList
-  }>
-  totalPostings: number
-  isPrefix?: boolean
-}
-
-interface PrefixMatch {
-  token: string
-  factor: number
-  postingList: CompactPostingList
-  docFreq: number
-  idf: number
-}
-
-interface PrefixContribution {
-  score: number
-  token: string
-  idf: number
-  termFrequencies: Record<string, number>
-  fieldLengths: Record<string, number>
+function globalDocFreqFor(docFreqs: Record<string, number>, term: string, fallback: number): number {
+  return Object.hasOwn(docFreqs, term) ? docFreqs[term] : fallback
 }
 
 export function searchFulltext(state: PartitionState, params: InternalSearchParams): InternalSearchResult {
@@ -139,7 +71,9 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
       seen.add(term)
       const postingList = state.invertedIdx.lookup(term)
       if (!postingList) continue
-      const docFreq = globalStats ? (globalDocFreqs[term] ?? postingList.docIdSet.size) : postingList.docIdSet.size
+      const docFreq = globalStats
+        ? globalDocFreqFor(globalDocFreqs, term, postingList.docIdSet.size)
+        : postingList.docIdSet.size
       found.push({ token: term, postingList, docFreq })
     }
     if (found.length === 0) return []
@@ -275,7 +209,7 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
       const matches: ResolvedTokenPostings['matches'] = []
       for (const m of rawMatches) {
         const docFreq = globalStats
-          ? (globalDocFreqs[m.token] ?? m.postingList.docIdSet.size)
+          ? globalDocFreqFor(globalDocFreqs, m.token, m.postingList.docIdSet.size)
           : m.postingList.docIdSet.size
         const idf = computeIDF(docFreq, totalDocs)
         totalPostings += m.postingList.length
@@ -360,7 +294,7 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
 
       for (const match of matchingPostings) {
         const docFreq = globalStats
-          ? (globalDocFreqs[match.token] ?? match.postingList.docIdSet.size)
+          ? globalDocFreqFor(globalDocFreqs, match.token, match.postingList.docIdSet.size)
           : match.postingList.docIdSet.size
         const idf = computeIDF(docFreq, totalDocs)
 
@@ -408,65 +342,4 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
   const k = maxResults !== undefined && maxResults > 0 ? maxResults : DEFAULT_MAX_RESULTS
   const scored = topKFromMap(docScores, Math.min(k, totalMatched), resolver)
   return { scored, totalMatched }
-}
-
-function topKFromMap(
-  docScores: Map<number, ScoreAccumulator>,
-  k: number,
-  resolver: { toExternal(id: number): string | undefined },
-): ScoredDocument[] {
-  if (k <= 0) return []
-
-  const heap: Array<{ internalId: number; score: number }> = []
-
-  for (const [internalId, data] of docScores) {
-    if (heap.length < k) {
-      heap.push({ internalId, score: data.score })
-      if (heap.length === k) buildMinHeap(heap)
-    } else if (data.score > heap[0].score) {
-      heap[0] = { internalId, score: data.score }
-      siftDown(heap, 0)
-    }
-  }
-
-  heap.sort((a, b) => b.score - a.score)
-
-  const result: ScoredDocument[] = []
-  for (let i = 0; i < heap.length; i++) {
-    const data = docScores.get(heap[i].internalId)
-    if (!data) continue
-    const externalId = resolver.toExternal(heap[i].internalId)
-    if (externalId === undefined) continue
-    result.push({
-      docId: externalId,
-      score: data.score,
-      termFrequencies: data.termFrequencies,
-      fieldLengths: data.fieldLengths,
-      idf: data.idf,
-    })
-  }
-
-  return result
-}
-
-function buildMinHeap(heap: Array<{ score: number }>): void {
-  for (let i = (heap.length >> 1) - 1; i >= 0; i--) {
-    siftDown(heap, i)
-  }
-}
-
-function siftDown(heap: Array<{ score: number }>, idx: number): void {
-  const len = heap.length
-  while (true) {
-    let smallest = idx
-    const left = 2 * idx + 1
-    const right = 2 * idx + 2
-    if (left < len && heap[left].score < heap[smallest].score) smallest = left
-    if (right < len && heap[right].score < heap[smallest].score) smallest = right
-    if (smallest === idx) break
-    const tmp = heap[idx]
-    heap[idx] = heap[smallest]
-    heap[smallest] = tmp
-    idx = smallest
-  }
 }

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createHNSWIndex, type HNSWIndex } from '../../../vector/hnsw'
-import { createScalarQuantizer, type ScalarQuantizer } from '../../../vector/scalar-quantization'
+import { createScalarQuantizer } from '../../../vector/scalar-quantization'
+import type { ScalarQuantizer } from '../../../vector/scalar-quantization-types'
 import { magnitude } from '../../../vector/similarity'
 import { createVectorStore, type VectorStore } from '../../../vector/vector-store'
 

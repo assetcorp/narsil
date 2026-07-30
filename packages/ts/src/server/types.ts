@@ -189,7 +189,7 @@ export interface RebalanceBody {
 export interface HttpIndexConfig {
   schema: Record<string, unknown>
   language?: string
-  partitions?: { maxDocsPerPartition?: number; maxPartitions?: number }
+  partitions?: { maxDocsPerPartition?: number; maxPartitions?: number; watermark?: number }
   defaultScoring?: 'local' | 'dfs' | 'broadcast'
   bm25?: { k1?: number; b?: number }
   stopWords?: string[]

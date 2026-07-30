@@ -112,7 +112,7 @@ export const zulu: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: {
-    splitPattern: /[^a-zA-Z0-9]+/gi,
+    splitPattern: /[^a-zA-Z0-9-]+/gi,
     normalizeDiacritics: false,
     minTokenLength: 1,
   },

@@ -1,4 +1,5 @@
 import type { LanguageModule } from '../types/language'
+import { removeMarks } from './support/marks'
 
 const VOWELS = 'aeiou\u00e0\u00e1\u00e2\u00e9\u00ea\u00ed\u00f3\u00f4\u00fa\u00fc'
 
@@ -671,9 +672,16 @@ const stopWords = new Set([
   'teriam',
 ])
 
+const DIAERESIS = /\u0308/g
+
+function normalize(token: string): string {
+  return removeMarks(token, DIAERESIS)
+}
+
 export const portuguese: LanguageModule = {
   name: 'portuguese',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9\u00e0-\u00fa]+/gi },
+  normalizer: normalize,
+  tokenizer: { splitPattern: /[^a-z0-9àáâãçéêíóôõúü]+/gi },
 }

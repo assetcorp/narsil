@@ -481,5 +481,5 @@ export const ukrainian: LanguageModule = {
   name: 'ukrainian',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9а-яіїєґ]+/gi },
+  tokenizer: { splitPattern: /[^a-z0-9а-яіїєґ']+/gi },
 }

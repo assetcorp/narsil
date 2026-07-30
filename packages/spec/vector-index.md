@@ -1,72 +1,47 @@
 # Narsil Vector Index Specification
 
-This document defines the vector index system used by Narsil for
-approximate nearest neighbor (ANN) search. The vector index is
-decoupled from the partitioning system: partitions own text indexes
-(inverted index, field indexes, document store), while each vector
-field gets its own independent VectorIndex. All Narsil
-implementations (TypeScript, Rust, Go) must follow the contracts
-defined here. Where implementation strategy is explicitly left to
-the runtime, this document says so.
+This document defines the vector index, which is how Narsil answers approximate nearest-neighbour search. The vector index is decoupled from partitioning: a partition owns text data, meaning its inverted index, field indexes, and document store, and each vector field owns an independent vector index of its own. Every implementation must follow the contracts here, and where the strategy is left to the runtime this document says so.
+
+Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` a mapping from keys to values, `Set<T>` a collection of distinct elements, and `T or absent` a value that may be missing. Width-tagged names such as `float32` describe exact widths on disk and on the wire.
 
 ---
 
 ## Overview
 
-A VectorIndex is a per-field data structure that stores vectors and
-provides similarity search. It is independent of the partition
-layout and operates at the index level, not the partition level.
+A vector index is a per-field structure that stores vectors and answers similarity queries. It knows nothing of the partition layout and works at the index level.
 
-For an index with schema `{ title: "string", embedding: "vector[1536]" }`,
-there is one VectorIndex for the `embedding` field. Partitions hold
-the `title` field in their inverted index and document store.
-The VectorIndex holds all `embedding` vectors across all documents,
-regardless of which partition their text fields belong to.
+Take an index whose schema is `{ title: "string", embedding: "vector[1536]" }`. There is one vector index, for the `embedding` field. The partitions hold `title` in their inverted index and document store, and the vector index holds every `embedding` vector across every document, whatever partition each document's text belongs to.
 
-### Why Decoupled
-
-Narsil's partitioning system was designed for BM25 full-text
-search. The default partition threshold (50,000 documents) keeps
-BM25 latency under 10ms. When vector data is co-located with
-partitions, a 50K document index splits into 5 partitions of 10K
-each. Vector search must traverse 5 independent HNSW graphs and
-merge results. HNSW is O(log N), so a single 50K graph takes ~4ms,
-but 5 graphs + fan-out + merge takes ~28ms: a 7x overhead from
-partitioning.
-
-All production vector search systems (Qdrant, Weaviate,
-Elasticsearch) decouple vector indexing from text indexing. The
-vector index topology is determined by vector search performance
-characteristics, not by text search partitioning needs.
+Decoupling exists because the two structures scale on different terms. Partition size is chosen to keep BM25 latency low, and splitting a vector index along those same lines would force every vector query to traverse several graphs and merge their results, which costs far more than one larger graph.
 
 ---
 
 ## VectorIndex Interface
 
-Every VectorIndex implementation must provide these operations:
+Every implementation must provide these operations:
 
 ```text
 VectorIndex {
-  fn insert(docId: string, vector: float32 array) -> none
-  fn remove(docId: string) -> none
-  fn search(query: float32 array, k: uint32, options: SearchOptions) -> array[ScoredResult]
-  fn getVector(docId: string) -> float32 array or null
-  fn has(docId: string) -> bool
-  fn compact() -> none
-  fn optimize() -> none
-  fn maintenanceStatus() -> MaintenanceStatus
-  fn serialize() -> VectorIndexPayload
-  fn deserialize(payload: VectorIndexPayload) -> none
+  insert(docId: string, vector: List<float32>) -> nothing
+  remove(docId: string) -> nothing
+  search(query: List<float32>, k: uint32, options: SearchOptions) -> List<ScoredResult>
+  getVector(docId: string) -> List<float32> or absent
+  has(docId: string) -> boolean
+  compact() -> nothing
+  optimize() -> nothing
+  maintenanceStatus() -> MaintenanceStatus
+  serialize() -> VectorIndexPayload
+  deserialize(payload: VectorIndexPayload) -> nothing
 
-  [read-only] size: uint32
-  [read-only] dimension: uint16
+  size:      uint32   (read-only)
+  dimension: uint16   (read-only)
 }
 
 SearchOptions {
-  metric:          'cosine' or 'dotProduct' or 'euclidean'
-  minSimilarity:   float32 or null
-  filterDocIds:    set[string] or null
-  efSearch:        uint16 or null
+  metric:        'cosine' or 'dotProduct' or 'euclidean'
+  minSimilarity: float32 or absent
+  filterDocIds:  Set<string> or absent
+  efSearch:      uint16 or absent
 }
 
 ScoredResult {
@@ -84,601 +59,317 @@ MaintenanceStatus {
 
 ### insert(docId, vector)
 
-Adds a vector to the index. If a vector for `docId` already exists,
-it is replaced. The vector must have exactly `dimension` elements;
-implementations must reject mismatched dimensions with error code
-`VECTOR_DIMENSION_MISMATCH`.
+Adds a vector, replacing whatever `docId` held before. The vector must carry exactly `dimension` elements, and an implementation must reject any other length with `VECTOR_DIMENSION_MISMATCH`.
 
 ### remove(docId)
 
-Marks the vector for removal. Implementations may use tombstone-based
-lazy removal (the vector remains in the graph but is excluded from
-search results) or immediate removal. Tombstoned vectors are
-physically removed during `compact()`.
+Marks the vector as removed. An implementation may remove it immediately or leave a tombstone, where the vector stays in the graph and is kept out of every result. A tombstoned vector is physically removed by `compact`.
 
-Removing a non-existent `docId` is a no-op.
+Removing a `docId` the index does not hold does nothing.
 
 ### search(query, k, options)
 
-Returns up to `k` vectors most similar to `query`, ranked by
-similarity score (highest first for cosine and dotProduct, lowest
-distance first for euclidean).
+Returns up to `k` vectors closest to `query`, ordered by similarity, with the highest score first for cosine and dot product and the smallest distance first for Euclidean.
 
-See [Filtered Search](#filtered-search) for the behaviour when
-`filterDocIds` is provided. See [algorithms.md](algorithms.md) for
-similarity metric definitions.
+See [Filtered Search](#filtered-search) for what `filterDocIds` does, and [algorithms.md](algorithms.md) for the metric definitions.
 
-`efSearch` controls the HNSW exploration factor. When `null`, the
-implementation uses its default (50). Higher values improve recall
-at the cost of latency.
+`efSearch` sets the HNSW exploration factor. When it is absent the implementation uses its own default, recommended at 50. A higher value raises recall and costs latency.
 
 ### getVector(docId)
 
-Returns the raw vector for a document, or `null` if the document
-has no vector in this index. Used by the coordinator to reconstruct
-full documents during `get()` and query result attachment.
+Returns the raw vector for a document, or absent when this index holds none for it. The coordinator uses it to rebuild whole documents when fetching one by ID and when attaching bodies to query results.
 
 ### compact()
 
-Fast, bounded-latency maintenance. Removes tombstoned vectors from
-the store and any graph structures. Recalibrates quantization
-parameters if quantization is enabled.
+Fast maintenance with bounded latency. It removes tombstoned vectors from the store and from any graph structure, and recalibrates the quantiser when quantisation is on.
 
-Implementations must complete `compact()` in time proportional to
-the number of tombstoned vectors, not the total index size. This
-operation is safe to call frequently (e.g., after a batch of
-deletes).
+`compact` must finish in time proportional to the number of tombstoned vectors, not to the size of the index, which is what makes it safe to call often, such as after a batch of deletes.
 
 ### optimize()
 
-Expensive structural maintenance. Restructures the vector index for
-improved search performance. For segment-based implementations, this
-merges multiple graphs into fewer, larger graphs. For single-graph
-implementations, this rebuilds the graph from scratch for optimal
-connectivity.
+Expensive structural maintenance. It restructures the index for faster search: a segment-based implementation merges several graphs into fewer, larger ones, and a single-graph implementation rebuilds its graph for better connectivity.
 
-Callers should expect latency proportional to total vector count.
-Implementations should avoid monopolizing compute resources during
-this operation. Single-threaded runtimes should yield periodically;
-multi-threaded runtimes may run the operation on a background thread.
+Expect latency proportional to the total vector count. An implementation should avoid holding the processor for the whole run, so a single-threaded runtime yields periodically and a runtime with threads may run the work in the background.
 
-#### When to call optimize()
+Call `optimize` in three situations: after a large batch of inserts, when the buffer or the new segments need folding into the main graph; after `compact` has removed more than a fifth of the vectors, because the remaining graph has lost connectivity; and when `maintenanceStatus` reports more than one graph and search latency has risen, which means the cost of merging across graphs is mounting.
 
-- After a large batch of inserts when using buffered or
-  segment-based post-promotion insertion. The buffer or new
-  segments are merged into the main graph.
-- After `compact()` has removed a significant fraction of vectors
-  (> 20%), since the remaining graph may have degraded connectivity.
-- When `maintenanceStatus().graphCount > 1` and search latency
-  has increased, indicating that multi-graph merge overhead is
-  accumulating.
-
-#### Interaction with concurrent operations
-
-- `optimize()` must not corrupt concurrent reads. Implementations
-  may block writes during optimize or buffer them (same WAQ pattern
-  as partition rebalancing).
-- After `optimize()` completes, subsequent searches must use the
-  optimised structure. There must be no window where a search uses
-  a partially-optimised graph.
+`optimize` must never corrupt a concurrent read. An implementation may block writes while it runs, or buffer them the way partition rebalancing buffers writes. Once it finishes, every later search must use the optimised structure, with no window in which a search runs against a half-optimised graph.
 
 ### maintenanceStatus()
 
-Returns metrics that help callers decide when to run `compact()` or
-`optimize()`:
+Returns the figures a caller needs to decide when to run `compact` or `optimize`:
 
-- `tombstoneRatio`: Fraction of vectors that are tombstoned
-  (0.0 to 1.0). When this exceeds 0.1 (10%), `compact()` is
-  recommended.
-- `graphCount`: Number of HNSW graphs in the index. When this
-  exceeds 1, `optimize()` may improve search latency by merging
-  graphs.
-- `estimatedCompactMs`: Rough estimate of `compact()` duration.
-- `estimatedOptimizeMs`: Rough estimate of `optimize()` duration.
+- `tombstoneRatio` is the fraction of vectors that are tombstoned, from 0 to 1. Above 0.1, run `compact`.
+- `graphCount` is the number of HNSW graphs in the index. Above 1, `optimize` may cut search latency by merging them.
+- `estimatedCompactMs` and `estimatedOptimizeMs` are rough estimates of how long each operation would take.
 
 ---
 
 ## Vector Storage Ownership
 
-The VectorIndex is the single owner of raw vector data. Vectors are
-NOT stored in the partition's document store.
+The vector index is the only owner of raw vector data, and no vector is stored in a partition's document store.
 
-When a document is inserted:
+Inserting a document does three things:
 
-1. Text and non-vector fields are stored in the partition's document
-   store and indexed in the partition's inverted index and field
-   indexes.
-2. Vector fields are extracted from the document and inserted into
-   the corresponding VectorIndex.
-3. The partition's document store receives the document with vector
-   fields stripped.
+1. Text and non-vector fields go into the partition's document store and are indexed in its inverted index and field indexes.
+2. Vector fields are lifted out of the document and inserted into the matching vector index.
+3. The partition's document store receives the document with its vector fields stripped.
 
-When a document is retrieved via `get(docId)`:
+Fetching a document by ID reverses that:
 
-1. The coordinator fetches the document from the partition (text and
-   non-vector fields).
-2. For each vector field in the schema, the coordinator calls
-   `vectorIndex.getVector(docId)`.
-3. The coordinator merges the vector fields back into the document
-   before returning to the caller.
+1. The coordinator reads the document from the partition, which gives it the text and non-vector fields.
+2. For each vector field in the schema, it calls `getVector` on that field's index.
+3. It merges the vectors back into the document before returning it.
 
-This eliminates memory duplication. At 1536 dimensions, each vector
-is 6,144 bytes. For 1M documents, storing vectors in both the
-document store and the vector index would waste ~6GB.
+That keeps one copy of each vector. At 1536 dimensions a vector occupies 6,144 bytes, so holding a million of them in both the document store and the vector index would waste roughly 6 GB.
 
 ### Rebalancing
 
-Because the VectorIndex is partition-agnostic, partition rebalancing
-does not affect vector data. When partitions are redistributed,
-only text and field index data moves between partitions. The
-VectorIndex is untouched. This is a significant simplification over
-the previous architecture where vector data had to be rebuilt for
-each new partition.
+A partition rebalance moves text and field index data alone. The vector index holds no partition assignment, so redistribution leaves it untouched and nothing about it needs rebuilding.
 
 ---
 
 ## Atomicity
 
-A document insert is atomic. A document is either fully indexed
-(text fields in the partition, vector fields in the VectorIndex) or
-not visible to any query. No query may observe a partially-indexed
-document.
+A document insert is atomic. A document is either fully indexed, with its text fields in the partition and its vectors in the vector index, or invisible to every query. No query may observe a half-indexed document.
 
-### Contract
+- When the partition insert succeeds and the vector insert fails, the partition insert must be rolled back before the error reaches the caller.
+- When the vector insert succeeds and the partition insert fails, the vector insert must be rolled back.
+- Schema validation and embedding generation must both finish before any write starts, which catches the common failures, meaning a dimension mismatch or an adapter error, at no rollback cost.
+- A batch operation processes each document on its own, so one document's failure leaves the rest of the batch alone.
 
-- If the partition insert succeeds and the VectorIndex insert fails,
-  the partition insert must be rolled back before the error
-  propagates.
-- If the VectorIndex insert succeeds and the partition insert fails,
-  the VectorIndex insert must be rolled back.
-- Schema validation and embedding generation must happen before any
-  writes. This catches the most common failures (dimension mismatch,
-  adapter errors) with zero rollback cost.
-- Batch operations process each document independently. A failure
-  in one document does not affect other documents in the batch.
-
-### Mechanism
-
-The atomicity mechanism is implementation-specific. The spec defines
-the contract (fully indexed or not visible), not the implementation:
-
-- Single-threaded runtimes can rely on synchronous execution within
-  a single scheduler tick. If all writes complete synchronously
-  without yielding, no reader can observe intermediate state.
-- Multi-threaded runtimes (e.g., Rust, Go) may use write-ahead
-  logging with version-gated visibility, segment-level atomic
-  visibility, or another mechanism that satisfies the contract.
+The mechanism is implementation-specific; the contract is that a document is fully indexed or invisible. A single-threaded runtime can lean on synchronous execution inside one scheduler tick, because a set of writes that completes without yielding is never observed half-done. A runtime with threads may use write-ahead logging with version-gated visibility, segment-level atomic visibility, or anything else that satisfies the contract.
 
 ---
 
 ## Hybrid Search
 
-When a query includes both a text term and a vector, Narsil runs
-hybrid search. Because text indexes live in partitions and vector
-indexes are independent, hybrid search fuses results at the
-coordinator level.
-
-### Hybrid Search Flow
+A query carrying both a text term and a vector runs hybrid search. Text indexes are held in partitions and vector indexes are independent, so the coordinator is where the two result sets fuse.
 
 ```text
-1. Fan out the text query to all partitions.
-   Collect text results: array[{ docId, bm25Score }]
-
-2. Query the VectorIndex for the vector field.
-   Collect vector results: array[{ docId, similarityScore }]
-
-3. Fuse the two result sets using the configured strategy.
-
-4. Apply limit/offset or searchAfter cursor.
-
-5. Attach document bodies (reconstructed from partition + VectorIndex).
+1. Fan the text query out to every partition and collect
+   { docId, bm25Score } results.
+2. Query the vector index for the vector field and collect
+   { docId, similarityScore } results.
+3. Fuse the two sets with the configured strategy.
+4. Apply limit and offset, or the searchAfter cursor.
+5. Attach the document bodies, rebuilt from the partition and the
+   vector index.
 ```
 
 ### Fusion Strategies
 
-Two fusion strategies are supported. The strategy is configured
-per query:
+Two strategies exist, configured per query:
 
 ```text
-hybrid: {
+hybrid {
   strategy: 'rrf' or 'linear'
-  k:        uint32      (RRF constant, default 60, rrf only)
-  alpha:    float32     (weight 0.0-1.0, default 0.5, linear only)
+  k:        uint32    (the RRF constant, default 60, used by rrf alone)
+  alpha:    float32   (a weight from 0 to 1, default 0.5, used by linear alone)
 }
 ```
 
-Default strategy: `rrf`.
+The default strategy is `rrf`.
 
-#### Reciprocal Rank Fusion (RRF)
+#### Reciprocal Rank Fusion
 
-RRF fuses results by rank position, not score magnitude.
-Normalization is unnecessary because ranks are directly comparable
-across any scoring system.
+RRF fuses by rank position instead of score magnitude, which is why it needs no normalisation: ranks compare directly across any two scoring systems.
 
-For each document that appears in at least one result list:
+For each document appearing in at least one list:
 
 ```text
-rrf_score(doc) = SUM for each list L where doc appears:
+rrf_score(doc) = SUM over each list L containing doc of
   1 / (k + rank_L(doc))
 ```
 
-Where `rank_L(doc)` is the 1-indexed rank of the document in list
-`L`, and `k` is a constant (default 60) that dampens the influence
-of high-ranked results.
+`rank_L(doc)` is the document's rank in list `L`, counted from 1, and `k` is a constant, 60 by default, that damps the pull of the top ranks.
 
-Documents that appear in only one list receive a score contribution
-from that list only. Their contribution from the missing list is 0
-(equivalent to rank = infinity).
+A document in only one list gets a contribution from that list alone, and its contribution from the list it is missing from is zero, which is the same as ranking it infinitely far down.
 
-See [algorithms.md](algorithms.md#reciprocal-rank-fusion) for the
-full algorithm specification.
+The full algorithm is in [Reciprocal Rank Fusion](algorithms.md#reciprocal-rank-fusion).
 
 #### Linear Combination
 
-Fuses results by score magnitude after min-max normalisation.
+Linear combination fuses by score magnitude after min-max normalisation.
 
 ```text
-1. Normalize text scores to [0, 1]:
-   normalised = (score - min_score) / (max_score - min_score)
-   If all scores are equal, normalised = 1.0.
-
-2. Normalize vector scores to [0, 1] using the same formula.
-
+1. Normalise the text scores into [0, 1]:
+     normalised = (score - min_score) / (max_score - min_score)
+   When every score is equal, normalised is 1.0.
+2. Normalise the vector scores the same way.
 3. For each document:
-   combined = alpha * vectorScore + (1 - alpha) * textScore
-
-   Where alpha is the weight parameter (0.0 = pure text,
-   1.0 = pure vector, 0.5 = equal weight).
-
-4. Documents in only one list receive 0.0 for the missing score.
+     combined = alpha * vectorScore + (1 - alpha) * textScore
+   where alpha of 0 is pure text, 1 is pure vector, and 0.5 weights
+   the two equally.
+4. A document in only one list scores 0 for the list it is missing
+   from.
 ```
 
-Normalization happens over the full result set (all documents from
-all partitions for text, all results from the VectorIndex for
-vectors). This is more correct than per-partition normalisation
-because the score ranges represent the true global distribution.
+Normalisation runs over the whole result set, meaning every text result from every partition and every result from the vector index, because those ranges are the true score distribution. Normalising per partition would compare scores that were never on the same scale.
 
 ---
 
 ## Filtered Search
 
-When `filterDocIds` is provided to `VectorIndex.search()`, only
-vectors whose docId is in the filter set are eligible for results.
+With `filterDocIds` supplied, only vectors whose document ID is in that set can appear in the results.
 
 ### Selectivity Threshold
 
-Filtered HNSW search degrades when the filter is sparse relative
-to the index. When the filter passes a small fraction of vectors,
-the HNSW walk encounters frequent dead ends (nodes that don't pass
-the filter), degrading to near-brute-force performance with graph
-traversal overhead.
+Filtered HNSW search degrades as the filter grows sparse. When the filter admits only a small fraction of the index, the graph walk keeps reaching nodes that fail the filter, and the search costs as much as a brute-force scan plus the traversal on top.
 
-Implementations must apply a selectivity-based fallback:
+An implementation must apply a selectivity fallback:
 
 ```text
 selectivity = size(filterDocIds) / totalVectors
 
 if selectivity < filterThreshold:
-  Brute-force scan only the vectors in filterDocIds.
+  scan the vectors in filterDocIds by brute force
 else:
-  HNSW traversal with filter applied during the walk.
+  traverse the HNSW graph, applying the filter during the walk
 ```
 
-The default `filterThreshold` is 0.03 (3%). This is configurable
-per index via `VectorIndexConfig.filterThreshold`.
+The default `filterThreshold` is 0.03, and each index can set its own through the vector index configuration.
 
-At 3% selectivity on a 100K index, the filter passes 3,000 vectors.
-Brute-force over 3,000 vectors is fast (~1-2ms at 1536 dimensions).
-HNSW traversal with 97% dead-end rate would be significantly slower.
+At 3% selectivity on an index of 100,000 vectors, the filter admits 3,000 vectors, and a brute-force pass over 3,000 vectors at 1536 dimensions is quick. An HNSW traversal that fails the filter on 97% of the nodes it reaches is far slower.
 
 ### Per-Graph Selectivity
 
-When the index contains multiple HNSW graphs (see
-[Serialisation](#serialisation)), the selectivity check applies
-per graph, not globally. A filter that passes 3% of the total index
-might pass 10% of a smaller graph, which is above the threshold.
-Per-graph selectivity produces more accurate fallback decisions.
+When an index holds several HNSW graphs, as [Serialisation](#serialisation) allows, the selectivity check runs per graph rather than over the whole index. A filter that admits 3% of the index might admit 10% of one small graph, which is above the threshold, so a per-graph check makes better fallback decisions.
 
 ### Adaptive efSearch
 
-When using HNSW with a filter, implementations should increase
-`efSearch` to compensate for the reduced effective graph
-connectivity:
+Filtering cuts the graph's effective connectivity, so an implementation should raise `efSearch` to compensate:
 
 ```text
-if filterDocIds is provided and size(filterDocIds) < totalVectors:
+if filterDocIds is present and size(filterDocIds) < totalVectors:
   selectivity = size(filterDocIds) / totalVectors
-  ef = max(efSearch, ceil(k / max(selectivity, 0.01)))
+  ef = max(efSearch, ceiling(k / max(selectivity, 0.01)))
   ef = min(ef, totalVectors)
 ```
 
-This ensures the search explores enough candidates to find `k`
-filtered results even when most graph nodes are filtered out.
+That keeps the search exploring enough candidates to find `k` results that pass the filter, even when most nodes it reaches do not.
 
 ---
 
-## Scalar Quantization (SQ8)
+## Scalar Quantisation (SQ8)
 
-SQ8 compresses float32 vectors to uint8, providing 4x memory
-savings. Quantized vectors are used for fast approximate distance
-computation during HNSW traversal. Full-precision vectors are kept
-for final rescoring.
+SQ8 compresses a float32 vector into uint8 values, cutting memory to a quarter. The quantised vectors give fast approximate distances during graph traversal, and the full-precision vectors stay for the final rescoring.
 
-### SQ8 Algorithm
-
-See [algorithms.md](algorithms.md#scalar-quantization-sq8) for the
-quantization formula, calibration process, and distance computation.
-
-### SQ8 Configuration
+The quantisation formula, the calibration process, and the distance computation are in [Scalar Quantisation (SQ8)](algorithms.md#scalar-quantisation-sq8).
 
 ```text
 VectorIndexConfig {
-  quantization: 'sq8' or 'none'   (default: 'sq8')
+  quantization: 'sq8' or 'none'   (default 'sq8')
 }
 ```
 
-When `quantization` is `'sq8'`, the VectorIndex calibrates the
-quantizer when the HNSW promotion threshold is reached and
-recalibrates during `compact()`.
+With `sq8` selected, the index calibrates its quantiser when the HNSW promotion threshold is reached, and recalibrates during `compact`.
 
 ---
 
 ## Cross-Implementation Result Equivalence
 
-### Text Search: Exact Equivalence
+### Text Search Is Exactly Equivalent
 
-Given the same index contents, the same query, and the same
-parameters, all implementations must return identical text search
-results in identical order. BM25 is deterministic. The tokenizer,
-stemmer, and scoring formula are specified precisely in
-[algorithms.md](algorithms.md#bm25-best-matching-25). Any
-divergence between implementations is a bug.
+Given the same index contents, the same query, and the same parameters, every implementation must return identical text results in identical order. BM25 is deterministic, and the tokeniser, the stemmer, and the scoring formula are all fixed in [BM25](algorithms.md#bm25-best-matching-25). Any divergence between implementations is a bug.
 
-### Vector Search: Recall-Based Equivalence
+### Vector Search Is Equivalent by Recall
 
-HNSW is a probabilistic data structure. Graph construction depends
-on random layer assignment, insertion order, and tie-breaking during
-neighbor selection. Different implementations will produce different
-graphs even for identical data.
+HNSW is probabilistic. Graph construction depends on random layer assignment, on insertion order, and on how ties break while selecting neighbours, so two implementations produce different graphs from identical data.
 
-All implementations must achieve:
+Every implementation must reach:
 
-- **recall@10 >= 0.95** measured against brute-force exact nearest
-  neighbors on the same data.
-- **recall@100 >= 0.90** measured against brute-force exact nearest
-  neighbors on the same data.
+- recall@10 of 0.95 or better, measured against the exact nearest neighbours found by brute force on the same data.
+- recall@100 of 0.90 or better, measured the same way.
 
-These thresholds apply at the default HNSW parameters (M=16,
-efConstruction=200, efSearch=50). Higher `efSearch` values should
-produce higher recall.
+Those floors apply at the default HNSW parameters, meaning `m` of 16, `efConstruction` of 200, and `efSearch` of 50. A higher `efSearch` should raise recall further.
 
-Implementations may return different documents in different orders
-for the same vector query, provided the recall floors are met.
+An implementation may return different documents in a different order for the same vector query, as long as it meets the floors.
 
 ### Hybrid Search
 
-Because the vector component is approximate, hybrid search results
-inherit the approximate contract. Result ordering may differ across
-implementations for the same query.
+The vector half of a hybrid query is approximate, so hybrid results inherit that contract and their order may differ between implementations.
 
 ### Conformance Testing
 
-The cross-implementation conformance test suite uses:
-
-1. A fixed dataset provided as a test fixture (10K vectors).
-2. A fixed set of queries.
-3. Assertions that text search results are exactly identical.
-4. Assertions that vector search recall meets the floors against
-   brute-force ground truth.
-5. No assertions on identical vector result ordering.
+The cross-implementation conformance suite runs a fixed 10,000-vector dataset and a fixed set of queries. It asserts that text results are exactly identical, asserts that vector recall meets the floors against brute-force ground truth, and asserts nothing about vector result order.
 
 ---
 
 ## Concurrency
 
-The VectorIndex must be thread-safe at its interface boundary.
+The vector index must be thread-safe at its interface boundary.
 
-### Contract
+- **Concurrent reads are safe.** Several searches may run at once.
+- **Concurrent reads and writes are safe.** A write must never corrupt a read running beside it. A read taken during a write may include or exclude the document being written, and must never return corrupt or partial state.
+- **Concurrent writes may be serialised.** An implementation is free to take a lock and run writes one at a time.
 
-- **Concurrent reads are safe.** Multiple search operations may
-  execute simultaneously.
-- **Concurrent reads and writes are safe.** A write must not corrupt
-  a concurrent read. A read during a write may return results that
-  either include or exclude the document being written, but must
-  never return corrupted or partial state.
-- **Concurrent writes may be serialised.** Implementations are free
-  to serialise write operations (e.g., via a mutex). Concurrent
-  write support is not required.
-
-### What Is Not Required
-
-- Lock-free reads.
-- Concurrent writes (serialisation is acceptable).
-- A specific locking strategy.
-
-Single-threaded runtimes satisfy this contract automatically.
-Multi-threaded runtimes implement it via read-write locks,
-sharded locks, or equivalent mechanisms.
+The contract requires no lock-free reads, no concurrent writes, and no particular locking strategy. A single-threaded runtime satisfies it by construction, and a runtime with threads satisfies it with read-write locks, sharded locks, or an equivalent.
 
 ---
 
 ## HNSW Promotion
 
-The VectorIndex uses a two-tier search strategy:
+Search runs in two tiers:
 
-- **Below the promotion threshold:** Brute-force linear scan. Exact,
-  deterministic, no graph overhead.
-- **At or above the promotion threshold:** HNSW approximate search.
-  The graph is built from all existing vectors when the threshold is
-  reached. Subsequent inserts go directly into the graph.
+- **Below the promotion threshold**, a brute-force linear scan answers every query. It is exact, deterministic, and free of graph overhead.
+- **At or above the threshold**, HNSW answers the query. The graph is built from every existing vector when the threshold is reached, and later inserts go into the graph.
 
-The default promotion threshold is 1,024 vectors. This is
-configurable via `VectorIndexConfig.threshold`.
+The default promotion threshold is 1,024 vectors, and each index can set its own through the vector index configuration.
 
-### Promotion Process
-
-When the vector count reaches the threshold:
-
-1. If SQ8 quantization is enabled, calibrate the quantizer on all
-   vectors in the store.
-2. Build an HNSW graph from all vectors.
-3. Switch the search backend from brute-force to HNSW.
+Reaching the threshold triggers three steps: calibrate the quantiser across every vector in the store, when SQ8 is on; build the HNSW graph from every vector; and switch the search backend from brute force to HNSW.
 
 ### Promotion Contract
 
-The spec defines the observable contract, not the construction
-mechanism:
+The specification fixes what a caller observes, not how the graph gets built:
 
-- **Before promotion completes:** All search operations use
-  brute-force. Results are exact.
-- **After promotion completes:** Search operations use HNSW.
-  Results are approximate (subject to the recall floors defined in
-  [Cross-Implementation Result Equivalence](#cross-implementation-result-equivalence)).
-- **During promotion:** Search operations must remain available.
-  They may use brute-force (if promotion runs in the background)
-  or block until promotion completes (if promotion is synchronous).
+- Before promotion completes, every search uses brute force and every result is exact.
+- After promotion completes, every search uses HNSW and results are approximate, within the recall floors in [Cross-Implementation Result Equivalence](#cross-implementation-result-equivalence).
+- During promotion, search must stay available. It may keep using brute force while the build runs in the background, or block until the build finishes.
 
-Implementations choose their own promotion strategy:
+Three strategies satisfy that contract:
 
-- **Synchronous promotion:** The Nth insert blocks until the HNSW
-  graph is built. Simple to implement. Causes a latency spike on
-  the triggering insert.
-- **Background promotion:** The Nth insert returns immediately.
-  Graph construction runs asynchronously. Search continues using
-  brute-force until the graph is ready, then switches to HNSW.
-  No latency spike, but brute-force search may be slower for
-  large vector counts during the build window.
-- **Deferred promotion:** Graph construction is deferred until the
-  first search query after the threshold is crossed. Inserts never
-  pay the construction cost. The first search after threshold
-  either blocks for construction or triggers a background build.
+- **Synchronous promotion** blocks the insert that crosses the threshold until the graph is built. It is the simplest to build and it puts a latency spike on that one insert.
+- **Background promotion** returns from that insert at once and builds the graph asynchronously. Search keeps using brute force until the graph is ready and then switches. Nothing spikes, but brute-force search is slower for a large vector count during the build window.
+- **Deferred promotion** waits until the first search after the threshold is crossed. Inserts never pay the construction cost, and that first search either blocks for the build or starts one in the background.
 
-All three strategies satisfy the contract. Implementations should
-document which strategy they use and its latency characteristics.
+An implementation should document which strategy it uses and what that costs in latency.
 
 ### Post-Promotion Insertion
 
-After promotion, new vectors must be added to the HNSW graph.
-Implementations choose the insertion strategy:
+After promotion, new vectors have to reach the graph. An implementation chooses how:
 
-- **Incremental insertion:** Each new vector is inserted directly
-  into the HNSW graph via the standard HNSW insertion algorithm.
-  This spreads the cost across inserts but becomes expensive at
-  high efConstruction values and large dimensions (each insert
-  requires O(efConstruction * M * dimensions) distance
-  computations across multiple layers).
-- **Buffered insertion:** New vectors are stored flat and searched
-  via brute-force. When the buffer reaches a size threshold or a
-  maintenance operation runs, the buffer is merged into the HNSW
-  graph in a single batch. This amortizes the graph construction
-  cost and produces better graph quality than incremental
-  insertion at the cost of mixed search modes during the buffer
-  window.
-- **Segment-based insertion:** New vectors form a new HNSW graph
-  segment. Multiple segments are searched independently and
-  results are merged. The `optimize()` operation merges segments.
-  This avoids modifying existing graphs and supports the
-  multi-graph serialisation format defined in
-  [Serialisation](#serialisation).
+- **Incremental insertion** puts each new vector straight into the graph through the standard HNSW insertion algorithm. It spreads the cost across inserts, and it grows expensive at a high `efConstruction` and a large dimension, because each insert costs O(efConstruction × m × dimension) distance computations across the layers.
+- **Buffered insertion** stores new vectors flat and searches them by brute force. Once the buffer reaches its size threshold, or a maintenance operation runs, the whole buffer merges into the graph in one batch. That amortises the construction cost and builds a better graph than incremental insertion, at the cost of two search modes running while the buffer fills.
+- **Segment-based insertion** puts new vectors into a new graph segment. Segments are searched independently and their results merged, and `optimize` merges the segments. Existing graphs are never modified, which fits the multi-graph serialisation format in [Serialisation](#serialisation).
 
-The choice of strategy has significant performance implications.
-Incremental insertion throughput degrades with index size due to
-per-insert graph traversal cost. Buffered and segment-based
-strategies maintain constant insert throughput at the cost of
-additional search-time complexity. Production vector databases
-(Qdrant, Milvus, Lucene) use buffered or segment-based strategies
-for this reason.
+The choice matters. Incremental insertion loses throughput as the index grows, because every insert traverses the graph. Buffered and segment-based insertion hold insert throughput steady and pay for it with more work at search time.
 
 ---
 
 ## Serialisation
 
-Vector index data is serialised separately from partition data.
-Each vector field produces its own `.nrsl` envelope file.
+Vector index data is serialised apart from partition data. The payload layout is defined once, in [Vector Index Payload](envelope.md#vector-index-payload).
 
-### Storage Path
+### Storage
 
-```text
-<indexName>/vector/<fieldName>
-```
-
-For example, an index named `products` with a vector field
-`embedding` stores its vector index at `products/vector/embedding`.
-
-### Vector Index Payload
-
-The vector index payload is a MessagePack map:
-
-```text
-VectorIndexPayload {
-  field_name:  string
-  dimension:   uint16
-  vectors:     array[VectorEntry]
-  graphs:      array[HnswGraph]
-  sq8:         SQ8Data or null
-}
-
-VectorEntry {
-  doc_id: string
-  vector: array[float32]
-}
-
-HnswGraph {
-  entry_point:     string or null
-  max_layer:       uint8
-  m:               uint8
-  ef_construction: uint16
-  metric:          string
-  nodes:           array[HnswNode]
-}
-
-HnswNode = [
-  doc_id:      string,
-  layer:       uint8,
-  connections: array[[
-    layer_index: uint8,
-    neighbor_ids: array[string]
-  ]]
-]
-
-SQ8Data {
-  alpha:              float32
-  offset:             float32
-  quantized_vectors:  map[string, array[uint8]]
-  vector_sums:        map[string, float32]
-  vector_sum_sqs:     map[string, float32]
-}
-```
+A vector index payload is persisted in two places: as a value in the snapshot bundle's `vectorIndexes` map, and as the payload of a vector segment file at `<indexName>/segments/<partitionId>/vec-<fieldPath>-g<generation>`, written by the [segmented checkpoint](durability.md#segmented-checkpoint). A partition payload that must carry its vectors with it, such as one sent to another thread, embeds them as [Vector Data](envelope.md#vector-data) instead.
 
 ### Multi-Graph Format
 
-The `graphs` field is an array, not a single graph. This supports
-implementations that maintain multiple HNSW graphs internally
-(e.g., segment-based architectures):
+`graphs` is a list rather than one graph, which supports an implementation that keeps several graphs internally, such as a segment-based one.
 
-- A single-graph implementation writes an array of length 1.
+- A single-graph implementation writes a list of length 1.
 - A segment-based implementation writes one graph per segment.
-- The `vectors` list is always flat (one entry per document,
-  regardless of graph count). Graphs reference vectors by `doc_id`.
+- The `vectors` list stays flat, with one entry per document whatever the graph count, and graphs reference vectors by `docId`.
 
-All implementations must be able to read a vector index file
-containing any number of graphs (including zero, which indicates
-brute-force-only storage).
+Every implementation must read a vector index file holding any number of graphs, zero included, where zero means the file stores vectors for brute-force search alone.
 
 ### Deserialisation Strategy
 
-The search strategy after deserialisation is implementation-specific:
+What an implementation does with the graphs it loads is its own choice. It may search each graph independently and merge the results, merge every graph into one on load, or mix the two by keeping the large graphs separate and merging the small ones.
 
-- An implementation may search each graph independently and merge
-  results (segment-style).
-- An implementation may merge all graphs into a single graph on
-  load (single-graph-style).
-- An implementation may use a combination (e.g., keep large graphs
-  separate, merge small ones).
-
-The spec does not prescribe the strategy. The recall-based
-equivalence contract (see [Cross-Implementation Result Equivalence](#cross-implementation-result-equivalence))
-ensures consistent search quality regardless of strategy.
+This specification prescribes none of those. The recall floors in [Cross-Implementation Result Equivalence](#cross-implementation-result-equivalence) hold search quality steady whichever strategy an implementation picks.
 
 ---
 
@@ -686,32 +377,29 @@ ensures consistent search quality regardless of strategy.
 
 ```text
 VectorIndexConfig {
-  threshold:       uint32   (promotion threshold, default 1024)
-  filterThreshold: float32  (selectivity fallback, default 0.03)
+  threshold:       uint32           (promotion threshold, default 1024)
+  filterThreshold: float32          (selectivity fallback, default 0.03)
   quantization:    'sq8' or 'none'  (default 'sq8')
-  hnswConfig: {
-    m:               uint8    (max connections, default 16)
-    efConstruction:  uint16   (build quality, default 200)
-    metric:          'cosine' or 'dotProduct' or 'euclidean'
+  hnswConfig {
+    m:              uint8    (maximum connections, default 16)
+    efConstruction: uint16   (build quality, default 200)
+    metric:         'cosine' or 'dotProduct' or 'euclidean'
   }
 }
 ```
 
-All fields are optional. Omitted fields use the defaults listed
-above.
+Every field is optional, and an omitted field takes the default above.
 
 ---
 
-## Index Metadata Changes
+## Index Metadata
 
-The index metadata envelope (see [envelope.md](envelope.md)) must
-include vector field information so that implementations can locate
-and load vector index files:
+The index metadata envelope defined in [envelope.md](envelope.md) carries vector field information, so that an implementation can find and load the vector index files without scanning storage keys:
 
 ```text
 IndexMetadata {
-  ...existing fields...
-  vector_fields: map[string, VectorFieldMeta]
+  ...the other metadata fields...
+  vector_fields: Map<string, VectorFieldMeta>
 }
 
 VectorFieldMeta {
@@ -720,6 +408,3 @@ VectorFieldMeta {
   quantization: string
 }
 ```
-
-This allows the engine to discover which vector index files exist
-for an index without scanning storage keys.

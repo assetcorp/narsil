@@ -17,6 +17,10 @@ export async function shutdownEngine(core: EngineCore): Promise<void> {
     await durability.manager.shutdown()
   }
 
+  if (core.invalidation) {
+    await core.invalidation.shutdown()
+  }
+
   const adaptersToShutdown = new Set<EmbeddingAdapter>()
   for (const [, entry] of indexRegistry) {
     if (entry.embeddingAdapter?.shutdown) {

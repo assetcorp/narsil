@@ -80,12 +80,20 @@ const stopWords = new Set([
   'hena',
 ])
 
+const ICELANDIC_ETH = /\u00F0/g
+const EWE_D = '\u0256'
+
+function normalize(token: string): string {
+  return token.replace(ICELANDIC_ETH, EWE_D)
+}
+
 export const ewe: LanguageModule = {
   name: 'ewe',
   stemmer: null,
   stopWords,
+  normalizer: normalize,
   tokenizer: {
-    splitPattern: /[^a-zA-ZàáèéìíòóùúãẽĩõũɛɔɖƉŋƐƆƊŊɣƔÀÁÈÉÌÍÒÓÙÚÃẼĨÕŨ0-9\p{M}]+/giu,
+    splitPattern: /[^a-zA-ZàáèéêìíòóùúãẽĩũɛɔɖƉðÐŋƐƆŊɣƔƒƑʋƲÀÁÈÉÊÌÍÒÓÙÚÃẼĨŨ0-9\p{M}]+/giu,
     normalizeDiacritics: false,
     minTokenLength: 1,
   },

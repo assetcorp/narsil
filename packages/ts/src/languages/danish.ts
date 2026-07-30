@@ -1,4 +1,5 @@
 import type { LanguageModule } from '../types/language'
+import { removeMarks } from './support/marks'
 
 const VOWELS = 'aeiouyåæø'
 
@@ -251,9 +252,16 @@ const stopWords = new Set([
   'sådan',
 ])
 
+const STRESS_ACCENT = /\u0301/g
+
+function normalize(token: string): string {
+  return removeMarks(token, STRESS_ACCENT)
+}
+
 export const danish: LanguageModule = {
   name: 'danish',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9æøå]+/gi },
+  normalizer: normalize,
+  tokenizer: { splitPattern: /[^a-z0-9æøåé]+/gi },
 }

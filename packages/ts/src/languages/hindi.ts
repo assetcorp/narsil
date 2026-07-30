@@ -337,9 +337,17 @@ const stopWords = new Set([
   'होने',
 ])
 
+const NASAL_BEFORE_CONSONANT = /[\u0919\u091E\u0923\u0928\u092E]\u094D(?=[\u0915-\u0939])/g
+const ANUSVARA = '\u0902'
+
+function normalize(token: string): string {
+  return token.replace(NASAL_BEFORE_CONSONANT, ANUSVARA)
+}
+
 export const hindi: LanguageModule = {
   name: 'hindi',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^\u0900-\u097fa-z0-9]+/gi },
+  normalizer: normalize,
+  tokenizer: { splitPattern: /[^\u0900-\u0963\u0966-\u097fa-z0-9]+/gi },
 }

@@ -1,287 +1,248 @@
 # Narsil Partitioning Specification
 
-This document defines the partitioning system used by Narsil to
-distribute large indexes across multiple independent shards. It
-covers hash-based routing, auto-partitioning triggers, the
-rebalancing protocol, query fan-out and merge, and deep pagination.
-All Narsil implementations must follow these rules for consistent
-behaviour.
+A large index is split across several independent partitions, each holding a slice of the documents. This document defines how documents route to partitions, how a rebalance redistributes them, how a query fans out and merges, and how deep pagination works. Every implementation must follow these rules so that two implementations reading the same index return the same results.
+
+Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` a mapping from keys to values, and `T or absent` a value that may be missing; each implementation expresses these in its own type system.
 
 ---
 
 ## Overview
 
-Large indexes are automatically split into multiple partitions
-(shards). Each partition is an independent unit with its own
-inverted index, document store, field indexes, geopoint storage,
-and statistics. Vector data is stored separately in per-field
-vector indexes (see [vector-index.md](vector-index.md)).
-Partitioning is transparent to the caller; the API is identical
-whether an index has 1 partition or 16.
+A partition is a self-contained unit holding its own inverted index, document store, field indexes, geopoint storage, and statistics. Vector data is held apart from partitions in per-field vector indexes; see [vector-index.md](vector-index.md).
+
+Partitioning never changes the caller's view. The API is the same whether an index has one partition or sixteen.
 
 ---
 
 ## Document Routing
 
-Documents are assigned to partitions using hash-based routing:
+Hash-based routing assigns each document to exactly one partition:
 
 ```text
-partitionId = fnv1a(docId) % partitionCount
+partitionId = fnv1a(docId) modulo partitionCount
 ```
 
-Where `fnv1a` is the FNV-1a hash function (see
-[algorithms.md](algorithms.md#fnv-1a-hash)).
+`fnv1a` is the 32-bit FNV-1a hash defined in [algorithms.md](algorithms.md#fnv-1a-hash).
 
-### Routing Properties
+Three properties follow from that rule:
 
-- **Deterministic:** The same `docId` always routes to the same
-  partition for a given `partitionCount`.
-- **Uniform distribution:** FNV-1a produces well-distributed hash
-  values, so documents distribute evenly across partitions.
-- **Dependent on partition count:** Changing `partitionCount`
-  changes the routing for most documents, requiring a full
-  rebalance.
+- The same `docId` routes to the same partition for a given `partitionCount`, so routing is deterministic and needs no lookup table.
+- FNV-1a spreads hash values evenly, so documents distribute evenly across partitions.
+- Changing `partitionCount` changes the target for most documents, so a change in count requires a full rebalance.
 
-### Document Retrieval
-
-To retrieve a document by ID (e.g., `get(indexName, docId)`),
-compute the target partition using the same hash and query only
-that partition. No fan-out is needed for single-document operations.
+To fetch a document by ID, compute its partition with the same hash and query that partition alone. A single-document operation never fans out.
 
 ---
 
-## Auto-Partitioning
+## Capacity
 
-Every index starts with 1 partition. The engine monitors document
-count per partition and triggers a rebalance when the threshold is
-crossed.
+An index starts with `maxPartitions` partitions, numbered from 0, and the option defaults to one. The partition count changes only through an explicit rebalance. The engine never splits a partition on its own.
 
-### Trigger Conditions
-
-A rebalance triggers when **any partition** exceeds
-`maxDocsPerPartition` documents.
-
-### Partition Count Calculation
+### Configuration
 
 ```text
-newPartitionCount = ceil(totalDocs / maxDocsPerPartition)
-```
-
-The developer does not set the partition count directly; they
-configure the threshold. The engine calculates the appropriate
-count.
-
-### Auto-Partitioning Configuration
-
-```text
-partitions: {
-  maxDocsPerPartition: 50000  (default)
-  maxPartitions:       16     (optional cap, uncapped by default)
+partitions {
+  maxDocsPerPartition: integer   (optional, no default)
+  maxPartitions:       integer   (optional, defaults to 1)
+  watermark:           float     (optional, above 0 and at most 1)
 }
 ```
 
-| Parameter             | Default | Description                          |
-|-----------------------|---------|--------------------------------------|
-| `maxDocsPerPartition` | 50,000  | Max documents before splitting       |
-| `maxPartitions`       | none    | Optional upper bound on partitions   |
+`maxDocsPerPartition` and `maxPartitions` must each be a positive integer, and `watermark` must be above 0 and at most 1. A value outside its constraint raises `CONFIG_INVALID`.
 
-### Why 50,000?
+### Capacity Enforcement
 
-The default threshold is based on the observation that BM25 search
-latency stays under 10ms for partitions of 50K documents with
-typical schemas. This should be validated by benchmarks that
-measure p50/p95/p99 search latency at 10K, 25K, 50K, 75K, 100K,
-and 200K documents per partition.
+With `maxDocsPerPartition` set, the index capacity is `maxDocsPerPartition × partitionCount`. An insert fails with `PARTITION_CAPACITY_EXCEEDED` once the document count, together with any writes buffered for an active rebalance, reaches the capacity. During a rebalance, the smaller of the current and target partition counts sets the capacity, so every acknowledged write fits the new layout. With `maxDocsPerPartition` absent, the engine enforces no capacity.
+
+A rebalance whose target count is above `maxPartitions` fails with `PARTITION_CAPACITY_EXCEEDED`. A configuration update fails the same way when its new capacity is below the current document count or its `maxPartitions` is below the current partition count.
+
+### Watermark Event
+
+With `maxDocsPerPartition` and `watermark` both set, the engine emits a `partitionWatermark` event when the document count reaches `watermark × capacity`:
+
+```text
+partitionWatermark {
+  indexName:      string
+  documentCount:  integer
+  capacity:       integer
+  partitionCount: integer
+}
+```
+
+The engine emits the event once per crossing. The event arms again when the document count falls below the threshold or the capacity grows.
+
+### Choosing a Partition Count
+
+The caller picks the target count and passes it to the rebalance call. `ceiling(totalDocs / maxDocsPerPartition)` is the smallest count whose capacity holds the current documents, so a caller should add headroom above it.
 
 ---
 
 ## Rebalancing Protocol
 
-When a rebalance triggers, Narsil redistributes all documents
-across a new set of partitions. The protocol supports concurrent
-reads and writes during the rebalance.
+A rebalance redistributes every document across a new set of partitions while reads and writes continue.
 
 ### Sequence Numbers
 
-Every write operation (insert, update, remove) receives a
-monotonically increasing sequence number. These numbers are used
-for idempotent WAQ replay.
+Every write, whether an insert, an update, or a remove, receives a sequence number that increases monotonically. Replay uses those numbers to stay idempotent.
 
-### Write-Ahead Queue (WAQ)
+### Write-Ahead Queue
 
-During rebalance, new writes are buffered in a bounded write-ahead
-queue:
+Writes that arrive during a rebalance are buffered in a bounded write-ahead queue:
 
 ```text
 WriteAheadEntry {
-  seq:      uint64   (monotonically increasing)
+  seq:      integer            (64-bit, increases monotonically)
   op:       "insert" or "remove" or "update"
   docId:    string
-  document: object or null  (present for insert/update)
+  document: object or absent   (present for insert and update)
 }
 ```
 
-The WAQ has a bounded capacity. When full, new writes are rejected
-with error code `PARTITION_REBALANCING_BACKPRESSURE`, signaling
-the caller to retry after a brief delay.
+The queue holds a bounded number of entries. A write that arrives once the queue is full fails with `PARTITION_REBALANCING_BACKPRESSURE`, which tells the caller to retry after a short delay.
+
+The engine validates a write and resolves its embeddings before buffering it, so a buffered document replays without further preparation. Batch writes buffer entry by entry under the same rules.
+
+With durability configured, the engine appends a buffered write to the write-ahead log before acknowledging it, so a crash during a rebalance loses no acknowledged write.
 
 ### Rebalance Steps
 
 ```text
-1. COMPUTE new partition count:
-   newCount = ceil(totalDocs / maxDocsPerPartition)
-   Emit partitionRebalance event
+1. VALIDATE the caller's target count. It must be a
+   positive integer, it must differ from the current
+   count, and it must not exceed maxPartitions.
 
-2. CREATE new empty PartitionIndex instances
+2. CREATE newCount empty partitions, where newCount is
+   the validated target.
 
-3. REDISTRIBUTE existing documents:
-   For each document in all old partitions:
-     newPartitionId = fnv1a(docId) % newCount
-     Insert into the corresponding new partition
-   Process in chunks of 1,000, yielding between chunks
-   to avoid monopolizing compute resources. The yielding
-   mechanism is runtime-specific (e.g., goroutine
-   scheduling in Go, async yield in Rust, cooperative
-   yielding in single-threaded runtimes).
-   Vector data is unaffected by rebalancing because
-   vector indexes are partition-agnostic.
+3. REDISTRIBUTE every document held by the old partitions:
+     for each document:
+       newPartitionId = fnv1a(docId) modulo newCount
+       insert it into that new partition
+   Process in chunks of 1,000 documents and yield to the
+   host scheduler between chunks, so the rebalance never
+   holds the processor for long. Each runtime picks its own
+   yielding mechanism.
+   Vector data needs no redistribution, because vector
+   indexes hold no partition assignment.
 
-4. REPLAY WAQ entries in sequence order:
-   For each entry ordered by seq:
-     newPartitionId = fnv1a(entry.docId) % newCount
-     Apply the operation to the target new partition
-     Skip if already processed (idempotency)
+4. SWAP the partition map. Reads pause for microseconds
+   while the map changes. Old partitions stay alive until
+   the reads already running against them finish, tracked
+   by reference count. Emit a partitionRebalance event
+   once the swap completes.
 
-5. ATOMIC SWAP:
-   Brief read-pause (microseconds) to swap partition map.
-   Old partitions stay alive until in-flight reads complete
-   (reference counting).
+5. REPLAY the queued writes in sequence-number order:
+     for each entry ordered by seq:
+       newPartitionId = fnv1a(entry.docId) modulo newCount
+       apply the operation to that new partition
+       skip the entry when it was applied already
+   An update whose document is absent applies as an insert,
+   matching write-ahead-log recovery.
 
-6. CLEANUP:
-   Old partitions become eligible for reclamation once all
-   in-flight reads complete. Flush new partitions to
-   persistence.
+6. PERSIST the new layout. Write the index metadata, take
+   a checkpoint covering every new partition, and remove
+   the log segments of every partition past the new count.
+
+7. RESYNCHRONISE every worker replica of the index, then
+   drain and replay any writes buffered while steps 5 to 7
+   ran, and repeat until the queue is empty.
+
+8. RECLAIM the old partitions once the reads against them
+   finish.
 ```
 
-### Concurrency During Rebalance
+### Concurrency During a Rebalance
 
-| Operation | Behavior |
-| --- | --- |
-| Reads | Continue against the OLD partition layout |
-| Writes | Buffered in the WAQ with sequence numbers |
-| Queries | Fan out to old partitions until swap |
+| Operation | Behaviour |
+|-----------|-----------|
+| Reads | Run against the old partition layout. |
+| Writes | Enter the write-ahead queue with a sequence number. |
+| Queries | Fan out to the old partitions until the swap. |
+
+A second rebalance of an index already rebalancing fails with `PARTITION_REBALANCING_BACKPRESSURE`. Rebalances of different indexes run independently.
 
 ### Cooperative Yielding
 
-The redistribution step (step 3) processes documents in chunks and
-yields between chunks. This prevents the rebalance from
-monopolizing compute resources for extended periods. The yielding
-mechanism is implementation-specific: single-threaded runtimes
-must yield to the host scheduler between chunks; multi-threaded
-runtimes may run the redistribution on a background thread
-instead.
+Redistribution yields between chunks so that a rebalance of a large index never blocks other work for long. A single-threaded runtime must return control to its host scheduler between chunks. A runtime with threads may instead run the whole redistribution on a background thread.
 
 ---
 
 ## Query Fan-Out and Merge
 
-When a search query arrives for a multi-partition index, the
-coordinator fans out to all partitions and merges the results.
+A search against a multi-partition index runs on a coordinator that queries every partition and merges what comes back.
 
-### Fan-Out Steps (Text Search)
+### Fan-Out Steps
 
 ```text
-1. Send the text query to ALL partitions in parallel.
-2. Each partition runs the query against its local index:
-   - Tokenize the query term
-   - Look up tokens in the inverted index
-   - Score documents using BM25
-   - Apply filters
-   - Return scored results (up to offset + limit)
-3. Collect results from all partitions.
-4. Merge into a single sorted array (merge K sorted lists).
-5. Apply limit/offset or searchAfter cursor.
-6. If facets: merge counts by summing values.
-7. If groups: merge by group key, keep maxPerGroup.
-8. Encode cursor for next page (if applicable).
+1. Send the query to every partition in parallel.
+2. Each partition searches its own index:
+     tokenise the query terms
+     look the tokens up in the inverted index
+     score the matching documents with BM25
+     apply the filters
+     return the scored results, up to offset + limit
+3. Collect the results from every partition.
+4. Merge them into one sorted list.
+5. Apply limit and offset, or the searchAfter cursor.
+6. Merge facet counts by summing them, when facets are requested.
+7. Merge groups by group key, keeping maxPerGroup, when groups
+   are requested.
+8. Encode the cursor for the next page, when there is one.
 9. Return the merged result.
 ```
 
-### Hybrid Search (Text + Vector)
+### Hybrid Search
 
-When a query includes both a text term and a vector, the
-coordinator runs text search and vector search independently and
-fuses the results. Text search fans out to partitions as above.
-Vector search queries the per-field VectorIndex directly (no
-partition fan-out). See
-[vector-index.md](vector-index.md#hybrid-search) for the fusion
-strategies and coordinator-level flow.
+A query carrying both a text term and a vector runs the two searches independently and fuses the results. The text search fans out to the partitions as above. The vector search queries the per-field vector index directly and never fans out. See [Hybrid Search](vector-index.md#hybrid-search) for the fusion strategies and the coordinator flow.
 
 ### Merge Algorithm
 
-Merging K sorted lists (one per partition) uses a max-heap
-(priority queue) ordered by score, highest first:
+Merging the K sorted lists, one per partition, uses a max-heap ordered by score, highest first:
 
-1. Initialize the heap with the first result from each partition.
+1. Seed the heap with the first result from each partition.
 2. Pop the highest-scoring result.
-3. Push the next result from that partition (if available).
+3. Push the next result from the partition the popped result came from, when that partition has one.
 4. Repeat until `offset + limit` results have been collected.
 
-This is O(N log K) where N is the number of results collected and
-K is the partition count.
+That costs O(N log K), where N is the number of results collected and K is the partition count.
 
 ### Scoring Modes
 
-The scoring mode affects the fan-out strategy:
+The scoring mode decides how many round trips the fan-out takes.
 
-**Local (default):** Single round trip. Each partition scores using
-its own statistics.
+**Local**, the default, takes one round trip, and each partition scores with its own statistics.
 
-**DFS (Distributed Frequency Statistics):** Two round trips.
+**DFS**, for distributed frequency statistics, takes two round trips. The first collects `totalDocs`, `docFrequencies`, and `avgFieldLengths` from each partition. The coordinator then sums `totalDocs` and `docFrequencies` and computes weighted `avgFieldLengths`. The second sends the query together with those global statistics, and each partition rescores against globally correct inverse document frequencies.
 
-- Phase 1: Collect `{ totalDocs, docFrequencies, avgFieldLengths }`
-  from each partition.
-- Compute global statistics by summing `totalDocs` and
-  `docFrequencies`, and computing weighted `avgFieldLengths`.
-- Phase 2: Send the query with global statistics to each partition.
-  Partitions re-score using globally correct IDF values.
+**Broadcast** takes one round trip. The coordinator already holds global statistics, refreshed periodically through the invalidation adapter, and sends them with the query.
 
-**Broadcast:** Single round trip. The coordinator maintains
-pre-aggregated global statistics (updated periodically via the
-invalidation adapter). Sends these statistics with the query.
-
-See [algorithms.md](algorithms.md#distributed-bm25) for the BM25
-distributed scoring formulas.
+The distributed scoring formulas are in [Distributed BM25](algorithms.md#distributed-bm25).
 
 ---
 
 ## Deep Pagination
 
-Two pagination mechanisms are supported:
+Narsil supports two ways to page through results.
 
-### Offset/Limit
+### Offset and Limit
 
-Traditional pagination. Each partition returns `offset + limit`
-results. The coordinator merges and skips the first `offset`.
+Each partition returns `offset + limit` results, and the coordinator merges them and skips the first `offset`:
 
 ```text
-Query: { term: "widget", offset: 1000, limit: 20 }
-Each partition returns: up to 1020 results
-Coordinator: merge all, skip first 1000, return 20
+Query:              { term: "widget", offset: 1000, limit: 20 }
+Each partition:     returns up to 1020 results
+Coordinator:        merges all, skips 1000, returns 20
 ```
 
-This degrades for large offsets because each partition must
-materialize and transfer `offset + limit` results.
+Cost grows with the offset, because every partition must build and transfer `offset + limit` results.
 
 ### searchAfter Cursor
 
-Cursor-based pagination. Each partition seeks to the cursor point
-and returns `limit` results from there. O(limit) per partition
-instead of O(offset + limit).
+A cursor makes each partition seek to the cursor point and return `limit` results from there, which costs O(limit) per partition instead of O(offset + limit).
 
 #### Cursor Format
 
-Base64-encoded JSON:
+The cursor is base64-encoded JSON:
 
 ```json
 {
@@ -291,60 +252,88 @@ Base64-encoded JSON:
 ```
 
 | Field | Description |
-| --- | --- |
-| `s` | Score (or sort value) of the last document |
-| `d` | DocId of the last document (tiebreaker) |
+|-------|-------------|
+| `s` | The score, or the sort value, of the last document returned. |
+| `d` | The document ID of that last document, used to break ties. |
 
 #### Tiebreaking
 
-When multiple documents have the same score, they are ordered by
-`docId` string comparison (lexicographic). This ensures stable,
-deterministic pagination across requests.
+Documents sharing a score are ordered by comparing `docId` lexicographically. That keeps pagination stable and deterministic across requests.
 
 #### Cursor Flow
 
 ```text
-1. First query:
-   - Fan out to all partitions with limit.
-   - Merge results, take top `limit`.
-   - Encode cursor from the last result's score and docId.
-   - Return results + cursor.
+First query:
+  fan out to every partition with the limit
+  merge the results and take the top `limit`
+  encode a cursor from the last result's score and docId
+  return the results and the cursor
 
-2. Next query (with searchAfter cursor):
-   - Decode cursor.
-   - Fan out to all partitions with the same cursor.
-   - Each partition independently seeks past documents
-     with score < cursor.s, or score == cursor.s and
-     docId > cursor.d.
-   - Each partition returns up to `limit` results.
-   - Merge results, take top `limit`.
-   - Encode new cursor.
-   - Return results + cursor.
+Next query, carrying the cursor:
+  decode the cursor
+  fan out to every partition with the same cursor
+  each partition seeks past every document whose score is
+    below cursor.s, and past every document whose score
+    equals cursor.s and whose docId sorts at or before
+    cursor.d
+  each partition returns up to `limit` results
+  merge the results and take the top `limit`
+  encode a new cursor
+  return the results and the cursor
 ```
 
 ---
 
 ## Worker Assignment
 
-When the engine operates in worker mode, partitions are assigned
-to workers by hash:
+In worker mode, partitions are assigned to workers by hash:
 
 ```text
-workerId = fnv1a(indexName) % workerCount
+workerId = fnv1a(indexName) modulo workerCount
 ```
 
-All partitions for a given index run on the same worker. This
-avoids cross-worker coordination for per-index operations while
-distributing different indexes across the worker pool.
+Every partition of one index runs on one worker, so a per-index operation needs no coordination between workers while different indexes still spread across the pool.
 
-### Default Worker Count
+The default worker count is:
 
 ```text
 workerCount = max(2, cpuCount - 1)
 ```
 
-Capped at 8 by default. Configurable via
-`NarsilConfig.workers.count`.
+capped at 8. A caller overrides it through `NarsilConfig.workers.count`.
+
+### What Crosses into a Worker
+
+A worker runs in its own memory with its own registries, and the engine reaches it by passing messages, so data crosses and code does not. A schema, a stop word set given as a set, and a pair of BM25 parameters all cross. A tokeniser instance, a stop word function, a stemmer, and a language module are code, and none of them crosses.
+
+An index therefore reaches a worker only when its configuration gives a name for each part of its analysis:
+
+- The `language` setting names a language, and the worker resolves that name against its own language registry.
+- The `tokenizer` and `stopWords` settings name registry entries, and the worker resolves each name against its own analysis registry, as [Analysis Registry](adapters.md#analysis-registry) describes.
+
+### Worker Bootstrap
+
+A worker starts with the engine's own registrations alone, which cover English and nothing further. The caller names a module that every worker imports before it builds any index, and that module registers whatever the caller's indexes name:
+
+```text
+workers {
+  bootstrapModule: string   (optional, a module URL)
+}
+```
+
+The engine sends the module to every worker and waits for each import to finish before it sends any other instruction. An import that fails, and a module that registers nothing an index names, each fail promotion and report it.
+
+### Promotion Failure
+
+The engine reads every index configuration before it starts a worker, and it refuses to promote when a configuration cannot cross:
+
+| Condition | Report |
+|-----------|--------|
+| An index supplies a tokeniser instance. | The engine names the index and asks the caller to register the tokeniser and name it in the index configuration. |
+| An index supplies a stop word function. | The engine names the index and asks the caller to register the function and name it in the index configuration. |
+| An index names a language other than `english` while no bootstrap module is configured. | The engine names the index and the language, and asks the caller to configure a bootstrap module that registers it. |
+
+A refusal raises `CONFIG_INVALID`, and the engine emits a `workerPromoteFailure` event carrying the reason, the error, and whether the engine will check again. A configuration failure fails the same way each time, so the engine reports it once and checks no further. A transient failure, such as a worker that fails to start, leaves the check in place. Under both failures the index answers every query in the calling thread, so a failed promotion costs throughput and leaves results correct.
 
 ---
 
@@ -352,32 +341,22 @@ Capped at 8 by default. Configurable via
 
 ### Creation
 
-A new index starts with 1 partition (partitionId = 0). The
-partition is created empty with initialised data structures.
+A new index starts with `maxPartitions` partitions, defaulting to one, numbered from 0 and created empty with their data structures initialised.
 
-### Splitting (Rebalance)
+### Splitting
 
-When the document count threshold is crossed, a rebalance creates
-new partitions and redistributes documents (see the Rebalancing
-Protocol section above).
+An explicit rebalance call changes the partition count, following the rebalancing protocol above. The `partitionWatermark` event tells the caller when an index approaches its capacity.
 
-### Partition Persistence
+### Persistence
 
-Each partition serialises independently to a `.nrsl` envelope. The
-flush manager tracks dirty partitions and persists only those that
-changed since the last flush.
+Each partition serialises on its own into a `.nrsl` envelope. The flush manager tracks which partitions are dirty and persists only those that changed since the last flush.
 
-Key format: `<indexName>/partition_<N>` (e.g.,
-`products/partition_0`, `products/partition_3`).
+The persistence key is `<indexName>/partition_<N>`, so the partitions of an index named `products` are stored under `products/partition_0`, `products/partition_1`, and so on.
 
 ### Deletion
 
-When an index is dropped, all its partitions are removed from
-memory and their persistence keys are deleted.
+Dropping an index removes every partition from memory and deletes every persistence key belonging to it.
 
 ### Rebuild
 
-If a partition is corrupted (CRC32 mismatch on load), the
-`rebuildPartition(indexName, partitionId)` method reloads it from
-persistence. If no persistence adapter is configured, a
-`PERSISTENCE_LOAD_FAILED` error is raised.
+A partition that fails its CRC32 check on load is corrupt. Calling `rebuildPartition(indexName, partitionId)` reloads it from persistence. With no persistence adapter configured, that call raises `PERSISTENCE_LOAD_FAILED`.

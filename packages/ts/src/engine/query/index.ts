@@ -8,7 +8,7 @@ import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import { clampLimit, clampOffset, now } from '../validation'
 import { applyHighlights } from './highlight'
-import type { QueryContext } from './shared'
+import { broadcastStatsForWorker, type QueryContext, scoringConfigFor, searchOptionsFor } from './shared'
 import { executeHybridSearch, executeVectorSearch } from './vector'
 
 export type { QueryContext } from './shared'
@@ -36,25 +36,16 @@ export async function executeQuery<T = AnyDocument>(
   if (isVectorOnly && hasGlobalVectorIndex) {
     fanOutResult = executeVectorSearch(params, manager, config, limit, offset)
   } else if (isHybridMode && hasGlobalVectorIndex) {
-    fanOutResult = await executeHybridSearch(params, manager, language, config, workerSearch, indexName, limit, offset)
+    fanOutResult = await executeHybridSearch(params, context, limit, offset)
   } else {
-    const workerResult = workerSearch ? await workerSearch(indexName, params) : null
+    const scoring = scoringConfigFor(params, context)
+    const workerResult = workerSearch
+      ? await workerSearch(indexName, params, broadcastStatsForWorker(params, context, scoring))
+      : null
     if (workerResult) {
       fanOutResult = workerResult
     } else {
-      const searchOptions = {
-        bm25Params: config.bm25,
-        stopWords: config.stopWords,
-        customTokenizer: config.tokenizer,
-      }
-      fanOutResult = await fanOutQuery(
-        manager,
-        params,
-        language,
-        config.schema,
-        { scoringMode: params.scoring ?? config.defaultScoring ?? 'local' },
-        searchOptions,
-      )
+      fanOutResult = await fanOutQuery(manager, params, language, config.schema, scoring, searchOptionsFor(manager))
     }
   }
 
@@ -122,7 +113,7 @@ export async function executeQuery<T = AnyDocument>(
   }
 
   if (params.highlight) {
-    applyHighlights(paginated, params, language, config)
+    applyHighlights(paginated, params, language, manager.analysis)
   }
 
   const elapsed = now() - startTime
@@ -159,34 +150,23 @@ export async function executePreflight(params: QueryParams, context: QueryContex
     const result = executeVectorSearch(params, manager, config, preflightLimit, preflightOffset)
     totalMatched = result.totalMatched
   } else if (isHybridMode && hasGlobalVectorIndex) {
-    const result = await executeHybridSearch(
-      params,
-      manager,
-      language,
-      config,
-      workerSearch,
-      indexName,
-      preflightLimit,
-      preflightOffset,
-    )
+    const result = await executeHybridSearch(params, context, preflightLimit, preflightOffset)
     totalMatched = result.totalMatched
   } else {
-    const workerResult = workerSearch ? await workerSearch(indexName, params) : null
+    const scoring = scoringConfigFor(params, context)
+    const workerResult = workerSearch
+      ? await workerSearch(indexName, params, broadcastStatsForWorker(params, context, scoring))
+      : null
     if (workerResult) {
       totalMatched = workerResult.totalMatched
     } else {
-      const searchOptions = {
-        bm25Params: config.bm25,
-        stopWords: config.stopWords,
-        customTokenizer: config.tokenizer,
-      }
       const fanOutResult = await fanOutQuery(
         manager,
         params,
         language,
         config.schema,
-        { scoringMode: params.scoring ?? config.defaultScoring ?? 'local' },
-        searchOptions,
+        scoring,
+        searchOptionsFor(manager),
       )
       totalMatched = fanOutResult.totalMatched
     }

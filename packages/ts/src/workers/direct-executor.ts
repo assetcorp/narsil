@@ -1,9 +1,11 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
+import { sanitizeGlobalStats } from '../partitioning/distributed-scoring'
 import { fanOutQuery } from '../partitioning/fan-out'
 import { createPartitionManager, type PartitionManager } from '../partitioning/manager'
 import { createPartitionRouter } from '../partitioning/router'
 import { extractVectorFieldsFromSchema } from '../schema/validator'
+import type { FulltextSearchOptions } from '../search/fulltext'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
 import { createVectorIndex, type VectorIndex } from '../vector/vector-index'
@@ -21,6 +23,7 @@ interface IndexEntry {
   manager: PartitionManager
   config: IndexConfig
   language: LanguageModule
+  searchOptions: FulltextSearchOptions
   vectorIndexes: Map<string, VectorIndex>
 }
 
@@ -55,7 +58,17 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
 
     const manager = createPartitionManager(indexName, config, language, router, partitionCount, vectorIndexes)
 
-    indexes.set(indexName, { manager, config, language, vectorIndexes })
+    indexes.set(indexName, {
+      manager,
+      config,
+      language,
+      searchOptions: {
+        bm25Params: config.bm25,
+        stopWords: manager.analysis.stopWords,
+        customTokenizer: manager.analysis.customTokenizer,
+      },
+      vectorIndexes,
+    })
   }
 
   function dropIndex(indexName: string): void {
@@ -76,6 +89,16 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
 
   async function execute<T>(action: WorkerAction): Promise<T> {
     switch (action.type) {
+      case 'bootstrap': {
+        if (typeof action.moduleUrl !== 'string' || action.moduleUrl.trim().length === 0) {
+          throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'A bootstrap module needs a non-empty module URL', {
+            moduleUrl: action.moduleUrl,
+          })
+        }
+        await import(action.moduleUrl)
+        return undefined as T
+      }
+
       case 'createIndex': {
         const language = getLanguage(action.config.language ?? 'english')
         createIndex(action.indexName, action.config, language)
@@ -107,18 +130,31 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
 
       case 'query': {
         const entry = requireIndex(action.indexName)
-        const result = await fanOutQuery(entry.manager, action.params, entry.language, entry.config.schema, {
-          scoringMode: entry.config.defaultScoring ?? 'local',
-          partitionIds: action.partitionIds,
-        })
+        const result = await fanOutQuery(
+          entry.manager,
+          action.params,
+          entry.language,
+          entry.config.schema,
+          {
+            scoringMode: action.params.scoring ?? entry.config.defaultScoring ?? 'local',
+            partitionIds: action.partitionIds,
+            ...(action.globalStats !== undefined ? { globalStats: sanitizeGlobalStats(action.globalStats) } : {}),
+          },
+          entry.searchOptions,
+        )
         return result as T
       }
 
       case 'preflight': {
         const entry = requireIndex(action.indexName)
-        const result = await fanOutQuery(entry.manager, action.params, entry.language, entry.config.schema, {
-          scoringMode: entry.config.defaultScoring ?? 'local',
-        })
+        const result = await fanOutQuery(
+          entry.manager,
+          action.params,
+          entry.language,
+          entry.config.schema,
+          { scoringMode: entry.config.defaultScoring ?? 'local' },
+          entry.searchOptions,
+        )
         return { count: result.totalMatched } as T
       }
 
@@ -173,6 +209,9 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
 
       case 'deserialize': {
         const entry = requireIndex(action.indexName)
+        while (entry.manager.partitionCount <= action.partitionId) {
+          entry.manager.addPartition()
+        }
         entry.manager.deserializePartition(action.partitionId, action.data)
         return undefined as T
       }

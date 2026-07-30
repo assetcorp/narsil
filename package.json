@@ -16,8 +16,9 @@
   "packageManager": "pnpm@10.30.3",
   "scripts": {
     "build": "nx run-many -t build",
-    "test": "nx run-many -t test",
-    "test:coverage": "nx run-many -t test:coverage",
+    "test": "nx run-many -t test --exclude='@delali/narsil-example-*'",
+    "test:coverage": "nx run-many -t test:coverage --exclude='@delali/narsil-example-*'",
+    "test:examples": "nx run-many -t test --projects='@delali/narsil-example-*'",
     "lint": "nx run-many -t lint",
     "typecheck": "nx run-many -t typecheck",
     "format": "biome check --write ."

@@ -1,246 +1,184 @@
 # Narsil Distributed Query Routing Specification
 
-This document defines how queries are executed across a Narsil
-cluster. It covers two-phase query execution, distributed fan-out,
-result merging, DFS scoring, distributed facets, partial results,
-cursor pagination, and replica selection.
+This document defines how a query runs across a Narsil cluster. It covers the two-phase protocol, fan-out, result merging, DFS scoring, distributed facets, partial results, cursor pagination, and replica selection.
 
 ---
 
 ## Two-Phase Query Execution
 
-Distributed queries use a two-phase protocol that minimises
-network transfer. Phase 1 transfers only document IDs and scores.
-Phase 2 fetches full documents for the globally top-ranked results
-only.
+A distributed query runs in two phases so that the cluster moves as few bytes as possible. The first phase transfers document IDs and scores alone. The second fetches full documents for the globally top-ranked results only.
 
 ### Phase 1: Query
 
 ```text
 1. The coordinator receives a query from the client.
-2. The coordinator reads the allocation table (cached locally,
-   updated via watchAllocation) to determine which partitions
-   exist for the target index and which nodes hold them.
-3. For each partition, the coordinator selects one replica
-   (see Replica Selection below).
-4. The coordinator sends the full query to each selected node
-   via NodeTransport. The message includes:
-   - The query parameters (term, filters, sort, limit)
-   - The partition IDs to search on that node
-   - Global statistics (if DFS mode, see below)
-5. Each data node executes the query against its local
-   partitions using the existing fanOutQuery() and kWayMerge()
-   logic. Each partition runs fulltextSearch() with BM25 scoring.
-6. Each data node returns to the coordinator:
-   - Scored document entries (docId, score, sort values)
-   - Facet counts (if facets were requested)
-   - Total hit count per partition
-7. The coordinator merges all results using kWayMerge()
-   (heap-based for >4 sources, sequential for <=4).
-8. The coordinator determines the global top-k results.
+2. It reads the allocation table, held in a local cache that
+   the allocation watch keeps current, to learn which
+   partitions the target index has and which nodes hold them.
+3. For each partition it selects one replica; see Replica
+   Selection below.
+4. It sends the query to each selected node over the node
+   transport. The message carries:
+     the query parameters (term, filters, sort, limit)
+     the partition IDs to search on that node
+     the global statistics, under DFS scoring
+5. Each data node runs the query against the named local
+   partitions, fanning out across them and merging the
+   results exactly as a single instance does.
+6. Each data node returns:
+     the scored entries (docId, score, sort values)
+     the facet counts, when facets were requested
+     the hit count for each partition
+7. The coordinator merges every returned list with the K-way
+   merge, which uses a heap above four sources and a
+   sequential merge at four or fewer.
+8. The coordinator takes the global top-k from the merged list.
 ```
 
 ### Phase 2: Fetch
 
 ```text
-1. The coordinator identifies which nodes hold the top-k
-   documents (using the partition routing: fnv1a(docId) %
-   partitionCount, then the allocation table).
-2. The coordinator sends fetch requests to those specific nodes,
-   requesting full document bodies for the selected document IDs.
-3. Each data node retrieves the full documents from its local
+1. The coordinator works out which node holds each of the
+   top-k documents, by routing the docId to its partition
+   with fnv1a(docId) modulo partitionCount and then reading
+   the allocation table.
+2. It sends a fetch request to each of those nodes, naming
+   the document IDs it wants.
+3. Each data node reads the full documents from its local
    document store and vector indexes.
-4. The coordinator assembles the final response:
-   - Full document bodies
-   - Highlighting (if requested)
-   - Facets (merged in Phase 1)
-   - Total hit count (sum across all partitions)
-   - Coverage metadata
+4. The coordinator assembles the response:
+     the full document bodies
+     highlighting, when requested
+     the facets merged in phase 1
+     the total hit count, summed across partitions
+     the coverage metadata
 5. The coordinator returns the response to the client.
 ```
 
-### Single-Partition Optimisation
+### Single-Partition Queries
 
-When a query targets only one partition (e.g., a `get()` by
-document ID), the coordinator sends a combined query+fetch
-request to the data node holding that partition. The two phases
-collapse into a single network round trip.
+A query that targets one partition, such as fetching a document by ID, goes out as one combined query-and-fetch request to the node holding that partition. The two phases collapse into a single round trip.
 
-### Local Partition Optimisation
+### Local Partitions
 
-When the coordinator node is also a data node holding some of
-the relevant partitions, it executes the query against those
-partitions locally without a network round trip. Only partitions
-on remote nodes go through `NodeTransport`.
+A coordinator that is also a data node runs the query against its own partitions in-process and takes no round trip for them. Only partitions on other nodes go through the node transport.
 
 ```text
-Coordinator (also Data Node A, holding partitions 0-4):
-  Query for index 'products' (partitions 0-9):
-    Local: fanOutQuery(partitions 0-4)    -> local results
-    Remote: NodeTransport.query(Node B, partitions 5-9) -> remote results
-    Merge: kWayMerge(local, remote)       -> global top-k
+Coordinator, also data node A, holding partitions 0-4.
+Query for index 'products', partitions 0-9:
+  local:  search partitions 0-4        -> local results
+  remote: send to node B, partitions 5-9 -> remote results
+  merge:  K-way merge of both          -> global top-k
 ```
 
 ---
 
 ## DFS Scoring Across the Cluster
 
-When the scoring mode is `dfs`, the coordinator collects global
-term statistics before executing the query. This extends the
-existing DFS protocol (see
-[partitioning.md](../partitioning.md#scoring-modes)) to work
-across nodes.
-
-### DFS Protocol
+Under `dfs` scoring the coordinator collects global term statistics before it runs the query. This extends the single-instance DFS protocol described in [Scoring Modes](../partitioning.md#scoring-modes) across nodes.
 
 ```text
-Phase 0 (Statistics Collection):
-1. Coordinator sends a statistics request to each data node.
-2. Each data node collects { totalDocs, docFrequencies,
-   totalFieldLengths } from its local partitions using
-   collectGlobalStats().
-3. Coordinator merges all responses using mergePartitionStats().
-4. The merged global statistics are included in the Phase 1
-   query message.
+Phase 0, statistics collection:
+  1. The coordinator sends a statistics request to each data node.
+  2. Each data node collects totalDocs, docFrequencies, and
+     totalFieldLengths from its local partitions.
+  3. The coordinator merges every response by summing the counts.
+  4. The merged statistics travel in the phase 1 query message.
 
-Phase 1 (Query with Global Stats):
-  Same as the standard Phase 1, but each data node scores
-  documents using the provided global statistics instead of
-  partition-local statistics.
+Phase 1, query with global statistics:
+  As above, except that each data node scores against the
+  supplied global statistics in place of its own.
 
-Phase 2 (Fetch):
-  Same as the standard Phase 2.
+Phase 2, fetch:
+  As above.
 ```
 
-DFS mode adds one additional network round trip (Phase 0). Use it
-when partition sizes or term distributions vary enough to affect
-relevance ranking.
+DFS costs one extra round trip. Use it when partition sizes or term distributions differ enough between partitions to move the ranking.
 
 ---
 
 ## Replica Selection
 
-For each partition, the coordinator selects one replica to query.
-The selection strategy is pluggable; the default is random.
+The coordinator picks one replica per partition. The strategy is pluggable, and the default is random.
 
-### Random Selection (Default)
+**Random selection**, the default, picks a replica at random from the `ACTIVE` replicas of the partition, the primary included. Load spreads evenly when the replicas are alike.
 
-The coordinator picks a random replica from the set of `ACTIVE`
-replicas for each partition (including the primary). This provides
-even load distribution when replicas are homogeneous.
+**Adaptive selection** is optional. It tracks per-replica response time and queue depth and routes to the replica with the lowest estimated latency. The algorithm is implementation-defined; an implementation that offers one must document how it behaves.
 
-### Adaptive Selection (Optional)
+The selection contract holds whichever strategy runs:
 
-An adaptive strategy tracks per-replica metrics (response time,
-queue depth) and routes to the replica with the lowest estimated
-latency. This is an implementation-defined optimisation. The spec
-does not prescribe the adaptive algorithm, but implementations
-that provide one should document its behaviour.
-
-### Selection Contract
-
-- The coordinator must only select replicas whose partition state
-  is `ACTIVE`.
-- Replicas in `INITIALISING` or `DECOMMISSIONING` states are
-  excluded.
-- If no `ACTIVE` replica is available for a partition, the
-  coordinator either fails the query or returns partial results
-  (see [Partial Results](#partial-results)).
+- The coordinator must select only replicas whose partition state is `ACTIVE`.
+- Replicas in `INITIALISING` or `DECOMMISSIONING` are never selected.
+- With no `ACTIVE` replica for a partition, the coordinator either fails the query or returns partial results; see [Partial Results](#partial-results).
 
 ---
 
 ## Partial Results
 
-When some partitions are unavailable (no `ACTIVE` replica) or a
-data node is slow to respond, the coordinator can return partial
-results instead of failing the entire query.
+When a partition has no `ACTIVE` replica, or a data node answers too slowly, the coordinator can return what it has instead of failing the whole query.
 
 ### Coverage Metadata
 
-Every query response includes coverage metadata:
+Every query response carries coverage metadata:
 
 ```text
 Coverage {
-  totalPartitions:    uint32  (partitions that should be queried)
-  queriedPartitions:  uint32  (partitions that responded)
-  timedOutPartitions: uint32  (partitions that timed out)
-  failedPartitions:   uint32  (partitions with errors)
+  totalPartitions:    uint32   (the partitions that should have been queried)
+  queriedPartitions:  uint32   (the partitions that responded)
+  timedOutPartitions: uint32   (the partitions that timed out)
+  failedPartitions:   uint32   (the partitions that errored)
 }
 ```
 
-### Partial Result Behaviour
-
-The behaviour when partitions are unavailable is configurable:
+### Configuration
 
 ```text
 QueryConfig {
-  allowPartialResults: bool  (default: true)
-  partitionTimeout:    uint32  (milliseconds, default: 5000)
+  allowPartialResults: boolean  (default true)
+  partitionTimeout:    uint32   (milliseconds, default 5000)
 }
 ```
 
-When `allowPartialResults` is `true` (default):
-- The coordinator waits up to `partitionTimeout` for each
-  data node.
-- Partitions that time out or fail are excluded from the results.
-- The response includes the `Coverage` metadata so the client can
-  detect degraded results.
-- BM25 scores may be less accurate because statistics from missing
-  partitions are absent.
+With `allowPartialResults` set to true, the coordinator waits up to `partitionTimeout` for each data node, drops the partitions that time out or fail, and returns the coverage metadata so that the client can spot a degraded answer. BM25 scores lose accuracy in that case, because the statistics of the missing partitions are missing too.
 
-When `allowPartialResults` is `false`:
-- Any partition failure or timeout causes the entire query to fail
-  with error code `QUERY_PARTIAL_FAILURE`.
+With `allowPartialResults` set to false, any partition failure or timeout fails the whole query with `QUERY_PARTIAL_FAILURE`.
 
 ---
 
 ## Distributed Facets
 
-When a query requests facets, each data node computes local facet
-counts for its partitions. The coordinator merges these counts.
-
-### Facet Merge Protocol
+Each data node counts facets over its own partitions, and the coordinator merges those counts.
 
 ```text
 1. The coordinator computes the oversampled bucket count:
-     shardSize = ceil(facetSize * 1.5) + 10
-   where facetSize is the client's requested bucket count
-   (from QueryParams.facetSize, default 10).
-2. The coordinator includes shardSize in the search request
-   sent to each data node (as facetShardSize in query.search).
-3. Each data node returns up to shardSize facet buckets per
-   requested field, sorted by count descending.
-4. The coordinator merges buckets from all data nodes:
-   a. For each facet field, group buckets by value.
-   b. Sum the counts for identical values.
-   c. Sort by merged count descending.
-   d. Truncate to facetSize.
-5. The merged facets are included in the query response.
+     shardSize = ceiling(facetSize * 1.5) + 10
+   where facetSize is the bucket count the client asked for,
+   from the query's facetSize parameter, 10 by default.
+2. It sends shardSize to each data node as facetShardSize in
+   the search message.
+3. Each data node returns up to shardSize buckets per requested
+   field, ordered by count, highest first.
+4. The coordinator merges the buckets:
+     group the buckets of each field by value
+     sum the counts of identical values
+     order by merged count, highest first
+     truncate to facetSize
+5. The merged facets travel in the query response.
 ```
 
-### Accuracy Tradeoff
+Distributed facet counts are approximate. A value that is frequent across the whole index but falls below `shardSize` on the individual partitions can be undercounted or missed altogether. A larger `shardSize` buys accuracy with transfer.
 
-Distributed facets are approximate. A term that is globally
-frequent but falls below the `shardSize` threshold on individual
-partitions may be undercounted or excluded entirely. Increasing
-`shardSize` improves accuracy at the cost of more data transfer.
-
-The response should include an error bound when feasible: the
-sum of the largest excluded bucket count per data node. This tells
-the client the maximum possible undercount for any term.
+Where it can, the response should carry an error bound: the sum, across data nodes, of the largest bucket count each node excluded. That figure is the largest undercount any value can have.
 
 ---
 
 ## Distributed Cursor Pagination
 
-Cursor-based pagination (searchAfter) works across the cluster
-by encoding the sort values of the last returned document.
+Cursor pagination works across the cluster by encoding the sort position of the last document returned.
 
 ### Cursor Format
 
-The existing cursor format (see
-[partitioning.md](../partitioning.md#searchafter-cursor)) extends
-to distributed mode without changes. The cursor encodes:
+The cursor format defined in [searchAfter Cursor](../partitioning.md#searchafter-cursor) carries over to distributed mode unchanged:
 
 ```json
 {
@@ -249,103 +187,81 @@ to distributed mode without changes. The cursor encodes:
 }
 ```
 
-### Distributed Cursor Flow
+### Cursor Flow
 
 ```text
-1. First query:
-   - Coordinator fans out to all data nodes.
-   - Each data node returns scored results for its partitions.
-   - Coordinator merges and takes top `limit` results.
-   - Cursor encodes the last result's score and docId.
+First query:
+  the coordinator fans out to every data node
+  each data node returns scored results for its partitions
+  the coordinator merges them and takes the top `limit`
+  the cursor encodes the last result's score and docId
 
-2. Next query (with searchAfter):
-   - Coordinator decodes the cursor.
-   - Fans out to all data nodes with the same cursor
-     in the query parameters (searchAfter field).
-   - Each data node passes the cursor to its local
-     partitions. Each partition independently seeks
-     past the cursor point.
-   - Coordinator merges and takes top `limit`.
-   - Encodes new cursor from the last result.
+Next query, carrying the cursor:
+  the coordinator decodes the cursor
+  it fans out to every data node with the same cursor in the
+    searchAfter parameter
+  each data node passes the cursor down to its partitions, and
+    each partition seeks past the cursor point on its own
+  the coordinator merges the results and takes the top `limit`
+  it encodes a new cursor from the last result
 ```
 
-### Tiebreaker Requirement
+### Tiebreaker
 
-The cursor requires a unique tiebreaker to guarantee deterministic
-ordering. The document ID serves as this tiebreaker. When multiple
-documents have the same score (or same sort value), they are
-ordered by `docId` (lexicographic). This ensures stable pagination
-across requests, even when documents have identical scores.
+A cursor needs a unique tiebreaker to order results deterministically, and the document ID is that tiebreaker. Documents sharing a score, or a sort value, are ordered by comparing `docId` lexicographically, which keeps pagination stable across requests even when scores are identical.
 
 ---
 
 ## Distributed Vector Search
 
-Vector search follows the same two-phase protocol as text search.
-Each data node searches its local vector index and returns scored
-results. The coordinator merges results from all nodes.
-
-### Vector Query Flow
+Vector search follows the same two phases as text search. Each data node searches its local vector index and returns scored results, and the coordinator merges them.
 
 ```text
 Phase 1:
-  Coordinator sends the query vector to each data node.
-  Each data node searches its local VectorIndex (HNSW or
-  brute-force) and returns the top-k scored results
-  (docId + similarity score).
+  the coordinator sends the query vector to each data node
+  each data node searches its local vector index, whether HNSW
+    or brute force, and returns its top-k results as docId and
+    similarity score
 
 Phase 2:
-  Coordinator merges results, selects global top-k,
-  fetches full documents from the relevant data nodes.
+  the coordinator merges those results, takes the global top-k,
+    and fetches the full documents from the nodes holding them
 ```
 
-For HNSW-based search, each data node uses its local graph. The
-approximate nature of HNSW means each node returns its best local
-candidates, and the coordinator selects the global best from those.
+HNSW search is approximate, so each node returns its best local candidates and the coordinator picks the global best from among them.
 
 ### Distributed Hybrid Search
 
-Hybrid search (text + vector) uses two separate fan-outs so
-that the coordinator can fuse globally merged result sets.
-Per-node fusion is not used because it degrades as partition
-count grows.
-
-#### Hybrid Query Flow
+A hybrid query runs two separate fan-outs so that the coordinator fuses two globally merged lists. Fusing on each node instead degrades as the partition count grows, because a node fuses only what its own partitions matched.
 
 ```text
-1. The coordinator sends two search requests to each data
-   node in parallel:
-   a. A text-only request (term, filters, sort, limit;
-      vector and hybrid fields set to null).
-   b. A vector-only request (vector field populated;
-      term set to null).
-2. Each data node executes each request independently
-   against its local partitions and returns one result set
-   per request.
-3. The coordinator merges all text results from all data
-   nodes into a single ranked list.
-4. The coordinator merges all vector results from all data
-   nodes into a single ranked list.
-5. The coordinator applies the configured fusion strategy
-   on the two globally merged lists:
-   - RRF: reciprocal rank fusion with the configured k
-     constant.
-   - Linear combination: weighted sum of normalised
-     scores. Normalisation uses the full global score
-     distribution (min/max across all nodes), not
-     per-node ranges.
-6. The coordinator selects the global top-k from the
-   fused list.
-7. Fetch phase for the top-k documents.
+1. The coordinator sends two search requests to each data node
+   in parallel:
+     a text-only request carrying term, filters, sort, and
+       limit, with the vector and hybrid fields absent
+     a vector-only request carrying the vector, with the term
+       absent
+2. Each data node runs each request against its local
+   partitions and returns one result set per request.
+3. The coordinator merges every text result into one ranked list.
+4. The coordinator merges every vector result into one ranked list.
+5. The coordinator fuses those two lists with the configured
+   strategy:
+     RRF, reciprocal rank fusion with the configured k constant
+     linear combination, a weighted sum of normalised scores,
+       where normalisation uses the score range of the whole
+       merged list rather than any single node's range
+6. The coordinator takes the global top-k from the fused list.
+7. The fetch phase runs for those top-k documents.
 ```
 
 ---
 
 ## Error Codes
 
-| Code | When |
-|---|---|
-| `QUERY_PARTIAL_FAILURE` | A partition was unavailable and `allowPartialResults` is `false`. |
-| `QUERY_NODE_TIMEOUT` | A data node did not respond within `partitionTimeout`. |
-| `QUERY_ROUTING_FAILED` | The allocation table has no entry for the target index. |
-| `QUERY_NO_ACTIVE_REPLICA` | No `ACTIVE` replica exists for one or more partitions. |
+| Code | Raised when |
+|------|-------------|
+| `QUERY_PARTIAL_FAILURE` | A partition was unavailable and `allowPartialResults` is false. |
+| `QUERY_NODE_TIMEOUT` | A data node did not answer within `partitionTimeout`. |
+| `QUERY_ROUTING_FAILED` | The allocation table holds no entry for the target index. |
+| `QUERY_NO_ACTIVE_REPLICA` | One or more partitions have no `ACTIVE` replica. |

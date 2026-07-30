@@ -11,20 +11,30 @@ export async function removeDocument(ctx: MutationContext, indexName: string, do
   ctx.requireIndex(indexName)
   validateDocId(docId)
 
-  if (ctx.bufferIfRebalancing(indexName, { action: 'remove', docId, indexName })) {
-    return
-  }
-
   await ctx.pluginRegistry.runHook('beforeRemove', { indexName, docId })
 
-  if (ctx.durability && !ctx.requireManager(indexName).has(docId)) {
+  const rebalancing = ctx.isRebalancing(indexName)
+  if (ctx.durability && !rebalancing && !ctx.requireManager(indexName).has(docId)) {
     throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
   }
 
-  const restoreRef = ctx.durability ? ctx.requireManager(indexName).getRef(docId) : undefined
+  const restoreRef = ctx.durability && !rebalancing ? ctx.requireManager(indexName).getRef(docId) : undefined
   const restoreDoc: AnyDocument | undefined = restoreRef ? (structuredClone(restoreRef) as AnyDocument) : undefined
 
+  let buffered = false
   const applyRemove = async (): Promise<void> => {
+    if (ctx.isRebalancing(indexName)) {
+      const bufferedState = ctx.bufferedDocState(indexName, docId)
+      const exists =
+        bufferedState !== undefined ? bufferedState === 'present' : ctx.requireManager(indexName).has(docId)
+      if (!exists) {
+        throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
+      }
+    }
+    if (ctx.bufferIfRebalancing(indexName, { action: 'remove', docId, indexName })) {
+      buffered = true
+      return
+    }
     await ctx.executor.execute({ type: 'remove', indexName, docId, requestId: docId })
     const removeVecIndexes = ctx.requireManager(indexName).getVectorIndexes()
     removeDocumentVectors(docId, removeVecIndexes)
@@ -39,6 +49,10 @@ export async function removeDocument(ctx: MutationContext, indexName: string, do
     }
   } else {
     await applyRemove()
+  }
+
+  if (buffered) {
+    return
   }
 
   try {

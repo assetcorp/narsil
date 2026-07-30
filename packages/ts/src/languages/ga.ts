@@ -71,7 +71,7 @@ export const ga: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: {
-    splitPattern: /[^a-zA-ZɛɔƐƆŋŊ0-9\p{M}]+/giu,
+    splitPattern: /[^a-zA-ZɛɔƐƆŋŊãÃ0-9\p{M}]+/giu,
     normalizeDiacritics: false,
     minTokenLength: 1,
   },
