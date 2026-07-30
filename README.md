@@ -149,7 +149,7 @@ Measured in one process against Orama and MiniSearch, with the same stop words, 
 
 ## Configuration
 
-The [TypeScript package README](packages/ts/README.md#configuration) documents `NarsilConfig`, worker and flush tuning, durability settings, and the tokenizer cache.
+The [TypeScript package README](packages/ts/README.md#configuration) documents `NarsilConfig`, worker tuning, the two durability tiers, and the tokenizer cache.
 
 ## Distribution status
 
