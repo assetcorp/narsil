@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import type { PartitionManager } from '../../partitioning/manager'
 import { validateRequiredFields } from '../../schema/validator'
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { BatchResult } from '../../types/results'
@@ -16,6 +17,19 @@ import { rollbackInsertedDocument } from './durable-rollback'
 function providedDocId(document: AnyDocument): string | undefined {
   const id = (document as { id?: unknown }).id
   return typeof id === 'string' && id.length > 0 ? id : undefined
+}
+
+function admitInsert(ctx: MutationContext, indexName: string, manager: PartitionManager, docId: string): void {
+  if (!ctx.isRebalancing(indexName)) {
+    manager.assertCapacity()
+    return
+  }
+  const bufferedState = ctx.bufferedDocState(indexName, docId)
+  const exists = bufferedState !== undefined ? bufferedState === 'present' : manager.has(docId)
+  if (exists) {
+    throw new NarsilError(ErrorCodes.DOC_ALREADY_EXISTS, `Document "${docId}" already exists`, { docId })
+  }
+  manager.assertCapacity(ctx.pendingRebalanceWrites(indexName), ctx.rebalanceTargetPartitionCount(indexName))
 }
 
 export async function insertDocument(
@@ -55,7 +69,7 @@ export async function insertDocument(
   }
 
   const insertManager = ctx.requireManager(indexName)
-  insertManager.assertCapacity(ctx.pendingRebalanceWrites(indexName))
+  admitInsert(ctx, indexName, insertManager, resolvedDocId)
   const insertVecIndexes = insertManager.getVectorIndexes()
 
   const { partitionDoc, extractedVectors } = prepareDocumentVectors(
@@ -71,6 +85,7 @@ export async function insertDocument(
   let inserted = false
   let buffered = false
   const applyInsert = async (): Promise<void> => {
+    admitInsert(ctx, indexName, insertManager, resolvedDocId)
     if (ctx.bufferIfRebalancing(indexName, { action: 'insert', docId: resolvedDocId, document, indexName })) {
       buffered = true
       return
@@ -261,11 +276,12 @@ export async function insertDocumentBatch(
           validateVectorDimensions(extractedVectors, batchVecIndexes)
         }
 
-        batchManager.assertCapacity(ctx.pendingRebalanceWrites(indexName))
+        admitInsert(ctx, indexName, batchManager, batchDocId)
 
         let batchInserted = false
         let batchBuffered = false
         const applyBatchInsert = async (): Promise<void> => {
+          admitInsert(ctx, indexName, batchManager, batchDocId)
           if (
             ctx.bufferIfRebalancing(indexName, {
               action: 'insert',

@@ -22,7 +22,7 @@ export interface RebalanceContext {
   router: PartitionRouter
   waqMap: Map<string, WriteAheadQueue>
   rebalancingIndexes: Set<string>
-  lastAppliedSeqMap: Map<string, Map<number, number>>
+  rebalanceTargets: Map<string, number>
   eventHandlers: Map<string, Set<EventHandler>>
   pluginRegistry: PluginRegistry
   orchestrator: WorkerOrchestrator
@@ -71,6 +71,11 @@ async function replayEntry(
       vectorFieldPaths,
       vecIndexes,
     )
+    const overwrote = manager.has(entry.docId)
+    if (overwrote) {
+      removeDocumentVectors(entry.docId, vecIndexes)
+      manager.remove(entry.docId)
+    }
     manager.insert(entry.docId, partitionDoc as AnyDocument)
     if (extractedVectors.size > 0) {
       insertDocumentVectors(entry.docId, extractedVectors, vecIndexes)
@@ -84,7 +89,7 @@ async function replayEntry(
       warnHookError('afterInsert', err)
     }
     await ctx.orchestrator.replicateToWorkers({
-      type: 'insert',
+      type: overwrote ? 'update' : 'insert',
       indexName,
       docId: entry.docId,
       document: entry.document,
@@ -162,30 +167,21 @@ async function replayQueued(
   waq: WriteAheadQueue,
   ctx: RebalanceContext,
 ): Promise<void> {
-  const appliedSeqs = ctx.lastAppliedSeqMap.get(indexName) ?? new Map<number, number>()
-
   while (true) {
     const entries = waq.drain()
     if (entries.length === 0) break
 
     for (const entry of entries) {
-      const lastSeq = appliedSeqs.get(0) ?? 0
-      if (entry.sequenceNumber <= lastSeq) continue
-
       try {
         await replayEntry(manager, indexName, entry, ctx)
       } catch (replayErr) {
-        const isDuplicate = replayErr instanceof NarsilError && replayErr.code === ErrorCodes.DOC_ALREADY_EXISTS
         const isMissing = replayErr instanceof NarsilError && replayErr.code === ErrorCodes.DOC_NOT_FOUND
-        if (!isDuplicate && !isMissing) {
+        if (!isMissing) {
           console.warn(`WAQ replay failed for ${entry.action} on doc "${entry.docId}":`, replayErr)
         }
       }
-      appliedSeqs.set(0, entry.sequenceNumber)
     }
   }
-
-  ctx.lastAppliedSeqMap.set(indexName, appliedSeqs)
 }
 
 export async function executeRebalance(
@@ -226,6 +222,7 @@ export async function executeRebalance(
   const waq = createWriteAheadQueue()
   ctx.waqMap.set(indexName, waq)
   ctx.rebalancingIndexes.add(indexName)
+  ctx.rebalanceTargets.set(indexName, targetPartitionCount)
   const wasPromoted = ctx.orchestrator.desyncIndex(indexName)
 
   try {
@@ -250,12 +247,16 @@ export async function executeRebalance(
     }
 
     await ctx.orchestrator.resyncIndex(indexName, wasPromoted)
-    await replayQueued(manager, indexName, waq, ctx)
+    do {
+      await replayQueued(manager, indexName, waq, ctx)
+    } while (waq.size > 0)
   } catch (err) {
     try {
       await replayQueued(manager, indexName, waq, ctx)
       await ctx.orchestrator.resyncIndex(indexName, wasPromoted)
-      await replayQueued(manager, indexName, waq, ctx)
+      do {
+        await replayQueued(manager, indexName, waq, ctx)
+      } while (waq.size > 0)
     } catch (recoveryErr) {
       console.warn(
         `Rebalance failure recovery for index "${indexName}" did not complete:`,
@@ -265,6 +266,7 @@ export async function executeRebalance(
     throw err
   } finally {
     ctx.rebalancingIndexes.delete(indexName)
+    ctx.rebalanceTargets.delete(indexName)
     ctx.waqMap.delete(indexName)
   }
 

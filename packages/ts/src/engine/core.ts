@@ -58,7 +58,6 @@ export interface EngineCore {
   readonly rebalanceRouter: PartitionRouter
   readonly rebalancingIndexes: Set<string>
   readonly waqMap: Map<string, ReturnType<typeof createWriteAheadQueue>>
-  readonly lastAppliedSeqMap: Map<string, Map<number, number>>
   readonly guardShutdown: () => void
   readonly requireIndex: (indexName: string) => IndexRegistryEntry
   readonly requireManager: (indexName: string) => PartitionManager
@@ -174,7 +173,7 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
   const rebalancer = createRebalancer()
   const rebalanceRouter = createPartitionRouter()
   const waqMap = new Map<string, ReturnType<typeof createWriteAheadQueue>>()
-  const lastAppliedSeqMap = new Map<string, Map<number, number>>()
+  const rebalanceTargets = new Map<string, number>()
 
   function guardShutdown(): void {
     if (shutdownState.isShutdown) {
@@ -306,8 +305,13 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     getPartitionConfig: indexName => indexRegistry.get(indexName)?.config.partitions,
     emit(payload) {
       const handlers = eventHandlers.get('partitionWatermark')
-      if (handlers) {
-        for (const handler of handlers) handler(payload)
+      if (!handlers) return
+      for (const handler of handlers) {
+        try {
+          handler(payload)
+        } catch (err) {
+          console.warn('partitionWatermark handler error:', err instanceof Error ? err.message : String(err))
+        }
       }
     },
   })
@@ -325,6 +329,8 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     bufferIfRebalancing,
     isRebalancing: indexName => rebalancingIndexes.has(indexName),
     pendingRebalanceWrites: indexName => waqMap.get(indexName)?.size ?? 0,
+    rebalanceTargetPartitionCount: indexName => rebalanceTargets.get(indexName),
+    bufferedDocState: (indexName, docId) => waqMap.get(indexName)?.bufferedDocState(docId),
     checkWatermark: watermarkNotifier.check,
   }
 
@@ -333,7 +339,7 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     router: rebalanceRouter,
     waqMap,
     rebalancingIndexes,
-    lastAppliedSeqMap,
+    rebalanceTargets,
     eventHandlers,
     pluginRegistry,
     orchestrator,
@@ -359,7 +365,6 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     rebalanceRouter,
     rebalancingIndexes,
     waqMap,
-    lastAppliedSeqMap,
     guardShutdown,
     requireIndex,
     requireManager,

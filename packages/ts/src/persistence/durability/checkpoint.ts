@@ -139,10 +139,27 @@ export async function reclaimWalBeyondCount(
       onCloseError(err instanceof Error ? err : new Error(String(err)))
     }
     partitions.delete(partitionId)
-    for (const key of await directory.list(walPrefix(indexName, partitionId))) {
-      await directory.remove(key)
-    }
   }
+  const walRoot = `${indexName}/wal/`
+  for (const key of await directory.list(walRoot)) {
+    const partitionId = walKeyPartitionId(key, walRoot)
+    if (partitionId === null || partitionId < partitionCount) continue
+    await directory.remove(key)
+  }
+}
+
+function walKeyPartitionId(key: string, walRoot: string): number | null {
+  const tail = key.slice(walRoot.length)
+  const separator = tail.indexOf('/')
+  if (separator <= 0) {
+    return null
+  }
+  const segment = tail.slice(0, separator)
+  if (!/^\d+$/.test(segment)) {
+    return null
+  }
+  const value = Number.parseInt(segment, 10)
+  return Number.isSafeInteger(value) ? value : null
 }
 
 function parseSegmentStartSeqNo(key: string, prefix: string): number | null {

@@ -24,7 +24,7 @@ export interface PartitionManager {
   removePartition(partitionId: number): void
   trimPartitions(count: number): void
 
-  assertCapacity(pendingWrites?: number): void
+  assertCapacity(pendingWrites?: number, partitionCountCap?: number): void
   insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
   remove(docId: string): void
   beginBatchRemove(): void
@@ -208,20 +208,22 @@ export function createPartitionManager(
       partitions.length = newCount
     },
 
-    assertCapacity(pendingWrites = 0): void {
+    assertCapacity(pendingWrites = 0, partitionCountCap?: number): void {
       const currentMaxDocs = config.partitions?.maxDocsPerPartition
       if (currentMaxDocs === undefined) return
-      const totalCapacity = currentMaxDocs * partitions.length
+      const effectivePartitionCount =
+        partitionCountCap === undefined ? partitions.length : Math.min(partitions.length, partitionCountCap)
+      const totalCapacity = currentMaxDocs * effectivePartitionCount
       if (docPartitionMap.size + pendingWrites >= totalCapacity) {
         throw new NarsilError(
           ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
-          `Index "${indexName}" has reached its capacity of ${totalCapacity} documents (${currentMaxDocs} per partition × ${partitions.length} partitions)`,
+          `Index "${indexName}" has reached its capacity of ${totalCapacity} documents (${currentMaxDocs} per partition × ${effectivePartitionCount} partitions)`,
           {
             indexName,
             currentCount: docPartitionMap.size + pendingWrites,
             totalCapacity,
             maxDocsPerPartition: currentMaxDocs,
-            partitionCount: partitions.length,
+            partitionCount: effectivePartitionCount,
           },
         )
       }
