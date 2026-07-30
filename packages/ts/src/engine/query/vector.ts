@@ -2,10 +2,18 @@ import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
 import { linearCombination, reciprocalRankFusion } from '../../search/fusion'
 import type { ScoredDocument } from '../../types/internal'
-import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
-import { clampAlpha, collectFilterDocIds, type QueryContext, resolveVectorIndex, vectorResultsToScored } from './shared'
+import {
+  broadcastStatsForWorker,
+  clampAlpha,
+  collectFilterDocIds,
+  type QueryContext,
+  resolveVectorIndex,
+  scoringConfigFor,
+  searchOptionsFor,
+  vectorResultsToScored,
+} from './shared'
 
 export function executeVectorSearch(
   params: QueryParams,
@@ -47,14 +55,11 @@ export function executeVectorSearch(
 
 export async function executeHybridSearch(
   params: QueryParams,
-  manager: PartitionManager,
-  language: LanguageModule,
-  config: IndexConfig,
-  workerSearch: QueryContext['workerSearch'],
-  indexName: string,
+  context: QueryContext,
   limit: number,
   offset: number,
 ): Promise<FanOutResult> {
+  const { manager, language, config, workerSearch, indexName } = context
   const { vector: _vector, mode: _mode, hybrid: _hybrid, ...textOnlyParams } = params
 
   let filterDocIds: Set<string> | undefined
@@ -66,22 +71,20 @@ export async function executeHybridSearch(
   }
 
   let textFanOutResult: FanOutResult
-  const textWorkerResult = workerSearch ? await workerSearch(indexName, textOnlyParams) : null
+  const scoring = scoringConfigFor(params, context)
+  const textWorkerResult = workerSearch
+    ? await workerSearch(indexName, textOnlyParams, broadcastStatsForWorker(textOnlyParams, context, scoring))
+    : null
   if (textWorkerResult) {
     textFanOutResult = textWorkerResult
   } else {
-    const searchOptions = {
-      bm25Params: config.bm25,
-      stopWords: config.stopWords,
-      customTokenizer: config.tokenizer,
-    }
     textFanOutResult = await fanOutQuery(
       manager,
       textOnlyParams,
       language,
       config.schema,
-      { scoringMode: params.scoring ?? config.defaultScoring ?? 'local' },
-      searchOptions,
+      scoring,
+      searchOptionsFor(manager),
     )
   }
 

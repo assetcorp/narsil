@@ -97,7 +97,7 @@ export const igbo: LanguageModule = {
   stemmer: null,
   stopWords,
   tokenizer: {
-    splitPattern: /[^a-zA-ZịụọṅĩỊỤỌṄĨ0-9\p{M}]+/giu,
+    splitPattern: /[^a-zA-ZịụọṅĩũỊỤỌṄĨŨàèéòóÀÈÉÒÓȮȯ0-9\p{M}]+/giu,
     normalizeDiacritics: false,
     minTokenLength: 1,
   },

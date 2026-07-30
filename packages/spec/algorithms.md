@@ -1,184 +1,136 @@
 # Narsil Algorithm Specifications
 
-This document formally specifies every algorithm used by Narsil. All
-implementations (TypeScript, Rust, Python, Go) must produce identical
-output for identical input, except where floating-point precision
-differences are unavoidable. Each algorithm section includes the
-formula, parameters, edge cases, and expected behaviour.
+This document specifies every algorithm Narsil uses. Every implementation must produce identical output for identical input, except where floating-point precision makes that impossible. Each section gives the formula, the parameters, the edge cases, and the behaviour a caller can rely on.
+
+The pseudocode is language-neutral. `List<T>` is an ordered collection of `T` and `Map<K, V>` a mapping from keys to values. Arithmetic operators carry their usual meaning, `XOR` is bitwise exclusive or, `AND` is bitwise and, and a shift written `>>` on an unsigned value fills from the left with zeros. Names such as `uint32` and `float32` describe exact widths, and each implementation maps them to its own types.
 
 ---
 
 ## BM25 (Best Matching 25)
 
-BM25 is Narsil's primary full-text relevance scoring algorithm.
+BM25 is the relevance scoring algorithm behind every full-text query.
 
-### BM25 Formula
+### Formula
 
-For a query `Q` containing terms `q1, q2, ..., qn` and a document `D`:
+For a query `Q` holding terms `q1` through `qn`, scored against a document `D`:
 
 ```text
-score(Q, D) = SUM for each query term qi:
+score(Q, D) = SUM over each query term qi of
   IDF(qi) * (tf(qi, D) * (k1 + 1))
     / (tf(qi, D) + k1 * (1 - b + b * |D| / avgdl))
 ```
 
-Where:
+| Symbol | Meaning |
+|--------|---------|
+| `tf(qi, D)` | Term frequency: how often `qi` appears in `D` |
+| `\|D\|` | Document length: the token count of the scored field |
+| `avgdl` | The average document length across every document |
+| `N` | The total number of documents |
+| `n(qi)` | Document frequency: how many documents contain `qi` |
+| `k1` | The term saturation parameter, 1.2 by default |
+| `b` | The length normalisation parameter, 0.75 by default |
 
-| Symbol | Definition |
-| --- | --- |
-| `tf(qi, D)` | Term frequency: times `qi` appears in `D` |
-| `\|D\|` | Document length: token count in scored field |
-| `avgdl` | Average document length across all documents |
-| `N` | Total number of documents |
-| `n(qi)` | Document frequency: documents containing `qi` |
-| `k1` | Term saturation parameter (default: 1.2) |
-| `b` | Length normalisation parameter (default: 0.75) |
-
-### IDF (Inverse Document Frequency)
+### Inverse Document Frequency
 
 ```text
 IDF(qi) = ln((N - n(qi) + 0.5) / (n(qi) + 0.5) + 1)
 ```
 
-The `+ 1` inside the logarithm ensures IDF is always non-negative,
-even when a term appears in more than half the documents.
+The `+ 1` inside the logarithm keeps IDF at or above zero even for a term appearing in more than half the documents.
 
-### Multi-field Scoring
+### Multi-Field Scoring
 
-When a query matches a document across multiple fields, the final
-score is the sum of per-field BM25 scores, each multiplied by the
-field's boost factor:
+A query that matches a document across several fields scores the sum of the per-field BM25 scores, each multiplied by that field's boost:
 
 ```text
-total_score = SUM for each field f:
-  boost(f) * BM25(Q, D, field=f)
+total_score = SUM over each field f of
+  boost(f) * BM25(Q, D, field = f)
 ```
 
-Each field uses its own `|D|` (token count in that field) and `avgdl`
-(average token count across all documents for that field).
+Each field uses its own `|D|`, the token count in that field, and its own `avgdl`, the average token count for that field across every document.
 
-### BM25 Parameters
+### Parameters
 
-| Parameter | Default | Range  | Effect                                    |
-|-----------|---------|--------|-------------------------------------------|
-| `k1`      | 1.2     | [0, 3] | Controls term frequency saturation        |
-| `b`       | 0.75    | [0, 1] | Controls document length normalisation    |
+| Parameter | Default | Range | Effect |
+|-----------|---------|-------|--------|
+| `k1` | 1.2 | 0 to 3 | Controls how fast term frequency saturates |
+| `b` | 0.75 | 0 to 1 | Controls document length normalisation |
 
-Higher `k1` gives more weight to repeated terms. `b = 0` means no
-length normalisation; `b = 1` means full normalisation. Both are
-configurable per index at creation time.
+A higher `k1` gives repeated terms more weight. A `b` of 0 applies no length normalisation, and a `b` of 1 applies it fully. Both are configured per index when the index is created.
 
-### BM25 Edge Cases
+### Edge Cases
 
-- **Term in zero documents:** `n(qi) = 0`.
-  IDF = `ln((N + 0.5) / (0.5) + 1)`. High IDF, but no documents
-  match, so this term contributes nothing to any document's score.
-- **Term in all documents:** `n(qi) = N`.
-  IDF = `ln((0.5) / (N + 0.5) + 1)`. Close to zero; the term is
-  not discriminative.
-- **Empty corpus:** `N = 0`. Return score 0 for all documents.
-- **Zero-length document:** `|D| = 0`. The denominator reduces to
-  `k1 * (1 - b)`. If `b = 1`, the denominator is 0; implementations
-  must guard against division by zero (return score 0 for this field).
+- **A term in no documents** has `n(qi) = 0`, so IDF is `ln((N + 0.5) / 0.5 + 1)`. The IDF is high, but nothing matches, so the term adds nothing to any score.
+- **A term in every document** has `n(qi) = N`, so IDF is `ln(0.5 / (N + 0.5) + 1)`, which is near zero. The term separates nothing.
+- **An empty corpus** has `N = 0`, and every document scores 0.
+- **A zero-length document** has `|D| = 0`, which reduces the denominator to `k1 * (1 - b)`. With `b` at 1 that denominator is zero, so an implementation must guard against dividing by zero and score the field 0.
 
 ### Distributed BM25
 
-In a partitioned system, BM25 can operate in three modes:
+Across partitions, BM25 runs in one of three modes.
 
-**Local scoring** (default): Each partition uses its own `N`, `n(qi)`,
-and `avgdl`. Fast but approximate when partition sizes or term
-distributions vary.
+**Local scoring**, the default, gives each partition its own `N`, `n(qi)`, and `avgdl`. It is fast, and it approximates when partition sizes or term distributions differ.
 
-**DFS (Distributed Frequency Statistics)**: Two-phase query. Phase 1
-collects `{ N, n(qi), avgdl }` from each partition. The coordinator
-computes global values by summing `N` and `n(qi)` and computing
-weighted `avgdl`. Phase 2 sends the global statistics to each
-partition for scoring. Correct ranking, two round trips.
+**DFS**, for distributed frequency statistics, runs in two phases. The first collects `N`, `n(qi)`, and `avgdl` from each partition; the coordinator sums `N` and `n(qi)` and computes a weighted `avgdl`. The second sends those global values back for scoring. The ranking is correct and it costs two round trips.
 
-**Statistics broadcast**: Each partition periodically publishes its
-local statistics. The coordinator maintains a merged global statistics
-object. Queries use the latest merged statistics. One round trip,
-slightly stale.
+**Statistics broadcast** has each partition publish its local statistics periodically. The coordinator holds a merged set and every query scores against the latest merge. It costs one round trip and the statistics run slightly behind.
 
 ---
 
 ## Bounded Levenshtein Distance
 
-Used for fuzzy matching (typo tolerance). Computes the minimum number
-of single-character edits (insertions, deletions, substitutions) needed
-to transform string `a` into string `b`, with early termination when
-the distance exceeds a tolerance bound.
-
-### Levenshtein Algorithm
-
-Standard dynamic programming matrix with bounded evaluation:
+Fuzzy matching, meaning typo tolerance, uses the edit distance between two strings: the fewest single-character insertions, deletions, and substitutions that turn `a` into `b`. The computation stops early once the distance passes the tolerance.
 
 ```text
-fn boundedLevenshtein(a: string, b: string, tolerance: uint32)
-    -> { distance: uint32, withinTolerance: bool }
+boundedLevenshtein(a: string, b: string, tolerance: uint32)
+    -> { distance: uint32, withinTolerance: boolean }
 
-  if abs(len(a) - len(b)) > tolerance:
+  if absolute(length(a) - length(b)) > tolerance:
     return { distance: tolerance + 1, withinTolerance: false }
 
-  matrix = new uint32 array of size [len(a) + 1][len(b) + 1]
-  initialize matrix[i][0] = i for i in 0..len(a)
-  initialize matrix[0][j] = j for j in 0..len(b)
+  matrix = a uint32 grid of size [length(a) + 1][length(b) + 1]
+  set matrix[i][0] = i for i from 0 to length(a)
+  set matrix[0][j] = j for j from 0 to length(b)
 
-  for i in 1..len(a):
+  for i from 1 to length(a):
     rowMin = infinity
-    for j in 1..len(b):
-      cost = 0 if a[i-1] == b[j-1] else 1
-      matrix[i][j] = min(
-        matrix[i-1][j] + 1,      // deletion
-        matrix[i][j-1] + 1,      // insertion
-        matrix[i-1][j-1] + cost   // substitution
-      )
-      rowMin = min(rowMin, matrix[i][j])
+    for j from 1 to length(b):
+      cost = 0 when a[i-1] equals b[j-1], otherwise 1
+      matrix[i][j] = minimum of
+        matrix[i-1][j] + 1        (deletion)
+        matrix[i][j-1] + 1        (insertion)
+        matrix[i-1][j-1] + cost   (substitution)
+      rowMin = minimum(rowMin, matrix[i][j])
 
     if rowMin > tolerance:
       return { distance: tolerance + 1, withinTolerance: false }
 
-  distance = matrix[len(a)][len(b)]
+  distance = matrix[length(a)][length(b)]
   return { distance, withinTolerance: distance <= tolerance }
 ```
 
-### Key Optimization
+The early exit is what keeps this cheap: once the smallest value in a row passes the tolerance, the final distance must pass it too, so the remaining rows never need computing.
 
-Early termination: if the minimum value in any row exceeds the
-tolerance, the final distance must also exceed it. Skip remaining rows.
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `tolerance` | 0 | The largest edit distance accepted. Zero means exact matches only, so typo tolerance is opt-in per query. |
+| `prefixLength` | 2 | The number of leading characters that must match exactly. |
 
-### Levenshtein Parameters
-
-| Parameter      | Default | Description                                  |
-|----------------|---------|----------------------------------------------|
-| `tolerance`    | 1       | Maximum edit distance. 0 = exact match only. |
-| `prefixLength` | 2       | Characters that must match exactly first.    |
-
-The `prefixLength` optimisation limits the search space: only tokens
-sharing the same first N characters are candidates for fuzzy matching,
-reducing the comparisons from O(total\_tokens) to
-O(prefix\_bucket\_size).
+`prefixLength` narrows the search: only tokens sharing the same first characters are candidates, which turns a scan of every token into a scan of one prefix bucket.
 
 ---
 
 ## HNSW (Hierarchical Navigable Small World)
 
-HNSW is an approximate nearest neighbor (ANN) algorithm used for vector
-similarity search when the vector count exceeds the brute-force
-promotion threshold (see
-[vector-index.md](vector-index.md#hnsw-promotion) for the threshold
-configuration and promotion process).
+HNSW answers approximate nearest-neighbour queries once the vector count passes the brute-force promotion threshold. The threshold and the promotion process are in [HNSW Promotion](vector-index.md#hnsw-promotion).
 
 ### Graph Structure
 
-HNSW constructs a multi-layered proximity graph:
+HNSW builds a proximity graph in layers.
 
-- **Layer 0 (bottom):** Contains all vectors. Each node connects to
-  up to `M` nearest neighbors.
-- **Layer 1 through L:** Each higher layer contains a random subset
-  of nodes from the layer below. Connections span larger distances.
-- **Top layer:** Contains the fewest nodes. Serves as the entry
-  point for search.
+- **Layer 0**, the bottom, holds every vector, and each node connects to up to `M` of its nearest neighbours.
+- **Layers 1 upward** each hold a random subset of the layer below, and their connections span longer distances.
+- **The top layer** holds the fewest nodes, and every search starts there.
 
 Layer assignment follows an exponential distribution:
 
@@ -187,246 +139,175 @@ layer = floor(-ln(random()) * mL)
 where mL = 1 / ln(M)
 ```
 
-### Construction (Insertion)
+### Insertion
 
-When inserting a vector `v`:
+Inserting a vector `v` runs five steps:
 
-1. Assign a random layer level `l` using the exponential distribution.
-2. Set the entry point to the current graph's entry point at the
-   topmost layer.
-3. For each layer from the top down to `l + 1`:
-   - Greedily navigate to the nearest node to `v` (using the chosen
-     similarity metric).
-4. For each layer from `min(l, top_layer)` down to 0:
-   - Find the `efConstruction` nearest neighbors to `v` in this layer.
-   - Connect `v` to the `M` closest among them.
-   - For each neighbor, if it now has more than `M` connections (or
-     `2*M` at layer 0), prune to the `M` (or `2*M`) closest.
-5. If `l` is greater than the current top layer, update the entry
-   point to `v`.
+1. Draw a random layer level `l` from the exponential distribution above.
+2. Start from the graph's current entry point on its topmost layer.
+3. For each layer from the top down to `l + 1`, navigate greedily to the node nearest `v` under the chosen metric.
+4. For each layer from `minimum(l, top_layer)` down to 0, find the `efConstruction` nearest neighbours to `v` in that layer, connect `v` to the `M` closest of them, and prune any neighbour that now holds more than `M` connections, or more than `2 * M` at layer 0, back to its closest `M` or `2 * M`.
+5. When `l` is above the current top layer, make `v` the new entry point.
 
-### HNSW Search
+### Search
 
-For a query vector `q`, returning the `k` nearest neighbors:
+Finding the `k` nearest neighbours of a query vector `q`:
 
 1. Start at the entry point on the top layer.
-2. For each layer from the top down to layer 1:
-   - Greedily navigate to the nearest node to `q`.
-3. At layer 0:
-   - Maintain a candidate set (min-heap by distance) and a result set
-     (max-heap by distance), both initialised with the entry node from
-     the layer above.
-   - While the candidate set is not empty:
-     - Pop the closest candidate `c`.
-     - If the distance from `c` to `q` is greater than the farthest
-       result, stop.
-     - For each neighbor `n` of `c`:
-       - If `n` hasn't been visited:
-         - Compute distance from `n` to `q`.
-         - If the result set has fewer than `efSearch` entries, or `n`
-           is closer than the farthest result, add `n` to both sets.
-         - If the result set exceeds `efSearch`, remove the farthest.
-   - Return the `k` closest from the result set.
+2. For each layer from the top down to layer 1, navigate greedily to the node nearest `q`.
+3. At layer 0, keep a candidate set ordered by nearest distance and a result set ordered by farthest distance, both seeded with the node reached from the layer above. Then, while the candidate set holds anything:
+   - Take the closest candidate `c`.
+   - Stop when `c` is farther from `q` than the farthest result already held.
+   - For each unvisited neighbour `n` of `c`, compute its distance to `q`, and add it to both sets when the result set holds fewer than `efSearch` entries or `n` is closer than the farthest result. Drop the farthest whenever the result set exceeds `efSearch`.
+4. Return the `k` closest entries from the result set.
 
-### Node Removal
+### Removal
 
-When removing a vector `v`:
+Removing a vector `v`:
 
-1. For each layer containing `v`:
-   - For each neighbor `n` of `v`:
-     - Remove `v` from `n`'s connection list.
-     - Optionally reconnect `n` to `v`'s other neighbors if `n` lost
-       its only connection to a region of the graph.
-2. If `v` was the entry point, select the nearest remaining node as
-   the new entry point.
+1. In every layer holding `v`, take `v` out of each neighbour's connection list. A neighbour that has lost its only link to a region of the graph may be reconnected to `v`'s other neighbours.
+2. When `v` was the entry point, promote the nearest remaining node in its place.
 
-### HNSW Parameters
+### Parameters
 
-| Parameter        | Default | Description                             |
-|------------------|---------|-----------------------------------------|
-| `M`              | 16      | Max connections per node per layer      |
-| `efConstruction` | 200     | Dynamic candidate list during build     |
-| `efSearch`       | 50      | Dynamic candidate list during search    |
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `M` | 16 | The maximum connections per node per layer |
+| `efConstruction` | 200 | The size of the dynamic candidate list during a build |
+| `efSearch` | 50 | The size of the dynamic candidate list during a search |
 
-Layer 0 uses `2*M` connections. Higher `efConstruction` produces better
-graph quality but slower insertion. Higher `efSearch` produces better
-recall but slower queries. `efSearch` is configurable per query.
+Layer 0 allows `2 * M` connections. A higher `efConstruction` builds a better graph and inserts more slowly. A higher `efSearch` raises recall and answers more slowly, and each query may set its own.
 
-### Similarity Metrics
+The metrics are defined in [Similarity Functions](#similarity-functions).
 
-See the [Similarity Functions](#similarity-functions) section below.
+### Serialisation
 
-### HNSW Serialization
-
-The HNSW graph serialises using an array-based node format for compact
-MessagePack encoding (see [envelope.md](envelope.md) for the full
-schema):
+A graph serialises with an array-based node form, which keeps the MessagePack encoding compact. The full schema is in [envelope.md](envelope.md).
 
 ```text
 {
-  entry_point:     string (docId)
+  entry_point:     string   (a docId)
   max_layer:       uint8
   m:               uint8
   ef_construction: uint16
-  nodes: array[[
+  nodes: List<[
     docId:       string,
     layer:       uint8,
-    connections: array[[
-      layer_index: uint8,
-      neighbor_ids: array[string]
-    ]]
-  ]]
+    connections: List<[
+      layer_index:  uint8,
+      neighbor_ids: List<string>
+    ]>
+  ]>
 }
 ```
 
 ### Filtered Search
 
-When a filter set is provided, only vectors whose document ID is in
-the filter are eligible for results. Filter selectivity affects
-search strategy:
+With a filter set supplied, only vectors whose document ID is in the set can appear in the results, and how selective that filter is decides the strategy:
 
 ```text
 selectivity = size(filterDocIds) / totalVectors
 
-if selectivity < filterThreshold (default 0.03):
-  Brute-force scan only the vectors in filterDocIds.
+if selectivity < filterThreshold (0.03 by default):
+  scan the vectors in filterDocIds by brute force
 else:
-  HNSW traversal with filter applied during the walk.
-  Increase efSearch to compensate for reduced connectivity:
-    ef = max(efSearch, ceil(k / max(selectivity, 0.01)))
-    ef = min(ef, totalVectors)
+  traverse the graph with the filter applied during the walk, and
+  raise efSearch to make up for the lost connectivity:
+    ef = maximum(efSearch, ceiling(k / maximum(selectivity, 0.01)))
+    ef = minimum(ef, totalVectors)
 ```
 
-At 3% selectivity on a 100K index, the filter passes 3,000 vectors.
-Brute-force over 3,000 vectors is fast. HNSW traversal with 97%
-dead-end rate would be slower due to graph traversal overhead on
-non-matching nodes.
+At 3% selectivity on an index of 100,000 vectors the filter admits 3,000 vectors, and a brute-force pass over those is quick. A traversal that fails the filter on 97% of the nodes it reaches costs more, because it pays the traversal on top of the same comparisons.
 
-When searching multiple HNSW graphs, the selectivity check applies
-per graph, not globally.
+When an index holds several graphs, the selectivity check runs per graph rather than over the whole index.
 
 ### Auto-Promotion
 
-Narsil uses a two-tier approach to vector search: brute-force
-linear scan below a configurable promotion threshold, and HNSW
-approximate search at or above it. See
-[vector-index.md](vector-index.md#hnsw-promotion) for the full
-promotion process, threshold configuration, and construction
-strategy.
+Vector search runs in two tiers: a brute-force linear scan below a configurable promotion threshold, and HNSW at or above it. The promotion process, the threshold, and the construction strategies are in [HNSW Promotion](vector-index.md#hnsw-promotion).
 
 ---
 
 ## Similarity Functions
 
-Three metrics for vector distance/similarity computation. All operate
-on 32-bit floating-point arrays for memory efficiency.
+Three metrics measure the distance between two vectors, and all three work on arrays of 32-bit floats.
 
 ### Cosine Similarity
 
 ```text
 cosine(a, b) = dot(a, b) / (magnitude(a) * magnitude(b))
 
-where:
-  dot(a, b) = SUM(a[i] * b[i]) for i in 0..dimension
-  magnitude(v) = sqrt(SUM(v[i]^2)) for i in 0..dimension
+where
+  dot(a, b)    = SUM over i of a[i] * b[i]
+  magnitude(v) = squareRoot(SUM over i of v[i] * v[i])
 ```
 
-Range: \[-1, 1\]. Higher is more similar. Default metric.
+The range is -1 to 1, higher is more similar, and this is the default metric.
 
-Pre-compute and store `magnitude(v)` at insertion time to avoid
-recomputation during search. If either vector has zero magnitude,
-return 0 (no similarity).
+Compute `magnitude(v)` when the vector is inserted and store it, so no search recomputes it. When either vector has zero magnitude, return 0.
 
 ### Dot Product
 
 ```text
-dotProduct(a, b) = SUM(a[i] * b[i]) for i in 0..dimension
+dotProduct(a, b) = SUM over i of a[i] * b[i]
 ```
 
-Range: unbounded. Higher is more similar. Use when vectors are already
-normalised to unit length (in that case, dot product equals cosine
-similarity).
+The range is unbounded and higher is more similar. Use it on vectors already normalised to unit length, where the dot product equals the cosine similarity.
 
 ### Euclidean Distance
 
 ```text
-euclidean(a, b) = sqrt(SUM((a[i] - b[i])^2) for i in 0..dimension)
+euclidean(a, b) = squareRoot(SUM over i of (a[i] - b[i]) * (a[i] - b[i]))
 ```
 
-Range: \[0, infinity). Lower is more similar. For ranking purposes,
-the square root can be omitted (squared distance preserves ordering).
+The range starts at 0 and has no upper bound, and a lower value means more similar. Ranking can skip the square root, because squared distance preserves the order.
 
 ---
 
 ## Haversine Distance
 
-Computes the great-circle distance between two points on a sphere.
-Uses the mean Earth radius (6,371,008.8 meters). Fast, accurate for
-short distances.
-
-### Haversine Formula
+Haversine gives the great-circle distance between two points on a sphere. It uses the mean Earth radius, and it is fast and accurate over short distances.
 
 ```text
 a = sin^2((lat2 - lat1) / 2)
   + cos(lat1) * cos(lat2) * sin^2((lon2 - lon1) / 2)
-c = 2 * atan2(sqrt(a), sqrt(1 - a))
+c = 2 * atan2(squareRoot(a), squareRoot(1 - a))
 distance = R * c
 ```
 
-Where:
+`lat1`, `lon1`, `lat2`, and `lon2` are in radians, converted from degrees by multiplying by PI and dividing by 180. `R` is 6,371,008.8 metres, the mean Earth radius, and the result is in metres.
 
-- `lat1, lon1, lat2, lon2` are in **radians**
-  (convert from degrees: `rad = deg * PI / 180`)
-- `R = 6,371,008.8` meters (mean Earth radius)
-- Result is in **meters**
+| Unit | Conversion from metres |
+|------|------------------------|
+| `km` | distance / 1000 |
+| `mi` | distance / 1609.344 |
+| `m` | distance unchanged |
 
-### Unit Conversion
-
-| Unit | Conversion from meters   |
-|------|--------------------------|
-| `km` | distance / 1000          |
-| `mi` | distance / 1609.344      |
-| `m`  | distance (no conversion) |
-
-### Haversine Edge Cases
-
-- **Same point:** distance = 0.
-- **Antipodal points:** distance = `PI * R` (half circumference).
-- **Latitude out of range:** Implementations should accept \[-90, 90\]
-  for latitude and \[-180, 180\] for longitude. Values outside these
-  ranges are a schema validation error at insertion time.
+Three edge cases matter. Two identical points give 0. Two antipodal points give `PI * R`, half the circumference. Latitude must fall between -90 and 90 and longitude between -180 and 180; a value outside those ranges is a schema validation error at insertion time.
 
 ---
 
 ## Vincenty Distance
 
-Computes the geodesic distance between two points on an oblate spheroid
-(WGS-84 ellipsoid). More accurate than Haversine for long distances,
-but slower due to iterative computation.
-
-### WGS-84 Parameters
+Vincenty gives the geodesic distance between two points on an oblate spheroid, the WGS-84 ellipsoid. It is more accurate than Haversine over long distances and slower, because it iterates.
 
 ```text
-a = 6,378,137.0          (semi-major axis in meters)
+a = 6378137.0            (semi-major axis in metres)
 f = 1 / 298.257223563    (flattening)
-b = a * (1 - f)          (semi-minor axis, ~6,356,752.314 meters)
+b = a * (1 - f)          (semi-minor axis, about 6356752.314 metres)
 ```
 
-### Vincenty Algorithm (Inverse Problem)
-
-Given two points `(lat1, lon1)` and `(lat2, lon2)` in radians:
+Given two points in radians:
 
 ```text
 U1 = atan((1 - f) * tan(lat1))
 U2 = atan((1 - f) * tan(lat2))
-L = lon2 - lon1
+L  = lon2 - lon1
 
-lambda = L  (initial approximation)
+lambda = L   (the first approximation)
 
-repeat until convergence (|lambda_new - lambda| < 1e-12)
-  or max 200 iterations:
+repeat until |lambda_new - lambda| < 1e-12, or 200 iterations:
 
-  sin_sigma = sqrt(
+  sin_sigma = squareRoot(
     (cos(U2) * sin(lambda))^2 +
     (cos(U1) * sin(U2) - sin(U1) * cos(U2) * cos(lambda))^2
   )
@@ -437,7 +318,7 @@ repeat until convergence (|lambda_new - lambda| < 1e-12)
   cos2_alpha = 1 - sin_alpha^2
   cos_2sigma_m = cos_sigma
                - 2 * sin(U1) * sin(U2) / cos2_alpha
-    (if cos2_alpha == 0, set cos_2sigma_m = 0)
+    (when cos2_alpha is 0, set cos_2sigma_m to 0)
   C = f / 16 * cos2_alpha * (4 + f * (4 - 3 * cos2_alpha))
   lambda_new = L + (1 - C) * f * sin_alpha * (
     sigma + C * sin_sigma * (
@@ -464,343 +345,281 @@ delta_sigma = B * sin_sigma * (
 distance = b * A * (sigma - delta_sigma)
 ```
 
-Result is in **meters**.
+The result is in metres.
 
-### Convergence
+A loop that has not converged after 200 iterations, which happens for nearly antipodal points, falls back to the Haversine formula.
 
-If the iterative loop does not converge within 200 iterations (which
-happens for nearly antipodal points), fall back to the Haversine
-formula.
-
-### When to Use
-
-Haversine is the default distance formula. Vincenty is used when the
-`highPrecision` flag is set in a geo radius filter. For distances
-under ~100 km, the difference between Haversine and Vincenty is
-negligible (< 0.3%). For transcontinental distances, Vincenty can
-differ by up to 0.5%.
+Haversine is the default. Vincenty runs when a geo radius filter sets its high-precision flag. Under about 100 km the two differ by less than 0.3%, and across a continent Vincenty can differ by up to 0.5%.
 
 ---
 
 ## Point-in-Polygon (Ray Casting)
 
-Determines whether a point lies inside a polygon. Used for geo
-polygon filters.
-
-### Ray Casting Algorithm
-
-Cast a horizontal ray from the test point to the right. Count how
-many polygon edges the ray crosses. Odd count = inside, even count =
-outside.
+Geo polygon filters test whether a point lies inside a polygon by casting a horizontal ray from the point to the right and counting the polygon edges it crosses. An odd count puts the point inside, and an even count puts it outside.
 
 ```text
-fn isPointInPolygon(lat: float64, lon: float64, polygon: array[GeoPoint]) -> bool
+isPointInPolygon(lat: float64, lon: float64, polygon: List<GeoPoint>) -> boolean
   inside = false
-  j = len(polygon) - 1
+  j = length(polygon) - 1
 
-  for i in 0..len(polygon):
-    if (polygon[i].lon > lon) != (polygon[j].lon > lon):
+  for i from 0 to length(polygon) - 1:
+    if (polygon[i].lon > lon) differs from (polygon[j].lon > lon):
       slope = (polygon[j].lat - polygon[i].lat)
             / (polygon[j].lon - polygon[i].lon)
       intersectLat = polygon[i].lat
                    + slope * (lon - polygon[i].lon)
       if lat < intersectLat:
-        inside = !inside
+        inside = not inside
     j = i
 
   return inside
 ```
 
-### Polygon Centroid (Shoelace Formula)
+### Polygon Centroid
 
-Used internally for optimisation (e.g., pre-filtering by distance to
-centroid before running the full polygon check).
+The centroid, from the shoelace formula, supports optimisations such as filtering by distance to the centroid before running the full polygon test.
 
 ```text
-fn centroid(polygon: array[GeoPoint]) -> GeoPoint
-  A = 0  (signed area)
+centroid(polygon: List<GeoPoint>) -> GeoPoint
+  A  = 0   (signed area)
   cx = 0
   cy = 0
-  n = len(polygon)
+  n  = length(polygon)
 
-  for i in 0..n:
-    j = (i + 1) % n
+  for i from 0 to n - 1:
+    j = (i + 1) modulo n
     cross = polygon[i].lat * polygon[j].lon
           - polygon[j].lat * polygon[i].lon
-    A = A + cross
+    A  = A + cross
     cx = cx + (polygon[i].lat + polygon[j].lat) * cross
     cy = cy + (polygon[i].lon + polygon[j].lon) * cross
 
-  A = A / 2
+  A  = A / 2
   cx = cx / (6 * A)
   cy = cy / (6 * A)
 
   return { lat: cx, lon: cy }
 ```
 
-### Polygon Edge Cases
-
-- **Point on edge:** Treated as outside (consistent with the ray
-  casting algorithm's boundary behaviour).
-- **Degenerate polygon (< 3 points):** Return false.
-- **Self-intersecting polygon:** Behaviour is undefined. Implementations
-  may choose to support it using the even-odd rule (same as ray
-  casting).
+Three edge cases matter. A point exactly on an edge counts as outside, which is what ray casting gives at a boundary. A polygon of fewer than three points returns false. A self-intersecting polygon has undefined behaviour, and an implementation may support it under the even-odd rule that ray casting already applies.
 
 ---
 
 ## CRC32
 
-CRC32 with the IEEE polynomial, used for data integrity checks in
-`.nrsl` envelopes.
-
-### Polynomial
+CRC32 under the IEEE polynomial covers data integrity in `.nrsl` envelopes.
 
 ```text
 IEEE polynomial: 0xEDB88320 (reflected form)
 ```
 
-### CRC32 Algorithm
-
-Use a 256-entry lookup table for performance:
+A 256-entry lookup table makes it fast:
 
 ```text
-fn buildCRC32Table() -> array[uint32]
-  table = new uint32 array of size 256
-  for i in 0..256:
+buildCRC32Table() -> List<uint32>
+  table = a uint32 array of 256 entries
+  for i from 0 to 255:
     crc = i
-    for bit in 0..8:
-      if crc & 1:
-        crc = (crc >>> 1) XOR 0xEDB88320
+    for bit from 0 to 7:
+      if crc AND 1 is nonzero:
+        crc = (crc >> 1) XOR 0xEDB88320
       else:
-        crc = crc >>> 1
+        crc = crc >> 1
     table[i] = crc
   return table
 
-fn crc32(data: bytes) -> uint32
-  table = getCachedTable()
+crc32(data: bytes) -> uint32
+  table = the cached table
   crc = 0xFFFFFFFF
-  for byte in data:
-    crc = (crc >>> 8) XOR table[(crc XOR byte) & 0xFF]
+  for each byte in data:
+    crc = (crc >> 8) XOR table[(crc XOR byte) AND 0xFF]
   return crc XOR 0xFFFFFFFF
 ```
 
+Every shift above is a logical shift on a 32-bit unsigned value, filling from the left with zeros.
+
 ### Test Vectors
 
-| Input             | CRC32 (hex)  |
-|-------------------|--------------|
-| empty bytes       | `0x00000000` |
-| ASCII "123456789" | `0xCBF43926` |
+| Input | CRC32 |
+|-------|-------|
+| empty bytes | `0x00000000` |
+| ASCII `123456789` | `0xCBF43926` |
 
-### CRC32 Usage
-
-CRC32 is computed over the raw payload bytes (after compression, if
-applicable). The result is stored in header bytes 14-17 when the
-checksum flag is set. On read, recompute and compare; a mismatch
-indicates corruption and must raise a `PERSISTENCE_CRC_MISMATCH` error.
+CRC32 covers the raw payload bytes, after compression when compression is on. The result goes into header bytes 14 to 17 when the checksum flag is set. A reader recomputes it and compares, and a mismatch means corruption and must raise `PERSISTENCE_CRC_MISMATCH`.
 
 ---
 
 ## FNV-1a Hash
 
-A fast, non-cryptographic hash function used for partition routing
-(`hash(docId) % partitionCount`).
-
-### FNV-1a Algorithm
+FNV-1a is the fast, non-cryptographic hash behind partition routing, where the partition is `hash(docId) modulo partitionCount`.
 
 ```text
-fn fnv1a(input: string) -> uint32
-  hash = 2166136261          (FNV offset basis, uint32)
-  for each byte in UTF-8(input):
+fnv1a(input: string) -> uint32
+  hash = 2166136261            (the FNV offset basis)
+  for each byte of the UTF-8 encoding of input:
     hash = hash XOR byte
-    hash = hash * 16777619   (FNV prime, uint32)
-    hash = hash & 0xFFFFFFFF (keep 32-bit)
+    hash = hash * 16777619     (the FNV prime)
+    hash = hash AND 0xFFFFFFFF (keep 32 bits)
   return hash
 ```
 
-### FNV-1a Test Vectors
+### Test Vectors
 
-| Input             | FNV-1a (hex)   |
-|-------------------|----------------|
-| empty string      | `0x811C9DC5`   |
-| ASCII "foobar"    | `0xBF9CF968`   |
+| Input | FNV-1a |
+|-------|--------|
+| empty string | `0x811C9DC5` |
+| ASCII `foobar` | `0xBF9CF968` |
 
-The empty string returns the FNV offset basis unchanged since no
-XOR/multiply iterations execute.
+The empty string returns the offset basis unchanged, because the loop never runs.
 
-### FNV-1a Properties
+FNV-1a is deterministic, so the same input always gives the same output, and it spreads values evenly enough for routing. It is not cryptographically secure, so it must never be used for anything but hash-based routing.
 
-- Deterministic: same input always produces the same output.
-- Uniform distribution: produces well-distributed values for partition
-  routing.
-- Not cryptographically secure: used only for hash-based routing, never
-  for security.
-
-### Cross-Language Note
-
-The input string must be encoded as UTF-8 bytes before hashing. All
-implementations must use the same UTF-8 encoding to ensure identical
-hash values across languages.
+The input must be encoded as UTF-8 bytes before hashing. Every implementation must use that same encoding, or the same document ID routes to different partitions in different languages.
 
 ---
 
-## Reciprocal Rank Fusion (RRF)
+## Reciprocal Rank Fusion
 
-RRF is the default hybrid search fusion strategy. It combines
-ranked result lists from different search modalities (e.g., BM25
-text search and vector similarity search) by fusing on rank
-position rather than score magnitude.
+RRF is the default hybrid fusion strategy. It combines ranked lists from different search modes, such as BM25 text results and vector similarity results, by fusing on rank position instead of score magnitude.
 
-### RRF Formula
-
-Given result lists `L1, L2, ..., Ln` and a constant `k`:
+Given result lists `L1` through `Ln` and a constant `k`:
 
 ```text
-rrf_score(doc) = SUM for each list Li where doc appears:
+rrf_score(doc) = SUM over each list Li containing doc of
   1 / (k + rank_Li(doc))
 ```
 
-Where `rank_Li(doc)` is the 1-indexed rank of the document in list
-`Li`. Documents ranked first have `rank = 1`.
+`rank_Li(doc)` is the document's rank in list `Li`, counted from 1, so the first document in a list has rank 1.
 
-### RRF Parameters
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `k` | 60 | The constant that damps how much rank position counts |
 
-| Parameter | Default | Description                              |
-|-----------|---------|------------------------------------------|
-| `k`       | 60      | Dampening constant for rank influence    |
-
-Higher `k` reduces the score difference between adjacent ranks,
-making the fusion more uniform. Lower `k` amplifies the advantage
-of top-ranked results.
-
-### RRF Algorithm
+A higher `k` narrows the gap between adjacent ranks and makes the fusion more even. A lower `k` widens the advantage the top ranks hold.
 
 ```text
-fn reciprocalRankFusion(lists: array[array[ScoredDoc]], k: uint32) -> array[ScoredDoc]
-  scores = map[string, float64]
+reciprocalRankFusion(lists: List<List<ScoredDoc>>, k: uint32) -> List<ScoredDoc>
+  scores = an empty Map<string, float64>
 
   for each list L in lists:
-    for rank, doc in enumerate(L, start=1):
+    for each doc in L, with rank counted from 1:
       scores[doc.id] = (scores[doc.id] or 0) + 1 / (k + rank)
 
-  result = collect scores entries, sorted by score descending
-  return result
+  return the entries of scores, ordered by score, highest first
 ```
 
-### RRF Properties
+Three properties follow:
 
-- **Normalisation-free:** Ranks are directly comparable across any
-  scoring system. BM25 scores and cosine similarities have
-  different distributions, but rank positions are always
-  comparable.
-- **Missing list handling:** Documents appearing in only one list
-  receive a score contribution from that list only. Their
-  contribution from missing lists is 0 (equivalent to
-  `rank = infinity`).
-- **Ties:** When multiple documents have the same RRF score, they
-  are ordered by document ID (lexicographic) for deterministic
-  pagination.
+- **RRF needs no normalisation.** BM25 scores and cosine similarities have different distributions, and their rank positions compare directly.
+- **A document in one list only** takes a contribution from that list alone, and its contribution from a list it is missing from is 0, which is the same as ranking it infinitely far down.
+- **Ties break by document ID**, compared lexicographically, which keeps pagination deterministic.
 
 ---
 
-## Scalar Quantization (SQ8)
+## Scalar Quantisation (SQ8)
 
-SQ8 compresses float32 vectors to uint8, providing 4x memory
-savings for stored vectors. Quantized vectors are used for fast
-approximate distance computation during HNSW traversal.
-Full-precision vectors are kept for final rescoring.
+SQ8 compresses a float32 vector into uint8 values, cutting the memory a stored vector needs to a quarter. Quantised vectors give fast approximate distances during graph traversal, and the full-precision vectors stay for the final rescoring.
 
-### Quantization Formula
+### Quantisation Formula
 
-For a vector `v` with global statistics `alpha` and `offset`:
+`alpha` is the step size, the distance in the original value space between two consecutive uint8 values, and `offset` is the value that quantises to zero. Together they reconstruct any stored value:
 
 ```text
-quantize(v[i]) = clamp(round((v[i] - offset) / alpha * 255), 0, 255)
-
-dequantize(q[i]) = q[i] / 255 * alpha + offset
+quantize(v[i])   = clamp(round((v[i] - offset) / alpha), 0, 255)
+dequantize(q[i]) = q[i] * alpha + offset
 ```
+
+Every distance formula below is written in terms of this step size, so a writer must persist `alpha` as the step and never as the range it was derived from.
 
 ### Calibration
 
-Calibration computes `alpha` and `offset` from all vectors in the
-store:
+Calibration derives `alpha` and `offset` from every vector in the store:
 
 ```text
-fn calibrate(vectors: array[float32 array]) -> { alpha: float32, offset: float32 }
-  allValues = flatten all dimensions from all vectors
-  min_val = min(allValues)
-  max_val = max(allValues)
-  alpha  = max_val - min_val
+calibrate(vectors: List<List<float32>>) -> { alpha: float32, offset: float32 }
+  allValues = every dimension of every vector, flattened
+  min_val = minimum(allValues)
+  max_val = maximum(allValues)
+
+  pad     = (max_val - min_val) * 0.01
+  min_val = min_val - pad
+  max_val = max_val + pad
+
+  when min_val equals max_val:
+    min_val = min_val - 0.001
+    max_val = max_val + 0.001
+
+  alpha  = (max_val - min_val) / 255
   offset = min_val
   return { alpha, offset }
 ```
 
-If `alpha` is zero (all values identical), set `alpha = 1.0` to
-avoid division by zero.
+The bounds widen by one per cent at each end so that values near the extremes keep headroom. When every value in the store is identical the padding is zero, so the bounds separate by a fixed amount instead and `alpha` stays above zero.
 
-### SQ8 Dot Product
+Calibration returns nothing when the store holds no vectors, and the caller leaves quantisation switched off until it does.
 
-The quantized dot product uses integer arithmetic:
+### Quantised Dot Product
+
+The quantised dot product runs on integers:
 
 ```text
-fn sq8DotProduct(a: uint8 array, b: uint8 array, dimension: uint16,
-                 alpha: float32, offset: float32) -> float32
-  intSum = 0
+sq8DotProduct(a: List<uint8>, b: List<uint8>, dimension: uint16,
+              alpha: float32, offset: float32) -> float32
+  intSum  = 0
   intSumA = 0
   intSumB = 0
-  for i in 0..dimension:
+  for i from 0 to dimension - 1:
     intSum  = intSum + a[i] * b[i]
     intSumA = intSumA + a[i]
     intSumB = intSumB + b[i]
 
-  scale = alpha / 255
-  return scale * scale * intSum
-       + scale * offset * (intSumA + intSumB)
+  return alpha * alpha * intSum
+       + alpha * offset * (intSumA + intSumB)
        + offset * offset * dimension
 ```
 
-This avoids per-dimension floating-point operations. The three
-integer accumulators are computed in a single pass, then converted
-to the final float result with three multiplications.
+Nothing inside the loop is floating point. The three integer accumulators build in one pass, and three multiplications turn them into the final result.
 
-### SQ8 Cosine Similarity
+### Quantised Cosine Similarity
 
-For cosine similarity, pre-computed vector sums and sum-of-squares
-are used to compute magnitudes without dequantizing:
+Cosine similarity reads pre-computed sums and sums of squares, so it never has to dequantise a vector to find its magnitude:
 
 ```text
-fn sq8Cosine(a: uint8 array, b: uint8 array, dimension: uint16,
-             alpha: float32, offset: float32,
-             sumA: float32, sumSqA: float32,
-             sumB: float32, sumSqB: float32) -> float32
-  dot = sq8DotProduct(a, b, dimension, alpha, offset)
-  magA = sqrt(sumSqA)
-  magB = sqrt(sumSqB)
-  if magA == 0 or magB == 0: return 0
+sq8Cosine(a: List<uint8>, b: List<uint8>, dimension: uint16,
+          alpha: float32, offset: float32,
+          sumA: float32, sumSqA: float32,
+          sumB: float32, sumSqB: float32) -> float32
+  dot  = sq8DotProduct(a, b, dimension, alpha, offset)
+  magA = sq8Magnitude(dimension, alpha, offset, sumA, sumSqA)
+  magB = sq8Magnitude(dimension, alpha, offset, sumB, sumSqB)
+  if magA is 0 or magB is 0:
+    return 0
   return dot / (magA * magB)
+
+sq8Magnitude(dimension: uint16, alpha: float32, offset: float32,
+             sum: float32, sumSq: float32) -> float32
+  value = alpha * alpha * sumSq
+        + 2 * alpha * offset * sum
+        + dimension * offset * offset
+  when value is 0 or below, return 0
+  return squareRoot(value)
 ```
 
-`sumSqA` and `sumSqB` are pre-computed from the full-precision
-vectors at insertion time:
+`sum` and `sumSq` are computed from the **quantised** uint8 values of a vector, never from the full-precision values, and a writer stores them that way in `vector_sums` and `vector_sum_sqs`:
 
 ```text
-sumSq(v) = SUM(v[i]^2) for i in 0..dimension
+sum(q)   = SUM over i of q[i]
+sumSq(q) = SUM over i of q[i] * q[i]
 ```
 
-### SQ8 Properties
+The magnitude formula expands `dequantize` inside the sum of squares, which is why it needs both accumulators and the dimension. Storing full-precision sums here yields wrong magnitudes and wrong cosine scores.
 
-- **Memory savings:** 4x reduction (float32 to uint8 per dimension).
-- **Speed:** The integer inner loop benefits from SIMD acceleration.
-  On runtimes without SIMD support, the primary value of SQ8 is
-  memory savings. On runtimes with SIMD (native code, WASM SIMD),
-  the integer inner loop can be significantly faster than float32.
-- **Accuracy:** Global SQ8 (single alpha/offset for all dimensions)
-  matches float32 HNSW recall for typical embedding distributions.
-  Accuracy degrades when the value distribution is highly non-uniform
-  across dimensions.
+### Properties
+
+- **Memory.** One byte per dimension replaces four, a fourfold reduction.
+- **Speed.** The integer inner loop benefits from SIMD. Without SIMD, SQ8 buys memory rather than speed; with it, the integer loop runs considerably faster than the float32 equivalent.
+- **Accuracy.** A global `alpha` and `offset`, shared across every dimension, matches float32 HNSW recall for typical embedding distributions. Accuracy falls off when the value distribution varies sharply between dimensions.
 
 ### Recalibration
 
-SQ8 parameters are recalibrated during `compact()` to account for
-distribution changes after document removals. See
-[vector-index.md](vector-index.md#scalar-quantization-sq8).
+`compact` recalibrates the SQ8 parameters, so that removing documents cannot leave the quantiser tuned to a distribution the index no longer holds. See [Scalar Quantisation (SQ8)](vector-index.md#scalar-quantisation-sq8).

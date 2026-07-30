@@ -38,6 +38,20 @@ describe('serializeMetadata / deserializeMetadata', () => {
     expect(restored.bm25Params.b).toBeCloseTo(0.5)
   })
 
+  it('roundtrips partition limits including the watermark', () => {
+    const original = makeMetadata()
+    original.partitionLimits = { maxDocsPerPartition: 50_000, maxPartitions: 4, watermark: 0.8 }
+    const restored = deserializeMetadata(serializeMetadata(original))
+    expect(restored.partitionLimits).toEqual({ maxDocsPerPartition: 50_000, maxPartitions: 4, watermark: 0.8 })
+  })
+
+  it('drops an out-of-range watermark on read', () => {
+    const original = makeMetadata()
+    original.partitionLimits = { maxDocsPerPartition: 10, watermark: 2 }
+    const restored = deserializeMetadata(serializeMetadata(original))
+    expect(restored.partitionLimits).toEqual({ maxDocsPerPartition: 10 })
+  })
+
   it('persists the surface-forms setting and omits it when off', () => {
     const enabled = deserializeMetadata(serializeMetadata({ ...makeMetadata(), surfaceForms: true }))
     expect(enabled.surfaceForms).toBe(true)

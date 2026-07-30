@@ -1,5 +1,5 @@
 import type { VectorMetric } from '../brute-force'
-import type { ScalarQuantizer } from '../scalar-quantization'
+import type { ScalarQuantizer } from '../scalar-quantization-types'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance } from '../similarity'
 import type { VectorStore, VectorStoreEntry } from '../vector-store'
 

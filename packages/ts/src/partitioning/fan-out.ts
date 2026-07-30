@@ -6,7 +6,7 @@ import type { LanguageModule } from '../types/language'
 import type { FacetResult } from '../types/results'
 import type { SchemaDefinition, ScoringMode } from '../types/schema'
 import type { QueryParams } from '../types/search'
-import { collectGlobalStats } from './distributed-scoring'
+import { collectQueryTermStats } from './distributed-scoring'
 import type { PartitionManager } from './manager'
 
 export interface FanOutConfig {
@@ -57,7 +57,12 @@ export async function fanOutQuery(
   const effectiveMode = resolveEffectiveMode(config)
 
   if (effectiveMode === 'dfs') {
-    globalStats = collectGlobalStats(manager)
+    if (params.term !== undefined && params.term.trim().length > 0) {
+      globalStats = collectQueryTermStats(manager, params.term, language, {
+        stopWords: searchOptions?.stopWords,
+        customTokenizer: searchOptions?.customTokenizer,
+      })
+    }
   } else if (effectiveMode === 'broadcast') {
     globalStats = config.globalStats
   }

@@ -4,11 +4,11 @@ import type { ReplicationOperation } from '../distribution/replication/types'
 import { VERSION } from '../index'
 import { createDurabilityManager, type DurabilityManager } from '../persistence/durability'
 import { createSnapshotOnlyManager } from '../persistence/durability/snapshot-only'
-import type { IndexDurabilityHooks } from '../persistence/durability/types'
+import type { CheckpointPublisher, IndexDurabilityHooks } from '../persistence/durability/types'
 import type { PersistenceAdapter } from '../types/adapters'
 import type { DurabilityConfig } from '../types/config'
 import type { IndexEmbeddingMetadata, IndexMetadata } from '../types/internal'
-import type { AnyDocument } from '../types/schema'
+import type { AnyDocument, PartitionConfig, ScoringMode, VectorIndexConfig } from '../types/schema'
 
 export type DurabilityTier =
   | { kind: 'wal'; config: DurabilityConfig }
@@ -45,10 +45,20 @@ export interface DurabilityIntegrationHooks {
         b: number
         embedding?: IndexEmbeddingMetadata
         surfaceForms?: boolean
+        tokenizer?: string
+        stopWords?: string
+        stopWordList?: string[]
+        partitionLimits?: PartitionConfig
+        defaultScoring?: ScoringMode
+        trackPositions?: boolean
+        strict?: boolean
+        required?: string[]
+        vectorPromotion?: VectorIndexConfig
       }
     | undefined
   createIndexFromMetadata: IndexDurabilityHooks['createIndexFromMetadata']
   onFatalError: IndexDurabilityHooks['onFatalError']
+  checkpointPublisher?: CheckpointPublisher
 }
 
 function buildMetadata(indexName: string, hooks: DurabilityIntegrationHooks): IndexMetadata | undefined {
@@ -72,6 +82,33 @@ function buildMetadata(indexName: string, hooks: DurabilityIntegrationHooks): In
   if (config.surfaceForms) {
     metadata.surfaceForms = true
   }
+  if (config.tokenizer !== undefined) {
+    metadata.tokenizer = config.tokenizer
+  }
+  if (config.stopWords !== undefined) {
+    metadata.stopWords = config.stopWords
+  }
+  if (config.stopWordList !== undefined) {
+    metadata.stopWordList = config.stopWordList
+  }
+  if (config.partitionLimits !== undefined) {
+    metadata.partitionLimits = config.partitionLimits
+  }
+  if (config.defaultScoring !== undefined) {
+    metadata.defaultScoring = config.defaultScoring
+  }
+  if (config.trackPositions !== undefined) {
+    metadata.trackPositions = config.trackPositions
+  }
+  if (config.strict !== undefined) {
+    metadata.strict = config.strict
+  }
+  if (config.required !== undefined) {
+    metadata.required = config.required
+  }
+  if (config.vectorPromotion !== undefined) {
+    metadata.vectorPromotion = config.vectorPromotion
+  }
   return metadata
 }
 
@@ -91,7 +128,7 @@ export function createDurabilityIntegration(
   const manager =
     tier.kind === 'wal'
       ? createDurabilityManager(tier.config, managerHooks)
-      : createSnapshotOnlyManager(tier.adapter, tier.config, managerHooks)
+      : createSnapshotOnlyManager(tier.adapter, tier.config, managerHooks, hooks.checkpointPublisher)
 
   function partitionFor(indexName: string, docId: string): number {
     const partitionManager = hooks.getManager(indexName)

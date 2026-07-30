@@ -1,4 +1,12 @@
 export {
+  getStopWords,
+  getTokenizer,
+  hasStopWords,
+  hasTokenizer,
+  registerStopWords,
+  registerTokenizer,
+} from './analysis/registry'
+export {
   clearNormalizationCache,
   configureNormalizationCache,
   getNormalizationCacheSize,
@@ -9,10 +17,6 @@ export { ErrorCodes, NarsilError } from './errors'
 export { getLanguage, registerLanguage } from './languages/registry'
 export type { Narsil } from './narsil'
 export { createNarsil } from './narsil'
-
-export { isSimdAvailable } from './vector/simd'
-export const VERSION = '0.1.0'
-
 export type {
   EmbeddingAdapter,
   InvalidationAdapter,
@@ -20,7 +24,7 @@ export type {
   PartitionStatistics,
   PersistenceAdapter,
 } from './types/adapters'
-export type { FlushConfig, NarsilConfig, WorkerConfig } from './types/config'
+export type { DurabilityConfig, NarsilConfig, WorkerConfig } from './types/config'
 export type { NarsilEventMap } from './types/events'
 export type {
   ArrayFilter,
@@ -70,6 +74,7 @@ export type {
   PartitionConfig,
   SchemaDefinition,
   ScoringMode,
+  StopWordOverride,
 } from './types/schema'
 export type {
   FacetConfig,
@@ -83,3 +88,7 @@ export type {
   TermMatchPolicy,
   VectorQueryConfig,
 } from './types/search'
+export { isSimdAvailable } from './vector/simd'
+// Written into the engine-version bytes of every .nrsl file, for diagnostics only.
+// Change it by hand and on purpose; it does not follow the published package version.
+export const VERSION = '0.1.0'

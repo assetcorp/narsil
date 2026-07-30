@@ -619,5 +619,5 @@ export const finnish: LanguageModule = {
   name: 'finnish',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9äö]+/gi },
+  tokenizer: { splitPattern: /[^a-z0-9äöš]+/gi },
 }

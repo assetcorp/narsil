@@ -711,6 +711,6 @@ export const french: LanguageModule = {
   stemmer: stem,
   stopWords,
   tokenizer: {
-    splitPattern: /[^a-z0-9äâàéèëêïîöôùüûœç-]+/gi,
+    splitPattern: /[^a-z0-9äâàéèëêïîöôùüûœçÿæ-]+/gi,
   },
 }

@@ -448,9 +448,16 @@ const stopWords = new Set([
   'zwischen',
 ])
 
+const SHARP_S = /\u00DF/g
+
+function normalize(token: string): string {
+  return token.replace(SHARP_S, 'ss')
+}
+
 export const german: LanguageModule = {
   name: 'german',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9äöüß]+/gi },
+  normalizer: normalize,
+  tokenizer: { splitPattern: /[^a-z0-9äöüßé]+/gi },
 }

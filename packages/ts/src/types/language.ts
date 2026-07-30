@@ -2,6 +2,7 @@ export interface LanguageModule {
   name: string
   stemmer: ((token: string) => string) | null
   stopWords: Set<string>
+  normalizer?: (token: string) => string
   tokenizer?: TokenizerConfig
 }
 
@@ -10,4 +11,5 @@ export interface TokenizerConfig {
   normalizeDiacritics?: boolean
   minTokenLength?: number
   stripPossessive?: boolean
+  ngramSize?: number
 }

@@ -1,151 +1,113 @@
 # Narsil Cluster Specification
 
-This document defines cluster formation, node registration, roles,
-the partition allocation table, and the partition state machine.
-It also specifies the `ClusterCoordinator` adapter contract.
+This document defines cluster formation, node registration, node roles, the partition allocation table, and the partition state machine. It also defines the `ClusterCoordinator` adapter contract.
+
+Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` a mapping from keys to values, and `T or absent` a value that may be missing; each implementation expresses these in its own type system.
 
 ---
 
 ## ClusterCoordinator Adapter
 
-The `ClusterCoordinator` adapter abstracts the coordination
-backend (etcd, ZooKeeper, Consul, Kubernetes, or any strongly
-consistent key-value store with watch support). All methods are
-asynchronous.
-
-### ClusterCoordinator Definition
+The `ClusterCoordinator` adapter covers the coordination backend, which can be etcd, ZooKeeper, Consul, Kubernetes, or any strongly consistent key-value store that supports watches. Every method is asynchronous.
 
 ```text
 ClusterCoordinator {
-  [async] fn registerNode(registration: NodeRegistration) -> none
-  [async] fn deregisterNode(nodeId: string) -> none
-  [async] fn listNodes() -> array[NodeRegistration]
-  [async] fn watchNodes(handler: fn(event: NodeEvent) -> none) -> fn() -> none
+  async registerNode(registration: NodeRegistration) -> nothing
+  async deregisterNode(nodeId: string) -> nothing
+  async listNodes() -> List<NodeRegistration>
+  async watchNodes(handler: (event: NodeEvent) -> nothing) -> (() -> nothing)
 
-  [async] fn getAllocation(indexName: string) -> AllocationTable or null
-  [async] fn putAllocation(indexName: string, table: AllocationTable, expectedVersion: uint64 or null) -> bool
-  [async] fn watchAllocation(handler: fn(event: AllocationEvent) -> none) -> fn() -> none
+  async getAllocation(indexName: string) -> AllocationTable or absent
+  async putAllocation(indexName: string, table: AllocationTable, expectedVersion: uint64 or absent) -> boolean
+  async watchAllocation(handler: (event: AllocationEvent) -> nothing) -> (() -> nothing)
 
-  [async] fn getPartitionState(indexName: string, partitionId: uint32) -> PartitionState
-  [async] fn putPartitionState(indexName: string, partitionId: uint32, state: PartitionState) -> none
+  async getPartitionState(indexName: string, partitionId: uint32) -> PartitionState
+  async putPartitionState(indexName: string, partitionId: uint32, state: PartitionState) -> nothing
 
-  [async] fn acquireLease(key: string, nodeId: string, ttlMs: uint32) -> bool
-  [async] fn renewLease(key: string, nodeId: string, ttlMs: uint32) -> bool
-  [async] fn releaseLease(key: string) -> none
+  async acquireLease(key: string, nodeId: string, ttlMs: uint32) -> boolean
+  async renewLease(key: string, nodeId: string, ttlMs: uint32) -> boolean
+  async releaseLease(key: string) -> nothing
 
-  [async] fn get(key: string) -> bytes or null
-  [async] fn compareAndSet(key: string, expected: bytes or null, value: bytes) -> bool
+  async get(key: string) -> bytes or absent
+  async compareAndSet(key: string, expected: bytes or absent, value: bytes) -> boolean
 
-  [async] fn getSchema(indexName: string) -> SchemaDefinition or null
-  [async] fn putSchema(indexName: string, schema: SchemaDefinition) -> none
-  [async] fn watchSchemas(handler: fn(event: SchemaEvent) -> none) -> fn() -> none
+  async getSchema(indexName: string) -> SchemaDefinition or absent
+  async putSchema(indexName: string, schema: SchemaDefinition) -> nothing
+  async watchSchemas(handler: (event: SchemaEvent) -> nothing) -> (() -> nothing)
 
-  [async] fn getLeaseHolder(key: string) -> string or null
-  [async] fn shutdown() -> none
+  async getLeaseHolder(key: string) -> string or absent
+  async shutdown() -> nothing
 }
 ```
 
-### Method Contracts
+### registerNode(registration)
 
-#### registerNode(registration)
+- Adds the node to the cluster's node registry.
+- The registration must carry a lease-based heartbeat. A node that fails to renew its lease within the TTL loses its registration, and the coordinator emits a `node_left` event.
+- Registering an existing `nodeId` again updates that registration, which is what a node does after a restart.
 
-- Registers the node in the cluster's node registry.
-- The registration must include a lease-based heartbeat. If the
-  node fails to renew its lease within the TTL, the coordinator
-  removes the registration and emits a `node_left` event.
-- Calling `registerNode` with an existing `nodeId` updates the
-  registration (re-registration after restart).
+### deregisterNode(nodeId)
 
-#### deregisterNode(nodeId)
+- Removes the node from the registry and releases its lease, which fires a `node_left` event for every watcher.
+- It is idempotent, so deregistering a node that is not registered is not an error.
 
-- Removes the node from the registry and releases its lease.
-- Triggers a `node_left` event for watchers.
-- Idempotent: deregistering a non-existent node is not an error.
+### listNodes()
 
-#### listNodes()
+- Returns every node currently registered.
 
-- Returns all currently registered nodes.
+### watchNodes(handler)
 
-#### watchNodes(handler)
+- Registers a callback that fires as nodes join and leave. A `node_joined` event follows a new registration, and a `node_left` event follows an expired lease or an explicit deregistration.
 
-- Registers a callback that fires when nodes join or leave.
-- Events: `node_joined` (new registration), `node_left` (lease
-  expired or explicit deregister).
+### getAllocation(indexName) and putAllocation(indexName, table, expectedVersion)
 
-#### getAllocation(indexName) / putAllocation(indexName, table, expectedVersion)
+- These read and write the allocation table of one index.
+- `putAllocation` must be atomic: the whole table is written or nothing is.
+- `putAllocation` takes an optimistic concurrency check through `expectedVersion`. With a version supplied, the write succeeds only when the stored table carries that version. With `expectedVersion` absent, the write succeeds only when no table exists for the index yet. It returns true when the write succeeded and false when the check failed.
+- That check is what stops a split brain: a controller that has lost its lease cannot overwrite a newer table written by its successor, because the version has already moved on.
 
-- Reads or writes the allocation table for an index.
-- `putAllocation` must be atomic: the entire table is written as
-  a single unit or not at all.
-- `putAllocation` supports optimistic concurrency control via
-  `expectedVersion`. When `expectedVersion` is provided, the
-  write succeeds only if the current table's version matches.
-  When `expectedVersion` is `null`, the write succeeds only if
-  no table exists for the index. Returns `true` if the write
-  succeeded, `false` if the version check failed.
-- This prevents split-brain writes: a controller that lost its
-  lease cannot overwrite a newer allocation table written by the
-  new controller, because the version will have advanced.
+### watchAllocation(handler)
 
-#### watchAllocation(handler)
+- Fires whenever any allocation table changes, carrying the index name and the new table.
 
-- Fires when any allocation table changes. The event includes the
-  index name and the new table.
+### acquireLease, renewLease, and releaseLease
 
-#### acquireLease(key, nodeId, ttlMs) / renewLease / releaseLease
+- These provide lease-based distributed locking for controller election and per-partition primary assignment.
+- `acquireLease` returns true when the lease was taken and false when another node holds it.
+- `renewLease` extends the TTL, and returns false when the lease is gone, whether it expired or another node took it.
+- `releaseLease` gives the lease up.
 
-- Lease-based distributed locking for controller election and
-  per-partition primary assignment.
-- `acquireLease` returns `true` if the lease was acquired,
-  `false` if another node holds it.
-- `renewLease` extends the TTL. Returns `false` if the lease was
-  lost (expired or taken by another node).
-- `releaseLease` explicitly releases the lease.
+### get(key)
 
-#### get(key)
+- Returns the raw bytes stored under `key` in the coordinator's general key-value store, or absent when the key holds nothing.
+- The controller uses it to read index metadata while handling a `schema_created` event; see [Index Metadata](#index-metadata).
 
-- Reads the value stored at `key` in the coordinator's generic
-  key-value store.
-- Returns the raw bytes, or `null` if no value exists at `key`.
-- Used by the controller to read index metadata when handling
-  `schema_created` events (see [Index Metadata](#index-metadata)).
+### compareAndSet(key, expected, value)
 
-#### compareAndSet(key, expected, value)
+- Sets `key` to `value` and returns true when the current value equals `expected`, and returns false otherwise.
+- With `expected` absent, it succeeds only when the key does not exist.
 
-- Atomic compare-and-set operation.
-- If the current value at `key` equals `expected`, set it to
-  `value` and return `true`. Otherwise return `false`.
-- When `expected` is `null`, the operation succeeds only if the
-  key does not exist.
+### getSchema, putSchema, and watchSchemas
 
-#### getSchema / putSchema / watchSchemas
+- Schema metadata is stored in the coordinator, not in the replication log; see [replication.md](replication.md).
+- `watchSchemas` fires when an index schema is created or dropped, which is how a node discovers a new index and learns that one has gone.
 
-- Schema metadata is stored in the coordinator, not in the
-  replication log (see [replication.md](replication.md)).
-- `watchSchemas` fires when an index's schema is created or
-  dropped. Nodes use this to discover new indexes and remove
-  dropped ones.
+### getLeaseHolder(key)
 
-#### getLeaseHolder(key)
+- Returns the `nodeId` of the node holding the lease at `key`, or absent when no node holds it.
+- A primary uses it to find the active controller before sending an in-sync set removal request.
+- The value reflects the coordinator's state at the moment of the read, and it can go stale when the lease expires between the read and the use.
 
-- Returns the `nodeId` of the node currently holding the lease
-  at `key`, or `null` if no node holds it.
-- Used by primaries to discover the active controller when
-  sending in-sync set removal requests.
-- The returned value reflects the coordinator's current state;
-  it may become stale if the lease expires between the read and
-  subsequent use.
+### shutdown()
 
-#### shutdown()
-
-- Deregisters the node, releases all leases, stops all watchers.
-- Must be idempotent.
+- Deregisters the node, releases every lease, and stops every watcher.
+- It must be idempotent.
 
 ---
 
 ## Event Types
 
-Events fired by the `ClusterCoordinator` through watch callbacks.
+These events reach the watch callbacks.
 
 ### NodeEvent
 
@@ -153,14 +115,11 @@ Events fired by the `ClusterCoordinator` through watch callbacks.
 NodeEvent {
   type:         'node_joined' or 'node_left'
   nodeId:       string
-  registration: NodeRegistration or null  (present for node_joined)
+  registration: NodeRegistration or absent   (present on node_joined)
 }
 ```
 
-- `node_joined`: A new node registered or an existing node
-  re-registered after restart.
-- `node_left`: A node's lease expired or it explicitly
-  deregistered. `registration` is `null` for leave events.
+A `node_joined` event follows a new registration, or a re-registration after a restart. A `node_left` event follows an expired lease or an explicit deregistration, and it carries no registration.
 
 ### AllocationEvent
 
@@ -171,9 +130,7 @@ AllocationEvent {
 }
 ```
 
-Fires when any field of the allocation table for an index changes
-(partition assignments, in-sync sets, state transitions, primary
-term changes).
+It fires when any field of an index's allocation table changes, whether that is a partition assignment, an in-sync set, a state transition, or a primary term.
 
 ### SchemaEvent
 
@@ -181,210 +138,137 @@ term changes).
 SchemaEvent {
   type:      'schema_created' or 'schema_dropped'
   indexName: string
-  schema:    SchemaDefinition or null  (present for schema_created)
+  schema:    SchemaDefinition or absent   (present on schema_created)
 }
 ```
-
-- `schema_created`: A new index was created in the cluster.
-- `schema_dropped`: An index was dropped from the cluster.
 
 ---
 
 ## Node Registration
 
-Every node in the cluster maintains a registration record. The
-record format is defined by the spec so that nodes from different
-language implementations can coexist in the same cluster.
-
-### NodeRegistration
+Every node keeps a registration record. The specification fixes its format so that nodes written in different languages can share one cluster.
 
 ```text
 NodeRegistration {
-  nodeId:    string     (unique identifier, e.g. UUID v7)
-  address:   string     (host:port for NodeTransport connections)
-  roles:     array[string]  ('data', 'coordinator', 'controller')
+  nodeId:    string          (unique identifier, such as a UUID v7)
+  address:   string          (host and port where the node transport listens)
+  roles:     List<string>    ('data', 'coordinator', 'controller')
   capacity: {
-    memoryBytes:  uint64
-    cpuCores:     uint16
-    diskBytes:    uint64 or null
+    memoryBytes: uint64
+    cpuCores:    uint16
+    diskBytes:   uint64 or absent
   }
-  startedAt: string     (ISO 8601 timestamp)
-  version:   string     (spec version, e.g. '1.0')
+  startedAt: string          (ISO 8601 timestamp)
+  version:   string          (specification version, such as '1.0')
 }
 ```
 
-### NodeRegistration Fields
+### nodeId
 
-#### nodeId
+A unique identifier generated at startup, recommended as a time-ordered UUID v7. It is ephemeral and changes on every restart, which keeps a stale registration from outliving a crash.
 
-A unique identifier for the node. Generated at startup using
-UUID v7 (time-ordered). The `nodeId` is ephemeral; it changes on
-every restart. This prevents stale registrations from persisting
-after a crash.
+### address
 
-#### address
+The network address where this node's transport accepts connections. Other nodes send replication entries and query requests there.
 
-The network address where this node's `NodeTransport` accepts
-connections. Other nodes use this address to send replication
-entries and query requests.
+### roles
 
-#### roles
+The roles this node is configured to play; see [Node Roles](#node-roles). A node must carry at least one.
 
-The set of roles this node is configured to play. See
-[Node Roles](#node-roles) below. A node must have at least one
-role.
+### capacity
 
-#### capacity
+The resources the node reports at registration, which the controller reads when it computes assignments. `diskBytes` may be absent, because a browser or in-memory deployment has no disk.
 
-The node's available resources, reported at registration time.
-The controller uses these values when computing partition
-assignments. `diskBytes` is optional because some deployments
-(browser, in-memory) have no disk.
+### startedAt
 
-#### startedAt
+The ISO 8601 timestamp of when the node started. It serves diagnostics, and it breaks a tie during controller election in favour of the node that has been running longest.
 
-ISO 8601 timestamp of when the node started. Used for
-diagnostics and to break ties during controller election
-(prefer the node that has been running longest).
+### version
 
-#### version
-
-The spec version this node follows. Nodes with
-incompatible spec versions must not join the same cluster. The
-controller rejects registrations where the major version differs
-from its own.
+The specification version the node follows. Nodes on incompatible versions must not share a cluster, and the controller rejects a registration whose major version differs from its own.
 
 ---
 
 ## Node Roles
 
-A node plays one or more of three roles. By default, a node plays
-all three.
+A node plays one or more of three roles, and by default it plays all three.
 
 ### data
 
-A data node holds partitions, executes local indexing and search,
-and participates in replication (as primary or replica). Data
-nodes run the full Narsil engine locally: `PartitionManager`,
-`WorkerPool`, `fanOutQuery()`, and all search/indexing logic.
+A data node holds partitions, runs indexing and search locally, and takes part in replication as primary or replica. It runs the full engine in-process: partition management, worker threads, fan-out, and every search and indexing path.
 
-A data node is stateful. Adding or removing data nodes triggers
-partition reallocation.
+A data node is stateful, so adding or removing one triggers partition reallocation.
 
 ### coordinator
 
-A coordinator node receives client queries, reads the allocation
-table to determine which data nodes hold the relevant partitions,
-fans out the query via `NodeTransport`, and merges results. It
-does not hold any partitions itself.
+A coordinator node receives client queries, reads the allocation table to learn which data nodes hold the relevant partitions, fans the query out over the node transport, and merges the results. It holds no partitions of its own.
 
-A coordinator node is stateless. It caches the allocation table
-locally (updated via `watchAllocation`) and can be added or
-removed without any data movement.
+A coordinator node is stateless. It caches the allocation table locally, kept current by the allocation watch, so it can be added or removed with no data movement.
 
-When a data node receives a client query, it acts as coordinator
-for that request in addition to querying its own local partitions.
-This means every data node implicitly performs the coordinator
-role for queries it receives directly.
+A data node that receives a client query acts as coordinator for that request as well as searching its own partitions, so every data node carries the coordinator role for the queries it receives directly.
 
 ### controller
 
-A controller node runs the partition allocator, watches cluster
-membership changes, and writes updated allocation tables to the
-`ClusterCoordinator`. Only one controller is active at any time;
-the rest are standbys. Controller election uses the
-`acquireLease` mechanism.
+A controller node runs the partition allocator, watches membership changes, and writes updated allocation tables to the cluster coordinator. Exactly one controller is active at a time and the rest stand by; election runs through the lease mechanism.
 
-Run an odd number of controller-capable nodes (recommended: 3)
-to ensure a lease holder is always available after a single node
-failure.
+Run an odd number of controller-capable nodes, three by recommendation, so that a lease holder remains available after any single node fails.
 
-The controller does not handle data or queries. Its resource
-requirements are minimal.
+A controller handles no data and no queries, and its resource needs are small.
 
 ### Default Configuration
 
-When no explicit role configuration is provided, a node plays all
-three roles. This is the recommended configuration for clusters of
-3 nodes or fewer.
+With no explicit role configuration, a node plays all three roles, which is the recommendation for a cluster of three nodes or fewer.
 
-At larger cluster sizes, separating roles reduces resource
-contention. The controller's lease renewal and allocator
-computation compete with query execution on mixed-role nodes.
-Similarly, the coordinator's result merging and sorting compete
-with indexing workload on data nodes.
+Separating the roles pays off as a cluster grows. On a mixed-role node the controller's lease renewal and allocator run compete with query execution, and the coordinator's merging and sorting compete with indexing.
 
-Guidance for role separation by cluster size:
-
-| Cluster Size | Recommended Topology |
-| ------------- | -------------------- |
-| 1-3 nodes | All roles on every node |
-| 3-10 data nodes | Dedicate 3 nodes as controller-only |
-| 10+ data nodes | Add stateless coordinator nodes behind a load balancer |
+| Cluster size | Recommended topology |
+|--------------|----------------------|
+| 1 to 3 nodes | Every role on every node |
+| 3 to 10 data nodes | Three nodes dedicated to the controller role |
+| More than 10 data nodes | Stateless coordinator nodes added behind a load balancer |
 
 ---
 
 ## Allocation Table
 
-The allocation table maps every partition of an index to its
-primary node and replica nodes. The controller writes this table
-to the `ClusterCoordinator` whenever the cluster topology changes
-(node joins, node leaves, index created, partition split).
-
-### AllocationTable
+The allocation table maps every partition of an index to its primary node and its replica nodes. The controller writes it to the cluster coordinator whenever the topology changes, whether a node joined, a node left, an index was created, or a partition split.
 
 ```text
 AllocationTable {
   indexName:         string
-  version:           uint64  (monotonically increasing, incremented on every update)
-  replicationFactor: uint8   (number of replicas per partition, not counting the primary)
-  assignments:       map[uint32, PartitionAssignment]
+  version:           uint64   (increases on every update)
+  replicationFactor: uint8    (replicas per partition, the primary excluded)
+  assignments:       Map<uint32, PartitionAssignment>
 }
 
 PartitionAssignment {
-  primary:    string or null   (nodeId of the primary)
-  replicas:   array[string]    (nodeIds of replica nodes)
-  inSyncSet:  array[string]    (nodeIds of replicas fully caught up with the primary)
-  state:      PartitionState
-  primaryTerm: uint64          (current primary term, incremented on failover)
+  primary:     string or absent   (nodeId of the primary)
+  replicas:    List<string>       (nodeIds of the replica nodes)
+  inSyncSet:   List<string>       (nodeIds of the replicas fully caught up)
+  state:       PartitionState
+  primaryTerm: uint64             (the current term, raised on failover)
 }
 ```
 
-### AllocationTable Fields
+### version
 
-#### version
+A counter that increases on every update. A node compares its cached version with the coordinator's to spot stale state, and it rejects an operation tagged with a version below its own.
 
-A monotonically increasing counter. Every update to the
-allocation table increments this value. Nodes compare their
-cached version against the coordinator's version to detect stale
-state. Operations tagged with a lower allocation version than the
-node's current version are rejected.
+### replicationFactor
 
-#### replicationFactor
+The number of replicas per partition, not counting the primary, so a factor of 2 gives one primary and two replicas, three copies in total. The default is 1, which is two copies.
 
-The number of replicas per partition (not counting the primary).
-A replication factor of 2 means each partition has 1 primary and
-2 replicas, for 3 total copies. The default is 1 (1 primary + 1
-replica = 2 copies).
+It is set per index at creation time, and changing it on an existing index triggers reallocation.
 
-Configurable per index at creation time. Changing the replication
-factor on an existing index triggers reallocation.
+### assignments
 
-#### assignments
-
-A map from partition ID to its assignment. Every partition in the
-index must have an entry. Partitions without a live primary have
-`primary: null` and are in the `UNASSIGNED` state.
+A map from partition ID to its assignment, with an entry for every partition in the index. A partition with no live primary has an absent `primary` and the state `UNASSIGNED`.
 
 ---
 
 ## Partition State Machine
 
-Each partition transitions through a defined set of states during
-its lifecycle. The controller manages state transitions and writes
-them to the `ClusterCoordinator`.
-
-### PartitionState Enum
+Every partition moves through a fixed set of states. The controller owns those transitions and writes each one to the cluster coordinator.
 
 ```text
 PartitionState = 'UNASSIGNED'
@@ -393,8 +277,6 @@ PartitionState = 'UNASSIGNED'
                | 'MIGRATING'
                | 'DECOMMISSIONING'
 ```
-
-### State Transitions
 
 ```mermaid
 stateDiagram-v2
@@ -410,84 +292,59 @@ stateDiagram-v2
     DECOMMISSIONING --> UNASSIGNED : all holders lost
 ```
 
-| State | Description |
-|---|---|
-| `UNASSIGNED` | No node holds this partition. Occurs when an index is first created or when the primary and all replicas are lost. |
-| `INITIALISING` | A node is bootstrapping this partition, either via incremental catch-up or full snapshot transfer. The partition does not serve reads or accept writes in this state. |
-| `ACTIVE` | The partition is fully operational. The primary accepts writes and serves reads. Replicas serve reads and receive replication entries. |
-| `MIGRATING` | The partition's primary or replica assignment is changing. The old holder continues serving while the new holder bootstraps. Once the new holder reaches `ACTIVE`, the migration completes. |
-| `DECOMMISSIONING` | The partition is being removed from a node (the node is leaving the cluster or the replication factor is decreasing). Reads continue until the transition completes. |
+| State | Meaning |
+|-------|---------|
+| `UNASSIGNED` | No node holds this partition, which happens when an index is first created and when the primary and every replica are lost. |
+| `INITIALISING` | A node is bootstrapping the partition, by incremental catch-up or by snapshot transfer. It serves no reads and accepts no writes while it does. |
+| `ACTIVE` | The partition is fully operational. The primary accepts writes and serves reads, and each replica serves reads and receives replication entries. |
+| `MIGRATING` | The primary or replica assignment is changing. The old holder keeps serving while the new one bootstraps, and the migration finishes once the new holder reaches `ACTIVE`. |
+| `DECOMMISSIONING` | The partition is being removed from a node, because that node is leaving or the replication factor dropped. Reads continue until the transition finishes. |
 
-### State Transition Rules
+Four rules govern the transitions:
 
-- Only the controller may transition a partition between states.
-- A partition in `INITIALISING` transitions to `ACTIVE` when the
-  assigned node reports that bootstrapping is complete.
-- A partition transitions to `MIGRATING` when the controller
-  reassigns it (due to rebalancing or node failure).
-- A partition transitions to `DECOMMISSIONING` when it is no
-  longer needed on a specific node (replication factor decrease or
-  node decommission).
-- If all nodes holding a partition fail, it returns to
-  `UNASSIGNED`.
+- Only the controller may move a partition between states.
+- A partition in `INITIALISING` moves to `ACTIVE` when the assigned node reports that bootstrapping finished.
+- A partition moves to `MIGRATING` when the controller reassigns it, whether for rebalancing or after a node failure.
+- A partition moves to `DECOMMISSIONING` when a node no longer needs to hold it, because the replication factor dropped or the node is being decommissioned.
+
+A partition whose holders have all failed returns to `UNASSIGNED`.
 
 ---
 
 ## Controller Election
 
-Exactly one controller node is active at any time. Election uses
-the `acquireLease` mechanism on a well-known key
-(`_narsil/controller`).
-
-### Election Protocol
+Exactly one controller is active at a time, elected by acquiring a lease on the well-known key `_narsil/controller`.
 
 ```text
-1. On startup, a controller-capable node calls:
-   acquireLease('_narsil/controller', nodeId, ttlMs)
+1. On startup, a controller-capable node calls
+   acquireLease('_narsil/controller', nodeId, ttlMs).
 
-2. If the lease is acquired:
-   - The node becomes the active controller.
-   - It starts watching membership and allocation events.
-   - It renews the lease on a periodic interval
-     (recommended: ttlMs / 3).
+2. When it takes the lease:
+     it becomes the active controller
+     it starts watching membership and allocation events
+     it renews the lease periodically, recommended at ttlMs / 3
 
-3. If the lease is not acquired:
-   - The node becomes a standby controller.
-   - It periodically retries acquireLease.
+3. When it does not take the lease:
+     it becomes a standby controller
+     it retries acquireLease periodically
 
-4. If a lease renewal fails (the node was partitioned or slow):
-   - The node must immediately cease controller operations.
-   - It returns to standby and retries acquireLease.
+4. When a renewal fails, because the node was cut off or ran slow:
+     it must stop every controller operation at once
+     it returns to standby and retries acquireLease
 ```
 
-### Controller Responsibilities
-
-The active controller:
-
-1. Watches for node join/leave events via `watchNodes`.
-2. When the topology changes, runs the partition allocator to
-   compute a new allocation table.
-3. Writes the new allocation table to the coordinator via
-   `putAllocation`.
-4. Manages partition state transitions.
-5. Handles per-partition primary election: when a primary dies,
-   the controller selects a replica from the in-sync set and
-   promotes it (see [replication.md](replication.md#failover)).
+The active controller does five things: it watches node join and leave events, runs the partition allocator whenever the topology changes, writes the new allocation table through `putAllocation`, drives partition state transitions, and elects a new primary per partition when one dies by promoting a replica from the in-sync set. The promotion rules are in [Failover](replication.md#failover).
 
 ---
 
 ## Partition Allocator
 
-The allocator is a pure function that computes the allocation
-table from the current cluster state. It runs on the controller
-whenever the topology changes.
-
-### Allocator Contract
+The allocator computes an allocation table from the current cluster state, and it runs on the controller whenever the topology changes. It is a pure function of its inputs.
 
 ```text
-fn allocate(
-  nodes:             array[NodeRegistration]
-  currentTable:      AllocationTable or null
+allocate(
+  nodes:             List<NodeRegistration>
+  currentTable:      AllocationTable or absent
   indexName:         string
   partitionCount:    uint32
   replicationFactor: uint8
@@ -495,59 +352,31 @@ fn allocate(
 ) -> AllocationTable
 ```
 
-When `currentTable` is `null` (new index), the allocator uses
-`partitionCount` to create assignments for partitions 0 through
-`partitionCount - 1`. When `currentTable` is present (topology
-change), the allocator uses the existing partition set and
-rebalances assignments across the updated node list.
+With `currentTable` absent, meaning a new index, the allocator uses `partitionCount` to create assignments for partitions 0 through `partitionCount - 1`. With a table present, meaning a topology change, it keeps the existing partition set and rebalances the assignments across the updated node list.
 
-The allocator must satisfy these constraints:
+The allocator must satisfy five constraints:
 
-- **No co-location:** A partition's primary and its replicas must
-  be on different nodes.
-- **Capacity-aware:** Do not assign more partitions to a node
-  than its reported memory can hold.
-- **Balanced:** Distribute partitions as evenly as possible across
-  nodes, weighted by node capacity.
-- **Minimal movement:** When recomputing after a topology change,
-  minimise the number of partitions that move. Stability is
-  preferred over perfect balance.
-- **Zone-aware (optional):** When nodes report zone or rack
-  metadata in their capacity, spread replicas across zones.
-
-### AllocationConstraints
+- **No co-location.** A partition's primary and its replicas are on different nodes.
+- **Capacity awareness.** No node receives more partitions than its reported memory can hold.
+- **Balance.** Partitions spread as evenly as node capacity allows.
+- **Minimal movement.** A recomputation after a topology change moves as few partitions as it can, because stability beats perfect balance.
+- **Zone awareness**, optional. When nodes report zone or rack metadata, replicas spread across zones.
 
 ```text
 AllocationConstraints {
-  zoneAwareness: bool   (default: false)
-  zoneAttribute: string (node capacity key for zone, default: 'zone')
-  maxShardsPerNode: uint32 or null  (optional upper bound)
+  zoneAwareness:    boolean          (default false)
+  zoneAttribute:    string           (the capacity key naming the zone, default 'zone')
+  maxShardsPerNode: uint32 or absent (an optional upper bound)
 }
 ```
 
-### Allocator Algorithm
-
-The allocator algorithm is implementation-defined. The spec
-defines the contract (inputs, outputs, constraints), not the
-heuristic. Implementations may use:
-
-- Rendezvous hashing (used by Meilisearch)
-- Consistent hashing with bounded loads
-- A greedy weight-based balancer (used by Elasticsearch)
-- Constraint-solver-based placement
-
-The chosen algorithm must satisfy the constraints above and
-produce deterministic output for identical input.
+The heuristic itself is implementation-defined. This specification fixes the inputs, the outputs, and the constraints, and leaves the choice open between rendezvous hashing, consistent hashing with bounded loads, a greedy weight-based balancer, and constraint-solver placement. Whichever an implementation picks must satisfy the constraints above and produce identical output for identical input.
 
 ---
 
 ## Index Metadata
 
-When creating an index in cluster mode, the node handling the
-creation stores index-level configuration in the coordinator so
-the controller can read it when computing the initial allocation.
-
-### IndexMetadata
+Creating an index in cluster mode stores index-level configuration in the coordinator, so that the controller can read it when it computes the first allocation.
 
 ```text
 IndexMetadata {
@@ -557,54 +386,45 @@ IndexMetadata {
 }
 ```
 
-### Storage Convention
-
-Index metadata is stored in the coordinator's generic key-value
-store under a well-known key:
+The record is serialised as MessagePack and stored in the coordinator's general key-value store under a well-known key:
 
 ```text
 _narsil/index/{indexName}/config
 ```
 
-The value is the `IndexMetadata` record serialised as MessagePack.
-
 ### Index Creation Flow
 
 ```text
-1. The node receiving a createIndex request:
-   a. Writes the IndexMetadata to the coordinator using
-      compareAndSet('_narsil/index/{indexName}/config', null, bytes).
-      The null-check prevents duplicate creation.
-   b. Writes the schema via putSchema(indexName, schema).
-      This triggers a schema_created event.
+1. The node receiving the create request:
+   a. writes the index metadata with
+      compareAndSet('_narsil/index/{indexName}/config', absent, bytes),
+      where the absent check blocks a duplicate creation
+   b. writes the schema with putSchema(indexName, schema), which
+      fires a schema_created event
 
-2. The controller observes the schema_created event:
-   a. Reads the IndexMetadata via
-      get('_narsil/index/{indexName}/config').
-   b. Runs the allocator with the metadata's partitionCount,
-      replicationFactor, and constraints.
-   c. Writes the initial allocation table via putAllocation.
+2. The controller observes that event:
+   a. it reads the metadata with
+      get('_narsil/index/{indexName}/config')
+   b. it runs the allocator with the partitionCount,
+      replicationFactor, and constraints it found
+   c. it writes the first allocation table with putAllocation
 
-3. If the creating node crashes between steps 1a and 1b:
-   - The metadata exists but no schema event fires.
-   - The controller does not act. The metadata is orphaned.
-   - A subsequent createIndex call for the same name will fail
-     the compareAndSet (key already exists), signalling that a
-     partial creation occurred. The caller can retry or clean up.
+3. A creating node that crashes between steps 1a and 1b leaves
+   metadata behind with no schema event, so the controller does
+   nothing and the metadata is orphaned. The next create call for
+   the same name fails its compareAndSet, because the key already
+   exists, which tells the caller a partial creation happened so
+   that it can retry or clean up.
 
-4. If the controller crashes between steps 2a and 2c:
-   - The new controller (after re-election) observes the schema
-     exists via getSchema but no allocation exists via
-     getAllocation. It runs the allocator to recover.
+4. A controller that crashes between steps 2a and 2c leaves a
+   schema with no allocation. The next controller finds the schema
+   through getSchema and no table through getAllocation, and runs
+   the allocator to finish the job.
 ```
 
-The `partitionCount` is immutable after index creation (matching
-Elasticsearch's `index.number_of_shards`). Changing partition
-count requires creating a new index and reindexing.
+The `partitionCount` is fixed once the index exists. Changing it means creating a new index and reindexing into it.
 
-The `replicationFactor` can be changed after creation by updating
-the allocation table. The controller applies the new factor on
-the next rebalance.
+The `replicationFactor` can change after creation by updating the allocation table, and the controller applies the new factor on the next rebalance.
 
 ---
 
@@ -613,69 +433,64 @@ the next rebalance.
 ### Joining the Cluster
 
 ```text
-1. Node starts and creates a ClusterCoordinator connection.
-2. Node calls registerNode() with its NodeRegistration.
-3. Node reads the current allocation table via getAllocation().
-4. For each partition assigned to this node:
-   a. If the partition state is INITIALISING:
-      - Begin bootstrap from the primary
-        (see replication.md for the sync protocol).
-   b. If the partition state is ACTIVE:
-      - Load the partition from local persistence (if available)
-        or bootstrap from the primary.
-5. Node starts watching for allocation changes via
-   watchAllocation().
-6. Node begins accepting queries and mutations via NodeTransport.
+1. The node starts and opens a cluster coordinator connection.
+2. The node calls registerNode with its registration.
+3. The node reads the current allocation table with getAllocation.
+4. For each partition assigned to it:
+   a. a partition in INITIALISING starts bootstrapping from the
+      primary, following the sync protocol in replication.md
+   b. a partition in ACTIVE loads from local persistence when that
+      exists, and otherwise bootstraps from the primary
+5. The node starts watching allocation changes with watchAllocation.
+6. The node starts accepting queries and mutations over the node
+   transport.
 ```
 
-### Leaving the Cluster (Graceful)
+### Leaving the Cluster Gracefully
 
 ```text
-1. Node signals intent to leave by calling deregisterNode().
-2. The controller detects the node_left event.
-3. The controller reassigns the node's partitions to other nodes:
-   a. For primary partitions: promote a replica to primary
-      (see replication.md for failover).
-   b. For replica partitions: assign to another node.
+1. The node announces its departure by calling deregisterNode.
+2. The controller sees the node_left event.
+3. The controller reassigns that node's partitions:
+   a. a partition it held as primary gets a replica promoted, as
+      described in replication.md
+   b. a partition it held as replica goes to another node
 4. The controller writes the updated allocation table.
-5. Other nodes observe the change, begin bootstrapping any
-   newly assigned partitions.
-6. The leaving node shuts down after in-flight operations
-   complete.
+5. The other nodes observe the change and bootstrap whatever they
+   have newly been assigned.
+6. The leaving node shuts down once its in-flight operations finish.
 ```
 
-### Node Failure (Ungraceful)
+### Node Failure
 
 ```text
-1. The node's lease expires in the ClusterCoordinator.
+1. The node's lease expires in the cluster coordinator.
 2. A node_left event fires.
-3. The controller follows the same reassignment protocol as
-   graceful leave, but without waiting for the failed node to
-   complete in-flight operations.
-4. Any partitions where the failed node was primary and no
-   in-sync replicas exist transition to UNASSIGNED. These
-   partitions are unavailable until a node with persisted data
-   for them rejoins or the data is rebuilt from an external
-   source.
+3. The controller reassigns exactly as it does for a graceful
+   departure, without waiting for the failed node to finish
+   anything.
+4. A partition where the failed node was primary and no in-sync
+   replica remains moves to UNASSIGNED. It stays unavailable until
+   a node holding persisted data for it rejoins, or the data is
+   rebuilt from the system of record.
 ```
 
 ---
 
-## Cluster Coordinator Built-in Adapters
+## Built-in Cluster Coordinator Adapters
 
-| Adapter | Backend | Use Case |
-|---|---|---|
-| EtcdCoordinator | etcd v3 | Production deployments. Uses etcd leases for node heartbeats, KV for allocation tables, and watches for change notification. |
-| InMemoryCoordinator | In-process map | Testing and single-process development. No external infrastructure needed. |
-| KubernetesCoordinator | Kubernetes API | Kubernetes-native deployments. Uses Lease objects for elections, ConfigMaps or CRDs for allocation tables, and the watch API for change notification. |
+| Adapter | Backend | Use |
+|---------|---------|-----|
+| EtcdCoordinator | etcd v3 | Production. It uses etcd leases for node heartbeats, the key-value store for allocation tables, and watches for change notification. |
+| InMemoryCoordinator | An in-process map | Testing and single-process development, with no external infrastructure. |
+| KubernetesCoordinator | The Kubernetes API | Kubernetes-native deployments. It uses Lease objects for elections, ConfigMaps or custom resources for allocation tables, and the watch API for change notification. |
 
 ### Community Adapter Guidelines
 
-Community adapters (Consul, ZooKeeper, FoundationDB, Redis, etc.)
-must:
+A community adapter, whether it targets Consul, ZooKeeper, FoundationDB, or Redis, must:
 
-- Support atomic `compareAndSet` operations.
-- Support lease-based TTL for node heartbeats.
-- Support watch/subscribe for change notification.
-- Serialise all stored data as MessagePack.
-- Handle the full `ClusterCoordinator` interface.
+- Provide an atomic compare-and-set.
+- Provide lease-based TTLs for node heartbeats.
+- Provide watch or subscribe for change notification.
+- Serialise everything it stores as MessagePack.
+- Satisfy the whole `ClusterCoordinator` contract.

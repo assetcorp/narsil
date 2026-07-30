@@ -1,6 +1,7 @@
 import { decode } from '@msgpack/msgpack'
 import { getNestedValue } from '../../core/partition/utils'
 import { insertDocumentVectors, prepareDocumentVectors, removeDocumentVectors } from '../../engine/vector-coordinator'
+import { ErrorCodes } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { VectorIndex } from '../../vector/vector-index'
 import type { EntryValidation, ReplicationLog, ReplicationLogEntry } from './types'
@@ -11,11 +12,11 @@ export function validateReplicationEntry(
   log: ReplicationLog,
 ): EntryValidation {
   if (!log.verifyChecksum(entry)) {
-    return { valid: false, error: 'REPLICATION_ENTRY_CORRUPT' }
+    return { valid: false, error: ErrorCodes.REPLICATION_ENTRY_CORRUPT }
   }
 
   if (entry.primaryTerm < localPrimaryTerm) {
-    return { valid: false, error: 'REPLICATION_TERM_MISMATCH' }
+    return { valid: false, error: ErrorCodes.REPLICATION_TERM_MISMATCH }
   }
 
   return { valid: true }

@@ -9,6 +9,7 @@ import { createReplicationLog } from '../../../distribution/replication/log'
 import type { ReplicationLog } from '../../../distribution/replication/types'
 import type { NodeTransport, TransportMessage } from '../../../distribution/transport/types'
 import { ReplicationMessageTypes, TransportError, TransportErrorCodes } from '../../../distribution/transport/types'
+import type { NarsilError } from '../../../errors'
 import { createNarsil, type Narsil } from '../../../narsil'
 
 function makeAssignment(overrides: Partial<PartitionAssignment> = {}): PartitionAssignment {
@@ -133,6 +134,75 @@ describe('primary write safety', () => {
       'no active controller lease holder',
     )
     await expect(engine.get('products', 'doc-malformed-ack')).resolves.toBeUndefined()
+  })
+
+  it('rejects the write with INSUFFICIENT_REPLICAS before applying it locally', async () => {
+    coordinator = createInMemoryCoordinator()
+    engine = await createEngine()
+    await coordinator.putAllocation('products', makeAllocationTable(makeAssignment({ inSyncSet: [] })))
+
+    transport = makeTransport(async (_target, message) =>
+      createAckMessage(1, 0, 'products', 'node-b', message.requestId),
+    )
+
+    const deps = { ...makeDeps(coordinator, engine, transport), waitForActiveReplicas: 2 }
+    const err = await routeInsert('products', { title: 'Under-replicated' }, 'doc-under', deps).catch(
+      e => e as NarsilError,
+    )
+    expect((err as NarsilError).code).toBe('INSUFFICIENT_REPLICAS')
+    await expect(engine.get('products', 'doc-under')).resolves.toBeUndefined()
+  })
+
+  it('accepts the write when enough in-sync copies satisfy waitForActiveReplicas', async () => {
+    coordinator = createInMemoryCoordinator()
+    engine = await createEngine()
+    await coordinator.putAllocation('products', makeAllocationTable(makeAssignment()))
+
+    transport = makeTransport(async (_target, message) =>
+      createAckMessage(1, 0, 'products', 'node-b', message.requestId),
+    )
+
+    const deps = { ...makeDeps(coordinator, engine, transport), waitForActiveReplicas: 2 }
+    await expect(routeInsert('products', { title: 'Replicated' }, 'doc-replicated', deps)).resolves.toBe(
+      'doc-replicated',
+    )
+    await expect(engine.get('products', 'doc-replicated')).resolves.toMatchObject({ title: 'Replicated' })
+  })
+
+  it('rejects the write with PARTITION_UNASSIGNED when the partition has no primary', async () => {
+    coordinator = createInMemoryCoordinator()
+    engine = await createEngine()
+    await coordinator.putAllocation(
+      'products',
+      makeAllocationTable(makeAssignment({ primary: null, state: 'UNASSIGNED', inSyncSet: [], replicas: [] })),
+    )
+
+    transport = makeTransport(async (_target, message) =>
+      createAckMessage(1, 0, 'products', 'node-b', message.requestId),
+    )
+
+    const deps = makeDeps(coordinator, engine, transport)
+    const err = await routeInsert('products', { title: 'Orphaned' }, 'doc-orphaned', deps).catch(e => e as NarsilError)
+    expect((err as NarsilError).code).toBe('PARTITION_UNASSIGNED')
+  })
+
+  it('reports PARTITION_NOT_PRIMARY when primary authority changes before acknowledgement', async () => {
+    coordinator = createInMemoryCoordinator()
+    engine = await createEngine()
+    await coordinator.putAllocation('products', makeAllocationTable(makeAssignment()))
+    const activeCoordinator = coordinator
+
+    transport = makeTransport(async (_target, message) => {
+      await activeCoordinator.putAllocation(
+        'products',
+        makeAllocationTable(makeAssignment({ primary: 'node-c', primaryTerm: 2 }), 2),
+      )
+      return createAckMessage(1, 0, 'products', 'node-b', message.requestId)
+    })
+
+    const deps = makeDeps(coordinator, engine, transport)
+    const err = await routeInsert('products', { title: 'Fenced' }, 'doc-fenced-code', deps).catch(e => e as NarsilError)
+    expect((err as NarsilError).code).toBe('PARTITION_NOT_PRIMARY')
   })
 
   it('restores a removed document when in-sync removal is rejected', async () => {

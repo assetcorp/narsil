@@ -10,7 +10,7 @@ import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexConfig } from '../types/schema'
 import { type EngineCore, getVectorFieldPaths, type IndexRegistryEntry } from './core'
-import { validateIndexName } from './validation'
+import { validateIndexName, validatePartitionConfig } from './validation'
 
 export async function createEngineIndex(
   core: EngineCore,
@@ -25,6 +25,25 @@ export async function createEngineIndex(
   }
   validateSchema(indexConfig.schema)
   validateVectorPromotion(indexConfig.vectorPromotion)
+  if (indexConfig.partitions) {
+    validatePartitionConfig(indexConfig.partitions)
+  }
+  if (core.durability) {
+    if (indexConfig.tokenizer !== undefined && typeof indexConfig.tokenizer !== 'string') {
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        `Index "${name}" cannot use a tokenizer instance while durability is configured, because a checkpoint persists no code. Register it with registerTokenizer and pass its name`,
+        { indexName: name },
+      )
+    }
+    if (typeof indexConfig.stopWords === 'function') {
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        `Index "${name}" cannot use a stop word function while durability is configured, because a checkpoint persists no code. Register it with registerStopWords and pass its name`,
+        { indexName: name },
+      )
+    }
+  }
   let resolvedEmbeddingAdapter: EmbeddingAdapter | null = null
   let embeddingAdapterName: string | null = null
   if (indexConfig.embedding) {
@@ -70,6 +89,7 @@ export async function dropEngineIndex(core: EngineCore, name: string): Promise<v
   const entry = core.requireIndex(name)
   core.executor.dropIndex(name)
   core.indexRegistry.delete(name)
+  core.watermarkNotifier.forget(name)
   if (core.durability) {
     await core.durability.manager.removeIndex(name)
   }

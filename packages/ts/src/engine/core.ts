@@ -16,11 +16,14 @@ import type { IndexConfig, SchemaDefinition } from '../types/schema'
 import { createDirectExecutor, type DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
 import { createExecutionPromoter, type ExecutionPromoter } from '../workers/promoter'
+import { resolveDurabilityTier } from './durability-config'
 import { createDurabilityIntegration, type DurabilityIntegration, type DurabilityTier } from './durability-integration'
+import { createInvalidationFromConfig, type InvalidationIntegration } from './invalidation'
 import type { MutationContext } from './mutations'
 import { createWorkerOrchestrator, type WorkerOrchestrator } from './orchestration'
 import type { RebalanceContext } from './rebalance-executor'
 import { reconstructSchemaFromMetadata } from './recovery-schema'
+import { createWatermarkNotifier, type WatermarkNotifier } from './watermark'
 
 export type IndexRegistryEntry = {
   config: IndexConfig
@@ -43,6 +46,7 @@ export interface EngineCore {
   readonly promoter: ExecutionPromoter
   readonly pluginRegistry: PluginRegistry
   readonly durability: DurabilityIntegration | null
+  readonly invalidation: InvalidationIntegration | null
   readonly idGenerator: () => string
   readonly indexRegistry: Map<string, IndexRegistryEntry>
   readonly embeddingAdapters: Map<string, EmbeddingAdapter>
@@ -54,11 +58,11 @@ export interface EngineCore {
   readonly rebalanceRouter: PartitionRouter
   readonly rebalancingIndexes: Set<string>
   readonly waqMap: Map<string, ReturnType<typeof createWriteAheadQueue>>
-  readonly lastAppliedSeqMap: Map<string, Map<number, number>>
   readonly guardShutdown: () => void
   readonly requireIndex: (indexName: string) => IndexRegistryEntry
   readonly requireManager: (indexName: string) => PartitionManager
   readonly bufferIfRebalancing: (indexName: string, entry: Omit<WAQEntry, 'sequenceNumber'>) => boolean
+  readonly watermarkNotifier: WatermarkNotifier
   readonly mutationCtx: MutationContext
   readonly rebalanceCtx: RebalanceContext
 }
@@ -67,65 +71,21 @@ export function getVectorFieldPaths(schema: SchemaDefinition): Set<string> {
   return new Set(extractVectorFieldsFromSchema(schema).keys())
 }
 
-function filesystemBackedDirectory(config: NarsilConfig): string | null {
-  const adapterDirectory = config.persistence?.directory
-  if (adapterDirectory !== undefined && adapterDirectory.trim().length > 0) {
-    return adapterDirectory
-  }
-  return null
-}
-
-function resolveDurabilityTier(config: NarsilConfig): DurabilityTier | null {
-  const filesystemDirectory = filesystemBackedDirectory(config)
-
-  if (config.durability) {
-    if (config.durability.directory !== undefined && config.durability.directory.trim().length > 0) {
-      return { kind: 'wal', config: { ...config.durability } }
-    }
-    if (filesystemDirectory !== null) {
-      return { kind: 'wal', config: { ...config.durability, directory: filesystemDirectory } }
-    }
-    if (config.persistence !== undefined) {
-      throw new NarsilError(
-        ErrorCodes.CONFIG_INVALID,
-        'WAL durability requires a filesystem directory, but the configured persistence adapter is not filesystem-backed. Use a filesystem persistence adapter or set durability.directory',
-      )
-    }
-    throw new NarsilError(
-      ErrorCodes.CONFIG_INVALID,
-      'Durability requires a directory. Set durability.directory explicitly, or configure a filesystem persistence adapter',
-    )
-  }
-
-  if (config.persistence === undefined) {
-    return null
-  }
-  if (filesystemDirectory !== null) {
-    return { kind: 'wal', config: { directory: filesystemDirectory } }
-  }
-  return { kind: 'snapshot', config: {}, adapter: config.persistence }
-}
-
 interface DurabilityWiring {
   requireManager: (indexName: string) => PartitionManager
   indexRegistry: Map<string, IndexRegistryEntry>
   createIndexFromMetadata: (metadata: IndexMetadata) => Promise<void>
   emitFatalError: (error: Error) => void
+  publishCheckpointedPartitions: (indexName: string, partitions: number[]) => Promise<void>
 }
 
-function createDurabilityFromConfig(
-  config: NarsilConfig | undefined,
-  wiring: DurabilityWiring,
-): DurabilityIntegration | null {
-  if (config === undefined) {
-    return null
-  }
-  const tier = resolveDurabilityTier(config)
+function createDurabilityFromTier(tier: DurabilityTier | null, wiring: DurabilityWiring): DurabilityIntegration | null {
   if (tier === null) {
     return null
   }
 
   return createDurabilityIntegration(tier, {
+    checkpointPublisher: { publishPartitions: wiring.publishCheckpointedPartitions },
     getManager: indexName => (wiring.indexRegistry.has(indexName) ? wiring.requireManager(indexName) : undefined),
     getVectorFieldPaths: indexName => wiring.indexRegistry.get(indexName)?.vectorFieldPaths ?? new Set<string>(),
     getVectorIndexes: indexName =>
@@ -148,6 +108,15 @@ function createDurabilityFromConfig(
         b: entry.config.bm25?.b ?? 0.75,
         ...(embedding !== undefined ? { embedding } : {}),
         ...(entry.config.surfaceForms === true ? { surfaceForms: true } : {}),
+        ...(typeof entry.config.tokenizer === 'string' ? { tokenizer: entry.config.tokenizer } : {}),
+        ...(typeof entry.config.stopWords === 'string' ? { stopWords: entry.config.stopWords } : {}),
+        ...(entry.config.stopWords instanceof Set ? { stopWordList: [...entry.config.stopWords].sort() } : {}),
+        ...(entry.config.partitions !== undefined ? { partitionLimits: entry.config.partitions } : {}),
+        ...(entry.config.defaultScoring !== undefined ? { defaultScoring: entry.config.defaultScoring } : {}),
+        ...(entry.config.trackPositions !== undefined ? { trackPositions: entry.config.trackPositions } : {}),
+        ...(entry.config.strict !== undefined ? { strict: entry.config.strict } : {}),
+        ...(entry.config.required !== undefined ? { required: entry.config.required } : {}),
+        ...(entry.config.vectorPromotion !== undefined ? { vectorPromotion: entry.config.vectorPromotion } : {}),
       }
     },
     createIndexFromMetadata: wiring.createIndexFromMetadata,
@@ -179,21 +148,32 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
   const eventHandlers = new Map<string, Set<EventHandler>>()
   const shutdownState: ShutdownState = { isShutdown: false }
   const abortController = new AbortController()
+  const rebalancingIndexes = new Set<string>()
 
   const orchestrator = createWorkerOrchestrator(config, executor, promoter, indexRegistry, {
+    shouldDeferPromotion() {
+      return rebalancingIndexes.size > 0
+    },
     onPromotion(workerCount, reason) {
       const handlers = eventHandlers.get('workerPromote')
       if (handlers) {
         for (const handler of handlers) handler({ workerCount, reason })
       }
     },
+    onPromotionFailure(reason, error, retryable) {
+      const handlers = eventHandlers.get('workerPromoteFailure')
+      if (!handlers || handlers.size === 0) {
+        console.warn(`Worker promotion failed (${reason}):`, error)
+        return
+      }
+      for (const handler of handlers) handler({ reason, error, retryable })
+    },
   })
 
   const rebalancer = createRebalancer()
   const rebalanceRouter = createPartitionRouter()
-  const rebalancingIndexes = new Set<string>()
   const waqMap = new Map<string, ReturnType<typeof createWriteAheadQueue>>()
-  const lastAppliedSeqMap = new Map<string, Map<number, number>>()
+  const rebalanceTargets = new Map<string, number>()
 
   function guardShutdown(): void {
     if (shutdownState.isShutdown) {
@@ -260,7 +240,18 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
       }
     }
 
-    executor.createIndex(metadata.indexName, indexConfig, language)
+    try {
+      executor.createIndex(metadata.indexName, indexConfig, language)
+    } catch (err) {
+      if (err instanceof NarsilError && err.code === ErrorCodes.CONFIG_INVALID) {
+        throw new NarsilError(err.code, `Recovery of index "${metadata.indexName}" failed: ${err.message}`, {
+          indexName: metadata.indexName,
+          tokenizer: metadata.tokenizer,
+          stopWords: metadata.stopWords,
+        })
+      }
+      throw err
+    }
     indexRegistry.set(metadata.indexName, {
       config: indexConfig,
       language,
@@ -270,7 +261,10 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     })
   }
 
-  const durability = createDurabilityFromConfig(config, {
+  const durabilityTier = config !== undefined ? resolveDurabilityTier(config) : null
+  let invalidation: InvalidationIntegration | null = null
+
+  const durability = createDurabilityFromTier(durabilityTier, {
     requireManager,
     indexRegistry,
     createIndexFromMetadata,
@@ -278,6 +272,46 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
       const handlers = eventHandlers.get('durabilityError')
       if (handlers) {
         for (const handler of handlers) handler({ error })
+      }
+    },
+    publishCheckpointedPartitions: (indexName, partitions) =>
+      invalidation?.publishPartitions(indexName, partitions) ?? Promise.resolve(),
+  })
+
+  invalidation = createInvalidationFromConfig(config, durabilityTier?.kind ?? null, {
+    getManager: indexName => executor.getManager(indexName) ?? undefined,
+    listBroadcastIndexNames: () => {
+      const names: string[] = []
+      for (const [name, entry] of indexRegistry) {
+        if (entry.config.defaultScoring === 'broadcast') {
+          names.push(name)
+        }
+      }
+      return names
+    },
+    reloadIndex: indexName => durability?.manager.reloadIndex?.(indexName) ?? Promise.resolve(),
+    onError(error: Error) {
+      const handlers = eventHandlers.get('invalidationError')
+      if (!handlers || handlers.size === 0) {
+        console.warn('Invalidation error:', error)
+        return
+      }
+      for (const handler of handlers) handler({ error })
+    },
+  })
+
+  const watermarkNotifier = createWatermarkNotifier({
+    getManager: indexName => executor.getManager(indexName),
+    getPartitionConfig: indexName => indexRegistry.get(indexName)?.config.partitions,
+    emit(payload) {
+      const handlers = eventHandlers.get('partitionWatermark')
+      if (!handlers) return
+      for (const handler of handlers) {
+        try {
+          handler(payload)
+        } catch (err) {
+          console.warn('partitionWatermark handler error:', err instanceof Error ? err.message : String(err))
+        }
       }
     },
   })
@@ -293,6 +327,11 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     requireIndex,
     requireManager,
     bufferIfRebalancing,
+    isRebalancing: indexName => rebalancingIndexes.has(indexName),
+    pendingRebalanceWrites: indexName => waqMap.get(indexName)?.size ?? 0,
+    rebalanceTargetPartitionCount: indexName => rebalanceTargets.get(indexName),
+    bufferedDocState: (indexName, docId) => waqMap.get(indexName)?.bufferedDocState(docId),
+    checkWatermark: watermarkNotifier.check,
   }
 
   const rebalanceCtx: RebalanceContext = {
@@ -300,8 +339,12 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     router: rebalanceRouter,
     waqMap,
     rebalancingIndexes,
-    lastAppliedSeqMap,
+    rebalanceTargets,
     eventHandlers,
+    pluginRegistry,
+    orchestrator,
+    durabilityManager: durability?.manager ?? null,
+    checkWatermark: watermarkNotifier.check,
     requireIndex,
   }
 
@@ -310,6 +353,7 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     promoter,
     pluginRegistry,
     durability,
+    invalidation,
     idGenerator,
     indexRegistry,
     embeddingAdapters,
@@ -321,11 +365,11 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     rebalanceRouter,
     rebalancingIndexes,
     waqMap,
-    lastAppliedSeqMap,
     guardShutdown,
     requireIndex,
     requireManager,
     bufferIfRebalancing,
+    watermarkNotifier,
     mutationCtx,
     rebalanceCtx,
   }

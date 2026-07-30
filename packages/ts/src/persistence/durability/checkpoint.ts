@@ -9,6 +9,9 @@ export interface CheckpointInput {
   indexName: string
   schema: Record<string, string>
   language: string
+  tokenizer?: string
+  stopWords?: string
+  stopWordList?: string[]
   manager: PartitionManager
   vectorIndexes: Map<string, VectorIndex>
   seqNoByPartition: Map<number, number>
@@ -47,6 +50,9 @@ export async function buildSnapshotBundleBytes(
     version: 1,
     schema: input.schema,
     language: input.language,
+    ...(input.tokenizer !== undefined ? { tokenizer: input.tokenizer } : {}),
+    ...(input.stopWords !== undefined ? { stopWords: input.stopWords } : {}),
+    ...(input.stopWordList !== undefined ? { stopWordList: input.stopWordList } : {}),
     partitions: partitionBuffers,
     vectorIndexes: vectorPayloads,
     checkpoint,
@@ -116,6 +122,44 @@ export async function truncateCoveredSegments(
       await directory.remove(`${prefix}${formatSegmentStart(start)}`)
     }
   }
+}
+
+export async function reclaimWalBeyondCount(
+  directory: DurableDirectory,
+  indexName: string,
+  partitionCount: number,
+  partitions: Map<number, { walWriter: { close(): Promise<void> } }>,
+  onCloseError: (error: Error) => void,
+): Promise<void> {
+  for (const [partitionId, partition] of [...partitions]) {
+    if (partitionId < partitionCount) continue
+    try {
+      await partition.walWriter.close()
+    } catch (err) {
+      onCloseError(err instanceof Error ? err : new Error(String(err)))
+    }
+    partitions.delete(partitionId)
+  }
+  const walRoot = `${indexName}/wal/`
+  for (const key of await directory.list(walRoot)) {
+    const partitionId = walKeyPartitionId(key, walRoot)
+    if (partitionId === null || partitionId < partitionCount) continue
+    await directory.remove(key)
+  }
+}
+
+function walKeyPartitionId(key: string, walRoot: string): number | null {
+  const tail = key.slice(walRoot.length)
+  const separator = tail.indexOf('/')
+  if (separator <= 0) {
+    return null
+  }
+  const segment = tail.slice(0, separator)
+  if (!/^\d+$/.test(segment)) {
+    return null
+  }
+  const value = Number.parseInt(segment, 10)
+  return Number.isSafeInteger(value) ? value : null
 }
 
 function parseSegmentStartSeqNo(key: string, prefix: string): number | null {

@@ -1,4 +1,5 @@
 import type { LanguageModule } from '../types/language'
+import { removeMarks } from './support/marks'
 
 const ACCENT_MAP: Record<string, string> = {
   ά: 'α',
@@ -900,13 +901,20 @@ const stopWords = new Set([
   'ωχ',
 ])
 
+const GREEK_DIACRITICS = /[\u0300-\u0345]/g
+
+function normalize(token: string): string {
+  return removeMarks(token, GREEK_DIACRITICS)
+}
+
 export const greek: LanguageModule = {
   name: 'greek',
   stemmer: stem,
   stopWords,
+  normalizer: normalize,
   tokenizer: {
-    splitPattern: /[^\u0370-\u03FFa-z0-9]+/gi,
-    normalizeDiacritics: true,
-    minTokenLength: 2,
+    splitPattern: /[^\u0370-\u03FF\u1F00-\u1FFFa-z0-9]+/gi,
+    normalizeDiacritics: false,
+    minTokenLength: 1,
   },
 }

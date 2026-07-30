@@ -4,6 +4,7 @@ import type { BatchResult, QueryResult } from '../../types/results'
 import type { AnyDocument, IndexConfig } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import type { AllocationTable, ClusterCoordinator, NodeCapacity, NodeRole } from '../coordinator/types'
+import type { ReplicationConfig } from '../replication/types'
 import type { NodeTransport } from '../transport/types'
 
 export interface ClusterNodeConfig {
@@ -14,6 +15,7 @@ export interface ClusterNodeConfig {
   nodeId?: string
   capacity?: NodeCapacity
   engine?: NarsilConfig
+  replication?: Partial<ReplicationConfig>
   onError?: (error: Error) => void
 }
 

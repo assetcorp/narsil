@@ -676,9 +676,17 @@ const stopWords = new Set([
   'ţie',
 ])
 
+const CEDILLA_LETTERS = /[\u015F\u0163]/g
+const COMMA_BELOW: Record<string, string> = { '\u015F': '\u0219', '\u0163': '\u021B' }
+
+function normalize(token: string): string {
+  return token.replace(CEDILLA_LETTERS, letter => COMMA_BELOW[letter])
+}
+
 export const romanian: LanguageModule = {
   name: 'romanian',
   stemmer: stem,
   stopWords,
-  tokenizer: { splitPattern: /[^a-z0-9ăâîșț]+/gi },
+  normalizer: normalize,
+  tokenizer: { splitPattern: /[^a-z0-9ăâîșțşţ]+/gi },
 }

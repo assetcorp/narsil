@@ -14,6 +14,7 @@ import { executeRebalance } from './engine/rebalance-executor'
 import { resolveVectorText } from './engine/resolve-vector-text'
 import { createSnapshot, restoreFromSnapshot } from './engine/snapshot'
 import { executeSuggest } from './engine/suggest'
+import { validatePartitionConfig } from './engine/validation'
 import {
   compactVectors as executeCompactVectors,
   optimizeVectors as executeOptimizeVectors,
@@ -80,6 +81,9 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
   if (core.durability) {
     await core.durability.manager.recover()
   }
+  if (core.invalidation) {
+    await core.invalidation.start()
+  }
   return createNarsilFromCore(core, config)
 }
 
@@ -100,6 +104,9 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     mutationCtx,
     rebalanceCtx,
   } = core
+
+  const invalidation = core.invalidation
+  const broadcastStats = invalidation === null ? undefined : (name: string) => invalidation.broadcastStats(name)
 
   const narsil: Narsil = {
     createIndex(name: string, indexConfig: IndexConfig): Promise<void> {
@@ -211,6 +218,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         config: entry.config,
         workerSearch,
         indexName,
+        broadcastStats,
       })
 
       try {
@@ -243,6 +251,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         config: entry.config,
         workerSearch,
         indexName,
+        broadcastStats,
       })
     },
     async suggest(indexName: string, params: SuggestParams): Promise<SuggestResult> {
@@ -257,15 +266,16 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
 
     async restore(indexName: string, data: Uint8Array): Promise<void> {
       guardShutdown()
-      return restoreFromSnapshot(
-        indexName,
-        data,
+      return restoreFromSnapshot(indexName, data, {
         executor,
         indexRegistry,
         getVectorFieldPaths,
-        narsil.dropIndex.bind(narsil),
+        dropIndex: narsil.dropIndex.bind(narsil),
         requireManager,
-      )
+        durability,
+        embeddingAdapters: core.embeddingAdapters,
+        defaultEmbeddingAdapter: config?.embedding ?? null,
+      })
     },
 
     async checkpoint(indexName: string): Promise<void> {
@@ -281,6 +291,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       requireIndex(indexName)
       await executor.execute({ type: 'clear', indexName, requestId: indexName })
       await orchestrator.replicateToWorkers({ type: 'clear', indexName, requestId: `replicate-clear-${indexName}` })
+      core.watermarkNotifier.forget(indexName)
     },
 
     async rebalance(indexName: string, targetPartitionCount: number): Promise<void> {
@@ -299,12 +310,18 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
           `Index "${indexName}" is currently being rebalanced`,
         )
       }
+      validatePartitionConfig(partitionConfig)
+      if (partitionConfig.maxPartitions !== undefined && partitionConfig.maxPartitions < manager.partitionCount) {
+        throw new NarsilError(
+          ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
+          `maxPartitions (${partitionConfig.maxPartitions}) is less than the current partition count (${manager.partitionCount})`,
+          { maxPartitions: partitionConfig.maxPartitions, partitionCount: manager.partitionCount },
+        )
+      }
       const currentDocCount = manager.countDocuments()
       const newMaxDocs = partitionConfig.maxDocsPerPartition ?? entry.config.partitions?.maxDocsPerPartition
-      const newMaxPartitions =
-        partitionConfig.maxPartitions ?? entry.config.partitions?.maxPartitions ?? manager.partitionCount
       if (newMaxDocs !== undefined) {
-        const newTotalCapacity = newMaxDocs * newMaxPartitions
+        const newTotalCapacity = newMaxDocs * manager.partitionCount
         if (newTotalCapacity < currentDocCount) {
           throw new NarsilError(
             ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
@@ -318,6 +335,9 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         entry.config.partitions.maxDocsPerPartition = partitionConfig.maxDocsPerPartition
       if (partitionConfig.maxPartitions !== undefined)
         entry.config.partitions.maxPartitions = partitionConfig.maxPartitions
+      if (partitionConfig.watermark !== undefined) entry.config.partitions.watermark = partitionConfig.watermark
+      if (durability) await durability.manager.persistMetadata(indexName)
+      core.watermarkNotifier.check(indexName)
     },
 
     async getMemoryStats(): Promise<MemoryStats> {

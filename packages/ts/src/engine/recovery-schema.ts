@@ -38,5 +38,31 @@ export function reconstructSchemaFromMetadata(metadata: IndexMetadata): IndexCon
   if (metadata.surfaceForms === true) {
     config.surfaceForms = true
   }
+  if (metadata.tokenizer !== undefined) {
+    config.tokenizer = metadata.tokenizer
+  }
+  if (metadata.stopWords !== undefined) {
+    config.stopWords = metadata.stopWords
+  } else if (metadata.stopWordList !== undefined) {
+    config.stopWords = new Set(metadata.stopWordList)
+  }
+  if (metadata.partitionLimits !== undefined) {
+    config.partitions = metadata.partitionLimits
+  }
+  if (metadata.defaultScoring !== undefined) {
+    config.defaultScoring = metadata.defaultScoring
+  }
+  if (metadata.trackPositions !== undefined) {
+    config.trackPositions = metadata.trackPositions
+  }
+  if (metadata.strict !== undefined) {
+    config.strict = metadata.strict
+  }
+  if (metadata.required !== undefined) {
+    config.required = metadata.required
+  }
+  if (metadata.vectorPromotion !== undefined) {
+    config.vectorPromotion = metadata.vectorPromotion
+  }
   return config
 }
