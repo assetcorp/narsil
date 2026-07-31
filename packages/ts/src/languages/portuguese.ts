@@ -5,6 +5,7 @@
 
 import type { LanguageModule } from '../types/language'
 import { removeMarks } from './support/marks'
+import { withNormalisedSpellings } from './support/spellings'
 
 const VOWELS = 'aeiou\u00e0\u00e1\u00e2\u00e9\u00ea\u00ed\u00f3\u00f4\u00fa\u00fc'
 
@@ -686,7 +687,7 @@ function normalize(token: string): string {
 export const portuguese: LanguageModule = {
   name: 'portuguese',
   stemmer: stem,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^a-z0-9àáâãçéêíóôõúü]+/gi },
 }

@@ -5,6 +5,7 @@
 
 import type { LanguageModule } from '../types/language'
 import { removeMarks } from './support/marks'
+import { withNormalisedSpellings } from './support/spellings'
 
 const stopWords = new Set([
   'aв',
@@ -806,7 +807,7 @@ function normalize(token: string): string {
 export const macedonian: LanguageModule = {
   name: 'macedonian',
   stemmer: null,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^a-z0-9а-яѓѕјљњќџѐѝ]+/gi },
 }

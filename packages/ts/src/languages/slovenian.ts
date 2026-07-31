@@ -6,6 +6,7 @@
 
 import type { LanguageModule } from '../types/language'
 import { removeMarks } from './support/marks'
+import { withNormalisedSpellings } from './support/spellings'
 
 const NOUN_SUFFIXES = [
   'ovanje',
@@ -539,7 +540,7 @@ function normalize(token: string): string {
 export const slovenian: LanguageModule = {
   name: 'slovenian',
   stemmer: stem,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^a-z0-9čšžáéóú]+/gi },
 }

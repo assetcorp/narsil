@@ -5,6 +5,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
+import { withNormalisedSpellings } from './support/spellings'
 
 const stopWords = new Set([
   'അങ്ങനെ',
@@ -122,7 +123,7 @@ function normalize(token: string): string {
 export const malayalam: LanguageModule = {
   name: 'malayalam',
   stemmer: null,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^\u0d00-\u0d7f\u200c\u200da-z0-9]+/gi },
 }

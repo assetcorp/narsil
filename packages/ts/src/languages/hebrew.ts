@@ -4,6 +4,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
+import { withNormalisedSpellings } from './support/spellings'
 
 const stopWords = new Set([
   'אבל',
@@ -211,7 +212,7 @@ function normalize(token: string): string {
 export const hebrew: LanguageModule = {
   name: 'hebrew',
   stemmer: null,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^\u0591-\u05bd\u05c1\u05c2\u05c7-\u05ea\u05f0-\u05f4a-z0-9]+/gi },
 }

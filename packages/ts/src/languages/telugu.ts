@@ -4,6 +4,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
+import { withNormalisedSpellings } from './support/spellings'
 
 const stopWords = new Set([
   'అడగడం',
@@ -60,7 +61,7 @@ function normalize(token: string): string {
 export const telugu: LanguageModule = {
   name: 'telugu',
   stemmer: null,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^\u0c00-\u0c7f\u200ca-z0-9]+/gi },
 }

@@ -5,6 +5,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
+import { withNormalisedSpellings } from './support/spellings'
 
 const SUFFIXES_5: string[] = ['तियों', 'ाओंगी', 'ाओंगे', 'ाओंगा', 'ाइएगी', 'ाइएगे', 'ाइएगा']
 
@@ -182,7 +183,7 @@ const stopWords = new Set([
   'का',
   'काफ़ी',
   'काफि',
-  'काफ़ी',
+  'काफ़ी',
   'कि',
   'किंहें',
   'किंहों',
@@ -310,7 +311,7 @@ const stopWords = new Set([
   'वाले',
   'वुह',
   'वे',
-  'वग़ैरह',
+  'वग़ैरह',
   'संग',
   'सकता',
   'सकते',
@@ -353,7 +354,7 @@ function normalize(token: string): string {
 export const hindi: LanguageModule = {
   name: 'hindi',
   stemmer: stem,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^\u0900-\u0963\u0966-\u097fa-z0-9]+/gi },
 }

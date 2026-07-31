@@ -5,6 +5,7 @@
 
 import type { LanguageModule } from '../types/language'
 import { removeMarks } from './support/marks'
+import { withNormalisedSpellings } from './support/spellings'
 
 const stopWords = new Set([
   'a',
@@ -67,7 +68,7 @@ function normalize(token: string): string {
 export const latin: LanguageModule = {
   name: 'latin',
   stemmer: null,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^a-z0-9āēīōū]+/gi },
 }

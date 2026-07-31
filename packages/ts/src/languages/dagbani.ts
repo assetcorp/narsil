@@ -8,6 +8,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
+import { withNormalisedSpellings } from './support/spellings'
 
 const stopWords = new Set([
   'n',
@@ -92,7 +93,7 @@ function normalize(token: string): string {
 export const dagbani: LanguageModule = {
   name: 'dagbani',
   stemmer: null,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: {
     splitPattern: /[^a-zA-ZɛɔƐƆŋŊɣƔʒƷʊƱəƏεԑ0-9\p{M}]+/giu,

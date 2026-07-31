@@ -5,6 +5,7 @@
 
 import type { LanguageModule } from '../types/language'
 import { removeMarks } from './support/marks'
+import { withNormalisedSpellings } from './support/spellings'
 
 const VOWELS = 'aeiouyåæø'
 
@@ -266,7 +267,7 @@ function normalize(token: string): string {
 export const danish: LanguageModule = {
   name: 'danish',
   stemmer: stem,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^a-z0-9æøåé]+/gi },
 }
