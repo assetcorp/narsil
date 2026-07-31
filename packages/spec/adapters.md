@@ -205,6 +205,7 @@ A language module carries the language-specific parts of text analysis. Each one
 ```text
 LanguageModule {
   name:       string
+  revision:   string
   stemmer:    ((token: string) -> string) or absent
   stopWords:  Set<string>
   normalizer: ((token: string) -> string) or absent
@@ -223,6 +224,10 @@ TokenizerConfig {
 ### name
 
 A lower-case identifier for the language, such as `english`, `french`, or `twi`. It is the key in the language registry.
+
+### revision
+
+An opaque identifier for the analysis this module performs. It changes whenever the stemmer, the normaliser, the stop words, or the tokeniser configuration changes, and it changes for no other reason. Every implementation of a language carries the same revision for the same analysis, so two engines that agree on the revision analyse text alike, and a reader compares it with the revision an index was written with to learn whether it can read that index's terms. A language carries `1` until its analysis first changes.
 
 ### stemmer
 
