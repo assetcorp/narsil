@@ -49,6 +49,17 @@
     },
     {
       "includes": [
+        "packages/ts/src/languages/snowball/**",
+        "!packages/ts/src/languages/snowball/base-stemmer.ts"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": { "noConfusingLabels": "off" }
+        }
+      }
+    },
+    {
+      "includes": [
         "packages/ts/src/languages/malayalam.ts",
         "packages/ts/src/languages/sinhala.ts"
       ],
