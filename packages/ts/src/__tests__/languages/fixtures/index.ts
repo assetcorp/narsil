@@ -9,6 +9,7 @@ import { bengaliFixture } from './bengali'
 import { bosnianFixture } from './bosnian'
 import { bretonFixture } from './breton'
 import { bulgarianFixture } from './bulgarian'
+import { burmeseFixture } from './burmese'
 import { catalanFixture } from './catalan'
 import { chineseFixture } from './chinese'
 import { croatianFixture } from './croatian'
@@ -43,11 +44,13 @@ import { irishFixture } from './irish'
 import { italianFixture } from './italian'
 import { japaneseFixture } from './japanese'
 import { kannadaFixture } from './kannada'
+import { khmerFixture } from './khmer'
 import { kinyarwandaFixture } from './kinyarwanda'
 import { kirundiFixture } from './kirundi'
 import { koreanFixture } from './korean'
 import { kurmanjiFixture } from './kurmanji'
 import { kyrgyzFixture } from './kyrgyz'
+import { laoFixture } from './lao'
 import { latinFixture } from './latin'
 import { latvianFixture } from './latvian'
 import { lingalaFixture } from './lingala'
@@ -84,6 +87,7 @@ import { tagalogFixture } from './tagalog'
 import { tamilFixture } from './tamil'
 import { tatarFixture } from './tatar'
 import { teluguFixture } from './telugu'
+import { thaiFixture } from './thai'
 import { tibetanFixture } from './tibetan'
 import { tigrinyaFixture } from './tigrinya'
 import { tonganFixture } from './tongan'
@@ -113,6 +117,7 @@ export const languageFixtures: readonly LanguageFixture[] = [
   bosnianFixture,
   bretonFixture,
   bulgarianFixture,
+  burmeseFixture,
   catalanFixture,
   chineseFixture,
   croatianFixture,
@@ -147,11 +152,13 @@ export const languageFixtures: readonly LanguageFixture[] = [
   italianFixture,
   japaneseFixture,
   kannadaFixture,
+  khmerFixture,
   kinyarwandaFixture,
   koreanFixture,
   kirundiFixture,
   kurmanjiFixture,
   kyrgyzFixture,
+  laoFixture,
   latinFixture,
   latvianFixture,
   lingalaFixture,
@@ -188,6 +195,7 @@ export const languageFixtures: readonly LanguageFixture[] = [
   tamilFixture,
   tatarFixture,
   teluguFixture,
+  thaiFixture,
   tibetanFixture,
   tigrinyaFixture,
   tonganFixture,
