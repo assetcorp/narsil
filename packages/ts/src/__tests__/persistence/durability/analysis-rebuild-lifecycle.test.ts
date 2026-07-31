@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { english } from '../../../languages/english'
 import { registerLanguage } from '../../../languages/registry'
 import { createNarsil, type Narsil } from '../../../narsil'
 import { resetCheckpointWorkerLatch } from '../../../persistence/durability/checkpoint-worker-dispatch'
@@ -190,6 +191,56 @@ describe('the lifecycle of a rebuild', () => {
     expect(engine.listIndexes()[0].analysisStale).toBe(true)
     await engine.rebuildAnalysis('prose')
     expect((await engine.query('prose', { term: 'jump' })).hits).toHaveLength(1)
+  })
+
+  it('matches an index built from scratch when a real language module gains its stemmer', async () => {
+    const unstemmed = { ...english, name: 'real-analysis', revision: '1', stemmer: null }
+    const stemmed = { ...english, name: 'real-analysis', revision: '2' }
+    const prose = [
+      'political philosophies of organised movements',
+      'the governments of modern societies',
+      'workers and the economics of revolution',
+      'revolutionary movements organised by workers',
+      'philosophies that shaped political economics',
+    ]
+    const documents = prose.map((text, i) => ({ id: `doc-${i}`, title: text }))
+    const probes = ['politics', 'philosophies', 'governments', 'organised', 'workers']
+
+    registerLanguage(unstemmed)
+    engine = await createNarsil({ durability: { directory: dir } })
+    await engine.createIndex('prose', { schema, language: 'real-analysis' })
+    await engine.insertBatch('prose', documents)
+    await engine.checkpoint('prose')
+    await engine.shutdown()
+
+    registerLanguage(stemmed)
+    const control = await createNarsil()
+    await control.createIndex('prose', { schema, language: 'real-analysis' })
+    await control.insertBatch('prose', documents)
+    const expected: Record<string, string[]> = {}
+    for (const term of probes) {
+      expected[term] = (await control.query('prose', { term, limit: 20 })).hits.map(h => h.id).sort()
+    }
+    await control.shutdown()
+
+    expect(Object.values(expected).some(ids => ids.length > 0)).toBe(true)
+
+    engine = await createNarsil({ durability: { directory: dir }, analysis: { rebuild: 'manual' } })
+    const staleHits: Record<string, string[]> = {}
+    for (const term of probes) {
+      const result = await engine.query('prose', { term, limit: 20 })
+      expect(result.analysisStale).toBe(true)
+      staleHits[term] = result.hits.map(h => h.id).sort()
+    }
+    expect(staleHits).not.toEqual(expected)
+
+    await engine.rebuildAnalysis('prose')
+
+    for (const term of probes) {
+      const result = await engine.query('prose', { term, limit: 20 })
+      expect(result.analysisStale).toBeUndefined()
+      expect(result.hits.map(h => h.id).sort()).toEqual(expected[term])
+    }
   })
 
   it('rebuilds on its own after opening with no analysis configuration at all', async () => {
