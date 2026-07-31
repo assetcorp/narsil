@@ -362,6 +362,7 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   vector_fields:         Map<string, VectorFieldMeta>
   embedding:             EmbeddingMeta        (optional)
   surface_forms_enabled: boolean              (optional)
+  analysis_revision:     string               (optional; the language module revision)
   tokenizer:             string               (optional; the registered tokeniser name)
   stop_words:            string               (optional; the registered stop word set name)
   stop_word_list:        List<string>         (optional; the words of a literal stop word set)
@@ -404,6 +405,8 @@ The `embedding` block records the index's automatic embedding configuration: the
 
 The `surface_forms_enabled` field records that the index collects surface forms, as described in [Surface Forms](#surface-forms). A writer includes it only when collection is on, and a reader treats an absent field as off, matching every metadata payload written before the field existed. Recovery reads the value so that the index keeps collecting surfaces after a restart.
 
+The `analysis_revision` field records the [revision](adapters.md#revision) of the language module the index was written with. A reader compares it with the revision its own module for that language carries. A difference means the engine no longer analyses text the way the index was built, so the index's terms are stale, and the engine rebuilds them from the documents the partition payloads carry before it answers a text query. When that rebuild runs, and whether the engine reports it first, is a matter for the engine's configuration. The field is additive, and a reader that finds it absent treats the terms as stale too, because an index written before the field existed records nothing about the analysis that built it. Vector data and embeddings are unaffected, because the revision covers text analysis alone.
+
 The `tokenizer` and `stop_words` fields record the names the index resolved its analysis from, as described in [Analysis Registry](adapters.md#analysis-registry). A writer includes each field only when the index configuration gave a name, because a tokeniser instance and a stop word function are code and no payload carries code. An engine with durability configured refuses an index whose analysis is given as code, as [Analysis Registry](adapters.md#analysis-registry) requires, so an absent field means the index analyses with the language default. An index configured with a literal stop word set persists the words themselves in `stop_word_list`, and a payload carries at most one of `stop_words` and `stop_word_list`. Recovery resolves each name against the engine's analysis registry so that a recovered index analyses text the way the original did; see [Index Metadata](durability.md#index-metadata).
 
 The last six fields record the rest of the index configuration: the partition limits, the scoring mode, position tracking, strict document validation, the required field paths, and the vector promotion settings. All six are additive. A writer includes each field only when the index configuration set it, and a reader treats an absent field as that option's default, so a recovered index behaves exactly as the original did.
@@ -418,11 +421,12 @@ The snapshot-only persistence tier writes the whole index as one envelope under 
 {
   version:        uint8         (1)
   schema:         Map<string, string>
-  language:       string
-  tokenizer:      string        (optional; the registered tokeniser name)
-  stop_words:     string        (optional; the registered stop word set name)
-  stop_word_list: List<string>  (optional; the words of a literal stop word set)
-  partitions:     List<bytes>   (one version 2 partition payload per entry)
+  language:          string
+  analysis_revision: string        (optional; the language module revision)
+  tokenizer:         string        (optional; the registered tokeniser name)
+  stop_words:        string        (optional; the registered stop word set name)
+  stop_word_list:    List<string>  (optional; the words of a literal stop word set)
+  partitions:        List<bytes>   (one version 2 partition payload per entry)
   vectorIndexes:  Map<string, VectorIndexPayload>
   checkpoint:     List<PartitionCheckpoint>
 }
@@ -434,7 +438,7 @@ PartitionCheckpoint {
 }
 ```
 
-The bundle differs from the per-partition payload above: it carries every partition in one envelope, so a checkpoint replaces the whole index atomically. `checkpoint` records where write-ahead log replay resumes for each partition. It is additive, and a reader that skips it treats every `lastSeqNo` as 0. `tokenizer`, `stop_words`, and `stop_word_list` are additive too: they carry the same analysis as the index metadata payload, and a reader recreates the index with them, resolving each name as [Index Metadata](durability.md#index-metadata) describes. The log format, the recovery procedure, and the checkpoint rules are in [durability.md](durability.md).
+The bundle differs from the per-partition payload above: it carries every partition in one envelope, so a checkpoint replaces the whole index atomically. `checkpoint` records where write-ahead log replay resumes for each partition. It is additive, and a reader that skips it treats every `lastSeqNo` as 0. `analysis_revision`, `tokenizer`, `stop_words`, and `stop_word_list` are additive too: they carry the same analysis as the index metadata payload, and a reader recreates the index with them, resolving each name as [Index Metadata](durability.md#index-metadata) describes and treating the revision as [Index Metadata](#index-metadata) above requires. The log format, the recovery procedure, and the checkpoint rules are in [durability.md](durability.md).
 
 ---
 
