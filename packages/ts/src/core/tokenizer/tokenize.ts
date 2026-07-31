@@ -21,7 +21,7 @@ export interface TokenizeOptions {
 
 export function producesSurfaceForms(language: LanguageModule, options?: TokenizeOptions): boolean {
   if (!options?.collectSurfaces || options.customTokenizer) return false
-  return (options.stem ?? true) && language.stemmer !== undefined
+  return (options.stem ?? true) && language.stemmer !== null
 }
 
 const DEFAULT_SPLIT_PATTERN = /[^\p{L}\p{M}\p{N}_'-]+/u
@@ -88,7 +88,7 @@ export function tokenize(text: string, language: LanguageModule, options?: Token
   const minLength = language.tokenizer?.minTokenLength ?? DEFAULT_MIN_TOKEN_LENGTH
 
   const effectiveDiacritics = removeDiacritics || (language.tokenizer?.normalizeDiacritics ?? false)
-  const stemsTokens = stem && language.stemmer !== undefined
+  const stemsTokens = stem && language.stemmer !== null
   const stopWords = removeStopWords ? resolveStopWords(language, stopWordOverride) : new Set<string>()
   const stripPossessives = language.tokenizer?.stripPossessive ?? false
 
@@ -154,7 +154,7 @@ export function* tokenizeIterator(
   const minLength = language.tokenizer?.minTokenLength ?? DEFAULT_MIN_TOKEN_LENGTH
 
   const effectiveDiacritics = removeDiacritics || (language.tokenizer?.normalizeDiacritics ?? false)
-  const stemsTokens = stem && language.stemmer !== undefined
+  const stemsTokens = stem && language.stemmer !== null
   const wantSurfaces = collectSurfaces && stemsTokens
   const stopWords = removeStopWords ? resolveStopWords(language, stopWordOverride) : new Set<string>()
   const stripPossessives = language.tokenizer?.stripPossessive ?? false

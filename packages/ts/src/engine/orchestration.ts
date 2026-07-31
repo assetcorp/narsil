@@ -41,6 +41,10 @@ function isDeterministicFailure(error: Error): boolean {
   return error instanceof NarsilError && error.code === ErrorCodes.CONFIG_INVALID
 }
 
+function alreadyPresentOnWorker(reason: unknown): boolean {
+  return reason instanceof NarsilError && reason.code === ErrorCodes.DOC_ALREADY_EXISTS
+}
+
 function workerIneligibility(
   indexName: string,
   config: IndexConfig,
@@ -229,7 +233,7 @@ export function createWorkerOrchestrator(
         const buffered = [...promotionBuffer]
         promotionBuffer.length = 0
         for (const action of buffered) {
-          await replicateToWorkers(action)
+          await replicateToWorkers(action, true)
         }
       }
 
@@ -242,7 +246,7 @@ export function createWorkerOrchestrator(
     }
   }
 
-  async function replicateToWorkers(action: WorkerAction): Promise<void> {
+  async function replicateToWorkers(action: WorkerAction, transferMayCover = false): Promise<void> {
     if (promotionInProgress) {
       promotionBuffer.push(action)
       return
@@ -266,6 +270,9 @@ export function createWorkerOrchestrator(
 
     for (const result of results) {
       if (result.status === 'rejected') {
+        if (transferMayCover && alreadyPresentOnWorker(result.reason)) {
+          continue
+        }
         console.warn('Worker replication failed:', result.reason)
       }
     }
