@@ -2,15 +2,11 @@ import { buildEntry } from '../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
 import { reclaimWalBeyondCount, truncateCoveredSegments } from './checkpoint'
-import { runCheckpointOnWorker, terminateCheckpointWorker } from './checkpoint-worker-dispatch'
+import { terminateCheckpointWorker } from './checkpoint-worker-dispatch'
+import { writeIndexCheckpoint } from './checkpoint-write'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
 import { listPersistedIndexes, loadMetadata, loadSnapshot, replayWal, snapshotCheckpointFor } from './recovery'
-import {
-  DEFAULT_COMPACTION_THRESHOLD,
-  readSegmentManifest,
-  reclaimOrphanedSegments,
-  writeSegmentedCheckpoint,
-} from './segment'
+import { DEFAULT_COMPACTION_THRESHOLD, readSegmentManifest, reclaimOrphanedSegments } from './segment'
 import { createSeqOwner, type SeqOwner, SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import type { PartitionCheckpoint } from './snapshot-bundle'
 import {
@@ -180,22 +176,25 @@ export function createDurabilityManager(
     })
   }
 
-  async function checkpointIndex(indexName: string): Promise<void> {
+  async function checkpointIndex(indexName: string, fromMemory = false): Promise<void> {
     const indexState = indexes.get(indexName)
     if (indexState === undefined) {
       return
     }
     if (indexState.checkpointInFlight !== null) {
-      return indexState.checkpointInFlight
+      await indexState.checkpointInFlight
+      if (!fromMemory) {
+        return
+      }
     }
-    const run = performCheckpoint(indexName, indexState).finally(() => {
+    const run = performCheckpoint(indexName, indexState, fromMemory).finally(() => {
       indexState.checkpointInFlight = null
     })
     indexState.checkpointInFlight = run
     return run
   }
 
-  async function performCheckpoint(indexName: string, indexState: IndexState): Promise<void> {
+  async function performCheckpoint(indexName: string, indexState: IndexState, fromMemory = false): Promise<void> {
     const manager = hooks.getManager(indexName)
     if (manager === undefined) {
       return
@@ -224,20 +223,15 @@ export function createDurabilityManager(
       }
     }
 
-    const offloaded =
-      canOffloadCheckpoint &&
-      metadata.tokenizer === undefined &&
-      metadata.stopWords === undefined &&
-      (await runCheckpointOnWorker({
-        root: directory.root,
-        metadata,
-        targets,
-        compactionThreshold,
-      }))
-
-    if (!offloaded) {
-      await writeSegmentedCheckpoint({ directory, metadata, targets, compactionThreshold })
-    }
+    await writeIndexCheckpoint({
+      directory,
+      metadata,
+      targets,
+      compactionThreshold,
+      manager,
+      canOffload: canOffloadCheckpoint,
+      fromMemory,
+    })
     await truncateCoveredSegments(directory, indexName, targets)
     await reclaimWalBeyondCount(directory, indexName, manager.partitionCount, indexState.partitions, markFatal)
     indexState.mutationsSinceCheckpoint = 0
@@ -350,6 +344,10 @@ export function createDurabilityManager(
 
     checkpoint(indexName: string): Promise<void> {
       return checkpointIndex(indexName)
+    },
+
+    checkpointFromMemory(indexName: string): Promise<void> {
+      return checkpointIndex(indexName, true)
     },
 
     async checkpointAll(): Promise<void> {

@@ -102,7 +102,7 @@ describe('tokenize', () => {
   })
 
   it('keeps hyphenated tokens for languages without a tokenizer override', () => {
-    const plain: LanguageModule = { name: 'plain', stemmer: null, stopWords: new Set() }
+    const plain: LanguageModule = { name: 'plain', revision: '1', stemmer: null, stopWords: new Set() }
     const result = tokenize('fast-twitch', plain, { stem: false, removeStopWords: false })
     expect(result.tokens.map(t => t.token)).toEqual(['fast-twitch'])
   })
@@ -183,6 +183,7 @@ describe('tokenize', () => {
   it('respects language-specific split pattern', () => {
     const custom: LanguageModule = {
       name: 'custom',
+      revision: '1',
       stemmer: null,
       stopWords: new Set(),
       tokenizer: { splitPattern: /;/ },
@@ -194,6 +195,7 @@ describe('tokenize', () => {
   it('respects language-level normalizeDiacritics', () => {
     const lang: LanguageModule = {
       name: 'diacritic-lang',
+      revision: '1',
       stemmer: null,
       stopWords: new Set(),
       tokenizer: { normalizeDiacritics: true },
@@ -205,6 +207,7 @@ describe('tokenize', () => {
   it('respects language-level minTokenLength', () => {
     const lang: LanguageModule = {
       name: 'min3',
+      revision: '1',
       stemmer: null,
       stopWords: new Set(),
       tokenizer: { minTokenLength: 3 },
@@ -225,6 +228,7 @@ describe('tokenize', () => {
   it('preserves correct positions when minTokenLength filters tokens', () => {
     const lang: LanguageModule = {
       name: 'min2',
+      revision: '1',
       stemmer: null,
       stopWords: new Set(),
       tokenizer: { minTokenLength: 2 },
@@ -243,6 +247,27 @@ describe('tokenize', () => {
     expect(words).not.toContain('are')
     expect(words).toContain('cat')
     expect(words).toContain('run')
+  })
+})
+
+describe('the token cache separates one revision of a language from the next', () => {
+  it('stems with the module in hand rather than the one that filled the cache', () => {
+    const before: LanguageModule = {
+      name: 'cache-fixture',
+      revision: '1',
+      stemmer: null,
+      stopWords: new Set<string>(),
+    }
+    const after: LanguageModule = {
+      name: 'cache-fixture',
+      revision: '2',
+      stemmer: (token: string) => (token.endsWith('ing') ? token.slice(0, -3) : token),
+      stopWords: new Set<string>(),
+    }
+
+    const options = { stem: true, removeStopWords: false }
+    expect(tokenize('jumping', before, options).tokens.map(t => t.token)).toEqual(['jumping'])
+    expect(tokenize('jumping', after, options).tokens.map(t => t.token)).toEqual(['jump'])
   })
 })
 

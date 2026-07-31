@@ -9,6 +9,7 @@ export interface CheckpointInput {
   indexName: string
   schema: Record<string, string>
   language: string
+  analysisRevision?: string
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
@@ -50,6 +51,7 @@ export async function buildSnapshotBundleBytes(
     version: 1,
     schema: input.schema,
     language: input.language,
+    ...(input.analysisRevision !== undefined ? { analysisRevision: input.analysisRevision } : {}),
     ...(input.tokenizer !== undefined ? { tokenizer: input.tokenizer } : {}),
     ...(input.stopWords !== undefined ? { stopWords: input.stopWords } : {}),
     ...(input.stopWordList !== undefined ? { stopWordList: input.stopWordList } : {}),

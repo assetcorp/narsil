@@ -126,6 +126,7 @@ export interface IndexMetadata {
   embedding?: IndexEmbeddingMetadata
   /** Persisted so recovered indexes keep collecting surface forms. */
   surfaceForms?: boolean
+  analysisRevision?: string
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]

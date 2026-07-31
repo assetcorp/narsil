@@ -353,6 +353,7 @@ function normalize(token: string): string {
 
 export const hindi: LanguageModule = {
   name: 'hindi',
+  revision: '1',
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

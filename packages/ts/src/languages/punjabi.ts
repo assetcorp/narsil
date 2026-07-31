@@ -196,6 +196,7 @@ const stopWords = new Set([
 
 export const punjabi: LanguageModule = {
   name: 'punjabi',
+  revision: '1',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^\u0a00-\u0a7fa-z0-9]+/gi },

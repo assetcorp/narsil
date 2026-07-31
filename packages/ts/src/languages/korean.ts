@@ -246,6 +246,7 @@ const stopWords = new Set([
 
 export const korean: LanguageModule = {
   name: 'korean',
+  revision: '1',
   stemmer: null,
   stopWords,
   tokenizer: {

@@ -100,6 +100,20 @@ export interface Narsil {
   query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>
   preflight(indexName: string, params: QueryParams): Promise<PreflightResult>
   suggest(indexName: string, params: SuggestParams): Promise<SuggestResult>
+  /**
+   * Rebuilds an index's terms from the documents it already stores, and
+   * resolves once every partition carries terms the current language module
+   * produced.
+   *
+   * An index whose stored analysis revision differs from the one its language
+   * module carries answers text queries from terms an earlier analysis wrote,
+   * and every such result reports `analysisStale`. Call this after the engine
+   * reports a stale index to configuration that declined an automatic rebuild.
+   * Calling it for an index whose terms are current does nothing.
+   *
+   * @param indexName - The index whose terms are rebuilt.
+   */
+  rebuildAnalysis(indexName: string): Promise<void>
   snapshot(indexName: string): Promise<Uint8Array>
   restore(indexName: string, data: Uint8Array): Promise<void>
   checkpoint(indexName: string): Promise<void>
@@ -136,6 +150,7 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
   if (core.invalidation) {
     await core.invalidation.start()
   }
+  await core.analysisRebuild.reviewStaleIndexes()
   return createNarsilFromCore(core, config)
 }
 
@@ -182,6 +197,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
           documentCount: manager?.countDocuments() ?? 0,
           partitionCount: manager?.partitionCount ?? 0,
           language: entry.language.name,
+          ...(core.analysisRebuild.isStale(name) ? { analysisStale: true } : {}),
         })
       }
       return infos
@@ -283,6 +299,10 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         console.warn('afterSearch plugin hook error:', err)
       }
 
+      if (core.analysisRebuild.isStale(indexName)) {
+        result.analysisStale = true
+      }
+
       return result
     },
 
@@ -297,7 +317,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         entry.embeddingAdapterName,
       )
       const workerSearch = orchestrator.isPromoted() ? orchestrator.searchViaWorker.bind(orchestrator) : undefined
-      return executePreflight(resolvedParams, {
+      const result = await executePreflight(resolvedParams, {
         manager,
         language: entry.language,
         config: entry.config,
@@ -305,10 +325,24 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         indexName,
         broadcastStats,
       })
+      if (core.analysisRebuild.isStale(indexName)) {
+        result.analysisStale = true
+      }
+      return result
     },
     async suggest(indexName: string, params: SuggestParams): Promise<SuggestResult> {
       guardShutdown()
-      return executeSuggest(requireManager(indexName), requireIndex(indexName).language, params)
+      const result = await executeSuggest(requireManager(indexName), requireIndex(indexName).language, params)
+      if (core.analysisRebuild.isStale(indexName)) {
+        result.analysisStale = true
+      }
+      return result
+    },
+
+    async rebuildAnalysis(indexName: string): Promise<void> {
+      guardShutdown()
+      requireIndex(indexName)
+      await core.analysisRebuild.rebuild(indexName)
     },
 
     async snapshot(indexName: string): Promise<Uint8Array> {
@@ -327,6 +361,8 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         durability,
         embeddingAdapters: core.embeddingAdapters,
         defaultEmbeddingAdapter: config?.embedding ?? null,
+        markAnalysisStale: core.analysisRebuild.markStale,
+        clearAnalysisStale: core.analysisRebuild.clearStale,
       })
     },
 

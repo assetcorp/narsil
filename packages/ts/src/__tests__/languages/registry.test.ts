@@ -42,6 +42,7 @@ describe('language registry', () => {
   it('registers a custom language', () => {
     const custom: LanguageModule = {
       name: 'pirate',
+      revision: '1',
       stemmer: null,
       stopWords: new Set(['arr', 'ye']),
     }
@@ -53,11 +54,13 @@ describe('language registry', () => {
   it('allows overwriting a registered language', () => {
     const v1: LanguageModule = {
       name: 'test-lang',
+      revision: '1',
       stemmer: null,
       stopWords: new Set(['v1']),
     }
     const v2: LanguageModule = {
       name: 'test-lang',
+      revision: '1',
       stemmer: (t: string) => t,
       stopWords: new Set(['v2']),
     }

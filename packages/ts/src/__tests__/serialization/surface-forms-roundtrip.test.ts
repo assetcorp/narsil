@@ -7,6 +7,7 @@ import type { SchemaDefinition } from '../../types/schema'
 
 const stemming: LanguageModule = {
   name: 'test-stemming',
+  revision: '1',
   stemmer: (word: string) => word.replace(/(?:ing|ity|ies|s)$/u, ''),
   stopWords: new Set(['the']),
 }

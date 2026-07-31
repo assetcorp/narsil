@@ -13,6 +13,7 @@ export interface SnapshotBundle {
   version: 1
   schema: Record<string, string>
   language: string
+  analysisRevision?: string
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
@@ -25,6 +26,7 @@ interface RawSnapshotBundle {
   version?: number
   schema?: Record<string, string>
   language?: string
+  analysis_revision?: unknown
   tokenizer?: unknown
   stop_words?: unknown
   stop_word_list?: unknown
@@ -38,6 +40,7 @@ export async function encodeSnapshotBundle(bundle: SnapshotBundle): Promise<Enve
     version: 1,
     schema: bundle.schema,
     language: bundle.language,
+    ...(bundle.analysisRevision !== undefined ? { analysis_revision: bundle.analysisRevision } : {}),
     ...(bundle.tokenizer !== undefined ? { tokenizer: bundle.tokenizer } : {}),
     ...(bundle.stopWords !== undefined ? { stop_words: bundle.stopWords } : {}),
     ...(bundle.stopWordList !== undefined ? { stop_word_list: bundle.stopWordList } : {}),
@@ -72,6 +75,9 @@ export async function decodeSnapshotBundle(data: Uint8Array): Promise<SnapshotBu
   if (!Array.isArray(raw.partitions)) {
     throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Snapshot bundle missing partitions')
   }
+  if (raw.analysis_revision !== undefined && typeof raw.analysis_revision !== 'string') {
+    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Snapshot bundle analysis_revision must be a revision')
+  }
   if (raw.tokenizer !== undefined && typeof raw.tokenizer !== 'string') {
     throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Snapshot bundle tokenizer must be a name')
   }
@@ -84,6 +90,7 @@ export async function decodeSnapshotBundle(data: Uint8Array): Promise<SnapshotBu
     version: 1,
     schema: raw.schema,
     language: raw.language,
+    ...(typeof raw.analysis_revision === 'string' ? { analysisRevision: raw.analysis_revision } : {}),
     ...(typeof raw.tokenizer === 'string' ? { tokenizer: raw.tokenizer } : {}),
     ...(typeof raw.stop_words === 'string' ? { stopWords: raw.stop_words } : {}),
     ...(stopWordList !== undefined ? { stopWordList } : {}),

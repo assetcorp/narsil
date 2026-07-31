@@ -93,6 +93,7 @@ const stopWords = new Set([
 
 export const xhosa: LanguageModule = {
   name: 'xhosa',
+  revision: '1',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9-]+/gi },

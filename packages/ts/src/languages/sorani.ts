@@ -161,6 +161,7 @@ function normalize(token: string): string {
 
 export const sorani: LanguageModule = {
   name: 'sorani',
+  revision: '1',
   stemmer: null,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

@@ -368,6 +368,7 @@ const stopWords = new Set([
 
 export const scottishGaelic: LanguageModule = {
   name: 'scottish-gaelic',
+  revision: '1',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9àáèéìòóù'-]+/gi },

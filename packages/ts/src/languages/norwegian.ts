@@ -294,6 +294,7 @@ const stopWords = new Set([
 
 export const norwegian: LanguageModule = {
   name: 'norwegian',
+  revision: '1',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9æøåäöüéó]+/gi },
