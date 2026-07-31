@@ -6,6 +6,7 @@
 
 import type { LanguageModule } from '../types/language'
 import { removeMarks } from './support/marks'
+import { withNormalisedSpellings } from './support/spellings'
 
 const ACCENT_MAP: Record<string, string> = {
   ά: 'α',
@@ -916,7 +917,7 @@ function normalize(token: string): string {
 export const greek: LanguageModule = {
   name: 'greek',
   stemmer: stem,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: {
     splitPattern: /[^\u0370-\u03FF\u1F00-\u1FFFa-z0-9]+/gi,

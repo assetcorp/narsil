@@ -8,6 +8,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
+import { withNormalisedSpellings } from './support/spellings'
 
 const PUSO = "'"
 const SALTILLO = '\u{a78c}'
@@ -135,7 +136,7 @@ function normalize(token: string): string {
 export const guarani: LanguageModule = {
   name: 'guarani',
   stemmer: null,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^\p{Script=Latin}\p{M}0-9']+/giu },
 }

@@ -4,6 +4,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
+import { withNormalisedSpellings } from './support/spellings'
 
 const stopWords = new Set([
   'අතර',
@@ -180,7 +181,7 @@ function normalize(token: string): string {
 export const sinhala: LanguageModule = {
   name: 'sinhala',
   stemmer: null,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^\u0d80-\u0dff\u200da-z0-9]+/gi },
 }

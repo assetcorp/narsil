@@ -4,6 +4,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
+import { withNormalisedSpellings } from './support/spellings'
 
 const VOWELS = 'aăâeiîou'
 
@@ -691,7 +692,7 @@ function normalize(token: string): string {
 export const romanian: LanguageModule = {
   name: 'romanian',
   stemmer: stem,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^a-z0-9ăâîșțşţ]+/gi },
 }

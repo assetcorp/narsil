@@ -6,6 +6,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
+import { withNormalisedSpellings } from './support/spellings'
 
 const stopWords = new Set([
   'nye',
@@ -90,7 +91,7 @@ function normalize(token: string): string {
 export const ewe: LanguageModule = {
   name: 'ewe',
   stemmer: null,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: {
     splitPattern: /[^a-zA-ZàáèéêìíòóùúãẽĩũɛɔɖƉðÐŋƐƆŊɣƔƒƑʋƲÀÁÈÉÊÌÍÒÓÙÚÃẼĨŨ0-9\p{M}]+/giu,

@@ -9,6 +9,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
+import { withNormalisedSpellings } from './support/spellings'
 
 const stopWords = new Set([
   'ئەم',
@@ -161,7 +162,7 @@ function normalize(token: string): string {
 export const sorani: LanguageModule = {
   name: 'sorani',
   stemmer: null,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^\u0621-\u065f\u0660-\u0669\u066e-\u06d5\u06f0-\u06f9\u200ca-z0-9]+/gi },
 }

@@ -2,9 +2,16 @@
  * Stop words curated for Narsil: pronouns, possessives, and prepositions in
  * Cyrillic script. No published Serbian list matches; Lucene and Orama publish
  * Latin-script lists with different contents.
+ *
+ * Serbian is written in both scripts, and the stop word check reads a token
+ * before the normaliser runs, so each entry is also held in its Gaj Latin
+ * spelling and in the accent-free spelling the normaliser produces. The suffix
+ * table is Cyrillic, while the stemmer receives the normaliser's Latin output,
+ * so the table is transliterated once at load.
  */
 
 import type { LanguageModule } from '../types/language'
+import { withNormalisedSpellings } from './support/spellings'
 
 const SUFFIXES: [string, number][] = [
   ['овањима', 3],
@@ -156,7 +163,7 @@ const SUFFIXES: [string, number][] = [
 function stem(word: string): string {
   if (word.length < 4) return word
 
-  for (const [suffix, minLen] of SUFFIXES) {
+  for (const [suffix, minLen] of NORMALISED_SUFFIXES) {
     if (word.endsWith(suffix) && word.length - suffix.length >= minLen) {
       return word.slice(0, word.length - suffix.length)
     }
@@ -165,7 +172,7 @@ function stem(word: string): string {
   return word
 }
 
-const stopWords = new Set([
+const cyrillicStopWords = new Set([
   'ја',
   'ти',
   'он',
@@ -318,14 +325,63 @@ const LATIN_FORMS: Record<string, string> = {
   š: 's',
 }
 
+const CYRILLIC_LETTERS = /[\u0430-\u045F]/g
+const GAJ_FORMS: Record<string, string> = {
+  '\u0430': 'a',
+  '\u0431': 'b',
+  '\u0432': 'v',
+  '\u0433': 'g',
+  '\u0434': 'd',
+  '\u0452': 'đ',
+  '\u0435': 'e',
+  '\u0436': 'ž',
+  '\u0437': 'z',
+  '\u0438': 'i',
+  '\u0458': 'j',
+  '\u043A': 'k',
+  '\u043B': 'l',
+  '\u0459': 'lj',
+  '\u043C': 'm',
+  '\u043D': 'n',
+  '\u045A': 'nj',
+  '\u043E': 'o',
+  '\u043F': 'p',
+  '\u0440': 'r',
+  '\u0441': 's',
+  '\u0442': 't',
+  '\u045B': 'ć',
+  '\u0443': 'u',
+  '\u0444': 'f',
+  '\u0445': 'h',
+  '\u0446': 'c',
+  '\u0447': 'č',
+  '\u045F': 'dž',
+  '\u0448': 'š',
+}
+
 function normalize(token: string): string {
   return token.replace(SERBIAN_LETTERS, letter => LATIN_FORMS[letter] ?? letter)
+}
+
+function toGajLatin(token: string): string {
+  return token.replace(CYRILLIC_LETTERS, letter => GAJ_FORMS[letter] ?? letter)
+}
+
+const listedSpellings = [...cyrillicStopWords, ...[...cyrillicStopWords].map(toGajLatin)]
+
+const NORMALISED_SUFFIXES: [string, number][] = []
+const seenSuffixes = new Set<string>()
+for (const [suffix, minimumStemLength] of SUFFIXES) {
+  const latin = normalize(suffix)
+  if (seenSuffixes.has(latin)) continue
+  seenSuffixes.add(latin)
+  NORMALISED_SUFFIXES.push([latin, minimumStemLength])
 }
 
 export const serbian: LanguageModule = {
   name: 'serbian',
   stemmer: stem,
-  stopWords,
+  stopWords: withNormalisedSpellings(listedSpellings, normalize),
   normalizer: normalize,
-  tokenizer: { splitPattern: /[^a-z0-9\u0400-\u04FFčćžđ]+/gi },
+  tokenizer: { splitPattern: /[^a-z0-9\u0400-\u04FFčćžđš]+/gi },
 }
