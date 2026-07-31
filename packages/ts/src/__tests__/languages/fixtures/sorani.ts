@@ -26,7 +26,12 @@ export const soraniFixture = defineLanguageFixture({
       tokens: ['لە', 'ڕووی', 'بنەماڵەوە'],
     },
   ],
-  equivalent: [],
+  equivalent: [
+    ['کوردی', 'كوردي'],
+    ['زمانێکە', 'زمانێکه‌'],
+    ['زمانێکە', 'زمانێکه'],
+    ['ھیندوئەورووپایییەکان', 'هیندوئەورووپایییەکان'],
+  ],
   retrievable: [
     {
       query: 'نەتەوەی',

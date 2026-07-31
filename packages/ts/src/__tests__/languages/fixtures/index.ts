@@ -28,6 +28,7 @@ import { gaFixture } from './ga'
 import { galicianFixture } from './galician'
 import { germanFixture } from './german'
 import { greekFixture } from './greek'
+import { guaraniFixture } from './guarani'
 import { gujaratiFixture } from './gujarati'
 import { haitianCreoleFixture } from './haitian-creole'
 import { hausaFixture } from './hausa'
@@ -131,6 +132,7 @@ export const languageFixtures: readonly LanguageFixture[] = [
   galicianFixture,
   germanFixture,
   greekFixture,
+  guaraniFixture,
   gujaratiFixture,
   haitianCreoleFixture,
   hausaFixture,
