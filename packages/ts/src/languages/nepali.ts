@@ -273,6 +273,7 @@ const stopWords = new Set([
 
 export const nepali: LanguageModule = {
   name: 'nepali',
+  revision: '1',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^\u0900-\u0963\u0966-\u097fa-z0-9]+/gi },

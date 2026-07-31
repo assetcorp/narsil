@@ -33,6 +33,9 @@ export interface DurabilityManager {
   recordMutation(record: MutationRecord): Promise<number>
   persistMetadata(indexName: string): Promise<void>
   checkpoint(indexName: string): Promise<void>
+  /** Writes each partition as it stands in memory, so a checkpoint that
+   * rebuilt its terms replaces what earlier segments hold. */
+  checkpointFromMemory?(indexName: string): Promise<void>
   checkpointAll(): Promise<void>
   removeIndex(indexName: string): Promise<void>
   reloadIndex?(indexName: string): Promise<void>

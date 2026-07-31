@@ -11,6 +11,7 @@ import type { IndexConfig, SchemaDefinition } from '../../types/schema'
 import type { VectorIndexPayload } from '../../vector/vector-index'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
+import type { StaleIndex } from '../analysis-rebuild'
 import type { IndexRegistryEntry } from '../core'
 import type { DurabilityIntegration } from '../durability-integration'
 import { restoredConfigFields, restoredEmbedding, type SnapshotEnvelope } from './restore-config'
@@ -46,6 +47,7 @@ export async function createSnapshot(manager: PartitionManager, entry: IndexRegi
     version: 2,
     schema: config.schema,
     language: entry.language.name,
+    analysisRevision: entry.language.revision,
     ...(typeof config.tokenizer === 'string' ? { tokenizer: config.tokenizer } : {}),
     ...(typeof config.stopWords === 'string' ? { stopWords: config.stopWords } : {}),
     ...(config.stopWords instanceof Set ? { stopWordList: [...config.stopWords].sort() } : {}),
@@ -86,6 +88,8 @@ export interface RestoreDeps {
   durability: DurabilityIntegration | null
   embeddingAdapters: Map<string, EmbeddingAdapter>
   defaultEmbeddingAdapter: EmbeddingAdapter | null
+  markAnalysisStale: (index: StaleIndex) => void
+  clearAnalysisStale: (indexName: string) => void
 }
 
 export async function restoreFromSnapshot(indexName: string, data: Uint8Array, deps: RestoreDeps): Promise<void> {
@@ -155,6 +159,17 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
 
   if (deps.indexRegistry.has(indexName)) {
     await deps.dropIndex(indexName)
+  }
+
+  const storedRevision = typeof envelope.analysisRevision === 'string' ? envelope.analysisRevision : null
+  deps.clearAnalysisStale(indexName)
+  if (storedRevision !== language.revision) {
+    deps.markAnalysisStale({
+      indexName,
+      language: language.name,
+      storedRevision,
+      currentRevision: language.revision,
+    })
   }
 
   deps.executor.createIndex(indexName, indexConfig, language)

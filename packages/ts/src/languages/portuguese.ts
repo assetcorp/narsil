@@ -686,6 +686,7 @@ function normalize(token: string): string {
 
 export const portuguese: LanguageModule = {
   name: 'portuguese',
+  revision: '1',
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

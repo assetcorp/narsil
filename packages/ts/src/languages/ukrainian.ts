@@ -562,6 +562,7 @@ const stopWords = new Set([
 
 export const ukrainian: LanguageModule = {
   name: 'ukrainian',
+  revision: '1',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9а-яіїєґ']+/gi },

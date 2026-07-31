@@ -170,6 +170,7 @@ const stopWords = new Set([
 
 export const galician: LanguageModule = {
   name: 'galician',
+  revision: '1',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9áéíñóúü]+/gi },

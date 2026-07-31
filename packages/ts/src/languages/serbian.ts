@@ -380,6 +380,7 @@ for (const [suffix, minimumStemLength] of SUFFIXES) {
 
 export const serbian: LanguageModule = {
   name: 'serbian',
+  revision: '1',
   stemmer: stem,
   stopWords: withNormalisedSpellings(listedSpellings, normalize),
   normalizer: normalize,

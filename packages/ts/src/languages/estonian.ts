@@ -1372,6 +1372,7 @@ const stopWords = new Set([
 
 export const estonian: LanguageModule = {
   name: 'estonian',
+  revision: '1',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9äõöüšž]+/gi },

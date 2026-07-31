@@ -85,6 +85,7 @@ export function createSnapshotOnlyManager(
       indexName,
       schema: metadata.schema,
       language: metadata.language,
+      ...(metadata.analysisRevision !== undefined ? { analysisRevision: metadata.analysisRevision } : {}),
       ...(metadata.tokenizer !== undefined ? { tokenizer: metadata.tokenizer } : {}),
       ...(metadata.stopWords !== undefined ? { stopWords: metadata.stopWords } : {}),
       ...(metadata.stopWordList !== undefined ? { stopWordList: metadata.stopWordList } : {}),

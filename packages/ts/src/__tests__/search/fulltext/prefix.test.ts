@@ -127,6 +127,7 @@ describe('fulltextSearch last-token prefix matching', () => {
 describe('fulltextSearch prefix matching with a stemming language', () => {
   const stemming: LanguageModule = {
     name: 'test-stemming',
+    revision: '1',
     stemmer: (word: string) => word.replace(/(?:ational|ization|ities|ing|ity|ies|s)$/u, ''),
     stopWords: new Set(['the', 'a', 'of']),
   }

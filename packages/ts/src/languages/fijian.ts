@@ -53,6 +53,7 @@ const stopWords = new Set([
 
 export const fijian: LanguageModule = {
   name: 'fijian',
+  revision: '1',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9]+/gi },

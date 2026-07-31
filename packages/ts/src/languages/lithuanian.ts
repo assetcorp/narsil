@@ -135,6 +135,7 @@ const stopWords = new Set([
 
 export const lithuanian: LanguageModule = {
   name: 'lithuanian',
+  revision: '1',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9ąčėęįšūųž]+/gi },

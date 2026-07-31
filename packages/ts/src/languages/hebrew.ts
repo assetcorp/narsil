@@ -211,6 +211,7 @@ function normalize(token: string): string {
 
 export const hebrew: LanguageModule = {
   name: 'hebrew',
+  revision: '1',
   stemmer: null,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

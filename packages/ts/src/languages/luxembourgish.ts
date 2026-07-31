@@ -212,6 +212,7 @@ const stopWords = new Set([
 
 export const luxembourgish: LanguageModule = {
   name: 'luxembourgish',
+  revision: '1',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9àäéë]+/gi },

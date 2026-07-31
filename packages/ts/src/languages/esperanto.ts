@@ -177,6 +177,7 @@ const stopWords = new Set([
 
 export const esperanto: LanguageModule = {
   name: 'esperanto',
+  revision: '1',
   stemmer: null,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9ĉĝĥĵŝŭ]+/gi },

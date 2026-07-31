@@ -30,6 +30,7 @@ export interface PartitionManager {
   beginBatchRemove(): void
   endBatchRemove(): void
   update(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
+  rebuildTextIndex(partitionId: number): void
   get(docId: string): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
   has(docId: string): boolean
@@ -247,6 +248,11 @@ export function createPartitionManager(
       // written under those options survive the remove.
       partitions[pid].remove(docId, config.schema, language, resolveInsertOptions())
       docPartitionMap.delete(docId)
+    },
+
+    rebuildTextIndex(partitionId: number): void {
+      validatePartitionId(partitionId)
+      partitions[partitionId].rebuildTextIndex(config.schema, language, resolveInsertOptions())
     },
 
     beginBatchRemove(): void {

@@ -16,6 +16,7 @@ import type { VectorIndex } from '../../../vector/vector-index'
 
 const testLanguage: LanguageModule = {
   name: 'english',
+  revision: '1',
   stemmer: null,
   stopWords: new Set(['the', 'a', 'an', 'is', 'are']),
 }
