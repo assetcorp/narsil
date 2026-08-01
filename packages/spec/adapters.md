@@ -266,7 +266,7 @@ Narsil analyses text in a fixed order, and every implementation must follow that
 1. A tokeniser configured on the index replaces every step below. Narsil calls it and takes its output as final.
 2. Narsil folds full-width and half-width forms. It maps each code point from U+FF01 to U+FF5E onto its ASCII equivalent by subtracting 0xFEE0, maps half-width katakana from U+FF61 to U+FF9D onto the matching full-width katakana, and maps the half-width voiced and semi-voiced marks U+FF9E and U+FF9F onto the combining marks U+3099 and U+309A.
 3. Narsil normalises the text to NFC, which composes each combining voice mark onto the kana before it.
-4. Narsil maps the apostrophe variants U+2019, U+02BC, and U+02BB onto U+0027, maps the dotted capital I at U+0130 onto `i`, and removes the combining dot above at U+0307 and the Armenian marks from U+055B to U+055F.
+4. Narsil maps the apostrophe variants U+2018, U+2019, U+02BC, and U+02BB onto U+0027, maps the dotted capital I at U+0130 onto `i`, and removes the combining dot above at U+0307 and the Armenian marks from U+055B to U+055F.
 5. Narsil lower-cases the text.
 6. Narsil splits the text on the language's `splitPattern`.
 7. Narsil expands each part into character n-grams when the language sets `ngramSize`. It cuts each part where the script changes, expands a run of Han, Hiragana, Katakana, Hangul, Thai, Lao, Khmer, or Myanmar characters into its overlapping n-grams, and leaves whole both a run of any other script and a run no longer than `ngramSize`. It counts a base character together with every code point of Unicode general category M that follows it as one character, so that no n-gram begins or ends inside a written character.
