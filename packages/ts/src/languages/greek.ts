@@ -7,7 +7,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/greek'
+import { stem } from './snowball/greek'
 import { removeMarks } from './support/marks'
 import { withNormalisedSpellings } from './support/spellings'
 
@@ -616,7 +616,7 @@ function normalize(token: string): string {
 
 export const greek: LanguageModule = {
   name: 'greek',
-  revision,
+  revision: '4f02e255d00e5848',
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

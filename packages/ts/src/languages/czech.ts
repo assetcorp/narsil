@@ -6,7 +6,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/czech'
+import { stem } from './snowball/czech'
 
 const stopWords = new Set([
   'a',
@@ -184,7 +184,7 @@ const stopWords = new Set([
 
 export const czech: LanguageModule = {
   name: 'czech',
-  revision,
+  revision: '48b013a41884beb9',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9áčďéěíňóřšťúůýž]+/gi },

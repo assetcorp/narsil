@@ -6,7 +6,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/armenian'
+import { stem } from './snowball/armenian'
 
 const stopWords = new Set([
   '\u0561\u0575\u0564',
@@ -58,7 +58,7 @@ const stopWords = new Set([
 
 export const armenian: LanguageModule = {
   name: 'armenian',
-  revision,
+  revision: '6d99ac3501d5d369',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^\u0531-\u0556\u0561-\u0587a-z0-9]+/gi },

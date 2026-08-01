@@ -30,6 +30,22 @@
         "cwd": "packages/ts"
       }
     },
+    "revisions": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run revisions",
+        "cwd": "packages/ts"
+      }
+    },
+    "revisions:write": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run revisions:write",
+        "cwd": "packages/ts"
+      }
+    },
     "test:coverage": {
       "executor": "nx:run-commands",
       "options": {

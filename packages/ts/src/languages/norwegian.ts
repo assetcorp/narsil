@@ -6,7 +6,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/norwegian'
+import { stem } from './snowball/norwegian'
 
 const stopWords = new Set([
   'og',
@@ -185,7 +185,7 @@ const stopWords = new Set([
 
 export const norwegian: LanguageModule = {
   name: 'norwegian',
-  revision,
+  revision: '8e862aa3bcec10dd',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9æøåäöüéó]+/gi },

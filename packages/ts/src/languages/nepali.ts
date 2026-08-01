@@ -6,7 +6,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/nepali'
+import { stem } from './snowball/nepali'
 
 const stopWords = new Set([
   'अक्सर',
@@ -160,7 +160,7 @@ const stopWords = new Set([
 
 export const nepali: LanguageModule = {
   name: 'nepali',
-  revision,
+  revision: '12453388370b3da0',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^\u0900-\u0963\u0966-\u097fa-z0-9]+/gi },

@@ -7,7 +7,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/arabic'
+import { stem } from './snowball/arabic'
 
 // Stop words sourced from https://github.com/stopwords-iso/stopwords-ar
 const stopWords = new Set([
@@ -475,7 +475,7 @@ const stopWords = new Set([
 
 export const arabic: LanguageModule = {
   name: 'arabic',
-  revision,
+  revision: 'd9b491d016b4caf6',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^\u0621-\u065f\u0660-\u0669\u066e-\u06d3\u06f0-\u06f9a-z0-9]+/gi },

@@ -7,7 +7,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/finnish'
+import { stem } from './snowball/finnish'
 
 const stopWords = new Set([
   'olla',
@@ -243,7 +243,7 @@ const stopWords = new Set([
 
 export const finnish: LanguageModule = {
   name: 'finnish',
-  revision,
+  revision: 'cd95cb543801a620',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9äöš]+/gi },
