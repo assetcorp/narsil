@@ -35,7 +35,7 @@ export type {
   PresenceFilter,
   StringFilter,
 } from './types/filters'
-export type { LanguageModule } from './types/language'
+export type { LanguageModule, TokenizerConfig } from './types/language'
 export type {
   IndexContext,
   InsertContext,
