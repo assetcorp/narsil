@@ -6,7 +6,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/indonesian'
+import { stem } from './snowball/indonesian'
 
 // Stop words sourced from https://github.com/stopwords-iso/stopwords-id
 const stopWords = new Set([
@@ -750,7 +750,7 @@ const stopWords = new Set([
 
 export const indonesian: LanguageModule = {
   name: 'indonesian',
-  revision,
+  revision: 'c0b2b853663a1396',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9-]+/gi },

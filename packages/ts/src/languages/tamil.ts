@@ -7,7 +7,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/tamil'
+import { stem } from './snowball/tamil'
 
 const stopWords = new Set([
   'ஒரு',
@@ -122,7 +122,7 @@ const stopWords = new Set([
 
 export const tamil: LanguageModule = {
   name: 'tamil',
-  revision,
+  revision: 'f859bf3d19447fbc',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^\u0B80-\u0BFFa-z0-9]+/gi },

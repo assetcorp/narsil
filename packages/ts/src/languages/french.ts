@@ -6,7 +6,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/french'
+import { stem } from './snowball/french'
 
 const stopWords = new Set([
   'au',
@@ -177,7 +177,7 @@ const stopWords = new Set([
 
 export const french: LanguageModule = {
   name: 'french',
-  revision,
+  revision: '240a93ad04b96326',
   stemmer: stem,
   stopWords,
   tokenizer: {

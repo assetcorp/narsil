@@ -6,7 +6,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/italian'
+import { stem } from './snowball/italian'
 
 const stopWords = new Set([
   'ad',
@@ -292,7 +292,7 @@ const stopWords = new Set([
 
 export const italian: LanguageModule = {
   name: 'italian',
-  revision,
+  revision: 'c4d2339182390e18',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9àèéìîòóù-]+/gi },

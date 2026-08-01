@@ -58,6 +58,9 @@ jobs:
       - name: Lint (certutil)
         run: pnpm nx run narsil-certutil:lint
 
+      - name: Check every language revision covers its analysis
+        run: pnpm nx run narsil-ts:revisions
+
       - name: Typecheck (incl. tests)
         run: pnpm nx run narsil-ts:typecheck
 

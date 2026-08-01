@@ -55,6 +55,8 @@
     "test:embeddings": "NARSIL_TEST_EMBEDDINGS=1 vitest run embedding-e2e",
     "bench": "vitest bench",
     "stemmers": "tsx snowball/build.ts",
+    "revisions": "tsx scripts/analysis-revisions.ts",
+    "revisions:write": "tsx scripts/analysis-revisions.ts --write",
     "lint": "biome check src/",
     "typecheck:src": "tsc --noEmit",
     "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
@@ -125,7 +127,8 @@
   },
   "files": [
     "dist/",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "dependencies": {
     "@msgpack/msgpack": "3.1.1"

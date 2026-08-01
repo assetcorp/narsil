@@ -7,7 +7,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/hindi'
+import { stem } from './snowball/hindi'
 import { withNormalisedSpellings } from './support/spellings'
 
 // Stop words sourced from https://github.com/stopwords-iso/stopwords-hi
@@ -250,7 +250,7 @@ function normalize(token: string): string {
 
 export const hindi: LanguageModule = {
   name: 'hindi',
-  revision,
+  revision: 'b7e1a82abe08c76a',
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

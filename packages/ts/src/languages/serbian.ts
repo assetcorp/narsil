@@ -12,7 +12,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/serbian'
+import { stem } from './snowball/serbian'
 import { withNormalisedSpellings } from './support/spellings'
 
 const cyrillicStopWords = new Set([
@@ -171,7 +171,7 @@ const listedSpellings = [...cyrillicStopWords, ...[...cyrillicStopWords].map(nor
 
 export const serbian: LanguageModule = {
   name: 'serbian',
-  revision,
+  revision: '86c7d873d1fd8723',
   stemmer: stem,
   stopWords: withNormalisedSpellings(listedSpellings, normalize),
   normalizer: normalize,

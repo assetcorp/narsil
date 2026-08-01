@@ -6,7 +6,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/romanian'
+import { stem } from './snowball/romanian'
 import { withNormalisedSpellings } from './support/spellings'
 
 const stopWords = new Set([
@@ -244,7 +244,7 @@ function normalize(token: string): string {
 
 export const romanian: LanguageModule = {
   name: 'romanian',
-  revision,
+  revision: 'daf797aac5310bd4',
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

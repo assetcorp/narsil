@@ -6,7 +6,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/esperanto'
+import { stem } from './snowball/esperanto'
 
 const stopWords = new Set([
   'adiaŭ',
@@ -180,7 +180,7 @@ const stopWords = new Set([
 
 export const esperanto: LanguageModule = {
   name: 'esperanto',
-  revision,
+  revision: 'dacc9f709c07f8ad',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9ĉĝĥĵŝŭ]+/gi },

@@ -6,7 +6,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/persian'
+import { stem } from './snowball/persian'
 import { withNormalisedSpellings } from './support/spellings'
 
 const stopWords = new Set([
@@ -330,7 +330,7 @@ function normalize(token: string): string {
 
 export const persian: LanguageModule = {
   name: 'persian',
-  revision,
+  revision: '99f39d265efbf595',
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

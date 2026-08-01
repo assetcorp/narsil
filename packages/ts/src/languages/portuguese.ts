@@ -6,7 +6,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/portuguese'
+import { stem } from './snowball/portuguese'
 import { removeMarks } from './support/marks'
 import { withNormalisedSpellings } from './support/spellings'
 
@@ -224,7 +224,7 @@ function normalize(token: string): string {
 
 export const portuguese: LanguageModule = {
   name: 'portuguese',
-  revision,
+  revision: 'c0a0c5c97ab9ca6e',
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

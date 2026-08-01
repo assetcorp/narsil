@@ -6,7 +6,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/german'
+import { stem } from './snowball/german'
 import { withNormalisedSpellings } from './support/spellings'
 
 const stopWords = new Set([
@@ -251,7 +251,7 @@ function normalize(token: string): string {
 
 export const german: LanguageModule = {
   name: 'german',
-  revision,
+  revision: 'ff10b0dd9feeb7cb',
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

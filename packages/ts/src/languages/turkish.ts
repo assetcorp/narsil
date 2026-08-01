@@ -6,7 +6,7 @@
  */
 
 import type { LanguageModule } from '../types/language'
-import { revision, stem } from './snowball/turkish'
+import { stem } from './snowball/turkish'
 
 const stopWords = new Set([
   'acaba',
@@ -255,7 +255,7 @@ const stopWords = new Set([
 
 export const turkish: LanguageModule = {
   name: 'turkish',
-  revision,
+  revision: 'c537dbdae6350a3c',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9çğıöşüâî]+/gi },
