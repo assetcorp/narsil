@@ -62,11 +62,12 @@ export function applyDeleteEntry(
   manager: PartitionManager,
   vecIndexes: Map<string, VectorIndex>,
 ): void {
+  removeDocumentVectors(entry.documentId, vecIndexes)
+
   if (!manager.has(entry.documentId)) {
     return
   }
 
-  removeDocumentVectors(entry.documentId, vecIndexes)
   manager.remove(entry.documentId)
 }
 
