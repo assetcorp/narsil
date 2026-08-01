@@ -4,15 +4,23 @@ import { fileURLToPath } from 'node:url'
 import { tokenize } from '../src/core/tokenizer'
 import { azerbaijani } from '../src/languages/azerbaijani'
 import { bambara } from '../src/languages/bambara'
+import { belarusian } from '../src/languages/belarusian'
+import { bulgarian } from '../src/languages/bulgarian'
 import { dagbani } from '../src/languages/dagbani'
 import { ewe } from '../src/languages/ewe'
 import { guarani } from '../src/languages/guarani'
 import { hawaiian } from '../src/languages/hawaiian'
 import { kazakh } from '../src/languages/kazakh'
+import { kyrgyz } from '../src/languages/kyrgyz'
 import { lingala } from '../src/languages/lingala'
+import { macedonian } from '../src/languages/macedonian'
+import { russian } from '../src/languages/russian'
 import { samoan } from '../src/languages/samoan'
+import { serbian } from '../src/languages/serbian'
+import { tatar } from '../src/languages/tatar'
 import { tongan } from '../src/languages/tongan'
 import { twi } from '../src/languages/twi'
+import { ukrainian } from '../src/languages/ukrainian'
 import { wolof } from '../src/languages/wolof'
 import type { LanguageModule } from '../src/types/language'
 
@@ -32,6 +40,7 @@ interface Confusable {
 interface LanguageCheck {
   wiki: string
   confusables: Confusable[]
+  mixedScript?: true
 }
 
 interface LetterCount {
@@ -56,21 +65,41 @@ const D_HOOK: Confusable = { letter: '\u0256', lookalikes: ['\u00F0'] }
 const SCHWA: Confusable = { letter: '\u0259', lookalikes: ['\u01DD', '\u04D9'] }
 const CYRILLIC_SCHWA: Confusable = { letter: '\u04D9', lookalikes: ['\u0259', '\u01DD'] }
 const CYRILLIC_ENG: Confusable = { letter: '\u04A3', lookalikes: ['\u014B'] }
+const CYRILLIC_HOMOGLYPHS: Confusable[] = [
+  { letter: '\u0430', lookalikes: ['a'] },
+  { letter: '\u0435', lookalikes: ['e'] },
+  { letter: '\u043E', lookalikes: ['o'] },
+  { letter: '\u0440', lookalikes: ['p'] },
+  { letter: '\u0441', lookalikes: ['c'] },
+  { letter: '\u0443', lookalikes: ['y'] },
+  { letter: '\u0445', lookalikes: ['x'] },
+  { letter: '\u0456', lookalikes: ['i'] },
+  { letter: '\u0458', lookalikes: ['j'] },
+  { letter: '\u0455', lookalikes: ['s'] },
+]
 const OKINA: Confusable = { letter: '\u02BB', lookalikes: ['\u2018', '\u2019'] }
 const PUSO: Confusable = { letter: "'", lookalikes: ['\uA78C'] }
 
 const registry: Record<string, LanguageModule> = {
   azerbaijani,
   bambara,
+  belarusian,
+  bulgarian,
   dagbani,
   ewe,
   guarani,
   hawaiian,
   kazakh,
+  kyrgyz,
   lingala,
+  macedonian,
+  russian,
   samoan,
+  serbian,
+  tatar,
   tongan,
   twi,
+  ukrainian,
   wolof,
 }
 
@@ -83,10 +112,44 @@ const CHECKS: Record<string, LanguageCheck> = {
   bambara: { wiki: 'bm', confusables: [OPEN_E, OPEN_O, ENG] },
   lingala: { wiki: 'ln', confusables: [OPEN_E, OPEN_O] },
   azerbaijani: { wiki: 'az', confusables: [SCHWA] },
-  kazakh: { wiki: 'kk', confusables: [CYRILLIC_SCHWA, CYRILLIC_ENG] },
+  belarusian: { wiki: 'be', confusables: CYRILLIC_HOMOGLYPHS, mixedScript: true },
+  bulgarian: { wiki: 'bg', confusables: CYRILLIC_HOMOGLYPHS, mixedScript: true },
+  kazakh: { wiki: 'kk', confusables: [CYRILLIC_SCHWA, CYRILLIC_ENG, ...CYRILLIC_HOMOGLYPHS], mixedScript: true },
+  kyrgyz: { wiki: 'ky', confusables: CYRILLIC_HOMOGLYPHS, mixedScript: true },
+  macedonian: { wiki: 'mk', confusables: CYRILLIC_HOMOGLYPHS, mixedScript: true },
+  russian: { wiki: 'ru', confusables: CYRILLIC_HOMOGLYPHS, mixedScript: true },
+  serbian: { wiki: 'sr', confusables: CYRILLIC_HOMOGLYPHS, mixedScript: true },
+  tatar: { wiki: 'tt', confusables: CYRILLIC_HOMOGLYPHS, mixedScript: true },
+  ukrainian: { wiki: 'uk', confusables: CYRILLIC_HOMOGLYPHS, mixedScript: true },
   hawaiian: { wiki: 'haw', confusables: [OKINA] },
   samoan: { wiki: 'sm', confusables: [OKINA] },
   tongan: { wiki: 'to', confusables: [OKINA] },
+}
+
+const CYRILLIC_LETTER = /\p{Script=Cyrillic}/u
+const LATIN_LETTER = /\p{Script=Latin}/u
+const WORD_SPLIT = /[^\p{L}\p{M}]+/u
+
+function countMixedScript(text: string, confusables: Confusable[]): LetterCount[] {
+  const strays = new Map<string, number>()
+  for (const token of text.split(WORD_SPLIT)) {
+    if (token.length === 0) continue
+    let cyrillic = 0
+    const latin: string[] = []
+    for (const character of token.toLowerCase()) {
+      if (CYRILLIC_LETTER.test(character)) cyrillic++
+      else if (LATIN_LETTER.test(character)) latin.push(character)
+    }
+    if (latin.length === 0 || cyrillic <= latin.length) continue
+    for (const character of latin) strays.set(character, (strays.get(character) ?? 0) + 1)
+  }
+  return confusables.map(confusable => {
+    const substituted: Record<string, number> = {}
+    for (const lookalike of confusable.lookalikes) {
+      substituted[lookalike] = strays.get(lookalike) ?? 0
+    }
+    return { letter: confusable.letter, correct: occurrences(text, confusable.letter), substituted }
+  })
 }
 
 async function wikiRequest(wiki: string, params: Record<string, string>): Promise<unknown> {
@@ -208,7 +271,10 @@ async function collect(): Promise<number> {
       wiki: check.wiki,
       articles,
       characters: corpus.length,
-      counts: countCharacters(corpus, check.confusables),
+      counts:
+        check.mixedScript === true
+          ? countMixedScript(corpus, check.confusables)
+          : countCharacters(corpus, check.confusables),
     }
     for (const line of describe(language, record[language])) console.log(line)
   }
