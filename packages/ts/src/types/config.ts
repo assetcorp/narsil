@@ -14,6 +14,20 @@ export interface NarsilConfig {
   /** Named adapters; names persist in index metadata so recovery can rebind. */
   embeddingAdapters?: Record<string, EmbeddingAdapter>
   durability?: DurabilityConfig
+  analysis?: AnalysisConfig
+}
+
+export interface StaleAnalysis {
+  indexName: string
+  language: string
+  storedRevision: string | null
+  currentRevision: string
+  documentCount: number
+}
+
+export interface AnalysisConfig {
+  rebuild?: 'auto' | 'manual'
+  onStaleAnalysis?(index: StaleAnalysis, rebuild: () => Promise<void>): void | Promise<void>
 }
 
 export interface DurabilityConfig {

@@ -1,6 +1,6 @@
 # Narsil server-app example
 
-This example is a TanStack Start web application backed by a real Narsil HTTP server. Every search operation the app performs (index creation, dataset loading, search, suggestions, and statistics) travels over REST to a `@delali/narsil/server` instance. Together with the other examples it completes the lineup: `browser` embeds the engine in the page, `server-app` talks to the Narsil server from an application backend, and `http-server` is the server itself.
+This example is a TanStack Start web application backed by a real Narsil HTTP server. Every search operation the app performs (index creation, dataset loading, search, suggestions, and statistics) goes over REST to a `@delali/narsil/server` instance. Together with the other examples it completes the lineup: `browser` embeds the engine in the page, `server-app` talks to the Narsil server from an application backend, and `http-server` is the server itself.
 
 ## How it works
 
@@ -42,13 +42,13 @@ node --experimental-strip-types packages/ts/examples/http-server/server.ts
 NARSIL_SERVER_URL=http://127.0.0.1:7700 pnpm --filter @delali/narsil-example-server-app dev
 ```
 
-One caveat: the Wikipedia dataset creates one index per language, and the target server must have those languages registered. A stock `http-server` launcher ships with English only, so load TMDB or SciFact against it, or register the languages you need in your own launcher. The demo server has all of them.
+One caveat: the Wikipedia dataset creates one index per language, and the target server must have those languages registered. A stock `http-server` launcher registers English alone, so load TMDB or SciFact against it, or register the languages you need in your own launcher. The demo server has all of them.
 
 ## Ask: chat with your dataset
 
 The Ask tab answers questions from whichever index you loaded, and nothing else. Narsil retrieves the passages, the app assembles a grounded prompt, and your own OpenAI-compatible model writes the answer while the retrieved documents appear beside it with the highlighted passages Narsil matched. A Keyword / Semantic / Hybrid toggle reruns the same question through different retrieval, so you can watch the sources, and the answer built from them, change while the model stays identical.
 
-Bring your own key; the example ships no model:
+Bring your own key; the example carries no model:
 
 ```bash
 OPENAI_API_KEY=sk-... pnpm --filter @delali/narsil-example-server-app dev
@@ -74,11 +74,11 @@ With the key set, dataset loads also embed documents through the demo server's e
 
 Every key and URL is read only in server-side code, so none of them reach the browser bundle.
 
-Pointing `NARSIL_SERVER_URL` at an external Narsil server? Embedding adapters are code, not config, so that server must register its own adapter under the name `openai` (see `embeddingAdapters` in `createServer`) for embedded dataset loads and vector queries to work.
+An external Narsil server named by `NARSIL_SERVER_URL` must register its own adapter under the name `openai`, which `embeddingAdapters` in `createServer` covers, because an embedding adapter is code and no configuration value carries it across. Embedded dataset loads and vector queries work once it does.
 
 ## Datasets
 
-The app loads the corpora from `data/processed/` at the repository root: TMDB movies (tiers from 1k to 100k documents), Wikipedia in ten languages, and SciFact (5,183 scientific abstracts with 300 test queries and relevance judgments, used by the benchmark view). Small tiers ship with the repository; larger ones come from GitHub Releases as described on the Datasets page.
+The app loads the corpora from `data/processed/` at the repository root: TMDB movies (tiers from 1k to 100k documents), Wikipedia in ten languages, and SciFact (5,183 scientific abstracts with 300 test queries and relevance judgments, used by the benchmark view). The repository carries the small tiers, and larger ones come from GitHub Releases as described on the Datasets page.
 
 ## Scripts
 

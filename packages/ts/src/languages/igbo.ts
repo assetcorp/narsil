@@ -1,7 +1,7 @@
 /*
  * Stop words sourced from:
- *   - NaijaSenti Project (https://github.com/hausanlp/NaijaSenti)
- *   - HausaNLP/Naija-Stopwords dataset (https://huggingface.co/datasets/HausaNLP/Naija-Stopwords)
+ *   - NaijaSenti Project (https://github.com/hausanlp/NaijaSenti), CC-BY-4.0
+ *   - Additional function words curated for Narsil
  *
  * Both plain and diacritized forms are included for compatibility with varying input text.
  */
@@ -94,6 +94,7 @@ const stopWords = new Set([
 
 export const igbo: LanguageModule = {
   name: 'igbo',
+  revision: '1',
   stemmer: null,
   stopWords,
   tokenizer: {

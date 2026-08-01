@@ -1,3 +1,8 @@
+/*
+ * Stop words curated for Narsil; no published Sanskrit stop word list exists in
+ * Snowball, Apache Lucene, or stopwords-iso to source from.
+ */
+
 import type { LanguageModule } from '../types/language'
 
 const LONG_NOMINAL_ENDINGS = [
@@ -141,7 +146,6 @@ const stopWords = new Set([
   '\u092F\u0924\u0903',
   '\u0915\u0941\u0924\u0903',
   '\u0905\u0924',
-  '\u090F\u0935',
   '\u0924\u0924\u094D\u0930',
   '\u092F\u0924\u094D\u0930',
   '\u0938\u0930\u094D\u0935\u0924\u094D\u0930',
@@ -162,6 +166,7 @@ const stopWords = new Set([
 
 export const sanskrit: LanguageModule = {
   name: 'sanskrit',
+  revision: '1',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^\u0900-\u0963\u0966-\u097fa-z0-9ṛṃ]+/gi },

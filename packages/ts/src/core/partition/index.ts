@@ -21,6 +21,7 @@ import { computeFacets } from './facets'
 import { updateFieldIndexOnly } from './field-updates'
 import { applyPartitionFilters, applyPartitionFiltersBitset } from './filters'
 import { indexDocument, removeFromIndexes } from './indexing'
+import { rebuildTextIndex } from './rebuild'
 import { searchFulltext } from './search'
 import { deserializePartition, serializePartition } from './serialization'
 import { expandTermPrefix, type PartitionSuggestion, suggestDisplayTerms } from './suggestions'
@@ -52,6 +53,7 @@ export interface PartitionIndex {
     language: LanguageModule,
     options?: PartitionInsertOptions,
   ): void
+  rebuildTextIndex(schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void
   get(docId: string): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
   has(docId: string): boolean
@@ -236,6 +238,10 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
         updateFieldIndexOnly(state, docId, stored.fields, document as Record<string, unknown>, flatSchema)
         state.docStore.store(docId, document, stored.fieldLengths)
       }
+    },
+
+    rebuildTextIndex(schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void {
+      rebuildTextIndex(state, schema, language, options)
     },
 
     get(docId: string): AnyDocument | undefined {

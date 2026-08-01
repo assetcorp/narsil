@@ -1,0 +1,3244 @@
+{
+  "ewe": {
+    "wiki": "ee",
+    "articles": [
+      {
+        "title": "Tɔmekotso",
+        "revision": 48891
+      },
+      {
+        "title": "Kyoto",
+        "revision": 58963
+      },
+      {
+        "title": "Agbadza ɣeɖuɖu",
+        "revision": 58235
+      },
+      {
+        "title": "Anyikpe",
+        "revision": 59357
+      },
+      {
+        "title": "Gbede",
+        "revision": 49091
+      },
+      {
+        "title": "Kamerun",
+        "revision": 49318
+      },
+      {
+        "title": "Adzo",
+        "revision": 59504
+      },
+      {
+        "title": "Avoliwɔ",
+        "revision": 48898
+      },
+      {
+        "title": "Mary Lokko",
+        "revision": 53782
+      },
+      {
+        "title": "Hungary",
+        "revision": 47465
+      },
+      {
+        "title": "Gérard Philippe René André Larcher",
+        "revision": 52988
+      },
+      {
+        "title": "Latvia",
+        "revision": 48187
+      },
+      {
+        "title": "Tanzania",
+        "revision": 46484
+      },
+      {
+        "title": "Augustin Pascal Pierre Louis Marie de Romanet, Comte de Beaune",
+        "revision": 58639
+      },
+      {
+        "title": "Tasmania ƒe aflaga",
+        "revision": 61443
+      },
+      {
+        "title": "Michel Delebarre",
+        "revision": 59664
+      },
+      {
+        "title": "Kwadwo Nyanpon Aboagye",
+        "revision": 59511
+      },
+      {
+        "title": "Vatican City",
+        "revision": 55268
+      },
+      {
+        "title": "R̃",
+        "revision": 59586
+      },
+      {
+        "title": "Cottonwood",
+        "revision": 45311
+      },
+      {
+        "title": "Alabama",
+        "revision": 58530
+      },
+      {
+        "title": "San Marino",
+        "revision": 47873
+      },
+      {
+        "title": "Bratislava",
+        "revision": 58472
+      },
+      {
+        "title": "Daniel Okyem Aboagy",
+        "revision": 58916
+      },
+      {
+        "title": "Dallas",
+        "revision": 58570
+      },
+      {
+        "title": "Klefɔe",
+        "revision": 48992
+      },
+      {
+        "title": "ZX Spectrum",
+        "revision": 59350
+      },
+      {
+        "title": "Sh",
+        "revision": 59612
+      },
+      {
+        "title": "Kɔekɔe",
+        "revision": 48994
+      },
+      {
+        "title": "Fifi Rafiatou",
+        "revision": 58899
+      }
+    ],
+    "characters": 31716,
+    "counts": [
+      {
+        "letter": "ɖ",
+        "correct": 293,
+        "substituted": {
+          "ð": 3
+        }
+      },
+      {
+        "letter": "ɛ",
+        "correct": 27,
+        "substituted": {
+          "ε": 0,
+          "ԑ": 0
+        }
+      },
+      {
+        "letter": "ɔ",
+        "correct": 658,
+        "substituted": {
+          "ͻ": 0,
+          "ↄ": 0,
+          "כ": 0
+        }
+      },
+      {
+        "letter": "ŋ",
+        "correct": 179,
+        "substituted": {
+          "η": 0,
+          "ɳ": 0
+        }
+      }
+    ]
+  },
+  "twi": {
+    "wiki": "tw",
+    "articles": [
+      {
+        "title": "Nsu, Mframa, & Asase mu Efĩ",
+        "revision": 182016
+      },
+      {
+        "title": "Yendi (Ghana mmrahyɛbadwam mpɛsoa)",
+        "revision": 95393
+      },
+      {
+        "title": "Meka kyerɛɛ Wo Saa (1970 sini)",
+        "revision": 196764
+      },
+      {
+        "title": "Doris Boaduwaa",
+        "revision": 160395
+      },
+      {
+        "title": "Kalusha (Ghanaian rapper)",
+        "revision": 196756
+      },
+      {
+        "title": "Nnwom (Bibel)",
+        "revision": 182181
+      },
+      {
+        "title": "Apomasu Afahyɛ",
+        "revision": 168427
+      },
+      {
+        "title": "Gagoangwe",
+        "revision": 184633
+      },
+      {
+        "title": "Hildegardia (dua) .",
+        "revision": 177551
+      },
+      {
+        "title": "Nkyinkyim",
+        "revision": 196887
+      },
+      {
+        "title": "Antakya",
+        "revision": 29342
+      },
+      {
+        "title": "Jadesola Akande",
+        "revision": 200274
+      },
+      {
+        "title": "Upper East Region",
+        "revision": 133235
+      },
+      {
+        "title": "Nkitahodie",
+        "revision": 196874
+      },
+      {
+        "title": "Yellow fever vaccine",
+        "revision": 184479
+      },
+      {
+        "title": "Dambudzo Marechera",
+        "revision": 184586
+      },
+      {
+        "title": "Baphia nitida",
+        "revision": 180952
+      },
+      {
+        "title": "Asenie (Akanfoɔ Abusuakuo)",
+        "revision": 195561
+      },
+      {
+        "title": "Civil Rights Act of 1964",
+        "revision": 196800
+      },
+      {
+        "title": "Kwabena Twum-Nuamah",
+        "revision": 186997
+      },
+      {
+        "title": "Elizabeth Adjei",
+        "revision": 56101
+      },
+      {
+        "title": "A. B. Crentsil",
+        "revision": 200337
+      },
+      {
+        "title": "Emmanuel Nii Tettey Oku",
+        "revision": 163332
+      },
+      {
+        "title": "Betty Acquah",
+        "revision": 196308
+      },
+      {
+        "title": "Asikyireyadeɛ",
+        "revision": 184034
+      },
+      {
+        "title": "Alhassan Sayibu Suhuyini",
+        "revision": 177339
+      },
+      {
+        "title": "Agya Koo",
+        "revision": 191718
+      },
+      {
+        "title": "Hitachi",
+        "revision": 30243
+      },
+      {
+        "title": "Asaana",
+        "revision": 128924
+      },
+      {
+        "title": "George Eric Kwabla Doe",
+        "revision": 175474
+      }
+    ],
+    "characters": 100634,
+    "counts": [
+      {
+        "letter": "ɛ",
+        "correct": 2181,
+        "substituted": {
+          "ε": 0,
+          "ԑ": 0
+        }
+      },
+      {
+        "letter": "ɔ",
+        "correct": 2015,
+        "substituted": {
+          "ͻ": 0,
+          "ↄ": 0,
+          "כ": 0
+        }
+      }
+    ]
+  },
+  "dagbani": {
+    "wiki": "dag",
+    "articles": [
+      {
+        "title": "1st Motorised Brigade (Hungary)",
+        "revision": 111887
+      },
+      {
+        "title": "List of Chinese films of 2017",
+        "revision": 79741
+      },
+      {
+        "title": "Ghana Football Leagues",
+        "revision": 84415
+      },
+      {
+        "title": "Heinrich Richter",
+        "revision": 98274
+      },
+      {
+        "title": "Agimagonu chuɣu",
+        "revision": 45026
+      },
+      {
+        "title": "Nii Kwartei Titus Glover",
+        "revision": 121617
+      },
+      {
+        "title": "Robert Wisdom Cudjoe",
+        "revision": 103783
+      },
+      {
+        "title": "Nayland Blake",
+        "revision": 103072
+      },
+      {
+        "title": "Kamo Mphela",
+        "revision": 121412
+      },
+      {
+        "title": "Alchornea",
+        "revision": 91671
+      },
+      {
+        "title": "South Saint Paul",
+        "revision": 49345
+      },
+      {
+        "title": "Eva Khachatryan",
+        "revision": 79082
+      },
+      {
+        "title": "Shɛɣu",
+        "revision": 143349
+      },
+      {
+        "title": "Overexploitation",
+        "revision": 77383
+      },
+      {
+        "title": "Nahda University",
+        "revision": 89287
+      },
+      {
+        "title": "Lateef Adedimeji",
+        "revision": 89121
+      },
+      {
+        "title": "Nyong",
+        "revision": 32724
+      },
+      {
+        "title": "Zee Nxumalo",
+        "revision": 121431
+      },
+      {
+        "title": "Murraya paniculata 'Style-it-S'",
+        "revision": 50677
+      },
+      {
+        "title": "Joy Odiete",
+        "revision": 132407
+      },
+      {
+        "title": "Papa Owusu-Ankomah",
+        "revision": 57044
+      },
+      {
+        "title": "Belgium",
+        "revision": 60158
+      },
+      {
+        "title": "Alba Arnova",
+        "revision": 105711
+      },
+      {
+        "title": "Branson",
+        "revision": 49375
+      },
+      {
+        "title": "Amir Karara",
+        "revision": 109450
+      },
+      {
+        "title": "Ariana Grande videography",
+        "revision": 95755
+      },
+      {
+        "title": "Nyingoli",
+        "revision": 104679
+      },
+      {
+        "title": "Pudua",
+        "revision": 39518
+      },
+      {
+        "title": "Longa, Angola",
+        "revision": 57862
+      },
+      {
+        "title": "Kasalgu",
+        "revision": 37706
+      }
+    ],
+    "characters": 167579,
+    "counts": [
+      {
+        "letter": "ɛ",
+        "correct": 322,
+        "substituted": {
+          "ε": 0,
+          "ԑ": 0
+        }
+      },
+      {
+        "letter": "ɔ",
+        "correct": 100,
+        "substituted": {
+          "ͻ": 0,
+          "ↄ": 0,
+          "כ": 0
+        }
+      },
+      {
+        "letter": "ŋ",
+        "correct": 593,
+        "substituted": {
+          "η": 0,
+          "ɳ": 0
+        }
+      }
+    ]
+  },
+  "guarani": {
+    "wiki": "gn",
+    "articles": [
+      {
+        "title": "Ñana",
+        "revision": 93073
+      },
+      {
+        "title": "Porto Alegre",
+        "revision": 136358
+      },
+      {
+        "title": "Holocausto",
+        "revision": 128245
+      },
+      {
+        "title": "Ñemoñanga",
+        "revision": 121637
+      },
+      {
+        "title": "10 jasypa",
+        "revision": 116246
+      },
+      {
+        "title": "Ygape",
+        "revision": 91400
+      },
+      {
+        "title": "BTS",
+        "revision": 137278
+      },
+      {
+        "title": "Antonín Dvořák",
+        "revision": 129876
+      },
+      {
+        "title": "Membykua Paraguáipe",
+        "revision": 111337
+      },
+      {
+        "title": "São Bernardo do Campo",
+        "revision": 134921
+      },
+      {
+        "title": "Kiveve",
+        "revision": 121685
+      },
+      {
+        "title": "Springfield (The Simpsons)",
+        "revision": 103099
+      },
+      {
+        "title": "Mbutu",
+        "revision": 129971
+      },
+      {
+        "title": "Jaguaru",
+        "revision": 136215
+      },
+      {
+        "title": "Ña'ũma",
+        "revision": 135124
+      },
+      {
+        "title": "L",
+        "revision": 102780
+      },
+      {
+        "title": "Castro Alves",
+        "revision": 137931
+      },
+      {
+        "title": "8 jasykõi",
+        "revision": 126647
+      },
+      {
+        "title": "Masendoñañe'ẽ",
+        "revision": 122858
+      },
+      {
+        "title": "17 jasyrundy",
+        "revision": 113476
+      },
+      {
+        "title": "13 jasykõi",
+        "revision": 113054
+      },
+      {
+        "title": "Donald Trump",
+        "revision": 131794
+      },
+      {
+        "title": "Rafael Franco",
+        "revision": 127893
+      },
+      {
+        "title": "Afrikáans",
+        "revision": 133781
+      },
+      {
+        "title": "Dallas",
+        "revision": 114287
+      },
+      {
+        "title": "Guarani ñe'ẽjoaju pypegua",
+        "revision": 134614
+      },
+      {
+        "title": "Ñandypa",
+        "revision": 91423
+      },
+      {
+        "title": "Ka'arukaru",
+        "revision": 104429
+      },
+      {
+        "title": "Tetãvore Neuquén",
+        "revision": 133676
+      },
+      {
+        "title": "Ñembosaraipavẽ Arahakúpe 1992",
+        "revision": 115530
+      }
+    ],
+    "characters": 64605,
+    "counts": [
+      {
+        "letter": "'",
+        "correct": 482,
+        "substituted": {
+          "ꞌ": 238
+        }
+      }
+    ]
+  },
+  "wolof": {
+    "wiki": "wo",
+    "articles": [
+      {
+        "title": "Suuf",
+        "revision": 107563
+      },
+      {
+        "title": "Ancos ci Pisidi",
+        "revision": 94147
+      },
+      {
+        "title": ".tw",
+        "revision": 107007
+      },
+      {
+        "title": "Xaralay xibaar ak jokkoo",
+        "revision": 96778
+      },
+      {
+        "title": "Saab-saab",
+        "revision": 100393
+      },
+      {
+        "title": "Guyaana gu Faraas",
+        "revision": 103255
+      },
+      {
+        "title": "Calabaceira",
+        "revision": 101662
+      },
+      {
+        "title": "Epatit A",
+        "revision": 105440
+      },
+      {
+        "title": "Sëriñ Baara Mbàkke Fàllu",
+        "revision": 103413
+      },
+      {
+        "title": "Substance abuse",
+        "revision": 105443
+      },
+      {
+        "title": "Krasnoyarsk",
+        "revision": 98813
+      },
+      {
+        "title": "Mayoot",
+        "revision": 95138
+      },
+      {
+        "title": "Dottub Bëj-saalum",
+        "revision": 94321
+      },
+      {
+        "title": "Njéeréer",
+        "revision": 103492
+      },
+      {
+        "title": "FK Kauno Žalgiris",
+        "revision": 107614
+      },
+      {
+        "title": "Kereyoolu Kap Weert",
+        "revision": 106139
+      },
+      {
+        "title": "Osasco",
+        "revision": 104500
+      },
+      {
+        "title": ".st",
+        "revision": 107006
+      },
+      {
+        "title": "Koppar",
+        "revision": 104666
+      },
+      {
+        "title": "Réew yu Bennoo yu Mikronesi",
+        "revision": 97733
+      },
+      {
+        "title": "Taariixu Aamerig",
+        "revision": 101945
+      },
+      {
+        "title": "Artemas",
+        "revision": 95247
+      },
+      {
+        "title": "Màndiŋ m",
+        "revision": 103522
+      },
+      {
+        "title": "Tiniisi",
+        "revision": 105411
+      },
+      {
+        "title": "Seex Ibraayma Faal",
+        "revision": 105387
+      },
+      {
+        "title": "Waax bu Bisaawóo",
+        "revision": 105187
+      },
+      {
+        "title": "Gargamboose",
+        "revision": 100352
+      },
+      {
+        "title": "Betani bu Yurdan",
+        "revision": 94202
+      },
+      {
+        "title": "Yewwute gu ndefar",
+        "revision": 94334
+      },
+      {
+        "title": "Afganistaan",
+        "revision": 106321
+      }
+    ],
+    "characters": 75991,
+    "counts": [
+      {
+        "letter": "ŋ",
+        "correct": 17,
+        "substituted": {
+          "η": 0,
+          "ɳ": 0
+        }
+      }
+    ]
+  },
+  "bambara": {
+    "wiki": "bm",
+    "articles": [
+      {
+        "title": "Dɔnniyagafeba",
+        "revision": 42442
+      },
+      {
+        "title": "Salogoni",
+        "revision": 39333
+      },
+      {
+        "title": "Jumɛfin",
+        "revision": 39332
+      },
+      {
+        "title": "Cɛba Trawere",
+        "revision": 34766
+      },
+      {
+        "title": "Long Beach",
+        "revision": 41940
+      },
+      {
+        "title": "Npɔrɔn ŋɔnima",
+        "revision": 39609
+      },
+      {
+        "title": "Portland (Oregon)",
+        "revision": 37851
+      },
+      {
+        "title": "Silvan ye",
+        "revision": 41082
+      },
+      {
+        "title": "Carquefou",
+        "revision": 42274
+      },
+      {
+        "title": "Philadelphie",
+        "revision": 37830
+      },
+      {
+        "title": "Kandake",
+        "revision": 41698
+      },
+      {
+        "title": "Madagaskar",
+        "revision": 39849
+      },
+      {
+        "title": "Coutras",
+        "revision": 41167
+      },
+      {
+        "title": "Gary, Indiana",
+        "revision": 41558
+      },
+      {
+        "title": "Nkarijɛ",
+        "revision": 39297
+      },
+      {
+        "title": "Charlotte",
+        "revision": 39184
+      },
+      {
+        "title": "Saint-Vincent-des-Landes",
+        "revision": 37997
+      },
+      {
+        "title": "Cema Amerika",
+        "revision": 40611
+      },
+      {
+        "title": "Ɲɔgɔmɛ",
+        "revision": 41637
+      },
+      {
+        "title": "Bamanankan mabεn",
+        "revision": 21569
+      },
+      {
+        "title": "Sceaux",
+        "revision": 41751
+      },
+      {
+        "title": "Mali Kɛlɛ",
+        "revision": 41965
+      },
+      {
+        "title": "Tariku",
+        "revision": 37567
+      },
+      {
+        "title": "Ramata Jakite",
+        "revision": 35265
+      },
+      {
+        "title": "Angola",
+        "revision": 39848
+      },
+      {
+        "title": "Ala ka Laɲini",
+        "revision": 41095
+      },
+      {
+        "title": "Fernando Alonso",
+        "revision": 41133
+      },
+      {
+        "title": "Buluku",
+        "revision": 39677
+      },
+      {
+        "title": "Sinima bamanankan",
+        "revision": 41601
+      },
+      {
+        "title": "Patriotismo",
+        "revision": 41094
+      }
+    ],
+    "characters": 19871,
+    "counts": [
+      {
+        "letter": "ɛ",
+        "correct": 274,
+        "substituted": {
+          "ε": 15,
+          "ԑ": 0
+        }
+      },
+      {
+        "letter": "ɔ",
+        "correct": 207,
+        "substituted": {
+          "ͻ": 0,
+          "ↄ": 0,
+          "כ": 0
+        }
+      },
+      {
+        "letter": "ŋ",
+        "correct": 4,
+        "substituted": {
+          "η": 0,
+          "ɳ": 1
+        }
+      }
+    ]
+  },
+  "lingala": {
+    "wiki": "ln",
+    "articles": [
+      {
+        "title": "Ntumba Mputu",
+        "revision": 97996
+      },
+      {
+        "title": "André Lite",
+        "revision": 130517
+      },
+      {
+        "title": "Mba",
+        "revision": 18226
+      },
+      {
+        "title": "Daniel Nima Kizubanata",
+        "revision": 121739
+      },
+      {
+        "title": "Limeté",
+        "revision": 107585
+      },
+      {
+        "title": "Kinsásá Bopéto",
+        "revision": 132736
+      },
+      {
+        "title": "Anicet Lufungula",
+        "revision": 71877
+      },
+      {
+        "title": "San Francisco",
+        "revision": 113646
+      },
+      {
+        "title": "38 (motuya)",
+        "revision": 133607
+      },
+      {
+        "title": "Ngúma ya Monama",
+        "revision": 113471
+      },
+      {
+        "title": "Mongóngó",
+        "revision": 75621
+      },
+      {
+        "title": "Charles Mwando Nsimba",
+        "revision": 130431
+      },
+      {
+        "title": "Kanda Bongo Man",
+        "revision": 132523
+      },
+      {
+        "title": "Mokɔlɔ mwa misálá mísáto",
+        "revision": 135201
+      },
+      {
+        "title": "Etokó",
+        "revision": 114741
+      },
+      {
+        "title": "Koré ya Nola",
+        "revision": 121971
+      },
+      {
+        "title": "Wolodymyr I",
+        "revision": 133056
+      },
+      {
+        "title": "Tiken Jah Fakoly",
+        "revision": 124835
+      },
+      {
+        "title": "Indubill",
+        "revision": 114313
+      },
+      {
+        "title": "Ablaye Cissoko",
+        "revision": 134460
+      },
+      {
+        "title": "Bosándá",
+        "revision": 113333
+      },
+      {
+        "title": "Ekíndo",
+        "revision": 122279
+      },
+      {
+        "title": "Mokɔlɔ 22 sánzá ya mwambe",
+        "revision": 134878
+      },
+      {
+        "title": "Gbanziri",
+        "revision": 18118
+      },
+      {
+        "title": "Dwa (molúká)",
+        "revision": 109806
+      },
+      {
+        "title": "Éduard Lokwa",
+        "revision": 71836
+      },
+      {
+        "title": "Albert Nyembo",
+        "revision": 130433
+      },
+      {
+        "title": "Kimbángu",
+        "revision": 117507
+      },
+      {
+        "title": "Tout Puissant Mazembe",
+        "revision": 134269
+      },
+      {
+        "title": "Ngómbá Nabemba",
+        "revision": 112828
+      }
+    ],
+    "characters": 41793,
+    "counts": [
+      {
+        "letter": "ɛ",
+        "correct": 62,
+        "substituted": {
+          "ε": 0,
+          "ԑ": 0
+        }
+      },
+      {
+        "letter": "ɔ",
+        "correct": 124,
+        "substituted": {
+          "ͻ": 0,
+          "ↄ": 0,
+          "כ": 0
+        }
+      }
+    ]
+  },
+  "azerbaijani": {
+    "wiki": "az",
+    "articles": [
+      {
+        "title": "İvar Smilqa",
+        "revision": 8953318
+      },
+      {
+        "title": "Pifiya oyunları",
+        "revision": 7914111
+      },
+      {
+        "title": "Şəhər əfsanəsi",
+        "revision": 8896686
+      },
+      {
+        "title": "Həsənabad (Meşkinşəhr)",
+        "revision": 8208588
+      },
+      {
+        "title": "Delphinium cardinale",
+        "revision": 8958651
+      },
+      {
+        "title": "Məhəmmədsalam Hacıyev",
+        "revision": 8536799
+      },
+      {
+        "title": "E.ə. 728",
+        "revision": 8780877
+      },
+      {
+        "title": "Stanislav Şpanin",
+        "revision": 8261759
+      },
+      {
+        "title": "Tatyana Totmyanina",
+        "revision": 7989472
+      },
+      {
+        "title": "Tural Sadıqov",
+        "revision": 7027910
+      },
+      {
+        "title": "Şakir Ulubəyli",
+        "revision": 7496673
+      },
+      {
+        "title": "Naves",
+        "revision": 8441765
+      },
+      {
+        "title": "Mehdiqulu xan Vəfa",
+        "revision": 8761339
+      },
+      {
+        "title": "Romain Rikkardi",
+        "revision": 8558814
+      },
+      {
+        "title": "NGC 3926A",
+        "revision": 8972223
+      },
+      {
+        "title": "Typhlodromina musero",
+        "revision": 7087341
+      },
+      {
+        "title": "Semih Yalçın",
+        "revision": 8693090
+      },
+      {
+        "title": "Denis Silva",
+        "revision": 8929912
+      },
+      {
+        "title": "Betatron",
+        "revision": 7496181
+      },
+      {
+        "title": "Araxçın",
+        "revision": 8702767
+      },
+      {
+        "title": "Bulbophyllum trigonidioides",
+        "revision": 5401876
+      },
+      {
+        "title": "Dhoti",
+        "revision": 8702773
+      },
+      {
+        "title": "Varlılar da ağlayır (teleserial, 1979)",
+        "revision": 7202287
+      },
+      {
+        "title": "I'm the Trend",
+        "revision": 8135787
+      },
+      {
+        "title": "Banksia verticiliata",
+        "revision": 7274979
+      },
+      {
+        "title": "Qaz (quş)",
+        "revision": 8954729
+      },
+      {
+        "title": "Mişarçay",
+        "revision": 5102299
+      },
+      {
+        "title": "Elasticsearch",
+        "revision": 8581304
+      },
+      {
+        "title": "Back Orifice",
+        "revision": 8811358
+      },
+      {
+        "title": "Pontiak",
+        "revision": 7426080
+      }
+    ],
+    "characters": 134553,
+    "counts": [
+      {
+        "letter": "ə",
+        "correct": 5494,
+        "substituted": {
+          "ǝ": 0,
+          "ә": 4
+        }
+      }
+    ]
+  },
+  "belarusian": {
+    "wiki": "be",
+    "articles": [
+      {
+        "title": "Харлінген (Нідэрланды)",
+        "revision": 4796827
+      },
+      {
+        "title": "Дэметрый I Сатэр",
+        "revision": 4640169
+      },
+      {
+        "title": "Вуліца Сяргея Ясеніна",
+        "revision": 5094686
+      },
+      {
+        "title": "Betula oycoviensis",
+        "revision": 4394129
+      },
+      {
+        "title": "Даровая (Смаленская вобласць)",
+        "revision": 4174316
+      },
+      {
+        "title": "Зміцер Аляксандравіч Паліенка",
+        "revision": 5065052
+      },
+      {
+        "title": "I Knew You Were Trouble (песня Тэйлар Свіфт)",
+        "revision": 4753350
+      },
+      {
+        "title": "Свяціца (Полацкі раён)",
+        "revision": 4897696
+      },
+      {
+        "title": "Светапогляд",
+        "revision": 4768917
+      },
+      {
+        "title": "Антоні Мержаеўскі",
+        "revision": 4175681
+      },
+      {
+        "title": "Ляцэвічы",
+        "revision": 4253335
+      },
+      {
+        "title": "Аляксандр Мікалаевіч Бенуа",
+        "revision": 4808064
+      },
+      {
+        "title": "Завад (Чарнігаўскі раён)",
+        "revision": 4926733
+      },
+      {
+        "title": "Каманчы",
+        "revision": 4881936
+      },
+      {
+        "title": "Гарадок (Ровенскі раён)",
+        "revision": 4950624
+      },
+      {
+        "title": "Сядзіба Гагарыных",
+        "revision": 5167113
+      },
+      {
+        "title": "Міхась Круталевіч",
+        "revision": 4759627
+      },
+      {
+        "title": "Камінь (Раманіўскі раён)",
+        "revision": 4949124
+      },
+      {
+        "title": "Карніловіч",
+        "revision": 4520746
+      },
+      {
+        "title": "Мілашус (вёска)",
+        "revision": 4981516
+      },
+      {
+        "title": "Нуркен",
+        "revision": 4979153
+      },
+      {
+        "title": "Жмігруд (гміна)",
+        "revision": 3269056
+      },
+      {
+        "title": "Павялецкая (станцыя метро, Замаскварэцкая лінія)",
+        "revision": 5029871
+      },
+      {
+        "title": "Вайдэлот",
+        "revision": 4366847
+      },
+      {
+        "title": "Аляксандр Эйг",
+        "revision": 4089593
+      },
+      {
+        "title": "Зялёны (Буда-Кашалёўскі раён)",
+        "revision": 5121966
+      },
+      {
+        "title": "Кулажанка (рака)",
+        "revision": 4432002
+      },
+      {
+        "title": "Прасніца",
+        "revision": 5085134
+      },
+      {
+        "title": "Доўбышы",
+        "revision": 4949213
+      },
+      {
+        "title": "Арт Тэйтум",
+        "revision": 4827708
+      }
+    ],
+    "characters": 137803,
+    "counts": [
+      {
+        "letter": "а",
+        "correct": 11767,
+        "substituted": {
+          "a": 0
+        }
+      },
+      {
+        "letter": "е",
+        "correct": 2659,
+        "substituted": {
+          "e": 0
+        }
+      },
+      {
+        "letter": "о",
+        "correct": 2253,
+        "substituted": {
+          "o": 0
+        }
+      },
+      {
+        "letter": "р",
+        "correct": 3787,
+        "substituted": {
+          "p": 0
+        }
+      },
+      {
+        "letter": "с",
+        "correct": 3495,
+        "substituted": {
+          "c": 0
+        }
+      },
+      {
+        "letter": "у",
+        "correct": 1991,
+        "substituted": {
+          "y": 0
+        }
+      },
+      {
+        "letter": "х",
+        "correct": 766,
+        "substituted": {
+          "x": 0
+        }
+      },
+      {
+        "letter": "і",
+        "correct": 4362,
+        "substituted": {
+          "i": 0
+        }
+      }
+    ]
+  },
+  "bulgarian": {
+    "wiki": "bg",
+    "articles": [
+      {
+        "title": "Византийски флот",
+        "revision": 10328228
+      },
+      {
+        "title": "Ерол Бароу",
+        "revision": 10046057
+      },
+      {
+        "title": "Регинар II (Хенегау)",
+        "revision": 10528084
+      },
+      {
+        "title": "Шипикова махала",
+        "revision": 12318165
+      },
+      {
+        "title": "Българско училище „Хан Аспарух“ (Сан Хосе)",
+        "revision": 12406520
+      },
+      {
+        "title": "Робърт Лител",
+        "revision": 12874135
+      },
+      {
+        "title": "Елизабет Амалия фон Хесен-Дармщат",
+        "revision": 12647261
+      },
+      {
+        "title": "Символ на Льожандър",
+        "revision": 9929416
+      },
+      {
+        "title": "Ampedus impressicollis",
+        "revision": 10188534
+      },
+      {
+        "title": "Ипсуич",
+        "revision": 12280893
+      },
+      {
+        "title": "Клуб „Първа съпруга“",
+        "revision": 12911944
+      },
+      {
+        "title": "Кодройпо",
+        "revision": 10843777
+      },
+      {
+        "title": "Lalage leucopyga",
+        "revision": 10167930
+      },
+      {
+        "title": "Фабиан Делф",
+        "revision": 12411760
+      },
+      {
+        "title": "Союз ТМ-10",
+        "revision": 10227483
+      },
+      {
+        "title": "Хиджет Рамадани",
+        "revision": 12065088
+      },
+      {
+        "title": "Пракситея (дъщеря на Диогенея)",
+        "revision": 10998984
+      },
+      {
+        "title": "Нотозеро",
+        "revision": 10597420
+      },
+      {
+        "title": "Черен лъвски тамарин",
+        "revision": 11485115
+      },
+      {
+        "title": "Бахайство",
+        "revision": 12806254
+      },
+      {
+        "title": "Кръстьо Захариев",
+        "revision": 12808545
+      },
+      {
+        "title": "Сузана Тратник",
+        "revision": 12919619
+      },
+      {
+        "title": "Тацит (пояснение)",
+        "revision": 8894424
+      },
+      {
+        "title": "Совра",
+        "revision": 12213639
+      },
+      {
+        "title": "ЕТА",
+        "revision": 12863728
+      },
+      {
+        "title": "Теофилакт I от Тускулум",
+        "revision": 12422665
+      },
+      {
+        "title": "Артилерийска граната",
+        "revision": 10858878
+      },
+      {
+        "title": "Eudynamys melanorhynchus",
+        "revision": 10167404
+      },
+      {
+        "title": "Peer to peer кредитиране",
+        "revision": 12333124
+      },
+      {
+        "title": "Милена Моллова",
+        "revision": 12936417
+      }
+    ],
+    "characters": 98562,
+    "counts": [
+      {
+        "letter": "а",
+        "correct": 6886,
+        "substituted": {
+          "a": 0
+        }
+      },
+      {
+        "letter": "е",
+        "correct": 4501,
+        "substituted": {
+          "e": 1
+        }
+      },
+      {
+        "letter": "о",
+        "correct": 4733,
+        "substituted": {
+          "o": 0
+        }
+      },
+      {
+        "letter": "р",
+        "correct": 3637,
+        "substituted": {
+          "p": 1
+        }
+      },
+      {
+        "letter": "с",
+        "correct": 2870,
+        "substituted": {
+          "c": 1
+        }
+      },
+      {
+        "letter": "у",
+        "correct": 865,
+        "substituted": {
+          "y": 0
+        }
+      },
+      {
+        "letter": "х",
+        "correct": 304,
+        "substituted": {
+          "x": 0
+        }
+      },
+      {
+        "letter": "ј",
+        "correct": 3,
+        "substituted": {
+          "j": 0
+        }
+      }
+    ]
+  },
+  "kazakh": {
+    "wiki": "kk",
+    "articles": [
+      {
+        "title": "Забайкалье өлкесі",
+        "revision": 3363884
+      },
+      {
+        "title": "IC 4027",
+        "revision": 1869171
+      },
+      {
+        "title": "Алмас Сағымқұлұлы Мұсабеков",
+        "revision": 3252446
+      },
+      {
+        "title": "Чик (Оеша тармағы)",
+        "revision": 3012158
+      },
+      {
+        "title": "Науқасты күзету",
+        "revision": 2318431
+      },
+      {
+        "title": "Сүрлемдеу",
+        "revision": 909015
+      },
+      {
+        "title": "Байрак (Белебеев ауданы)",
+        "revision": 3126865
+      },
+      {
+        "title": "Қожақорған",
+        "revision": 3323604
+      },
+      {
+        "title": "NGC 554A",
+        "revision": 2892369
+      },
+      {
+        "title": "Бёктен",
+        "revision": 1856373
+      },
+      {
+        "title": "Силлабус",
+        "revision": 3123817
+      },
+      {
+        "title": "Диппольдисвальде",
+        "revision": 1821703
+      },
+      {
+        "title": "Сиургус-Донигала",
+        "revision": 1835039
+      },
+      {
+        "title": "Бағила Бірмағамбетқызы Баймағамбетова",
+        "revision": 3173705
+      },
+      {
+        "title": "Созықсор",
+        "revision": 3256030
+      },
+      {
+        "title": "IC 1207",
+        "revision": 2922708
+      },
+      {
+        "title": "Петер Шмейхель",
+        "revision": 3357371
+      },
+      {
+        "title": "Бурылбас отқұйрық",
+        "revision": 2405697
+      },
+      {
+        "title": "Қытай жібек тауығы",
+        "revision": 2536168
+      },
+      {
+        "title": "Теңіз Бұқа",
+        "revision": 3620877
+      },
+      {
+        "title": "Етрета",
+        "revision": 2956111
+      },
+      {
+        "title": "Техас губернаторларының тізімі",
+        "revision": 3116906
+      },
+      {
+        "title": "Оводда",
+        "revision": 2763896
+      },
+      {
+        "title": "Бушмендер",
+        "revision": 3476395
+      },
+      {
+        "title": "Веде",
+        "revision": 3559359
+      },
+      {
+        "title": "Эмилио Нсуэ",
+        "revision": 3266274
+      },
+      {
+        "title": "Бисдорф (Айфель)",
+        "revision": 2912777
+      },
+      {
+        "title": "Приречное (Денисов ауданы)",
+        "revision": 3334840
+      },
+      {
+        "title": "777 жыл",
+        "revision": 1778059
+      },
+      {
+        "title": "Тора (Пушма тармағы)",
+        "revision": 3010416
+      }
+    ],
+    "characters": 108673,
+    "counts": [
+      {
+        "letter": "ә",
+        "correct": 198,
+        "substituted": {
+          "ə": 2,
+          "ǝ": 0
+        }
+      },
+      {
+        "letter": "ң",
+        "correct": 654,
+        "substituted": {
+          "ŋ": 0
+        }
+      },
+      {
+        "letter": "а",
+        "correct": 6159,
+        "substituted": {
+          "a": 0
+        }
+      },
+      {
+        "letter": "е",
+        "correct": 4576,
+        "substituted": {
+          "e": 0
+        }
+      },
+      {
+        "letter": "о",
+        "correct": 2072,
+        "substituted": {
+          "o": 0
+        }
+      },
+      {
+        "letter": "р",
+        "correct": 3604,
+        "substituted": {
+          "p": 0
+        }
+      },
+      {
+        "letter": "с",
+        "correct": 2432,
+        "substituted": {
+          "c": 1
+        }
+      },
+      {
+        "letter": "у",
+        "correct": 1423,
+        "substituted": {
+          "y": 0
+        }
+      },
+      {
+        "letter": "х",
+        "correct": 253,
+        "substituted": {
+          "x": 0
+        }
+      },
+      {
+        "letter": "і",
+        "correct": 1560,
+        "substituted": {
+          "i": 15
+        }
+      }
+    ]
+  },
+  "kyrgyz": {
+    "wiki": "ky",
+    "articles": [
+      {
+        "title": "Кичи Карпия (дарыя)",
+        "revision": 596260
+      },
+      {
+        "title": "Коомдук айыптоочу",
+        "revision": 123244
+      },
+      {
+        "title": "Дутов козголоңу",
+        "revision": 247269
+      },
+      {
+        "title": "\"Кастанье\" мрамор оникси кени",
+        "revision": 616873
+      },
+      {
+        "title": "Гөльниц",
+        "revision": 609537
+      },
+      {
+        "title": "Электрондук такта системи",
+        "revision": 532524
+      },
+      {
+        "title": "Випке",
+        "revision": 613222
+      },
+      {
+        "title": "Кыргыз Совет энциклопедиясы",
+        "revision": 558623
+      },
+      {
+        "title": "Ахмет Йешилтепе",
+        "revision": 645067
+      },
+      {
+        "title": "Актүз сейрек металлдар кени",
+        "revision": 559142
+      },
+      {
+        "title": "Фулад",
+        "revision": 559865
+      },
+      {
+        "title": "Аскердик билет",
+        "revision": 557815
+      },
+      {
+        "title": "«Эврика»",
+        "revision": 572728
+      },
+      {
+        "title": "Ихтибор сымалдуулар",
+        "revision": 564545
+      },
+      {
+        "title": "Форсис (Миссури)",
+        "revision": 584685
+      },
+      {
+        "title": "Лекун Ян",
+        "revision": 642354
+      },
+      {
+        "title": "Көмүскө экономика",
+        "revision": 562113
+      },
+      {
+        "title": "Фрэнчвилл (Мэн)",
+        "revision": 592074
+      },
+      {
+        "title": "Кучуманда",
+        "revision": 597817
+      },
+      {
+        "title": "Полта",
+        "revision": 591744
+      },
+      {
+        "title": "Кандаковка (Кигин району, Башкыртстан)",
+        "revision": 633817
+      },
+      {
+        "title": "Бли-Инжуль дарыясы",
+        "revision": 596333
+      },
+      {
+        "title": "Бактерия",
+        "revision": 557334
+      },
+      {
+        "title": "Тальве-Яха",
+        "revision": 589564
+      },
+      {
+        "title": "Осэйдж Бич (Миссури)",
+        "revision": 584385
+      },
+      {
+        "title": "Дрэйн (Орегон)",
+        "revision": 598811
+      },
+      {
+        "title": "Кучинка (дарыя)",
+        "revision": 593840
+      },
+      {
+        "title": "Быков Василь",
+        "revision": 576850
+      },
+      {
+        "title": "Кызыл-Кыя аэропорту",
+        "revision": 642836
+      },
+      {
+        "title": "Баумерсрода",
+        "revision": 612764
+      }
+    ],
+    "characters": 62467,
+    "counts": [
+      {
+        "letter": "а",
+        "correct": 5144,
+        "substituted": {
+          "a": 0
+        }
+      },
+      {
+        "letter": "е",
+        "correct": 2010,
+        "substituted": {
+          "e": 0
+        }
+      },
+      {
+        "letter": "о",
+        "correct": 1947,
+        "substituted": {
+          "o": 0
+        }
+      },
+      {
+        "letter": "р",
+        "correct": 2689,
+        "substituted": {
+          "p": 0
+        }
+      },
+      {
+        "letter": "с",
+        "correct": 1328,
+        "substituted": {
+          "c": 0
+        }
+      },
+      {
+        "letter": "у",
+        "correct": 1761,
+        "substituted": {
+          "y": 0
+        }
+      },
+      {
+        "letter": "х",
+        "correct": 126,
+        "substituted": {
+          "x": 0
+        }
+      }
+    ]
+  },
+  "macedonian": {
+    "wiki": "mk",
+    "articles": [
+      {
+        "title": "NGC 6330",
+        "revision": 5271323
+      },
+      {
+        "title": "Исландски универзитет",
+        "revision": 5488979
+      },
+      {
+        "title": "Ана Ахматова",
+        "revision": 5470945
+      },
+      {
+        "title": "Бескрајна приказна",
+        "revision": 5412258
+      },
+      {
+        "title": "NGC 2153",
+        "revision": 5266803
+      },
+      {
+        "title": "Историја на современа Монголија",
+        "revision": 5407515
+      },
+      {
+        "title": "Теменица",
+        "revision": 5359682
+      },
+      {
+        "title": "Науката во 1661 година",
+        "revision": 5395873
+      },
+      {
+        "title": "1753 во архитектурата",
+        "revision": 5386104
+      },
+      {
+        "title": "Кучиња скитници (филм)",
+        "revision": 3702128
+      },
+      {
+        "title": "Селци (река)",
+        "revision": 4656854
+      },
+      {
+        "title": "Пулавски Округ",
+        "revision": 5426646
+      },
+      {
+        "title": "Катетосаурус",
+        "revision": 5552517
+      },
+      {
+        "title": "Турција на Олимписките игри",
+        "revision": 5493938
+      },
+      {
+        "title": "Џејкоб Зума",
+        "revision": 4643989
+      },
+      {
+        "title": "Звонимир Вукиќ",
+        "revision": 5522241
+      },
+      {
+        "title": "Џамија (Центар Жупа)",
+        "revision": 4904467
+      },
+      {
+        "title": "Ѓорѓи Зограф",
+        "revision": 5473142
+      },
+      {
+        "title": "Црква „Св. Димитриј“ - Ташмаруништа",
+        "revision": 4700479
+      },
+      {
+        "title": "Над Село (Стровија)",
+        "revision": 4709823
+      },
+      {
+        "title": "Црква Свети Никола (Берлин)",
+        "revision": 4725473
+      },
+      {
+        "title": "Паун",
+        "revision": 5107997
+      },
+      {
+        "title": "Бирмингем",
+        "revision": 5166914
+      },
+      {
+        "title": "NGC 1645/1",
+        "revision": 5264591
+      },
+      {
+        "title": "Викијана",
+        "revision": 5424622
+      },
+      {
+        "title": "IC 1007",
+        "revision": 4906335
+      },
+      {
+        "title": "Мери Хигинс Кларк",
+        "revision": 5536925
+      },
+      {
+        "title": "Кралица (шах)",
+        "revision": 5518796
+      },
+      {
+        "title": "Зборник за народни умотворенија, наука и книжнина",
+        "revision": 5459163
+      },
+      {
+        "title": "Лакавица (Штипско)",
+        "revision": 5553111
+      }
+    ],
+    "characters": 126171,
+    "counts": [
+      {
+        "letter": "а",
+        "correct": 9680,
+        "substituted": {
+          "a": 0
+        }
+      },
+      {
+        "letter": "е",
+        "correct": 5467,
+        "substituted": {
+          "e": 0
+        }
+      },
+      {
+        "letter": "о",
+        "correct": 7256,
+        "substituted": {
+          "o": 1
+        }
+      },
+      {
+        "letter": "р",
+        "correct": 4169,
+        "substituted": {
+          "p": 0
+        }
+      },
+      {
+        "letter": "с",
+        "correct": 3627,
+        "substituted": {
+          "c": 0
+        }
+      },
+      {
+        "letter": "у",
+        "correct": 2278,
+        "substituted": {
+          "y": 0
+        }
+      },
+      {
+        "letter": "х",
+        "correct": 248,
+        "substituted": {
+          "x": 0
+        }
+      },
+      {
+        "letter": "ј",
+        "correct": 1481,
+        "substituted": {
+          "j": 2
+        }
+      },
+      {
+        "letter": "ѕ",
+        "correct": 20,
+        "substituted": {
+          "s": 0
+        }
+      }
+    ]
+  },
+  "russian": {
+    "wiki": "ru",
+    "articles": [
+      {
+        "title": "Южный Аргалей (сельское поселение)",
+        "revision": 148142604
+      },
+      {
+        "title": "Парусный спорт на летних Олимпийских играх 1900 — 0,5—1 тонны",
+        "revision": 149851484
+      },
+      {
+        "title": "Мартинес Гарсия, Якоба",
+        "revision": 150084221
+      },
+      {
+        "title": "Пызас",
+        "revision": 137988247
+      },
+      {
+        "title": "Корморант (тауншип)",
+        "revision": 153577474
+      },
+      {
+        "title": "Фер, Гертруда",
+        "revision": 129865854
+      },
+      {
+        "title": "Научно-исследовательский институт электронной техники",
+        "revision": 146622532
+      },
+      {
+        "title": "Карлеварис, Лука",
+        "revision": 153522231
+      },
+      {
+        "title": "Куэйл, Стивен",
+        "revision": 154142404
+      },
+      {
+        "title": "Палос",
+        "revision": 150081224
+      },
+      {
+        "title": "Agromyza canadensis",
+        "revision": 153116673
+      },
+      {
+        "title": "Макфаркуар, Нил",
+        "revision": 149465389
+      },
+      {
+        "title": "Любучаны (деревня)",
+        "revision": 152557963
+      },
+      {
+        "title": "Головин, Марк Антипович",
+        "revision": 150948183
+      },
+      {
+        "title": "Долгая, Мария Леонтьевна",
+        "revision": 115223109
+      },
+      {
+        "title": "Эль-Тарф",
+        "revision": 147603945
+      },
+      {
+        "title": "Горно-Алтайская автономная область",
+        "revision": 152263284
+      },
+      {
+        "title": "Чагаси",
+        "revision": 148600889
+      },
+      {
+        "title": "Цирк со звёздами",
+        "revision": 146248176
+      },
+      {
+        "title": "Бернс, Марк (легкоатлет)",
+        "revision": 151415504
+      },
+      {
+        "title": "Игнатово (Красноярский край)",
+        "revision": 147711923
+      },
+      {
+        "title": "Полак, Войтех",
+        "revision": 150565992
+      },
+      {
+        "title": "Альшаники (Тверская область)",
+        "revision": 147773362
+      },
+      {
+        "title": "Пеньков, Иван",
+        "revision": 110308687
+      },
+      {
+        "title": "Селищенская волость (Покровский уезд)",
+        "revision": 153778322
+      },
+      {
+        "title": "Video High Density",
+        "revision": 146966522
+      },
+      {
+        "title": "Ядерный чемоданчик (США)",
+        "revision": 151786598
+      },
+      {
+        "title": "Трасса Америк",
+        "revision": 152812395
+      },
+      {
+        "title": "Хмелина",
+        "revision": 141502441
+      },
+      {
+        "title": "Воровского",
+        "revision": 147114882
+      }
+    ],
+    "characters": 241952,
+    "counts": [
+      {
+        "letter": "а",
+        "correct": 13099,
+        "substituted": {
+          "a": 0
+        }
+      },
+      {
+        "letter": "е",
+        "correct": 10238,
+        "substituted": {
+          "e": 0
+        }
+      },
+      {
+        "letter": "о",
+        "correct": 14371,
+        "substituted": {
+          "o": 0
+        }
+      },
+      {
+        "letter": "р",
+        "correct": 8617,
+        "substituted": {
+          "p": 0
+        }
+      },
+      {
+        "letter": "с",
+        "correct": 7939,
+        "substituted": {
+          "c": 0
+        }
+      },
+      {
+        "letter": "у",
+        "correct": 2832,
+        "substituted": {
+          "y": 0
+        }
+      },
+      {
+        "letter": "х",
+        "correct": 1398,
+        "substituted": {
+          "x": 0
+        }
+      }
+    ]
+  },
+  "serbian": {
+    "wiki": "sr",
+    "articles": [
+      {
+        "title": "Тата, ти си луд",
+        "revision": 31066152
+      },
+      {
+        "title": "Стефано Бени",
+        "revision": 30550224
+      },
+      {
+        "title": "Вакарино (Падова)",
+        "revision": 29322598
+      },
+      {
+        "title": "Ел Дијаманте (Рио Браво)",
+        "revision": 30048988
+      },
+      {
+        "title": "Фратели Росели (Верона)",
+        "revision": 29806484
+      },
+      {
+        "title": "NGC 1296",
+        "revision": 29216577
+      },
+      {
+        "title": "Ел Уамучил (Којука де Бенитез)",
+        "revision": 30075501
+      },
+      {
+        "title": "Glukal",
+        "revision": 29196549
+      },
+      {
+        "title": "Соледад Азомпа",
+        "revision": 16079552
+      },
+      {
+        "title": "Ел Колумпио, Гасолинера (Мухика)",
+        "revision": 30054687
+      },
+      {
+        "title": "Аутописта Пуебла Оризаба Километро 191 (Кечолак)",
+        "revision": 30015897
+      },
+      {
+        "title": "Asellia tridens",
+        "revision": 29979156
+      },
+      {
+        "title": "Retinal oksidaza",
+        "revision": 29233089
+      },
+      {
+        "title": "Хилдерик III",
+        "revision": 31070509
+      },
+      {
+        "title": "Ристо Бесаровић",
+        "revision": 30906475
+      },
+      {
+        "title": "Миртлтаун (Калифорнија)",
+        "revision": 29603343
+      },
+      {
+        "title": "Долње Прапрече",
+        "revision": 30744435
+      },
+      {
+        "title": "Вер (Аверон)",
+        "revision": 29329132
+      },
+      {
+        "title": "Маретима (Салерно)",
+        "revision": 29587117
+      },
+      {
+        "title": "Лос Лаурелес, Луис Табарес (Сото ла Марина)",
+        "revision": 30199235
+      },
+      {
+        "title": "Ел Крусеро (Баљеза)",
+        "revision": 30055695
+      },
+      {
+        "title": "G418",
+        "revision": 30322997
+      },
+      {
+        "title": "Полуострво Кејп Јорк",
+        "revision": 31003798
+      },
+      {
+        "title": "Сан Исидро де лос Банкос (Хенерал Панфило Натера)",
+        "revision": 30269869
+      },
+      {
+        "title": "Сан Хуанито (Гран Морелос)",
+        "revision": 30280775
+      },
+      {
+        "title": "Кућа народног хероја Јездимира Ловића",
+        "revision": 29520555
+      },
+      {
+        "title": "Geranil pirofosfat",
+        "revision": 30263832
+      },
+      {
+        "title": "Сан Лорензо (Ла Перла)",
+        "revision": 30270645
+      },
+      {
+        "title": "Константин Черњенко",
+        "revision": 30631056
+      },
+      {
+        "title": "Emocija",
+        "revision": 31063039
+      }
+    ],
+    "characters": 290681,
+    "counts": [
+      {
+        "letter": "а",
+        "correct": 12390,
+        "substituted": {
+          "a": 1
+        }
+      },
+      {
+        "letter": "е",
+        "correct": 8600,
+        "substituted": {
+          "e": 1
+        }
+      },
+      {
+        "letter": "о",
+        "correct": 11022,
+        "substituted": {
+          "o": 0
+        }
+      },
+      {
+        "letter": "р",
+        "correct": 5477,
+        "substituted": {
+          "p": 0
+        }
+      },
+      {
+        "letter": "с",
+        "correct": 5606,
+        "substituted": {
+          "c": 0
+        }
+      },
+      {
+        "letter": "у",
+        "correct": 3300,
+        "substituted": {
+          "y": 0
+        }
+      },
+      {
+        "letter": "х",
+        "correct": 698,
+        "substituted": {
+          "x": 0
+        }
+      },
+      {
+        "letter": "ј",
+        "correct": 2439,
+        "substituted": {
+          "j": 0
+        }
+      }
+    ]
+  },
+  "tatar": {
+    "wiki": "tt",
+    "articles": [
+      {
+        "title": "Йособе (Эроика Сиудад де Тлаксияко)",
+        "revision": 5705088
+      },
+      {
+        "title": "Миллет (Йылдырым)",
+        "revision": 4768466
+      },
+      {
+        "title": "(10648) Plancius",
+        "revision": 5559091
+      },
+      {
+        "title": "Калканлы (Хизан)",
+        "revision": 5903790
+      },
+      {
+        "title": "Сан Илдефонсо Аматлан (Сан Илдефонсо Аматлан, Оахака)",
+        "revision": 5805610
+      },
+      {
+        "title": "Турбуря (Горж)",
+        "revision": 2857912
+      },
+      {
+        "title": "Кыйнтар",
+        "revision": 5535301
+      },
+      {
+        "title": "Сан Фернандо (Баланкан)",
+        "revision": 5781397
+      },
+      {
+        "title": "Франсиско И. Мадеро, Ранчо дел Падре (Эль Платеадо де Хоакин Амаро)",
+        "revision": 5816858
+      },
+      {
+        "title": "Хамуркесен (Каракөпрү)",
+        "revision": 4842633
+      },
+      {
+        "title": "Малуко 2. Сексион, Хуан Вакеро (Макуспана)",
+        "revision": 5779691
+      },
+      {
+        "title": "Экеҗик (Рефахие)",
+        "revision": 4847250
+      },
+      {
+        "title": "Санта Мария Уепалкалко, Эль Каско (Сан Матияс Тлаланкалека)",
+        "revision": 5790025
+      },
+      {
+        "title": "Төньяк Мутиха",
+        "revision": 4090520
+      },
+      {
+        "title": "Воля-Ольшова",
+        "revision": 5030860
+      },
+      {
+        "title": "Эль Магей (Калвильо)",
+        "revision": 4781587
+      },
+      {
+        "title": "Ешилдурак (мәгънәләр)",
+        "revision": 5395121
+      },
+      {
+        "title": "Ист-Лос-Анджелес (Калифорния)",
+        "revision": 4354099
+      },
+      {
+        "title": "Соссан (Эро)",
+        "revision": 5953398
+      },
+      {
+        "title": "Мильийорини (Пяченца)",
+        "revision": 3782740
+      },
+      {
+        "title": "Ламадрид муниципалитеты (Коауила)",
+        "revision": 5973600
+      },
+      {
+        "title": "Каваклы (Манавгат)",
+        "revision": 4869488
+      },
+      {
+        "title": "(7986) Романия",
+        "revision": 5565233
+      },
+      {
+        "title": "ALKAL1",
+        "revision": 4124459
+      },
+      {
+        "title": "Ранчо Эскондидо (Акакоягва)",
+        "revision": 5597978
+      },
+      {
+        "title": "Уладзимиравка (Пухавицкий районы)",
+        "revision": 3474457
+      },
+      {
+        "title": "Әнәс Кари",
+        "revision": 850536
+      },
+      {
+        "title": "Медвеҗка (Төньяк Казакъстан өлкәсе)",
+        "revision": 4682503
+      },
+      {
+        "title": "Гилева (Белоярски шәһәр округы)",
+        "revision": 4793246
+      },
+      {
+        "title": "IC 315",
+        "revision": 3436470
+      }
+    ],
+    "characters": 105310,
+    "counts": [
+      {
+        "letter": "а",
+        "correct": 4175,
+        "substituted": {
+          "a": 0
+        }
+      },
+      {
+        "letter": "е",
+        "correct": 2807,
+        "substituted": {
+          "e": 0
+        }
+      },
+      {
+        "letter": "о",
+        "correct": 1043,
+        "substituted": {
+          "o": 0
+        }
+      },
+      {
+        "letter": "р",
+        "correct": 2617,
+        "substituted": {
+          "p": 0
+        }
+      },
+      {
+        "letter": "с",
+        "correct": 1557,
+        "substituted": {
+          "c": 1
+        }
+      },
+      {
+        "letter": "у",
+        "correct": 793,
+        "substituted": {
+          "y": 0
+        }
+      },
+      {
+        "letter": "х",
+        "correct": 309,
+        "substituted": {
+          "x": 0
+        }
+      },
+      {
+        "letter": "і",
+        "correct": 12,
+        "substituted": {
+          "i": 0
+        }
+      }
+    ]
+  },
+  "ukrainian": {
+    "wiki": "uk",
+    "articles": [
+      {
+        "title": "Секретарська сільська рада (Кривоозерський район)",
+        "revision": 38579306
+      },
+      {
+        "title": "Манвелівка",
+        "revision": 46190734
+      },
+      {
+        "title": "Антоніо Урдінаран",
+        "revision": 42993312
+      },
+      {
+        "title": "Homo Ludens",
+        "revision": 45817659
+      },
+      {
+        "title": "Бєлобородова",
+        "revision": 47664484
+      },
+      {
+        "title": "HD250419",
+        "revision": 31648289
+      },
+      {
+        "title": "Жуншуй-Мяоський автономний повіт",
+        "revision": 46740398
+      },
+      {
+        "title": "Тімченко Віктор Миколайович",
+        "revision": 42660622
+      },
+      {
+        "title": "Герб Брюсселя",
+        "revision": 43820618
+      },
+      {
+        "title": "Парфумерний туризм",
+        "revision": 48270192
+      },
+      {
+        "title": "Пам'ятна медаль візиту японського кронпринца в Корею",
+        "revision": 44107006
+      },
+      {
+        "title": "Циссе",
+        "revision": 38453018
+      },
+      {
+        "title": "Альбано Вікаріотто",
+        "revision": 47424428
+      },
+      {
+        "title": "Джефферсон Д'арсі",
+        "revision": 47664974
+      },
+      {
+        "title": "GRAVITY (Дуже великий телескоп)",
+        "revision": 48290108
+      },
+      {
+        "title": "Вестфілд-Сентер (Огайо)",
+        "revision": 47846935
+      },
+      {
+        "title": "Паспорт громадянина Північної Македонії",
+        "revision": 48155773
+      },
+      {
+        "title": "Богатич (Промина)",
+        "revision": 44092216
+      },
+      {
+        "title": "Активатори",
+        "revision": 47644305
+      },
+      {
+        "title": "Поплітник темнощокий",
+        "revision": 45024562
+      },
+      {
+        "title": "Гравілет «Цесаревич»",
+        "revision": 44437239
+      },
+      {
+        "title": "Період п'яти династій і десяти держав",
+        "revision": 37157440
+      },
+      {
+        "title": "Лавандейра",
+        "revision": 24721472
+      },
+      {
+        "title": "Барроу – Дампір-Банбері",
+        "revision": 44379277
+      },
+      {
+        "title": "Фаленциці",
+        "revision": 42399397
+      },
+      {
+        "title": "Мийдодір (мультфільм, 1939)",
+        "revision": 47386332
+      },
+      {
+        "title": "Сандра Казікова",
+        "revision": 43018402
+      },
+      {
+        "title": "Прилук (Приморський район)",
+        "revision": 39092650
+      },
+      {
+        "title": "Бійзуа",
+        "revision": 42051630
+      },
+      {
+        "title": "Сен-Ремі-ан-л'О",
+        "revision": 42126988
+      }
+    ],
+    "characters": 172516,
+    "counts": [
+      {
+        "letter": "а",
+        "correct": 8669,
+        "substituted": {
+          "a": 0
+        }
+      },
+      {
+        "letter": "е",
+        "correct": 5793,
+        "substituted": {
+          "e": 0
+        }
+      },
+      {
+        "letter": "о",
+        "correct": 8740,
+        "substituted": {
+          "o": 0
+        }
+      },
+      {
+        "letter": "р",
+        "correct": 6154,
+        "substituted": {
+          "p": 0
+        }
+      },
+      {
+        "letter": "с",
+        "correct": 4653,
+        "substituted": {
+          "c": 0
+        }
+      },
+      {
+        "letter": "у",
+        "correct": 3107,
+        "substituted": {
+          "y": 0
+        }
+      },
+      {
+        "letter": "х",
+        "correct": 915,
+        "substituted": {
+          "x": 0
+        }
+      },
+      {
+        "letter": "і",
+        "correct": 6092,
+        "substituted": {
+          "i": 0
+        }
+      },
+      {
+        "letter": "ј",
+        "correct": 1,
+        "substituted": {
+          "j": 1
+        }
+      }
+    ]
+  },
+  "hawaiian": {
+    "wiki": "haw",
+    "articles": [
+      {
+        "title": "Villalbilla de Gumiel (Burgos)",
+        "revision": 102146
+      },
+      {
+        "title": "Kalaeloa",
+        "revision": 79533
+      },
+      {
+        "title": "George W. Bush",
+        "revision": 100964
+      },
+      {
+        "title": "Gabriella Saraivah",
+        "revision": 91590
+      },
+      {
+        "title": "Kanakulū",
+        "revision": 100813
+      },
+      {
+        "title": "Robert",
+        "revision": 97690
+      },
+      {
+        "title": "Cidones",
+        "revision": 68649
+      },
+      {
+        "title": "Navas de Bureba (Burgos)",
+        "revision": 101994
+      },
+      {
+        "title": "Lā",
+        "revision": 102622
+      },
+      {
+        "title": "Barceo",
+        "revision": 101310
+      },
+      {
+        "title": "Buenavista",
+        "revision": 101321
+      },
+      {
+        "title": "Pōʻaono",
+        "revision": 94779
+      },
+      {
+        "title": "ʻĀina Hau",
+        "revision": 102994
+      },
+      {
+        "title": "Cabrejas del Pinar",
+        "revision": 86819
+      },
+      {
+        "title": "Panakalupa",
+        "revision": 100485
+      },
+      {
+        "title": "Almendra (Salamanca)",
+        "revision": 101300
+      },
+      {
+        "title": "Villaespasa (Burgos)",
+        "revision": 102138
+      },
+      {
+        "title": "Guadramiro",
+        "revision": 101407
+      },
+      {
+        "title": "Arauzo de Salce (Burgos)",
+        "revision": 101823
+      },
+      {
+        "title": "Netflix",
+        "revision": 99100
+      },
+      {
+        "title": "Moralina",
+        "revision": 101659
+      },
+      {
+        "title": "Makahiki",
+        "revision": 67809
+      },
+      {
+        "title": "Nā ʻepaki mahina kuʻuna",
+        "revision": 94737
+      },
+      {
+        "title": "Malaisia",
+        "revision": 102204
+      },
+      {
+        "title": "Fuentelisendo (Burgos)",
+        "revision": 101914
+      },
+      {
+        "title": "Papaya",
+        "revision": 100655
+      },
+      {
+        "title": "Calzadilla de Tera",
+        "revision": 101563
+      },
+      {
+        "title": "Ua ʻōlelo ʻo W",
+        "revision": 97265
+      },
+      {
+        "title": "Quintanar de la Sierra (Burgos)",
+        "revision": 102036
+      },
+      {
+        "title": "Akua kūlanakauhale (ōnaehana, Palakila)",
+        "revision": 89722
+      }
+    ],
+    "characters": 58779,
+    "counts": [
+      {
+        "letter": "ʻ",
+        "correct": 1780,
+        "substituted": {
+          "‘": 11,
+          "’": 4
+        }
+      }
+    ]
+  },
+  "samoan": {
+    "wiki": "sm",
+    "articles": [
+      {
+        "title": "Friedrich Schiller",
+        "revision": 41574
+      },
+      {
+        "title": "Burkina Faso",
+        "revision": 41044
+      },
+      {
+        "title": "392",
+        "revision": 35803
+      },
+      {
+        "title": "Malamalama",
+        "revision": 42653
+      },
+      {
+        "title": "Faiga tau faataamilosaga",
+        "revision": 39481
+      },
+      {
+        "title": "Ramin",
+        "revision": 47712
+      },
+      {
+        "title": "Setete Viʻi o le Malo o Rusia",
+        "revision": 48109
+      },
+      {
+        "title": "Mati 16",
+        "revision": 43637
+      },
+      {
+        "title": "Anetan",
+        "revision": 34265
+      },
+      {
+        "title": "Faʻa Farani",
+        "revision": 48023
+      },
+      {
+        "title": "Taloti",
+        "revision": 41073
+      },
+      {
+        "title": "14 (numera)",
+        "revision": 37964
+      },
+      {
+        "title": "Fepuari 9",
+        "revision": 39285
+      },
+      {
+        "title": "Faʻa Tenimaka",
+        "revision": 48045
+      },
+      {
+        "title": "Total Nonstop Action",
+        "revision": 33113
+      },
+      {
+        "title": "Farani",
+        "revision": 43365
+      },
+      {
+        "title": "Le Malo o Aikupito",
+        "revision": 42791
+      },
+      {
+        "title": "Luau",
+        "revision": 40983
+      },
+      {
+        "title": "Patryk Wilk",
+        "revision": 43754
+      },
+      {
+        "title": "Parisi",
+        "revision": 43362
+      },
+      {
+        "title": "Polani",
+        "revision": 46566
+      },
+      {
+        "title": "O le tusi a le Perofeta o Hosea",
+        "revision": 46519
+      },
+      {
+        "title": "Tafolā",
+        "revision": 39769
+      },
+      {
+        "title": "Tahiti",
+        "revision": 42051
+      },
+      {
+        "title": "Nintendo Switch 2",
+        "revision": 47743
+      },
+      {
+        "title": "Fiti",
+        "revision": 48268
+      },
+      {
+        "title": "Togo",
+        "revision": 42289
+      },
+      {
+        "title": "Angélica",
+        "revision": 43769
+      },
+      {
+        "title": "Iutā",
+        "revision": 43867
+      },
+      {
+        "title": "Montenegro",
+        "revision": 42062
+      }
+    ],
+    "characters": 55880,
+    "counts": [
+      {
+        "letter": "ʻ",
+        "correct": 300,
+        "substituted": {
+          "‘": 1,
+          "’": 0
+        }
+      }
+    ]
+  },
+  "tongan": {
+    "wiki": "to",
+    "articles": [
+      {
+        "title": "Māsulo",
+        "revision": 43028
+      },
+      {
+        "title": "Kolomipia",
+        "revision": 42612
+      },
+      {
+        "title": "Niniva",
+        "revision": 30008
+      },
+      {
+        "title": "ʻĪtali",
+        "revision": 42330
+      },
+      {
+        "title": "Siuʻulua",
+        "revision": 10131
+      },
+      {
+        "title": "Ngongo pulupulū",
+        "revision": 36648
+      },
+      {
+        "title": "Tongamana Tupouhaʻapai",
+        "revision": 29689
+      },
+      {
+        "title": "Lafu fakamelomelo",
+        "revision": 36639
+      },
+      {
+        "title": "Sione Laumanuʻuli Luani",
+        "revision": 41888
+      },
+      {
+        "title": "Vunga",
+        "revision": 42006
+      },
+      {
+        "title": "Foʻi maka",
+        "revision": 39673
+      },
+      {
+        "title": "Mekisikou",
+        "revision": 42680
+      },
+      {
+        "title": "Hepisipa",
+        "revision": 35045
+      },
+      {
+        "title": "Takataka",
+        "revision": 43726
+      },
+      {
+        "title": "ʻOtumotu Solomone",
+        "revision": 42944
+      },
+      {
+        "title": "Tangatasito",
+        "revision": 10732
+      },
+      {
+        "title": "Siʻatukimoana Tuʻutanga Hunuhunu Vaea (Fakafānua)",
+        "revision": 41883
+      },
+      {
+        "title": "Siaosi Tupou II",
+        "revision": 41976
+      },
+      {
+        "title": "Hakato",
+        "revision": 41910
+      },
+      {
+        "title": "Vito Lavelua II",
+        "revision": 36747
+      },
+      {
+        "title": "Lae",
+        "revision": 40503
+      },
+      {
+        "title": "Tafaukuʻimoana",
+        "revision": 41876
+      },
+      {
+        "title": "Matahau",
+        "revision": 11106
+      },
+      {
+        "title": "Motuʻalea fakatonga",
+        "revision": 35866
+      },
+      {
+        "title": "Uho taha/en",
+        "revision": 10485
+      },
+      {
+        "title": "ʻAlotolu",
+        "revision": 9674
+      },
+      {
+        "title": "Fetuʻupetelihema",
+        "revision": 43680
+      },
+      {
+        "title": "Ngata/en",
+        "revision": 13575
+      },
+      {
+        "title": "Uēlesi",
+        "revision": 42397
+      },
+      {
+        "title": "Mataʻiʻulua ʻi Fonuamotu Fusituʻa",
+        "revision": 43240
+      }
+    ],
+    "characters": 29068,
+    "counts": [
+      {
+        "letter": "ʻ",
+        "correct": 810,
+        "substituted": {
+          "‘": 2,
+          "’": 0
+        }
+      }
+    ]
+  }
+}

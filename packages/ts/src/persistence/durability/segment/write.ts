@@ -28,6 +28,12 @@ export interface SegmentedCheckpointInput {
   metadata: IndexMetadata
   targets: PartitionCheckpoint[]
   compactionThreshold: number
+  wholePartitionPayload?: (partitionId: number) => WholePartitionSegment
+}
+
+export interface WholePartitionSegment {
+  payload: Uint8Array
+  docCount: number
 }
 
 interface PartitionWriteContext {
@@ -79,7 +85,17 @@ export async function writeSegmentedCheckpoint(input: SegmentedCheckpointInput):
       priorSeqNo,
       target.lastSeqNo,
     )
-    partitions.push(await writePartition(context, target.partitionId, priorPartition, entries))
+    partitions.push(
+      input.wholePartitionPayload === undefined
+        ? await writePartition(context, target.partitionId, priorPartition, entries)
+        : await writeWholePartition(
+            context,
+            target.partitionId,
+            priorPartition,
+            input.wholePartitionPayload(target.partitionId),
+            entries,
+          ),
+    )
   }
 
   carryForwardUncheckpointedPartitions(priorManifest, input.targets, partitions, checkpointByPartition)
@@ -156,6 +172,37 @@ async function writePartition(
   })
 
   return { partitionId, nextSegmentId, segments, vectors }
+}
+
+async function writeWholePartition(
+  context: PartitionWriteContext,
+  partitionId: number,
+  priorPartition: PartitionManifestEntry | undefined,
+  whole: WholePartitionSegment,
+  entries: Awaited<ReturnType<typeof collectWalEntriesInRange>>,
+): Promise<PartitionManifestEntry> {
+  const id = priorPartition?.nextSegmentId ?? 0
+  const key = segmentKey(context.indexName, partitionId, id)
+  await persistSegmentFile(context.directory, key, whole.payload, [])
+
+  const vectors = await writePartitionVectors({
+    directory: context.directory,
+    indexName: context.indexName,
+    partitionId,
+    config: context.config,
+    language: context.language,
+    vectorFields: context.vectorFields,
+    vectorFieldPaths: context.vectorFieldPaths,
+    entries,
+    priorVectors: priorPartition?.vectors ?? [],
+  })
+
+  return {
+    partitionId,
+    nextSegmentId: id + 1,
+    segments: [{ id, key, docCount: whole.docCount, tombstoneCount: 0 }],
+    vectors,
+  }
 }
 
 function carryForwardUncheckpointedPartitions(

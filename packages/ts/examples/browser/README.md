@@ -33,7 +33,7 @@ The app serves on [http://localhost:5173](http://localhost:5173). Everything aft
 
 ## Datasets
 
-The app loads the corpora from `data/processed/` at the repository root: TMDB movies (tiers from 1k to 100k documents), Wikipedia in ten languages with per-language tokenization, and SciFact (5,183 scientific abstracts with 300 test queries and relevance judgments, used by the benchmark view). Small tiers ship with the repository; larger ones download from GitHub Releases with streamed progress.
+The app loads the corpora from `data/processed/` at the repository root: TMDB movies (tiers from 1k to 100k documents), Wikipedia in ten languages with per-language tokenization, and SciFact (5,183 scientific abstracts with 300 test queries and relevance judgments, used by the benchmark view). The repository carries the small tiers, and larger ones download from GitHub Releases with streamed progress.
 
 The **Your Dataset** card indexes your own data: upload JSON or CSV, review the auto-detected schema, pick the searchable fields, and search it like any built-in dataset. The file is parsed and indexed entirely in the browser.
 

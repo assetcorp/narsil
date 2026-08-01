@@ -160,12 +160,13 @@ The container is the `.nrsl` envelope from [envelope.md](envelope.md) with the c
 
 ```text
 SnapshotBundle {
-  version:        uint8         (1)
-  schema:         Map<string, string>
-  language:       string
-  tokenizer:      string        (optional; the registered tokeniser name)
-  stop_words:     string        (optional; the registered stop word set name)
-  stop_word_list: List<string>  (optional; the words of a literal stop word set)
+  version:           uint8         (1)
+  schema:            Map<string, string>
+  language:          string
+  analysis_revision: string        (optional; the language module revision)
+  tokenizer:         string        (optional; the registered tokeniser name)
+  stop_words:        string        (optional; the registered stop word set name)
+  stop_word_list:    List<string>  (optional; the words of a literal stop word set)
   partitions:     List<bytes>   (version 2 partition payloads)
   vectorIndexes:  Map<string, VectorIndexPayload>
   checkpoint:     List<PartitionCheckpoint>
@@ -180,7 +181,7 @@ PartitionCheckpoint {
 
 `checkpoint` records, per partition, the highest `seqNo` the snapshot already holds, and recovery replays each partition's log from `lastSeqNo + 1`. The field is additive: a reader that does not find it treats every partition's `lastSeqNo` as 0 and replays the whole log.
 
-`tokenizer`, `stop_words`, and `stop_word_list` are additive as well. They carry the analysis from [Index Metadata](#index-metadata), so a reader recreates the index with the analysis the snapshot was taken with, and a name nothing is registered under raises `CONFIG_INVALID`.
+`analysis_revision`, `tokenizer`, `stop_words`, and `stop_word_list` are additive as well. They carry the analysis from [Index Metadata](#index-metadata), so a reader recreates the index with the analysis the snapshot was taken with, and a name nothing is registered under raises `CONFIG_INVALID`. A revision that differs from the one the reader's language module carries means the snapshot's terms are stale, and [Index Metadata](envelope.md#index-metadata) in envelope.md governs what the reader does about it.
 
 ### Atomic Snapshot Write
 

@@ -1,7 +1,9 @@
 /*
- * Stop words compiled from:
- *   - Baidu stopwords list (https://github.com/goto456/stopwords)
- *   - Chinese NLP common stop words reference (https://github.com/stopwords-iso/stopwords-zh)
+ * Stop words sourced from:
+ *   - stopwords-iso/stopwords-zh (https://github.com/stopwords-iso/stopwords-zh), MIT
+ *   - Additional single-character function words curated for Narsil
+ *   - Only entries a bigram tokenizer can produce are kept, because a token of
+ *     this language is two characters of one script wide
  */
 
 import type { LanguageModule } from '../types/language'
@@ -66,7 +68,6 @@ const stopWords = new Set([
   '谁',
   '多少',
   '几',
-  '为什么',
   '因为',
   '所以',
   '如果',
@@ -246,6 +247,7 @@ const stopWords = new Set([
 
 export const chinese: LanguageModule = {
   name: 'chinese',
+  revision: '1',
   stemmer: null,
   stopWords,
   tokenizer: {

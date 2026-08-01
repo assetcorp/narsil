@@ -16,6 +16,7 @@ import type { IndexConfig, SchemaDefinition } from '../types/schema'
 import { createDirectExecutor, type DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
 import { createExecutionPromoter, type ExecutionPromoter } from '../workers/promoter'
+import { type AnalysisRebuildCoordinator, wireAnalysisRebuild } from './analysis-rebuild'
 import { resolveDurabilityTier } from './durability-config'
 import { createDurabilityIntegration, type DurabilityIntegration, type DurabilityTier } from './durability-integration'
 import { createInvalidationFromConfig, type InvalidationIntegration } from './invalidation'
@@ -63,6 +64,7 @@ export interface EngineCore {
   readonly requireManager: (indexName: string) => PartitionManager
   readonly bufferIfRebalancing: (indexName: string, entry: Omit<WAQEntry, 'sequenceNumber'>) => boolean
   readonly watermarkNotifier: WatermarkNotifier
+  readonly analysisRebuild: AnalysisRebuildCoordinator
   readonly mutationCtx: MutationContext
   readonly rebalanceCtx: RebalanceContext
 }
@@ -108,6 +110,7 @@ function createDurabilityFromTier(tier: DurabilityTier | null, wiring: Durabilit
         b: entry.config.bm25?.b ?? 0.75,
         ...(embedding !== undefined ? { embedding } : {}),
         ...(entry.config.surfaceForms === true ? { surfaceForms: true } : {}),
+        analysisRevision: entry.language.revision,
         ...(typeof entry.config.tokenizer === 'string' ? { tokenizer: entry.config.tokenizer } : {}),
         ...(typeof entry.config.stopWords === 'string' ? { stopWords: entry.config.stopWords } : {}),
         ...(entry.config.stopWords instanceof Set ? { stopWordList: [...entry.config.stopWords].sort() } : {}),
@@ -259,6 +262,14 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
       embeddingAdapterName: adapterName,
       vectorFieldPaths: getVectorFieldPaths(indexConfig.schema),
     })
+    if (metadata.analysisRevision !== language.revision) {
+      analysisRebuild.markStale({
+        indexName: metadata.indexName,
+        language: language.name,
+        storedRevision: metadata.analysisRevision ?? null,
+        currentRevision: language.revision,
+      })
+    }
   }
 
   const durabilityTier = config !== undefined ? resolveDurabilityTier(config) : null
@@ -316,6 +327,15 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     },
   })
 
+  const analysisRebuild = wireAnalysisRebuild({
+    config: config?.analysis,
+    eventHandlers,
+    getManager: indexName => executor.getManager(indexName),
+    desyncIndex: indexName => orchestrator.desyncIndex(indexName),
+    resyncIndex: (indexName, wasPromoted) => orchestrator.resyncIndex(indexName, wasPromoted),
+    durabilityManager: durability?.manager ?? null,
+  })
+
   const mutationCtx: MutationContext = {
     executor,
     pluginRegistry,
@@ -370,6 +390,7 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     requireManager,
     bufferIfRebalancing,
     watermarkNotifier,
+    analysisRebuild,
     mutationCtx,
     rebalanceCtx,
   }

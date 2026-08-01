@@ -1,79 +1,13 @@
+/*
+ * Stop words sourced from:
+ *   - Apache Lucene ta stopwords, from AshokR/TamilNLP, curated subset
+ *     (https://github.com/apache/lucene), Apache-2.0
+ *
+ * The stemmer is generated from Snowball's algorithms/tamil.sbl; see snowball/build.ts.
+ */
+
 import type { LanguageModule } from '../types/language'
-
-const VERB_SUFFIXES: string[] = [
-  'கிறீர்கள்',
-  'கிறார்கள்',
-  'ந்தீர்கள்',
-  'ந்தார்கள்',
-  'வீர்கள்',
-  'வார்கள்',
-  'கிறேன்',
-  'கிறாய்',
-  'கிறான்',
-  'கிறாள்',
-  'கிறோம்',
-  'கின்றன',
-  'ந்தேன்',
-  'ந்தாய்',
-  'ந்தான்',
-  'ந்தாள்',
-  'ந்தோம்',
-  'கிறது',
-  'ந்தது',
-  'வேன்',
-  'வாய்',
-  'வான்',
-  'வாள்',
-  'வோம்',
-  'ந்து',
-  'த்து',
-  'வது',
-  'க்க',
-  'ய',
-]
-
-const CASE_SUFFIXES: string[] = [
-  'இடமிருந்து',
-  'இருந்து',
-  'உக்கு',
-  'உடைய',
-  'க்கு',
-  'இடம்',
-  'உடன்',
-  'ஆல்',
-  'ஒடு',
-  'இன்',
-  'அது',
-  'இல்',
-  'கண்',
-  'ஓடு',
-  'ஐ',
-]
-
-const POST_POSITIONS: string[] = ['பற்றி', 'மேல்', 'கீழ்', 'மீது', 'வரை']
-
-function removeLongestSuffix(word: string, suffixes: string[], minLength: number): string {
-  for (const suffix of suffixes) {
-    if (word.endsWith(suffix) && word.length - suffix.length >= minLength) {
-      return word.slice(0, word.length - suffix.length)
-    }
-  }
-  return word
-}
-
-function stem(word: string): string {
-  if (word.length < 4) return word
-
-  if (word.endsWith('கள்') && word.length - 3 >= 2) {
-    word = word.slice(0, word.length - 3)
-  }
-
-  word = removeLongestSuffix(word, CASE_SUFFIXES, 2)
-  word = removeLongestSuffix(word, VERB_SUFFIXES, 2)
-  word = removeLongestSuffix(word, POST_POSITIONS, 2)
-
-  return word
-}
+import { stem } from './snowball/tamil'
 
 const stopWords = new Set([
   'ஒரு',
@@ -188,6 +122,7 @@ const stopWords = new Set([
 
 export const tamil: LanguageModule = {
   name: 'tamil',
+  revision: 'f859bf3d19447fbc',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^\u0B80-\u0BFFa-z0-9]+/gi },

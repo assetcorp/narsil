@@ -1,120 +1,12 @@
+/*
+ * Stop words sourced from:
+ *   - @orama/stopwords Nepali list, curated subset (https://github.com/oramasearch/orama), Apache-2.0
+ *
+ * The stemmer is generated from Snowball's algorithms/nepali.sbl; see snowball/build.ts.
+ */
+
 import type { LanguageModule } from '../types/language'
-
-const POSTPOSITIONS: string[] = [
-  'मार्फत',
-  'द्वारा',
-  'प्रति',
-  'देखि',
-  'सम्म',
-  'पछि',
-  'लाई',
-  'संग',
-  'सँग',
-  'का',
-  'की',
-  'को',
-  'कै',
-  'ले',
-  'मा',
-]
-
-const VERB_SUFFIXES: string[] = [
-  'थिएनन्',
-  'हुन्छ',
-  'हुनेछ',
-  'नेछस्',
-  'थिएन',
-  'थियो',
-  'इछस्',
-  'एछस्',
-  'इछन्',
-  'एछन्',
-  'हुने',
-  'हुन्',
-  'छिन्',
-  'लान्',
-  'लिन्',
-  'थिए',
-  'छन्',
-  'छौं',
-  'छैन',
-  'छस्',
-  'नेछ',
-  'छौँ',
-  'छौ',
-  'इछ',
-  'एछ',
-  'छु',
-  'छे',
-  'था',
-  'थी',
-  'थे',
-  'ने',
-  'नु',
-  'दै',
-  'दा',
-  'ता',
-  'ती',
-  'ते',
-  'ला',
-  'लो',
-  'ईं',
-  'या',
-  'यो',
-  'यौ',
-  'आउ',
-  'आए',
-  'छ',
-  'ए',
-  'ई',
-]
-
-const NOUN_SUFFIXES: string[] = [
-  'हरूलाई',
-  'हरूको',
-  'हरूले',
-  'हरूमा',
-  'तालाई',
-  'दारको',
-  'ताको',
-  'ताले',
-  'तामा',
-  'हरू',
-  'दार',
-  'ता',
-]
-
-const CASE_ENDINGS: string[] = ['प्रति', 'देखि', 'सम्म', 'लाई', 'बाट', 'संग', 'सँग', 'ले', 'को', 'मा', 'मै']
-
-function removeLongestSuffix(word: string, suffixes: string[], minLength: number): string {
-  for (const suffix of suffixes) {
-    if (word.endsWith(suffix) && word.length - suffix.length >= minLength) {
-      return word.slice(0, word.length - suffix.length)
-    }
-  }
-  return word
-}
-
-function stem(word: string): string {
-  if (word.length < 3) return word
-
-  word = removeLongestSuffix(word, POSTPOSITIONS, 2)
-
-  let previous = ''
-  while (previous !== word) {
-    previous = word
-
-    word = removeLongestSuffix(word, VERB_SUFFIXES, 2)
-    if (word !== previous) continue
-
-    word = removeLongestSuffix(word, NOUN_SUFFIXES, 2)
-    if (word !== previous) continue
-
-    word = removeLongestSuffix(word, CASE_ENDINGS, 2)
-  }
-
-  return word
-}
+import { stem } from './snowball/nepali'
 
 const stopWords = new Set([
   'अक्सर',
@@ -268,6 +160,7 @@ const stopWords = new Set([
 
 export const nepali: LanguageModule = {
   name: 'nepali',
+  revision: '12453388370b3da0',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^\u0900-\u0963\u0966-\u097fa-z0-9]+/gi },

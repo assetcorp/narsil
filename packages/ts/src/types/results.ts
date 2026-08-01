@@ -8,6 +8,7 @@ export interface QueryResult<T = AnyDocument> {
   cursor?: string
   facets?: Record<string, FacetResult>
   groups?: GroupResult[]
+  analysisStale?: boolean
 }
 
 export interface Hit<T = AnyDocument> {
@@ -42,6 +43,7 @@ export interface GroupResult {
 export interface PreflightResult {
   count: number
   elapsed: number
+  analysisStale?: boolean
 }
 
 export interface BatchResult {
@@ -71,6 +73,7 @@ export interface IndexInfo {
   documentCount: number
   partitionCount: number
   language: string
+  analysisStale?: boolean
 }
 
 export interface PartitionStatsResult {
@@ -91,6 +94,7 @@ export interface SuggestResult {
     documentFrequency: number
   }>
   elapsed: number
+  analysisStale?: boolean
 }
 
 /**

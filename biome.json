@@ -46,6 +46,29 @@
       "linter": { "enabled": false },
       "formatter": { "enabled": false },
       "assist": { "enabled": false }
+    },
+    {
+      "includes": [
+        "packages/ts/src/languages/snowball/**",
+        "!packages/ts/src/languages/snowball/base-stemmer.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": { "useConst": "off" },
+          "suspicious": { "noConfusingLabels": "off" }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/ts/src/languages/malayalam.ts",
+        "packages/ts/src/languages/sinhala.ts"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": { "noMisleadingCharacterClass": "off" }
+        }
+      }
     }
   ],
   "assist": {

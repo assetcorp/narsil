@@ -1,8 +1,8 @@
 /*
- * Stop words compiled from:
+ * Stop words curated for Narsil; no published Ga stop word list exists. Consulted:
  *   - "Giving Reference to the Pronominal 'e' in Ga"
  *     (https://www.iiste.org/Journals/index.php/RHSS/article/download/38736/39836)
- *   - Omniglot Ga reference (https://www.omniglot.com/writing/ga.htm)
+ *   - Omniglot Ga reference (https://www.omniglot.com/writing/ga.htm), copyright Simon Ager
  *
  * Ga has limited NLP resources; this list may benefit from review by native speakers.
  */
@@ -68,6 +68,7 @@ const stopWords = new Set([
 
 export const ga: LanguageModule = {
   name: 'ga',
+  revision: '1',
   stemmer: null,
   stopWords,
   tokenizer: {

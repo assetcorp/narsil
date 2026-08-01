@@ -1,11 +1,12 @@
 /*
- * Stop words compiled from:
- *   - LinguaShop Ewe pronouns (https://www.linguashop.com/ewe-personal-pronouns)
- *   - MustGo Ewe language reference (https://www.mustgo.com/worldlanguages/ewe/)
- *   - Wiktionary Ewe pronouns category (https://en.wiktionary.org/wiki/Category:Ewe_pronouns)
+ * Stop words curated for Narsil; no published Ewe stop word list exists. Consulted:
+ *   - LinguaShop Ewe pronouns (https://www.linguashop.com/ewe-personal-pronouns), no licence stated
+ *   - MustGo Ewe language reference (https://www.mustgo.com/worldlanguages/ewe/), all rights reserved
+ *   - Wiktionary Ewe pronouns category (https://en.wiktionary.org/wiki/Category:Ewe_pronouns), CC-BY-SA
  */
 
 import type { LanguageModule } from '../types/language'
+import { withNormalisedSpellings } from './support/spellings'
 
 const stopWords = new Set([
   'nye',
@@ -89,8 +90,9 @@ function normalize(token: string): string {
 
 export const ewe: LanguageModule = {
   name: 'ewe',
+  revision: '1',
   stemmer: null,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: {
     splitPattern: /[^a-zA-ZàáèéêìíòóùúãẽĩũɛɔɖƉðÐŋƐƆŊɣƔƒƑʋƲÀÁÈÉÊÌÍÒÓÙÚÃẼĨŨ0-9\p{M}]+/giu,
