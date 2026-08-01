@@ -1,0 +1,1724 @@
+{
+  "ewe": {
+    "wiki": "ee",
+    "articles": [
+      {
+        "title": "Chantal Magalie Mbazo'o-Kassa",
+        "revision": 58862
+      },
+      {
+        "title": "Shérifa",
+        "revision": 59474
+      },
+      {
+        "title": "Hlɔ̃made",
+        "revision": 48918
+      },
+      {
+        "title": "Siria",
+        "revision": 59923
+      },
+      {
+        "title": "Njideka Akunyili Crosby",
+        "revision": 61668
+      },
+      {
+        "title": "Helen Esuene",
+        "revision": 61813
+      },
+      {
+        "title": "Dora Akunyili",
+        "revision": 60006
+      },
+      {
+        "title": "Palm-wine music",
+        "revision": 61695
+      },
+      {
+        "title": "Fia",
+        "revision": 49052
+      },
+      {
+        "title": "Tedzi",
+        "revision": 48901
+      },
+      {
+        "title": "Antigua and Barbuda",
+        "revision": 45183
+      },
+      {
+        "title": "Zarifou Ayéva",
+        "revision": 58805
+      },
+      {
+        "title": "Edgard Pisani",
+        "revision": 53663
+      },
+      {
+        "title": "Coray Abbott",
+        "revision": 58890
+      },
+      {
+        "title": "Garrick Sokari Braide",
+        "revision": 53875
+      },
+      {
+        "title": "Jean Grenet",
+        "revision": 58708
+      },
+      {
+        "title": "Marie Agba-Otikpo",
+        "revision": 59950
+      },
+      {
+        "title": "Roubaix",
+        "revision": 47731
+      },
+      {
+        "title": "Ƒ",
+        "revision": 57519
+      },
+      {
+        "title": "Francisca Oboh-Ikuenobe",
+        "revision": 58818
+      },
+      {
+        "title": "Emmanuel Nwafor Otteh",
+        "revision": 54064
+      },
+      {
+        "title": "Huang Xianfan",
+        "revision": 59510
+      },
+      {
+        "title": "Larbie Nii Adjei",
+        "revision": 58227
+      },
+      {
+        "title": "Safa Elagib",
+        "revision": 53785
+      },
+      {
+        "title": "Hemed Suleiman Abdalla",
+        "revision": 58658
+      },
+      {
+        "title": "Nana Akufo-Addo",
+        "revision": 59752
+      },
+      {
+        "title": "Sikasikavi",
+        "revision": 49017
+      },
+      {
+        "title": "Togbui Amenya Fiti V",
+        "revision": 57666
+      },
+      {
+        "title": "Nicolas Alfons",
+        "revision": 53675
+      },
+      {
+        "title": "Atanasio Amisse Canira",
+        "revision": 58637
+      }
+    ],
+    "characters": 72097,
+    "counts": [
+      {
+        "letter": "ɖ",
+        "correct": 478,
+        "substituted": {
+          "ð": 7
+        }
+      },
+      {
+        "letter": "ɛ",
+        "correct": 41,
+        "substituted": {
+          "ε": 6,
+          "ԑ": 0
+        }
+      },
+      {
+        "letter": "ɔ",
+        "correct": 1530,
+        "substituted": {
+          "ͻ": 0,
+          "ↄ": 0,
+          "כ": 0
+        }
+      },
+      {
+        "letter": "ŋ",
+        "correct": 427,
+        "substituted": {
+          "η": 0,
+          "ɳ": 0
+        }
+      }
+    ]
+  },
+  "twi": {
+    "wiki": "tw",
+    "articles": [
+      {
+        "title": "Riboflavin",
+        "revision": 183602
+      },
+      {
+        "title": "Simon Acheampong Tampi",
+        "revision": 187214
+      },
+      {
+        "title": "Asikoe Afahyɛ",
+        "revision": 181589
+      },
+      {
+        "title": "Adjaratou Abdoulaye",
+        "revision": 197261
+      },
+      {
+        "title": "Ahenni Asa",
+        "revision": 59036
+      },
+      {
+        "title": "Shahrisabz",
+        "revision": 184358
+      },
+      {
+        "title": "Thailand",
+        "revision": 63115
+      },
+      {
+        "title": "Gualla Afahyɛ",
+        "revision": 181608
+      },
+      {
+        "title": "Piper umbellatum",
+        "revision": 182052
+      },
+      {
+        "title": "Abdel Razak Yakubu",
+        "revision": 200294
+      },
+      {
+        "title": "Shai-Osudoku (Ghana mmrahyɛbadwam mpɛsoa)",
+        "revision": 95350
+      },
+      {
+        "title": "Peter Lanchene Toobu",
+        "revision": 196249
+      },
+      {
+        "title": "C.K. Mann",
+        "revision": 200330
+      },
+      {
+        "title": "Tsenku nuo a ɛtene gu fam",
+        "revision": 185586
+      },
+      {
+        "title": "Institut polytechnique des sciences avancées",
+        "revision": 30167
+      },
+      {
+        "title": "Kofi Annan",
+        "revision": 184318
+      },
+      {
+        "title": "Kwae ho adwuma wɔ Ghana",
+        "revision": 182328
+      },
+      {
+        "title": "Niokolo-Koba Ɔman Mmoa Yɛmmea",
+        "revision": 152694
+      },
+      {
+        "title": "Eugene Atta Agyepong",
+        "revision": 186441
+      },
+      {
+        "title": "Naproxen/pseudoephedrine",
+        "revision": 183846
+      },
+      {
+        "title": "Antonia Bepɔw",
+        "revision": 184537
+      },
+      {
+        "title": "George Kwabena Owusu",
+        "revision": 61014
+      },
+      {
+        "title": "Asikuma-Odoben-Brakwa (Ghana mmrahyɛbadwam mpɛsoa)",
+        "revision": 95118
+      },
+      {
+        "title": "Akorafoɔ",
+        "revision": 199124
+      },
+      {
+        "title": "Andrew Kingsford Mensah",
+        "revision": 186611
+      },
+      {
+        "title": "Mfinimfini Mmere mu Nkaedum a ɛwɔ Kosovo",
+        "revision": 184449
+      },
+      {
+        "title": "Barcelona",
+        "revision": 30529
+      },
+      {
+        "title": "Kwadwo Baah Agyemang",
+        "revision": 186861
+      },
+      {
+        "title": "Kadis",
+        "revision": 184585
+      },
+      {
+        "title": "Ɔdwontoni Deeba",
+        "revision": 195827
+      }
+    ],
+    "characters": 76827,
+    "counts": [
+      {
+        "letter": "ɛ",
+        "correct": 1391,
+        "substituted": {
+          "ε": 5,
+          "ԑ": 0
+        }
+      },
+      {
+        "letter": "ɔ",
+        "correct": 1461,
+        "substituted": {
+          "ͻ": 0,
+          "ↄ": 0,
+          "כ": 0
+        }
+      },
+      {
+        "letter": "ŋ",
+        "correct": 0,
+        "substituted": {
+          "η": 0,
+          "ɳ": 0
+        }
+      }
+    ]
+  },
+  "dagbani": {
+    "wiki": "dag",
+    "articles": [
+      {
+        "title": "Ludlow",
+        "revision": 49209
+      },
+      {
+        "title": "Ghana lahibaya wuligibu takari gbana",
+        "revision": 123454
+      },
+      {
+        "title": "Trenton",
+        "revision": 49304
+      },
+      {
+        "title": "Pascal Aka",
+        "revision": 117402
+      },
+      {
+        "title": "Bowling Green",
+        "revision": 49066
+      },
+      {
+        "title": "Offinso North (Ghana parliament constituency)",
+        "revision": 97753
+      },
+      {
+        "title": "Gor-lanyili",
+        "revision": 37021
+      },
+      {
+        "title": "Kuribi festival",
+        "revision": 39323
+      },
+      {
+        "title": "List of IOC country codes",
+        "revision": 75930
+      },
+      {
+        "title": "Adams",
+        "revision": 49166
+      },
+      {
+        "title": "Kwame Gyawu-Kyem",
+        "revision": 98222
+      },
+      {
+        "title": "Kwasido",
+        "revision": 37040
+      },
+      {
+        "title": "Firyal Al-Adhamy",
+        "revision": 119774
+      },
+      {
+        "title": "Uncle Waffles",
+        "revision": 103174
+      },
+      {
+        "title": "Joyce Skefu",
+        "revision": 108701
+      },
+      {
+        "title": "Roland Freeman",
+        "revision": 99737
+      },
+      {
+        "title": "Biko Agozino",
+        "revision": 53018
+      },
+      {
+        "title": "Thirteenth Amendment to the United States Constitution",
+        "revision": 118404
+      },
+      {
+        "title": "Naana Hayford",
+        "revision": 103066
+      },
+      {
+        "title": "Chipindo",
+        "revision": 56286
+      },
+      {
+        "title": "Kasuliyili primary school",
+        "revision": 56279
+      },
+      {
+        "title": "Vélizy-Villacoublay",
+        "revision": 51657
+      },
+      {
+        "title": "Melina Matsoukas",
+        "revision": 145419
+      },
+      {
+        "title": "Natchitoches",
+        "revision": 49096
+      },
+      {
+        "title": "Adam A. Zango",
+        "revision": 111762
+      },
+      {
+        "title": "African Bible University (Uganda)",
+        "revision": 89309
+      },
+      {
+        "title": "Dele Jegede",
+        "revision": 99662
+      },
+      {
+        "title": "Mérignac",
+        "revision": 51268
+      },
+      {
+        "title": "Kemi Adetiba",
+        "revision": 130635
+      },
+      {
+        "title": "Ebube Nwagbo",
+        "revision": 107188
+      }
+    ],
+    "characters": 141260,
+    "counts": [
+      {
+        "letter": "ɛ",
+        "correct": 401,
+        "substituted": {
+          "ε": 0,
+          "ԑ": 0
+        }
+      },
+      {
+        "letter": "ɔ",
+        "correct": 143,
+        "substituted": {
+          "ͻ": 0,
+          "ↄ": 0,
+          "כ": 0
+        }
+      },
+      {
+        "letter": "ŋ",
+        "correct": 740,
+        "substituted": {
+          "η": 0,
+          "ɳ": 0
+        }
+      }
+    ]
+  },
+  "guarani": {
+    "wiki": "gn",
+    "articles": [
+      {
+        "title": "Campinas",
+        "revision": 135106
+      },
+      {
+        "title": "Arisóna",
+        "revision": 119057
+      },
+      {
+        "title": "Doctor Juan Eulogio Estigarribia",
+        "revision": 136968
+      },
+      {
+        "title": "1627",
+        "revision": 126541
+      },
+      {
+        "title": "Agudo",
+        "revision": 135315
+      },
+      {
+        "title": "Mondyikakuaa",
+        "revision": 131897
+      },
+      {
+        "title": "Petỹngue",
+        "revision": 135618
+      },
+      {
+        "title": "Paláu",
+        "revision": 135642
+      },
+      {
+        "title": "Py'amokõi",
+        "revision": 114130
+      },
+      {
+        "title": "Varróko",
+        "revision": 117383
+      },
+      {
+        "title": "Wikispecies",
+        "revision": 108271
+      },
+      {
+        "title": "Tãimbuku",
+        "revision": 121876
+      },
+      {
+        "title": "López (myesakãrã)",
+        "revision": 125538
+      },
+      {
+        "title": "Ára",
+        "revision": 96206
+      },
+      {
+        "title": "Sinai",
+        "revision": 136495
+      },
+      {
+        "title": "Springfield (Illinois)",
+        "revision": 115636
+      },
+      {
+        "title": "Pyti'a",
+        "revision": 94557
+      },
+      {
+        "title": "Yvytypanema",
+        "revision": 136792
+      },
+      {
+        "title": "Kaguyhái",
+        "revision": 137208
+      },
+      {
+        "title": "Mba'ekuaarã joguerahaviárava pavẽ",
+        "revision": 138118
+      },
+      {
+        "title": "Lope de Vega",
+        "revision": 108940
+      },
+      {
+        "title": "Tetãvore Cochabamba",
+        "revision": 96511
+      },
+      {
+        "title": "Ygaguy",
+        "revision": 136817
+      },
+      {
+        "title": "Ópera",
+        "revision": 127028
+      },
+      {
+        "title": "Itaimbeguasu",
+        "revision": 129083
+      },
+      {
+        "title": "Pachuca de Soto",
+        "revision": 98277
+      },
+      {
+        "title": "Yanina González",
+        "revision": 107788
+      },
+      {
+        "title": "Columbia Broadcasting System",
+        "revision": 128633
+      },
+      {
+        "title": "Álgebra",
+        "revision": 125954
+      },
+      {
+        "title": "FIFA Tembiesarái Yvypavẽ 2018",
+        "revision": 137227
+      }
+    ],
+    "characters": 56558,
+    "counts": [
+      {
+        "letter": "'",
+        "correct": 471,
+        "substituted": {
+          "ꞌ": 7
+        }
+      }
+    ]
+  },
+  "wolof": {
+    "wiki": "wo",
+    "articles": [
+      {
+        "title": "Andare",
+        "revision": 95088
+      },
+      {
+        "title": "Julius Caesar",
+        "revision": 97208
+      },
+      {
+        "title": "Barag",
+        "revision": 103373
+      },
+      {
+        "title": "Tojj",
+        "revision": 101334
+      },
+      {
+        "title": "Danmaark",
+        "revision": 106638
+      },
+      {
+        "title": "Elen Jonson Sërliif",
+        "revision": 106383
+      },
+      {
+        "title": "Faratay Tiim",
+        "revision": 103352
+      },
+      {
+        "title": "Diisaayu yaram yi",
+        "revision": 35321
+      },
+      {
+        "title": "Sanqaay",
+        "revision": 100398
+      },
+      {
+        "title": "Betani",
+        "revision": 94201
+      },
+      {
+        "title": "Xasaayit",
+        "revision": 13125
+      },
+      {
+        "title": "Dendu mbëj",
+        "revision": 95001
+      },
+      {
+        "title": "Réewum Maseduwaan",
+        "revision": 104420
+      },
+      {
+        "title": "Meksig",
+        "revision": 102207
+      },
+      {
+        "title": "Guy",
+        "revision": 104298
+      },
+      {
+        "title": "Xarañ",
+        "revision": 101135
+      },
+      {
+        "title": "End",
+        "revision": 107247
+      },
+      {
+        "title": "Irlaand",
+        "revision": 102694
+      },
+      {
+        "title": "Ndimbal ci ay nataal",
+        "revision": 103523
+      },
+      {
+        "title": "Barabas",
+        "revision": 94187
+      },
+      {
+        "title": "Monte Águila",
+        "revision": 107256
+      },
+      {
+        "title": "SËRIÑ MAXTAAR GAY AY SOXNAAM :",
+        "revision": 107339
+      },
+      {
+        "title": "Joolaa (askan)",
+        "revision": 104964
+      },
+      {
+        "title": "Janela (Kap Weert)",
+        "revision": 105453
+      },
+      {
+        "title": "Njagatun",
+        "revision": 40711
+      },
+      {
+        "title": "Kiswahili",
+        "revision": 105867
+      },
+      {
+        "title": "Melentaan",
+        "revision": 97426
+      },
+      {
+        "title": "Combretum",
+        "revision": 100843
+      },
+      {
+        "title": "Alfabečisu",
+        "revision": 104908
+      },
+      {
+        "title": "Liggéey (ci muridulaa)",
+        "revision": 107066
+      }
+    ],
+    "characters": 53862,
+    "counts": [
+      {
+        "letter": "ŋ",
+        "correct": 16,
+        "substituted": {
+          "η": 0,
+          "ɳ": 0
+        }
+      }
+    ]
+  },
+  "bambara": {
+    "wiki": "bm",
+    "articles": [
+      {
+        "title": "Jamanatigi",
+        "revision": 42253
+      },
+      {
+        "title": "Pornichet",
+        "revision": 37886
+      },
+      {
+        "title": "Liran",
+        "revision": 38085
+      },
+      {
+        "title": "Conquereuil",
+        "revision": 37972
+      },
+      {
+        "title": "Gine kungo–savana mozayika",
+        "revision": 42368
+      },
+      {
+        "title": "Wɔlɔbugun",
+        "revision": 39557
+      },
+      {
+        "title": "Fulabin",
+        "revision": 39682
+      },
+      {
+        "title": "Wichita",
+        "revision": 37866
+      },
+      {
+        "title": "Trans-sur-Erdre",
+        "revision": 37998
+      },
+      {
+        "title": "Vierzon",
+        "revision": 38038
+      },
+      {
+        "title": "Bɛliziki",
+        "revision": 39113
+      },
+      {
+        "title": "Bɛlɛrɔfuralan",
+        "revision": 39668
+      },
+      {
+        "title": "Sèvres",
+        "revision": 37774
+      },
+      {
+        "title": "Ntamaro",
+        "revision": 40007
+      },
+      {
+        "title": "Berefin",
+        "revision": 39576
+      },
+      {
+        "title": "Ligné",
+        "revision": 38016
+      },
+      {
+        "title": "Ncicandugutigi",
+        "revision": 40600
+      },
+      {
+        "title": "Miri",
+        "revision": 39274
+      },
+      {
+        "title": "Nha Trang",
+        "revision": 41246
+      },
+      {
+        "title": "Bordeaux",
+        "revision": 37893
+      },
+      {
+        "title": "Petit-Auverné",
+        "revision": 41333
+      },
+      {
+        "title": "2CH",
+        "revision": 42420
+      },
+      {
+        "title": "Troyes",
+        "revision": 37890
+      },
+      {
+        "title": "Lubenan",
+        "revision": 38604
+      },
+      {
+        "title": "Nugu",
+        "revision": 39605
+      },
+      {
+        "title": "Jokala",
+        "revision": 39386
+      },
+      {
+        "title": "Malawi",
+        "revision": 40765
+      },
+      {
+        "title": "Piriac-sur-Mer",
+        "revision": 37911
+      },
+      {
+        "title": "Balemo",
+        "revision": 39455
+      },
+      {
+        "title": "Poyi",
+        "revision": 39927
+      }
+    ],
+    "characters": 16509,
+    "counts": [
+      {
+        "letter": "ɛ",
+        "correct": 232,
+        "substituted": {
+          "ε": 0,
+          "ԑ": 0
+        }
+      },
+      {
+        "letter": "ɔ",
+        "correct": 137,
+        "substituted": {
+          "ͻ": 0,
+          "ↄ": 0,
+          "כ": 0
+        }
+      },
+      {
+        "letter": "ŋ",
+        "correct": 0,
+        "substituted": {
+          "η": 0,
+          "ɳ": 0
+        }
+      }
+    ]
+  },
+  "lingala": {
+    "wiki": "ln",
+    "articles": [
+      {
+        "title": "Gungu (territoire) .",
+        "revision": 131302
+      },
+      {
+        "title": "Jean-Pierre Daruwezi Mokombe",
+        "revision": 130847
+      },
+      {
+        "title": "Jérôme Anany",
+        "revision": 130421
+      },
+      {
+        "title": "Ciluba",
+        "revision": 133008
+      },
+      {
+        "title": "Mvemba ya Nkanga",
+        "revision": 104339
+      },
+      {
+        "title": "Albert Kalonji",
+        "revision": 130782
+      },
+      {
+        "title": "Internet (Páláki)",
+        "revision": 121958
+      },
+      {
+        "title": "Bikoro (teritware)",
+        "revision": 131098
+      },
+      {
+        "title": "Julie Ngungwa",
+        "revision": 131644
+      },
+      {
+        "title": "Sɛlvɛ́lɛ",
+        "revision": 128870
+      },
+      {
+        "title": "1966",
+        "revision": 117139
+      },
+      {
+        "title": "Bas-Congo",
+        "revision": 124307
+      },
+      {
+        "title": "Moske El Ghassiroun",
+        "revision": 119320
+      },
+      {
+        "title": "Ndolɛ́",
+        "revision": 114984
+      },
+      {
+        "title": "Ndáko-Nzámbe Einsiedeln",
+        "revision": 122585
+      },
+      {
+        "title": "Mascot de Katalas",
+        "revision": 123677
+      },
+      {
+        "title": "Motáné",
+        "revision": 77267
+      },
+      {
+        "title": "Abalayama",
+        "revision": 129080
+      },
+      {
+        "title": "Mokapo",
+        "revision": 110893
+      },
+      {
+        "title": "Mbɔngɔ",
+        "revision": 109455
+      },
+      {
+        "title": "Lokósó",
+        "revision": 121340
+      },
+      {
+        "title": "Liluksamburg",
+        "revision": 121165
+      },
+      {
+        "title": "Mekulé",
+        "revision": 123027
+      },
+      {
+        "title": "Libándá ya mpɛpɔ ya Kananga",
+        "revision": 132060
+      },
+      {
+        "title": "Litangá",
+        "revision": 117000
+      },
+      {
+        "title": "Mopipi Mukulumanya",
+        "revision": 130892
+      },
+      {
+        "title": "Ngɔlɔ",
+        "revision": 118237
+      },
+      {
+        "title": "Jacqueline Moudeina",
+        "revision": 134241
+      },
+      {
+        "title": "Dasbodh",
+        "revision": 135300
+      },
+      {
+        "title": "Quentin Moyascko",
+        "revision": 123755
+      }
+    ],
+    "characters": 33646,
+    "counts": [
+      {
+        "letter": "ɛ",
+        "correct": 77,
+        "substituted": {
+          "ε": 0,
+          "ԑ": 0
+        }
+      },
+      {
+        "letter": "ɔ",
+        "correct": 155,
+        "substituted": {
+          "ͻ": 0,
+          "ↄ": 0,
+          "כ": 0
+        }
+      }
+    ]
+  },
+  "azerbaijani": {
+    "wiki": "az",
+    "articles": [
+      {
+        "title": "Kimyəvi reaktivlər",
+        "revision": 8797206
+      },
+      {
+        "title": "Dadaş Tağızadə",
+        "revision": 8460826
+      },
+      {
+        "title": "Avropa şiri",
+        "revision": 9000990
+      },
+      {
+        "title": "Kiçik Osman Paşa",
+        "revision": 8945177
+      },
+      {
+        "title": "Mirzəli Hüseynzadə",
+        "revision": 7645817
+      },
+      {
+        "title": "Euonymus occidentalis",
+        "revision": 8853207
+      },
+      {
+        "title": "Pyerina Lenyani",
+        "revision": 8928674
+      },
+      {
+        "title": "Azad nekropolu",
+        "revision": 5297617
+      },
+      {
+        "title": "Papaver setiferum",
+        "revision": 8955243
+      },
+      {
+        "title": "Mikrometr",
+        "revision": 7073756
+      },
+      {
+        "title": "Tako",
+        "revision": 8837268
+      },
+      {
+        "title": "Saturn (planet)",
+        "revision": 8969832
+      },
+      {
+        "title": "Mehmanın qamışlığı",
+        "revision": 8956093
+      },
+      {
+        "title": "Müsəlman Aktyorlar Cəmiyyəti",
+        "revision": 7073799
+      },
+      {
+        "title": "Catreus wallichii",
+        "revision": 8489231
+      },
+      {
+        "title": "I Şərvin",
+        "revision": 8942316
+      },
+      {
+        "title": "Meliosma littlei",
+        "revision": 8574016
+      },
+      {
+        "title": "İks-adamlar: Son müqavimət",
+        "revision": 8846943
+      },
+      {
+        "title": "Sovet tarixi ensiklopediyası",
+        "revision": 8264728
+      },
+      {
+        "title": "Münəccim",
+        "revision": 7978256
+      },
+      {
+        "title": "Poxoraulebi kilsəsi",
+        "revision": 7629058
+      },
+      {
+        "title": "Dəllək",
+        "revision": 6797690
+      },
+      {
+        "title": "II Karl Emmanuil (Savoyya hersoqu)",
+        "revision": 8710813
+      },
+      {
+        "title": "Luvr Əbu-Dabi Muzeyi",
+        "revision": 8818579
+      },
+      {
+        "title": "Şam qarğası",
+        "revision": 8951895
+      },
+      {
+        "title": "Xankəndi (Nəmin)",
+        "revision": 8208391
+      },
+      {
+        "title": "Türk-monqol ənənəsi",
+        "revision": 8914562
+      },
+      {
+        "title": "Nərminə Məmmədova",
+        "revision": 7807493
+      },
+      {
+        "title": "Dəyər paradoksu",
+        "revision": 8720143
+      },
+      {
+        "title": "Total müharibə",
+        "revision": 8914315
+      }
+    ],
+    "characters": 189576,
+    "counts": [
+      {
+        "letter": "ə",
+        "correct": 8569,
+        "substituted": {
+          "ǝ": 0,
+          "ә": 0
+        }
+      }
+    ]
+  },
+  "kazakh": {
+    "wiki": "kk",
+    "articles": [
+      {
+        "title": "ОФК Чемпиондар Лигасы 2022",
+        "revision": 3387070
+      },
+      {
+        "title": "Сент-Китс және Невистағы ЮНЕСКО Әлемдік мұра нысандар тізімі",
+        "revision": 2686166
+      },
+      {
+        "title": "Санту-Кристу",
+        "revision": 1845983
+      },
+      {
+        "title": "Сакрэд Хирт (Миннесота)",
+        "revision": 2500599
+      },
+      {
+        "title": "Осиек (футбол клубы)",
+        "revision": 3620638
+      },
+      {
+        "title": "Кытки-Елга",
+        "revision": 3132786
+      },
+      {
+        "title": "Зейнеп (қыстау)",
+        "revision": 2070281
+      },
+      {
+        "title": "Лезиньян-ла-Себ",
+        "revision": 2961724
+      },
+      {
+        "title": "NGC 7421",
+        "revision": 2890338
+      },
+      {
+        "title": "Агрон",
+        "revision": 2928212
+      },
+      {
+        "title": "Бердәулетұлы атындағы көше (Алматы)",
+        "revision": 2065987
+      },
+      {
+        "title": "NGC 2144",
+        "revision": 2891455
+      },
+      {
+        "title": "Антрен-сюр-Ноен",
+        "revision": 2982512
+      },
+      {
+        "title": "Өндіре будандастыру",
+        "revision": 897551
+      },
+      {
+        "title": "Жасұнық",
+        "revision": 2075306
+      },
+      {
+        "title": "Бурлэй (Айдахо)",
+        "revision": 2376865
+      },
+      {
+        "title": "Дечич (футбол клубы)",
+        "revision": 3619045
+      },
+      {
+        "title": "Сарыкөл (көл, Ақмола облысы)",
+        "revision": 2760225
+      },
+      {
+        "title": "IC 518",
+        "revision": 1866034
+      },
+      {
+        "title": "Тройная",
+        "revision": 3010526
+      },
+      {
+        "title": "Үйлесімділік",
+        "revision": 3314127
+      },
+      {
+        "title": "Несібек-нұр",
+        "revision": 2855573
+      },
+      {
+        "title": "14 ақпан",
+        "revision": 2513823
+      },
+      {
+        "title": "NGC 7723",
+        "revision": 2749425
+      },
+      {
+        "title": "Күнжара",
+        "revision": 2396877
+      },
+      {
+        "title": "Мисан-Велья",
+        "revision": 1844376
+      },
+      {
+        "title": "NGC 2626",
+        "revision": 1859506
+      },
+      {
+        "title": "Гризинген",
+        "revision": 2900042
+      },
+      {
+        "title": "Қысылған бұралу",
+        "revision": 2434397
+      },
+      {
+        "title": "Міржақып. Оян, Қазақ (фильм, 2023)",
+        "revision": 3626818
+      }
+    ],
+    "characters": 86498,
+    "counts": [
+      {
+        "letter": "ә",
+        "correct": 231,
+        "substituted": {
+          "ə": 0,
+          "ǝ": 0
+        }
+      },
+      {
+        "letter": "ң",
+        "correct": 591,
+        "substituted": {
+          "ŋ": 0
+        }
+      }
+    ]
+  },
+  "hawaiian": {
+    "wiki": "haw",
+    "articles": [
+      {
+        "title": "Bascuñana (Burgos)",
+        "revision": 101839
+      },
+      {
+        "title": "Solowenia",
+        "revision": 102511
+      },
+      {
+        "title": "Makoto Shinkai",
+        "revision": 102454
+      },
+      {
+        "title": "Palacios del Sil",
+        "revision": 101110
+      },
+      {
+        "title": "Bartolomé Esteban Murillo",
+        "revision": 101511
+      },
+      {
+        "title": "Vilviestre del Pinar (Burgos)",
+        "revision": 102173
+      },
+      {
+        "title": "Goofy",
+        "revision": 100176
+      },
+      {
+        "title": "Puhi",
+        "revision": 69702
+      },
+      {
+        "title": "Kuleke",
+        "revision": 102961
+      },
+      {
+        "title": "Kelikoli Kapikala ʻo ʻAukekulelia",
+        "revision": 100837
+      },
+      {
+        "title": "Nils Seethaler",
+        "revision": 100443
+      },
+      {
+        "title": "Darth Vader",
+        "revision": 97237
+      },
+      {
+        "title": "Akira (kiʻi ʻoniʻoni)",
+        "revision": 99295
+      },
+      {
+        "title": "Turcia",
+        "revision": 101165
+      },
+      {
+        "title": "Mokupuni o Liu Kiu",
+        "revision": 97869
+      },
+      {
+        "title": "Lākana",
+        "revision": 101238
+      },
+      {
+        "title": "Ólvega",
+        "revision": 80629
+      },
+      {
+        "title": "ʻŌlelo Ionaguni",
+        "revision": 97936
+      },
+      {
+        "title": "Nowemapa",
+        "revision": 102473
+      },
+      {
+        "title": "Diego Rivera",
+        "revision": 101520
+      },
+      {
+        "title": "John McCain",
+        "revision": 100915
+      },
+      {
+        "title": "Chauchina",
+        "revision": 101790
+      },
+      {
+        "title": "Valle de Oca (Burgos)",
+        "revision": 102122
+      },
+      {
+        "title": "Star Fox",
+        "revision": 103047
+      },
+      {
+        "title": "Waikīkī",
+        "revision": 79990
+      },
+      {
+        "title": "Kakalameko",
+        "revision": 102610
+      },
+      {
+        "title": "Aldearrubia",
+        "revision": 101292
+      },
+      {
+        "title": "Villalmanzo (Burgos)",
+        "revision": 102148
+      },
+      {
+        "title": "San Andrés del Rabanedo",
+        "revision": 101135
+      },
+      {
+        "title": "The Office (Kīwī Keaka TV ʻAmelika)",
+        "revision": 99181
+      }
+    ],
+    "characters": 58360,
+    "counts": [
+      {
+        "letter": "ʻ",
+        "correct": 1698,
+        "substituted": {
+          "‘": 2,
+          "’": 1
+        }
+      }
+    ]
+  },
+  "samoan": {
+    "wiki": "sm",
+    "articles": [
+      {
+        "title": "Ripapelika o Roma",
+        "revision": 43880
+      },
+      {
+        "title": "Kolomupia",
+        "revision": 43281
+      },
+      {
+        "title": "Melita",
+        "revision": 38180
+      },
+      {
+        "title": "Mele",
+        "revision": 33599
+      },
+      {
+        "title": "Vasa Pasefika",
+        "revision": 48275
+      },
+      {
+        "title": "Veliko Tarnovo",
+        "revision": 43093
+      },
+      {
+        "title": "Aperila 4",
+        "revision": 45353
+      },
+      {
+        "title": "Aperila 28",
+        "revision": 43680
+      },
+      {
+        "title": "Central Amelika",
+        "revision": 38198
+      },
+      {
+        "title": "World wrestling entertainment",
+        "revision": 39509
+      },
+      {
+        "title": "62",
+        "revision": 35315
+      },
+      {
+        "title": "Pea",
+        "revision": 40222
+      },
+      {
+        "title": "Pelisi",
+        "revision": 42827
+      },
+      {
+        "title": "Shalva Natelashvili",
+        "revision": 46983
+      },
+      {
+        "title": "Faʻipula",
+        "revision": 48097
+      },
+      {
+        "title": "Porirua",
+        "revision": 32740
+      },
+      {
+        "title": "Friedrich Schiller",
+        "revision": 41574
+      },
+      {
+        "title": "Burkina Faso",
+        "revision": 41044
+      },
+      {
+        "title": "392",
+        "revision": 35803
+      },
+      {
+        "title": "Malamalama",
+        "revision": 42653
+      },
+      {
+        "title": "Faiga tau faataamilosaga",
+        "revision": 39481
+      },
+      {
+        "title": "Ramin",
+        "revision": 47712
+      },
+      {
+        "title": "Setete Viʻi o le Malo o Rusia",
+        "revision": 48109
+      },
+      {
+        "title": "Mati 16",
+        "revision": 43637
+      },
+      {
+        "title": "Anetan",
+        "revision": 34265
+      },
+      {
+        "title": "Faʻa Farani",
+        "revision": 48023
+      },
+      {
+        "title": "Taloti",
+        "revision": 41073
+      },
+      {
+        "title": "14 (numera)",
+        "revision": 37964
+      },
+      {
+        "title": "Fepuari 9",
+        "revision": 39285
+      },
+      {
+        "title": "Faʻa Tenimaka",
+        "revision": 48045
+      }
+    ],
+    "characters": 54934,
+    "counts": [
+      {
+        "letter": "ʻ",
+        "correct": 175,
+        "substituted": {
+          "‘": 1,
+          "’": 0
+        }
+      }
+    ]
+  },
+  "tongan": {
+    "wiki": "to",
+    "articles": [
+      {
+        "title": "Luseane Halaevalu Mataʻaho",
+        "revision": 36539
+      },
+      {
+        "title": "Neiafu",
+        "revision": 38768
+      },
+      {
+        "title": "Mataeletuʻapiko",
+        "revision": 41942
+      },
+      {
+        "title": "Mosekou",
+        "revision": 43060
+      },
+      {
+        "title": "Kahikahi (ʻakau)",
+        "revision": 36095
+      },
+      {
+        "title": "Pitikeni",
+        "revision": 42878
+      },
+      {
+        "title": "Suva",
+        "revision": 43405
+      },
+      {
+        "title": "Monumanu ngaolo pe totolo",
+        "revision": 39980
+      },
+      {
+        "title": "ʻIlaani",
+        "revision": 43961
+      },
+      {
+        "title": "Manufoʻou",
+        "revision": 36645
+      },
+      {
+        "title": "Loketi",
+        "revision": 36201
+      },
+      {
+        "title": "Potupotutatau",
+        "revision": 16369
+      },
+      {
+        "title": "ʻAnaseini Kaifonuaʻamanu",
+        "revision": 42973
+      },
+      {
+        "title": "Peesi tali fiefia/ʻataʻaho-11",
+        "revision": 17086
+      },
+      {
+        "title": "Hokoʻiamailangi",
+        "revision": 8845
+      },
+      {
+        "title": "ʻOtumotu Vilikini fakaʻamelika",
+        "revision": 42721
+      },
+      {
+        "title": "Meleni",
+        "revision": 36233
+      },
+      {
+        "title": "Kuta",
+        "revision": 43718
+      },
+      {
+        "title": "Fusituʻa",
+        "revision": 37168
+      },
+      {
+        "title": "Siosiua Fotofili",
+        "revision": 41885
+      },
+      {
+        "title": "Siaosi Fatafehi Toutaitokotaha",
+        "revision": 42430
+      },
+      {
+        "title": "Foʻui (Tongatapu)",
+        "revision": 22304
+      },
+      {
+        "title": "Fisiki",
+        "revision": 39706
+      },
+      {
+        "title": "Talafāpite",
+        "revision": 8769
+      },
+      {
+        "title": "Teve",
+        "revision": 37947
+      },
+      {
+        "title": "Toketoke",
+        "revision": 10898
+      },
+      {
+        "title": "Monumanu maʻukave",
+        "revision": 37329
+      },
+      {
+        "title": "Lolie",
+        "revision": 43653
+      },
+      {
+        "title": "Tūvalu",
+        "revision": 42436
+      },
+      {
+        "title": "Matavaikula",
+        "revision": 43723
+      }
+    ],
+    "characters": 31774,
+    "counts": [
+      {
+        "letter": "ʻ",
+        "correct": 995,
+        "substituted": {
+          "‘": 0,
+          "’": 0
+        }
+      }
+    ]
+  }
+}

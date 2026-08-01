@@ -5,6 +5,7 @@ import { armenianFixture } from './armenian'
 import { azerbaijaniFixture } from './azerbaijani'
 import { bambaraFixture } from './bambara'
 import { basqueFixture } from './basque'
+import { belarusianFixture } from './belarusian'
 import { bengaliFixture } from './bengali'
 import { bosnianFixture } from './bosnian'
 import { bretonFixture } from './breton'
@@ -27,6 +28,7 @@ import { finnishFixture } from './finnish'
 import { frenchFixture } from './french'
 import { gaFixture } from './ga'
 import { galicianFixture } from './galician'
+import { georgianFixture } from './georgian'
 import { germanFixture } from './german'
 import { greekFixture } from './greek'
 import { guaraniFixture } from './guarani'
@@ -44,6 +46,7 @@ import { irishFixture } from './irish'
 import { italianFixture } from './italian'
 import { japaneseFixture } from './japanese'
 import { kannadaFixture } from './kannada'
+import { kazakhFixture } from './kazakh'
 import { khmerFixture } from './khmer'
 import { kinyarwandaFixture } from './kinyarwanda'
 import { kirundiFixture } from './kirundi'
@@ -60,6 +63,7 @@ import { macedonianFixture } from './macedonian'
 import { malagasyFixture } from './malagasy'
 import { malayFixture } from './malay'
 import { malayalamFixture } from './malayalam'
+import { malteseFixture } from './maltese'
 import { maoriFixture } from './maori'
 import { marathiFixture } from './marathi'
 import { nepaliFixture } from './nepali'
@@ -113,6 +117,7 @@ export const languageFixtures: readonly LanguageFixture[] = [
   azerbaijaniFixture,
   bambaraFixture,
   basqueFixture,
+  belarusianFixture,
   bengaliFixture,
   bosnianFixture,
   bretonFixture,
@@ -135,6 +140,7 @@ export const languageFixtures: readonly LanguageFixture[] = [
   frenchFixture,
   gaFixture,
   galicianFixture,
+  georgianFixture,
   germanFixture,
   greekFixture,
   guaraniFixture,
@@ -152,10 +158,11 @@ export const languageFixtures: readonly LanguageFixture[] = [
   italianFixture,
   japaneseFixture,
   kannadaFixture,
+  kazakhFixture,
   khmerFixture,
   kinyarwandaFixture,
-  koreanFixture,
   kirundiFixture,
+  koreanFixture,
   kurmanjiFixture,
   kyrgyzFixture,
   laoFixture,
@@ -168,6 +175,7 @@ export const languageFixtures: readonly LanguageFixture[] = [
   malagasyFixture,
   malayFixture,
   malayalamFixture,
+  malteseFixture,
   maoriFixture,
   marathiFixture,
   nepaliFixture,
@@ -186,8 +194,8 @@ export const languageFixtures: readonly LanguageFixture[] = [
   shonaFixture,
   sinhalaFixture,
   slovakFixture,
-  soraniFixture,
   slovenianFixture,
+  soraniFixture,
   spanishFixture,
   swahiliFixture,
   swedishFixture,

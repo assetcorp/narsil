@@ -61,6 +61,9 @@ jobs:
       - name: Check every language revision covers its analysis
         run: pnpm nx run narsil-ts:revisions
 
+      - name: Check every recorded lookalike past the bar folds
+        run: pnpm nx run narsil-ts:lookalikes
+
       - name: Typecheck (incl. tests)
         run: pnpm nx run narsil-ts:typecheck
 

@@ -57,6 +57,8 @@
     "stemmers": "tsx snowball/build.ts",
     "revisions": "tsx scripts/analysis-revisions.ts",
     "revisions:write": "tsx scripts/analysis-revisions.ts --write",
+    "lookalikes": "tsx scripts/lookalike-counts.ts",
+    "lookalikes:collect": "tsx scripts/lookalike-counts.ts --collect",
     "lint": "biome check src/",
     "typecheck:src": "tsc --noEmit",
     "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",

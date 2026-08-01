@@ -27,6 +27,10 @@
     "revision": "287e5c13460de4c3",
     "fingerprint": "0f5fe0eac672ec9f"
   },
+  "belarusian": {
+    "revision": "0c1d3db2f7d0be62",
+    "fingerprint": "0c1d3db2f7d0be62"
+  },
   "bengali": {
     "revision": "1",
     "fingerprint": "775e2de664945e29"
@@ -115,6 +119,10 @@
     "revision": "1",
     "fingerprint": "b513783b9ee9ff9e"
   },
+  "georgian": {
+    "revision": "1",
+    "fingerprint": "3ab482e21aba1685"
+  },
   "german": {
     "revision": "ff10b0dd9feeb7cb",
     "fingerprint": "29760d99d8a4fdac"
@@ -183,6 +191,10 @@
     "revision": "1",
     "fingerprint": "315e19ee78ca88cb"
   },
+  "kazakh": {
+    "revision": "1",
+    "fingerprint": "94c26b58122eb6d3"
+  },
   "khmer": {
     "revision": "1",
     "fingerprint": "48a1aa8a3bc14810"
@@ -246,6 +258,10 @@
   "malayalam": {
     "revision": "1",
     "fingerprint": "c6b6e5feb77b7bc9"
+  },
+  "maltese": {
+    "revision": "1",
+    "fingerprint": "ef9a1eab9c23c30d"
   },
   "maori": {
     "revision": "1",
