@@ -248,7 +248,7 @@ export function createWorkerOrchestrator(
     while (promotionBuffer.length > 0) {
       const action = promotionBuffer.shift()
       if (action === undefined) return
-      await dispatchToWorkers(action, true)
+      await dispatchToWorkers(action)
     }
   }
 
@@ -257,10 +257,10 @@ export function createWorkerOrchestrator(
       promotionBuffer.push(action)
       return
     }
-    await dispatchToWorkers(action, false)
+    await dispatchToWorkers(action)
   }
 
-  async function dispatchToWorkers(action: WorkerAction, transferMayCover: boolean): Promise<void> {
+  async function dispatchToWorkers(action: WorkerAction): Promise<void> {
     if (!workerPool) return
 
     if (action.type === 'createIndex') {
@@ -280,7 +280,7 @@ export function createWorkerOrchestrator(
 
     for (const result of results) {
       if (result.status === 'rejected') {
-        if (transferMayCover && alreadyPresentOnWorker(result.reason)) {
+        if (action.type === 'insert' && alreadyPresentOnWorker(result.reason)) {
           continue
         }
         console.warn('Worker replication failed:', result.reason)
