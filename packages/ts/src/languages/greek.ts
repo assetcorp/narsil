@@ -1,308 +1,15 @@
+/*
+ * Stop words sourced from:
+ *   - stopwords-iso/stopwords-el, stored with accents stripped (https://github.com/stopwords-iso), MIT
+ *   - Additional function words curated for Narsil
+ *
+ * The stemmer is generated from Snowball's algorithms/greek.sbl; see snowball/build.ts.
+ */
+
 import type { LanguageModule } from '../types/language'
+import { stem } from './snowball/greek'
 import { removeMarks } from './support/marks'
-
-const ACCENT_MAP: Record<string, string> = {
-  ά: 'α',
-  έ: 'ε',
-  ή: 'η',
-  ί: 'ι',
-  ό: 'ο',
-  ύ: 'υ',
-  ώ: 'ω',
-  ΐ: 'ϊ',
-  ΰ: 'ϋ',
-}
-
-function normalizeGreek(word: string): string {
-  let result = ''
-  for (const ch of word) {
-    const mapped = ACCENT_MAP[ch]
-    if (mapped) {
-      result += mapped
-    } else if (ch === 'ς') {
-      result += 'σ'
-    } else {
-      result += ch
-    }
-  }
-  return result
-}
-
-function endsWith(word: string, suffix: string): boolean {
-  return word.length >= suffix.length && word.endsWith(suffix)
-}
-
-function stripSuffix(word: string, suffix: string): string {
-  return word.slice(0, word.length - suffix.length)
-}
-
-function endsWithAny(word: string, suffixes: string[]): string | null {
-  for (const s of suffixes) {
-    if (endsWith(word, s)) return s
-  }
-  return null
-}
-
-function stepGroup1(word: string): string {
-  const suffixes = [
-    'καθεστωτοσ',
-    'καθεστωτων',
-    'καθεστωτα',
-    'γεγονοτοσ',
-    'γεγονοτων',
-    'τατογιου',
-    'τατογιων',
-    'καθεστωσ',
-    'γεγονοτα',
-    'σκαγιου',
-    'σκαγιων',
-    'ολογιου',
-    'ολογιων',
-    'τατογια',
-    'κρεατοσ',
-    'κρεατων',
-    'περατοσ',
-    'περατων',
-    'τερατοσ',
-    'τερατων',
-    'γεγονοσ',
-    'φαγιου',
-    'φαγιων',
-    'σκαγια',
-    'ολογια',
-    'σογιου',
-    'σογιων',
-    'κρεατα',
-    'περατα',
-    'περατη',
-    'τερατα',
-    'φαγια',
-    'σογια',
-    'κρεασ',
-    'περασ',
-    'τερασ',
-    'φωτοσ',
-    'φωτων',
-    'φωτα',
-    'φωσ',
-  ]
-
-  const match = endsWithAny(word, suffixes)
-  if (match) return stripSuffix(word, match)
-  return word
-}
-
-function stepAdjectival(word: string): string {
-  const longSuffixes = ['ικοτητεσ', 'ικοτητων', 'ικοτητα', 'ικεσ', 'ικοι', 'ικων', 'ικου', 'ικησ', 'ικο', 'ικα', 'ικη']
-
-  const match = endsWithAny(word, longSuffixes)
-  if (match && word.length - match.length >= 2) {
-    return stripSuffix(word, match)
-  }
-
-  const adjectiveSuffixes = [
-    'αριεσ',
-    'αριοσ',
-    'αριου',
-    'αριων',
-    'ωδεσ',
-    'ωδησ',
-    'ωδων',
-    'ινεσ',
-    'ινοσ',
-    'ινου',
-    'ινων',
-    'ενοσ',
-    'ενου',
-    'ενεσ',
-    'ενων',
-    'αλεσ',
-    'αλησ',
-    'αλων',
-    'αριο',
-    'αρια',
-    'ωτεσ',
-    'ωτοσ',
-    'ωτου',
-    'ωτων',
-    'ωδη',
-    'ινο',
-    'ινη',
-    'ινα',
-    'ενα',
-    'ενη',
-    'αλη',
-    'ωτο',
-    'ωτη',
-    'ωτα',
-  ]
-
-  const adjMatch = endsWithAny(word, adjectiveSuffixes)
-  if (adjMatch && word.length - adjMatch.length >= 2) {
-    return stripSuffix(word, adjMatch)
-  }
-
-  return word
-}
-
-function stepVerb(word: string): string {
-  const verbSuffixes = [
-    'ηθηκατε',
-    'ηθηκαμε',
-    'ιουνται',
-    'ουσατε',
-    'ουσαμε',
-    'ουνται',
-    'ησατε',
-    'ησαμε',
-    'ηκατε',
-    'ηκαμε',
-    'ηθηκα',
-    'ηθηκε',
-    'ιεστε',
-    'ιεμαι',
-    'αγατε',
-    'αγαμε',
-    'ησουν',
-    'ουσαν',
-    'ιεσαι',
-    'ιεται',
-    'ιομαι',
-    'ιουμε',
-    'ωντασ',
-    'οντασ',
-    'ησεισ',
-    'ηκεισ',
-    'ουσεσ',
-    'ουμε',
-    'ηθει',
-    'ηστε',
-    'ησου',
-    'ουσε',
-    'ησει',
-    'αγει',
-    'ησεσ',
-    'ηκεσ',
-    'ουνε',
-    'ησαν',
-    'ηκαν',
-    'ηθω',
-    'αγα',
-    'ησα',
-    'ησε',
-    'ηκα',
-    'ηκε',
-    'αμε',
-    'ατε',
-    'ουν',
-    'αει',
-    'εισ',
-    'ουσ',
-    'ησ',
-    'αν',
-    'ασ',
-    'εσ',
-    'ηω',
-    'ει',
-    'αω',
-    'ω',
-  ]
-
-  const match = endsWithAny(word, verbSuffixes)
-  if (match && word.length - match.length >= 2) {
-    return stripSuffix(word, match)
-  }
-  return word
-}
-
-function stepNounCase(word: string): string {
-  const nounSuffixes = [
-    'ματων',
-    'ματοσ',
-    'ματα',
-    'ατων',
-    'ατοσ',
-    'ατα',
-    'ιων',
-    'ιασ',
-    'ιεσ',
-    'εων',
-    'ων',
-    'ου',
-    'ησ',
-    'εσ',
-    'οσ',
-    'ασ',
-    'ισ',
-    'υσ',
-    'α',
-    'ε',
-    'η',
-    'ι',
-    'ο',
-    'υ',
-  ]
-
-  const match = endsWithAny(word, nounSuffixes)
-  if (match && word.length - match.length >= 2) {
-    return stripSuffix(word, match)
-  }
-  return word
-}
-
-function stepDiminutive(word: string): string {
-  const diminutiveSuffixes = [
-    'ουλιου',
-    'ουλιων',
-    'ιδιου',
-    'ιδιων',
-    'ακιου',
-    'ακιων',
-    'ιτσασ',
-    'ιτσεσ',
-    'ιτσων',
-    'ουλασ',
-    'ουλεσ',
-    'ουλων',
-    'ουδασ',
-    'ουδεσ',
-    'ουδων',
-    'ιδια',
-    'ιδιο',
-    'ακια',
-    'ιτσα',
-    'ουλα',
-    'ουλι',
-    'ουδα',
-    'αρασ',
-    'αρεσ',
-    'αρων',
-    'ακι',
-    'αρα',
-  ]
-
-  const match = endsWithAny(word, diminutiveSuffixes)
-  if (match && word.length - match.length >= 2) {
-    return stripSuffix(word, match)
-  }
-  return word
-}
-
-function stem(word: string): string {
-  word = normalizeGreek(word.toLowerCase())
-
-  if (word.length < 3) return word
-
-  word = stepGroup1(word)
-  word = stepAdjectival(word)
-  word = stepDiminutive(word)
-  word = stepVerb(word)
-  word = stepNounCase(word)
-
-  if (word.length < 2) return word
-
-  return word
-}
+import { withNormalisedSpellings } from './support/spellings'
 
 // Stop words sourced from https://github.com/stopwords-iso/stopwords-el
 const stopWords = new Set([
@@ -901,16 +608,17 @@ const stopWords = new Set([
   'ωχ',
 ])
 
-const GREEK_DIACRITICS = /[\u0300-\u0345]/g
+const DIACRITICS_EXCEPT_DIALYTIKA = /[\u0300-\u0307\u0309-\u0345]/g
 
 function normalize(token: string): string {
-  return removeMarks(token, GREEK_DIACRITICS)
+  return removeMarks(token, DIACRITICS_EXCEPT_DIALYTIKA)
 }
 
 export const greek: LanguageModule = {
   name: 'greek',
+  revision: '4f02e255d00e5848',
   stemmer: stem,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: {
     splitPattern: /[^\u0370-\u03FF\u1F00-\u1FFFa-z0-9]+/gi,

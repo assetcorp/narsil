@@ -41,6 +41,10 @@ function isDeterministicFailure(error: Error): boolean {
   return error instanceof NarsilError && error.code === ErrorCodes.CONFIG_INVALID
 }
 
+function alreadyPresentOnWorker(reason: unknown): boolean {
+  return reason instanceof NarsilError && reason.code === ErrorCodes.DOC_ALREADY_EXISTS
+}
+
 function workerIneligibility(
   indexName: string,
   config: IndexConfig,
@@ -97,6 +101,7 @@ export function createWorkerOrchestrator(
   let promotionBlocked = false
   let promotionRun: Promise<void> | null = null
   const promotionBuffer: WorkerAction[] = []
+  const awaitingBufferedWrites = new Set<string>()
   const reportedIneligible = new Set<string>()
   const promotedIndexes = new Set<string>()
   const workersEnabled = config?.workers?.enabled === true
@@ -222,23 +227,28 @@ export function createWorkerOrchestrator(
       workerPool = pool
       for (const name of promotable) {
         promotedIndexes.add(name)
+        awaitingBufferedWrites.add(name)
       }
       promoter.markPromoted()
 
-      if (promotionBuffer.length > 0) {
-        const buffered = [...promotionBuffer]
-        promotionBuffer.length = 0
-        for (const action of buffered) {
-          await replicateToWorkers(action)
-        }
-      }
+      await drainPromotionBuffer()
+      awaitingBufferedWrites.clear()
 
       callbacks?.onPromotion?.(pool.workerCount, reason)
     } catch (err) {
       promotionBuffer.length = 0
       throw err
     } finally {
+      awaitingBufferedWrites.clear()
       promotionInProgress = false
+    }
+  }
+
+  async function drainPromotionBuffer(): Promise<void> {
+    while (promotionBuffer.length > 0) {
+      const action = promotionBuffer.shift()
+      if (action === undefined) return
+      await dispatchToWorkers(action)
     }
   }
 
@@ -247,6 +257,10 @@ export function createWorkerOrchestrator(
       promotionBuffer.push(action)
       return
     }
+    await dispatchToWorkers(action)
+  }
+
+  async function dispatchToWorkers(action: WorkerAction): Promise<void> {
     if (!workerPool) return
 
     if (action.type === 'createIndex') {
@@ -266,6 +280,9 @@ export function createWorkerOrchestrator(
 
     for (const result of results) {
       if (result.status === 'rejected') {
+        if (action.type === 'insert' && alreadyPresentOnWorker(result.reason)) {
+          continue
+        }
         console.warn('Worker replication failed:', result.reason)
       }
     }
@@ -278,6 +295,7 @@ export function createWorkerOrchestrator(
   ): Promise<FanOutResult | null> {
     if (!workerPool) return null
     if (!promotedIndexes.has(indexName)) return null
+    if (awaitingBufferedWrites.has(indexName)) return null
 
     const manager = executor.getManager(indexName)
     if (!manager) return null

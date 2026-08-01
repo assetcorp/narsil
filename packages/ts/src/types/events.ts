@@ -30,6 +30,13 @@ export type NarsilEventMap = {
     capacity: number
     partitionCount: number
   }
+  analysisRebuild: {
+    indexName: string
+    status: 'started' | 'completed' | 'failed'
+    partitionsRebuilt: number
+    partitionCount: number
+    error?: Error
+  }
   durabilityError: {
     error: Error
   }

@@ -1,10 +1,12 @@
 /*
- * Stop words compiled from:
- *   - LearnAkan pronouns reference (https://learnakan.com/akan-pronouns/)
- *   - LearnAkan conjunctions reference (https://learnakan.com/akan-asante-twi-conjunctions/)
+ * Stop words curated for Narsil; no published Twi stop word list exists. Consulted:
+ *   - LearnAkan pronouns reference (https://learnakan.com/akan-pronouns/), all rights reserved
+ *   - LearnAkan conjunctions reference (https://learnakan.com/akan-asante-twi-conjunctions/),
+ *     all rights reserved
  */
 
 import type { LanguageModule } from '../types/language'
+import { withNormalisedSpellings } from './support/spellings'
 
 const stopWords = new Set([
   'me',
@@ -89,8 +91,9 @@ function normalize(token: string): string {
 
 export const twi: LanguageModule = {
   name: 'twi',
+  revision: '1',
   stemmer: null,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: {
     splitPattern: /[^a-zA-ZɛɔƐƆŋŊεͻↄכ0-9\p{M}']+/giu,

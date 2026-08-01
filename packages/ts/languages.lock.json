@@ -1,0 +1,433 @@
+{
+  "tokenizer": "84e66e12c34a4b55",
+  "languages": {
+    "albanian": {
+      "revision": "1",
+      "fingerprint": "48ba1585794be232"
+    },
+    "amharic": {
+      "revision": "1",
+      "fingerprint": "87459c05ee005930"
+    },
+    "arabic": {
+      "revision": "d9b491d016b4caf6",
+      "fingerprint": "7657fff2ec30f69d"
+    },
+    "armenian": {
+      "revision": "6d99ac3501d5d369",
+      "fingerprint": "9beaae451f8848e7"
+    },
+    "azerbaijani": {
+      "revision": "1",
+      "fingerprint": "675d9da71b207eb5"
+    },
+    "bambara": {
+      "revision": "1",
+      "fingerprint": "71f50c42cce82fc3"
+    },
+    "basque": {
+      "revision": "287e5c13460de4c3",
+      "fingerprint": "b3239c565a32b213"
+    },
+    "belarusian": {
+      "revision": "0c1d3db2f7d0be62",
+      "fingerprint": "9aaa15ba442b3d90"
+    },
+    "bengali": {
+      "revision": "1",
+      "fingerprint": "09b274f3213ef889"
+    },
+    "bosnian": {
+      "revision": "1",
+      "fingerprint": "a876fcb266e2ed03"
+    },
+    "breton": {
+      "revision": "1",
+      "fingerprint": "2bc85d39b613cd33"
+    },
+    "bulgarian": {
+      "revision": "1",
+      "fingerprint": "69b31f006a5f7817"
+    },
+    "burmese": {
+      "revision": "1",
+      "fingerprint": "7fdcc1b7387f2b69"
+    },
+    "catalan": {
+      "revision": "1be0db9e03d63aa3",
+      "fingerprint": "d3ad802a33507efe"
+    },
+    "chinese": {
+      "revision": "1",
+      "fingerprint": "49cca556c1e674ec"
+    },
+    "croatian": {
+      "revision": "1",
+      "fingerprint": "b370442b01f5ab6f"
+    },
+    "czech": {
+      "revision": "48b013a41884beb9",
+      "fingerprint": "cfcad4f47ada376f"
+    },
+    "dagbani": {
+      "revision": "1",
+      "fingerprint": "f59d32a522de9bb4"
+    },
+    "danish": {
+      "revision": "4337c6ed283fa798",
+      "fingerprint": "eac8ac561ccff2dd"
+    },
+    "dutch": {
+      "revision": "eb6473f45d748c66",
+      "fingerprint": "fb0248b6a8f5d000"
+    },
+    "english": {
+      "revision": "ebae3448ae674b59",
+      "fingerprint": "af1c6194929cfb9e"
+    },
+    "esperanto": {
+      "revision": "dacc9f709c07f8ad",
+      "fingerprint": "b2da4f51a29d5b29"
+    },
+    "estonian": {
+      "revision": "355ed339ae055178",
+      "fingerprint": "503c011dc15a3ee4"
+    },
+    "ewe": {
+      "revision": "1",
+      "fingerprint": "03e3772d9278624b"
+    },
+    "faroese": {
+      "revision": "1",
+      "fingerprint": "b2f48823e9524f4c"
+    },
+    "fijian": {
+      "revision": "1",
+      "fingerprint": "481df3891cbb265a"
+    },
+    "finnish": {
+      "revision": "cd95cb543801a620",
+      "fingerprint": "5c9f6dbb96cd6bd5"
+    },
+    "french": {
+      "revision": "240a93ad04b96326",
+      "fingerprint": "a10ba97a8a05463a"
+    },
+    "ga": {
+      "revision": "1",
+      "fingerprint": "1a86580e227e54e4"
+    },
+    "galician": {
+      "revision": "1",
+      "fingerprint": "fc9cea8b5aced03c"
+    },
+    "georgian": {
+      "revision": "1",
+      "fingerprint": "d7ebaf39c56b98be"
+    },
+    "german": {
+      "revision": "ff10b0dd9feeb7cb",
+      "fingerprint": "67922a78bd1ff792"
+    },
+    "greek": {
+      "revision": "4f02e255d00e5848",
+      "fingerprint": "c1796d9e7f477519"
+    },
+    "guarani": {
+      "revision": "1",
+      "fingerprint": "37e678e317a40644"
+    },
+    "gujarati": {
+      "revision": "1",
+      "fingerprint": "dba3111be7a10384"
+    },
+    "haitian-creole": {
+      "revision": "1",
+      "fingerprint": "27b897d7a223cc9c"
+    },
+    "hausa": {
+      "revision": "1",
+      "fingerprint": "a0fd5adb35a9de27"
+    },
+    "hawaiian": {
+      "revision": "1",
+      "fingerprint": "da2a451ab73ae0f9"
+    },
+    "hebrew": {
+      "revision": "1",
+      "fingerprint": "b2eae5cd13167c78"
+    },
+    "hindi": {
+      "revision": "b7e1a82abe08c76a",
+      "fingerprint": "50e6bb093cc2bfe6"
+    },
+    "hungarian": {
+      "revision": "7b9c2fc79181fc11",
+      "fingerprint": "8aa78b43d395e87b"
+    },
+    "icelandic": {
+      "revision": "1",
+      "fingerprint": "a3cfcec723e120f9"
+    },
+    "igbo": {
+      "revision": "1",
+      "fingerprint": "65daa173d8a843f9"
+    },
+    "indonesian": {
+      "revision": "c0b2b853663a1396",
+      "fingerprint": "1f617a33ce2846f3"
+    },
+    "irish": {
+      "revision": "c79c8adddaf02ae4",
+      "fingerprint": "91d7aecf20c38c3a"
+    },
+    "italian": {
+      "revision": "c4d2339182390e18",
+      "fingerprint": "e09377b3b2c8a338"
+    },
+    "japanese": {
+      "revision": "1",
+      "fingerprint": "3672c0e765a6bab4"
+    },
+    "kannada": {
+      "revision": "1",
+      "fingerprint": "2fb265d9ffdc51da"
+    },
+    "kazakh": {
+      "revision": "1",
+      "fingerprint": "ad35f96c28a16864"
+    },
+    "khmer": {
+      "revision": "1",
+      "fingerprint": "1f7b941740e19ef5"
+    },
+    "kinyarwanda": {
+      "revision": "1",
+      "fingerprint": "c88b118c20cc0fb5"
+    },
+    "kirundi": {
+      "revision": "1",
+      "fingerprint": "2d649c194bd249d8"
+    },
+    "korean": {
+      "revision": "1",
+      "fingerprint": "6b9e4baebef34bc3"
+    },
+    "kurmanji": {
+      "revision": "1",
+      "fingerprint": "2b600f48c52c69e5"
+    },
+    "kyrgyz": {
+      "revision": "1",
+      "fingerprint": "a6fe540bbd7def43"
+    },
+    "lao": {
+      "revision": "1",
+      "fingerprint": "a6d46eeacd0b8763"
+    },
+    "latin": {
+      "revision": "1",
+      "fingerprint": "999947728c7ca40d"
+    },
+    "latvian": {
+      "revision": "1",
+      "fingerprint": "4a5eb319e311ed81"
+    },
+    "lingala": {
+      "revision": "1",
+      "fingerprint": "8f678909e20b0cc5"
+    },
+    "lithuanian": {
+      "revision": "6c40fb18cf07c9b6",
+      "fingerprint": "2531aae2555ae1ed"
+    },
+    "luxembourgish": {
+      "revision": "1",
+      "fingerprint": "2222d8cd68e3d763"
+    },
+    "macedonian": {
+      "revision": "1",
+      "fingerprint": "c17ca192464b5f84"
+    },
+    "malagasy": {
+      "revision": "1",
+      "fingerprint": "3ccb48a91482889a"
+    },
+    "malay": {
+      "revision": "1",
+      "fingerprint": "411ab40eb8f326b6"
+    },
+    "malayalam": {
+      "revision": "1",
+      "fingerprint": "069a6ef695a73472"
+    },
+    "maltese": {
+      "revision": "1",
+      "fingerprint": "86ac002e70c863dd"
+    },
+    "maori": {
+      "revision": "1",
+      "fingerprint": "04e2354bfb1c65df"
+    },
+    "marathi": {
+      "revision": "1",
+      "fingerprint": "822aaf8668da431a"
+    },
+    "nepali": {
+      "revision": "12453388370b3da0",
+      "fingerprint": "3b0344e44cb83f24"
+    },
+    "norwegian": {
+      "revision": "8e862aa3bcec10dd",
+      "fingerprint": "ce4b2d67f9a378b9"
+    },
+    "oromo": {
+      "revision": "1",
+      "fingerprint": "0e8d02780adc8339"
+    },
+    "persian": {
+      "revision": "99f39d265efbf595",
+      "fingerprint": "783c5a0da049cec2"
+    },
+    "polish": {
+      "revision": "373ece41a2c5684b",
+      "fingerprint": "405c32549fcb9fc4"
+    },
+    "portuguese": {
+      "revision": "c0a0c5c97ab9ca6e",
+      "fingerprint": "11102a002389b73a"
+    },
+    "punjabi": {
+      "revision": "1",
+      "fingerprint": "8cfcedbeb579b230"
+    },
+    "romanian": {
+      "revision": "daf797aac5310bd4",
+      "fingerprint": "2722770d99b59035"
+    },
+    "russian": {
+      "revision": "87767119dd36215c",
+      "fingerprint": "e10ce5708e46f80e"
+    },
+    "samoan": {
+      "revision": "1",
+      "fingerprint": "6720c3d032c37b1b"
+    },
+    "sanskrit": {
+      "revision": "1",
+      "fingerprint": "98cfb5353272cc72"
+    },
+    "scottish-gaelic": {
+      "revision": "1",
+      "fingerprint": "cc160fc30abe9c9e"
+    },
+    "serbian": {
+      "revision": "86c7d873d1fd8723",
+      "fingerprint": "c49e0ed49e235c85"
+    },
+    "shona": {
+      "revision": "1",
+      "fingerprint": "3bebe0b0dc49b3be"
+    },
+    "sinhala": {
+      "revision": "1",
+      "fingerprint": "4c7b99fad93095db"
+    },
+    "slovak": {
+      "revision": "1",
+      "fingerprint": "daee774ba45b15ad"
+    },
+    "slovenian": {
+      "revision": "1",
+      "fingerprint": "b64d1e94b278e8b4"
+    },
+    "sorani": {
+      "revision": "1",
+      "fingerprint": "aaa65f1a94052eef"
+    },
+    "spanish": {
+      "revision": "8dc152fd2fcce882",
+      "fingerprint": "63841e4714ae5948"
+    },
+    "swahili": {
+      "revision": "1",
+      "fingerprint": "93a224a361573ba7"
+    },
+    "swedish": {
+      "revision": "5ff576fe6e2b2a68",
+      "fingerprint": "811e522e8d6f313a"
+    },
+    "tagalog": {
+      "revision": "1",
+      "fingerprint": "a957ffc82c8f2b0c"
+    },
+    "tamil": {
+      "revision": "f859bf3d19447fbc",
+      "fingerprint": "7bdd0a05f7485858"
+    },
+    "tatar": {
+      "revision": "1",
+      "fingerprint": "39a9076642b2614b"
+    },
+    "telugu": {
+      "revision": "1",
+      "fingerprint": "4485f2c5e7258034"
+    },
+    "thai": {
+      "revision": "1",
+      "fingerprint": "c3711c096850fb5c"
+    },
+    "tibetan": {
+      "revision": "1",
+      "fingerprint": "17f2a3879c196bd3"
+    },
+    "tigrinya": {
+      "revision": "1",
+      "fingerprint": "6c582b9bd280648c"
+    },
+    "tongan": {
+      "revision": "1",
+      "fingerprint": "1d41548979921e04"
+    },
+    "turkish": {
+      "revision": "c537dbdae6350a3c",
+      "fingerprint": "dc134faad2788972"
+    },
+    "twi": {
+      "revision": "1",
+      "fingerprint": "12e6b5f276722daf"
+    },
+    "ukrainian": {
+      "revision": "1",
+      "fingerprint": "82c5bcc18f7cf472"
+    },
+    "urdu": {
+      "revision": "1",
+      "fingerprint": "c5416ff58b142ca0"
+    },
+    "vietnamese": {
+      "revision": "1",
+      "fingerprint": "4180aba54597a263"
+    },
+    "welsh": {
+      "revision": "1",
+      "fingerprint": "e46a1682588574c8"
+    },
+    "wolof": {
+      "revision": "1",
+      "fingerprint": "9c9b292753075ea0"
+    },
+    "xhosa": {
+      "revision": "1",
+      "fingerprint": "f3035cb7667987d0"
+    },
+    "yoruba": {
+      "revision": "1",
+      "fingerprint": "2c68521e62be2d33"
+    },
+    "zulu": {
+      "revision": "1",
+      "fingerprint": "5db0b820b916d5d3"
+    }
+  }
+}

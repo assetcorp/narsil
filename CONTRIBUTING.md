@@ -40,6 +40,7 @@ pnpm format      # apply Biome formatting
 - Let Biome format the code. Do not hand-format around it.
 - Write a comment only for a reason a reader cannot infer from the code.
 - Anything that changes the `.nrsl` format starts from [`packages/spec`](packages/spec), because the format is a cross-language contract. A change there affects every future implementation.
+- Adding a language, or changing how an existing one analyses text, needs steps the usual lint, typecheck, build, and test targets do not cover. [`packages/ts/src/languages/README.md`](packages/ts/src/languages/README.md) lists every command, when to run it, and which ones continuous integration enforces.
 
 ## Propose a change
 

@@ -164,4 +164,52 @@ describe('segmented snapshot recovery', () => {
     expect(result.hits[0].id).toBe('near')
     await reader.shutdown()
   })
+
+  it('restores every partition of a vector index and forgets what a later checkpoint removed', async () => {
+    const total = 40
+    const half = total / 2
+    const axis = (i: number): number[] => [Math.cos(i), Math.sin(i), Math.cos(i * 2), Math.sin(i * 2)]
+
+    const writer = await createNarsil({ durability: { directory: root } })
+    await writer.createIndex('docs', {
+      schema: { title: 'string', embedding: 'vector[4]' },
+      language: 'english',
+    })
+    await writer.insertBatch(
+      'docs',
+      Array.from({ length: half }, (_, i) => ({ id: `doc-${i}`, title: 'jumping fox', embedding: axis(i) })),
+    )
+    await writer.rebalance('docs', 4)
+    await writer.checkpoint('docs')
+    await writer.insertBatch(
+      'docs',
+      Array.from({ length: half }, (_, i) => ({
+        id: `doc-${half + i}`,
+        title: 'jumping fox',
+        embedding: axis(half + i),
+      })),
+    )
+    await writer.checkpoint('docs')
+    await writer.remove('docs', 'doc-0')
+    await writer.remove('docs', 'doc-17')
+    await writer.checkpoint('docs')
+    await writer.shutdown()
+
+    const reader = await createNarsil({ durability: { directory: root } })
+    const recovered = await reader.query('docs', {
+      vector: { field: 'embedding', value: axis(0), metric: 'cosine' },
+      limit: total,
+    })
+    const ids = recovered.hits.map(hit => hit.id)
+    expect(ids).toHaveLength(total - 2)
+    expect(ids).not.toContain('doc-0')
+    expect(ids).not.toContain('doc-17')
+
+    const nearest = await reader.query('docs', {
+      vector: { field: 'embedding', value: axis(29), metric: 'cosine' },
+      limit: 1,
+    })
+    expect(nearest.hits[0].id).toBe('doc-29')
+    await reader.shutdown()
+  })
 })

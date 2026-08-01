@@ -90,6 +90,7 @@ export async function dropEngineIndex(core: EngineCore, name: string): Promise<v
   core.executor.dropIndex(name)
   core.indexRegistry.delete(name)
   core.watermarkNotifier.forget(name)
+  core.analysisRebuild.clearStale(name)
   if (core.durability) {
     await core.durability.manager.removeIndex(name)
   }

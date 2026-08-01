@@ -22,6 +22,46 @@
         "cwd": "packages/ts"
       }
     },
+    "stemmers": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run stemmers",
+        "cwd": "packages/ts"
+      }
+    },
+    "revisions": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run revisions",
+        "cwd": "packages/ts"
+      }
+    },
+    "revisions:write": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run revisions:write",
+        "cwd": "packages/ts"
+      }
+    },
+    "lookalikes": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run lookalikes",
+        "cwd": "packages/ts"
+      }
+    },
+    "lookalikes:collect": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run lookalikes:collect",
+        "cwd": "packages/ts"
+      }
+    },
     "test:coverage": {
       "executor": "nx:run-commands",
       "options": {

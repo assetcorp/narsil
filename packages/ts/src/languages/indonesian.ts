@@ -1,181 +1,12 @@
+/*
+ * Stop words sourced from:
+ *   - stopwords-iso/stopwords-id, curated subset (https://github.com/stopwords-iso), MIT
+ *
+ * The stemmer is generated from Snowball's algorithms/indonesian.sbl; see snowball/build.ts.
+ */
+
 import type { LanguageModule } from '../types/language'
-
-const VOWELS = new Set(['a', 'e', 'i', 'o', 'u'])
-
-function countVowels(word: string): number {
-  let count = 0
-  for (const ch of word) {
-    if (VOWELS.has(ch)) count++
-  }
-  return count
-}
-
-function removeParticle(word: string): { word: string; removed: number } {
-  for (const suffix of ['kah', 'lah', 'tah', 'pun']) {
-    if (word.endsWith(suffix)) {
-      return { word: word.slice(0, -suffix.length), removed: 1 }
-    }
-  }
-  return { word, removed: 0 }
-}
-
-function removePossessivePronoun(word: string): { word: string; removed: number } {
-  if (word.endsWith('nya')) return { word: word.slice(0, -3), removed: 1 }
-  if (word.endsWith('ku')) return { word: word.slice(0, -2), removed: 1 }
-  if (word.endsWith('mu')) return { word: word.slice(0, -2), removed: 1 }
-  return { word, removed: 0 }
-}
-
-function removeFirstPrefix(word: string): { word: string; prefixType: number } {
-  if (word.startsWith('di') && word.length > 4) {
-    return { word: word.slice(2), prefixType: 1 }
-  }
-
-  if (word.startsWith('ke') && word.length > 4) {
-    return { word: word.slice(2), prefixType: 1 }
-  }
-
-  if (word.startsWith('se') && word.length > 4) {
-    return { word: word.slice(2), prefixType: 1 }
-  }
-
-  if (word.startsWith('me')) {
-    if (word.startsWith('meng') && word.length > 6) {
-      return { word: word.slice(4), prefixType: 1 }
-    }
-    if (word.startsWith('meny') && word.length > 6) {
-      return { word: `s${word.slice(4)}`, prefixType: 3 }
-    }
-    if (word.startsWith('men') && word.length > 5) {
-      return { word: word.slice(3), prefixType: 1 }
-    }
-    if (word.startsWith('mem') && word.length > 5) {
-      const rest = word.slice(3)
-      if (rest.length > 0 && VOWELS.has(rest[0])) {
-        return { word: `p${rest}`, prefixType: 5 }
-      }
-      return { word: rest, prefixType: 1 }
-    }
-    if (word.startsWith('me') && word.length > 4) {
-      return { word: word.slice(2), prefixType: 1 }
-    }
-  }
-
-  if (word.startsWith('pe')) {
-    if (word.startsWith('peng') && word.length > 6) {
-      return { word: word.slice(4), prefixType: 2 }
-    }
-    if (word.startsWith('peny') && word.length > 6) {
-      return { word: `s${word.slice(4)}`, prefixType: 4 }
-    }
-    if (word.startsWith('pen') && word.length > 5) {
-      return { word: word.slice(3), prefixType: 2 }
-    }
-    if (word.startsWith('pem') && word.length > 5) {
-      const rest = word.slice(3)
-      if (rest.length > 0 && VOWELS.has(rest[0])) {
-        return { word: `p${rest}`, prefixType: 6 }
-      }
-      return { word: rest, prefixType: 2 }
-    }
-    if (word === 'pelajar' || word.startsWith('pelajar')) {
-      return { word: word.slice(3), prefixType: 1 }
-    }
-    if (word.startsWith('pe') && word.length > 4) {
-      return { word: word.slice(2), prefixType: 2 }
-    }
-  }
-
-  if (word.startsWith('ter') && word.length > 5) {
-    return { word: word.slice(3), prefixType: 1 }
-  }
-
-  if (word.startsWith('belajar')) {
-    return { word: word.slice(3), prefixType: 3 }
-  }
-
-  if (word.startsWith('ber') && word.length > 5) {
-    return { word: word.slice(3), prefixType: 3 }
-  }
-
-  if (word.startsWith('per') && word.length > 5) {
-    return { word: word.slice(3), prefixType: 1 }
-  }
-
-  return { word, prefixType: 0 }
-}
-
-function removeDerivationalSuffix(word: string, prefixType: number): string {
-  if (word.endsWith('kan') && word.length > 5) {
-    if (prefixType !== 3 && prefixType !== 2) {
-      return word.slice(0, -3)
-    }
-  }
-  if (word.endsWith('an') && word.length > 4) {
-    if (prefixType !== 1) {
-      return word.slice(0, -2)
-    }
-  }
-  if (word.endsWith('i') && word.length > 3) {
-    const beforeI = word[word.length - 2]
-    if (beforeI !== 's' && prefixType <= 2) {
-      return word.slice(0, -1)
-    }
-  }
-  return word
-}
-
-function stem(input: string): string {
-  let word = input.toLowerCase()
-
-  if (countVowels(word) < 3) return word
-
-  const original = word
-
-  const particle = removeParticle(word)
-  word = particle.word
-
-  const possessive = removePossessivePronoun(word)
-  word = possessive.word
-
-  if (countVowels(word) < 2) return original
-
-  const withPrefix = removeFirstPrefix(word)
-  let prefixType = withPrefix.prefixType
-  const afterPrefix = withPrefix.word
-
-  if (prefixType > 0 && countVowels(afterPrefix) >= 2) {
-    word = afterPrefix
-
-    const withSuffix = removeDerivationalSuffix(word, prefixType)
-    if (withSuffix !== word && countVowels(withSuffix) >= 2) {
-      word = withSuffix
-    }
-  } else {
-    word = possessive.word
-
-    const withSuffix = removeDerivationalSuffix(word, 0)
-    if (withSuffix !== word && countVowels(withSuffix) >= 2) {
-      word = withSuffix
-
-      const secondPrefix = removeFirstPrefix(word)
-      if (secondPrefix.prefixType > 0 && countVowels(secondPrefix.word) >= 2) {
-        word = secondPrefix.word
-        prefixType = secondPrefix.prefixType
-      }
-    } else {
-      word = afterPrefix
-      prefixType = withPrefix.prefixType
-
-      const suffixResult = removeDerivationalSuffix(word, prefixType)
-      if (suffixResult !== word && countVowels(suffixResult) >= 2) {
-        word = suffixResult
-      }
-    }
-  }
-
-  return word
-}
+import { stem } from './snowball/indonesian'
 
 // Stop words sourced from https://github.com/stopwords-iso/stopwords-id
 const stopWords = new Set([
@@ -919,6 +750,7 @@ const stopWords = new Set([
 
 export const indonesian: LanguageModule = {
   name: 'indonesian',
+  revision: 'c0b2b853663a1396',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9-]+/gi },

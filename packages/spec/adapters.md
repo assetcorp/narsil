@@ -205,6 +205,7 @@ A language module carries the language-specific parts of text analysis. Each one
 ```text
 LanguageModule {
   name:       string
+  revision:   string
   stemmer:    ((token: string) -> string) or absent
   stopWords:  Set<string>
   normalizer: ((token: string) -> string) or absent
@@ -224,6 +225,10 @@ TokenizerConfig {
 
 A lower-case identifier for the language, such as `english`, `french`, or `twi`. It is the key in the language registry.
 
+### revision
+
+An opaque identifier for the analysis this module performs. It changes whenever the stemmer, the normaliser, the stop words, or the tokeniser configuration changes, and it changes for no other reason. Every implementation of a language carries the same revision for the same analysis, so two engines that agree on the revision analyse text alike, and a reader compares it with the revision an index was written with to learn whether it can read that index's terms. A language carries `1` until its analysis first changes.
+
 ### stemmer
 
 A function that reduces a token to its root form. It returns the stemmed form, or the input unchanged when no rule applies. A language with no stemmer, meaning one Narsil supports partially, leaves this absent.
@@ -238,7 +243,7 @@ A function that maps two spellings of one word onto one token, which is what an 
 
 ### tokenizer
 
-An optional configuration that overrides the tokenisation defaults for this language. Chinese and Japanese need it, because they split on characters instead of whitespace.
+An optional configuration that overrides the tokenisation defaults for this language. A language that writes its words with no space between them needs it, because splitting on whitespace and punctuation hands such a language a whole sentence as one token.
 
 | Field | Effect |
 |-------|--------|
@@ -246,7 +251,7 @@ An optional configuration that overrides the tokenisation defaults for this lang
 | `normalizeDiacritics` | Narsil strips the combining marks from U+0300 to U+036F from every token. It defaults to off. |
 | `minTokenLength` | Narsil discards a token shorter than this length. It defaults to 1. |
 | `stripPossessive` | Narsil removes a trailing apostrophe, and a trailing apostrophe followed by `s`. It defaults to off, and English turns it on. |
-| `ngramSize` | Narsil replaces each run of Han, hiragana, katakana, or hangul characters with its overlapping character n-grams of this size. It defaults to absent, which leaves every run whole, and Chinese and Japanese set it to 2. |
+| `ngramSize` | Narsil replaces each run of Han, Hiragana, Katakana, Hangul, Thai, Lao, Khmer, or Myanmar characters with its overlapping character n-grams of this size. It defaults to absent, which leaves every run whole, and every language that sets it uses 2. |
 
 ### Stop Word Override
 
@@ -261,10 +266,10 @@ Narsil analyses text in a fixed order, and every implementation must follow that
 1. A tokeniser configured on the index replaces every step below. Narsil calls it and takes its output as final.
 2. Narsil folds full-width and half-width forms. It maps each code point from U+FF01 to U+FF5E onto its ASCII equivalent by subtracting 0xFEE0, maps half-width katakana from U+FF61 to U+FF9D onto the matching full-width katakana, and maps the half-width voiced and semi-voiced marks U+FF9E and U+FF9F onto the combining marks U+3099 and U+309A.
 3. Narsil normalises the text to NFC, which composes each combining voice mark onto the kana before it.
-4. Narsil maps the apostrophe variants U+2019, U+02BC, and U+02BB onto U+0027, maps the dotted capital I at U+0130 onto `i`, and removes the combining dot above at U+0307 and the Armenian marks from U+055B to U+055F.
+4. Narsil maps the apostrophe variants U+2018, U+2019, U+02BC, and U+02BB onto U+0027, maps the dotted capital I at U+0130 onto `i`, and removes the combining dot above at U+0307 and the Armenian marks from U+055B to U+055F.
 5. Narsil lower-cases the text.
 6. Narsil splits the text on the language's `splitPattern`.
-7. Narsil expands each part into character n-grams when the language sets `ngramSize`. It cuts each part where the script changes, expands a run of Han, hiragana, katakana, or hangul characters into its overlapping n-grams, and leaves whole both a run of any other script and a run no longer than `ngramSize`.
+7. Narsil expands each part into character n-grams when the language sets `ngramSize`. It cuts each part where the script changes, expands a run of Han, Hiragana, Katakana, Hangul, Thai, Lao, Khmer, or Myanmar characters into its overlapping n-grams, and leaves whole both a run of any other script and a run no longer than `ngramSize`. It counts a base character together with every code point of Unicode general category M that follows it as one character, so that no n-gram begins or ends inside a written character.
 8. Narsil strips a possessive ending when the language sets `stripPossessive`.
 9. Narsil discards a token shorter than `minTokenLength`.
 10. Narsil discards a token the index's stop word set holds. It compares the token as step 9 leaves it, before the normaliser and the stemmer run, so a caller writes a stop word list in the language's ordinary spelling.

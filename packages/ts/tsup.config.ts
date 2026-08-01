@@ -1,7 +1,22 @@
+import { readdirSync } from 'node:fs'
 import { defineConfig } from 'tsup'
 
 const NODE_BUILTINS = ['worker_threads', 'fs', 'path', 'os', 'crypto', 'net', 'tls']
 const NODE_EXTERNAL = NODE_BUILTINS.flatMap(m => [m, `node:${m}`])
+
+const LANGUAGES_DIR = 'src/languages'
+const NON_LANGUAGE_MODULES = new Set(['registry'])
+
+function languageEntries(): Record<string, string> {
+  const entries: Record<string, string> = {}
+  for (const file of readdirSync(LANGUAGES_DIR).sort()) {
+    if (!file.endsWith('.ts')) continue
+    const name = file.slice(0, -3)
+    if (NON_LANGUAGE_MODULES.has(name)) continue
+    entries[`languages/${name}`] = `${LANGUAGES_DIR}/${file}`
+  }
+  return entries
+}
 
 export default defineConfig([
   {
@@ -18,45 +33,7 @@ export default defineConfig([
       'serialization/crc32-worker': 'src/serialization/crc32-worker.ts',
       'persistence/durability/checkpoint-worker': 'src/persistence/durability/checkpoint-worker.ts',
       'embeddings/openai': 'src/embeddings/openai.ts',
-      'languages/english': 'src/languages/english.ts',
-      'languages/french': 'src/languages/french.ts',
-      'languages/german': 'src/languages/german.ts',
-      'languages/spanish': 'src/languages/spanish.ts',
-      'languages/italian': 'src/languages/italian.ts',
-      'languages/portuguese': 'src/languages/portuguese.ts',
-      'languages/dutch': 'src/languages/dutch.ts',
-      'languages/swedish': 'src/languages/swedish.ts',
-      'languages/norwegian': 'src/languages/norwegian.ts',
-      'languages/danish': 'src/languages/danish.ts',
-      'languages/finnish': 'src/languages/finnish.ts',
-      'languages/hungarian': 'src/languages/hungarian.ts',
-      'languages/romanian': 'src/languages/romanian.ts',
-      'languages/turkish': 'src/languages/turkish.ts',
-      'languages/russian': 'src/languages/russian.ts',
-      'languages/arabic': 'src/languages/arabic.ts',
-      'languages/hindi': 'src/languages/hindi.ts',
-      'languages/indonesian': 'src/languages/indonesian.ts',
-      'languages/irish': 'src/languages/irish.ts',
-      'languages/greek': 'src/languages/greek.ts',
-      'languages/armenian': 'src/languages/armenian.ts',
-      'languages/tamil': 'src/languages/tamil.ts',
-      'languages/nepali': 'src/languages/nepali.ts',
-      'languages/serbian': 'src/languages/serbian.ts',
-      'languages/bulgarian': 'src/languages/bulgarian.ts',
-      'languages/ukrainian': 'src/languages/ukrainian.ts',
-      'languages/slovenian': 'src/languages/slovenian.ts',
-      'languages/swahili': 'src/languages/swahili.ts',
-      'languages/hausa': 'src/languages/hausa.ts',
-      'languages/yoruba': 'src/languages/yoruba.ts',
-      'languages/twi': 'src/languages/twi.ts',
-      'languages/ga': 'src/languages/ga.ts',
-      'languages/ewe': 'src/languages/ewe.ts',
-      'languages/dagbani': 'src/languages/dagbani.ts',
-      'languages/igbo': 'src/languages/igbo.ts',
-      'languages/zulu': 'src/languages/zulu.ts',
-      'languages/chinese': 'src/languages/chinese.ts',
-      'languages/japanese': 'src/languages/japanese.ts',
-      'languages/sanskrit': 'src/languages/sanskrit.ts',
+      ...languageEntries(),
       distribution: 'src/distribution/index.ts',
       'distribution/coordinator/in-memory': 'src/distribution/coordinator/in-memory.ts',
       'distribution/coordinator/etcd': 'src/distribution/coordinator/etcd/index.ts',

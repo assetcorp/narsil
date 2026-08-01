@@ -78,7 +78,7 @@ function applySurfaceCounts(state: PartitionState, counts: SurfaceCounts, direct
   }
 }
 
-function indexStringField(
+export function indexStringField(
   state: PartitionState,
   internalId: number,
   fieldPath: string,
@@ -128,7 +128,7 @@ function indexStringField(
   tokensByField[fieldPath] = fieldTokenList
 }
 
-function indexStringArrayField(
+export function indexStringArrayField(
   state: PartitionState,
   internalId: number,
   fieldPath: string,

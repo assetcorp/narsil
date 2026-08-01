@@ -1,12 +1,14 @@
 /*
- * Stop words compiled from:
- *   - Mabia VP Periphery Project (https://mabia-vp.com/tiki-index.php?page=Dagbani)
+ * Stop words curated for Narsil; no published Dagbani stop word list exists. Consulted:
+ *   - Mabia VP Periphery Project (https://mabia-vp.com/tiki-index.php?page=Dagbani),
+ *     no licence stated
  *
  * Verified preverbal/postverbal pronouns, tense/aspect particles,
  * negation markers, and focus particles.
  */
 
 import type { LanguageModule } from '../types/language'
+import { withNormalisedSpellings } from './support/spellings'
 
 const stopWords = new Set([
   'n',
@@ -90,8 +92,9 @@ function normalize(token: string): string {
 
 export const dagbani: LanguageModule = {
   name: 'dagbani',
+  revision: '1',
   stemmer: null,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: {
     splitPattern: /[^a-zA-ZɛɔƐƆŋŊɣƔʒƷʊƱəƏεԑ0-9\p{M}]+/giu,

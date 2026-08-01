@@ -8,6 +8,7 @@ import type { IndexConfig, SchemaDefinition } from '../../types/schema'
 
 const english: LanguageModule = {
   name: 'english',
+  revision: '1',
   stemmer: null,
   stopWords: new Set(['the', 'a', 'an', 'is', 'are', 'was', 'in', 'of', 'and', 'to']),
 }

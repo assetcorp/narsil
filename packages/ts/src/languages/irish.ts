@@ -1,174 +1,13 @@
+/*
+ * Stop words sourced from:
+ *   - Snowball stop word list (https://snowballstem.org/), BSD-3-Clause
+ *   - @orama/stopwords Irish list (https://github.com/oramasearch/orama), Apache-2.0
+ *
+ * The stemmer is generated from Snowball's algorithms/irish.sbl; see snowball/build.ts.
+ */
+
 import type { LanguageModule } from '../types/language'
-
-const VOWELS = 'aeiouáéíóú'
-
-function isVowel(ch: string): boolean {
-  return VOWELS.includes(ch)
-}
-
-function findRegions(word: string): { r1: number; r2: number; rv: number } {
-  let r1 = word.length
-  let r2 = word.length
-  let rv = word.length
-
-  for (let i = 1; i < word.length; i++) {
-    if (!isVowel(word[i]) && isVowel(word[i - 1])) {
-      r1 = i + 1
-      break
-    }
-  }
-
-  for (let i = r1 + 1; i < word.length; i++) {
-    if (!isVowel(word[i]) && isVowel(word[i - 1])) {
-      r2 = i + 1
-      break
-    }
-  }
-
-  let foundConsonantCluster = false
-  for (let i = 0; i < word.length; i++) {
-    if (!foundConsonantCluster) {
-      if (!isVowel(word[i])) continue
-      foundConsonantCluster = false
-      for (let j = i + 1; j < word.length; j++) {
-        if (!isVowel(word[j])) {
-          rv = j + 1
-          foundConsonantCluster = true
-          break
-        }
-      }
-      if (foundConsonantCluster) break
-    }
-  }
-
-  return { r1, r2, rv }
-}
-
-const ECLIPSIS: [string, string][] = [
-  ['bhf', 'f'],
-  ['mb', 'b'],
-  ['gc', 'c'],
-  ['nd', 'd'],
-  ['ng', 'g'],
-  ['bp', 'p'],
-  ['ts', 's'],
-  ['dt', 't'],
-]
-
-const LENITION: [string, string][] = [
-  ['bh', 'b'],
-  ['ch', 'c'],
-  ['dh', 'd'],
-  ['fh', 'f'],
-  ['gh', 'g'],
-  ['mh', 'm'],
-  ['ph', 'p'],
-  ['sh', 's'],
-  ['th', 't'],
-]
-
-function removeInitialMutations(word: string): string {
-  if (word.startsWith("d'") || word.startsWith("b'")) {
-    const rest = word.slice(2)
-    if (rest.length > 0 && isVowel(rest[0])) {
-      return rest
-    }
-  }
-
-  if (word.startsWith('h-') || word.startsWith('n-') || word.startsWith('t-')) {
-    const rest = word.slice(2)
-    if (rest.length > 0 && isVowel(rest[0])) {
-      return rest
-    }
-  }
-
-  for (const [mutation, replacement] of ECLIPSIS) {
-    if (word.startsWith(mutation)) {
-      return `${replacement}${word.slice(mutation.length)}`
-    }
-  }
-
-  for (const [mutation, replacement] of LENITION) {
-    if (word.startsWith(mutation)) {
-      return `${replacement}${word.slice(mutation.length)}`
-    }
-  }
-
-  return word
-}
-
-const NOUN_SUFFIXES = [
-  'arcachtaí',
-  'gineadach',
-  'aíochtaí',
-  'eachtaí',
-  'íochtaí',
-  'aíochta',
-  'achtaí',
-  'eachta',
-  'gineas',
-  'éaltas',
-  'íochta',
-  'aíocht',
-  'eanna',
-  'achta',
-  'eacht',
-  'anna',
-  'acht',
-  'aire',
-  'ire',
-]
-
-const VERB_SUFFIXES = [
-  'aíomar',
-  'aítear',
-  'aimid',
-  'aimís',
-  'aimis',
-  'aíodh',
-  'aíonn',
-  'eamar',
-  'imid',
-  'ímid',
-  'ímís',
-  'imis',
-  'tear',
-  'eadh',
-  'aidh',
-  'igh',
-  'ann',
-  'adh',
-]
-
-function removeSuffixInRegion(word: string, suffixes: string[], regionStart: number): string | null {
-  for (const suffix of suffixes) {
-    if (word.endsWith(suffix) && word.length - suffix.length >= regionStart) {
-      return word.slice(0, word.length - suffix.length)
-    }
-  }
-  return null
-}
-
-function stem(word: string): string {
-  if (word.length < 3) return word
-
-  word = removeInitialMutations(word)
-  if (word.length < 3) return word
-
-  const { r2, rv } = findRegions(word)
-
-  const nounResult = removeSuffixInRegion(word, NOUN_SUFFIXES, r2)
-  if (nounResult !== null) {
-    word = nounResult
-  } else {
-    const verbResult = removeSuffixInRegion(word, VERB_SUFFIXES, rv)
-    if (verbResult !== null) {
-      word = verbResult
-    }
-  }
-
-  return word
-}
+import { stem } from './snowball/irish'
 
 const stopWords = new Set([
   'a',
@@ -284,6 +123,7 @@ const stopWords = new Set([
 
 export const irish: LanguageModule = {
   name: 'irish',
+  revision: 'c79c8adddaf02ae4',
   stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9áéíóú'-]+/gi },

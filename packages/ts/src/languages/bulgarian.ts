@@ -1,5 +1,11 @@
+/*
+ * Stop words sourced from:
+ *   - stopwords-iso/stopwords-bg (https://github.com/stopwords-iso), MIT
+ */
+
 import type { LanguageModule } from '../types/language'
 import { removeMarks } from './support/marks'
+import { withNormalisedSpellings } from './support/spellings'
 
 function stem(word: string): string {
   let len = word.length
@@ -342,8 +348,9 @@ function normalize(token: string): string {
 
 export const bulgarian: LanguageModule = {
   name: 'bulgarian',
+  revision: '1',
   stemmer: stem,
-  stopWords,
+  stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^a-z0-9а-яъѝЍ\p{M}]+/giu },
 }

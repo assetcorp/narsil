@@ -70,19 +70,33 @@ describe('spellings the language treats as one word reach one token', () => {
   }
 })
 
-describe('every stop word survives its own language tokenizer', () => {
+describe('every stop word removes itself from the language that lists it', () => {
   for (const fixture of languageFixtures) {
-    it(`${fixture.module.name} keeps each stop word addressable`, () => {
-      const splitsIntoNgrams = fixture.module.tokenizer?.ngramSize !== undefined
-      const broken: string[] = []
-      for (const word of fixture.module.stopWords) {
-        const produced = analyse(word, fixture.module)
-        const intact = splitsIntoNgrams
-          ? meaningfulCharacters(produced.join('')).join('') === meaningfulCharacters(word).join('')
-          : produced.length === 1 && produced[0] === indexForm(word, fixture.module)
-        if (!intact) broken.push(word)
-      }
-      expect(broken).toEqual([])
+    it(`${fixture.module.name} leaves nothing behind`, () => {
+      const unreachable = [...fixture.module.stopWords].filter(
+        word => tokenize(word, fixture.module, { stem: false, removeStopWords: true }).tokens.length > 0,
+      )
+      expect(unreachable).toEqual([])
+    })
+  }
+})
+
+describe('every stop word is spelt the way the tokenizer spells a token', () => {
+  for (const fixture of languageFixtures) {
+    it(`${fixture.module.name} lists composed spellings`, () => {
+      const uncomposed = [...fixture.module.stopWords].filter(word => word.normalize('NFC') !== word)
+      expect(uncomposed).toEqual([])
+    })
+  }
+})
+
+describe('a language that rewrites spelling lists both spellings of every stop word', () => {
+  for (const fixture of languageFixtures) {
+    const { normalizer, stopWords } = fixture.module
+    if (!normalizer) continue
+    it(`${fixture.module.name} reaches a token the normaliser would rewrite`, () => {
+      const missing = [...stopWords].filter(word => !stopWords.has(normalizer(word)))
+      expect(missing).toEqual([])
     })
   }
 })
