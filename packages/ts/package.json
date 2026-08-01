@@ -130,17 +130,17 @@
     "@msgpack/msgpack": "3.1.1"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.4",
+    "@biomejs/biome": "2.5.5",
     "@delali/narsil-embeddings-transformers": "workspace:*",
-    "@types/node": "22.15.32",
-    "@vitest/coverage-v8": "4.0.18",
+    "@types/node": "26.1.2",
+    "@vitest/coverage-v8": "4.1.10",
     "etcd3": "1.1.2",
     "fflate": "0.8.3",
     "selfsigned": "5.5.0",
     "tsup": "8.5.1",
-    "typescript": "5.9.3",
-    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.58.0",
-    "vitest": "4.0.18",
+    "typescript": "7.0.2",
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.69.0",
+    "vitest": "4.1.10",
     "wabt": "1.0.39"
   },
   "peerDependencies": {
