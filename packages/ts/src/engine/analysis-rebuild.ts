@@ -2,13 +2,6 @@ import type { PartitionManager } from '../partitioning/manager'
 import type { DurabilityManager } from '../persistence/durability/types'
 import type { AnalysisConfig, StaleAnalysis } from '../types/config'
 
-export interface AnalysisRebuildProgress {
-  indexName: string
-  partitionsRebuilt: number
-  partitionCount: number
-  running: boolean
-}
-
 export interface AnalysisRebuildDeps {
   getManager(indexName: string): PartitionManager | undefined
   desyncIndex(indexName: string): boolean
@@ -29,7 +22,6 @@ export interface AnalysisRebuildCoordinator {
   markStale(index: StaleIndex): void
   clearStale(indexName: string): void
   isStale(indexName: string): boolean
-  progress(indexName: string): AnalysisRebuildProgress | undefined
   reviewStaleIndexes(): Promise<void>
   rebuild(indexName: string): Promise<void>
 }
@@ -167,19 +159,6 @@ export function createAnalysisRebuildCoordinator(
 
     isStale(indexName: string): boolean {
       return stale.has(indexName)
-    },
-
-    progress(indexName: string): AnalysisRebuildProgress | undefined {
-      const entry = stale.get(indexName)
-      if (entry === undefined) {
-        return undefined
-      }
-      return {
-        indexName,
-        partitionsRebuilt: entry.partitionsRebuilt,
-        partitionCount: deps.getManager(indexName)?.partitionCount ?? 0,
-        running: entry.run !== null,
-      }
     },
 
     async reviewStaleIndexes(): Promise<void> {

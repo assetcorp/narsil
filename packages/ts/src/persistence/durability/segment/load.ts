@@ -50,6 +50,7 @@ export async function loadSegmentedSnapshot(
     }
   }
 
+  const payloadsByField = new Map<string, VectorIndexPayload[]>()
   for (const partition of manifest.partitions) {
     if (partition.partitionId >= deps.manager.partitionCount) {
       throw new NarsilError(
@@ -58,8 +59,10 @@ export async function loadSegmentedSnapshot(
         { indexName, partitionId: partition.partitionId, partitionCount: deps.manager.partitionCount },
       )
     }
-    await loadPartition(directory, indexName, partition, deps)
+    await loadPartition(directory, indexName, partition, deps, payloadsByField)
   }
+
+  restoreVectorIndexes(payloadsByField, deps)
 
   return manifest.checkpoint
 }
@@ -69,6 +72,7 @@ async function loadPartition(
   indexName: string,
   partition: PartitionManifestEntry,
   deps: ReplayDeps,
+  payloadsByField: Map<string, VectorIndexPayload[]>,
 ): Promise<void> {
   const ordered: SegmentContents[] = []
   for (const segment of partition.segments) {
@@ -84,22 +88,26 @@ async function loadPartition(
   deps.manager.deserializePartition(partition.partitionId, merged)
 
   for (const vector of partition.vectors) {
-    await loadVectorSegment(directory, indexName, partition, vector.fieldPath, vector.key, deps)
+    if (!deps.vectorIndexes.has(vector.fieldPath)) {
+      continue
+    }
+    const payload = await readVectorSegment(directory, indexName, partition, vector.fieldPath, vector.key)
+    const collected = payloadsByField.get(vector.fieldPath)
+    if (collected === undefined) {
+      payloadsByField.set(vector.fieldPath, [payload])
+    } else {
+      collected.push(payload)
+    }
   }
 }
 
-async function loadVectorSegment(
+async function readVectorSegment(
   directory: DurableDirectory,
   indexName: string,
   partition: PartitionManifestEntry,
   fieldPath: string,
   key: string,
-  deps: ReplayDeps,
-): Promise<void> {
-  const vecIndex = deps.vectorIndexes.get(fieldPath)
-  if (vecIndex === undefined) {
-    return
-  }
+): Promise<VectorIndexPayload> {
   const bytes = await directory.read(key)
   if (bytes === null) {
     throw new NarsilError(
@@ -108,12 +116,32 @@ async function loadVectorSegment(
       { indexName, partitionId: partition.partitionId, fieldPath, key },
     )
   }
-  vecIndex.deserialize(await decodeVectorSegment(bytes))
-}
-
-async function decodeVectorSegment(bytes: Uint8Array): Promise<VectorIndexPayload> {
   const { payloadBytes } = await unpackEnvelopeBytes(bytes)
   return decode(payloadBytes) as VectorIndexPayload
+}
+
+function restoreVectorIndexes(payloadsByField: Map<string, VectorIndexPayload[]>, deps: ReplayDeps): void {
+  for (const [fieldPath, payloads] of payloadsByField) {
+    const vecIndex = deps.vectorIndexes.get(fieldPath)
+    if (vecIndex === undefined) {
+      continue
+    }
+    vecIndex.deserialize(payloads.length === 1 ? payloads[0] : mergePartitionPayloads(payloads))
+  }
+}
+
+function mergePartitionPayloads(payloads: VectorIndexPayload[]): VectorIndexPayload {
+  const vectors: VectorIndexPayload['vectors'] = []
+  const graphs: VectorIndexPayload['graphs'] = []
+  for (const payload of payloads) {
+    for (const entry of payload.vectors) {
+      vectors.push(entry)
+    }
+    for (const graph of payload.graphs) {
+      graphs.push(graph)
+    }
+  }
+  return { fieldName: payloads[0].fieldName, dimension: payloads[0].dimension, vectors, graphs, sq8: null }
 }
 
 export async function reclaimOrphanedSegments(

@@ -93,6 +93,7 @@ export async function writeSegmentedCheckpoint(input: SegmentedCheckpointInput):
             target.partitionId,
             priorPartition,
             input.wholePartitionPayload(target.partitionId),
+            entries,
           ),
     )
   }
@@ -178,16 +179,29 @@ async function writeWholePartition(
   partitionId: number,
   priorPartition: PartitionManifestEntry | undefined,
   whole: WholePartitionSegment,
+  entries: Awaited<ReturnType<typeof collectWalEntriesInRange>>,
 ): Promise<PartitionManifestEntry> {
   const id = priorPartition?.nextSegmentId ?? 0
   const key = segmentKey(context.indexName, partitionId, id)
   await persistSegmentFile(context.directory, key, whole.payload, [])
 
+  const vectors = await writePartitionVectors({
+    directory: context.directory,
+    indexName: context.indexName,
+    partitionId,
+    config: context.config,
+    language: context.language,
+    vectorFields: context.vectorFields,
+    vectorFieldPaths: context.vectorFieldPaths,
+    entries,
+    priorVectors: priorPartition?.vectors ?? [],
+  })
+
   return {
     partitionId,
     nextSegmentId: id + 1,
     segments: [{ id, key, docCount: whole.docCount, tombstoneCount: 0 }],
-    vectors: priorPartition?.vectors ?? [],
+    vectors,
   }
 }
 

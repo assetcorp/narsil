@@ -243,6 +243,25 @@ describe('the lifecycle of a rebuild', () => {
     }
   })
 
+  it('leaves no staleness behind for a fresh index that reuses a dropped name', async () => {
+    engine = await createNarsil({ durability: { directory: dir } })
+    await engine.createIndex('prose', { schema, language: LANGUAGE })
+    await engine.insert('prose', { title: 'jumping water' }, 'doc-0')
+    await engine.checkpoint('prose')
+    await engine.shutdown()
+
+    registerStrippingProgressive()
+    engine = await createNarsil({ durability: { directory: dir }, analysis: { rebuild: 'manual' } })
+    expect(engine.listIndexes()[0].analysisStale).toBe(true)
+
+    await engine.dropIndex('prose')
+    await engine.createIndex('prose', { schema, language: LANGUAGE })
+    await engine.insert('prose', { title: 'jumping water' }, 'doc-0')
+
+    expect(engine.listIndexes()[0].analysisStale).toBeUndefined()
+    expect((await engine.query('prose', { term: 'jump' })).analysisStale).toBeUndefined()
+  })
+
   it('rebuilds on its own after opening with no analysis configuration at all', async () => {
     engine = await createNarsil({ durability: { directory: dir } })
     await engine.createIndex('prose', { schema, language: LANGUAGE })
