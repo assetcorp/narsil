@@ -1,9 +1,12 @@
 /*
  * Stop words sourced from:
  *   - Apache Lucene eu stopwords (https://github.com/apache/lucene), Apache-2.0
+ *
+ * The stemmer is generated from Snowball's algorithms/basque.sbl; see snowball/build.ts.
  */
 
 import type { LanguageModule } from '../types/language'
+import { revision, stem } from './snowball/basque'
 
 const stopWords = new Set([
   'al',
@@ -108,8 +111,8 @@ const stopWords = new Set([
 
 export const basque: LanguageModule = {
   name: 'basque',
-  revision: '1',
-  stemmer: null,
+  revision,
+  stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9ñ]+/gi },
 }

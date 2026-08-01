@@ -41,6 +41,7 @@ export const hindiFixture = defineLanguageFixture({
       ],
     },
     { text: 'भारत की राजभाषा है।', tokens: ['भारत', 'की', 'राजभाषा', 'है'] },
+    { text: 'अक्षम्य कर्तव्य', tokens: ['अक्षम्य', 'कर्तव्य'] },
   ],
   equivalent: [['हिन्दी', 'हिंदी']],
   retrievable: [

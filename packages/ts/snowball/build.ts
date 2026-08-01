@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, w
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { gunzipSync } from 'node:zlib'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const OUTPUT_DIR = resolve(__dirname, '..', 'src', 'languages', 'snowball')
@@ -15,7 +16,40 @@ const COMPILER_COMMIT = '6772636350acfd63797e8cd24ff86c70fd2df6fc'
 const DATA_REPOSITORY = 'https://github.com/snowballstem/snowball-data.git'
 const DATA_COMMIT = 'a0ec0d0a2839ec885878868de20fcb63209d92b0'
 
-const GENERATED_LANGUAGES = ['turkish']
+const GENERATED_LANGUAGES = [
+  'arabic',
+  'armenian',
+  'basque',
+  'catalan',
+  'czech',
+  'danish',
+  'dutch',
+  'english',
+  'esperanto',
+  'estonian',
+  'finnish',
+  'french',
+  'german',
+  'greek',
+  'hindi',
+  'hungarian',
+  'indonesian',
+  'irish',
+  'italian',
+  'lithuanian',
+  'nepali',
+  'norwegian',
+  'persian',
+  'polish',
+  'portuguese',
+  'romanian',
+  'russian',
+  'serbian',
+  'spanish',
+  'swedish',
+  'tamil',
+  'turkish',
+]
 
 const RUNTIME_IMPORT = "import { type Among, BaseStemmer } from './base-stemmer'"
 
@@ -137,10 +171,16 @@ export const revision = '${revision}'
   return `${header}\n${body}\n${footer}`
 }
 
+function readReferenceFile(dataDirectory: string, language: string, name: string): string {
+  const plain = join(dataDirectory, language, name)
+  if (existsSync(plain)) return readFileSync(plain, 'utf-8')
+  return gunzipSync(readFileSync(`${plain}.gz`)).toString('utf-8')
+}
+
 async function measureAgreement(candidatePath: string, language: string, dataDirectory: string): Promise<Agreement> {
   const module: { stem: (token: string) => string } = await import(candidatePath)
-  const words = readFileSync(join(dataDirectory, language, 'voc.txt'), 'utf-8').split('\n')
-  const expected = readFileSync(join(dataDirectory, language, 'output.txt'), 'utf-8').split('\n')
+  const words = readReferenceFile(dataDirectory, language, 'voc.txt').split('\n')
+  const expected = readReferenceFile(dataDirectory, language, 'output.txt').split('\n')
 
   let total = 0
   let agreed = 0

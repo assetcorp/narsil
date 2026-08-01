@@ -54,6 +54,7 @@
       ],
       "linter": {
         "rules": {
+          "style": { "useConst": "off" },
           "suspicious": { "noConfusingLabels": "off" }
         }
       }

@@ -1,9 +1,12 @@
 /*
  * Stop words sourced from:
  *   - stopwords-iso/stopwords-eo (https://github.com/stopwords-iso), MIT
+ *
+ * The stemmer is generated from Snowball's algorithms/esperanto.sbl; see snowball/build.ts.
  */
 
 import type { LanguageModule } from '../types/language'
+import { revision, stem } from './snowball/esperanto'
 
 const stopWords = new Set([
   'adiaŭ',
@@ -177,8 +180,8 @@ const stopWords = new Set([
 
 export const esperanto: LanguageModule = {
   name: 'esperanto',
-  revision: '1',
-  stemmer: null,
+  revision,
+  stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9ĉĝĥĵŝŭ]+/gi },
 }

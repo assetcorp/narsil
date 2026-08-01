@@ -1,9 +1,12 @@
 /*
  * Stop words sourced from:
  *   - Apache Lucene cz stopwords (https://github.com/apache/lucene), Apache-2.0
+ *
+ * The stemmer is generated from Snowball's algorithms/czech.sbl; see snowball/build.ts.
  */
 
 import type { LanguageModule } from '../types/language'
+import { revision, stem } from './snowball/czech'
 
 const stopWords = new Set([
   'a',
@@ -181,8 +184,8 @@ const stopWords = new Set([
 
 export const czech: LanguageModule = {
   name: 'czech',
-  revision: '1',
-  stemmer: null,
+  revision,
+  stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9áčďéěíňóřšťúůýž]+/gi },
 }
