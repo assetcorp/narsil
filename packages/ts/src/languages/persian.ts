@@ -1,9 +1,12 @@
 /*
  * Stop words sourced from:
  *   - Apache Lucene fa stopwords, compiled by Jacques Savoy (https://github.com/apache/lucene), Apache-2.0
+ *
+ * The stemmer is generated from Snowball's algorithms/persian.sbl; see snowball/build.ts.
  */
 
 import type { LanguageModule } from '../types/language'
+import { revision, stem } from './snowball/persian'
 import { withNormalisedSpellings } from './support/spellings'
 
 const stopWords = new Set([
@@ -327,8 +330,8 @@ function normalize(token: string): string {
 
 export const persian: LanguageModule = {
   name: 'persian',
-  revision: '1',
-  stemmer: null,
+  revision,
+  stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,
   tokenizer: { splitPattern: /[^\u0621-\u065f\u0660-\u0669\u066e-\u06d3\u06f0-\u06f9a-z0-9]+/gi },

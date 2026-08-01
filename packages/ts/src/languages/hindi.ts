@@ -2,116 +2,13 @@
  * Stop words sourced from:
  *   - Apache Lucene hi stopwords, compiled by Jacques Savoy (https://github.com/apache/lucene), Apache-2.0
  *   - Nuqta spellings added for Narsil
+ *
+ * The stemmer is generated from Snowball's algorithms/hindi.sbl; see snowball/build.ts.
  */
 
 import type { LanguageModule } from '../types/language'
+import { revision, stem } from './snowball/hindi'
 import { withNormalisedSpellings } from './support/spellings'
-
-const SUFFIXES_5: string[] = ['तियों', 'ाओंगी', 'ाओंगे', 'ाओंगा', 'ाइएगी', 'ाइएगे', 'ाइएगा']
-
-const SUFFIXES_4: string[] = [
-  'ाएंगी',
-  'ाएंगे',
-  'ाएंगा',
-  'ाऊंगी',
-  'ाऊंगा',
-  'ियाँ',
-  'ियों',
-  'ियां',
-  'तियो',
-  'ूँगी',
-  'ूँगा',
-  'ातीं',
-  'नाओं',
-  'ाओगी',
-  'ाओगे',
-  'ाओगा',
-  'ाइएं',
-  'ाइये',
-  'ाईये',
-]
-
-const SUFFIXES_3: string[] = [
-  'ियाँ',
-  'ोंगी',
-  'ोंगे',
-  'ोंगा',
-  'एंगी',
-  'एंगे',
-  'एंगा',
-  'ूंगी',
-  'ूंगा',
-  'ातीं',
-  'वाला',
-  'वाले',
-  'वाली',
-  'िएगी',
-  'िएगे',
-  'िएगा',
-  'ीएगी',
-  'ीएगे',
-  'ीएगा',
-  'ियो',
-  'िया',
-  'ाती',
-  'ाता',
-  'ाते',
-  'ाना',
-  'ाने',
-  'ानी',
-  'ानो',
-  'ाओं',
-  'ाकर',
-  'ाइए',
-  'ाईं',
-]
-
-const SUFFIXES_2: string[] = [
-  'कर',
-  'ाओ',
-  'िए',
-  'ाई',
-  'ाए',
-  'ने',
-  'नी',
-  'ना',
-  'ते',
-  'ती',
-  'ता',
-  'ाँ',
-  'ां',
-  'ों',
-  'ें',
-  'हा',
-  'हे',
-  'ही',
-  'हो',
-  'ीं',
-  'ोँ',
-]
-
-const SUFFIXES_1: string[] = ['ा', 'े', 'ो', 'ी', 'ि', 'ू', 'ु', 'ं', 'ः', 'ँ']
-
-const ALL_SUFFIXES: string[] = [...SUFFIXES_5, ...SUFFIXES_4, ...SUFFIXES_3, ...SUFFIXES_2, ...SUFFIXES_1]
-
-function isConsonant(ch: string): boolean {
-  const code = ch.charCodeAt(0)
-  return code >= 0x0915 && code <= 0x0939
-}
-
-function stem(word: string): string {
-  for (const suffix of ALL_SUFFIXES) {
-    if (!word.endsWith(suffix)) continue
-
-    const remaining = word.slice(0, word.length - suffix.length)
-    if (remaining.length < 2) continue
-
-    const lastChar = remaining[remaining.length - 1]
-    if (isConsonant(lastChar)) return remaining
-  }
-
-  return word
-}
 
 // Stop words sourced from https://github.com/stopwords-iso/stopwords-hi
 const stopWords = new Set([
@@ -344,16 +241,16 @@ const stopWords = new Set([
   'होने',
 ])
 
-const NASAL_BEFORE_CONSONANT = /[\u0919\u091E\u0923\u0928\u092E]\u094D(?=[\u0915-\u0939])/g
+const NASAL_BEFORE_STOP = /[\u0919\u091E\u0923\u0928\u092E]\u094D(?=[\u0915-\u092E])/g
 const ANUSVARA = '\u0902'
 
 function normalize(token: string): string {
-  return token.replace(NASAL_BEFORE_CONSONANT, ANUSVARA)
+  return token.replace(NASAL_BEFORE_STOP, ANUSVARA)
 }
 
 export const hindi: LanguageModule = {
   name: 'hindi',
-  revision: '1',
+  revision,
   stemmer: stem,
   stopWords: withNormalisedSpellings(stopWords, normalize),
   normalizer: normalize,

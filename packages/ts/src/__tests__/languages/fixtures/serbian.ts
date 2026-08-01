@@ -25,9 +25,9 @@ export const serbianFixture = defineLanguageFixture({
   separates: [
     {
       text: 'Vuk Stefanović Karadžić i Đura Daničić',
-      tokens: ['vuk', 'stefanovic', 'karadzic', 'i', 'djura', 'danicic'],
+      tokens: ['vuk', 'stefanović', 'karadžić', 'i', 'đura', 'daničić'],
     },
-    { text: 'srpska ćirilica i srpska latinica', tokens: ['srpska', 'cirilica', 'i', 'srpska', 'latinica'] },
+    { text: 'srpska ćirilica i srpska latinica', tokens: ['srpska', 'ćirilica', 'i', 'srpska', 'latinica'] },
   ],
   equivalent: [
     ['ћирилица', 'ćirilica'],

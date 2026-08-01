@@ -1,9 +1,12 @@
 /*
  * Stop words sourced from:
  *   - Apache Lucene ca stopwords, from cue.language (https://github.com/apache/lucene), Apache-2.0
+ *
+ * The stemmer is generated from Snowball's algorithms/catalan.sbl; see snowball/build.ts.
  */
 
 import type { LanguageModule } from '../types/language'
+import { revision, stem } from './snowball/catalan'
 
 const stopWords = new Set([
   'a',
@@ -214,8 +217,8 @@ const stopWords = new Set([
 
 export const catalan: LanguageModule = {
   name: 'catalan',
-  revision: '1',
-  stemmer: null,
+  revision,
+  stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9àçèéíïòóúü]+/gi },
 }

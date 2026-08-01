@@ -5,172 +5,15 @@
  *
  * Serbian is written in both scripts, and the stop word check reads a token
  * before the normaliser runs, so each entry is also held in its Gaj Latin
- * spelling and in the accent-free spelling the normaliser produces. The suffix
- * table is Cyrillic, while the stemmer receives the normaliser's Latin output,
- * so the table is transliterated once at load.
+ * spelling. The normaliser produces the same Gaj Latin the Snowball algorithm
+ * transliterates to in its own first step, so both scripts reach one spelling.
+ *
+ * The stemmer is generated from Snowball's algorithms/serbian.sbl; see snowball/build.ts.
  */
 
 import type { LanguageModule } from '../types/language'
+import { revision, stem } from './snowball/serbian'
 import { withNormalisedSpellings } from './support/spellings'
-
-const SUFFIXES: [string, number][] = [
-  ['овањима', 3],
-  ['ивањима', 3],
-  ['ирањима', 3],
-  ['овања', 3],
-  ['ивања', 3],
-  ['ирања', 3],
-  ['ајући', 3],
-  ['ујући', 3],
-  ['ујемо', 3],
-  ['ујете', 3],
-  ['ичност', 3],
-  ['ичног', 3],
-  ['ичном', 3],
-  ['ичним', 3],
-  ['ичних', 3],
-  ['ичној', 3],
-  ['ична', 3],
-  ['ично', 3],
-  ['ични', 3],
-  ['ичне', 3],
-  ['ичку', 3],
-  ['ичке', 3],
-  ['ичко', 3],
-  ['ички', 3],
-  ['ивати', 3],
-  ['овати', 3],
-  ['ирати', 3],
-  ['ањем', 3],
-  ['ењем', 3],
-  ['ивала', 3],
-  ['ивале', 3],
-  ['ивали', 3],
-  ['ивало', 3],
-  ['ивао', 3],
-  ['ивши', 3],
-  ['авши', 3],
-  ['овима', 3],
-  ['ењу', 3],
-  ['ања', 3],
-  ['ења', 3],
-  ['ости', 3],
-  ['оста', 3],
-  ['иста', 3],
-  ['исте', 3],
-  ['исти', 3],
-  ['исто', 3],
-  ['ница', 3],
-  ['ницу', 3],
-  ['нице', 3],
-  ['ници', 3],
-  ['овим', 3],
-  ['ским', 3],
-  ['ских', 3],
-  ['ском', 3],
-  ['ског', 3],
-  ['ства', 3],
-  ['ство', 3],
-  ['ству', 3],
-  ['ашка', 3],
-  ['ошка', 3],
-  ['ушка', 3],
-  ['ући', 3],
-  ['ама', 3],
-  ['има', 3],
-  ['ина', 3],
-  ['ину', 3],
-  ['ине', 3],
-  ['ино', 3],
-  ['ица', 3],
-  ['ицу', 3],
-  ['ице', 3],
-  ['ици', 3],
-  ['ост', 3],
-  ['аст', 3],
-  ['ава', 3],
-  ['аво', 3],
-  ['ови', 3],
-  ['ове', 3],
-  ['ова', 3],
-  ['ник', 3],
-  ['ске', 3],
-  ['ски', 3],
-  ['ска', 3],
-  ['ско', 3],
-  ['ног', 3],
-  ['ним', 3],
-  ['них', 3],
-  ['ном', 3],
-  ['ену', 3],
-  ['ена', 3],
-  ['ено', 3],
-  ['ени', 3],
-  ['ане', 3],
-  ['ано', 3],
-  ['ану', 3],
-  ['ани', 3],
-  ['ају', 3],
-  ['ује', 3],
-  ['јем', 3],
-  ['јеш', 3],
-  ['ала', 3],
-  ['але', 3],
-  ['али', 3],
-  ['ало', 3],
-  ['ати', 3],
-  ['ити', 3],
-  ['ети', 3],
-  ['ути', 3],
-  ['ила', 3],
-  ['иле', 3],
-  ['или', 3],
-  ['ило', 3],
-  ['имо', 3],
-  ['ите', 3],
-  ['не', 3],
-  ['ни', 3],
-  ['на', 3],
-  ['но', 3],
-  ['ао', 3],
-  ['ла', 3],
-  ['ли', 3],
-  ['ле', 3],
-  ['ло', 3],
-  ['ти', 3],
-  ['те', 3],
-  ['ем', 3],
-  ['еш', 3],
-  ['ио', 3],
-  ['уо', 3],
-  ['ом', 2],
-  ['им', 2],
-  ['ам', 2],
-  ['их', 2],
-  ['ах', 2],
-  ['ју', 2],
-  ['ој', 2],
-  ['ог', 2],
-  ['ег', 2],
-  ['уг', 2],
-  ['е', 2],
-  ['и', 2],
-  ['а', 2],
-  ['о', 2],
-  ['у', 2],
-]
-
-function stem(word: string): string {
-  if (word.length < 4) return word
-
-  for (const [suffix, minLen] of NORMALISED_SUFFIXES) {
-    if (word.endsWith(suffix) && word.length - suffix.length >= minLen) {
-      return word.slice(0, word.length - suffix.length)
-    }
-  }
-
-  return word
-}
 
 const cyrillicStopWords = new Set([
   'ја',
@@ -286,45 +129,6 @@ const cyrillicStopWords = new Set([
   'осим',
 ])
 
-const SERBIAN_LETTERS = /[\u0430-\u045Fčćžđš]/g
-const LATIN_FORMS: Record<string, string> = {
-  '\u0430': 'a',
-  '\u0431': 'b',
-  '\u0432': 'v',
-  '\u0433': 'g',
-  '\u0434': 'd',
-  '\u0452': 'dj',
-  '\u0435': 'e',
-  '\u0436': 'z',
-  '\u0437': 'z',
-  '\u0438': 'i',
-  '\u0458': 'j',
-  '\u043A': 'k',
-  '\u043B': 'l',
-  '\u0459': 'lj',
-  '\u043C': 'm',
-  '\u043D': 'n',
-  '\u045A': 'nj',
-  '\u043E': 'o',
-  '\u043F': 'p',
-  '\u0440': 'r',
-  '\u0441': 's',
-  '\u0442': 't',
-  '\u045B': 'c',
-  '\u0443': 'u',
-  '\u0444': 'f',
-  '\u0445': 'h',
-  '\u0446': 'c',
-  '\u0447': 'c',
-  '\u045F': 'dz',
-  '\u0448': 's',
-  č: 'c',
-  ć: 'c',
-  ž: 'z',
-  đ: 'dj',
-  š: 's',
-}
-
 const CYRILLIC_LETTERS = /[\u0430-\u045F]/g
 const GAJ_FORMS: Record<string, string> = {
   '\u0430': 'a',
@@ -360,27 +164,14 @@ const GAJ_FORMS: Record<string, string> = {
 }
 
 function normalize(token: string): string {
-  return token.replace(SERBIAN_LETTERS, letter => LATIN_FORMS[letter] ?? letter)
-}
-
-function toGajLatin(token: string): string {
   return token.replace(CYRILLIC_LETTERS, letter => GAJ_FORMS[letter] ?? letter)
 }
 
-const listedSpellings = [...cyrillicStopWords, ...[...cyrillicStopWords].map(toGajLatin)]
-
-const NORMALISED_SUFFIXES: [string, number][] = []
-const seenSuffixes = new Set<string>()
-for (const [suffix, minimumStemLength] of SUFFIXES) {
-  const latin = normalize(suffix)
-  if (seenSuffixes.has(latin)) continue
-  seenSuffixes.add(latin)
-  NORMALISED_SUFFIXES.push([latin, minimumStemLength])
-}
+const listedSpellings = [...cyrillicStopWords, ...[...cyrillicStopWords].map(normalize)]
 
 export const serbian: LanguageModule = {
   name: 'serbian',
-  revision: '1',
+  revision,
   stemmer: stem,
   stopWords: withNormalisedSpellings(listedSpellings, normalize),
   normalizer: normalize,

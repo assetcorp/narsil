@@ -1,9 +1,12 @@
 /*
  * Stop words sourced from:
  *   - stopwords-iso/stopwords-pl (https://github.com/stopwords-iso), MIT
+ *
+ * The stemmer is generated from Snowball's algorithms/polish.sbl; see snowball/build.ts.
  */
 
 import type { LanguageModule } from '../types/language'
+import { revision, stem } from './snowball/polish'
 
 const stopWords = new Set([
   'a',
@@ -338,8 +341,8 @@ const stopWords = new Set([
 
 export const polish: LanguageModule = {
   name: 'polish',
-  revision: '1',
-  stemmer: null,
+  revision,
+  stemmer: stem,
   stopWords,
   tokenizer: { splitPattern: /[^a-z0-9ąćęłńóśźż]+/gi },
 }
