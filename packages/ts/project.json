@@ -22,6 +22,14 @@
         "cwd": "packages/ts"
       }
     },
+    "stemmers": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run stemmers",
+        "cwd": "packages/ts"
+      }
+    },
     "test:coverage": {
       "executor": "nx:run-commands",
       "options": {
