@@ -1,3 +1,37 @@
+## 0.2.0 (2026-08-01)
+
+### 🚀 Features
+
+- **ts:** add TokenizerConfig type to language module exports for enhanced configuration options ([90c3768](https://github.com/assetcorp/narsil/commit/90c3768))
+- **ts:** enhance language module management with tokenizer integration and detailed README for language development ([4eb47cb](https://github.com/assetcorp/narsil/commit/4eb47cb))
+- **ts:** update language lookalikes and counts for various languages, including new entries and mixed script handling for Cyrillic languages ([745ef3a](https://github.com/assetcorp/narsil/commit/745ef3a))
+- **ts:** add support for Belarusian, Georgian, Kazakh, and Maltese languages with stop words and fixtures; enhance CI to check lookalikes ([c3bdd7b](https://github.com/assetcorp/narsil/commit/c3bdd7b))
+- **ts:** add language revision management ([111d535](https://github.com/assetcorp/narsil/commit/111d535))
+- **ts:** add Turkish stemmer and base stemmer implementation ([b50b744](https://github.com/assetcorp/narsil/commit/b50b744))
+- **ts:** implement index analysis rebuild functionality and improve language module revision handling ([5aa42e1](https://github.com/assetcorp/narsil/commit/5aa42e1))
+- **ts:** add support for Burmese, Khmer, Lao, and Thai languages ([71d4574](https://github.com/assetcorp/narsil/commit/71d4574))
+- **ts:** implement Guarani language support and update Sorani normalization ([45cf168](https://github.com/assetcorp/narsil/commit/45cf168))
+- **ts:** add fixtures for multiple new languages ([5303bfa](https://github.com/assetcorp/narsil/commit/5303bfa))
+- **ts:** add new languages ([f7af239](https://github.com/assetcorp/narsil/commit/f7af239))
+- **ts:** add watermark support and improve rebalance handling ([b2d3cf1](https://github.com/assetcorp/narsil/commit/b2d3cf1))
+- **ts:** enhance durability configuration validation and improve error handling for tier and mode settings ([04ba144](https://github.com/assetcorp/narsil/commit/04ba144))
+- **ts:** enhance durability configuration with tier selection and improve snapshot management in persistence ([5638658](https://github.com/assetcorp/narsil/commit/5638658))
+- **ts:** introduce replication error handling and enhance invalidation integration with new error codes and tests ([9d60348](https://github.com/assetcorp/narsil/commit/9d60348))
+- **ts:** implement worker ineligibility checks and enhance language normalization for Dagbani, Japanese, and Twi ([7f53c49](https://github.com/assetcorp/narsil/commit/7f53c49))
+- **ts:** enhance index metadata and recovery with additional configuration fields ([1ca9458](https://github.com/assetcorp/narsil/commit/1ca9458))
+- **ts:** improve durability and snapshot management with stop word list support ([05f6a3d](https://github.com/assetcorp/narsil/commit/05f6a3d))
+- **ts:** improve analysis registry with tokenizer and stop word management ([1f0295d](https://github.com/assetcorp/narsil/commit/1f0295d))
+- **ts:** add normalizer functions for various languages to handle diacritics and improve tokenization ([0bfe22a](https://github.com/assetcorp/narsil/commit/0bfe22a))
+
+### 🩹 Fixes
+
+- **ts:** update stemmer checks to use null instead of undefined ([6057f79](https://github.com/assetcorp/narsil/commit/6057f79))
+- **ts:** address issues with rebalancing ([972d3fd](https://github.com/assetcorp/narsil/commit/972d3fd))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.1.15 (2026-07-23)
 
 ### 🚀 Features
