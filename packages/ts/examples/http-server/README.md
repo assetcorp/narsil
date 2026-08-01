@@ -64,15 +64,15 @@ const server = createServer(engine)
 await server.listen()
 ```
 
-The default mode is `sync`: a write isn't acknowledged until it's on disk, so a crash never loses a write your client already saw succeed. Switch to `mode: 'async'` and writes ack right away while the log flushes about once a second, which runs faster but can lose that last second on a hard crash. Durability needs a real filesystem; back it with a store that has none and you get snapshot-only durability, which holds your data as of the most recent snapshot.
+The default mode is `sync`: a write isn't acknowledged until it's on disk, so a crash never loses a write your client already saw succeed. `mode: 'async'` acknowledges each write right away and flushes the log about once a second, which runs faster and can lose that last second on a hard crash. Durability needs a real filesystem, so a store without one gives you snapshot-only durability, which holds your data as of the most recent snapshot.
 
 ## Secure by default
 
-The server binds to `127.0.0.1` by default, so nothing reaches it from the network until you say so. Bind to a public address like `0.0.0.0` with no API key and the server refuses to start, because the admin endpoints (`restore`, `drop`, `clear`, `rebalance`, and `optimize`) would hand anyone who reaches the port a one-request data wipe. Set `NARSIL_API_KEY` to require a token, or set `NARSIL_ALLOW_INSECURE=true` when the address sits on a trusted private network. Put a reverse proxy in front to terminate TLS. The health probes (`/livez` and `/readyz`) and `/version` always answer without a key, so a load balancer can reach them.
+The server binds to `127.0.0.1` by default, so nothing reaches it from the network until you say so. Bind to a public address like `0.0.0.0` with no API key and the server refuses to start, because the admin endpoints (`restore`, `drop`, `clear`, `rebalance`, and `optimize`) would hand anyone who reaches the port a one-request data wipe. Set `NARSIL_API_KEY` to require a token, or set `NARSIL_ALLOW_INSECURE=true` when the address is on a trusted private network. Put a reverse proxy in front to terminate TLS. The health probes (`/livez` and `/readyz`) and `/version` always answer without a key, so a load balancer can reach them.
 
 ## Task store
 
-Long-running operations (`optimize`, `rebalance`, and `restore`) hand you back a task id that you poll at `GET /tasks/{id}`. By default that status lives in memory, so it disappears on restart and no other instance can see it. Pass a `taskStore` to `createServer` to keep the status across restarts and share it between instances. Any backend works as long as it implements the async `TaskStore` interface (`set`, `get`, `list`, and `delete`), so you can plug in Redis, Upstash over HTTP, DynamoDB, or a database. A shared store lets every instance report a task by id; the work still runs in one instance's memory, so the store shares status across instances without making the operation itself distributed.
+Long-running operations (`optimize`, `rebalance`, and `restore`) hand you back a task id that you poll at `GET /tasks/{id}`. By default that status stays in memory, so it disappears on restart and no other instance can see it. Pass a `taskStore` to `createServer` to keep the status across restarts and share it between instances. Any backend works as long as it satisfies the async `TaskStore` interface (`set`, `get`, `list`, and `delete`), so you can plug in Redis, Upstash over HTTP, DynamoDB, or a database. A shared store lets every instance report a task by id; the work still runs in one instance's memory, so the store shares status across instances without making the operation itself distributed.
 
 ## API reference
 
@@ -116,7 +116,7 @@ The response is 201 `{ "name": "movies" }`. Reusing a name fails with 409 `INDEX
 
 | Method and path | Response |
 | --- | --- |
-| `GET /indexes` | The endpoint returns `{ "indexes": [{ "name", "documentCount", "partitionCount", "language" }] }`. |
+| `GET /indexes` | The endpoint returns `{ "indexes": [{ "name", "documentCount", "partitionCount", "language", "analysisStale"? }] }`. |
 | `DELETE /indexes/{name}` | The endpoint drops the index and returns `{ "name", "dropped": true }`. |
 | `GET /indexes/{name}/stats` | The endpoint returns document count, partition count, estimated memory, language, and the schema. |
 | `GET /indexes/{name}/partitions` | The endpoint returns `{ "partitions": [{ "partitionId", "documentCount", "estimatedMemoryBytes" }] }`. |
@@ -170,7 +170,7 @@ Each entry in `errors` carries a `code`, a `message`, and either the `line` numb
 
 ### Search
 
-**`POST /indexes/{name}/search`** takes the same query parameters as the embedded `query()` method, documented in the [package README](../../README.md#search): `term`, `fields`, `filters`, `boost`, `mode`, `vector`, `hybrid`, `facets`, `sort`, `group`, `limit`, `offset`, `searchAfter`, `highlight`, `pinned`, `minScore`, `termMatch`, `tolerance`, `prefix`, `prefixLength`, `exact`, `scoring`, and `includeScoreComponents`. The response is the engine's result: `{ "hits", "count", "elapsed", "cursor"?, "facets"?, "groups"? }`. Custom group reducers are functions and cannot cross JSON, so a body carrying `group.reduce` fails with 400; `group.fields` and `group.maxPerGroup` work over HTTP. The server caps the fields that control how many rows a search returns: `limit`, `offset`, `group.maxPerGroup`, and each facet's `limit`. Each one is bounded by the result window, which defaults to 10,000, and a value above it returns 400 `INVALID_REQUEST`. Set `limits.maxResultWindow` on `createServer` to change the cap.
+**`POST /indexes/{name}/search`** takes the same query parameters as the embedded `query()` method, documented in the [package README](../../../../docs/full-text-search.md): `term`, `fields`, `filters`, `boost`, `mode`, `vector`, `hybrid`, `facets`, `sort`, `group`, `limit`, `offset`, `searchAfter`, `highlight`, `pinned`, `minScore`, `termMatch`, `tolerance`, `prefix`, `prefixLength`, `exact`, `scoring`, and `includeScoreComponents`. The response is the engine's result: `{ "hits", "count", "elapsed", "cursor"?, "facets"?, "groups"?, "analysisStale"? }`. `analysisStale` appears as `true` while the index holds terms an earlier version of its language module produced, which the [package README](../../../../docs/language-support.md#analysis-revisions) covers. Custom group reducers are functions and cannot cross JSON, so a body carrying `group.reduce` fails with 400; `group.fields` and `group.maxPerGroup` work over HTTP. The server caps the fields that control how many rows a search returns: `limit`, `offset`, `group.maxPerGroup`, and each facet's `limit`. Each one is bounded by the result window, which defaults to 10,000, and a value above it returns 400 `INVALID_REQUEST`. Set `limits.maxResultWindow` on `createServer` to change the cap.
 
 ```bash
 curl -X POST localhost:7700/indexes/movies/search \
