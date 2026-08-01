@@ -108,23 +108,23 @@ curl -X POST localhost:7700/indexes/products/search \
   -d '{"term":"keyboard"}'
 ```
 
-The [HTTP server section](packages/ts/README.md#http-server) of the package README shows the embedding API, and the [example's README](packages/ts/examples/http-server/README.md) documents every endpoint with request and response bodies.
+The [HTTP server guide](docs/http-server.md) shows the embedding API, and the [example's README](packages/ts/examples/http-server/README.md) documents every endpoint with request and response bodies.
 
-The [TypeScript package README](packages/ts/README.md) documents every feature with a working example. The highlights, each linked to its section:
+Each guide under [`docs/`](docs/) documents one area with working examples. The highlights:
 
 ## Features
 
-**Search.** [Full-text search](packages/ts/README.md#full-text-search) scores with BM25 and supports field boosting, [fuzzy matching](packages/ts/README.md#fuzzy-matching) via bounded Levenshtein distance, [search as you type](packages/ts/README.md#search-as-you-type) through last-word prefix matching, and [term-coverage and score thresholds](packages/ts/README.md#score-and-coverage-thresholds). Queries compose with [filters](packages/ts/README.md#filters), [facets](packages/ts/README.md#facets), [sorting](packages/ts/README.md#sort), [grouping](packages/ts/README.md#grouping), [highlighting](packages/ts/README.md#highlighting), [cursor pagination](packages/ts/README.md#pagination), [pinned results](packages/ts/README.md#pinning), and [autocomplete suggestions](packages/ts/README.md#suggestions).
+**Search.** [Full-text search](docs/full-text-search.md#basic-queries) scores with BM25 and supports field boosting, [fuzzy matching](docs/full-text-search.md#fuzzy-matching) via bounded Levenshtein distance, [search as you type](docs/full-text-search.md#search-as-you-type) through last-word prefix matching, and [term-coverage and score thresholds](docs/full-text-search.md#score-and-coverage-thresholds). Queries compose with [filters](docs/filters-facets-and-pagination.md#filters), [facets](docs/filters-facets-and-pagination.md#facets), [sorting](docs/filters-facets-and-pagination.md#sort), [grouping](docs/filters-facets-and-pagination.md#grouping), [highlighting](docs/full-text-search.md#highlighting), [cursor pagination](docs/filters-facets-and-pagination.md#pagination), [pinned results](docs/filters-facets-and-pagination.md#pinning), and [autocomplete suggestions](docs/full-text-search.md#suggestions).
 
-**Vector and hybrid retrieval.** [Vector search](packages/ts/README.md#vector-search) serves cosine, dot-product, and Euclidean queries, starts on an exact scan, and promotes a field to an HNSW graph as it grows, with scalar quantization on by default. [Hybrid search](packages/ts/README.md#hybrid-search) fuses BM25 and vector rankings through reciprocal rank fusion or linear blending, and [embedding adapters](packages/ts/README.md#embedding-adapters) turn text into vectors automatically on insert and query, through OpenAI, local Transformers.js models, or your own adapter.
+**Vector and hybrid retrieval.** [Vector search](docs/vector-search.md#vector-search) serves cosine, dot-product, and Euclidean queries, starts on an exact scan, and promotes a field to an HNSW graph as it grows, with scalar quantization on by default. [Hybrid search](docs/hybrid-search.md#hybrid-search) fuses BM25 and vector rankings through reciprocal rank fusion or linear blending, and [embedding adapters](docs/embedding-adapters.md#embedding-adapters) turn text into vectors automatically on insert and query, through OpenAI, local Transformers.js models, or your own adapter.
 
-**Geosearch.** [Geo filters](packages/ts/README.md#geosearch) match by radius (Haversine or Vincenty distance) or polygon containment, and they compose with every other query feature.
+**Geosearch.** [Geo filters](docs/geosearch.md#geosearch) match by radius (Haversine or Vincenty distance) or polygon containment, and they compose with every other query feature.
 
-**Storage.** [Persistence adapters](packages/ts/README.md#persistence) plug in filesystem, IndexedDB, memory, or custom backends. [Durability](packages/ts/README.md#durability) adds a write-ahead log with periodic checkpoints and automatic recovery, and [snapshots](packages/ts/README.md#snapshots-and-restore) capture a whole index as one portable byte array. The `.nrsl` serialization format is specified in [`packages/spec`](packages/spec) so other language implementations read and write the same files.
+**Storage.** [Persistence adapters](docs/persistence-and-durability.md#persistence) plug in filesystem, IndexedDB, memory, or custom backends. [Durability](docs/persistence-and-durability.md#durability) adds a write-ahead log with periodic checkpoints and automatic recovery, and [snapshots](docs/persistence-and-durability.md#snapshots-and-restore) capture a whole index as one portable byte array. The `.nrsl` serialization format is specified in [`packages/spec`](packages/spec) so other language implementations read and write the same files.
 
-**Scale.** [Partitioned indexes](packages/ts/README.md#partitions-and-rebalancing) route documents by deterministic hash and reshape online through `rebalance()`, with writes buffering in a write-ahead queue during the reshape. [Worker promotion](packages/ts/README.md#workers) moves search off the main thread once document counts cross a threshold, and [three scoring modes](packages/ts/README.md#scoring-modes) handle BM25 statistics skew across partitions and instances.
+**Scale.** [Partitioned indexes](docs/partitions-and-workers.md#partitions-and-rebalancing) route documents by deterministic hash and reshape online through `rebalance()`, with writes buffering in a write-ahead queue during the reshape. [Worker promotion](docs/partitions-and-workers.md#workers) moves search off the main thread once document counts cross a threshold, and [three scoring modes](docs/full-text-search.md#scoring-modes) handle BM25 statistics skew across partitions and instances.
 
-**Operations.** The [HTTP server](packages/ts/README.md#http-server) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. [Events](packages/ts/README.md#events), [typed errors](packages/ts/README.md#errors), [plugins](packages/ts/README.md#plugins), and [memory reporting](packages/ts/README.md#memory-reporting) cover observability, and [language modules](packages/ts/README.md#language-support) cover 39 languages as separate entry points.
+**Operations.** The [HTTP server](docs/http-server.md#http-server) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. [Events](docs/observability.md#events), [typed errors](docs/errors.md#errors), [plugins](docs/observability.md#plugins), and [memory reporting](docs/observability.md#memory-reporting) cover observability, and [language modules](docs/language-support.md#language-support) cover 107 languages as separate entry points, 20 of them African.
 
 ## Examples
 
@@ -147,9 +147,26 @@ On the [BEIR](https://github.com/beir-cellar/beir) information-retrieval dataset
 
 Measured in one process against Orama and MiniSearch, with the same stop words, the same Porter stemmer, and default BM25 parameters, Narsil takes the top nDCG@10 on the BEIR SciFact corpus. It inserts text faster than both libraries at every scale, and it returns searches faster than both as the corpus grows. On vector search, where MiniSearch has no equivalent, Narsil answers queries faster than Orama at matched recall on SciFact and NFCorpus, while Orama inserts vectors faster and holds a smaller footprint. The full quality, throughput, latency, and memory tables are in [BENCHMARKS.md](BENCHMARKS.md), and the method and reproduction steps are in [`benchmarks/in-process`](benchmarks/in-process).
 
-## Configuration
+## Documentation
 
-The [TypeScript package README](packages/ts/README.md#configuration) documents `NarsilConfig`, worker tuning, the two durability tiers, and the tokenizer cache.
+| Guide | What it covers |
+| --- | --- |
+| [Configuration](docs/configuration.md) | Every `createNarsil` option, worker tuning, analysis rebuilds, and the tokenizer cache |
+| [Indexes and documents](docs/indexes-and-documents.md) | Schemas, index management, inserts, reads, updates, removals, and batch operations |
+| [Full-text search](docs/full-text-search.md) | Term queries, fuzzy matching, prefix completion, thresholds, highlighting, scoring modes, and suggestions |
+| [Filters, facets, and pagination](docs/filters-facets-and-pagination.md) | Field, array, presence, and geo filters, facet counts, sorting, grouping, cursors, and pinning |
+| [Vector search](docs/vector-search.md) | Vector fields, distance metrics, HNSW promotion, quantization, and graph maintenance |
+| [Hybrid search](docs/hybrid-search.md) | Reciprocal rank fusion and linear blending of text and vector rankings |
+| [Geosearch](docs/geosearch.md) | Radius and polygon filters, and the two distance formulas |
+| [Embedding adapters](docs/embedding-adapters.md) | Automatic embedding on insert and query, named adapters, the bundled ones, and custom ones |
+| [Persistence and durability](docs/persistence-and-durability.md) | Storage backends, the write-ahead log, checkpoints, recovery, and snapshots |
+| [Partitions and workers](docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker promotion, and multi-instance invalidation |
+| [Language support](docs/language-support.md) | The 107 language modules, analysis revisions and rebuilds, and named tokenizers and stop words |
+| [HTTP server](docs/http-server.md) | Wrapping an engine in a REST API, and every route it serves |
+| [Observability](docs/observability.md) | Plugin hooks, engine events, and memory reporting |
+| [Errors](docs/errors.md) | Every error code and what throws it |
+
+The [specification](packages/spec/) defines the `.nrsl` format, the analysis pipeline, and the replication invariants that every implementation follows.
 
 ## Distribution status
 
