@@ -7,6 +7,7 @@ import ts from 'typescript'
 const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const PACKAGE_DIR = resolve(scriptDirectory, '..')
 const LANGUAGES_DIR = join(PACKAGE_DIR, 'src', 'languages')
+const TOKENIZER_DIR = join(PACKAGE_DIR, 'src', 'core', 'tokenizer')
 const LOCK_PATH = join(PACKAGE_DIR, 'languages.lock.json')
 const REVISION_PLACEHOLDER = 'revision: "recorded in languages.lock.json"'
 const REVISION_PROPERTY = /revision:\s*(['"])[^'"]*\1/
@@ -17,7 +18,10 @@ interface LockEntry {
   fingerprint: string
 }
 
-type Lock = Record<string, LockEntry>
+interface Lock {
+  tokenizer: string
+  languages: Record<string, LockEntry>
+}
 
 const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
 
@@ -64,8 +68,7 @@ function analysisSources(language: string): Map<string, string> {
   return collected
 }
 
-function fingerprint(language: string): string {
-  const sources = analysisSources(language)
+function digestSources(sources: Map<string, string>): string {
   const digest = createHash('sha256')
   for (const path of [...sources.keys()].sort()) {
     digest.update(relative(PACKAGE_DIR, path))
@@ -74,6 +77,35 @@ function fingerprint(language: string): string {
     digest.update('\n')
   }
   return digest.digest('hex').slice(0, 16)
+}
+
+function typeScriptFiles(directory: string): string[] {
+  const found: string[] = []
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name)
+    if (entry.isDirectory()) {
+      found.push(...typeScriptFiles(path))
+    } else if (entry.name.endsWith('.ts')) {
+      found.push(path)
+    }
+  }
+  return found
+}
+
+function tokenizerFingerprint(): string {
+  const sources = new Map<string, string>()
+  for (const path of typeScriptFiles(TOKENIZER_DIR)) {
+    sources.set(path, normalisedCode(parse(path), false))
+  }
+  return digestSources(sources)
+}
+
+function ownFingerprint(language: string): string {
+  return digestSources(analysisSources(language))
+}
+
+function combine(own: string, tokenizer: string): string {
+  return createHash('sha256').update(`${tokenizer}:${own}`).digest('hex').slice(0, 16)
 }
 
 function declaredRevision(language: string): string {
@@ -97,8 +129,15 @@ function readLock(): Lock | null {
   if (typeof parsed !== 'object' || parsed === null) {
     throw new Error('languages.lock.json is not an object')
   }
-  const lock: Lock = {}
-  for (const [language, entry] of Object.entries(parsed as Record<string, unknown>)) {
+  const { tokenizer, languages } = parsed as Record<string, unknown>
+  if (typeof tokenizer !== 'string') {
+    throw new Error('languages.lock.json records no tokenizer fingerprint')
+  }
+  if (typeof languages !== 'object' || languages === null) {
+    throw new Error('languages.lock.json records no languages object')
+  }
+  const lock: Lock = { tokenizer, languages: {} }
+  for (const [language, entry] of Object.entries(languages as Record<string, unknown>)) {
     if (typeof entry !== 'object' || entry === null) {
       throw new Error(`languages.lock.json entry for ${language} is not an object`)
     }
@@ -106,26 +145,31 @@ function readLock(): Lock | null {
     if (typeof revision !== 'string' || typeof recorded !== 'string') {
       throw new Error(`languages.lock.json entry for ${language} is incomplete`)
     }
-    lock[language] = { revision, fingerprint: recorded }
+    lock.languages[language] = { revision, fingerprint: recorded }
   }
   return lock
 }
 
 function writeLock(lock: Lock): void {
-  const ordered: Lock = {}
-  for (const language of Object.keys(lock).sort()) {
-    ordered[language] = lock[language]
+  const ordered: Record<string, LockEntry> = {}
+  for (const language of Object.keys(lock.languages).sort()) {
+    ordered[language] = lock.languages[language]
   }
-  writeFileSync(LOCK_PATH, `${JSON.stringify(ordered, null, 2)}\n`)
+  writeFileSync(LOCK_PATH, `${JSON.stringify({ tokenizer: lock.tokenizer, languages: ordered }, null, 2)}\n`)
 }
 
-function currentLock(): Lock {
-  const lock: Lock = {}
+function currentLock(tokenizer: string): Lock {
+  const lock: Lock = { tokenizer, languages: {} }
   for (const language of moduleNames()) {
-    lock[language] = { revision: declaredRevision(language), fingerprint: fingerprint(language) }
+    lock.languages[language] = {
+      revision: declaredRevision(language),
+      fingerprint: combine(ownFingerprint(language), tokenizer),
+    }
   }
   return lock
 }
+
+const TOKENIZER_CHANGED = 'src/core/tokenizer/ changed, so every language analyses text differently'
 
 function check(): number {
   const recorded = readLock()
@@ -133,33 +177,43 @@ function check(): number {
     console.error('languages.lock.json is missing. Run "pnpm nx run narsil-ts:revisions:write" to record one.')
     return 1
   }
-  const current = currentLock()
+  const tokenizer = tokenizerFingerprint()
+  const current = currentLock(tokenizer)
   const problems: string[] = []
+  let tokenizerOnly = 0
 
-  for (const language of Object.keys(current)) {
-    const entry = current[language]
-    const previous = recorded[language]
+  for (const language of Object.keys(current.languages)) {
+    const entry = current.languages[language]
+    const previous = recorded.languages[language]
     if (previous === undefined) {
       problems.push(`${language}: not recorded in the lock file`)
+      continue
+    }
+    if (previous.fingerprint === entry.fingerprint && previous.revision === entry.revision) continue
+    const ownSourcesMatch = previous.fingerprint === combine(ownFingerprint(language), recorded.tokenizer)
+    if (ownSourcesMatch && previous.revision === entry.revision) {
+      tokenizerOnly++
       continue
     }
     if (previous.fingerprint !== entry.fingerprint && previous.revision === entry.revision) {
       problems.push(`${language}: analysis changed while revision stayed ${entry.revision}`)
       continue
     }
-    if (previous.fingerprint !== entry.fingerprint || previous.revision !== entry.revision) {
-      problems.push(`${language}: lock file is out of date`)
-    }
+    problems.push(`${language}: lock file is out of date`)
   }
 
-  for (const language of Object.keys(recorded)) {
-    if (current[language] === undefined) {
+  for (const language of Object.keys(recorded.languages)) {
+    if (current.languages[language] === undefined) {
       problems.push(`${language}: recorded in the lock file but the module is gone`)
     }
   }
 
+  if (recorded.tokenizer !== tokenizer) {
+    problems.unshift(`${TOKENIZER_CHANGED}: ${tokenizerOnly} revisions must bump`)
+  }
+
   if (problems.length === 0) {
-    console.log(`${Object.keys(current).length} language modules match languages.lock.json`)
+    console.log(`${Object.keys(current.languages).length} language modules match languages.lock.json`)
     return 0
   }
 
@@ -172,27 +226,39 @@ function check(): number {
 
 function write(): number {
   const recorded = readLock()
-  const bumped: string[] = []
-
-  for (const language of moduleNames()) {
-    const current = fingerprint(language)
-    const previous = recorded?.[language]
-    if (previous === undefined || previous.fingerprint === current) continue
-    setDeclaredRevision(language, current)
-    bumped.push(`${language}: ${previous.revision} -> ${current}`)
-  }
-
-  writeLock(currentLock())
+  const tokenizer = tokenizerFingerprint()
 
   if (recorded === null) {
+    writeLock(currentLock(tokenizer))
     console.log(`recorded ${moduleNames().length} language modules in languages.lock.json`)
     return 0
   }
-  if (bumped.length === 0) {
-    console.log('languages.lock.json was already current')
-    return 0
+
+  const bumped: string[] = []
+  let tokenizerOnly = 0
+
+  for (const language of moduleNames()) {
+    const own = ownFingerprint(language)
+    const current = combine(own, tokenizer)
+    const previous = recorded.languages[language]
+    if (previous === undefined || previous.fingerprint === current) continue
+    setDeclaredRevision(language, current)
+    if (previous.fingerprint === combine(own, recorded.tokenizer)) {
+      tokenizerOnly++
+    } else {
+      bumped.push(`${language}: ${previous.revision} -> ${current}`)
+    }
+  }
+
+  writeLock(currentLock(tokenizer))
+
+  if (tokenizerOnly > 0) {
+    console.log(`${TOKENIZER_CHANGED}: bumped ${tokenizerOnly} revisions`)
   }
   for (const entry of bumped) console.log(entry)
+  if (tokenizerOnly === 0 && bumped.length === 0) {
+    console.log('languages.lock.json was already current')
+  }
   return 0
 }
 
