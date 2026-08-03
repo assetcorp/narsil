@@ -113,7 +113,7 @@ export interface IndexConfig {
   schema: SchemaDefinition
   /** The engine tokenises and stems text fields with the language module registered under this name. It uses English by default. */
   language?: string
-  /** These settings decide how the index splits documents across partitions as it grows. */
+  /** These settings control how the index splits documents across partitions as it grows. */
   partitions?: PartitionConfig
   /** A query scores this way unless it asks for another mode. */
   defaultScoring?: ScoringMode
@@ -125,7 +125,7 @@ export interface IndexConfig {
   tokenizer?: CustomTokenizer | string
   /** Setting this records term positions, which phrase queries and highlighting need. */
   trackPositions?: boolean
-  /** These settings decide when vector fields move to an HNSW graph, and how that graph is built. */
+  /** These settings control when vector fields move to an HNSW graph, and how that graph is built. */
   vectorPromotion?: VectorIndexConfig
   /** Setting this rejects a document carrying a field the schema does not declare. The engine accepts extra fields by default. */
   strict?: boolean

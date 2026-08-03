@@ -56,7 +56,7 @@ export interface QueryParams {
   prefix?: boolean
   /** Setting this matches the term as written, skipping stemming and fuzzy matching. */
   exact?: boolean
-  /** These settings decide which fields the query counts values for, and how each count is cut and sorted. */
+  /** These settings name the fields the query counts values for, and control how each count is cut and sorted. */
   facets?: FacetConfig
   /** This sorts the hits by field value, keyed by field, which replaces the relevance ranking. */
   sort?: Record<string, 'asc' | 'desc'>
@@ -68,7 +68,7 @@ export interface QueryParams {
   offset?: number
   /** This cursor comes from a previous result's `cursor`, and pages without an offset's cost. */
   searchAfter?: string
-  /** These settings decide which fields come back with highlighted snippets. */
+  /** These settings name the fields that come back with highlighted snippets. */
   highlight?: HighlightConfig
   /** These documents take fixed positions, ahead of the ranking. */
   pinned?: Array<{ docId: string; position: number }>
@@ -76,7 +76,7 @@ export interface QueryParams {
   mode?: SearchMode
   /** These vector-search inputs are required in `vector` and `hybrid` mode. */
   vector?: VectorQueryConfig
-  /** These settings decide how the keyword and vector rankings merge in `hybrid` mode. */
+  /** These settings control how the keyword and vector rankings merge in `hybrid` mode. */
   hybrid?: HybridConfig
   /** Setting this returns the numbers behind each hit's score, which is what you read when a ranking surprises you. */
   includeScoreComponents?: boolean

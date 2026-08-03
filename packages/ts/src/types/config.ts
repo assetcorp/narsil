@@ -23,7 +23,7 @@ export interface NarsilConfig {
   plugins?: NarsilPlugin[]
   /** This supplies the id for a document inserted without one. The engine generates a UUID v7 by default. */
   idGenerator?: () => string
-  /** These settings decide when the engine moves its indexes onto worker threads, and how many it uses. */
+  /** These settings control when the engine moves its indexes onto worker threads, and how many it uses. */
   workers?: WorkerConfig
   /** Every index uses this adapter unless its own config names another. */
   embedding?: EmbeddingAdapter
@@ -31,7 +31,7 @@ export interface NarsilConfig {
   embeddingAdapters?: Record<string, EmbeddingAdapter>
   /** These settings recover the writes made since the last snapshot. */
   durability?: DurabilityConfig
-  /** These settings decide what the engine does when an index's stored analysis no longer matches its language module. */
+  /** These settings control what the engine does when an index's stored analysis differs from its language module. */
   analysis?: AnalysisConfig
 }
 
