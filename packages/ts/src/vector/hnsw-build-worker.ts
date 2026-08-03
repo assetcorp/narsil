@@ -108,15 +108,6 @@ function clampHNSWConfig(config: HNSWConfig): HNSWConfig {
   }
 }
 
-/**
- * Builds a graph from an array-form request, which is the worker's own handler
- * and carries no support promise.
- *
- * @param request - The vectors to index, their dimension, and the graph shape.
- * @returns The graph the worker posts back.
- *
- * @internal
- */
 function handleBuildRequest(request: HNSWBuildRequest): SerializedHNSWGraph {
   validateBuildRequest(request)
   const safeConfig = clampHNSWConfig(request.config)
@@ -223,7 +214,5 @@ async function setupAsync(): Promise<void> {
     }
   }
 }
-
-export { handleBuildRequest }
 
 setupWorker()

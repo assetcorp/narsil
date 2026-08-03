@@ -4,11 +4,6 @@
 
 ```ts
 
-// Warning: (ae-internal-missing-underscore) The name "handleBuildRequest" should be prefixed with an underscore because the declaration is marked as @internal
-//
-// @internal
-export function handleBuildRequest(request: HNSWBuildRequest): SerializedHNSWGraph;
-
 // Warning: (ae-internal-missing-underscore) The name "HNSWBuildError" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
