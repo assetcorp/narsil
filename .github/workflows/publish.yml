@@ -29,9 +29,26 @@ permissions:
   id-token: write
 
 jobs:
+  plan:
+    name: Decide whether this push earns a prerelease
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.resolve.outputs.publish }}
+      version: ${{ steps.resolve.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve the prerelease version
+        id: resolve
+        run: node .github/scripts/resolve-prerelease.js
+
   prerelease:
     name: Publish prerelease to the next dist-tag
-    if: github.event_name == 'push'
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -63,16 +80,8 @@ jobs:
       - name: Test
         run: pnpm nx run narsil-ts:test
 
-      - name: Resolve prerelease version
-        id: version
-        env:
-          RUN_NUMBER: ${{ github.run_number }}
-        run: |
-          BASE=$(node -p "require('./packages/ts/package.json').version")
-          echo "value=${BASE%%-*}-next.${RUN_NUMBER}" >> "$GITHUB_OUTPUT"
-
       - name: Set prerelease version
-        run: pnpm nx release version "${{ steps.version.outputs.value }}" --projects=narsil-ts --git-commit=false --git-tag=false
+        run: pnpm nx release version "${{ needs.plan.outputs.version }}" --projects=narsil-ts --git-commit=false --git-tag=false
 
       - name: Publish
         env:
