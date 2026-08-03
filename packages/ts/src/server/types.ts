@@ -104,7 +104,7 @@ export interface ServerOptions {
   host?: string
   /** The server binds to this port. Pass 0 to let the operating system choose one, then read {@link NarsilServer.listeningPort}. */
   port?: number
-  /** These settings decide which cross-origin requests the server accepts, and `true` accepts any origin. */
+  /** These settings control which cross-origin requests the server accepts, and `true` accepts any origin. */
   cors?: boolean | CorsOptions
   /** Authentication or admission gate run before every routed request. */
   onRequest?: OnRequestHook
@@ -337,7 +337,7 @@ export interface HttpIndexConfig {
   schema: Record<string, unknown>
   /** The server tokenises and stems text fields with the language module registered under this name. */
   language?: string
-  /** These settings decide how the index splits documents across partitions as it grows. */
+  /** These settings control how the index splits documents across partitions as it grows. */
   partitions?: { maxDocsPerPartition?: number; maxPartitions?: number; watermark?: number }
   /** A query scores this way unless it asks for another mode. */
   defaultScoring?: 'local' | 'dfs' | 'broadcast'
@@ -349,7 +349,7 @@ export interface HttpIndexConfig {
   trackPositions?: boolean
   /** Setting this returns the words users typed from suggestions and prefix expansion, instead of index stems. */
   surfaceForms?: boolean
-  /** These settings decide when vector fields move to an HNSW graph, and how that graph is built. */
+  /** These settings control when vector fields move to an HNSW graph, and how that graph is built. */
   vectorPromotion?: Record<string, unknown>
   /** Setting this rejects a document carrying a field the schema does not declare. */
   strict?: boolean
