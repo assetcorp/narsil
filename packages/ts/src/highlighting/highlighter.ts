@@ -9,7 +9,7 @@ export interface HighlightOptions {
   /**
    * Unstemmed last query token of a prefix (search-as-you-type) query.
    * Field tokens that start with it are highlighted whole, so completions
-   * like "security" light up when the user has typed "secur".
+   * like 'security' are marked when the user has typed 'secur'.
    */
   prefixToken?: string
 }

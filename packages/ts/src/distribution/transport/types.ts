@@ -15,7 +15,7 @@ export interface TransportMessage {
   sourceId: string
   /** This correlates a reply with its request. */
   requestId: string
-  /** This carries the encoded body, which the message type decides how to read. */
+  /** This carries the encoded body, and the message type tells a reader how to decode it. */
   payload: Uint8Array
 }
 

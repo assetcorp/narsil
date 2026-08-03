@@ -35,7 +35,7 @@ function statusLine(status: number): string {
  * Streams a fully-materialized body with backpressure handling. `tryEnd` writes
  * only what the socket accepts now and never buffers the unsent tail, so a slow
  * reader cannot force uWebSockets.js to hold the whole payload in native memory;
- * the remainder is re-supplied from the acknowledged offset in `onWritable`. The
+ * the rest is re-supplied from the acknowledged offset in `onWritable`. The
  * body stays referenced on the JS heap by the closure until the drain finishes
  * or the client aborts, at which point it is released.
  */
@@ -62,7 +62,7 @@ function streamBody(
 }
 
 /** Writes a JSON body atomically. uWebSockets.js requires header and body
- * writes to share a single cork so the kernel sees one syscall. Bodies at or
+ * writes to share a single cork so the two reach the kernel as one syscall. Bodies at or
  * above {@link STREAM_THRESHOLD} are streamed so a slow reader cannot pin the
  * whole payload in native memory; this needs the request's abort handle. */
 export function sendJson(res: HttpResponse, data: unknown, status = 200, abort?: ResponseAbort): void {

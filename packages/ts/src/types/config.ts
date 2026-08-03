@@ -63,7 +63,7 @@ export interface StaleAnalysis {
  *
  * A stale index answers text queries from terms an older analysis wrote, and
  * every such result reports `analysisStale`. Rebuilding fixes it, and this
- * decides whether the engine starts that work itself.
+ * setting controls whether the engine starts that work itself.
  *
  * @public
  */

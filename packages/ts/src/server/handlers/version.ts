@@ -7,8 +7,8 @@ import type { RouteContext } from '../request'
  * git commit it was built from, with a flag for a dirty working tree. The values
  * are whatever the build stamped into the server; an unstamped build reports nulls
  * rather than guessing. A benchmark or operator reads this to tie a result to the
- * exact code under test. It needs no API key, so it sits alongside the health
- * probes and a probe or harness can reach it without a token.
+ * exact code under test. It needs no API key, which is what the health probes
+ * also do, so a probe or harness can reach it without a token.
  */
 export function createVersionHandler(deps: HandlerDeps) {
   function report(ctx: RouteContext): void {
