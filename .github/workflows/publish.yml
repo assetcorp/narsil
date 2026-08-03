@@ -81,7 +81,7 @@ jobs:
         run: pnpm nx run narsil-ts:test
 
       - name: Set prerelease version
-        run: pnpm nx release version "${{ needs.plan.outputs.version }}" --projects=narsil-ts --git-commit=false --git-tag=false
+        run: pnpm nx release version "${{ needs.plan.outputs.version }}" --projects=narsil-ts --git-commit=false --git-tag=false --stage-changes=false
 
       - name: Publish
         env:
