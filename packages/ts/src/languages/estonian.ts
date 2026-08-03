@@ -1373,6 +1373,15 @@ const stopWords = new Set([
   'ž',
 ])
 
+/**
+ * Estonian analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Estonian text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `estonian`.
+ *
+ * @public
+ */
 export const estonian: LanguageModule = {
   name: 'estonian',
   revision: '355ed339ae055178',

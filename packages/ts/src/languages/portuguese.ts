@@ -222,6 +222,15 @@ function normalize(token: string): string {
   return removeMarks(token, DIAERESIS)
 }
 
+/**
+ * Portuguese analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Portuguese text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `portuguese`.
+ *
+ * @public
+ */
 export const portuguese: LanguageModule = {
   name: 'portuguese',
   revision: 'c0a0c5c97ab9ca6e',

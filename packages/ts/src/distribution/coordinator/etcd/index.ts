@@ -10,6 +10,7 @@ import type {
   PartitionState,
   SchemaEvent,
 } from '../types'
+import { coordinatorKeys, extractSuffix } from './keys'
 import { LeaseManager } from './leases'
 import { loadEtcd3Module } from './loader'
 import {
@@ -20,20 +21,29 @@ import {
   serializeNodeRegistration,
   serializeSchema,
 } from './serialization'
-import {
-  buildKey,
-  DEFAULT_ETCD_CONFIG,
-  ETCD_KEY_ALLOCATION,
-  ETCD_KEY_NODES,
-  ETCD_KEY_PARTITION,
-  ETCD_KEY_SCHEMA,
-  type EtcdCoordinatorConfig,
-} from './types'
+import { DEFAULT_ETCD_CONFIG, type EtcdCoordinatorConfig } from './types'
 import { MAX_WATCHERS, validateNodeId, validatePartitionState } from './validation'
 
 export type { EtcdCoordinatorConfig } from './types'
 export { validateNodeId } from './validation'
 
+/**
+ * Builds a coordinator backed by etcd, which is what holds a cluster's shared
+ * state across hosts and restarts.
+ *
+ * etcd gives the coordinator what a cluster depends on: leases that expire once
+ * a node misses its heartbeats, and compare-and-set writes that keep two
+ * controllers from disagreeing. Install `etcd3` alongside this package,
+ * because it is an optional peer dependency this call loads on demand.
+ *
+ * @param config - Endpoints, key prefix, and lease lifetimes to override.
+ * Anything you leave out keeps its default.
+ * @returns A coordinator you pass as a cluster node's `coordinator`.
+ * @throws A `NarsilError` with `COORDINATOR_DEPENDENCY_MISSING` when `etcd3`
+ * is not installed.
+ *
+ * @public
+ */
 export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConfig>): Promise<ClusterCoordinator> {
   const resolvedConfig: EtcdCoordinatorConfig = {
     ...DEFAULT_ETCD_CONFIG,
@@ -52,33 +62,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
     }
   }
 
-  function nodeKey(nodeId: string): string {
-    return buildKey(resolvedConfig.keyPrefix, ETCD_KEY_NODES, nodeId)
-  }
-
-  function allocationKey(indexName: string): string {
-    return buildKey(resolvedConfig.keyPrefix, ETCD_KEY_ALLOCATION, indexName)
-  }
-
-  function partitionKey(indexName: string, partitionId: number): string {
-    return buildKey(resolvedConfig.keyPrefix, ETCD_KEY_PARTITION, indexName, String(partitionId))
-  }
-
-  function schemaKey(indexName: string): string {
-    return buildKey(resolvedConfig.keyPrefix, ETCD_KEY_SCHEMA, indexName)
-  }
-
-  function leaseKey(key: string): string {
-    return buildKey(resolvedConfig.keyPrefix, 'lease', key)
-  }
-
-  function genericKey(key: string): string {
-    return buildKey(resolvedConfig.keyPrefix, 'kv', key)
-  }
-
-  function extractSuffix(fullKey: string, prefix: string): string {
-    return fullKey.slice(prefix.length + 1)
-  }
+  const keys = coordinatorKeys(resolvedConfig)
 
   function addWatcher(watcher: Watcher): void {
     if (watchers.size >= MAX_WATCHERS) {
@@ -103,7 +87,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       const lease = client.lease(ttl)
       await lease.grant()
 
-      const key = nodeKey(registration.nodeId)
+      const key = keys.node(registration.nodeId)
       const data = Buffer.from(serializeNodeRegistration(registration))
       await lease.put(key).value(data).exec()
 
@@ -117,7 +101,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
     async deregisterNode(nodeId: string): Promise<void> {
       assertNotShutdown()
       validateNodeId(nodeId)
-      const key = nodeKey(nodeId)
+      const key = keys.node(nodeId)
       const entry = leaseManager.remove(key)
       if (entry !== undefined) {
         await entry.lease.revoke().catch(() => {})
@@ -127,7 +111,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
 
     async listNodes(): Promise<NodeRegistration[]> {
       assertNotShutdown()
-      const prefix = buildKey(resolvedConfig.keyPrefix, ETCD_KEY_NODES)
+      const prefix = keys.nodePrefix()
       const result = await client.getAll().prefix(prefix).buffers()
       const nodes: NodeRegistration[] = []
       for (const key of Object.keys(result)) {
@@ -141,7 +125,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
 
     async watchNodes(handler: (event: NodeEvent) => void): Promise<() => void> {
       assertNotShutdown()
-      const prefix = buildKey(resolvedConfig.keyPrefix, ETCD_KEY_NODES)
+      const prefix = keys.nodePrefix()
       const watcher = await client.watch().prefix(prefix).create()
       addWatcher(watcher)
 
@@ -165,7 +149,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
 
     async getAllocation(indexName: string): Promise<AllocationTable | null> {
       assertNotShutdown()
-      const key = allocationKey(indexName)
+      const key = keys.allocation(indexName)
       const buf = await client.get(key).buffer()
       if (buf === null) {
         return null
@@ -175,7 +159,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
 
     async putAllocation(indexName: string, table: AllocationTable, expectedVersion?: number | null): Promise<boolean> {
       assertNotShutdown()
-      const key = allocationKey(indexName)
+      const key = keys.allocation(indexName)
       const data = Buffer.from(serializeAllocationTable(table))
 
       if (expectedVersion === undefined) {
@@ -204,7 +188,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
 
     async watchAllocation(handler: (event: AllocationEvent) => void): Promise<() => void> {
       assertNotShutdown()
-      const prefix = buildKey(resolvedConfig.keyPrefix, ETCD_KEY_ALLOCATION)
+      const prefix = keys.allocationPrefix()
       const watcher = await client.watch().prefix(prefix).create()
       addWatcher(watcher)
 
@@ -222,7 +206,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
 
     async getPartitionState(indexName: string, partitionId: number): Promise<PartitionState> {
       assertNotShutdown()
-      const key = partitionKey(indexName, partitionId)
+      const key = keys.partition(indexName, partitionId)
       const value = await client.get(key).string()
       if (value === null) {
         return 'UNASSIGNED'
@@ -232,13 +216,13 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
 
     async putPartitionState(indexName: string, partitionId: number, state: PartitionState): Promise<void> {
       assertNotShutdown()
-      const key = partitionKey(indexName, partitionId)
+      const key = keys.partition(indexName, partitionId)
       await client.put(key).value(state).exec()
     },
 
     async acquireLease(key: string, nodeId: string, ttlMs: number): Promise<boolean> {
       assertNotShutdown()
-      const etcdKey = leaseKey(key)
+      const etcdKey = keys.lease(key)
       const ttlSeconds = Math.max(1, Math.ceil(ttlMs / 1000))
 
       const existing = leaseManager.get(etcdKey)
@@ -267,7 +251,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
 
     async renewLease(key: string, nodeId: string, _ttlMs: number): Promise<boolean> {
       assertNotShutdown()
-      const etcdKey = leaseKey(key)
+      const etcdKey = keys.lease(key)
 
       const entry = leaseManager.getByNodeId(etcdKey, nodeId)
       if (entry === undefined) {
@@ -285,7 +269,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
 
     async releaseLease(key: string): Promise<void> {
       assertNotShutdown()
-      const etcdKey = leaseKey(key)
+      const etcdKey = keys.lease(key)
       const entry = leaseManager.remove(etcdKey)
       if (entry !== undefined) {
         await entry.lease.revoke().catch(() => {})
@@ -295,7 +279,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
 
     async get(key: string): Promise<Uint8Array | null> {
       assertNotShutdown()
-      const etcdKey = genericKey(key)
+      const etcdKey = keys.generic(key)
       const buf = await client.get(etcdKey).buffer()
       if (buf === null) {
         return null
@@ -305,7 +289,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
 
     async compareAndSet(key: string, expected: Uint8Array | null, value: Uint8Array): Promise<boolean> {
       assertNotShutdown()
-      const etcdKey = genericKey(key)
+      const etcdKey = keys.generic(key)
       const newValue = Buffer.from(value)
 
       if (expected === null) {
@@ -323,7 +307,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
 
     async getSchema(indexName: string): Promise<SchemaDefinition | null> {
       assertNotShutdown()
-      const key = schemaKey(indexName)
+      const key = keys.schema(indexName)
       const buf = await client.get(key).buffer()
       if (buf === null) {
         return null
@@ -333,13 +317,13 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
 
     async putSchema(indexName: string, schema: SchemaDefinition): Promise<void> {
       assertNotShutdown()
-      const key = schemaKey(indexName)
+      const key = keys.schema(indexName)
       await client.put(key).value(serializeSchema(schema)).exec()
     },
 
     async watchSchemas(handler: (event: SchemaEvent) => void): Promise<() => void> {
       assertNotShutdown()
-      const prefix = buildKey(resolvedConfig.keyPrefix, ETCD_KEY_SCHEMA)
+      const prefix = keys.schemaPrefix()
       const watcher = await client.watch().prefix(prefix).create()
       addWatcher(watcher)
 
@@ -365,7 +349,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
 
     async getLeaseHolder(key: string): Promise<string | null> {
       assertNotShutdown()
-      const etcdKey = leaseKey(key)
+      const etcdKey = keys.lease(key)
       const value = await client.get(etcdKey).string()
       return value ?? null
     },

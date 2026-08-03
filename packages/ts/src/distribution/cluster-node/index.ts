@@ -50,6 +50,20 @@ import {
 
 const SPEC_VERSION = '1.0'
 
+/**
+ * Builds one node of a cluster, ready to join.
+ *
+ * The node is idle until you call {@link ClusterNode.start}, which registers
+ * it, takes on the partitions the controller allocates to it, and starts
+ * answering. A node whose roles include `controller` stands for election and
+ * runs allocation for the whole cluster while it holds the lease.
+ *
+ * @param config - The coordinator, the transport, this node's address, and the
+ * settings for the engine it runs locally.
+ * @returns The node, ready for {@link ClusterNode.start}.
+ *
+ * @public
+ */
 export async function createClusterNode(config: ClusterNodeConfig): Promise<ClusterNode> {
   validateClusterNodeConfig(config)
 

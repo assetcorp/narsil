@@ -178,6 +178,15 @@ const stopWords = new Set([
   'vin',
 ])
 
+/**
+ * Esperanto analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Esperanto text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `esperanto`.
+ *
+ * @public
+ */
 export const esperanto: LanguageModule = {
   name: 'esperanto',
   revision: 'dacc9f709c07f8ad',

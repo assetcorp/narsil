@@ -58,6 +58,16 @@ function normalize(token: string): string {
   return token.replace(ZERO_WIDTH_NON_JOINER, '')
 }
 
+/**
+ * Telugu analysis: the stop word list and the rules that split Telugu
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `telugu`.
+ *
+ * @public
+ */
 export const telugu: LanguageModule = {
   name: 'telugu',
   revision: '1',

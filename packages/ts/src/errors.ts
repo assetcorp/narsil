@@ -1,3 +1,13 @@
+/**
+ * Every code a {@link NarsilError} carries, grouped by the part of the engine
+ * that raises it.
+ *
+ * Match on the code rather than on the message, because a code is stable and a
+ * message is not. The HTTP server maps each code to a status, so a code also
+ * tells you whether the caller or the engine is at fault.
+ *
+ * @public
+ */
 export const ErrorCodes = {
   SCHEMA_INVALID_TYPE: 'SCHEMA_INVALID_TYPE',
   SCHEMA_MISSING_FIELD: 'SCHEMA_MISSING_FIELD',
@@ -89,12 +99,38 @@ export const ErrorCodes = {
   SNAPSHOT_SYNC_ABORTED: 'SNAPSHOT_SYNC_ABORTED',
 } as const
 
+/**
+ * Any one of the codes in {@link ErrorCodes}, which is the type to narrow on
+ * when you branch on a failure.
+ *
+ * @public
+ */
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes]
 
+/**
+ * The error every part of the engine throws.
+ *
+ * Catch it, read {@link NarsilError.code} to decide what to do, and read
+ * {@link NarsilError.details} for the values that caused it. The engine lets
+ * this error propagate unchanged, so the code you catch is the code the
+ * failing operation raised.
+ *
+ * @public
+ */
 export class NarsilError extends Error {
+  /** This says which failure it is. */
   readonly code: ErrorCode
+  /** This carries the values behind the failure, such as the field, index, or limit involved. It is empty when the code says everything. */
   readonly details: Record<string, unknown>
 
+  /**
+   * Builds an error carrying a code the caller can branch on.
+   *
+   * @param code - The failure this error reports.
+   * @param message - Plain description, for a log or a person.
+   * @param details - Values behind the failure, which reach
+   * {@link NarsilError.details}.
+   */
   constructor(code: ErrorCode, message: string, details?: Record<string, unknown>) {
     super(message)
     this.name = 'NarsilError'

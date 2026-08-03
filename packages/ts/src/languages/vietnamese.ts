@@ -275,6 +275,16 @@ const stopWords = new Set([
   'ý',
 ])
 
+/**
+ * Vietnamese analysis: the stop word list and the rules that split Vietnamese
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `vietnamese`.
+ *
+ * @public
+ */
 export const vietnamese: LanguageModule = {
   name: 'vietnamese',
   revision: '1',

@@ -56,6 +56,15 @@ const stopWords = new Set([
   '\u0587',
 ])
 
+/**
+ * Armenian analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Armenian text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `armenian`.
+ *
+ * @public
+ */
 export const armenian: LanguageModule = {
   name: 'armenian',
   revision: '6d99ac3501d5d369',

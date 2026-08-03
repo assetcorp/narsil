@@ -59,6 +59,16 @@ const stopWords = new Set([
   'uma',
 ])
 
+/**
+ * Samoan analysis: the stop word list and the rules that split Samoan
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `samoan`.
+ *
+ * @public
+ */
 export const samoan: LanguageModule = {
   name: 'samoan',
   revision: '1',

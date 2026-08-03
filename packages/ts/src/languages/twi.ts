@@ -89,6 +89,16 @@ function normalize(token: string): string {
   return token.replace(GREEK_EPSILON, TWI_OPEN_E).replace(OPEN_O_LOOKALIKES, TWI_OPEN_O)
 }
 
+/**
+ * Twi analysis: the stop word list and the rules that split Twi
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `twi`.
+ *
+ * @public
+ */
 export const twi: LanguageModule = {
   name: 'twi',
   revision: '1',

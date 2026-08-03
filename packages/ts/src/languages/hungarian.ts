@@ -256,6 +256,15 @@ const stopWords = new Set([
   'őt',
 ])
 
+/**
+ * Hungarian analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Hungarian text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `hungarian`.
+ *
+ * @public
+ */
 export const hungarian: LanguageModule = {
   name: 'hungarian',
   revision: '7b9c2fc79181fc11',

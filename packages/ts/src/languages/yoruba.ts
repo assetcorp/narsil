@@ -99,6 +99,16 @@ const stopWords = new Set([
   'síbẹ̀',
 ])
 
+/**
+ * Yoruba analysis: the stop word list and the rules that split Yoruba
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `yoruba`.
+ *
+ * @public
+ */
 export const yoruba: LanguageModule = {
   name: 'yoruba',
   revision: '1',

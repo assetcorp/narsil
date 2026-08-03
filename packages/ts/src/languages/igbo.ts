@@ -92,6 +92,16 @@ const stopWords = new Set([
   'taa',
 ])
 
+/**
+ * Igbo analysis: the stop word list and the rules that split Igbo
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `igbo`.
+ *
+ * @public
+ */
 export const igbo: LanguageModule = {
   name: 'igbo',
   revision: '1',

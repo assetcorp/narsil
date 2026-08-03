@@ -164,6 +164,15 @@ const stopWords = new Set([
   '\u0905\u0928\u094D\u092F\u0924\u094D',
 ])
 
+/**
+ * Sanskrit analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Sanskrit text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `sanskrit`.
+ *
+ * @public
+ */
 export const sanskrit: LanguageModule = {
   name: 'sanskrit',
   revision: '1',

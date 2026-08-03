@@ -213,6 +213,15 @@ const stopWords = new Set([
   'últimos',
 ])
 
+/**
+ * Spanish analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Spanish text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `spanish`.
+ *
+ * @public
+ */
 export const spanish: LanguageModule = {
   name: 'spanish',
   revision: '8dc152fd2fcce882',

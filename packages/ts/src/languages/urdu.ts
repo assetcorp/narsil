@@ -524,6 +524,16 @@ const stopWords = new Set([
   'ًے',
 ])
 
+/**
+ * Urdu analysis: the stop word list and the rules that split Urdu
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `urdu`.
+ *
+ * @public
+ */
 export const urdu: LanguageModule = {
   name: 'urdu',
   revision: '1',
