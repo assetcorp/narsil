@@ -90,6 +90,16 @@ const stopWords = new Set([
   'өте',
 ])
 
+/**
+ * Kazakh analysis: the stop word list and the rules that split Kazakh
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `kazakh`.
+ *
+ * @public
+ */
 export const kazakh: LanguageModule = {
   name: 'kazakh',
   revision: '1',

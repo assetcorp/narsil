@@ -170,6 +170,15 @@ const stopWords = new Set([
   'между',
 ])
 
+/**
+ * Russian analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Russian text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `russian`.
+ *
+ * @public
+ */
 export const russian: LanguageModule = {
   name: 'russian',
   revision: '87767119dd36215c',

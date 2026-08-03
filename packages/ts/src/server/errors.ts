@@ -2,7 +2,9 @@ import { NarsilError } from '../errors'
 
 /** HTTP-layer error codes for failures that arise before or around the engine
  * call (parsing, limits, routing). Engine failures carry their own
- * {@link NarsilError} codes, mapped by {@link httpStatusForNarsilError}. */
+ * {@link NarsilError} codes, mapped by {@link httpStatusForNarsilError}.
+ *
+ * @public */
 export const ServerErrorCodes = {
   INVALID_REQUEST: 'INVALID_REQUEST',
   INVALID_JSON: 'INVALID_JSON',
@@ -71,7 +73,12 @@ const STATUS_BY_CODE: Record<string, number> = {
 }
 
 /** Maps a {@link NarsilError} code to an HTTP status. Unknown or cluster-only
- * codes fall through to 500 so an internal fault never leaks as a client error. */
+ * codes fall through to 500 so an internal fault never leaks as a client error.
+ *
+ * @param code - The code a {@link NarsilError} carried.
+ * @returns The status the server answers with.
+ *
+ * @public */
 export function httpStatusForNarsilError(code: string): number {
   return STATUS_BY_CODE[code] ?? 500
 }

@@ -210,6 +210,16 @@ const stopWords = new Set([
   'zwar',
 ])
 
+/**
+ * Luxembourgish analysis: the stop word list and the rules that split Luxembourgish
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `luxembourgish`.
+ *
+ * @public
+ */
 export const luxembourgish: LanguageModule = {
   name: 'luxembourgish',
   revision: '1',

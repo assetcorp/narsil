@@ -1,12 +1,23 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import type { EmbeddingAdapter } from '../types/adapters'
 
+/**
+ * How {@link createOpenAIEmbedding} reaches an embeddings endpoint.
+ *
+ * @public
+ */
 export interface OpenAIEmbeddingConfig {
+  /** This points the adapter at OpenAI, at Azure, or at a compatible service you host. */
   baseUrl: string
+  /** This holds the key, or a function returning it, which is how you rotate a key or fetch a short-lived token per request. */
   apiKey: string | (() => string | Promise<string>)
+  /** The adapter embeds with this model. */
   model: string
+  /** The model returns vectors this long, which must match the schema's `vector[N]`. */
   dimensions: number
+  /** The adapter aborts a request that runs longer than this many milliseconds. */
   timeout?: number
+  /** The adapter retries this many times when the service rejects a request as retryable, such as on a rate limit. */
   maxRetries?: number
 }
 
@@ -205,6 +216,22 @@ async function executeWithRetry(
   })
 }
 
+/**
+ * Builds an embedding adapter that calls an OpenAI-compatible embeddings
+ * endpoint, so an index embeds documents as they arrive and embeds a query as
+ * it runs.
+ *
+ * The adapter batches when the engine offers it a batch, retries a request the
+ * service says is retryable, and gives up once `maxRetries` is spent.
+ *
+ * @param config - Endpoint, credentials, model, and vector length.
+ * @returns An adapter you pass as `embedding`, or register by name with
+ * {@link Narsil.registerEmbeddingAdapter}.
+ * @throws A `NarsilError` with `EMBEDDING_CONFIG_INVALID` when the base URL,
+ * the model, or the dimension count is missing or out of range.
+ *
+ * @public
+ */
 export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingAdapter {
   if (!config.baseUrl || config.baseUrl.trim().length === 0) {
     throw new NarsilError(ErrorCodes.EMBEDDING_CONFIG_INVALID, 'OpenAI embedding adapter requires a non-empty baseUrl')

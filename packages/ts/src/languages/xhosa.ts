@@ -91,6 +91,16 @@ const stopWords = new Set([
   'zonke',
 ])
 
+/**
+ * Xhosa analysis: the stop word list and the rules that split Xhosa
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `xhosa`.
+ *
+ * @public
+ */
 export const xhosa: LanguageModule = {
   name: 'xhosa',
   revision: '1',

@@ -121,6 +121,15 @@ const stopWords = new Set([
   'ónár',
 ])
 
+/**
+ * Irish analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Irish text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `irish`.
+ *
+ * @public
+ */
 export const irish: LanguageModule = {
   name: 'irish',
   revision: 'c79c8adddaf02ae4',

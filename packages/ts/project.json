@@ -46,6 +46,22 @@
         "cwd": "packages/ts"
       }
     },
+    "api": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run api",
+        "cwd": "packages/ts"
+      }
+    },
+    "api:write": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run api:write",
+        "cwd": "packages/ts"
+      }
+    },
     "lookalikes": {
       "executor": "nx:run-commands",
       "cache": false,

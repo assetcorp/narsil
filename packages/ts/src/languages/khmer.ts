@@ -177,6 +177,16 @@ const stopWords = new Set([
   'ឱ្យ',
 ])
 
+/**
+ * Khmer analysis: the stop word list and the rules that split Khmer
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `khmer`.
+ *
+ * @public
+ */
 export const khmer: LanguageModule = {
   name: 'khmer',
   revision: '1',

@@ -24,12 +24,20 @@ export type {
   PartitionStatistics,
   PersistenceAdapter,
 } from './types/adapters'
-export type { DurabilityConfig, NarsilConfig, WorkerConfig } from './types/config'
+export type {
+  AnalysisConfig,
+  DurabilityConfig,
+  NarsilConfig,
+  StaleAnalysis,
+  WorkerConfig,
+} from './types/config'
 export type { NarsilEventMap } from './types/events'
 export type {
   ArrayFilter,
   ComparisonFilter,
+  FieldFilter,
   FilterExpression,
+  GeoFilter,
   GeoPolygonFilter,
   GeoRadiusFilter,
   PresenceFilter,
@@ -75,6 +83,8 @@ export type {
   SchemaDefinition,
   ScoringMode,
   StopWordOverride,
+  VectorIndexConfig,
+  VectorQuantizationMode,
 } from './types/schema'
 export type {
   FacetConfig,
@@ -89,6 +99,14 @@ export type {
   VectorQueryConfig,
 } from './types/search'
 export { isSimdAvailable } from './vector/simd'
-// Written into the engine-version bytes of every .nrsl file, for diagnostics only.
-// Change it by hand and on purpose; it does not follow the published package version.
+/**
+ * Engine version written into the engine-version bytes of every `.nrsl` file,
+ * for diagnostics.
+ *
+ * It records which engine produced a file and carries no relation to the
+ * published package version, so read it when inspecting a file rather than
+ * when checking what you installed. Change it by hand and on purpose.
+ *
+ * @public
+ */
 export const VERSION = '0.1.0'

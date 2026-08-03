@@ -242,6 +242,15 @@ function normalize(token: string): string {
   return token.replace(CEDILLA_LETTERS, letter => COMMA_BELOW[letter])
 }
 
+/**
+ * Romanian analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Romanian text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `romanian`.
+ *
+ * @public
+ */
 export const romanian: LanguageModule = {
   name: 'romanian',
   revision: 'daf797aac5310bd4',

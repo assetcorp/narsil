@@ -75,6 +75,16 @@ const stopWords = new Set([
   'yow',
 ])
 
+/**
+ * Wolof analysis: the stop word list and the rules that split Wolof
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `wolof`.
+ *
+ * @public
+ */
 export const wolof: LanguageModule = {
   name: 'wolof',
   revision: '1',

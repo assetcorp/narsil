@@ -107,6 +107,16 @@ const stopWords = new Set([
   'phambi',
 ])
 
+/**
+ * Zulu analysis: the stop word list and the rules that split Zulu
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `zulu`.
+ *
+ * @public
+ */
 export const zulu: LanguageModule = {
   name: 'zulu',
   revision: '1',

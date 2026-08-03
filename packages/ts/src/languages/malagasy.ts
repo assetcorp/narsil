@@ -63,6 +63,16 @@ const stopWords = new Set([
   'vao',
 ])
 
+/**
+ * Malagasy analysis: the stop word list and the rules that split Malagasy
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `malagasy`.
+ *
+ * @public
+ */
 export const malagasy: LanguageModule = {
   name: 'malagasy',
   revision: '1',

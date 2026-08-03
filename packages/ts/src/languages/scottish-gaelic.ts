@@ -366,6 +366,16 @@ const stopWords = new Set([
   'urrainn',
 ])
 
+/**
+ * Scottish Gaelic analysis: the stop word list and the rules that split Scottish Gaelic
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `scottish-gaelic`.
+ *
+ * @public
+ */
 export const scottishGaelic: LanguageModule = {
   name: 'scottish-gaelic',
   revision: '1',

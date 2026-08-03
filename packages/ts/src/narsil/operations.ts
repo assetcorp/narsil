@@ -1,6 +1,6 @@
-import { createEngineCore, type EngineCore, type EventHandler, getVectorFieldPaths } from './engine/core'
-import { createEngineIndex, dropEngineIndex, registerEngineEmbeddingAdapter } from './engine/index-lifecycle'
-import { shutdownEngine } from './engine/lifecycle'
+import { type EngineCore, type EventHandler, getVectorFieldPaths } from '../engine/core'
+import { createEngineIndex, dropEngineIndex, registerEngineEmbeddingAdapter } from '../engine/index-lifecycle'
+import { shutdownEngine } from '../engine/lifecycle'
 import {
   insertDocument,
   insertDocumentBatch,
@@ -8,23 +8,24 @@ import {
   removeDocumentBatch,
   updateDocument,
   updateDocumentBatch,
-} from './engine/mutations'
-import { executePreflight, executeQuery } from './engine/query'
-import { executeRebalance } from './engine/rebalance-executor'
-import { resolveVectorText } from './engine/resolve-vector-text'
-import { createSnapshot, restoreFromSnapshot } from './engine/snapshot'
-import { executeSuggest } from './engine/suggest'
-import { validatePartitionConfig } from './engine/validation'
+} from '../engine/mutations'
+import { executePreflight, executeQuery } from '../engine/query'
+import { executeRebalance } from '../engine/rebalance-executor'
+import { resolveVectorText } from '../engine/resolve-vector-text'
+import { createSnapshot, restoreFromSnapshot } from '../engine/snapshot'
+import { executeSuggest } from '../engine/suggest'
+import { validatePartitionConfig } from '../engine/validation'
 import {
   compactVectors as executeCompactVectors,
   optimizeVectors as executeOptimizeVectors,
   getVectorMaintenanceStatus,
-} from './engine/vector-maintenance'
-import { ErrorCodes, NarsilError } from './errors'
-import { readProcessMemory } from './runtime/process-memory'
-import type { EmbeddingAdapter } from './types/adapters'
-import type { NarsilConfig } from './types/config'
-import type { NarsilEventMap } from './types/events'
+} from '../engine/vector-maintenance'
+import { ErrorCodes, NarsilError } from '../errors'
+import { readProcessMemory } from '../runtime/process-memory'
+import type { EmbeddingAdapter } from '../types/adapters'
+import type { NarsilConfig } from '../types/config'
+import type { Narsil } from '../types/engine'
+import type { NarsilEventMap } from '../types/events'
 import type {
   BatchResult,
   IndexInfo,
@@ -35,124 +36,9 @@ import type {
   QueryResult,
   SuggestResult,
   VectorMaintenanceResult,
-} from './types/results'
-import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig } from './types/schema'
-import type { QueryParams, SuggestParams } from './types/search'
-
-export interface Narsil {
-  /**
-   * Creates an index you can insert documents into and query.
-   *
-   * The schema sets the type of each field, decides which fields you can
-   * filter and sort on, and controls how the engine tokenises text. The
-   * `language` option picks the analyser that stems those text fields.
-   *
-   * @param name - Every later call uses this name to reach the index.
-   * @param config - This carries the schema, and the language, partitioning,
-   * and scoring settings.
-   */
-  createIndex(name: string, config: IndexConfig): Promise<void>
-  /** Registers an adapter under a name that index configs can reference and
-   * durability metadata can persist; re-registering rebinds referencing indexes. */
-  registerEmbeddingAdapter(name: string, adapter: EmbeddingAdapter): void
-  dropIndex(name: string): Promise<void>
-  listIndexes(): IndexInfo[]
-  getStats(indexName: string): IndexStats
-  getPartitionStats(indexName: string): PartitionStatsResult[]
-  /**
-   * Adds one document to an index and returns the id it is stored under.
-   *
-   * The id comes from the `docId` argument when you pass one, otherwise from
-   * the document's own `id` field, and otherwise the engine generates it. Use
-   * {@link Narsil.insertBatch} for a large load, so that one bad document
-   * cannot abandon the rest.
-   *
-   * @param indexName - The index that receives the document.
-   * @param document - Its fields must match the types the schema declares.
-   * @param docId - Pass an id to control it yourself, or omit it and read the
-   * returned value.
-   * @returns The id the document is stored under.
-   */
-  insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string>
-  insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult>
-  remove(indexName: string, docId: string): Promise<void>
-  removeBatch(indexName: string, docIds: string[]): Promise<BatchResult>
-  update(indexName: string, docId: string, document: AnyDocument): Promise<void>
-  updateBatch(indexName: string, updates: Array<{ docId: string; document: AnyDocument }>): Promise<BatchResult>
-  get(indexName: string, docId: string): Promise<AnyDocument | undefined>
-  getMultiple(indexName: string, docIds: string[]): Promise<Map<string, AnyDocument>>
-  has(indexName: string, docId: string): Promise<boolean>
-  countDocuments(indexName: string): Promise<number>
-  /**
-   * Runs a search against an index and returns the ranked hits.
-   *
-   * One call covers keyword search, vector search, and a hybrid of the two,
-   * chosen by the `mode` parameter. BM25 ranks keyword results by default.
-   * Every hit carries its score and its document, along with highlights when
-   * you ask for them.
-   *
-   * @param indexName - The index the search runs against.
-   * @param params - These set the search term, filters, field boosts, sorting,
-   * facets, highlighting, and the result limit.
-   * @returns The hits, the total count, the elapsed time, and any facets or
-   * groups the query asked for.
-   */
-  query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>
-  preflight(indexName: string, params: QueryParams): Promise<PreflightResult>
-  suggest(indexName: string, params: SuggestParams): Promise<SuggestResult>
-  /**
-   * Rebuilds an index's terms from the documents it already stores, and
-   * resolves once every partition carries terms the current language module
-   * produced.
-   *
-   * An index whose stored analysis revision differs from the one its language
-   * module carries answers text queries from terms an earlier analysis wrote,
-   * and every such result reports `analysisStale`. Call this after the engine
-   * reports a stale index to configuration that declined an automatic rebuild.
-   * Calling it for an index whose terms are current does nothing.
-   *
-   * @param indexName - The index whose terms are rebuilt.
-   */
-  rebuildAnalysis(indexName: string): Promise<void>
-  snapshot(indexName: string): Promise<Uint8Array>
-  restore(indexName: string, data: Uint8Array): Promise<void>
-  checkpoint(indexName: string): Promise<void>
-  clear(indexName: string): Promise<void>
-  rebalance(indexName: string, targetPartitionCount: number): Promise<void>
-  updatePartitionConfig(indexName: string, config: Partial<PartitionConfig>): Promise<void>
-  getMemoryStats(): Promise<MemoryStats>
-  compactVectors(indexName: string, fieldName?: string): Promise<void>
-  optimizeVectors(indexName: string, fieldName?: string): Promise<void>
-  vectorMaintenanceStatus(indexName: string): VectorMaintenanceResult[]
-  on<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void
-  off<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void
-  shutdown(): Promise<void>
-}
-
-/**
- * Creates a search engine that runs inside your process, with no server to
- * provision.
- *
- * The engine holds every index you create, so an application usually keeps one
- * instance for its lifetime. When you configure persistence, this recovers the
- * indexes already on disk before it resolves, so the engine is ready to query
- * as soon as you have it.
- *
- * @param config - This carries the persistence, partitioning, and worker
- * invalidation settings. Omit it for an engine that keeps everything in memory.
- * @returns The engine, ready for {@link Narsil.createIndex} to run against.
- */
-export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
-  const core = createEngineCore(config)
-  if (core.durability) {
-    await core.durability.manager.recover()
-  }
-  if (core.invalidation) {
-    await core.invalidation.start()
-  }
-  await core.analysisRebuild.reviewStaleIndexes()
-  return createNarsilFromCore(core, config)
-}
+} from '../types/results'
+import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig } from '../types/schema'
+import type { QueryParams, SuggestParams } from '../types/search'
 
 export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): Narsil {
   const {

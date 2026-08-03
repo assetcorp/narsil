@@ -748,6 +748,15 @@ const stopWords = new Set([
   'yang',
 ])
 
+/**
+ * Indonesian analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Indonesian text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `indonesian`.
+ *
+ * @public
+ */
 export const indonesian: LanguageModule = {
   name: 'indonesian',
   revision: 'c0b2b853663a1396',

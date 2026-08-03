@@ -183,6 +183,15 @@ const stopWords = new Set([
   'vart',
 ])
 
+/**
+ * Norwegian analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Norwegian text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `norwegian`.
+ *
+ * @public
+ */
 export const norwegian: LanguageModule = {
   name: 'norwegian',
   revision: '8e862aa3bcec10dd',

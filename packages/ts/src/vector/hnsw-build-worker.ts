@@ -3,31 +3,77 @@ declare const self: unknown
 import { createHNSWIndex, type HNSWConfig, type SerializedHNSWGraph } from './hnsw'
 import { createVectorStore } from './vector-store'
 
+export type { VectorMetric } from './brute-force'
+export type { HNSWConfig, SerializedHNSWGraph } from './hnsw'
+
+/**
+ * Asks the build worker to construct a graph from vectors sent as arrays.
+ *
+ * This module is the worker's own entry point, and the engine posts these
+ * messages to it. It exists so that a bundler can resolve the worker file, and
+ * nothing here is part of the engine's supported surface.
+ *
+ * @internal
+ */
 export interface HNSWBuildRequest {
+  /** This marks the message as an array-form build request. */
   type: 'build'
+  /** The worker indexes these vectors, each carrying the document id it belongs to. */
   vectors: Array<{ docId: string; values: number[] }>
+  /** Each vector carries this many components. */
   dimension: number
+  /** The worker builds to this graph shape, clamped to safe bounds first. */
   config: HNSWConfig
 }
 
+/**
+ * Asks the build worker to construct a graph from vectors packed into one
+ * transferable buffer, which is what the engine sends for a large field.
+ *
+ * @internal
+ */
 export interface HNSWBuildRequestBinary {
+  /** This marks the message as a packed-buffer build request. */
   type: 'build-binary'
+  /** These document ids run in the order their vectors appear in the buffer. */
   docIds: string[]
+  /** This holds every vector end to end, `docIds.length * dimension` components long. */
   vectorData: Float32Array
+  /** Each vector carries this many components. */
   dimension: number
+  /** The worker builds to this graph shape, clamped to safe bounds first. */
   config: HNSWConfig
 }
 
+/**
+ * What the build worker returns once a graph is built.
+ *
+ * @internal
+ */
 export interface HNSWBuildResponse {
+  /** This marks the message as a completed build. */
   type: 'success'
+  /** This graph is ready for the engine to adopt. */
   graph: SerializedHNSWGraph
 }
 
+/**
+ * What the build worker returns when a build fails.
+ *
+ * @internal
+ */
 export interface HNSWBuildError {
+  /** This marks the message as a failed build. */
   type: 'error'
+  /** This says why the build failed. */
   message: string
 }
 
+/**
+ * Either message the build worker posts back.
+ *
+ * @internal
+ */
 export type HNSWWorkerMessage = HNSWBuildResponse | HNSWBuildError
 
 const MAX_WORKER_DIMENSION = 8192
@@ -62,6 +108,15 @@ function clampHNSWConfig(config: HNSWConfig): HNSWConfig {
   }
 }
 
+/**
+ * Builds a graph from an array-form request, which is the worker's own handler
+ * and carries no support promise.
+ *
+ * @param request - The vectors to index, their dimension, and the graph shape.
+ * @returns The graph the worker posts back.
+ *
+ * @internal
+ */
 function handleBuildRequest(request: HNSWBuildRequest): SerializedHNSWGraph {
   validateBuildRequest(request)
   const safeConfig = clampHNSWConfig(request.config)

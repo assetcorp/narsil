@@ -804,6 +804,16 @@ function normalize(token: string): string {
   return removeMarks(token, GRAVE_ACCENT)
 }
 
+/**
+ * Macedonian analysis: the stop word list and the rules that split Macedonian
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `macedonian`.
+ *
+ * @public
+ */
 export const macedonian: LanguageModule = {
   name: 'macedonian',
   revision: '1',

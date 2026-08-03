@@ -51,8 +51,16 @@ declare const IDBKeyRange: {
 
 type IDBKeyRangeInstance = object
 
+/**
+ * Which IndexedDB database and object store
+ * {@link createIndexedDBPersistence} writes to.
+ *
+ * @public
+ */
 export interface IndexedDBPersistenceConfig {
+  /** The adapter opens this database, and opens `narsil` by default. */
   dbName?: string
+  /** The adapter writes partitions to this object store, and to `partitions` by default. */
   storeName?: string
 }
 
@@ -73,6 +81,22 @@ function validateKey(key: string): void {
   }
 }
 
+/**
+ * Builds a persistence adapter that writes partitions to IndexedDB, so an
+ * index in a browser survives a reload.
+ *
+ * The adapter opens the database on its first call and keeps the handle, so
+ * creating it costs nothing until the engine writes.
+ *
+ * @param config - The database and object store to use. Omit it to accept the
+ * defaults.
+ * @returns An adapter you pass as `persistence` when creating an engine.
+ * @throws A `NarsilError` with `PERSISTENCE_SAVE_FAILED` in a runtime without
+ * IndexedDB, where {@link createMemoryPersistence} or
+ * {@link createFilesystemPersistence} applies instead.
+ *
+ * @public
+ */
 export function createIndexedDBPersistence(config?: IndexedDBPersistenceConfig): PersistenceAdapter {
   if (typeof indexedDB === 'undefined') {
     throw new NarsilError(

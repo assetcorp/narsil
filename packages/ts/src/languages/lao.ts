@@ -60,6 +60,16 @@ const stopWords = new Set([
   'ຮັບ',
 ])
 
+/**
+ * Lao analysis: the stop word list and the rules that split Lao
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `lao`.
+ *
+ * @public
+ */
 export const lao: LanguageModule = {
   name: 'lao',
   revision: '1',

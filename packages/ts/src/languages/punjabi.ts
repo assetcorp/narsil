@@ -194,6 +194,16 @@ const stopWords = new Set([
   'ਵੀ',
 ])
 
+/**
+ * Punjabi analysis: the stop word list and the rules that split Punjabi
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `punjabi`.
+ *
+ * @public
+ */
 export const punjabi: LanguageModule = {
   name: 'punjabi',
   revision: '1',

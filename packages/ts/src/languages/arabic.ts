@@ -473,6 +473,15 @@ const stopWords = new Set([
   'يوم',
 ])
 
+/**
+ * Arabic analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Arabic text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `arabic`.
+ *
+ * @public
+ */
 export const arabic: LanguageModule = {
   name: 'arabic',
   revision: 'd9b491d016b4caf6',

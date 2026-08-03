@@ -13,8 +13,20 @@ export interface ReplicationLogEntry {
   checksum: number
 }
 
+/**
+ * How much replication history a primary keeps, and how many replicas have to
+ * confirm a write before it is acknowledged.
+ *
+ * A replica that falls further behind than the retained log recovers from a
+ * whole snapshot instead of replaying entries, so a larger retention trades
+ * memory for cheaper recovery.
+ *
+ * @public
+ */
 export interface ReplicationConfig {
+  /** A primary keeps this many bytes of replication log before it drops the oldest entries. */
   logRetentionBytes: number
+  /** This many replicas must acknowledge a write before the primary reports it as done. */
   waitForActiveReplicas: number
 }
 

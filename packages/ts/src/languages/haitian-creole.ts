@@ -102,6 +102,16 @@ const stopWords = new Set([
   'yonn',
 ])
 
+/**
+ * Haitian Creole analysis: the stop word list and the rules that split Haitian Creole
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `haitian-creole`.
+ *
+ * @public
+ */
 export const haitianCreole: LanguageModule = {
   name: 'haitian-creole',
   revision: '1',

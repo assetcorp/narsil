@@ -7,6 +7,20 @@ const VALID_PARTITION_STATES = new Set<string>(['UNASSIGNED', 'INITIALISING', 'A
 
 export const MAX_WATCHERS = 64
 
+/**
+ * Checks that a node id is safe to use as part of an etcd key.
+ *
+ * The coordinator builds each key from the node id, so an id carrying a
+ * separator or a traversal sequence would reach another node's keys. Call it
+ * when you generate ids yourself, and the coordinator calls it on every
+ * registration regardless.
+ *
+ * @param nodeId - The id to check.
+ * @throws A `NarsilError` with `CONFIG_INVALID` when the id is empty, longer
+ * than 255 characters, or carries a slash, a backslash, `..`, or a null byte.
+ *
+ * @public
+ */
 export function validateNodeId(nodeId: string): void {
   if (nodeId.length === 0) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Node ID must not be empty')

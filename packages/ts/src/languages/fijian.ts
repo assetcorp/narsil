@@ -51,6 +51,16 @@ const stopWords = new Set([
   'yani',
 ])
 
+/**
+ * Fijian analysis: the stop word list and the rules that split Fijian
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `fijian`.
+ *
+ * @public
+ */
 export const fijian: LanguageModule = {
   name: 'fijian',
   revision: '1',

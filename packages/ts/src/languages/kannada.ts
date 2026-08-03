@@ -90,6 +90,16 @@ const stopWords = new Set([
   'ಹೇಳಿದ್ದಾರೆ',
 ])
 
+/**
+ * Kannada analysis: the stop word list and the rules that split Kannada
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `kannada`.
+ *
+ * @public
+ */
 export const kannada: LanguageModule = {
   name: 'kannada',
   revision: '1',

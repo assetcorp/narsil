@@ -126,6 +126,15 @@ const stopWords = new Set([
   'vilkas',
 ])
 
+/**
+ * Swedish analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Swedish text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `swedish`.
+ *
+ * @public
+ */
 export const swedish: LanguageModule = {
   name: 'swedish',
   revision: '5ff576fe6e2b2a68',

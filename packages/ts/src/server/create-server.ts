@@ -234,6 +234,13 @@ class NarsilHttpServer implements NarsilServer {
  * (durability, embedding, workers) and hands the live instance in; the server
  * shares it across requests and never constructs or shuts it down. Start with
  * `.listen()` and stop with `.close()`; the engine is shut down separately.
+ *
+ * @param engine - The live engine every request runs against.
+ * @param options - Address, CORS, request limits, the authentication hook, and
+ * the task store. Omit it to bind to loopback with the default limits.
+ * @returns The server, ready for {@link NarsilServer.listen}.
+ *
+ * @public
  */
 export function createServer(engine: Narsil, options?: ServerOptions): NarsilServer {
   return new NarsilHttpServer(engine, options)

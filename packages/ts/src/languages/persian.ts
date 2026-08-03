@@ -328,6 +328,15 @@ function normalize(token: string): string {
   return token.replace(ARABIC_YEH_FORMS, '\u06CC').replace(ARABIC_KAF, '\u06A9').replace(TATWEEL_AND_HARAKAT, '')
 }
 
+/**
+ * Persian analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Persian text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `persian`.
+ *
+ * @public
+ */
 export const persian: LanguageModule = {
   name: 'persian',
   revision: '99f39d265efbf595',
