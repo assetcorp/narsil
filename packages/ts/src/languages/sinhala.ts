@@ -178,6 +178,16 @@ function normalize(token: string): string {
   return token.replace(ZERO_WIDTH_JOINER, '')
 }
 
+/**
+ * Sinhala analysis: the stop word list and the rules that split Sinhala
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `sinhala`.
+ *
+ * @public
+ */
 export const sinhala: LanguageModule = {
   name: 'sinhala',
   revision: '1',

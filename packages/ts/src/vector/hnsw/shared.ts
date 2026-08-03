@@ -18,18 +18,37 @@ export interface DistancePair {
   distance: number
 }
 
+/**
+ * How an HNSW graph is built.
+ *
+ * @internal
+ */
 export interface HNSWConfig {
+  /** Each node keeps this many neighbours per layer. */
   m?: number
+  /** The builder explores this many candidates while placing each node. */
   efConstruction?: number
+  /** The graph ranks by this metric. */
   metric?: VectorMetric
 }
 
+/**
+ * An HNSW graph in the form the engine passes between threads.
+ *
+ * @internal
+ */
 export interface SerializedHNSWGraph {
+  /** Every search starts at this node, and it is `null` while the graph is empty. */
   entryPoint: string | null
+  /** The graph reaches this many layers. */
   maxLayer: number
+  /** Each node keeps this many neighbours per layer. */
   m: number
+  /** The builder explored this many candidates while placing each node. */
   efConstruction: number
+  /** The graph ranks by this metric. */
   metric?: VectorMetric
+  /** Each entry holds a document id, its top layer, and its neighbours per layer. */
   nodes: Array<[string, number, Array<[number, string[]]>]>
 }
 

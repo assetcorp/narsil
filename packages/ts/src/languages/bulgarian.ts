@@ -346,6 +346,15 @@ function normalize(token: string): string {
   return removeMarks(token, STRESS_MARK)
 }
 
+/**
+ * Bulgarian analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Bulgarian text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `bulgarian`.
+ *
+ * @public
+ */
 export const bulgarian: LanguageModule = {
   name: 'bulgarian',
   revision: '1',

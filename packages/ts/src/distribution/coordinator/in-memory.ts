@@ -29,6 +29,17 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true
 }
 
+/**
+ * Builds a coordinator that holds the cluster's shared state in one process's
+ * memory, which is what runs a whole cluster inside a test.
+ *
+ * Every node has to share the same instance, and nothing survives the process,
+ * so use {@link createEtcdCoordinator} for a cluster that spans hosts.
+ *
+ * @returns A coordinator you pass as a cluster node's `coordinator`.
+ *
+ * @public
+ */
 export function createInMemoryCoordinator(): ClusterCoordinator {
   const nodes = new Map<string, NodeRegistration>()
   const allocations = new Map<string, AllocationTable>()

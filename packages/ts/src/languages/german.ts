@@ -249,6 +249,15 @@ function normalize(token: string): string {
   return token.replace(SHARP_S, 'ss')
 }
 
+/**
+ * German analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split German text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `german`.
+ *
+ * @public
+ */
 export const german: LanguageModule = {
   name: 'german',
   revision: 'ff10b0dd9feeb7cb',

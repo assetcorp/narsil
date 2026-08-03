@@ -241,6 +241,15 @@ const stopWords = new Set([
   'itse',
 ])
 
+/**
+ * Finnish analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Finnish text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `finnish`.
+ *
+ * @public
+ */
 export const finnish: LanguageModule = {
   name: 'finnish',
   revision: 'cd95cb543801a620',

@@ -120,6 +120,16 @@ function normalize(token: string): string {
   return token.replace(JOINED_CHILLU, foldChillu).replace(ZERO_WIDTH_JOINERS, '')
 }
 
+/**
+ * Malayalam analysis: the stop word list and the rules that split Malayalam
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `malayalam`.
+ *
+ * @public
+ */
 export const malayalam: LanguageModule = {
   name: 'malayalam',
   revision: '1',

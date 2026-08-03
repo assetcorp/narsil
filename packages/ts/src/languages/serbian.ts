@@ -169,6 +169,15 @@ function normalize(token: string): string {
 
 const listedSpellings = [...cyrillicStopWords, ...[...cyrillicStopWords].map(normalize)]
 
+/**
+ * Serbian analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Serbian text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `serbian`.
+ *
+ * @public
+ */
 export const serbian: LanguageModule = {
   name: 'serbian',
   revision: '86c7d873d1fd8723',

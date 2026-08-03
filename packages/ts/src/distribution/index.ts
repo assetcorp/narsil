@@ -1,5 +1,3 @@
-export type { ControllerConfig, ControllerNode } from './cluster/controller/types'
-export type { DataNodeHandle, NodeLifecycleConfig } from './cluster/node-lifecycle/types'
 export type {
   ClusterNamespace,
   ClusterNode,
@@ -27,5 +25,13 @@ export type {
   SchemaEvent,
 } from './coordinator'
 export { createInMemoryCoordinator } from './coordinator'
-export type { InMemoryNetwork, InMemoryTransportInternal, NodeTransport, TransportConfig } from './transport'
+export type { ReplicationConfig } from './replication/types'
+export type {
+  InMemoryNetwork,
+  InMemoryTransportInternal,
+  NodeTransport,
+  StreamResponder,
+  TransportConfig,
+  TransportMessage,
+} from './transport'
 export { createInMemoryNetwork, createInMemoryTransport } from './transport'

@@ -1,6 +1,8 @@
 name: Publish
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       package:
@@ -27,8 +29,59 @@ permissions:
   id-token: write
 
 jobs:
+  prerelease:
+    name: Publish prerelease to the next dist-tag
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org/
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm nx run narsil-ts:lint
+
+      - name: Typecheck (incl. tests)
+        run: pnpm nx run narsil-ts:typecheck
+
+      - name: Build
+        run: pnpm nx run narsil-ts:build
+
+      - name: Test
+        run: pnpm nx run narsil-ts:test
+
+      - name: Resolve prerelease version
+        id: version
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          BASE=$(node -p "require('./packages/ts/package.json').version")
+          echo "value=${BASE%%-*}-next.${RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      - name: Set prerelease version
+        run: pnpm nx release version "${{ steps.version.outputs.value }}" --projects=narsil-ts --git-commit=false --git-tag=false
+
+      - name: Publish
+        env:
+          NPM_CONFIG_PROVENANCE: true
+        run: pnpm nx release publish --projects=narsil-ts --tag next
+
   publish:
     name: Publish to npm
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     services:
       etcd:

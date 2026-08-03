@@ -74,6 +74,16 @@ const stopWords = new Set([
   'yoom',
 ])
 
+/**
+ * Oromo analysis: the stop word list and the rules that split Oromo
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `oromo`.
+ *
+ * @public
+ */
 export const oromo: LanguageModule = {
   name: 'oromo',
   revision: '1',

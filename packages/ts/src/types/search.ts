@@ -1,18 +1,49 @@
 import type { FilterExpression } from './filters'
 import type { AnyDocument, ScoringMode } from './schema'
 
+/**
+ * Which engine answers a query: keyword matching, vector similarity, or both
+ * merged into one ranking.
+ *
+ * @public
+ */
 export type SearchMode = 'fulltext' | 'vector' | 'hybrid'
+
+/**
+ * How many of a query's terms a document has to carry. `all` demands every
+ * term, `any` accepts one, and a number demands that many.
+ *
+ * @public
+ */
 export type TermMatchPolicy = 'all' | 'any' | number
 
+/**
+ * Everything {@link Narsil.query} accepts.
+ *
+ * Every field is optional, so a query with nothing set returns the first page
+ * of the index. Set `term` for keyword search, `vector` for similarity
+ * search, and `mode` when you want both.
+ *
+ * @public
+ */
 export interface QueryParams {
+  /** The engine searches for this text, analysed with the index's own language module. */
   term?: string
+  /** The engine searches the term in these fields, and in every text field in the schema by default. */
   fields?: string[]
+  /** This narrows the candidates before scoring. */
   filters?: FilterExpression
+  /** These multipliers raise or lower each field's contribution to the score, keyed by field. */
   boost?: Record<string, number>
+  /** The query gathers term statistics this way, and follows the index's `defaultScoring` otherwise. */
   scoring?: ScoringMode
+  /** The engine drops any hit scoring below this value. */
   minScore?: number
+  /** A document has to carry this many query terms. The engine accepts one by default. */
   termMatch?: TermMatchPolicy
+  /** A term may differ by this edit distance and still match, which is how a typo still finds its document. */
   tolerance?: number
+  /** This many leading characters have to match exactly before `tolerance` applies, which keeps fuzzy matching honest. */
   prefixLength?: number
   /**
    * Treat the last query token as an unfinished word so it also matches
@@ -23,18 +54,31 @@ export interface QueryParams {
    * Off by default.
    */
   prefix?: boolean
+  /** Setting this matches the term as written, skipping stemming and fuzzy matching. */
   exact?: boolean
+  /** These settings decide which fields the query counts values for, and how each count is cut and sorted. */
   facets?: FacetConfig
+  /** This sorts the hits by field value, keyed by field, which replaces the relevance ranking. */
   sort?: Record<string, 'asc' | 'desc'>
+  /** These settings collapse the hits into groups by field value. */
   group?: GroupConfig
+  /** The query returns this many hits, and 10 by default. */
   limit?: number
+  /** The query skips this many hits before returning. A deep offset costs more than a cursor. */
   offset?: number
+  /** This cursor comes from a previous result's `cursor`, and pages without an offset's cost. */
   searchAfter?: string
+  /** These settings decide which fields come back with highlighted snippets. */
   highlight?: HighlightConfig
+  /** These documents take fixed positions, ahead of the ranking. */
   pinned?: Array<{ docId: string; position: number }>
+  /** This decides which engine answers the query. Keyword search runs by default. */
   mode?: SearchMode
+  /** These vector-search inputs are required in `vector` and `hybrid` mode. */
   vector?: VectorQueryConfig
+  /** These settings decide how the keyword and vector rankings merge in `hybrid` mode. */
   hybrid?: HybridConfig
+  /** Setting this returns the numbers behind each hit's score, which is what you read when a ranking surprises you. */
   includeScoreComponents?: boolean
 }
 
@@ -44,6 +88,8 @@ export interface QueryParams {
  * Supply either a raw `value` array or a `text` string for auto-embedding;
  * passing both throws `EMBEDDING_CONFIG_INVALID`. Result count is governed
  * by the outer query's `limit`, not by any field on this object.
+ *
+ * @public
  */
 export interface VectorQueryConfig {
   /**
@@ -85,39 +131,103 @@ export interface VectorQueryConfig {
   efSearch?: number
 }
 
+/**
+ * How a hybrid query merges its keyword ranking with its vector ranking.
+ *
+ * `rrf` combines the two by rank alone, which needs no tuning and handles
+ * scores that live on different scales. `linear` blends the scores directly,
+ * which gives you control once you know what each side's scores look like.
+ *
+ * @public
+ */
 export interface HybridConfig {
+  /** The rankings merge this way, and by rank fusion by default. */
   strategy?: 'rrf' | 'linear'
+  /** This rank-fusion constant softens the advantage of the top ranks, and `rrf` alone reads it. */
   k?: number
+  /** This weights the vector score, from 0 to 1, and `linear` alone reads it. */
   alpha?: number
 }
 
+/**
+ * Fields a query counts values for, keyed by field name.
+ *
+ * @public
+ */
 export interface FacetConfig {
+  /** Each key names a field the query counts values for. */
   [field: string]: {
+    /** The facet returns this many values for the field, most frequent first. */
     limit?: number
+    /** This orders the returned values by their count. */
     sort?: 'asc' | 'desc'
+    /** These ranges bucket a numeric field, instead of counting each value. */
     ranges?: Array<{ from: number; to: number }>
   }
 }
 
+/**
+ * How a query collapses its hits into groups.
+ *
+ * @public
+ */
 export interface GroupConfig {
+  /** The values of these fields define a group, and several fields group by their combination. */
   fields: string[]
+  /** Each group keeps this many hits, and one by default, which is the collapse behaviour. */
   maxPerGroup?: number
+  /** This folds each group's hits into one value, such as a sum or an average. */
   reduce?: GroupReducer
 }
 
+/**
+ * Folds the hits of one group into a single value.
+ *
+ * @public
+ */
 export type GroupReducer = {
+  /**
+   * Folds one hit into the running value.
+   *
+   * @param accumulator - What the previous call returned, or what
+   * `initialValue` produced for the first hit.
+   * @param doc - The hit's stored document.
+   * @param score - The hit's relevance score.
+   * @returns The new running value.
+   */
   reducer: (accumulator: unknown, doc: AnyDocument, score: number) => unknown
+  /** Produces the starting value for each group. The engine calls it once per group. */
   initialValue: () => unknown
 }
 
+/**
+ * Which fields a query returns highlighted snippets for, and how those
+ * snippets are marked up.
+ *
+ * The index has to have been created with `trackPositions`, because
+ * highlighting reads the positions that setting records.
+ *
+ * @public
+ */
 export interface HighlightConfig {
+  /** The engine highlights these fields. */
   fields: string[]
+  /** This opens each match, and is `<mark>` by default. */
   preTag?: string
+  /** This closes each match, and is `</mark>` by default. */
   postTag?: string
+  /** A snippet runs to this many characters before the engine trims it. */
   maxSnippetLength?: number
 }
 
+/**
+ * Everything {@link Narsil.suggest} accepts.
+ *
+ * @public
+ */
 export interface SuggestParams {
+  /** The returned terms complete this text. */
   prefix: string
+  /** The lookup returns this many completions, most widely used first, and 10 by default. */
   limit?: number
 }

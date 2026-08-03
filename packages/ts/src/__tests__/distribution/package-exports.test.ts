@@ -29,10 +29,13 @@ describe('distribution package exports', () => {
 
   it('keeps distribution replication out of the root entry source', () => {
     const rootEntry = readSource('../../index.ts')
-    const narsilEntry = readSource('../../narsil.ts')
+    const engineEntry = readSource('../../narsil/index.ts')
+    const engineOperations = readSource('../../narsil/operations.ts')
 
     expect(rootEntry).not.toContain('createNarsilFromCore')
-    expect(narsilEntry).not.toContain('distribution/replication')
-    expect(narsilEntry).not.toContain('applyReplicationEntry')
+    for (const source of [engineEntry, engineOperations]) {
+      expect(source).not.toContain('distribution/replication')
+      expect(source).not.toContain('applyReplicationEntry')
+    }
   })
 })

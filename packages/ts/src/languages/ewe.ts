@@ -88,6 +88,16 @@ function normalize(token: string): string {
   return token.replace(ICELANDIC_ETH, EWE_D)
 }
 
+/**
+ * Ewe analysis: the stop word list and the rules that split Ewe
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `ewe`.
+ *
+ * @public
+ */
 export const ewe: LanguageModule = {
   name: 'ewe',
   revision: '1',

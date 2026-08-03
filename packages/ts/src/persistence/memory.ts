@@ -1,5 +1,18 @@
 import type { PersistenceAdapter } from '../types/adapters'
 
+/**
+ * Builds a persistence adapter that keeps every partition in a map, which is
+ * what tests and short-lived processes want.
+ *
+ * Nothing survives the process, so reach for
+ * {@link createFilesystemPersistence} or
+ * {@link createIndexedDBPersistence} when an index has to come back after a
+ * restart.
+ *
+ * @returns An adapter you pass as `persistence` when creating an engine.
+ *
+ * @public
+ */
 export function createMemoryPersistence(): PersistenceAdapter {
   const store = new Map<string, Uint8Array>()
 

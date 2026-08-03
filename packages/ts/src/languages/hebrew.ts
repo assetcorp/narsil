@@ -209,6 +209,16 @@ function normalize(token: string): string {
   return token.replace(NIQQUD_AND_CANTILLATION, '')
 }
 
+/**
+ * Hebrew analysis: the stop word list and the rules that split Hebrew
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `hebrew`.
+ *
+ * @public
+ */
 export const hebrew: LanguageModule = {
   name: 'hebrew',
   revision: '1',

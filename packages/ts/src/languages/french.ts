@@ -175,6 +175,15 @@ const stopWords = new Set([
   'soi',
 ])
 
+/**
+ * French analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split French text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `french`.
+ *
+ * @public
+ */
 export const french: LanguageModule = {
   name: 'french',
   revision: '240a93ad04b96326',

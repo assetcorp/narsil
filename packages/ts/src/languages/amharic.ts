@@ -237,6 +237,16 @@ const stopWords = new Set([
   'ግን',
 ])
 
+/**
+ * Amharic analysis: the stop word list and the rules that split Amharic
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `amharic`.
+ *
+ * @public
+ */
 export const amharic: LanguageModule = {
   name: 'amharic',
   revision: '1',

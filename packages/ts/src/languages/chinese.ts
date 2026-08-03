@@ -245,6 +245,16 @@ const stopWords = new Set([
   '连同',
 ])
 
+/**
+ * Chinese analysis: the stop word list and the rules that split Chinese
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `chinese`.
+ *
+ * @public
+ */
 export const chinese: LanguageModule = {
   name: 'chinese',
   revision: '1',

@@ -1,8 +1,16 @@
 import type { InvalidationAdapter, InvalidationEvent } from '../types/adapters'
 
+/**
+ * How {@link createFilesystemInvalidation} exchanges events between processes.
+ *
+ * @public
+ */
 export interface FilesystemInvalidationConfig {
+  /** The adapter writes its marker files to this directory. Every instance sharing an index must point at the same one. */
   directory: string
+  /** The adapter sweeps the directory this many milliseconds apart, and 1000 apart by default. A shorter interval shortens the lag and costs more reads. */
   pollInterval?: number
+  /** This identifies the instance, so it skips the markers it wrote itself. The adapter generates a random id by default. */
   instanceId?: string
 }
 
@@ -32,6 +40,21 @@ function isInvalidationEvent(data: unknown): data is InvalidationEvent {
   return record.type === 'partition' || record.type === 'statistics'
 }
 
+/**
+ * Builds an invalidation adapter that carries partition changes through marker
+ * files in a shared directory, which is how several Node processes on one host
+ * keep one persisted index consistent.
+ *
+ * Each publisher drops a marker and every other instance picks it up on its
+ * next sweep, so a change reaches the others within one poll interval. The
+ * adapter clears an old marker as it reads it.
+ *
+ * @param config - The shared directory, the poll interval, and this instance's
+ * identifier.
+ * @returns An adapter you pass as `invalidation` when creating an engine.
+ *
+ * @public
+ */
 export function createFilesystemInvalidation(config: FilesystemInvalidationConfig): InvalidationAdapter {
   if (!isValidDirectory(config.directory)) {
     throw new Error(`Invalid directory path: path traversal detected in "${config.directory}"`)

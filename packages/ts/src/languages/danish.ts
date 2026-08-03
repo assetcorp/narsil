@@ -113,6 +113,15 @@ function normalize(token: string): string {
   return removeMarks(token, STRESS_ACCENT)
 }
 
+/**
+ * Danish analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Danish text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `danish`.
+ *
+ * @public
+ */
 export const danish: LanguageModule = {
   name: 'danish',
   revision: '4337c6ed283fa798',

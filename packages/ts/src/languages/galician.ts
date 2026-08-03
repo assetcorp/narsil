@@ -168,6 +168,16 @@ const stopWords = new Set([
   'vosos',
 ])
 
+/**
+ * Galician analysis: the stop word list and the rules that split Galician
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `galician`.
+ *
+ * @public
+ */
 export const galician: LanguageModule = {
   name: 'galician',
   revision: '1',

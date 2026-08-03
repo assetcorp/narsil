@@ -139,6 +139,16 @@ const stopWords = new Set([
   'ħafna',
 ])
 
+/**
+ * Maltese analysis: the stop word list and the rules that split Maltese
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `maltese`.
+ *
+ * @public
+ */
 export const maltese: LanguageModule = {
   name: 'maltese',
   revision: '1',

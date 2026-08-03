@@ -104,6 +104,16 @@ const stopWords = new Set([
   'эч',
 ])
 
+/**
+ * Kyrgyz analysis: the stop word list and the rules that split Kyrgyz
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `kyrgyz`.
+ *
+ * @public
+ */
 export const kyrgyz: LanguageModule = {
   name: 'kyrgyz',
   revision: '1',

@@ -136,6 +136,15 @@ const stopWords = new Set([
   'yra',
 ])
 
+/**
+ * Lithuanian analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Lithuanian text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `lithuanian`.
+ *
+ * @public
+ */
 export const lithuanian: LanguageModule = {
   name: 'lithuanian',
   revision: '6c40fb18cf07c9b6',

@@ -560,6 +560,15 @@ const stopWords = new Set([
   'якої',
 ])
 
+/**
+ * Ukrainian analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Ukrainian text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `ukrainian`.
+ *
+ * @public
+ */
 export const ukrainian: LanguageModule = {
   name: 'ukrainian',
   revision: '1',

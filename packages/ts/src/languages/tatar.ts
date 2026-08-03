@@ -1013,6 +1013,16 @@ const stopWords = new Set([
   'яшьлек',
 ])
 
+/**
+ * Tatar analysis: the stop word list and the rules that split Tatar
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `tatar`.
+ *
+ * @public
+ */
 export const tatar: LanguageModule = {
   name: 'tatar',
   revision: '1',

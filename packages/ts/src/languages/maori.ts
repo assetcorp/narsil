@@ -75,6 +75,16 @@ const stopWords = new Set([
   'tonu',
 ])
 
+/**
+ * Maori analysis: the stop word list and the rules that split Maori
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `maori`.
+ *
+ * @public
+ */
 export const maori: LanguageModule = {
   name: 'maori',
   revision: '1',

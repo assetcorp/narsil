@@ -53,6 +53,16 @@ const stopWords = new Set([
   'ဤမျှ',
 ])
 
+/**
+ * Burmese analysis: the stop word list and the rules that split Burmese
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `burmese`.
+ *
+ * @public
+ */
 export const burmese: LanguageModule = {
   name: 'burmese',
   revision: '1',

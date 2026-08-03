@@ -614,6 +614,15 @@ function normalize(token: string): string {
   return removeMarks(token, DIACRITICS_EXCEPT_DIALYTIKA)
 }
 
+/**
+ * Greek analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Greek text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `greek`.
+ *
+ * @public
+ */
 export const greek: LanguageModule = {
   name: 'greek',
   revision: '4f02e255d00e5848',

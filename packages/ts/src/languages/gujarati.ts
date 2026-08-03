@@ -230,6 +230,16 @@ const stopWords = new Set([
   'હોવા',
 ])
 
+/**
+ * Gujarati analysis: the stop word list and the rules that split Gujarati
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `gujarati`.
+ *
+ * @public
+ */
 export const gujarati: LanguageModule = {
   name: 'gujarati',
   revision: '1',
