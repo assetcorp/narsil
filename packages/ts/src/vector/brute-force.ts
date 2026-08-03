@@ -3,6 +3,11 @@ import type { ScoredDocument } from '../types/internal'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from './similarity'
 import type { VectorStore } from './vector-store'
 
+/**
+ * Similarity metric a vector search ranks by.
+ *
+ * @internal
+ */
 export type VectorMetric = 'cosine' | 'dotProduct' | 'euclidean'
 
 export interface BruteForceSearch {

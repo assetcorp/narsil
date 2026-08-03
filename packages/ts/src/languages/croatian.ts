@@ -187,6 +187,16 @@ const stopWords = new Set([
   'zar',
 ])
 
+/**
+ * Croatian analysis: the stop word list and the rules that split Croatian
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `croatian`.
+ *
+ * @public
+ */
 export const croatian: LanguageModule = {
   name: 'croatian',
   revision: '1',

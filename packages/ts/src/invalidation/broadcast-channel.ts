@@ -11,7 +11,13 @@ interface BroadcastChannelInstance {
   close(): void
 }
 
+/**
+ * Which channel {@link createBroadcastChannelInvalidation} publishes on.
+ *
+ * @public
+ */
 export interface BroadcastChannelInvalidationConfig {
+  /** Every participating tab or worker must name the same channel. The adapter uses `narsil-invalidation` by default. */
   channelName?: string
 }
 
@@ -25,6 +31,19 @@ function isInvalidationEvent(data: unknown): data is InvalidationEvent {
   return record.type === 'partition' || record.type === 'statistics'
 }
 
+/**
+ * Builds an invalidation adapter that carries partition changes over the
+ * browser's `BroadcastChannel`, which is how several tabs sharing one
+ * IndexedDB index stay consistent.
+ *
+ * The browser delivers each event at once instead of on a poll, so a write in
+ * one tab reaches the others as soon as it dispatches.
+ *
+ * @param config - The channel name. Omit it to accept the default.
+ * @returns An adapter you pass as `invalidation` when creating an engine.
+ *
+ * @public
+ */
 export function createBroadcastChannelInvalidation(config?: BroadcastChannelInvalidationConfig): InvalidationAdapter {
   const channelName = config?.channelName ?? DEFAULT_CHANNEL_NAME
   let channel: BroadcastChannelInstance | null = null

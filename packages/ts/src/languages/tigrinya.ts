@@ -191,6 +191,16 @@ const stopWords = new Set([
   'ጥራይ',
 ])
 
+/**
+ * Tigrinya analysis: the stop word list and the rules that split Tigrinya
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `tigrinya`.
+ *
+ * @public
+ */
 export const tigrinya: LanguageModule = {
   name: 'tigrinya',
   revision: '1',

@@ -46,7 +46,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsup && node scripts/check-browser-bundle.mjs",
+    "build": "tsup && node scripts/check-browser-bundle.mjs && tsx scripts/api-surface.ts",
     "test": "vitest run --exclude='**/vector/recall.test.ts'",
     "test:etcd": "vitest run src/__tests__/distribution/coordinator/etcd-integration/*.test.ts",
     "test:watch": "vitest",
@@ -57,6 +57,8 @@
     "stemmers": "tsx snowball/build.ts",
     "revisions": "tsx scripts/analysis-revisions.ts",
     "revisions:write": "tsx scripts/analysis-revisions.ts --write",
+    "api": "tsx scripts/api-surface.ts",
+    "api:write": "tsx scripts/api-surface.ts --write",
     "lookalikes": "tsx scripts/lookalike-counts.ts",
     "lookalikes:collect": "tsx scripts/lookalike-counts.ts --collect",
     "lint": "biome check src/",
@@ -138,6 +140,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.4",
     "@delali/narsil-embeddings-transformers": "workspace:*",
+    "@microsoft/api-extractor": "7.58.12",
     "@types/node": "22.15.32",
     "@vitest/coverage-v8": "4.0.18",
     "etcd3": "1.1.2",

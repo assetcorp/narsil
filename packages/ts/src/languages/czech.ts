@@ -182,6 +182,15 @@ const stopWords = new Set([
   'zprávy',
 ])
 
+/**
+ * Czech analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Czech text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `czech`.
+ *
+ * @public
+ */
 export const czech: LanguageModule = {
   name: 'czech',
   revision: '48b013a41884beb9',

@@ -100,6 +100,17 @@ export function simdSquaredEuclideanDistance(a: Float32Array, b: Float32Array): 
   return wasmExports.squared_euclidean_distance(0, OFFSET_B_BYTES, a.length)
 }
 
+/**
+ * Reports whether the runtime loaded the SIMD module that speeds up vector
+ * distance work.
+ *
+ * Vector search works either way, so read this to explain a difference in
+ * search latency between two hosts rather than to decide whether to search.
+ *
+ * @returns True once the SIMD module has loaded.
+ *
+ * @public
+ */
 export function isSimdAvailable(): boolean {
   return wasmExports !== null
 }

@@ -66,6 +66,16 @@ const stopWords = new Set([
   'ekome',
 ])
 
+/**
+ * Ga analysis: the stop word list and the rules that split Ga
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `ga`.
+ *
+ * @public
+ */
 export const ga: LanguageModule = {
   name: 'ga',
   revision: '1',

@@ -98,6 +98,16 @@ const stopWords = new Set([
   'yt',
 ])
 
+/**
+ * Albanian analysis: the stop word list and the rules that split Albanian
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `albanian`.
+ *
+ * @public
+ */
 export const albanian: LanguageModule = {
   name: 'albanian',
   revision: '1',

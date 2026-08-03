@@ -1,7 +1,13 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import type { PersistenceAdapter } from '../types/adapters'
 
+/**
+ * Where {@link createFilesystemPersistence} writes its partitions.
+ *
+ * @public
+ */
 export interface FilesystemPersistenceConfig {
+  /** The adapter writes every partition under this directory. It creates the directory, and it refuses any key that would escape it. */
   directory: string
 }
 
@@ -100,6 +106,22 @@ async function listDirectoryRecursive(
   return results
 }
 
+/**
+ * Builds a persistence adapter that writes each partition to its own file, so
+ * an index comes back after a restart.
+ *
+ * The adapter writes each partition to a temporary file, flushes it to the
+ * disk, and renames it into place, which is what keeps a crash mid-write from
+ * leaving a half-written partition behind. It refuses a key that would escape
+ * the configured directory.
+ *
+ * @param config - The directory this adapter writes partitions under.
+ * @returns An adapter you pass as `persistence` when creating an engine.
+ * @throws A `NarsilError` with `PERSISTENCE_SAVE_FAILED` when the directory is
+ * empty or blank.
+ *
+ * @public
+ */
 export function createFilesystemPersistence(config: FilesystemPersistenceConfig): PersistenceAdapter {
   if (!config.directory || config.directory.trim().length === 0) {
     throw new NarsilError(

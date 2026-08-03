@@ -1,16 +1,40 @@
 import type { ReplicationLogEntry } from '../replication/types'
 
+/**
+ * One message on the wire between cluster nodes.
+ *
+ * The payload is opaque bytes, which is what lets a node written in another
+ * language join the same cluster: only the header fields have to agree.
+ *
+ * @public
+ */
 export interface TransportMessage {
+  /** This says what the message is, such as a replication entry or a search request. */
   type: string
+  /** This node sent the message. */
   sourceId: string
+  /** This correlates a reply with its request. */
   requestId: string
+  /** This carries the encoded body, which the message type decides how to read. */
   payload: Uint8Array
 }
 
+/**
+ * How long a transport waits before giving up on each kind of exchange.
+ *
+ * Every value is in milliseconds. Replication and snapshot transfers carry
+ * their own timeouts because they move far more than a search does.
+ *
+ * @public
+ */
 export interface TransportConfig {
+  /** Opening a connection to a peer may take this long. */
   connectTimeout: number
+  /** An ordinary request and its reply may take this long. */
   requestTimeout: number
+  /** A replication entry may take this long to reach a replica and come back acknowledged. */
   replicationTimeout: number
+  /** A whole snapshot transfer, which moves a partition between nodes, may take this long. */
   snapshotTimeout: number
 }
 
@@ -23,12 +47,46 @@ export const DEFAULT_TRANSPORT_CONFIG: TransportConfig = {
 
 export const MAX_MESSAGE_SIZE_BYTES = 67_108_864
 
+/**
+ * How one cluster node reaches the others.
+ *
+ * The package includes a TCP transport for real deployments and an in-process
+ * one for tests, and this is the contract either satisfies. Write your own to
+ * run a cluster over something else.
+ *
+ * @public
+ */
 export interface NodeTransport {
+  /**
+   * Sends one request to a peer and waits for its reply.
+   *
+   * @param target - Node id to send to.
+   * @param message - The request.
+   * @returns The peer's reply.
+   * @throws A `TransportError` when the peer is unreachable, the message is
+   * oversized, or the request times out.
+   */
   send(target: string, message: TransportMessage): Promise<TransportMessage>
+  /**
+   * Sends one request whose reply arrives in chunks, which is how a snapshot
+   * moves without being held in memory whole.
+   *
+   * @param target - Node id to send to.
+   * @param message - The request.
+   * @param handler - Called once per chunk, in order.
+   */
   stream(target: string, message: TransportMessage, handler: (chunk: Uint8Array) => void): Promise<void>
+  /**
+   * Starts accepting requests from peers.
+   *
+   * @param handler - Called for each request, with the function that returns
+   * the reply.
+   * @returns A function that ends the listener.
+   */
   listen(
     handler: (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>,
   ): Promise<() => void>
+  /** Closes every connection and releases the port or registration it held. */
   shutdown(): Promise<void>
 }
 

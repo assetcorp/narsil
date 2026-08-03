@@ -109,6 +109,15 @@ const stopWords = new Set([
   'zuten',
 ])
 
+/**
+ * Basque analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Basque text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `basque`.
+ *
+ * @public
+ */
 export const basque: LanguageModule = {
   name: 'basque',
   revision: '287e5c13460de4c3',

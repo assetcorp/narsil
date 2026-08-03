@@ -46,6 +46,16 @@ const stopWords = new Set([
   'wî',
 ])
 
+/**
+ * Kurmanji analysis: the stop word list and the rules that split Kurmanji
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `kurmanji`.
+ *
+ * @public
+ */
 export const kurmanji: LanguageModule = {
   name: 'kurmanji',
   revision: '1',

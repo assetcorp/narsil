@@ -95,6 +95,16 @@ const stopWords = new Set([
   'zose',
 ])
 
+/**
+ * Kinyarwanda analysis: the stop word list and the rules that split Kinyarwanda
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `kinyarwanda`.
+ *
+ * @public
+ */
 export const kinyarwanda: LanguageModule = {
   name: 'kinyarwanda',
   revision: '1',

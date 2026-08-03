@@ -88,6 +88,16 @@ const stopWords = new Set([
   'yvir',
 ])
 
+/**
+ * Faroese analysis: the stop word list and the rules that split Faroese
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `faroese`.
+ *
+ * @public
+ */
 export const faroese: LanguageModule = {
   name: 'faroese',
   revision: '1',

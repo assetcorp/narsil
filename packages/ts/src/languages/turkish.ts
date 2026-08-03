@@ -253,6 +253,15 @@ const stopWords = new Set([
   'şöyle',
 ])
 
+/**
+ * Turkish analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Turkish text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `turkish`.
+ *
+ * @public
+ */
 export const turkish: LanguageModule = {
   name: 'turkish',
   revision: 'c537dbdae6350a3c',

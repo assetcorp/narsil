@@ -100,6 +100,16 @@ const stopWords = new Set([
   'ў',
 ])
 
+/**
+ * Belarusian analysis: the stop word list and the rules that split Belarusian
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `belarusian`.
+ *
+ * @public
+ */
 export const belarusian: LanguageModule = {
   name: 'belarusian',
   revision: '0c1d3db2f7d0be62',

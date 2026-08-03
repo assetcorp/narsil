@@ -180,6 +180,15 @@ const stopWords = new Set([
   'very',
 ])
 
+/**
+ * English analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split English text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `english`.
+ *
+ * @public
+ */
 export const english: LanguageModule = {
   name: 'english',
   revision: 'ebae3448ae674b59',

@@ -248,6 +248,15 @@ function normalize(token: string): string {
   return token.replace(NASAL_BEFORE_STOP, ANUSVARA)
 }
 
+/**
+ * Hindi analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Hindi text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `hindi`.
+ *
+ * @public
+ */
 export const hindi: LanguageModule = {
   name: 'hindi',
   revision: 'b7e1a82abe08c76a',

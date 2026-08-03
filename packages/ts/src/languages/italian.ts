@@ -290,6 +290,15 @@ const stopWords = new Set([
   'stando',
 ])
 
+/**
+ * Italian analysis: the Snowball stemmer, the stop word list, and the rules
+ * that split Italian text into tokens.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `italian`.
+ *
+ * @public
+ */
 export const italian: LanguageModule = {
   name: 'italian',
   revision: 'c4d2339182390e18',

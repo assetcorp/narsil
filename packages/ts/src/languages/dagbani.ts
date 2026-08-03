@@ -90,6 +90,16 @@ function normalize(token: string): string {
   return token.replace(OPEN_E_LOOKALIKES, DAGBANI_OPEN_E)
 }
 
+/**
+ * Dagbani analysis: the stop word list and the rules that split Dagbani
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `dagbani`.
+ *
+ * @public
+ */
 export const dagbani: LanguageModule = {
   name: 'dagbani',
   revision: '1',

@@ -10,19 +10,84 @@ import {
 
 type ListenHandler = (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>
 
-type StreamResponder = (chunks: Uint8Array[]) => void
+/**
+ * Receives the chunks a streamed response carries, in order.
+ *
+ * @param chunks - Every chunk the responder produced.
+ *
+ * @public
+ */
+export type StreamResponder = (chunks: Uint8Array[]) => void
 
+/**
+ * The delivery side of an in-memory transport, which the network calls to hand
+ * a peer its message.
+ *
+ * You reach this through {@link InMemoryNetwork} rather than building one, so
+ * treat it as the connection between two in-process nodes.
+ *
+ * @public
+ */
 export interface InMemoryTransportInternal extends NodeTransport {
+  /**
+   * Delivers one request to this node's listener.
+   *
+   * @param message - The request the sender posted.
+   * @param respond - Hands the reply back to the sender.
+   */
   deliverMessage(message: TransportMessage, respond: (response: TransportMessage) => void): void
+  /**
+   * Delivers one streamed request to this node's listener.
+   *
+   * @param message - The request the sender posted.
+   * @param responder - Hands the chunks back to the sender.
+   */
   deliverStream(message: TransportMessage, responder: StreamResponder): void
 }
 
+/**
+ * The switchboard that connects in-process cluster nodes to each other.
+ *
+ * Every node registers its transport under its own id, and a message addressed
+ * to a node is handed straight to the transport registered under that id. This
+ * runs a whole cluster inside one process, which is what tests and local
+ * development use in place of TCP.
+ *
+ * @public
+ */
 export interface InMemoryNetwork {
+  /**
+   * Makes a node reachable under its id.
+   *
+   * @param nodeId - The id peers address this node by.
+   * @param transport - The transport that receives its messages.
+   */
   register(nodeId: string, transport: InMemoryTransportInternal): void
+  /**
+   * Makes a node unreachable, so a message addressed to it fails.
+   *
+   * @param nodeId - The node to remove.
+   */
   unregister(nodeId: string): void
+  /**
+   * Looks a node's transport up.
+   *
+   * @param nodeId - The node to find.
+   * @returns Its transport, or `undefined` when no node holds that id.
+   */
   getTransport(nodeId: string): InMemoryTransportInternal | undefined
 }
 
+/**
+ * Builds the switchboard that connects in-process cluster nodes.
+ *
+ * Create one network, then create a transport per node against it, which is
+ * how a whole cluster runs inside a single process.
+ *
+ * @returns An empty network, ready for nodes to register against.
+ *
+ * @public
+ */
 export function createInMemoryNetwork(): InMemoryNetwork {
   const transports = new Map<string, InMemoryTransportInternal>()
 
@@ -41,6 +106,20 @@ export function createInMemoryNetwork(): InMemoryNetwork {
   }
 }
 
+/**
+ * Builds one node's transport and registers it on an in-process network.
+ *
+ * The network hands each message straight to the addressed node with no socket
+ * in between, so a cluster built this way behaves like a real one without any
+ * ports to open.
+ *
+ * @param nodeId - The id peers address this node by.
+ * @param network - The network this node joins.
+ * @param config - The timeouts to override. Omit it to accept the defaults.
+ * @returns The transport you pass as a cluster node's `transport`.
+ *
+ * @public
+ */
 export function createInMemoryTransport(
   nodeId: string,
   network: InMemoryNetwork,

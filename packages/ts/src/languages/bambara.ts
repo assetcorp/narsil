@@ -56,6 +56,16 @@ const stopWords = new Set([
   'yɛrɛ',
 ])
 
+/**
+ * Bambara analysis: the stop word list and the rules that split Bambara
+ * text into tokens. Tokens are indexed as the normaliser leaves them,
+ * without stemming.
+ *
+ * Import it and pass it to {@link registerLanguage} before you create an index
+ * whose `language` is `bambara`.
+ *
+ * @public
+ */
 export const bambara: LanguageModule = {
   name: 'bambara',
   revision: '1',
