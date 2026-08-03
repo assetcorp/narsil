@@ -27,7 +27,7 @@ export interface Narsil {
   /**
    * Creates an index you can insert documents into and query.
    *
-   * The schema sets the type of each field, decides which fields you can
+   * The schema sets the type of each field, marks which fields you can
    * filter and sort on, and controls how the engine tokenises text. The
    * `language` option picks the analyser that stems those text fields.
    *
@@ -88,7 +88,7 @@ export interface Narsil {
   /**
    * Adds many documents in one pass and reports each one's outcome.
    *
-   * A document the engine rejects lands in `failed` with the error that
+   * A document the engine rejects appears in `failed` with the error that
    * rejected it, and every other document is still written, which is what
    * makes this the call to load a corpus with.
    *

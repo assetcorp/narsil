@@ -11,7 +11,7 @@ import type { EmbeddingAdapter } from './adapters'
 export type AnyDocument = Record<string, unknown> & { id?: string }
 
 /**
- * The type a schema field declares, which decides how the engine indexes it.
+ * The type a schema field declares, which sets how the engine indexes it.
  *
  * `string` is analysed and searchable, `number`, `boolean`, and `enum` are
  * filterable and sortable, `geopoint` accepts a latitude and longitude pair,

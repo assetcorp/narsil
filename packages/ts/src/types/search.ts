@@ -47,7 +47,7 @@ export interface QueryParams {
   prefixLength?: number
   /**
    * Treat the last query token as an unfinished word so it also matches
-   * indexed terms that complete it ("secur" matches "security"). Earlier
+   * indexed terms that complete it ('secur' matches 'security'). Earlier
    * tokens must match fully; `tolerance` keeps applying to them but not to
    * the prefix token. Completions score against a shared document frequency
    * and are demoted below full-word matches. Ignored when `exact` is true.
@@ -72,7 +72,7 @@ export interface QueryParams {
   highlight?: HighlightConfig
   /** These documents take fixed positions, ahead of the ranking. */
   pinned?: Array<{ docId: string; position: number }>
-  /** This decides which engine answers the query. Keyword search runs by default. */
+  /** This picks which engine answers the query. Keyword search runs by default. */
   mode?: SearchMode
   /** These vector-search inputs are required in `vector` and `hybrid` mode. */
   vector?: VectorQueryConfig

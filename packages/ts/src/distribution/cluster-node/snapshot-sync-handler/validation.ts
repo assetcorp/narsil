@@ -41,7 +41,7 @@ export function containsControlCharacter(value: string): boolean {
  * A SNAPSHOT_SYNC_REQUEST carries `{indexName: string, partitionId?: number}`
  * with `indexName` bounded by the canonical MAX_INDEX_NAME_LENGTH. Rejecting
  * oversized payloads before msgpack decode keeps an abusive peer from pinning
- * a CPU on a 64 MiB decode just to fail validation.
+ * a CPU on a 64 MiB decode that then fails validation.
  */
 
 export const MAX_SNAPSHOT_SYNC_REQUEST_BYTES = 4_096

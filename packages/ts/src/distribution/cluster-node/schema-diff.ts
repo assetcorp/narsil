@@ -8,7 +8,7 @@ export interface SchemaDiffEntry {
 }
 
 /**
- * Sourced from schema/validator.ts so the diff bound never drifts from the
+ * Sourced from schema/validator.ts so the diff bound always equals the
  * engine's own nesting cap. The walk below enforces the cap defensively in
  * case a custom coordinator backend delivers a pathological or cyclic object;
  * returning a sentinel beats a stack overflow.

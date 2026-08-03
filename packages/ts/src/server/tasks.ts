@@ -8,8 +8,8 @@ const TERMINAL_TTL_MS = 60 * 60 * 1000
 
 /**
  * Drives long-running operations (optimizeVectors, rebalance, restore) that
- * acknowledge with a task id the client polls. The status of every task lives in
- * a pluggable {@link TaskStore}; the default is in-process and lost on restart,
+ * acknowledge with a task id the client polls. A pluggable {@link TaskStore}
+ * holds the status of every task; the default is in-process and lost on restart,
  * but a shared store lets any instance report a task and lets status survive a
  * restart. The work itself still runs in this process against the in-memory
  * engine, so a shared store gives cross-instance visibility, not durable or

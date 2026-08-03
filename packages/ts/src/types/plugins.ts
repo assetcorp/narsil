@@ -52,7 +52,7 @@ export interface InsertContext {
   indexName: string
   /** The document is stored under this id, which the engine resolves before the `before` hook runs. */
   docId: string
-  /** This is the document itself, and a `before` hook that changes it decides what the engine indexes. */
+  /** This is the document itself, and the engine indexes whatever a `before` hook leaves here. */
   document: AnyDocument
 }
 
@@ -80,7 +80,7 @@ export interface UpdateContext {
   docId: string
   /** The index stored this document before the update. */
   oldDocument: AnyDocument
-  /** This document replaces it, and a `before` hook that changes it decides what the engine indexes. */
+  /** This document replaces it, and the engine indexes whatever a `before` hook leaves here. */
   newDocument: AnyDocument
 }
 
