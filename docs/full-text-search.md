@@ -20,6 +20,19 @@ const results = await narsil.query('products', {
 
 `limit` defaults to 10. Each hit has the shape `{ id, score, document, highlights?, scoreComponents? }`. Pass `includeScoreComponents: true` to receive per-term frequencies, field lengths, and IDF values for debugging a ranking.
 
+## Choosing what comes back
+
+Each hit includes the whole stored document by default, and `document` narrows that. Pass `false` when the ids and scores are all you need, and every hit's `document` is then an empty object. Pass `include` to keep named fields alone, or `exclude` to drop named fields and keep the rest. Use dots to name a nested field, such as `author.name`. The engine ignores a name that matches no field.
+
+```ts
+const results = await narsil.query('products', {
+  term: 'wireless keyboard',
+  document: { exclude: ['embedding'] },
+})
+```
+
+Exclude a vector field on a similarity search. The engine otherwise reads every hit's vector back out of the index and writes it into the response, which costs about 8 KB per hit for a 384-dimension field.
+
 ## Fuzzy matching
 
 `tolerance` sets the maximum Levenshtein edit distance between a query term and an indexed term. It defaults to 0, which requires exact matches. `prefixLength` limits fuzzy candidates to terms sharing that many leading characters with the query term; it defaults to 2, and raising it makes fuzzy lookups faster and stricter. `exact: true` turns fuzzy expansion off for the whole query.

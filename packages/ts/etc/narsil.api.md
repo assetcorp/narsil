@@ -66,6 +66,12 @@ export interface CustomTokenizer {
 }
 
 // @public
+export type DocumentProjection = boolean | {
+    include?: string[];
+    exclude?: string[];
+};
+
+// @public
 export interface DurabilityConfig {
     checkpointIntervalMs?: number;
     checkpointMutationThreshold?: number;
@@ -601,6 +607,7 @@ export interface ProcessMemoryReport {
 // @public
 export interface QueryParams {
     boost?: Record<string, number>;
+    document?: DocumentProjection;
     exact?: boolean;
     facets?: FacetConfig;
     fields?: string[];
