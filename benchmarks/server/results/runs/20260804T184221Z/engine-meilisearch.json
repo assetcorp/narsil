@@ -1,0 +1,312 @@
+{
+  "environment": {
+    "captured_at": "2026-08-04T19:26:51.228028+00:00",
+    "harness_version": "0.1.0",
+    "containerized": true,
+    "machine_label": "GCP c3-standard-8, us-central1-a",
+    "os": "Linux 6.17.0-1021-gcp",
+    "arch": "x86_64",
+    "cpu_model": "Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz",
+    "logical_cpus": 8,
+    "total_memory_bytes": 33647976448,
+    "python_version": "3.12.13",
+    "ir_datasets_version": "0.6.1",
+    "pytrec_eval_version": "0.5.10"
+  },
+  "engine": {
+    "name": "meilisearch",
+    "run_tag": "meilisearch_rankrules",
+    "ranking": "native",
+    "url": "http://meilisearch:7700",
+    "version": "1.52.0",
+    "image_digest": "getmeili/meilisearch@sha256:d36e713e8f89483af1ab0d72011bbd503f5ab100b68ccbfad51c39e3f0a0567d",
+    "build_identity": {
+      "version": "1.52.0",
+      "build_hash": "5c2591ab8cc4e7b17b60330678658b361c041204",
+      "build_date": "unknown",
+      "source_endpoint": "/version",
+      "raw": {
+        "commitSha": "5c2591ab8cc4e7b17b60330678658b361c041204",
+        "commitDate": "unknown",
+        "pkgVersion": "1.52.0"
+      }
+    },
+    "tracks": [
+      "keyword"
+    ],
+    "keyword_setup": "Not BM25; the harness sets `searchableAttributes` to the text field, reads `_rankingScore` as the score, and leaves every other setting at its default",
+    "vector_profile": "equal-precision"
+  },
+  "config": {
+    "k1": 0.9,
+    "b": 0.4,
+    "run_depth": 1000,
+    "memory_cap_bytes": 8589934592,
+    "throughput": {
+      "enabled": true,
+      "concurrency": [
+        16
+      ],
+      "duration_seconds": 5.0,
+      "warmup_seconds": 1.0
+    },
+    "vector_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "vector_dims": 384,
+    "vector_metric": "cosine",
+    "recall_target": 0.99,
+    "recall_k": 10,
+    "vector_profile": "equal-precision"
+  },
+  "datasets": [
+    {
+      "dataset_id": "beir/scifact/test",
+      "dataset_identity": {
+        "source": "ir_datasets",
+        "md5": "5f7d1de60b170fc8027bb7898e2efca1",
+        "size_bytes": 2816079,
+        "subset": "scifact",
+        "archive": "scifact/source.zip",
+        "corpus_fingerprint": "7eef964b1e3042197cafe04e912a8065b91bab2dd3e591cb277dcd369d6fa381",
+        "fingerprint_algorithm": "sha256/len-framed/id-byte-sorted/v1"
+      },
+      "track": "keyword",
+      "run_tag": "meilisearch_rankrules",
+      "setup": "Not BM25; the harness sets `searchableAttributes` to the text field, reads `_rankingScore` as the score, and leaves every other setting at its default",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.37483418326603796,
+        "recall_100": 0.5301666666666667,
+        "map": 0.3467324477146494,
+        "recip_rank": 0.35335127625580887
+      },
+      "calibration": {
+        "baseline_ndcg10": 0.679,
+        "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
+        "margin": 0.02,
+        "delta": -0.3041658167339621,
+        "within_margin": false
+      },
+      "operating_point": null,
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 5.947402360000069,
+        "ingest_docs_per_sec": 871.4729030036467,
+        "index_size_bytes": null,
+        "raw_stats": {
+          "index_size_bytes": null,
+          "raw": {
+            "numberOfDocuments": 5183,
+            "rawDocumentDbSize": 15048704,
+            "avgDocumentSize": 2895,
+            "isIndexing": false,
+            "numberOfEmbeddings": 0,
+            "numberOfEmbeddedDocuments": 0,
+            "fieldDistribution": {
+              "id": 5183,
+              "text": 5183
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "mean_ms": 3.3803859139999997,
+        "p50_ms": 3.116847,
+        "p90_ms": 5.00646,
+        "p95_ms": 6.276751,
+        "p99_ms": 8.127318,
+        "max_ms": 10.145224,
+        "top_k": 10,
+        "client": {
+          "samples": 1500,
+          "mean_ms": 3.3803859139999997,
+          "p50_ms": 3.116847,
+          "p90_ms": 5.00646,
+          "p95_ms": 6.276751,
+          "p99_ms": 8.127318,
+          "max_ms": 10.145224,
+          "top_k": 10
+        },
+        "server": {
+          "samples": 1500,
+          "mean_ms": 1.9133333333333333,
+          "p50_ms": 2.0,
+          "p90_ms": 4.0,
+          "p95_ms": 5.0,
+          "p99_ms": 7.0,
+          "max_ms": 8.0,
+          "top_k": 10
+        },
+        "server_time_source": "response `processingTimeMs` field",
+        "server_time_resolution": "integer-millisecond"
+      },
+      "throughput": {
+        "warmup_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "server_time_source": "response `processingTimeMs` field",
+        "server_time_resolution": "integer-millisecond",
+        "levels": [
+          {
+            "concurrency": 16,
+            "qps": 818.0315439452797,
+            "completed": 4102,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.014476556999853,
+            "client_latency_ms": {
+              "samples": 4102,
+              "mean_ms": 19.442055360796825,
+              "p50_ms": 17.873056000098586,
+              "p90_ms": 28.203794000091875,
+              "p95_ms": 32.235065000350005,
+              "p99_ms": 41.89234300019962,
+              "max_ms": 79.17250500031514
+            },
+            "server_latency_ms": {
+              "samples": 4102,
+              "mean_ms": 2.638225255972696,
+              "p50_ms": 2.0,
+              "p90_ms": 5.0,
+              "p95_ms": 6.0,
+              "p99_ms": 9.0,
+              "max_ms": 12.0
+            },
+            "achieved_concurrency": 15.904214564262231,
+            "client_cpu_seconds": 5.468712831,
+            "client_cores_busy": 1.0905849830658927,
+            "client_busy_fraction": 0.13632312288323659,
+            "logical_cpus": 8,
+            "client_bound": false
+          }
+        ]
+      },
+      "run_file": "results/runs/20260804T184221Z/runfiles/bench_beir_scifact_test.meilisearch_rankrules.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "dataset_identity": {
+        "source": "ir_datasets",
+        "md5": "a89dba18a62ef92f7d323ec890a0d38d",
+        "size_bytes": 2448432,
+        "subset": "nfcorpus",
+        "archive": "nfcorpus/source.zip",
+        "corpus_fingerprint": "4a844c96e864b1c4c8ff43e76c5bf1e681bd258e219d6b33e706a7f32f07a467",
+        "fingerprint_algorithm": "sha256/len-framed/id-byte-sorted/v1"
+      },
+      "track": "keyword",
+      "run_tag": "meilisearch_rankrules",
+      "setup": "Not BM25; the harness sets `searchableAttributes` to the text field, reads `_rankingScore` as the score, and leaves every other setting at its default",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.25497535946025596,
+        "recall_100": 0.17014487558461489,
+        "map": 0.11670467736478676,
+        "recip_rank": 0.4337675637860514
+      },
+      "calibration": {
+        "baseline_ndcg10": 0.322,
+        "baseline_source": "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4",
+        "margin": 0.02,
+        "delta": -0.06702464053974405,
+        "within_margin": false
+      },
+      "operating_point": null,
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 3.634577920999618,
+        "ingest_docs_per_sec": 999.5658585305047,
+        "index_size_bytes": null,
+        "raw_stats": {
+          "index_size_bytes": null,
+          "raw": {
+            "numberOfDocuments": 3633,
+            "rawDocumentDbSize": 11579392,
+            "avgDocumentSize": 3179,
+            "isIndexing": false,
+            "numberOfEmbeddings": 0,
+            "numberOfEmbeddedDocuments": 0,
+            "fieldDistribution": {
+              "id": 3633,
+              "text": 3633
+            }
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "mean_ms": 2.091191983900929,
+        "p50_ms": 1.915592,
+        "p90_ms": 3.046865,
+        "p95_ms": 3.450667,
+        "p99_ms": 4.505318,
+        "max_ms": 5.008845,
+        "top_k": 10,
+        "client": {
+          "samples": 1615,
+          "mean_ms": 2.091191983900929,
+          "p50_ms": 1.915592,
+          "p90_ms": 3.046865,
+          "p95_ms": 3.450667,
+          "p99_ms": 4.505318,
+          "max_ms": 5.008845,
+          "top_k": 10
+        },
+        "server": {
+          "samples": 1615,
+          "mean_ms": 0.6501547987616099,
+          "p50_ms": 1.0,
+          "p90_ms": 2.0,
+          "p95_ms": 2.0,
+          "p99_ms": 3.0,
+          "max_ms": 4.0,
+          "top_k": 10
+        },
+        "server_time_source": "response `processingTimeMs` field",
+        "server_time_resolution": "integer-millisecond"
+      },
+      "throughput": {
+        "warmup_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "server_time_source": "response `processingTimeMs` field",
+        "server_time_resolution": "integer-millisecond",
+        "levels": [
+          {
+            "concurrency": 16,
+            "qps": 892.8228430899565,
+            "completed": 4472,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.008832418000111,
+            "client_latency_ms": {
+              "samples": 4472,
+              "mean_ms": 17.831763482334114,
+              "p50_ms": 16.065603000242845,
+              "p90_ms": 26.686589999826538,
+              "p95_ms": 30.9115089999068,
+              "p99_ms": 40.27272100029222,
+              "max_ms": 56.07890600003884
+            },
+            "server_latency_ms": {
+              "samples": 4472,
+              "mean_ms": 0.8940071556350626,
+              "p50_ms": 1.0,
+              "p90_ms": 2.0,
+              "p95_ms": 3.0,
+              "p99_ms": 4.0,
+              "max_ms": 5.0
+            },
+            "achieved_concurrency": 15.920605769605206,
+            "client_cpu_seconds": 5.5662910199999995,
+            "client_cores_busy": 1.1112951193968008,
+            "client_busy_fraction": 0.1389118899246001,
+            "logical_cpus": 8,
+            "client_bound": false
+          }
+        ]
+      },
+      "run_file": "results/runs/20260804T184221Z/runfiles/bench_beir_nfcorpus_test.meilisearch_rankrules.run"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "runId": "20260804T180208Z",
+  "createdAt": "2026-08-04T18:02:08.465Z",
+  "git": {
+    "branch": "benchmarks-2026-08-04",
+    "commit": "ad93b7f4fe58b9ddb5f185336e00ecf19bad9138",
+    "dirty": false
+  },
+  "environment": {
+    "node": "v24.19.0",
+    "os": "Linux",
+    "arch": "x64",
+    "cpu": "Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz",
+    "totalMemory": "31GB",
+    "machineLabel": "GCP c3-standard-8, us-central1-a"
+  }
+}
