@@ -125,7 +125,7 @@ class NarsilDriver:
         return int(response.json().get("count", 0))
 
     def _post_search(self, index: str, body: dict) -> SearchResponse:
-        response = self._client.post(f"/indexes/{index}/search", json=body)
+        response = self._client.post(f"/indexes/{index}/search", json={**body, "document": False})
         _raise_for_envelope(response)
         payload = response.json()
         hits = [Hit(doc_id=str(hit["id"]), score=float(hit["score"])) for hit in payload.get("hits", [])]
