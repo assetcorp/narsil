@@ -68,6 +68,13 @@ class WeaviateDriver:
         self._client = build_client(engine.url)
         self._ef_cache: dict[str, int] = {}
 
+    def set_vector_profile(self, profile: str) -> None:
+        """Adopts a profile the driver did not itself create the class under, so a
+        load-generator process searching a class another process built asks for the
+        same precision the run tuned to."""
+
+        self._vector_profile = profile
+
     def close(self) -> None:
         self._client.close()
 

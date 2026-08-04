@@ -225,9 +225,18 @@ about, or set `BENCH_DATASETS`, when you want a faster check.
   and reports the queries per second an engine sustains, which still separates engines
   on the small corpora where one query's server time falls below a millisecond. Both
   measures use the same matched-recall operating point, and the file records the
-  concurrency level. Each throughput level also records whether the engine or the
-  client set the limit, read from the client's CPU use and the concurrency it reached,
-  so you can spot a client-bound number before you trust it.
+  concurrency level. The load generator spreads that concurrency across processes,
+  because building a request and parsing its response is interpreter work and one
+  Python process saturates near a single core: a threads-only client holds every
+  engine to that core divided by its per-request cost, whatever the engine could
+  serve. `throughput.client_processes` sets how many processes drive the load
+  (`BENCH_THROUGHPUT_CLIENT_PROCESSES` overrides it, and unset it takes half the
+  host's logical cores), and every level records the value used. That CPU comes out
+  of the same host the engine runs on, so raising it buys headroom to measure with
+  and costs the engine cores to be measured on. Each level also records whether the
+  engine or the client set the limit, read from the client's CPU against the cores
+  its own processes can reach and from the concurrency it achieved, so you can spot
+  a client-bound number before you trust it.
 - Each result records what produced it: the engine's build identity (its version, and
   the git build hash where the engine exposes one), the image digest the engine ran as,
   and each dataset's content hash. With these you can tie a number back to an exact

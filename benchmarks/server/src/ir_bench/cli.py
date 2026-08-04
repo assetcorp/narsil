@@ -85,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
         "throughput": {
             "enabled": config.throughput.enabled,
             "concurrency": list(config.throughput.concurrency),
+            "client_processes": config.throughput.client_processes,
             "duration_seconds": config.throughput.duration_seconds,
             "warmup_seconds": config.throughput.warmup_seconds,
         },

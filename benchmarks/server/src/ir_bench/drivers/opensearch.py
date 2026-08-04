@@ -25,6 +25,13 @@ class OpenSearchDriver(LuceneRestDriver):
         self._vector_profile = EQUAL_PRECISION
         self._pipeline_ready = False
 
+    def set_vector_profile(self, profile: str) -> None:
+        """Adopts a profile the driver did not itself create the index under, so a
+        load-generator process searching an index another process built asks for the
+        same precision the run tuned to."""
+
+        self._vector_profile = profile
+
     def _ensure_pipeline(self) -> None:
         if self._pipeline_ready:
             return

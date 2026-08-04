@@ -75,6 +75,13 @@ class QdrantDriver:
         self._sparse = None
         self._client = build_client(engine.url)
 
+    def set_vector_profile(self, profile: str) -> None:
+        """Adopts a profile the driver did not itself create the collection under, so
+        a load-generator process searching a collection another process built asks for
+        the same precision the run tuned to."""
+
+        self._vector_profile = profile
+
     def set_rescore_oversample(self, value: float | None) -> None:
         self._rescore_oversample = value
 

@@ -138,6 +138,20 @@ class NarsilDriver:
     def search(self, index: str, term: str, limit: int) -> SearchResponse:
         return self._post_search(index, {"term": term, "fields": ["text"], "limit": limit})
 
+    def set_vector_profile(self, profile: str) -> None:
+        """Adopts a profile the driver did not itself create the index under, so a
+        load-generator process searching an index another process built asks for the
+        same precision the run tuned to."""
+
+        self._vector_profile = profile
+
+    def set_vector_metric(self, metric: str) -> None:
+        """Adopts the similarity every vector clause names. The index carries no
+        metric of its own here, so a worker that kept the driver default would score
+        against a different similarity from the one the run indexed for."""
+
+        self._metric = metric
+
     def create_vector_index(self, index: str, params: VectorIndexParams) -> None:
         self._metric = params.metric
         self._vector_profile = params.profile
