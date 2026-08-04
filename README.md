@@ -12,7 +12,7 @@ Distributed search, reforged.
 
 Narsil is a distributed search engine with full-text, vector, hybrid, and geosearch. One codebase runs in two contexts: embedded in your application process, where queries answer without a network hop, and as a standalone search server with a REST API, a write-ahead log, and bulk NDJSON ingest. Both contexts run the same engine and store indexes in the same cross-language binary format (.nrsl), so an index built in one loads in the other.
 
-The engine partitions large indexes across workers and merges partition results into a single ranked answer. Its BM25 ranking matches the Anserini reference within 0.005 nDCG@10 on the BEIR datasets. On BEIR SciFact it ranks level with Elasticsearch and OpenSearch at 0.678 nDCG@10 and answers 1,020 keyword queries per second, about a quarter more than either ([benchmarks](BENCHMARKS.md)). The TypeScript package is the reference implementation.
+The engine partitions large indexes across workers and merges partition results into a single ranked answer. Its BM25 ranking matches the Anserini reference within 0.006 nDCG@10 on the BEIR datasets. On BEIR SciFact it takes the top nDCG@10 at 0.681, just ahead of Elasticsearch and OpenSearch at 0.679, and answers 958 keyword queries per second against their 841 and 878 ([benchmarks](BENCHMARKS.md)). The TypeScript package is the reference implementation.
 
 Try it in your browser at [narsil.sondelali.com/demo](https://narsil.sondelali.com/demo). Read the full documentation at [narsil.sondelali.com/docs](https://narsil.sondelali.com/docs).
 
@@ -141,7 +141,7 @@ Narsil is portable, so it competes in two classes. Run as a search server, it go
 
 ### Production search servers
 
-On the [BEIR](https://github.com/beir-cellar/beir) information-retrieval datasets, served over HTTP, Narsil's BM25 ranks level with the Lucene engines on SciFact and takes the top nDCG@10, Recall@100, MAP, and MRR on NFCorpus. On the hybrid track it takes the top nDCG@10 on NFCorpus. Its BM25 reproduces the published Anserini baseline to within 0.005 nDCG@10 on both datasets, which is the calibration that makes the comparison trustworthy. The keyword, vector, and hybrid numbers for all six engines are in [BENCHMARKS.md](BENCHMARKS.md).
+On the [BEIR](https://github.com/beir-cellar/beir) information-retrieval datasets, served over HTTP, Narsil's BM25 takes the top nDCG@10 on SciFact, narrowly ahead of the Lucene engines, and takes the top nDCG@10, Recall@100, MAP, and MRR on NFCorpus. On the hybrid track it takes the top nDCG@10 on NFCorpus. Its BM25 reproduces the published Anserini baseline to within 0.006 nDCG@10 on both datasets, which is the calibration that makes the comparison trustworthy. The keyword, vector, and hybrid numbers for all seven engines are in [BENCHMARKS.md](BENCHMARKS.md).
 
 ### In-process libraries
 
