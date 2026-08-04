@@ -1,3 +1,13 @@
+## 0.2.2 (2026-08-04)
+
+### 🩹 Fixes
+
+- **ts:** update VectorQueryConfig to accept Float32Array and adjust query conversion logic ([2f204ea](https://github.com/assetcorp/narsil/commit/2f204ea))
+
+### ❤️ Thank You
+
+- assetcorp
+
 ## 0.2.1 (2026-08-04)
 
 This was a version bump only for narsil-ts to align it with other projects, there were no code changes.
