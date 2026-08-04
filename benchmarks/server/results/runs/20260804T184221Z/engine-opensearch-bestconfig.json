@@ -1,0 +1,589 @@
+{
+  "environment": {
+    "captured_at": "2026-08-04T19:16:13.862291+00:00",
+    "harness_version": "0.1.0",
+    "containerized": true,
+    "machine_label": "GCP c3-standard-8, us-central1-a",
+    "os": "Linux 6.17.0-1021-gcp",
+    "arch": "x86_64",
+    "cpu_model": "Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz",
+    "logical_cpus": 8,
+    "total_memory_bytes": 33647976448,
+    "python_version": "3.12.13",
+    "ir_datasets_version": "0.6.1",
+    "pytrec_eval_version": "0.5.10"
+  },
+  "engine": {
+    "name": "opensearch",
+    "run_tag": "opensearch_bm25",
+    "ranking": "bm25",
+    "url": "http://opensearch:9200",
+    "version": "3.7.0",
+    "image_digest": "opensearchproject/opensearch@sha256:44ba7ea58a319adf61c33ab16873f9ef5dbb30b291a832d375172f0b2d24e3c9",
+    "build_identity": {
+      "version": "3.7.0",
+      "build_hash": "72121f014083f9ca010fd5a7da83b2ec4886027f",
+      "build_date": "2026-06-03T23:30:14.822289255Z",
+      "distribution": "opensearch",
+      "source_endpoint": "/",
+      "raw": {
+        "distribution": "opensearch",
+        "number": "3.7.0",
+        "build_type": "tar",
+        "build_hash": "72121f014083f9ca010fd5a7da83b2ec4886027f",
+        "build_date": "2026-06-03T23:30:14.822289255Z",
+        "build_snapshot": false,
+        "lucene_version": "10.4.0",
+        "minimum_wire_compatibility_version": "2.19.0",
+        "minimum_index_compatibility_version": "2.0.0"
+      }
+    },
+    "tracks": [
+      "keyword",
+      "vector",
+      "hybrid"
+    ],
+    "keyword_setup": "BM25 k1=0.9 b=0.4 (custom default similarity); OpenSearch `english` analyzer",
+    "vector_profile": "best-config"
+  },
+  "config": {
+    "k1": 0.9,
+    "b": 0.4,
+    "run_depth": 1000,
+    "memory_cap_bytes": 8589934592,
+    "throughput": {
+      "enabled": true,
+      "concurrency": [
+        16
+      ],
+      "duration_seconds": 5.0,
+      "warmup_seconds": 1.0
+    },
+    "vector_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "vector_dims": 384,
+    "vector_metric": "cosine",
+    "recall_target": 0.99,
+    "recall_k": 10,
+    "vector_profile": "best-config"
+  },
+  "datasets": [
+    {
+      "dataset_id": "beir/scifact/test",
+      "dataset_identity": {
+        "source": "ir_datasets",
+        "md5": "5f7d1de60b170fc8027bb7898e2efca1",
+        "size_bytes": 2816079,
+        "subset": "scifact",
+        "archive": "scifact/source.zip",
+        "corpus_fingerprint": "7eef964b1e3042197cafe04e912a8065b91bab2dd3e591cb277dcd369d6fa381",
+        "fingerprint_algorithm": "sha256/len-framed/id-byte-sorted/v1"
+      },
+      "track": "vector",
+      "run_tag": "opensearch_vector_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "knn_vector HNSW (faiss engine, 16-bit SQ / SQfp16 scalar quantization, inner product on L2-normalized vectors = cosine), over the shared precomputed vectors",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.6238596288000929,
+        "recall_100": 0.9226666666666667,
+        "map": 0.579714375755333,
+        "recip_rank": 0.584887161218732
+      },
+      "calibration": null,
+      "operating_point": {
+        "knob": "ef_search",
+        "recall_metric": "ann_recall@10",
+        "recall_k": 10,
+        "target": 0.99,
+        "chosen_value": 64,
+        "rescore_oversample": null,
+        "achieved_recall": 0.9939999999999998,
+        "met_target": true,
+        "secondary_target": 0.95,
+        "secondary_value": 32,
+        "secondary_recall": 0.9840000000000001,
+        "sweep": [
+          {
+            "value": 16,
+            "recall": 0.9476666666666671
+          },
+          {
+            "value": 32,
+            "recall": 0.9840000000000001
+          },
+          {
+            "value": 64,
+            "recall": 0.9939999999999998
+          }
+        ]
+      },
+      "vector_oversample": null,
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 4.705627957000161,
+        "ingest_docs_per_sec": 1101.4470432771238,
+        "index_size_bytes": 19699403,
+        "raw_stats": {
+          "index_size_bytes": 19699403,
+          "raw": {
+            "size_in_bytes": 19699403,
+            "reserved_in_bytes": 0
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "mean_ms": 1.9408949766666668,
+        "p50_ms": 1.928462,
+        "p90_ms": 2.072716,
+        "p95_ms": 2.155805,
+        "p99_ms": 2.332454,
+        "max_ms": 2.583706,
+        "top_k": 10,
+        "client": {
+          "samples": 1500,
+          "mean_ms": 1.9408949766666668,
+          "p50_ms": 1.928462,
+          "p90_ms": 2.072716,
+          "p95_ms": 2.155805,
+          "p99_ms": 2.332454,
+          "max_ms": 2.583706,
+          "top_k": 10
+        },
+        "server": {
+          "samples": 1500,
+          "mean_ms": 0.0013333333333333333,
+          "p50_ms": 0.0,
+          "p90_ms": 0.0,
+          "p95_ms": 0.0,
+          "p99_ms": 0.0,
+          "max_ms": 1.0,
+          "top_k": 10
+        },
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond"
+      },
+      "throughput": {
+        "warmup_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond",
+        "levels": [
+          {
+            "concurrency": 16,
+            "qps": 726.794328737431,
+            "completed": 3640,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.008294446000036,
+            "client_latency_ms": {
+              "samples": 3640,
+              "mean_ms": 21.888363931594952,
+              "p50_ms": 19.954619000145613,
+              "p90_ms": 32.85414700030742,
+              "p95_ms": 37.880372000017815,
+              "p99_ms": 51.19219800008068,
+              "max_ms": 78.41039300001285
+            },
+            "server_latency_ms": {
+              "samples": 3640,
+              "mean_ms": 0.03736263736263736,
+              "p50_ms": 0.0,
+              "p90_ms": 0.0,
+              "p95_ms": 0.0,
+              "p99_ms": 1.0,
+              "max_ms": 3.0
+            },
+            "achieved_concurrency": 15.908338770824148,
+            "client_cpu_seconds": 5.427805576000001,
+            "client_cores_busy": 1.0837632720126937,
+            "client_busy_fraction": 0.13547040900158672,
+            "logical_cpus": 8,
+            "client_bound": false
+          }
+        ]
+      },
+      "run_file": "results/runs/20260804T184221Z/runfiles/bench_beir_scifact_test.opensearch_vector_bestconfig.run"
+    },
+    {
+      "dataset_id": "beir/scifact/test",
+      "dataset_identity": {
+        "source": "ir_datasets",
+        "md5": "5f7d1de60b170fc8027bb7898e2efca1",
+        "size_bytes": 2816079,
+        "subset": "scifact",
+        "archive": "scifact/source.zip",
+        "corpus_fingerprint": "7eef964b1e3042197cafe04e912a8065b91bab2dd3e591cb277dcd369d6fa381",
+        "fingerprint_algorithm": "sha256/len-framed/id-byte-sorted/v1"
+      },
+      "track": "hybrid",
+      "run_tag": "opensearch_hybrid_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "BM25 match fused with SQfp16-quantized knn via a hybrid query and an RRF search pipeline",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.705330531832667,
+        "recall_100": 0.9610000000000001,
+        "map": 0.6587140229375819,
+        "recip_rank": 0.6643186337028297
+      },
+      "calibration": null,
+      "operating_point": {
+        "fusion": "score-ranker-processor RRF (rank_constant=60)",
+        "vector_knob": "ef_search",
+        "vector_value": 64,
+        "vector_ef_from_vector_track": true,
+        "rescore_oversample": null
+      },
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 4.593560447999607,
+        "ingest_docs_per_sec": 1128.318666679804,
+        "index_size_bytes": 19698534,
+        "raw_stats": {
+          "index_size_bytes": 19698534,
+          "raw": {
+            "size_in_bytes": 19698534,
+            "reserved_in_bytes": 0
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "mean_ms": 2.9250251806666667,
+        "p50_ms": 2.900643,
+        "p90_ms": 3.258624,
+        "p95_ms": 3.37004,
+        "p99_ms": 3.649225,
+        "max_ms": 4.239146,
+        "top_k": 10,
+        "client": {
+          "samples": 1500,
+          "mean_ms": 2.9250251806666667,
+          "p50_ms": 2.900643,
+          "p90_ms": 3.258624,
+          "p95_ms": 3.37004,
+          "p99_ms": 3.649225,
+          "max_ms": 4.239146,
+          "top_k": 10
+        },
+        "server": {
+          "samples": 1500,
+          "mean_ms": 1.0786666666666667,
+          "p50_ms": 1.0,
+          "p90_ms": 1.0,
+          "p95_ms": 2.0,
+          "p99_ms": 2.0,
+          "max_ms": 2.0,
+          "top_k": 10
+        },
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond"
+      },
+      "throughput": {
+        "warmup_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond",
+        "levels": [
+          {
+            "concurrency": 16,
+            "qps": 669.83452155821,
+            "completed": 3355,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.008699748999788,
+            "client_latency_ms": {
+              "samples": 3355,
+              "mean_ms": 23.73779356542938,
+              "p50_ms": 21.439953000026435,
+              "p90_ms": 35.38517800006957,
+              "p95_ms": 41.117043000213016,
+              "p99_ms": 53.76909300002808,
+              "max_ms": 81.09227199975066
+            },
+            "server_latency_ms": {
+              "samples": 3355,
+              "mean_ms": 1.326080476900149,
+              "p50_ms": 1.0,
+              "p90_ms": 2.0,
+              "p95_ms": 2.0,
+              "p99_ms": 2.0,
+              "max_ms": 5.0
+            },
+            "achieved_concurrency": 15.900393595746944,
+            "client_cpu_seconds": 5.421932763000001,
+            "client_cores_busy": 1.0825030516318597,
+            "client_busy_fraction": 0.13531288145398246,
+            "logical_cpus": 8,
+            "client_bound": false
+          }
+        ]
+      },
+      "run_file": "results/runs/20260804T184221Z/runfiles/bench_beir_scifact_test.opensearch_hybrid_bestconfig.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "dataset_identity": {
+        "source": "ir_datasets",
+        "md5": "a89dba18a62ef92f7d323ec890a0d38d",
+        "size_bytes": 2448432,
+        "subset": "nfcorpus",
+        "archive": "nfcorpus/source.zip",
+        "corpus_fingerprint": "4a844c96e864b1c4c8ff43e76c5bf1e681bd258e219d6b33e706a7f32f07a467",
+        "fingerprint_algorithm": "sha256/len-framed/id-byte-sorted/v1"
+      },
+      "track": "vector",
+      "run_tag": "opensearch_vector_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "knn_vector HNSW (faiss engine, 16-bit SQ / SQfp16 scalar quantization, inner product on L2-normalized vectors = cosine), over the shared precomputed vectors",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.31453393519371436,
+        "recall_100": 0.3094260094121505,
+        "map": 0.15745950197601605,
+        "recip_rank": 0.5168404615714081
+      },
+      "calibration": null,
+      "operating_point": {
+        "knob": "ef_search",
+        "recall_metric": "ann_recall@10",
+        "recall_k": 10,
+        "target": 0.99,
+        "chosen_value": 128,
+        "rescore_oversample": null,
+        "achieved_recall": 0.9938080495356038,
+        "met_target": true,
+        "secondary_target": 0.95,
+        "secondary_value": 64,
+        "secondary_recall": 0.978328173374613,
+        "sweep": [
+          {
+            "value": 16,
+            "recall": 0.8839009287925703
+          },
+          {
+            "value": 32,
+            "recall": 0.9442724458204338
+          },
+          {
+            "value": 64,
+            "recall": 0.978328173374613
+          },
+          {
+            "value": 128,
+            "recall": 0.9938080495356038
+          }
+        ]
+      },
+      "vector_oversample": null,
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 3.2265369469996585,
+        "ingest_docs_per_sec": 1125.9750189373501,
+        "index_size_bytes": 14026640,
+        "raw_stats": {
+          "index_size_bytes": 14026640,
+          "raw": {
+            "size_in_bytes": 14026640,
+            "reserved_in_bytes": 0
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "mean_ms": 1.847500893498452,
+        "p50_ms": 1.83339,
+        "p90_ms": 1.980607,
+        "p95_ms": 2.044617,
+        "p99_ms": 2.237399,
+        "max_ms": 5.307024,
+        "top_k": 10,
+        "client": {
+          "samples": 1615,
+          "mean_ms": 1.847500893498452,
+          "p50_ms": 1.83339,
+          "p90_ms": 1.980607,
+          "p95_ms": 2.044617,
+          "p99_ms": 2.237399,
+          "max_ms": 5.307024,
+          "top_k": 10
+        },
+        "server": {
+          "samples": 1615,
+          "mean_ms": 0.005572755417956657,
+          "p50_ms": 0.0,
+          "p90_ms": 0.0,
+          "p95_ms": 0.0,
+          "p99_ms": 0.0,
+          "max_ms": 4.0,
+          "top_k": 10
+        },
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond"
+      },
+      "throughput": {
+        "warmup_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond",
+        "levels": [
+          {
+            "concurrency": 16,
+            "qps": 725.5728197645051,
+            "completed": 3633,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.00707840899986,
+            "client_latency_ms": {
+              "samples": 3633,
+              "mean_ms": 21.929600472060578,
+              "p50_ms": 20.114023999667552,
+              "p90_ms": 33.17595099997561,
+              "p95_ms": 38.963475999935326,
+              "p99_ms": 51.78085599982296,
+              "max_ms": 116.2309749997803
+            },
+            "server_latency_ms": {
+              "samples": 3633,
+              "mean_ms": 0.03550784475639967,
+              "p50_ms": 0.0,
+              "p90_ms": 0.0,
+              "p95_ms": 0.0,
+              "p99_ms": 1.0,
+              "max_ms": 4.0
+            },
+            "achieved_concurrency": 15.911522050822017,
+            "client_cpu_seconds": 5.417774989999998,
+            "client_cores_busy": 1.082023197452219,
+            "client_busy_fraction": 0.13525289968152737,
+            "logical_cpus": 8,
+            "client_bound": false
+          }
+        ]
+      },
+      "run_file": "results/runs/20260804T184221Z/runfiles/bench_beir_nfcorpus_test.opensearch_vector_bestconfig.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "dataset_identity": {
+        "source": "ir_datasets",
+        "md5": "a89dba18a62ef92f7d323ec890a0d38d",
+        "size_bytes": 2448432,
+        "subset": "nfcorpus",
+        "archive": "nfcorpus/source.zip",
+        "corpus_fingerprint": "4a844c96e864b1c4c8ff43e76c5bf1e681bd258e219d6b33e706a7f32f07a467",
+        "fingerprint_algorithm": "sha256/len-framed/id-byte-sorted/v1"
+      },
+      "track": "hybrid",
+      "run_tag": "opensearch_hybrid_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "BM25 match fused with SQfp16-quantized knn via a hybrid query and an RRF search pipeline",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.35209820113208995,
+        "recall_100": 0.32158464404894327,
+        "map": 0.18671063363955642,
+        "recip_rank": 0.5653091090413523
+      },
+      "calibration": null,
+      "operating_point": {
+        "fusion": "score-ranker-processor RRF (rank_constant=60)",
+        "vector_knob": "ef_search",
+        "vector_value": 128,
+        "vector_ef_from_vector_track": true,
+        "rescore_oversample": null
+      },
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 3.2020284999998694,
+        "ingest_docs_per_sec": 1134.5932742323025,
+        "index_size_bytes": 14026640,
+        "raw_stats": {
+          "index_size_bytes": 14026640,
+          "raw": {
+            "size_in_bytes": 14026640,
+            "reserved_in_bytes": 0
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "mean_ms": 2.399367656346749,
+        "p50_ms": 2.403051,
+        "p90_ms": 2.643572,
+        "p95_ms": 2.74258,
+        "p99_ms": 2.955316,
+        "max_ms": 4.702687,
+        "top_k": 10,
+        "client": {
+          "samples": 1615,
+          "mean_ms": 2.399367656346749,
+          "p50_ms": 2.403051,
+          "p90_ms": 2.643572,
+          "p95_ms": 2.74258,
+          "p99_ms": 2.955316,
+          "max_ms": 4.702687,
+          "top_k": 10
+        },
+        "server": {
+          "samples": 1615,
+          "mean_ms": 0.8390092879256966,
+          "p50_ms": 1.0,
+          "p90_ms": 1.0,
+          "p95_ms": 1.0,
+          "p99_ms": 1.0,
+          "max_ms": 3.0,
+          "top_k": 10
+        },
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond"
+      },
+      "throughput": {
+        "warmup_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond",
+        "levels": [
+          {
+            "concurrency": 16,
+            "qps": 688.7003303285464,
+            "completed": 3450,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.0094356690001405,
+            "client_latency_ms": {
+              "samples": 3450,
+              "mean_ms": 23.097933638843603,
+              "p50_ms": 20.392276999700698,
+              "p90_ms": 35.032199999932345,
+              "p95_ms": 40.428327999961766,
+              "p99_ms": 52.697914999953355,
+              "max_ms": 111.02142899972023
+            },
+            "server_latency_ms": {
+              "samples": 3450,
+              "mean_ms": 0.9518840579710145,
+              "p50_ms": 1.0,
+              "p90_ms": 1.0,
+              "p95_ms": 1.0,
+              "p99_ms": 2.0,
+              "max_ms": 5.0
+            },
+            "achieved_concurrency": 15.907554526978435,
+            "client_cpu_seconds": 5.424303456000004,
+            "client_cores_busy": 1.0828172701302838,
+            "client_busy_fraction": 0.13535215876628548,
+            "logical_cpus": 8,
+            "client_bound": false
+          }
+        ]
+      },
+      "run_file": "results/runs/20260804T184221Z/runfiles/bench_beir_nfcorpus_test.opensearch_hybrid_bestconfig.run"
+    }
+  ]
+}

@@ -114,14 +114,14 @@ nDCG@10 margin.
 
 | Dataset | Narsil nDCG@10 | Published BM25 | Delta | Recall@100 |
 | ------- | -------------- | -------------- | ----- | ---------- |
-| SciFact | 0.6614 | 0.679 | -0.0176 | 0.910 |
-| NFCorpus | 0.3112 | 0.322 | -0.0108 | 0.236 |
+| SciFact | 0.6814 | 0.679 | +0.0024 | 0.925 |
+| NFCorpus | 0.3278 | 0.322 | +0.0058 | 0.249 |
 
 Published baselines are the Pyserini two-click reproductions
 ([castorini.github.io/pyserini/2cr/beir.html](https://castorini.github.io/pyserini/2cr/beir.html)),
 cross-checked against Kamalloo et al., "Resources for Brewing BEIR," SIGIR 2024
-([arXiv:2306.07471](https://arxiv.org/abs/2306.07471)). The small negative deltas
-come from the analyzer difference, not a ranking defect: Kamphuis et al., "Which
+([arXiv:2306.07471](https://arxiv.org/abs/2306.07471)). The small deltas come from
+the analyzer difference, not from the ranking model: Kamphuis et al., "Which
 BM25 Do You Mean?," ECIR 2020
 ([preprint](https://cs.uwaterloo.ca/~jimmylin/publications/Kamphuis_etal_ECIR2020_preprint.pdf))
 show the BM25 scoring variant moves results by under 0.01, while tokenization,
