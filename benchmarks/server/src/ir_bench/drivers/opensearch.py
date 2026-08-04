@@ -12,9 +12,8 @@ class OpenSearchDriver(LuceneRestDriver):
     def __init__(self, engine: EngineConfig, bm25: BM25Params) -> None:
         super().__init__(engine, bm25)
         self.keyword_setup = (
-            f"BM25 k1={bm25.k1} b={bm25.b} (custom default similarity, native Lucene "
-            f"BM25Similarity in 3.x); OpenSearch `{self._analyzer}` analyzer "
-            "(Porter stemmer, English stop words)"
+            f"BM25 k1={bm25.k1} b={bm25.b} (custom default similarity); "
+            f"OpenSearch `{self._analyzer}` analyzer"
         )
         self.vector_setup = (
             "knn_vector HNSW (faiss engine, inner product on L2-normalized vectors = cosine), "

@@ -27,17 +27,17 @@ reporting) lives in `src/ir_bench/core`, and each engine is a small driver in
 ## Engines and pinned versions
 
 Each engine runs from a pinned image. Every version was checked against the
-engine's release source on 2026-06-29.
+engine's release source on 2026-08-04.
 
 | Engine | Image (pinned) | Version | Source |
 | ------ | -------------- | ------- | ------ |
 | Narsil | built from this repo (`node:22-trixie-slim` base) | working tree | local source |
-| Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:9.4.2` | 9.4.2 | [release notes](https://www.elastic.co/docs/release-notes/elasticsearch), [GitHub releases](https://github.com/elastic/elasticsearch/releases) |
+| Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:9.5.0` | 9.5.0 | [release notes](https://www.elastic.co/docs/release-notes/elasticsearch), [GitHub releases](https://github.com/elastic/elasticsearch/releases) |
 | OpenSearch | `opensearchproject/opensearch:3.7.0` | 3.7.0 | [opensearch.org/releases](https://opensearch.org/releases/), [GitHub releases](https://github.com/opensearch-project/OpenSearch/releases) |
-| Qdrant | `qdrant/qdrant:v1.18.2` | 1.18.2 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
-| Weaviate | `cr.weaviate.io/semitechnologies/weaviate:1.38.2` | 1.38.2 | [GitHub releases](https://github.com/weaviate/weaviate/releases) |
+| Qdrant | `qdrant/qdrant:v1.18.3` | 1.18.3 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
+| Weaviate | `cr.weaviate.io/semitechnologies/weaviate:1.39.0` | 1.39.0 | [GitHub releases](https://github.com/weaviate/weaviate/releases) |
 | Typesense | `typesense/typesense:30.2` | 30.2 | [GitHub releases](https://github.com/typesense/typesense/releases) |
-| Meilisearch | `getmeili/meilisearch:v1.48.2` | 1.48.2 | [GitHub releases](https://github.com/meilisearch/meilisearch/releases) |
+| Meilisearch | `getmeili/meilisearch:v1.52.0` | 1.52.0 | [GitHub releases](https://github.com/meilisearch/meilisearch/releases) |
 
 ## Tracks and which engines run them
 
@@ -81,24 +81,29 @@ names the method per engine rather than claiming one shared method.
 
 ## Keyword setup per engine
 
-Each engine uses its documented keyword configuration. The engines that implement
-BM25 adopt the Anserini and Pyserini reference parameters. The two engines without
-BM25 run their own documented ranking, recorded plainly so you know the comparison
-there is model against model.
+Each engine runs the keyword configuration this harness sets, and its own defaults
+everywhere else. The engines that implement BM25 take the Anserini and Pyserini
+reference parameters. The two engines without BM25 rank their own way, named here
+so that you know the comparison there is model against model.
 
-| Engine | Ranking model | BM25 k1/b | Analyzer |
-| ------ | ------------- | --------- | -------- |
-| Narsil | BM25 | 0.9 / 0.4 | Porter stemmer, 70-word stop list |
-| Elasticsearch | BM25 (custom default similarity) | 0.9 / 0.4 | `english` (Porter stemmer, English stop words) |
-| OpenSearch | BM25 (native Lucene `BM25Similarity` in 3.x) | 0.9 / 0.4 | `english` (Porter stemmer, English stop words) |
-| Typesense | Token match and proximity (`text_match`), not BM25 | n/a | English locale, Snowball stemming, default typo tolerance |
-| Meilisearch | Bucket-sort ranking rules (`_rankingScore`), not BM25 | n/a | Default tokenization, default typo tolerance and prefix search |
+The table records what the harness configures. It names no stemmer and counts no
+stop words, because an engine changes both between releases and a description
+typed here would go out of date without anyone editing it. Every results file
+records these same values, and Narsil's line shows the language its server
+reported during the run.
+
+| Engine | Ranking model | BM25 k1/b | Analysis the harness sets |
+| ------ | ------------- | --------- | ------------------------- |
+| Narsil | BM25 | 0.9 / 0.4 | Language left at the server default, read back from `/indexes/{name}/stats` |
+| Elasticsearch | BM25 (custom default similarity) | 0.9 / 0.4 | `english` analyzer |
+| OpenSearch | BM25 (custom default similarity) | 0.9 / 0.4 | `english` analyzer |
+| Typesense | Not BM25, sorted by `_text_match` | n/a | Text field created with locale `en` and `stem` enabled |
+| Meilisearch | Not BM25, scored by `_rankingScore` | n/a | `searchableAttributes` set to the text field |
 
 BM25 `k1=0.9, b=0.4` is Anserini's default, sourced to Trotman et al. (SIGIR 2012
-OSIR Workshop) and used throughout the Pyserini BEIR reproductions. The standard
-BEIR BM25 analyzer is Lucene's English analyzer (lowercasing, English stop-word
-removal, and Porter stemming), which the `english` analyzer on Elasticsearch and
-OpenSearch mirrors.
+OSIR Workshop) and used throughout the Pyserini BEIR reproductions. The BEIR BM25
+reference runs Lucene's English analyzer, and both Elasticsearch and OpenSearch
+build on Lucene, so their `english` analyzer is that same analyzer.
 
 ## Narsil's BM25 calibration
 

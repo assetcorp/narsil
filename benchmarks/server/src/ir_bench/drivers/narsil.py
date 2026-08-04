@@ -56,10 +56,7 @@ class NarsilDriver:
     def __init__(self, engine: EngineConfig, bm25: BM25Params) -> None:
         self.name = engine.name
         self.run_tag = engine.run_tag
-        self.keyword_setup = (
-            f"BM25 k1={bm25.k1} b={bm25.b}; Narsil english analyzer "
-            "(Porter stemmer, 70-word stop list)"
-        )
+        self.keyword_setup = f"BM25 k1={bm25.k1} b={bm25.b}; language left at the server default"
         self.vector_setup = "HNSW over the shared precomputed vectors, full precision (SQ8 quantization off), cosine"
         self.hybrid_setup = "BM25 (text) fused with HNSW vector search via Reciprocal Rank Fusion"
         self.hybrid_fusion = f"RRF (k={_RRF_K})"
@@ -235,6 +232,11 @@ class NarsilDriver:
         response = self._client.get(f"/indexes/{index}/stats")
         _raise_for_envelope(response)
         raw = response.json()
+        reported_language = raw.get("language")
+        if isinstance(reported_language, str) and reported_language:
+            self.keyword_setup = (
+                f"BM25 k1={self._k1} b={self._b}; language {reported_language}, as the server reports it"
+            )
         size = None
         for key in _MEMORY_KEYS:
             value = raw.get(key)

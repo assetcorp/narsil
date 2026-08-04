@@ -44,8 +44,8 @@ class TypesenseDriver:
         self.name = engine.name
         self.run_tag = engine.run_tag
         self.keyword_setup = (
-            "Native token match/proximity scoring (text_match), not BM25; "
-            "english locale, Snowball stemming enabled, default typo tolerance"
+            "Not BM25; the harness creates the text field with locale `en` and `stem` "
+            "enabled, sorts by `_text_match`, and leaves every other setting at its default"
         )
         self.server_time = ServerTimeSource(source="response `search_time_ms` field", resolution=INTEGER_MS)
         api_key = os.environ.get("BENCH_API_KEY", "localdev")
