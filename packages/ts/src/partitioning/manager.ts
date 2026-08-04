@@ -31,7 +31,7 @@ export interface PartitionManager {
   endBatchRemove(): void
   update(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
   rebuildTextIndex(partitionId: number): void
-  get(docId: string): AnyDocument | undefined
+  get(docId: string, keepVectorField?: (fieldPath: string) => boolean): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
   has(docId: string): boolean
   countDocuments(): number
@@ -276,12 +276,13 @@ export function createPartitionManager(
       partitions[pid].update(docId, document, config.schema, language, updateOpts)
     },
 
-    get(docId: string): AnyDocument | undefined {
+    get(docId: string, keepVectorField?: (fieldPath: string) => boolean): AnyDocument | undefined {
       const pid = docPartitionMap.get(docId)
       if (pid === undefined) return undefined
       const doc = partitions[pid].get(docId)
       if (!doc) return undefined
       for (const [fieldPath, vecIndex] of vecIndexes) {
+        if (keepVectorField && !keepVectorField(fieldPath)) continue
         const vector = vecIndex.getVector(docId)
         if (vector) {
           setNestedValue(doc as Record<string, unknown>, fieldPath, vector)

@@ -80,7 +80,27 @@ export interface QueryParams {
   hybrid?: HybridConfig
   /** Setting this returns the numbers behind each hit's score, which is what you read when a ranking surprises you. */
   includeScoreComponents?: boolean
+  /** This chooses how much of each stored document comes back, and the whole document by default. */
+  document?: DocumentProjection
 }
+
+/**
+ * How much of a stored document each hit carries back.
+ *
+ * Pass `false` when the ids and scores are all you need, and every hit's
+ * `document` is then an empty object. Pass `include` to keep named fields
+ * alone, or `exclude` to drop named fields and keep the rest; naming both
+ * keeps the included fields and then drops the excluded ones from those. Use
+ * dots to name a nested field, so `author.name` addresses the `name` inside
+ * `author`, and a name that matches no field changes nothing.
+ *
+ * Drop a vector field on a similarity search, because the engine otherwise
+ * reads every hit's vector back out of the index and writes it into the
+ * response.
+ *
+ * @public
+ */
+export type DocumentProjection = boolean | { include?: string[]; exclude?: string[] }
 
 /**
  * Vector-search inputs passed under `QueryParams.vector`.

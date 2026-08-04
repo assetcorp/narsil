@@ -87,6 +87,7 @@ export type {
   VectorQuantizationMode,
 } from './types/schema'
 export type {
+  DocumentProjection,
   FacetConfig,
   GroupConfig,
   GroupReducer,

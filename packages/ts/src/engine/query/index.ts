@@ -8,6 +8,7 @@ import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import { clampLimit, clampOffset, now } from '../validation'
 import { applyHighlights } from './highlight'
+import { applyProjection, projectionKeepsField, resolveProjection } from './projection'
 import { broadcastStatsForWorker, type QueryContext, scoringConfigFor, searchOptionsFor } from './shared'
 import { executeHybridSearch, executeVectorSearch } from './vector'
 
@@ -100,14 +101,29 @@ export async function executeQuery<T = AnyDocument>(
 
   const { paginated, nextCursor } = applyPagination(hits, limit, offset, params.searchAfter)
 
-  for (const hit of paginated) {
-    hit.document = (manager.get(hit.id) ?? {}) as T
+  const projection = resolveProjection(params.document)
+  const keepVectorField = (fieldPath: string): boolean => projectionKeepsField(projection, fieldPath)
+
+  if (projection.kind === 'none') {
+    for (const hit of paginated) {
+      hit.document = {} as T
+    }
+  } else {
+    for (const hit of paginated) {
+      const stored = manager.get(hit.id, keepVectorField)
+      hit.document = (stored ? applyProjection(stored, projection) : {}) as T
+    }
   }
 
   if (groups) {
     for (const group of groups) {
       for (const hit of group.hits) {
-        hit.document = (manager.get(hit.id) ?? {}) as AnyDocument
+        if (projection.kind === 'none') {
+          hit.document = {}
+          continue
+        }
+        const stored = manager.get(hit.id, keepVectorField)
+        hit.document = stored ? applyProjection(stored, projection) : {}
       }
     }
   }
