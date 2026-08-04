@@ -98,10 +98,11 @@ export interface VectorQueryConfig {
    */
   field: string
   /**
-   * Raw query vector. Length must match the indexed field's dimension or
-   * the search rejects the request with `VECTOR_DIMENSION_MISMATCH`.
+   * Raw query vector, given as a number array or a `Float32Array`. Length
+   * must match the indexed field's dimension or the search rejects the
+   * request with `VECTOR_DIMENSION_MISMATCH`.
    */
-  value?: number[]
+  value?: number[] | Float32Array
   /**
    * Text to embed at query time using the index or instance embedding
    * adapter. Mutually exclusive with `value`; requires a configured adapter.

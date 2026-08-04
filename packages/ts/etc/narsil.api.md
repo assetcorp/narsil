@@ -771,7 +771,7 @@ export interface VectorQueryConfig {
     metric?: 'cosine' | 'dotProduct' | 'euclidean';
     similarity?: number;
     text?: string;
-    value?: number[];
+    value?: number[] | Float32Array;
 }
 
 // @public
