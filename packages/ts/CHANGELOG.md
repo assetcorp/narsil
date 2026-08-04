@@ -1,3 +1,7 @@
+## 0.2.1 (2026-08-04)
+
+This was a version bump only for narsil-ts to align it with other projects, there were no code changes.
+
 ## 0.2.0 (2026-08-01)
 
 ### 🚀 Features
