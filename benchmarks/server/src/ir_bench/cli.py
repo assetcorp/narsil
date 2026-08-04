@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         "image_digest": os.environ.get("ENGINE_IMAGE_DIGEST") or None,
         "build_identity": None,
         "tracks": list(engine_cfg.tracks),
-        "keyword_setup": getattr(driver, "keyword_setup", None),
+        "keyword_setup": None,
         "vector_profile": vector_profile,
     }
     config_summary = {
@@ -117,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         results = run_engine(driver, engine_cfg, config, specs, runfiles_dir, store, vector_profile)
         engine_info["build_identity"] = _safe_build_identity(driver)
         engine_info["version"] = (engine_info["build_identity"] or {}).get("version")
+        engine_info["keyword_setup"] = getattr(driver, "keyword_setup", None)
     finally:
         driver.close()
 
