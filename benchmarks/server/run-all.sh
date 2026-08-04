@@ -71,19 +71,6 @@ else
   ENGINES=(narsil elasticsearch opensearch qdrant weaviate typesense meilisearch)
 fi
 
-version_of() {
-  case "$1" in
-    narsil) echo "source (node:22-trixie-slim)" ;;
-    elasticsearch) echo "9.4.2" ;;
-    opensearch) echo "3.7.0" ;;
-    qdrant) echo "v1.18.2" ;;
-    weaviate) echo "1.38.2" ;;
-    typesense) echo "30.2" ;;
-    meilisearch) echo "1.48.2" ;;
-    *) echo "unknown" ;;
-  esac
-}
-
 is_vector_engine() {
   case "$1" in
     narsil|elasticsearch|opensearch|qdrant|weaviate) return 0 ;;
@@ -106,7 +93,6 @@ for engine in "${ENGINES[@]}"; do
   image_digest="$(image_digest_of "$engine")"
   if docker compose run --rm \
       -e ENGINE="$engine" \
-      -e ENGINE_VERSION="$(version_of "$engine")" \
       -e ENGINE_IMAGE_DIGEST="$image_digest" \
       harness; then
     echo "[${engine}] done (equal precision)"
@@ -118,7 +104,6 @@ for engine in "${ENGINES[@]}"; do
     echo "---------------- ${engine} (best config) ----------------"
     if docker compose run --rm \
         -e ENGINE="$engine" \
-        -e ENGINE_VERSION="$(version_of "$engine")" \
         -e ENGINE_IMAGE_DIGEST="$image_digest" \
         -e BENCH_VECTOR_PROFILE="best-config" \
         harness; then

@@ -237,8 +237,9 @@ and no network, against Orama and MiniSearch. This is the embedded class, where
 Narsil indexes and queries in the same process as your application code. The speed
 tiers run on a BEIR corpus, and ranking quality is scored on BEIR SciFact with its
 human relevance judgements. All three engines use the same Lucene English stop
-words, the same Porter stemmer, and default BM25 parameters, so any ranking gap
-comes from the engines themselves.
+words and default BM25 parameters. Each one stems English with its own
+implementation, which no shared setting overrides, so a ranking gap between them
+carries both the ranking and the stemmer.
 
 <!-- BENCH:inprocess-setup START -->
 - **Run.** These figures come from run `20260701T224951Z`, recorded on 2026-07-01 from commit `8b774b9196a8`, with uncommitted changes. The full per-scale tables are in [the run report](benchmarks/in-process/results/runs/20260701T224951Z/comparison.md).

@@ -120,10 +120,11 @@ The fingerprint hashes the indexed text (`title` and `text` joined with a single
 
 ### Fairness measures
 
-All three engines are configured identically:
+The harness gives all three engines the same input and the same settings wherever
+an engine exposes the setting:
 
 - **Stop words**: Lucene English list (33 terms) from `src/stopwords.ts`, applied to all engines
-- **Stemming**: Porter stemmer for all engines (Narsil built-in, MiniSearch via `stemmer@2.0.1`, Orama via `stemming: true`)
+- **Stemming**: each engine stems English its own way, and no setting equalizes that. Narsil uses its `english` language module, MiniSearch receives the `stemmer@2.0.1` package, and Orama runs `stemming: true` for English.
 - **Query processing**: All engines apply stop word removal and stemming to both indexing and search queries
 - **Term matching**: All default to OR semantics (documents matching any query term are candidates)
 - **No prefix or fuzzy matching** enabled for any engine
@@ -145,7 +146,7 @@ Queries with no relevant documents in the judgment set are excluded from the mea
 
 - Each engine runs with its default configuration for the English language. No custom tuning.
 - Engines are benchmarked sequentially in the same process. GC is forced between measurements to reduce cross-contamination.
-- All engines apply English stemming via a Porter stemmer. MiniSearch receives a custom `processTerm` function that applies the same stop words and stemmer used by Narsil and Orama.
+- Every engine stems English, and no two of them stem it the same way. MiniSearch receives a `processTerm` function that applies the shared stop word list and the `stemmer@2.0.1` Porter implementation, Orama stems through `stemming: true`, and Narsil stems through its `english` language module. The stop word list is shared and the stemming is not, so part of any relevance gap between the three comes from the stemmer rather than from the ranking.
 - All three engines index without a defensive deep-copy of the caller's documents. Narsil runs with `skipClone: true`, and Orama's `insertMultiple` and MiniSearch's `addAll` likewise index the passed-in objects directly, so insert throughput compares the same work across engines.
 - Plain-search latency is not directly comparable across all three engines. MiniSearch ranks and returns every matching document, while Narsil and Orama return the top 10 by default. MiniSearch's search options expose no result limit that reduces its internal ranking work, so the extra ranking cost stays in its measured latency and cannot be equalized in code. Each engine runs at its natural default and the tier output repeats this caveat.
 - Absolute numbers vary by hardware. The value is in the relative comparison between engines on the same machine.

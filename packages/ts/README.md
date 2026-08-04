@@ -130,7 +130,7 @@ The [specification](../spec/) defines the `.nrsl` format, the analysis pipeline,
 
 ## Search quality
 
-Ranking quality is measured against the [BEIR](https://github.com/beir-cellar/beir) SciFact corpus, 5,183 documents with 300 judged queries, where a human relevance judgment scores each query-document pair. Narsil runs in one process against Orama and MiniSearch, and every engine uses identical stop words (Lucene English, 35 terms), Porter stemming, and default BM25 parameters. Narsil takes the top nDCG@10 of the three.
+Ranking quality is measured against the [BEIR](https://github.com/beir-cellar/beir) SciFact corpus, 5,183 documents with 300 judged queries, where a human relevance judgment scores each query-document pair. Narsil runs in one process against Orama and MiniSearch, and every engine uses identical stop words (Lucene English, 33 terms) and default BM25 parameters, while each one stems English with its own implementation. Narsil takes the top nDCG@10 of the three.
 
 **What these metrics mean:**
 

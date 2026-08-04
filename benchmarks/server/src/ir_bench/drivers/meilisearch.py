@@ -42,9 +42,8 @@ class MeilisearchDriver:
         self.name = engine.name
         self.run_tag = engine.run_tag
         self.keyword_setup = (
-            "Bucket-sort ranking rules (words, typo, proximity, attribute, sort, "
-            "exactness), not BM25; _rankingScore for ordering; default typo "
-            "tolerance and prefix search; no stemming or stop-word removal"
+            "Not BM25; the harness sets `searchableAttributes` to the text field, reads "
+            "`_rankingScore` as the score, and leaves every other setting at its default"
         )
         self.server_time = ServerTimeSource(source="response `processingTimeMs` field", resolution=INTEGER_MS)
         api_key = os.environ.get("BENCH_API_KEY", "localdev")
