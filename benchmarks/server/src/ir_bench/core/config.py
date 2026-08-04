@@ -29,12 +29,19 @@ class ThroughputConfig:
     drive in turn, so a single level gives one throughput number and a list sweeps
     the saturation curve. The level used is recorded with every result. Throughput
     runs at the same matched-recall operating point as the latency comparison
-    because both reuse the same per-query closure."""
+    because both reuse the same per-query workload.
+
+    `client_processes` splits that offered concurrency across operating-system
+    processes. One process saturates near a single core, so a threads-only client
+    caps every engine at one core divided by its per-request cost; raising this
+    lifts the cap and costs the engine that much CPU when the two share a host.
+    Left unset it resolves to half the host's logical cores."""
 
     enabled: bool
     concurrency: tuple[int, ...]
     duration_seconds: float
     warmup_seconds: float
+    client_processes: int
 
 
 @dataclass(frozen=True)
@@ -148,6 +155,23 @@ def _throughput_levels(section: dict) -> tuple[int, ...]:
     return levels
 
 
+def _throughput_client_processes(section: dict) -> int:
+    """How many processes drive the load. An explicit setting wins, the environment
+    overrides it for a one-off run, and the fallback leaves half the host's cores to
+    the engine on a run where the client and the engine share a machine."""
+
+    configured = section.get("client_processes")
+    override = os.environ.get("BENCH_THROUGHPUT_CLIENT_PROCESSES")
+    if override and override.strip():
+        configured = override.strip()
+    if configured is None:
+        return max(1, (os.cpu_count() or 2) // 2)
+    processes = int(configured)
+    if processes < 1:
+        raise ValueError("throughput.client_processes must be positive")
+    return processes
+
+
 def _load_throughput(raw: dict) -> ThroughputConfig:
     section = raw.get("throughput", {})
     enabled = bool(section.get("enabled", True))
@@ -165,6 +189,7 @@ def _load_throughput(raw: dict) -> ThroughputConfig:
         concurrency=_throughput_levels(section),
         duration_seconds=duration,
         warmup_seconds=warmup,
+        client_processes=_throughput_client_processes(section),
     )
 
 
