@@ -95,8 +95,11 @@ async function main() {
     minisearch: getPackageVersion('minisearch'),
   }
   const activeScales = SCALES
-  const { runDir, artifactPath: outputPath } = prepareRunArtifact('comparative')
+  const { profile, runDir, artifactPath: outputPath } = prepareRunArtifact('comparative')
   console.log(`Run folder: ${runDir}`)
+  if (profile === 'smoke') {
+    console.log('Profile: smoke. Git ignores this folder and the writeup never reads it.')
+  }
 
   const initial: BenchmarkOutput = {
     env,

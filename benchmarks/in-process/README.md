@@ -46,6 +46,24 @@ The memory profiler writes `memory-profile.json` and `heap.heapsnapshot` into th
 
 The latest run is the lexically greatest valid run-id directory, so tooling resolves 'the current results' by reading the newest `results/runs/<run-id>/` directory; there is no `latest` symlink. Each run directory is tracked in git so results travel with the code that produced them; only heap snapshots stay out of version control, ignored through the global `*.heapsnapshot` rule.
 
+## Profiles
+
+A published run comes from the disclosed cloud machine, and a local run answers a
+different question: did anything break or move since the last time. The two write
+to different trees, so a local check can never reach the repository or the
+published page.
+
+```bash
+pnpm --filter benchmarks bench                      # cloud profile, writes results/runs/
+BENCH_PROFILE=smoke pnpm --filter benchmarks bench  # smoke profile, writes results/.smoke/runs/
+```
+
+`results/.smoke/` is git-ignored, and the writeup generator reads `results/runs/`
+alone, so a smoke run leaves both untouched. Delete the tree with
+`rm -rf benchmarks/in-process/results/.smoke` when you no longer need it. The
+smoke profile changes where results go and nothing about the measurement, so
+narrow the work with `--tiers` when you want a faster check.
+
 ## Datasets
 
 The suite runs entirely on [BEIR](https://github.com/beir-cellar/beir) corpora, downloaded on first run and cached under `benchmarks/datasets/`. Two groups of tiers use two groups of data.

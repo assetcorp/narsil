@@ -197,6 +197,23 @@ For a published run, record the host machine:
 BENCH_MACHINE_LABEL="Apple M3 Pro, macOS 26.5.1" ./run-all.sh
 ```
 
+## Profiles
+
+A published run comes from the disclosed cloud machine, and a local run answers a
+different question: did anything break or move since the last time. `BENCH_PROFILE`
+picks which results tree receives the run.
+
+```bash
+./run-all.sh narsil                      # cloud profile, writes results/runs/
+BENCH_PROFILE=smoke ./run-all.sh narsil  # smoke profile, writes results/.smoke/runs/
+```
+
+`results/.smoke/` is git-ignored, and the writeup generator reads `results/runs/`
+alone, so a smoke run reaches neither the repository nor the published page. The
+script prints where it left the results and how to delete them. The profile changes
+where results go and nothing about the measurement, so name the engines you care
+about, or set `BENCH_DATASETS`, when you want a faster check.
+
 ## What it reports
 
 - A per-engine file at `results/runs/<run-id>/engine-<name>.json` and `.md` carries,

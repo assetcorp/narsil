@@ -10,6 +10,7 @@ const PACKAGE_ROOT = resolve(__dirname, '..', '..')
 
 const RESULTS_DIRNAME = 'results'
 const RUNS_DIRNAME = 'runs'
+const SMOKE_DIRNAME = '.smoke'
 const MANIFEST_NAME = 'run.json'
 
 const ARTIFACT_FILENAMES = {
@@ -29,9 +30,43 @@ export type RunArtifact = keyof typeof ARTIFACT_FILENAMES
  */
 const RUN_ID_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/
 
+/**
+ * Which results tree a run writes into. `cloud` writes the publishable tree the
+ * writeup reads, and `smoke` writes a throwaway tree that git ignores.
+ */
+export type BenchProfile = 'cloud' | 'smoke'
+
+export class InvalidProfileError extends Error {
+  readonly code = 'invalid-profile'
+  readonly profile: string
+
+  constructor(profile: string) {
+    super(`invalid benchmark profile ${JSON.stringify(profile)}: expected 'cloud' or 'smoke'`)
+    this.name = 'InvalidProfileError'
+    this.profile = profile
+  }
+}
+
+/**
+ * Reads the profile a run writes under.
+ *
+ * @param value - The raw profile name, defaulting to `BENCH_PROFILE`. An unset
+ * or empty value selects `cloud`.
+ * @returns The profile, either `cloud` or `smoke`.
+ * @throws InvalidProfileError when the value names neither profile.
+ */
+export function resolveProfile(value: string | undefined = process.env.BENCH_PROFILE): BenchProfile {
+  const name = value?.trim()
+  if (name === undefined || name === '' || name === 'cloud') return 'cloud'
+  if (name === 'smoke') return 'smoke'
+  throw new InvalidProfileError(name)
+}
+
 export interface RunFolderOptions {
   /** Override the package root. Used by tests; defaults to the benchmarks package. */
   packageRoot?: string
+  /** Override the profile. Used by tests; defaults to the one `BENCH_PROFILE` names. */
+  profile?: BenchProfile
   /** Override the run timestamp. Used by tests. Defaults to `new Date()`. */
   now?: Date
   /** Override the run id directly. Used by tests; defaults to a minted timestamp. */
@@ -62,6 +97,8 @@ export interface RunManifest {
 }
 
 export interface PreparedRun {
+  /** The profile this run wrote under. */
+  profile: BenchProfile
   /** The absolute path to the timestamped run folder. */
   runDir: string
   /** The run id, which is also the run folder name. */
@@ -107,17 +144,22 @@ export function validateRunId(runId: string): string {
   return runId
 }
 
-function resultsRoot(packageRoot: string): string {
-  return resolve(packageRoot, RESULTS_DIRNAME)
+function resultsRoot(packageRoot: string, profile: BenchProfile): string {
+  const root = resolve(packageRoot, RESULTS_DIRNAME)
+  return profile === 'smoke' ? resolve(root, SMOKE_DIRNAME) : root
 }
 
-export function runsRoot(packageRoot: string = PACKAGE_ROOT): string {
-  return resolve(resultsRoot(packageRoot), RUNS_DIRNAME)
+export function runsRoot(packageRoot: string = PACKAGE_ROOT, profile: BenchProfile = resolveProfile()): string {
+  return resolve(resultsRoot(packageRoot, profile), RUNS_DIRNAME)
 }
 
-export function runDirectory(runId: string, packageRoot: string = PACKAGE_ROOT): string {
+export function runDirectory(
+  runId: string,
+  packageRoot: string = PACKAGE_ROOT,
+  profile: BenchProfile = resolveProfile(),
+): string {
   validateRunId(runId)
-  const root = runsRoot(packageRoot)
+  const root = runsRoot(packageRoot, profile)
   const candidate = resolve(root, runId)
   const rootWithSep = root.endsWith('/') ? root : `${root}/`
   if (candidate !== root && !candidate.startsWith(rootWithSep)) {
@@ -126,8 +168,11 @@ export function runDirectory(runId: string, packageRoot: string = PACKAGE_ROOT):
   return candidate
 }
 
-export function latestRunId(packageRoot: string = PACKAGE_ROOT): string | null {
-  const root = runsRoot(packageRoot)
+export function latestRunId(
+  packageRoot: string = PACKAGE_ROOT,
+  profile: BenchProfile = resolveProfile(),
+): string | null {
+  const root = runsRoot(packageRoot, profile)
   if (!existsSync(root)) return null
   let best: string | null = null
   for (const entry of readdirSync(root)) {
@@ -184,13 +229,14 @@ function readExistingCreatedAt(manifestPath: string): string | null {
 
 export function prepareRunFolder(options: RunFolderOptions = {}): PreparedRun {
   const packageRoot = options.packageRoot ?? PACKAGE_ROOT
+  const profile = options.profile ?? resolveProfile()
   const now = options.now ?? new Date()
   if (Number.isNaN(now.getTime())) {
     throw new TypeError('run-paths: options.now is not a valid Date')
   }
 
   const runId = validateRunId(options.runId ?? mintRunId(now))
-  const runDir = runDirectory(runId, packageRoot)
+  const runDir = runDirectory(runId, packageRoot, profile)
   mkdirSync(runDir, { recursive: true })
 
   const manifestPath = resolve(runDir, MANIFEST_NAME)
@@ -203,7 +249,7 @@ export function prepareRunFolder(options: RunFolderOptions = {}): PreparedRun {
   }
   writeJsonAtomicSync(manifestPath, manifest)
 
-  return { runDir, runId, manifestPath, manifest }
+  return { profile, runDir, runId, manifestPath, manifest }
 }
 
 export function artifactFilename(artifact: RunArtifact): string {
