@@ -72,7 +72,7 @@ function convertLocalVectorToWire(vector: QueryParams['vector']): WireVectorQuer
   }
   return {
     field: vector.field,
-    value: vector.value ?? null,
+    value: vector.value === undefined ? null : Array.from(vector.value),
     text: vector.text ?? null,
     similarity: vector.similarity ?? null,
   }
