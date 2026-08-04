@@ -131,7 +131,7 @@ services:
     volumes:
       - ir_datasets_cache:/data/ir_datasets
       - embeddings_cache:/data/embeddings
-      - ./results:/app/results
+      - ./${BENCH_HOST_RESULTS_DIR:-results}:/app/results
 
 volumes:
   ir_datasets_cache:

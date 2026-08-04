@@ -18,6 +18,7 @@
 # Usage:
 #   ./run-all.sh                         # all engines, small BEIR sets, equal precision
 #   ./run-all.sh narsil elasticsearch    # a subset of engines, in the given order
+#   BENCH_PROFILE=smoke ./run-all.sh narsil   # local check, results under results/.smoke (git-ignored)
 #   BENCH_BEST_CONFIG=1 ./run-all.sh     # also run the best-config (quantized) comparison
 #   BENCH_MACHINE_LABEL="Apple M3 Pro" ./run-all.sh
 #   BENCH_DATASETS=beir/nq BENCH_MEM_CAP=16g BENCH_JVM_HEAP=8g ./run-all.sh
@@ -26,6 +27,18 @@ set -uo pipefail
 cd "$(dirname "$0")"
 
 export BENCH_API_KEY="${BENCH_API_KEY:-localdev}"
+
+PROFILE="${BENCH_PROFILE:-cloud}"
+case "${PROFILE}" in
+  cloud) BENCH_HOST_RESULTS_DIR="results" ;;
+  smoke) BENCH_HOST_RESULTS_DIR="results/.smoke" ;;
+  *)
+    echo "unknown profile '${PROFILE}' (expected: cloud or smoke)" >&2
+    exit 2
+    ;;
+esac
+export BENCH_HOST_RESULTS_DIR
+mkdir -p "${BENCH_HOST_RESULTS_DIR}/runs"
 
 # Mint one run id for the whole pass and thread it to every engine container and the
 # final aggregate through the compose environment. Every engine's result and the
@@ -62,7 +75,7 @@ image_digest_of() {
     "$image_id" 2>/dev/null || true
 }
 
-echo "run id: ${BENCH_RUN_ID}"
+echo "run id: ${BENCH_RUN_ID}; profile: ${PROFILE} (results under ${BENCH_HOST_RESULTS_DIR}/runs)"
 echo "datasets: ${BENCH_DATASETS:-default (small BEIR sets)}; memory cap: ${BENCH_MEM_CAP:-8g}"
 
 if [ "$#" -gt 0 ]; then
@@ -118,6 +131,11 @@ done
 
 echo "================ comparison ================"
 docker compose run --rm --entrypoint python harness -m ir_bench.aggregate
+
+if [ "${PROFILE}" = "smoke" ]; then
+  echo "smoke results kept at ${BENCH_HOST_RESULTS_DIR}/runs/${BENCH_RUN_ID} (git-ignored)."
+  echo "remove them with: rm -rf ${BENCH_HOST_RESULTS_DIR}"
+fi
 
 if [ "${#failed[@]}" -gt 0 ]; then
   echo "Engines that failed: ${failed[*]}"
