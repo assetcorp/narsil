@@ -6,9 +6,8 @@ import { printConsistencyReport } from './print'
 import { runConsistencyCheck } from './runner/consistency'
 import type { EngineId } from './runner/jobs'
 import { ProgressStore } from './runner/progress'
-import { assertPublishedEngineSource, PublishedVersionError } from './runner/published-version'
 import { writeReport } from './runner/report'
-import { prepareRunArtifact, resolveProfile } from './runner/run-paths'
+import { prepareRunArtifact } from './runner/run-paths'
 import { runMutationTier, runRelevanceTier, runSerializationTier } from './runner/tiers-extra'
 import { runTextTier } from './runner/tiers-text'
 import { runVectorTier } from './runner/tiers-vector'
@@ -74,11 +73,6 @@ async function main() {
   const args = process.argv.slice(2)
   const tiers = parseTiers(args)
   const relevanceDataset = parseRelevanceDataset(args)
-
-  if (resolveProfile() === 'cloud') {
-    const engineSource = assertPublishedEngineSource()
-    console.log(`Narsil source: v${engineSource.version}, matching ${engineSource.releaseTag}`)
-  }
 
   const env = {
     node: process.version,
@@ -225,10 +219,6 @@ async function main() {
 }
 
 main().catch(err => {
-  if (err instanceof PublishedVersionError) {
-    console.error(err.message)
-    process.exit(2)
-  }
   console.error(err)
   process.exit(1)
 })
