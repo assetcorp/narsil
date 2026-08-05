@@ -29,6 +29,13 @@ function QuestionRow({ question, metrics, isSelected, onSelect, onRemove }: Ques
   )
 
   const judgedCount = Object.keys(question.judgments).length
+  const relevantCount = Object.values(question.judgments).filter(grade => grade > 0).length
+  const status =
+    judgedCount === 0
+      ? 'No documents marked yet'
+      : relevantCount === 0
+        ? `${judgedCount} marked, none relevant`
+        : `${judgedCount} marked, ${relevantCount} relevant`
 
   return (
     <tr
@@ -38,9 +45,7 @@ function QuestionRow({ question, metrics, isSelected, onSelect, onRemove }: Ques
       <td className="px-3 py-1.5 font-mono">{question.id}</td>
       <td className="max-w-[200px] px-3 py-1.5">
         <span className="block truncate">{question.text}</span>
-        <span className="text-[10px] text-muted-foreground">
-          {judgedCount === 0 ? 'No documents marked yet' : `${judgedCount} marked`}
-        </span>
+        <span className="text-[10px] text-muted-foreground">{status}</span>
       </td>
       <td className="px-3 py-1.5 text-right font-mono">
         {metrics ? <MetricBadge value={metrics.ndcg10} /> : UNMEASURED}

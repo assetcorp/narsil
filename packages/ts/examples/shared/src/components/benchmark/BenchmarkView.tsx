@@ -1,7 +1,7 @@
-import { useCallback, useState } from 'react'
+import type { Dispatch } from 'react'
 import type { NarsilBackend } from '../../backend'
-import type { AppState, LoadedIndex } from '../../types'
-import { Button } from '../ui/button'
+import type { AppAction, AppState, LoadedIndex } from '../../types'
+import { IndexSelector } from '../IndexSelector'
 import { JudgedBenchmark } from './JudgedBenchmark'
 import { ScifactBenchmark } from './ScifactBenchmark'
 
@@ -9,47 +9,15 @@ function benchmarkTargets(state: AppState): LoadedIndex[] {
   return state.indexes.filter(index => index.datasetId === 'scifact' || index.documentCount > 0)
 }
 
-function defaultTarget(targets: LoadedIndex[], activeIndexName: string | null): LoadedIndex | null {
-  const scifact = targets.find(target => target.datasetId === 'scifact')
-  if (scifact) return scifact
-  return targets.find(target => target.name === activeIndexName) ?? targets[0] ?? null
-}
-
-interface TargetButtonProps {
-  target: LoadedIndex
-  isActive: boolean
-  onSelect: (indexName: string) => void
-}
-
-function TargetButton({ target, isActive, onSelect }: TargetButtonProps) {
-  const handleClick = useCallback(() => {
-    onSelect(target.name)
-  }, [onSelect, target.name])
-
-  return (
-    <Button
-      type="button"
-      variant={isActive ? 'default' : 'outline'}
-      size="xs"
-      className="font-mono text-xs"
-      onClick={handleClick}
-    >
-      {target.name}
-    </Button>
-  )
-}
-
 interface BenchmarkViewProps {
   backend: NarsilBackend
   state: AppState
+  dispatch: Dispatch<AppAction>
 }
 
-export function BenchmarkView({ backend, state }: BenchmarkViewProps) {
-  const [chosenTargetName, setChosenTargetName] = useState<string | null>(null)
-
+export function BenchmarkView({ backend, state, dispatch }: BenchmarkViewProps) {
   const targets = benchmarkTargets(state)
-  const chosen = targets.find(target => target.name === chosenTargetName)
-  const target = chosen ?? defaultTarget(targets, state.activeIndexName)
+  const target = targets.find(entry => entry.name === state.activeIndexName) ?? targets[0] ?? null
 
   if (target === null) {
     return (
@@ -69,18 +37,7 @@ export function BenchmarkView({ backend, state }: BenchmarkViewProps) {
         <h1 className="mb-1 font-serif text-3xl tracking-tight">Quality Benchmark</h1>
       </div>
 
-      {targets.length > 1 && (
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          {targets.map(entry => (
-            <TargetButton
-              key={entry.name}
-              target={entry}
-              isActive={entry.name === target.name}
-              onSelect={setChosenTargetName}
-            />
-          ))}
-        </div>
-      )}
+      <IndexSelector indexes={targets} activeIndexName={target.name} dispatch={dispatch} />
 
       {target.datasetId === 'scifact' ? (
         <ScifactBenchmark backend={backend} />

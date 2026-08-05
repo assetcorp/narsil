@@ -7,6 +7,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { chatMigrations } from './migrations'
 import { ensureChatSchema } from './schema'
 
+const SQLITE_BUSY_TIMEOUT_ALLOWANCE_MS = 15_000
+
 let tempDir: string
 const openDbs: Database[] = []
 
@@ -56,17 +58,21 @@ describe('ensureChatSchema', () => {
     expect(tables.map(table => table.name)).toEqual(['messages', 'threads'])
   })
 
-  it('survives two connections migrating the same database concurrently', async () => {
-    const dbPath = path.join(tempDir, 'concurrent.db')
-    const [first, second] = await Promise.all([openDatabase(dbPath), openDatabase(dbPath)])
-    await Promise.all([ensureChatSchema(first), ensureChatSchema(second)])
-    const recheck = await first.migrate(chatMigrations())
-    expect(recheck.applied).toHaveLength(0)
-    expect(recheck.skipped).toBe(chatMigrations().length)
-    await second.execute(
-      "INSERT INTO threads (id, title, index_name, created_at, updated_at) VALUES ('t1', 'Title', 'idx', 1, 1)",
-    )
-    const rows = await first.query<{ id: string }>('SELECT id FROM threads')
-    expect(rows.map(row => row.id)).toEqual(['t1'])
-  })
+  it(
+    'survives two connections migrating the same database concurrently',
+    async () => {
+      const dbPath = path.join(tempDir, 'concurrent.db')
+      const [first, second] = await Promise.all([openDatabase(dbPath), openDatabase(dbPath)])
+      await Promise.all([ensureChatSchema(first), ensureChatSchema(second)])
+      const recheck = await first.migrate(chatMigrations())
+      expect(recheck.applied).toHaveLength(0)
+      expect(recheck.skipped).toBe(chatMigrations().length)
+      await second.execute(
+        "INSERT INTO threads (id, title, index_name, created_at, updated_at) VALUES ('t1', 'Title', 'idx', 1, 1)",
+      )
+      const rows = await first.query<{ id: string }>('SELECT id FROM threads')
+      expect(rows.map(row => row.id)).toEqual(['t1'])
+    },
+    SQLITE_BUSY_TIMEOUT_ALLOWANCE_MS,
+  )
 })
