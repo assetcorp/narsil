@@ -1,6 +1,7 @@
 import { SlidersHorizontal } from 'lucide-react'
 import { type Dispatch, useCallback, useState } from 'react'
 import type { NarsilBackend } from '../../backend'
+import { useDisplayFields } from '../../hooks/use-display-fields'
 import { useSearch } from '../../hooks/use-search'
 import type { AppAction, AppState, LoadedIndex } from '../../types'
 import { Badge } from '../ui/badge'
@@ -138,6 +139,7 @@ export function SearchPlayground({ backend, state, dispatch, initialTerm }: Sear
   const searchableFields = getSearchableFields(state)
   const allFields = getAllFields(state)
   const search = useSearch(backend, indexName, initialTerm)
+  const displayFields = useDisplayFields(indexName)
 
   if (!indexName) {
     return (
@@ -222,6 +224,7 @@ export function SearchPlayground({ backend, state, dispatch, initialTerm }: Sear
             onPageChange={search.setPage}
             onLoadMore={search.loadMore}
             datasetId={activeIndex?.datasetId ?? 'tmdb'}
+            displayFields={displayFields}
           />
         </div>
       </div>

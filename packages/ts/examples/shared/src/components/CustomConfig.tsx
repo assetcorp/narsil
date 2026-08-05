@@ -1,8 +1,10 @@
-import { INDEX_NAME_PATTERN, SchemaEditor } from '@delali/narsil-example-shared/components/SchemaEditor'
-import { parseFile } from '@delali/narsil-example-shared/lib/file-parser'
-import { buildSchema, type DetectedField, detectSchema } from '@delali/narsil-example-shared/lib/schema-detector'
 import { FileUp, Upload } from 'lucide-react'
+import type * as React from 'react'
 import { useRef, useState } from 'react'
+import { type DisplayFieldMapping, suggestDisplayFields } from '../lib/display-fields'
+import { parseFile } from '../lib/file-parser'
+import { buildSchema, type DetectedField, detectSchema, fieldNameError } from '../lib/schema-detector'
+import { INDEX_NAME_PATTERN, SchemaEditor } from './SchemaEditor'
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024
 
@@ -11,11 +13,14 @@ export interface CustomDatasetConfig {
   schema: Record<string, string>
   indexName: string
   language: string
+  displayFields: DisplayFieldMapping
 }
 
 interface CustomConfigProps {
   onReady: (config: CustomDatasetConfig | null) => void
 }
+
+const NO_DISPLAY_FIELDS: DisplayFieldMapping = { titleField: null, bodyField: null }
 
 export function CustomConfig({ onReady }: CustomConfigProps) {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -26,29 +31,56 @@ export function CustomConfig({ onReady }: CustomConfigProps) {
   const [fields, setFields] = useState<DetectedField[]>([])
   const [indexName, setIndexName] = useState('')
   const [language, setLanguage] = useState('en')
+  const [displayFields, setDisplayFields] = useState<DisplayFieldMapping>(NO_DISPLAY_FIELDS)
 
-  function emitConfig(docs: Record<string, unknown>[], f: DetectedField[], name: string, lang: string) {
-    if (!name || name.length > 64 || !INDEX_NAME_PATTERN.test(name)) {
+  function emitConfig(config: Omit<CustomDatasetConfig, 'schema'> & { fields: DetectedField[] }) {
+    if (!config.indexName || config.indexName.length > 64 || !INDEX_NAME_PATTERN.test(config.indexName)) {
       onReady(null)
       return
     }
-    const schema = buildSchema(f)
-    onReady({ documents: docs, schema, indexName: name, language: lang })
+    if (config.fields.some(field => fieldNameError(field.name) !== null)) {
+      onReady(null)
+      return
+    }
+    const schema = buildSchema(config.fields)
+    if (Object.keys(schema).length === 0) {
+      onReady(null)
+      return
+    }
+    onReady({
+      documents: config.documents,
+      schema,
+      indexName: config.indexName,
+      language: config.language,
+      displayFields: config.displayFields,
+    })
   }
 
   function handleFieldsChange(updated: DetectedField[]) {
     setFields(updated)
-    if (documents) emitConfig(documents, updated, indexName, language)
+    if (documents) emitConfig({ documents, fields: updated, indexName, language, displayFields })
   }
 
   function handleIndexNameChange(name: string) {
     setIndexName(name)
-    if (documents) emitConfig(documents, fields, name, language)
+    if (documents) emitConfig({ documents, fields, indexName: name, language, displayFields })
   }
 
   function handleLanguageChange(lang: string) {
     setLanguage(lang)
-    if (documents) emitConfig(documents, fields, indexName, lang)
+    if (documents) emitConfig({ documents, fields, indexName, language: lang, displayFields })
+  }
+
+  function handleTitleFieldChange(field: string | null) {
+    const updated = { ...displayFields, titleField: field }
+    setDisplayFields(updated)
+    if (documents) emitConfig({ documents, fields, indexName, language, displayFields: updated })
+  }
+
+  function handleBodyFieldChange(field: string | null) {
+    const updated = { ...displayFields, bodyField: field }
+    setDisplayFields(updated)
+    if (documents) emitConfig({ documents, fields, indexName, language, displayFields: updated })
   }
 
   function processFile(file: File) {
@@ -76,14 +108,23 @@ export function CustomConfig({ onReady }: CustomConfigProps) {
         const text = reader.result as string
         const docs = parseFile(text, file.name)
         const detected = detectSchema(docs)
+        const suggested = suggestDisplayFields(detected.map(field => field.name))
         setDocuments(docs)
         setFields(detected)
-        emitConfig(docs, detected, baseName, language)
+        setDisplayFields(suggested)
+        emitConfig({
+          documents: docs,
+          fields: detected,
+          indexName: baseName,
+          language,
+          displayFields: suggested,
+        })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         setParseError(msg)
         setDocuments(null)
         setFields([])
+        setDisplayFields(NO_DISPLAY_FIELDS)
         onReady(null)
       }
     }
@@ -160,9 +201,13 @@ export function CustomConfig({ onReady }: CustomConfigProps) {
           documents={documents}
           indexName={indexName}
           language={language}
+          titleField={displayFields.titleField}
+          bodyField={displayFields.bodyField}
           onFieldsChange={handleFieldsChange}
           onIndexNameChange={handleIndexNameChange}
           onLanguageChange={handleLanguageChange}
+          onTitleFieldChange={handleTitleFieldChange}
+          onBodyFieldChange={handleBodyFieldChange}
         />
       )}
     </div>

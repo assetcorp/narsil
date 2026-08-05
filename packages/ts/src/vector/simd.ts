@@ -118,6 +118,7 @@ export function isSimdAvailable(): boolean {
 export interface ArenaSimd {
   memory: WebAssembly.Memory
   dot_product: (ptrA: number, ptrB: number, len: number) => number
+  magnitude: (ptr: number, len: number) => number
   squared_euclidean_distance: (ptrA: number, ptrB: number, len: number) => number
   dot_u8: (ptrA: number, ptrB: number, len: number) => number
   sqdist_u8: (ptrA: number, ptrB: number, len: number) => number
@@ -154,6 +155,9 @@ export function createArenaSimd(): ArenaSimd | null {
     if (
       typeof exports.dot_u8 !== 'function' ||
       typeof exports.sqdist_u8 !== 'function' ||
+      typeof exports.dot_product !== 'function' ||
+      typeof exports.magnitude !== 'function' ||
+      typeof exports.squared_euclidean_distance !== 'function' ||
       !(exports.memory instanceof WebAssembly.Memory)
     ) {
       return null

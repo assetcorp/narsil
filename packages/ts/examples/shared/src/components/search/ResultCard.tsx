@@ -1,10 +1,14 @@
 import type { QueryHit } from '../../backend'
+import { type DisplayFieldMapping, resolveDisplay } from '../../lib/display-fields'
 import type { DatasetId } from '../../manifest'
 import { Badge } from '../ui/badge'
+
+const BODY_SNIPPET_LENGTH = 200
 
 interface ResultCardProps {
   hit: QueryHit
   datasetId: DatasetId
+  displayFields: DisplayFieldMapping | null
   onClick: () => void
 }
 
@@ -14,12 +18,12 @@ function sanitizeHighlight(html: string): string {
   })
 }
 
-export function ResultCard({ hit, datasetId, onClick }: ResultCardProps) {
+export function ResultCard({ hit, datasetId, displayFields, onClick }: ResultCardProps) {
   const doc = hit.document
   const highlights = hit.highlights
 
-  function renderHighlightedText(field: string, fallback: string): React.ReactNode {
-    const hl = highlights?.[field]
+  function renderHighlightedText(field: string | null, fallback: string): React.ReactNode {
+    const hl = field === null ? undefined : highlights?.[field]
     if (hl) {
       return (
         // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized highlight markup
@@ -114,8 +118,8 @@ export function ResultCard({ hit, datasetId, onClick }: ResultCardProps) {
     )
   }
 
-  const title = String(doc.title ?? doc.id ?? hit.id)
-  const body = String(doc.body ?? doc.text ?? doc.overview ?? '').slice(0, 200)
+  const display = resolveDisplay(doc, displayFields, String(doc.id ?? hit.id))
+  const body = display.body.slice(0, BODY_SNIPPET_LENGTH)
 
   return (
     <button
@@ -125,8 +129,18 @@ export function ResultCard({ hit, datasetId, onClick }: ResultCardProps) {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm font-semibold">{title}</h3>
-          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{body}</p>
+          {display.title === null ? (
+            <p className="line-clamp-3 text-xs">{renderHighlightedText(display.bodyField, body)}</p>
+          ) : (
+            <>
+              <h3 className="truncate text-sm font-semibold">
+                {renderHighlightedText(display.titleField, display.title)}
+              </h3>
+              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                {renderHighlightedText(display.bodyField, body)}
+              </p>
+            </>
+          )}
         </div>
         <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
           {hit.score.toFixed(3)}

@@ -3,6 +3,15 @@ import type { VectorMetric } from '../brute-force'
 import type { ScalarQuantizer } from '../scalar-quantization-types'
 import type { VectorStore } from '../vector-store'
 import {
+  type AdjacencySnapshot,
+  createAdjacency,
+  estimateAdjacencyBytes,
+  exportAdjacency,
+  hasNode,
+  importAdjacency,
+  resetAdjacency,
+} from './adjacency'
+import {
   compactTombstones as compactTombstonesOp,
   insertNode as insertNodeOp,
   markTombstone as markTombstoneOp,
@@ -29,6 +38,7 @@ export interface HNSWIndex {
   readonly m: number
   readonly efConstruction: number
   readonly metric: VectorMetric
+  readonly adjacencyBytes: number
 
   insertNode(docId: string): void
   markTombstone(docId: string): void
@@ -50,6 +60,48 @@ export interface HNSWIndex {
 
   serialize(): SerializedHNSWGraph
   deserialize(data: SerializedHNSWGraph): void
+  exportSnapshot(): HNSWSnapshot
+  restoreSnapshot(snapshot: HNSWSnapshot): void
+}
+
+/**
+ * A built graph in the form the engine hands to another thread.
+ *
+ * @internal
+ */
+export interface HNSWSnapshot {
+  /** Each vector carries this many components. */
+  dimension: number
+  /** Each node keeps this many neighbours per layer. */
+  m: number
+  /** The builder explored this many candidates while placing each node. */
+  efConstruction: number
+  /** The graph ranks by this metric. */
+  metric: VectorMetric
+  /** This holds every node's neighbours, laid out flat. */
+  adjacency: AdjacencySnapshot
+  /** A byte per ordinal, set to 1 where the document has been deleted. */
+  tombstones: Uint8Array
+  /** This many ordinals are tombstoned. */
+  tombstoneCount: number
+  /** The graph holds this many nodes, tombstoned ones included. */
+  nodeCount: number
+  /** The graph's own arrays span this many ordinals. */
+  capacity: number
+  /** Every search starts at this ordinal, and it is -1 while the graph is empty. */
+  entryPointOrd: number
+  /** The graph reaches this many layers. */
+  topLayer: number
+}
+
+export function createHNSWIndexFromSnapshot(store: VectorStore, snapshot: HNSWSnapshot): HNSWIndex {
+  const index = createHNSWIndex(snapshot.dimension, store, {
+    m: snapshot.m,
+    efConstruction: snapshot.efConstruction,
+    metric: snapshot.metric,
+  })
+  index.restoreSnapshot(snapshot)
+  return index
 }
 
 export function createHNSWIndex(
@@ -73,7 +125,7 @@ export function createHNSWIndex(
     efCons,
     buildMetric,
     mL,
-    nodesByOrd: [],
+    adjacency: createAdjacency(M, Mmax0),
     tombstones: new Uint8Array(0),
     tombstoneCount: 0,
     nodeCount: 0,
@@ -85,7 +137,7 @@ export function createHNSWIndex(
   }
 
   function clear(): void {
-    state.nodesByOrd = []
+    resetAdjacency(state.adjacency)
     state.tombstones = new Uint8Array(0)
     state.tombstoneCount = 0
     state.nodeCount = 0
@@ -97,8 +149,8 @@ export function createHNSWIndex(
   }
 
   function* entriesIterator(): IterableIterator<[string, VectorEntry]> {
-    for (let ord = 0; ord < state.nodesByOrd.length; ord++) {
-      if (state.nodesByOrd[ord] === undefined) continue
+    for (let ord = 0; ord < state.adjacency.slots; ord++) {
+      if (!hasNode(state.adjacency, ord)) continue
       if (state.tombstones[ord] === 1) continue
       const docId = state.store.docIdForOrdinal(ord)
       if (docId === undefined) continue
@@ -141,11 +193,14 @@ export function createHNSWIndex(
     get metric() {
       return state.buildMetric
     },
+    get adjacencyBytes() {
+      return estimateAdjacencyBytes(state.adjacency)
+    },
     insertNode: (docId: string) => insertNodeOp(state, docId),
     markTombstone: (docId: string) => markTombstoneOp(state, docId),
     has: (docId: string) => {
       const ord = state.store.getOrdinal(docId)
-      return ord !== undefined && state.nodesByOrd[ord] !== undefined && state.tombstones[ord] !== 1
+      return ord !== undefined && hasNode(state.adjacency, ord) && state.tombstones[ord] !== 1
     },
     isTombstoned: (docId: string) => {
       const ord = state.store.getOrdinal(docId)
@@ -166,5 +221,29 @@ export function createHNSWIndex(
     rebuild: () => rebuildOp(state),
     serialize: () => serializeGraph(state),
     deserialize: (data: SerializedHNSWGraph) => deserializeGraph(state, data),
+    exportSnapshot: (): HNSWSnapshot => ({
+      dimension: state.dimension,
+      m: state.M,
+      efConstruction: state.efCons,
+      metric: state.buildMetric,
+      adjacency: exportAdjacency(state.adjacency),
+      tombstones: state.tombstones.slice(),
+      tombstoneCount: state.tombstoneCount,
+      nodeCount: state.nodeCount,
+      capacity: state.capacity,
+      entryPointOrd: state.entryPointOrd,
+      topLayer: state.topLayer,
+    }),
+    restoreSnapshot: (snapshot: HNSWSnapshot): void => {
+      state.adjacency = importAdjacency(snapshot.adjacency)
+      state.tombstones = snapshot.tombstones
+      state.tombstoneCount = snapshot.tombstoneCount
+      state.nodeCount = snapshot.nodeCount
+      state.capacity = Math.max(snapshot.capacity, snapshot.adjacency.capacity)
+      state.visited = new Uint32Array(state.capacity)
+      state.visitStamp = 0
+      state.entryPointOrd = snapshot.entryPointOrd
+      state.topLayer = snapshot.topLayer
+    },
   }
 }

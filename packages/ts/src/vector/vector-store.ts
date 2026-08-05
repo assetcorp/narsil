@@ -7,6 +7,28 @@ export interface VectorStoreEntry {
   magnitude: number
 }
 
+export interface ArenaQueryVector {
+  readonly magnitude: number
+}
+
+/**
+ * Every stored vector in the form the engine hands to another thread.
+ *
+ * @internal
+ */
+export interface VectorStoreSnapshot {
+  /** Each vector carries this many components. */
+  dimension: number
+  /** The store spans this many ordinals, deleted ones included. */
+  slots: number
+  /** This holds every vector end to end, `slots * dimension` components long. */
+  vectors: Float32Array
+  /** Each ordinal's vector length, so a reader need not recompute it. */
+  magnitudes: Float64Array
+  /** The document at each ordinal, `null` where the ordinal holds none. */
+  docIds: Array<string | null>
+}
+
 export interface VectorStore {
   readonly size: number
   insert(docId: string, vector: Float32Array): void
@@ -20,6 +42,10 @@ export interface VectorStore {
   docIdForOrdinal(ordinal: number): string | undefined
   entryForOrdinal(ordinal: number): VectorStoreEntry | undefined
   distanceByOrdinal(ordA: number, ordB: number, metric: VectorMetric): number
+  prepareQueryArena(query: Float32Array): ArenaQueryVector | null
+  distanceFromArena(prepared: ArenaQueryVector, ordinal: number, metric: VectorMetric): number
+  exportSnapshot(): VectorStoreSnapshot
+  restoreSnapshot(snapshot: VectorStoreSnapshot): void
 }
 
 const INITIAL_CAPACITY = 16
@@ -36,10 +62,14 @@ export function createVectorStore(): VectorStore {
   let arena = new Float32Array(0)
   let mags = new Float64Array(0)
   let liveCount = 0
+  let scratchByteLength = 0
+  let scratchFloatLength = 0
 
   function initStorage(dim: number): void {
     dimension = dim
     if (simd) {
+      scratchByteLength = Math.max(16, Math.ceil((dim * 4) / 16) * 16)
+      scratchFloatLength = scratchByteLength / 4
       arena = new Float32Array(simd.memory.buffer)
     }
   }
@@ -54,16 +84,18 @@ export function createVectorStore(): VectorStore {
     mags = nextMags
 
     if (simd) {
-      const requiredBytes = newCap * dimension * 4
+      const requiredBytes = scratchByteLength + newCap * dimension * 4
       const have = simd.memory.buffer.byteLength
       if (requiredBytes > have) {
         try {
           simd.memory.grow(Math.ceil((requiredBytes - have) / PAGE_BYTES))
         } catch {
           const migrated = new Float32Array(newCap * dimension)
-          migrated.set(arena.subarray(0, capacity * dimension))
+          migrated.set(arena.subarray(scratchFloatLength, scratchFloatLength + capacity * dimension))
           arena = migrated
           simd = null
+          scratchByteLength = 0
+          scratchFloatLength = 0
           capacity = newCap
           return
         }
@@ -79,12 +111,12 @@ export function createVectorStore(): VectorStore {
   }
 
   function writeVector(ord: number, vector: Float32Array): void {
-    arena.set(vector, ord * dimension)
+    arena.set(vector, scratchFloatLength + ord * dimension)
     mags[ord] = magnitude(vector)
   }
 
   function entryAt(ord: number): VectorStoreEntry {
-    const base = ord * dimension
+    const base = scratchFloatLength + ord * dimension
     return { vector: arena.subarray(base, base + dimension), magnitude: mags[ord] }
   }
 
@@ -156,6 +188,8 @@ export function createVectorStore(): VectorStore {
       dimension = 0
       capacity = 0
       liveCount = 0
+      scratchByteLength = 0
+      scratchFloatLength = 0
     },
 
     getOrdinal(docId: string): number | undefined {
@@ -175,8 +209,8 @@ export function createVectorStore(): VectorStore {
       if (ordToDoc[ordA] === undefined || ordToDoc[ordB] === undefined) return Number.POSITIVE_INFINITY
 
       if (simd) {
-        const byteA = ordA * dimension * 4
-        const byteB = ordB * dimension * 4
+        const byteA = scratchByteLength + ordA * dimension * 4
+        const byteB = scratchByteLength + ordB * dimension * 4
         if (metric === 'euclidean') {
           return Math.sqrt(simd.squared_euclidean_distance(byteA, byteB, dimension))
         }
@@ -188,8 +222,8 @@ export function createVectorStore(): VectorStore {
         return 1 - dot / (magA * magB)
       }
 
-      const baseA = ordA * dimension
-      const baseB = ordB * dimension
+      const baseA = scratchFloatLength + ordA * dimension
+      const baseB = scratchFloatLength + ordB * dimension
       const a = arena.subarray(baseA, baseA + dimension)
       const b = arena.subarray(baseB, baseB + dimension)
       switch (metric) {
@@ -199,6 +233,76 @@ export function createVectorStore(): VectorStore {
           return -dotProduct(a, b)
         case 'euclidean':
           return euclideanDistance(a, b)
+      }
+    },
+
+    prepareQueryArena(query: Float32Array): ArenaQueryVector | null {
+      if (!simd || dimension === 0 || query.length !== dimension) return null
+      arena.set(query, 0)
+      return { magnitude: simd.magnitude(0, dimension) }
+    },
+
+    distanceFromArena(prepared: ArenaQueryVector, ordinal: number, metric: VectorMetric): number {
+      if (!simd || ordinal < 0 || ordinal >= ordToDoc.length || ordToDoc[ordinal] === undefined) {
+        return Number.POSITIVE_INFINITY
+      }
+
+      const byteOffset = scratchByteLength + ordinal * dimension * 4
+      if (metric === 'euclidean') {
+        return Math.sqrt(simd.squared_euclidean_distance(0, byteOffset, dimension))
+      }
+
+      const dot = simd.dot_product(0, byteOffset, dimension)
+      if (metric === 'dotProduct') return -dot
+
+      const vecMag = mags[ordinal]
+      if (prepared.magnitude === 0 || vecMag === 0) return 1
+      return 1 - dot / (prepared.magnitude * vecMag)
+    },
+
+    exportSnapshot(): VectorStoreSnapshot {
+      const slots = ordToDoc.length
+      const vectors = new Float32Array(slots * dimension)
+      if (slots > 0 && dimension > 0) {
+        vectors.set(arena.subarray(scratchFloatLength, scratchFloatLength + slots * dimension))
+      }
+      const magnitudes = new Float64Array(slots)
+      magnitudes.set(mags.subarray(0, Math.min(slots, mags.length)))
+      const docIds: Array<string | null> = new Array(slots)
+      for (let ord = 0; ord < slots; ord++) {
+        docIds[ord] = ordToDoc[ord] ?? null
+      }
+      return { dimension, slots, vectors, magnitudes, docIds }
+    },
+
+    restoreSnapshot(snapshot: VectorStoreSnapshot): void {
+      docToOrd.clear()
+      recycledOrds.clear()
+      ordToDoc.length = 0
+      liveCount = 0
+      capacity = 0
+      dimension = 0
+      scratchByteLength = 0
+      scratchFloatLength = 0
+      if (!simd) {
+        arena = new Float32Array(0)
+      }
+
+      if (snapshot.dimension === 0 || snapshot.slots === 0) return
+
+      initStorage(snapshot.dimension)
+      ensureCapacity(snapshot.slots)
+
+      arena.set(snapshot.vectors.subarray(0, snapshot.slots * snapshot.dimension), scratchFloatLength)
+
+      mags.set(snapshot.magnitudes.subarray(0, Math.min(snapshot.slots, mags.length)))
+
+      for (let ord = 0; ord < snapshot.slots; ord++) {
+        const docId = snapshot.docIds[ord]
+        ordToDoc.push(docId ?? undefined)
+        if (docId === null || docId === undefined) continue
+        docToOrd.set(docId, ord)
+        liveCount++
       }
     },
 

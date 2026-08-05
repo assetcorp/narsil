@@ -62,6 +62,7 @@ function createMockVectorIndex(dimension: number): VectorIndex {
     awaitPendingBuild: vi.fn(async () => {}),
     dispose: vi.fn(),
     search: vi.fn(() => []),
+    searchParallel: vi.fn(async () => []),
     getVector: vi.fn((docId: string) => vectors.get(docId) ?? null),
     has: vi.fn((docId: string) => vectors.has(docId)),
     compact: vi.fn(),

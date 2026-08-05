@@ -104,6 +104,10 @@
       "import": "./dist/vector/hnsw-build-worker.mjs",
       "types": "./dist/vector/hnsw-build-worker.d.ts"
     },
+    "./vector/search-worker": {
+      "import": "./dist/vector/search-worker.mjs",
+      "types": "./dist/vector/search-worker.d.ts"
+    },
     "./embeddings/openai": {
       "import": "./dist/embeddings/openai.mjs",
       "types": "./dist/embeddings/openai.d.ts"

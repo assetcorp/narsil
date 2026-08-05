@@ -2,16 +2,12 @@ import type { VectorMetric } from '../brute-force'
 import type { ScalarQuantizer } from '../scalar-quantization-types'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance } from '../similarity'
 import type { VectorStore, VectorStoreEntry } from '../vector-store'
+import { type Adjacency, ensureAdjacencyCapacity, hasNode, MAX_LAYER_CAP, nodeLevel } from './adjacency'
 
-export const MAX_LAYER_CAP = 32
+export { MAX_LAYER_CAP, MAX_M } from './adjacency'
 export const COMPACTION_TOMBSTONE_RATIO = 0.1
 export const COMPACTION_ABSOLUTE_THRESHOLD = 1000
 export const SQ8_OVERSELECTION_FACTOR = 2
-
-export interface HNSWNode {
-  maxLayer: number
-  connections: number[][]
-}
 
 export interface DistancePair {
   ord: number
@@ -61,7 +57,7 @@ export interface HNSWGraphState {
   readonly efCons: number
   readonly buildMetric: VectorMetric
   readonly mL: number
-  nodesByOrd: Array<HNSWNode | undefined>
+  adjacency: Adjacency
   tombstones: Uint8Array
   tombstoneCount: number
   nodeCount: number
@@ -73,6 +69,7 @@ export interface HNSWGraphState {
 }
 
 export function ensureCapacity(state: HNSWGraphState, needed: number): void {
+  ensureAdjacencyCapacity(state.adjacency, needed)
   if (needed <= state.capacity) return
   let newCap = state.capacity === 0 ? 16 : state.capacity
   while (newCap < needed) newCap *= 2
@@ -98,7 +95,11 @@ export function isTombstoned(state: HNSWGraphState, ord: number): boolean {
 }
 
 export function nodeExists(state: HNSWGraphState, ord: number): boolean {
-  return state.nodesByOrd[ord] !== undefined
+  return hasNode(state.adjacency, ord)
+}
+
+export function nodeMaxLayer(state: HNSWGraphState, ord: number): number {
+  return nodeLevel(state.adjacency, ord)
 }
 
 export function toDistance(a: Float32Array, b: Float32Array, magA: number, magB: number, metric: VectorMetric): number {

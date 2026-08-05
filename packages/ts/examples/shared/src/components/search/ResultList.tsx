@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import type { QueryHit } from '../../backend'
+import { type DisplayFieldMapping, displayHeading } from '../../lib/display-fields'
 import type { DatasetId } from '../../manifest'
 import { Button } from '../ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../ui/sheet'
@@ -19,22 +20,25 @@ interface ResultListProps {
   onPageChange: (page: number) => void
   onLoadMore: () => void
   datasetId: DatasetId
+  displayFields: DisplayFieldMapping | null
 }
 
 function ResultHitCard({
   hit,
   datasetId,
+  displayFields,
   onSelect,
 }: {
   hit: QueryHit
   datasetId: DatasetId
+  displayFields: DisplayFieldMapping | null
   onSelect: (hit: QueryHit) => void
 }) {
   const handleClick = useCallback(() => {
     onSelect(hit)
   }, [onSelect, hit])
 
-  return <ResultCard hit={hit} datasetId={datasetId} onClick={handleClick} />
+  return <ResultCard hit={hit} datasetId={datasetId} displayFields={displayFields} onClick={handleClick} />
 }
 
 export function ResultList({
@@ -49,6 +53,7 @@ export function ResultList({
   onPageChange,
   onLoadMore,
   datasetId,
+  displayFields,
 }: ResultListProps) {
   const [selectedHit, setSelectedHit] = useState<QueryHit | null>(null)
   const currentPage = Math.floor(offset / limit)
@@ -89,15 +94,19 @@ export function ResultList({
     )
   }
 
-  const selectedTitle = selectedHit
-    ? String(selectedHit.document.title ?? selectedHit.document.name ?? selectedHit.id)
-    : ''
+  const selectedTitle = selectedHit ? displayHeading(selectedHit.document, displayFields, selectedHit.id) : ''
 
   return (
     <>
       <div className="flex flex-col gap-3">
         {hits.map(hit => (
-          <ResultHitCard key={hit.id} hit={hit} datasetId={datasetId} onSelect={setSelectedHit} />
+          <ResultHitCard
+            key={hit.id}
+            hit={hit}
+            datasetId={datasetId}
+            displayFields={displayFields}
+            onSelect={setSelectedHit}
+          />
         ))}
 
         {paginationMode === 'offset' && totalPages > 1 && (

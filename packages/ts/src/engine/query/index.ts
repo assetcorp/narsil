@@ -35,7 +35,7 @@ export async function executeQuery<T = AnyDocument>(
   let fanOutResult: FanOutResult
 
   if (isVectorOnly && hasGlobalVectorIndex) {
-    fanOutResult = executeVectorSearch(params, manager, config, limit, offset)
+    fanOutResult = await executeVectorSearch(params, manager, config, limit, offset)
   } else if (isHybridMode && hasGlobalVectorIndex) {
     fanOutResult = await executeHybridSearch(params, context, limit, offset)
   } else {
@@ -163,7 +163,7 @@ export async function executePreflight(params: QueryParams, context: QueryContex
   const preflightOffset = 0
 
   if (isVectorOnly && hasGlobalVectorIndex) {
-    const result = executeVectorSearch(params, manager, config, preflightLimit, preflightOffset)
+    const result = await executeVectorSearch(params, manager, config, preflightLimit, preflightOffset)
     totalMatched = result.totalMatched
   } else if (isHybridMode && hasGlobalVectorIndex) {
     const result = await executeHybridSearch(params, context, preflightLimit, preflightOffset)

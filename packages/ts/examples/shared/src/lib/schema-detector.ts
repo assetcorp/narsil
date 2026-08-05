@@ -1,8 +1,25 @@
+const RESERVED_ROOT_FIELDS = new Set(['id'])
+
+const PROTOTYPE_POLLUTION_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
+const FIELD_NAME_PATTERN = /^[A-Za-z0-9_]+$/
+
 export interface DetectedField {
   name: string
   detectedType: string
   overrideType: string | null
   searchable: boolean
+}
+
+export function isDocumentIdField(name: string): boolean {
+  return RESERVED_ROOT_FIELDS.has(name)
+}
+
+export function fieldNameError(name: string): string | null {
+  if (isDocumentIdField(name)) return null
+  if (PROTOTYPE_POLLUTION_KEYS.has(name)) return `"${name}" is not allowed as a field name`
+  if (!FIELD_NAME_PATTERN.test(name)) return `"${name}" must use letters, digits, and underscores only`
+  return null
 }
 
 export function detectSchema(documents: Record<string, unknown>[], sampleSize = 100): DetectedField[] {
@@ -86,6 +103,7 @@ export function detectSchema(documents: Record<string, unknown>[], sampleSize = 
 export function buildSchema(fields: DetectedField[]): Record<string, string> {
   const schema: Record<string, string> = {}
   for (const field of fields) {
+    if (isDocumentIdField(field.name)) continue
     schema[field.name] = field.overrideType ?? field.detectedType
   }
   return schema

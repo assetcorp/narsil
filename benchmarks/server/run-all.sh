@@ -15,6 +15,10 @@
 # to additionally run each vector engine under its own recommended production
 # quantization, producing a second, clearly-labeled best-config comparison.
 #
+# Narsil is built from this repository, so a cloud run first compares the engine
+# sources with the tag that published the version they declare, and stops when they
+# differ. A smoke run records the difference and continues.
+#
 # Usage:
 #   ./run-all.sh                         # all engines, small BEIR sets, equal precision
 #   ./run-all.sh narsil elasticsearch    # a subset of engines, in the given order
@@ -47,19 +51,78 @@ mkdir -p "${BENCH_HOST_RESULTS_DIR}/runs"
 # environment is honored so a run can be named or resumed.
 export BENCH_RUN_ID="${BENCH_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
 
-# Stamp the Narsil image with the source commit it is built from. Narsil is the one
-# engine built from this repo's source, so its build identity comes from the host's
-# git checkout; the .git directory is excluded from the Docker build context, so the
+if [ "$#" -gt 0 ]; then
+  ENGINES=("$@")
+else
+  ENGINES=(narsil elasticsearch opensearch qdrant weaviate typesense meilisearch)
+fi
+
+# Stamp the Narsil image with the source it is built from. Narsil is the one engine
+# built from this repo's source, so its build identity comes from the host's git
+# checkout; the .git directory is excluded from the Docker build context, so the
 # commit cannot be read inside the image. The vendored engine images already carry
 # their own build hashes, and the harness reads every engine's build identity the
 # same way, from its /version-style endpoint.
+#
+# The version a run reports is true only when the engine sources match the tag that
+# published them, so they are compared here, before anything is built. Only the paths
+# that reach the running server count: everything else in the repository (the example
+# apps, this harness, generated results) cannot change what the image serves.
+ENGINE_SOURCE_PATHS=(
+  packages/ts/src
+  ':(exclude)packages/ts/src/__tests__'
+  packages/ts/package.json
+  packages/ts/tsup.config.ts
+  packages/ts/tsconfig.json
+  packages/ts/examples/http-server
+)
+
 NARSIL_GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo "")"
-if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
-  NARSIL_GIT_DIRTY="true"
-else
-  NARSIL_GIT_DIRTY="false"
-fi
 NARSIL_VERSION="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' ../../packages/ts/package.json 2>/dev/null | head -1)"
+NARSIL_RELEASE_TAG="narsil-ts@v${NARSIL_VERSION}"
+NARSIL_GIT_DIRTY="true"
+
+engine_source_report() {
+  git -C ../.. diff --name-only "$NARSIL_RELEASE_TAG" -- "${ENGINE_SOURCE_PATHS[@]}" 2>/dev/null
+}
+
+check_engine_source() {
+  if [ -z "$NARSIL_VERSION" ]; then
+    echo "cannot read the Narsil version from packages/ts/package.json" >&2
+    return 2
+  fi
+  if ! git -C ../.. rev-parse --verify --quiet "${NARSIL_RELEASE_TAG}^{commit}" >/dev/null 2>&1; then
+    echo "packages/ts declares version ${NARSIL_VERSION}, but no tag ${NARSIL_RELEASE_TAG} exists in this checkout, so there is nothing to compare it with" >&2
+    return 2
+  fi
+  local changed
+  if ! changed="$(engine_source_report)"; then
+    echo "comparing the engine sources with ${NARSIL_RELEASE_TAG} failed" >&2
+    return 2
+  fi
+  if [ -n "$changed" ]; then
+    echo "the engine sources differ from ${NARSIL_RELEASE_TAG}, so this run would report version ${NARSIL_VERSION} for code that is not ${NARSIL_VERSION}:" >&2
+    printf '%s\n' "$changed" | sed 's/^/  /' >&2
+    return 1
+  fi
+  NARSIL_GIT_DIRTY="false"
+  return 0
+}
+
+if printf '%s\n' "${ENGINES[@]}" | grep -qx narsil; then
+  check_engine_source
+  source_status=$?
+  if [ "$source_status" -eq 0 ]; then
+    echo "narsil source: v${NARSIL_VERSION}, matching ${NARSIL_RELEASE_TAG}"
+  elif [ "${PROFILE}" = "cloud" ]; then
+    echo "run with BENCH_PROFILE=smoke to measure the working tree instead." >&2
+    exit 2
+  elif [ "$source_status" -eq 1 ]; then
+    echo "narsil source: differs from ${NARSIL_RELEASE_TAG}; the smoke profile records it and continues" >&2
+  else
+    echo "narsil source: cannot be compared with ${NARSIL_RELEASE_TAG}; the smoke profile records it as unpublished and continues" >&2
+  fi
+fi
 export NARSIL_GIT_SHA NARSIL_GIT_DIRTY NARSIL_VERSION
 
 # Resolve the immutable image artifact a running engine was started from. A pulled
@@ -77,12 +140,6 @@ image_digest_of() {
 
 echo "run id: ${BENCH_RUN_ID}; profile: ${PROFILE} (results under ${BENCH_HOST_RESULTS_DIR}/runs)"
 echo "datasets: ${BENCH_DATASETS:-default (small BEIR sets)}; memory cap: ${BENCH_MEM_CAP:-8g}"
-
-if [ "$#" -gt 0 ]; then
-  ENGINES=("$@")
-else
-  ENGINES=(narsil elasticsearch opensearch qdrant weaviate typesense meilisearch)
-fi
 
 is_vector_engine() {
   case "$1" in

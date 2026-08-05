@@ -1,5 +1,6 @@
 import { type ChangeEvent, type FormEvent, useCallback, useMemo, useState } from 'react'
 import type { NarsilBackend } from '../../backend'
+import { useDisplayFields } from '../../hooks/use-display-fields'
 import { useJudging } from '../../hooks/use-judging'
 import type { QueryMetrics } from '../../lib/metrics'
 import type { LoadedIndex } from '../../types'
@@ -53,6 +54,7 @@ interface JudgedBenchmarkProps {
 
 export function JudgedBenchmark({ backend, index }: JudgedBenchmarkProps) {
   const judging = useJudging(backend, index.name)
+  const displayFields = useDisplayFields(index.name)
 
   const metricsByQuestion = useMemo(() => {
     const byQuestion = new Map<number, QueryMetrics>()
@@ -127,6 +129,7 @@ export function JudgedBenchmark({ backend, index }: JudgedBenchmarkProps) {
               question={judging.selectedQuestion}
               hits={judging.hitsByQuestion.get(judging.selectedQuestion.id)}
               datasetId={index.datasetId}
+              displayFields={displayFields}
               isRetrieving={judging.isRetrieving}
               onJudge={judging.judgeDocument}
             />

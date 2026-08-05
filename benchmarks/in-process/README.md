@@ -38,7 +38,7 @@ Results are printed to stdout and saved under `results/runs/<run-id>/`, one dire
 
 Each run directory holds:
 
-- `run.json`: the run manifest, recording the run id, the creation time, the build identity (git commit, branch, and a dirty-tree flag), and the runtime environment (Node version, OS, arch, CPU, total memory).
+- `run.json`: the run manifest, recording the run id, the creation time, the build identity (git commit, branch, and whether the engine sources differ from the tag that published the version they declare), and the runtime environment (Node version, OS, arch, CPU, total memory).
 - `results.json`: the comparative benchmark output that every downstream tool reads.
 - `comparison.md`: a rendered Markdown report generated from `results.json` at the end of each run, holding the same tables the run prints to stdout.
 
@@ -63,6 +63,15 @@ alone, so a smoke run leaves both untouched. Delete the tree with
 `rm -rf benchmarks/in-process/results/.smoke` when you no longer need it. The
 smoke profile changes where results go and nothing about the measurement, so
 narrow the work with `--tiers` when you want a faster check.
+
+The profile also decides what happens when the checkout no longer holds the version
+it claims. Before any measurement, the runner compares `packages/ts/src` (apart from
+its tests), `packages/ts/package.json`, `packages/ts/tsup.config.ts`,
+`packages/ts/tsconfig.json`, and `packages/ts/examples/http-server` with the tag that
+published the version in `packages/ts/package.json`. A cloud run stops when they
+differ, because it would otherwise report a version it did not measure. A smoke run
+records the difference and continues. Changes anywhere else, including the engine's
+tests, the example apps, and this harness, never stop a run.
 
 ## Datasets
 

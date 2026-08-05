@@ -306,7 +306,7 @@ def _build_cell(engine: dict) -> str:
     build = engine.get("build_identity") or {}
     commit = build.get("build_hash")
     if commit:
-        return f"{commit[:12]}{' (dirty)' if build.get('dirty') else ''}"
+        return f"{commit[:12]}{' (unpublished)' if build.get('dirty') else ''}"
     digest = engine.get("image_digest")
     if digest:
         return digest.split("@", 1)[-1][:19]
