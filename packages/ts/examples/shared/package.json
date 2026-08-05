@@ -101,6 +101,14 @@
       "import": "./src/lib/metrics.ts",
       "types": "./src/lib/metrics.ts"
     },
+    "./lib/judging": {
+      "import": "./src/lib/judging.ts",
+      "types": "./src/lib/judging.ts"
+    },
+    "./hooks/use-judging": {
+      "import": "./src/hooks/use-judging.ts",
+      "types": "./src/hooks/use-judging.ts"
+    },
     "./hooks/use-benchmark": {
       "import": "./src/hooks/use-benchmark.ts",
       "types": "./src/hooks/use-benchmark.ts"

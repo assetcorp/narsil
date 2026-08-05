@@ -12,7 +12,7 @@ function computeTabStatus(state: AppState): Record<TabId, TabStatus> {
     search: hasNonScifactDocs ? 'ready' : 'locked',
     ask: hasAnyDocs ? 'ready' : 'locked',
     relevance: hasNonScifactDocs ? 'ready' : 'locked',
-    benchmark: hasScifact ? 'ready' : 'locked',
+    benchmark: hasScifact || hasNonScifactDocs ? 'ready' : 'locked',
     inspector: hasAnyIndex ? 'ready' : 'locked',
   }
 }
