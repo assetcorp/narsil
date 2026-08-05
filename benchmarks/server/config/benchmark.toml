@@ -138,7 +138,7 @@ url = "http://elasticsearch:9200"
 run_tag = "elasticsearch_bm25"
 ranking = "bm25"
 analyzer = "english"
-tracks = ["vector"]
+tracks = ["keyword", "vector", "hybrid"]
 
 [engines.opensearch]
 url = "http://opensearch:9200"
