@@ -129,7 +129,7 @@ export function QueryExplorer({ perQuery, selectedQuery, onSelect }: QueryExplor
   )
 }
 
-function MetricBadge({ value }: { value: number }) {
+export function MetricBadge({ value }: { value: number }) {
   const color =
     value >= 0.7
       ? 'text-green-600 dark:text-green-400'

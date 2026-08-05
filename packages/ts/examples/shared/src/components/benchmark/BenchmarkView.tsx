@@ -1,11 +1,43 @@
+import { useCallback, useState } from 'react'
 import type { NarsilBackend } from '../../backend'
-import { useBenchmark } from '../../hooks/use-benchmark'
-import type { AppState } from '../../types'
+import type { AppState, LoadedIndex } from '../../types'
 import { Button } from '../ui/button'
-import { Progress } from '../ui/progress'
-import { AggregateTable } from './AggregateTable'
-import { QueryExplorer } from './QueryExplorer'
-import { SideBySide } from './SideBySide'
+import { JudgedBenchmark } from './JudgedBenchmark'
+import { ScifactBenchmark } from './ScifactBenchmark'
+
+function benchmarkTargets(state: AppState): LoadedIndex[] {
+  return state.indexes.filter(index => index.datasetId === 'scifact' || index.documentCount > 0)
+}
+
+function defaultTarget(targets: LoadedIndex[], activeIndexName: string | null): LoadedIndex | null {
+  const scifact = targets.find(target => target.datasetId === 'scifact')
+  if (scifact) return scifact
+  return targets.find(target => target.name === activeIndexName) ?? targets[0] ?? null
+}
+
+interface TargetButtonProps {
+  target: LoadedIndex
+  isActive: boolean
+  onSelect: (indexName: string) => void
+}
+
+function TargetButton({ target, isActive, onSelect }: TargetButtonProps) {
+  const handleClick = useCallback(() => {
+    onSelect(target.name)
+  }, [onSelect, target.name])
+
+  return (
+    <Button
+      type="button"
+      variant={isActive ? 'default' : 'outline'}
+      size="xs"
+      className="font-mono text-xs"
+      onClick={handleClick}
+    >
+      {target.name}
+    </Button>
+  )
+}
 
 interface BenchmarkViewProps {
   backend: NarsilBackend
@@ -13,15 +45,19 @@ interface BenchmarkViewProps {
 }
 
 export function BenchmarkView({ backend, state }: BenchmarkViewProps) {
-  const benchmark = useBenchmark(backend)
-  const scifactLoaded = state.scifactLoaded
+  const [chosenTargetName, setChosenTargetName] = useState<string | null>(null)
 
-  if (!scifactLoaded) {
+  const targets = benchmarkTargets(state)
+  const chosen = targets.find(target => target.name === chosenTargetName)
+  const target = chosen ?? defaultTarget(targets, state.activeIndexName)
+
+  if (target === null) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-8">
         <h1 className="mb-2 font-serif text-3xl tracking-tight">Quality Benchmark</h1>
         <p className="text-sm text-muted-foreground">
-          Load the SciFact dataset from the Datasets tab to run retrieval quality benchmarks.
+          Load a dataset from the Datasets tab to measure retrieval quality. SciFact arrives with expert relevance
+          judgments, and you can judge any index built from your own documents with your own questions.
         </p>
       </div>
     )
@@ -29,54 +65,27 @@ export function BenchmarkView({ backend, state }: BenchmarkViewProps) {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="mb-1 font-serif text-3xl tracking-tight">Quality Benchmark</h1>
-          <p className="text-sm text-muted-foreground">
-            Evaluates retrieval quality across 300 SciFact claim queries with expert relevance judgments.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {benchmark.isRunning ? (
-            <Button variant="destructive" size="sm" onClick={benchmark.abort}>
-              Abort
-            </Button>
-          ) : (
-            <Button size="sm" onClick={benchmark.run}>
-              {benchmark.result ? 'Re-run' : 'Run Benchmark'}
-            </Button>
-          )}
-        </div>
+      <div className="mb-4">
+        <h1 className="mb-1 font-serif text-3xl tracking-tight">Quality Benchmark</h1>
       </div>
 
-      {benchmark.isRunning && (
-        <div className="mb-6">
-          <Progress value={(benchmark.progress / benchmark.totalQueries) * 100} />
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            Evaluating query {benchmark.progress} of {benchmark.totalQueries}
-          </p>
-        </div>
-      )}
-
-      {benchmark.error && (
-        <div className="mb-6 rounded-lg border border-destructive/50 bg-destructive/5 p-4 text-sm text-destructive">
-          {benchmark.error}
-        </div>
-      )}
-
-      {benchmark.result && (
-        <div className="flex flex-col gap-6">
-          <AggregateTable metrics={benchmark.result.aggregate} />
-
-          <div className="grid gap-6 lg:grid-cols-2">
-            <QueryExplorer
-              perQuery={benchmark.result.perQuery}
-              selectedQuery={benchmark.selectedQuery}
-              onSelect={benchmark.selectQuery}
+      {targets.length > 1 && (
+        <div className="mb-4 flex flex-wrap gap-1.5">
+          {targets.map(entry => (
+            <TargetButton
+              key={entry.name}
+              target={entry}
+              isActive={entry.name === target.name}
+              onSelect={setChosenTargetName}
             />
-            {benchmark.selectedQuery && <SideBySide query={benchmark.selectedQuery} backend={backend} />}
-          </div>
+          ))}
         </div>
+      )}
+
+      {target.datasetId === 'scifact' ? (
+        <ScifactBenchmark backend={backend} />
+      ) : (
+        <JudgedBenchmark key={target.name} backend={backend} index={target} />
       )}
     </div>
   )

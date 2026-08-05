@@ -1,5 +1,6 @@
 import type { DatasetId, DatasetLoadProgress, LoadDatasetRequest } from '@delali/narsil-example-shared'
 import { useAppDispatch, useAppState, useBackend } from '@delali/narsil-example-shared'
+import { deleteJudgedQuestions } from '@delali/narsil-example-shared/lib/judging'
 import { createFileRoute } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
 import { CustomConfig, type CustomDatasetConfig } from '#/components/datasets/CustomConfig'
@@ -120,6 +121,7 @@ function HomePage() {
       for (const idx of indexesForDataset) {
         try {
           await backend.deleteIndex(idx.name)
+          deleteJudgedQuestions(idx.name)
           dispatch({ type: 'REMOVE_INDEX', payload: idx.name })
         } catch {
           // Index may already be gone

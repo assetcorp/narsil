@@ -2,6 +2,7 @@ import type { DatasetId, DatasetLoadProgress, LoadDatasetRequest } from '@delali
 import { scifact, tmdb, useAppDispatch, useAppState, useBackend, wikipedia } from '@delali/narsil-example-shared'
 import { INDEX_NAME_PATTERN, SchemaEditor } from '@delali/narsil-example-shared/components/SchemaEditor'
 import { parseFile } from '@delali/narsil-example-shared/lib/file-parser'
+import { deleteJudgedQuestions } from '@delali/narsil-example-shared/lib/judging'
 import { buildSchema, type DetectedField, detectSchema } from '@delali/narsil-example-shared/lib/schema-detector'
 import { createFileRoute } from '@tanstack/react-router'
 import { BookOpen, Check, FileUp, Film, Globe, Loader2, Settings2, Trash2, Upload } from 'lucide-react'
@@ -644,6 +645,7 @@ function HomePage() {
       for (const idx of indexesForDataset) {
         try {
           await backend.deleteIndex(idx.name)
+          deleteJudgedQuestions(idx.name)
           dispatch({ type: 'REMOVE_INDEX', payload: idx.name })
         } catch {
           // Index may already be gone
