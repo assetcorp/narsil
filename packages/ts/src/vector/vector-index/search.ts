@@ -1,5 +1,6 @@
 import { createBoundedMaxHeap } from '../../core/heap'
 import type { VectorMetric } from '../brute-force'
+import { toScore } from '../hnsw/shared'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from '../similarity'
 import { scheduleBuild } from './build'
 import {
@@ -36,28 +37,38 @@ function bruteForceSearch(
   minSimilarity: number,
   candidates: Iterable<string>,
 ): VectorScoredResult[] {
-  const queryMag = magnitude(query)
+  const arenaQuery = state.store.prepareQueryArena(query)
+  const queryMag = arenaQuery ? arenaQuery.magnitude : magnitude(query)
   const highScoreFirst = (a: VectorScoredResult, b: VectorScoredResult) =>
     b.score - a.score || a.docId.localeCompare(b.docId)
   const heap = createBoundedMaxHeap<VectorScoredResult>(highScoreFirst, k)
 
   for (const docId of candidates) {
     if (state.tombstones.has(docId)) continue
-    const entry = state.store.get(docId)
-    if (!entry) continue
 
     let score: number
-    switch (metric) {
-      case 'cosine':
-        score = cosineSimilarityWithMagnitudes(query, entry.vector, queryMag, entry.magnitude)
-        break
-      case 'dotProduct':
-        score = dotProduct(query, entry.vector)
-        break
-      case 'euclidean': {
-        const dist = euclideanDistance(query, entry.vector)
-        score = 1 / (1 + dist)
-        break
+    if (arenaQuery) {
+      const ordinal = state.store.getOrdinal(docId)
+      if (ordinal === undefined) continue
+      const distance = state.store.distanceFromArena(arenaQuery, ordinal, metric)
+      if (distance === Number.POSITIVE_INFINITY) continue
+      score = toScore(distance, metric)
+    } else {
+      const entry = state.store.get(docId)
+      if (!entry) continue
+
+      switch (metric) {
+        case 'cosine':
+          score = cosineSimilarityWithMagnitudes(query, entry.vector, queryMag, entry.magnitude)
+          break
+        case 'dotProduct':
+          score = dotProduct(query, entry.vector)
+          break
+        case 'euclidean': {
+          const dist = euclideanDistance(query, entry.vector)
+          score = 1 / (1 + dist)
+          break
+        }
       }
     }
 

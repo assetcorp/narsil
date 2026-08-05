@@ -153,7 +153,7 @@ def _setup_block(source: Source) -> str:
     narsil = _engine(engines, "narsil") or {}
     build = narsil.get("build_identity") or {}
     commit = (build.get("build_hash") or "")[:12] or "unknown"
-    dirty = ", with uncommitted changes" if build.get("dirty") else ""
+    dirty = ", whose engine sources differ from the published version" if build.get("dirty") else ""
     others = [
         f"{engine_name(engine['name'])} {engine.get('version') or 'n/a'}"
         for engine in engines

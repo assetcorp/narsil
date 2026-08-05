@@ -41,3 +41,4 @@ data/processed/wikipedia/wikipedia-yo.json
 packages/ts/examples/*/dist/
 packages/ts/examples/*/.output/
 packages/ts/examples/server-app/data/
+packages/ts/examples/shared/sample-data/

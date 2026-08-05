@@ -214,6 +214,17 @@ script prints where it left the results and how to delete them. The profile chan
 where results go and nothing about the measurement, so name the engines you care
 about, or set `BENCH_DATASETS`, when you want a faster check.
 
+The profile also decides what happens when the checkout no longer holds the version
+it claims. Narsil is the one engine built from this repository, so before anything is
+built the script compares `packages/ts/src` (apart from its tests),
+`packages/ts/package.json`, `packages/ts/tsup.config.ts`, `packages/ts/tsconfig.json`,
+and `packages/ts/examples/http-server` with the tag that published the version in
+`packages/ts/package.json`. The server entry is in that list because it is what the
+image runs. A cloud run stops when they differ, because it would otherwise report a
+version it did not measure. A smoke run records the difference and continues. Nothing
+else in the repository takes part: the engine's tests, the example apps, this harness,
+and generated results cannot change what the image serves, so they never stop a run.
+
 ## What it reports
 
 - A per-engine file at `results/runs/<run-id>/engine-<name>.json` and `.md` carries,

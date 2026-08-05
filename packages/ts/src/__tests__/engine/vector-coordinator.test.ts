@@ -49,6 +49,9 @@ function createMockVectorIndex(
     has(docId: string) {
       return vectors.has(docId)
     },
+    async searchParallel() {
+      return []
+    },
     search() {
       return []
     },

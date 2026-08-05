@@ -11,6 +11,7 @@ import {
   optimize as optimizeOp,
 } from './maintenance'
 import { deserialize as deserializeOp, serialize as serializeOp } from './persistence'
+import { invalidateReplicas, scheduleReplicaLoad, searchViaReplicas } from './replication'
 import { search as searchOp } from './search'
 import {
   DEFAULT_FILTER_THRESHOLD,
@@ -32,6 +33,7 @@ export interface VectorIndex {
   awaitPendingBuild(): Promise<void>
   dispose(): void
   search(query: Float32Array, k: number, options: VectorSearchOptions): VectorScoredResult[]
+  searchParallel(query: Float32Array, k: number, options: VectorSearchOptions): Promise<VectorScoredResult[]>
   getVector(docId: string): Float32Array | null
   has(docId: string): boolean
   compact(): void
@@ -82,6 +84,11 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     buildScheduled: false,
     pendingBuild: null,
     disposed: false,
+    revision: 0,
+    replicaPool: null,
+    replicaHandle: null,
+    replicaRevision: -1,
+    replicaLoading: false,
   }
 
   function validateDimension(vector: Float32Array): void {
@@ -96,6 +103,7 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
 
   function insert(docId: string, vector: Float32Array): void {
     validateDimension(vector)
+    invalidateReplicas(state)
     state.tombstones.delete(docId)
     state.store.insert(docId, vector)
     state.buffer.add(docId)
@@ -103,6 +111,7 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
 
   function remove(docId: string): void {
     if (!state.store.has(docId)) return
+    invalidateReplicas(state)
     state.tombstones.add(docId)
     state.buffer.delete(docId)
     if (state.hnsw) {
@@ -129,6 +138,24 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
 
   function dispose(): void {
     state.disposed = true
+    invalidateReplicas(state)
+  }
+
+  async function searchParallel(
+    query: Float32Array,
+    k: number,
+    options: VectorSearchOptions,
+  ): Promise<VectorScoredResult[]> {
+    if (options.filterDocIds !== undefined) {
+      return searchOp(state, query, k, options)
+    }
+
+    scheduleReplicaLoad(state)
+
+    const viaReplica = await searchViaReplicas(state, query, k, options.metric, options.minSimilarity, options.efSearch)
+    if (viaReplica !== null) return viaReplica
+
+    return searchOp(state, query, k, options)
   }
 
   return {
@@ -147,13 +174,23 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     awaitPendingBuild,
     dispose,
     search: (query: Float32Array, k: number, options: VectorSearchOptions) => searchOp(state, query, k, options),
+    searchParallel,
     getVector,
     has,
-    compact: () => compactOp(state),
-    optimize: () => optimizeOp(state),
+    compact: () => {
+      invalidateReplicas(state)
+      compactOp(state)
+    },
+    optimize: async () => {
+      invalidateReplicas(state)
+      await optimizeOp(state)
+    },
     maintenanceStatus: () => maintenanceStatusOp(state),
     estimateMemoryBytes: () => estimateMemoryBytesOp(state),
     serialize: () => serializeOp(state),
-    deserialize: (payload: VectorIndexPayload) => deserializeOp(state, payload),
+    deserialize: (payload: VectorIndexPayload) => {
+      invalidateReplicas(state)
+      deserializeOp(state, payload)
+    },
   }
 }

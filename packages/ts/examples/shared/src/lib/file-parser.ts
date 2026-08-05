@@ -82,14 +82,24 @@ function coerceValue(value: string): unknown {
   return value
 }
 
+function stringifyDocumentIds(documents: Record<string, unknown>[]): Record<string, unknown>[] {
+  for (const document of documents) {
+    const id = document.id
+    if (typeof id === 'number' || typeof id === 'boolean') {
+      document.id = String(id)
+    }
+  }
+  return documents
+}
+
 export function parseFile(text: string, filename: string): Record<string, unknown>[] {
   const lower = filename.toLowerCase()
-  if (lower.endsWith('.json')) return parseJsonArray(text)
-  if (lower.endsWith('.csv')) return parseCsv(text)
+  if (lower.endsWith('.json')) return stringifyDocumentIds(parseJsonArray(text))
+  if (lower.endsWith('.csv')) return stringifyDocumentIds(parseCsv(text))
 
   try {
-    return parseJsonArray(text)
+    return stringifyDocumentIds(parseJsonArray(text))
   } catch {
-    return parseCsv(text)
+    return stringifyDocumentIds(parseCsv(text))
   }
 }

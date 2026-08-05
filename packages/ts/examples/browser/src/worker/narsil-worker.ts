@@ -17,6 +17,7 @@ type SchemaType = Parameters<Narsil['createIndex']>[1]['schema']
 
 const SNAPSHOT_DB_NAME = 'narsil-snapshots'
 const SNAPSHOT_STORE = 'snapshots'
+const DEFAULT_LANGUAGE_CODE = 'en'
 
 function openSnapshotDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -32,11 +33,30 @@ function openSnapshotDB(): Promise<IDBDatabase> {
   })
 }
 
-async function saveSnapshot(indexName: string, data: Uint8Array): Promise<void> {
+interface StoredSnapshot {
+  data: Uint8Array
+  languageCode: string
+}
+
+function readStoredSnapshot(value: unknown, indexName: string): StoredSnapshot | null {
+  if (value instanceof Uint8Array) {
+    const prefixed = indexName.startsWith('wikipedia-') ? indexName.replace('wikipedia-', '') : DEFAULT_LANGUAGE_CODE
+    return { data: value, languageCode: prefixed }
+  }
+  if (typeof value !== 'object' || value === null) return null
+  const record = value as { data?: unknown; languageCode?: unknown }
+  if (!(record.data instanceof Uint8Array)) return null
+  return {
+    data: record.data,
+    languageCode: typeof record.languageCode === 'string' ? record.languageCode : DEFAULT_LANGUAGE_CODE,
+  }
+}
+
+async function saveSnapshot(indexName: string, data: Uint8Array, languageCode: string): Promise<void> {
   const db = await openSnapshotDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SNAPSHOT_STORE, 'readwrite')
-    tx.objectStore(SNAPSHOT_STORE).put(data, indexName)
+    tx.objectStore(SNAPSHOT_STORE).put({ data, languageCode } satisfies StoredSnapshot, indexName)
     tx.oncomplete = () => {
       db.close()
       resolve()
@@ -48,14 +68,14 @@ async function saveSnapshot(indexName: string, data: Uint8Array): Promise<void> 
   })
 }
 
-async function loadSnapshot(indexName: string): Promise<Uint8Array | null> {
+async function loadSnapshot(indexName: string): Promise<StoredSnapshot | null> {
   const db = await openSnapshotDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SNAPSHOT_STORE, 'readonly')
     const req = tx.objectStore(SNAPSHOT_STORE).get(indexName)
     req.onsuccess = () => {
       db.close()
-      resolve(req.result ?? null)
+      resolve(readStoredSnapshot(req.result, indexName))
     }
     req.onerror = () => {
       db.close()
@@ -109,11 +129,10 @@ async function getNarsil(): Promise<Narsil> {
     const snapshotKeys = await listSnapshots().catch(() => [] as string[])
     for (const indexName of snapshotKeys) {
       try {
-        const data = await loadSnapshot(indexName)
-        if (data) {
-          const langCode = indexName.startsWith('wikipedia-') ? indexName.replace('wikipedia-', '') : null
-          if (langCode) await ensureLanguage(langCode)
-          await instance.restore(indexName, data)
+        const snapshot = await loadSnapshot(indexName)
+        if (snapshot) {
+          await ensureLanguage(snapshot.languageCode)
+          await instance.restore(indexName, snapshot.data)
         }
       } catch {
         await deleteSnapshot(indexName).catch(() => {})
@@ -134,10 +153,10 @@ async function getNarsil(): Promise<Narsil> {
   }
 }
 
-async function persistIndex(instance: Narsil, indexName: string): Promise<void> {
+async function persistIndex(instance: Narsil, indexName: string, languageCode: string): Promise<void> {
   try {
     const data = await instance.snapshot(indexName)
-    await saveSnapshot(indexName, data)
+    await saveSnapshot(indexName, data, languageCode)
   } catch {
     // Snapshot failed; not critical, data can be reloaded
   }
@@ -265,7 +284,7 @@ async function loadTmdb(tier: string) {
 
   await instance.createIndex(indexName, { schema: tmdbSchema as SchemaType, language: 'english' })
   await indexDocuments(instance, indexName, docs, 'tmdb')
-  await persistIndex(instance, indexName)
+  await persistIndex(instance, indexName, DEFAULT_LANGUAGE_CODE)
 
   postProgress({ datasetId: 'tmdb', phase: 'complete', totalDocs: docs.length, indexedDocs: docs.length })
   return { name: indexName, documentCount: docs.length, language: 'english' }
@@ -297,7 +316,7 @@ async function loadWikipedia(languages: string[]) {
 
     await instance.createIndex(indexName, { schema: wikipediaSchema as SchemaType, language: langName(langCode) })
     await indexDocuments(instance, indexName, docs, 'wikipedia')
-    await persistIndex(instance, indexName)
+    await persistIndex(instance, indexName, langCode)
     results.push({ name: indexName, documentCount: docs.length, language: langCode })
   }
 
@@ -324,7 +343,7 @@ async function loadScifact() {
 
   await instance.createIndex(indexName, { schema: scifactSchema as SchemaType, language: 'english' })
   await indexDocuments(instance, indexName, docs, 'scifact')
-  await persistIndex(instance, indexName)
+  await persistIndex(instance, indexName, DEFAULT_LANGUAGE_CODE)
 
   postProgress({ datasetId: 'scifact', phase: 'complete', totalDocs: docs.length, indexedDocs: docs.length })
   return { name: indexName, documentCount: docs.length, language: 'english' }
@@ -345,13 +364,14 @@ async function loadCustom(payload: {
     await deleteSnapshot(indexName).catch(() => {})
   }
 
-  if (language) await ensureLanguage(language)
-  await instance.createIndex(indexName, { schema: schema as SchemaType, language: language ?? 'english' })
+  const languageCode = language ?? DEFAULT_LANGUAGE_CODE
+  await ensureLanguage(languageCode)
+  await instance.createIndex(indexName, { schema: schema as SchemaType, language: langName(languageCode) })
   await indexDocuments(instance, indexName, documents, 'custom')
-  await persistIndex(instance, indexName)
+  await persistIndex(instance, indexName, languageCode)
 
   postProgress({ datasetId: 'custom', phase: 'complete', totalDocs: documents.length, indexedDocs: documents.length })
-  return { name: indexName, documentCount: documents.length, language: language ?? 'english' }
+  return { name: indexName, documentCount: documents.length, language: langName(languageCode) }
 }
 
 async function handleLoadDataset(payload: LoadDatasetPayload) {

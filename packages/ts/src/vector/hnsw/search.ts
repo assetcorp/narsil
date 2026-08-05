@@ -1,6 +1,7 @@
 import type { ScoredDocument } from '../../types/internal'
 import type { VectorMetric } from '../brute-force'
 import { magnitude } from '../similarity'
+import type { ArenaQueryVector } from '../vector-store'
 import { nearestFromHeap, searchLayer } from './graph-ops'
 import {
   type DistancePair,
@@ -47,15 +48,17 @@ export function search(
     }
   }
 
-  const qMag = magnitude(query)
+  const store = state.store
+  const arenaQuery = store.prepareQueryArena(query)
+  const qMag = arenaQuery ? arenaQuery.magnitude : magnitude(query)
 
   let quantizedDistFn: ((ord: number) => number) | undefined
   if (useQuantized && state.quantizer) {
     const q = state.quantizer
     const metric = searchMetric
-    const arenaQuery = q.prepareQueryArena(query)
-    if (arenaQuery) {
-      quantizedDistFn = (ord: number) => q.distanceFromArena(arenaQuery, ord, metric)
+    const quantizedArenaQuery = q.prepareQueryArena(query)
+    if (quantizedArenaQuery) {
+      quantizedDistFn = (ord: number) => q.distanceFromArena(quantizedArenaQuery, ord, metric)
     } else {
       const prepared = q.prepareQuery(query)
       if (prepared) {
@@ -64,21 +67,37 @@ export function search(
     }
   }
 
+  let distFn = quantizedDistFn
+  if (!distFn && arenaQuery) {
+    const metric = searchMetric
+    distFn = (ord: number) => store.distanceFromArena(arenaQuery, ord, metric)
+  }
+
   let currentEPs = [state.entryPointOrd]
 
   for (let layer = state.topLayer; layer >= 1; layer--) {
-    const heap = searchLayer(state, query, qMag, currentEPs, 1, layer, searchMetric, true, quantizedDistFn)
+    const heap = searchLayer(state, query, qMag, currentEPs, 1, layer, searchMetric, true, distFn)
     const nearest = nearestFromHeap(heap)
     if (nearest) {
       currentEPs = [nearest.ord]
     }
   }
 
-  const candidateHeap = searchLayer(state, query, qMag, currentEPs, ef, 0, searchMetric, true, quantizedDistFn)
+  const candidateHeap = searchLayer(state, query, qMag, currentEPs, ef, 0, searchMetric, true, distFn)
   const candidateArray = candidateHeap.toSortedArray().reverse()
 
   if (useQuantized) {
-    return rerankWithFullPrecision(state, candidateArray, query, qMag, k, searchMetric, minSimilarity, filterOrds)
+    return rerankWithFullPrecision(
+      state,
+      candidateArray,
+      query,
+      qMag,
+      arenaQuery,
+      k,
+      searchMetric,
+      minSimilarity,
+      filterOrds,
+    )
   }
 
   const results: ScoredDocument[] = []
@@ -106,6 +125,7 @@ function rerankWithFullPrecision(
   candidates: DistancePair[],
   query: Float32Array,
   qMag: number,
+  arenaQuery: ArenaQueryVector | null,
   k: number,
   metric: VectorMetric,
   minSimilarity: number,
@@ -117,10 +137,16 @@ function rerankWithFullPrecision(
   for (const cand of candidates) {
     if (filterOrds && !filterOrds.has(cand.ord)) continue
 
-    const entry = entryForOrd(state, cand.ord)
-    if (!entry) continue
+    let fullDistance: number
+    if (arenaQuery) {
+      fullDistance = state.store.distanceFromArena(arenaQuery, cand.ord, metric)
+      if (fullDistance === Number.POSITIVE_INFINITY) continue
+    } else {
+      const entry = entryForOrd(state, cand.ord)
+      if (!entry) continue
+      fullDistance = toDistance(query, entry.vector, qMag, entry.magnitude, metric)
+    }
 
-    const fullDistance = toDistance(query, entry.vector, qMag, entry.magnitude, metric)
     const score = toScore(fullDistance, metric)
     if (score < minSimilarity) continue
 

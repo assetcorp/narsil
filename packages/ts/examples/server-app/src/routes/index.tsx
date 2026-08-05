@@ -1,9 +1,10 @@
 import type { DatasetId, DatasetLoadProgress, LoadDatasetRequest } from '@delali/narsil-example-shared'
 import { useAppDispatch, useAppState, useBackend } from '@delali/narsil-example-shared'
+import { CustomConfig, type CustomDatasetConfig } from '@delali/narsil-example-shared/components/CustomConfig'
+import { deleteDisplayFields, writeDisplayFields } from '@delali/narsil-example-shared/lib/display-fields'
 import { deleteJudgedQuestions } from '@delali/narsil-example-shared/lib/judging'
 import { createFileRoute } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
-import { CustomConfig, type CustomDatasetConfig } from '#/components/datasets/CustomConfig'
 import { DatasetCard, datasetMeta } from '#/components/datasets/DatasetCard'
 import { ScifactConfig, TmdbConfig, WikiConfig } from '#/components/datasets/DatasetConfigs'
 import { useEngineStatus } from '#/lib/engine-status'
@@ -82,6 +83,9 @@ function HomePage() {
 
       try {
         await backend.loadDataset(request)
+        if (datasetId === 'custom' && customConfig) {
+          writeDisplayFields(customConfig.indexName, customConfig.displayFields)
+        }
         const indexes = await backend.listIndexes()
         for (const idx of indexes) {
           if (
@@ -122,6 +126,7 @@ function HomePage() {
         try {
           await backend.deleteIndex(idx.name)
           deleteJudgedQuestions(idx.name)
+          deleteDisplayFields(idx.name)
           dispatch({ type: 'REMOVE_INDEX', payload: idx.name })
         } catch {
           // Index may already be gone

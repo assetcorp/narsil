@@ -1,5 +1,6 @@
 import { createHNSWIndex, type HNSWConfig } from '../hnsw'
 import { dispatchWorkerBuild } from '../hnsw-worker-dispatch'
+import { invalidateReplicas } from './replication'
 import {
   calibrateAndQuantizeAll,
   liveSize,
@@ -59,6 +60,7 @@ async function tryWorkerBuild(
 
 export function triggerBuild(state: VectorIndexState): void {
   if (state.building) return
+  invalidateReplicas(state)
   state.building = true
 
   const liveDocIds: string[] = []

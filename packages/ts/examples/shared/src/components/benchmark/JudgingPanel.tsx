@@ -1,6 +1,7 @@
 import { Loader2 } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import type { QueryHit } from '../../backend'
+import { type DisplayFieldMapping, displayHeading } from '../../lib/display-fields'
 import { hitDocumentId, type JudgedQuestion, type RelevanceGrade } from '../../lib/judging'
 import type { DatasetId } from '../../manifest'
 import { ResultCard } from '../search/ResultCard'
@@ -15,12 +16,13 @@ interface JudgedResultRowProps {
   hit: QueryHit
   rank: number
   datasetId: DatasetId
+  displayFields: DisplayFieldMapping | null
   grade: RelevanceGrade | undefined
   onJudge: (documentId: string, grade: RelevanceGrade) => void
   onOpen: (hit: QueryHit) => void
 }
 
-function JudgedResultRow({ hit, rank, datasetId, grade, onJudge, onOpen }: JudgedResultRowProps) {
+function JudgedResultRow({ hit, rank, datasetId, displayFields, grade, onJudge, onOpen }: JudgedResultRowProps) {
   const documentId = hitDocumentId(hit)
 
   const handleOpen = useCallback(() => {
@@ -39,7 +41,7 @@ function JudgedResultRow({ hit, rank, datasetId, grade, onJudge, onOpen }: Judge
     <div className="flex items-start gap-2 border-b px-3 py-2 last:border-b-0">
       <span className="w-6 shrink-0 pt-4 text-right font-mono text-xs text-muted-foreground">{rank}</span>
       <div className="min-w-0 flex-1">
-        <ResultCard hit={hit} datasetId={datasetId} onClick={handleOpen} />
+        <ResultCard hit={hit} datasetId={datasetId} displayFields={displayFields} onClick={handleOpen} />
       </div>
       <div className="flex shrink-0 flex-col gap-1 pt-1">
         <Button
@@ -69,11 +71,12 @@ interface JudgingPanelProps {
   question: JudgedQuestion
   hits: QueryHit[] | undefined
   datasetId: DatasetId
+  displayFields: DisplayFieldMapping | null
   isRetrieving: boolean
   onJudge: (questionId: number, documentId: string, grade: RelevanceGrade) => void
 }
 
-export function JudgingPanel({ question, hits, datasetId, isRetrieving, onJudge }: JudgingPanelProps) {
+export function JudgingPanel({ question, hits, datasetId, displayFields, isRetrieving, onJudge }: JudgingPanelProps) {
   const [openedHit, setOpenedHit] = useState<QueryHit | null>(null)
 
   const handleJudge = useCallback(
@@ -89,7 +92,7 @@ export function JudgingPanel({ question, hits, datasetId, isRetrieving, onJudge 
 
   const judgedCount = Object.keys(question.judgments).length
   const relevantCount = Object.values(question.judgments).filter(grade => grade > 0).length
-  const openedTitle = openedHit ? String(openedHit.document.title ?? openedHit.document.name ?? openedHit.id) : ''
+  const openedTitle = openedHit ? displayHeading(openedHit.document, displayFields, openedHit.id) : ''
 
   return (
     <div className="min-w-0 rounded-lg border">
@@ -117,6 +120,7 @@ export function JudgingPanel({ question, hits, datasetId, isRetrieving, onJudge 
               hit={hit}
               rank={position + 1}
               datasetId={datasetId}
+              displayFields={displayFields}
               grade={question.judgments[hitDocumentId(hit)]}
               onJudge={handleJudge}
               onOpen={setOpenedHit}

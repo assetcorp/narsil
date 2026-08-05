@@ -4,6 +4,7 @@ import os from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { writeJsonAtomicSync } from './atomic-write'
+import { engineSourceDiffersFromRelease } from './published-version'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PACKAGE_ROOT = resolve(__dirname, '..', '..')
@@ -86,6 +87,7 @@ export interface RunEnvironment {
 export interface RunGitIdentity {
   branch: string
   commit: string
+  /** Whether the engine sources differ from the tag that published the version they declare. */
   dirty: boolean
 }
 
@@ -200,9 +202,7 @@ function runGit(args: string[], cwd: string): string | null {
 function collectGitIdentity(cwd: string): RunGitIdentity {
   const branch = runGit(['rev-parse', '--abbrev-ref', 'HEAD'], cwd) ?? 'unknown'
   const commit = runGit(['rev-parse', 'HEAD'], cwd) ?? 'unknown'
-  const status = runGit(['status', '--porcelain'], cwd)
-  const dirty = status === null ? false : status.length > 0
-  return { branch, commit, dirty }
+  return { branch, commit, dirty: engineSourceDiffersFromRelease(cwd) }
 }
 
 function collectEnvironment(): RunEnvironment {

@@ -15,13 +15,13 @@ import {
   vectorResultsToScored,
 } from './shared'
 
-export function executeVectorSearch(
+export async function executeVectorSearch(
   params: QueryParams,
   manager: PartitionManager,
   config: IndexConfig,
   limit: number,
   offset: number,
-): FanOutResult {
+): Promise<FanOutResult> {
   const vectorConfig = params.vector
   if (!vectorConfig || !vectorConfig.value) {
     return { scored: [], totalMatched: 0 }
@@ -42,7 +42,7 @@ export function executeVectorSearch(
 
   const queryVec = new Float32Array(vectorConfig.value)
   const k = limit + offset + 1
-  const results = vecIndex.search(queryVec, k, {
+  const results = await vecIndex.searchParallel(queryVec, k, {
     metric: vectorConfig.metric ?? 'cosine',
     minSimilarity: vectorConfig.similarity ?? -Infinity,
     filterDocIds,
@@ -102,7 +102,7 @@ export async function executeHybridSearch(
   if (vecIndex) {
     const queryVec = new Float32Array(vectorConfig.value)
     const vectorK = limit + offset + 1
-    const vectorResults = vecIndex.search(queryVec, vectorK, {
+    const vectorResults = await vecIndex.searchParallel(queryVec, vectorK, {
       metric: vectorConfig.metric ?? 'cosine',
       minSimilarity: vectorConfig.similarity ?? -Infinity,
       filterDocIds,

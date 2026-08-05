@@ -105,9 +105,21 @@
       "import": "./src/lib/judging.ts",
       "types": "./src/lib/judging.ts"
     },
+    "./components/CustomConfig": {
+      "import": "./src/components/CustomConfig.tsx",
+      "types": "./src/components/CustomConfig.tsx"
+    },
+    "./lib/display-fields": {
+      "import": "./src/lib/display-fields.ts",
+      "types": "./src/lib/display-fields.ts"
+    },
     "./hooks/use-judging": {
       "import": "./src/hooks/use-judging.ts",
       "types": "./src/hooks/use-judging.ts"
+    },
+    "./hooks/use-display-fields": {
+      "import": "./src/hooks/use-display-fields.ts",
+      "types": "./src/hooks/use-display-fields.ts"
     },
     "./hooks/use-benchmark": {
       "import": "./src/hooks/use-benchmark.ts",
