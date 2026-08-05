@@ -55,7 +55,7 @@ def _setup_block(source: Source) -> str:
     dataset = results.get("relevanceDataset") or {}
 
     commit = (git.get("commit") or "")[:12] or "unknown"
-    dirty = ", whose engine sources differ from the published version" if git.get("dirty") else ""
+    dirty = ", which sits ahead of the released version" if git.get("dirty") else ""
     host = (
         f"{environment.get('cpu') or 'an unspecified CPU'}, {environment.get('totalMemory')} of memory, "
         f"Node.js {environment.get('node')}, and {environment.get('os')} {environment.get('arch')}"

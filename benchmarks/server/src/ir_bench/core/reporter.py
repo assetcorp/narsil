@@ -252,7 +252,7 @@ def _engine_build_line(engine: dict) -> str:
     if commit:
         suffix = f", commit {commit[:12]}"
         if build.get("dirty"):
-            suffix += " (engine sources differ from the published version)"
+            suffix += " (ahead of the released version)"
     return f"- Engine build: version {version}{suffix}"
 
 

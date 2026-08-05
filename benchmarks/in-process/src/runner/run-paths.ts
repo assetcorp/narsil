@@ -4,7 +4,7 @@ import os from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { writeJsonAtomicSync } from './atomic-write'
-import { engineSourceDiffersFromRelease } from './published-version'
+import { engineSourceDiffersFromRelease } from './engine-source'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PACKAGE_ROOT = resolve(__dirname, '..', '..')
@@ -87,7 +87,7 @@ export interface RunEnvironment {
 export interface RunGitIdentity {
   branch: string
   commit: string
-  /** Whether the engine sources differ from the tag that published the version they declare. */
+  /** Whether the engine sources differ from the release the version declares. */
   dirty: boolean
 }
 
