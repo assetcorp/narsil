@@ -2,38 +2,12 @@ import { Loader2, Search } from 'lucide-react'
 import { type ChangeEvent, type Dispatch, useCallback } from 'react'
 import type { NarsilBackend } from '../../backend'
 import { useRelevance } from '../../hooks/use-relevance'
-import type { AppAction, AppState, LoadedIndex } from '../../types'
-import { Button } from '../ui/button'
+import type { AppAction, AppState } from '../../types'
+import { IndexSelector } from '../IndexSelector'
 import { Input } from '../ui/input'
 import { RankComparison } from './RankComparison'
 import { ScoreBreakdown } from './ScoreBreakdown'
 import { TuningPanel } from './TuningPanel'
-
-function IndexButton({
-  idx,
-  isActive,
-  dispatch,
-}: {
-  idx: LoadedIndex
-  isActive: boolean
-  dispatch: Dispatch<AppAction>
-}) {
-  const handleClick = useCallback(() => {
-    dispatch({ type: 'SET_ACTIVE_INDEX', payload: idx.name })
-  }, [dispatch, idx.name])
-
-  return (
-    <Button
-      type="button"
-      variant={isActive ? 'default' : 'outline'}
-      size="xs"
-      className="font-mono text-xs"
-      onClick={handleClick}
-    >
-      {idx.name}
-    </Button>
-  )
-}
 
 interface RelevanceLabProps {
   backend: NarsilBackend
@@ -92,13 +66,7 @@ export function RelevanceLab({ backend, state, dispatch }: RelevanceLabProps) {
         )}
       </div>
 
-      {state.indexes.length > 1 && (
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          {state.indexes.map(idx => (
-            <IndexButton key={idx.name} idx={idx} isActive={idx.name === indexName} dispatch={dispatch} />
-          ))}
-        </div>
-      )}
+      <IndexSelector indexes={state.indexes} activeIndexName={indexName} dispatch={dispatch} />
 
       <div className="mb-6">
         <div className="relative">

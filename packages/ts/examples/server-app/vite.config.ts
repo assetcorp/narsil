@@ -8,8 +8,8 @@ import { devtools } from '@tanstack/devtools-vite'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
 import type { Plugin, ViteDevServer } from 'vite'
-import { defineConfig } from 'vitest/config'
 import tsconfigPaths from 'vite-tsconfig-paths'
+import { defineConfig } from 'vitest/config'
 import { ensureDemoNarsilServer } from './demo-server'
 import { demoEngineStatus } from './src/lib/demo-server-state'
 import type { EngineStatus } from './src/lib/engine-status'
@@ -258,7 +258,7 @@ const config = defineConfig({
         },
       },
       {
-        extends: true,
+        plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] }), viteReact()],
         test: {
           name: 'dom',
           environment: 'jsdom',
