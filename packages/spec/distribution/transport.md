@@ -374,6 +374,8 @@ FacetBucket {
 }
 ```
 
+`sortValues` carries the raw values of the sort fields, one per field in sort order, each a string, a number, a boolean, or nil, read from the document before any folding. The coordinator merges sorted results with the [sort value order](../algorithms.md#sort-value-order), so a data node must never send pre-folded or pre-transformed values.
+
 ### query.fetch
 
 ```text
