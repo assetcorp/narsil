@@ -291,3 +291,36 @@ export interface VectorMaintenanceResult {
   /** {@link Narsil.optimizeVectors} would take about this many milliseconds. */
   estimatedOptimizeMs: number
 }
+
+/**
+ * One stored document, as {@link Narsil.listDocuments} returns it.
+ *
+ * @typeParam T - Shape of the stored document.
+ *
+ * @public
+ */
+export interface ListedDocument<T = AnyDocument> {
+  /** The document is stored under this id. */
+  id: string
+  /** This holds the stored document, cut down to what the projection kept. */
+  document: T
+}
+
+/**
+ * What {@link Narsil.listDocuments} returns: one page of stored documents and
+ * the cursor that reaches the next one.
+ *
+ * @typeParam T - Shape of the stored documents.
+ *
+ * @public
+ */
+export interface ListResult<T = AnyDocument> {
+  /** These documents make up the page, in ascending document-id order. */
+  documents: Array<ListedDocument<T>>
+  /** This opaque cursor reaches the next page, and is null once the listing is finished. */
+  cursor: string | null
+  /** The listing covers this many documents in total, and any filter narrows that count. */
+  total: number
+  /** The engine spent this many milliseconds building the page. */
+  elapsed: number
+}

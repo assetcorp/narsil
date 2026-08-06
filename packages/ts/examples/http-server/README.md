@@ -154,6 +154,28 @@ curl -X POST localhost:7700/indexes/movies/documents \
 
 **`POST /indexes/{name}/documents/_multi-get`** takes `{ "docIds": ["m1", "m2"] }` and returns `{ "documents": { "m1": {...}, "m2": {...} } }`, holding only the ids that exist. By default a request may include at most 10,000 ids; a longer list returns 400 `INVALID_REQUEST`. Set `limits.maxFetchDocuments` on `createServer` to change the cap.
 
+**`POST /indexes/{name}/documents/_list`** pages through the stored documents in document-id order without searching. The body is `{ "cursor"?: "...", "limit"?: 100, "filters"?: {...}, "document"?: {...} }`, and the response is `{ "documents": [{ "id", "document" }], "cursor": "..." | null, "total": 1204, "elapsed": 0.4 }`. Omit `cursor` for the first page, send back the cursor each page carries, and stop once it comes back null.
+
+```bash
+curl -X POST localhost:7700/indexes/movies/documents/_list \
+  -H 'content-type: application/json' \
+  -d '{"limit":100}'
+```
+
+A document that stays in the index for the whole listing comes back exactly once. The server skips a document you remove part-way through. It returns one you insert part-way through once that document's id sorts above the cursor. The cursor holds no server state, so it stays valid across a restart, a snapshot restore, and a rebalance, and nothing expires if you stop paging. Ordering compares ids by their UTF-16 code units, so `"10"` sorts ahead of `"9"`.
+
+`filters` takes the same expression search takes, and `total` then counts the documents your filter accepts. `document` takes the same projection search takes, so pass it to drop a vector field the listing would otherwise read back for every document. A cursor the server did not issue returns 400 `SEARCH_INVALID_CURSOR`. `limit` is bounded by the same 10,000 document cap `_multi-get` uses, and `limits.maxFetchDocuments` on `createServer` changes it.
+
+```bash
+curl -X POST localhost:7700/indexes/movies/documents/_list \
+  -H 'content-type: application/json' \
+  -d '{
+    "limit": 100,
+    "filters": { "fields": { "year": { "gte": 1990 } } },
+    "document": { "exclude": ["embedding"] }
+  }'
+```
+
 **`POST /indexes/{name}/documents/_import`** streams an NDJSON corpus, one JSON document per line, with each line's `id` field becoming the document id. The stream processes in bounded batches and yields the event loop between batches, so searches and health probes stay responsive during a load. Per-line parse failures and per-document engine failures collect into the response instead of aborting the import:
 
 ```bash

@@ -1,4 +1,4 @@
-import type { QueryParams, SuggestParams } from '../types/search'
+import type { ListParams, QueryParams, SuggestParams } from '../types/search'
 import type { BatchBody, CreateIndexRequest, DocumentBody, InsertBody, MultiGetBody, RebalanceBody } from './types'
 
 /**
@@ -79,6 +79,22 @@ export function validateMultiGet(body: MultiGetBody, maxFetch: number): Validati
     return {
       message: `Field "docIds" exceeds the maximum of ${maxFetch} ids per request`,
       details: { count: body.docIds.length, limit: maxFetch },
+    }
+  }
+  return null
+}
+
+export function validateList(params: ListParams, maxFetch: number): ValidationFailure | null {
+  if (params.cursor !== undefined && typeof params.cursor !== 'string') {
+    return { message: 'Field "cursor" must be a string' }
+  }
+  if (params.limit !== undefined && typeof params.limit !== 'number') {
+    return { message: 'Field "limit" must be a number' }
+  }
+  if (typeof params.limit === 'number' && params.limit > maxFetch) {
+    return {
+      message: `Field "limit" exceeds the maximum of ${maxFetch} documents per request`,
+      details: { value: params.limit, limit: maxFetch },
     }
   }
   return null

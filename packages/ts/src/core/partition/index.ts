@@ -59,6 +59,8 @@ export interface PartitionIndex {
   has(docId: string): boolean
   count(): number
   docIds(): IterableIterator<string>
+  sortedDocIds(): readonly string[]
+  releaseSortedDocIds(): void
   clear(): void
 
   searchFulltext(params: InternalSearchParams): InternalSearchResult
@@ -268,6 +270,14 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       for (const [id] of state.docStore.all()) {
         yield id
       }
+    },
+
+    sortedDocIds(): readonly string[] {
+      return state.docStore.sortedDocIds()
+    },
+
+    releaseSortedDocIds(): void {
+      state.docStore.releaseSortedDocIds()
     },
 
     clear: clearAll,

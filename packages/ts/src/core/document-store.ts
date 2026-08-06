@@ -18,6 +18,9 @@ export interface DocumentStore {
   serialize(): Record<string, StoredDocument>
   deserialize(data: Record<string, StoredDocument>): void
 
+  sortedDocIds(): readonly string[]
+  releaseSortedDocIds(): void
+
   ensureInternalId(docId: string): number
   getInternalId(docId: string): number | undefined
   getExternalId(internalId: number): string | undefined
@@ -31,6 +34,7 @@ export function createDocumentStore(): DocumentStore {
   const forwardMap = new Map<string, number>()
   const reverseMap: Array<string | undefined> = []
   let nextInternalId = 0
+  let sortedIds: string[] | null = null
 
   function assignInternalId(docId: string): number {
     const existing = forwardMap.get(docId)
@@ -45,6 +49,7 @@ export function createDocumentStore(): DocumentStore {
     forwardMap.clear()
     reverseMap.length = 0
     nextInternalId = 0
+    sortedIds = null
   }
 
   const idResolver: InternalIdResolver = {
@@ -58,11 +63,13 @@ export function createDocumentStore(): DocumentStore {
 
   return {
     store(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
+      if (!docs.has(docId)) sortedIds = null
       assignInternalId(docId)
       docs.set(docId, { fields: document as Record<string, unknown>, fieldLengths })
     },
 
     storeRef(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
+      if (!docs.has(docId)) sortedIds = null
       assignInternalId(docId)
       docs.set(docId, { fields: document as Record<string, unknown>, fieldLengths })
     },
@@ -74,6 +81,7 @@ export function createDocumentStore(): DocumentStore {
     remove(docId: string): boolean {
       const removed = docs.delete(docId)
       if (removed) {
+        sortedIds = null
         const internalId = forwardMap.get(docId)
         if (internalId !== undefined) {
           forwardMap.delete(docId)
@@ -93,6 +101,19 @@ export function createDocumentStore(): DocumentStore {
 
     all(): IterableIterator<[string, ReadonlyStoredDocument]> {
       return docs.entries() as IterableIterator<[string, ReadonlyStoredDocument]>
+    },
+
+    sortedDocIds(): readonly string[] {
+      if (sortedIds === null) {
+        const ids = Array.from(docs.keys())
+        ids.sort()
+        sortedIds = ids
+      }
+      return sortedIds
+    },
+
+    releaseSortedDocIds(): void {
+      sortedIds = null
     },
 
     clear(): void {

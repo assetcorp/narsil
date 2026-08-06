@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createHNSWIndex, type HNSWIndex } from '../../../vector/hnsw'
 import { createVectorStore, type VectorStore } from '../../../vector/vector-store'
-import { DIM, insertVec, randomVector, removeVec, vectorFromValues } from './fixtures'
+import { DIM, insertVec, removeVec, seededVector, vectorFromValues } from './fixtures'
 
 describe('HNSWIndex edge cases', () => {
   let store: VectorStore
@@ -22,18 +22,18 @@ describe('HNSWIndex edge cases', () => {
   })
 
   it('handles k larger than index size', () => {
-    insertVec(store, index, 'doc1', randomVector(DIM))
-    insertVec(store, index, 'doc2', randomVector(DIM))
+    insertVec(store, index, 'doc1', seededVector(DIM, 10))
+    insertVec(store, index, 'doc2', seededVector(DIM, 17))
 
-    const results = index.search(randomVector(DIM), 100, 'cosine', 0)
+    const results = index.search(seededVector(DIM, 24), 100, 'cosine', 0)
     expect(results.length).toBeLessThanOrEqual(2)
   })
 
   it('handles insert after clear', () => {
-    insertVec(store, index, 'doc1', randomVector(DIM))
+    insertVec(store, index, 'doc1', seededVector(DIM, 31))
     index.clear()
     store.clear()
-    insertVec(store, index, 'doc2', randomVector(DIM))
+    insertVec(store, index, 'doc2', seededVector(DIM, 38))
 
     expect(index.size).toBe(1)
     expect(index.has('doc2')).toBe(true)
@@ -42,18 +42,18 @@ describe('HNSWIndex edge cases', () => {
 
   it('handles mixed insert and remove operations', () => {
     for (let i = 0; i < 10; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
     removeVec(store, index, 'doc3')
     removeVec(store, index, 'doc7')
-    insertVec(store, index, 'doc_new', randomVector(DIM))
+    insertVec(store, index, 'doc_new', seededVector(DIM, 107))
 
     expect(index.size).toBe(9)
     expect(index.has('doc3')).toBe(false)
     expect(index.has('doc7')).toBe(false)
     expect(index.has('doc_new')).toBe(true)
 
-    const results = index.search(randomVector(DIM), 9, 'cosine', 0)
+    const results = index.search(seededVector(DIM, 59), 9, 'cosine', 0)
     const resultIds = new Set(results.map(r => r.docId))
     expect(resultIds.has('doc3')).toBe(false)
     expect(resultIds.has('doc7')).toBe(false)
@@ -70,10 +70,10 @@ describe('HNSWIndex edge cases', () => {
 
   it('filterDocIds with empty set returns no results', () => {
     for (let i = 0; i < 10; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const results = index.search(randomVector(DIM), 5, 'cosine', 0, new Set())
+    const results = index.search(seededVector(DIM, 108), 5, 'cosine', 0, new Set())
     expect(results).toHaveLength(0)
   })
 })

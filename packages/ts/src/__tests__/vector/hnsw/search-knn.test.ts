@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createHNSWIndex, type HNSWIndex } from '../../../vector/hnsw'
 import { createVectorStore, type VectorStore } from '../../../vector/vector-store'
-import { DIM, insertVec, randomVector, vectorFromValues } from './fixtures'
+import { DIM, insertVec, seededVector, vectorFromValues } from './fixtures'
 
 describe('HNSWIndex search (K-NN)', () => {
   let store: VectorStore
@@ -13,13 +13,13 @@ describe('HNSWIndex search (K-NN)', () => {
   })
 
   it('returns empty for empty index', () => {
-    const query = randomVector(DIM)
+    const query = seededVector(DIM, 10)
     const results = index.search(query, 5, 'cosine', 0)
     expect(results).toHaveLength(0)
   })
 
   it('rejects query with wrong dimension', () => {
-    insertVec(store, index, 'doc1', randomVector(DIM))
+    insertVec(store, index, 'doc1', seededVector(DIM, 17))
     expect(() => index.search(new Float32Array(DIM + 1), 5, 'cosine', 0)).toThrow(/dimension mismatch/)
   })
 
@@ -38,10 +38,10 @@ describe('HNSWIndex search (K-NN)', () => {
 
   it('returns at most k results', () => {
     for (let i = 0; i < 20; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const results = index.search(randomVector(DIM), 5, 'cosine', 0)
+    const results = index.search(seededVector(DIM, 110), 5, 'cosine', 0)
     expect(results.length).toBeLessThanOrEqual(5)
   })
 
@@ -62,11 +62,11 @@ describe('HNSWIndex search (K-NN)', () => {
 
   it('filters by docId set', () => {
     for (let i = 0; i < 20; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     const allowed = new Set(['doc0', 'doc1', 'doc2'])
-    const results = index.search(randomVector(DIM), 10, 'cosine', 0, allowed)
+    const results = index.search(seededVector(DIM, 101), 10, 'cosine', 0, allowed)
 
     for (const r of results) {
       expect(allowed.has(r.docId)).toBe(true)
@@ -75,10 +75,10 @@ describe('HNSWIndex search (K-NN)', () => {
 
   it('returns scores in descending order', () => {
     for (let i = 0; i < 30; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const results = index.search(randomVector(DIM), 10, 'cosine', 0)
+    const results = index.search(seededVector(DIM, 102), 10, 'cosine', 0)
     for (let i = 1; i < results.length; i++) {
       expect(results[i - 1].score).toBeGreaterThanOrEqual(results[i].score)
     }
@@ -86,11 +86,11 @@ describe('HNSWIndex search (K-NN)', () => {
 
   it('accepts efSearch parameter', () => {
     for (let i = 0; i < 30; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const resultsLowEf = index.search(randomVector(DIM), 5, 'cosine', 0, undefined, 5)
-    const resultsHighEf = index.search(randomVector(DIM), 5, 'cosine', 0, undefined, 100)
+    const resultsLowEf = index.search(seededVector(DIM, 103), 5, 'cosine', 0, undefined, 5)
+    const resultsHighEf = index.search(seededVector(DIM, 103), 5, 'cosine', 0, undefined, 100)
 
     expect(resultsLowEf.length).toBeLessThanOrEqual(5)
     expect(resultsHighEf.length).toBeLessThanOrEqual(5)

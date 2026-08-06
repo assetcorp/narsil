@@ -136,4 +136,15 @@ describe('document projection', () => {
 
     expect(result.hits[0].document.title).toBe('alpha')
   })
+
+  it('never writes through a prototype key a projection names', async () => {
+    await narsil.createIndex('docs', { schema: nestedSchema, language: 'english' })
+    const hostile = JSON.parse('{"title":"alpha","__proto__":{"polluted":"yes"}}')
+    await narsil.insert('docs', hostile, 'doc-1')
+
+    const result = await narsil.query('docs', { term: 'alpha', document: { include: ['__proto__.polluted'] } })
+
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+    expect(result.hits[0].document).toEqual({})
+  })
 })

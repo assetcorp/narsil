@@ -1,3 +1,4 @@
+import { PROTOTYPE_POLLUTION_KEYS } from '../../schema/validator/shared'
 import type { AnyDocument } from '../../types/schema'
 import type { DocumentProjection } from '../../types/search'
 
@@ -11,7 +12,9 @@ function splitPaths(paths: string[] | undefined): string[][] {
   const split: string[][] = []
   for (const path of paths) {
     const segments = path.split('.').filter(segment => segment.length > 0)
-    if (segments.length > 0) split.push(segments)
+    if (segments.length === 0) continue
+    if (segments.some(segment => PROTOTYPE_POLLUTION_KEYS.has(segment))) continue
+    split.push(segments)
   }
   return split
 }
@@ -85,10 +88,14 @@ export function resolveProjection(projection: DocumentProjection | undefined): R
   if (projection === undefined || projection === true) return { kind: 'full' }
   if (projection === false) return { kind: 'none' }
   if (typeof projection !== 'object' || projection === null) return { kind: 'full' }
-  const include = splitPaths(projection.include)
-  const exclude = splitPaths(projection.exclude)
-  if (include.length === 0 && exclude.length === 0) return { kind: 'full' }
-  return { kind: 'fields', include: include.length > 0 ? include : null, exclude }
+  const askedInclude = Array.isArray(projection.include) && projection.include.length > 0
+  const askedExclude = Array.isArray(projection.exclude) && projection.exclude.length > 0
+  if (!askedInclude && !askedExclude) return { kind: 'full' }
+  return {
+    kind: 'fields',
+    include: askedInclude ? splitPaths(projection.include) : null,
+    exclude: splitPaths(projection.exclude),
+  }
 }
 
 /**

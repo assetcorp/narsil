@@ -45,12 +45,12 @@ describe('HNSWIndex recall quality', () => {
     const count = 500
 
     for (let i = 0; i < count; i++) {
-      const v = normalizedVector(32)
+      const v = normalizedVector(32, i + 1)
       vectors.set(`doc${i}`, v)
       insertVec(recallStore, recallIndex, `doc${i}`, v)
     }
 
-    const query = normalizedVector(32)
+    const query = normalizedVector(32, 109)
     const hnswResults = recallIndex.search(query, 10, 'cosine', 0, undefined, 64)
     const hnswDocIds = new Set(hnswResults.map(r => r.docId))
 
