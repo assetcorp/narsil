@@ -9,10 +9,7 @@ interface SideBySideProps {
 }
 
 const GRADE_LABELS = ['Not relevant', 'Relevant']
-const GRADE_COLORS = [
-  'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-]
+const GRADE_COLORS = ['bg-destructive/12 text-foreground', 'bg-chart-2/15 text-foreground']
 
 export function SideBySide({ query, backend }: SideBySideProps) {
   const [narsilHits, setNarsilHits] = useState<QueryHit[]>([])
@@ -72,7 +69,7 @@ export function SideBySide({ query, backend }: SideBySideProps) {
                   <span className="w-4 font-mono text-muted-foreground">{i + 1}</span>
                   <span className="flex-1 truncate font-mono">Doc {docId}</span>
                   {displacement !== null && displacement !== 0 && (
-                    <span className={`text-[10px] ${displacement > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    <span className={`text-[10px] ${displacement > 0 ? 'text-chart-2' : 'text-destructive'}`}>
                       {displacement > 0 ? `\u2191${displacement}` : `\u2193${Math.abs(displacement)}`}
                     </span>
                   )}

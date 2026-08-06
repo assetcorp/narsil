@@ -14,6 +14,7 @@ function computeTabStatus(state: AppState): Record<TabId, TabStatus> {
     relevance: hasNonScifactDocs ? 'ready' : 'locked',
     benchmark: hasScifact || hasNonScifactDocs ? 'ready' : 'locked',
     inspector: hasAnyIndex ? 'ready' : 'locked',
+    documents: hasAnyIndex ? 'ready' : 'locked',
   }
 }
 
@@ -31,6 +32,7 @@ export function createInitialState(): AppState {
       relevance: 'locked',
       benchmark: 'locked',
       inspector: 'locked',
+      documents: 'locked',
     },
   }
 }

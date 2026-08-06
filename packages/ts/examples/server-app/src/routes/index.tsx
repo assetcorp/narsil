@@ -3,7 +3,7 @@ import { useAppDispatch, useAppState, useBackend } from '@delali/narsil-example-
 import { CustomConfig, type CustomDatasetConfig } from '@delali/narsil-example-shared/components/CustomConfig'
 import { deleteDisplayFields, writeDisplayFields } from '@delali/narsil-example-shared/lib/display-fields'
 import { deleteJudgedQuestions } from '@delali/narsil-example-shared/lib/judging'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
 import { DatasetCard, datasetMeta } from '#/components/datasets/DatasetCard'
 import { ScifactConfig, TmdbConfig, WikiConfig } from '#/components/datasets/DatasetConfigs'
@@ -17,6 +17,7 @@ function HomePage() {
   const state = useAppState()
   const dispatch = useAppDispatch()
   const engineStatus = useEngineStatus()
+  const navigate = useNavigate()
 
   const [tmdbTier, setTmdbTier] = useState('10k')
   const [wikiLangs, setWikiLangs] = useState<Set<string>>(new Set(['en']))
@@ -136,6 +137,16 @@ function HomePage() {
     [backend, dispatch, state.indexes],
   )
 
+  const handleView = useCallback(
+    (datasetId: DatasetId) => {
+      const index = state.indexes.find(idx => idx.datasetId === datasetId)
+      if (!index) return
+      dispatch({ type: 'SET_ACTIVE_INDEX', payload: index.name })
+      navigate({ to: '/documents' })
+    },
+    [dispatch, navigate, state.indexes],
+  )
+
   function isLoaded(datasetId: DatasetId): boolean {
     return state.indexes.some(idx => idx.datasetId === datasetId)
   }
@@ -158,32 +169,38 @@ function HomePage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
-      <section className="mb-8">
-        <h1 className="mb-2 font-serif text-3xl tracking-tight">Datasets</h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          Choose a dataset to index. Narsil runs on the server with filesystem persistence, so indexed data survives
-          restarts. Configure the tier and fields, then explore search, relevance tuning, and quality benchmarks.
-        </p>
+    <div>
+      <section className="relative border-b border-border bg-surface-raised">
+        <div aria-hidden="true" className="pattern-dots absolute inset-0" />
+        <div className="relative mx-auto max-w-6xl px-4 py-12 md:py-16">
+          <h1 className="text-4xl font-bold tracking-tight md:text-5xl">Datasets</h1>
+          <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
+            Choose a dataset to index. Narsil runs on the server with filesystem persistence, so indexed data survives
+            restarts. Configure the tier and fields, then explore search, relevance tuning, and quality benchmarks.
+          </p>
+        </div>
       </section>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {datasetMeta.map(ds => (
-          <DatasetCard
-            key={ds.id}
-            ds={ds}
-            loaded={isLoaded(ds.id)}
-            loading={isLoading(ds.id)}
-            restoring={state.restoring}
-            enginePhase={engineStatus.phase}
-            progress={state.loadingDatasets.get(ds.id)}
-            onLoad={handleLoad}
-            onRemove={handleRemove}
-            onCancel={handleCancel}
-            configContent={configContent[ds.id]}
-            loadDisabled={isLoadDisabled(ds.id)}
-          />
-        ))}
+      <div className="mx-auto max-w-6xl px-4 py-8">
+        <div className="stagger-in grid gap-4 sm:grid-cols-2">
+          {datasetMeta.map(ds => (
+            <DatasetCard
+              key={ds.id}
+              ds={ds}
+              loaded={isLoaded(ds.id)}
+              loading={isLoading(ds.id)}
+              restoring={state.restoring}
+              enginePhase={engineStatus.phase}
+              progress={state.loadingDatasets.get(ds.id)}
+              onLoad={handleLoad}
+              onRemove={handleRemove}
+              onView={handleView}
+              onCancel={handleCancel}
+              configContent={configContent[ds.id]}
+              loadDisabled={isLoadDisabled(ds.id)}
+            />
+          ))}
+        </div>
       </div>
     </div>
   )

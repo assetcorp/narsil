@@ -45,7 +45,7 @@ export function RelevanceLab({ backend, state, dispatch }: RelevanceLabProps) {
   if (!indexName) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-8">
-        <h1 className="mb-2 font-serif text-3xl tracking-tight">Relevance Lab</h1>
+        <h1 className="mb-2 text-3xl font-bold tracking-tight">Relevance Lab</h1>
         <p className="text-sm text-muted-foreground">
           Load a dataset from the Datasets tab to explore BM25 scoring and tuning.
         </p>
@@ -58,7 +58,7 @@ export function RelevanceLab({ backend, state, dispatch }: RelevanceLabProps) {
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
       <div className="mb-6">
-        <h1 className="mb-1 font-serif text-3xl tracking-tight">Relevance Lab</h1>
+        <h1 className="mb-1 text-3xl font-bold tracking-tight">Relevance Lab</h1>
         {activeIndex && (
           <p className="text-sm text-muted-foreground">
             BM25 scoring for <span className="font-mono font-medium text-foreground">{activeIndex.name}</span>

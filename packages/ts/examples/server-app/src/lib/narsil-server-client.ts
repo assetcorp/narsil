@@ -1,6 +1,7 @@
 import type {
   IndexListEntry,
   IndexStats,
+  ListDocumentsResponse,
   MemoryStatsResponse,
   PartitionStats,
   QueryResponse,
@@ -158,6 +159,15 @@ export class NarsilServerClient {
       if (err instanceof NarsilServerError && err.status === 404) return null
       throw err
     }
+  }
+
+  async listDocuments(indexName: string, params: Record<string, unknown>): Promise<ListDocumentsResponse> {
+    return this.request<ListDocumentsResponse>(
+      'POST',
+      `/indexes/${encodeURIComponent(indexName)}/documents/_list`,
+      JSON.stringify(params),
+      READ_TIMEOUT_MS,
+    )
   }
 
   async suggest(indexName: string, params: { prefix: string; limit?: number }): Promise<SuggestResponse> {

@@ -245,7 +245,7 @@ export function AskView() {
   if (!selectedIndex || !indexName) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-8">
-        <h1 className="mb-2 font-serif text-3xl tracking-tight">Ask</h1>
+        <h1 className="mb-2 text-3xl font-bold tracking-tight">Ask</h1>
         <p className="text-sm text-muted-foreground">Load a dataset from the Datasets tab to ask questions about it.</p>
       </div>
     )
@@ -269,7 +269,7 @@ export function AskView() {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 pb-4">
           <div>
-            <h1 className="font-serif text-2xl tracking-tight">Ask</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Ask</h1>
             <p className="text-xs text-muted-foreground">
               Grounded answers with receipts, straight from <span className="font-mono">{indexName}</span>.
             </p>

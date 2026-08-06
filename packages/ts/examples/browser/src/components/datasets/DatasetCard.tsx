@@ -1,20 +1,13 @@
 import type { DatasetId, DatasetLoadProgress } from '@delali/narsil-example-shared'
 import { scifact, tmdb, wikipedia } from '@delali/narsil-example-shared'
-import { BookOpen, Check, Film, Globe, Loader2, Settings2, Trash2, Upload } from 'lucide-react'
+import { BookOpen, FileText, Film, Globe, Loader2, Settings2, Trash2, Upload } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '#/components/ui/card'
+import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from '#/components/ui/card'
 import { Progress } from '#/components/ui/progress'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from '#/components/ui/sheet'
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '#/components/ui/sheet'
+import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -53,7 +46,7 @@ function ProgressBar({ progress }: { progress: DatasetLoadProgress }) {
   }
 
   return (
-    <div className="flex flex-col gap-1.5 px-6 pb-2">
+    <div className="relative flex flex-col gap-1.5 px-6 pb-2">
       <Progress value={percent} />
       <p className={`text-xs ${progress.phase === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>{label}</p>
     </div>
@@ -62,6 +55,7 @@ function ProgressBar({ progress }: { progress: DatasetLoadProgress }) {
 
 interface DatasetMeta {
   id: DatasetId
+  kind: string
   title: string
   description: string
   icon: typeof Film
@@ -72,6 +66,7 @@ interface DatasetMeta {
 export const datasetMeta: DatasetMeta[] = [
   {
     id: 'tmdb',
+    kind: 'Movies',
     title: 'TMDB Movies',
     description:
       'Search across movie titles, overviews, and taglines with faceted filtering by genre, language, and release year.',
@@ -81,6 +76,7 @@ export const datasetMeta: DatasetMeta[] = [
   },
   {
     id: 'wikipedia',
+    kind: 'Encyclopaedia',
     title: 'Multilingual Wikipedia',
     description:
       'Full-text search across Wikipedia articles in 10+ languages. Tests tokenization, stemming, and cross-language ranking.',
@@ -90,6 +86,7 @@ export const datasetMeta: DatasetMeta[] = [
   },
   {
     id: 'scifact',
+    kind: 'Scientific claims',
     title: 'SciFact',
     description:
       'Scientific fact-checking collection from the BEIR benchmark with 5,183 research abstracts, 300 claim queries, and expert relevance judgments for measuring retrieval quality.',
@@ -99,6 +96,7 @@ export const datasetMeta: DatasetMeta[] = [
   },
   {
     id: 'custom',
+    kind: 'Your upload',
     title: 'Your Dataset',
     description:
       'Upload JSON or CSV, auto-detect the schema, choose searchable fields, and build a custom index on the fly.',
@@ -115,6 +113,7 @@ interface DatasetCardProps {
   progress: DatasetLoadProgress | undefined
   onLoad: (datasetId: DatasetId) => void
   onRemove: (datasetId: DatasetId) => void
+  onView: (datasetId: DatasetId) => void
   configContent: React.ReactNode
   loadDisabled: boolean
 }
@@ -127,6 +126,7 @@ export function DatasetCard({
   progress,
   onLoad,
   onRemove,
+  onView,
   configContent,
   loadDisabled,
 }: DatasetCardProps) {
@@ -139,112 +139,135 @@ export function DatasetCard({
     setTimeout(() => onLoad(ds.id), 0)
   }
 
+  const handleConfigureClick = useCallback(() => {
+    setSheetOpen(true)
+  }, [])
+
   const handleRemoveClick = useCallback(() => {
     onRemove(ds.id)
   }, [ds.id, onRemove])
 
+  const handleViewClick = useCallback(() => {
+    onView(ds.id)
+  }, [ds.id, onView])
+
   return (
-    <Card className="flex flex-col">
-      <CardHeader>
-        <div className="flex items-center gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-secondary">
-            <Icon className="size-4 text-secondary-foreground" />
-          </div>
-          <div>
-            <CardTitle className="text-base">
-              {ds.title}
-              {loaded && <Check className="ml-2 inline size-4 text-green-500" />}
-            </CardTitle>
-            {ds.license && (
-              <Badge variant="outline" className="mt-1 text-[10px]">
-                {ds.license}
-              </Badge>
-            )}
-          </div>
-        </div>
+    <Card className="relative flex flex-col overflow-hidden transition-shadow duration-300 hover:shadow-lg">
+      <Icon
+        aria-hidden="true"
+        strokeWidth={1}
+        className="icon-blend pointer-events-none absolute -right-4 -bottom-4 size-28 text-primary/10 dark:text-primary/15"
+      />
+
+      <CardHeader className="relative">
+        <span className="text-xs font-bold tracking-widest text-muted-foreground uppercase">{ds.kind}</span>
+        <CardTitle className="text-lg font-bold tracking-tight">{ds.title}</CardTitle>
+        {loaded && (
+          <CardAction>
+            <Badge variant="outline" className="gap-1.5 text-[10px]">
+              <span className="size-1.5 rounded-full bg-chart-2" />
+              Indexed
+            </Badge>
+          </CardAction>
+        )}
       </CardHeader>
-      <CardContent className="flex-1">
-        <p className="text-sm text-muted-foreground">{ds.description}</p>
-        {ds.id === 'tmdb' && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {tmdb.tiers.map(tier => (
-              <Badge key={tier.label} variant="secondary" className="text-[10px] font-mono">
+
+      <CardContent className="relative flex-1">
+        <p className="text-sm leading-relaxed text-muted-foreground">{ds.description}</p>
+        <div className="mt-4 flex flex-wrap items-center gap-1.5">
+          {ds.id === 'tmdb' &&
+            tmdb.tiers.map(tier => (
+              <Badge key={tier.label} variant="secondary" className="font-mono text-[10px]">
                 {tier.label}
               </Badge>
             ))}
-          </div>
-        )}
-        {ds.id === 'wikipedia' && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {wikipedia.languages.map(({ code }) => (
-              <Badge key={code} variant="secondary" className="text-[10px] font-mono uppercase">
+          {ds.id === 'wikipedia' &&
+            wikipedia.languages.map(({ code }) => (
+              <Badge key={code} variant="secondary" className="font-mono text-[10px] uppercase">
                 {code}
               </Badge>
             ))}
-          </div>
-        )}
-        {ds.id === 'scifact' && (
-          <div className="mt-3 flex gap-3 text-xs text-muted-foreground">
-            <span>{scifact.docCount} docs</span>
-            <span>{scifact.queryCount} queries</span>
-          </div>
-        )}
+          {ds.id === 'scifact' && (
+            <>
+              <Badge variant="secondary" className="font-mono text-[10px]">
+                {scifact.docCount} docs
+              </Badge>
+              <Badge variant="secondary" className="font-mono text-[10px]">
+                {scifact.queryCount} queries
+              </Badge>
+            </>
+          )}
+          {ds.license && (
+            <Badge variant="outline" className="text-[10px]">
+              {ds.license}
+            </Badge>
+          )}
+        </div>
       </CardContent>
 
       {progress && progress.phase !== 'complete' && <ProgressBar progress={progress} />}
 
-      <CardFooter>
-        {busy ? (
+      <CardFooter className="relative">
+        {busy && (
           <Button type="button" variant="outline" className="w-full" disabled>
             <Loader2 className="size-3.5 animate-spin" />
             {restoring ? 'Restoring...' : 'Loading...'}
           </Button>
-        ) : (
-          <div className="flex w-full gap-1.5">
-            <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-              <SheetTrigger asChild>
-                <Button type="button" variant={loaded ? 'secondary' : 'outline'} className="flex-1">
-                  {loaded ? (
-                    <>
-                      <Check className="size-3.5" />
-                      Reconfigure
-                    </>
-                  ) : (
-                    <>
-                      <Settings2 className="size-3.5" />
-                      Configure
-                    </>
-                  )}
+        )}
+        {!busy && !loaded && (
+          <Button type="button" className="w-full" onClick={handleConfigureClick}>
+            <Settings2 className="size-3.5" />
+            Configure
+          </Button>
+        )}
+        {!busy && loaded && (
+          <div className="flex w-full items-center gap-2">
+            <Button type="button" className="flex-1" onClick={handleViewClick}>
+              <FileText className="size-3.5" />
+              View documents
+            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="button" variant="outline" size="icon" onClick={handleConfigureClick}>
+                  <Settings2 className="size-3.5" />
+                  <span className="sr-only">Reconfigure {ds.title}</span>
                 </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="overflow-y-auto sm:max-w-md">
-                <SheetHeader>
-                  <SheetTitle>{ds.title}</SheetTitle>
-                  <SheetDescription>{ds.sheetDescription}</SheetDescription>
-                </SheetHeader>
-                <div className="px-4">{configContent}</div>
-                <SheetFooter>
-                  <Button type="button" className="w-full" disabled={loadDisabled} onClick={handleLoadClick}>
-                    {loaded ? 'Reload Dataset' : 'Load Dataset'}
-                  </Button>
-                </SheetFooter>
-              </SheetContent>
-            </Sheet>
-            {loaded && !busy && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="text-muted-foreground hover:text-destructive"
-                onClick={handleRemoveClick}
-              >
-                <Trash2 className="size-3.5" />
-                <span className="sr-only">Remove</span>
-              </Button>
-            )}
+              </TooltipTrigger>
+              <TooltipContent>Reconfigure</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={handleRemoveClick}
+                >
+                  <Trash2 className="size-3.5" />
+                  <span className="sr-only">Remove {ds.title}</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Remove index</TooltipContent>
+            </Tooltip>
           </div>
         )}
       </CardFooter>
+
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent side="right" className="overflow-y-auto sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>{ds.title}</SheetTitle>
+            <SheetDescription>{ds.sheetDescription}</SheetDescription>
+          </SheetHeader>
+          <div className="px-4">{configContent}</div>
+          <SheetFooter>
+            <Button type="button" className="w-full" disabled={loadDisabled} onClick={handleLoadClick}>
+              {loaded ? 'Reload dataset' : 'Load dataset'}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </Card>
   )
 }

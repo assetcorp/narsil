@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as RelevanceRouteImport } from './routes/relevance'
 import { Route as InspectorRouteImport } from './routes/inspector'
+import { Route as DocumentsRouteImport } from './routes/documents'
 import { Route as BenchmarkRouteImport } from './routes/benchmark'
 import { Route as IndexRouteImport } from './routes/index'
 
@@ -30,6 +31,11 @@ const InspectorRoute = InspectorRouteImport.update({
   path: '/inspector',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DocumentsRoute = DocumentsRouteImport.update({
+  id: '/documents',
+  path: '/documents',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BenchmarkRoute = BenchmarkRouteImport.update({
   id: '/benchmark',
   path: '/benchmark',
@@ -44,6 +50,7 @@ const IndexRoute = IndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/benchmark': typeof BenchmarkRoute
+  '/documents': typeof DocumentsRoute
   '/inspector': typeof InspectorRoute
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
@@ -51,6 +58,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/benchmark': typeof BenchmarkRoute
+  '/documents': typeof DocumentsRoute
   '/inspector': typeof InspectorRoute
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
@@ -59,21 +67,42 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/benchmark': typeof BenchmarkRoute
+  '/documents': typeof DocumentsRoute
   '/inspector': typeof InspectorRoute
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/benchmark' | '/inspector' | '/relevance' | '/search'
+  fullPaths:
+    | '/'
+    | '/benchmark'
+    | '/documents'
+    | '/inspector'
+    | '/relevance'
+    | '/search'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/benchmark' | '/inspector' | '/relevance' | '/search'
-  id: '__root__' | '/' | '/benchmark' | '/inspector' | '/relevance' | '/search'
+  to:
+    | '/'
+    | '/benchmark'
+    | '/documents'
+    | '/inspector'
+    | '/relevance'
+    | '/search'
+  id:
+    | '__root__'
+    | '/'
+    | '/benchmark'
+    | '/documents'
+    | '/inspector'
+    | '/relevance'
+    | '/search'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BenchmarkRoute: typeof BenchmarkRoute
+  DocumentsRoute: typeof DocumentsRoute
   InspectorRoute: typeof InspectorRoute
   RelevanceRoute: typeof RelevanceRoute
   SearchRoute: typeof SearchRoute
@@ -102,6 +131,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InspectorRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/documents': {
+      id: '/documents'
+      path: '/documents'
+      fullPath: '/documents'
+      preLoaderRoute: typeof DocumentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/benchmark': {
       id: '/benchmark'
       path: '/benchmark'
@@ -122,6 +158,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BenchmarkRoute: BenchmarkRoute,
+  DocumentsRoute: DocumentsRoute,
   InspectorRoute: InspectorRoute,
   RelevanceRoute: RelevanceRoute,
   SearchRoute: SearchRoute,

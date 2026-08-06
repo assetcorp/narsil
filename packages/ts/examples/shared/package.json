@@ -137,6 +137,10 @@
       "import": "./src/components/inspector/InspectorView.tsx",
       "types": "./src/components/inspector/InspectorView.tsx"
     },
+    "./components/documents/DocumentsView": {
+      "import": "./src/components/documents/DocumentsView.tsx",
+      "types": "./src/components/documents/DocumentsView.tsx"
+    },
     "./lib/file-parser": {
       "import": "./src/lib/file-parser.ts",
       "types": "./src/lib/file-parser.ts"

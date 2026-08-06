@@ -1,4 +1,4 @@
-import type { QueryRequest, SuggestRequest } from '@delali/narsil-example-shared/backend'
+import type { ListDocumentsRequest, QueryRequest, SuggestRequest } from '@delali/narsil-example-shared/backend'
 import { createServerFn } from '@tanstack/react-start'
 import { parseThreadIdInput } from './chat/validation'
 
@@ -16,6 +16,14 @@ export const suggestFn = createServerFn({ method: 'POST' })
     const { getBackend } = await import('./get-backend')
     const backend = await getBackend()
     return backend.suggest(data)
+  })
+
+export const listDocumentsFn = createServerFn({ method: 'POST' })
+  .inputValidator((d: unknown) => d as ListDocumentsRequest)
+  .handler(async ({ data }) => {
+    const { getBackend } = await import('./get-backend')
+    const backend = await getBackend()
+    return backend.listDocuments(data)
   })
 
 export const getStatsFn = createServerFn({ method: 'POST' })

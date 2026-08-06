@@ -3,6 +3,8 @@ import type {
   BackendEventType,
   IndexListEntry,
   IndexStats,
+  ListDocumentsRequest,
+  ListDocumentsResponse,
   MemoryStatsResponse,
   NarsilBackend,
   PartitionStats,
@@ -107,6 +109,10 @@ export class WorkerBackend implements NarsilBackend {
 
   async suggest(request: SuggestRequest): Promise<SuggestResponse> {
     return this.send('suggest', request) as Promise<SuggestResponse>
+  }
+
+  async listDocuments(request: ListDocumentsRequest): Promise<ListDocumentsResponse> {
+    return this.send('listDocuments', request) as Promise<ListDocumentsResponse>
   }
 
   async getStats(indexName: string): Promise<IndexStats> {

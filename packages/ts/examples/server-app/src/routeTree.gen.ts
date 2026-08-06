@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as RelevanceRouteImport } from './routes/relevance'
 import { Route as InspectorRouteImport } from './routes/inspector'
+import { Route as DocumentsRouteImport } from './routes/documents'
 import { Route as BenchmarkRouteImport } from './routes/benchmark'
 import { Route as AskRouteImport } from './routes/ask'
 import { Route as IndexRouteImport } from './routes/index'
@@ -30,6 +31,11 @@ const RelevanceRoute = RelevanceRouteImport.update({
 const InspectorRoute = InspectorRouteImport.update({
   id: '/inspector',
   path: '/inspector',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocumentsRoute = DocumentsRouteImport.update({
+  id: '/documents',
+  path: '/documents',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BenchmarkRoute = BenchmarkRouteImport.update({
@@ -57,6 +63,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/ask': typeof AskRoute
   '/benchmark': typeof BenchmarkRoute
+  '/documents': typeof DocumentsRoute
   '/inspector': typeof InspectorRoute
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
@@ -66,6 +73,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/ask': typeof AskRoute
   '/benchmark': typeof BenchmarkRoute
+  '/documents': typeof DocumentsRoute
   '/inspector': typeof InspectorRoute
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
@@ -76,6 +84,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/ask': typeof AskRoute
   '/benchmark': typeof BenchmarkRoute
+  '/documents': typeof DocumentsRoute
   '/inspector': typeof InspectorRoute
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
@@ -87,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/ask'
     | '/benchmark'
+    | '/documents'
     | '/inspector'
     | '/relevance'
     | '/search'
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
     | '/'
     | '/ask'
     | '/benchmark'
+    | '/documents'
     | '/inspector'
     | '/relevance'
     | '/search'
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/ask'
     | '/benchmark'
+    | '/documents'
     | '/inspector'
     | '/relevance'
     | '/search'
@@ -115,6 +127,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AskRoute: typeof AskRoute
   BenchmarkRoute: typeof BenchmarkRoute
+  DocumentsRoute: typeof DocumentsRoute
   InspectorRoute: typeof InspectorRoute
   RelevanceRoute: typeof RelevanceRoute
   SearchRoute: typeof SearchRoute
@@ -142,6 +155,13 @@ declare module '@tanstack/react-router' {
       path: '/inspector'
       fullPath: '/inspector'
       preLoaderRoute: typeof InspectorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/documents': {
+      id: '/documents'
+      path: '/documents'
+      fullPath: '/documents'
+      preLoaderRoute: typeof DocumentsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/benchmark': {
@@ -179,6 +199,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AskRoute: AskRoute,
   BenchmarkRoute: BenchmarkRoute,
+  DocumentsRoute: DocumentsRoute,
   InspectorRoute: InspectorRoute,
   RelevanceRoute: RelevanceRoute,
   SearchRoute: SearchRoute,

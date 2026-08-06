@@ -5,6 +5,7 @@ import {
   BarChart3,
   Check,
   Database,
+  FileText,
   FlaskConical,
   Inspect,
   Loader2,
@@ -26,6 +27,7 @@ const tabs: Array<{ to: string; label: string; icon: typeof Database; tabId: Tab
   { to: '/relevance', label: 'Relevance', icon: FlaskConical, tabId: 'relevance' },
   { to: '/benchmark', label: 'Benchmark', icon: BarChart3, tabId: 'benchmark' },
   { to: '/inspector', label: 'Inspector', icon: Inspect, tabId: 'inspector' },
+  { to: '/documents', label: 'Documents', icon: FileText, tabId: 'documents' },
 ]
 
 function GithubLink() {
@@ -90,7 +92,7 @@ export default function Header() {
                     <Icon className="size-4" />
                     <span className="flex-1">{label}</span>
                     {isLocked && <Lock className="size-3" />}
-                    {status === 'ready' && tabId !== 'datasets' && <Check className="size-3 text-green-500" />}
+                    {status === 'ready' && tabId !== 'datasets' && <Check className="size-3 text-chart-2" />}
                   </Link>
                 )
               })}
@@ -125,7 +127,7 @@ export default function Header() {
                 <Icon className="size-3.5" />
                 <span className="hidden lg:inline">{label}</span>
                 {isLocked && <Lock className="size-2.5" />}
-                {status === 'ready' && tabId !== 'datasets' && <Check className="size-2.5 text-green-500" />}
+                {status === 'ready' && tabId !== 'datasets' && <Check className="size-2.5 text-chart-2" />}
               </Link>
             )
           })}

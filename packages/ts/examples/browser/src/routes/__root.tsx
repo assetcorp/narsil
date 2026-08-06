@@ -107,7 +107,7 @@ function RootLayout() {
           <CommandPaletteProvider
             navigate={handleNavigate}
             onSearch={handleSearch}
-            availableTabs={['datasets', 'search', 'relevance', 'benchmark', 'inspector']}
+            availableTabs={['datasets', 'search', 'relevance', 'benchmark', 'inspector', 'documents']}
           >
             <div className="flex min-h-dvh flex-col">
               <Header />

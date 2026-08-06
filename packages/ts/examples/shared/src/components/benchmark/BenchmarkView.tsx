@@ -22,7 +22,7 @@ export function BenchmarkView({ backend, state, dispatch }: BenchmarkViewProps) 
   if (target === null) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-8">
-        <h1 className="mb-2 font-serif text-3xl tracking-tight">Quality Benchmark</h1>
+        <h1 className="mb-2 text-3xl font-bold tracking-tight">Quality Benchmark</h1>
         <p className="text-sm text-muted-foreground">
           Load a dataset from the Datasets tab to measure retrieval quality. SciFact arrives with expert relevance
           judgments, and you can judge any index built from your own documents with your own questions.
@@ -34,7 +34,7 @@ export function BenchmarkView({ backend, state, dispatch }: BenchmarkViewProps) 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
       <div className="mb-4">
-        <h1 className="mb-1 font-serif text-3xl tracking-tight">Quality Benchmark</h1>
+        <h1 className="mb-1 text-3xl font-bold tracking-tight">Quality Benchmark</h1>
       </div>
 
       <IndexSelector indexes={targets} activeIndexName={target.name} dispatch={dispatch} />
