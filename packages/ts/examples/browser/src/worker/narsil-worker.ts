@@ -402,7 +402,8 @@ async function handleSuggest(payload: SuggestPayload) {
 
 async function handleListDocuments(payload: ListDocumentsPayload) {
   const instance = await getNarsil()
-  return instance.listDocuments(payload.indexName, { cursor: payload.cursor, limit: payload.limit })
+  const { indexName, ...params } = payload
+  return instance.listDocuments(indexName, params as Parameters<typeof instance.listDocuments>[1])
 }
 
 async function handleGetStats(payload: IndexNamePayload) {

@@ -419,6 +419,7 @@ export interface ListParams {
     document?: DocumentProjection;
     filters?: FilterExpression;
     limit?: number;
+    sort?: Record<string, 'asc' | 'desc'>;
 }
 
 // @public

@@ -137,6 +137,22 @@
       "import": "./src/components/inspector/InspectorView.tsx",
       "types": "./src/components/inspector/InspectorView.tsx"
     },
+    "./components/layout/AppHeader": {
+      "import": "./src/components/layout/AppHeader.tsx",
+      "types": "./src/components/layout/AppHeader.tsx"
+    },
+    "./components/layout/Footer": {
+      "import": "./src/components/layout/Footer.tsx",
+      "types": "./src/components/layout/Footer.tsx"
+    },
+    "./components/layout/ThemeToggle": {
+      "import": "./src/components/layout/ThemeToggle.tsx",
+      "types": "./src/components/layout/ThemeToggle.tsx"
+    },
+    "./components/datasets/DatasetCard": {
+      "import": "./src/components/datasets/DatasetCard.tsx",
+      "types": "./src/components/datasets/DatasetCard.tsx"
+    },
     "./components/documents/DocumentsView": {
       "import": "./src/components/documents/DocumentsView.tsx",
       "types": "./src/components/documents/DocumentsView.tsx"
@@ -195,6 +211,8 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@tanstack/react-router": "1.169.2",
+    "@tanstack/react-table": "8.21.3",
     "@types/react": "^19.2.0",
     "@types/three": "0.183.1",
     "cmdk": "1.1.1",
@@ -203,6 +221,8 @@
   "peerDependencies": {
     "@react-three/drei": "^10.0.0",
     "@react-three/fiber": "^9.0.0",
+    "@tanstack/react-router": "^1.169.0",
+    "@tanstack/react-table": "^8.21.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "cmdk": "^1.0.0",

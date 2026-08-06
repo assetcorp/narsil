@@ -20,9 +20,10 @@ export type TermMatchPolicy = 'all' | 'any' | number
 /**
  * Everything {@link Narsil.query} accepts.
  *
- * Every field is optional, so a query with nothing set returns the first page
- * of the index. Set `term` for keyword search, `vector` for similarity
- * search, and `mode` when you want both.
+ * Set `term` for keyword search, `vector` for similarity search, and `mode`
+ * when you want both. The engine matches nothing for a query carrying neither
+ * of them, so page through an index with {@link Narsil.listDocuments}
+ * instead.
  *
  * @public
  */
@@ -256,20 +257,38 @@ export interface SuggestParams {
 /**
  * Everything {@link Narsil.listDocuments} accepts.
  *
- * {@link Narsil.listDocuments} reads the stored documents in document-id order
- * without ranking them, which is how you page through a whole index. Leave
- * `cursor` out to start at the first document, then pass back the cursor each
- * result carries until it comes back null.
+ * {@link Narsil.listDocuments} reads the stored documents without ranking them,
+ * which is how you page through a whole index. Leave `cursor` out to start at
+ * the first document, then pass back the cursor each result carries until it
+ * comes back null.
+ *
+ * A cursor belongs to the sort it was made under, so pass the same `sort` back
+ * with it. Changing `sort` invalidates the cursor, and the engine then throws
+ * `SEARCH_INVALID_CURSOR` rather than returning a page from the wrong order.
  *
  * @public
  */
 export interface ListParams {
-  /** This cursor comes from a previous result, and continues where it stopped. */
+  /**
+   * This cursor comes from a previous result, and continues where it stopped.
+   * The engine ties a cursor to the sort that produced it, and it throws
+   * `SEARCH_INVALID_CURSOR` for a cursor sent back under a different sort.
+   */
   cursor?: string
   /** The page carries this many documents, and 10 by default. The engine raises a value below one to one. */
   limit?: number
   /** This narrows the listing to the documents the filter accepts. */
   filters?: FilterExpression
+  /**
+   * This orders the listing by field value rather than by document id, and the
+   * engine applies the fields in the order the object lists them. It breaks a
+   * tie on document id, and it sorts by at most eight fields. The engine uses
+   * document-id order when you leave this out.
+   *
+   * The engine reads every document the listing covers to build a sorted page,
+   * so a sorted listing costs more than the default order on a large index.
+   */
+  sort?: Record<string, 'asc' | 'desc'>
   /** This chooses how much of each stored document comes back, and the whole document by default. */
   document?: DocumentProjection
 }

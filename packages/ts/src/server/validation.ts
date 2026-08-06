@@ -13,6 +13,8 @@ export interface ValidationFailure {
   details?: Record<string, unknown>
 }
 
+const MAX_LIST_SORT_FIELDS = 8
+
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -95,6 +97,26 @@ export function validateList(params: ListParams, maxFetch: number): ValidationFa
     return {
       message: `Field "limit" exceeds the maximum of ${maxFetch} documents per request`,
       details: { value: params.limit, limit: maxFetch },
+    }
+  }
+  return validateListSort(params.sort)
+}
+
+function validateListSort(sort: ListParams['sort']): ValidationFailure | null {
+  if (sort === undefined) return null
+  if (typeof sort !== 'object' || sort === null || Array.isArray(sort)) {
+    return { message: 'Field "sort" must be an object keyed by field name' }
+  }
+  const entries = Object.entries(sort)
+  if (entries.length > MAX_LIST_SORT_FIELDS) {
+    return {
+      message: `Field "sort" exceeds the maximum of ${MAX_LIST_SORT_FIELDS} fields`,
+      details: { count: entries.length, limit: MAX_LIST_SORT_FIELDS },
+    }
+  }
+  for (const [field, direction] of entries) {
+    if (direction !== 'asc' && direction !== 'desc') {
+      return { message: `Field "sort.${field}" must be "asc" or "desc"`, details: { value: direction } }
     }
   }
   return null
