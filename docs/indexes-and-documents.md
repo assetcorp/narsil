@@ -118,7 +118,18 @@ const page = await narsil.listDocuments('products', {
 })
 ```
 
-The engine rejects an invalid cursor with `SEARCH_INVALID_CURSOR`.
+`sort` orders the listing by field value rather than by id. Name each field with its direction. The engine applies the fields in the order the object lists them, and it breaks a tie on document id, so a full walk still returns every document exactly once. The engine sorts by at most eight fields, because the cursor carries one value for each of them.
+
+```ts
+const page = await narsil.listDocuments('products', {
+  limit: 100,
+  sort: { price: 'desc', title: 'asc' },
+})
+```
+
+The engine reads every document the listing covers to build a sorted page, so a sorted listing costs more than the default order on a large index. It holds one page of documents while it selects, so memory follows the page size rather than the index size.
+
+The engine ties each cursor to the sort that produced it. Sending a cursor back under a different `sort` throws `SEARCH_INVALID_CURSOR`, and so does a cursor the engine never issued.
 
 ### Update and remove
 
