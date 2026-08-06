@@ -1,13 +1,16 @@
-import type { DatasetId, DatasetLoadProgress } from '@delali/narsil-example-shared'
-import { scifact, tmdb, wikipedia } from '@delali/narsil-example-shared'
-import { BookOpen, FileText, Film, Globe, Loader2, Settings2, Trash2, Upload } from 'lucide-react'
-import { useCallback, useState } from 'react'
-import { Badge } from '#/components/ui/badge'
-import { Button } from '#/components/ui/button'
-import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from '#/components/ui/card'
-import { Progress } from '#/components/ui/progress'
-import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '#/components/ui/sheet'
-import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
+import { BookOpen, FileText, Film, Globe, Loader2, Settings2, Trash2, TriangleAlert, Upload, X } from 'lucide-react'
+import { type ReactNode, useCallback, useState } from 'react'
+import type { DatasetId } from '../../manifest'
+import { scifact, tmdb, wikipedia } from '../../manifest'
+import type { DatasetLoadProgress } from '../../types'
+import { Badge } from '../ui/badge'
+import { Button } from '../ui/button'
+import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from '../ui/card'
+import { Progress } from '../ui/progress'
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '../ui/sheet'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
+
+export type EnginePhase = 'checking' | 'starting' | 'ready' | 'error'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -53,7 +56,7 @@ function ProgressBar({ progress }: { progress: DatasetLoadProgress }) {
   )
 }
 
-interface DatasetMeta {
+export interface DatasetMeta {
   id: DatasetId
   kind: string
   title: string
@@ -114,8 +117,10 @@ interface DatasetCardProps {
   onLoad: (datasetId: DatasetId) => void
   onRemove: (datasetId: DatasetId) => void
   onView: (datasetId: DatasetId) => void
-  configContent: React.ReactNode
+  configContent: ReactNode
   loadDisabled: boolean
+  enginePhase?: EnginePhase
+  onCancel?: (datasetId: DatasetId) => void
 }
 
 export function DatasetCard({
@@ -129,10 +134,14 @@ export function DatasetCard({
   onView,
   configContent,
   loadDisabled,
+  enginePhase = 'ready',
+  onCancel,
 }: DatasetCardProps) {
   const [sheetOpen, setSheetOpen] = useState(false)
   const Icon = ds.icon
-  const busy = loading || restoring
+  const busy = loading || restoring || enginePhase === 'checking' || enginePhase === 'starting'
+  const engineFailed = enginePhase === 'error'
+  const canCancel = loading && onCancel !== undefined
 
   function handleLoadClick() {
     setSheetOpen(false)
@@ -146,6 +155,10 @@ export function DatasetCard({
   const handleRemoveClick = useCallback(() => {
     onRemove(ds.id)
   }, [ds.id, onRemove])
+
+  const handleCancelClick = useCallback(() => {
+    onCancel?.(ds.id)
+  }, [ds.id, onCancel])
 
   const handleViewClick = useCallback(() => {
     onView(ds.id)
@@ -209,18 +222,38 @@ export function DatasetCard({
 
       <CardFooter className="relative">
         {busy && (
+          <div className="flex w-full gap-2">
+            <Button type="button" variant="outline" className="flex-1" disabled>
+              <Loader2 className="size-3.5 animate-spin" />
+              {loading ? 'Loading...' : 'Restoring...'}
+            </Button>
+            {canCancel && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-destructive"
+                onClick={handleCancelClick}
+              >
+                <X className="size-3.5" />
+                <span className="sr-only">Cancel load</span>
+              </Button>
+            )}
+          </div>
+        )}
+        {!busy && engineFailed && (
           <Button type="button" variant="outline" className="w-full" disabled>
-            <Loader2 className="size-3.5 animate-spin" />
-            {restoring ? 'Restoring...' : 'Loading...'}
+            <TriangleAlert className="size-3.5" />
+            Server unavailable
           </Button>
         )}
-        {!busy && !loaded && (
+        {!busy && !engineFailed && !loaded && (
           <Button type="button" className="w-full" onClick={handleConfigureClick}>
             <Settings2 className="size-3.5" />
             Configure
           </Button>
         )}
-        {!busy && loaded && (
+        {!busy && !engineFailed && loaded && (
           <div className="flex w-full items-center gap-2">
             <Button type="button" className="flex-1" onClick={handleViewClick}>
               <FileText className="size-3.5" />

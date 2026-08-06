@@ -7,10 +7,10 @@ import {
   createInitialState,
 } from '@delali/narsil-example-shared'
 import { CommandPaletteProvider } from '@delali/narsil-example-shared/components/CommandPalette'
+import { Footer } from '@delali/narsil-example-shared/components/layout/Footer'
 import { createRootRoute, HeadContent, Outlet, Scripts, useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import EngineStatusBanner from '../components/EngineStatusBanner'
-import Footer from '../components/Footer'
 import Header from '../components/Header'
 import { type EngineStatus, EngineStatusContext, fetchEngineStatus } from '../lib/engine-status'
 import { fetchLoadJobs, watchLoadJob } from '../lib/load-status-client'

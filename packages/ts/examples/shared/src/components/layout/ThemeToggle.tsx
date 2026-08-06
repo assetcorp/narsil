@@ -1,6 +1,6 @@
 import { Monitor, Moon, Sun } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Button } from '#/components/ui/button'
+import { Button } from '../ui/button'
 
 type ThemeMode = 'light' | 'dark' | 'auto'
 
@@ -24,7 +24,7 @@ function applyThemeMode(mode: ThemeMode) {
   document.documentElement.style.colorScheme = resolved
 }
 
-export default function ThemeToggle() {
+export function ThemeToggle() {
   const [mode, setMode] = useState<ThemeMode>('auto')
 
   useEffect(() => {

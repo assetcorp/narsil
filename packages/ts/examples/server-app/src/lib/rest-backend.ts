@@ -331,6 +331,8 @@ export class RestBackend implements NarsilBackend {
     return this.client.listDocuments(request.indexName, {
       cursor: request.cursor,
       limit: request.limit,
+      filters: request.filters,
+      sort: request.sort,
       document: { exclude: [EMBEDDING_FIELD] },
     })
   }

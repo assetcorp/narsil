@@ -90,6 +90,8 @@ export interface ListDocumentsRequest {
   indexName: string
   cursor?: string
   limit?: number
+  filters?: Record<string, unknown>
+  sort?: Record<string, 'asc' | 'desc'>
 }
 
 export interface ListedDocument {

@@ -1,6 +1,6 @@
-import { Separator } from '#/components/ui/separator'
+import { Separator } from '../ui/separator'
 
-export default function Footer() {
+export function Footer() {
   return (
     <footer className="mt-auto border-t px-4 py-6">
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 text-xs text-muted-foreground sm:flex-row">

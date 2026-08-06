@@ -49,6 +49,8 @@ export interface ListDocumentsPayload {
   indexName: string
   cursor?: string
   limit?: number
+  filters?: Record<string, unknown>
+  sort?: Record<string, 'asc' | 'desc'>
 }
 
 export interface IndexNamePayload {

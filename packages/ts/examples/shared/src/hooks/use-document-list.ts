@@ -2,6 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ListedDocument, NarsilBackend } from '../backend'
 
 export const DOCUMENT_PAGE_SIZE = 20
+export const DOCUMENT_PAGE_SIZES = [10, 20, 50, 100]
+
+export interface DocumentListRequest {
+  pageSize: number
+  filters?: Record<string, unknown>
+  sort?: Record<string, 'asc' | 'desc'>
+}
 
 export interface DocumentListState {
   documents: ListedDocument[]
@@ -23,10 +30,12 @@ const EMPTY_STATE: DocumentListState = {
   error: null,
 }
 
-export function useDocumentList(backend: NarsilBackend, indexName: string | null) {
+export function useDocumentList(backend: NarsilBackend, indexName: string | null, request: DocumentListRequest) {
+  const { pageSize, filters, sort } = request
   const [state, setState] = useState<DocumentListState>(EMPTY_STATE)
   const cursors = useRef<Array<string | undefined>>([undefined])
   const requestCounter = useRef(0)
+  const loadedIndex = useRef<string | null>(null)
 
   const fetchPage = useCallback(
     async (page: number) => {
@@ -38,7 +47,7 @@ export function useDocumentList(backend: NarsilBackend, indexName: string | null
       setState(s => ({ ...s, isLoading: true, error: null }))
 
       try {
-        const response = await backend.listDocuments({ indexName, cursor, limit: DOCUMENT_PAGE_SIZE })
+        const response = await backend.listDocuments({ indexName, cursor, limit: pageSize, filters, sort })
         if (id !== requestCounter.current) return
         cursors.current[page + 1] = response.cursor ?? undefined
         setState({
@@ -59,14 +68,19 @@ export function useDocumentList(backend: NarsilBackend, indexName: string | null
         }))
       }
     },
-    [backend, indexName],
+    [backend, indexName, pageSize, filters, sort],
   )
 
   useEffect(() => {
     requestCounter.current++
     cursors.current = [undefined]
-    setState(EMPTY_STATE)
-    if (!indexName) return
+    const isSameIndex = loadedIndex.current === indexName
+    loadedIndex.current = indexName
+    if (!indexName) {
+      setState(EMPTY_STATE)
+      return
+    }
+    if (!isSameIndex) setState(EMPTY_STATE)
     fetchPage(0)
   }, [indexName, fetchPage])
 
@@ -78,5 +92,5 @@ export function useDocumentList(backend: NarsilBackend, indexName: string | null
     [fetchPage],
   )
 
-  return { ...state, setPage }
+  return { ...state, pageSize, setPage }
 }
