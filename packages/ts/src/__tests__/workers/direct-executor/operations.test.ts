@@ -254,4 +254,18 @@ describe('DirectExecutor', () => {
       expect(report).not.toBeNull()
     })
   })
+
+  describe('bootstrap', () => {
+    it('refuses to load a bootstrap module', async () => {
+      await expect(
+        executor.execute({
+          type: 'bootstrap',
+          moduleUrl: 'data:text/javascript,globalThis.narsilDirectBootstrap = true',
+          requestId: reqId(),
+        }),
+      ).rejects.toThrow(/loads inside a worker/)
+
+      expect((globalThis as Record<string, unknown>).narsilDirectBootstrap).toBeUndefined()
+    })
+  })
 })

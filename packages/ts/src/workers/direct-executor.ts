@@ -90,13 +90,11 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
   async function execute<T>(action: WorkerAction): Promise<T> {
     switch (action.type) {
       case 'bootstrap': {
-        if (typeof action.moduleUrl !== 'string' || action.moduleUrl.trim().length === 0) {
-          throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'A bootstrap module needs a non-empty module URL', {
-            moduleUrl: action.moduleUrl,
-          })
-        }
-        await import(action.moduleUrl)
-        return undefined as T
+        throw new NarsilError(
+          ErrorCodes.CONFIG_INVALID,
+          'A bootstrap module loads inside a worker, and the thread that owns this executor imports it directly',
+          { moduleUrl: action.moduleUrl },
+        )
       }
 
       case 'createIndex': {
