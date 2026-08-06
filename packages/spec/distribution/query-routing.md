@@ -31,7 +31,10 @@ A distributed query runs in two phases so that the cluster moves as few bytes as
      the hit count for each partition
 7. The coordinator merges every returned list with the K-way
    merge, which uses a heap above four sources and a
-   sequential merge at four or fewer.
+   sequential merge at four or fewer. The merge orders by
+   score then document ID, or by the sort value order when
+   the query sorts, as the merge algorithm in
+   partitioning.md defines.
 8. The coordinator takes the global top-k from the merged list.
 ```
 
@@ -70,6 +73,10 @@ Query for index 'products', partitions 0-9:
   remote: send to node B, partitions 5-9 -> remote results
   merge:  K-way merge of both          -> global top-k
 ```
+
+### Sorted Queries
+
+A query carrying a sort makes each data node return the raw sort values of every entry in `ScoredEntry.sortValues`, and the coordinator merges by the [sort value order](../algorithms.md#sort-value-order). A sorted entry that arrives without its sort values cannot be merged, so the coordinator treats the node's response as a failure and [Partial Results](#partial-results) governs what happens next.
 
 ---
 
@@ -157,11 +164,13 @@ Each data node counts facets over its own partitions, and the coordinator merges
 2. It sends shardSize to each data node as facetShardSize in
    the search message.
 3. Each data node returns up to shardSize buckets per requested
-   field, ordered by count, highest first.
+   field, ordered by count, highest first, with ties by value
+   in code point order.
 4. The coordinator merges the buckets:
      group the buckets of each field by value
      sum the counts of identical values
-     order by merged count, highest first
+     order by merged count, highest first, ties by value in
+       code point order
      truncate to facetSize
 5. The merged facets travel in the query response.
 ```
@@ -182,8 +191,9 @@ The cursor format defined in [searchAfter Cursor](../partitioning.md#searchafter
 
 ```json
 {
-  "s": 4.523,
-  "d": "doc-id-123"
+  "v": 2,
+  "a": "doc-id-123",
+  "s": 4.523
 }
 ```
 
@@ -194,7 +204,7 @@ First query:
   the coordinator fans out to every data node
   each data node returns scored results for its partitions
   the coordinator merges them and takes the top `limit`
-  the cursor encodes the last result's score and docId
+  the cursor encodes the last result
 
 Next query, carrying the cursor:
   the coordinator decodes the cursor
@@ -208,7 +218,7 @@ Next query, carrying the cursor:
 
 ### Tiebreaker
 
-A cursor needs a unique tiebreaker to order results deterministically, and the document ID is that tiebreaker. Documents sharing a score, or a sort value, are ordered by comparing `docId` lexicographically, which keeps pagination stable across requests even when scores are identical.
+A cursor needs a unique tiebreaker to order results deterministically, and the document ID is that tiebreaker. Documents sharing a score, or sharing every sort value, order by document ID, ascending in [code point order](../algorithms.md#code-point-order), which keeps pagination stable across requests and identical across implementations.
 
 ---
 

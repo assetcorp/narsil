@@ -69,7 +69,7 @@ Removing a `docId` the index does not hold does nothing.
 
 ### search(query, k, options)
 
-Returns up to `k` vectors closest to `query`, ordered by similarity, with the highest score first for cosine and dot product and the smallest distance first for Euclidean.
+Returns up to `k` vectors closest to `query`, ordered by similarity, with the highest score first for cosine and dot product and the smallest distance first for Euclidean. Vectors tied on score order by document ID, ascending in [code point order](algorithms.md#code-point-order).
 
 See [Filtered Search](#filtered-search) for what `filterDocIds` does, and [algorithms.md](algorithms.md) for the metric definitions.
 
