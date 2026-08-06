@@ -1,6 +1,6 @@
 declare const self: unknown
 
-import type { WorkerAction, WorkerResponse } from './protocol'
+import { buildErrorResponse, createActionHandler } from './action-handler'
 import { isValidWorkerAction } from './protocol'
 
 export function startWorker(): void {
@@ -26,34 +26,7 @@ async function setup(): Promise<void> {
   }
 
   const { createDirectExecutor } = await import('./direct-executor')
-  const executor = createDirectExecutor()
-
-  function buildErrorResponse(requestId: string, code: string, message: string): WorkerResponse {
-    return { type: 'error', requestId, code, message }
-  }
-
-  function buildSuccessResponse(requestId: string, data: unknown): WorkerResponse {
-    return { type: 'success', requestId, data }
-  }
-
-  async function handleAction(action: WorkerAction, postFn: (msg: WorkerResponse) => void) {
-    if (action.type === 'shutdown') {
-      await executor.shutdown()
-      postFn(buildSuccessResponse(action.requestId, undefined))
-      return true
-    }
-
-    try {
-      const result = await executor.execute(action)
-      postFn(buildSuccessResponse(action.requestId, result))
-    } catch (err: unknown) {
-      const code = (err as { code?: string })?.code ?? 'UNKNOWN_ERROR'
-      const message = err instanceof Error ? err.message : String(err)
-      postFn(buildErrorResponse(action.requestId, code, message))
-    }
-
-    return false
-  }
+  const handleAction = createActionHandler(createDirectExecutor())
 
   if (parentPort) {
     const port = parentPort

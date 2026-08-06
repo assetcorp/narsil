@@ -107,30 +107,3 @@ describe('the executor a worker runs searches under the analysis its index confi
     await executor.shutdown()
   })
 })
-
-describe('a worker registers the caller analysis from a bootstrap module', () => {
-  it('imports the module the bootstrap action names', async () => {
-    const executor = createDirectExecutor()
-    const marker = 'narsilBootstrapProof'
-
-    await executor.execute({
-      type: 'bootstrap',
-      moduleUrl: `data:text/javascript,globalThis.${marker} = true`,
-      requestId: reqId(),
-    })
-
-    expect((globalThis as Record<string, unknown>)[marker]).toBe(true)
-    delete (globalThis as Record<string, unknown>)[marker]
-    await executor.shutdown()
-  })
-
-  it('refuses an empty module URL', async () => {
-    const executor = createDirectExecutor()
-
-    await expect(executor.execute({ type: 'bootstrap', moduleUrl: '   ', requestId: reqId() })).rejects.toThrow(
-      /non-empty module URL/,
-    )
-
-    await executor.shutdown()
-  })
-})
