@@ -1,10 +1,11 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { AnyDocument } from '../../types/schema'
+import type { ListParams } from '../../types/search'
 import type { HandlerDeps } from '../deps'
 import { parseJson, rejectInvalid, respondError, respondJson, serializeBatchResult } from '../handler-utils'
 import type { RouteContext } from '../request'
 import type { BatchBody, DocumentBody, InsertBody, MultiGetBody } from '../types'
-import { validateBatch, validateDocumentBody, validateMultiGet } from '../validation'
+import { validateBatch, validateDocumentBody, validateList, validateMultiGet } from '../validation'
 
 export function createDocumentHandlers(deps: HandlerDeps) {
   const { engine, limits } = deps
@@ -119,6 +120,21 @@ export function createDocumentHandlers(deps: HandlerDeps) {
     }
   }
 
+  async function list(ctx: RouteContext): Promise<void> {
+    const params = parseJson<ListParams>(ctx)
+    if (!params) return
+    const failure = validateList(params, limits.maxFetchDocuments)
+    if (failure) {
+      rejectInvalid(ctx, failure)
+      return
+    }
+    try {
+      respondJson(ctx, await engine.listDocuments(ctx.params[0], params))
+    } catch (err) {
+      respondError(ctx, err)
+    }
+  }
+
   async function batch(ctx: RouteContext): Promise<void> {
     const body = parseJson<BatchBody>(ctx)
     if (!body) return
@@ -144,7 +160,7 @@ export function createDocumentHandlers(deps: HandlerDeps) {
     }
   }
 
-  return { insert, get, exists, put, patch, remove, count, multiGet, batch }
+  return { insert, get, exists, put, patch, remove, count, list, multiGet, batch }
 }
 
 function indexDocNotFound(docId: string): NarsilError {

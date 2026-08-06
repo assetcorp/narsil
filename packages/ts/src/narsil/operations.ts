@@ -1,6 +1,7 @@
 import { type EngineCore, type EventHandler, getVectorFieldPaths } from '../engine/core'
 import { createEngineIndex, dropEngineIndex, registerEngineEmbeddingAdapter } from '../engine/index-lifecycle'
 import { shutdownEngine } from '../engine/lifecycle'
+import { executeListDocuments } from '../engine/list-documents'
 import {
   insertDocument,
   insertDocumentBatch,
@@ -30,6 +31,7 @@ import type {
   BatchResult,
   IndexInfo,
   IndexStats,
+  ListResult,
   MemoryStats,
   PartitionStatsResult,
   PreflightResult,
@@ -38,7 +40,7 @@ import type {
   VectorMaintenanceResult,
 } from '../types/results'
 import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig } from '../types/schema'
-import type { QueryParams, SuggestParams } from '../types/search'
+import type { ListParams, QueryParams, SuggestParams } from '../types/search'
 
 export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): Narsil {
   const {
@@ -149,6 +151,11 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       guardShutdown()
       requireIndex(indexName)
       return executor.execute({ type: 'count', indexName, requestId: indexName })
+    },
+    async listDocuments<T = AnyDocument>(indexName: string, params?: ListParams): Promise<ListResult<T>> {
+      guardShutdown()
+      const entry = requireIndex(indexName)
+      return executeListDocuments<T>(params ?? {}, { manager: requireManager(indexName), schema: entry.config.schema })
     },
     async query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>> {
       guardShutdown()

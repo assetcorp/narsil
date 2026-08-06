@@ -4,6 +4,7 @@ import type {
   BatchResult,
   IndexInfo,
   IndexStats,
+  ListResult,
   MemoryStats,
   PartitionStatsResult,
   PreflightResult,
@@ -12,7 +13,7 @@ import type {
   VectorMaintenanceResult,
 } from './results'
 import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig } from './schema'
-import type { QueryParams, SuggestParams } from './search'
+import type { ListParams, QueryParams, SuggestParams } from './search'
 
 /**
  * The search engine, and everything you do with it.
@@ -168,6 +169,33 @@ export interface Narsil {
    * @returns The document count across every partition.
    */
   countDocuments(indexName: string): Promise<number>
+  /**
+   * Reads one page of stored documents in document-id order, without
+   * searching, which is how you page through a whole index.
+   *
+   * Leave `cursor` out for the first page, pass the returned cursor back for
+   * each page after it, and stop when the cursor comes back null. A document
+   * that stays in the index for the whole listing comes back exactly once. The
+   * engine skips a document you remove part-way through. It returns one you
+   * insert part-way through once that document's id sorts above the cursor.
+   * The cursor holds no engine state, so it stays valid after a restart, a
+   * snapshot restore, and a rebalance.
+   *
+   * The engine compares document ids by their UTF-16 code units, so `"10"`
+   * sorts ahead of `"9"`.
+   *
+   * Set `document` to drop a vector field, because the engine otherwise reads
+   * every listed document's vector back out of the index.
+   *
+   * @typeParam T - Shape of the stored documents, which flows through to each
+   * entry's `document`.
+   * @param indexName - The index to walk.
+   * @param params - These set the cursor, the page size, the filter, and how
+   * much of each document comes back.
+   * @returns The page, the cursor for the next page, how many documents the
+   * listing walks in total, and the time the page took.
+   */
+  listDocuments<T = AnyDocument>(indexName: string, params?: ListParams): Promise<ListResult<T>>
   /**
    * Runs a search against an index and returns the ranked hits.
    *

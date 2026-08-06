@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../errors'
+import { decodeCursorText, encodeCursorText } from './cursor-codec'
 
 export interface SearchCursor {
   s: number
@@ -7,21 +8,13 @@ export interface SearchCursor {
 }
 
 export function encodeCursor(state: SearchCursor[]): string {
-  const json = JSON.stringify(state)
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(json).toString('base64')
-  }
-  return btoa(json)
+  return encodeCursorText(JSON.stringify(state))
 }
 
 export function decodeCursor(encoded: string): SearchCursor[] {
   let json: string
   try {
-    if (typeof Buffer !== 'undefined') {
-      json = Buffer.from(encoded, 'base64').toString('utf-8')
-    } else {
-      json = atob(encoded)
-    }
+    json = decodeCursorText(encoded)
   } catch {
     throw new NarsilError(ErrorCodes.SEARCH_INVALID_CURSOR, 'Failed to decode cursor: invalid base64 encoding', {
       cursor: encoded,

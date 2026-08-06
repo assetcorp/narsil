@@ -86,6 +86,40 @@ const exists = await narsil.has('products', 'kb-042')
 const count = await narsil.countDocuments('products')
 ```
 
+### List
+
+`listDocuments` reads the stored documents in document-id order without searching, which is how you page through a whole index. Leave the cursor out for the first page, pass back the cursor each page carries, and stop when it comes back null.
+
+```ts
+let cursor: string | undefined
+
+do {
+  const page = await narsil.listDocuments('products', { limit: 100, cursor })
+  for (const entry of page.documents) {
+    console.log(entry.id, entry.document)
+  }
+  cursor = page.cursor ?? undefined
+} while (cursor !== undefined)
+```
+
+A document that stays in the index for the whole listing comes back exactly once. The engine skips a document you remove part-way through. It returns one you insert part-way through once that document's id sorts above the cursor.
+
+The cursor holds no engine state, so it stays valid after a restart, a snapshot restore, and a rebalance. Reaching the last page of a large index costs what reaching the first page costs.
+
+The engine compares ids by their UTF-16 code units, so `"10"` sorts ahead of `"9"`.
+
+`filters` narrows the listing to the documents your filter accepts, and `total` then counts those documents. `document` takes the same projection [`query`](full-text-search.md) takes. Pass it to drop a vector field, because the engine otherwise reads every listed document's vector back out of the index.
+
+```ts
+const page = await narsil.listDocuments('products', {
+  limit: 100,
+  filters: { fields: { price: { lte: 50 } } },
+  document: { exclude: ['embedding'] },
+})
+```
+
+The engine rejects an invalid cursor with `SEARCH_INVALID_CURSOR`.
+
 ### Update and remove
 
 `update` replaces the whole document under an id. Internally it removes the old document and inserts the new one, with a fast path when the change touches nothing the index depends on.

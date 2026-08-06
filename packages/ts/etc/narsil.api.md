@@ -408,6 +408,28 @@ export interface LanguageModule {
 }
 
 // @public
+export interface ListedDocument<T = AnyDocument> {
+    document: T;
+    id: string;
+}
+
+// @public
+export interface ListParams {
+    cursor?: string;
+    document?: DocumentProjection;
+    filters?: FilterExpression;
+    limit?: number;
+}
+
+// @public
+export interface ListResult<T = AnyDocument> {
+    cursor: string | null;
+    documents: Array<ListedDocument<T>>;
+    elapsed: number;
+    total: number;
+}
+
+// @public
 export interface MemoryStats {
     estimatedIndexBytes: number;
     process: ProcessMemoryReport | null;
@@ -435,6 +457,7 @@ export interface Narsil {
     has(indexName: string, docId: string): Promise<boolean>;
     insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string>;
     insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult>;
+    listDocuments<T = AnyDocument>(indexName: string, params?: ListParams): Promise<ListResult<T>>;
     listIndexes(): IndexInfo[];
     off<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;
     on<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;

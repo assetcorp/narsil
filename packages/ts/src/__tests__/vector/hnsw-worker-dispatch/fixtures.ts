@@ -110,7 +110,7 @@ export const testDim = 4
 export function buildVectorData(count: number, dim: number): Float32Array {
   const data = new Float32Array(count * dim)
   for (let i = 0; i < data.length; i++) {
-    data[i] = Math.random()
+    data[i] = Math.abs(Math.sin((i + 1) * 1.618))
   }
   return data
 }

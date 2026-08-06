@@ -20,10 +20,10 @@ function paddedVector(lead: number, rest = 0): number[] {
   return v
 }
 
-function randomVector(): number[] {
+function seededVector(seed: number): number[] {
   const v: number[] = []
   for (let i = 0; i < DIM; i++) {
-    v.push(Math.random() * 2 - 1)
+    v.push(Math.sin(seed * (i + 1) * 1.618) * Math.cos(seed * 0.7 + i))
   }
   return v
 }
@@ -92,13 +92,13 @@ describe('vector search through Narsil query API', () => {
 
   it('passes efSearch through the query pipeline', async () => {
     for (let i = 0; i < 30; i++) {
-      await narsil.insert('docs', { title: `doc ${i}`, embedding: randomVector() })
+      await narsil.insert('docs', { title: `doc ${i}`, embedding: seededVector(i + 1) })
     }
 
     const result = await narsil.query('docs', {
       vector: {
         field: 'embedding',
-        value: randomVector(),
+        value: seededVector(202),
         efSearch: 200,
       },
       limit: 5,

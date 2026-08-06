@@ -176,6 +176,10 @@ class NarsilHttpServer implements NarsilServer {
       json(doc.batch, { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }),
     )
     app.post(
+      '/indexes/:name/documents/_list',
+      json(doc.list, { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }),
+    )
+    app.post(
       '/indexes/:name/documents/_multi-get',
       json(doc.multiGet, { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }),
     )

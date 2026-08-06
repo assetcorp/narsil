@@ -91,11 +91,11 @@ export function validatePartitionConfig(partitions: {
 }
 
 export function clampLimit(limit: number | undefined): number {
-  if (limit === undefined) return DEFAULT_LIMIT
-  return Math.max(0, Math.min(limit, MAX_LIMIT))
+  if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_LIMIT
+  return Math.max(0, Math.min(Math.floor(limit), MAX_LIMIT))
 }
 
 export function clampOffset(offset: number | undefined): number {
-  if (offset === undefined) return DEFAULT_OFFSET
-  return Math.max(0, Math.min(offset, MAX_OFFSET))
+  if (offset === undefined || !Number.isFinite(offset)) return DEFAULT_OFFSET
+  return Math.max(0, Math.min(Math.floor(offset), MAX_OFFSET))
 }

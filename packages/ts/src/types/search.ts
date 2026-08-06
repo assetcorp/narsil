@@ -252,3 +252,24 @@ export interface SuggestParams {
   /** The lookup returns this many completions, most widely used first, and 10 by default. */
   limit?: number
 }
+
+/**
+ * Everything {@link Narsil.listDocuments} accepts.
+ *
+ * {@link Narsil.listDocuments} reads the stored documents in document-id order
+ * without ranking them, which is how you page through a whole index. Leave
+ * `cursor` out to start at the first document, then pass back the cursor each
+ * result carries until it comes back null.
+ *
+ * @public
+ */
+export interface ListParams {
+  /** This cursor comes from a previous result, and continues where it stopped. */
+  cursor?: string
+  /** The page carries this many documents, and 10 by default. The engine raises a value below one to one. */
+  limit?: number
+  /** This narrows the listing to the documents the filter accepts. */
+  filters?: FilterExpression
+  /** This chooses how much of each stored document comes back, and the whole document by default. */
+  document?: DocumentProjection
+}
