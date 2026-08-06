@@ -130,12 +130,11 @@ export function QueryExplorer({ perQuery, selectedQuery, onSelect }: QueryExplor
 }
 
 export function MetricBadge({ value }: { value: number }) {
-  const color =
-    value >= 0.7
-      ? 'text-green-600 dark:text-green-400'
-      : value >= 0.4
-        ? 'text-yellow-600 dark:text-yellow-400'
-        : 'text-red-600 dark:text-red-400'
+  const tone = value >= 0.7 ? 'bg-chart-2/15' : value >= 0.4 ? 'bg-chart-3/25' : 'bg-destructive/12'
 
-  return <span className={color}>{value.toFixed(3)}</span>
+  return (
+    <span className={`inline-flex rounded-md px-1.5 py-0.5 text-foreground tabular-nums ${tone}`}>
+      {value.toFixed(3)}
+    </span>
+  )
 }

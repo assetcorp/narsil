@@ -6,6 +6,7 @@ export interface WorkerRequest {
     | 'loadDataset'
     | 'query'
     | 'suggest'
+    | 'listDocuments'
     | 'getStats'
     | 'getPartitionStats'
     | 'getMemoryStats'
@@ -41,6 +42,12 @@ export interface QueryPayload {
 export interface SuggestPayload {
   indexName: string
   prefix: string
+  limit?: number
+}
+
+export interface ListDocumentsPayload {
+  indexName: string
+  cursor?: string
   limit?: number
 }
 

@@ -38,6 +38,13 @@ function firstPopulated(document: Record<string, unknown>, candidates: readonly 
   return null
 }
 
+export function formatFieldValue(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (Array.isArray(value)) return value.join(', ')
+  if (typeof value === 'object') return JSON.stringify(value, null, 2)
+  return String(value)
+}
+
 export function suggestDisplayFields(fieldNames: readonly string[]): DisplayFieldMapping {
   const available = new Set(fieldNames)
   const titleField = TITLE_CANDIDATES.find(candidate => available.has(candidate)) ?? null

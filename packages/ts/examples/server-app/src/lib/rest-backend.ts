@@ -3,6 +3,8 @@ import type {
   BackendEventType,
   IndexListEntry,
   IndexStats,
+  ListDocumentsRequest,
+  ListDocumentsResponse,
   MemoryStatsResponse,
   NarsilBackend,
   PartitionStats,
@@ -322,6 +324,14 @@ export class RestBackend implements NarsilBackend {
     return this.client.suggest(request.indexName, {
       prefix: request.prefix,
       limit: request.limit,
+    })
+  }
+
+  async listDocuments(request: ListDocumentsRequest): Promise<ListDocumentsResponse> {
+    return this.client.listDocuments(request.indexName, {
+      cursor: request.cursor,
+      limit: request.limit,
+      document: { exclude: [EMBEDDING_FIELD] },
     })
   }
 

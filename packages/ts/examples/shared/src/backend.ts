@@ -56,16 +56,20 @@ export interface SuggestRequest {
   limit?: number
 }
 
-export interface QueryHit {
+export interface DisplayDocument {
   id: string
-  score: number
   document: Record<string, NonNullable<unknown>>
+  score?: number
   scoreComponents?: {
     termFrequencies: Record<string, number>
     fieldLengths: Record<string, number>
     idf: Record<string, number>
   }
   highlights?: Record<string, { snippet: string; positions: Array<{ start: number; end: number }> }>
+}
+
+export interface QueryHit extends DisplayDocument {
+  score: number
 }
 
 export interface QueryResponse {
@@ -79,6 +83,24 @@ export interface QueryResponse {
 
 export interface SuggestResponse {
   terms: Array<{ term: string; documentFrequency: number }>
+  elapsed: number
+}
+
+export interface ListDocumentsRequest {
+  indexName: string
+  cursor?: string
+  limit?: number
+}
+
+export interface ListedDocument {
+  id: string
+  document: Record<string, NonNullable<unknown>>
+}
+
+export interface ListDocumentsResponse {
+  documents: ListedDocument[]
+  cursor: string | null
+  total: number
   elapsed: number
 }
 
@@ -126,6 +148,7 @@ export interface NarsilBackend {
   query(request: QueryRequest): Promise<QueryResponse>
   batchQuery?(requests: QueryRequest[], onResult: (index: number, response: QueryResponse) => void): Promise<void>
   suggest(request: SuggestRequest): Promise<SuggestResponse>
+  listDocuments(request: ListDocumentsRequest): Promise<ListDocumentsResponse>
   getStats(indexName: string): Promise<IndexStats>
   getPartitionStats(indexName: string): Promise<PartitionStats[]>
   getMemoryStats(): Promise<MemoryStatsResponse>

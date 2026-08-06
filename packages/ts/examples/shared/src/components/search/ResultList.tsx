@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import type { QueryHit } from '../../backend'
 import { type DisplayFieldMapping, displayHeading } from '../../lib/display-fields'
 import type { DatasetId } from '../../manifest'
+import { Pagination } from '../Pagination'
 import { Button } from '../ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../ui/sheet'
 import { Skeleton } from '../ui/skeleton'
@@ -63,14 +64,6 @@ export function ResultList({
     if (!open) setSelectedHit(null)
   }, [])
 
-  const handlePreviousPage = useCallback(() => {
-    onPageChange(currentPage - 1)
-  }, [onPageChange, currentPage])
-
-  const handleNextPage = useCallback(() => {
-    onPageChange(currentPage + 1)
-  }, [onPageChange, currentPage])
-
   if (error) {
     return (
       <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-4 text-sm text-destructive">
@@ -109,18 +102,8 @@ export function ResultList({
           />
         ))}
 
-        {paginationMode === 'offset' && totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 pt-4">
-            <Button variant="outline" size="sm" disabled={currentPage === 0} onClick={handlePreviousPage}>
-              Previous
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              Page {currentPage + 1} of {totalPages}
-            </span>
-            <Button variant="outline" size="sm" disabled={currentPage >= totalPages - 1} onClick={handleNextPage}>
-              Next
-            </Button>
-          </div>
+        {paginationMode === 'offset' && (
+          <Pagination page={currentPage} totalPages={totalPages} onPageChange={onPageChange} />
         )}
 
         {paginationMode === 'cursor' && cursor && (

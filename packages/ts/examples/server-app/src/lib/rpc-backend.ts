@@ -3,6 +3,8 @@ import type {
   BackendEventType,
   IndexListEntry,
   IndexStats,
+  ListDocumentsRequest,
+  ListDocumentsResponse,
   MemoryStatsResponse,
   NarsilBackend,
   PartitionStats,
@@ -18,6 +20,7 @@ import {
   getMemoryStatsFn,
   getPartitionStatsFn,
   getStatsFn,
+  listDocumentsFn,
   listIndexesFn,
   queryFn,
   suggestFn,
@@ -122,6 +125,10 @@ export class RpcBackend implements NarsilBackend {
 
   async suggest(request: SuggestRequest): Promise<SuggestResponse> {
     return suggestFn({ data: request }) as Promise<SuggestResponse>
+  }
+
+  async listDocuments(request: ListDocumentsRequest): Promise<ListDocumentsResponse> {
+    return listDocumentsFn({ data: request }) as Promise<ListDocumentsResponse>
   }
 
   async getStats(indexName: string): Promise<IndexStats> {

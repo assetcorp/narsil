@@ -144,7 +144,7 @@ export function SearchPlayground({ backend, state, dispatch, initialTerm }: Sear
   if (!indexName) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-8">
-        <h1 className="mb-2 font-serif text-3xl tracking-tight">Search Playground</h1>
+        <h1 className="mb-2 text-3xl font-bold tracking-tight">Search Playground</h1>
         <p className="text-sm text-muted-foreground">Load a dataset from the Datasets tab to start searching.</p>
       </div>
     )
@@ -155,7 +155,7 @@ export function SearchPlayground({ backend, state, dispatch, initialTerm }: Sear
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
       <div className="mb-6">
-        <h1 className="mb-1 font-serif text-3xl tracking-tight">Search Playground</h1>
+        <h1 className="mb-1 text-3xl font-bold tracking-tight">Search Playground</h1>
         {activeIndex && (
           <p className="text-sm text-muted-foreground">
             Searching <span className="font-mono font-medium text-foreground">{activeIndex.name}</span> (

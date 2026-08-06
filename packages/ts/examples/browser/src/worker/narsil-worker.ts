@@ -4,6 +4,7 @@ import { scifactSchema, tmdbSchema, wikipediaSchema } from '@delali/narsil-examp
 import type { DatasetLoadProgress } from '@delali/narsil-example-shared/types'
 import type {
   IndexNamePayload,
+  ListDocumentsPayload,
   LoadDatasetPayload,
   QueryPayload,
   SuggestPayload,
@@ -399,6 +400,11 @@ async function handleSuggest(payload: SuggestPayload) {
   return instance.suggest(payload.indexName, { prefix: payload.prefix, limit: payload.limit })
 }
 
+async function handleListDocuments(payload: ListDocumentsPayload) {
+  const instance = await getNarsil()
+  return instance.listDocuments(payload.indexName, { cursor: payload.cursor, limit: payload.limit })
+}
+
 async function handleGetStats(payload: IndexNamePayload) {
   const instance = await getNarsil()
   return instance.getStats(payload.indexName)
@@ -439,6 +445,9 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         break
       case 'suggest':
         result = await handleSuggest(payload as SuggestPayload)
+        break
+      case 'listDocuments':
+        result = await handleListDocuments(payload as ListDocumentsPayload)
         break
       case 'getStats':
         result = await handleGetStats(payload as IndexNamePayload)

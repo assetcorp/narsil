@@ -1,4 +1,4 @@
-import { BarChart3, Database, FlaskConical, Inspect, MessagesSquare, Search } from 'lucide-react'
+import { BarChart3, Database, FileText, FlaskConical, Inspect, MessagesSquare, Search } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { SuggestResponse } from '../backend'
@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { to: '/relevance', label: 'Relevance Lab', icon: FlaskConical, tabId: 'relevance' as const },
   { to: '/benchmark', label: 'Quality Benchmark', icon: BarChart3, tabId: 'benchmark' as const },
   { to: '/inspector', label: 'Index Inspector', icon: Inspect, tabId: 'inspector' as const },
+  { to: '/documents', label: 'Documents', icon: FileText, tabId: 'documents' as const },
 ]
 
 interface IndexSuggestions {
@@ -61,7 +62,7 @@ function PaletteIndexRow({
     <CommandItem value={`index-${index.name}`} onSelect={handleSelect}>
       <span className="font-mono text-xs">{index.name}</span>
       <span className="ml-auto text-[10px] text-muted-foreground">{index.documentCount.toLocaleString()} docs</span>
-      {active && <span className="ml-1 size-1.5 rounded-full bg-green-500" />}
+      {active && <span className="ml-1 size-1.5 rounded-full bg-chart-2" />}
     </CommandItem>
   )
 }
