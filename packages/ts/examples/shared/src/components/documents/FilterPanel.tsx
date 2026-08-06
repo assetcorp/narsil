@@ -27,6 +27,8 @@ interface FilterRowProps {
 
 const BOOLEAN_CHOICES = ['true', 'false']
 
+const CONTROL_SURFACE = 'w-full bg-card text-xs'
+
 function FilterRow({ rule, fields, onChange, onRemove }: FilterRowProps) {
   const field = fields.find(entry => entry.path === rule.field)
   const operators = field ? operatorsFor(field.type) : []
@@ -77,11 +79,11 @@ function FilterRow({ rule, fields, onChange, onRemove }: FilterRowProps) {
   }, [onRemove, rule.id])
 
   return (
-    <div className="rounded-lg border p-3">
-      <div className="flex items-start gap-2">
-        <div className="grid flex-1 gap-2">
+    <div className="rounded-lg border bg-surface-raised p-3">
+      <div className="flex items-start gap-2 sm:items-center">
+        <div className="grid flex-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,11rem)_minmax(0,1.25fr)] sm:items-center">
           <Select value={rule.field} onValueChange={handleFieldChange}>
-            <SelectTrigger className="w-full font-mono text-xs">
+            <SelectTrigger className={`${CONTROL_SURFACE} font-mono`}>
               <SelectValue placeholder="Choose a field" />
             </SelectTrigger>
             <SelectContent>
@@ -94,7 +96,7 @@ function FilterRow({ rule, fields, onChange, onRemove }: FilterRowProps) {
           </Select>
 
           <Select value={rule.operator} onValueChange={handleOperatorChange}>
-            <SelectTrigger className="w-full text-xs">
+            <SelectTrigger className={CONTROL_SURFACE}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -108,7 +110,7 @@ function FilterRow({ rule, fields, onChange, onRemove }: FilterRowProps) {
 
           {arity === 'none' ? null : isBoolean ? (
             <Select value={rule.value} onValueChange={handleBooleanChange}>
-              <SelectTrigger className="w-full text-xs">
+              <SelectTrigger className={CONTROL_SURFACE}>
                 <SelectValue placeholder="true or false" />
               </SelectTrigger>
               <SelectContent>
@@ -126,7 +128,7 @@ function FilterRow({ rule, fields, onChange, onRemove }: FilterRowProps) {
                 onChange={handleValueChange}
                 inputMode={isNumeric ? 'decimal' : 'text'}
                 placeholder={arity === 'list' ? 'Values separated by commas' : 'Value'}
-                className="text-xs"
+                className={CONTROL_SURFACE}
               />
               {arity === 'two' ? (
                 <Input
@@ -134,7 +136,7 @@ function FilterRow({ rule, fields, onChange, onRemove }: FilterRowProps) {
                   onChange={handleUpperChange}
                   inputMode="decimal"
                   placeholder="Upper bound"
-                  className="text-xs"
+                  className={CONTROL_SURFACE}
                 />
               ) : null}
             </div>

@@ -181,7 +181,7 @@ export function DocumentsView({ backend, state, dispatch }: DocumentsViewProps) 
       />
 
       {isFilterPanelOpen ? (
-        <div className="mb-4 rounded-lg border bg-surface-raised p-4">
+        <div className="mb-4 rounded-lg border bg-card p-4 shadow-xs">
           <FilterPanel fields={schema.fields} rules={rules} onChange={setRules} />
         </div>
       ) : null}
