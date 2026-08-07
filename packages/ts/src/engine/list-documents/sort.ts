@@ -5,8 +5,9 @@ import {
   type SortDirection,
   toComparableSortValue,
 } from '../../core/ordering'
-import { readFieldValue } from '../../search/sorting'
+import { normalizeSort, readFieldValue } from '../../search/sorting'
 import type { AnyDocument } from '../../types/schema'
+import type { SortSpec } from '../../types/search'
 
 export interface SortedDocument {
   id: string
@@ -50,14 +51,15 @@ function insertOrdered(page: SortedDocument[], entry: SortedDocument, directions
  */
 export function selectSortedPage(
   candidates: readonly string[],
-  sort: Record<string, SortDirection>,
+  sort: SortSpec,
   getDocument: (docId: string) => AnyDocument | undefined,
   limit: number,
   anchorKey: readonly ComparableSortValue[] | null,
   anchorId: string | null,
 ): SortSelection {
-  const fields = Object.keys(sort)
-  const directions = fields.map(field => sort[field])
+  const normalized = normalizeSort(sort)
+  const fields = normalized.map(entry => entry.field)
+  const directions: SortDirection[] = normalized.map(entry => entry.direction)
 
   const page: SortedDocument[] = []
   let matching = 0

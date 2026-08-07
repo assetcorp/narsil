@@ -8,6 +8,7 @@ import type { GlobalStatistics, InternalSearchResult, ScoredDocument } from '../
 import type { LanguageModule } from '../types/language'
 import type { BM25Params, CustomTokenizer, FieldType, SchemaDefinition } from '../types/schema'
 import type { QueryParams, TermMatchPolicy } from '../types/search'
+import { DEFAULT_PAGE_SIZE } from './pagination'
 
 export interface FulltextSearchOptions {
   bm25Params?: BM25Params
@@ -114,11 +115,8 @@ export function fulltextSearch(
     params.group !== undefined ||
     params.pinned !== undefined ||
     params.searchAfter !== undefined
-  const requestedLimit =
-    params.limit !== undefined || params.offset !== undefined
-      ? (params.limit ?? 10) + (params.offset ?? 0) + 1
-      : undefined
-  const maxResults = requestedLimit !== undefined && !needsAllResults ? requestedLimit : undefined
+  const maxResults = needsAllResults ? undefined : (params.limit ?? DEFAULT_PAGE_SIZE) + (params.offset ?? 0) + 1
+  const collectMatchedIds = params.facets !== undefined && !needsAllResults
 
   const collectComponents =
     params.includeScoreComponents === true || (params.termMatch !== undefined && params.termMatch !== 'any')
@@ -137,6 +135,7 @@ export function fulltextSearch(
     termMatch: params.termMatch,
     filterBitset,
     collectComponents,
+    collectMatchedIds,
   })
 
   let scored = rawResult.scored
@@ -159,7 +158,10 @@ export function fulltextSearch(
   }
 
   const totalMatched = needsAllResults ? scored.length : rawResult.totalMatched
-  return { scored, totalMatched }
+  if (params.facets === undefined) {
+    return { scored, totalMatched }
+  }
+  return { scored, totalMatched, matchedIds: needsAllResults ? scored.map(doc => doc.docId) : rawResult.matchedIds }
 }
 
 function validateSearchFields(fields: string[], flatSchema: Record<string, FieldType>): void {

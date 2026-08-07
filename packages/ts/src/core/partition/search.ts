@@ -12,8 +12,6 @@ import {
 } from './scoring'
 import type { PartitionState } from './utils'
 
-const DEFAULT_MAX_RESULTS = 1000
-
 function globalDocFreqFor(docFreqs: Record<string, number>, term: string, fallback: number): number {
   return Object.hasOwn(docFreqs, term) ? docFreqs[term] : fallback
 }
@@ -339,7 +337,17 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
   }
 
   const totalMatched = docScores.size
-  const k = maxResults !== undefined && maxResults > 0 ? maxResults : DEFAULT_MAX_RESULTS
-  const scored = topKFromMap(docScores, Math.min(k, totalMatched), resolver)
-  return { scored, totalMatched }
+  const k = maxResults === undefined ? totalMatched : Math.max(0, Math.min(maxResults, totalMatched))
+  const scored = topKFromMap(docScores, k, resolver)
+
+  if (params.collectMatchedIds !== true) {
+    return { scored, totalMatched }
+  }
+
+  const matchedIds: string[] = []
+  for (const internalId of docScores.keys()) {
+    const externalId = resolver.toExternal(internalId)
+    if (externalId !== undefined) matchedIds.push(externalId)
+  }
+  return { scored, totalMatched, matchedIds }
 }

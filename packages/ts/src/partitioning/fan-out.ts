@@ -74,8 +74,7 @@ export async function fanOutQuery(
     const result = dispatchSinglePartition(partitions[0], params, language, schema, options)
     let facets: Record<string, FacetResult> | undefined
     if (params.facets) {
-      const matchingDocIds = new Set(result.scored.map(doc => doc.docId))
-      facets = partitions[0].computeFacets(matchingDocIds, params.facets, schema)
+      facets = partitions[0].computeFacets(matchedDocIds(result), params.facets, schema)
     }
     return { scored: result.scored, totalMatched: result.totalMatched, facets }
   }
@@ -96,6 +95,10 @@ export async function fanOutQuery(
   }
 
   return { scored: merged, totalMatched, facets }
+}
+
+function matchedDocIds(result: InternalSearchResult): Set<string> {
+  return new Set(result.matchedIds ?? [])
 }
 
 function resolveEffectiveMode(config: FanOutConfig): ScoringMode {
@@ -156,9 +159,8 @@ function collectAndMergeFacets(
   const partitionFacets: Array<Record<string, FacetResult>> = []
 
   for (const outcome of outcomes) {
-    const matchingDocIds = new Set(outcome.result.scored.map(doc => doc.docId))
     if (!params.facets) continue
-    const facetResult = outcome.partition.computeFacets(matchingDocIds, params.facets, schema)
+    const facetResult = outcome.partition.computeFacets(matchedDocIds(outcome.result), params.facets, schema)
     partitionFacets.push(facetResult)
   }
 

@@ -18,6 +18,31 @@ export type SearchMode = 'fulltext' | 'vector' | 'hybrid'
 export type TermMatchPolicy = 'all' | 'any' | number
 
 /**
+ * One field of a sort, and the direction that field orders by.
+ *
+ * @public
+ */
+export interface SortField {
+  /** The field the engine reads, which may name a nested field with dots. */
+  field: string
+  /** Ascending or descending order for this field. */
+  direction: 'asc' | 'desc'
+}
+
+/**
+ * A sort, either as an object keyed by field or as a list of fields in the
+ * order they apply.
+ *
+ * Both forms order by the first field, break a tie on the second, and carry on
+ * that way. Prefer the list where the order of the fields matters, because
+ * JavaScript moves an all-digit key such as `2024` to the front of an object
+ * and the list keeps the order you wrote.
+ *
+ * @public
+ */
+export type SortSpec = Record<string, 'asc' | 'desc'> | readonly SortField[]
+
+/**
  * Everything {@link Narsil.query} accepts.
  *
  * Set `term` for keyword search, `vector` for similarity search, and `mode`
@@ -60,12 +85,13 @@ export interface QueryParams {
   /** These settings name the fields the query counts values for, and control how each count is cut and sorted. */
   facets?: FacetConfig
   /**
-   * This sorts the hits by field value, keyed by field, which replaces the
-   * relevance ranking. Fusion defines the order of hybrid results, so a
-   * hybrid query takes no sort. The engine throws `SEARCH_INVALID_MODE` for a
-   * query that sets both.
+   * This sorts the hits by field value, which replaces the relevance ranking.
+   * Pass an object keyed by field, or a list of fields in the order they
+   * apply. Fusion defines the order of hybrid results, so a hybrid query takes
+   * no sort. The engine throws `SEARCH_INVALID_MODE` for a query that sets
+   * both.
    */
-  sort?: Record<string, 'asc' | 'desc'>
+  sort?: SortSpec
   /** These settings collapse the hits into groups by field value. */
   group?: GroupConfig
   /** The query returns this many hits, and 10 by default. */
@@ -286,14 +312,15 @@ export interface ListParams {
   filters?: FilterExpression
   /**
    * This orders the listing by field value rather than by document id, and the
-   * engine applies the fields in the order the object lists them. It breaks a
+   * engine applies the fields in the order they are listed. Pass an object
+   * keyed by field, or a list of fields in the order they apply. It breaks a
    * tie on document id, and it sorts by at most eight fields. The engine uses
    * document-id order when you leave this out.
    *
    * The engine reads every document the listing covers to build a sorted page,
    * so a sorted listing costs more than the default order on a large index.
    */
-  sort?: Record<string, 'asc' | 'desc'>
+  sort?: SortSpec
   /** This chooses how much of each stored document comes back, and the whole document by default. */
   document?: DocumentProjection
 }

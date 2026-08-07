@@ -1,4 +1,4 @@
-import { compareCodePoints, type SortDirection } from '../../core/ordering'
+import { compareCodePoints } from '../../core/ordering'
 import type { PartitionIndex } from '../../core/partition'
 import type { PartitionManager } from '../../partitioning/manager'
 import {
@@ -8,10 +8,11 @@ import {
   requireMatchingCursor,
   sortSignatureOf,
 } from '../../search/cursor'
+import { requireWithinResultWindow } from '../../search/pagination'
 import type { FilterExpression } from '../../types/filters'
 import type { ListedDocument, ListResult } from '../../types/results'
 import type { AnyDocument, SchemaDefinition } from '../../types/schema'
-import type { ListParams } from '../../types/search'
+import type { ListParams, SortSpec } from '../../types/search'
 import { applyProjection, projectionKeepsField, resolveProjection } from '../query/projection'
 import { clampLimit, now } from '../validation'
 import { selectSortedPage } from './sort'
@@ -27,7 +28,9 @@ interface DocumentPage {
 }
 
 function clampListLimit(limit: number | undefined): number {
-  return Math.max(1, clampLimit(limit))
+  const clamped = Math.max(1, clampLimit(limit))
+  requireWithinResultWindow(clamped, 0)
+  return clamped
 }
 
 function firstIdAfter(sorted: readonly string[], anchor: string): number {
@@ -98,7 +101,7 @@ function pageInSortOrder(
   cursor: PageCursor | null,
   matches: Set<string> | null,
   limit: number,
-  sort: Record<string, SortDirection>,
+  sort: SortSpec,
   signature: string,
   manager: PartitionManager,
 ): DocumentPage {

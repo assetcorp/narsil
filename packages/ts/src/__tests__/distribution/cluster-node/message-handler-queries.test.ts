@@ -84,6 +84,40 @@ describe('handleSearch on a data node', () => {
     }
   })
 
+  it('keeps the wire order of a sort naming an all-digit field', async () => {
+    const engine = await createClusterLocalEngine()
+    try {
+      await engine.createIndex('products', { schema: { title: 'string', 2024: 'number' } })
+      await engine.insert('products', { title: 'alpha listed item', 2024: 1 }, 'doc-1')
+      await engine.insert('products', { title: 'beta listed item', 2024: 9 }, 'doc-2')
+
+      const deps = { nodeId: 'node-a', engine } as DataNodeHandlerDeps
+      const responses: TransportMessage[] = []
+      await handleSearch(
+        makeSearchMessage(
+          makeWireParams({
+            term: 'item',
+            sort: [
+              { field: 'title', direction: 'desc' },
+              { field: '2024', direction: 'asc' },
+            ],
+          }),
+        ),
+        response => responses.push(response),
+        deps,
+      )
+
+      const scored = (decode(responses[0].payload) as SearchResultPayload).results[0].scored
+      expect(scored.map(entry => entry.docId)).toEqual(['doc-2', 'doc-1'])
+      expect(scored.map(entry => entry.sortValues)).toEqual([
+        ['beta listed item', 9],
+        ['alpha listed item', 1],
+      ])
+    } finally {
+      await engine.shutdown()
+    }
+  })
+
   it('returns null sort values when the query has no sort', async () => {
     const engine = await createClusterLocalEngine()
     try {

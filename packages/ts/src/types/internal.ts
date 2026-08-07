@@ -163,6 +163,11 @@ export interface ScoredDocument {
 export interface InternalSearchResult {
   scored: ScoredDocument[]
   totalMatched: number
+  /**
+   * Every document the query matches, present when the caller asked for it.
+   * A facet count reads this rather than the returned page.
+   */
+  matchedIds?: string[]
 }
 
 /**
@@ -192,4 +197,5 @@ export interface InternalSearchParams {
   termMatch?: import('../types/search').TermMatchPolicy
   filterBitset?: Uint32Array
   collectComponents?: boolean
+  collectMatchedIds?: boolean
 }

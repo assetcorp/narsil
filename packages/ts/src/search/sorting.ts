@@ -1,9 +1,22 @@
 import { compareCodePoints, compareSortValues, type SortDirection } from '../core/ordering'
 import type { Hit } from '../types/results'
 import type { AnyDocument } from '../types/schema'
+import type { SortField, SortSpec } from '../types/search'
 
 export type { SortDirection } from '../core/ordering'
 export { compareSortValues } from '../core/ordering'
+
+function isFieldList(sort: SortSpec): sort is readonly SortField[] {
+  return Array.isArray(sort)
+}
+
+export function normalizeSort(sort: SortSpec | undefined): SortField[] {
+  if (sort === undefined) return []
+  if (isFieldList(sort)) {
+    return sort.map(entry => ({ field: entry.field, direction: entry.direction }))
+  }
+  return Object.entries(sort).map(([field, direction]) => ({ field, direction }))
+}
 
 export function readFieldValue(obj: AnyDocument, path: string): unknown {
   const segments = path.split('.')
@@ -27,13 +40,14 @@ export function readSortValues(document: AnyDocument | undefined, fields: readon
 
 export function applySorting<T = AnyDocument>(
   hits: Array<Hit<T>>,
-  sort: Record<string, SortDirection>,
+  sort: SortSpec,
   getDocument: (docId: string) => AnyDocument | undefined,
 ): Array<Hit<T>> {
-  const sortFields = Object.keys(sort)
-  if (sortFields.length === 0) return hits
+  const normalized = normalizeSort(sort)
+  if (normalized.length === 0) return hits
 
-  const directions = sortFields.map(field => sort[field])
+  const sortFields = normalized.map(entry => entry.field)
+  const directions: SortDirection[] = normalized.map(entry => entry.direction)
   const valueCache = new Map<string, unknown[]>()
 
   for (const hit of hits) {

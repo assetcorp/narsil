@@ -1,6 +1,7 @@
 import { toComparableSortValue } from '../../core/ordering'
 import { NarsilError } from '../../errors'
 import { decodePageCursor, encodePageCursor, requireMatchingCursor } from '../../search/cursor'
+import { requireWithinResultWindow } from '../../search/pagination'
 import type { FacetBucket, GlobalStatistics, ScoredEntry, SortField, WireQueryParams } from '../transport/types'
 import { buildCoverage, collectDistributedStats, fanOutSearch, type NodeQueryOutcome } from './fan-out'
 import { clampAlpha, distributedLinearCombination, distributedRRF } from './fusion'
@@ -12,7 +13,6 @@ import { DEFAULT_QUERY_CONFIG } from './types'
 
 export type { QueryRoutingDeps }
 
-const MAX_QUERY_LIMIT = 10_000
 export const MAX_FACET_SIZE = 1_000
 
 function wireSortSignature(sort: SortField[] | null): string | null {
@@ -45,7 +45,9 @@ export async function distributedQuery(
     requireMatchingCursor(decoded, params.searchAfter, wireSortSignature(params.sort), true)
   }
 
-  const limit = Math.min(Math.max(params.limit, 0), MAX_QUERY_LIMIT)
+  const limit = Math.max(params.limit, 0)
+  const offset = Math.max(params.offset, 0)
+  requireWithinResultWindow(limit, offset)
   const hasFacets = params.facets !== null && params.facets.length > 0
   const facetSize = resolveAndClampFacetSize(params.facetSize, resolvedConfig.defaultFacetSize)
   const facetShardSize = hasFacets ? Math.ceil(facetSize * 1.5) + 10 : null
@@ -95,6 +97,7 @@ export async function distributedQuery(
       indexName,
       params,
       limit,
+      offset,
       facetShardSize,
       facetSize,
       totalPartitions,
@@ -108,6 +111,7 @@ export async function distributedQuery(
     indexName,
     params,
     limit,
+    offset,
     facetShardSize,
     facetSize,
     totalPartitions,
@@ -126,6 +130,7 @@ async function executeSingleFanOut(
   indexName: string,
   params: WireQueryParams,
   limit: number,
+  offset: number,
   facetShardSize: number | null,
   facetSize: number,
   totalPartitions: number,
@@ -138,7 +143,8 @@ async function executeSingleFanOut(
     globalStats = await collectDistributedStats(indexName, params, routing.nodeToPartitions, deps, config)
   }
 
-  const searchParams: WireQueryParams = globalStats !== null ? { ...params } : params
+  const depth = limit + offset
+  const searchParams: WireQueryParams = { ...params, limit: depth, offset: 0 }
 
   const outcomes = await fanOutSearch(
     indexName,
@@ -185,14 +191,15 @@ async function executeSingleFanOut(
     }
   }
 
-  const mergedScored =
+  const merged =
     sortFields !== null
       ? mergeAndTruncateSortedEntries(
           allScored,
-          limit,
+          depth,
           sortFields.map(field => field.direction),
         )
-      : mergeAndTruncateScoredEntries(allScored, limit)
+      : mergeAndTruncateScoredEntries(allScored, depth)
+  const mergedScored = offset > 0 ? merged.slice(offset) : merged
   const mergedFacets = allFacets.length > 0 ? mergeDistributedFacets(allFacets, facetSize) : null
 
   let cursor: string | null = null
@@ -234,6 +241,7 @@ async function executeHybridQuery(
   indexName: string,
   params: WireQueryParams,
   limit: number,
+  offset: number,
   facetShardSize: number | null,
   facetSize: number,
   totalPartitions: number,
@@ -241,8 +249,9 @@ async function executeHybridQuery(
   deps: QueryRoutingDeps,
   config: DistributedQueryConfig,
 ): Promise<DistributedQueryResult> {
-  const textParams: WireQueryParams = { ...params, vector: null, hybrid: null }
-  const vectorParams: WireQueryParams = { ...params, term: null, hybrid: null }
+  const depth = limit + offset
+  const textParams: WireQueryParams = { ...params, vector: null, hybrid: null, limit: depth, offset: 0 }
+  const vectorParams: WireQueryParams = { ...params, term: null, hybrid: null, limit: depth, offset: 0 }
 
   let textGlobalStats: GlobalStatistics | null = null
   if (params.scoring === 'dfs') {
@@ -294,8 +303,8 @@ async function executeHybridQuery(
     }
   }
 
-  const mergedText = mergeAndTruncateScoredEntries(textScored, limit)
-  const mergedVector = mergeAndTruncateScoredEntries(vectorScored, limit)
+  const mergedText = mergeAndTruncateScoredEntries(textScored, depth)
+  const mergedVector = mergeAndTruncateScoredEntries(vectorScored, depth)
 
   const hybrid = params.hybrid
   let fused: ScoredEntry[]
@@ -307,7 +316,7 @@ async function executeHybridQuery(
     fused = mergedText
   }
 
-  const truncated = fused.slice(0, limit)
+  const truncated = fused.slice(offset, depth)
   const mergedFacets = allFacets.length > 0 ? mergeDistributedFacets(allFacets, facetSize) : null
 
   let cursor: string | null = null

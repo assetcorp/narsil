@@ -48,6 +48,7 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.SEARCH_INVALID_FILTER).toBe('SEARCH_INVALID_FILTER')
     expect(ErrorCodes.SEARCH_INVALID_MODE).toBe('SEARCH_INVALID_MODE')
     expect(ErrorCodes.SEARCH_INVALID_CURSOR).toBe('SEARCH_INVALID_CURSOR')
+    expect(ErrorCodes.SEARCH_RESULT_WINDOW_EXCEEDED).toBe('SEARCH_RESULT_WINDOW_EXCEEDED')
   })
 
   it('has language and envelope error codes', () => {
@@ -128,8 +129,8 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.SNAPSHOT_SYNC_ABORTED).toBe('SNAPSHOT_SYNC_ABORTED')
   })
 
-  it('has exactly 88 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(88)
+  it('has exactly 89 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(89)
   })
 
   it('has unique values for every code', () => {

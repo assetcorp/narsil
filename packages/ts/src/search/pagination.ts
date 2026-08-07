@@ -1,5 +1,19 @@
 import { compareCodePoints, compareSortValues, type SortDirection, toComparableSortValue } from '../core/ordering'
+import { ErrorCodes, NarsilError } from '../errors'
 import { decodePageCursor, encodePageCursor, type PageCursor, requireMatchingCursor } from './cursor'
+
+export const RESULT_WINDOW = 10_000
+export const DEFAULT_PAGE_SIZE = 10
+
+export function requireWithinResultWindow(limit: number, offset: number): void {
+  const depth = offset + limit
+  if (depth <= RESULT_WINDOW) return
+  throw new NarsilError(
+    ErrorCodes.SEARCH_RESULT_WINDOW_EXCEEDED,
+    `A request reaches the first ${RESULT_WINDOW} results, and offset + limit is ${depth}. Page past that with the cursor each result carries`,
+    { limit, offset, window: RESULT_WINDOW },
+  )
+}
 
 export interface PaginationSortContext {
   signature: string
