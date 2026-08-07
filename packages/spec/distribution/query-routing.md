@@ -154,7 +154,7 @@ With `allowPartialResults` set to false, any partition failure or timeout fails 
 
 ## Distributed Facets
 
-Each data node counts facets over its own partitions, and the coordinator merges those counts.
+Each data node counts facets over its own partitions, and the coordinator merges those counts. A count covers every document the query matches rather than the documents the page returns.
 
 ```text
 1. The coordinator computes the oversampled bucket count:

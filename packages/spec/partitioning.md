@@ -184,7 +184,8 @@ A search against a multi-partition index runs on a coordinator that queries ever
 3. Collect the results from every partition.
 4. Merge them into one sorted list.
 5. Apply limit and offset, or the searchAfter cursor.
-6. Merge facet counts by summing them, when facets are requested.
+6. Count facets over every matching document and sum the counts,
+   when facets are requested.
 7. Merge groups by group key, keeping maxPerGroup, when groups
    are requested.
 8. Encode the cursor for the next page, when there is one.
@@ -224,7 +225,9 @@ The distributed scoring formulas are in [Distributed BM25](algorithms.md#distrib
 
 ## Deep Pagination
 
-Narsil supports two ways to page through results.
+Narsil supports two ways to page through results, and one window bounds how deep either reaches.
+
+A query pages no further than the first 10,000 results, which is the result window. `offset + limit` must not exceed the window, and a request beyond it raises `SEARCH_RESULT_WINDOW_EXCEEDED`, which names the cursor as the way to reach the rest. A cursor pages past the window, because each page returns the `limit` results that follow its anchor. The engine considers every matching document when a query carries a sort, a group, a `threshold`, or a `termMatch` other than `any`, whatever the window. `count` reports the number of matching documents exactly.
 
 ### Offset and Limit
 
@@ -277,12 +280,12 @@ A cursor carries `s` or `k`, never both. A search without a sort anchors on `s` 
 
 A reader must reject a cursor, raising `SEARCH_INVALID_CURSOR`, when any rule below fails:
 
-- The encoded cursor is longer than 8,192 characters.
+- The encoded cursor is longer than 40,960 characters, which covers the largest payload the rules below allow.
 - `v` is not 2, or `a` is empty, missing, or longer than 512 code points.
 - `k` holds more than 8 values, or a value that is not a string of at most 512 code points, a finite number, a boolean, or null.
 - `o` and `k` do not arrive together, or `o` differs from the request's own sort.
 
-A sort names at most 8 fields, because the cursor carries one value per field. More raises `SEARCH_INVALID_FIELD`.
+A sort names at most 8 fields, because the cursor carries one value per field. More raises `SEARCH_INVALID_FIELD`. A sort field name holds at most 255 characters, and a longer name raises `SEARCH_INVALID_FIELD` as well.
 
 #### Tiebreaking
 
