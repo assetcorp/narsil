@@ -1,4 +1,5 @@
 import { type ResolvedAnalysis, resolveIndexAnalysis } from '../analysis/registry'
+import type { ComparableSortValue } from '../core/ordering'
 import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../core/partition'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { SerializablePartition } from '../types/internal'
@@ -33,6 +34,11 @@ export interface PartitionManager {
   rebuildTextIndex(partitionId: number): void
   get(docId: string, keepVectorField?: (fieldPath: string) => boolean): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
+  sortValues(
+    docId: string,
+    fields: readonly string[],
+    fieldTypes: readonly (string | undefined)[],
+  ): ComparableSortValue[]
   has(docId: string): boolean
   countDocuments(): number
 
@@ -295,6 +301,16 @@ export function createPartitionManager(
       const pid = docPartitionMap.get(docId)
       if (pid === undefined) return undefined
       return partitions[pid].getRef(docId)
+    },
+
+    sortValues(
+      docId: string,
+      fields: readonly string[],
+      fieldTypes: readonly (string | undefined)[],
+    ): ComparableSortValue[] {
+      const pid = docPartitionMap.get(docId)
+      if (pid === undefined) return fields.map(() => null)
+      return partitions[pid].sortValues(docId, fields, fieldTypes)
     },
 
     has(docId: string): boolean {

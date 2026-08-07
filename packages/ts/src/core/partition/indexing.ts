@@ -1,4 +1,5 @@
 import { createGeoIndex } from '../../geo/geo-index'
+import { isTextFieldType } from '../../schema/validator'
 import type { LanguageModule } from '../../types/language'
 import type { FieldType } from '../../types/schema'
 import type { ReadonlyStoredDocument } from '../document-store'
@@ -209,7 +210,7 @@ export function indexDocument(
 
     ensureFieldIndex(state, fieldPath, fieldType)
 
-    if (fieldType === 'string') {
+    if (isTextFieldType(fieldType)) {
       indexStringField(state, internalId, fieldPath, value as string, language, options, fieldLengths, tokensByField)
     } else if (fieldType === 'number') {
       getOrCreateNumericIndex(state, fieldPath).insert(internalId, value as number)
@@ -266,7 +267,7 @@ export function removeFromIndexes(
     const value = getNestedValue(fields as Record<string, unknown>, fieldPath)
     if (value === undefined || value === null) continue
 
-    if (fieldType === 'string') {
+    if (isTextFieldType(fieldType)) {
       const result = tokenize(value as string, language, opts)
       fieldLengths[fieldPath] = result.tokens.length
       const uniqueTokens = new Set<string>()

@@ -48,7 +48,7 @@ describe('handleSearch on a data node', () => {
     const engine = await createClusterLocalEngine()
     try {
       await engine.createIndex('products', {
-        schema: { title: 'string', description: 'string', price: 'number' },
+        schema: { title: 'string:sortable', description: 'string', price: 'number' },
       })
       await engine.insert('products', { title: 'Zebra', description: 'listed item', price: 3 }, 'doc-1')
       await engine.insert('products', { title: 'apple', description: 'listed item', price: 2 }, 'doc-2')
@@ -87,7 +87,7 @@ describe('handleSearch on a data node', () => {
   it('keeps the wire order of a sort naming an all-digit field', async () => {
     const engine = await createClusterLocalEngine()
     try {
-      await engine.createIndex('products', { schema: { title: 'string', 2024: 'number' } })
+      await engine.createIndex('products', { schema: { title: 'string:sortable', 2024: 'number' } })
       await engine.insert('products', { title: 'alpha listed item', 2024: 1 }, 'doc-1')
       await engine.insert('products', { title: 'beta listed item', 2024: 9 }, 'doc-2')
 
