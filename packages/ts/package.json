@@ -61,6 +61,8 @@
     "api:write": "tsx scripts/api-surface.ts --write",
     "lookalikes": "tsx scripts/lookalike-counts.ts",
     "lookalikes:collect": "tsx scripts/lookalike-counts.ts --collect",
+    "fold-table": "tsx scripts/fold-table.ts",
+    "fold-table:write": "tsx scripts/fold-table.ts --write",
     "lint": "biome check src/",
     "typecheck:src": "tsc --noEmit",
     "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
