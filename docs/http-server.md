@@ -68,6 +68,6 @@ curl -X POST localhost:9876/indexes/movies/documents/_list \
 
 Send the cursor back on the next request, and stop once it comes back null. The cursor holds no server state, so nothing expires when a client stops paging. A client that saved a cursor can resume against a server that has restarted since.
 
-The server bounds `limit` by `limits.maxFetchDocuments`, which defaults to 10,000, and answers 400 `INVALID_REQUEST` for a larger value. It answers a body naming more than eight `sort` fields the same way. For a cursor it never issued, or one sent back under a different `sort`, it answers 400 `SEARCH_INVALID_CURSOR`.
+The server bounds `limit` by `limits.maxFetchDocuments`, which defaults to 10,000, and answers 400 `INVALID_REQUEST` for a larger value. It answers a body naming more than eight `sort` fields the same way. A search whose `offset` plus `limit` passes the 10,000-result window answers 400 `SEARCH_RESULT_WINDOW_EXCEEDED`, which names the cursor as the way to page further. For a cursor it never issued, or one sent back under a different `sort`, it answers 400 `SEARCH_INVALID_CURSOR`.
 
 The [HTTP server example](../packages/ts/examples/http-server/README.md) documents every endpoint with request and response bodies, curl walkthroughs, Docker packaging, and the environment-driven configuration of a production launcher.

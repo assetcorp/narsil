@@ -26,7 +26,7 @@ Field conditions live under `fields`, and the `and`, `or`, and `not` combinators
 
 ## Facets
 
-Facets return value counts alongside the hits for building filter UIs. String and enum facets take a `limit` and a `sort` direction, and numeric facets take explicit `ranges`.
+Facets return value counts alongside the hits for building filter UIs. Each count covers every document the query matches rather than the documents the page returns, so the counts stay the same whatever `limit` you ask for. String and enum facets take a `limit` and a `sort` direction, and numeric facets take explicit `ranges`.
 
 ```ts
 const results = await narsil.query('products', {
@@ -44,12 +44,24 @@ const results = await narsil.query('products', {
 
 `sort` orders hits by field values instead of score. Multiple entries apply in order, so the second field breaks ties in the first. When every sort field ties, the engine orders the tied hits by document id.
 
-The engine compares string values by their Unicode case fold, so `apple` orders between `Apple` and `Banana`. Two values with an equal fold compare by their raw code points. The engine reads no locale, so a sorted page is the same on every machine. A sort names at most eight fields, because the paging cursor carries one value for each of them.
+The engine compares string values by their Unicode case fold, so `apple` orders between `Apple` and `Banana`. Two values with an equal fold compare by their raw code points. The engine reads no locale, so a sorted page is the same on every machine. A sort names at most eight fields, because the paging cursor carries one value for each of them, and each field name holds at most 255 characters.
 
 ```ts
 const results = await narsil.query('products', {
   term: 'keyboard',
   sort: { price: 'asc', title: 'asc' },
+})
+```
+
+A sort also takes a list, which is the form to use where the order of the fields matters and an object cannot carry it, because JavaScript moves an all-digit key such as `2024` to the front of an object.
+
+```ts
+const results = await narsil.query('sales', {
+  term: 'keyboard',
+  sort: [
+    { field: 'region', direction: 'asc' },
+    { field: '2024', direction: 'desc' },
+  ],
 })
 ```
 
@@ -97,6 +109,8 @@ if (firstPage.cursor) {
 ```
 
 A cursor is only valid for the same query parameters it came from. A malformed cursor fails with `SEARCH_INVALID_CURSOR`.
+
+`offset` and `limit` together reach the first 10,000 results, which is the result window. A request past it throws `SEARCH_RESULT_WINDOW_EXCEEDED`, and a cursor pages beyond it because each page returns the `limit` results that follow its anchor. The window bounds paging depth rather than what the engine considers: a sort, a group, a `minScore`, and a `termMatch` other than `any` each read every matching document, and `count` reports the number of matches exactly.
 
 ## Pinning
 
