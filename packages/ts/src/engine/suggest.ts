@@ -1,3 +1,4 @@
+import { compareCodePoints } from '../core/ordering'
 import { tokenize } from '../core/tokenizer'
 import type { PartitionManager } from '../partitioning/manager'
 import type { LanguageModule } from '../types/language'
@@ -51,7 +52,7 @@ export function executeSuggest(
 
   const terms = Array.from(merged.values())
     .map(entry => ({ term: pickDisplaySurface(entry.surfaceOccurrences), documentFrequency: entry.documentFrequency }))
-    .sort((a, b) => b.documentFrequency - a.documentFrequency || (a.term < b.term ? -1 : 1))
+    .sort((a, b) => b.documentFrequency - a.documentFrequency || compareCodePoints(a.term, b.term))
 
   if (terms.length > limit) terms.length = limit
 
@@ -62,7 +63,7 @@ function pickDisplaySurface(surfaceOccurrences: Map<string, number>): string {
   let best = ''
   let bestCount = -1
   for (const [surface, occurrences] of surfaceOccurrences) {
-    if (occurrences > bestCount || (occurrences === bestCount && surface < best)) {
+    if (occurrences > bestCount || (occurrences === bestCount && compareCodePoints(surface, best) < 0)) {
       best = surface
       bestCount = occurrences
     }

@@ -1,82 +1,26 @@
-import { ErrorCodes, NarsilError } from '../errors'
-import { decodeCursorText, encodeCursorText } from './cursor-codec'
+import { compareCodePoints, compareSortValues, type SortDirection, toComparableSortValue } from '../core/ordering'
+import { decodePageCursor, encodePageCursor, type PageCursor, requireMatchingCursor } from './cursor'
 
-export interface SearchCursor {
-  s: number
-  d: string
-  p: number
+export interface PaginationSortContext {
+  signature: string
+  directions: readonly SortDirection[]
+  sortKeyOf(docId: string): readonly unknown[]
 }
 
-export function encodeCursor(state: SearchCursor[]): string {
-  return encodeCursorText(JSON.stringify(state))
-}
-
-export function decodeCursor(encoded: string): SearchCursor[] {
-  let json: string
-  try {
-    json = decodeCursorText(encoded)
-  } catch {
-    throw new NarsilError(ErrorCodes.SEARCH_INVALID_CURSOR, 'Failed to decode cursor: invalid base64 encoding', {
-      cursor: encoded,
-    })
+function ordersAfterAnchor<T extends { id: string; score: number }>(
+  result: T,
+  anchor: PageCursor,
+  sort: PaginationSortContext | undefined,
+): boolean {
+  if (sort !== undefined && anchor.sortKey !== null) {
+    const comparison =
+      compareSortValues(sort.sortKeyOf(result.id), anchor.sortKey, sort.directions) ||
+      compareCodePoints(result.id, anchor.anchor)
+    return comparison > 0
   }
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(json)
-  } catch {
-    throw new NarsilError(ErrorCodes.SEARCH_INVALID_CURSOR, 'Failed to decode cursor: invalid JSON', {
-      cursor: encoded,
-    })
-  }
-
-  if (!Array.isArray(parsed)) {
-    throw new NarsilError(ErrorCodes.SEARCH_INVALID_CURSOR, 'Invalid cursor structure: expected an array', {
-      cursor: encoded,
-    })
-  }
-
-  for (let i = 0; i < parsed.length; i++) {
-    const entry = parsed[i]
-    if (typeof entry !== 'object' || entry === null) {
-      throw new NarsilError(
-        ErrorCodes.SEARCH_INVALID_CURSOR,
-        `Invalid cursor entry at index ${i}: expected an object`,
-        {
-          cursor: encoded,
-          index: i,
-        },
-      )
-    }
-
-    const { s, d, p } = entry as Record<string, unknown>
-
-    if (typeof s !== 'number' || !Number.isFinite(s)) {
-      throw new NarsilError(
-        ErrorCodes.SEARCH_INVALID_CURSOR,
-        `Invalid cursor entry at index ${i}: "s" must be a finite number`,
-        { cursor: encoded, index: i },
-      )
-    }
-
-    if (typeof d !== 'string') {
-      throw new NarsilError(
-        ErrorCodes.SEARCH_INVALID_CURSOR,
-        `Invalid cursor entry at index ${i}: "d" must be a string`,
-        { cursor: encoded, index: i },
-      )
-    }
-
-    if (typeof p !== 'number' || !Number.isInteger(p) || p < 0) {
-      throw new NarsilError(
-        ErrorCodes.SEARCH_INVALID_CURSOR,
-        `Invalid cursor entry at index ${i}: "p" must be a non-negative integer`,
-        { cursor: encoded, index: i },
-      )
-    }
-  }
-
-  return parsed as SearchCursor[]
+  if (anchor.score === null) return true
+  if (result.score < anchor.score) return true
+  return result.score === anchor.score && compareCodePoints(result.id, anchor.anchor) > 0
 }
 
 export function applyPagination<T extends { id: string; score: number }>(
@@ -84,6 +28,7 @@ export function applyPagination<T extends { id: string; score: number }>(
   limit: number,
   offset: number,
   cursor?: string,
+  sort?: PaginationSortContext,
 ): { paginated: T[]; nextCursor?: string } {
   if (limit <= 0) {
     return { paginated: [] }
@@ -92,17 +37,14 @@ export function applyPagination<T extends { id: string; score: number }>(
   let startIndex = 0
 
   if (cursor) {
-    const cursorState = decodeCursor(cursor)
-    const anchor = cursorState[0]
+    const decoded = decodePageCursor(cursor)
+    requireMatchingCursor(decoded, cursor, sort?.signature ?? null, true)
 
+    startIndex = results.length
     for (let i = 0; i < results.length; i++) {
-      const result = results[i]
-      if (result.score < anchor.s || (result.score === anchor.s && result.id > anchor.d)) {
+      if (ordersAfterAnchor(results[i], decoded, sort)) {
         startIndex = i
         break
-      }
-      if (i === results.length - 1) {
-        startIndex = results.length
       }
     }
   }
@@ -115,8 +57,15 @@ export function applyPagination<T extends { id: string; score: number }>(
   const hasMore = afterOffset + limit < results.length
   if (hasMore && sliced.length > 0) {
     const lastResult = sliced[sliced.length - 1]
-    const cursorState: SearchCursor[] = [{ s: lastResult.score, d: lastResult.id, p: 0 }]
-    nextCursor = encodeCursor(cursorState)
+    nextCursor =
+      sort !== undefined
+        ? encodePageCursor({
+            anchor: lastResult.id,
+            score: null,
+            sortKey: sort.sortKeyOf(lastResult.id).map(toComparableSortValue),
+            sortSignature: sort.signature,
+          })
+        : encodePageCursor({ anchor: lastResult.id, score: lastResult.score, sortKey: null, sortSignature: null })
   }
 
   return { paginated: sliced, nextCursor }

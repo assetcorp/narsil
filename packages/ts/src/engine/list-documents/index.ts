@@ -1,13 +1,19 @@
+import { compareCodePoints, type SortDirection } from '../../core/ordering'
 import type { PartitionIndex } from '../../core/partition'
 import type { PartitionManager } from '../../partitioning/manager'
-import type { SortDirection } from '../../search/sorting'
+import {
+  decodePageCursor,
+  encodePageCursor,
+  type PageCursor,
+  requireMatchingCursor,
+  sortSignatureOf,
+} from '../../search/cursor'
 import type { FilterExpression } from '../../types/filters'
 import type { ListedDocument, ListResult } from '../../types/results'
 import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { ListParams } from '../../types/search'
 import { applyProjection, projectionKeepsField, resolveProjection } from '../query/projection'
 import { clampLimit, now } from '../validation'
-import { decodeListCursor, encodeListCursor, type ListCursor, requireMatchingSort, sortSignatureOf } from './cursor'
 import { selectSortedPage } from './sort'
 
 export interface ListContext {
@@ -17,7 +23,7 @@ export interface ListContext {
 
 interface DocumentPage {
   ids: string[]
-  nextCursor: ListCursor | null
+  nextCursor: PageCursor | null
 }
 
 function clampListLimit(limit: number | undefined): number {
@@ -29,7 +35,7 @@ function firstIdAfter(sorted: readonly string[], anchor: string): number {
   let high = sorted.length
   while (low < high) {
     const mid = (low + high) >>> 1
-    if (sorted[mid] <= anchor) low = mid + 1
+    if (compareCodePoints(sorted[mid], anchor) <= 0) low = mid + 1
     else high = mid
   }
   return low
@@ -68,7 +74,7 @@ function collectCandidates(
 
 function pageInIdOrder(
   partitions: PartitionIndex[],
-  cursor: ListCursor | null,
+  cursor: PageCursor | null,
   matches: Set<string> | null,
   limit: number,
 ): DocumentPage {
@@ -77,19 +83,19 @@ function pageInIdOrder(
   for (const partition of partitions) {
     collectCandidates(partition, anchor, matches, limit + 1, candidates)
   }
-  candidates.sort()
+  candidates.sort(compareCodePoints)
 
   const hasMore = candidates.length > limit
   const ids = hasMore ? candidates.slice(0, limit) : candidates
   const nextCursor =
-    hasMore && ids.length > 0 ? { anchor: ids[ids.length - 1], sortKey: null, sortSignature: null } : null
+    hasMore && ids.length > 0 ? { anchor: ids[ids.length - 1], score: null, sortKey: null, sortSignature: null } : null
 
   return { ids, nextCursor }
 }
 
 function pageInSortOrder(
   partitions: PartitionIndex[],
-  cursor: ListCursor | null,
+  cursor: PageCursor | null,
   matches: Set<string> | null,
   limit: number,
   sort: Record<string, SortDirection>,
@@ -116,7 +122,7 @@ function pageInSortOrder(
   const last = selection.page[selection.page.length - 1]
   const hasMore = selection.matching > selection.page.length
   const nextCursor =
-    hasMore && last !== undefined ? { anchor: last.id, sortKey: last.key, sortSignature: signature } : null
+    hasMore && last !== undefined ? { anchor: last.id, score: null, sortKey: last.key, sortSignature: signature } : null
 
   return { ids: selection.page.map(entry => entry.id), nextCursor }
 }
@@ -135,10 +141,10 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
   const limit = clampListLimit(params.limit)
   const signature = sortSignatureOf(params.sort)
 
-  let cursor: ListCursor | null = null
+  let cursor: PageCursor | null = null
   if (params.cursor !== undefined) {
-    cursor = decodeListCursor(params.cursor)
-    requireMatchingSort(cursor, params.cursor, signature)
+    cursor = decodePageCursor(params.cursor)
+    requireMatchingCursor(cursor, params.cursor, signature, false)
   }
 
   const partitions = manager.getAllPartitions()
@@ -170,7 +176,7 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
 
   return {
     documents,
-    cursor: page.nextCursor === null ? null : encodeListCursor(page.nextCursor),
+    cursor: page.nextCursor === null ? null : encodePageCursor(page.nextCursor),
     total,
     elapsed: now() - startTime,
   }

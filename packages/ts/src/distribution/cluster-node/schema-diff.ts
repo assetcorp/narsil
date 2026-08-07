@@ -1,3 +1,4 @@
+import { compareCodePoints } from '../../core/ordering'
 import { MAX_NESTING_DEPTH } from '../../schema/validator'
 import type { SchemaDefinition } from '../../types/schema'
 
@@ -45,7 +46,7 @@ function walk(
     return
   }
 
-  const expectedKeys = Object.keys(expected).sort()
+  const expectedKeys = Object.keys(expected).sort(compareCodePoints)
   const actualKeys = new Set(Object.keys(actual))
 
   for (const key of expectedKeys) {

@@ -1,3 +1,4 @@
+import { compareCodePoints } from '../../core/ordering'
 import type { ScoredDocument } from '../../types/internal'
 import type { VectorMetric } from '../brute-force'
 import { magnitude } from '../similarity'
@@ -116,7 +117,7 @@ export function search(
     })
   }
 
-  results.sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
+  results.sort((a, b) => b.score - a.score || compareCodePoints(a.docId, b.docId))
   return results.slice(0, k)
 }
 
@@ -164,6 +165,6 @@ function rerankWithFullPrecision(
     if (reranked.length >= rerankLimit) break
   }
 
-  reranked.sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
+  reranked.sort((a, b) => b.score - a.score || compareCodePoints(a.docId, b.docId))
   return reranked.slice(0, k)
 }

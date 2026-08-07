@@ -1,3 +1,4 @@
+import { compareCodePoints } from '../../core/ordering'
 import type { ScoredEntry } from '../transport/types'
 
 export interface DistributedRRFOptions {
@@ -19,9 +20,7 @@ function compareFusedEntries(a: ScoredEntry, b: ScoredEntry): number {
   if (a.score !== b.score) {
     return b.score - a.score
   }
-  if (a.docId < b.docId) return -1
-  if (a.docId > b.docId) return 1
-  return 0
+  return compareCodePoints(a.docId, b.docId)
 }
 
 export function distributedRRF(lists: ScoredEntry[][], options: DistributedRRFOptions): ScoredEntry[] {

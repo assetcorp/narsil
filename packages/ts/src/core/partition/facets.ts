@@ -1,6 +1,7 @@
 import type { FacetResult } from '../../types/results'
 import type { SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
+import { compareCodePoints } from '../ordering'
 import { getFieldValueForDoc, getFlatSchema, type PartitionState } from './utils'
 
 export function computeFacets(
@@ -56,7 +57,7 @@ export function computeFacets(
 
     let entries = Array.from(valueCounts.entries())
     const sortDir = facetOpts.sort ?? 'desc'
-    entries.sort((a, b) => (sortDir === 'asc' ? a[1] - b[1] : b[1] - a[1]))
+    entries.sort((a, b) => (sortDir === 'asc' ? a[1] - b[1] : b[1] - a[1]) || compareCodePoints(a[0], b[0]))
 
     if (facetOpts.limit && facetOpts.limit > 0) {
       entries = entries.slice(0, facetOpts.limit)

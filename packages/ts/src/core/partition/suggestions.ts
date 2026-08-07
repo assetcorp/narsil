@@ -1,3 +1,4 @@
+import { compareCodePoints } from '../ordering'
 import type { PartitionState } from './utils'
 
 export interface PartitionSuggestion {
@@ -67,7 +68,7 @@ export function suggestDisplayTerms(
   for (const [token, group] of groups) {
     results.push({ token, documentFrequency: group.documentFrequency, surfaces: group.surfaces })
   }
-  results.sort((a, b) => b.documentFrequency - a.documentFrequency || (a.token < b.token ? -1 : 1))
+  results.sort((a, b) => b.documentFrequency - a.documentFrequency || compareCodePoints(a.token, b.token))
   if (results.length > limit) results.length = limit
   return results
 }
@@ -105,7 +106,7 @@ export function expandTermPrefix(
   }
 
   const entries = Array.from(dfByToken.entries())
-  entries.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+  entries.sort((a, b) => b[1] - a[1] || compareCodePoints(a[0], b[0]))
   if (entries.length > maxExpansions) entries.length = maxExpansions
   return entries.map(e => e[0])
 }

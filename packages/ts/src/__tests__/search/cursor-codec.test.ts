@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { decodePageCursor, encodePageCursor, type PageCursor } from '../../search/cursor'
 import { decodeCursorText, encodeCursorText } from '../../search/cursor-codec'
-import { decodeCursor, encodeCursor, type SearchCursor } from '../../search/pagination'
 
 const OUTSIDE_LATIN1 = '文件-🔍-é'
 
@@ -18,9 +18,9 @@ describe('cursor codec', () => {
     expect(decodeCursorText(encodeCursorText(OUTSIDE_LATIN1))).toBe(OUTSIDE_LATIN1)
   })
 
-  it('round-trips a search cursor holding such a document id with no Buffer', () => {
+  it('round-trips a page cursor holding such a document id with no Buffer', () => {
     vi.stubGlobal('Buffer', undefined)
-    const state: SearchCursor[] = [{ s: 1.5, d: OUTSIDE_LATIN1, p: 0 }]
-    expect(decodeCursor(encodeCursor(state))).toEqual(state)
+    const cursor: PageCursor = { anchor: OUTSIDE_LATIN1, score: 1.5, sortKey: null, sortSignature: null }
+    expect(decodePageCursor(encodePageCursor(cursor))).toEqual(cursor)
   })
 })

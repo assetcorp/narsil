@@ -10,6 +10,7 @@ import {
 } from './common'
 
 const MAX_RESULTS_PER_PARTITION = 10_000
+const MAX_SORT_VALUES = 8
 
 const MAX_FACET_FIELDS = 64
 const MAX_FACET_BUCKETS = 10_000
@@ -35,6 +36,26 @@ function validateScoredEntry(value: unknown, fieldLabel: string): void {
   if (value.sortValues !== null) {
     if (!Array.isArray(value.sortValues)) {
       throwInvalid(CONFIG_INVALID, `Invalid SearchResultPayload: "${fieldLabel}.sortValues" must be an array or null`)
+    }
+    if (value.sortValues.length > MAX_SORT_VALUES) {
+      throwInvalid(
+        CONFIG_INVALID,
+        `Invalid SearchResultPayload: "${fieldLabel}.sortValues" carries more than ${MAX_SORT_VALUES} values`,
+        { length: value.sortValues.length, limit: MAX_SORT_VALUES },
+      )
+    }
+    for (const sortValue of value.sortValues) {
+      if (
+        sortValue !== null &&
+        typeof sortValue !== 'string' &&
+        typeof sortValue !== 'boolean' &&
+        !isFiniteNumber(sortValue)
+      ) {
+        throwInvalid(
+          CONFIG_INVALID,
+          `Invalid SearchResultPayload: "${fieldLabel}.sortValues" accepts a string, a finite number, a boolean, or null`,
+        )
+      }
     }
   }
 }

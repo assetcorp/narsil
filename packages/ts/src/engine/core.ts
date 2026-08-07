@@ -1,4 +1,5 @@
 import { generateId } from '../core/id-generator'
+import { compareCodePoints } from '../core/ordering'
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
 import type { PartitionManager } from '../partitioning/manager'
@@ -113,7 +114,9 @@ function createDurabilityFromTier(tier: DurabilityTier | null, wiring: Durabilit
         analysisRevision: entry.language.revision,
         ...(typeof entry.config.tokenizer === 'string' ? { tokenizer: entry.config.tokenizer } : {}),
         ...(typeof entry.config.stopWords === 'string' ? { stopWords: entry.config.stopWords } : {}),
-        ...(entry.config.stopWords instanceof Set ? { stopWordList: [...entry.config.stopWords].sort() } : {}),
+        ...(entry.config.stopWords instanceof Set
+          ? { stopWordList: [...entry.config.stopWords].sort(compareCodePoints) }
+          : {}),
         ...(entry.config.partitions !== undefined ? { partitionLimits: entry.config.partitions } : {}),
         ...(entry.config.defaultScoring !== undefined ? { defaultScoring: entry.config.defaultScoring } : {}),
         ...(entry.config.trackPositions !== undefined ? { trackPositions: entry.config.trackPositions } : {}),

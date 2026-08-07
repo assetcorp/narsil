@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { ErrorCodes, NarsilError } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
 import type { IndexConfig, SchemaDefinition } from '../../types/schema'
 
@@ -145,5 +146,24 @@ describe('vector search through Narsil query API', () => {
     expect(result.hits.length).toBeGreaterThan(0)
     const ids = result.hits.map(h => h.id)
     expect(ids).toContain('text-and-vec')
+  })
+
+  it('rejects a hybrid query carrying a sort with SEARCH_INVALID_MODE', async () => {
+    await narsil.insert('docs', { title: 'wireless headphones', embedding: paddedVector(0.9, 0.1) }, 'doc-1')
+
+    let error: unknown
+    try {
+      await narsil.query('docs', {
+        term: 'wireless',
+        vector: { field: 'embedding', value: paddedVector(1.0, 0.0) },
+        mode: 'hybrid',
+        sort: { title: 'asc' },
+        limit: 3,
+      })
+    } catch (e) {
+      error = e
+    }
+    expect(error).toBeInstanceOf(NarsilError)
+    expect((error as NarsilError).code).toBe(ErrorCodes.SEARCH_INVALID_MODE)
   })
 })

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { applyPagination, decodeCursor, encodeCursor, type SearchCursor } from '../../search/pagination'
+import { encodePageCursor } from '../../search/cursor'
+import { applyPagination, type PaginationSortContext } from '../../search/pagination'
 
 function makeResults(count: number): Array<{ id: string; score: number }> {
   return Array.from({ length: count }, (_, i) => ({
@@ -10,107 +11,6 @@ function makeResults(count: number): Array<{ id: string; score: number }> {
 }
 
 describe('pagination', () => {
-  describe('encodeCursor and decodeCursor', () => {
-    it('round-trips a single cursor entry', () => {
-      const state: SearchCursor[] = [{ s: 5.5, d: 'doc42', p: 0 }]
-      const encoded = encodeCursor(state)
-      const decoded = decodeCursor(encoded)
-      expect(decoded).toEqual(state)
-    })
-
-    it('round-trips multiple cursor entries for multi-partition state', () => {
-      const state: SearchCursor[] = [
-        { s: 10.2, d: 'doc1', p: 0 },
-        { s: 8.7, d: 'doc5', p: 1 },
-        { s: 3.1, d: 'doc9', p: 2 },
-      ]
-      const encoded = encodeCursor(state)
-      const decoded = decodeCursor(encoded)
-      expect(decoded).toEqual(state)
-    })
-
-    it('round-trips an empty array', () => {
-      const state: SearchCursor[] = []
-      const encoded = encodeCursor(state)
-      const decoded = decodeCursor(encoded)
-      expect(decoded).toEqual([])
-    })
-
-    it('round-trips cursor entries with zero score', () => {
-      const state: SearchCursor[] = [{ s: 0, d: 'doc0', p: 0 }]
-      const encoded = encodeCursor(state)
-      const decoded = decodeCursor(encoded)
-      expect(decoded).toEqual(state)
-    })
-  })
-
-  describe('decodeCursor validation', () => {
-    it('throws SEARCH_INVALID_CURSOR for invalid base64', () => {
-      expect(() => decodeCursor('!!!not-base64!!!')).toThrow(NarsilError)
-      try {
-        decodeCursor('!!!not-base64!!!')
-      } catch (e) {
-        expect((e as NarsilError).code).toBe(ErrorCodes.SEARCH_INVALID_CURSOR)
-      }
-    })
-
-    it('throws SEARCH_INVALID_CURSOR for truncated JSON', () => {
-      const truncated =
-        typeof Buffer !== 'undefined' ? Buffer.from('{"s":1,"d"').toString('base64') : btoa('{"s":1,"d"')
-      expect(() => decodeCursor(truncated)).toThrow(NarsilError)
-      try {
-        decodeCursor(truncated)
-      } catch (e) {
-        expect((e as NarsilError).code).toBe(ErrorCodes.SEARCH_INVALID_CURSOR)
-      }
-    })
-
-    it('throws SEARCH_INVALID_CURSOR when decoded value is not an array', () => {
-      const notArray =
-        typeof Buffer !== 'undefined'
-          ? Buffer.from('{"s":1,"d":"x","p":0}').toString('base64')
-          : btoa('{"s":1,"d":"x","p":0}')
-      expect(() => decodeCursor(notArray)).toThrow(NarsilError)
-      try {
-        decodeCursor(notArray)
-      } catch (e) {
-        expect((e as NarsilError).code).toBe(ErrorCodes.SEARCH_INVALID_CURSOR)
-      }
-    })
-
-    it('throws SEARCH_INVALID_CURSOR when entry has non-finite score', () => {
-      const encoded =
-        typeof Buffer !== 'undefined'
-          ? Buffer.from(JSON.stringify([{ s: null, d: 'doc1', p: 0 }])).toString('base64')
-          : btoa(JSON.stringify([{ s: null, d: 'doc1', p: 0 }]))
-      expect(() => decodeCursor(encoded)).toThrow(NarsilError)
-    })
-
-    it('throws SEARCH_INVALID_CURSOR when entry has non-string docId', () => {
-      const encoded =
-        typeof Buffer !== 'undefined'
-          ? Buffer.from(JSON.stringify([{ s: 1.0, d: 123, p: 0 }])).toString('base64')
-          : btoa(JSON.stringify([{ s: 1.0, d: 123, p: 0 }]))
-      expect(() => decodeCursor(encoded)).toThrow(NarsilError)
-    })
-
-    it('throws SEARCH_INVALID_CURSOR when entry has negative partition index', () => {
-      const encoded =
-        typeof Buffer !== 'undefined'
-          ? Buffer.from(JSON.stringify([{ s: 1.0, d: 'doc1', p: -1 }])).toString('base64')
-          : btoa(JSON.stringify([{ s: 1.0, d: 'doc1', p: -1 }]))
-      expect(() => decodeCursor(encoded)).toThrow(NarsilError)
-    })
-
-    it('throws SEARCH_INVALID_CURSOR when entry has fractional partition index', () => {
-      const encoded =
-        typeof Buffer !== 'undefined'
-          ? Buffer.from(JSON.stringify([{ s: 1.0, d: 'doc1', p: 0.5 }])).toString('base64')
-          : btoa(JSON.stringify([{ s: 1.0, d: 'doc1', p: 0.5 }]))
-      expect(() => decodeCursor(encoded)).toThrow(NarsilError)
-    })
-  })
-
   describe('applyPagination', () => {
     it('returns first page with limit and zero offset', () => {
       const results = makeResults(10)
@@ -177,7 +77,12 @@ describe('pagination', () => {
       expect(firstPage.nextCursor).toBeUndefined()
 
       const lastItem = results[results.length - 1]
-      const fakeCursor = encodeCursor([{ s: lastItem.score, d: lastItem.id, p: 0 }])
+      const fakeCursor = encodePageCursor({
+        anchor: lastItem.id,
+        score: lastItem.score,
+        sortKey: null,
+        sortSignature: null,
+      })
       const nextPage = applyPagination(results, 3, 0, fakeCursor)
       expect(nextPage.paginated).toHaveLength(0)
     })
@@ -190,7 +95,7 @@ describe('pagination', () => {
       expect(secondPage.paginated[0].id).toBe('doc4')
     })
 
-    it('handles results with tied scores', () => {
+    it('resumes past tied scores by document id', () => {
       const results = [
         { id: 'a', score: 5 },
         { id: 'b', score: 5 },
@@ -199,8 +104,71 @@ describe('pagination', () => {
         { id: 'e', score: 1 },
       ]
       const firstPage = applyPagination(results, 2, 0)
-      expect(firstPage.paginated).toHaveLength(2)
+      expect(firstPage.paginated.map(r => r.id)).toEqual(['a', 'b'])
       expect(firstPage.nextCursor).toBeDefined()
+
+      const secondPage = applyPagination(results, 2, 0, firstPage.nextCursor)
+      expect(secondPage.paginated.map(r => r.id)).toEqual(['c', 'd'])
+    })
+
+    it('rejects a sorted cursor on an unsorted search', () => {
+      const results = makeResults(3)
+      const sortedCursor = encodePageCursor({
+        anchor: 'doc1',
+        score: null,
+        sortKey: ['Widget'],
+        sortSignature: '[["title","asc"]]',
+      })
+      expect(() => applyPagination(results, 3, 0, sortedCursor)).toThrow(NarsilError)
+      try {
+        applyPagination(results, 3, 0, sortedCursor)
+      } catch (e) {
+        expect((e as NarsilError).code).toBe(ErrorCodes.SEARCH_INVALID_CURSOR)
+      }
+    })
+  })
+
+  describe('sorted pagination', () => {
+    const titles: Record<string, string> = {
+      doc1: 'Apple',
+      doc2: 'apple',
+      doc3: 'Banana',
+      doc4: 'Zebra',
+      doc5: 'école',
+    }
+    const sortedResults = ['doc1', 'doc2', 'doc3', 'doc4', 'doc5'].map(id => ({ id, score: 0 }))
+    const sortContext: PaginationSortContext = {
+      signature: '[["title","asc"]]',
+      directions: ['asc'],
+      sortKeyOf: docId => [titles[docId]],
+    }
+
+    it('anchors on sort values and pages in sort value order', () => {
+      const firstPage = applyPagination(sortedResults, 2, 0, undefined, sortContext)
+      expect(firstPage.paginated.map(r => r.id)).toEqual(['doc1', 'doc2'])
+      expect(firstPage.nextCursor).toBeDefined()
+
+      const secondPage = applyPagination(sortedResults, 2, 0, firstPage.nextCursor, sortContext)
+      expect(secondPage.paginated.map(r => r.id)).toEqual(['doc3', 'doc4'])
+
+      const thirdPage = applyPagination(sortedResults, 2, 0, secondPage.nextCursor, sortContext)
+      expect(thirdPage.paginated.map(r => r.id)).toEqual(['doc5'])
+      expect(thirdPage.nextCursor).toBeUndefined()
+    })
+
+    it('rejects a cursor made under a different sort', () => {
+      const otherSort = encodePageCursor({
+        anchor: 'doc2',
+        score: null,
+        sortKey: [10],
+        sortSignature: '[["price","desc"]]',
+      })
+      expect(() => applyPagination(sortedResults, 2, 0, otherSort, sortContext)).toThrow(NarsilError)
+    })
+
+    it('rejects a score cursor on a sorted search', () => {
+      const scoreCursor = encodePageCursor({ anchor: 'doc2', score: 4.5, sortKey: null, sortSignature: null })
+      expect(() => applyPagination(sortedResults, 2, 0, scoreCursor, sortContext)).toThrow(NarsilError)
     })
   })
 
@@ -217,23 +185,11 @@ describe('pagination', () => {
       expect(paginated).toEqual([])
     })
 
-    it('handles offset larger than results length', () => {
-      const results = makeResults(5)
-      const { paginated, nextCursor } = applyPagination(results, 10, 100)
-      expect(paginated).toEqual([])
-      expect(nextCursor).toBeUndefined()
-    })
-
     it('handles cursor pointing past all results', () => {
       const results = makeResults(3)
-      const cursor = encodeCursor([{ s: -999, d: 'zzz', p: 0 }])
+      const cursor = encodePageCursor({ anchor: 'zzz', score: -999, sortKey: null, sortSignature: null })
       const { paginated } = applyPagination(results, 10, 0, cursor)
       expect(paginated).toEqual([])
-    })
-
-    it('cursor decode rejects Infinity in score field', () => {
-      const tampered = Buffer.from(JSON.stringify([{ s: Infinity, d: 'x', p: 0 }])).toString('base64')
-      expect(() => decodeCursor(tampered)).toThrow(NarsilError)
     })
   })
 })

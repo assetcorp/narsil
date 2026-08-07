@@ -59,13 +59,17 @@ export function makeQueryParams(overrides: Partial<WireQueryParams> = {}): WireQ
 }
 
 export function makeSearchResultResponse(
-  partitionResults: Array<{ partitionId: number; scored: Array<{ docId: string; score: number }>; totalHits: number }>,
+  partitionResults: Array<{
+    partitionId: number
+    scored: Array<{ docId: string; score: number; sortValues?: unknown[] }>
+    totalHits: number
+  }>,
   facets: Record<string, Array<{ value: string; count: number }>> | null = null,
 ): SearchResultPayload {
   return {
     results: partitionResults.map(r => ({
       partitionId: r.partitionId,
-      scored: r.scored.map(s => ({ docId: s.docId, score: s.score, sortValues: null })),
+      scored: r.scored.map(s => ({ docId: s.docId, score: s.score, sortValues: s.sortValues ?? null })),
       totalHits: r.totalHits,
     })),
     facets,

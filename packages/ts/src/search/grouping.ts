@@ -1,3 +1,4 @@
+import { compareCodePoints } from '../core/ordering'
 import type { GroupResult, Hit } from '../types/results'
 import type { AnyDocument } from '../types/schema'
 import type { GroupConfig } from '../types/search'
@@ -82,7 +83,10 @@ export function applyGrouping<T = AnyDocument>(
   groups.sort((a, b) => {
     const aScore = a.hits.length > 0 ? a.hits[0].score : 0
     const bScore = b.hits.length > 0 ? b.hits[0].score : 0
-    return bScore - aScore
+    if (aScore !== bScore) return bScore - aScore
+    const aId = a.hits.length > 0 ? a.hits[0].id : ''
+    const bId = b.hits.length > 0 ? b.hits[0].id : ''
+    return compareCodePoints(aId, bId)
   })
 
   return groups

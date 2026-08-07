@@ -6,6 +6,7 @@ import type {
   PostingList,
 } from '../types/internal'
 import { boundedLevenshtein } from './fuzzy'
+import { compareCodePoints } from './ordering'
 import {
   COMPACTION_THRESHOLD,
   compactDocEntries,
@@ -225,7 +226,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
         results.push({ term, documentFrequency: list.docIdSet.size })
       }
 
-      results.sort((a, b) => b.documentFrequency - a.documentFrequency)
+      results.sort((a, b) => b.documentFrequency - a.documentFrequency || compareCodePoints(a.term, b.term))
       if (results.length > limit) results.length = limit
       return results
     },

@@ -1,8 +1,10 @@
+import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
+import { sortSignatureOf } from '../../search/cursor'
 import { applyGrouping } from '../../search/grouping'
-import { applyPagination } from '../../search/pagination'
+import { applyPagination, type PaginationSortContext } from '../../search/pagination'
 import { applyPinning } from '../../search/pinning'
-import { applySorting } from '../../search/sorting'
+import { applySorting, readSortValues } from '../../search/sorting'
 import type { GroupResult, Hit, PreflightResult, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
@@ -22,11 +24,20 @@ export async function executeQuery<T = AnyDocument>(
   const startTime = now()
   const limit = clampLimit(params.limit)
   const offset = clampOffset(params.offset)
+  const sortSignature = sortSignatureOf(params.sort)
 
   const hasTerm = params.term !== undefined && params.term.trim().length > 0
   const hasVector = params.vector !== undefined && params.vector.value !== undefined
   const isHybridMode = params.mode === 'hybrid' || (hasTerm && hasVector)
   const isVectorOnly = (params.mode === 'vector' || (hasVector && !hasTerm)) && !isHybridMode
+
+  if (sortSignature !== null && (isHybridMode || params.hybrid !== undefined)) {
+    throw new NarsilError(
+      ErrorCodes.SEARCH_INVALID_MODE,
+      'A hybrid query cannot carry a sort, because fusion defines the order of hybrid results',
+      { sort: Object.keys(params.sort ?? {}) },
+    )
+  }
 
   const requestedVectorField = params.vector?.field
   const hasGlobalVectorIndex =
@@ -99,7 +110,27 @@ export async function executeQuery<T = AnyDocument>(
     })
   }
 
-  const { paginated, nextCursor } = applyPagination(hits, limit, offset, params.searchAfter)
+  let sortContext: PaginationSortContext | undefined
+  if (params.sort !== undefined && sortSignature !== null) {
+    const sortSpec = params.sort
+    const sortFields = Object.keys(sortSpec)
+    const sortDirections = sortFields.map(field => sortSpec[field])
+    const sortKeyCache = new Map<string, unknown[]>()
+    sortContext = {
+      signature: sortSignature,
+      directions: sortDirections,
+      sortKeyOf(docId: string): readonly unknown[] {
+        let key = sortKeyCache.get(docId)
+        if (key === undefined) {
+          key = readSortValues(manager.getRef(docId) as AnyDocument | undefined, sortFields)
+          sortKeyCache.set(docId, key)
+        }
+        return key
+      },
+    }
+  }
+
+  const { paginated, nextCursor } = applyPagination(hits, limit, offset, params.searchAfter, sortContext)
 
   const projection = resolveProjection(params.document)
   const keepVectorField = (fieldPath: string): boolean => projectionKeepsField(projection, fieldPath)
