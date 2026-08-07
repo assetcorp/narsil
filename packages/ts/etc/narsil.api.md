@@ -215,7 +215,7 @@ export interface FacetResult {
 export type FieldFilter = ComparisonFilter | StringFilter | ArrayFilter | PresenceFilter | GeoFilter;
 
 // @public
-export type FieldType = 'string' | 'number' | 'boolean' | 'enum' | 'geopoint' | `vector[${number}]` | 'string[]' | 'number[]' | 'boolean[]' | 'enum[]';
+export type FieldType = 'string' | 'string:sortable' | 'number' | 'boolean' | 'enum' | 'geopoint' | `vector[${number}]` | 'string[]' | 'number[]' | 'boolean[]' | 'enum[]';
 
 // @public
 export type FilterExpression = {
