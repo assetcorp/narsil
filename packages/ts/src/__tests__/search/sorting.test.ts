@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { applySorting } from '../../search/sorting'
+import { toComparableSortValue } from '../../core/ordering'
+import { applySorting, readFieldValue } from '../../search/sorting'
 import type { Hit } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
+import type { SortSpec } from '../../types/search'
 
 function makeHit(id: string, score: number): Hit {
   return { id, score, document: {} }
 }
 
-function makeDocStore(docs: Record<string, AnyDocument>): (docId: string) => AnyDocument | undefined {
-  return (docId: string) => docs[docId]
+function sortWith(hits: Hit[], sort: SortSpec, docs: Record<string, AnyDocument>): Hit[] {
+  const fields = Object.keys(sort)
+  return applySorting(hits, sort, docId =>
+    fields.map(field => toComparableSortValue(readFieldValue(docs[docId] ?? {}, field))),
+  )
 }
 
 describe('applySorting', () => {
@@ -20,7 +25,7 @@ describe('applySorting', () => {
         c: { price: 20 },
       }
       const hits = [makeHit('a', 1), makeHit('b', 2), makeHit('c', 3)]
-      const result = applySorting(hits, { price: 'asc' }, makeDocStore(docs))
+      const result = sortWith(hits, { price: 'asc' }, docs)
       expect(result.map(h => h.id)).toEqual(['b', 'c', 'a'])
     })
 
@@ -31,7 +36,7 @@ describe('applySorting', () => {
         c: { price: 20 },
       }
       const hits = [makeHit('a', 1), makeHit('b', 2), makeHit('c', 3)]
-      const result = applySorting(hits, { price: 'desc' }, makeDocStore(docs))
+      const result = sortWith(hits, { price: 'desc' }, docs)
       expect(result.map(h => h.id)).toEqual(['a', 'c', 'b'])
     })
   })
@@ -44,7 +49,7 @@ describe('applySorting', () => {
         c: { name: 'cherry' },
       }
       const hits = [makeHit('a', 1), makeHit('b', 2), makeHit('c', 3)]
-      const result = applySorting(hits, { name: 'asc' }, makeDocStore(docs))
+      const result = sortWith(hits, { name: 'asc' }, docs)
       expect(result.map(h => h.id)).toEqual(['b', 'a', 'c'])
     })
 
@@ -55,7 +60,7 @@ describe('applySorting', () => {
         c: { name: 'cherry' },
       }
       const hits = [makeHit('a', 1), makeHit('b', 2), makeHit('c', 3)]
-      const result = applySorting(hits, { name: 'desc' }, makeDocStore(docs))
+      const result = sortWith(hits, { name: 'desc' }, docs)
       expect(result.map(h => h.id)).toEqual(['c', 'a', 'b'])
     })
   })
@@ -68,7 +73,7 @@ describe('applySorting', () => {
         c: { active: true },
       }
       const hits = [makeHit('a', 1), makeHit('b', 2), makeHit('c', 3)]
-      const result = applySorting(hits, { active: 'asc' }, makeDocStore(docs))
+      const result = sortWith(hits, { active: 'asc' }, docs)
       expect(result[0].id).toBe('b')
     })
 
@@ -79,7 +84,7 @@ describe('applySorting', () => {
         c: { active: false },
       }
       const hits = [makeHit('a', 1), makeHit('b', 2), makeHit('c', 3)]
-      const result = applySorting(hits, { active: 'desc' }, makeDocStore(docs))
+      const result = sortWith(hits, { active: 'desc' }, docs)
       expect(result[0].id).toBe('b')
     })
   })
@@ -92,7 +97,7 @@ describe('applySorting', () => {
         c: { category: 'vegetable', price: 20 },
       }
       const hits = [makeHit('a', 1), makeHit('b', 2), makeHit('c', 3)]
-      const result = applySorting(hits, { category: 'asc', price: 'asc' }, makeDocStore(docs))
+      const result = sortWith(hits, { category: 'asc', price: 'asc' }, docs)
       expect(result.map(h => h.id)).toEqual(['b', 'a', 'c'])
     })
   })
@@ -105,7 +110,7 @@ describe('applySorting', () => {
         c: { price: 5 },
       }
       const hits = [makeHit('a', 1), makeHit('b', 2), makeHit('c', 3)]
-      const result = applySorting(hits, { price: 'asc' }, makeDocStore(docs))
+      const result = sortWith(hits, { price: 'asc' }, docs)
       expect(result[0].id).toBe('c')
       expect(result[1].id).toBe('a')
       expect(result[2].id).toBe('b')
@@ -118,7 +123,7 @@ describe('applySorting', () => {
         c: { price: 5 },
       }
       const hits = [makeHit('a', 1), makeHit('b', 2), makeHit('c', 3)]
-      const result = applySorting(hits, { price: 'desc' }, makeDocStore(docs))
+      const result = sortWith(hits, { price: 'desc' }, docs)
       expect(result[0].id).toBe('a')
       expect(result[1].id).toBe('c')
       expect(result[2].id).toBe('b')
@@ -133,7 +138,7 @@ describe('applySorting', () => {
         c: { score: 10 },
       }
       const hits = [makeHit('a', 1), makeHit('b', 2), makeHit('c', 3)]
-      const result = applySorting(hits, { score: 'asc' }, makeDocStore(docs))
+      const result = sortWith(hits, { score: 'asc' }, docs)
       expect(result[0].id).toBe('b')
       expect(result[1].id).toBe('c')
       expect(result[2].id).toBe('a')
@@ -146,7 +151,7 @@ describe('applySorting', () => {
         c: { score: 10 },
       }
       const hits = [makeHit('a', 1), makeHit('b', 2), makeHit('c', 3)]
-      const result = applySorting(hits, { score: 'desc' }, makeDocStore(docs))
+      const result = sortWith(hits, { score: 'desc' }, docs)
       expect(result[0].id).toBe('c')
       expect(result[1].id).toBe('b')
       expect(result[2].id).toBe('a')
@@ -155,13 +160,13 @@ describe('applySorting', () => {
 
   describe('empty inputs', () => {
     it('returns empty array when hits array is empty', () => {
-      const result = applySorting([], { price: 'asc' }, () => undefined)
+      const result = sortWith([], { price: 'asc' }, {})
       expect(result).toEqual([])
     })
 
     it('returns hits unchanged when sort config is empty', () => {
       const hits = [makeHit('a', 3), makeHit('b', 1)]
-      const result = applySorting(hits, {}, () => undefined)
+      const result = sortWith(hits, {}, {})
       expect(result.map(h => h.id)).toEqual(['a', 'b'])
     })
   })
@@ -174,7 +179,7 @@ describe('applySorting', () => {
         c: { metadata: { rating: 2 } },
       }
       const hits = [makeHit('a', 1), makeHit('b', 2), makeHit('c', 3)]
-      const result = applySorting(hits, { 'metadata.rating': 'asc' }, makeDocStore(docs))
+      const result = sortWith(hits, { 'metadata.rating': 'asc' }, docs)
       expect(result.map(h => h.id)).toEqual(['b', 'c', 'a'])
     })
   })
@@ -187,7 +192,7 @@ describe('applySorting', () => {
       }
       const hits = [makeHit('a', 1), makeHit('b', 2)]
       const originalOrder = hits.map(h => h.id)
-      applySorting(hits, { price: 'asc' }, makeDocStore(docs))
+      sortWith(hits, { price: 'asc' }, docs)
       expect(hits.map(h => h.id)).toEqual(originalOrder)
     })
   })

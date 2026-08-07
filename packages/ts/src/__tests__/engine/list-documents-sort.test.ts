@@ -5,7 +5,7 @@ import type { ListResult } from '../../types/results'
 import type { SchemaDefinition } from '../../types/schema'
 
 const schema: SchemaDefinition = {
-  title: 'string',
+  title: 'string:sortable',
   rank: 'number',
   genre: 'enum',
 }

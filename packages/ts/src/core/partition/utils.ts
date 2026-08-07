@@ -1,5 +1,5 @@
 import type { GeoIndex } from '../../geo/geo-index'
-import { flattenSchema } from '../../schema/validator'
+import { flattenSchema, isTextFieldType } from '../../schema/validator'
 import type { FieldNameTable } from '../../types/internal'
 import type { CustomTokenizer, FieldType, SchemaDefinition } from '../../types/schema'
 import type { DocumentStore } from '../document-store'
@@ -7,6 +7,7 @@ import type { BooleanFieldIndex, EnumFieldIndex, NumericFieldIndex } from '../fi
 import type { InvertedIndex } from '../inverted-index'
 import type { PartitionStats } from '../statistics'
 import type { SurfaceRegistry } from '../surface-registry'
+import type { SortColumnSet } from './sort-columns'
 
 export interface PartitionState {
   invertedIdx: InvertedIndex
@@ -21,6 +22,7 @@ export interface PartitionState {
   flatSchemaCache: Record<string, FieldType> | null
   lastSchemaRef: SchemaDefinition | null
   trackPositions: boolean
+  sortColumns: SortColumnSet | null
 }
 
 export function getOrCreateFieldNameIndex(table: FieldNameTable, fieldName: string): number {
@@ -69,10 +71,10 @@ export function textFieldsChanged(
   flatSchema: Record<string, FieldType>,
 ): boolean {
   for (const [path, fieldType] of Object.entries(flatSchema)) {
-    if (fieldType !== 'string' && fieldType !== 'string[]') continue
+    if (!isTextFieldType(fieldType) && fieldType !== 'string[]') continue
     const oldVal = getNestedValue(oldDoc as Record<string, unknown>, path)
     const newVal = getNestedValue(newDoc, path)
-    if (fieldType === 'string') {
+    if (fieldType !== 'string[]') {
       if (oldVal !== newVal) return true
     } else {
       if (!stringArraysEqual(oldVal as unknown[] | undefined, newVal as unknown[] | undefined)) return true

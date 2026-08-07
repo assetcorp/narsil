@@ -18,10 +18,15 @@ export type AnyDocument = Record<string, unknown> & { id?: string }
  * and `vector[N]` holds an N-dimensional embedding. Each array form indexes
  * every element of the field.
  *
+ * `string:sortable` is a `string` in every respect, and a sort may name it.
+ * Ordering text costs far more memory per document than ordering a number, so
+ * a sort naming a plain `string` field raises `SEARCH_INVALID_FIELD`.
+ *
  * @public
  */
 export type FieldType =
   | 'string'
+  | 'string:sortable'
   | 'number'
   | 'boolean'
   | 'enum'

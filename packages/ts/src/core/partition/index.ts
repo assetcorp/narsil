@@ -15,21 +15,33 @@ import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
 import { createDocumentStore } from '../document-store'
 import { createInvertedIndex } from '../inverted-index'
+import type { ComparableSortValue } from '../ordering'
 import { createPartitionStats, type PartitionStats } from '../statistics'
 import { createSurfaceRegistry } from '../surface-registry'
 import { computeFacets } from './facets'
 import { updateFieldIndexOnly } from './field-updates'
 import { applyPartitionFilters, applyPartitionFiltersBitset } from './filters'
 import { indexDocument, removeFromIndexes } from './indexing'
+import { estimatePartitionBytes } from './memory'
 import { rebuildTextIndex } from './rebuild'
 import { searchFulltext } from './search'
 import { deserializePartition, serializePartition } from './serialization'
+import {
+  forgetSortValues,
+  recordSortValues,
+  refreshSortColumns,
+  type SortedPageEntry,
+  type SortPageRequest,
+  sortedPageOf,
+  sortValuesOf,
+} from './sorting'
 import { expandTermPrefix, type PartitionSuggestion, suggestDisplayTerms } from './suggestions'
 import { getFlatSchema, type PartitionInsertOptions, type PartitionState, textFieldsChanged } from './utils'
 import { serializePartitionToWirePayloadV2 } from './wire-payload'
 
 export type { GlobalStatistics, InternalSearchParams, InternalSearchResult, ScoredDocument }
 export type { PartitionInsertOptions }
+export type { SortedPageEntry, SortPageRequest } from './sorting'
 export type { PartitionSuggestion } from './suggestions'
 
 export interface PartitionIndex {
@@ -64,6 +76,12 @@ export interface PartitionIndex {
   clear(): void
 
   searchFulltext(params: InternalSearchParams): InternalSearchResult
+  sortedPage(request: SortPageRequest): SortedPageEntry[]
+  sortValues(
+    docId: string,
+    fields: readonly string[],
+    fieldTypes: readonly (string | undefined)[],
+  ): ComparableSortValue[]
   applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string>
   applyFiltersBitset(filters: FilterExpression, schema: SchemaDefinition): Uint32Array
   computeFacets(docIds: Set<string>, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult>
@@ -98,6 +116,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     flatSchemaCache: null,
     lastSchemaRef: null,
     trackPositions,
+    sortColumns: null,
   }
 
   function clearAll(): void {
@@ -115,6 +134,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     state.stats.deserialize({ totalDocuments: 0, totalFieldLengths: {}, averageFieldLengths: {}, docFrequencies: {} })
     state.flatSchemaCache = null
     state.lastSchemaRef = null
+    state.sortColumns = null
   }
 
   const partition: PartitionIndex = {
@@ -147,7 +167,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
         }
       }
 
-      state.docStore.ensureInternalId(docId)
+      const internalId = state.docStore.ensureInternalId(docId)
       const flatSchema = getFlatSchema(state, schema)
       const { fieldLengths, tokensByField } = indexDocument(
         state,
@@ -163,6 +183,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
         state.docStore.store(docId, document, fieldLengths)
       }
       state.stats.addDocument(fieldLengths, tokensByField)
+      recordSortValues(state, internalId, document as Record<string, unknown>)
     },
 
     remove(docId: string, schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void {
@@ -176,8 +197,10 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
 
       const flatSchema = getFlatSchema(state, schema)
       const { fieldLengths, tokensByField } = removeFromIndexes(state, docId, stored, flatSchema, language, options)
+      const internalId = state.docStore.getInternalId(docId)
       state.docStore.remove(docId)
       state.stats.removeDocument(fieldLengths, tokensByField)
+      forgetSortValues(state, internalId)
     },
 
     beginBatch(): void {
@@ -186,6 +209,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
 
     endBatch(): void {
       state.invertedIdx.endBatch()
+      refreshSortColumns(state)
     },
 
     update(
@@ -223,8 +247,10 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
           options,
         )
         state.stats.removeDocument(oldFieldLengths, oldTokens)
+        const previousInternalId = state.docStore.getInternalId(docId)
         state.docStore.remove(docId)
-        state.docStore.ensureInternalId(docId)
+        forgetSortValues(state, previousInternalId)
+        const internalId = state.docStore.ensureInternalId(docId)
 
         const { fieldLengths: newFieldLengths, tokensByField: newTokens } = indexDocument(
           state,
@@ -236,9 +262,12 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
         )
         state.docStore.store(docId, document, newFieldLengths)
         state.stats.addDocument(newFieldLengths, newTokens)
+        recordSortValues(state, internalId, document as Record<string, unknown>)
       } else {
         updateFieldIndexOnly(state, docId, stored.fields, document as Record<string, unknown>, flatSchema)
         state.docStore.store(docId, document, stored.fieldLengths)
+        const internalId = state.docStore.getInternalId(docId)
+        if (internalId !== undefined) recordSortValues(state, internalId, document as Record<string, unknown>)
       }
     },
 
@@ -283,38 +312,23 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     clear: clearAll,
 
     estimateMemoryBytes(): number {
-      const docCount = state.docStore.count()
-      if (docCount === 0) return 0
-
-      const AVG_DOC_OVERHEAD = 350
-      let bytes = docCount * AVG_DOC_OVERHEAD
-
-      const docFreqs = state.stats.docFrequencies
-      const POSTING_ENTRY_SIZE = 24
-      const PER_TERM_OVERHEAD = 180
-      let totalPostings = 0
-      let termCount = 0
-      for (const term in docFreqs) {
-        totalPostings += docFreqs[term]
-        termCount++
-      }
-      bytes += totalPostings * POSTING_ENTRY_SIZE
-      bytes += termCount * PER_TERM_OVERHEAD
-
-      const SURFACE_ENTRY_OVERHEAD = 140
-      bytes += state.surfaceRegistry.size() * SURFACE_ENTRY_OVERHEAD
-
-      const FIELD_ENTRY_OVERHEAD = 42
-      bytes += docCount * state.numericIndexes.size * FIELD_ENTRY_OVERHEAD
-      bytes += docCount * state.booleanIndexes.size * FIELD_ENTRY_OVERHEAD
-      bytes += docCount * state.enumIndexes.size * FIELD_ENTRY_OVERHEAD
-      bytes += docCount * state.geoIndexes.size * FIELD_ENTRY_OVERHEAD
-
-      return bytes
+      return estimatePartitionBytes(state)
     },
 
     searchFulltext(params: InternalSearchParams): InternalSearchResult {
       return searchFulltext(state, params)
+    },
+
+    sortedPage(request: SortPageRequest): SortedPageEntry[] {
+      return sortedPageOf(state, request)
+    },
+
+    sortValues(
+      docId: string,
+      fields: readonly string[],
+      fieldTypes: readonly (string | undefined)[],
+    ): ComparableSortValue[] {
+      return sortValuesOf(state, docId, fields, fieldTypes)
     },
 
     applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string> {

@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FieldType } from '../../types/schema'
-import { isPlainObject, VECTOR_PATTERN } from './shared'
+import { isPlainObject, SORTABLE_TEXT_FIELD_TYPE, VECTOR_PATTERN } from './shared'
 
 export function validateGeopoint(path: string, value: unknown): void {
   if (!isPlainObject(value)) {
@@ -111,6 +111,7 @@ export function validateTypedArray(path: string, value: unknown, elementType: 's
 export function validateFieldValue(path: string, value: unknown, type: FieldType): void {
   switch (type) {
     case 'string':
+    case SORTABLE_TEXT_FIELD_TYPE:
       if (typeof value !== 'string') {
         throw new NarsilError(
           ErrorCodes.DOC_VALIDATION_FAILED,

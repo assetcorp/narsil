@@ -1,6 +1,7 @@
-import { compareCodePoints } from '../../core/ordering'
-import type { PartitionIndex } from '../../core/partition'
+import { compareCodePoints, compareComparableKeys } from '../../core/ordering'
+import type { PartitionIndex, SortedPageEntry } from '../../core/partition'
 import type { PartitionManager } from '../../partitioning/manager'
+import { flattenSchema } from '../../schema/validator'
 import {
   decodePageCursor,
   encodePageCursor,
@@ -9,13 +10,13 @@ import {
   sortSignatureOf,
 } from '../../search/cursor'
 import { requireWithinResultWindow } from '../../search/pagination'
+import { normalizeSort, requireSortableFields } from '../../search/sorting'
 import type { FilterExpression } from '../../types/filters'
 import type { ListedDocument, ListResult } from '../../types/results'
 import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { ListParams, SortSpec } from '../../types/search'
 import { applyProjection, projectionKeepsField, resolveProjection } from '../query/projection'
 import { clampLimit, now } from '../validation'
-import { selectSortedPage } from './sort'
 
 export interface ListContext {
   manager: PartitionManager
@@ -103,31 +104,37 @@ function pageInSortOrder(
   limit: number,
   sort: SortSpec,
   signature: string,
-  manager: PartitionManager,
+  schema: SchemaDefinition,
 ): DocumentPage {
-  const candidates: string[] = []
-  for (const partition of partitions) {
-    for (const docId of partition.sortedDocIds()) {
-      if (matches !== null && !matches.has(docId)) continue
-      candidates.push(docId)
-    }
+  const normalized = normalizeSort(sort)
+  const fields = normalized.map(entry => entry.field)
+  const directions = normalized.map(entry => entry.direction)
+  const flatSchema = flattenSchema(schema)
+  const fieldTypes = fields.map(field => flatSchema[field])
+
+  const request = {
+    fields,
+    directions,
+    fieldTypes,
+    limit: limit + 1,
+    anchorKey: cursor === null ? null : cursor.sortKey,
+    anchorId: cursor === null ? null : cursor.anchor,
+    matches,
   }
 
-  const selection = selectSortedPage(
-    candidates,
-    sort,
-    docId => manager.getRef(docId),
-    limit,
-    cursor === null ? null : cursor.sortKey,
-    cursor === null ? null : cursor.anchor,
-  )
+  const merged: SortedPageEntry[] = []
+  for (const partition of partitions) {
+    for (const entry of partition.sortedPage(request)) merged.push(entry)
+  }
+  merged.sort((a, b) => compareComparableKeys(a.key, b.key, directions) || compareCodePoints(a.id, b.id))
 
-  const last = selection.page[selection.page.length - 1]
-  const hasMore = selection.matching > selection.page.length
+  const hasMore = merged.length > limit
+  const page = hasMore ? merged.slice(0, limit) : merged
+  const last = page[page.length - 1]
   const nextCursor =
     hasMore && last !== undefined ? { anchor: last.id, score: null, sortKey: last.key, sortSignature: signature } : null
 
-  return { ids: selection.page.map(entry => entry.id), nextCursor }
+  return { ids: page.map(entry => entry.id), nextCursor }
 }
 
 /**
@@ -143,6 +150,7 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
   const startTime = now()
   const limit = clampListLimit(params.limit)
   const signature = sortSignatureOf(params.sort)
+  requireSortableFields(params.sort, schema)
 
   let cursor: PageCursor | null = null
   if (params.cursor !== undefined) {
@@ -157,7 +165,7 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
   const page =
     params.sort === undefined || signature === null
       ? pageInIdOrder(partitions, cursor, matches, limit)
-      : pageInSortOrder(partitions, cursor, matches, limit, params.sort, signature, manager)
+      : pageInSortOrder(partitions, cursor, matches, limit, params.sort, signature, schema)
 
   const projection = resolveProjection(params.document)
   const keepVectorField = (fieldPath: string): boolean => projectionKeepsField(projection, fieldPath)

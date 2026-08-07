@@ -1,10 +1,12 @@
+import type { ComparableSortValue } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
+import { flattenSchema } from '../../schema/validator'
 import { sortSignatureOf } from '../../search/cursor'
 import { applyGrouping } from '../../search/grouping'
 import { applyPagination, type PaginationSortContext, requireWithinResultWindow } from '../../search/pagination'
 import { applyPinning } from '../../search/pinning'
-import { applySorting, normalizeSort, readSortValues } from '../../search/sorting'
+import { applySorting, normalizeSort, requireSortableFields } from '../../search/sorting'
 import type { GroupResult, Hit, PreflightResult, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
@@ -40,6 +42,8 @@ export async function executeQuery<T = AnyDocument>(
       { sort: sortFields.map(entry => entry.field) },
     )
   }
+
+  requireSortableFields(params.sort, config.schema)
 
   const requestedVectorField = params.vector?.field
   const hasGlobalVectorIndex =
@@ -95,8 +99,21 @@ export async function executeQuery<T = AnyDocument>(
     }
   }
 
+  const sortFieldNames = sortFields.map(entry => entry.field)
+  const sortFlatSchema = sortFieldNames.length === 0 ? {} : flattenSchema(config.schema)
+  const sortFieldTypes = sortFieldNames.map(field => sortFlatSchema[field])
+  const sortKeyCache = new Map<string, readonly ComparableSortValue[]>()
+  const sortKeyOf = (docId: string): readonly ComparableSortValue[] => {
+    let key = sortKeyCache.get(docId)
+    if (key === undefined) {
+      key = manager.sortValues(docId, sortFieldNames, sortFieldTypes)
+      sortKeyCache.set(docId, key)
+    }
+    return key
+  }
+
   if (params.sort) {
-    hits = applySorting(hits, params.sort, (docId: string) => manager.getRef(docId) as AnyDocument | undefined)
+    hits = applySorting(hits, params.sort, sortKeyOf)
   }
 
   let groups: GroupResult[] | undefined
@@ -114,20 +131,10 @@ export async function executeQuery<T = AnyDocument>(
 
   let sortContext: PaginationSortContext | undefined
   if (sortSignature !== null) {
-    const fieldNames = sortFields.map(entry => entry.field)
-    const sortDirections = sortFields.map(entry => entry.direction)
-    const sortKeyCache = new Map<string, unknown[]>()
     sortContext = {
       signature: sortSignature,
-      directions: sortDirections,
-      sortKeyOf(docId: string): readonly unknown[] {
-        let key = sortKeyCache.get(docId)
-        if (key === undefined) {
-          key = readSortValues(manager.getRef(docId) as AnyDocument | undefined, fieldNames)
-          sortKeyCache.set(docId, key)
-        }
-        return key
-      },
+      directions: sortFields.map(entry => entry.direction),
+      sortKeyOf,
     }
   }
 

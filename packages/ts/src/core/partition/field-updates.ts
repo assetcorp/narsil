@@ -1,3 +1,4 @@
+import { isTextFieldType } from '../../schema/validator'
 import type { FieldType } from '../../types/schema'
 import { ensureFieldIndex } from './indexing'
 import { getNestedValue, type PartitionState } from './utils'
@@ -20,7 +21,7 @@ export function updateFieldIndexOnly(
   const internalId = resolveInternalId(state, docId)
 
   for (const [fieldPath, fieldType] of Object.entries(flatSchema)) {
-    if (fieldType === 'string' || fieldType === 'string[]') continue
+    if (isTextFieldType(fieldType) || fieldType === 'string[]') continue
 
     const oldVal = getNestedValue(oldFields as Record<string, unknown>, fieldPath)
     const newVal = getNestedValue(newDoc, fieldPath)

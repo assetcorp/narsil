@@ -1,6 +1,14 @@
-import { compareCodePoints, compareSortValues, type SortDirection } from '../core/ordering'
+import {
+  type ComparableSortValue,
+  compareCodePoints,
+  compareComparableKeys,
+  readSortField,
+  type SortDirection,
+} from '../core/ordering'
+import { ErrorCodes, NarsilError } from '../errors'
+import { flattenSchema, SORTABLE_TEXT_FIELD_TYPE } from '../schema/validator'
 import type { Hit } from '../types/results'
-import type { AnyDocument } from '../types/schema'
+import type { AnyDocument, SchemaDefinition } from '../types/schema'
 import type { SortField, SortSpec } from '../types/search'
 
 export type { SortDirection } from '../core/ordering'
@@ -18,19 +26,23 @@ export function normalizeSort(sort: SortSpec | undefined): SortField[] {
   return Object.entries(sort).map(([field, direction]) => ({ field, direction }))
 }
 
-export function readFieldValue(obj: AnyDocument, path: string): unknown {
-  const segments = path.split('.')
-  let current: unknown = obj
-  for (const segment of segments) {
-    if (current === null || current === undefined || typeof current !== 'object') {
-      return undefined
-    }
-    if (!Object.hasOwn(current as Record<string, unknown>, segment)) {
-      return undefined
-    }
-    current = (current as Record<string, unknown>)[segment]
+export function requireSortableFields(sort: SortSpec | undefined, schema: SchemaDefinition): void {
+  const fields = normalizeSort(sort)
+  if (fields.length === 0) return
+
+  const flatSchema = flattenSchema(schema)
+  for (const entry of fields) {
+    if (flatSchema[entry.field] !== 'string') continue
+    throw new NarsilError(
+      ErrorCodes.SEARCH_INVALID_FIELD,
+      `A sort names text field "${entry.field}" only where the schema declares it "${SORTABLE_TEXT_FIELD_TYPE}", because ordering text costs far more memory per document than ordering a number`,
+      { field: entry.field, fieldType: 'string' },
+    )
   }
-  return current
+}
+
+export function readFieldValue(obj: AnyDocument, path: string): unknown {
+  return readSortField(obj, path)
 }
 
 export function readSortValues(document: AnyDocument | undefined, fields: readonly string[]): unknown[] {
@@ -41,23 +53,22 @@ export function readSortValues(document: AnyDocument | undefined, fields: readon
 export function applySorting<T = AnyDocument>(
   hits: Array<Hit<T>>,
   sort: SortSpec,
-  getDocument: (docId: string) => AnyDocument | undefined,
+  sortKeyOf: (docId: string) => readonly ComparableSortValue[],
 ): Array<Hit<T>> {
   const normalized = normalizeSort(sort)
   if (normalized.length === 0) return hits
 
-  const sortFields = normalized.map(entry => entry.field)
   const directions: SortDirection[] = normalized.map(entry => entry.direction)
-  const valueCache = new Map<string, unknown[]>()
+  const keyCache = new Map<string, readonly ComparableSortValue[]>()
 
   for (const hit of hits) {
-    valueCache.set(hit.id, readSortValues(getDocument(hit.id), sortFields))
+    keyCache.set(hit.id, sortKeyOf(hit.id))
   }
 
   const sorted = hits.slice()
   sorted.sort(
     (a, b) =>
-      compareSortValues(valueCache.get(a.id) ?? [], valueCache.get(b.id) ?? [], directions) ||
+      compareComparableKeys(keyCache.get(a.id) ?? [], keyCache.get(b.id) ?? [], directions) ||
       compareCodePoints(a.id, b.id),
   )
 
