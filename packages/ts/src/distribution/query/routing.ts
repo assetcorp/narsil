@@ -1,9 +1,10 @@
+import { toComparableSortValue } from '../../core/ordering'
 import { NarsilError } from '../../errors'
-import type { FacetBucket, GlobalStatistics, ScoredEntry, WireQueryParams } from '../transport/types'
-import { decodeDistributedCursor, encodeDistributedCursor } from './cursor'
-import { buildCoverage, collectDistributedStats, fanOutSearch } from './fan-out'
+import { decodePageCursor, encodePageCursor, requireMatchingCursor } from '../../search/cursor'
+import type { FacetBucket, GlobalStatistics, ScoredEntry, SortField, WireQueryParams } from '../transport/types'
+import { buildCoverage, collectDistributedStats, fanOutSearch, type NodeQueryOutcome } from './fan-out'
 import { clampAlpha, distributedLinearCombination, distributedRRF } from './fusion'
-import { mergeAndTruncateScoredEntries, mergeDistributedFacets } from './merge'
+import { mergeAndTruncateScoredEntries, mergeAndTruncateSortedEntries, mergeDistributedFacets } from './merge'
 import type { ReplicaSelector } from './selection'
 import { randomSelector, selectReplicasForQuery } from './selection'
 import type { Coverage, DistributedQueryConfig, DistributedQueryResult, QueryRoutingDeps } from './types'
@@ -13,6 +14,11 @@ export type { QueryRoutingDeps }
 
 const MAX_QUERY_LIMIT = 10_000
 export const MAX_FACET_SIZE = 1_000
+
+function wireSortSignature(sort: SortField[] | null): string | null {
+  if (sort === null || sort.length === 0) return null
+  return JSON.stringify(sort.map(field => [field.field, field.direction]))
+}
 
 function resolveAndClampFacetSize(paramsFacetSize: number | null, configDefault: number): number {
   const raw =
@@ -35,7 +41,8 @@ export async function distributedQuery(
   }
 
   if (params.searchAfter !== null) {
-    decodeDistributedCursor(params.searchAfter)
+    const decoded = decodePageCursor(params.searchAfter)
+    requireMatchingCursor(decoded, params.searchAfter, wireSortSignature(params.sort), true)
   }
 
   const limit = Math.min(Math.max(params.limit, 0), MAX_QUERY_LIMIT)
@@ -73,6 +80,14 @@ export async function distributedQuery(
     throw new NarsilError('QUERY_ROUTING_FAILED', 'Cursor pagination is not supported for hybrid queries', {
       indexName,
     })
+  }
+
+  if (isHybrid && params.sort !== null && params.sort.length > 0) {
+    throw new NarsilError(
+      'SEARCH_INVALID_MODE',
+      'A hybrid query cannot carry a sort, because fusion defines the order of hybrid results',
+      { indexName },
+    )
   }
 
   if (isHybrid) {
@@ -135,6 +150,11 @@ async function executeSingleFanOut(
     config,
   )
 
+  const sortFields = params.sort !== null && params.sort.length > 0 ? params.sort : null
+  if (sortFields !== null) {
+    failOutcomesMissingSortValues(outcomes)
+  }
+
   const coverage = buildCoverage(totalPartitions, routing.unavailablePartitions.length, outcomes)
 
   if (!config.allowPartialResults) {
@@ -165,16 +185,42 @@ async function executeSingleFanOut(
     }
   }
 
-  const mergedScored = mergeAndTruncateScoredEntries(allScored, limit)
+  const mergedScored =
+    sortFields !== null
+      ? mergeAndTruncateSortedEntries(
+          allScored,
+          limit,
+          sortFields.map(field => field.direction),
+        )
+      : mergeAndTruncateScoredEntries(allScored, limit)
   const mergedFacets = allFacets.length > 0 ? mergeDistributedFacets(allFacets, facetSize) : null
 
   let cursor: string | null = null
   if (mergedScored.length > 0) {
     const lastEntry = mergedScored[mergedScored.length - 1]
-    cursor = encodeDistributedCursor(lastEntry.score, lastEntry.docId)
+    cursor =
+      sortFields !== null
+        ? encodePageCursor({
+            anchor: lastEntry.docId,
+            score: null,
+            sortKey: (lastEntry.sortValues ?? []).map(toComparableSortValue),
+            sortSignature: wireSortSignature(sortFields),
+          })
+        : encodePageCursor({ anchor: lastEntry.docId, score: lastEntry.score, sortKey: null, sortSignature: null })
   }
 
   return { scored: mergedScored, totalHits, facets: mergedFacets, cursor, coverage }
+}
+
+function failOutcomesMissingSortValues(outcomes: NodeQueryOutcome[]): void {
+  for (const outcome of outcomes) {
+    if (outcome.status !== 'success' || outcome.results === null) continue
+    const missing = outcome.results.results.some(partition => partition.scored.some(entry => entry.sortValues === null))
+    if (missing) {
+      outcome.status = 'failed'
+      outcome.results = null
+    }
+  }
 }
 
 /**
@@ -267,7 +313,7 @@ async function executeHybridQuery(
   let cursor: string | null = null
   if (truncated.length > 0) {
     const lastEntry = truncated[truncated.length - 1]
-    cursor = encodeDistributedCursor(lastEntry.score, lastEntry.docId)
+    cursor = encodePageCursor({ anchor: lastEntry.docId, score: lastEntry.score, sortKey: null, sortSignature: null })
   }
 
   return { scored: truncated, totalHits, facets: mergedFacets, cursor, coverage }

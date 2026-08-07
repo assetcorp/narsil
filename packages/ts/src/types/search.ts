@@ -59,7 +59,12 @@ export interface QueryParams {
   exact?: boolean
   /** These settings name the fields the query counts values for, and control how each count is cut and sorted. */
   facets?: FacetConfig
-  /** This sorts the hits by field value, keyed by field, which replaces the relevance ranking. */
+  /**
+   * This sorts the hits by field value, keyed by field, which replaces the
+   * relevance ranking. A hybrid query cannot carry a sort, because fusion
+   * defines the order of hybrid results, and the engine then throws
+   * `SEARCH_INVALID_MODE`.
+   */
   sort?: Record<string, 'asc' | 'desc'>
   /** These settings collapse the hits into groups by field value. */
   group?: GroupConfig

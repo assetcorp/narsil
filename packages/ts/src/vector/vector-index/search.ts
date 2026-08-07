@@ -1,4 +1,5 @@
 import { createBoundedMaxHeap } from '../../core/heap'
+import { compareCodePoints } from '../../core/ordering'
 import type { VectorMetric } from '../brute-force'
 import { toScore } from '../hnsw/shared'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from '../similarity'
@@ -40,7 +41,7 @@ function bruteForceSearch(
   const arenaQuery = state.store.prepareQueryArena(query)
   const queryMag = arenaQuery ? arenaQuery.magnitude : magnitude(query)
   const highScoreFirst = (a: VectorScoredResult, b: VectorScoredResult) =>
-    b.score - a.score || a.docId.localeCompare(b.docId)
+    b.score - a.score || compareCodePoints(a.docId, b.docId)
   const heap = createBoundedMaxHeap<VectorScoredResult>(highScoreFirst, k)
 
   for (const docId of candidates) {
@@ -96,7 +97,7 @@ function mergeResults(
 
     let pick: VectorScoredResult
     if (h && b) {
-      if (h.score > b.score || (h.score === b.score && h.docId.localeCompare(b.docId) < 0)) {
+      if (h.score > b.score || (h.score === b.score && compareCodePoints(h.docId, b.docId) < 0)) {
         pick = h
         hi++
       } else {

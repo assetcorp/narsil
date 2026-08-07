@@ -1,3 +1,4 @@
+import { compareCodePoints } from '../core/ordering'
 import type { PartitionIndex } from '../core/partition'
 import { mergeFacets } from '../search/facets'
 import { type FulltextSearchOptions, fulltextSearch } from '../search/fulltext'
@@ -201,7 +202,10 @@ function mergeTwoSorted(a: ScoredDocument[], b: ScoredDocument[]): ScoredDocumen
   let ri = 0
 
   while (ai < a.length && bi < b.length) {
-    if (a[ai].score > b[bi].score || (a[ai].score === b[bi].score && a[ai].docId <= b[bi].docId)) {
+    if (
+      a[ai].score > b[bi].score ||
+      (a[ai].score === b[bi].score && compareCodePoints(a[ai].docId, b[bi].docId) <= 0)
+    ) {
       result[ri++] = a[ai++]
     } else {
       result[ri++] = b[bi++]
@@ -259,7 +263,7 @@ function heapMerge(arrays: ScoredDocument[][]): ScoredDocument[] {
 
 function heapNodeGreater(a: HeapNode, b: HeapNode): boolean {
   if (a.score !== b.score) return a.score > b.score
-  return a.docId < b.docId
+  return compareCodePoints(a.docId, b.docId) < 0
 }
 
 function heapPush(heap: HeapNode[], node: HeapNode): void {

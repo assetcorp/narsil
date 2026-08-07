@@ -1,4 +1,5 @@
 import type { CompactPostingList, ScoredDocument } from '../../types/internal'
+import { compareCodePoints } from '../ordering'
 
 export const EMPTY_COMPONENTS: Record<string, number> = Object.freeze({})
 
@@ -76,6 +77,17 @@ export interface PrefixContribution {
   fieldLengths: Record<string, number>
 }
 
+interface TopKCandidate {
+  internalId: number
+  externalId: string
+  score: number
+}
+
+function candidateWorse(a: TopKCandidate, b: TopKCandidate): boolean {
+  if (a.score !== b.score) return a.score < b.score
+  return compareCodePoints(a.externalId, b.externalId) > 0
+}
+
 export function topKFromMap(
   docScores: Map<number, ScoreAccumulator>,
   k: number,
@@ -83,28 +95,29 @@ export function topKFromMap(
 ): ScoredDocument[] {
   if (k <= 0) return []
 
-  const heap: Array<{ internalId: number; score: number }> = []
+  const heap: TopKCandidate[] = []
 
   for (const [internalId, data] of docScores) {
+    const externalId = resolver.toExternal(internalId)
+    if (externalId === undefined) continue
+    const candidate = { internalId, externalId, score: data.score }
     if (heap.length < k) {
-      heap.push({ internalId, score: data.score })
+      heap.push(candidate)
       if (heap.length === k) buildMinHeap(heap)
-    } else if (data.score > heap[0].score) {
-      heap[0] = { internalId, score: data.score }
+    } else if (candidateWorse(heap[0], candidate)) {
+      heap[0] = candidate
       siftDown(heap, 0)
     }
   }
 
-  heap.sort((a, b) => b.score - a.score)
+  heap.sort((a, b) => b.score - a.score || compareCodePoints(a.externalId, b.externalId))
 
   const result: ScoredDocument[] = []
   for (let i = 0; i < heap.length; i++) {
     const data = docScores.get(heap[i].internalId)
     if (!data) continue
-    const externalId = resolver.toExternal(heap[i].internalId)
-    if (externalId === undefined) continue
     result.push({
-      docId: externalId,
+      docId: heap[i].externalId,
       score: data.score,
       termFrequencies: data.termFrequencies,
       fieldLengths: data.fieldLengths,
@@ -115,24 +128,24 @@ export function topKFromMap(
   return result
 }
 
-function buildMinHeap(heap: Array<{ score: number }>): void {
+function buildMinHeap(heap: TopKCandidate[]): void {
   for (let i = (heap.length >> 1) - 1; i >= 0; i--) {
     siftDown(heap, i)
   }
 }
 
-function siftDown(heap: Array<{ score: number }>, idx: number): void {
+function siftDown(heap: TopKCandidate[], idx: number): void {
   const len = heap.length
   while (true) {
-    let smallest = idx
+    let worst = idx
     const left = 2 * idx + 1
     const right = 2 * idx + 2
-    if (left < len && heap[left].score < heap[smallest].score) smallest = left
-    if (right < len && heap[right].score < heap[smallest].score) smallest = right
-    if (smallest === idx) break
+    if (left < len && candidateWorse(heap[left], heap[worst])) worst = left
+    if (right < len && candidateWorse(heap[right], heap[worst])) worst = right
+    if (worst === idx) break
     const tmp = heap[idx]
-    heap[idx] = heap[smallest]
-    heap[smallest] = tmp
-    idx = smallest
+    heap[idx] = heap[worst]
+    heap[worst] = tmp
+    idx = worst
   }
 }

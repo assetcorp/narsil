@@ -1,4 +1,5 @@
 import { resolveIndexAnalysis } from '../../analysis/registry'
+import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
 import type { PartitionManager } from '../../partitioning/manager'
@@ -50,7 +51,7 @@ export async function createSnapshot(manager: PartitionManager, entry: IndexRegi
     analysisRevision: entry.language.revision,
     ...(typeof config.tokenizer === 'string' ? { tokenizer: config.tokenizer } : {}),
     ...(typeof config.stopWords === 'string' ? { stopWords: config.stopWords } : {}),
-    ...(config.stopWords instanceof Set ? { stopWordList: [...config.stopWords].sort() } : {}),
+    ...(config.stopWords instanceof Set ? { stopWordList: [...config.stopWords].sort(compareCodePoints) } : {}),
     ...(bm25 !== undefined
       ? {
           bm25: {

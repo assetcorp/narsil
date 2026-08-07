@@ -1,5 +1,7 @@
 import { decode, encode } from '@msgpack/msgpack'
+import { readSortValues } from '../../../search/sorting'
 import type { QueryResult } from '../../../types/results'
+import type { AnyDocument } from '../../../types/schema'
 import type { FacetConfig, QueryParams } from '../../../types/search'
 import { validateFetchPayload, validateSearchPayload, validateStatsPayload } from '../../query/codec'
 import type {
@@ -53,10 +55,14 @@ export async function handleSearch(
 
   const queryResult = await deps.engine.query(payload.indexName, queryParams)
 
+  const sortFields = queryParams.sort !== undefined ? Object.keys(queryParams.sort) : null
   const scored = queryResult.hits.map(hit => ({
     docId: hit.id,
     score: hit.score,
-    sortValues: null,
+    sortValues:
+      sortFields !== null
+        ? readSortValues(hit.document as AnyDocument | undefined, sortFields).map(toWireSortValue)
+        : null,
   }))
 
   const results = payload.partitionIds.map(partitionId => ({
@@ -126,6 +132,13 @@ export async function handleStats(
     requestId: message.requestId,
     payload: encode(resultPayload),
   })
+}
+
+function toWireSortValue(value: unknown): string | number | boolean | null {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value === 'boolean') return value
+  return null
 }
 
 function convertWireSortToLocal(

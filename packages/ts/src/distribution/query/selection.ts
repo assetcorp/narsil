@@ -1,3 +1,4 @@
+import { compareCodePoints } from '../../core/ordering'
 import type { AllocationTable, PartitionAssignment } from '../coordinator/types'
 
 export type ReplicaSelector = (candidates: string[], partitionId: number) => string
@@ -27,7 +28,7 @@ export function collectActiveCandidates(assignment: PartitionAssignment): string
     }
   }
 
-  candidates.sort()
+  candidates.sort(compareCodePoints)
   return candidates
 }
 

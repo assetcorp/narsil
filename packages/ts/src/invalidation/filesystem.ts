@@ -1,3 +1,4 @@
+import { compareCodePoints } from '../core/ordering'
 import type { InvalidationAdapter, InvalidationEvent } from '../types/adapters'
 
 /**
@@ -99,7 +100,7 @@ export function createFilesystemInvalidation(config: FilesystemInvalidationConfi
       throw err
     }
 
-    const jsonFiles = files.filter(f => f.endsWith('.json')).sort()
+    const jsonFiles = files.filter(f => f.endsWith('.json')).sort(compareCodePoints)
     const now = Date.now()
 
     for (const file of jsonFiles) {

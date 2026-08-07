@@ -1,5 +1,6 @@
 import type { InternalIdResolver, StoredDocument } from '../types/internal'
 import type { AnyDocument } from '../types/schema'
+import { compareCodePoints } from './ordering'
 
 export type ReadonlyStoredDocument = {
   readonly fields: Readonly<Record<string, unknown>>
@@ -106,7 +107,7 @@ export function createDocumentStore(): DocumentStore {
     sortedDocIds(): readonly string[] {
       if (sortedIds === null) {
         const ids = Array.from(docs.keys())
-        ids.sort()
+        ids.sort(compareCodePoints)
         sortedIds = ids
       }
       return sortedIds
