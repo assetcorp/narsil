@@ -146,6 +146,8 @@ The mechanism is implementation-specific; the contract is that a document is ful
 
 A query carrying both a text term and a vector runs hybrid search. Text indexes are held in partitions and vector indexes are independent, so the coordinator is where the two result sets fuse.
 
+Fusion defines the order of hybrid results, and a sort would replace it, so a hybrid query carries no `sort`. An implementation must reject a query whose sort names any field while the query also carries `hybrid`, or both a term and a vector, with `SEARCH_INVALID_MODE`.
+
 ```text
 1. Fan the text query out to every partition and collect
    { docId, bm25Score } results.
