@@ -42,7 +42,9 @@ const results = await narsil.query('products', {
 
 ## Sort
 
-`sort` orders hits by field values instead of score. Multiple entries apply in order, so the second field breaks ties in the first.
+`sort` orders hits by field values instead of score. Multiple entries apply in order, so the second field breaks ties in the first. When every sort field ties, the engine orders the tied hits by document id.
+
+The engine compares string values by their Unicode case fold, so `apple` orders between `Apple` and `Banana`. Two values with an equal fold compare by their raw code points. The engine reads no locale, so a sorted page is the same on every machine. A sort names at most eight fields, because the paging cursor carries one value for each of them.
 
 ```ts
 const results = await narsil.query('products', {
@@ -80,7 +82,7 @@ const withTotals = await narsil.query('products', {
 
 ## Pagination
 
-Shallow pagination uses `limit` and `offset`. Deep pagination uses `searchAfter` cursors, which track a position per partition and keep latency flat at any depth. Every page's result carries a `cursor` string; pass it back as `searchAfter` to fetch the next page.
+Shallow pagination uses `limit` and `offset`. Deep pagination uses `searchAfter` cursors. The cost of a cursor page stays flat at any depth. A cursor anchors on the last result of the page: the score for a relevance-ranked query, or the sort values for a sorted one. Every page's result carries a `cursor` string; pass it back as `searchAfter` to fetch the next page.
 
 ```ts
 const firstPage = await narsil.query('products', { term: 'keyboard', limit: 20 })

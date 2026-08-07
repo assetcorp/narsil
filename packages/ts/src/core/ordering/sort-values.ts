@@ -8,7 +8,7 @@ export const SORT_VALUE_MAX_CODE_POINTS = 512
 
 /**
  * Cuts a string sort value to the specification's comparison window of 512
- * code points, leaving a supplementary character at the boundary whole.
+ * code points. A supplementary character at the boundary stays whole.
  *
  * @param value - The string to cut.
  * @returns The first 512 code points of `value`, or `value` itself when it already fits.
@@ -31,9 +31,9 @@ export function truncateSortString(value: string): string {
 
 /**
  * Reduces a raw document field to the value the sort value order compares: a
- * string cut to the comparison window, a finite number, or a boolean. Anything
- * else, including a missing field, a null, an array, an object, and a number
- * that is not finite, becomes null, which the order treats as missing.
+ * string cut to the comparison window, a finite number, or a boolean. A
+ * missing field, a null, an array, an object, and a number that is not finite
+ * each become null. The order treats null as missing.
  *
  * @param value - The raw field value.
  * @returns The comparable value, or null when the value counts as missing.
@@ -61,11 +61,11 @@ function comparePresentValues(a: string | number | boolean, b: string | number |
 }
 
 /**
- * Compares two documents' sort values field by field, exactly as the
- * specification's sort value order defines: the first field that separates
- * them decides, a missing value orders last under either direction, present
- * values of different types rank numbers before strings before booleans, and
- * a `desc` direction reverses everything except the missing rule.
+ * Compares two documents' sort values field by field, as the specification's
+ * sort value order defines. The first field that separates the documents
+ * decides. A missing value orders last under either direction. Present values
+ * of different types rank numbers before strings before booleans. A `desc`
+ * direction reverses everything except the missing rule.
  *
  * @param aValues - The first document's raw values, one per sort field in sort order.
  * @param bValues - The second document's raw values, in the same order.

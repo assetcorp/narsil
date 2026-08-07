@@ -10,9 +10,9 @@ const MAX_SORT_VALUE_CODE_POINTS = 512
 
 /**
  * The decoded form of the paging cursor that search and listing share. The
- * anchor names the last document returned, and exactly one anchor mode is set:
- * a score for an unsorted search, a sort key with its sort order for a sorted
- * page, or neither for a listing in document ID order.
+ * anchor names the last document returned. One anchor mode applies: a score
+ * for an unsorted search, a sort key with its sort order for a sorted page,
+ * or neither for a listing in document ID order.
  */
 export interface PageCursor {
   anchor: string
@@ -44,8 +44,8 @@ function exceedsCodePoints(value: string, maximum: number): boolean {
 }
 
 /**
- * Serialises a sort into the signature a sorted cursor carries, so a cursor
- * can be rejected when it comes back under a different sort.
+ * Serialises a sort into the signature a sorted cursor carries, so that the
+ * engine can reject a cursor sent back under a different sort.
  *
  * @param sort - The sort, keyed by field, or undefined when the request has none.
  * @returns The signature text, or null when the request has no sort.
@@ -113,8 +113,8 @@ function decodeSortKey(value: unknown, cursor: string): ComparableSortValue[] {
 }
 
 /**
- * Decodes and validates a page cursor, applying every rule the specification's
- * cursor format sets, and raises `SEARCH_INVALID_CURSOR` when any fails.
+ * Decodes a page cursor and checks every rule the specification's cursor
+ * format sets. A cursor that fails any rule raises `SEARCH_INVALID_CURSOR`.
  *
  * @param cursor - The base64-encoded cursor text a client passed back.
  * @returns The decoded cursor.
@@ -174,7 +174,7 @@ export function decodePageCursor(cursor: string): PageCursor {
  * @param cursor - The decoded cursor.
  * @param encoded - The encoded text, used in the error.
  * @param signature - The request's own sort signature, or null when it has no sort.
- * @param scoreAnchored - True when an unsorted request anchors on the score, as a search does, and false when it anchors on the document ID alone, as a listing does.
+ * @param scoreAnchored - True when an unsorted request anchors on the score, as a search does. False when it anchors on the document ID alone, as a listing does.
  */
 export function requireMatchingCursor(
   cursor: PageCursor,

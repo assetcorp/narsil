@@ -92,9 +92,9 @@ let multiTable: Map<number, readonly number[]> | null = null
 
 /**
  * The full case foldings that map one code point to one code point, keyed by
- * the source code point, built on first use from the packed table. Each packed
- * entry carries the delta from the previous source code point and the offset
- * from the source to its fold, both in base 36.
+ * the source code point. The map builds on first use. Each packed entry holds
+ * the delta from the previous source code point and the offset from the
+ * source to its fold, both in base 36.
  */
 export function singleFoldTable(): ReadonlyMap<number, number> {
   if (singleTable === null) {
@@ -112,9 +112,9 @@ export function singleFoldTable(): ReadonlyMap<number, number> {
 
 /**
  * The full case foldings that expand one code point to two or three, keyed by
- * the source code point, built on first use from the packed table. Each packed
- * entry carries the delta from the previous source code point and the folded
- * code points, all in base 36.
+ * the source code point. The map builds on first use. Each packed entry holds
+ * the delta from the previous source code point and the folded code points,
+ * all in base 36.
  */
 export function multiFoldTable(): ReadonlyMap<number, readonly number[]> {
   if (multiTable === null) {

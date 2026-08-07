@@ -58,11 +58,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 This product includes data from the Unicode Character Database
 (https://www.unicode.org/).
 
-The case fold table under packages/ts/src/core/ordering/fold-table.ts is
-generated from CaseFolding.txt, committed verbatim with its copyright header at
-packages/ts/scripts/data/CaseFolding.txt. The data is covered by the licence
-below.
-
 UNICODE LICENSE V3
 
 COPYRIGHT AND PERMISSION NOTICE
