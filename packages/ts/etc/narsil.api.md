@@ -129,6 +129,7 @@ export const ErrorCodes: {
     readonly SEARCH_INVALID_FILTER: "SEARCH_INVALID_FILTER";
     readonly SEARCH_INVALID_MODE: "SEARCH_INVALID_MODE";
     readonly SEARCH_INVALID_CURSOR: "SEARCH_INVALID_CURSOR";
+    readonly SEARCH_RESULT_WINDOW_EXCEEDED: "SEARCH_RESULT_WINDOW_EXCEEDED";
     readonly LANGUAGE_NOT_SUPPORTED: "LANGUAGE_NOT_SUPPORTED";
     readonly ENVELOPE_VERSION_MISMATCH: "ENVELOPE_VERSION_MISMATCH";
     readonly ENVELOPE_INVALID_MAGIC: "ENVELOPE_INVALID_MAGIC";
@@ -419,7 +420,7 @@ export interface ListParams {
     document?: DocumentProjection;
     filters?: FilterExpression;
     limit?: number;
-    sort?: Record<string, 'asc' | 'desc'>;
+    sort?: SortSpec;
 }
 
 // @public
@@ -652,7 +653,7 @@ export interface QueryParams {
     prefixLength?: number;
     scoring?: ScoringMode;
     searchAfter?: string;
-    sort?: Record<string, 'asc' | 'desc'>;
+    sort?: SortSpec;
     term?: string;
     termMatch?: TermMatchPolicy;
     tolerance?: number;
@@ -712,6 +713,15 @@ export interface SearchContext {
 
 // @public
 export type SearchMode = 'fulltext' | 'vector' | 'hybrid';
+
+// @public
+export interface SortField {
+    direction: 'asc' | 'desc';
+    field: string;
+}
+
+// @public
+export type SortSpec = Record<string, 'asc' | 'desc'> | readonly SortField[];
 
 // @public
 export interface StaleAnalysis {

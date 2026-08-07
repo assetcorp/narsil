@@ -118,7 +118,7 @@ const page = await narsil.listDocuments('products', {
 })
 ```
 
-`sort` orders the listing by field value rather than by id. Name each field with its direction. The engine applies the fields in the order the object lists them, and it breaks a tie on document id, so a full walk still returns every document exactly once. The engine sorts by at most eight fields, because the cursor carries one value for each of them.
+`sort` orders the listing by field value rather than by id. Name each field with its direction, either as an object or as a list of `{ field, direction }` entries. The engine applies the fields in the order they are listed, and it breaks a tie on document id, so a full walk still returns every document exactly once. The engine sorts by at most eight fields, because the cursor carries one value for each of them.
 
 ```ts
 const page = await narsil.listDocuments('products', {
