@@ -44,7 +44,13 @@ const results = await narsil.query('products', {
 
 `sort` orders hits by field values instead of score. Multiple entries apply in order, so the second field breaks ties in the first. When every sort field ties, the engine orders the tied hits by document id.
 
-The engine compares string values by their Unicode case fold, so `apple` orders between `Apple` and `Banana`. Two values with an equal fold compare by their raw code points. The engine reads no locale, so a sorted page is the same on every machine. A sort names at most eight fields, because the paging cursor carries one value for each of them, and each field name holds at most 255 characters.
+A sort names a `number`, a `boolean`, or an `enum` field with no preparation. A sort names a text field only where the schema declares it `string:sortable`, and a sort naming a plain `string` field raises `SEARCH_INVALID_FIELD`. Every other field type, including every array field, counts as missing, so a sort naming one leaves every document equal.
+
+The engine compares string values by their Unicode case fold, so `apple` orders between `Apple` and `Banana`. Two values with an equal fold compare by their raw code points. Only the first 512 code points of a value take part. The engine reads no locale, so a sorted page is the same on every machine. A sort names at most eight fields, because the paging cursor carries one value for each of them, and each field name holds at most 255 characters.
+
+A missing value orders after every present value, under either direction. Present values of different types rank numbers first, then strings, then booleans.
+
+The first sorted query on a field builds a column of that field's values, and every page after it reads the documents that follow its cursor anchor rather than walking the index. Measured on 120,000 documents on an Apple M-series laptop, the build cost 159ms for short text and 398ms for values above the 512 code point window, and each page after it cost 0.1ms. Writes keep the column current, which cost 12% of insert throughput for one text field and one number field over 119,000 documents.
 
 ```ts
 const results = await narsil.query('products', {

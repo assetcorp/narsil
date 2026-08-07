@@ -4,7 +4,9 @@ An index holds documents under a schema that fixes the type of every field. This
 
 ## Indexes
 
-`createIndex(name, config)` creates an index from a schema. The schema supports `string`, `number`, `boolean`, `enum`, `geopoint`, `vector[N]`, and the array variants `string[]`, `number[]`, `boolean[]`, and `enum[]`. Objects nest up to 4 levels deep. Narsil validates every document against the schema at insertion time.
+`createIndex(name, config)` creates an index from a schema. The schema supports `string`, `string:sortable`, `number`, `boolean`, `enum`, `geopoint`, `vector[N]`, and the array variants `string[]`, `number[]`, `boolean[]`, and `enum[]`. Objects nest up to 4 levels deep. Narsil validates every document against the schema at insertion time.
+
+`string:sortable` is a `string` in every respect, and a sort may name it. Ordering text costs far more memory per document than ordering a number, so a sort naming a plain `string` field raises `SEARCH_INVALID_FIELD`. A schema is fixed once the index exists, so decide which text fields a caller sorts on before you create it.
 
 ```ts
 await narsil.createIndex('articles', {
