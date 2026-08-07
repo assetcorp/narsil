@@ -1,0 +1,53 @@
+import type { FanOutResult } from '../../partitioning/fan-out'
+import type { EmbeddingAdapter } from '../../types/adapters'
+import type { NarsilConfig } from '../../types/config'
+import type { GlobalStatistics } from '../../types/internal'
+import type { LanguageModule } from '../../types/language'
+import type { MemoryStats } from '../../types/results'
+import type { IndexConfig } from '../../types/schema'
+import type { QueryParams } from '../../types/search'
+import type { DirectExecutorExtensions } from '../../workers/direct-executor'
+import type { Executor } from '../../workers/executor'
+import type { WorkerPool } from '../../workers/pool'
+import type { ExecutionPromoter } from '../../workers/promoter'
+import type { WorkerAction } from '../../workers/protocol'
+
+export interface WorkerOrchestrator {
+  checkPromotion(): Promise<void>
+  replicateToWorkers(action: WorkerAction): Promise<void>
+  searchViaWorker(indexName: string, params: QueryParams, globalStats?: GlobalStatistics): Promise<FanOutResult | null>
+  isPromoted(): boolean
+  desyncIndex(indexName: string): boolean
+  resyncIndex(indexName: string, wasPromoted: boolean): Promise<void>
+  getWorkerMemoryStats(): Promise<MemoryStats['workers']>
+  shutdown(): Promise<void>
+}
+
+export interface WorkerOrchestratorCallbacks {
+  onPromotion?: (workerCount: number, reason: string) => void
+  onPromotionFailure?: (reason: string, error: Error, retryable: boolean) => void
+  shouldDeferPromotion?: () => boolean
+}
+
+export type IndexRegistry = Map<
+  string,
+  { config: IndexConfig; language: LanguageModule; embeddingAdapter: EmbeddingAdapter | null }
+>
+
+export interface OrchestratorState {
+  readonly config: NarsilConfig | undefined
+  readonly executor: Executor & DirectExecutorExtensions
+  readonly promoter: ExecutionPromoter
+  readonly indexRegistry: IndexRegistry
+  readonly callbacks: WorkerOrchestratorCallbacks | undefined
+  readonly workersEnabled: boolean
+  readonly bootstrapModule: string | undefined
+  readonly promotionBuffer: WorkerAction[]
+  readonly awaitingBufferedWrites: Set<string>
+  readonly reportedIneligible: Set<string>
+  readonly promotedIndexes: Set<string>
+  workerPool: WorkerPool | null
+  promotionInProgress: boolean
+  promotionBlocked: boolean
+  promotionRun: Promise<void> | null
+}

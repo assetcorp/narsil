@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { decodePageCursor, encodePageCursor, sortSignatureOf } from '../../search/cursor'
+import { decodePageCursor, encodePageCursor, MAX_CURSOR_LENGTH, sortSignatureOf } from '../../search/cursor'
 
 function encodeRaw(payload: unknown): string {
   return Buffer.from(JSON.stringify(payload)).toString('base64')
@@ -82,8 +82,50 @@ describe('page cursor', () => {
     expectInvalidCursor(Buffer.from('{"v":2,"a":"doc-1","k":[1e999],"o":"[[\\"f\\",\\"asc\\"]]"}').toString('base64'))
   })
 
-  it('rejects a cursor longer than 8192 characters', () => {
-    expectInvalidCursor('A'.repeat(8193))
+  it('rejects a cursor longer than the cap', () => {
+    expectInvalidCursor('A'.repeat(MAX_CURSOR_LENGTH + 1))
+  })
+
+  it('accepts the largest cursor the payload rules allow', () => {
+    const widestValue = '\u0001'.repeat(512)
+    const sort: Record<string, 'asc'> = {}
+    for (let i = 0; i < 8; i++) sort[`${'f'.repeat(254)}${i}`] = 'asc'
+    const signature = sortSignatureOf(sort)
+    expect(signature).not.toBeNull()
+
+    const encoded = encodePageCursor({
+      anchor: widestValue,
+      score: null,
+      sortKey: Array.from({ length: 8 }, () => widestValue),
+      sortSignature: signature,
+    })
+
+    expect(encoded.length).toBeLessThanOrEqual(MAX_CURSOR_LENGTH)
+    const decoded = decodePageCursor(encoded)
+    expect(decoded.anchor).toBe(widestValue)
+    expect(decoded.sortKey).toEqual(Array.from({ length: 8 }, () => widestValue))
+    expect(decoded.sortSignature).toBe(signature)
+  })
+
+  it('rejects a sort field name longer than 255 characters with SEARCH_INVALID_FIELD', () => {
+    try {
+      sortSignatureOf({ [`${'f'.repeat(256)}`]: 'asc' })
+      expect.unreachable()
+    } catch (e) {
+      expect((e as NarsilError).code).toBe(ErrorCodes.SEARCH_INVALID_FIELD)
+    }
+    expect(sortSignatureOf({ [`${'f'.repeat(255)}`]: 'asc' })).toBe(`[["${'f'.repeat(255)}","asc"]]`)
+  })
+
+  it('keeps the order of a sort given as a list, including an all-digit field name', () => {
+    expect(
+      sortSignatureOf([
+        { field: 'title', direction: 'asc' },
+        { field: '2024', direction: 'desc' },
+      ]),
+    ).toBe('[["title","asc"],["2024","desc"]]')
+    expect(sortSignatureOf({ title: 'asc', 2024: 'desc' })).toBe('[["2024","desc"],["title","asc"]]')
+    expect(sortSignatureOf([])).toBeNull()
   })
 
   it('builds the sort signature the sorted cursor carries', () => {

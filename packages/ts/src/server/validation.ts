@@ -104,10 +104,16 @@ export function validateList(params: ListParams, maxFetch: number): ValidationFa
 
 function validateListSort(sort: ListParams['sort']): ValidationFailure | null {
   if (sort === undefined) return null
-  if (typeof sort !== 'object' || sort === null || Array.isArray(sort)) {
-    return { message: 'Field "sort" must be an object keyed by field name' }
+  if (typeof sort !== 'object' || sort === null) {
+    return { message: 'Field "sort" must be an object keyed by field name, or a list of fields' }
   }
-  const entries = Object.entries(sort)
+
+  const entries = Array.isArray(sort)
+    ? sort.map((entry): [unknown, unknown] =>
+        typeof entry === 'object' && entry !== null ? [entry.field, entry.direction] : [entry, undefined],
+      )
+    : Object.entries(sort)
+
   if (entries.length > MAX_LIST_SORT_FIELDS) {
     return {
       message: `Field "sort" exceeds the maximum of ${MAX_LIST_SORT_FIELDS} fields`,
@@ -115,6 +121,9 @@ function validateListSort(sort: ListParams['sort']): ValidationFailure | null {
     }
   }
   for (const [field, direction] of entries) {
+    if (typeof field !== 'string' || field.length === 0) {
+      return { message: 'Every entry of "sort" must name a field', details: { value: field } }
+    }
     if (direction !== 'asc' && direction !== 'desc') {
       return { message: `Field "sort.${field}" must be "asc" or "desc"`, details: { value: direction } }
     }

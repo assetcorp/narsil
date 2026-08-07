@@ -1,10 +1,13 @@
-import { type ComparableSortValue, type SortDirection, toComparableSortValue } from '../core/ordering'
+import { type ComparableSortValue, toComparableSortValue } from '../core/ordering'
 import { ErrorCodes, NarsilError } from '../errors'
+import type { SortSpec } from '../types/search'
 import { decodeCursorText, encodeCursorText } from './cursor-codec'
+import { normalizeSort } from './sorting'
 
 export const CURSOR_VERSION = 2
-export const MAX_CURSOR_LENGTH = 8192
+export const MAX_CURSOR_LENGTH = 40_960
 export const MAX_SORT_FIELDS = 8
+export const MAX_SORT_FIELD_NAME_LENGTH = 255
 const MAX_ANCHOR_CODE_POINTS = 512
 const MAX_SORT_VALUE_CODE_POINTS = 512
 
@@ -47,24 +50,33 @@ function exceedsCodePoints(value: string, maximum: number): boolean {
  * Serialises a sort into the signature a sorted cursor carries, so that the
  * engine can reject a cursor sent back under a different sort.
  *
- * @param sort - The sort, keyed by field, or undefined when the request has none.
+ * @param sort - The sort, keyed by field or listed in order, or undefined when the request has none.
  * @returns The signature text, or null when the request has no sort.
- * @throws SEARCH_INVALID_FIELD when the sort names more than eight fields.
+ * @throws SEARCH_INVALID_FIELD when the sort names more than eight fields, or a field name longer than 255 characters.
  */
-export function sortSignatureOf(sort: Record<string, SortDirection> | undefined): string | null {
-  if (sort === undefined) return null
-  const entries = Object.entries(sort)
-  if (entries.length === 0) return null
+export function sortSignatureOf(sort: SortSpec | undefined): string | null {
+  const fields = normalizeSort(sort)
+  if (fields.length === 0) return null
 
-  if (entries.length > MAX_SORT_FIELDS) {
+  if (fields.length > MAX_SORT_FIELDS) {
     throw new NarsilError(
       ErrorCodes.SEARCH_INVALID_FIELD,
       `A sort names at most ${MAX_SORT_FIELDS} fields, because the paging cursor carries one value per field`,
-      { count: entries.length, limit: MAX_SORT_FIELDS },
+      { count: fields.length, limit: MAX_SORT_FIELDS },
     )
   }
 
-  return JSON.stringify(entries)
+  for (const entry of fields) {
+    if (entry.field.length > MAX_SORT_FIELD_NAME_LENGTH) {
+      throw new NarsilError(
+        ErrorCodes.SEARCH_INVALID_FIELD,
+        `A sort field name holds at most ${MAX_SORT_FIELD_NAME_LENGTH} characters, because the paging cursor carries the sort with every page`,
+        { field: entry.field.slice(0, 64), length: entry.field.length, limit: MAX_SORT_FIELD_NAME_LENGTH },
+      )
+    }
+  }
+
+  return JSON.stringify(fields.map(entry => [entry.field, entry.direction]))
 }
 
 /**

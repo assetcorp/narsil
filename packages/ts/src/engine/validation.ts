@@ -1,13 +1,12 @@
 import { MAX_INDEX_NAME_LENGTH } from '../distribution/cluster/index-metadata'
 import { ErrorCodes, NarsilError } from '../errors'
+import { DEFAULT_PAGE_SIZE } from '../search/pagination'
 
 const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
 const MAX_DOC_ID_LENGTH = 512
 
 export const BATCH_CHUNK_SIZE = 1000
-export const MAX_LIMIT = 10_000
-export const MAX_OFFSET = 100_000
-export const DEFAULT_LIMIT = 10
+export const DEFAULT_LIMIT = DEFAULT_PAGE_SIZE
 export const DEFAULT_OFFSET = 0
 
 export function now(): number {
@@ -92,10 +91,10 @@ export function validatePartitionConfig(partitions: {
 
 export function clampLimit(limit: number | undefined): number {
   if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_LIMIT
-  return Math.max(0, Math.min(Math.floor(limit), MAX_LIMIT))
+  return Math.max(0, Math.floor(limit))
 }
 
 export function clampOffset(offset: number | undefined): number {
   if (offset === undefined || !Number.isFinite(offset)) return DEFAULT_OFFSET
-  return Math.max(0, Math.min(Math.floor(offset), MAX_OFFSET))
+  return Math.max(0, Math.floor(offset))
 }

@@ -98,6 +98,8 @@ export type {
   ListParams,
   QueryParams,
   SearchMode,
+  SortField,
+  SortSpec,
   SuggestParams,
   TermMatchPolicy,
   VectorQueryConfig,

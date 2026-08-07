@@ -2,9 +2,9 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
 import { sortSignatureOf } from '../../search/cursor'
 import { applyGrouping } from '../../search/grouping'
-import { applyPagination, type PaginationSortContext } from '../../search/pagination'
+import { applyPagination, type PaginationSortContext, requireWithinResultWindow } from '../../search/pagination'
 import { applyPinning } from '../../search/pinning'
-import { applySorting, readSortValues } from '../../search/sorting'
+import { applySorting, normalizeSort, readSortValues } from '../../search/sorting'
 import type { GroupResult, Hit, PreflightResult, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
@@ -24,6 +24,8 @@ export async function executeQuery<T = AnyDocument>(
   const startTime = now()
   const limit = clampLimit(params.limit)
   const offset = clampOffset(params.offset)
+  requireWithinResultWindow(limit, offset)
+  const sortFields = normalizeSort(params.sort)
   const sortSignature = sortSignatureOf(params.sort)
 
   const hasTerm = params.term !== undefined && params.term.trim().length > 0
@@ -35,7 +37,7 @@ export async function executeQuery<T = AnyDocument>(
     throw new NarsilError(
       ErrorCodes.SEARCH_INVALID_MODE,
       'A hybrid query cannot carry a sort, because fusion defines the order of hybrid results',
-      { sort: Object.keys(params.sort ?? {}) },
+      { sort: sortFields.map(entry => entry.field) },
     )
   }
 
@@ -111,10 +113,9 @@ export async function executeQuery<T = AnyDocument>(
   }
 
   let sortContext: PaginationSortContext | undefined
-  if (params.sort !== undefined && sortSignature !== null) {
-    const sortSpec = params.sort
-    const sortFields = Object.keys(sortSpec)
-    const sortDirections = sortFields.map(field => sortSpec[field])
+  if (sortSignature !== null) {
+    const fieldNames = sortFields.map(entry => entry.field)
+    const sortDirections = sortFields.map(entry => entry.direction)
     const sortKeyCache = new Map<string, unknown[]>()
     sortContext = {
       signature: sortSignature,
@@ -122,7 +123,7 @@ export async function executeQuery<T = AnyDocument>(
       sortKeyOf(docId: string): readonly unknown[] {
         let key = sortKeyCache.get(docId)
         if (key === undefined) {
-          key = readSortValues(manager.getRef(docId) as AnyDocument | undefined, sortFields)
+          key = readSortValues(manager.getRef(docId) as AnyDocument | undefined, fieldNames)
           sortKeyCache.set(docId, key)
         }
         return key

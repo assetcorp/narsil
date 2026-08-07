@@ -1,3 +1,4 @@
+import { normalizeSort } from '../../search/sorting'
 import type { QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
@@ -42,11 +43,9 @@ export function distributedResultToLocal<T = AnyDocument>(
   }
 }
 
-function convertLocalSortToWire(sort: Record<string, 'asc' | 'desc'> | undefined): SortField[] | null {
-  if (sort === undefined) {
-    return null
-  }
-  return Object.entries(sort).map(([field, direction]) => ({ field, direction }))
+function convertLocalSortToWire(sort: QueryParams['sort']): SortField[] | null {
+  const fields = normalizeSort(sort)
+  return fields.length === 0 ? null : fields
 }
 
 function convertLocalGroupToWire(group: QueryParams['group']): { field: string; maxPerGroup: number } | null {

@@ -1,5 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
-import { readSortValues } from '../../../search/sorting'
+import { normalizeSort, readSortValues } from '../../../search/sorting'
 import type { QueryResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { FacetConfig, QueryParams } from '../../../types/search'
@@ -7,6 +7,7 @@ import { validateFetchPayload, validateSearchPayload, validateStatsPayload } fro
 import type {
   FetchResultPayload,
   SearchResultPayload,
+  SortField,
   StatsResultPayload,
   TransportMessage,
 } from '../../transport/types'
@@ -55,7 +56,7 @@ export async function handleSearch(
 
   const queryResult = await deps.engine.query(payload.indexName, queryParams)
 
-  const sortFields = queryParams.sort !== undefined ? Object.keys(queryParams.sort) : null
+  const sortFields = queryParams.sort !== undefined ? normalizeSort(queryParams.sort).map(entry => entry.field) : null
   const scored = queryResult.hits.map(hit => ({
     docId: hit.id,
     score: hit.score,
@@ -141,17 +142,11 @@ function toWireSortValue(value: unknown): string | number | boolean | null {
   return null
 }
 
-function convertWireSortToLocal(
-  wireSort: Array<{ field: string; direction: 'asc' | 'desc' }> | null,
-): Record<string, 'asc' | 'desc'> | undefined {
+function convertWireSortToLocal(wireSort: SortField[] | null): SortField[] | undefined {
   if (wireSort === null || wireSort.length === 0) {
     return undefined
   }
-  const result: Record<string, 'asc' | 'desc'> = {}
-  for (const entry of wireSort) {
-    result[entry.field] = entry.direction
-  }
-  return result
+  return wireSort.map(entry => ({ field: entry.field, direction: entry.direction }))
 }
 
 function convertWireFacetsToLocal(facets: string[] | null, limit: number | null): FacetConfig | undefined {

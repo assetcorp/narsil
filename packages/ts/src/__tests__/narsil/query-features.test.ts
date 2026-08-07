@@ -13,23 +13,20 @@ describe('Narsil query features', () => {
     await narsil.shutdown()
   })
 
-  describe('limit and offset clamping', () => {
-    it('clamps limit to [0, 10000] and offset to [0, 100000]', async () => {
+  describe('the result window', () => {
+    it('refuses a request reaching past the window and reads a negative offset as zero', async () => {
       await narsil.createIndex('products', indexConfig)
       await narsil.insert('products', { title: 'Test Item', category: 'test', price: 10 })
 
-      const result = await narsil.query('products', {
-        term: 'test',
-        limit: 999999,
-        offset: -5,
+      await expect(narsil.query('products', { term: 'test', limit: 999999, offset: -5 })).rejects.toMatchObject({
+        code: 'SEARCH_RESULT_WINDOW_EXCEEDED',
       })
-      expect(result.hits.length).toBeLessThanOrEqual(10000)
 
-      const result2 = await narsil.query('products', {
-        term: 'test',
-        limit: -1,
-      })
-      expect(result2.hits).toEqual([])
+      const atTheWindow = await narsil.query('products', { term: 'test', limit: 9_000, offset: 1_000 })
+      expect(atTheWindow.count).toBe(1)
+
+      const emptyPage = await narsil.query('products', { term: 'test', limit: -1 })
+      expect(emptyPage.hits).toEqual([])
     })
   })
 
