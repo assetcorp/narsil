@@ -8,9 +8,10 @@ function adjustUtf16Unit(unit: number): number {
  * Compares two strings in Unicode code point order, the identity order the
  * specification assigns to document IDs, facet values, terms, and merges.
  *
- * The first differing position decides, a prefix orders before its extension,
- * and a supplementary character orders above every basic-plane character, which
- * a plain UTF-16 comparison gets wrong.
+ * The first differing position decides the order. A prefix orders before its
+ * extension. A raw UTF-16 comparison puts a supplementary character below most
+ * basic-plane characters, so this function adjusts the differing units to
+ * restore code point order.
  *
  * @param a - The first string.
  * @param b - The second string.

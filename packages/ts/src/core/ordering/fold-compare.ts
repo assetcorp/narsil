@@ -55,10 +55,11 @@ function nextFoldedCodePoint(
 
 /**
  * Compares the full case folds of two strings in code point order, folding
- * lazily during the comparison, so no folded copy of either string is built.
+ * lazily during the comparison, so that it builds no folded copy of either
+ * string.
  *
  * Folding maps each code point on its own, so a shared raw prefix folds
- * identically on both sides and the comparison starts at the first differing
+ * identically on both sides. The comparison starts at the first differing
  * position.
  *
  * @param a - The first string.
@@ -90,9 +91,9 @@ export function compareCaseFolded(a: string, b: string): number {
 
 /**
  * Compares two string sort values as the specification's sort value order
- * defines: by their case folds in code point order first, and by their raw
- * code points when the folds are equal, which keeps `Apple` and `apple`
- * adjacent yet distinct.
+ * defines: by their case folds in code point order, and by their raw code
+ * points when the folds are equal. Folding first keeps `Apple` and `apple`
+ * adjacent, and the raw comparison keeps them distinct.
  *
  * @param a - The first string.
  * @param b - The second string.

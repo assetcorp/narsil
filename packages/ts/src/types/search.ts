@@ -61,9 +61,9 @@ export interface QueryParams {
   facets?: FacetConfig
   /**
    * This sorts the hits by field value, keyed by field, which replaces the
-   * relevance ranking. A hybrid query cannot carry a sort, because fusion
-   * defines the order of hybrid results, and the engine then throws
-   * `SEARCH_INVALID_MODE`.
+   * relevance ranking. Fusion defines the order of hybrid results, so a
+   * hybrid query takes no sort. The engine throws `SEARCH_INVALID_MODE` for a
+   * query that sets both.
    */
   sort?: Record<string, 'asc' | 'desc'>
   /** These settings collapse the hits into groups by field value. */

@@ -106,7 +106,7 @@ A document that stays in the index for the whole listing comes back exactly once
 
 The cursor holds no engine state, so it stays valid after a restart, a snapshot restore, and a rebalance. Reaching the last page of a large index costs what reaching the first page costs.
 
-The engine compares ids by their UTF-16 code units, so `"10"` sorts ahead of `"9"`.
+The engine compares ids by their Unicode code points, so `"10"` sorts ahead of `"9"`. Every machine and every Narsil implementation produces the same order.
 
 `filters` narrows the listing to the documents your filter accepts, and `total` then counts those documents. `document` takes the same projection [`query`](full-text-search.md) takes. Pass it to drop a vector field, because the engine otherwise reads every listed document's vector back out of the index.
 

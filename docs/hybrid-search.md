@@ -14,6 +14,8 @@ const results = await narsil.query('docs', {
 })
 ```
 
+Fusion defines the order of hybrid results, so a hybrid query takes no `sort`. A hybrid query that also names a `sort` fails with `SEARCH_INVALID_MODE`.
+
 Two fusion strategies are available:
 
 - `'rrf'` (the default) applies reciprocal rank fusion, which combines the two rankings by position instead of by score. `k` dampens the contribution of lower ranks and defaults to 60.
