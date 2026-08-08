@@ -1,5 +1,5 @@
 import { compareCodePoints, compareComparableKeys } from '../../core/ordering'
-import type { PartitionIndex, SortedPageEntry } from '../../core/partition'
+import type { PartitionFilterMatches, PartitionIndex, SortedPageEntry } from '../../core/partition'
 import type { PartitionManager } from '../../partitioning/manager'
 import { flattenSchema } from '../../schema/validator'
 import {
@@ -45,22 +45,26 @@ function firstIdAfter(sorted: readonly string[], anchor: string): number {
   return low
 }
 
+interface FilteredPartitions {
+  matchesFor(partitionIndex: number): PartitionFilterMatches | null
+  total: number
+}
+
 function collectFilterMatches(
   partitions: PartitionIndex[],
   filters: FilterExpression,
   schema: SchemaDefinition,
-): Set<string> {
-  const matches = new Set<string>()
-  for (const partition of partitions) {
-    for (const docId of partition.applyFilters(filters, schema)) matches.add(docId)
-  }
-  return matches
+): FilteredPartitions {
+  const perPartition = partitions.map(partition => partition.filterMatches(filters, schema))
+  let total = 0
+  for (const matches of perPartition) total += matches.count
+  return { matchesFor: (partitionIndex: number) => perPartition[partitionIndex] ?? null, total }
 }
 
 function collectCandidates(
   partition: PartitionIndex,
   anchor: string | null,
-  matches: Set<string> | null,
+  matches: PartitionFilterMatches | null,
   wanted: number,
   out: string[],
 ): void {
@@ -70,7 +74,7 @@ function collectCandidates(
   while (index < sorted.length && taken < wanted) {
     const docId = sorted[index]
     index++
-    if (matches !== null && !matches.has(docId)) continue
+    if (matches !== null && !matches.hasExternal(docId)) continue
     out.push(docId)
     taken++
   }
@@ -79,13 +83,19 @@ function collectCandidates(
 function pageInIdOrder(
   partitions: PartitionIndex[],
   cursor: PageCursor | null,
-  matches: Set<string> | null,
+  filtered: FilteredPartitions | null,
   limit: number,
 ): DocumentPage {
   const anchor = cursor === null ? null : cursor.anchor
   const candidates: string[] = []
-  for (const partition of partitions) {
-    collectCandidates(partition, anchor, matches, limit + 1, candidates)
+  for (let index = 0; index < partitions.length; index++) {
+    collectCandidates(
+      partitions[index],
+      anchor,
+      filtered === null ? null : filtered.matchesFor(index),
+      limit + 1,
+      candidates,
+    )
   }
   candidates.sort(compareCodePoints)
 
@@ -100,7 +110,7 @@ function pageInIdOrder(
 function pageInSortOrder(
   partitions: PartitionIndex[],
   cursor: PageCursor | null,
-  matches: Set<string> | null,
+  filtered: FilteredPartitions | null,
   limit: number,
   sort: SortSpec,
   signature: string,
@@ -119,12 +129,12 @@ function pageInSortOrder(
     limit: limit + 1,
     anchorKey: cursor === null ? null : cursor.sortKey,
     anchorId: cursor === null ? null : cursor.anchor,
-    matches,
   }
 
   const merged: SortedPageEntry[] = []
-  for (const partition of partitions) {
-    for (const entry of partition.sortedPage(request)) merged.push(entry)
+  for (let index = 0; index < partitions.length; index++) {
+    const matches = filtered === null ? null : filtered.matchesFor(index)
+    for (const entry of partitions[index].sortedPage({ ...request, matches })) merged.push(entry)
   }
   merged.sort((a, b) => compareComparableKeys(a.key, b.key, directions) || compareCodePoints(a.id, b.id))
 
@@ -159,13 +169,13 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
   }
 
   const partitions = manager.getAllPartitions()
-  const matches = params.filters === undefined ? null : collectFilterMatches(partitions, params.filters, schema)
-  const total = matches === null ? manager.countDocuments() : matches.size
+  const filtered = params.filters === undefined ? null : collectFilterMatches(partitions, params.filters, schema)
+  const total = filtered === null ? manager.countDocuments() : filtered.total
 
   const page =
     params.sort === undefined || signature === null
-      ? pageInIdOrder(partitions, cursor, matches, limit)
-      : pageInSortOrder(partitions, cursor, matches, limit, params.sort, signature, schema)
+      ? pageInIdOrder(partitions, cursor, filtered, limit)
+      : pageInSortOrder(partitions, cursor, filtered, limit, params.sort, signature, schema)
 
   const projection = resolveProjection(params.document)
   const keepVectorField = (fieldPath: string): boolean => projectionKeepsField(projection, fieldPath)

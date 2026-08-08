@@ -25,7 +25,27 @@ export interface OrdinalSource {
   getOrdinal(docId: string): number | undefined
 }
 
+/**
+ * The two constants a scalar quantizer turns a vector component into a byte
+ * with, and turns that byte back into a distance with.
+ *
+ * A worker holding a copy of a vector field receives these rather than deriving
+ * its own, because a copy taken after a delete would otherwise measure a
+ * narrower range of values and answer the same query differently from the
+ * thread that built the index.
+ *
+ * @internal
+ */
+export interface ScalarQuantizerCalibration {
+  /** Each step of the byte scale spans this much of the component range. */
+  alpha: number
+  /** The byte scale starts at this component value. */
+  offset: number
+}
+
 export interface ScalarQuantizer {
+  /** The constants every code is derived from, absent until calibration runs. */
+  readonly calibration: ScalarQuantizerCalibration | null
   quantize(docId: string, vector: Float32Array): void
   remove(docId: string): void
   getQuantized(docId: string): Uint8Array | undefined

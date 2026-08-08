@@ -5,6 +5,7 @@ import type {
   OrdinalSource,
   QuantizedQuery,
   ScalarQuantizer,
+  ScalarQuantizerCalibration,
   SerializedSQ8,
 } from './scalar-quantization-types'
 import { type ArenaSimd, createArenaSimd } from './simd'
@@ -208,6 +209,10 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
 
     get size() {
       return liveCount
+    },
+
+    get calibration(): ScalarQuantizerCalibration | null {
+      return calibrated ? { alpha, offset } : null
     },
 
     isCalibrated(): boolean {

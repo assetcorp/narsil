@@ -249,11 +249,22 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
 
 let sharedPool: Promise<VectorSearchPool | null> | null = null
 let poolHolders = 0
+let workersUnavailable = false
 
 export function acquireVectorSearchPool(): Promise<VectorSearchPool | null> {
   poolHolders += 1
+  if (workersUnavailable) return Promise.resolve(null)
   if (sharedPool === null) {
-    sharedPool = createVectorSearchPool()
+    sharedPool = createVectorSearchPool().then(
+      pool => {
+        if (pool === null) workersUnavailable = true
+        return pool
+      },
+      () => {
+        workersUnavailable = true
+        return null
+      },
+    )
   }
   return sharedPool
 }

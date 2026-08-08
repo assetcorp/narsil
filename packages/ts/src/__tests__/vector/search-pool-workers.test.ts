@@ -37,6 +37,7 @@ function buildSnapshot(prefix: string): { snapshot: VectorReplicaSnapshot; query
     snapshot: {
       dimension: DIM,
       quantization: 'none',
+      calibration: null,
       store: store.exportSnapshot(),
       graph: graph.exportSnapshot(),
       tombstones: [],
@@ -103,6 +104,7 @@ describe('two indexes sharing one pool of real workers', () => {
     await pool?.load('doc#1', {
       dimension: DIM,
       quantization: 'none',
+      calibration: null,
       store: store.exportSnapshot(),
       graph: graph.exportSnapshot(),
       tombstones: [],

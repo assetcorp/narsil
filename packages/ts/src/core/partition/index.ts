@@ -20,7 +20,12 @@ import { createPartitionStats, type PartitionStats } from '../statistics'
 import { createSurfaceRegistry } from '../surface-registry'
 import { computeFacets } from './facets'
 import { updateFieldIndexOnly } from './field-updates'
-import { applyPartitionFilters, applyPartitionFiltersBitset } from './filters'
+import {
+  applyPartitionFilters,
+  applyPartitionFiltersBitset,
+  type PartitionFilterMatches,
+  partitionFilterMatches,
+} from './filters'
 import { indexDocument, removeFromIndexes } from './indexing'
 import { estimatePartitionBytes } from './memory'
 import { rebuildTextIndex } from './rebuild'
@@ -41,6 +46,7 @@ import { serializePartitionToWirePayloadV2 } from './wire-payload'
 
 export type { GlobalStatistics, InternalSearchParams, InternalSearchResult, ScoredDocument }
 export type { PartitionInsertOptions }
+export type { PartitionFilterMatches } from './filters'
 export type { SortedPageEntry, SortPageRequest } from './sorting'
 export type { PartitionSuggestion } from './suggestions'
 
@@ -84,6 +90,7 @@ export interface PartitionIndex {
   ): ComparableSortValue[]
   applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string>
   applyFiltersBitset(filters: FilterExpression, schema: SchemaDefinition): Uint32Array
+  filterMatches(filters: FilterExpression, schema: SchemaDefinition): PartitionFilterMatches
   computeFacets(docIds: Set<string>, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult>
   suggestTerms(surfacePrefix: string, stemmedPrefix: string, limit: number): PartitionSuggestion[]
   expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number): string[]
@@ -337,6 +344,10 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
 
     applyFiltersBitset(filters: FilterExpression, schema: SchemaDefinition): Uint32Array {
       return applyPartitionFiltersBitset(state, filters, schema)
+    },
+
+    filterMatches(filters: FilterExpression, schema: SchemaDefinition): PartitionFilterMatches {
+      return partitionFilterMatches(state, filters, schema)
     },
 
     computeFacets(docIds: Set<string>, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult> {

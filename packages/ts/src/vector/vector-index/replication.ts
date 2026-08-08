@@ -24,6 +24,7 @@ function captureSnapshot(state: VectorIndexState): VectorReplicaSnapshot | null 
   return {
     dimension: state.dimension,
     quantization: state.quantizationMode,
+    calibration: state.sq8?.calibration ?? null,
     store: state.store.exportSnapshot(),
     graph: state.hnsw.exportSnapshot(),
     tombstones: Array.from(state.tombstones),

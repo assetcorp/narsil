@@ -36,6 +36,14 @@ export interface HNSWSnapshot {
     topLayer: number;
 }
 
+// Warning: (ae-internal-missing-underscore) The name "ScalarQuantizerCalibration" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface ScalarQuantizerCalibration {
+    alpha: number;
+    offset: number;
+}
+
 // Warning: (ae-internal-missing-underscore) The name "VectorAckResponse" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
@@ -70,6 +78,7 @@ export type VectorMetric = 'cosine' | 'dotProduct' | 'euclidean';
 //
 // @internal
 export interface VectorReplicaSnapshot {
+    calibration: ScalarQuantizerCalibration | null;
     dimension: number;
     graph: HNSWSnapshot;
     quantization: 'sq8' | 'none';

@@ -1,4 +1,5 @@
 import { generateId } from '../../core/id-generator'
+import { type ResolvedProjection, resolveProjection } from '../../engine/query/projection'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
@@ -100,8 +101,9 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     indexName: string,
     result: DistributedQueryResult,
     allocation: AllocationTable,
+    projection: ResolvedProjection,
   ): Promise<Map<string, T>> {
-    return fetchDocumentsAcrossNodes<T>(config, nodeId, engine, indexName, result, allocation)
+    return fetchDocumentsAcrossNodes<T>(config, nodeId, engine, indexName, result, allocation, projection)
   }
 
   const forwardOnError = (error: unknown): void => {
@@ -283,7 +285,12 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
           resolveNodeTargets,
         }
         const distributed = await distributedQuery(indexName, wireParams, queryDeps)
-        const documents = await fetchDistributedDocuments<T>(indexName, distributed, allocation)
+        const documents = await fetchDistributedDocuments<T>(
+          indexName,
+          distributed,
+          allocation,
+          resolveProjection(params.document),
+        )
         return distributedResultToLocal<T>(distributed, documents)
       })
     },

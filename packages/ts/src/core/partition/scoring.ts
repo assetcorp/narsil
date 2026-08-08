@@ -93,7 +93,8 @@ export function topKFromMap(
   k: number,
   resolver: { toExternal(id: number): string | undefined },
 ): ScoredDocument[] {
-  if (k <= 0) return []
+  const wanted = Number.isFinite(k) ? Math.max(0, Math.floor(k)) : 0
+  if (wanted <= 0) return []
 
   const heap: TopKCandidate[] = []
 
@@ -101,9 +102,9 @@ export function topKFromMap(
     const externalId = resolver.toExternal(internalId)
     if (externalId === undefined) continue
     const candidate = { internalId, externalId, score: data.score }
-    if (heap.length < k) {
+    if (heap.length < wanted) {
       heap.push(candidate)
-      if (heap.length === k) buildMinHeap(heap)
+      if (heap.length === wanted) buildMinHeap(heap)
     } else if (candidateWorse(heap[0], candidate)) {
       heap[0] = candidate
       siftDown(heap, 0)
