@@ -4,6 +4,7 @@ import {
   compareComparableValues,
   type SortDirection,
 } from '../../ordering'
+import type { PartitionFilterMatches } from '../filters'
 import type { PartitionState } from '../utils'
 import type { SortColumn } from './index'
 import { MISSING_RANK, rankIsBetweenValues, rankOfValue } from './order'
@@ -15,7 +16,7 @@ export interface SortPageRequest {
   limit: number
   anchorKey: readonly ComparableSortValue[] | null
   anchorId: string | null
-  matches: ReadonlySet<string> | null
+  matches: PartitionFilterMatches | null
 }
 
 export interface SortedPageEntry {
@@ -202,9 +203,10 @@ export function selectSortedPage(state: PartitionState, request: SortPageRequest
     const internalId = next()
     if (internalId === -1) break
 
+    if (matches !== null && !matches.hasInternal(internalId)) continue
+
     const externalId = resolver.toExternal(internalId)
     if (externalId === undefined) continue
-    if (matches !== null && !matches.has(externalId)) continue
 
     const leadingRank = leading.rankOf(internalId)
     if (page.length === limit && rankOrdersAfter(leadingRank, page[limit - 1].leadingRank, leadingDirection)) {

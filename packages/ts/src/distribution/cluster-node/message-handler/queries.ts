@@ -1,4 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
+import { applyProjection, resolveProjection } from '../../../engine/query/projection'
 import { normalizeSort, readSortValues } from '../../../search/sorting'
 import type { QueryResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
@@ -90,13 +91,15 @@ export async function handleFetch(
   const decoded = decode(message.payload) as unknown
   const payload = validateFetchPayload(decoded)
 
+  const projection = resolveProjection(payload.fields === null ? undefined : { include: payload.fields })
+
   const documents = []
   for (const docRef of payload.documentIds) {
     const doc = await deps.engine.get(payload.indexName, docRef.docId)
     if (doc !== undefined) {
       documents.push({
         docId: docRef.docId,
-        document: doc as Record<string, unknown>,
+        document: applyProjection(doc as AnyDocument, projection) as Record<string, unknown>,
         highlights: null,
       })
     }

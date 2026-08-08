@@ -1,3 +1,4 @@
+import { clampRowCount, DEFAULT_PAGE_SIZE } from '../../search/pagination'
 import { normalizeSort } from '../../search/sorting'
 import type { QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
@@ -13,8 +14,8 @@ export function localParamsToWire(params: QueryParams): WireQueryParams {
     group: convertLocalGroupToWire(params.group),
     facets: convertLocalFacetsToWire(params.facets),
     facetSize: null,
-    limit: params.limit ?? 10,
-    offset: params.offset ?? 0,
+    limit: clampRowCount(params.limit, DEFAULT_PAGE_SIZE),
+    offset: clampRowCount(params.offset, 0),
     searchAfter: params.searchAfter ?? null,
     fields: params.fields ?? null,
     boost: params.boost ?? null,

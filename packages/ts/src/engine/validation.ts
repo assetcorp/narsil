@@ -1,6 +1,6 @@
 import { MAX_INDEX_NAME_LENGTH } from '../distribution/cluster/index-metadata'
 import { ErrorCodes, NarsilError } from '../errors'
-import { DEFAULT_PAGE_SIZE } from '../search/pagination'
+import { clampRowCount, DEFAULT_PAGE_SIZE } from '../search/pagination'
 
 const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
 const MAX_DOC_ID_LENGTH = 512
@@ -90,11 +90,9 @@ export function validatePartitionConfig(partitions: {
 }
 
 export function clampLimit(limit: number | undefined): number {
-  if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_LIMIT
-  return Math.max(0, Math.floor(limit))
+  return clampRowCount(limit, DEFAULT_LIMIT)
 }
 
 export function clampOffset(offset: number | undefined): number {
-  if (offset === undefined || !Number.isFinite(offset)) return DEFAULT_OFFSET
-  return Math.max(0, Math.floor(offset))
+  return clampRowCount(offset, DEFAULT_OFFSET)
 }

@@ -1,4 +1,6 @@
 import { decode } from '@msgpack/msgpack'
+import { applyProjection, type ResolvedProjection } from '../../engine/query/projection'
+import type { AnyDocument } from '../../types/schema'
 import type { AllocationTable } from '../coordinator/types'
 import { createFetchMessage, validateFetchResultPayload } from '../query/codec'
 import { selectReplica } from '../query/selection'
@@ -35,6 +37,11 @@ export async function sendToNode(
   throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
 
+function fetchFieldsFor(projection: ResolvedProjection): string[] | null {
+  if (projection.kind !== 'fields' || projection.include === null) return null
+  return projection.include.map(path => path.join('.'))
+}
+
 export async function fetchDistributedDocuments<T>(
   config: ClusterNodeConfig,
   nodeId: string,
@@ -42,7 +49,11 @@ export async function fetchDistributedDocuments<T>(
   indexName: string,
   result: DistributedQueryResult,
   allocation: AllocationTable,
+  projection: ResolvedProjection,
 ): Promise<Map<string, T>> {
+  const documents = new Map<string, T>()
+  if (projection.kind === 'none') return documents
+
   const partitionCount = allocation.assignments.size
   const nodeToDocumentIds = new Map<string, FetchDocumentId[]>()
 
@@ -64,13 +75,13 @@ export async function fetchDistributedDocuments<T>(
     documentIds.push({ docId: entry.docId, partitionId })
   }
 
-  const documents = new Map<string, T>()
+  const fields = fetchFieldsFor(projection)
   for (const [targetNodeId, documentIds] of nodeToDocumentIds) {
     if (targetNodeId === nodeId) {
       for (const { docId } of documentIds) {
         const document = await engine.get(indexName, docId)
         if (document !== undefined) {
-          documents.set(docId, document as T)
+          documents.set(docId, applyProjection(document as AnyDocument, projection) as T)
         }
       }
       continue
@@ -80,7 +91,7 @@ export async function fetchDistributedDocuments<T>(
       {
         indexName,
         documentIds,
-        fields: null,
+        fields,
         highlight: null,
       },
       nodeId,
@@ -89,7 +100,7 @@ export async function fetchDistributedDocuments<T>(
     const decoded = decode(response.payload)
     const payload = validateFetchResultPayload(decoded)
     for (const fetched of payload.documents) {
-      documents.set(fetched.docId, fetched.document as T)
+      documents.set(fetched.docId, applyProjection(fetched.document as AnyDocument, projection) as T)
     }
   }
 

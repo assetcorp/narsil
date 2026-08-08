@@ -1,9 +1,13 @@
 import { compareCodePoints } from '../core/ordering'
 import { tokenize } from '../core/tokenizer'
 import type { PartitionManager } from '../partitioning/manager'
+import { clampRowCount } from '../search/pagination'
 import type { LanguageModule } from '../types/language'
 import type { SuggestResult } from '../types/results'
 import type { SuggestParams } from '../types/search'
+
+const DEFAULT_SUGGEST_LIMIT = 10
+const MAX_SUGGEST_LIMIT = 100
 
 interface MergedSuggestion {
   documentFrequency: number
@@ -16,7 +20,7 @@ export function executeSuggest(
   params: SuggestParams,
 ): SuggestResult {
   const t0 = performance.now()
-  const limit = Math.max(1, Math.min(params.limit ?? 10, 100))
+  const limit = Math.max(1, Math.min(clampRowCount(params.limit, DEFAULT_SUGGEST_LIMIT), MAX_SUGGEST_LIMIT))
   const rawPrefix = params.prefix.trim()
 
   if (rawPrefix.length === 0) {

@@ -2,7 +2,7 @@ import { evaluateFilters, type FilterContext } from '../../filters/evaluator'
 import type { FieldIndex, GeoFieldIndex } from '../../filters/operators'
 import type { FilterExpression } from '../../types/filters'
 import type { SchemaDefinition } from '../../types/schema'
-import { bitsetFromSet } from '../bitset'
+import { bitsetFromSet, bitsetHas } from '../bitset'
 import { getAllInternalDocIds, getFieldValueByInternalId, getFlatSchema, type PartitionState } from './utils'
 
 export function buildFilterContext(state: PartitionState, schema: SchemaDefinition): FilterContext {
@@ -130,4 +130,52 @@ export function applyPartitionFiltersBitset(
 ): Uint32Array {
   const context = buildFilterContext(state, schema)
   return evaluateFilters(filters, context)
+}
+
+/**
+ * The documents of one partition that a filter accepts, held as a bit per
+ * ordinal rather than as a set of document ids.
+ *
+ * @internal
+ */
+export interface PartitionFilterMatches {
+  /** This many stored documents pass the filter. */
+  readonly count: number
+  /** Reports whether the named document passes the filter. */
+  hasExternal(docId: string): boolean
+  /** Reports whether the document at this ordinal passes the filter. */
+  hasInternal(internalId: number): boolean
+}
+
+export function partitionFilterMatches(
+  state: PartitionState,
+  filters: FilterExpression,
+  schema: SchemaDefinition,
+): PartitionFilterMatches {
+  const accepted = applyPartitionFiltersBitset(state, filters, schema)
+  const docStore = state.docStore
+  const resolver = docStore.resolver()
+
+  let count = 0
+  for (let wordIndex = 0; wordIndex < accepted.length; wordIndex++) {
+    let word = accepted[wordIndex]
+    if (word === 0) continue
+    const base = wordIndex << 5
+    while (word !== 0) {
+      const trailingZeros = Math.clz32(word & -word) ^ 31
+      if (resolver.toExternal(base + trailingZeros) !== undefined) count++
+      word &= word - 1
+    }
+  }
+
+  return {
+    count,
+    hasExternal(docId: string): boolean {
+      const internalId = docStore.getInternalId(docId)
+      return internalId !== undefined && bitsetHas(accepted, internalId)
+    },
+    hasInternal(internalId: number): boolean {
+      return bitsetHas(accepted, internalId)
+    },
+  }
 }

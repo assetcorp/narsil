@@ -7,6 +7,7 @@ export type { VectorMetric } from './brute-force'
 export type { HNSWSnapshot } from './hnsw'
 export type { AdjacencySnapshot } from './hnsw/adjacency'
 export type { VectorReplicaSnapshot } from './replica'
+export type { ScalarQuantizerCalibration } from './scalar-quantization-types'
 export type { VectorStoreSnapshot } from './vector-store'
 
 /**

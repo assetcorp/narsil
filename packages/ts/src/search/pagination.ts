@@ -5,6 +5,11 @@ import { decodePageCursor, encodePageCursor, type PageCursor, requireMatchingCur
 export const RESULT_WINDOW = 10_000
 export const DEFAULT_PAGE_SIZE = 10
 
+export function clampRowCount(value: number | undefined, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback
+  return Math.max(0, Math.floor(value))
+}
+
 export function requireWithinResultWindow(limit: number, offset: number): void {
   const depth = offset + limit
   if (depth <= RESULT_WINDOW) return
@@ -44,16 +49,18 @@ export function applyPagination<T extends { id: string; score: number }>(
   cursor?: string,
   sort?: PaginationSortContext,
 ): { paginated: T[]; nextCursor?: string } {
+  const decoded = cursor ? decodePageCursor(cursor) : null
+  if (decoded !== null && cursor !== undefined) {
+    requireMatchingCursor(decoded, cursor, sort?.signature ?? null, true)
+  }
+
   if (limit <= 0) {
     return { paginated: [] }
   }
 
   let startIndex = 0
 
-  if (cursor) {
-    const decoded = decodePageCursor(cursor)
-    requireMatchingCursor(decoded, cursor, sort?.signature ?? null, true)
-
+  if (decoded !== null) {
     startIndex = results.length
     for (let i = 0; i < results.length; i++) {
       if (ordersAfterAnchor(results[i], decoded, sort)) {

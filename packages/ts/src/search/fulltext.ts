@@ -8,7 +8,7 @@ import type { GlobalStatistics, InternalSearchResult, ScoredDocument } from '../
 import type { LanguageModule } from '../types/language'
 import type { BM25Params, CustomTokenizer, FieldType, SchemaDefinition } from '../types/schema'
 import type { QueryParams, TermMatchPolicy } from '../types/search'
-import { DEFAULT_PAGE_SIZE } from './pagination'
+import { clampRowCount, DEFAULT_PAGE_SIZE } from './pagination'
 
 export interface FulltextSearchOptions {
   bm25Params?: BM25Params
@@ -115,7 +115,9 @@ export function fulltextSearch(
     params.group !== undefined ||
     params.pinned !== undefined ||
     params.searchAfter !== undefined
-  const maxResults = needsAllResults ? undefined : (params.limit ?? DEFAULT_PAGE_SIZE) + (params.offset ?? 0) + 1
+  const maxResults = needsAllResults
+    ? undefined
+    : clampRowCount(params.limit, DEFAULT_PAGE_SIZE) + clampRowCount(params.offset, 0) + 1
   const collectMatchedIds = params.facets !== undefined && !needsAllResults
 
   const collectComponents =
