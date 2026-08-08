@@ -270,22 +270,23 @@ These types appear in more than one payload.
 
 ```text
 QueryParams {
-  term:        string or absent
-  filters:     FilterExpression or absent
-  sort:        List<SortField> or absent
-  group:       GroupConfig or absent
-  facets:      List<string> or absent
-  facetSize:   uint32 or absent                 (default 10, the bucket cap per facet field)
-  limit:       uint32                           (default 10)
-  offset:      uint32                           (default 0)
-  searchAfter: string or absent                 (base64-encoded cursor)
-  fields:      List<string> or absent           (the fields searched; absent means every text field)
-  boost:       Map<string, float32> or absent   (per-field boost)
-  tolerance:   uint8 or absent                  (fuzzy matching tolerance)
-  threshold:   float32 or absent                (minimum score)
-  scoring:     'local' or 'dfs' or 'broadcast'  (default 'local')
-  vector:      VectorQueryParams or absent
-  hybrid:      HybridConfig or absent
+  term:          string or absent
+  filters:       FilterExpression or absent
+  sort:          List<SortField> or absent
+  group:         GroupConfig or absent
+  facets:        List<string> or absent
+  facetSize:     uint32 or absent                 (default 10, the bucket cap per facet field)
+  limit:         uint32                           (default 10)
+  offset:        uint32                           (default 0)
+  searchAfter:   string or absent                 (base64-encoded cursor)
+  fields:        List<string> or absent           (the fields searched; absent means every text field)
+  boost:         Map<string, float32> or absent   (per-field boost)
+  tolerance:     uint8 or absent                  (fuzzy matching tolerance)
+  threshold:     float32 or absent                (minimum score)
+  includeScores: boolean or absent                (default false; a sorted query computes scores only where true)
+  scoring:       'local' or 'dfs' or 'broadcast'  (default 'local')
+  vector:        VectorQueryParams or absent
+  hybrid:        HybridConfig or absent
 }
 
 SortField {
@@ -364,7 +365,7 @@ HighlightConfig {
 
 ScoredEntry {
   docId:      string
-  score:      float32
+  score:      float32 or absent       (absent when a sort suppressed scoring)
   sortValues: List<value> or absent   (present when the query specifies a sort)
 }
 
@@ -375,6 +376,8 @@ FacetBucket {
 ```
 
 `sortValues` carries the raw values of the sort fields, one per field in sort order, each a string, a number, a boolean, or nil, read from the document before any folding. The coordinator merges sorted results with the [sort value order](../algorithms.md#sort-value-order), so a data node must never send pre-folded or pre-transformed values.
+
+`score` is absent where the query named a sort without `includeScores`, because a [sorted query computes no relevance scores](../algorithms.md#string-ordering), and the coordinator then merges by sort values alone.
 
 ### query.fetch
 

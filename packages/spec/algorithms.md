@@ -507,6 +507,8 @@ The sort value order below applies to the fields a query or a listing names in i
 
 A sort names a `number`, a `boolean`, or an `enum` field with no preparation. A sort names a `string` field only where the schema marks that field sortable, and a sort naming an unmarked `string` field raises `SEARCH_INVALID_FIELD`, because ordering free text costs an implementation far more memory per document than ordering a scalar. Every other field type counts as missing under the rules below, so a sort naming one leaves every document equal.
 
+A query that names a sort ranks by sort values alone, and it must not compute relevance scores. Setting `includeScores` to true restores scoring, and each hit then carries the score it would carry without the sort. A sorted query carrying a score threshold must compute scores to apply the floor, and it still reports them only where `includeScores` is true. A hit returned without scoring carries no score.
+
 ### Sort Value Order
 
 A sort compares two documents field by field, in the order the sort names its fields, and the first field that separates them decides. Within one field:
