@@ -15,6 +15,7 @@ benchmarks/*/results/.smoke/
 .turbo/
 .cache/
 .venv/
+scratch/
 
 # Python bytecode caches, written when the writeup tool runs on the host
 __pycache__/
