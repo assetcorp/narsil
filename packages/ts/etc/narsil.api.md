@@ -310,7 +310,7 @@ export interface Hit<T = AnyDocument> {
     document: T;
     highlights?: Record<string, HighlightMatch>;
     id: string;
-    score: number;
+    score?: number;
     scoreComponents?: ScoreComponents;
 }
 
@@ -641,6 +641,7 @@ export interface QueryParams {
     highlight?: HighlightConfig;
     hybrid?: HybridConfig;
     includeScoreComponents?: boolean;
+    includeScores?: boolean;
     limit?: number;
     minScore?: number;
     mode?: SearchMode;

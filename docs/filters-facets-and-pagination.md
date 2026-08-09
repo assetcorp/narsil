@@ -22,7 +22,7 @@ const results = await narsil.query('products', {
 })
 ```
 
-Field conditions live under `fields`, and the `and`, `or`, and `not` combinators nest whole filter expressions, so any boolean shape is expressible. Filters narrow the candidates a search scores: a full-text query needs a `term` to produce hits, and in vector and hybrid modes the filters restrict which documents the vector search considers.
+Field conditions live under `fields`, and the `and`, `or`, and `not` combinators nest whole filter expressions, so any boolean shape is expressible. The engine rejects any other key with `SEARCH_INVALID_FILTER`, so a field name written at the top level, such as `{ category: { eq: 'books' } }`, raises an error instead of silently matching everything, and so does a misspelled operator. Filters narrow the candidates a search scores: a full-text query needs a `term` to produce hits, and in vector and hybrid modes the filters restrict which documents the vector search considers.
 
 ## Facets
 
@@ -43,6 +43,8 @@ const results = await narsil.query('products', {
 ## Sort
 
 `sort` orders hits by field values instead of score. Multiple entries apply in order, so the second field breaks ties in the first. When every sort field ties, the engine orders the tied hits by document id.
+
+A sorted query computes no relevance scores, so each hit arrives without a `score`. Pass `includeScores: true` to restore them, and each hit then carries the score it would carry without the sort. A sorted query carrying `minScore` still applies the floor, and it reports the scores only where `includeScores` is true.
 
 A sort names a `number`, a `boolean`, or an `enum` field with no preparation. A sort names a text field only where the schema declares it `string:sortable`, and a sort naming a plain `string` field raises `SEARCH_INVALID_FIELD`. Every other field type, including every array field, counts as missing, so a sort naming one leaves every document equal.
 

@@ -37,7 +37,7 @@ describe('distributedRRF', () => {
     const result = distributedRRF([listA, listB], { k: 60 })
 
     for (let i = 1; i < result.length; i++) {
-      expect(result[i - 1].score).toBeGreaterThanOrEqual(result[i].score)
+      expect(result[i - 1].score).toBeGreaterThanOrEqual(result[i].score ?? Number.NaN)
     }
   })
 
@@ -136,7 +136,7 @@ describe('distributedLinearCombination', () => {
     const result = distributedLinearCombination(textResults, vectorResults, { alpha: 0.5 })
 
     for (let i = 1; i < result.length; i++) {
-      expect(result[i - 1].score).toBeGreaterThanOrEqual(result[i].score)
+      expect(result[i - 1].score).toBeGreaterThanOrEqual(result[i].score ?? Number.NaN)
     }
   })
 

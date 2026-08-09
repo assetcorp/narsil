@@ -18,7 +18,7 @@ const results = await narsil.query('products', {
 })
 ```
 
-`limit` defaults to 10. Each hit has the shape `{ id, score, document, highlights?, scoreComponents? }`. Pass `includeScoreComponents: true` to receive per-term frequencies, field lengths, and IDF values for debugging a ranking.
+`limit` defaults to 10. Each hit has the shape `{ id, score, document, highlights?, scoreComponents? }`. Pass `includeScoreComponents: true` to receive per-term frequencies, field lengths, and IDF values for debugging a ranking. A sorted query computes no scores, so its hits carry no `score` until the query sets `includeScores: true`.
 
 ## Choosing what comes back
 

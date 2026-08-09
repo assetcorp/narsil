@@ -11,7 +11,7 @@ import type { AnyDocument, SchemaDefinition } from './schema'
  * @public
  */
 export interface QueryResult<T = AnyDocument> {
-  /** These documents matched, best score first, cut to the query's `limit`. */
+  /** These documents matched, cut to the query's `limit`, best score first or in the query's sort order. */
   hits: Array<Hit<T>>
   /** This many documents matched in total, before `limit` and `offset` applied. */
   count: number
@@ -37,8 +37,12 @@ export interface QueryResult<T = AnyDocument> {
 export interface Hit<T = AnyDocument> {
   /** The document is stored under this id. */
   id: string
-  /** This score ranked the hit. Scores compare within one result set, never across searches. */
-  score: number
+  /**
+   * This score ranked the hit. Scores compare within one result set, never
+   * across searches. A sorted query ranks by sort values instead and carries
+   * no score unless it sets `includeScores`.
+   */
+  score?: number
   /** This is the stored document. */
   document: T
   /** These are the parts the score was built from, which arrive when the query asked for them. */

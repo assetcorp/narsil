@@ -54,7 +54,7 @@ describe('vector search through Narsil query API', () => {
     expect(result.hits).toHaveLength(2)
     expect(result.hits[0].id).toBe('near')
     expect(result.hits[1].id).toBe('mid')
-    expect(result.hits[0].score).toBeGreaterThan(result.hits[1].score)
+    expect(result.hits[0].score).toBeGreaterThan(result.hits[1].score ?? Number.NaN)
   })
 
   it('respects the limit parameter', async () => {

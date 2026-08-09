@@ -27,6 +27,7 @@ import {
   partitionFilterMatches,
 } from './filters'
 import { indexDocument, removeFromIndexes } from './indexing'
+import { type PartitionSearchMatches, searchFulltextMatches } from './matches'
 import { estimatePartitionBytes } from './memory'
 import { rebuildTextIndex } from './rebuild'
 import { searchFulltext } from './search'
@@ -47,6 +48,7 @@ import { serializePartitionToWirePayloadV2 } from './wire-payload'
 export type { GlobalStatistics, InternalSearchParams, InternalSearchResult, ScoredDocument }
 export type { PartitionInsertOptions }
 export type { PartitionFilterMatches } from './filters'
+export type { PartitionSearchMatches } from './matches'
 export type { SortedPageEntry, SortPageRequest } from './sorting'
 export type { PartitionSuggestion } from './suggestions'
 
@@ -82,6 +84,7 @@ export interface PartitionIndex {
   clear(): void
 
   searchFulltext(params: InternalSearchParams): InternalSearchResult
+  searchFulltextMatches(params: InternalSearchParams): PartitionSearchMatches
   sortedPage(request: SortPageRequest): SortedPageEntry[]
   sortValues(
     docId: string,
@@ -324,6 +327,10 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
 
     searchFulltext(params: InternalSearchParams): InternalSearchResult {
       return searchFulltext(state, params)
+    },
+
+    searchFulltextMatches(params: InternalSearchParams): PartitionSearchMatches {
+      return searchFulltextMatches(state, params)
     },
 
     sortedPage(request: SortPageRequest): SortedPageEntry[] {

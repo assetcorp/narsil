@@ -58,6 +58,7 @@ function makeQueryParams(overrides: Partial<WireQueryParams> = {}): WireQueryPar
     boost: null,
     tolerance: null,
     threshold: null,
+    includeScores: null,
     scoring: 'local',
     vector: null,
     hybrid: null,
@@ -182,7 +183,7 @@ describe('distributed query integration', () => {
 
     const scores = result.scored.map(s => s.score)
     for (let i = 1; i < scores.length; i++) {
-      expect(scores[i]).toBeLessThanOrEqual(scores[i - 1])
+      expect(scores[i]).toBeLessThanOrEqual(scores[i - 1] ?? Number.NaN)
     }
 
     expect(result.scored[0].docId).toBe('product-4')

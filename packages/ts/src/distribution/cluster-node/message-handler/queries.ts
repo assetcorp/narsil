@@ -31,6 +31,7 @@ export async function handleSearch(
     scoring: payload.params.scoring,
     tolerance: payload.params.tolerance ?? undefined,
     minScore: payload.params.threshold ?? undefined,
+    includeScores: payload.params.includeScores ?? undefined,
     limit: payload.params.limit,
     offset: payload.params.offset,
     searchAfter: payload.params.searchAfter ?? undefined,
@@ -60,7 +61,7 @@ export async function handleSearch(
   const sortFields = queryParams.sort !== undefined ? normalizeSort(queryParams.sort).map(entry => entry.field) : null
   const scored = queryResult.hits.map(hit => ({
     docId: hit.id,
-    score: hit.score,
+    score: hit.score ?? null,
     sortValues:
       sortFields !== null
         ? readSortValues(hit.document as AnyDocument | undefined, sortFields).map(toWireSortValue)

@@ -110,6 +110,13 @@ export interface QueryParams {
   vector?: VectorQueryConfig
   /** These settings control how the keyword and vector rankings merge in `hybrid` mode. */
   hybrid?: HybridConfig
+  /**
+   * Setting this returns relevance scores on a sorted query. A query that
+   * names a sort ranks by sort values alone and computes no scores, so its
+   * hits carry none until this restores them. A query without a sort ignores
+   * this and always carries scores.
+   */
+  includeScores?: boolean
   /** Setting this returns the numbers behind each hit's score, which is what you read when a ranking surprises you. */
   includeScoreComponents?: boolean
   /** This chooses how much of each stored document comes back, and the whole document by default. */
