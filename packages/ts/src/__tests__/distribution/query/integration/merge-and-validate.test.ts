@@ -57,7 +57,7 @@ describe('mergeAndTruncateScoredEntries', () => {
     for (let i = 1; i < result.length; i++) {
       const prev = result[i - 1]
       const curr = result[i]
-      expect(prev.score).toBeGreaterThanOrEqual(curr.score)
+      expect(prev.score).toBeGreaterThanOrEqual(curr.score ?? Number.NaN)
     }
   })
 
@@ -212,5 +212,34 @@ describe('validateSearchResultPayload', () => {
       facets: null,
     })
     expect(result.results).toHaveLength(1)
+  })
+
+  it('accepts a null score where the entry carries sort values', () => {
+    const result = validateSearchResultPayload({
+      results: [
+        {
+          partitionId: 0,
+          scored: [{ docId: 'doc-1', score: null, sortValues: ['alpha', 2] }],
+          totalHits: 1,
+        },
+      ],
+      facets: null,
+    })
+    expect(result.results).toHaveLength(1)
+  })
+
+  it('rejects a null score on an entry without sort values', () => {
+    expect(() =>
+      validateSearchResultPayload({
+        results: [
+          {
+            partitionId: 0,
+            scored: [{ docId: 'doc-1', score: null, sortValues: null }],
+            totalHits: 1,
+          },
+        ],
+        facets: null,
+      }),
+    ).toThrow()
   })
 })

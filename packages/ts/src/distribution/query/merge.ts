@@ -4,8 +4,10 @@ import type { FacetBucket, ScoredEntry } from '../transport/types'
 type EntryComparator = (a: ScoredEntry, b: ScoredEntry) => number
 
 function compareByScoreThenId(a: ScoredEntry, b: ScoredEntry): number {
-  if (a.score !== b.score) {
-    return b.score - a.score
+  const aScore = a.score ?? Number.NEGATIVE_INFINITY
+  const bScore = b.score ?? Number.NEGATIVE_INFINITY
+  if (aScore !== bScore) {
+    return bScore - aScore
   }
   return compareCodePoints(a.docId, b.docId)
 }

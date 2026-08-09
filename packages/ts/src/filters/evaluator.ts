@@ -7,6 +7,7 @@ import type {
   GeoRadiusFilter,
 } from '../types/filters'
 import { applyAndBitset, applyNotBitset, applyOrBitset } from './combinators'
+import { FIELD_FILTER_OPERATORS, FILTER_EXPRESSION_KEYS } from './keys'
 import type { FieldIndex, GeoFieldIndex, GetFieldValue } from './operators'
 import {
   applyBetweenBitset,
@@ -39,7 +40,26 @@ export interface FilterContext {
   allDocIdsBitset: Uint32Array
 }
 
+const EXPRESSION_KEYS: ReadonlySet<string> = new Set(FILTER_EXPRESSION_KEYS)
+
+const OPERATOR_KEYS: ReadonlySet<string> = new Set(FIELD_FILTER_OPERATORS)
+
+function requireKnownKeys(value: object, known: ReadonlySet<string>, describe: (key: string) => string): void {
+  for (const key of Object.keys(value)) {
+    if (!known.has(key)) {
+      throw new NarsilError(ErrorCodes.SEARCH_INVALID_FILTER, describe(key), { key })
+    }
+  }
+}
+
 export function evaluateFilters(expression: FilterExpression, context: FilterContext): Uint32Array {
+  requireKnownKeys(
+    expression,
+    EXPRESSION_KEYS,
+    key =>
+      `A filter expression takes "fields", "and", "or", and "not", and "${key}" is none of them. A per-field test such as { ${key}: { eq: ... } } belongs under "fields"`,
+  )
+
   const bitsets: Uint32Array[] = []
 
   if (expression.fields) {
@@ -70,6 +90,12 @@ export function evaluateFilters(expression: FilterExpression, context: FilterCon
 }
 
 function evaluateFieldFilter(fieldPath: string, filter: FieldFilter, context: FilterContext): Uint32Array {
+  requireKnownKeys(
+    filter,
+    OPERATOR_KEYS,
+    key => `Field "${fieldPath}" is tested with "${key}", which is no filter operator`,
+  )
+
   const fieldIndex = context.fieldIndexes[fieldPath]
   const getValue: GetFieldValue = internalId => context.getFieldValue(internalId, fieldPath)
   const f = filter as Record<string, unknown>

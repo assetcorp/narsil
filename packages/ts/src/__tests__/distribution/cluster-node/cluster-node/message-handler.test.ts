@@ -118,6 +118,7 @@ describe('createClusterNode message handler', () => {
           boost: null,
           tolerance: null,
           threshold: null,
+          includeScores: null,
           scoring: 'local',
           vector: null,
           hybrid: null,

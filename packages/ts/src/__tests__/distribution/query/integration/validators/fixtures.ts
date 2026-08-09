@@ -15,6 +15,7 @@ export function makeWireQueryParams(overrides: Partial<WireQueryParams> = {}): W
     boost: null,
     tolerance: null,
     threshold: null,
+    includeScores: null,
     scoring: 'local',
     vector: null,
     hybrid: null,

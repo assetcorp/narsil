@@ -30,10 +30,18 @@ function validateScoredEntry(value: unknown, fieldLabel: string): void {
       { length: value.docId.length, limit: MAX_DOC_ID_LENGTH },
     )
   }
-  if (!isFiniteNumber(value.score)) {
+  const scoreAbsent = value.score === null || value.score === undefined
+  if (scoreAbsent) {
+    if (!Array.isArray(value.sortValues)) {
+      throwInvalid(
+        CONFIG_INVALID,
+        `Invalid SearchResultPayload: "${fieldLabel}.score" is absent only where "sortValues" carries the sort key`,
+      )
+    }
+  } else if (!isFiniteNumber(value.score)) {
     throwInvalid(CONFIG_INVALID, `Invalid SearchResultPayload: "${fieldLabel}.score" must be a finite number`)
   }
-  if (value.sortValues !== null) {
+  if (value.sortValues !== null && value.sortValues !== undefined) {
     if (!Array.isArray(value.sortValues)) {
       throwInvalid(CONFIG_INVALID, `Invalid SearchResultPayload: "${fieldLabel}.sortValues" must be an array or null`)
     }

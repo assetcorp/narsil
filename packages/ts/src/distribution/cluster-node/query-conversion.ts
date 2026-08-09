@@ -21,6 +21,7 @@ export function localParamsToWire(params: QueryParams): WireQueryParams {
     boost: params.boost ?? null,
     tolerance: params.tolerance ?? null,
     threshold: params.minScore ?? null,
+    includeScores: params.includeScores ?? null,
     scoring: params.scoring ?? 'local',
     vector: convertLocalVectorToWire(params.vector),
     hybrid: convertLocalHybridToWire(params.hybrid),
@@ -34,7 +35,7 @@ export function distributedResultToLocal<T = AnyDocument>(
   return {
     hits: result.scored.map(entry => ({
       id: entry.docId,
-      score: entry.score,
+      score: entry.score ?? undefined,
       document: documents.get(entry.docId) ?? ({} as T),
     })),
     count: result.totalHits,

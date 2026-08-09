@@ -110,7 +110,7 @@ describe('distributed hybrid query - fusion and merging', () => {
     expect(docCEntry).toBeDefined()
 
     if (docAEntry && docBEntry) {
-      expect(docAEntry.score).toBeGreaterThan(docBEntry.score)
+      expect(docAEntry.score).toBeGreaterThan(docBEntry.score ?? Number.NaN)
     }
   })
 
@@ -163,7 +163,7 @@ describe('distributed hybrid query - fusion and merging', () => {
 
     expect(result.scored.length).toBe(2)
     for (let i = 1; i < result.scored.length; i++) {
-      expect(result.scored[i - 1].score).toBeGreaterThanOrEqual(result.scored[i].score)
+      expect(result.scored[i - 1].score).toBeGreaterThanOrEqual(result.scored[i].score ?? Number.NaN)
     }
   })
 

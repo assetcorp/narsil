@@ -26,7 +26,7 @@ export interface PaginationSortContext {
   sortKeyOf(docId: string): readonly unknown[]
 }
 
-function ordersAfterAnchor<T extends { id: string; score: number }>(
+function ordersAfterAnchor<T extends { id: string; score?: number }>(
   result: T,
   anchor: PageCursor,
   sort: PaginationSortContext | undefined,
@@ -38,11 +38,12 @@ function ordersAfterAnchor<T extends { id: string; score: number }>(
     return comparison > 0
   }
   if (anchor.score === null) return true
+  if (result.score === undefined) return true
   if (result.score < anchor.score) return true
   return result.score === anchor.score && compareCodePoints(result.id, anchor.anchor) > 0
 }
 
-export function applyPagination<T extends { id: string; score: number }>(
+export function applyPagination<T extends { id: string; score?: number }>(
   results: T[],
   limit: number,
   offset: number,
@@ -86,7 +87,12 @@ export function applyPagination<T extends { id: string; score: number }>(
             sortKey: sort.sortKeyOf(lastResult.id).map(toComparableSortValue),
             sortSignature: sort.signature,
           })
-        : encodePageCursor({ anchor: lastResult.id, score: lastResult.score, sortKey: null, sortSignature: null })
+        : encodePageCursor({
+            anchor: lastResult.id,
+            score: lastResult.score ?? null,
+            sortKey: null,
+            sortSignature: null,
+          })
   }
 
   return { paginated: sliced, nextCursor }

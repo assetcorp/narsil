@@ -67,7 +67,7 @@ export function applyGrouping<T = AnyDocument>(
         for (const hit of groupHits) {
           const doc = getDocument(hit.id)
           if (doc) {
-            accumulator = group.reduce.reducer(accumulator, doc, hit.score)
+            accumulator = group.reduce.reducer(accumulator, doc, hit.score ?? 0)
           }
         }
         ;(result as GroupResult & { reduced: unknown }).reduced = accumulator
@@ -81,8 +81,8 @@ export function applyGrouping<T = AnyDocument>(
   }
 
   groups.sort((a, b) => {
-    const aScore = a.hits.length > 0 ? a.hits[0].score : 0
-    const bScore = b.hits.length > 0 ? b.hits[0].score : 0
+    const aScore = a.hits.length > 0 ? (a.hits[0].score ?? 0) : 0
+    const bScore = b.hits.length > 0 ? (b.hits[0].score ?? 0) : 0
     if (aScore !== bScore) return bScore - aScore
     const aId = a.hits.length > 0 ? a.hits[0].id : ''
     const bId = b.hits.length > 0 ? b.hits[0].id : ''

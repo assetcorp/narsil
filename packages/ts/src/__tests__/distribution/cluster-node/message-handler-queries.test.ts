@@ -21,6 +21,7 @@ function makeWireParams(overrides: Partial<WireQueryParams> = {}): WireQueryPara
     boost: null,
     tolerance: null,
     threshold: null,
+    includeScores: null,
     scoring: 'local',
     vector: null,
     hybrid: null,
@@ -79,6 +80,38 @@ describe('handleSearch on a data node', () => {
         ['Banana', 1],
         ['Zebra', 3],
       ])
+      expect(scored.map(entry => entry.score)).toEqual([null, null, null])
+    } finally {
+      await engine.shutdown()
+    }
+  })
+
+  it('carries scores on a sorted query only where the coordinator asks for them', async () => {
+    const engine = await createClusterLocalEngine()
+    try {
+      await engine.createIndex('products', { schema: { title: 'string:sortable', description: 'string' } })
+      await engine.insert('products', { title: 'alpha', description: 'listed item' }, 'doc-1')
+      await engine.insert('products', { title: 'beta', description: 'listed item' }, 'doc-2')
+
+      const deps = { nodeId: 'node-a', engine } as DataNodeHandlerDeps
+      const responses: TransportMessage[] = []
+      await handleSearch(
+        makeSearchMessage(
+          makeWireParams({
+            term: 'item',
+            sort: [{ field: 'title', direction: 'asc' }],
+            includeScores: true,
+          }),
+        ),
+        response => responses.push(response),
+        deps,
+      )
+
+      const scored = (decode(responses[0].payload) as SearchResultPayload).results[0].scored
+      expect(scored.map(entry => entry.docId)).toEqual(['doc-1', 'doc-2'])
+      for (const entry of scored) {
+        expect(typeof entry.score).toBe('number')
+      }
     } finally {
       await engine.shutdown()
     }

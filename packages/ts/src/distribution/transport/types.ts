@@ -253,6 +253,7 @@ export interface WireQueryParams {
   boost: Record<string, number> | null
   tolerance: number | null
   threshold: number | null
+  includeScores: boolean | null
   scoring: 'local' | 'dfs' | 'broadcast'
   vector: WireVectorQueryParams | null
   hybrid: WireHybridConfig | null
@@ -274,7 +275,7 @@ export interface WireHighlightConfig {
 
 export interface ScoredEntry {
   docId: string
-  score: number
+  score: number | null
   sortValues: unknown[] | null
 }
 

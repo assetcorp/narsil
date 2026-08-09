@@ -271,6 +271,14 @@ function validateParams(params: Record<string, unknown>): void {
     }
   }
 
+  if (
+    params.includeScores !== null &&
+    params.includeScores !== undefined &&
+    typeof params.includeScores !== 'boolean'
+  ) {
+    throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "params.includeScores" must be a boolean, null, or absent')
+  }
+
   if (!ALLOWED_SCORING.includes(params.scoring as (typeof ALLOWED_SCORING)[number])) {
     throwInvalid(
       SEARCH_INVALID_MODE,

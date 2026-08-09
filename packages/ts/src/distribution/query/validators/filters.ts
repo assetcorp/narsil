@@ -1,4 +1,5 @@
 import type { ErrorCode } from '../../../errors'
+import { FIELD_FILTER_OPERATORS, FILTER_EXPRESSION_KEYS } from '../../../filters/keys'
 import {
   isFiniteNumber,
   isRecord,
@@ -10,18 +11,6 @@ import {
   throwInvalid,
   validateFieldName,
 } from './common'
-
-const COMPARISON_NUMERIC_OPS = ['gt', 'lt', 'gte', 'lte'] as const
-
-const COMPARISON_EQ_OPS = ['eq', 'ne'] as const
-
-const STRING_OPS = ['startsWith', 'endsWith'] as const
-
-const STRING_LIST_OPS = ['in', 'nin'] as const
-
-const ARRAY_LIST_OPS = ['containsAll', 'matchesAny'] as const
-
-const PRESENCE_OPS = ['exists', 'notExists', 'isEmpty', 'isNotEmpty'] as const
 
 const GEO_UNITS = ['km', 'mi', 'm'] as const
 
@@ -117,13 +106,7 @@ function validateBetween(value: unknown, fieldLabel: string, errorCode: ErrorCod
 }
 
 function isKnownLeafKey(key: string): boolean {
-  if (COMPARISON_NUMERIC_OPS.includes(key as (typeof COMPARISON_NUMERIC_OPS)[number])) return true
-  if (COMPARISON_EQ_OPS.includes(key as (typeof COMPARISON_EQ_OPS)[number])) return true
-  if (STRING_OPS.includes(key as (typeof STRING_OPS)[number])) return true
-  if (STRING_LIST_OPS.includes(key as (typeof STRING_LIST_OPS)[number])) return true
-  if (ARRAY_LIST_OPS.includes(key as (typeof ARRAY_LIST_OPS)[number])) return true
-  if (PRESENCE_OPS.includes(key as (typeof PRESENCE_OPS)[number])) return true
-  return key === 'between' || key === 'size' || key === 'radius' || key === 'polygon'
+  return FIELD_FILTER_OPERATORS.includes(key as (typeof FIELD_FILTER_OPERATORS)[number])
 }
 
 function validateGeoRadius(value: unknown, fieldLabel: string, errorCode: ErrorCode): void {
@@ -301,13 +284,12 @@ export function validateFilterExpression(
   if (!isRecord(value)) {
     throwInvalid(errorCode, `Invalid payload: "${fieldLabel}" must be an object`)
   }
-  const knownKeys = ['fields', 'and', 'or', 'not']
   const entries = Object.entries(value)
   if (entries.length === 0) {
     throwInvalid(errorCode, `Invalid payload: "${fieldLabel}" must contain at least one clause`)
   }
   for (const [key, clauseValue] of entries) {
-    if (!knownKeys.includes(key)) {
+    if (!FILTER_EXPRESSION_KEYS.includes(key as (typeof FILTER_EXPRESSION_KEYS)[number])) {
       throwInvalid(errorCode, `Invalid payload: "${fieldLabel}" contains unsupported clause "${key}"`)
     }
     if (key === 'fields') {
