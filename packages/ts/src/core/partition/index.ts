@@ -127,6 +127,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     lastSchemaRef: null,
     trackPositions,
     sortColumns: null,
+    scoreBuffer: null,
   }
 
   function clearAll(): void {
@@ -145,6 +146,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     state.flatSchemaCache = null
     state.lastSchemaRef = null
     state.sortColumns = null
+    state.scoreBuffer = null
   }
 
   const partition: PartitionIndex = {

@@ -7,6 +7,7 @@ import type { BooleanFieldIndex, EnumFieldIndex, NumericFieldIndex } from '../fi
 import type { InvertedIndex } from '../inverted-index'
 import type { PartitionStats } from '../statistics'
 import type { SurfaceRegistry } from '../surface-registry'
+import type { ScoreBuffer } from './score-buffer'
 import type { SortColumnSet } from './sort-columns'
 
 export interface PartitionState {
@@ -23,6 +24,7 @@ export interface PartitionState {
   lastSchemaRef: SchemaDefinition | null
   trackPositions: boolean
   sortColumns: SortColumnSet | null
+  scoreBuffer: ScoreBuffer | null
 }
 
 export function getOrCreateFieldNameIndex(table: FieldNameTable, fieldName: string): number {
