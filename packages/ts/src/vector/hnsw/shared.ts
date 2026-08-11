@@ -1,7 +1,7 @@
 import type { VectorMetric } from '../brute-force'
-import type { ScalarQuantizer } from '../scalar-quantization-types'
+import type { QuantizerSearchReader, ScalarQuantizer } from '../scalar-quantization-types'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance } from '../similarity'
-import type { VectorStore, VectorStoreEntry } from '../vector-store'
+import type { VectorSearchReader, VectorStore, VectorStoreEntry } from '../vector-store'
 import { type Adjacency, ensureAdjacencyCapacity, hasNode, MAX_LAYER_CAP, nodeLevel } from './adjacency'
 
 export { MAX_LAYER_CAP, MAX_M } from './adjacency'
@@ -48,15 +48,19 @@ export interface SerializedHNSWGraph {
   nodes: Array<[string, number, Array<[number, string[]]>]>
 }
 
-export interface HNSWGraphState {
+/**
+ * The graph state a search reads, without the mutation-only members.
+ *
+ * A worker searching a shared copy builds this over read-only views, with its
+ * own visited array, and the full {@link HNSWGraphState} satisfies it on the
+ * main thread, so one search implementation serves both.
+ *
+ * @internal
+ */
+export interface HNSWSearchState {
   readonly dimension: number
-  readonly store: VectorStore
-  readonly quantizer: ScalarQuantizer | undefined
-  readonly M: number
-  readonly Mmax0: number
-  readonly efCons: number
-  readonly buildMetric: VectorMetric
-  readonly mL: number
+  readonly store: VectorSearchReader
+  readonly quantizer: QuantizerSearchReader | undefined
   adjacency: Adjacency
   tombstones: Uint8Array
   tombstoneCount: number
@@ -66,6 +70,16 @@ export interface HNSWGraphState {
   visitStamp: number
   entryPointOrd: number
   topLayer: number
+}
+
+export interface HNSWGraphState extends HNSWSearchState {
+  readonly store: VectorStore
+  readonly quantizer: ScalarQuantizer | undefined
+  readonly M: number
+  readonly Mmax0: number
+  readonly efCons: number
+  readonly buildMetric: VectorMetric
+  readonly mL: number
 }
 
 export function ensureCapacity(state: HNSWGraphState, needed: number): void {
@@ -81,7 +95,7 @@ export function ensureCapacity(state: HNSWGraphState, needed: number): void {
   state.capacity = newCap
 }
 
-export function nextVisitStamp(state: HNSWGraphState): number {
+export function nextVisitStamp(state: HNSWSearchState): number {
   state.visitStamp++
   if (state.visitStamp === 0xffffffff) {
     state.visited.fill(0)
@@ -90,11 +104,11 @@ export function nextVisitStamp(state: HNSWGraphState): number {
   return state.visitStamp
 }
 
-export function isTombstoned(state: HNSWGraphState, ord: number): boolean {
+export function isTombstoned(state: HNSWSearchState, ord: number): boolean {
   return state.tombstones[ord] === 1
 }
 
-export function nodeExists(state: HNSWGraphState, ord: number): boolean {
+export function nodeExists(state: HNSWSearchState, ord: number): boolean {
   return hasNode(state.adjacency, ord)
 }
 
@@ -133,7 +147,7 @@ export function randomLevel(mL: number): number {
   return Math.min(Math.floor(-Math.log(u) * mL), MAX_LAYER_CAP)
 }
 
-export function entryForOrd(state: HNSWGraphState, ord: number): VectorStoreEntry | undefined {
+export function entryForOrd(state: HNSWSearchState, ord: number): VectorStoreEntry | undefined {
   return state.store.entryForOrdinal(ord)
 }
 
@@ -142,7 +156,7 @@ export function nodeDistanceByOrd(state: HNSWGraphState, aOrd: number, bOrd: num
 }
 
 export function queryDistanceByOrd(
-  state: HNSWGraphState,
+  state: HNSWSearchState,
   qVec: Float32Array,
   qMag: number,
   ord: number,

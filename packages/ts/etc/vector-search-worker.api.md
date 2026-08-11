@@ -44,6 +44,48 @@ export interface ScalarQuantizerCalibration {
     offset: number;
 }
 
+// Warning: (ae-internal-missing-underscore) The name "SharedCopyLoadRequest" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface SharedCopyLoadRequest {
+    handle: string;
+    scratchSlot: number;
+    snapshot: SharedGenerationSnapshot;
+    type: 'loadShared';
+}
+
+// Warning: (ae-internal-missing-underscore) The name "SharedGenerationLayout" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface SharedGenerationLayout {
+    codeScratchOffset: number;
+    codeScratchStride: number;
+    codesOffset: number;
+    dimension: number;
+    float32ScratchStride: number;
+    slots: number;
+    totalBytes: number;
+    vectorsOffset: number;
+    workerSlots: number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "SharedGenerationSnapshot" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface SharedGenerationSnapshot {
+    calibration: ScalarQuantizerCalibration | null;
+    codeMagnitudes: Float64Array;
+    codePresent: Uint8Array;
+    codeSums: Float64Array;
+    dimension: number;
+    graph: HNSWSnapshot;
+    layout: SharedGenerationLayout;
+    magnitudes: Float64Array;
+    memory: WebAssembly.Memory;
+    quantization: 'sq8' | 'none';
+    rankByOrdinal: Uint32Array;
+}
+
 // Warning: (ae-internal-missing-underscore) The name "VectorAckResponse" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
@@ -65,7 +107,7 @@ export interface VectorDropRequest {
 // @internal
 export interface VectorLoadRequest {
     handle: string;
-    snapshot: VectorReplicaSnapshot;
+    snapshot: WorkerCopySnapshot;
     type: 'load';
 }
 
@@ -74,16 +116,28 @@ export interface VectorLoadRequest {
 // @internal
 export type VectorMetric = 'cosine' | 'dotProduct' | 'euclidean';
 
-// Warning: (ae-internal-missing-underscore) The name "VectorReplicaSnapshot" should be prefixed with an underscore because the declaration is marked as @internal
+// Warning: (ae-internal-missing-underscore) The name "VectorOrdinalSearchRequest" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
-export interface VectorReplicaSnapshot {
-    calibration: ScalarQuantizerCalibration | null;
-    dimension: number;
-    graph: HNSWSnapshot;
-    quantization: 'sq8' | 'none';
-    store: VectorStoreSnapshot;
-    tombstones: string[];
+export interface VectorOrdinalSearchRequest {
+    efSearch?: number;
+    handle: string;
+    k: number;
+    metric: VectorMetric;
+    minSimilarity: number;
+    query: Float32Array;
+    requestId: string;
+    type: 'searchOrdinals';
+}
+
+// Warning: (ae-internal-missing-underscore) The name "VectorOrdinalSearchResponse" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface VectorOrdinalSearchResponse {
+    ordinals: Uint32Array;
+    requestId: string;
+    scores: Float64Array;
+    type: 'ordinalResult';
 }
 
 // Warning: (ae-internal-missing-underscore) The name "VectorSearchRequest" should be prefixed with an underscore because the declaration is marked as @internal
@@ -133,12 +187,24 @@ export interface VectorWorkerError {
 // Warning: (ae-internal-missing-underscore) The name "VectorWorkerMessage" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
-export type VectorWorkerMessage = VectorAckResponse | VectorSearchResponse | VectorWorkerError;
+export type VectorWorkerMessage = VectorAckResponse | VectorSearchResponse | VectorOrdinalSearchResponse | VectorWorkerError;
 
 // Warning: (ae-internal-missing-underscore) The name "VectorWorkerRequest" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
-export type VectorWorkerRequest = VectorLoadRequest | VectorDropRequest | VectorSearchRequest;
+export type VectorWorkerRequest = VectorLoadRequest | SharedCopyLoadRequest | VectorDropRequest | VectorSearchRequest | VectorOrdinalSearchRequest;
+
+// Warning: (ae-internal-missing-underscore) The name "WorkerCopySnapshot" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface WorkerCopySnapshot {
+    calibration: ScalarQuantizerCalibration | null;
+    dimension: number;
+    graph: HNSWSnapshot;
+    quantization: 'sq8' | 'none';
+    store: VectorStoreSnapshot;
+    tombstones: string[];
+}
 
 // (No @packageDocumentation comment for this package)
 

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createHNSWIndex } from '../../vector/hnsw'
-import type { VectorReplicaSnapshot } from '../../vector/replica'
 import { createVectorSearchPool, type VectorSearchPool } from '../../vector/search-pool'
 import { createVectorStore } from '../../vector/vector-store'
+import type { WorkerCopySnapshot } from '../../vector/worker-copy'
 
 const DIM = 8
 const DOC_COUNT = 64
@@ -19,7 +19,7 @@ function unitVector(seed: number): Float32Array {
   return vector
 }
 
-function buildSnapshot(prefix: string): { snapshot: VectorReplicaSnapshot; query: Float32Array; nearest: string } {
+function buildSnapshot(prefix: string): { snapshot: WorkerCopySnapshot; query: Float32Array; nearest: string } {
   const store = createVectorStore()
   for (let i = 0; i < DOC_COUNT; i++) {
     store.insert(`${prefix}-${i}`, unitVector(i + 1))
@@ -59,7 +59,7 @@ describe('two indexes sharing one pool of real workers', () => {
     pool = null
   })
 
-  it('spawns worker threads that answer each handle from its own replica', async () => {
+  it('spawns worker threads that answer each handle from its own copy', async () => {
     expect(pool).not.toBeNull()
     expect(pool?.workerCount).toBe(2)
 
@@ -80,7 +80,7 @@ describe('two indexes sharing one pool of real workers', () => {
     expect(bodyResults?.every(result => result.docId.startsWith('body-'))).toBe(true)
   }, 60_000)
 
-  it('keeps one replica answering after the other is dropped', async () => {
+  it('keeps one copy answering after the other is dropped', async () => {
     const title = buildSnapshot('title')
     const body = buildSnapshot('body')
     await pool?.load('title#1', title.snapshot)

@@ -11,7 +11,6 @@ import {
   optimize as optimizeOp,
 } from './maintenance'
 import { deserialize as deserializeOp, serialize as serializeOp } from './persistence'
-import { invalidateReplicas, scheduleReplicaLoad, searchViaReplicas } from './replication'
 import { search as searchOp } from './search'
 import {
   DEFAULT_FILTER_THRESHOLD,
@@ -23,6 +22,7 @@ import {
   type VectorScoredResult,
   type VectorSearchOptions,
 } from './shared'
+import { invalidateWorkerCopies, scheduleWorkerCopyLoad, searchViaWorkerCopies } from './worker-copies'
 
 export type { MaintenanceStatus, VectorIndexPayload, VectorScoredResult, VectorSearchOptions } from './shared'
 
@@ -85,10 +85,11 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     pendingBuild: null,
     disposed: false,
     revision: 0,
-    replicaPool: null,
-    replicaHandle: null,
-    replicaRevision: -1,
-    replicaLoading: false,
+    workerCopyPool: null,
+    workerCopyHandle: null,
+    workerCopyRevision: -1,
+    workerCopyMode: null,
+    workerCopyLoading: false,
   }
 
   function validateDimension(vector: Float32Array): void {
@@ -103,7 +104,7 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
 
   function insert(docId: string, vector: Float32Array): void {
     validateDimension(vector)
-    invalidateReplicas(state)
+    invalidateWorkerCopies(state)
     state.tombstones.delete(docId)
     state.store.insert(docId, vector)
     state.buffer.add(docId)
@@ -111,7 +112,7 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
 
   function remove(docId: string): void {
     if (!state.store.has(docId)) return
-    invalidateReplicas(state)
+    invalidateWorkerCopies(state)
     state.tombstones.add(docId)
     state.buffer.delete(docId)
     if (state.hnsw) {
@@ -138,7 +139,7 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
 
   function dispose(): void {
     state.disposed = true
-    invalidateReplicas(state)
+    invalidateWorkerCopies(state)
   }
 
   async function searchParallel(
@@ -150,10 +151,17 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
       return searchOp(state, query, k, options)
     }
 
-    scheduleReplicaLoad(state)
+    scheduleWorkerCopyLoad(state)
 
-    const viaReplica = await searchViaReplicas(state, query, k, options.metric, options.minSimilarity, options.efSearch)
-    if (viaReplica !== null) return viaReplica
+    const viaWorkerCopy = await searchViaWorkerCopies(
+      state,
+      query,
+      k,
+      options.metric,
+      options.minSimilarity,
+      options.efSearch,
+    )
+    if (viaWorkerCopy !== null) return viaWorkerCopy
 
     return searchOp(state, query, k, options)
   }
@@ -178,18 +186,18 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     getVector,
     has,
     compact: () => {
-      invalidateReplicas(state)
+      invalidateWorkerCopies(state)
       compactOp(state)
     },
     optimize: async () => {
-      invalidateReplicas(state)
+      invalidateWorkerCopies(state)
       await optimizeOp(state)
     },
     maintenanceStatus: () => maintenanceStatusOp(state),
     estimateMemoryBytes: () => estimateMemoryBytesOp(state),
     serialize: () => serializeOp(state),
     deserialize: (payload: VectorIndexPayload) => {
-      invalidateReplicas(state)
+      invalidateWorkerCopies(state)
       deserializeOp(state, payload)
     },
   }

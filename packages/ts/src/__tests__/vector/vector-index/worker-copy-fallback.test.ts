@@ -12,7 +12,7 @@ vi.mock('../../../vector/search-pool', () => ({
   releaseVectorSearchPool: vi.fn().mockResolvedValue(undefined),
 }))
 
-const REPLICA_MIN_VECTORS = 1024
+const WORKER_COPY_MIN_VECTORS = 1024
 
 async function insertAndBuild(index: VectorIndex, count: number): Promise<void> {
   for (let i = 0; i < count; i++) {
@@ -38,7 +38,7 @@ describe('searchParallel without a worker pool', () => {
   })
 
   it('answers from the main thread and matches the synchronous search', async () => {
-    await insertAndBuild(index, REPLICA_MIN_VECTORS + 16)
+    await insertAndBuild(index, WORKER_COPY_MIN_VECTORS + 16)
     const query = normalizedVector(DIM, 17)
     const options = { metric: 'cosine', minSimilarity: 0 } as const
 
@@ -49,7 +49,7 @@ describe('searchParallel without a worker pool', () => {
   })
 
   it('asks for a pool once and stops asking while the attempt is in flight', async () => {
-    await insertAndBuild(index, REPLICA_MIN_VECTORS + 16)
+    await insertAndBuild(index, WORKER_COPY_MIN_VECTORS + 16)
     const query = normalizedVector(DIM, 24)
     const options = { metric: 'cosine', minSimilarity: 0 } as const
 
@@ -62,7 +62,7 @@ describe('searchParallel without a worker pool', () => {
     expect(vi.mocked(releaseVectorSearchPool)).toHaveBeenCalled()
   })
 
-  it('never reaches for a pool below the replica threshold', async () => {
+  it('never reaches for a pool below the worker copy threshold', async () => {
     await insertAndBuild(index, 32)
     const query = normalizedVector(DIM, 31)
     const options = { metric: 'cosine', minSimilarity: 0 } as const
@@ -74,7 +74,7 @@ describe('searchParallel without a worker pool', () => {
   })
 
   it('keeps a filtered query on the main thread', async () => {
-    await insertAndBuild(index, REPLICA_MIN_VECTORS + 16)
+    await insertAndBuild(index, WORKER_COPY_MIN_VECTORS + 16)
     const query = normalizedVector(DIM, 38)
     const filterDocIds = new Set(['doc1', 'doc2', 'doc3'])
     const options = { metric: 'cosine', minSimilarity: 0, filterDocIds } as const
@@ -87,8 +87,8 @@ describe('searchParallel without a worker pool', () => {
   })
 
   it('still answers after the index is emptied by deletes', async () => {
-    await insertAndBuild(index, REPLICA_MIN_VECTORS + 16)
-    for (let i = 0; i < REPLICA_MIN_VECTORS + 16; i++) index.remove(`doc${i}`)
+    await insertAndBuild(index, WORKER_COPY_MIN_VECTORS + 16)
+    for (let i = 0; i < WORKER_COPY_MIN_VECTORS + 16; i++) index.remove(`doc${i}`)
     const query = normalizedVector(DIM, 105)
     const options = { metric: 'cosine', minSimilarity: 0 } as const
 

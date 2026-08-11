@@ -7,6 +7,7 @@ import {
   distanceAsc,
   distanceDesc,
   type HNSWGraphState,
+  type HNSWSearchState,
   maxConns,
   nextVisitStamp,
   nodeDistanceByOrd,
@@ -15,7 +16,7 @@ import {
 } from './shared'
 
 export function searchLayer(
-  state: HNSWGraphState,
+  state: HNSWSearchState,
   qVec: Float32Array,
   qMag: number,
   eps: number[],
