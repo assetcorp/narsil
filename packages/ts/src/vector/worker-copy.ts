@@ -4,11 +4,12 @@ import type { ScalarQuantizerCalibration } from './scalar-quantization-types'
 import { createVectorStore, type VectorStore, type VectorStoreSnapshot } from './vector-store'
 
 /**
- * One vector field's searchable state in the form the engine hands to a worker.
+ * One vector field's searchable state in the form the engine clones to a
+ * worker, used where the runtime cannot share memory.
  *
  * @internal
  */
-export interface VectorReplicaSnapshot {
+export interface WorkerCopySnapshot {
   /** Each vector carries this many components. */
   dimension: number
   /** The worker rebuilds a quantizer when this reads `sq8`. */
@@ -27,13 +28,13 @@ export interface VectorReplicaSnapshot {
   tombstones: string[]
 }
 
-export interface VectorReplica {
+export interface WorkerCopy {
   readonly store: VectorStore
   readonly graph: HNSWIndex
   readonly tombstones: ReadonlySet<string>
 }
 
-export function restoreReplica(snapshot: VectorReplicaSnapshot): VectorReplica {
+export function restoreWorkerCopy(snapshot: WorkerCopySnapshot): WorkerCopy {
   const store = createVectorStore()
   store.restoreSnapshot(snapshot.store)
 

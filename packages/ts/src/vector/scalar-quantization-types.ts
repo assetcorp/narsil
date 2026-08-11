@@ -43,26 +43,45 @@ export interface ScalarQuantizerCalibration {
   offset: number
 }
 
-export interface ScalarQuantizer {
+/**
+ * The reads a nearest-neighbour search performs against quantised codes.
+ *
+ * The main thread's mutable quantizer and a worker's read-only view over
+ * shared memory both satisfy this, which is what lets one search
+ * implementation run on either side.
+ *
+ * @internal
+ */
+export interface QuantizerSearchReader {
+  readonly size: number
+  isCalibrated(): boolean
+  prepareQuery(query: Float32Array): QuantizedQuery | null
+  distanceFromPreparedByOrdinal(prepared: QuantizedQuery, ordinal: number, metric: VectorMetric): number
+  prepareQueryArena(query: Float32Array): ArenaQuery | null
+  distanceFromArena(prepared: ArenaQuery, ordinal: number, metric: VectorMetric): number
+}
+
+export interface ScalarQuantizer extends QuantizerSearchReader {
   /** The constants every code is derived from, absent until calibration runs. */
   readonly calibration: ScalarQuantizerCalibration | null
   quantize(docId: string, vector: Float32Array): void
   remove(docId: string): void
   getQuantized(docId: string): Uint8Array | undefined
-  isCalibrated(): boolean
   calibrate(vectors: Iterable<Float32Array>): void
   needsRecalibration(vector: Float32Array): boolean
   recalibrateAll(vectors: Iterable<[string, Float32Array]>): void
-  prepareQuery(query: Float32Array): QuantizedQuery | null
   distanceFromPrepared(prepared: QuantizedQuery, docId: string, metric: VectorMetric): number
-  distanceFromPreparedByOrdinal(prepared: QuantizedQuery, ordinal: number, metric: VectorMetric): number
-  prepareQueryArena(query: Float32Array): ArenaQuery | null
-  distanceFromArena(prepared: ArenaQuery, ordinal: number, metric: VectorMetric): number
   hasOrdinal(ordinal: number): boolean
   readonly dimensions: number
-  readonly size: number
   serialize(): SerializedSQ8
   restoreCalibration(alpha: number, offset: number): void
   restoreEntry(docId: string, quantized: Uint8Array, sum: number, sumSq: number): void
+  copyStateInto(
+    codes: Uint8Array,
+    sums: Float64Array,
+    sumSqs: Float64Array,
+    magnitudes: Float64Array,
+    present: Uint8Array,
+  ): void
   clear(): void
 }

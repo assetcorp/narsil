@@ -9,7 +9,7 @@ export const DEFAULT_FILTER_THRESHOLD = 0.03
 export const ESTIMATED_MS_PER_TOMBSTONE = 0.05
 export const ESTIMATED_MS_PER_VECTOR_REBUILD = 0.15
 export const WORKER_BUILD_SIZE_THRESHOLD = 5000
-export const REPLICA_MIN_VECTORS = 1024
+export const WORKER_COPY_MIN_VECTORS = 1024
 
 export interface VectorScoredResult {
   docId: string
@@ -58,10 +58,11 @@ export interface VectorIndexState {
   pendingBuild: Promise<void> | null
   disposed: boolean
   revision: number
-  replicaPool: VectorSearchPool | null
-  replicaHandle: string | null
-  replicaRevision: number
-  replicaLoading: boolean
+  workerCopyPool: VectorSearchPool | null
+  workerCopyHandle: string | null
+  workerCopyRevision: number
+  workerCopyMode: 'shared' | 'clone' | null
+  workerCopyLoading: boolean
 }
 
 export function liveSize(state: VectorIndexState): number {

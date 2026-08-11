@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { createHNSWIndex } from '../../vector/hnsw'
-import { restoreReplica, type VectorReplicaSnapshot } from '../../vector/replica'
 import { createScalarQuantizer } from '../../vector/scalar-quantization'
 import type { ScalarQuantizerCalibration } from '../../vector/scalar-quantization-types'
 import { createVectorStore } from '../../vector/vector-store'
+import { restoreWorkerCopy, type WorkerCopySnapshot } from '../../vector/worker-copy'
 
 const DIMENSION = 32
 const ORDINARY_COUNT = 1500
@@ -49,7 +49,7 @@ function buildIndexHoldingBoundaryVector() {
   const graph = createHNSWIndex(DIMENSION, store, undefined, quantizer)
   for (const [docId] of store.entries()) graph.insertNode(docId)
 
-  function snapshotWith(calibration: ScalarQuantizerCalibration | null): VectorReplicaSnapshot {
+  function snapshotWith(calibration: ScalarQuantizerCalibration | null): WorkerCopySnapshot {
     return {
       dimension: DIMENSION,
       quantization: 'sq8',
@@ -87,7 +87,7 @@ describe('a worker copy taken after a boundary document is deleted', () => {
     const snapshot = snapshotWith(quantizer.calibration)
 
     graph.markTombstone(BOUNDARY_DOC_ID)
-    const copy = restoreReplica(snapshot)
+    const copy = restoreWorkerCopy(snapshot)
 
     expect(countDivergentQueries(graph, copy.graph, next)).toBe(0)
   })
@@ -97,7 +97,7 @@ describe('a worker copy taken after a boundary document is deleted', () => {
     const snapshot = snapshotWith(null)
 
     graph.markTombstone(BOUNDARY_DOC_ID)
-    const copy = restoreReplica(snapshot)
+    const copy = restoreWorkerCopy(snapshot)
 
     expect(countDivergentQueries(graph, copy.graph, next)).toBeGreaterThan(0)
   })
@@ -111,7 +111,7 @@ describe('a worker copy taken after a boundary document is deleted', () => {
 
   it('leaves the deleted document out of its results', () => {
     const { quantizer, snapshotWith } = buildIndexHoldingBoundaryVector()
-    const copy = restoreReplica(snapshotWith(quantizer.calibration))
+    const copy = restoreWorkerCopy(snapshotWith(quantizer.calibration))
 
     const hits = copy.graph.search(boundaryVector(), RESULT_COUNT, 'cosine', 0)
 

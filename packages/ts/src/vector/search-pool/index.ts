@@ -1,21 +1,28 @@
-import { spawnNodeWorker } from '#platform/node-worker'
-import { detectRuntime } from '../runtime/detect'
-import { resolveWorkerCount } from '../workers/pool'
-import type { VectorMetric } from './brute-force'
-import type { VectorReplicaSnapshot } from './replica'
-import type { VectorSearchRequest, VectorWorkerMessage } from './search-worker'
+import { resolveWorkerCount } from '../../workers/pool'
+import type { VectorMetric } from '../brute-force'
+import type { SharedGenerationSnapshot } from '../shared-generation/types'
+import type { WorkerCopySnapshot } from '../worker-copy'
+import type { VectorOrdinalSearchRequest, VectorSearchRequest, VectorWorkerMessage } from './messages'
+import { listen, listenForFailure, resolveWorkerEntryPoint, spawnWorker, type WorkerHandle } from './spawn'
 
 const SEARCH_TIMEOUT_MS = 30_000
 const LOAD_TIMEOUT_MS = 300_000
 
-export interface ReplicaSearchResult {
+export interface WorkerCopySearchResult {
   docId: string
   score: number
 }
 
+export interface OrdinalSearchResult {
+  ordinals: Uint32Array
+  scores: Float64Array
+}
+
 export interface VectorSearchPool {
   readonly workerCount: number
-  load(handle: string, snapshot: VectorReplicaSnapshot): Promise<boolean>
+  readonly scratchSlotCount: number
+  load(handle: string, snapshot: WorkerCopySnapshot): Promise<boolean>
+  loadShared(handle: string, snapshot: SharedGenerationSnapshot): Promise<boolean>
   drop(handle: string): Promise<void>
   search(
     handle: string,
@@ -24,16 +31,16 @@ export interface VectorSearchPool {
     metric: VectorMetric,
     minSimilarity: number,
     efSearch?: number,
-  ): Promise<ReplicaSearchResult[]>
+  ): Promise<WorkerCopySearchResult[]>
+  searchOrdinals(
+    handle: string,
+    query: Float32Array,
+    k: number,
+    metric: VectorMetric,
+    minSimilarity: number,
+    efSearch?: number,
+  ): Promise<OrdinalSearchResult>
   shutdown(): Promise<void>
-}
-
-interface WorkerHandle {
-  postMessage(msg: unknown, transfer?: ArrayBuffer[] | unknown[]): void
-  on?(event: string, handler: (...args: unknown[]) => void): void
-  addEventListener?(event: string, handler: (...args: unknown[]) => void): void
-  unref?(): void
-  terminate(): void | Promise<void>
 }
 
 interface PendingRequest {
@@ -47,63 +54,6 @@ interface WorkerSlot {
   pending: Map<string, PendingRequest>
   alive: boolean
   outstanding: number
-}
-
-function resolveWorkerEntryPoint(): string {
-  const base = import.meta.url
-  const distIndex = base.lastIndexOf('/dist/')
-  if (distIndex !== -1) {
-    return new URL('vector/search-worker.mjs', base.slice(0, distIndex + 6)).href
-  }
-  return base.replace(/\/src\/vector\/[^/]+$/, '/dist/vector/search-worker.mjs')
-}
-
-async function spawnWorker(entryPoint: string): Promise<WorkerHandle | null> {
-  const runtime = detectRuntime()
-
-  if (runtime.supportsWorkerThreads) {
-    try {
-      return await spawnNodeWorker(new URL(entryPoint))
-    } catch {
-      return null
-    }
-  }
-
-  if (runtime.supportsWebWorkers) {
-    try {
-      const WorkerCtor = (globalThis as Record<string, unknown>).Worker as
-        | (new (
-            url: string | URL,
-            options?: { type?: string },
-          ) => WorkerHandle)
-        | undefined
-      if (typeof WorkerCtor !== 'function') return null
-      return new WorkerCtor(entryPoint, { type: 'module' })
-    } catch {
-      return null
-    }
-  }
-
-  return null
-}
-
-function listen(worker: WorkerHandle, handler: (msg: unknown) => void): void {
-  if (typeof worker.on === 'function') {
-    worker.on('message', handler)
-    return
-  }
-  worker.addEventListener?.('message', (event: unknown) => {
-    handler((event as { data: unknown }).data)
-  })
-}
-
-function listenForFailure(worker: WorkerHandle, handler: (err: Error) => void): void {
-  if (typeof worker.on === 'function') {
-    worker.on('error', (err: unknown) => handler(err instanceof Error ? err : new Error(String(err))))
-    worker.on('exit', () => handler(new Error('Vector search worker exited')))
-    return
-  }
-  worker.addEventListener?.('error', () => handler(new Error('Vector search worker failed')))
 }
 
 export async function createVectorSearchPool(requestedCount?: number): Promise<VectorSearchPool | null> {
@@ -164,14 +114,51 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
     })
   }
 
+  function pickSlot(): WorkerSlot | null {
+    let slot: WorkerSlot | null = null
+    for (const candidate of slots) {
+      if (!candidate.alive) continue
+      if (slot === null || candidate.outstanding < slot.outstanding) slot = candidate
+      if (slot.outstanding === 0) break
+    }
+    return slot
+  }
+
+  async function sendSearch(
+    slot: WorkerSlot,
+    request: VectorSearchRequest | VectorOrdinalSearchRequest,
+  ): Promise<VectorWorkerMessage> {
+    slot.outstanding += 1
+    try {
+      return await send(slot, request.requestId, request, SEARCH_TIMEOUT_MS)
+    } finally {
+      slot.outstanding -= 1
+    }
+  }
+
   return {
     get workerCount() {
       return slots.filter(slot => slot.alive).length
     },
 
-    async load(handle: string, snapshot: VectorReplicaSnapshot): Promise<boolean> {
+    get scratchSlotCount() {
+      return slots.length
+    },
+
+    async load(handle: string, snapshot: WorkerCopySnapshot): Promise<boolean> {
       const outcomes = await Promise.allSettled(
         slots.map(slot => send(slot, handle, { type: 'load', handle, snapshot }, LOAD_TIMEOUT_MS)),
+      )
+      return outcomes.every(
+        outcome => outcome.status === 'fulfilled' && (outcome.value as VectorWorkerMessage).type === 'ack',
+      )
+    },
+
+    async loadShared(handle: string, snapshot: SharedGenerationSnapshot): Promise<boolean> {
+      const outcomes = await Promise.allSettled(
+        slots.map((slot, scratchSlot) =>
+          send(slot, handle, { type: 'loadShared', handle, scratchSlot, snapshot }, LOAD_TIMEOUT_MS),
+        ),
       )
       return outcomes.every(
         outcome => outcome.status === 'fulfilled' && (outcome.value as VectorWorkerMessage).type === 'ack',
@@ -189,21 +176,14 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
       metric: VectorMetric,
       minSimilarity: number,
       efSearch?: number,
-    ): Promise<ReplicaSearchResult[]> {
-      let slot: WorkerSlot | null = null
-      for (const candidate of slots) {
-        if (!candidate.alive) continue
-        if (slot === null || candidate.outstanding < slot.outstanding) slot = candidate
-        if (slot.outstanding === 0) break
-      }
+    ): Promise<WorkerCopySearchResult[]> {
+      const slot = pickSlot()
       if (slot === null) throw new Error('No vector search worker is running')
 
       requestCounter += 1
-      const requestId = `${requestCounter}`
-
       const request: VectorSearchRequest = {
         type: 'search',
-        requestId,
+        requestId: `${requestCounter}`,
         handle,
         query,
         k,
@@ -212,21 +192,45 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
         ...(efSearch !== undefined ? { efSearch } : {}),
       }
 
-      slot.outstanding += 1
-      let message: VectorWorkerMessage
-      try {
-        message = await send(slot, requestId, request, SEARCH_TIMEOUT_MS)
-      } finally {
-        slot.outstanding -= 1
-      }
+      const message = await sendSearch(slot, request)
       if (message.type === 'error') throw new Error(message.message)
       if (message.type !== 'result') throw new Error('Vector search worker returned an unexpected message')
 
-      const results: ReplicaSearchResult[] = new Array(message.docIds.length)
+      const results: WorkerCopySearchResult[] = new Array(message.docIds.length)
       for (let i = 0; i < message.docIds.length; i++) {
         results[i] = { docId: message.docIds[i], score: message.scores[i] }
       }
       return results
+    },
+
+    async searchOrdinals(
+      handle: string,
+      query: Float32Array,
+      k: number,
+      metric: VectorMetric,
+      minSimilarity: number,
+      efSearch?: number,
+    ): Promise<OrdinalSearchResult> {
+      const slot = pickSlot()
+      if (slot === null) throw new Error('No vector search worker is running')
+
+      requestCounter += 1
+      const request: VectorOrdinalSearchRequest = {
+        type: 'searchOrdinals',
+        requestId: `${requestCounter}`,
+        handle,
+        query,
+        k,
+        metric,
+        minSimilarity,
+        ...(efSearch !== undefined ? { efSearch } : {}),
+      }
+
+      const message = await sendSearch(slot, request)
+      if (message.type === 'error') throw new Error(message.message)
+      if (message.type !== 'ordinalResult') throw new Error('Vector search worker returned an unexpected message')
+
+      return { ordinals: message.ordinals, scores: message.scores }
     },
 
     async shutdown(): Promise<void> {

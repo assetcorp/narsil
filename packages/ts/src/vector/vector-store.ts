@@ -1,5 +1,5 @@
 import type { VectorMetric } from './brute-force'
-import { type ArenaSimd, createArenaSimd } from './simd'
+import { type ArenaSimd, arenaFloat32Distance, createArenaSimd } from './simd'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from './similarity'
 
 export interface VectorStoreEntry {
@@ -29,8 +29,24 @@ export interface VectorStoreSnapshot {
   docIds: Array<string | null>
 }
 
-export interface VectorStore {
+/**
+ * The reads a nearest-neighbour search performs against stored vectors.
+ *
+ * The main thread's mutable store and a worker's read-only view over shared
+ * memory both satisfy this, which is what lets one search implementation run
+ * on either side.
+ *
+ * @internal
+ */
+export interface VectorSearchReader {
+  entryForOrdinal(ordinal: number): VectorStoreEntry | undefined
+  prepareQueryArena(query: Float32Array): ArenaQueryVector | null
+  distanceFromArena(prepared: ArenaQueryVector, ordinal: number, metric: VectorMetric): number
+}
+
+export interface VectorStore extends VectorSearchReader {
   readonly size: number
+  readonly slots: number
   insert(docId: string, vector: Float32Array): void
   remove(docId: string): void
   get(docId: string): VectorStoreEntry | undefined
@@ -46,6 +62,7 @@ export interface VectorStore {
   distanceFromArena(prepared: ArenaQueryVector, ordinal: number, metric: VectorMetric): number
   exportSnapshot(): VectorStoreSnapshot
   restoreSnapshot(snapshot: VectorStoreSnapshot): void
+  copySnapshotInto(vectors: Float32Array, magnitudes: Float64Array): void
 }
 
 const INITIAL_CAPACITY = 16
@@ -123,6 +140,10 @@ export function createVectorStore(): VectorStore {
   return {
     get size() {
       return liveCount
+    },
+
+    get slots() {
+      return ordToDoc.length
     },
 
     insert(docId: string, vector: Float32Array): void {
@@ -211,15 +232,7 @@ export function createVectorStore(): VectorStore {
       if (simd) {
         const byteA = scratchByteLength + ordA * dimension * 4
         const byteB = scratchByteLength + ordB * dimension * 4
-        if (metric === 'euclidean') {
-          return Math.sqrt(simd.squared_euclidean_distance(byteA, byteB, dimension))
-        }
-        const dot = simd.dot_product(byteA, byteB, dimension)
-        if (metric === 'dotProduct') return -dot
-        const magA = mags[ordA]
-        const magB = mags[ordB]
-        if (magA === 0 || magB === 0) return 1
-        return 1 - dot / (magA * magB)
+        return arenaFloat32Distance(simd, byteA, byteB, dimension, metric, mags[ordA], mags[ordB])
       }
 
       const baseA = scratchFloatLength + ordA * dimension
@@ -248,16 +261,7 @@ export function createVectorStore(): VectorStore {
       }
 
       const byteOffset = scratchByteLength + ordinal * dimension * 4
-      if (metric === 'euclidean') {
-        return Math.sqrt(simd.squared_euclidean_distance(0, byteOffset, dimension))
-      }
-
-      const dot = simd.dot_product(0, byteOffset, dimension)
-      if (metric === 'dotProduct') return -dot
-
-      const vecMag = mags[ordinal]
-      if (prepared.magnitude === 0 || vecMag === 0) return 1
-      return 1 - dot / (prepared.magnitude * vecMag)
+      return arenaFloat32Distance(simd, 0, byteOffset, dimension, metric, prepared.magnitude, mags[ordinal])
     },
 
     exportSnapshot(): VectorStoreSnapshot {
@@ -273,6 +277,14 @@ export function createVectorStore(): VectorStore {
         docIds[ord] = ordToDoc[ord] ?? null
       }
       return { dimension, slots, vectors, magnitudes, docIds }
+    },
+
+    copySnapshotInto(vectors: Float32Array, magnitudes: Float64Array): void {
+      const slots = ordToDoc.length
+      if (slots > 0 && dimension > 0) {
+        vectors.set(arena.subarray(scratchFloatLength, scratchFloatLength + slots * dimension))
+      }
+      magnitudes.set(mags.subarray(0, Math.min(slots, mags.length)))
     },
 
     restoreSnapshot(snapshot: VectorStoreSnapshot): void {

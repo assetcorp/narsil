@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime, type RuntimeInfo } from '../../runtime/detect'
-import type { VectorReplicaSnapshot } from '../../vector/replica'
 import { acquireVectorSearchPool, createVectorSearchPool, releaseVectorSearchPool } from '../../vector/search-pool'
+import type { WorkerCopySnapshot } from '../../vector/worker-copy'
 
 vi.mock('../../runtime/detect', () => ({ detectRuntime: vi.fn() }))
 vi.mock('#platform/node-worker', () => ({ spawnNodeWorker: vi.fn() }))
@@ -64,7 +64,7 @@ class FakeWebWorker {
   }
 }
 
-const SNAPSHOT = { dimension: 2, quantization: 'none', tombstones: [] } as unknown as VectorReplicaSnapshot
+const SNAPSHOT = { dimension: 2, quantization: 'none', tombstones: [] } as unknown as WorkerCopySnapshot
 
 function ackEverything(message: Record<string, unknown>): Record<string, unknown> | null {
   if (message.type === 'load' || message.type === 'drop') return { type: 'ack', handle: message.handle }
@@ -112,7 +112,7 @@ describe('the Web Worker spawn branch', () => {
     await pool?.shutdown()
   })
 
-  it('loads a replica into every worker before reporting success', async () => {
+  it('loads a copy into every worker before reporting success', async () => {
     const pool = await createVectorSearchPool(2)
 
     await expect(pool?.load('embedding#1', SNAPSHOT)).resolves.toBe(true)
@@ -122,7 +122,7 @@ describe('the Web Worker spawn branch', () => {
     await pool?.shutdown()
   })
 
-  it('reports a failed load when one worker refuses the replica', async () => {
+  it('reports a failed load when one worker refuses the copy', async () => {
     const pool = await createVectorSearchPool(2)
     FakeWebWorker.reply = message =>
       FakeWebWorker.instances[1].received.includes(message)

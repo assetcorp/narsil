@@ -1,5 +1,13 @@
 import type { VectorMetric } from './brute-force'
 import { computeCalibrationBounds } from './scalar-quantization-calibration'
+import {
+  arenaQuantizedDistance,
+  deriveSq8Constants,
+  quantizedMagnitude,
+  quantizeVectorInto,
+  type Sq8Constants,
+  scalarQuantizedDistance,
+} from './scalar-quantization-math'
 import type {
   ArenaQuery,
   OrdinalSource,
@@ -28,20 +36,8 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
   let selfNextOrd = 0
   let liveCount = 0
 
-  let alpha = 0
-  let offset = 0
-  let alphaSquared = 0
-  let alphaTimesOffset = 0
-  let dTimesOffsetSquared = 0
-  let invAlpha = 0
+  let constants: Sq8Constants = deriveSq8Constants(0, 0, dimensions)
   let calibrated = false
-
-  function updateDerivedConstants(): void {
-    alphaSquared = alpha * alpha
-    alphaTimesOffset = alpha * offset
-    dTimesOffsetSquared = dimensions * offset * offset
-    invAlpha = alpha > 0 ? 1 / alpha : 0
-  }
 
   function ensureCapacity(needed: number): void {
     if (needed <= capacity) return
@@ -95,26 +91,17 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
     return selfNextOrd++
   }
 
-  function computeMagnitude(sumSq: number, sum: number): number {
-    const val = alphaSquared * sumSq + 2 * alphaTimesOffset * sum + dTimesOffsetSquared
-    return val > 0 ? Math.sqrt(val) : 0
-  }
-
   function quantizeInto(ord: number, vector: Float32Array): void {
     const base = ord * dimensions
-    let sum = 0
-    let sumSq = 0
-    for (let d = 0; d < dimensions; d++) {
-      const normalized = (vector[d] - offset) * invAlpha
-      const scaled = normalized + 0.5
-      const q = scaled < 0 ? 0 : scaled > 255 ? 255 : scaled | 0
-      quantizedArena[base + d] = q
-      sum += q
-      sumSq += q * q
-    }
+    const { sum, sumSq } = quantizeVectorInto(
+      quantizedArena.subarray(base, base + dimensions),
+      vector,
+      dimensions,
+      constants,
+    )
     sums[ord] = sum
     sumSqs[ord] = sumSq
-    mags[ord] = computeMagnitude(sumSq, sum)
+    mags[ord] = quantizedMagnitude(constants, sumSq, sum)
   }
 
   function storeEntry(docId: string, ord: number): void {
@@ -129,25 +116,19 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
     const bounds = computeCalibrationBounds(vectors, dimensions)
     if (bounds === null) return
 
-    alpha = bounds.alpha
-    offset = bounds.offset
-    updateDerivedConstants()
+    constants = deriveSq8Constants(bounds.alpha, bounds.offset, dimensions)
     calibrated = true
   }
 
   function isOutsideBounds(vector: Float32Array): boolean {
-    const currentMin = offset
-    const currentMax = offset + alpha * 255
+    const currentMin = constants.offset
+    const currentMax = constants.offset + constants.alpha * 255
     for (let d = 0; d < dimensions; d++) {
       if (vector[d] < currentMin || vector[d] > currentMax) {
         return true
       }
     }
     return false
-  }
-
-  function realDotFromInt(intDot: number, querySum: number, ord: number): number {
-    return alphaSquared * intDot + alphaTimesOffset * (querySum + sums[ord]) + dTimesOffsetSquared
   }
 
   function distanceScalar(
@@ -158,48 +139,18 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
     metric: VectorMetric,
   ): number {
     if (ord < 0 || ord >= capacity || present[ord] === 0) return Number.POSITIVE_INFINITY
-
-    const base = ord * dimensions
-    const dims = dimensions
-
-    if (metric === 'euclidean') {
-      let intSqDist = 0
-      for (let d = 0; d < dims; d++) {
-        const diff = queryQuantized[d] - quantizedArena[base + d]
-        intSqDist += diff * diff
-      }
-      return alpha * Math.sqrt(intSqDist)
-    }
-
-    let intDot = 0
-    for (let d = 0; d < dims; d++) {
-      intDot += queryQuantized[d] * quantizedArena[base + d]
-    }
-
-    const realDot = realDotFromInt(intDot, querySum, ord)
-
-    if (metric === 'dotProduct') {
-      return -realDot
-    }
-
-    const vecMag = mags[ord]
-    if (!vecMag || vecMag === 0 || queryMagnitude === 0) return 1
-
-    return 1 - realDot / (queryMagnitude * vecMag)
-  }
-
-  function quantizeQueryInto(target: Uint8Array, query: Float32Array): { sum: number; sumSq: number } {
-    let sum = 0
-    let sumSq = 0
-    for (let d = 0; d < dimensions; d++) {
-      const normalized = (query[d] - offset) * invAlpha
-      const scaled = normalized + 0.5
-      const q = scaled < 0 ? 0 : scaled > 255 ? 255 : scaled | 0
-      target[d] = q
-      sum += q
-      sumSq += q * q
-    }
-    return { sum, sumSq }
+    return scalarQuantizedDistance(
+      quantizedArena,
+      sums,
+      mags,
+      dimensions,
+      constants,
+      queryQuantized,
+      querySum,
+      queryMagnitude,
+      ord,
+      metric,
+    )
   }
 
   return {
@@ -212,7 +163,7 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
     },
 
     get calibration(): ScalarQuantizerCalibration | null {
-      return calibrated ? { alpha, offset } : null
+      return calibrated ? { alpha: constants.alpha, offset: constants.offset } : null
     },
 
     isCalibrated(): boolean {
@@ -280,8 +231,8 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
     prepareQuery(query: Float32Array): QuantizedQuery | null {
       if (!calibrated) return null
       const quantized = new Uint8Array(dimensions)
-      const { sum, sumSq } = quantizeQueryInto(quantized, query)
-      const mag = computeMagnitude(sumSq, sum)
+      const { sum, sumSq } = quantizeVectorInto(quantized, query, dimensions, constants)
+      const mag = quantizedMagnitude(constants, sumSq, sum)
       return { quantized, sum, sumSq, magnitude: mag }
     },
 
@@ -297,8 +248,8 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
 
     prepareQueryArena(query: Float32Array): ArenaQuery | null {
       if (!calibrated || !simd) return null
-      const { sum, sumSq } = quantizeQueryInto(scratch, query)
-      const magnitude = computeMagnitude(sumSq, sum)
+      const { sum, sumSq } = quantizeVectorInto(scratch, query, dimensions, constants)
+      const magnitude = quantizedMagnitude(constants, sumSq, sum)
       return { sum, sumSq, magnitude }
     },
 
@@ -307,23 +258,18 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
         return Number.POSITIVE_INFINITY
       }
       const arenaOffset = arenaByteOffset + ordinal * dimensions
-
-      if (metric === 'euclidean') {
-        const intSqDist = simd.sqdist_u8(0, arenaOffset, dimensions)
-        return alpha * Math.sqrt(intSqDist)
-      }
-
-      const intDot = simd.dot_u8(0, arenaOffset, dimensions)
-      const realDot = realDotFromInt(intDot, prepared.sum, ordinal)
-
-      if (metric === 'dotProduct') {
-        return -realDot
-      }
-
-      const vecMag = mags[ordinal]
-      if (!vecMag || vecMag === 0 || prepared.magnitude === 0) return 1
-
-      return 1 - realDot / (prepared.magnitude * vecMag)
+      return arenaQuantizedDistance(
+        simd,
+        0,
+        arenaOffset,
+        dimensions,
+        constants,
+        prepared.sum,
+        prepared.magnitude,
+        sums[ordinal],
+        mags[ordinal],
+        metric,
+      )
     },
 
     hasOrdinal(ordinal: number): boolean {
@@ -331,9 +277,7 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
     },
 
     restoreCalibration(restoredAlpha: number, restoredOffset: number): void {
-      alpha = restoredAlpha
-      offset = restoredOffset
-      updateDerivedConstants()
+      constants = deriveSq8Constants(restoredAlpha, restoredOffset, dimensions)
       calibrated = true
     },
 
@@ -344,8 +288,24 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
       quantizedArena.set(quantized.subarray(0, dimensions), base)
       sums[ord] = sum
       sumSqs[ord] = sumSq
-      mags[ord] = computeMagnitude(sumSq, sum)
+      mags[ord] = quantizedMagnitude(constants, sumSq, sum)
       storeEntry(docId, ord)
+    },
+
+    copyStateInto(
+      codes: Uint8Array,
+      targetSums: Float64Array,
+      targetSumSqs: Float64Array,
+      targetMagnitudes: Float64Array,
+      targetPresent: Uint8Array,
+    ): void {
+      const copySlots = Math.min(capacity, Math.floor(codes.length / dimensions))
+      if (copySlots <= 0) return
+      codes.set(quantizedArena.subarray(0, copySlots * dimensions))
+      targetSums.set(sums.subarray(0, copySlots))
+      targetSumSqs.set(sumSqs.subarray(0, copySlots))
+      targetMagnitudes.set(mags.subarray(0, copySlots))
+      targetPresent.set(present.subarray(0, copySlots))
     },
 
     serialize(): SerializedSQ8 {
@@ -360,8 +320,8 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
         serializedSumSqs[docId] = sumSqs[ord]
       }
       return {
-        alpha,
-        offset,
+        alpha: constants.alpha,
+        offset: constants.offset,
         quantizedVectors: serializedVectors,
         vectorSums: serializedSums,
         vectorSumSqs: serializedSumSqs,
@@ -380,12 +340,7 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
       capacity = 0
       selfNextOrd = 0
       liveCount = 0
-      alpha = 0
-      offset = 0
-      alphaSquared = 0
-      alphaTimesOffset = 0
-      dTimesOffsetSquared = 0
-      invAlpha = 0
+      constants = deriveSq8Constants(0, 0, dimensions)
       calibrated = false
     },
   }
