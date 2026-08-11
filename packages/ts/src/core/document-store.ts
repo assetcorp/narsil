@@ -22,6 +22,7 @@ export interface DocumentStore {
   sortedDocIds(): readonly string[]
   releaseSortedDocIds(): void
 
+  fieldLengthColumn(fieldName: string): Uint32Array | null
   ensureInternalId(docId: string): number
   getInternalId(docId: string): number | undefined
   getExternalId(internalId: number): string | undefined
@@ -34,8 +35,22 @@ export function createDocumentStore(): DocumentStore {
   const docs = new Map<string, StoredDocument>()
   const forwardMap = new Map<string, number>()
   const reverseMap: Array<string | undefined> = []
+  const lengthColumns = new Map<string, Uint32Array>()
   let nextInternalId = 0
   let sortedIds: string[] | null = null
+
+  function writeFieldLengths(internalId: number, fieldLengths: Record<string, number>): void {
+    for (const fieldName of Object.keys(fieldLengths)) {
+      let column = lengthColumns.get(fieldName)
+      if (column === undefined || column.length <= internalId) {
+        const grown = new Uint32Array(Math.max(internalId + 1, (column?.length ?? 0) * 2, 64))
+        if (column !== undefined) grown.set(column)
+        column = grown
+        lengthColumns.set(fieldName, column)
+      }
+      column[internalId] = fieldLengths[fieldName]
+    }
+  }
 
   function assignInternalId(docId: string): number {
     const existing = forwardMap.get(docId)
@@ -65,13 +80,13 @@ export function createDocumentStore(): DocumentStore {
   return {
     store(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
       if (!docs.has(docId)) sortedIds = null
-      assignInternalId(docId)
+      writeFieldLengths(assignInternalId(docId), fieldLengths)
       docs.set(docId, { fields: document as Record<string, unknown>, fieldLengths })
     },
 
     storeRef(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
       if (!docs.has(docId)) sortedIds = null
-      assignInternalId(docId)
+      writeFieldLengths(assignInternalId(docId), fieldLengths)
       docs.set(docId, { fields: document as Record<string, unknown>, fieldLengths })
     },
 
@@ -87,6 +102,9 @@ export function createDocumentStore(): DocumentStore {
         if (internalId !== undefined) {
           forwardMap.delete(docId)
           reverseMap[internalId] = undefined
+          for (const column of lengthColumns.values()) {
+            if (internalId < column.length) column[internalId] = 0
+          }
         }
       }
       return removed
@@ -119,6 +137,7 @@ export function createDocumentStore(): DocumentStore {
 
     clear(): void {
       docs.clear()
+      lengthColumns.clear()
       clearMappings()
     },
 
@@ -132,11 +151,17 @@ export function createDocumentStore(): DocumentStore {
 
     deserialize(data: Record<string, StoredDocument>): void {
       docs.clear()
+      lengthColumns.clear()
       clearMappings()
       for (const docId of Object.keys(data)) {
-        assignInternalId(docId)
-        docs.set(docId, data[docId])
+        const stored = data[docId]
+        writeFieldLengths(assignInternalId(docId), stored.fieldLengths)
+        docs.set(docId, stored)
       }
+    },
+
+    fieldLengthColumn(fieldName: string): Uint32Array | null {
+      return lengthColumns.get(fieldName) ?? null
     },
 
     ensureInternalId(docId: string): number {

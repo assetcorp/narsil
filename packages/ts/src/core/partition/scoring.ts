@@ -1,52 +1,78 @@
-import type { CompactPostingList, ScoredDocument } from '../../types/internal'
-import { compareCodePoints } from '../ordering'
+import type { CompactPostingList } from '../../types/internal'
 
 export const EMPTY_COMPONENTS: Record<string, number> = Object.freeze({})
 
-export interface ScoreAccumulator {
-  score: number
+/**
+ * The per-document scoring record a query keeps only where the caller asked to
+ * see score components or set a term-coverage policy.
+ *
+ * @internal
+ */
+export interface ScoreComponents {
   termFrequencies: Record<string, number>
   fieldLengths: Record<string, number>
   idf: Record<string, number>
 }
 
-export function accumulateTermScore(
-  docScores: Map<number, ScoreAccumulator>,
+/**
+ * Records one term's contribution to a document's score components.
+ *
+ * @param components - The records collected so far in this query.
+ * @param internalId - The internal id of the document that matched.
+ * @param fieldName - The field the term was found in.
+ * @param token - The index term that matched.
+ * @param termFrequency - How often the term occurs in that field.
+ * @param fieldLength - The length of that field in the document.
+ * @param idf - The inverse document frequency used for the term.
+ */
+export function recordComponents(
+  components: Map<number, ScoreComponents>,
   internalId: number,
-  termScore: number,
-  collect: boolean,
   fieldName: string,
   token: string,
   termFrequency: number,
   fieldLength: number,
   idf: number,
 ): void {
-  const existing = docScores.get(internalId)
+  const existing = components.get(internalId)
   if (existing) {
-    existing.score += termScore
-    if (collect) {
-      existing.termFrequencies[`${fieldName}:${token}`] = termFrequency
-      existing.fieldLengths[fieldName] = fieldLength
-      existing.idf[token] = idf
-    }
+    existing.termFrequencies[`${fieldName}:${token}`] = termFrequency
+    existing.fieldLengths[fieldName] = fieldLength
+    existing.idf[token] = idf
     return
   }
+  components.set(internalId, {
+    termFrequencies: { [`${fieldName}:${token}`]: termFrequency },
+    fieldLengths: { [fieldName]: fieldLength },
+    idf: { [token]: idf },
+  })
+}
 
-  if (collect) {
-    docScores.set(internalId, {
-      score: termScore,
-      termFrequencies: { [`${fieldName}:${token}`]: termFrequency },
-      fieldLengths: { [fieldName]: fieldLength },
-      idf: { [token]: idf },
-    })
-  } else {
-    docScores.set(internalId, {
-      score: termScore,
-      termFrequencies: EMPTY_COMPONENTS,
-      fieldLengths: EMPTY_COMPONENTS,
-      idf: EMPTY_COMPONENTS,
-    })
+/**
+ * Folds a prefix expansion's winning contribution into a document's score
+ * components.
+ *
+ * @param components - The records collected so far in this query.
+ * @param internalId - The internal id of the document that matched.
+ * @param contribution - The best-scoring expanded term for that document.
+ */
+export function mergePrefixComponents(
+  components: Map<number, ScoreComponents>,
+  internalId: number,
+  contribution: PrefixContribution,
+): void {
+  const existing = components.get(internalId)
+  if (existing) {
+    Object.assign(existing.termFrequencies, contribution.termFrequencies)
+    Object.assign(existing.fieldLengths, contribution.fieldLengths)
+    existing.idf[contribution.token] = contribution.idf
+    return
   }
+  components.set(internalId, {
+    termFrequencies: contribution.termFrequencies,
+    fieldLengths: contribution.fieldLengths,
+    idf: { [contribution.token]: contribution.idf },
+  })
 }
 
 export interface ResolvedTokenPostings {
@@ -75,78 +101,4 @@ export interface PrefixContribution {
   idf: number
   termFrequencies: Record<string, number>
   fieldLengths: Record<string, number>
-}
-
-interface TopKCandidate {
-  internalId: number
-  externalId: string
-  score: number
-}
-
-function candidateWorse(a: TopKCandidate, b: TopKCandidate): boolean {
-  if (a.score !== b.score) return a.score < b.score
-  return compareCodePoints(a.externalId, b.externalId) > 0
-}
-
-export function topKFromMap(
-  docScores: Map<number, ScoreAccumulator>,
-  k: number,
-  resolver: { toExternal(id: number): string | undefined },
-): ScoredDocument[] {
-  const wanted = Number.isFinite(k) ? Math.max(0, Math.floor(k)) : 0
-  if (wanted <= 0) return []
-
-  const heap: TopKCandidate[] = []
-
-  for (const [internalId, data] of docScores) {
-    const externalId = resolver.toExternal(internalId)
-    if (externalId === undefined) continue
-    const candidate = { internalId, externalId, score: data.score }
-    if (heap.length < wanted) {
-      heap.push(candidate)
-      if (heap.length === wanted) buildMinHeap(heap)
-    } else if (candidateWorse(heap[0], candidate)) {
-      heap[0] = candidate
-      siftDown(heap, 0)
-    }
-  }
-
-  heap.sort((a, b) => b.score - a.score || compareCodePoints(a.externalId, b.externalId))
-
-  const result: ScoredDocument[] = []
-  for (let i = 0; i < heap.length; i++) {
-    const data = docScores.get(heap[i].internalId)
-    if (!data) continue
-    result.push({
-      docId: heap[i].externalId,
-      score: data.score,
-      termFrequencies: data.termFrequencies,
-      fieldLengths: data.fieldLengths,
-      idf: data.idf,
-    })
-  }
-
-  return result
-}
-
-function buildMinHeap(heap: TopKCandidate[]): void {
-  for (let i = (heap.length >> 1) - 1; i >= 0; i--) {
-    siftDown(heap, i)
-  }
-}
-
-function siftDown(heap: TopKCandidate[], idx: number): void {
-  const len = heap.length
-  while (true) {
-    let worst = idx
-    const left = 2 * idx + 1
-    const right = 2 * idx + 2
-    if (left < len && candidateWorse(heap[left], heap[worst])) worst = left
-    if (right < len && candidateWorse(heap[right], heap[worst])) worst = right
-    if (worst === idx) break
-    const tmp = heap[idx]
-    heap[idx] = heap[worst]
-    heap[worst] = tmp
-    idx = worst
-  }
 }
