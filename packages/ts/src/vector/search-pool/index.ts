@@ -68,7 +68,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
 
     listen(worker, raw => {
       const message = raw as VectorWorkerMessage
-      const key = message.type === 'ack' ? message.handle : message.requestId
+      const key = message.requestId
       if (typeof key !== 'string') return
       const waiting = slot.pending.get(key)
       if (!waiting) return
@@ -147,7 +147,11 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
 
     async load(handle: string, snapshot: WorkerCopySnapshot): Promise<boolean> {
       const outcomes = await Promise.allSettled(
-        slots.map(slot => send(slot, handle, { type: 'load', handle, snapshot }, LOAD_TIMEOUT_MS)),
+        slots.map(slot => {
+          requestCounter += 1
+          const requestId = `${requestCounter}`
+          return send(slot, requestId, { type: 'load', requestId, handle, snapshot }, LOAD_TIMEOUT_MS)
+        }),
       )
       return outcomes.every(
         outcome => outcome.status === 'fulfilled' && (outcome.value as VectorWorkerMessage).type === 'ack',
@@ -156,9 +160,16 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
 
     async loadShared(handle: string, snapshot: SharedGenerationSnapshot): Promise<boolean> {
       const outcomes = await Promise.allSettled(
-        slots.map((slot, scratchSlot) =>
-          send(slot, handle, { type: 'loadShared', handle, scratchSlot, snapshot }, LOAD_TIMEOUT_MS),
-        ),
+        slots.map((slot, scratchSlot) => {
+          requestCounter += 1
+          const requestId = `${requestCounter}`
+          return send(
+            slot,
+            requestId,
+            { type: 'loadShared', requestId, handle, scratchSlot, snapshot },
+            LOAD_TIMEOUT_MS,
+          )
+        }),
       )
       return outcomes.every(
         outcome => outcome.status === 'fulfilled' && (outcome.value as VectorWorkerMessage).type === 'ack',
@@ -166,7 +177,13 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
     },
 
     async drop(handle: string): Promise<void> {
-      await Promise.allSettled(slots.map(slot => send(slot, handle, { type: 'drop', handle }, SEARCH_TIMEOUT_MS)))
+      await Promise.allSettled(
+        slots.map(slot => {
+          requestCounter += 1
+          const requestId = `${requestCounter}`
+          return send(slot, requestId, { type: 'drop', requestId, handle }, SEARCH_TIMEOUT_MS)
+        }),
+      )
     },
 
     async search(
