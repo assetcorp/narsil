@@ -49,6 +49,7 @@ export interface ScalarQuantizerCalibration {
 // @internal
 export interface SharedCopyLoadRequest {
     handle: string;
+    requestId: string;
     scratchSlot: number;
     snapshot: SharedGenerationSnapshot;
     type: 'loadShared';
@@ -91,6 +92,7 @@ export interface SharedGenerationSnapshot {
 // @internal
 export interface VectorAckResponse {
     handle: string;
+    requestId: string;
     type: 'ack';
 }
 
@@ -99,6 +101,7 @@ export interface VectorAckResponse {
 // @internal
 export interface VectorDropRequest {
     handle: string;
+    requestId: string;
     type: 'drop';
 }
 
@@ -107,6 +110,7 @@ export interface VectorDropRequest {
 // @internal
 export interface VectorLoadRequest {
     handle: string;
+    requestId: string;
     snapshot: WorkerCopySnapshot;
     type: 'load';
 }

@@ -14,6 +14,8 @@ import type { WorkerCopySnapshot } from '../worker-copy'
 export interface VectorLoadRequest {
   /** This marks the message as a cloned copy load. */
   type: 'load'
+  /** The reply carries this back so the engine can match it to its caller. */
+  requestId: string
   /** Later messages name the copy by this handle. */
   handle: string
   /** The worker rebuilds its searchable copy from this. */
@@ -28,6 +30,8 @@ export interface VectorLoadRequest {
 export interface SharedCopyLoadRequest {
   /** This marks the message as a shared copy load. */
   type: 'loadShared'
+  /** The reply carries this back so the engine can match it to its caller. */
+  requestId: string
   /** Later messages name the copy by this handle. */
   handle: string
   /** The worker writes query scratch into this reserved slot alone. */
@@ -44,6 +48,8 @@ export interface SharedCopyLoadRequest {
 export interface VectorDropRequest {
   /** This marks the message as a copy release. */
   type: 'drop'
+  /** The reply carries this back so the engine can match it to its caller. */
+  requestId: string
   /** The worker releases the copy held under this handle. */
   handle: string
 }
@@ -118,6 +124,8 @@ export type VectorWorkerRequest =
 export interface VectorAckResponse {
   /** This marks the message as a completed load or release. */
   type: 'ack'
+  /** This matches the request the engine sent. */
+  requestId: string
   /** This names the copy the acknowledgement belongs to. */
   handle: string
 }

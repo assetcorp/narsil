@@ -67,7 +67,9 @@ class FakeWebWorker {
 const SNAPSHOT = { dimension: 2, quantization: 'none', tombstones: [] } as unknown as WorkerCopySnapshot
 
 function ackEverything(message: Record<string, unknown>): Record<string, unknown> | null {
-  if (message.type === 'load' || message.type === 'drop') return { type: 'ack', handle: message.handle }
+  if (message.type === 'load' || message.type === 'drop') {
+    return { type: 'ack', requestId: message.requestId, handle: message.handle }
+  }
   if (message.type === 'search') {
     return { type: 'result', requestId: message.requestId, docIds: ['a', 'b'], scores: [0.9, 0.5] }
   }
@@ -126,7 +128,7 @@ describe('the Web Worker spawn branch', () => {
     const pool = await createVectorSearchPool(2)
     FakeWebWorker.reply = message =>
       FakeWebWorker.instances[1].received.includes(message)
-        ? { type: 'error', requestId: message.handle, message: 'out of memory' }
+        ? { type: 'error', requestId: message.requestId, message: 'out of memory' }
         : ackEverything(message)
 
     await expect(pool?.load('embedding#1', SNAPSHOT)).resolves.toBe(false)

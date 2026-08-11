@@ -53,18 +53,18 @@ function ensureRoom(handle: string): void {
 function handleLoad(request: VectorLoadRequest): VectorAckResponse {
   ensureRoom(request.handle)
   copies.set(request.handle, { kind: 'clone', copy: restoreWorkerCopy(request.snapshot) })
-  return { type: 'ack', handle: request.handle }
+  return { type: 'ack', requestId: request.requestId, handle: request.handle }
 }
 
 function handleLoadShared(request: SharedCopyLoadRequest): VectorAckResponse {
   ensureRoom(request.handle)
   copies.set(request.handle, { kind: 'shared', copy: openSharedWorkerCopy(request.snapshot, request.scratchSlot) })
-  return { type: 'ack', handle: request.handle }
+  return { type: 'ack', requestId: request.requestId, handle: request.handle }
 }
 
 function handleDrop(request: VectorDropRequest): VectorAckResponse {
   copies.delete(request.handle)
-  return { type: 'ack', handle: request.handle }
+  return { type: 'ack', requestId: request.requestId, handle: request.handle }
 }
 
 function handleSearch(request: VectorSearchRequest): VectorSearchResponse {
