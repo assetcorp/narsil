@@ -14,7 +14,7 @@ export function createPostingList(): CompactPostingList {
     docIdSet: new Set(),
     deletedDocs: new Set(),
     totalTermFrequency: 0,
-    revision: 0,
+    structureRevision: 0,
     ordered: true,
   }
 }
@@ -33,11 +33,13 @@ export function growTypedArrays(list: CompactPostingList): void {
 
 export function compactList(list: CompactPostingList): void {
   if (list.deletedDocs.size === 0) return
-  list.revision++
+  list.structureRevision++
 
   let writeIdx = 0
+  let ascending = true
   for (let i = 0; i < list.length; i++) {
     if (!list.deletedDocs.has(list.docIds[i])) {
+      if (writeIdx > 0 && list.docIds[i] < list.docIds[writeIdx - 1]) ascending = false
       if (writeIdx !== i) {
         list.docIds[writeIdx] = list.docIds[i]
         list.termFrequencies[writeIdx] = list.termFrequencies[i]
@@ -55,13 +57,16 @@ export function compactList(list: CompactPostingList): void {
   if (list.positions) list.positions.length = writeIdx
   list.length = writeIdx
   list.deletedDocs.clear()
+  list.ordered = ascending
 }
 
 export function compactDocEntries(list: CompactPostingList, internalId: number): void {
-  list.revision++
+  list.structureRevision++
   let writeIdx = 0
+  let ascending = true
   for (let i = 0; i < list.length; i++) {
     if (list.docIds[i] !== internalId) {
+      if (writeIdx > 0 && list.docIds[i] < list.docIds[writeIdx - 1]) ascending = false
       if (writeIdx !== i) {
         list.docIds[writeIdx] = list.docIds[i]
         list.termFrequencies[writeIdx] = list.termFrequencies[i]
@@ -78,4 +83,5 @@ export function compactDocEntries(list: CompactPostingList, internalId: number):
   list.docIds.length = writeIdx
   if (list.positions) list.positions.length = writeIdx
   list.length = writeIdx
+  list.ordered = ascending
 }

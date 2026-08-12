@@ -123,7 +123,6 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
 
       const idx = list.length
       if (idx > 0 && internalId < list.docIds[idx - 1]) list.ordered = false
-      list.revision++
       list.docIds.push(internalId)
       list.termFrequencies[idx] = termFrequency > MAX_TERM_FREQUENCY ? MAX_TERM_FREQUENCY : termFrequency
       list.fieldNameIndices[idx] = fieldNameIndex
@@ -150,7 +149,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       const list = index.get(token)
       if (!list || !list.docIdSet.has(internalId)) return
 
-      list.revision++
+      list.structureRevision++
       list.docIdSet.delete(internalId)
       list.deletedDocs.add(internalId)
 
@@ -345,7 +344,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
           docIdSet,
           deletedDocs: new Set(),
           totalTermFrequency,
-          revision: 0,
+          structureRevision: 0,
           ordered,
         })
         trackToken(token)

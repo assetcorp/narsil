@@ -27,9 +27,16 @@ export interface CompactPostingList {
   deletedDocs: Set<number>
   /** Sum of live termFrequencies; stale-high between remove and compaction. */
   totalTermFrequency: number
-  /** Counts every mutation, so derived block bounds know when they are stale. */
-  revision: number
-  /** False once an entry lands with a lower document id than the one before it. */
+  /**
+   * Counts changes to existing entries or to the tombstone set. An append
+   * leaves it alone, so derived block bounds extend over the new tail instead
+   * of rebuilding from the start.
+   */
+  structureRevision: number
+  /**
+   * False once an entry lands with a lower document id than the one before
+   * it; compaction recomputes it from the surviving entries.
+   */
   ordered: boolean
 }
 
