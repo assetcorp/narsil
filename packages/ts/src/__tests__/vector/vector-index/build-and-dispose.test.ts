@@ -32,7 +32,7 @@ describe('VectorIndex build scheduling', () => {
     const buildIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'none' })
     try {
       for (let i = 0; i < 150; i++) {
-        buildIndex.insert(`doc${i}`, normalizedVector(DIM))
+        buildIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
       }
       buildIndex.scheduleBuild()
       await vi.advanceTimersToNextTimerAsync()
@@ -55,7 +55,7 @@ describe('VectorIndex build scheduling', () => {
 
   it('scheduleBuild does nothing when disposed', () => {
     for (let i = 0; i < 6; i++) {
-      index.insert(`doc${i}`, normalizedVector(DIM))
+      index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
     index.dispose()
     index.scheduleBuild()
@@ -66,7 +66,7 @@ describe('VectorIndex build scheduling', () => {
 
   it('triggerBuild creates HNSW from live docs excluding tombstones', async () => {
     for (let i = 0; i < 8; i++) {
-      index.insert(`doc${i}`, normalizedVector(DIM))
+      index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
     index.remove('doc0')
     index.remove('doc1')
@@ -77,7 +77,7 @@ describe('VectorIndex build scheduling', () => {
 
     expect(index.maintenanceStatus().graphCount).toBe(1)
 
-    const results = index.search(normalizedVector(DIM), 10, {
+    const results = index.search(normalizedVector(DIM, 31), 10, {
       metric: 'cosine',
       minSimilarity: 0,
     })
@@ -90,7 +90,7 @@ describe('VectorIndex build scheduling', () => {
     const buildIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'none' })
     try {
       for (let i = 0; i < 150; i++) {
-        buildIndex.insert(`doc${i}`, normalizedVector(DIM))
+        buildIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
       }
       buildIndex.scheduleBuild()
       await vi.advanceTimersToNextTimerAsync()
@@ -131,7 +131,7 @@ describe('VectorIndex dispose', () => {
 
   it('dispose prevents new builds', async () => {
     for (let i = 0; i < 6; i++) {
-      index.insert(`doc${i}`, normalizedVector(DIM))
+      index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
     index.dispose()
     index.scheduleBuild()
@@ -143,7 +143,7 @@ describe('VectorIndex dispose', () => {
   it('dispose during build does not produce an HNSW graph', async () => {
     const buildIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'none' })
     for (let i = 0; i < 150; i++) {
-      buildIndex.insert(`doc${i}`, normalizedVector(DIM))
+      buildIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
     buildIndex.scheduleBuild()
     await vi.advanceTimersToNextTimerAsync()
