@@ -19,6 +19,7 @@ b = 0.4
 [retrieval]
 run_depth = 1000
 import_batch = 2000
+import_clients = 16
 
 [fairness]
 # Equal memory ceiling applied identically to every engine container (8 GiB).

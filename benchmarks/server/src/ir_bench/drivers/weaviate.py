@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Iterable, Iterator
+from typing import Iterable
 
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
+from ..core.ingest import BatchOutcome, import_batches
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
@@ -21,17 +22,6 @@ from ..core.types import (
 )
 
 _HYBRID_ALPHA = 0.5
-
-
-def _chunked(items: Iterable[VectorDoc], size: int) -> Iterator[list[VectorDoc]]:
-    batch: list[VectorDoc] = []
-    for item in items:
-        batch.append(item)
-        if len(batch) >= size:
-            yield batch
-            batch = []
-    if batch:
-        yield batch
 
 
 def _raise(response: httpx.Response) -> None:
@@ -127,26 +117,29 @@ class WeaviateDriver:
         response = self._client.post("/v1/schema", json=body)
         _raise(response)
 
-    def import_vectors(self, index: str, documents: Iterable[VectorDoc], batch_size: int) -> ImportResult:
-        klass = _class_name(index)
-        submitted = 0
+    def _send_batch(self, klass: str, batch: list[VectorDoc]) -> BatchOutcome:
+        objects = [
+            {"class": klass, "properties": {"docId": doc.doc_id, "text": doc.text}, "vector": list(doc.vector)}
+            for doc in batch
+        ]
+        response = self._client.post("/v1/batch/objects", json={"objects": objects})
+        _raise(response)
         indexed = 0
-        for batch in _chunked(documents, batch_size):
-            objects = [
-                {"class": klass, "properties": {"docId": doc.doc_id, "text": doc.text}, "vector": list(doc.vector)}
-                for doc in batch
-            ]
-            response = self._client.post("/v1/batch/objects", json={"objects": objects})
-            _raise(response)
-            submitted += len(batch)
-            for item in response.json():
-                status = item.get("result", {}).get("status")
-                if status in (None, "SUCCESS"):
-                    indexed += 1
-                else:
-                    errors = item.get("result", {}).get("errors")
-                    raise EngineError(f"Weaviate rejected an object: {errors}")
-        return ImportResult(submitted=submitted, indexed=indexed)
+        for item in response.json():
+            status = item.get("result", {}).get("status")
+            if status in (None, "SUCCESS"):
+                indexed += 1
+            else:
+                errors = item.get("result", {}).get("errors")
+                raise EngineError(f"Weaviate rejected an object: {errors}")
+        return BatchOutcome(submitted=len(batch), indexed=indexed)
+
+    def import_vectors(
+        self, index: str, documents: Iterable[VectorDoc], batch_size: int, clients: int
+    ) -> ImportResult:
+        klass = _class_name(index)
+        total = import_batches(documents, batch_size, clients, lambda batch: self._send_batch(klass, batch))
+        return ImportResult(submitted=total.submitted, indexed=total.indexed)
 
     def build_vectors(self, index: str) -> None:
         return None
