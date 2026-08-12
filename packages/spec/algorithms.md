@@ -56,7 +56,7 @@ Each field uses its own `|D|`, the token count in that field, and its own `avgdl
 | `k1` | 1.2 | 0 to 3 | Controls how fast term frequency saturates |
 | `b` | 0.75 | 0 to 1 | Controls document length normalisation |
 
-A higher `k1` gives repeated terms more weight. A `b` of 0 applies no length normalisation, and a `b` of 1 applies it fully. Both are configured per index when the index is created.
+A higher `k1` gives repeated terms more weight. A `b` of 0 applies no length normalisation, and a `b` of 1 applies it fully. Both are configured per index when the index is created. An implementation must reject index creation when `k1` is negative or not finite, or when `b` falls outside 0 to 1.
 
 ### Edge Cases
 
