@@ -146,9 +146,7 @@ describe('bm25 parameters and the pruned scan', () => {
   const CONFIGS = [
     { indexName: 'b-zero', b: 0, k1: 1.2 },
     { indexName: 'b-one', b: 1, k1: 1.2 },
-    { indexName: 'b-above-one', b: 2, k1: 1.2 },
-    { indexName: 'b-negative', b: -1, k1: 1.2 },
-    { indexName: 'b-three-k-five', b: 3, k1: 5 },
+    { indexName: 'k-zero', b: 0.75, k1: 0 },
   ]
   let engine: Narsil
 
@@ -178,10 +176,25 @@ describe('bm25 parameters and the pruned scan', () => {
     await engine.shutdown()
   })
 
-  it('agrees with the unpruned path at, inside, and outside the sound b range', async () => {
+  it('agrees with the unpruned path at the edges of the parameter ranges', async () => {
     for (const config of CONFIGS) {
       await comparePrunedWithFull(engine, config.indexName, { term: 'alpha', limit: 10 })
       await comparePrunedWithFull(engine, config.indexName, { term: 'alpha', limit: 10, offset: 20 })
+    }
+  })
+
+  it('refuses to create an index with bm25 parameters outside their ranges', async () => {
+    const schema = { title: 'string' } as const
+    for (const bm25 of [{ b: 2 }, { b: -1 }, { b: Number.NaN }, { k1: -1 }, { k1: Number.POSITIVE_INFINITY }]) {
+      await expect(engine.createIndex('rejected', { schema, language: 'english', bm25 })).rejects.toMatchObject({
+        code: 'CONFIG_INVALID',
+      })
+    }
+    for (const bm25 of [{ b: 0 }, { b: 1 }, { k1: 0 }, {}]) {
+      const indexName = `accepted-${Object.entries(bm25)
+        .map(([key, value]) => `${key}-${value}`)
+        .join('-')}`
+      await engine.createIndex(indexName, { schema, language: 'english', bm25 })
     }
   })
 })
