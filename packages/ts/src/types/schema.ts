@@ -154,9 +154,17 @@ export interface IndexConfig {
  * @public
  */
 export interface BM25Params {
-  /** This saturates term frequency, so a higher value lets a repeated term keep raising a score. It defaults to 1.2. */
+  /**
+   * This saturates term frequency, so a higher value lets a repeated term
+   * keep raising a score. It defaults to 1.2, and it must be a finite number
+   * at or above 0 or index creation fails with `CONFIG_INVALID`.
+   */
   k1?: number
-  /** This normalises by field length, from 0 for none to 1 for full. It defaults to 0.75. */
+  /**
+   * This normalises by field length, from 0 for none to 1 for full. It
+   * defaults to 0.75, and it must lie between 0 and 1 or index creation
+   * fails with `CONFIG_INVALID`.
+   */
   b?: number
 }
 

@@ -1,6 +1,7 @@
 import { MAX_INDEX_NAME_LENGTH } from '../distribution/cluster/index-metadata'
 import { ErrorCodes, NarsilError } from '../errors'
 import { clampRowCount, DEFAULT_PAGE_SIZE } from '../search/pagination'
+import type { BM25Params } from '../types/schema'
 
 const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
 const MAX_DOC_ID_LENGTH = 512
@@ -86,6 +87,17 @@ export function validatePartitionConfig(partitions: {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'partitions.watermark must be above 0 and at most 1', {
       watermark,
     })
+  }
+}
+
+export function validateBM25Params(bm25: BM25Params | undefined): void {
+  if (bm25 === undefined) return
+  const { k1, b } = bm25
+  if (k1 !== undefined && (!Number.isFinite(k1) || k1 < 0)) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'bm25.k1 must be a finite number at or above 0', { k1 })
+  }
+  if (b !== undefined && (!Number.isFinite(b) || b < 0 || b > 1)) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'bm25.b must be between 0 and 1', { b })
   }
 }
 
