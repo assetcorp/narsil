@@ -21,7 +21,7 @@ describe('VectorIndex search with HNSW (after build)', () => {
 
   async function insertAndBuild(idx: VectorIndex, count: number): Promise<void> {
     for (let i = 0; i < count; i++) {
-      idx.insert(`doc${i}`, normalizedVector(DIM))
+      idx.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
     idx.scheduleBuild()
     await vi.advanceTimersToNextTimerAsync()
@@ -41,7 +41,7 @@ describe('VectorIndex search with HNSW (after build)', () => {
   it('after build completes, search uses HNSW and returns results', async () => {
     await insertAndBuild(index, 10)
 
-    const results = index.search(normalizedVector(DIM), 5, {
+    const results = index.search(normalizedVector(DIM, 17), 5, {
       metric: 'cosine',
       minSimilarity: 0,
     })
@@ -66,15 +66,15 @@ describe('VectorIndex search with HNSW (after build)', () => {
 
   it('mergeResults deduplicates between HNSW and buffer results', async () => {
     for (let i = 0; i < 6; i++) {
-      index.insert(`doc${i}`, normalizedVector(DIM))
+      index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
     index.scheduleBuild()
     await vi.advanceTimersToNextTimerAsync()
     await index.awaitPendingBuild()
 
-    index.insert('doc0', normalizedVector(DIM))
+    index.insert('doc0', normalizedVector(DIM, 106))
 
-    const results = index.search(normalizedVector(DIM), 10, {
+    const results = index.search(normalizedVector(DIM, 38), 10, {
       metric: 'cosine',
       minSimilarity: 0,
     })
@@ -94,7 +94,7 @@ describe('VectorIndex search with HNSW (after build)', () => {
       await insertAndBuild(filteredIndex, 10)
 
       const filterIds = new Set(['doc0'])
-      const results = filteredIndex.search(normalizedVector(DIM), 5, {
+      const results = filteredIndex.search(normalizedVector(DIM, 45), 5, {
         metric: 'cosine',
         minSimilarity: 0,
         filterDocIds: filterIds,
@@ -112,7 +112,7 @@ describe('VectorIndex search with HNSW (after build)', () => {
   it('efSearch parameter is forwarded to HNSW', async () => {
     await insertAndBuild(index, 10)
 
-    const results = index.search(normalizedVector(DIM), 3, {
+    const results = index.search(normalizedVector(DIM, 52), 3, {
       metric: 'cosine',
       minSimilarity: 0,
       efSearch: 50,

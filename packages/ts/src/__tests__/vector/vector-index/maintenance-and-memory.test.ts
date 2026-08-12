@@ -39,7 +39,7 @@ describe('VectorIndex maintenance status', () => {
     const buildIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'none' })
     try {
       for (let i = 0; i < 150; i++) {
-        buildIndex.insert(`doc${i}`, normalizedVector(DIM))
+        buildIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
       }
       buildIndex.scheduleBuild()
       await vi.advanceTimersToNextTimerAsync()
@@ -61,7 +61,7 @@ describe('VectorIndex maintenance status', () => {
     expect(index.maintenanceStatus().graphCount).toBe(0)
 
     for (let i = 0; i < 6; i++) {
-      index.insert(`doc${i}`, normalizedVector(DIM))
+      index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
     index.scheduleBuild()
     await vi.advanceTimersToNextTimerAsync()
@@ -95,7 +95,7 @@ describe('VectorIndex memory estimation', () => {
 
   it('increases with HNSW present', async () => {
     for (let i = 0; i < 6; i++) {
-      index.insert(`doc${i}`, normalizedVector(DIM))
+      index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
 
     const memBefore = index.estimateMemoryBytes()
@@ -111,10 +111,11 @@ describe('VectorIndex memory estimation', () => {
   it('includes SQ8 overhead when calibrated', async () => {
     const noSqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'none' })
     const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
+    const fixedNodeLevels = vi.spyOn(Math, 'random').mockReturnValue(0.5)
 
     try {
       for (let i = 0; i < 6; i++) {
-        const v = normalizedVector(DIM)
+        const v = normalizedVector(DIM, i + 1)
         noSqIndex.insert(`doc${i}`, v)
         sqIndex.insert(`doc${i}`, new Float32Array(v))
       }
@@ -127,6 +128,7 @@ describe('VectorIndex memory estimation', () => {
 
       expect(sqIndex.estimateMemoryBytes()).toBeGreaterThan(noSqIndex.estimateMemoryBytes())
     } finally {
+      fixedNodeLevels.mockRestore()
       noSqIndex.dispose()
       sqIndex.dispose()
     }
@@ -150,7 +152,7 @@ describe('VectorIndex scalar quantization integration', () => {
     const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
     try {
       for (let i = 0; i < 6; i++) {
-        sqIndex.insert(`doc${i}`, normalizedVector(DIM))
+        sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
       }
       sqIndex.scheduleBuild()
       await vi.advanceTimersToNextTimerAsync()
@@ -165,7 +167,7 @@ describe('VectorIndex scalar quantization integration', () => {
 
   it('with quantization none, no SQ8 is created', async () => {
     for (let i = 0; i < 6; i++) {
-      index.insert(`doc${i}`, normalizedVector(DIM))
+      index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
     index.scheduleBuild()
     await vi.advanceTimersToNextTimerAsync()
@@ -179,7 +181,7 @@ describe('VectorIndex scalar quantization integration', () => {
     const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
     try {
       for (let i = 0; i < 6; i++) {
-        sqIndex.insert(`doc${i}`, normalizedVector(DIM))
+        sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
       }
       sqIndex.scheduleBuild()
       await vi.advanceTimersToNextTimerAsync()
