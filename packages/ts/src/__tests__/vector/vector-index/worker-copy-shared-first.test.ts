@@ -43,18 +43,27 @@ function createFakePool(): FakePool {
       sharedHandles.delete(handle)
       cloneHandles.delete(handle)
     },
-    async search(handle, query, k, metric, minSimilarity, efSearch): Promise<WorkerCopySearchResult[]> {
+    async search(handle, query, k, metric, minSimilarity, efSearch, filter): Promise<WorkerCopySearchResult[]> {
       const copy = cloneHandles.get(handle)
       if (!copy) throw new Error(`No cloned copy for handle ${handle}`)
       return copy.graph
-        .search(query, k, metric, minSimilarity, undefined, efSearch)
+        .search(query, k, metric, minSimilarity, filter, efSearch)
         .map(result => ({ docId: result.docId, score: result.score }))
     },
-    async searchOrdinals(handle, query, k, metric, minSimilarity, efSearch): Promise<OrdinalSearchResult> {
+    async searchOrdinals(handle, query, k, metric, minSimilarity, efSearch, filter): Promise<OrdinalSearchResult> {
       const snapshot = sharedHandles.get(handle)
       if (!snapshot) throw new Error(`No shared copy for handle ${handle}`)
       const copy = openSharedWorkerCopy(snapshot, 0)
-      const hits = searchSharedOrdinals(copy.searchState, query, k, metric, minSimilarity, copy.rankByOrdinal, efSearch)
+      const hits = searchSharedOrdinals(
+        copy.searchState,
+        query,
+        k,
+        metric,
+        minSimilarity,
+        copy.rankByOrdinal,
+        filter,
+        efSearch,
+      )
       return {
         ordinals: Uint32Array.from(hits.map(hit => hit.ord)),
         scores: Float64Array.from(hits.map(hit => hit.score)),
@@ -105,6 +114,57 @@ describe('worker copy loading picks the shared path first', () => {
     for (let position = 0; position < local.length; position++) {
       expect(Object.is(viaWorker[position].score, local[position].score)).toBe(true)
     }
+    index.dispose()
+  })
+
+  it('answers a filtered search through the shared copy exactly', async () => {
+    const fake = createFakePool()
+    vi.mocked(acquireVectorSearchPool).mockResolvedValue(fake.pool)
+    const index = await buildIndex()
+    const query = normalizedVector(DIM, 31)
+    const filterDocIds = new Set<string>()
+    for (let i = 0; i < 100; i++) filterDocIds.add(`doc${i}`)
+    const options = { metric: 'cosine', minSimilarity: 0, filterDocIds } as const
+
+    await index.searchParallel(query, 10, options)
+    await vi.waitFor(() => expect(fake.loadShared).toHaveBeenCalledTimes(1))
+
+    const ordinalSearches = vi.spyOn(fake.pool, 'searchOrdinals')
+    const viaWorker = await index.searchParallel(query, 10, options)
+    const local = index.search(query, 10, options)
+
+    expect(ordinalSearches).toHaveBeenCalledTimes(1)
+    expect(viaWorker.length).toBeGreaterThan(0)
+    for (const result of viaWorker) {
+      expect(filterDocIds.has(result.docId)).toBe(true)
+    }
+    expect(viaWorker.map(result => result.docId)).toEqual(local.map(result => result.docId))
+    for (let position = 0; position < local.length; position++) {
+      expect(Object.is(viaWorker[position].score, local[position].score)).toBe(true)
+    }
+    index.dispose()
+  })
+
+  it('keeps a highly selective filter on the calling thread', async () => {
+    const fake = createFakePool()
+    vi.mocked(acquireVectorSearchPool).mockResolvedValue(fake.pool)
+    const index = await buildIndex()
+    const query = normalizedVector(DIM, 37)
+
+    await index.searchParallel(query, 10, { metric: 'cosine', minSimilarity: 0 })
+    await vi.waitFor(() => expect(fake.loadShared).toHaveBeenCalledTimes(1))
+
+    const filterDocIds = new Set<string>()
+    for (let i = 0; i < 10; i++) filterDocIds.add(`doc${i}`)
+    const options = { metric: 'cosine', minSimilarity: 0, filterDocIds } as const
+
+    const ordinalSearches = vi.spyOn(fake.pool, 'searchOrdinals')
+    const filtered = await index.searchParallel(query, 10, options)
+    const local = index.search(query, 10, options)
+
+    expect(ordinalSearches).not.toHaveBeenCalled()
+    expect(filtered.length).toBeGreaterThan(0)
+    expect(filtered.map(result => result.docId)).toEqual(local.map(result => result.docId))
     index.dispose()
   })
 

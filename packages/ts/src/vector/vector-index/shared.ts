@@ -1,5 +1,6 @@
 import type { VectorMetric } from '../brute-force'
 import type { HNSWConfig, HNSWIndex, SerializedHNSWGraph } from '../hnsw'
+import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter } from '../ordinal-filter'
 import type { ScalarQuantizer, SerializedSQ8 } from '../scalar-quantization-types'
 import type { VectorSearchPool } from '../search-pool'
 import type { VectorStore } from '../vector-store'
@@ -78,6 +79,17 @@ export function* allLiveDocIds(state: VectorIndexState): Iterable<string> {
     if (state.tombstones.has(docId)) continue
     yield docId
   }
+}
+
+export function ordinalFilterForDocIds(state: VectorIndexState, docIds: Iterable<string>): OrdinalFilter {
+  const filter = createOrdinalFilter(state.store.slots)
+  for (const docId of docIds) {
+    if (state.tombstones.has(docId)) continue
+    const ordinal = state.store.getOrdinal(docId)
+    if (ordinal === undefined) continue
+    addToOrdinalFilter(filter, ordinal)
+  }
+  return filter
 }
 
 export function calibrateAndQuantizeAll(state: VectorIndexState): void {

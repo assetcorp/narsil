@@ -36,6 +36,14 @@ export interface HNSWSnapshot {
     topLayer: number;
 }
 
+// Warning: (ae-internal-missing-underscore) The name "OrdinalFilter" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface OrdinalFilter {
+    bits: Uint8Array;
+    count: number;
+}
+
 // Warning: (ae-internal-missing-underscore) The name "ScalarQuantizerCalibration" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
@@ -125,6 +133,7 @@ export type VectorMetric = 'cosine' | 'dotProduct' | 'euclidean';
 // @internal
 export interface VectorOrdinalSearchRequest {
     efSearch?: number;
+    filter?: OrdinalFilter;
     handle: string;
     k: number;
     metric: VectorMetric;
@@ -149,6 +158,7 @@ export interface VectorOrdinalSearchResponse {
 // @internal
 export interface VectorSearchRequest {
     efSearch?: number;
+    filter?: OrdinalFilter;
     handle: string;
     k: number;
     metric: VectorMetric;

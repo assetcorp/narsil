@@ -1,5 +1,6 @@
 import type { ScoredDocument, VectorEntry } from '../../types/internal'
 import type { VectorMetric } from '../brute-force'
+import type { OrdinalFilter } from '../ordinal-filter'
 import type { ScalarQuantizer } from '../scalar-quantization-types'
 import type { VectorStore } from '../vector-store'
 import {
@@ -49,7 +50,7 @@ export interface HNSWIndex {
     k: number,
     searchMetric: VectorMetric,
     minSimilarity: number,
-    filterDocIds?: Set<string>,
+    filter?: OrdinalFilter,
     efSearch?: number,
   ): ScoredDocument[]
   clear(): void
@@ -211,9 +212,9 @@ export function createHNSWIndex(
       k: number,
       searchMetric: VectorMetric,
       minSimilarity: number,
-      filterDocIds?: Set<string>,
+      filter?: OrdinalFilter,
       efSearch?: number,
-    ) => searchOp(state, query, k, searchMetric, minSimilarity, filterDocIds, efSearch),
+    ) => searchOp(state, query, k, searchMetric, minSimilarity, filter, efSearch),
     clear,
     entries: entriesIterator,
     compactionNeeded,

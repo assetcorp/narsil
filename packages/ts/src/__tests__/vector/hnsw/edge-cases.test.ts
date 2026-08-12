@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createHNSWIndex, type HNSWIndex } from '../../../vector/hnsw'
+import { createOrdinalFilter } from '../../../vector/ordinal-filter'
 import { createVectorStore, type VectorStore } from '../../../vector/vector-store'
 import { DIM, insertVec, removeVec, seededVector, vectorFromValues } from './fixtures'
 
@@ -68,12 +69,12 @@ describe('HNSWIndex edge cases', () => {
     expect(results.length).toBeGreaterThan(0)
   })
 
-  it('filterDocIds with empty set returns no results', () => {
+  it('an empty ordinal filter returns no results', () => {
     for (let i = 0; i < 10; i++) {
       insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const results = index.search(seededVector(DIM, 108), 5, 'cosine', 0, new Set())
+    const results = index.search(seededVector(DIM, 108), 5, 'cosine', 0, createOrdinalFilter(store.slots))
     expect(results).toHaveLength(0)
   })
 })

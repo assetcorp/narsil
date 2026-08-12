@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorIndexConfig } from '../../types/schema'
 import type { HNSWConfig } from '../hnsw'
+import type { OrdinalFilter } from '../ordinal-filter'
 import { createScalarQuantizer } from '../scalar-quantization'
 import { createVectorStore } from '../vector-store'
 import { scheduleBuild as scheduleBuildOp } from './build'
@@ -11,12 +12,13 @@ import {
   optimize as optimizeOp,
 } from './maintenance'
 import { deserialize as deserializeOp, serialize as serializeOp } from './persistence'
-import { search as searchOp } from './search'
+import { search as searchOp, searchWithFilter } from './search'
 import {
   DEFAULT_FILTER_THRESHOLD,
   DEFAULT_PROMOTION_THRESHOLD,
   liveSize,
   type MaintenanceStatus,
+  ordinalFilterForDocIds,
   type VectorIndexPayload,
   type VectorIndexState,
   type VectorScoredResult,
@@ -147,9 +149,19 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     k: number,
     options: VectorSearchOptions,
   ): Promise<VectorScoredResult[]> {
-    if (options.filterDocIds !== undefined) {
-      return searchOp(state, query, k, options)
+    const filterDocIds = options.filterDocIds
+    let filter: OrdinalFilter | undefined
+    if (filterDocIds !== undefined) {
+      filter = ordinalFilterForDocIds(state, filterDocIds)
+      if (state.hnsw) {
+        const hnswLiveSize = state.hnsw.size
+        const selectivity = hnswLiveSize > 0 ? filter.count / hnswLiveSize : 1
+        if (selectivity < state.filterThreshold) {
+          return searchWithFilter(state, query, k, options, filter)
+        }
+      }
     }
+    const filterRevision = state.revision
 
     scheduleWorkerCopyLoad(state)
 
@@ -160,10 +172,14 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
       options.metric,
       options.minSimilarity,
       options.efSearch,
+      filter,
     )
     if (viaWorkerCopy !== null) return viaWorkerCopy
 
-    return searchOp(state, query, k, options)
+    if (filterDocIds !== undefined && state.revision !== filterRevision) {
+      filter = ordinalFilterForDocIds(state, filterDocIds)
+    }
+    return searchWithFilter(state, query, k, options, filter)
   }
 
   return {

@@ -1,6 +1,7 @@
 import { compareCodePoints } from '../../core/ordering'
 import type { ScoredDocument } from '../../types/internal'
 import type { VectorMetric } from '../brute-force'
+import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
 import { magnitude } from '../similarity'
 import type { ArenaQueryVector } from '../vector-store'
 import { nearestFromHeap, searchLayer } from './graph-ops'
@@ -40,7 +41,7 @@ function collectHits(
   k: number,
   searchMetric: VectorMetric,
   minSimilarity: number,
-  filterOrds: Set<number> | undefined,
+  filter: OrdinalFilter | undefined,
   efSearch: number | undefined,
   hasDocument: (ord: number) => boolean,
 ): OrdinalHit[] {
@@ -57,8 +58,8 @@ function collectHits(
   const defaultEf = 50
   let ef = Math.max(efSearch ?? defaultEf, k)
 
-  if (filterOrds && filterOrds.size < liveSize) {
-    const selectivity = filterOrds.size / liveSize
+  if (filter && filter.count < liveSize) {
+    const selectivity = filter.count / liveSize
     ef = Math.max(ef, Math.ceil(k / Math.max(selectivity, 0.01)))
     ef = Math.min(ef, liveSize)
   }
@@ -111,14 +112,14 @@ function collectHits(
       k,
       searchMetric,
       minSimilarity,
-      filterOrds,
+      filter,
       hasDocument,
     )
   }
 
   const hits: OrdinalHit[] = []
   for (const cand of candidateArray) {
-    if (filterOrds && !filterOrds.has(cand.ord)) continue
+    if (filter && !ordinalFilterHas(filter, cand.ord)) continue
     const score = toScore(cand.distance, searchMetric)
     if (score < minSimilarity) continue
     if (!hasDocument(cand.ord)) continue
@@ -136,14 +137,14 @@ function rerankWithFullPrecision(
   k: number,
   metric: VectorMetric,
   minSimilarity: number,
-  filterOrds: Set<number> | undefined,
+  filter: OrdinalFilter | undefined,
   hasDocument: (ord: number) => boolean,
 ): OrdinalHit[] {
   const reranked: OrdinalHit[] = []
   const rerankLimit = Math.max(k * SQ8_OVERSELECTION_FACTOR, 10)
 
   for (const cand of candidates) {
-    if (filterOrds && !filterOrds.has(cand.ord)) continue
+    if (filter && !ordinalFilterHas(filter, cand.ord)) continue
 
     let fullDistance: number
     if (arenaQuery) {
@@ -179,20 +180,11 @@ export function search(
   k: number,
   searchMetric: VectorMetric,
   minSimilarity: number,
-  filterDocIds?: Set<string>,
+  filter?: OrdinalFilter,
   efSearch?: number,
 ): ScoredDocument[] {
-  let filterOrds: Set<number> | undefined
-  if (filterDocIds) {
-    filterOrds = new Set<number>()
-    for (const docId of filterDocIds) {
-      const o = state.store.getOrdinal(docId)
-      if (o !== undefined) filterOrds.add(o)
-    }
-  }
-
   const hasDocument = (ord: number) => state.store.docIdForOrdinal(ord) !== undefined
-  const hits = collectHits(state, query, k, searchMetric, minSimilarity, filterOrds, efSearch, hasDocument)
+  const hits = collectHits(state, query, k, searchMetric, minSimilarity, filter, efSearch, hasDocument)
 
   const results: ScoredDocument[] = []
   for (const hit of hits) {
@@ -227,6 +219,8 @@ export function search(
  * @param minSimilarity The score below which a hit is dropped.
  * @param rankByOrdinal Each ordinal's document id rank in code point order,
  * or {@link ABSENT_DOCUMENT_RANK} where the ordinal holds no document.
+ * @param filter The ordinals allowed in the result, or every ordinal when
+ * absent.
  * @param efSearch The exploration factor, defaulting as {@link search} does.
  * @returns Ordinal hits, best first.
  *
@@ -239,10 +233,11 @@ export function searchOrdinals(
   searchMetric: VectorMetric,
   minSimilarity: number,
   rankByOrdinal: Uint32Array,
+  filter?: OrdinalFilter,
   efSearch?: number,
 ): OrdinalHit[] {
   const hasDocument = (ord: number) => ord < rankByOrdinal.length && rankByOrdinal[ord] !== ABSENT_DOCUMENT_RANK
-  const hits = collectHits(state, query, k, searchMetric, minSimilarity, undefined, efSearch, hasDocument)
+  const hits = collectHits(state, query, k, searchMetric, minSimilarity, filter, efSearch, hasDocument)
   hits.sort((a, b) => b.score - a.score || rankByOrdinal[a.ord] - rankByOrdinal[b.ord])
   return hits.slice(0, k)
 }

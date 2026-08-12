@@ -1,4 +1,5 @@
 import type { VectorMetric } from '../brute-force'
+import type { OrdinalFilter } from '../ordinal-filter'
 import type { SharedGenerationSnapshot } from '../shared-generation/types'
 import type { WorkerCopySnapshot } from '../worker-copy'
 
@@ -75,6 +76,8 @@ export interface VectorSearchRequest {
   metric: VectorMetric
   /** The worker drops any result scoring below this. */
   minSimilarity: number
+  /** The worker returns only ordinals this filter holds, when present. */
+  filter?: OrdinalFilter
   /** The worker explores this many candidates, or its own default when absent. */
   efSearch?: number
 }
@@ -100,6 +103,8 @@ export interface VectorOrdinalSearchRequest {
   metric: VectorMetric
   /** The worker drops any result scoring below this. */
   minSimilarity: number
+  /** The worker returns only ordinals this filter holds, when present. */
+  filter?: OrdinalFilter
   /** The worker explores this many candidates, or its own default when absent. */
   efSearch?: number
 }

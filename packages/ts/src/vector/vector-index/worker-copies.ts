@@ -1,4 +1,5 @@
 import type { VectorMetric } from '../brute-force'
+import type { OrdinalFilter } from '../ordinal-filter'
 import { acquireVectorSearchPool, releaseVectorSearchPool } from '../search-pool'
 import { freezeSharedGeneration } from '../shared-generation/freeze'
 import type { WorkerCopySnapshot } from '../worker-copy'
@@ -109,6 +110,7 @@ export async function searchViaWorkerCopies(
   metric: VectorMetric,
   minSimilarity: number,
   efSearch?: number,
+  filter?: OrdinalFilter,
 ): Promise<VectorScoredResult[] | null> {
   const pool = state.workerCopyPool
   const handle = state.workerCopyHandle
@@ -117,7 +119,7 @@ export async function searchViaWorkerCopies(
 
   try {
     if (state.workerCopyMode === 'shared') {
-      const outcome = await pool.searchOrdinals(handle, query, k, metric, minSimilarity, efSearch)
+      const outcome = await pool.searchOrdinals(handle, query, k, metric, minSimilarity, efSearch, filter)
       const results: VectorScoredResult[] = []
       for (let i = 0; i < outcome.ordinals.length; i++) {
         const docId = state.store.docIdForOrdinal(outcome.ordinals[i])
@@ -126,7 +128,7 @@ export async function searchViaWorkerCopies(
       }
       return results
     }
-    return await pool.search(handle, query, k, metric, minSimilarity, efSearch)
+    return await pool.search(handle, query, k, metric, minSimilarity, efSearch, filter)
   } catch {
     return null
   }

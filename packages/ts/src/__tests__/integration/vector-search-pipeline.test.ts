@@ -7,6 +7,7 @@ const DIM = 8
 
 const schema: SchemaDefinition = {
   title: 'string',
+  category: 'string',
   embedding: `vector[${DIM}]`,
 }
 
@@ -124,6 +125,59 @@ describe('vector search through Narsil query API', () => {
 
     expect(result.hits).toHaveLength(1)
     expect(result.hits[0].id).toBe('close')
+  })
+
+  it('returns only filter-matching documents from a filtered vector query', async () => {
+    for (let i = 0; i < 12; i++) {
+      const lead = 1.0 - i * 0.05
+      await narsil.insert(
+        'docs',
+        { title: `doc ${i}`, category: i % 2 === 0 ? 'keep' : 'drop', embedding: paddedVector(lead, 0.01) },
+        `doc-${i}`,
+      )
+    }
+
+    const result = await narsil.query('docs', {
+      vector: { field: 'embedding', value: paddedVector(1.0, 0.0), metric: 'cosine' },
+      filters: { fields: { category: { eq: 'keep' } } },
+      limit: 4,
+    })
+
+    expect(result.hits.map(h => h.id)).toEqual(['doc-0', 'doc-2', 'doc-4', 'doc-6'])
+  })
+
+  it('returns only filter-matching documents from a filtered hybrid query', async () => {
+    await narsil.insert(
+      'docs',
+      { title: 'wireless headphones review', category: 'keep', embedding: paddedVector(0.9, 0.1) },
+      'kept-both',
+    )
+    await narsil.insert(
+      'docs',
+      { title: 'wireless earbuds review', category: 'drop', embedding: paddedVector(0.95, 0.05) },
+      'dropped-both',
+    )
+    await narsil.insert(
+      'docs',
+      { title: 'cooking recipes', category: 'keep', embedding: paddedVector(0.85, 0.15) },
+      'kept-vec-only',
+    )
+
+    const result = await narsil.query('docs', {
+      term: 'wireless',
+      vector: { field: 'embedding', value: paddedVector(1.0, 0.0) },
+      mode: 'hybrid',
+      hybrid: { alpha: 0.5 },
+      filters: { fields: { category: { eq: 'keep' } } },
+      limit: 3,
+    })
+
+    const ids = result.hits.map(h => h.id)
+    expect(ids).toContain('kept-both')
+    expect(ids).not.toContain('dropped-both')
+    for (const hit of result.hits) {
+      expect(['kept-both', 'kept-vec-only']).toContain(hit.id)
+    }
   })
 
   it('returns results in hybrid mode combining text and vector', async () => {

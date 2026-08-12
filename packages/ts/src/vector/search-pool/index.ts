@@ -1,5 +1,6 @@
 import { resolveWorkerCount } from '../../workers/pool'
 import type { VectorMetric } from '../brute-force'
+import type { OrdinalFilter } from '../ordinal-filter'
 import type { SharedGenerationSnapshot } from '../shared-generation/types'
 import type { WorkerCopySnapshot } from '../worker-copy'
 import type { VectorOrdinalSearchRequest, VectorSearchRequest, VectorWorkerMessage } from './messages'
@@ -31,6 +32,7 @@ export interface VectorSearchPool {
     metric: VectorMetric,
     minSimilarity: number,
     efSearch?: number,
+    filter?: OrdinalFilter,
   ): Promise<WorkerCopySearchResult[]>
   searchOrdinals(
     handle: string,
@@ -39,6 +41,7 @@ export interface VectorSearchPool {
     metric: VectorMetric,
     minSimilarity: number,
     efSearch?: number,
+    filter?: OrdinalFilter,
   ): Promise<OrdinalSearchResult>
   shutdown(): Promise<void>
 }
@@ -193,6 +196,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
       metric: VectorMetric,
       minSimilarity: number,
       efSearch?: number,
+      filter?: OrdinalFilter,
     ): Promise<WorkerCopySearchResult[]> {
       const slot = pickSlot()
       if (slot === null) throw new Error('No vector search worker is running')
@@ -206,6 +210,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
         k,
         metric,
         minSimilarity,
+        ...(filter !== undefined ? { filter } : {}),
         ...(efSearch !== undefined ? { efSearch } : {}),
       }
 
@@ -227,6 +232,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
       metric: VectorMetric,
       minSimilarity: number,
       efSearch?: number,
+      filter?: OrdinalFilter,
     ): Promise<OrdinalSearchResult> {
       const slot = pickSlot()
       if (slot === null) throw new Error('No vector search worker is running')
@@ -240,6 +246,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
         k,
         metric,
         minSimilarity,
+        ...(filter !== undefined ? { filter } : {}),
         ...(efSearch !== undefined ? { efSearch } : {}),
       }
 

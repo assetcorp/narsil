@@ -1,7 +1,7 @@
 import type { ScoredDocument } from '../../types/internal'
-import { compareCodePoints } from '../ordering'
 import type { ScoreComponents } from './scoring'
 import { EMPTY_COMPONENTS } from './scoring'
+import { buildMinHeap, candidateWorse, siftDown, sortSelection, type TopKCandidate } from './top-k-heap'
 
 const INITIAL_TOUCHED_CAPACITY = 1024
 const MAX_GENERATION = 0x7fffffff
@@ -101,40 +101,6 @@ export function hasScore(buffer: ScoreBuffer, internalId: number): boolean {
   return buffer.stamps[internalId] === buffer.generation
 }
 
-interface TopKCandidate {
-  internalId: number
-  externalId: string
-  score: number
-}
-
-function candidateWorse(a: TopKCandidate, b: TopKCandidate): boolean {
-  if (a.score !== b.score) return a.score < b.score
-  return compareCodePoints(a.externalId, b.externalId) > 0
-}
-
-function buildMinHeap(heap: TopKCandidate[]): void {
-  for (let i = (heap.length >> 1) - 1; i >= 0; i--) {
-    siftDown(heap, i)
-  }
-}
-
-function siftDown(heap: TopKCandidate[], idx: number): void {
-  const len = heap.length
-  let current = idx
-  for (;;) {
-    let worst = current
-    const left = 2 * current + 1
-    const right = 2 * current + 2
-    if (left < len && candidateWorse(heap[left], heap[worst])) worst = left
-    if (right < len && candidateWorse(heap[right], heap[worst])) worst = right
-    if (worst === current) break
-    const held = heap[current]
-    heap[current] = heap[worst]
-    heap[worst] = held
-    current = worst
-  }
-}
-
 /**
  * Takes the highest-scoring documents out of the buffer, resolving an external
  * id only for a document that can still reach the page. Ties break on the
@@ -185,7 +151,7 @@ export function topKFromBuffer(
     }
   }
 
-  heap.sort((a, b) => b.score - a.score || compareCodePoints(a.externalId, b.externalId))
+  sortSelection(heap)
 
   const result: ScoredDocument[] = new Array(heap.length)
   for (let index = 0; index < heap.length; index++) {
