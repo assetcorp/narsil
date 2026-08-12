@@ -35,7 +35,7 @@ def _create_and_load(
     driver.create_vector_index(index, params)
     bulk_load_begin(driver, index, spec)
     build_start = perf_counter()
-    imported = driver.import_vectors(index, documents(), config.import_batch)
+    imported = driver.import_vectors(index, documents(), config.import_batch, config.import_clients)
     driver.build_vectors(index)
     build_seconds = perf_counter() - build_start
     bulk_load_end(driver, index, spec)
@@ -197,6 +197,8 @@ def run_vector_track(
             "documents_indexed": indexed,
             "build_seconds": build_seconds,
             "ingest_docs_per_sec": ingest_rate,
+            "ingest_clients": config.import_clients,
+            "ingest_batch_size": config.import_batch,
             "index_size_bytes": index_size_bytes(stats),
             "raw_stats": stats,
         },
@@ -293,6 +295,8 @@ def run_hybrid_track(
             "documents_indexed": indexed,
             "build_seconds": build_seconds,
             "ingest_docs_per_sec": ingest_rate,
+            "ingest_clients": config.import_clients,
+            "ingest_batch_size": config.import_batch,
             "index_size_bytes": index_size_bytes(stats),
             "raw_stats": stats,
         },

@@ -30,7 +30,9 @@ def run_keyword_track(
     print(f"[{driver.name}:{spec.dataset_id}:keyword] ingesting corpus", flush=True)
     bulk_load_begin(driver, index, spec)
     build_start = perf_counter()
-    imported = driver.import_documents(index, ds.iter_documents(spec.dataset_id), config.import_batch)
+    imported = driver.import_documents(
+        index, ds.iter_documents(spec.dataset_id), config.import_batch, config.import_clients
+    )
     build_seconds = perf_counter() - build_start
     bulk_load_end(driver, index, spec)
     indexed = verify_indexed(driver, index, imported, spec.dataset_id)
@@ -94,6 +96,8 @@ def run_keyword_track(
             "documents_indexed": indexed,
             "build_seconds": build_seconds,
             "ingest_docs_per_sec": ingest_rate,
+            "ingest_clients": config.import_clients,
+            "ingest_batch_size": config.import_batch,
             "index_size_bytes": index_size_bytes(stats),
             "raw_stats": stats,
         },

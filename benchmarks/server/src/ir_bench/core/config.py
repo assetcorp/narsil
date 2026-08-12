@@ -90,6 +90,7 @@ class BenchmarkConfig:
     bm25: BM25Params
     run_depth: int
     import_batch: int
+    import_clients: int
     memory_cap_bytes: int | None
     latency: LatencyConfig
     throughput: ThroughputConfig
@@ -134,6 +135,22 @@ def _load_tracks(name: str, entry: dict) -> tuple[str, ...]:
         if track not in tracks:
             tracks.append(str(track))
     return tuple(tracks)
+
+
+def _import_clients(section: dict) -> int:
+    raw = section.get("import_clients", 16)
+    env_value = os.environ.get("BENCH_IMPORT_CLIENTS")
+    if env_value and env_value.strip():
+        raw = env_value.strip()
+    clients = int(raw)
+    if clients < 1:
+        raise ValueError("retrieval.import_clients must be positive")
+    if clients > POOL_CONNECTIONS:
+        raise ValueError(
+            f"retrieval.import_clients {clients} exceeds the client connection pool of "
+            f"{POOL_CONNECTIONS}; lower the value or raise POOL_CONNECTIONS"
+        )
+    return clients
 
 
 def _throughput_levels(section: dict) -> tuple[int, ...]:
@@ -264,6 +281,7 @@ def load_config(path: Path) -> BenchmarkConfig:
     retrieval = raw.get("retrieval", {})
     run_depth = int(retrieval.get("run_depth", 1000))
     import_batch = int(retrieval.get("import_batch", 2000))
+    import_clients = _import_clients(retrieval)
     if run_depth < 100:
         raise ValueError("retrieval.run_depth must be at least 100 to compute Recall@100")
     if import_batch < 1:
@@ -308,6 +326,7 @@ def load_config(path: Path) -> BenchmarkConfig:
         bm25=bm25,
         run_depth=run_depth,
         import_batch=import_batch,
+        import_clients=import_clients,
         memory_cap_bytes=memory_cap_bytes,
         latency=latency,
         throughput=throughput,

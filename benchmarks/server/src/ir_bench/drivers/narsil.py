@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Iterable, Iterator
+from typing import Iterable
 
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
+from ..core.ingest import BatchOutcome, import_batches
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
@@ -39,17 +40,6 @@ def _raise_for_envelope(response: httpx.Response) -> None:
     except (json.JSONDecodeError, ValueError):
         pass
     raise EngineError(f"HTTP {response.status_code} from {response.request.url}: {detail}")
-
-
-def _chunked(items: Iterable[tuple[str, str]], size: int) -> Iterator[list[tuple[str, str]]]:
-    batch: list[tuple[str, str]] = []
-    for item in items:
-        batch.append(item)
-        if len(batch) >= size:
-            yield batch
-            batch = []
-    if batch:
-        yield batch
 
 
 class NarsilDriver:
@@ -96,28 +86,37 @@ class NarsilDriver:
         response = self._client.post("/indexes", json={"name": index, "config": config})
         _raise_for_envelope(response)
 
-    def _import_docs(self, index: str, documents: Iterable[dict], batch_size: int) -> ImportResult:
-        submitted = 0
-        indexed = 0
-        failures: list[object] = []
-        for batch in _chunked(documents, batch_size):
-            body = "\n".join(json.dumps(doc) for doc in batch)
-            response = self._client.post(
-                f"/indexes/{index}/documents/_import",
-                content=body.encode("utf-8"),
-                headers={"content-type": "application/x-ndjson"},
-            )
-            _raise_for_envelope(response)
-            payload = response.json()
-            submitted += len(batch)
-            indexed += int(payload.get("indexed", 0))
-            failures.extend(payload.get("errors") or [])
-        if failures:
-            raise EngineError(f"Narsil rejected {len(failures)} document(s); first error: {failures[0]}")
-        return ImportResult(submitted=submitted, indexed=indexed)
+    def _send_import(self, index: str, batch: list[dict]) -> BatchOutcome:
+        body = "\n".join(json.dumps(doc) for doc in batch)
+        response = self._client.post(
+            f"/indexes/{index}/documents/_import",
+            content=body.encode("utf-8"),
+            headers={"content-type": "application/x-ndjson"},
+        )
+        _raise_for_envelope(response)
+        payload = response.json()
+        return BatchOutcome(
+            submitted=len(batch),
+            indexed=int(payload.get("indexed", 0)),
+            failures=tuple(payload.get("errors") or []),
+        )
 
-    def import_documents(self, index: str, documents: Iterable[tuple[str, str]], batch_size: int) -> ImportResult:
-        return self._import_docs(index, ({"id": doc_id, "text": text} for doc_id, text in documents), batch_size)
+    def _import_docs(
+        self, index: str, documents: Iterable[dict], batch_size: int, clients: int
+    ) -> ImportResult:
+        total = import_batches(documents, batch_size, clients, lambda batch: self._send_import(index, batch))
+        if total.failures:
+            raise EngineError(
+                f"Narsil rejected {len(total.failures)} document(s); first error: {total.failures[0]}"
+            )
+        return ImportResult(submitted=total.submitted, indexed=total.indexed)
+
+    def import_documents(
+        self, index: str, documents: Iterable[tuple[str, str]], batch_size: int, clients: int
+    ) -> ImportResult:
+        return self._import_docs(
+            index, ({"id": doc_id, "text": text} for doc_id, text in documents), batch_size, clients
+        )
 
     def count(self, index: str) -> int:
         response = self._client.get(f"/indexes/{index}/count")
@@ -181,11 +180,14 @@ class NarsilDriver:
         response = self._client.post("/indexes", json={"name": index, "config": config})
         _raise_for_envelope(response)
 
-    def import_vectors(self, index: str, documents: Iterable[VectorDoc], batch_size: int) -> ImportResult:
+    def import_vectors(
+        self, index: str, documents: Iterable[VectorDoc], batch_size: int, clients: int
+    ) -> ImportResult:
         return self._import_docs(
             index,
             ({"id": doc.doc_id, "text": doc.text, _VECTOR_FIELD: list(doc.vector)} for doc in documents),
             batch_size,
+            clients,
         )
 
     def build_vectors(self, index: str) -> None:
