@@ -5,8 +5,6 @@ import { blockBoundsFor } from './block-bounds'
 import { EMPTY_COMPONENTS } from './scoring'
 import { buildMinHeap, candidateWorse, siftDown, sortSelection, type TopKCandidate } from './top-k-heap'
 
-const ABSENT_FIELD_LENGTH = 1
-
 /**
  * Everything the pruned scan reads, gathered by the caller so the scan itself
  * touches no partition state beyond the posting list.
@@ -26,11 +24,16 @@ export interface SingleTermScanRequest {
   resolver: InternalIdResolver
 }
 
-function fieldLengthOf(columns: ReadonlyArray<Uint32Array | null>, fieldIndex: number, internalId: number): number {
+function fieldLengthOf(
+  columns: ReadonlyArray<Uint32Array | null>,
+  fieldIndex: number,
+  internalId: number,
+  averageLength: number,
+): number {
   const column = fieldIndex < columns.length ? columns[fieldIndex] : null
-  if (column === null || internalId >= column.length) return ABSENT_FIELD_LENGTH
+  if (column === null || internalId >= column.length) return averageLength
   const stored = column[internalId]
-  return stored > 0 ? stored : ABSENT_FIELD_LENGTH
+  return stored > 0 ? stored : averageLength
 }
 
 function bestSearchable(searchable: Uint8Array, values: Float64Array): number {
@@ -44,8 +47,9 @@ function bestSearchable(searchable: Uint8Array, values: Float64Array): number {
 /**
  * Answers a one-term scored query by walking the term's postings in document
  * order and ruling out whole blocks whose best possible score cannot reach the
- * page. Every document is still counted, because a ruled-out block carries the
- * number of documents it holds, so the reported total stays exact.
+ * page. Tombstoned documents are skipped, and every live document is still
+ * counted, because a ruled-out block carries the number of live documents it
+ * holds, so the reported total stays exact.
  *
  * @param request - The posting list, the scoring inputs, and the page size.
  * @returns The page in descending score order, with the exact number of matching documents.
@@ -55,6 +59,8 @@ export function singleTermTopK(request: SingleTermScanRequest): InternalSearchRe
   const { fieldSearchable, fieldBoosts, fieldAvgLengths, fieldLengthColumns } = request
 
   const wanted = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 0
+  const deleted = list.deletedDocs
+  const hasDeleted = deleted.size > 0
 
   const bounds = blockBoundsFor(list, fieldLengthColumns)
   const maxBoost = bestSearchable(fieldSearchable, fieldBoosts)
@@ -87,12 +93,16 @@ export function singleTermTopK(request: SingleTermScanRequest): InternalSearchRe
     let entry = start
     while (entry < end) {
       const internalId = list.docIds[entry]
+      if (hasDeleted && deleted.has(internalId)) {
+        while (entry < end && list.docIds[entry] === internalId) entry++
+        continue
+      }
       let score = 0
       let scored = false
       while (entry < end && list.docIds[entry] === internalId) {
         const fieldIndex = list.fieldNameIndices[entry]
         if (fieldSearchable[fieldIndex] === 1) {
-          const fieldLength = fieldLengthOf(fieldLengthColumns, fieldIndex, internalId)
+          const fieldLength = fieldLengthOf(fieldLengthColumns, fieldIndex, internalId, fieldAvgLengths[fieldIndex])
           score +=
             computeBM25(
               list.termFrequencies[entry],

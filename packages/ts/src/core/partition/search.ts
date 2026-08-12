@@ -1,6 +1,7 @@
 import type { CompactPostingList, InternalSearchParams, InternalSearchResult } from '../../types/internal'
 import { bitsetHas } from '../bitset'
-import { computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
+import type { InvertedIndex } from '../inverted-index'
+import { bm25PruningSound, computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
 import { addScore, beginScoring, createScoreBuffer, hasScore, topKFromBuffer } from './score-buffer'
 import {
   EMPTY_COMPONENTS,
@@ -16,6 +17,40 @@ import type { PartitionState } from './utils'
 
 function globalDocFreqFor(docFreqs: Record<string, number>, term: string, fallback: number): number {
   return Object.hasOwn(docFreqs, term) ? docFreqs[term] : fallback
+}
+
+/**
+ * Decides whether a query may run on the pruned single-term scan, returning
+ * the term's posting list when it may and null when the query needs the full
+ * term-at-a-time loop. The scan handles exactly one unexpanded term scored
+ * over every searchable field with a bounded page, on an ordered list, under
+ * BM25 parameters whose block bound stays a true upper bound.
+ *
+ * @param params - The resolved search parameters.
+ * @param index - The inverted index holding the term's postings.
+ * @returns The posting list to scan, or null when the query must fall back.
+ */
+export function prunableSingleTermList(
+  params: InternalSearchParams,
+  index: Pick<InvertedIndex, 'lookup'>,
+): CompactPostingList | null {
+  if (params.queryTokens.length !== 1) return null
+  if (params.prefixExpansion !== undefined) return null
+  if (params.exact !== true && (params.tolerance ?? 0) !== 0) return null
+  if (params.termMatch !== undefined && params.termMatch !== 'any') return null
+  if (params.collectComponents !== false) return null
+  if (params.collectMatchedIds === true) return null
+  if (params.maxResults === undefined) return null
+  if (params.fields !== undefined) return null
+  if (params.filterBitset !== undefined) return null
+  if (!bm25PruningSound(params.bm25Params)) return null
+
+  const list = index.lookup(params.queryTokens[0].token)
+
+  if (list === undefined) return null
+  if (!list.ordered) return null
+
+  return list
 }
 
 export function searchFulltext(state: PartitionState, params: InternalSearchParams): InternalSearchResult {
@@ -68,22 +103,6 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
     fieldBoosts[fieldIndex] = boost?.[fieldName] ?? 1
     fieldAvgLengths[fieldIndex] = avgFieldLengths[fieldName] ?? 1
     fieldLengthColumns[fieldIndex] = state.docStore.fieldLengthColumn(fieldName)
-  }
-
-  function prunableSingleTermList(): CompactPostingList | null {
-    if (queryTokens.length !== 1) return null
-    if (prefixExpansion !== undefined) return null
-    if (!exact && tolerance !== 0) return null
-    if (termMatch !== undefined && termMatch !== 'any') return null
-    if (collectComponents) return null
-    if (params.collectMatchedIds === true) return null
-    if (maxResults === undefined) return null
-    if (fields !== undefined) return null
-    if (filterBitset !== undefined) return null
-    const list = state.invertedIdx.lookup(queryTokens[0].token)
-    if (list === undefined) return null
-    if (!list.ordered || list.deletedDocs.size > 0) return null
-    return list
   }
 
   function resolveFieldLength(internalId: number, fieldIndex: number, avgLen: number): number {
@@ -192,7 +211,7 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
     if (components !== null) mergePrefixComponents(components, internalId, contribution)
   }
 
-  const prunableList = prunableSingleTermList()
+  const prunableList = prunableSingleTermList(params, state.invertedIdx)
   if (prunableList !== null && maxResults !== undefined) {
     for (let fieldIndex = 0; fieldIndex < fieldNames.length; fieldIndex++) loadFieldMeta(fieldIndex)
     return singleTermTopK({
