@@ -27,6 +27,10 @@ export interface CompactPostingList {
   deletedDocs: Set<number>
   /** Sum of live termFrequencies; stale-high between remove and compaction. */
   totalTermFrequency: number
+  /** Counts every mutation, so derived block bounds know when they are stale. */
+  revision: number
+  /** False once an entry lands with a lower document id than the one before it. */
+  ordered: boolean
 }
 
 export interface StoredDocument {

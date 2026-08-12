@@ -14,6 +14,8 @@ export function createPostingList(): CompactPostingList {
     docIdSet: new Set(),
     deletedDocs: new Set(),
     totalTermFrequency: 0,
+    revision: 0,
+    ordered: true,
   }
 }
 
@@ -31,6 +33,7 @@ export function growTypedArrays(list: CompactPostingList): void {
 
 export function compactList(list: CompactPostingList): void {
   if (list.deletedDocs.size === 0) return
+  list.revision++
 
   let writeIdx = 0
   for (let i = 0; i < list.length; i++) {
@@ -55,6 +58,7 @@ export function compactList(list: CompactPostingList): void {
 }
 
 export function compactDocEntries(list: CompactPostingList, internalId: number): void {
+  list.revision++
   let writeIdx = 0
   for (let i = 0; i < list.length; i++) {
     if (list.docIds[i] !== internalId) {

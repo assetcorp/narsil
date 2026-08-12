@@ -20,6 +20,7 @@ import { restoreWorkerCopy, type WorkerCopy } from './worker-copy'
 export type { VectorMetric } from './brute-force'
 export type { HNSWSnapshot } from './hnsw'
 export type { AdjacencySnapshot } from './hnsw/adjacency'
+export type { OrdinalFilter } from './ordinal-filter'
 export type { ScalarQuantizerCalibration } from './scalar-quantization-types'
 export type {
   SharedCopyLoadRequest,
@@ -81,7 +82,7 @@ function handleSearch(request: VectorSearchRequest): VectorSearchResponse {
     request.k,
     request.metric,
     request.minSimilarity,
-    undefined,
+    request.filter,
     request.efSearch,
   )
 
@@ -111,6 +112,7 @@ function handleSearchOrdinals(request: VectorOrdinalSearchRequest): VectorOrdina
     request.metric,
     request.minSimilarity,
     entry.copy.rankByOrdinal,
+    request.filter,
     request.efSearch,
   )
 

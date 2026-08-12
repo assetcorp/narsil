@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createHNSWIndex, type HNSWIndex } from '../../../vector/hnsw'
+import { addToOrdinalFilter, createOrdinalFilter } from '../../../vector/ordinal-filter'
 import { createVectorStore, type VectorStore } from '../../../vector/vector-store'
 import { DIM, insertVec, seededVector, vectorFromValues } from './fixtures'
 
@@ -60,14 +61,20 @@ describe('HNSWIndex search (K-NN)', () => {
     expect(results.some(r => r.docId === 'similar')).toBe(true)
   })
 
-  it('filters by docId set', () => {
+  it('filters by ordinal filter', () => {
     for (let i = 0; i < 20; i++) {
       insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     const allowed = new Set(['doc0', 'doc1', 'doc2'])
-    const results = index.search(seededVector(DIM, 101), 10, 'cosine', 0, allowed)
+    const filter = createOrdinalFilter(store.slots)
+    for (const docId of allowed) {
+      const ordinal = store.getOrdinal(docId)
+      if (ordinal !== undefined) addToOrdinalFilter(filter, ordinal)
+    }
+    const results = index.search(seededVector(DIM, 101), 10, 'cosine', 0, filter)
 
+    expect(results.length).toBeGreaterThan(0)
     for (const r of results) {
       expect(allowed.has(r.docId)).toBe(true)
     }

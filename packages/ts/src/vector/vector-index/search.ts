@@ -2,31 +2,33 @@ import { createBoundedMaxHeap } from '../../core/heap'
 import { compareCodePoints } from '../../core/ordering'
 import type { VectorMetric } from '../brute-force'
 import { toScore } from '../hnsw/shared'
+import { type OrdinalFilter, ordinalFilterHas, ordinalFilterValues } from '../ordinal-filter'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from '../similarity'
 import { scheduleBuild } from './build'
 import {
   allLiveDocIds,
   liveSize,
+  ordinalFilterForDocIds,
   type VectorIndexState,
   type VectorScoredResult,
   type VectorSearchOptions,
 } from './shared'
 
-function* bufferCandidates(state: VectorIndexState, filterDocIds?: Set<string>): Iterable<string> {
-  if (filterDocIds) {
-    if (state.buffer.size <= filterDocIds.size) {
-      for (const docId of state.buffer) {
-        if (filterDocIds.has(docId) && !state.tombstones.has(docId)) yield docId
-      }
-    } else {
-      for (const docId of filterDocIds) {
-        if (state.buffer.has(docId) && !state.tombstones.has(docId)) yield docId
-      }
+function* bufferCandidates(state: VectorIndexState, filter?: OrdinalFilter): Iterable<string> {
+  for (const docId of state.buffer) {
+    if (state.tombstones.has(docId)) continue
+    if (filter) {
+      const ordinal = state.store.getOrdinal(docId)
+      if (ordinal === undefined || !ordinalFilterHas(filter, ordinal)) continue
     }
-  } else {
-    for (const docId of state.buffer) {
-      if (!state.tombstones.has(docId)) yield docId
-    }
+    yield docId
+  }
+}
+
+function* filteredDocIds(state: VectorIndexState, filter: OrdinalFilter): Iterable<string> {
+  for (const ordinal of ordinalFilterValues(filter)) {
+    const docId = state.store.docIdForOrdinal(ordinal)
+    if (docId !== undefined) yield docId
   }
 }
 
@@ -128,6 +130,17 @@ export function search(
   k: number,
   options: VectorSearchOptions,
 ): VectorScoredResult[] {
+  const filter = options.filterDocIds === undefined ? undefined : ordinalFilterForDocIds(state, options.filterDocIds)
+  return searchWithFilter(state, query, k, options, filter)
+}
+
+export function searchWithFilter(
+  state: VectorIndexState,
+  query: Float32Array,
+  k: number,
+  options: VectorSearchOptions,
+  filter: OrdinalFilter | undefined,
+): VectorScoredResult[] {
   if (query.length !== state.dimension) {
     throw new Error(`Vector dimension mismatch: expected ${state.dimension}, got ${query.length}`)
   }
@@ -140,41 +153,33 @@ export function search(
     scheduleBuild(state)
   }
 
-  const { metric, minSimilarity, filterDocIds, efSearch } = options
+  const { metric, minSimilarity, efSearch } = options
 
-  if (filterDocIds && filterDocIds.size === 0) return []
+  if (filter && filter.count === 0) return []
 
   if (!state.hnsw) {
-    const candidates = filterDocIds ?? allLiveDocIds(state)
+    const candidates = filter ? filteredDocIds(state, filter) : allLiveDocIds(state)
     return bruteForceSearch(state, query, k, metric, minSimilarity, candidates)
   }
 
-  if (state.buffer.size === 0) {
-    if (filterDocIds) {
-      const hnswLiveSize = state.hnsw.size
-      const selectivity = hnswLiveSize > 0 ? filterDocIds.size / hnswLiveSize : 1
-      if (selectivity < state.filterThreshold) {
-        return bruteForceSearch(state, query, k, metric, minSimilarity, filterDocIds)
-      }
+  if (filter) {
+    const hnswLiveSize = state.hnsw.size
+    const selectivity = hnswLiveSize > 0 ? filter.count / hnswLiveSize : 1
+    if (selectivity < state.filterThreshold) {
+      return bruteForceSearch(state, query, k, metric, minSimilarity, filteredDocIds(state, filter))
     }
+  }
 
-    const hnswResults = state.hnsw.search(query, k, metric, minSimilarity, filterDocIds, efSearch)
+  if (state.buffer.size === 0) {
+    const hnswResults = state.hnsw.search(query, k, metric, minSimilarity, filter, efSearch)
     return hnswResults.map(r => ({ docId: r.docId, score: r.score }))
   }
 
-  if (filterDocIds) {
-    const hnswLiveSize = state.hnsw.size
-    const selectivity = hnswLiveSize > 0 ? filterDocIds.size / hnswLiveSize : 1
-    if (selectivity < state.filterThreshold) {
-      return bruteForceSearch(state, query, k, metric, minSimilarity, filterDocIds)
-    }
-  }
-
   const hnswResults = state.hnsw
-    .search(query, k, metric, minSimilarity, filterDocIds, efSearch)
+    .search(query, k, metric, minSimilarity, filter, efSearch)
     .map(r => ({ docId: r.docId, score: r.score }))
 
-  const bufferResults = bruteForceSearch(state, query, k, metric, minSimilarity, bufferCandidates(state, filterDocIds))
+  const bufferResults = bruteForceSearch(state, query, k, metric, minSimilarity, bufferCandidates(state, filter))
 
   return mergeResults(hnswResults, bufferResults, k)
 }

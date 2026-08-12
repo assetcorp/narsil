@@ -128,10 +128,6 @@ export async function executeHybridSearch(
     fusedScored = fusedScored.filter(doc => doc.score >= threshold)
   }
 
-  if (filterDocIds) {
-    fusedScored = fusedScored.filter(doc => filterDocIds.has(doc.docId))
-  }
-
   return {
     scored: fusedScored,
     totalMatched: fusedScored.length,

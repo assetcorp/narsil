@@ -11,6 +11,7 @@ import {
   recordComponents,
   type ScoreComponents,
 } from './scoring'
+import { singleTermTopK } from './single-term-topk'
 import type { PartitionState } from './utils'
 
 function globalDocFreqFor(docFreqs: Record<string, number>, term: string, fallback: number): number {
@@ -67,6 +68,22 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
     fieldBoosts[fieldIndex] = boost?.[fieldName] ?? 1
     fieldAvgLengths[fieldIndex] = avgFieldLengths[fieldName] ?? 1
     fieldLengthColumns[fieldIndex] = state.docStore.fieldLengthColumn(fieldName)
+  }
+
+  function prunableSingleTermList(): CompactPostingList | null {
+    if (queryTokens.length !== 1) return null
+    if (prefixExpansion !== undefined) return null
+    if (!exact && tolerance !== 0) return null
+    if (termMatch !== undefined && termMatch !== 'any') return null
+    if (collectComponents) return null
+    if (params.collectMatchedIds === true) return null
+    if (maxResults === undefined) return null
+    if (fields !== undefined) return null
+    if (filterBitset !== undefined) return null
+    const list = state.invertedIdx.lookup(queryTokens[0].token)
+    if (list === undefined) return null
+    if (!list.ordered || list.deletedDocs.size > 0) return null
+    return list
   }
 
   function resolveFieldLength(internalId: number, fieldIndex: number, avgLen: number): number {
@@ -173,6 +190,25 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
   function mergePrefixContribution(internalId: number, contribution: PrefixContribution): void {
     addScore(scoreBuffer, internalId, contribution.score)
     if (components !== null) mergePrefixComponents(components, internalId, contribution)
+  }
+
+  const prunableList = prunableSingleTermList()
+  if (prunableList !== null && maxResults !== undefined) {
+    for (let fieldIndex = 0; fieldIndex < fieldNames.length; fieldIndex++) loadFieldMeta(fieldIndex)
+    return singleTermTopK({
+      list: prunableList,
+      docFrequency: globalStats
+        ? globalDocFreqFor(globalDocFreqs, queryTokens[0].token, prunableList.docIdSet.size)
+        : prunableList.docIdSet.size,
+      totalDocs,
+      bm25Params,
+      limit: maxResults,
+      fieldSearchable,
+      fieldBoosts,
+      fieldAvgLengths,
+      fieldLengthColumns,
+      resolver,
+    })
   }
 
   if (useIntersection) {
