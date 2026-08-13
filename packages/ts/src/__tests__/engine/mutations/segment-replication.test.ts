@@ -133,7 +133,7 @@ describe('replicateAsSegments', () => {
     }
   })
 
-  it('broadcasts one merge action carrying every segment', async () => {
+  it('broadcasts one attach action carrying every segment as shared memory', async () => {
     const recorded = makeDeps(4, 1)
     const { docIds, docs } = documents(500)
 
@@ -141,11 +141,14 @@ describe('replicateAsSegments', () => {
 
     expect(recorded.replicated).toHaveLength(1)
     const action = recorded.replicated[0]
-    expect(action.type).toBe('mergeSegments')
-    if (action.type !== 'mergeSegments') return
+    expect(action.type).toBe('attachSegments')
+    if (action.type !== 'attachSegments') return
     expect(action.segments.length).toBe(recorded.buildRequests.length)
-    const merged = action.segments.reduce((total, segment) => total + segment.documents.length, 0)
-    expect(merged).toBe(500)
+    const attached = action.segments.reduce((total, segment) => total + segment.snapshot.documentCount, 0)
+    expect(attached).toBe(500)
+    for (const segment of action.segments) {
+      expect(segment.snapshot.postingDocIds.buffer).toBeInstanceOf(SharedArrayBuffer)
+    }
   })
 
   it('carries the caller’s skipClone choice to the builder', async () => {

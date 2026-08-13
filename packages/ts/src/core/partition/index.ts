@@ -16,7 +16,7 @@ import type { FacetConfig } from '../../types/search'
 import { createDocumentStore } from '../document-store'
 import { createInvertedIndex } from '../inverted-index'
 import type { ComparableSortValue } from '../ordering'
-import { createPartitionStats, type PartitionStats } from '../statistics'
+import { createPartitionStats, type PartitionStatsView } from '../statistics'
 import { createSurfaceRegistry } from '../surface-registry'
 import { computeFacets } from './facets'
 import { updateFieldIndexOnly } from './field-updates'
@@ -56,7 +56,7 @@ export type { PartitionSuggestion } from './suggestions'
 
 export interface PartitionIndex {
   readonly partitionId: number
-  readonly stats: PartitionStats
+  readonly stats: PartitionStatsView
 
   insert(
     docId: string,
@@ -123,6 +123,10 @@ function readSegmentState(segment: PartitionIndex): PartitionState {
     throw new NarsilError(ErrorCodes.PARTITION_CORRUPTED, 'The segment did not come from this engine', {})
   }
   return state
+}
+
+export function partitionStateOf(partition: PartitionIndex): PartitionState {
+  return readSegmentState(partition)
 }
 
 export function createPartitionIndex(partitionId: number, trackPositions = true): PartitionIndex {

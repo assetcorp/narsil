@@ -1,4 +1,5 @@
 import { createPartitionIndex } from '../core/partition'
+import { createSharedFrozenSegment } from '../core/partition/frozen'
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
 import { sanitizeGlobalStats } from '../partitioning/distributed-scoring'
@@ -132,6 +133,17 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
         const entry = requireIndex(action.indexName)
         for (const segment of action.segments) {
           entry.manager.mergeSegment(segment.partitionId, segment.payload, segment.documents)
+        }
+        return undefined as T
+      }
+
+      case 'attachSegments': {
+        const entry = requireIndex(action.indexName)
+        for (const segment of action.segments) {
+          while (entry.manager.partitionCount <= segment.partitionId) {
+            entry.manager.addPartition()
+          }
+          entry.manager.attachFrozenSegment(segment.partitionId, createSharedFrozenSegment(segment.snapshot))
         }
         return undefined as T
       }

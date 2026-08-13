@@ -3,9 +3,9 @@ import type { FieldIndex, GeoFieldIndex } from '../../filters/operators'
 import type { FilterExpression } from '../../types/filters'
 import type { SchemaDefinition } from '../../types/schema'
 import { bitsetFromSet, bitsetHas } from '../bitset'
-import { getAllInternalDocIds, getFieldValueByInternalId, getFlatSchema, type PartitionState } from './utils'
+import { getAllInternalDocIds, getFieldValueByInternalId, getFlatSchema, type PartitionReadState } from './utils'
 
-export function buildFilterContext(state: PartitionState, schema: SchemaDefinition): FilterContext {
+export function buildFilterContext(state: PartitionReadState, schema: SchemaDefinition): FilterContext {
   const flat = getFlatSchema(state, schema)
   const fieldIndexes: Record<string, FieldIndex> = {}
   const capacity = state.docStore.internalIdCapacity()
@@ -98,7 +98,7 @@ export function buildFilterContext(state: PartitionState, schema: SchemaDefiniti
 }
 
 export function applyPartitionFilters(
-  state: PartitionState,
+  state: PartitionReadState,
   filters: FilterExpression,
   schema: SchemaDefinition,
 ): Set<string> {
@@ -124,7 +124,7 @@ export function applyPartitionFilters(
 }
 
 export function applyPartitionFiltersBitset(
-  state: PartitionState,
+  state: PartitionReadState,
   filters: FilterExpression,
   schema: SchemaDefinition,
 ): Uint32Array {
@@ -148,7 +148,7 @@ export interface PartitionFilterMatches {
 }
 
 export function partitionFilterMatches(
-  state: PartitionState,
+  state: PartitionReadState,
   filters: FilterExpression,
   schema: SchemaDefinition,
 ): PartitionFilterMatches {

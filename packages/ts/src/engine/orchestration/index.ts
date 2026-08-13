@@ -10,7 +10,7 @@ import type { WorkerAction } from '../../workers/protocol'
 import { transferIndexToPool } from '../worker-resync'
 import { workerIneligibility } from './eligibility'
 import { checkPromotion, promoteBeforeBatch } from './promotion'
-import { replicateToWorkers } from './replication'
+import { awaitReplicationIdle, replicateToWorkers } from './replication'
 import { searchViaWorker } from './search'
 import { type BuiltSegment, buildSegments, type SegmentBuildRequest, segmentBuildConcurrency } from './segments'
 import type { IndexRegistry, OrchestratorState, WorkerOrchestrator, WorkerOrchestratorCallbacks } from './types'
@@ -36,6 +36,7 @@ export function createWorkerOrchestrator(
     awaitingBufferedWrites: new Set(),
     reportedIneligible: new Set(),
     promotedIndexes: new Set(),
+    replicationQueues: new Map(),
     workerPool: null,
     promotionInProgress: false,
     promotionBlocked: false,
@@ -56,6 +57,7 @@ export function createWorkerOrchestrator(
     if (!manager) return
 
     state.promotedIndexes.delete(indexName)
+    await awaitReplicationIdle(state, indexName)
     await transferIndexToPool(indexName, pool, entry.config, manager)
     state.promotedIndexes.add(indexName)
   }
@@ -73,9 +75,11 @@ export function createWorkerOrchestrator(
 
   async function shutdown(): Promise<void> {
     if (state.workerPool) {
+      await awaitReplicationIdle(state)
       await state.workerPool.shutdown()
       state.workerPool = null
       state.promotedIndexes.clear()
+      state.replicationQueues.clear()
     }
   }
 
@@ -84,6 +88,7 @@ export function createWorkerOrchestrator(
     promoteBeforeBatch: (indexName: string, incomingCount: number): Promise<void> =>
       promoteBeforeBatch(state, indexName, incomingCount),
     replicateToWorkers: (action: WorkerAction): Promise<void> => replicateToWorkers(state, action),
+    awaitReplication: (indexName?: string): Promise<void> => awaitReplicationIdle(state, indexName),
     buildSegments: (requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null> => buildSegments(state, requests),
     segmentBuildConcurrency: (indexName: string): number => segmentBuildConcurrency(state, indexName),
     searchViaWorker: (

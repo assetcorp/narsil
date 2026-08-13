@@ -1,14 +1,22 @@
 import { bitsetSet, createBitSet } from '../bitset'
 
-export interface BooleanFieldIndex {
-  insert(internalId: number, value: boolean): void
-  remove(internalId: number, value: boolean): void
+/**
+ * The reads a filter performs against a boolean field index.
+ *
+ * @internal
+ */
+export interface BooleanFieldIndexReader {
   queryEq(value: boolean): Set<number>
   queryNe(value: boolean): Set<number>
   getAllDocIds(): Set<number>
   queryEqBitset(value: boolean, capacity: number): Uint32Array
   getAllDocIdsBitset(capacity: number): Uint32Array
   count(): number
+}
+
+export interface BooleanFieldIndex extends BooleanFieldIndexReader {
+  insert(internalId: number, value: boolean): void
+  remove(internalId: number, value: boolean): void
   clear(): void
   serialize(): { trueDocs: number[]; falseDocs: number[] }
   deserialize(data: { trueDocs: number[]; falseDocs: number[] }): void

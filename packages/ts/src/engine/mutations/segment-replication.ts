@@ -1,4 +1,6 @@
 import { fnv1a } from '../../core/hash'
+import { freezeSegmentShared, type SharedSegmentSnapshot } from '../../core/partition/frozen'
+import type { SegmentPayload } from '../../core/partition/segment-payload'
 import type { AnyDocument } from '../../types/schema'
 import type { WorkerOrchestrator } from '../orchestration'
 import type { SegmentBuildRequest } from '../orchestration/segments'
@@ -64,6 +66,49 @@ export function buildSegmentRequests(
   return { requests, memberIndexes }
 }
 
+export interface BroadcastSegment {
+  partitionId: number
+  payload: SegmentPayload
+  documents: AnyDocument[]
+}
+
+export function freezeSegmentsForAttach(
+  segments: ReadonlyArray<BroadcastSegment>,
+): Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }> | null {
+  const frozen: Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }> = []
+  for (const segment of segments) {
+    const snapshot = freezeSegmentShared(segment.payload, segment.documents)
+    if (snapshot === null) return null
+    frozen.push({ partitionId: segment.partitionId, snapshot })
+  }
+  return frozen
+}
+
+export async function broadcastBuiltSegments(
+  orchestrator: Pick<WorkerOrchestrator, 'replicateToWorkers'>,
+  indexName: string,
+  segments: ReadonlyArray<BroadcastSegment>,
+  skipClone: boolean | undefined,
+): Promise<void> {
+  const frozen = freezeSegmentsForAttach(segments)
+  if (frozen !== null) {
+    await orchestrator.replicateToWorkers({
+      type: 'attachSegments',
+      indexName,
+      segments: frozen,
+      requestId: `attach-segments-${indexName}-${segments.length}`,
+    })
+    return
+  }
+  await orchestrator.replicateToWorkers({
+    type: 'mergeSegments',
+    indexName,
+    segments: [...segments],
+    requestId: `merge-segments-${indexName}-${segments.length}`,
+    skipClone: skipClone === true ? true : undefined,
+  })
+}
+
 export async function replicateAsSegments(
   ctx: SegmentReplicationDeps,
   indexName: string,
@@ -82,16 +127,16 @@ export async function replicateAsSegments(
   const built = await ctx.orchestrator.buildSegments(requests)
   if (built === null || built.length === 0) return false
 
-  await ctx.orchestrator.replicateToWorkers({
-    type: 'mergeSegments',
+  await broadcastBuiltSegments(
+    ctx.orchestrator,
     indexName,
-    segments: built.map(segment => ({
+    built.map(segment => ({
       partitionId: segment.partitionId,
       payload: segment.payload,
       documents: segment.documents,
     })),
-    requestId: `merge-segments-${indexName}-${docIds.length}`,
-  })
+    skipClone,
+  )
 
   return true
 }

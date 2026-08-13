@@ -1,4 +1,4 @@
-import type { DocumentStore } from '../../document-store'
+import type { DocumentStoreReader } from '../../document-store'
 import { type ComparableSortValue, compareComparableValues, readSortField } from '../../ordering'
 import { buildOrder, estimateOrderBytes, MISSING_RANK, rankOfValue, type SortColumnOrder, seekPosition } from './order'
 import { createValueStore, kindForFieldType, type ValueStore } from './values'
@@ -42,13 +42,13 @@ interface ColumnEntry {
   dirtyStream: DirtyStream | null
 }
 
-function liveInternalIds(docStore: DocumentStore): number[] {
+function liveInternalIds(docStore: DocumentStoreReader): number[] {
   const ids: number[] = []
   for (const internalId of docStore.allInternalIds()) ids.push(internalId)
   return ids
 }
 
-export function createSortColumnSet(docStore: DocumentStore): SortColumnSet {
+export function createSortColumnSet(docStore: DocumentStoreReader): SortColumnSet {
   const columns = new Map<string, ColumnEntry>()
 
   function rebuildThreshold(): number {

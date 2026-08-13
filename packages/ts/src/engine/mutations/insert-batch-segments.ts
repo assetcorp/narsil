@@ -8,7 +8,7 @@ import { rollbackInsertedDocument } from './durable-rollback'
 import { asBatchInsertError } from './insert-admission'
 import { type AdmittedInsert, admitBatchDocuments } from './insert-batch-admission'
 import { applyAdmittedDocuments } from './insert-batch-documents'
-import { buildSegmentRequests, MIN_DOCUMENTS_FOR_SEGMENTS } from './segment-replication'
+import { broadcastBuiltSegments, buildSegmentRequests, MIN_DOCUMENTS_FOR_SEGMENTS } from './segment-replication'
 
 interface IngestOutcome {
   succeeded: string[]
@@ -141,12 +141,7 @@ async function broadcastSegments(
   }
 
   if (clean.length > 0) {
-    await ctx.orchestrator.replicateToWorkers({
-      type: 'mergeSegments',
-      indexName,
-      segments: clean,
-      requestId: `merge-segments-${indexName}-${admitted.length}`,
-    })
+    await broadcastBuiltSegments(ctx.orchestrator, indexName, clean, options?.skipClone)
   }
   await replicateDocuments(ctx, indexName, retryDocs, options)
 }

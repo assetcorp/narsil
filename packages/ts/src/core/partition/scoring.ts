@@ -1,4 +1,4 @@
-import type { CompactPostingList } from '../../types/internal'
+import type { PostingListView } from '../../types/internal'
 
 export const EMPTY_COMPONENTS: Record<string, number> = Object.freeze({})
 
@@ -81,7 +81,7 @@ export interface ResolvedTokenPostings {
     token: string
     docFreq: number
     idf: number
-    postingList: CompactPostingList
+    postingList: PostingListView
   }>
   totalPostings: number
   isPrefix?: boolean
@@ -90,7 +90,7 @@ export interface ResolvedTokenPostings {
 export interface PrefixMatch {
   token: string
   factor: number
-  postingList: CompactPostingList
+  postingList: PostingListView
   docFreq: number
   idf: number
 }

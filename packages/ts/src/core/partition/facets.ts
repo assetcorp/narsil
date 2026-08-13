@@ -2,10 +2,10 @@ import type { FacetResult } from '../../types/results'
 import type { SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
 import { compareCodePoints } from '../ordering'
-import { getFieldValueForDoc, getFlatSchema, type PartitionState } from './utils'
+import { getFieldValueForDoc, getFlatSchema, type PartitionReadState } from './utils'
 
 export function computeFacets(
-  state: PartitionState,
+  state: PartitionReadState,
   docIds: Set<string>,
   config: FacetConfig,
   schema: SchemaDefinition,

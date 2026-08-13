@@ -40,6 +40,8 @@ export async function searchViaWorker(
   if (!pool) return null
   if (!state.promotedIndexes.has(indexName)) return null
   if (state.awaitingBufferedWrites.has(indexName)) return null
+  const pendingReplication = state.replicationQueues.get(indexName)
+  if (pendingReplication !== undefined && pendingReplication.pendingActions > 0) return null
 
   const manager = state.executor.getManager(indexName)
   if (!manager) return null

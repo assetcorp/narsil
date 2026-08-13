@@ -1,5 +1,5 @@
 import { sortColumnBytes } from './sorting'
-import type { PartitionState } from './utils'
+import type { PartitionReadState } from './utils'
 
 const AVG_DOC_OVERHEAD = 350
 const POSTING_ENTRY_SIZE = 24
@@ -7,7 +7,7 @@ const PER_TERM_OVERHEAD = 180
 const SURFACE_ENTRY_OVERHEAD = 140
 const FIELD_ENTRY_OVERHEAD = 42
 
-export function estimatePartitionBytes(state: PartitionState): number {
+export function estimatePartitionBytes(state: PartitionReadState): number {
   const docCount = state.docStore.count()
   if (docCount === 0) return 0
 

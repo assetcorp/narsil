@@ -1,5 +1,6 @@
 import { generateId } from '../core/id-generator'
 import type { PartitionInsertOptions } from '../core/partition'
+import type { SharedSegmentSnapshot } from '../core/partition/frozen'
 import type { SegmentPayload } from '../core/partition/segment-payload'
 import type { GlobalStatistics, SerializablePartition } from '../types/internal'
 import type { AnyDocument, IndexConfig } from '../types/schema'
@@ -45,6 +46,13 @@ export type WorkerAction =
       indexName: string
       segments: Array<{ partitionId: number; payload: SegmentPayload; documents: AnyDocument[] }>
       requestId: string
+      skipClone?: boolean
+    }
+  | {
+      type: 'attachSegments'
+      indexName: string
+      segments: Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }>
+      requestId: string
     }
   | { type: 'memoryReport'; requestId: string }
   | { type: 'bootstrap'; moduleUrl: string; requestId: string }
@@ -71,6 +79,7 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'deserialize',
   'buildSegment',
   'mergeSegments',
+  'attachSegments',
   'memoryReport',
   'bootstrap',
   'shutdown',
