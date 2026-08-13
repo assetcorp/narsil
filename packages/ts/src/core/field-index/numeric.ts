@@ -62,13 +62,13 @@ export interface NumericFieldIndexReader {
   queryBetweenBitset(min: number, max: number, capacity: number): Uint32Array
   getAllDocIdsBitset(capacity: number): Uint32Array
   count(): number
+  serialize(): NumericIndexEntry[]
 }
 
 export interface NumericFieldIndex extends NumericFieldIndexReader {
   insert(internalId: number, value: number): void
   remove(internalId: number, value: number): void
   clear(): void
-  serialize(): NumericIndexEntry[]
   deserialize(data: NumericIndexEntry[]): void
 }
 

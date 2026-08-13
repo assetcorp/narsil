@@ -1,3 +1,5 @@
+import { generateId } from '../../core/id-generator'
+import { createFrozenSegment } from '../../core/partition/frozen'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
 import type { BuiltSegment } from '../orchestration/segments'
@@ -123,12 +125,18 @@ async function broadcastSegments(
   ctx: MutationContext,
   indexName: string,
   built: BuiltSegment[],
+  segmentIds: string[],
   memberIndexes: number[][],
   admitted: AdmittedInsert[],
   failedDocIds: Set<string>,
   options: InsertOptions | undefined,
 ): Promise<void> {
-  const clean: Array<{ partitionId: number; payload: BuiltSegment['payload']; documents: AnyDocument[] }> = []
+  const clean: Array<{
+    partitionId: number
+    segmentId: string
+    payload: BuiltSegment['payload']
+    documents: AnyDocument[]
+  }> = []
   const retryDocs: AdmittedInsert[] = []
 
   for (let i = 0; i < built.length; i++) {
@@ -137,7 +145,12 @@ async function broadcastSegments(
       retryDocs.push(...members.filter(doc => !failedDocIds.has(doc.docId)))
       continue
     }
-    clean.push({ partitionId: built[i].partitionId, payload: built[i].payload, documents: built[i].documents })
+    clean.push({
+      partitionId: built[i].partitionId,
+      segmentId: segmentIds[i],
+      payload: built[i].payload,
+      documents: built[i].documents,
+    })
   }
 
   if (clean.length > 0) {
@@ -192,19 +205,20 @@ async function ingestAdmitted(
       return applyIndividually(ctx, indexName, admitted, options, failed)
     }
   }
-  await ctx.executor.execute({
-    type: 'mergeSegments',
-    indexName,
-    segments: built.map((segment, i) => ({
-      partitionId: segment.partitionId,
-      payload: segment.payload,
-      documents: memberIndexes[i].map(m => mainStoreDocument(admitted[m], options)),
-    })),
-    requestId: `merge-segments-main-${indexName}-${admitted.length}`,
-  })
+  const segmentIds = built.map(() => generateId())
+  for (let i = 0; i < built.length; i++) {
+    manager.attachFrozenSegment(
+      built[i].partitionId,
+      createFrozenSegment(
+        built[i].payload,
+        memberIndexes[i].map(m => mainStoreDocument(admitted[m], options)),
+        segmentIds[i],
+      ),
+    )
+  }
 
   const recorded = await recordMergedDocuments(ctx, indexName, admitted, failed)
-  await broadcastSegments(ctx, indexName, built, memberIndexes, admitted, recorded.failedDocIds, options)
+  await broadcastSegments(ctx, indexName, built, segmentIds, memberIndexes, admitted, recorded.failedDocIds, options)
 
   return { succeeded: recorded.succeeded, touchedVectorFields: recorded.touchedVectorFields }
 }

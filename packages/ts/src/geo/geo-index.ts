@@ -12,13 +12,13 @@ export interface GeoIndexReader {
   readonly entries: readonly GeopointEntry[]
   radiusQuery(lat: number, lon: number, distanceMeters: number, inside: boolean, highPrecision: boolean): Set<number>
   polygonQuery(points: Array<{ lat: number; lon: number }>, inside: boolean): Set<number>
+  serialize(): GeopointEntry[]
 }
 
 export interface GeoIndex extends GeoIndexReader {
   insert(internalId: number, lat: number, lon: number): void
   remove(internalId: number): void
   clear(): void
-  serialize(): GeopointEntry[]
   deserialize(data: GeopointEntry[]): void
 }
 

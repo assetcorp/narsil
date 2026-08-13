@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { SegmentPayload } from '../../../core/partition/segment-payload'
 import type { FanOutResult } from '../../../partitioning/fan-out'
 import type { SerializablePartition } from '../../../types/internal'
 import type { SchemaDefinition } from '../../../types/schema'
@@ -266,6 +267,42 @@ describe('DirectExecutor', () => {
       ).rejects.toThrow(/loads inside a worker/)
 
       expect((globalThis as Record<string, unknown>).narsilDirectBootstrap).toBeUndefined()
+    })
+  })
+
+  describe('mergeSegments', () => {
+    it('skips a replayed segment instead of merging its documents twice', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        await executor.execute({ type: 'createIndex', indexName: 'products', config, requestId: reqId() })
+
+        const built = [
+          { docId: 'doc-1', document: { title: 'quick brown fox', score: 10 } },
+          { docId: 'doc-2', document: { title: 'lazy brown dog', score: 20 } },
+        ]
+        const payload = await executor.execute<SegmentPayload>({
+          type: 'buildSegment',
+          indexName: 'products',
+          documents: built,
+          requestId: reqId(),
+        })
+        const segments = [{ partitionId: 0, payload, documents: built.map(entry => entry.document) }]
+
+        await executor.execute({ type: 'mergeSegments', indexName: 'products', segments, requestId: reqId() })
+        await executor.execute({ type: 'mergeSegments', indexName: 'products', segments, requestId: reqId() })
+
+        const result = await executor.execute<FanOutResult>({
+          type: 'query',
+          indexName: 'products',
+          params: { term: 'brown' },
+          requestId: reqId(),
+        })
+        expect(result.totalMatched).toBe(2)
+        expect(result.scored.map(doc => doc.docId).sort()).toEqual(['doc-1', 'doc-2'])
+        expect(warn).toHaveBeenCalledOnce()
+      } finally {
+        warn.mockRestore()
+      }
     })
   })
 })

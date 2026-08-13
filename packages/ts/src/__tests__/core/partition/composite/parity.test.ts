@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { createPartitionIndex, type PartitionIndex } from '../../../../core/partition'
 import { type CompositePartition, createCompositePartition } from '../../../../core/partition/composite'
+import { buildCompactedSegmentPayload } from '../../../../core/partition/composite/compaction'
+import { createFrozenSegment } from '../../../../core/partition/frozen'
 import { ErrorCodes, NarsilError } from '../../../../errors'
 import type { InternalSearchParams } from '../../../../types/internal'
 import type { AnyDocument } from '../../../../types/schema'
@@ -250,6 +252,110 @@ describe('composite writes route to the owning part', () => {
 
     const filtered = composite.applyFilters({ fields: { price: { eq: 99 } } }, simpleSchema)
     expect(filtered.has(target)).toBe(true)
+  })
+
+  it('serves memoized aggregate document frequencies and refreshes them on writes', () => {
+    const { baseline, composite, documents } = buildPair()
+
+    expect(composite.stats.docFrequencies).toEqual(baseline.stats.docFrequencies)
+    const memoized = composite.stats.docFrequencies
+    expect(composite.stats.docFrequencies).toBe(memoized)
+
+    const added = {
+      id: 'doc-added',
+      title: 'zeppelin flight',
+      body: 'zeppelin',
+      price: 3,
+      active: true,
+      category: 'metal',
+    }
+    composite.insert(String(added.id), added, simpleSchema, english, { collectSurfaces: true })
+    baseline.insert(String(added.id), added, simpleSchema, english, { collectSurfaces: true })
+    expect(composite.stats.docFrequencies).not.toBe(memoized)
+    expect(composite.stats.docFrequencies).toEqual(baseline.stats.docFrequencies)
+
+    const liveOwned = String(documents[documents.length - 1].id)
+    composite.remove(liveOwned, simpleSchema, english)
+    baseline.remove(liveOwned, simpleSchema, english)
+    expect(composite.stats.docFrequencies).toEqual(baseline.stats.docFrequencies)
+  })
+
+  it('serializes composed state that loads as one equivalent partition', () => {
+    const { composite, documents } = buildPair()
+    const removedFrozen = String(documents[0].id)
+    const removedLive = String(documents[documents.length - 1].id)
+    const updated = String(documents[1].id)
+    const replacement = { ...documents[1], title: 'zebra unique' }
+    composite.remove(removedFrozen, simpleSchema, english)
+    composite.remove(removedLive, simpleSchema, english)
+    composite.update(updated, replacement, simpleSchema, english, { collectSurfaces: true })
+
+    const baseline = createPartitionIndex(0)
+    for (const doc of documents) {
+      const docId = String(doc.id)
+      if (docId === removedFrozen || docId === removedLive) continue
+      baseline.insert(docId, docId === updated ? replacement : doc, simpleSchema, english, { collectSurfaces: true })
+    }
+
+    const loaded = createPartitionIndex(0)
+    loaded.deserialize(composite.serialize('idx', 1, 'english', simpleSchema), simpleSchema)
+
+    expect(loaded.count()).toBe(baseline.count())
+    expect(loaded.stats.docFrequencies).toEqual(baseline.stats.docFrequencies)
+    expect(loaded.stats.totalFieldLengths).toEqual(baseline.stats.totalFieldLengths)
+
+    for (const params of [
+      termParams({ tokens: ['apple'], exact: true }),
+      termParams({ tokens: ['zebra'], exact: true }),
+      termParams({ tokens: ['apple', 'banana'], termMatch: 'all', exact: true }),
+    ]) {
+      expect(byId(loaded.searchFulltext(params))).toEqual(byId(baseline.searchFulltext(params)))
+    }
+
+    const filters = { fields: { price: { between: [2, 7] as [number, number] }, active: { eq: true } } }
+    expect(loaded.applyFilters(filters, simpleSchema)).toEqual(baseline.applyFilters(filters, simpleSchema))
+    expect(loaded.has(removedFrozen)).toBe(false)
+    expect(loaded.get(updated)).toMatchObject({ title: 'zebra unique' })
+
+    const encoded = composite.encodeSegment()
+    expect(encoded.documentCount).toBe(baseline.count())
+    expect(encoded.docFrequencies).toEqual(baseline.stats.docFrequencies)
+  })
+
+  it('compacts frozen segments into one and carries later removes into the swap', () => {
+    const composite = createCompositePartition(0)
+    const allDocs: AnyDocument[] = []
+    for (let s = 0; s < 8; s++) {
+      const chunk = Array.from({ length: 6 }, (_, i) => ({
+        id: `seg${s}-doc${i}`,
+        title: `${WORDS[(s + i) % WORDS.length]} shared`,
+        price: s * 10 + i,
+        active: i % 2 === 0,
+        category: CATEGORIES[i % CATEGORIES.length],
+      }))
+      composite.appendFrozenSegment(frozenPayloadFor(chunk), chunk)
+      allDocs.push(...chunk)
+    }
+    expect(composite.frozenSegmentCount()).toBe(8)
+
+    const segmentIds = composite.frozenSegmentSizes().map(size => size.segmentId)
+    const segments = composite.frozenSegmentsById(segmentIds)
+    const { payload, documents } = buildCompactedSegmentPayload(segments)
+    expect(payload.documentCount).toBe(allDocs.length)
+
+    composite.remove('seg3-doc1', simpleSchema, english)
+    const replacement = createFrozenSegment(payload, documents)
+    composite.swapFrozenSegments(segmentIds, replacement)
+
+    expect(composite.frozenSegmentCount()).toBe(1)
+    expect(composite.count()).toBe(allDocs.length - 1)
+    expect(composite.has('seg3-doc1')).toBe(false)
+    expect(composite.get('seg0-doc0')).toMatchObject({ id: 'seg0-doc0' })
+    expect(composite.get('seg7-doc5')).toMatchObject({ id: 'seg7-doc5' })
+
+    const found = composite.searchFulltext(termParams({ tokens: ['shared'], exact: true }))
+    expect(found.totalMatched).toBe(allDocs.length - 1)
+    expect(found.scored.some(doc => doc.docId === 'seg3-doc1')).toBe(false)
   })
 
   it('rejects an insert whose id already lives in a frozen segment', () => {

@@ -274,4 +274,47 @@ describe('a tombstone removes a document from every frozen read', () => {
     const frozenIds = new Set(frozenResult.scored.map(doc => doc.docId))
     expect(frozenIds).toEqual(liveIds)
   })
+
+  it('encodes a partition that removed documents into a segment with compact ordinals', () => {
+    const documents = buildCorpus(9)
+    const live = createPartitionIndex(0)
+    for (const doc of documents) {
+      live.insert(String(doc.id), doc, simpleSchema, english, { collectSurfaces: true })
+    }
+    const removed = [String(documents[2].id), String(documents[5].id)]
+    for (const docId of removed) {
+      live.remove(docId, simpleSchema, english)
+    }
+    const survivors = documents.filter(doc => !removed.includes(String(doc.id)))
+
+    const payload = live.encodeSegment()
+    expect(payload.documentCount).toBe(survivors.length)
+    expect(payload.docIds).toEqual(survivors.map(doc => String(doc.id)))
+    for (const ordinal of payload.postingDocIds) {
+      expect(ordinal).toBeLessThan(survivors.length)
+    }
+    expect(payload.docFrequencies).toEqual(live.stats.docFrequencies)
+    expect(payload.totalFieldLengths).toEqual(live.stats.totalFieldLengths)
+
+    const frozen = createFrozenSegment(payload, survivors)
+    for (const params of [
+      termParams({ tokens: ['banana'], exact: true }),
+      termParams({ tokens: ['apple'], exact: true }),
+    ]) {
+      const liveResult = live.searchFulltext(params)
+      const frozenResult = searchFulltext(frozen, params)
+      expect(frozenResult.scored.map(doc => [doc.docId, doc.score])).toEqual(
+        liveResult.scored.map(doc => [doc.docId, doc.score]),
+      )
+    }
+
+    const filters = { fields: { price: { between: [0, 9] as [number, number] } } }
+    expect(applyPartitionFilters(frozen, filters, simpleSchema)).toEqual(live.applyFilters(filters, simpleSchema))
+    for (const doc of survivors) {
+      expect(frozen.docStore.get(String(doc.id))?.fields).toEqual(doc)
+    }
+    for (const docId of removed) {
+      expect(frozen.docStore.has(docId)).toBe(false)
+    }
+  })
 })

@@ -21,13 +21,13 @@ export interface SurfaceRegistryReader {
   candidatesForPrefix(prefix: string): SurfaceFormCandidate[]
   stemChangedTotalFor(token: string): number
   size(): number
+  serialize(): SerializedSurfaceForms
 }
 
 export interface SurfaceRegistry extends SurfaceRegistryReader {
   add(surface: string, token: string, occurrences: number): void
   subtract(surface: string, occurrences: number): void
   clear(): void
-  serialize(): SerializedSurfaceForms
   deserialize(data: SerializedSurfaceForms): void
 }
 

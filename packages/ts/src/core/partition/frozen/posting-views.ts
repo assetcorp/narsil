@@ -4,7 +4,12 @@ import type { FrozenTombstones } from './tombstones'
 
 type PostingArrays = Pick<
   SegmentPayload,
-  'postingOffsets' | 'postingDocIds' | 'postingFrequencies' | 'postingFieldIndices'
+  | 'postingOffsets'
+  | 'postingDocIds'
+  | 'postingFrequencies'
+  | 'postingFieldIndices'
+  | 'positionOffsets'
+  | 'positionValues'
 >
 
 function isOrdered(docIds: Uint32Array): boolean {
@@ -35,12 +40,26 @@ export function createFrozenPostingViews(payload: PostingArrays, tombstones: Fro
     const fieldNameIndices = payload.postingFieldIndices.subarray(start, end)
     const ordered = isOrdered(docIds)
     const totalTermFrequency = sumFrequencies(termFrequencies)
+    const { positionOffsets, positionValues } = payload
+    let materializedPositions: Array<readonly number[]> | null = null
 
     return {
       length: end - start,
       docIds,
       termFrequencies,
       fieldNameIndices,
+      get positions(): ReadonlyArray<readonly number[]> | null {
+        if (positionOffsets === null || positionValues === null) return null
+        if (materializedPositions === null) {
+          materializedPositions = new Array(end - start)
+          for (let row = start; row < end; row++) {
+            materializedPositions[row - start] = [
+              ...positionValues.subarray(positionOffsets[row], positionOffsets[row + 1]),
+            ]
+          }
+        }
+        return materializedPositions
+      },
       docIdSet: { size: documentFrequency },
       deletedDocs: tombstones,
       totalTermFrequency,

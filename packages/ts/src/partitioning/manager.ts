@@ -363,6 +363,10 @@ export function createPartitionManager(
     attachFrozenSegment(partitionId: number, segment: FrozenSegment): void {
       validatePartitionId(partitionId)
       asCompositePartition(partitionId).attachFrozenSegment(segment)
+      for (const internalId of segment.docStore.allInternalIds()) {
+        const docId = segment.docStore.getExternalId(internalId)
+        if (docId !== undefined) docPartitionMap.set(docId, partitionId)
+      }
     },
 
     deserializePartition(partitionId: number, data: SerializablePartition): void {

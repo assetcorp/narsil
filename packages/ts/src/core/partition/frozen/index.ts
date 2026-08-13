@@ -2,6 +2,7 @@ import { createGeoIndex, type GeoIndexReader } from '../../../geo/geo-index'
 import type { FieldNameTable, SerializedSurfaceForms } from '../../../types/internal'
 import type { AnyDocument } from '../../../types/schema'
 import type { BooleanFieldIndexReader, EnumFieldIndexReader, NumericFieldIndexReader } from '../../field-index'
+import { generateId } from '../../id-generator'
 import type { PartitionStatsView } from '../../statistics'
 import { createSurfaceRegistry, type SurfaceRegistryReader } from '../../surface-registry'
 import type { PartitionReadState } from '../read-state'
@@ -29,6 +30,7 @@ export { buildFrozenTokenTable } from './token-table'
  * @internal
  */
 export interface FrozenSegment extends PartitionReadState {
+  readonly segmentId: string
   readonly documentSource: FrozenDocumentSource
   liveDocumentCount(): number
   hasDocument(docId: string): boolean
@@ -46,6 +48,7 @@ interface FrozenSegmentSource {
   postingFrequencies: Uint16Array
   postingFieldIndices: Uint8Array
   positionOffsets: Uint32Array | null
+  positionValues: Uint32Array | null
   numeric: SegmentPayload['numeric']
   boolean: SegmentPayload['boolean']
   enums: SegmentPayload['enums']
@@ -97,7 +100,11 @@ function buildGeoReaders(entries: SegmentPayload['geo']): Map<string, GeoIndexRe
   return readers
 }
 
-function assembleFrozenSegment(source: FrozenSegmentSource, documentSource: FrozenDocumentSource): FrozenSegment {
+function assembleFrozenSegment(
+  segmentId: string,
+  source: FrozenSegmentSource,
+  documentSource: FrozenDocumentSource,
+): FrozenSegment {
   const tombstones = createFrozenTombstones()
   const postingViews = createFrozenPostingViews(source, tombstones)
   const lengthColumns = new Map<string, Uint32Array>()
@@ -119,6 +126,7 @@ function assembleFrozenSegment(source: FrozenSegmentSource, documentSource: Froz
   }
 
   const segment: FrozenSegment = {
+    segmentId,
     documentSource,
     invertedIdx: createFrozenInvertedReader(source.tokenTable, postingViews),
     docStore,
@@ -159,8 +167,13 @@ function assembleFrozenSegment(source: FrozenSegmentSource, documentSource: Froz
   return segment
 }
 
-export function createFrozenSegment(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): FrozenSegment {
+export function createFrozenSegment(
+  payload: SegmentPayload,
+  documents: ReadonlyArray<AnyDocument>,
+  segmentId?: string,
+): FrozenSegment {
   return assembleFrozenSegment(
+    segmentId ?? generateId(),
     {
       ...payload,
       tokenTable: buildFrozenTokenTable(payload.tokens, payload.docFrequencies),
@@ -174,6 +187,7 @@ export function createFrozenSegment(payload: SegmentPayload, documents: Readonly
 export function createSharedFrozenSegment(snapshot: SharedSegmentSnapshot): FrozenSegment {
   const tokenTable = wrapFrozenTokenTable(snapshot.tokenTable)
   return assembleFrozenSegment(
+    snapshot.segmentId,
     {
       ...snapshot,
       tokenTable,

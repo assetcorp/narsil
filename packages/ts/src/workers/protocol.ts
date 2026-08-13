@@ -54,6 +54,21 @@ export type WorkerAction =
       segments: Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }>
       requestId: string
     }
+  | {
+      type: 'compactSegments'
+      indexName: string
+      partitionId: number
+      segmentIds: string[]
+      requestId: string
+    }
+  | {
+      type: 'swapSegments'
+      indexName: string
+      partitionId: number
+      dropSegmentIds: string[]
+      snapshot: SharedSegmentSnapshot
+      requestId: string
+    }
   | { type: 'memoryReport'; requestId: string }
   | { type: 'bootstrap'; moduleUrl: string; requestId: string }
   | { type: 'shutdown'; requestId: string }
@@ -80,6 +95,8 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'buildSegment',
   'mergeSegments',
   'attachSegments',
+  'compactSegments',
+  'swapSegments',
   'memoryReport',
   'bootstrap',
   'shutdown',
