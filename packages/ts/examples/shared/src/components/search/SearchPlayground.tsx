@@ -1,7 +1,8 @@
 import { SlidersHorizontal } from 'lucide-react'
-import { type Dispatch, useCallback, useState } from 'react'
+import { type Dispatch, useCallback, useMemo, useState } from 'react'
 import type { NarsilBackend } from '../../backend'
 import { useDisplayFields } from '../../hooks/use-display-fields'
+import { useIndexSchema } from '../../hooks/use-index-schema'
 import { useSearch } from '../../hooks/use-search'
 import type { AppAction, AppState, LoadedIndex } from '../../types'
 import { Badge } from '../ui/badge'
@@ -89,55 +90,11 @@ interface SearchPlaygroundProps {
   initialTerm?: string
 }
 
-function getSearchableFields(state: AppState): string[] {
-  const activeIndex = state.indexes.find(i => i.name === state.activeIndexName)
-  if (!activeIndex) return []
-
-  switch (activeIndex.datasetId) {
-    case 'tmdb':
-      return ['title', 'overview', 'tagline']
-    case 'wikipedia':
-      return ['title', 'text']
-    case 'scifact':
-      return ['title', 'text']
-    default:
-      return []
-  }
-}
-
-function getAllFields(state: AppState): string[] {
-  const activeIndex = state.indexes.find(i => i.name === state.activeIndexName)
-  if (!activeIndex) return []
-
-  switch (activeIndex.datasetId) {
-    case 'tmdb':
-      return [
-        'title',
-        'overview',
-        'tagline',
-        'genres',
-        'original_language',
-        'vote_average',
-        'popularity',
-        'runtime',
-        'revenue',
-        'release_year',
-        'production_countries',
-        'status',
-      ]
-    case 'wikipedia':
-      return ['title', 'text', 'language', 'categories']
-    case 'scifact':
-      return ['title', 'text']
-    default:
-      return []
-  }
-}
-
 export function SearchPlayground({ backend, state, dispatch, initialTerm }: SearchPlaygroundProps) {
   const indexName = state.activeIndexName
-  const searchableFields = getSearchableFields(state)
-  const allFields = getAllFields(state)
+  const schema = useIndexSchema(backend, indexName)
+  const searchableFields = schema.searchablePaths
+  const sortableFields = useMemo(() => [...schema.sortablePaths], [schema.sortablePaths])
   const search = useSearch(backend, indexName, initialTerm)
   const displayFields = useDisplayFields(indexName)
 
@@ -184,7 +141,7 @@ export function SearchPlayground({ backend, state, dispatch, initialTerm }: Sear
       <AdvancedOptions
         params={search.params}
         searchableFields={searchableFields}
-        allFields={allFields}
+        sortableFields={sortableFields}
         onFieldsChange={search.setFields}
         onBoostChange={search.setBoost}
         onSortChange={search.setSort}

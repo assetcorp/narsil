@@ -58,6 +58,8 @@ const FIELD_TYPES = new Set<string>([
   'enum[]',
 ])
 
+const SEARCHABLE_FIELD_TYPES = new Set<string>(['string', 'string:sortable', 'string[]'])
+
 const TEXT_OPERATORS: FilterOperatorId[] = ['eq', 'ne', 'startsWith', 'endsWith', 'in', 'nin']
 const NUMBER_OPERATORS: FilterOperatorId[] = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'between']
 const BOOLEAN_OPERATORS: FilterOperatorId[] = ['eq', 'ne']
@@ -146,6 +148,14 @@ export function filterableFields(leaves: readonly SchemaLeaf[]): SchemaField[] {
     if (FIELD_TYPES.has(leaf.type)) fields.push({ path: leaf.path, type: leaf.type as SchemaFieldType })
   }
   return fields
+}
+
+export function searchableFieldPaths(leaves: readonly SchemaLeaf[]): string[] {
+  const paths: string[] = []
+  for (const leaf of leaves) {
+    if (SEARCHABLE_FIELD_TYPES.has(leaf.type)) paths.push(leaf.path)
+  }
+  return paths
 }
 
 export function flattenSchemaFields(schema: Record<string, unknown>, prefix = ''): SchemaField[] {

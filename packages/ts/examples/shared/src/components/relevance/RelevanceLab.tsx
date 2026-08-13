@@ -1,6 +1,7 @@
 import { Loader2, Search } from 'lucide-react'
 import { type ChangeEvent, type Dispatch, useCallback } from 'react'
 import type { NarsilBackend } from '../../backend'
+import { useIndexSchema } from '../../hooks/use-index-schema'
 import { useRelevance } from '../../hooks/use-relevance'
 import type { AppAction, AppState } from '../../types'
 import { IndexSelector } from '../IndexSelector'
@@ -15,24 +16,10 @@ interface RelevanceLabProps {
   dispatch: Dispatch<AppAction>
 }
 
-function getSearchableFields(state: AppState): string[] {
-  const activeIndex = state.indexes.find(i => i.name === state.activeIndexName)
-  if (!activeIndex) return []
-  switch (activeIndex.datasetId) {
-    case 'tmdb':
-      return ['title', 'overview', 'tagline']
-    case 'wikipedia':
-      return ['title', 'text']
-    case 'scifact':
-      return ['title', 'text']
-    default:
-      return []
-  }
-}
-
 export function RelevanceLab({ backend, state, dispatch }: RelevanceLabProps) {
   const indexName = state.activeIndexName
-  const fields = getSearchableFields(state)
+  const schema = useIndexSchema(backend, indexName)
+  const fields = schema.searchablePaths
   const relevance = useRelevance(backend, indexName)
 
   const handleTermChange = useCallback(
