@@ -1,3 +1,4 @@
+import { createPartitionIndex } from '../core/partition'
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
 import { sanitizeGlobalStats } from '../partitioning/distributed-scoring'
@@ -111,6 +112,25 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
       case 'insert': {
         const entry = requireIndex(action.indexName)
         entry.manager.insert(action.docId, action.document, action.skipClone ? { skipClone: true } : undefined)
+        return undefined as T
+      }
+
+      case 'buildSegment': {
+        const language = getLanguage(action.language)
+        const segment = createPartitionIndex(0, action.trackPositions)
+        segment.beginBatch()
+        for (const entry of action.documents) {
+          segment.insert(entry.docId, entry.document, action.schema, language, action.options)
+        }
+        segment.endBatch()
+        return segment.encodeSegment() as T
+      }
+
+      case 'mergeSegments': {
+        const entry = requireIndex(action.indexName)
+        for (const segment of action.segments) {
+          entry.manager.mergeSegment(segment.partitionId, segment.payload, segment.documents)
+        }
         return undefined as T
       }
 

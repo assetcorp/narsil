@@ -11,10 +11,13 @@ import type { Executor } from '../../workers/executor'
 import type { WorkerPool } from '../../workers/pool'
 import type { ExecutionPromoter } from '../../workers/promoter'
 import type { WorkerAction } from '../../workers/protocol'
+import type { BuiltSegment, SegmentBuildRequest } from './segments'
 
 export interface WorkerOrchestrator {
   checkPromotion(): Promise<void>
   replicateToWorkers(action: WorkerAction): Promise<void>
+  buildSegments(requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null>
+  segmentBuildConcurrency(): number
   searchViaWorker(indexName: string, params: QueryParams, globalStats?: GlobalStatistics): Promise<FanOutResult | null>
   isPromoted(): boolean
   desyncIndex(indexName: string): boolean

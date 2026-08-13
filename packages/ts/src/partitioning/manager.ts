@@ -1,6 +1,7 @@
 import { type ResolvedAnalysis, resolveIndexAnalysis } from '../analysis/registry'
 import type { ComparableSortValue } from '../core/ordering'
 import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../core/partition'
+import type { SegmentPayload } from '../core/partition/segment-payload'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { SerializablePartition } from '../types/internal'
 import type { LanguageModule } from '../types/language'
@@ -45,6 +46,7 @@ export interface PartitionManager {
   serializePartition(partitionId: number): SerializablePartition
   serializePartitionToBytes(partitionId: number): Uint8Array
   deserializePartition(partitionId: number, data: SerializablePartition): void
+  mergeSegment(partitionId: number, payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
   getAggregateStats(): {
     totalDocuments: number
     docFrequencies: Record<string, number>
@@ -329,6 +331,17 @@ export function createPartitionManager(
     serializePartitionToBytes(partitionId: number): Uint8Array {
       validatePartitionId(partitionId)
       return partitions[partitionId].serializeToBytes(indexName, partitions.length, language.name, config.schema)
+    },
+
+    mergeSegment(partitionId: number, payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void {
+      validatePartitionId(partitionId)
+      const partition = partitions[partitionId]
+      partition.beginBatch()
+      partition.mergeSegmentPayload(payload, documents as ReadonlyArray<Record<string, unknown>>)
+      partition.endBatch()
+      for (const docId of payload.docIds) {
+        docPartitionMap.set(docId, partitionId)
+      }
     },
 
     deserializePartition(partitionId: number, data: SerializablePartition): void {
