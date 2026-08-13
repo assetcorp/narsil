@@ -40,7 +40,7 @@ function makeDeps(workers: number, partitionCount: number): Recorded {
   const buildRequests: SegmentBuildRequest[] = []
   const replicated: WorkerAction[] = []
 
-  const deps = {
+  const deps: SegmentReplicationDeps = {
     orchestrator: {
       segmentBuildConcurrency: (): number => workers,
       buildSegments: async (requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null> => {
@@ -55,22 +55,16 @@ function makeDeps(workers: number, partitionCount: number): Recorded {
         replicated.push(action)
       },
     },
-    requireIndex: () => ({
-      config: { schema: { title: 'string' as const }, language: 'english' },
-      language: { name: 'english', revision: '1', stemmer: null, stopWords: new Set<string>() },
-      embeddingAdapter: null,
-      embeddingAdapterName: null,
-      vectorFieldPaths: new Set<string>(),
-    }),
+    requireIndex: () => ({ config: { schema: { title: 'string' }, language: 'english' } }),
     requireManager: () => ({ partitionCount }),
-  } as unknown as SegmentReplicationDeps
+  }
 
   return { deps, buildRequests, replicated }
 }
 
 function documents(count: number): { docIds: string[]; docs: AnyDocument[] } {
   const docIds = Array.from({ length: count }, (_, i) => `doc-${String(i).padStart(4, '0')}`)
-  const docs = docIds.map(id => ({ id, title: `title for ${id}` }) as AnyDocument)
+  const docs: AnyDocument[] = docIds.map(id => ({ id, title: `title for ${id}` }))
   return { docIds, docs }
 }
 

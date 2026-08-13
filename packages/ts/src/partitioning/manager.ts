@@ -337,7 +337,7 @@ export function createPartitionManager(
       validatePartitionId(partitionId)
       const partition = partitions[partitionId]
       partition.beginBatch()
-      partition.mergeSegmentPayload(payload, documents as ReadonlyArray<Record<string, unknown>>)
+      partition.mergeSegmentPayload(payload, documents)
       partition.endBatch()
       for (const docId of payload.docIds) {
         docPartitionMap.set(docId, partitionId)

@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createGeoIndex } from '../../geo/geo-index'
 import type { SerializedSurfaceForms } from '../../types/internal'
+import type { AnyDocument } from '../../types/schema'
 import { createBooleanIndex, createEnumIndex, createNumericIndex } from '../field-index'
 import { getOrCreateFieldNameIndex, type PartitionState } from './utils'
 
@@ -26,31 +27,36 @@ export interface SegmentPayload {
   geo: Array<{ fieldPath: string; docIds: Uint32Array; latitudes: Float64Array; longitudes: Float64Array }>
 }
 
+function collectBuffer(buffers: ArrayBuffer[], view: ArrayBufferView | null): void {
+  if (view === null) return
+  if (view.buffer instanceof ArrayBuffer) buffers.push(view.buffer)
+}
+
 export function segmentTransferables(payload: SegmentPayload): ArrayBuffer[] {
-  const buffers: ArrayBuffer[] = [
-    payload.postingOffsets.buffer as ArrayBuffer,
-    payload.postingDocIds.buffer as ArrayBuffer,
-    payload.postingFrequencies.buffer as ArrayBuffer,
-    payload.postingFieldIndices.buffer as ArrayBuffer,
-  ]
-  if (payload.positionOffsets !== null) buffers.push(payload.positionOffsets.buffer as ArrayBuffer)
-  if (payload.positionValues !== null) buffers.push(payload.positionValues.buffer as ArrayBuffer)
-  for (const column of payload.fieldLengthColumns) buffers.push(column.buffer as ArrayBuffer)
+  const buffers: ArrayBuffer[] = []
+  collectBuffer(buffers, payload.postingOffsets)
+  collectBuffer(buffers, payload.postingDocIds)
+  collectBuffer(buffers, payload.postingFrequencies)
+  collectBuffer(buffers, payload.postingFieldIndices)
+  collectBuffer(buffers, payload.positionOffsets)
+  collectBuffer(buffers, payload.positionValues)
+  for (const column of payload.fieldLengthColumns) collectBuffer(buffers, column)
   for (const entry of payload.numeric) {
-    buffers.push(entry.docIds.buffer as ArrayBuffer, entry.values.buffer as ArrayBuffer)
+    collectBuffer(buffers, entry.docIds)
+    collectBuffer(buffers, entry.values)
   }
   for (const entry of payload.boolean) {
-    buffers.push(entry.trueDocs.buffer as ArrayBuffer, entry.falseDocs.buffer as ArrayBuffer)
+    collectBuffer(buffers, entry.trueDocs)
+    collectBuffer(buffers, entry.falseDocs)
   }
   for (const entry of payload.enums) {
-    buffers.push(entry.offsets.buffer as ArrayBuffer, entry.docIds.buffer as ArrayBuffer)
+    collectBuffer(buffers, entry.offsets)
+    collectBuffer(buffers, entry.docIds)
   }
   for (const entry of payload.geo) {
-    buffers.push(
-      entry.docIds.buffer as ArrayBuffer,
-      entry.latitudes.buffer as ArrayBuffer,
-      entry.longitudes.buffer as ArrayBuffer,
-    )
+    collectBuffer(buffers, entry.docIds)
+    collectBuffer(buffers, entry.latitudes)
+    collectBuffer(buffers, entry.longitudes)
   }
   return buffers
 }
@@ -287,7 +293,7 @@ function mergePayloadFieldIndexes(target: PartitionState, payload: SegmentPayloa
 export function mergeSegmentPayload(
   target: PartitionState,
   payload: SegmentPayload,
-  documents: ReadonlyArray<Record<string, unknown>>,
+  documents: ReadonlyArray<AnyDocument>,
 ): void {
   if (payload.documentCount === 0) return
 

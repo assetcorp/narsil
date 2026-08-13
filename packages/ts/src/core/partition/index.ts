@@ -70,7 +70,7 @@ export interface PartitionIndex {
   endBatch(): void
   mergeSegment(segment: PartitionIndex): void
   encodeSegment(): SegmentPayload
-  mergeSegmentPayload(payload: SegmentPayload, documents: ReadonlyArray<Record<string, unknown>>): void
+  mergeSegmentPayload(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
   update(
     docId: string,
     document: AnyDocument,
@@ -247,7 +247,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       return encodeSegmentState(state)
     },
 
-    mergeSegmentPayload(payload: SegmentPayload, documents: ReadonlyArray<Record<string, unknown>>): void {
+    mergeSegmentPayload(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void {
       mergeSegmentPayload(state, payload, documents)
     },
 
