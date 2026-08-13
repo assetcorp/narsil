@@ -10,7 +10,7 @@ import { Slider } from '../ui/slider'
 interface AdvancedOptionsProps {
   params: SearchParams
   searchableFields: string[]
-  allFields: string[]
+  sortableFields: string[]
   onFieldsChange: (fields: string[]) => void
   onBoostChange: (field: string, value: number) => void
   onSortChange: (field: string, direction: 'asc' | 'desc' | null) => void
@@ -138,7 +138,7 @@ function LimitButton({
 export function AdvancedOptions({
   params,
   searchableFields,
-  allFields,
+  sortableFields,
   onFieldsChange,
   onBoostChange,
   onSortChange,
@@ -259,7 +259,7 @@ export function AdvancedOptions({
           <div>
             <span className="mb-1.5 block text-xs font-medium">Sort by</span>
             <div className="flex flex-wrap gap-1">
-              {allFields
+              {sortableFields
                 .filter(f => !searchableFields.includes(f))
                 .map(field => {
                   const dir = params.sort[field]

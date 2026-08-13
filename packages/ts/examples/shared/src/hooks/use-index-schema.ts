@@ -6,12 +6,14 @@ import {
   isVectorType,
   type SchemaField,
   type SchemaLeaf,
+  searchableFieldPaths,
   sortableFieldPaths,
 } from '../lib/field-filters'
 
 export interface IndexSchema {
   leaves: SchemaLeaf[]
   fields: SchemaField[]
+  searchablePaths: string[]
   sortablePaths: Set<string>
   vectorPaths: Set<string>
   isLoading: boolean
@@ -52,11 +54,12 @@ export function useIndexSchema(backend: NarsilBackend, indexName: string | null)
   }, [backend, indexName])
 
   const fields = useMemo(() => filterableFields(leaves), [leaves])
+  const searchablePaths = useMemo(() => searchableFieldPaths(leaves), [leaves])
   const sortablePaths = useMemo(() => sortableFieldPaths(fields), [fields])
   const vectorPaths = useMemo(
     () => new Set(leaves.filter(leaf => isVectorType(leaf.type)).map(leaf => leaf.path)),
     [leaves],
   )
 
-  return { leaves, fields, sortablePaths, vectorPaths, isLoading }
+  return { leaves, fields, searchablePaths, sortablePaths, vectorPaths, isLoading }
 }
