@@ -15,9 +15,10 @@ import type { BuiltSegment, SegmentBuildRequest } from './segments'
 
 export interface WorkerOrchestrator {
   checkPromotion(): Promise<void>
+  promoteBeforeBatch(indexName: string, incomingCount: number): Promise<void>
   replicateToWorkers(action: WorkerAction): Promise<void>
   buildSegments(requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null>
-  segmentBuildConcurrency(): number
+  segmentBuildConcurrency(indexName: string): number
   searchViaWorker(indexName: string, params: QueryParams, globalStats?: GlobalStatistics): Promise<FanOutResult | null>
   isPromoted(): boolean
   desyncIndex(indexName: string): boolean

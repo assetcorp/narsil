@@ -8,6 +8,7 @@ import type { LanguageModule } from '../types/language'
 import type { PartitionStatsResult } from '../types/results'
 import type { AnyDocument, IndexConfig, SchemaDefinition } from '../types/schema'
 import type { VectorIndex } from '../vector/vector-index'
+import { resolvePartitionInsertOptions } from './insert-options'
 import type { PartitionRouter } from './router'
 
 export interface PartitionManager {
@@ -106,19 +107,7 @@ export function createPartitionManager(
   }
 
   function resolveInsertOptions(options?: PartitionInsertOptions): PartitionInsertOptions | undefined {
-    const applyStrict = config.strict === true
-    const applyAnalyzer = analysis.stopWords !== undefined || analysis.customTokenizer !== undefined
-    const applySurfaces = config.surfaceForms === true
-    if (!applyStrict && !applyAnalyzer && !applySurfaces) return options
-
-    const resolved: PartitionInsertOptions = { ...options }
-    if (applyStrict) resolved.strict = true
-    if (applyAnalyzer) {
-      resolved.stopWordOverride = options?.stopWordOverride ?? analysis.stopWords
-      resolved.customTokenizer = options?.customTokenizer ?? analysis.customTokenizer
-    }
-    if (applySurfaces) resolved.collectSurfaces = true
-    return resolved
+    return resolvePartitionInsertOptions(config, analysis, options)
   }
 
   function rebuildDocPartitionMap(): void {

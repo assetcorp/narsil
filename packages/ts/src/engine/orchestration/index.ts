@@ -9,7 +9,7 @@ import type { ExecutionPromoter } from '../../workers/promoter'
 import type { WorkerAction } from '../../workers/protocol'
 import { transferIndexToPool } from '../worker-resync'
 import { workerIneligibility } from './eligibility'
-import { checkPromotion } from './promotion'
+import { checkPromotion, promoteBeforeBatch } from './promotion'
 import { replicateToWorkers } from './replication'
 import { searchViaWorker } from './search'
 import { type BuiltSegment, buildSegments, type SegmentBuildRequest, segmentBuildConcurrency } from './segments'
@@ -81,9 +81,11 @@ export function createWorkerOrchestrator(
 
   return {
     checkPromotion: (): Promise<void> => checkPromotion(state),
+    promoteBeforeBatch: (indexName: string, incomingCount: number): Promise<void> =>
+      promoteBeforeBatch(state, indexName, incomingCount),
     replicateToWorkers: (action: WorkerAction): Promise<void> => replicateToWorkers(state, action),
     buildSegments: (requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null> => buildSegments(state, requests),
-    segmentBuildConcurrency: (): number => segmentBuildConcurrency(state),
+    segmentBuildConcurrency: (indexName: string): number => segmentBuildConcurrency(state, indexName),
     searchViaWorker: (
       indexName: string,
       params: QueryParams,
