@@ -1,9 +1,13 @@
 import { fnv1a } from '../../core/hash'
-import type { AnyDocument } from '../../types/schema'
+import type { AnyDocument, IndexConfig } from '../../types/schema'
+import type { WorkerOrchestrator } from '../orchestration'
 import type { SegmentBuildRequest } from '../orchestration/segments'
-import type { MutationContext } from './context'
 
-export type SegmentReplicationDeps = Pick<MutationContext, 'orchestrator' | 'requireIndex' | 'requireManager'>
+export interface SegmentReplicationDeps {
+  orchestrator: Pick<WorkerOrchestrator, 'segmentBuildConcurrency' | 'buildSegments' | 'replicateToWorkers'>
+  requireIndex: (indexName: string) => { config: IndexConfig }
+  requireManager: (indexName: string) => { partitionCount: number }
+}
 
 const MIN_DOCUMENTS_FOR_SEGMENTS = 64
 
@@ -59,7 +63,7 @@ export async function replicateAsSegments(
           options: skipClone === true ? { skipClone: true } : undefined,
           requestId: `build-segment-${indexName}-${partitionId}-${start}`,
         },
-        documents: slice.map(i => documents[i] as Record<string, unknown>),
+        documents: slice.map(i => documents[i]),
       })
     }
   }
@@ -73,7 +77,7 @@ export async function replicateAsSegments(
     segments: built.map(segment => ({
       partitionId: segment.partitionId,
       payload: segment.payload,
-      documents: segment.documents as AnyDocument[],
+      documents: segment.documents,
     })),
     requestId: `merge-segments-${indexName}-${docIds.length}`,
   })

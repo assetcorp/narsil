@@ -1,17 +1,18 @@
 import type { SegmentPayload } from '../../core/partition/segment-payload'
+import type { AnyDocument } from '../../types/schema'
 import type { WorkerAction } from '../../workers/protocol'
 import type { OrchestratorState } from './types'
 
 export interface SegmentBuildRequest {
   partitionId: number
   action: Extract<WorkerAction, { type: 'buildSegment' }>
-  documents: Array<Record<string, unknown>>
+  documents: AnyDocument[]
 }
 
 export interface BuiltSegment {
   partitionId: number
   payload: SegmentPayload
-  documents: Array<Record<string, unknown>>
+  documents: AnyDocument[]
 }
 
 export function segmentBuildConcurrency(state: OrchestratorState): number {
