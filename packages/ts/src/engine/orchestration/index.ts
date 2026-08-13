@@ -12,6 +12,7 @@ import { workerIneligibility } from './eligibility'
 import { checkPromotion } from './promotion'
 import { replicateToWorkers } from './replication'
 import { searchViaWorker } from './search'
+import { type BuiltSegment, buildSegments, type SegmentBuildRequest, segmentBuildConcurrency } from './segments'
 import type { IndexRegistry, OrchestratorState, WorkerOrchestrator, WorkerOrchestratorCallbacks } from './types'
 
 export type { WorkerOrchestrator, WorkerOrchestratorCallbacks } from './types'
@@ -81,6 +82,8 @@ export function createWorkerOrchestrator(
   return {
     checkPromotion: (): Promise<void> => checkPromotion(state),
     replicateToWorkers: (action: WorkerAction): Promise<void> => replicateToWorkers(state, action),
+    buildSegments: (requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null> => buildSegments(state, requests),
+    segmentBuildConcurrency: (): number => segmentBuildConcurrency(state),
     searchViaWorker: (
       indexName: string,
       params: QueryParams,

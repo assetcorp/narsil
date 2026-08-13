@@ -1,4 +1,5 @@
 export type { MutationContext } from './context'
-export { insertDocument, insertDocumentBatch } from './insert'
+export { insertDocument } from './insert'
+export { insertDocumentBatch } from './insert-batch'
 export { removeDocument, removeDocumentBatch } from './remove'
 export { updateDocument, updateDocumentBatch } from './update'

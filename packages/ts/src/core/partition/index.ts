@@ -29,8 +29,10 @@ import {
 import { indexDocument, removeFromIndexes } from './indexing'
 import { type PartitionSearchMatches, searchFulltextMatches } from './matches'
 import { estimatePartitionBytes } from './memory'
+import { mergeSegmentState } from './merge'
 import { rebuildTextIndex } from './rebuild'
 import { searchFulltext } from './search'
+import { encodeSegmentState, mergeSegmentPayload, type SegmentPayload } from './segment-payload'
 import { deserializePartition, serializePartition } from './serialization'
 import {
   forgetSortValues,
@@ -66,6 +68,9 @@ export interface PartitionIndex {
   remove(docId: string, schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void
   beginBatch(): void
   endBatch(): void
+  mergeSegment(segment: PartitionIndex): void
+  encodeSegment(): SegmentPayload
+  mergeSegmentPayload(payload: SegmentPayload, documents: ReadonlyArray<Record<string, unknown>>): void
   update(
     docId: string,
     document: AnyDocument,
@@ -108,6 +113,16 @@ export interface PartitionIndex {
   ): SerializablePartition
   serializeToBytes(indexName: string, totalPartitions: number, language: string, schema: SchemaDefinition): Uint8Array
   deserialize(data: SerializablePartition, schema: SchemaDefinition): void
+}
+
+const statesByPartition = new WeakMap<PartitionIndex, PartitionState>()
+
+function readSegmentState(segment: PartitionIndex): PartitionState {
+  const state = statesByPartition.get(segment)
+  if (state === undefined) {
+    throw new NarsilError(ErrorCodes.PARTITION_CORRUPTED, 'The segment did not come from this engine', {})
+  }
+  return state
 }
 
 export function createPartitionIndex(partitionId: number, trackPositions = true): PartitionIndex {
@@ -222,6 +237,18 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     endBatch(): void {
       state.invertedIdx.endBatch()
       refreshSortColumns(state)
+    },
+
+    mergeSegment(segment: PartitionIndex): void {
+      mergeSegmentState(state, readSegmentState(segment))
+    },
+
+    encodeSegment(): SegmentPayload {
+      return encodeSegmentState(state)
+    },
+
+    mergeSegmentPayload(payload: SegmentPayload, documents: ReadonlyArray<Record<string, unknown>>): void {
+      mergeSegmentPayload(state, payload, documents)
     },
 
     update(
@@ -395,5 +422,6 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     },
   }
 
+  statesByPartition.set(partition, state)
   return partition
 }

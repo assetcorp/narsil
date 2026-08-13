@@ -1,6 +1,8 @@
 import { generateId } from '../core/id-generator'
+import type { PartitionInsertOptions } from '../core/partition'
+import type { SegmentPayload } from '../core/partition/segment-payload'
 import type { GlobalStatistics, SerializablePartition } from '../types/internal'
-import type { AnyDocument, IndexConfig } from '../types/schema'
+import type { AnyDocument, IndexConfig, SchemaDefinition } from '../types/schema'
 import type { QueryParams } from '../types/search'
 
 export type WorkerAction =
@@ -31,6 +33,21 @@ export type WorkerAction =
       data: SerializablePartition
       requestId: string
     }
+  | {
+      type: 'buildSegment'
+      schema: SchemaDefinition
+      language: string
+      trackPositions: boolean
+      documents: Array<{ docId: string; document: AnyDocument }>
+      options?: PartitionInsertOptions
+      requestId: string
+    }
+  | {
+      type: 'mergeSegments'
+      indexName: string
+      segments: Array<{ partitionId: number; payload: SegmentPayload; documents: AnyDocument[] }>
+      requestId: string
+    }
   | { type: 'memoryReport'; requestId: string }
   | { type: 'bootstrap'; moduleUrl: string; requestId: string }
   | { type: 'shutdown'; requestId: string }
@@ -54,6 +71,8 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'clear',
   'serialize',
   'deserialize',
+  'buildSegment',
+  'mergeSegments',
   'memoryReport',
   'bootstrap',
   'shutdown',
