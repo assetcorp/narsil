@@ -86,6 +86,39 @@ async function runPromotion(state: OrchestratorState, reason: string): Promise<v
   }
 }
 
+export async function promoteBeforeBatch(
+  state: OrchestratorState,
+  indexName: string,
+  incomingCount: number,
+): Promise<void> {
+  if (!state.workersEnabled || state.promotionBlocked || state.workerPool || incomingCount <= 0) return
+  if (state.promotionInProgress) {
+    if (state.promotionRun) await state.promotionRun
+    return
+  }
+  if (state.callbacks?.shouldDeferPromotion?.()) return
+
+  const indexMap = collectEligibleIndexes(state)
+  const anticipated = indexMap.get(indexName)
+  if (anticipated === undefined) return
+  anticipated.documentCount += incomingCount
+  const result = state.promoter.check(indexMap)
+  if (!result.shouldPromote) return
+
+  state.promotionInProgress = true
+  const run = runPromotion(state, result.reason).catch(err => {
+    const error = toError(err)
+    state.promotionBlocked = isDeterministicFailure(error)
+    state.promotionInProgress = false
+    state.callbacks?.onPromotionFailure?.(result.reason, error, !state.promotionBlocked)
+  })
+  const tracked = run.then(() => {
+    state.promotionRun = null
+  })
+  state.promotionRun = tracked
+  await tracked
+}
+
 export async function checkPromotion(state: OrchestratorState): Promise<void> {
   if (!state.workersEnabled || state.promotionInProgress || state.promotionBlocked || state.workerPool) return
   if (state.callbacks?.shouldDeferPromotion?.()) return

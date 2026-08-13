@@ -2,7 +2,7 @@ import { generateId } from '../core/id-generator'
 import type { PartitionInsertOptions } from '../core/partition'
 import type { SegmentPayload } from '../core/partition/segment-payload'
 import type { GlobalStatistics, SerializablePartition } from '../types/internal'
-import type { AnyDocument, IndexConfig, SchemaDefinition } from '../types/schema'
+import type { AnyDocument, IndexConfig } from '../types/schema'
 import type { QueryParams } from '../types/search'
 
 export type WorkerAction =
@@ -35,9 +35,7 @@ export type WorkerAction =
     }
   | {
       type: 'buildSegment'
-      schema: SchemaDefinition
-      language: string
-      trackPositions: boolean
+      indexName: string
       documents: Array<{ docId: string; document: AnyDocument }>
       options?: PartitionInsertOptions
       requestId: string

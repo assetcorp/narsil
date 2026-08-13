@@ -3,6 +3,7 @@ import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
 import { sanitizeGlobalStats } from '../partitioning/distributed-scoring'
 import { fanOutQuery } from '../partitioning/fan-out'
+import { resolvePartitionInsertOptions } from '../partitioning/insert-options'
 import { createPartitionManager, type PartitionManager } from '../partitioning/manager'
 import { createPartitionRouter } from '../partitioning/router'
 import { extractVectorFieldsFromSchema } from '../schema/validator'
@@ -116,11 +117,12 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
       }
 
       case 'buildSegment': {
-        const language = getLanguage(action.language)
-        const segment = createPartitionIndex(0, action.trackPositions)
+        const entry = requireIndex(action.indexName)
+        const segment = createPartitionIndex(0, entry.config.trackPositions ?? true)
+        const options = resolvePartitionInsertOptions(entry.config, entry.manager.analysis, action.options)
         segment.beginBatch()
-        for (const entry of action.documents) {
-          segment.insert(entry.docId, entry.document, action.schema, language, action.options)
+        for (const doc of action.documents) {
+          segment.insert(doc.docId, doc.document, entry.config.schema, entry.language, options)
         }
         segment.endBatch()
         return segment.encodeSegment() as T

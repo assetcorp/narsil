@@ -55,7 +55,6 @@ function makeDeps(workers: number, partitionCount: number): Recorded {
         replicated.push(action)
       },
     },
-    requireIndex: () => ({ config: { schema: { title: 'string' }, language: 'english' } }),
     requireManager: () => ({ partitionCount }),
   }
 
@@ -84,6 +83,17 @@ describe('replicateAsSegments', () => {
 
     expect(await replicateAsSegments(recorded.deps, 'prose', docIds, docs, undefined)).toBe(false)
     expect(recorded.buildRequests).toHaveLength(0)
+  })
+
+  it('names the target index in every build action', async () => {
+    const recorded = makeDeps(4, 1)
+    const { docIds, docs } = documents(500)
+
+    await replicateAsSegments(recorded.deps, 'prose', docIds, docs, undefined)
+
+    for (const request of recorded.buildRequests) {
+      expect(request.action.indexName).toBe('prose')
+    }
   })
 
   it('sends every document to exactly one segment', async () => {

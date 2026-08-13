@@ -1,15 +1,18 @@
-import { ErrorCodes, NarsilError } from '../../errors'
-import { validateRequiredFields } from '../../schema/validator'
-import type { EmbeddingAdapter } from '../../types/adapters'
 import type { BatchResult } from '../../types/results'
-import type { AnyDocument, EmbeddingFieldConfig, InsertOptions } from '../../types/schema'
-import { assertDocumentCarriesMappedVectors, embedBatchDocumentFields } from '../embed'
+import type { AnyDocument, InsertOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE, validateDocId } from '../validation'
 import { insertDocumentVectors, prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
 import type { MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
-import { admitInsert, providedDocId } from './insert-admission'
-import { replicateAsSegments } from './segment-replication'
+import {
+  admitInsert,
+  asBatchInsertError,
+  collectRequiredFieldFailures,
+  embedChunkDocuments,
+  providedDocId,
+} from './insert-admission'
+import { insertBatchViaSegments } from './insert-batch-segments'
+import { MIN_DOCUMENTS_FOR_SEGMENTS, replicateAsSegments } from './segment-replication'
 
 export async function insertDocumentBatch(
   ctx: MutationContext,
@@ -20,14 +23,22 @@ export async function insertDocumentBatch(
   ctx.guardShutdown()
   const entry = ctx.requireIndex(indexName)
 
+  await ctx.orchestrator.promoteBeforeBatch(indexName, documents.length)
+
+  if (
+    documents.length >= MIN_DOCUMENTS_FOR_SEGMENTS &&
+    !ctx.isRebalancing(indexName) &&
+    ctx.orchestrator.segmentBuildConcurrency(indexName) > 0
+  ) {
+    return insertBatchViaSegments(ctx, indexName, documents, options)
+  }
+
   const succeeded: string[] = []
   const succeededDocs: AnyDocument[] = []
   const failed: BatchResult['failed'] = []
   const hasBeforeHook = ctx.pluginRegistry.hasHooks('beforeInsert')
   const hasAfterHook = ctx.pluginRegistry.hasHooks('afterInsert')
-  const hasRequired = entry.config.required && entry.config.required.length > 0
-  const hasEmbedding = entry.embeddingAdapter && entry.config.embedding
-  const embeddingUnbound = !entry.embeddingAdapter && entry.config.embedding
+  const required = entry.config.required
 
   const batchManager = ctx.requireManager(indexName)
   const batchVecIndexes = batchManager.getVectorIndexes()
@@ -41,70 +52,18 @@ export async function insertDocumentBatch(
     const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, documents.length)
     const chunkFailedIndexes = new Set<number>()
 
-    if (hasRequired) {
-      for (let i = chunkStart; i < chunkEnd; i++) {
-        try {
-          validateRequiredFields(documents[i] as Record<string, unknown>, entry.config.required as string[])
-        } catch (err) {
-          chunkFailedIndexes.add(i)
-          failed.push({
-            docId: providedDocId(documents[i]) ?? '',
-            error: err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, String(err)),
-          })
-        }
-      }
+    if (required && required.length > 0) {
+      collectRequiredFieldFailures(documents, chunkStart, chunkEnd, required, chunkFailedIndexes, failed)
     }
-
-    if (hasEmbedding) {
-      const embeddableSlice: Record<string, unknown>[] = []
-      const embeddableOriginalIndexes: number[] = []
-      for (let i = chunkStart; i < chunkEnd; i++) {
-        if (chunkFailedIndexes.has(i)) continue
-        embeddableSlice.push(documents[i] as Record<string, unknown>)
-        embeddableOriginalIndexes.push(i)
-      }
-
-      if (embeddableSlice.length > 0) {
-        try {
-          const embedResult = await embedBatchDocumentFields(
-            embeddableSlice,
-            entry.config.embedding as EmbeddingFieldConfig,
-            entry.embeddingAdapter as EmbeddingAdapter,
-            ctx.abortController.signal,
-          )
-
-          for (const [sliceIndex, error] of embedResult.failed) {
-            const originalIdx = embeddableOriginalIndexes[sliceIndex]
-            chunkFailedIndexes.add(originalIdx)
-            failed.push({ docId: providedDocId(documents[originalIdx]) ?? '', error })
-          }
-        } catch (err) {
-          const embeddingError =
-            err instanceof NarsilError ? err : new NarsilError(ErrorCodes.EMBEDDING_FAILED, String(err))
-          for (const originalIdx of embeddableOriginalIndexes) {
-            chunkFailedIndexes.add(originalIdx)
-            failed.push({ docId: providedDocId(documents[originalIdx]) ?? '', error: embeddingError })
-          }
-        }
-      }
-    } else if (embeddingUnbound) {
-      for (let i = chunkStart; i < chunkEnd; i++) {
-        if (chunkFailedIndexes.has(i)) continue
-        try {
-          assertDocumentCarriesMappedVectors(
-            documents[i] as Record<string, unknown>,
-            entry.config.embedding as EmbeddingFieldConfig,
-            entry.embeddingAdapterName,
-          )
-        } catch (err) {
-          chunkFailedIndexes.add(i)
-          failed.push({
-            docId: providedDocId(documents[i]) ?? '',
-            error: err instanceof NarsilError ? err : new NarsilError(ErrorCodes.EMBEDDING_FAILED, String(err)),
-          })
-        }
-      }
-    }
+    await embedChunkDocuments(
+      entry,
+      documents,
+      chunkStart,
+      chunkEnd,
+      ctx.abortController.signal,
+      chunkFailedIndexes,
+      failed,
+    )
 
     for (let i = chunkStart; i < chunkEnd; i++) {
       if (ctx.abortController.signal.aborted) break
@@ -145,7 +104,7 @@ export async function insertDocumentBatch(
             batchBuffered = true
             return
           }
-          const result = ctx.executor.execute({
+          await ctx.executor.execute({
             type: 'insert',
             indexName,
             docId: batchDocId,
@@ -153,9 +112,6 @@ export async function insertDocumentBatch(
             requestId: batchDocId,
             skipClone: extractedVectors.size > 0 ? true : options?.skipClone,
           })
-          if (result && typeof (result as Promise<unknown>).then === 'function') {
-            await result
-          }
           batchInserted = true
           try {
             insertDocumentVectors(batchDocId, extractedVectors, batchVecIndexes)
@@ -206,10 +162,7 @@ export async function insertDocumentBatch(
         succeeded.push(batchDocId)
         succeededDocs.push(documents[i])
       } catch (err) {
-        failed.push({
-          docId: batchDocId,
-          error: err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, String(err)),
-        })
+        failed.push({ docId: batchDocId, error: asBatchInsertError(err) })
       }
     }
 
