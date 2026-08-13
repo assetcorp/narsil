@@ -1,4 +1,4 @@
-import type { CompactPostingList, InternalIdResolver, InternalSearchResult, ScoredDocument } from '../../types/internal'
+import type { InternalIdResolver, InternalSearchResult, PostingListView, ScoredDocument } from '../../types/internal'
 import type { BM25Params } from '../../types/schema'
 import { computeBM25 } from '../scorer'
 import { blockBoundsFor } from './block-bounds'
@@ -12,7 +12,7 @@ import { buildMinHeap, candidateWorse, siftDown, sortSelection, type TopKCandida
  * @internal
  */
 export interface SingleTermScanRequest {
-  list: CompactPostingList
+  list: PostingListView
   docFrequency: number
   totalDocs: number
   bm25Params: BM25Params | undefined

@@ -39,10 +39,27 @@ describe.skipIf(!built)('a large batch lands on worker copies before the per-ind
     const hits = await narsil.query('prose', { term: 'bulk', limit: 200 })
     expect(hits.hits.length).toBe(200)
 
+    await narsil.shutdown()
+
     const replicationWarnings = warnSpy.mock.calls.filter(call => String(call[0]).includes('Worker replication failed'))
     expect(replicationWarnings).toEqual([])
+  }, 120000)
+
+  it('answers a query with every document the moment the batch resolves', async () => {
+    const warnSpy = vi.spyOn(console, 'warn')
+    const narsil = await createNarsil({ workers: { enabled: true, count: 2, promotionThreshold: 100 } })
+    await narsil.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })
+
+    const result = await narsil.insertBatch('prose', proseDocuments(300, 'fresh'))
+    expect(result.succeeded).toHaveLength(300)
+
+    const hits = await narsil.query('prose', { term: 'fresh', limit: 300 })
+    expect(hits.hits.length).toBe(300)
 
     await narsil.shutdown()
+
+    const replicationWarnings = warnSpy.mock.calls.filter(call => String(call[0]).includes('Worker replication failed'))
+    expect(replicationWarnings).toEqual([])
   }, 120000)
 
   it('leaves promotion alone when the batch stays under the threshold', async () => {

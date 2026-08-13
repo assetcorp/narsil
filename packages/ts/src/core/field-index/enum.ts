@@ -1,8 +1,11 @@
 import { bitsetSet, createBitSet } from '../bitset'
 
-export interface EnumFieldIndex {
-  insert(internalId: number, value: string): void
-  remove(internalId: number, value: string): void
+/**
+ * The reads a filter performs against an enum field index.
+ *
+ * @internal
+ */
+export interface EnumFieldIndexReader {
   queryEq(value: string): Set<number>
   queryNe(value: string): Set<number>
   queryIn(values: string[]): Set<number>
@@ -12,6 +15,11 @@ export interface EnumFieldIndex {
   queryInBitset(values: string[], capacity: number): Uint32Array
   getAllDocIdsBitset(capacity: number): Uint32Array
   count(): number
+}
+
+export interface EnumFieldIndex extends EnumFieldIndexReader {
+  insert(internalId: number, value: string): void
+  remove(internalId: number, value: string): void
   clear(): void
   serialize(): Record<string, number[]>
   deserialize(data: Record<string, number[]>): void

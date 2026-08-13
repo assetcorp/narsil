@@ -1,6 +1,6 @@
-import type { CompactPostingList, InternalSearchParams, InternalSearchResult } from '../../types/internal'
+import type { InternalSearchParams, InternalSearchResult, PostingListView } from '../../types/internal'
 import { bitsetHas } from '../bitset'
-import type { InvertedIndex } from '../inverted-index'
+import type { InvertedIndexReader } from '../inverted-index'
 import { bm25PruningSound, computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
 import { addScore, beginScoring, createScoreBuffer, hasScore, topKFromBuffer } from './score-buffer'
 import {
@@ -13,7 +13,7 @@ import {
   type ScoreComponents,
 } from './scoring'
 import { singleTermTopK } from './single-term-topk'
-import type { PartitionState } from './utils'
+import type { PartitionReadState } from './utils'
 
 function globalDocFreqFor(docFreqs: Record<string, number>, term: string, fallback: number): number {
   return Object.hasOwn(docFreqs, term) ? docFreqs[term] : fallback
@@ -32,8 +32,8 @@ function globalDocFreqFor(docFreqs: Record<string, number>, term: string, fallba
  */
 export function prunableSingleTermList(
   params: InternalSearchParams,
-  index: Pick<InvertedIndex, 'lookup'>,
-): CompactPostingList | null {
+  index: Pick<InvertedIndexReader, 'lookup'>,
+): PostingListView | null {
   if (params.queryTokens.length !== 1) return null
   if (params.prefixExpansion !== undefined) return null
   if (params.exact !== true && (params.tolerance ?? 0) !== 0) return null
@@ -53,7 +53,7 @@ export function prunableSingleTermList(
   return list
 }
 
-export function searchFulltext(state: PartitionState, params: InternalSearchParams): InternalSearchResult {
+export function searchFulltext(state: PartitionReadState, params: InternalSearchParams): InternalSearchResult {
   const {
     queryTokens,
     prefixExpansion,
@@ -113,7 +113,7 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
   }
 
   function resolvePrefixMatches(token: string, expansionTerms: string[]): PrefixMatch[] {
-    const found: Array<{ token: string; postingList: CompactPostingList; docFreq: number }> = []
+    const found: Array<{ token: string; postingList: PostingListView; docFreq: number }> = []
     const seen = new Set<string>()
     for (const term of [token, ...expansionTerms]) {
       if (seen.has(term)) continue

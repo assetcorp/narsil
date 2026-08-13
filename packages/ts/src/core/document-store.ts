@@ -7,28 +7,36 @@ export type ReadonlyStoredDocument = {
   readonly fieldLengths: Readonly<Record<string, number>>
 }
 
-export interface DocumentStore {
-  store(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void
-  storeRef(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void
+/**
+ * The reads the query path performs against a document store. The live store
+ * implements it over its maps, and a frozen segment implements it over the
+ * segment's document table.
+ *
+ * @internal
+ */
+export interface DocumentStoreReader {
   get(docId: string): ReadonlyStoredDocument | undefined
-  remove(docId: string): boolean
   has(docId: string): boolean
   count(): number
   all(): IterableIterator<[string, ReadonlyStoredDocument]>
-  clear(): void
-  serialize(): Record<string, StoredDocument>
-  deserialize(data: Record<string, StoredDocument>): void
-
   sortedDocIds(): readonly string[]
   releaseSortedDocIds(): void
-
   fieldLengthColumn(fieldName: string): Uint32Array | null
-  ensureInternalId(docId: string): number
   getInternalId(docId: string): number | undefined
   getExternalId(internalId: number): string | undefined
   allInternalIds(): IterableIterator<number>
   internalIdCapacity(): number
   resolver(): InternalIdResolver
+}
+
+export interface DocumentStore extends DocumentStoreReader {
+  store(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void
+  storeRef(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void
+  remove(docId: string): boolean
+  clear(): void
+  serialize(): Record<string, StoredDocument>
+  deserialize(data: Record<string, StoredDocument>): void
+  ensureInternalId(docId: string): number
 }
 
 export function createDocumentStore(): DocumentStore {

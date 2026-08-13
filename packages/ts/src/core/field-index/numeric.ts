@@ -39,9 +39,13 @@ function collectDocIdsBitset(entries: NumericIndexEntry[], from: number, to: num
   return bs
 }
 
-export interface NumericFieldIndex {
-  insert(internalId: number, value: number): void
-  remove(internalId: number, value: number): void
+/**
+ * The range and equality reads a filter performs against a numeric field
+ * index.
+ *
+ * @internal
+ */
+export interface NumericFieldIndexReader {
   queryEq(value: number): Set<number>
   queryNe(value: number): Set<number>
   queryGt(value: number): Set<number>
@@ -58,6 +62,11 @@ export interface NumericFieldIndex {
   queryBetweenBitset(min: number, max: number, capacity: number): Uint32Array
   getAllDocIdsBitset(capacity: number): Uint32Array
   count(): number
+}
+
+export interface NumericFieldIndex extends NumericFieldIndexReader {
+  insert(internalId: number, value: number): void
+  remove(internalId: number, value: number): void
   clear(): void
   serialize(): NumericIndexEntry[]
   deserialize(data: NumericIndexEntry[]): void

@@ -11,12 +11,21 @@ export interface SurfaceFormCandidate {
  * their token are never stored; read paths derive their counts as total
  * term frequency minus `stemChangedTotalFor(token)`.
  */
-export interface SurfaceRegistry {
-  add(surface: string, token: string, occurrences: number): void
-  subtract(surface: string, occurrences: number): void
+/**
+ * The lookups suggestion and prefix reads perform against the surface form
+ * registry.
+ *
+ * @internal
+ */
+export interface SurfaceRegistryReader {
   candidatesForPrefix(prefix: string): SurfaceFormCandidate[]
   stemChangedTotalFor(token: string): number
   size(): number
+}
+
+export interface SurfaceRegistry extends SurfaceRegistryReader {
+  add(surface: string, token: string, occurrences: number): void
+  subtract(surface: string, occurrences: number): void
   clear(): void
   serialize(): SerializedSurfaceForms
   deserialize(data: SerializedSurfaceForms): void

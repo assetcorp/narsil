@@ -4,6 +4,7 @@ import type {
   InternalIdResolver,
   PostingEntry,
   PostingList,
+  PostingListView,
 } from '../types/internal'
 import { boundedLevenshtein } from './fuzzy'
 import { compareCodePoints } from './ordering'
@@ -21,7 +22,27 @@ export interface TermSuggestion {
   documentFrequency: number
 }
 
-export interface InvertedIndex {
+/**
+ * The lookups the query path performs against an inverted index. The live
+ * index implements it over its token map, and a frozen segment implements it
+ * over a sorted token table.
+ *
+ * @internal
+ */
+export interface InvertedIndexReader {
+  lookup(token: string): PostingListView | undefined
+  fuzzyLookup(
+    token: string,
+    tolerance: number,
+    prefixLength: number,
+  ): Array<{ token: string; postingList: PostingListView }>
+  prefixSearch(prefix: string, limit: number): TermSuggestion[]
+  has(token: string): boolean
+  tokens(): IterableIterator<string>
+  size(): number
+}
+
+export interface InvertedIndex extends InvertedIndexReader {
   insert(
     token: string,
     internalId: number,
@@ -38,10 +59,6 @@ export interface InvertedIndex {
     tolerance: number,
     prefixLength: number,
   ): Array<{ token: string; postingList: CompactPostingList }>
-  prefixSearch(prefix: string, limit: number): TermSuggestion[]
-  has(token: string): boolean
-  tokens(): IterableIterator<string>
-  size(): number
   clear(): void
   serialize(resolver: InternalIdResolver): Record<string, PostingList>
   deserialize(data: Record<string, PostingList>, resolver: InternalIdResolver): void

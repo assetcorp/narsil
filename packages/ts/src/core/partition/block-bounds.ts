@@ -1,4 +1,4 @@
-import type { CompactPostingList } from '../../types/internal'
+import type { PostingListView } from '../../types/internal'
 
 const TARGET_BLOCK_ENTRIES = 128
 const ABSENT_FIELD_LENGTH_BOUND = 0
@@ -23,7 +23,7 @@ export interface PostingBlockBounds {
   documentCount: Int32Array
 }
 
-const boundsByList = new WeakMap<CompactPostingList, PostingBlockBounds>()
+const boundsByList = new WeakMap<PostingListView, PostingBlockBounds>()
 
 function fieldLengthBound(columns: ReadonlyArray<Uint32Array | null>, fieldIndex: number, internalId: number): number {
   const column = fieldIndex < columns.length ? columns[fieldIndex] : null
@@ -37,7 +37,7 @@ function entriesCovered(bounds: PostingBlockBounds): number {
 }
 
 function scan(
-  list: CompactPostingList,
+  list: PostingListView,
   columns: ReadonlyArray<Uint32Array | null>,
   previous: PostingBlockBounds | null,
   keepBlocks: number,
@@ -125,10 +125,7 @@ function scan(
  * @param columns - The field length columns, indexed by field name index.
  * @returns The summaries, covering every entry in the list.
  */
-export function blockBoundsFor(
-  list: CompactPostingList,
-  columns: ReadonlyArray<Uint32Array | null>,
-): PostingBlockBounds {
+export function blockBoundsFor(list: PostingListView, columns: ReadonlyArray<Uint32Array | null>): PostingBlockBounds {
   const existing = boundsByList.get(list)
   if (existing !== undefined && existing.structureRevision === list.structureRevision) {
     const covered = entriesCovered(existing)

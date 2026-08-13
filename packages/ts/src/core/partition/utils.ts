@@ -2,29 +2,24 @@ import type { GeoIndex } from '../../geo/geo-index'
 import { flattenSchema, isTextFieldType } from '../../schema/validator'
 import type { FieldNameTable } from '../../types/internal'
 import type { CustomTokenizer, FieldType, SchemaDefinition } from '../../types/schema'
-import type { DocumentStore } from '../document-store'
+import type { DocumentStore, DocumentStoreReader } from '../document-store'
 import type { BooleanFieldIndex, EnumFieldIndex, NumericFieldIndex } from '../field-index'
 import type { InvertedIndex } from '../inverted-index'
 import type { PartitionStats } from '../statistics'
 import type { SurfaceRegistry } from '../surface-registry'
-import type { ScoreBuffer } from './score-buffer'
-import type { SortColumnSet } from './sort-columns'
+import type { PartitionReadState } from './read-state'
 
-export interface PartitionState {
-  invertedIdx: InvertedIndex
-  docStore: DocumentStore
-  stats: PartitionStats
-  surfaceRegistry: SurfaceRegistry
-  numericIndexes: Map<string, NumericFieldIndex>
-  booleanIndexes: Map<string, BooleanFieldIndex>
-  enumIndexes: Map<string, EnumFieldIndex>
-  geoIndexes: Map<string, GeoIndex>
-  fieldNameTable: FieldNameTable
-  flatSchemaCache: Record<string, FieldType> | null
-  lastSchemaRef: SchemaDefinition | null
-  trackPositions: boolean
-  sortColumns: SortColumnSet | null
-  scoreBuffer: ScoreBuffer | null
+export type { PartitionReadState } from './read-state'
+
+export interface PartitionState extends PartitionReadState {
+  readonly invertedIdx: InvertedIndex
+  readonly docStore: DocumentStore
+  readonly stats: PartitionStats
+  readonly surfaceRegistry: SurfaceRegistry
+  readonly numericIndexes: Map<string, NumericFieldIndex>
+  readonly booleanIndexes: Map<string, BooleanFieldIndex>
+  readonly enumIndexes: Map<string, EnumFieldIndex>
+  readonly geoIndexes: Map<string, GeoIndex>
 }
 
 export function getOrCreateFieldNameIndex(table: FieldNameTable, fieldName: string): number {
@@ -100,26 +95,30 @@ export function tokenizeOptions(options?: PartitionInsertOptions) {
   }
 }
 
-export function getFlatSchema(state: PartitionState, schema: SchemaDefinition): Record<string, FieldType> {
+export function getFlatSchema(state: PartitionReadState, schema: SchemaDefinition): Record<string, FieldType> {
   if (state.lastSchemaRef === schema && state.flatSchemaCache) return state.flatSchemaCache
   state.flatSchemaCache = flattenSchema(schema)
   state.lastSchemaRef = schema
   return state.flatSchemaCache
 }
 
-export function getFieldValueForDoc(docStore: DocumentStore, docId: string, fieldPath: string): unknown {
+export function getFieldValueForDoc(docStore: DocumentStoreReader, docId: string, fieldPath: string): unknown {
   const stored = docStore.get(docId)
   if (!stored) return undefined
   return getNestedValue(stored.fields as Record<string, unknown>, fieldPath)
 }
 
-export function getFieldValueByInternalId(docStore: DocumentStore, internalId: number, fieldPath: string): unknown {
+export function getFieldValueByInternalId(
+  docStore: DocumentStoreReader,
+  internalId: number,
+  fieldPath: string,
+): unknown {
   const externalId = docStore.getExternalId(internalId)
   if (externalId === undefined) return undefined
   return getFieldValueForDoc(docStore, externalId, fieldPath)
 }
 
-export function getAllDocIds(docStore: DocumentStore): Set<string> {
+export function getAllDocIds(docStore: DocumentStoreReader): Set<string> {
   const ids = new Set<string>()
   for (const [id] of docStore.all()) {
     ids.add(id)
@@ -127,7 +126,7 @@ export function getAllDocIds(docStore: DocumentStore): Set<string> {
   return ids
 }
 
-export function getAllInternalDocIds(docStore: DocumentStore): Set<number> {
+export function getAllInternalDocIds(docStore: DocumentStoreReader): Set<number> {
   const ids = new Set<number>()
   for (const internalId of docStore.allInternalIds()) {
     ids.add(internalId)

@@ -1,7 +1,7 @@
-import type { CompactPostingList, InternalSearchParams } from '../../types/internal'
+import type { InternalSearchParams, PostingListView } from '../../types/internal'
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 import type { PartitionFilterMatches } from './filters'
-import type { PartitionState } from './utils'
+import type { PartitionReadState } from './utils'
 
 /**
  * The documents of one partition that a full-text query matches, held as a bit
@@ -17,7 +17,7 @@ export interface PartitionSearchMatches extends PartitionFilterMatches {
 
 function markPostingList(
   matched: Uint32Array,
-  list: CompactPostingList,
+  list: PostingListView,
   fieldNames: string[],
   fields: string[] | undefined,
   filterBitset: Uint32Array | undefined,
@@ -32,7 +32,7 @@ function markPostingList(
   }
 }
 
-export function searchFulltextMatches(state: PartitionState, params: InternalSearchParams): PartitionSearchMatches {
+export function searchFulltextMatches(state: PartitionReadState, params: InternalSearchParams): PartitionSearchMatches {
   const { queryTokens, prefixExpansion, fields, tolerance = 0, prefixLength = 2, exact = false, filterBitset } = params
 
   const fieldNames = state.fieldNameTable.names

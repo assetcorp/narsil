@@ -17,6 +17,25 @@ export interface FieldNameTable {
   indexMap: Map<string, number>
 }
 
+/**
+ * The read-only face of a posting list, holding exactly what the query path
+ * touches. The live {@link CompactPostingList} satisfies it directly, and a
+ * frozen segment serves it as views over flat typed arrays.
+ *
+ * @internal
+ */
+export interface PostingListView {
+  readonly length: number
+  readonly docIds: ArrayLike<number>
+  readonly termFrequencies: ArrayLike<number>
+  readonly fieldNameIndices: ArrayLike<number>
+  readonly docIdSet: { readonly size: number }
+  readonly deletedDocs: { readonly size: number; has(internalId: number): boolean }
+  readonly totalTermFrequency: number
+  readonly structureRevision: number
+  readonly ordered: boolean
+}
+
 export interface CompactPostingList {
   length: number
   docIds: number[]

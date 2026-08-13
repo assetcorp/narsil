@@ -5,7 +5,7 @@ import {
   type SortDirection,
 } from '../../ordering'
 import type { PartitionFilterMatches } from '../filters'
-import type { PartitionState } from '../utils'
+import type { PartitionReadState } from '../utils'
 import type { SortColumn } from './index'
 import { MISSING_RANK, rankIsBetweenValues, rankOfValue } from './order'
 
@@ -182,7 +182,7 @@ function createStream(column: SortColumn, direction: SortDirection, anchorRank: 
   }
 }
 
-export function selectSortedPage(state: PartitionState, request: SortPageRequest): SortedPageEntry[] {
+export function selectSortedPage(state: PartitionReadState, request: SortPageRequest): SortedPageEntry[] {
   const { fields, directions, fieldTypes, limit, anchorKey, anchorId, matches } = request
   if (limit <= 0 || fields.length === 0) return []
 

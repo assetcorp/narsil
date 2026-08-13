@@ -1,6 +1,8 @@
 import { type ResolvedAnalysis, resolveIndexAnalysis } from '../analysis/registry'
 import type { ComparableSortValue } from '../core/ordering'
 import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../core/partition'
+import { type CompositePartition, createCompositePartition } from '../core/partition/composite'
+import type { FrozenSegment } from '../core/partition/frozen'
 import type { SegmentPayload } from '../core/partition/segment-payload'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { SerializablePartition } from '../types/internal'
@@ -48,6 +50,7 @@ export interface PartitionManager {
   serializePartitionToBytes(partitionId: number): Uint8Array
   deserializePartition(partitionId: number, data: SerializablePartition): void
   mergeSegment(partitionId: number, payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
+  attachFrozenSegment(partitionId: number, segment: FrozenSegment): void
   getAggregateStats(): {
     totalDocuments: number
     docFrequencies: Record<string, number>
@@ -108,6 +111,25 @@ export function createPartitionManager(
 
   function resolveInsertOptions(options?: PartitionInsertOptions): PartitionInsertOptions | undefined {
     return resolvePartitionInsertOptions(config, analysis, options)
+  }
+
+  function locateDocument(docId: string): number | undefined {
+    const mapped = docPartitionMap.get(docId)
+    if (mapped !== undefined) return mapped
+    for (let i = 0; i < partitions.length; i++) {
+      if (partitions[i].has(docId)) return i
+    }
+    return undefined
+  }
+
+  function asCompositePartition(partitionId: number): CompositePartition {
+    const existing = partitions[partitionId]
+    if ('attachFrozenSegment' in existing) {
+      return existing as CompositePartition
+    }
+    const composite = createCompositePartition(partitionId, trackPositions, existing)
+    partitions[partitionId] = composite
+    return composite
   }
 
   function rebuildDocPartitionMap(): void {
@@ -212,7 +234,7 @@ export function createPartitionManager(
       const effectivePartitionCount =
         partitionCountCap === undefined ? partitions.length : Math.min(partitions.length, partitionCountCap)
       const totalCapacity = currentMaxDocs * effectivePartitionCount
-      if (docPartitionMap.size + pendingWrites >= totalCapacity) {
+      if (manager.countDocuments() + pendingWrites >= totalCapacity) {
         throw new NarsilError(
           ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
           `Index "${indexName}" has reached its capacity of ${totalCapacity} documents (${currentMaxDocs} per partition × ${effectivePartitionCount} partitions)`,
@@ -236,7 +258,7 @@ export function createPartitionManager(
     },
 
     remove(docId: string): void {
-      const pid = docPartitionMap.get(docId)
+      const pid = locateDocument(docId)
       if (pid === undefined) {
         throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
       }
@@ -265,16 +287,17 @@ export function createPartitionManager(
     },
 
     update(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void {
-      const pid = docPartitionMap.get(docId)
+      const pid = locateDocument(docId)
       if (pid === undefined) {
         throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
       }
       const updateOpts = resolveInsertOptions(options)
       partitions[pid].update(docId, document, config.schema, language, updateOpts)
+      docPartitionMap.set(docId, pid)
     },
 
     get(docId: string, keepVectorField?: (fieldPath: string) => boolean): AnyDocument | undefined {
-      const pid = docPartitionMap.get(docId)
+      const pid = locateDocument(docId)
       if (pid === undefined) return undefined
       const doc = partitions[pid].get(docId)
       if (!doc) return undefined
@@ -289,7 +312,7 @@ export function createPartitionManager(
     },
 
     getRef(docId: string): AnyDocument | undefined {
-      const pid = docPartitionMap.get(docId)
+      const pid = locateDocument(docId)
       if (pid === undefined) return undefined
       return partitions[pid].getRef(docId)
     },
@@ -299,17 +322,21 @@ export function createPartitionManager(
       fields: readonly string[],
       fieldTypes: readonly (string | undefined)[],
     ): ComparableSortValue[] {
-      const pid = docPartitionMap.get(docId)
+      const pid = locateDocument(docId)
       if (pid === undefined) return fields.map(() => null)
       return partitions[pid].sortValues(docId, fields, fieldTypes)
     },
 
     has(docId: string): boolean {
-      return docPartitionMap.has(docId)
+      return locateDocument(docId) !== undefined
     },
 
     countDocuments(): number {
-      return docPartitionMap.size
+      let total = 0
+      for (let i = 0; i < partitions.length; i++) {
+        total += partitions[i].count()
+      }
+      return total
     },
 
     serializePartition(partitionId: number): SerializablePartition {
@@ -331,6 +358,11 @@ export function createPartitionManager(
       for (const docId of payload.docIds) {
         docPartitionMap.set(docId, partitionId)
       }
+    },
+
+    attachFrozenSegment(partitionId: number, segment: FrozenSegment): void {
+      validatePartitionId(partitionId)
+      asCompositePartition(partitionId).attachFrozenSegment(segment)
     },
 
     deserializePartition(partitionId: number, data: SerializablePartition): void {

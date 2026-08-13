@@ -1,5 +1,5 @@
 import { compareCodePoints } from '../ordering'
-import type { PartitionState } from './utils'
+import type { PartitionReadState } from './utils'
 
 export interface PartitionSuggestion {
   token: string
@@ -14,7 +14,7 @@ interface TokenGroup {
 
 // Total term frequency runs stale-high until compaction; counts only break
 // ties between display spellings, so visibility stays correct.
-function verbatimOccurrences(state: PartitionState, token: string): number {
+function verbatimOccurrences(state: PartitionReadState, token: string): number {
   const postingList = state.invertedIdx.lookup(token)
   if (!postingList) return 0
   const derived = postingList.totalTermFrequency - state.surfaceRegistry.stemChangedTotalFor(token)
@@ -22,7 +22,7 @@ function verbatimOccurrences(state: PartitionState, token: string): number {
 }
 
 export function suggestDisplayTerms(
-  state: PartitionState,
+  state: PartitionReadState,
   surfacePrefix: string,
   stemmedPrefix: string,
   limit: number,
@@ -76,7 +76,7 @@ export function suggestDisplayTerms(
 // Expansion runs in surface space because a typed prefix can be longer than
 // the stem it maps to ("securi" never prefixes the term "secur").
 export function expandTermPrefix(
-  state: PartitionState,
+  state: PartitionReadState,
   surfacePrefix: string,
   stemmedToken: string,
   maxExpansions: number,
