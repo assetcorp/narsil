@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createPartitionIndex } from '../../../../core/partition'
+import { createCompositePartition } from '../../../../core/partition/composite'
 import { applyPartitionFilters } from '../../../../core/partition/filters'
 import {
   createFrozenSegment,
@@ -148,6 +149,28 @@ describe('a shared frozen segment answers every read like its plain twin', () =>
     expect(shared.docStore.get(probe)?.fields).toEqual(plain.docStore.get(probe)?.fields)
     expect([...shared.docStore.sortedDocIds()]).toEqual([...plain.docStore.sortedDocIds()])
     expect(shared.stats.docFrequencies).toEqual(plain.stats.docFrequencies)
+  })
+
+  it('attaches to a composite without reading the document table', () => {
+    const MSGPACK_NEVER_USED_BYTE = 0xc1
+    const documents = buildCorpus(80)
+    const live = createPartitionIndex(0)
+    for (const doc of documents) {
+      live.insert(String(doc.id), doc, simpleSchema, english)
+    }
+    const snapshot = freezeSegmentShared(live.encodeSegment(), documents)
+    expect(snapshot).not.toBeNull()
+    if (snapshot === null) return
+    snapshot.documentTable.blob.fill(MSGPACK_NEVER_USED_BYTE)
+
+    const composite = createCompositePartition(0)
+    expect(() => composite.attachFrozenSegment(createSharedFrozenSegment(snapshot))).not.toThrow()
+
+    expect(composite.count()).toBe(documents.length)
+    expect(composite.has(String(documents[0].id))).toBe(true)
+    const result = composite.searchFulltext(termParams({ tokens: ['apple'], exact: true }))
+    expect(result.scored.length).toBeGreaterThan(0)
+    expect(() => composite.get(String(documents[0].id))).toThrow()
   })
 
   it('hides a tombstoned document from shared reads', () => {

@@ -45,6 +45,60 @@ describe.skipIf(!built)('a large batch lands on worker copies before the per-ind
     expect(replicationWarnings).toEqual([])
   }, 120000)
 
+  it('snapshots a batch-ingested index whose partitions hold frozen segments and restores it whole', async () => {
+    const narsil = await createNarsil({ workers: { enabled: true, count: 2, promotionThreshold: 100 } })
+    await narsil.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })
+    await narsil.insertBatch('prose', proseDocuments(200, 'snap'))
+    await narsil.remove('prose', 'snap-0003')
+    await narsil.update('prose', 'snap-0004', { id: 'snap-0004', title: 'snap updated zeta', price: 900 })
+
+    const bytes = await narsil.snapshot('prose')
+    const before = await narsil.query('prose', { term: 'alpha', limit: 200 })
+    await narsil.shutdown()
+
+    const reloaded = await createNarsil()
+    await reloaded.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })
+    await reloaded.restore('prose', bytes)
+
+    expect(await reloaded.countDocuments('prose')).toBe(199)
+    expect(await reloaded.get('prose', 'snap-0003')).toBeUndefined()
+    expect(await reloaded.get('prose', 'snap-0004')).toMatchObject({ title: 'snap updated zeta', price: 900 })
+
+    const after = await reloaded.query('prose', { term: 'alpha', limit: 200 })
+    expect(after.hits.map(hit => hit.id).sort()).toEqual(before.hits.map(hit => hit.id).sort())
+    expect(after.count).toBe(before.count)
+
+    const updated = await reloaded.query('prose', { term: 'zeta', limit: 10 })
+    expect(updated.hits.map(hit => hit.id)).toContain('snap-0004')
+    await reloaded.shutdown()
+  }, 120000)
+
+  it('keeps every batch queryable while sustained ingest triggers segment compaction', async () => {
+    const warnSpy = vi.spyOn(console, 'warn')
+    const narsil = await createNarsil({ workers: { enabled: true, count: 2, promotionThreshold: 100 } })
+    await narsil.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })
+
+    for (let batch = 0; batch < 10; batch++) {
+      const result = await narsil.insertBatch('prose', proseDocuments(100, `batch${batch}`))
+      expect(result.failed).toHaveLength(0)
+    }
+
+    expect(await narsil.countDocuments('prose')).toBe(1000)
+    for (const marker of ['batch0', 'batch4', 'batch9']) {
+      const hits = await narsil.query('prose', { term: marker, limit: 200 })
+      expect(hits.hits).toHaveLength(100)
+    }
+    await narsil.remove('prose', 'batch0-0001')
+    expect(await narsil.countDocuments('prose')).toBe(999)
+
+    await narsil.shutdown()
+
+    const warnings = warnSpy.mock.calls.filter(
+      call => String(call[0]).includes('Worker replication failed') || String(call[0]).includes('compaction'),
+    )
+    expect(warnings).toEqual([])
+  }, 120000)
+
   it('answers a query with every document the moment the batch resolves', async () => {
     const warnSpy = vi.spyOn(console, 'warn')
     const narsil = await createNarsil({ workers: { enabled: true, count: 2, promotionThreshold: 100 } })

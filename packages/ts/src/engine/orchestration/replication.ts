@@ -1,6 +1,6 @@
 import type { WorkerAction } from '../../workers/protocol'
 import { alreadyPresentOnWorker, reportIneligible, workerIneligibility } from './eligibility'
-import type { OrchestratorState, ReplicationQueue } from './types'
+import type { OrchestratorState, ReplicationQueue, SegmentLedgerEntry } from './types'
 
 export const MAX_PENDING_REPLICATION_DOCUMENTS = 20_000
 
@@ -48,6 +48,9 @@ function documentWeight(action: WorkerAction): number {
     }
     return total
   }
+  if (action.type === 'swapSegments') {
+    return action.snapshot.documentCount
+  }
   return 1
 }
 
@@ -65,6 +68,40 @@ function detachCallerDocuments(action: WorkerAction): WorkerAction {
     }
   }
   return action
+}
+
+function partitionLedger(state: OrchestratorState, indexName: string, partitionId: number): SegmentLedgerEntry[] {
+  let byPartition = state.segmentLedger.get(indexName)
+  if (byPartition === undefined) {
+    byPartition = new Map()
+    state.segmentLedger.set(indexName, byPartition)
+  }
+  let entries = byPartition.get(partitionId)
+  if (entries === undefined) {
+    entries = []
+    byPartition.set(partitionId, entries)
+  }
+  return entries
+}
+
+function recordSegmentBroadcast(state: OrchestratorState, action: WorkerAction): void {
+  if (action.type === 'attachSegments') {
+    for (const segment of action.segments) {
+      partitionLedger(state, action.indexName, segment.partitionId).push({
+        segmentId: segment.snapshot.segmentId,
+        documentCount: segment.snapshot.documentCount,
+      })
+    }
+    return
+  }
+  if (action.type === 'swapSegments') {
+    const entries = partitionLedger(state, action.indexName, action.partitionId)
+    const dropped = new Set(action.dropSegmentIds)
+    const kept = entries.filter(entry => !dropped.has(entry.segmentId))
+    kept.push({ segmentId: action.snapshot.segmentId, documentCount: action.snapshot.documentCount })
+    entries.length = 0
+    entries.push(...kept)
+  }
 }
 
 function queueFor(state: OrchestratorState, indexName: string): ReplicationQueue {
@@ -114,6 +151,7 @@ export async function replicateToWorkers(state: OrchestratorState, action: Worke
   if (queue !== undefined && queue.pendingDocuments + weight > MAX_PENDING_REPLICATION_DOCUMENTS) {
     await queue.tail
   }
+  recordSegmentBroadcast(state, detached)
   enqueue(state, detached.indexName, detached, weight)
 }
 

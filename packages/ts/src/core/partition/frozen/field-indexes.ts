@@ -46,6 +46,7 @@ function bitsetOfRange(docIds: Uint32Array, from: number, to: number, capacity: 
 export function createFrozenNumericReader(entry: SegmentPayload['numeric'][number]): NumericFieldIndexReader {
   const { docIds, values } = entry
   return {
+    serialize: () => Array.from(docIds, (docId, i) => ({ docId, value: values[i] })),
     queryEq: value => setOfRange(docIds, lowerBound(values, value), upperBound(values, value)),
     queryNe: value => setOutsideRange(docIds, lowerBound(values, value), upperBound(values, value)),
     queryGt: value => setOfRange(docIds, upperBound(values, value), docIds.length),
@@ -70,6 +71,7 @@ export function createFrozenNumericReader(entry: SegmentPayload['numeric'][numbe
 export function createFrozenBooleanReader(entry: SegmentPayload['boolean'][number]): BooleanFieldIndexReader {
   const { trueDocs, falseDocs } = entry
   return {
+    serialize: () => ({ trueDocs: [...trueDocs], falseDocs: [...falseDocs] }),
     queryEq: value => setOfRange(value ? trueDocs : falseDocs, 0, value ? trueDocs.length : falseDocs.length),
     queryNe: value => setOfRange(value ? falseDocs : trueDocs, 0, value ? falseDocs.length : trueDocs.length),
     getAllDocIds: () => {
@@ -100,6 +102,13 @@ export function createFrozenEnumReader(entry: SegmentPayload['enums'][number]): 
   }
 
   return {
+    serialize: () => {
+      const byValue: Record<string, number[]> = Object.create(null)
+      for (let i = 0; i < values.length; i++) {
+        byValue[values[i]] = [...docIds.subarray(offsets[i], offsets[i + 1])]
+      }
+      return byValue
+    },
     queryEq: value => {
       const { from, to } = rangeOf(value)
       return setOfRange(docIds, from, to)

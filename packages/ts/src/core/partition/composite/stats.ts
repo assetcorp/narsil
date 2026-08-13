@@ -67,18 +67,25 @@ export function aggregateFieldStats(subs: readonly PartitionReadState[]): {
   return { totalDocuments, totalFieldLengths, averageFieldLengths }
 }
 
-export function buildAggregateStatsView(subs: readonly PartitionReadState[]): PartitionStatsView {
+export function mergeDocFrequencies(subs: readonly PartitionReadState[]): Readonly<Record<string, number>> {
+  const merged: Record<string, number> = Object.create(null)
+  for (const sub of subs) {
+    for (const [term, frequency] of Object.entries(sub.stats.docFrequencies)) {
+      merged[term] = (merged[term] ?? 0) + frequency
+    }
+  }
+  return merged
+}
+
+export function buildAggregateStatsView(
+  subs: readonly PartitionReadState[],
+  docFrequencies: () => Readonly<Record<string, number>>,
+): PartitionStatsView {
   const fields = aggregateFieldStats(subs)
   return {
     ...fields,
     get docFrequencies(): Readonly<Record<string, number>> {
-      const merged: Record<string, number> = Object.create(null)
-      for (const sub of subs) {
-        for (const [term, frequency] of Object.entries(sub.stats.docFrequencies)) {
-          merged[term] = (merged[term] ?? 0) + frequency
-        }
-      }
-      return merged
+      return docFrequencies()
     },
   }
 }

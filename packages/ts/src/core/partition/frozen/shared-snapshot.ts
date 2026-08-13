@@ -1,5 +1,6 @@
 import type { SerializedSurfaceForms } from '../../../types/internal'
 import type { AnyDocument } from '../../../types/schema'
+import { generateId } from '../../id-generator'
 import type { SegmentPayload } from '../segment-payload'
 import { type EncodedDocumentTableData, encodeDocumentTableData } from './document-source'
 import { type ExternalIdTableData, encodeExternalIdTableData } from './external-ids'
@@ -16,6 +17,7 @@ import { encodeFrozenTokenTableData, type FrozenTokenTableData } from './token-t
  * @internal
  */
 export interface SharedSegmentSnapshot {
+  segmentId: string
   documentCount: number
   fieldNames: string[]
   fieldLengthNames: string[]
@@ -64,6 +66,7 @@ function sharedFloat64(source: Float64Array): Float64Array {
 export function freezeSegmentShared(
   payload: SegmentPayload,
   documents: ReadonlyArray<AnyDocument>,
+  segmentId?: string,
 ): SharedSegmentSnapshot | null {
   if (typeof SharedArrayBuffer !== 'function') return null
 
@@ -72,6 +75,7 @@ export function freezeSegmentShared(
   const documentData = encodeDocumentTableData(documents)
 
   return {
+    segmentId: segmentId ?? generateId(),
     documentCount: payload.documentCount,
     fieldNames: [...payload.fieldNames],
     fieldLengthNames: [...payload.fieldLengthNames],

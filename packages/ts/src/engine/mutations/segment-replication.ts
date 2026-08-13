@@ -1,4 +1,5 @@
 import { fnv1a } from '../../core/hash'
+import { generateId } from '../../core/id-generator'
 import { freezeSegmentShared, type SharedSegmentSnapshot } from '../../core/partition/frozen'
 import type { SegmentPayload } from '../../core/partition/segment-payload'
 import type { AnyDocument } from '../../types/schema'
@@ -68,6 +69,7 @@ export function buildSegmentRequests(
 
 export interface BroadcastSegment {
   partitionId: number
+  segmentId: string
   payload: SegmentPayload
   documents: AnyDocument[]
 }
@@ -77,11 +79,22 @@ export function freezeSegmentsForAttach(
 ): Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }> | null {
   const frozen: Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }> = []
   for (const segment of segments) {
-    const snapshot = freezeSegmentShared(segment.payload, segment.documents)
+    const snapshot = freezeSegmentShared(segment.payload, segment.documents, segment.segmentId)
     if (snapshot === null) return null
     frozen.push({ partitionId: segment.partitionId, snapshot })
   }
   return frozen
+}
+
+function tryFreezeSegmentsForAttach(
+  segments: ReadonlyArray<BroadcastSegment>,
+): Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }> | null {
+  try {
+    return freezeSegmentsForAttach(segments)
+  } catch (err) {
+    console.warn('Segment freeze failed, replicating by merge instead:', err)
+    return null
+  }
 }
 
 export async function broadcastBuiltSegments(
@@ -90,7 +103,7 @@ export async function broadcastBuiltSegments(
   segments: ReadonlyArray<BroadcastSegment>,
   skipClone: boolean | undefined,
 ): Promise<void> {
-  const frozen = freezeSegmentsForAttach(segments)
+  const frozen = tryFreezeSegmentsForAttach(segments)
   if (frozen !== null) {
     await orchestrator.replicateToWorkers({
       type: 'attachSegments',
@@ -132,6 +145,7 @@ export async function replicateAsSegments(
     indexName,
     built.map(segment => ({
       partitionId: segment.partitionId,
+      segmentId: generateId(),
       payload: segment.payload,
       documents: segment.documents,
     })),

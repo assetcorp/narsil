@@ -8,6 +8,7 @@ import type { Executor } from '../../workers/executor'
 import type { ExecutionPromoter } from '../../workers/promoter'
 import type { WorkerAction } from '../../workers/protocol'
 import { transferIndexToPool } from '../worker-resync'
+import { awaitCompactions, maybeCompactSegments } from './compaction'
 import { workerIneligibility } from './eligibility'
 import { checkPromotion, promoteBeforeBatch } from './promotion'
 import { awaitReplicationIdle, replicateToWorkers } from './replication'
@@ -37,6 +38,8 @@ export function createWorkerOrchestrator(
     reportedIneligible: new Set(),
     promotedIndexes: new Set(),
     replicationQueues: new Map(),
+    segmentLedger: new Map(),
+    compactionsInFlight: new Map(),
     workerPool: null,
     promotionInProgress: false,
     promotionBlocked: false,
@@ -58,6 +61,7 @@ export function createWorkerOrchestrator(
 
     state.promotedIndexes.delete(indexName)
     await awaitReplicationIdle(state, indexName)
+    state.segmentLedger.delete(indexName)
     await transferIndexToPool(indexName, pool, entry.config, manager)
     state.promotedIndexes.add(indexName)
   }
@@ -75,11 +79,20 @@ export function createWorkerOrchestrator(
 
   async function shutdown(): Promise<void> {
     if (state.workerPool) {
+      await awaitCompactions(state)
       await awaitReplicationIdle(state)
       await state.workerPool.shutdown()
       state.workerPool = null
       state.promotedIndexes.clear()
       state.replicationQueues.clear()
+      state.segmentLedger.clear()
+    }
+  }
+
+  async function replicate(action: WorkerAction): Promise<void> {
+    await replicateToWorkers(state, action)
+    if (action.type === 'attachSegments') {
+      maybeCompactSegments(state, action.indexName)
     }
   }
 
@@ -87,8 +100,9 @@ export function createWorkerOrchestrator(
     checkPromotion: (): Promise<void> => checkPromotion(state),
     promoteBeforeBatch: (indexName: string, incomingCount: number): Promise<void> =>
       promoteBeforeBatch(state, indexName, incomingCount),
-    replicateToWorkers: (action: WorkerAction): Promise<void> => replicateToWorkers(state, action),
+    replicateToWorkers: replicate,
     awaitReplication: (indexName?: string): Promise<void> => awaitReplicationIdle(state, indexName),
+    awaitCompactions: (): Promise<void> => awaitCompactions(state),
     buildSegments: (requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null> => buildSegments(state, requests),
     segmentBuildConcurrency: (indexName: string): number => segmentBuildConcurrency(state, indexName),
     searchViaWorker: (

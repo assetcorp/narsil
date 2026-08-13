@@ -15,10 +15,11 @@ import { createPartitionIndex, type PartitionIndex, partitionStateOf } from '../
 import type { PartitionSearchMatches } from '../matches'
 import { estimatePartitionBytes } from '../memory'
 import type { PartitionReadState } from '../read-state'
-import type { SegmentPayload } from '../segment-payload'
+import { encodeSegmentState, type SegmentPayload } from '../segment-payload'
 import type { SortedPageEntry, SortPageRequest } from '../sorting'
 import type { PartitionSuggestion } from '../suggestions'
 import type { PartitionInsertOptions } from '../utils'
+import { resolveFrozenSegments, swapFrozenSegmentList } from './compaction'
 import {
   compositeFilterMatches,
   compositeFilters,
@@ -28,7 +29,7 @@ import {
 } from './filters'
 import { compositeSearchFulltext, compositeSearchMatches } from './search'
 import { compositeSortedPage, compositeSortValues } from './sorting'
-import { buildAggregateStatsView } from './stats'
+import { buildAggregateStatsView, mergeDocFrequencies } from './stats'
 import { compositeExpandTermPrefix, compositeSuggestTerms } from './suggest'
 
 /**
@@ -43,17 +44,27 @@ import { compositeExpandTermPrefix, compositeSuggestTerms } from './suggest'
 export interface CompositePartition extends PartitionIndex {
   readonly live: PartitionIndex
   frozenSegmentCount(): number
+  frozenSegmentSizes(): Array<{ segmentId: string; liveDocumentCount: number }>
+  frozenSegmentsById(segmentIds: readonly string[]): FrozenSegment[]
   appendFrozenSegment(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
   attachFrozenSegment(segment: FrozenSegment): void
+  swapFrozenSegments(dropSegmentIds: readonly string[], replacement: FrozenSegment): void
 }
 
-function frozenStateGuard(partitionId: number, operation: string, frozenCount: number): void {
-  if (frozenCount === 0) return
-  throw new NarsilError(
-    ErrorCodes.PARTITION_CORRUPTED,
-    `Partition ${partitionId} holds ${frozenCount} frozen segments, and ${operation} reads only the live tail, so it must run after compaction folds them in`,
-    { partitionId, frozenCount, operation },
-  )
+export function isCompositePartition(partition: PartitionIndex): partition is CompositePartition {
+  return 'attachFrozenSegment' in partition
+}
+
+function survivorDocuments(sub: PartitionReadState, payload: SegmentPayload): AnyDocument[] {
+  return payload.docIds.map(docId => {
+    const stored = sub.docStore.get(docId)
+    if (stored === undefined) {
+      throw new NarsilError(ErrorCodes.PARTITION_CORRUPTED, `Document "${docId}" vanished while composing a segment`, {
+        docId,
+      })
+    }
+    return stored.fields as AnyDocument
+  })
 }
 
 export function createCompositePartition(
@@ -64,9 +75,31 @@ export function createCompositePartition(
   const live = existingLive ?? createPartitionIndex(partitionId, trackPositions)
   const liveState = partitionStateOf(live)
   const frozen: FrozenSegment[] = []
+  let docFrequenciesCache: Readonly<Record<string, number>> | null = null
+
+  function invalidateDocFrequencies(): void {
+    docFrequenciesCache = null
+  }
+
+  function cachedDocFrequencies(): Readonly<Record<string, number>> {
+    if (docFrequenciesCache === null) {
+      docFrequenciesCache = mergeDocFrequencies(subs())
+    }
+    return docFrequenciesCache
+  }
 
   function subs(): PartitionReadState[] {
     return [...frozen, liveState]
+  }
+
+  function composedScratch(): PartitionIndex {
+    const scratch = createPartitionIndex(partitionId, trackPositions)
+    for (const sub of subs()) {
+      const payload = encodeSegmentState(sub)
+      if (payload.documentCount === 0) continue
+      scratch.mergeSegmentPayload(payload, survivorDocuments(sub, payload))
+    }
+    return scratch
   }
 
   function layout(): OrdinalLayout {
@@ -89,11 +122,24 @@ export function createCompositePartition(
     },
 
     get stats() {
-      return buildAggregateStatsView([...frozen, liveState])
+      return buildAggregateStatsView([...frozen, liveState], cachedDocFrequencies)
     },
 
     frozenSegmentCount(): number {
       return frozen.length
+    },
+
+    frozenSegmentSizes(): Array<{ segmentId: string; liveDocumentCount: number }> {
+      return frozen.map(segment => ({ segmentId: segment.segmentId, liveDocumentCount: segment.liveDocumentCount() }))
+    },
+
+    frozenSegmentsById(segmentIds: readonly string[]): FrozenSegment[] {
+      return resolveFrozenSegments(frozen, segmentIds, partitionId)
+    },
+
+    swapFrozenSegments(dropSegmentIds: readonly string[], replacement: FrozenSegment): void {
+      swapFrozenSegmentList(frozen, dropSegmentIds, replacement, partitionId)
+      invalidateDocFrequencies()
     },
 
     appendFrozenSegment(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void {
@@ -106,10 +152,13 @@ export function createCompositePartition(
         }
       }
       frozen.push(createFrozenSegment(payload, documents))
+      invalidateDocFrequencies()
     },
 
     attachFrozenSegment(segment: FrozenSegment): void {
-      for (const [docId] of segment.docStore.all()) {
+      for (const ordinal of segment.docStore.allInternalIds()) {
+        const docId = segment.docStore.getExternalId(ordinal)
+        if (docId === undefined) continue
         if (live.has(docId) || frozenOwner(docId) !== undefined) {
           throw new NarsilError(ErrorCodes.DOC_ALREADY_EXISTS, `Document "${docId}" already exists in this partition`, {
             docId,
@@ -118,43 +167,56 @@ export function createCompositePartition(
         }
       }
       frozen.push(segment)
+      invalidateDocFrequencies()
     },
 
     mergeSegment(segment: PartitionIndex): void {
+      invalidateDocFrequencies()
       live.mergeSegment(segment)
     },
 
     mergeSegmentPayload(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void {
+      invalidateDocFrequencies()
       live.mergeSegmentPayload(payload, documents)
     },
 
     encodeSegment(): SegmentPayload {
-      frozenStateGuard(partitionId, 'encodeSegment', frozen.length)
-      return live.encodeSegment()
+      if (frozen.length === 0) return live.encodeSegment()
+      return composedScratch().encodeSegment()
     },
 
     rebuildTextIndex(schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void {
-      frozenStateGuard(partitionId, 'rebuildTextIndex', frozen.length)
+      invalidateDocFrequencies()
+      if (frozen.length > 0) {
+        for (const segment of frozen) {
+          const payload = encodeSegmentState(segment)
+          if (payload.documentCount === 0) continue
+          live.mergeSegmentPayload(payload, survivorDocuments(segment, payload))
+        }
+        frozen.length = 0
+      }
       live.rebuildTextIndex(schema, language, options)
     },
 
     serialize(indexName: string, totalPartitions: number, language: string, schema: SchemaDefinition) {
-      frozenStateGuard(partitionId, 'serialize', frozen.length)
-      return live.serialize(indexName, totalPartitions, language, schema)
+      if (frozen.length === 0) return live.serialize(indexName, totalPartitions, language, schema)
+      return composedScratch().serialize(indexName, totalPartitions, language, schema)
     },
 
     serializeToBytes(indexName: string, totalPartitions: number, language: string, schema: SchemaDefinition) {
-      frozenStateGuard(partitionId, 'serializeToBytes', frozen.length)
-      return live.serializeToBytes(indexName, totalPartitions, language, schema)
+      if (frozen.length === 0) return live.serializeToBytes(indexName, totalPartitions, language, schema)
+      return composedScratch().serializeToBytes(indexName, totalPartitions, language, schema)
     },
 
     deserialize(data, schema): void {
       frozen.length = 0
+      invalidateDocFrequencies()
       live.deserialize(data, schema)
     },
 
     clear(): void {
       frozen.length = 0
+      invalidateDocFrequencies()
       live.clear()
     },
 
@@ -166,21 +228,24 @@ export function createCompositePartition(
           { docId, partitionId },
         )
       }
+      invalidateDocFrequencies()
       live.insert(docId, document, schema, language, options)
     },
 
     update(docId, document, schema, language, options): void {
+      invalidateDocFrequencies()
       const owner = frozenOwner(docId)
       if (owner === undefined) {
         live.update(docId, document, schema, language, options)
         return
       }
-      owner.tombstoneDocument(docId)
       live.insert(docId, document, schema, language, options)
+      owner.tombstoneDocument(docId)
     },
 
     remove(docId, schema, language, options): void {
       if (live.has(docId)) {
+        invalidateDocFrequencies()
         live.remove(docId, schema, language, options)
         return
       }

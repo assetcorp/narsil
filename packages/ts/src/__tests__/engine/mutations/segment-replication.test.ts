@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { SegmentPayload } from '../../../core/partition/segment-payload'
 import type { SegmentReplicationDeps } from '../../../engine/mutations/segment-replication'
 import { replicateAsSegments } from '../../../engine/mutations/segment-replication'
@@ -148,6 +148,23 @@ describe('replicateAsSegments', () => {
     expect(attached).toBe(500)
     for (const segment of action.segments) {
       expect(segment.snapshot.postingDocIds.buffer).toBeInstanceOf(SharedArrayBuffer)
+    }
+  })
+
+  it('falls back to the merge broadcast when a document cannot be freeze-encoded', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const recorded = makeDeps(4, 1)
+      const { docIds, docs } = documents(500)
+      docs[0] = { id: docIds[0], title: 'title for doc-0000', revision: BigInt(7) }
+
+      expect(await replicateAsSegments(recorded.deps, 'prose', docIds, docs, undefined)).toBe(true)
+
+      expect(recorded.replicated).toHaveLength(1)
+      expect(recorded.replicated[0].type).toBe('mergeSegments')
+      expect(warn).toHaveBeenCalledOnce()
+    } finally {
+      warn.mockRestore()
     }
   })
 

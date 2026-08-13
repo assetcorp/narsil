@@ -12,13 +12,13 @@ export interface BooleanFieldIndexReader {
   queryEqBitset(value: boolean, capacity: number): Uint32Array
   getAllDocIdsBitset(capacity: number): Uint32Array
   count(): number
+  serialize(): { trueDocs: number[]; falseDocs: number[] }
 }
 
 export interface BooleanFieldIndex extends BooleanFieldIndexReader {
   insert(internalId: number, value: boolean): void
   remove(internalId: number, value: boolean): void
   clear(): void
-  serialize(): { trueDocs: number[]; falseDocs: number[] }
   deserialize(data: { trueDocs: number[]; falseDocs: number[] }): void
 }
 

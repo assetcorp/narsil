@@ -15,13 +15,13 @@ export interface EnumFieldIndexReader {
   queryInBitset(values: string[], capacity: number): Uint32Array
   getAllDocIdsBitset(capacity: number): Uint32Array
   count(): number
+  serialize(): Record<string, number[]>
 }
 
 export interface EnumFieldIndex extends EnumFieldIndexReader {
   insert(internalId: number, value: string): void
   remove(internalId: number, value: string): void
   clear(): void
-  serialize(): Record<string, number[]>
   deserialize(data: Record<string, number[]>): void
 }
 

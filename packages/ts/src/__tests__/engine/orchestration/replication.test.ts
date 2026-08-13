@@ -65,6 +65,8 @@ function makeHarness(workerCount: number, indexNames: string[]): Harness {
     reportedIneligible: new Set(),
     promotedIndexes: new Set(indexNames),
     replicationQueues: new Map(),
+    segmentLedger: new Map(),
+    compactionsInFlight: new Map(),
     workerPool: pool,
     promotionInProgress: false,
     promotionBlocked: false,

@@ -29,6 +29,7 @@ export interface PostingListView {
   readonly docIds: ArrayLike<number>
   readonly termFrequencies: ArrayLike<number>
   readonly fieldNameIndices: ArrayLike<number>
+  readonly positions: ReadonlyArray<readonly number[] | undefined> | null
   readonly docIdSet: { readonly size: number }
   readonly deletedDocs: { readonly size: number; has(internalId: number): boolean }
   readonly totalTermFrequency: number

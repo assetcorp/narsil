@@ -18,6 +18,7 @@ export interface WorkerOrchestrator {
   promoteBeforeBatch(indexName: string, incomingCount: number): Promise<void>
   replicateToWorkers(action: WorkerAction): Promise<void>
   awaitReplication(indexName?: string): Promise<void>
+  awaitCompactions(): Promise<void>
   buildSegments(requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null>
   segmentBuildConcurrency(indexName: string): number
   searchViaWorker(indexName: string, params: QueryParams, globalStats?: GlobalStatistics): Promise<FanOutResult | null>
@@ -45,6 +46,11 @@ export interface ReplicationQueue {
   pendingDocuments: number
 }
 
+export interface SegmentLedgerEntry {
+  segmentId: string
+  documentCount: number
+}
+
 export interface OrchestratorState {
   readonly config: NarsilConfig | undefined
   readonly executor: Executor & DirectExecutorExtensions
@@ -58,6 +64,8 @@ export interface OrchestratorState {
   readonly reportedIneligible: Set<string>
   readonly promotedIndexes: Set<string>
   readonly replicationQueues: Map<string, ReplicationQueue>
+  readonly segmentLedger: Map<string, Map<number, SegmentLedgerEntry[]>>
+  readonly compactionsInFlight: Map<string, Promise<void>>
   workerPool: WorkerPool | null
   promotionInProgress: boolean
   promotionBlocked: boolean
