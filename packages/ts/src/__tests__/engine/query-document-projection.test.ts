@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { ErrorCodes } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
 import type { SchemaDefinition } from '../../types/schema'
 
@@ -137,11 +138,14 @@ describe('document projection', () => {
     expect(result.hits[0].document.title).toBe('alpha')
   })
 
-  it('never writes through a prototype key a projection names', async () => {
+  it('rejects a prototype-keyed document at insert and never writes through one in a projection', async () => {
     await narsil.createIndex('docs', { schema: nestedSchema, language: 'english' })
     const hostile = JSON.parse('{"title":"alpha","__proto__":{"polluted":"yes"}}')
-    await narsil.insert('docs', hostile, 'doc-1')
+    await expect(narsil.insert('docs', hostile, 'doc-1')).rejects.toMatchObject({
+      code: ErrorCodes.DOC_VALIDATION_FAILED,
+    })
 
+    await narsil.insert('docs', { title: 'alpha' }, 'doc-2')
     const result = await narsil.query('docs', { term: 'alpha', document: { include: ['__proto__.polluted'] } })
 
     expect(({} as Record<string, unknown>).polluted).toBeUndefined()
