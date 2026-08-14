@@ -499,10 +499,13 @@ export interface NarsilConfig {
 
 // @public
 export class NarsilError extends Error {
-    constructor(code: ErrorCode, message: string, details?: Record<string, unknown>);
-    readonly code: ErrorCode;
+    constructor(code: NarsilErrorCode, message: string, details?: Record<string, unknown>);
+    readonly code: NarsilErrorCode;
     readonly details: Record<string, unknown>;
 }
+
+// @public
+export type NarsilErrorCode = ErrorCode | ServerErrorCode;
 
 // @public
 export type NarsilEventMap = {
@@ -714,6 +717,24 @@ export interface SearchContext {
 
 // @public
 export type SearchMode = 'fulltext' | 'vector' | 'hybrid';
+
+// @public
+export type ServerErrorCode = (typeof ServerErrorCodes)[keyof typeof ServerErrorCodes];
+
+// @public
+export const ServerErrorCodes: {
+    readonly INVALID_REQUEST: "INVALID_REQUEST";
+    readonly INVALID_JSON: "INVALID_JSON";
+    readonly EMPTY_BODY: "EMPTY_BODY";
+    readonly PAYLOAD_TOO_LARGE: "PAYLOAD_TOO_LARGE";
+    readonly NOT_FOUND: "NOT_FOUND";
+    readonly TASK_NOT_FOUND: "TASK_NOT_FOUND";
+    readonly TASK_NOT_CANCELLABLE: "TASK_NOT_CANCELLABLE";
+    readonly TASK_OWNED_BY_ANOTHER_INSTANCE: "TASK_OWNED_BY_ANOTHER_INSTANCE";
+    readonly TOO_MANY_REQUESTS: "TOO_MANY_REQUESTS";
+    readonly HOOK_ERROR: "HOOK_ERROR";
+    readonly INTERNAL_ERROR: "INTERNAL_ERROR";
+};
 
 // @public
 export interface SortField {

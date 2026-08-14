@@ -1,25 +1,22 @@
-import { NarsilError } from '../errors'
+import { NarsilError, ServerErrorCodes } from '../errors'
 
-/** HTTP-layer error codes for failures that arise before or around the engine
- * call (parsing, limits, routing). Engine failures carry their own
- * {@link NarsilError} codes, mapped by {@link httpStatusForNarsilError}.
- *
- * @public */
-export const ServerErrorCodes = {
-  INVALID_REQUEST: 'INVALID_REQUEST',
-  INVALID_JSON: 'INVALID_JSON',
-  EMPTY_BODY: 'EMPTY_BODY',
-  PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
-  UNSUPPORTED_MEDIA_TYPE: 'UNSUPPORTED_MEDIA_TYPE',
-  NOT_FOUND: 'NOT_FOUND',
-  TASK_NOT_FOUND: 'TASK_NOT_FOUND',
-  TOO_MANY_REQUESTS: 'TOO_MANY_REQUESTS',
-  HOOK_ERROR: 'HOOK_ERROR',
-  INTERNAL_ERROR: 'INTERNAL_ERROR',
-  REQUEST_ABORTED: 'REQUEST_ABORTED',
-} as const
+export type { ServerErrorCode } from '../errors'
+export { ServerErrorCodes } from '../errors'
 
 const STATUS_BY_CODE: Record<string, number> = {
+  INVALID_REQUEST: 400,
+  INVALID_JSON: 400,
+  EMPTY_BODY: 400,
+  PAYLOAD_TOO_LARGE: 413,
+  NOT_FOUND: 404,
+  TASK_NOT_FOUND: 404,
+  TASK_NOT_CANCELLABLE: 409,
+  TASK_OWNED_BY_ANOTHER_INSTANCE: 409,
+  TOO_MANY_REQUESTS: 429,
+  HOOK_ERROR: 500,
+  INTERNAL_ERROR: 500,
+  ENVELOPE_INVALID_MAGIC: 400,
+  ENVELOPE_VERSION_MISMATCH: 400,
   SCHEMA_INVALID_TYPE: 400,
   SCHEMA_MISSING_FIELD: 400,
   SCHEMA_DEPTH_EXCEEDED: 400,
