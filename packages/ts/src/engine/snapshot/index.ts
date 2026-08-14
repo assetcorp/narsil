@@ -99,7 +99,24 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
   }
 
   const { decode } = await import('@msgpack/msgpack')
-  const envelope = decode(data) as SnapshotEnvelope
+  let decoded: unknown
+  try {
+    decoded = decode(data)
+  } catch (err) {
+    throw new NarsilError(
+      ErrorCodes.DOC_VALIDATION_FAILED,
+      `Snapshot data is not a Narsil snapshot: ${err instanceof Error ? err.message : String(err)}`,
+      { bytes: data.length },
+    )
+  }
+
+  if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
+    throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Snapshot data does not hold a snapshot envelope', {
+      bytes: data.length,
+    })
+  }
+
+  const envelope = decoded as SnapshotEnvelope
 
   if (envelope.version !== 1 && envelope.version !== 2) {
     throw new NarsilError(

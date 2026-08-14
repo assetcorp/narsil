@@ -4,19 +4,15 @@ import { ServerErrorCodes } from '../errors'
 import { parseJsonOptional, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import type { RouteContext } from '../request'
 import { sendBinary, sendError } from '../response'
-import type { RebalanceBody, TaskRecord } from '../types'
-import { validateRebalance } from '../validation'
+import type { RebalanceBody } from '../types'
+import { parseTaskListQuery, validateRebalance } from '../validation'
 
 interface FieldBody {
   field?: string
 }
 
-function taskResponse(record: TaskRecord): { taskId: string; type: string; status: string } {
-  return { taskId: record.id, type: record.type, status: record.status }
-}
-
 export function createAdminHandlers(deps: HandlerDeps) {
-  const { engine, tasks } = deps
+  const { engine, tasks, limits } = deps
 
   async function checkpoint(ctx: RouteContext): Promise<void> {
     try {
@@ -90,7 +86,19 @@ export function createAdminHandlers(deps: HandlerDeps) {
       return
     }
     const record = await tasks.start('optimizeVectors', name, () => engine.optimizeVectors(name, body.field))
-    respondJson(ctx, taskResponse(record), 202)
+    respondJson(ctx, record, 202)
+  }
+
+  async function rebuildAnalysis(ctx: RouteContext): Promise<void> {
+    const name = ctx.params[0]
+    try {
+      requireIndexExists(name)
+    } catch (err) {
+      respondError(ctx, err)
+      return
+    }
+    const record = await tasks.start('rebuildAnalysis', name, () => engine.rebuildAnalysis(name))
+    respondJson(ctx, record, 202)
   }
 
   async function rebalance(ctx: RouteContext): Promise<void> {
@@ -110,7 +118,7 @@ export function createAdminHandlers(deps: HandlerDeps) {
       return
     }
     const record = await tasks.start('rebalance', name, () => engine.rebalance(name, target))
-    respondJson(ctx, taskResponse(record), 202)
+    respondJson(ctx, record, 202)
   }
 
   async function restore(ctx: RouteContext): Promise<void> {
@@ -122,7 +130,7 @@ export function createAdminHandlers(deps: HandlerDeps) {
     const name = ctx.params[0]
     const bytes = new Uint8Array(raw)
     const record = await tasks.start('restore', name, () => engine.restore(name, bytes))
-    respondJson(ctx, taskResponse(record), 202)
+    respondJson(ctx, record, 202)
   }
 
   async function getTask(ctx: RouteContext): Promise<void> {
@@ -135,7 +143,42 @@ export function createAdminHandlers(deps: HandlerDeps) {
   }
 
   async function listTasks(ctx: RouteContext): Promise<void> {
-    respondJson(ctx, { tasks: await tasks.list() })
+    const parsed = parseTaskListQuery(ctx.query, limits.maxTaskPageSize)
+    if ('failure' in parsed) {
+      rejectInvalid(ctx, parsed.failure)
+      return
+    }
+    respondJson(ctx, await tasks.list(parsed.query))
+  }
+
+  async function cancelTask(ctx: RouteContext): Promise<void> {
+    const taskId = ctx.params[0]
+    const { outcome, record } = await tasks.cancel(taskId)
+    if (outcome === 'not-found') {
+      sendError(ctx.res, 404, ServerErrorCodes.TASK_NOT_FOUND, `Task "${taskId}" not found`)
+      return
+    }
+    if (outcome === 'already-finished') {
+      sendError(
+        ctx.res,
+        409,
+        ServerErrorCodes.TASK_NOT_CANCELLABLE,
+        `Task "${taskId}" has already finished`,
+        record === null ? undefined : { status: record.status },
+      )
+      return
+    }
+    if (outcome === 'owned-by-another-instance') {
+      sendError(
+        ctx.res,
+        409,
+        ServerErrorCodes.TASK_OWNED_BY_ANOTHER_INSTANCE,
+        `Task "${taskId}" runs on another server instance, which is the only one that can stop it`,
+        record === null ? undefined : { owner: record.owner },
+      )
+      return
+    }
+    respondJson(ctx, record, 202)
   }
 
   return {
@@ -147,8 +190,10 @@ export function createAdminHandlers(deps: HandlerDeps) {
     memory,
     optimize,
     rebalance,
+    rebuildAnalysis,
     restore,
     getTask,
     listTasks,
+    cancelTask,
   }
 }

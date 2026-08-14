@@ -1,5 +1,5 @@
-import type { EmbeddingAdapter } from '../types/adapters'
-import type { AnyDocument, InsertOptions } from '../types/schema'
+import type { EmbeddingAdapter } from '../../types/adapters'
+import type { TaskStore } from './tasks'
 
 /**
  * Context handed to {@link OnRequestHook} for every inbound request, captured
@@ -79,7 +79,7 @@ export interface ServerLimits {
   maxLineBytes?: number
   /** Documents handed to the engine per batch during NDJSON import; the loop yields between batches. */
   importBatchSize?: number
-  /** Maximum requests executing engine work at once; excess is shed with 503. Omit or 0 to disable. */
+  /** Maximum requests executing engine work at once; excess is shed with 429. Omit or 0 to disable. */
   maxConcurrentRequests?: number
   /** Ceiling for a search's `limit`, `offset`, and `group.maxPerGroup`, so one
    * request cannot ask for an unbounded result set. Excess → 400. Defaults to
@@ -89,6 +89,12 @@ export interface ServerLimits {
    * request cannot pull an unbounded number of documents. Excess → 400.
    * Defaults to 10000. */
   maxFetchDocuments?: number
+  /** Ceiling for how many per-line failures one import reports and stores, so a
+   * corpus of bad records cannot produce an unbounded response or task record.
+   * Excess failures still count towards the reported total. Defaults to 100. */
+  maxImportErrors?: number
+  /** Ceiling for how many task records one `/tasks` page returns. Excess → 400. Defaults to 1000. */
+  maxTaskPageSize?: number
 }
 
 /**
@@ -148,49 +154,6 @@ export interface ServerOptions {
 }
 
 /**
- * Pluggable backing store for task records. Every method is async so any
- * backend works: an in-memory map, Redis, an HTTP key-value service, or a
- * database. `set` upserts by `record.id`; `get` returns null for an unknown id.
- * `ttlMs`, when honored by the backend, expires the record so terminal tasks do
- * not accumulate. The server never calls a method that mutates a record it did
- * not construct, so a backend may treat records as immutable snapshots.
- *
- * @public
- */
-export interface TaskStore {
-  /**
-   * Stores a record, replacing whatever its id already held.
-   *
-   * @param record - The record to store.
-   * @param ttlMs - Milliseconds after which the backend may drop it, which
-   * keeps finished tasks from accumulating. Ignore it in a backend without
-   * expiry.
-   */
-  set(record: TaskRecord, ttlMs?: number): Promise<void>
-  /**
-   * Reads one record back.
-   *
-   * @param id - The task to read.
-   * @returns The record, or `null` when the store holds no such id.
-   */
-  get(id: string): Promise<TaskRecord | null>
-  /**
-   * Lists every record the store holds.
-   *
-   * @returns Each record the backend still has.
-   */
-  list(): Promise<TaskRecord[]>
-  /**
-   * Removes one record. An id the store never held is not an error.
-   *
-   * @param id - The task to remove.
-   */
-  delete(id: string): Promise<void>
-  /** Releases whatever the backend holds open, such as a connection pool. */
-  shutdown?(): Promise<void>
-}
-
-/**
  * The running HTTP server, as {@link createServer} returns it.
  *
  * @public
@@ -225,136 +188,4 @@ export interface ErrorEnvelope {
     /** These values are behind the failure, such as the field or limit involved. */
     details?: Record<string, unknown>
   }
-}
-
-/**
- * Which long-running operation a task record tracks.
- *
- * @public
- */
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore'
-
-/**
- * Where a long-running operation stands.
- *
- * @public
- */
-export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed'
-
-/**
- * One long-running operation, which the server answers with straight away and
- * you then poll.
- *
- * @public
- */
-export interface TaskRecord {
-  /** This identifies the task, and is what you poll by. */
-  id: string
-  /** This says which operation the task runs. */
-  type: TaskType
-  /** The operation runs against this index. */
-  indexName: string
-  /** This says where the operation stands. */
-  status: TaskStatus
-  /** Identifier of the server instance running this task; see ServerOptions.instanceId. */
-  owner: string
-  /** The server accepted the task at this many milliseconds since the epoch. */
-  createdAt: number
-  /** Work started at this many milliseconds since the epoch, and a queued task omits it. */
-  startedAt?: number
-  /** Work ended at this many milliseconds since the epoch, and a task omits it until it succeeds or fails. */
-  completedAt?: number
-  /** This says why the task failed, and a failed task alone carries it. */
-  error?: { code: string; message: string; details?: Record<string, unknown> }
-}
-
-/** Declarative index configuration accepted over HTTP. Function-valued engine
- * options (custom tokenizer, stopWords-as-function, group reducer, embedding
- * adapter object) are not representable here; the embedding adapter is named
- * instead via {@link CreateIndexEmbedding}.
- *
- * @public */
-export interface CreateIndexRequest {
-  /** The server creates the index under this name. */
-  name: string
-  /** This carries the schema and settings, in the subset JSON can express. */
-  config: HttpIndexConfig
-}
-
-/**
- * How a JSON `createIndex` request connects an index to an embedding adapter.
- *
- * An adapter is a function and cannot cross JSON, so the request names one the
- * server registered instead of carrying it.
- *
- * @public
- */
-export interface CreateIndexEmbedding {
-  /** This names an adapter the server registered under `embeddingAdapters`. */
-  adapter?: string
-  /** This maps each vector field to the text field, or fields, the server embeds into it. */
-  fields: Record<string, string | string[]>
-}
-
-export interface InsertBody {
-  document: AnyDocument
-  id?: string
-  options?: InsertOptions
-}
-
-export interface DocumentBody {
-  document: AnyDocument
-}
-
-export interface MultiGetBody {
-  docIds: string[]
-}
-
-export interface BatchBody {
-  action?: 'insert' | 'update' | 'delete'
-  documents?: AnyDocument[]
-  updates?: Array<{ docId: string; document: AnyDocument }>
-  docIds?: string[]
-  options?: InsertOptions
-}
-
-export interface RebalanceBody {
-  targetPartitionCount?: number
-}
-
-/**
- * The index settings a JSON request can carry, which is {@link IndexConfig}
- * minus everything that is a function.
- *
- * A custom tokeniser, a stop-word function, and an embedding adapter object
- * have no JSON form, so an HTTP client names a registered one or supplies a
- * plain list instead.
- *
- * @public
- */
-export interface HttpIndexConfig {
-  /** This layout gives each value as either a field type or a nested schema. */
-  schema: Record<string, unknown>
-  /** The server tokenises and stems text fields with the language module registered under this name. */
-  language?: string
-  /** These settings control how the index splits documents across partitions as it grows. */
-  partitions?: { maxDocsPerPartition?: number; maxPartitions?: number; watermark?: number }
-  /** A query scores this way unless it asks for another mode. */
-  defaultScoring?: 'local' | 'dfs' | 'broadcast'
-  /** These parameters tune BM25 for this index. */
-  bm25?: { k1?: number; b?: number }
-  /** This list replaces the language's stop words. */
-  stopWords?: string[]
-  /** Setting this records term positions, which phrase queries and highlighting need. */
-  trackPositions?: boolean
-  /** Setting this to false returns index stems from suggestions and prefix expansion, instead of the words users typed. */
-  surfaceForms?: boolean
-  /** These settings control when vector fields move to an HNSW graph, and how that graph is built. */
-  vectorPromotion?: Record<string, unknown>
-  /** Setting this rejects a document carrying a field the schema does not declare. */
-  strict?: boolean
-  /** This names a server-registered embedding adapter and the fields it embeds. */
-  embedding?: CreateIndexEmbedding
-  /** The server rejects a document that omits any of these fields. */
-  required?: string[]
 }

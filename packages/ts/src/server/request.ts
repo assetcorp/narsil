@@ -176,7 +176,7 @@ export function createRouteRunner(deps: RunnerDeps) {
         .then(async ([rawBody, allowed]) => {
           if (abort.aborted || !allowed) return
           if (gated && !gate.tryAcquire()) {
-            sendError(res, 503, ServerErrorCodes.TOO_MANY_REQUESTS, 'The server is at capacity; retry shortly')
+            sendError(res, 429, ServerErrorCodes.TOO_MANY_REQUESTS, 'The server is at capacity; retry shortly')
             return
           }
           try {

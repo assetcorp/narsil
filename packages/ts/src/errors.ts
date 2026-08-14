@@ -102,11 +102,49 @@ export const ErrorCodes = {
 
 /**
  * Any one of the codes in {@link ErrorCodes}, which is the type to narrow on
- * when you branch on a failure.
+ * when you branch on a failure the engine raised.
  *
  * @public
  */
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes]
+
+/**
+ * Every code the HTTP layer raises for a failure that arises before or around
+ * the engine call, such as parsing the body, enforcing a limit, or routing.
+ *
+ * The engine raises none of these, so a failure carrying one of them says the
+ * request never reached the engine.
+ *
+ * @public
+ */
+export const ServerErrorCodes = {
+  INVALID_REQUEST: 'INVALID_REQUEST',
+  INVALID_JSON: 'INVALID_JSON',
+  EMPTY_BODY: 'EMPTY_BODY',
+  PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
+  NOT_FOUND: 'NOT_FOUND',
+  TASK_NOT_FOUND: 'TASK_NOT_FOUND',
+  TASK_NOT_CANCELLABLE: 'TASK_NOT_CANCELLABLE',
+  TASK_OWNED_BY_ANOTHER_INSTANCE: 'TASK_OWNED_BY_ANOTHER_INSTANCE',
+  TOO_MANY_REQUESTS: 'TOO_MANY_REQUESTS',
+  HOOK_ERROR: 'HOOK_ERROR',
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
+} as const
+
+/**
+ * Any one of the codes in {@link ServerErrorCodes}.
+ *
+ * @public
+ */
+export type ServerErrorCode = (typeof ServerErrorCodes)[keyof typeof ServerErrorCodes]
+
+/**
+ * Every code a {@link NarsilError} can carry, whichever part of Narsil raised
+ * it: the engine, or the HTTP layer in front of it.
+ *
+ * @public
+ */
+export type NarsilErrorCode = ErrorCode | ServerErrorCode
 
 /**
  * The error every part of the engine throws.
@@ -120,19 +158,21 @@ export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes]
  */
 export class NarsilError extends Error {
   /** This says which failure it is. */
-  readonly code: ErrorCode
+  readonly code: NarsilErrorCode
   /** This carries the values behind the failure, such as the field, index, or limit involved. It is empty when the code says everything. */
   readonly details: Record<string, unknown>
 
   /**
    * Builds an error carrying a code the caller can branch on.
    *
-   * @param code - The failure this error reports.
+   * @param code - The failure this error reports, from {@link ErrorCodes} for
+   * an engine failure or {@link ServerErrorCodes} for one the HTTP layer
+   * raised.
    * @param message - Plain description, for a log or a person.
    * @param details - Values behind the failure, which reach
    * {@link NarsilError.details}.
    */
-  constructor(code: ErrorCode, message: string, details?: Record<string, unknown>) {
+  constructor(code: NarsilErrorCode, message: string, details?: Record<string, unknown>) {
     super(message)
     this.name = 'NarsilError'
     this.code = code
@@ -140,6 +180,10 @@ export class NarsilError extends Error {
   }
 }
 
-export function createNarsilError(code: ErrorCode, message: string, details?: Record<string, unknown>): NarsilError {
+export function createNarsilError(
+  code: NarsilErrorCode,
+  message: string,
+  details?: Record<string, unknown>,
+): NarsilError {
   return new NarsilError(code, message, details)
 }

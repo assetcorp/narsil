@@ -12,8 +12,8 @@ export {
   getNormalizationCacheSize,
   resetNormalizationCache,
 } from './core/tokenizer'
-export type { ErrorCode } from './errors'
-export { ErrorCodes, NarsilError } from './errors'
+export type { ErrorCode, NarsilErrorCode, ServerErrorCode } from './errors'
+export { ErrorCodes, NarsilError, ServerErrorCodes } from './errors'
 export { getLanguage, registerLanguage } from './languages/registry'
 export type { Narsil } from './narsil'
 export { createNarsil } from './narsil'

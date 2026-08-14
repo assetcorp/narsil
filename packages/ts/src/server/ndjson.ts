@@ -11,6 +11,7 @@ export class NdjsonLineTooLongError extends Error {
 export interface NdjsonLine {
   lineNumber: number
   text: string
+  bytesConsumed: number
 }
 
 /**
@@ -32,7 +33,7 @@ export function* iterateNdjson(buffer: Buffer, maxLineBytes: number): Generator<
     if (contentEnd > start && buffer[contentEnd - 1] === CARRIAGE_RETURN) contentEnd--
     if (contentEnd > start) {
       lineNumber++
-      yield { lineNumber, text: buffer.toString('utf8', start, contentEnd) }
+      yield { lineNumber, text: buffer.toString('utf8', start, contentEnd), bytesConsumed: Math.min(end + 1, length) }
     }
     start = end + 1
   }

@@ -1,6 +1,6 @@
 import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
-import { type ErrorCode, ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError, type NarsilErrorCode } from '../../errors'
 import { crc32 } from '../../serialization/crc32'
 import {
   createSnapshotStreamState,
@@ -20,7 +20,7 @@ export const CAPACITY_EXHAUSTED_BACKOFF_MAX_MS = 500
  * Errors that can legitimately be transient on the same target: retry the same
  * or next target. These are traffic-shaping, network, or controller-state errors.
  */
-const RETRY_ANY_TARGET_CODES: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
+const RETRY_ANY_TARGET_CODES: ReadonlySet<NarsilErrorCode> = new Set<NarsilErrorCode>([
   ErrorCodes.SNAPSHOT_SYNC_TRANSPORT_FAILED,
   ErrorCodes.SNAPSHOT_SYNC_TIMEOUT,
   ErrorCodes.SNAPSHOT_SYNC_CAPACITY_EXHAUSTED,
@@ -32,7 +32,7 @@ const RETRY_ANY_TARGET_CODES: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
  * may be a transient bit-flip or a buggy peer; either way the sensible reaction
  * is to try a different target exactly once, not to cycle indefinitely.
  */
-const RETRY_DIFFERENT_TARGET_PROTOCOL_CODES: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
+const RETRY_DIFFERENT_TARGET_PROTOCOL_CODES: ReadonlySet<NarsilErrorCode> = new Set<NarsilErrorCode>([
   ErrorCodes.SNAPSHOT_SYNC_DECODE_FAILED,
   ErrorCodes.SNAPSHOT_SYNC_FRAME_INVALID,
   ErrorCodes.SNAPSHOT_SYNC_CHECKSUM_MISMATCH,
@@ -50,7 +50,7 @@ const TRANSIENT_PRIMARY_CODES: ReadonlySet<string> = new Set<string>([
 
 type RetryKind = 'none' | 'any-target' | 'protocol'
 
-function classifyFailure(code: ErrorCode, details: Record<string, unknown>): RetryKind {
+function classifyFailure(code: NarsilErrorCode, details: Record<string, unknown>): RetryKind {
   if (RETRY_ANY_TARGET_CODES.has(code)) {
     return 'any-target'
   }
@@ -66,7 +66,7 @@ function classifyFailure(code: ErrorCode, details: Record<string, unknown>): Ret
   return 'none'
 }
 
-export function isTransientFailure(code: ErrorCode, details: Record<string, unknown>): boolean {
+export function isTransientFailure(code: NarsilErrorCode, details: Record<string, unknown>): boolean {
   return classifyFailure(code, details) !== 'none'
 }
 

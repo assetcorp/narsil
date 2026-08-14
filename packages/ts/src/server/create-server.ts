@@ -6,6 +6,7 @@ import { corsWriter, resolveCors, writeCorsOrigin } from './cors'
 import type { HandlerDeps, ResolvedBuild, ResolvedLimits } from './deps'
 import { ServerErrorCodes } from './errors'
 import { createAdminHandlers } from './handlers/admin'
+import { createCapabilitiesHandler } from './handlers/capabilities'
 import { createDocumentHandlers } from './handlers/documents'
 import { createHealthHandlers } from './handlers/health'
 import { createImportHandler } from './handlers/import'
@@ -30,6 +31,8 @@ function resolveLimits(limits: ServerLimits | undefined): ResolvedLimits {
     maxConcurrentRequests: limits?.maxConcurrentRequests ?? 0,
     maxResultWindow: limits?.maxResultWindow ?? 10_000,
     maxFetchDocuments: limits?.maxFetchDocuments ?? 10_000,
+    maxImportErrors: limits?.maxImportErrors ?? 100,
+    maxTaskPageSize: limits?.maxTaskPageSize ?? 1000,
   }
 }
 
@@ -135,6 +138,7 @@ class NarsilHttpServer implements NarsilServer {
     const admin = createAdminHandlers(this.deps)
     const health = createHealthHandlers(this.deps)
     const version = createVersionHandler(this.deps)
+    const capabilities = createCapabilitiesHandler()
     const importNdjson = createImportHandler(this.deps)
 
     const json = (handler: RouteHandler, opts: RouteOptions): ReturnType<typeof run> => run(handler, opts)
@@ -158,9 +162,11 @@ class NarsilHttpServer implements NarsilServer {
     app.get('/readyz', json(health.readyz, { maxBytes: 0, skipHooks: true }))
     app.get('/health', json(health.livez, { maxBytes: 0, skipHooks: true }))
     app.get('/version', json(version.report, { maxBytes: 0, skipHooks: true }))
+    app.get('/capabilities', json(capabilities.report, { maxBytes: 0, skipHooks: true }))
     app.get('/stats/memory', json(admin.memory, { maxBytes: 0 }))
     app.get('/tasks', json(admin.listTasks, { maxBytes: 0 }))
     app.get('/tasks/:id', json(admin.getTask, { paramCount: 1, maxBytes: 0 }))
+    app.post('/tasks/:id/_cancel', json(admin.cancelTask, { paramCount: 1, maxBytes: 0 }))
 
     app.post('/indexes', json(idx.create, { needsBody: true, maxBytes: maxBodyBytes }))
     app.get('/indexes', json(idx.list, { maxBytes: 0 }))
@@ -204,6 +210,7 @@ class NarsilHttpServer implements NarsilServer {
     app.post('/indexes/:name/suggest', json(search.suggest, { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }))
 
     app.post('/indexes/:name/_checkpoint', json(admin.checkpoint, { paramCount: 1, maxBytes: 0 }))
+    app.post('/indexes/:name/_rebuild-analysis', json(admin.rebuildAnalysis, { paramCount: 1, maxBytes: 0 }))
     app.get('/indexes/:name/snapshot', json(admin.snapshot, { paramCount: 1, maxBytes: 0 }))
     app.get('/indexes/:name/vector-maintenance', json(admin.vectorMaintenance, { paramCount: 1, maxBytes: 0 }))
     app.post(
