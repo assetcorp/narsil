@@ -46,7 +46,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsup && node scripts/check-browser-bundle.mjs && tsx scripts/api-surface.ts",
+    "build": "rm -rf dist && tsup && node scripts/check-browser-bundle.mjs && tsx scripts/api-surface.ts",
     "test": "vitest run --exclude='**/vector/recall.test.ts'",
     "test:etcd": "vitest run src/__tests__/distribution/coordinator/etcd-integration/*.test.ts",
     "test:watch": "vitest",
@@ -133,6 +133,10 @@
     "./server": {
       "import": "./dist/server.mjs",
       "types": "./dist/server.d.ts"
+    },
+    "./client": {
+      "import": "./dist/client.mjs",
+      "types": "./dist/client.d.ts"
     }
   },
   "files": [
