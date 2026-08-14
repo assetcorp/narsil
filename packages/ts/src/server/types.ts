@@ -347,7 +347,7 @@ export interface HttpIndexConfig {
   stopWords?: string[]
   /** Setting this records term positions, which phrase queries and highlighting need. */
   trackPositions?: boolean
-  /** Setting this returns the words users typed from suggestions and prefix expansion, instead of index stems. */
+  /** Setting this to false returns index stems from suggestions and prefix expansion, instead of the words users typed. */
   surfaceForms?: boolean
   /** These settings control when vector fields move to an HNSW graph, and how that graph is built. */
   vectorPromotion?: Record<string, unknown>

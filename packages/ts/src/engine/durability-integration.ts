@@ -80,8 +80,8 @@ function buildMetadata(indexName: string, hooks: DurabilityIntegrationHooks): In
   if (config.embedding) {
     metadata.embedding = config.embedding
   }
-  if (config.surfaceForms) {
-    metadata.surfaceForms = true
+  if (config.surfaceForms !== undefined) {
+    metadata.surfaceForms = config.surfaceForms
   }
   if (config.analysisRevision !== undefined) {
     metadata.analysisRevision = config.analysisRevision

@@ -110,7 +110,7 @@ function createDurabilityFromTier(tier: DurabilityTier | null, wiring: Durabilit
         k1: entry.config.bm25?.k1 ?? 1.2,
         b: entry.config.bm25?.b ?? 0.75,
         ...(embedding !== undefined ? { embedding } : {}),
-        ...(entry.config.surfaceForms === true ? { surfaceForms: true } : {}),
+        surfaceForms: entry.config.surfaceForms !== false,
         analysisRevision: entry.language.revision,
         ...(typeof entry.config.tokenizer === 'string' ? { tokenizer: entry.config.tokenizer } : {}),
         ...(typeof entry.config.stopWords === 'string' ? { stopWords: entry.config.stopWords } : {}),

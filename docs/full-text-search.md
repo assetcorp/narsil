@@ -49,7 +49,7 @@ const results = await narsil.query('products', {
 
 `prefix: true` treats the last word of the query as an unfinished word, so `secur` matches documents containing `security`. Earlier words must match fully, and `tolerance` keeps applying to them while the unfinished word is completed instead of typo-corrected. Completions score against a shared document frequency and rank below full-word matches, so a document containing the exact typed word comes first. The option is off by default; turn it on for queries fired on every keystroke.
 
-Completions match against the term dictionary, which stores stemmed tokens, so a typed word that runs past the end of a stem stops matching: `security` is indexed as `secur`, and the query `securi` finds nothing. Create the index with `surfaceForms: true` to match completions against the original spellings instead; the same setting gives [suggestions](#suggestions) their display words.
+Completions match against the original spellings the index records, so `securi` still finds `security` even though the term dictionary stores the stem `secur`. Create the index with `surfaceForms: false` to match against the stemmed tokens instead, which saves a little insert throughput and costs you every typed word that runs past the end of a stem.
 
 ```ts
 const results = await narsil.query('products', {
@@ -115,12 +115,11 @@ const { count, elapsed } = await narsil.preflight('products', { term: 'keyboard'
 
 ## Suggestions
 
-`suggest(indexName, params)` returns autocomplete candidates. It tokenizes the input, takes the last word as the prefix, and ranks completions by the number of documents they match. By default the candidates are the stemmed tokens the index stores, so a catalogue containing "mechanical" suggests the stem `mechan`. Create the index with `surfaceForms: true` to suggest the words as they appear in your documents; the engine then records the original spelling of every word the stemmer changed and suggests `mechanical` instead.
+`suggest(indexName, params)` returns autocomplete candidates. It tokenizes the input, takes the last word as the prefix, and ranks completions by the number of documents they match. The candidates are the words as they appear in your documents, so a catalogue containing "mechanical" suggests `mechanical` rather than the stem `mechan`. The engine records the original spelling of every word the stemmer changed to do this. Create the index with `surfaceForms: false` to suggest the stored stems instead.
 
 ```ts
 await narsil.createIndex('products', {
   schema: { title: 'string', description: 'string' },
-  surfaceForms: true,
 })
 
 const suggestions = await narsil.suggest('products', { prefix: 'mech', limit: 5 })

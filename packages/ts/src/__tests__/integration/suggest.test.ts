@@ -172,7 +172,7 @@ describe('suggest', () => {
     expect(running?.documentFrequency).toBe(2)
   })
 
-  it('returns index stems when surface forms are off, which is the default', async () => {
+  it('returns the words users wrote without any configuration, which is the default', async () => {
     await narsil.createIndex('plain', { schema, language: 'english' })
     await narsil.insertBatch(
       'plain',
@@ -180,6 +180,19 @@ describe('suggest', () => {
     )
 
     const result = await narsil.suggest('plain', { prefix: 'run' })
+    const terms = result.terms.map(t => t.term)
+    expect(terms).toContain('running')
+    expect(terms).not.toContain('run')
+  })
+
+  it('returns index stems when surface forms are turned off', async () => {
+    await narsil.createIndex('stems-only', { schema, language: 'english', surfaceForms: false })
+    await narsil.insertBatch(
+      'stems-only',
+      documents.map((doc, i) => ({ ...doc, _id: `stems-only-${i}` })),
+    )
+
+    const result = await narsil.suggest('stems-only', { prefix: 'run' })
     const terms = result.terms.map(t => t.term)
     expect(terms).toContain('run')
     expect(terms).not.toContain('running')

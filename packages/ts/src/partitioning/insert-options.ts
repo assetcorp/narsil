@@ -9,7 +9,7 @@ export function resolvePartitionInsertOptions(
 ): PartitionInsertOptions | undefined {
   const applyStrict = config.strict === true
   const applyAnalyzer = analysis.stopWords !== undefined || analysis.customTokenizer !== undefined
-  const applySurfaces = config.surfaceForms === true
+  const applySurfaces = config.surfaceForms !== false
   if (!applyStrict && !applyAnalyzer && !applySurfaces) return options
 
   const resolved: PartitionInsertOptions = { ...options }

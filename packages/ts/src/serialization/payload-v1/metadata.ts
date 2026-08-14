@@ -49,8 +49,8 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
         ? { adapter: meta.embedding.adapter, fields: meta.embedding.fields }
         : { fields: meta.embedding.fields }
   }
-  if (meta.surfaceForms === true) {
-    wire.surface_forms_enabled = true
+  if (meta.surfaceForms !== undefined) {
+    wire.surface_forms_enabled = meta.surfaceForms
   }
   if (meta.analysisRevision !== undefined) {
     wire.analysis_revision = meta.analysisRevision
@@ -128,8 +128,8 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
         ? { adapter: raw.embedding.adapter, fields: raw.embedding.fields }
         : { fields: raw.embedding.fields }
   }
-  if (raw.surface_forms_enabled === true) {
-    meta.surfaceForms = true
+  if (typeof raw.surface_forms_enabled === 'boolean') {
+    meta.surfaceForms = raw.surface_forms_enabled
   }
   if (typeof raw.analysis_revision === 'string') {
     meta.analysisRevision = raw.analysis_revision
