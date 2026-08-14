@@ -8,22 +8,23 @@ import { readBody } from './response-shape'
 const DEFAULT_POLL_INTERVAL_MS = 250
 
 /**
- * How {@link TaskOperations.waitForTask} follows a task.
+ * These settings say how {@link TaskOperations.waitForTask} follows a task.
  *
- * `timeoutMs` bounds each poll request, as it does everywhere else. Meanwhile
+ * `timeoutMs` bounds each poll request, as it does everywhere else, while
  * `waitTimeoutMs` bounds the whole wait.
  *
  * @public
  */
 export interface WaitForTaskOptions extends RequestOptions {
   /**
-   * The client asks the server again this often, and every 250 ms by default,
-   * which is how often a running import writes its progress.
+   * The client asks the server again this often, and every 250 ms unless you
+   * say otherwise, which is how often a running import writes its progress.
    */
   pollIntervalMs?: number
   /**
-   * The wait fails with `CLIENT_TASK_TIMEOUT` after this many milliseconds, and
-   * the task keeps running. It waits for as long as the task takes by default.
+   * The wait fails with `CLIENT_TASK_TIMEOUT` after this many milliseconds
+   * while the task keeps running. It waits for as long as the task takes unless
+   * you set this.
    */
   waitTimeoutMs?: number
   /**
@@ -35,11 +36,11 @@ export interface WaitForTaskOptions extends RequestOptions {
 }
 
 /**
- * Following the long-running operations: an import, a restore, a rebalance, a
- * vector optimisation, and an analysis rebuild.
+ * These methods follow the long-running operations: an import, a restore, a
+ * rebalance, a vector optimisation, and an analysis rebuild.
  *
- * Each of those answers straight away with a task record. These methods read,
- * follow, and stop the work behind it.
+ * Each of those answers straight away with a task record, so these methods
+ * read, follow, and stop the work behind it.
  *
  * @public
  */
@@ -47,32 +48,35 @@ export interface TaskOperations {
   /**
    * Reads one task record back.
    *
-   * @param taskId - The task to read.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The record, or `null` when the server holds no such task, which is
-   * also the answer once a record has expired.
+   * @param taskId - This names the task to read.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The record comes back, and `null` says the server holds no such
+   * task, which is also the answer once a record has gone.
    */
   getTask(taskId: string, options?: RequestOptions): Promise<TaskRecord | null>
   /**
    * Lists task records, newest first.
    *
-   * @param query - Which records to keep, and where the page starts. Omit it
-   * for the newest 20 records the server still holds.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns One page, with the total the filters matched and the offset the
-   * next page starts at.
+   * @param query - This says which records to keep and where the page starts.
+   * Omit it for the newest 20 records the server still holds.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The page holds the records, the total the filters matched, and the
+   * offset the next page starts at.
    */
   listTasks(query?: TaskListQuery, options?: RequestOptions): Promise<TaskListPage>
   /**
    * Asks a running task to stop.
    *
    * The work stops between units, so the task reaches `cancelled` only once it
-   * has stopped. A request that comes too late leaves the task `succeeded`.
+   * has stopped, and a request that comes too late leaves it `succeeded`.
    * Whatever the task had already written stays written.
    *
-   * @param taskId - The task to stop.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The record as it stood when the cancel arrived.
+   * @param taskId - This names the task to stop.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The record shows the task as it stood when the cancel arrived.
    * @throws A `NarsilError` with `TASK_NOT_FOUND` for an unknown task,
    * `TASK_NOT_CANCELLABLE` for one that has already finished, and
    * `TASK_OWNED_BY_ANOTHER_INSTANCE` when another server instance runs it.
@@ -81,14 +85,14 @@ export interface TaskOperations {
   /**
    * Polls a task until it finishes, reporting each step on the way.
    *
-   * A failed task comes back with `status: 'failed'` and its `error` set, and
+   * A failed task comes back with `status: 'failed'` and its `error` set while
    * this method throws nothing, because a part-finished import still reports
    * what it indexed. Read the status you get back.
    *
-   * @param taskId - The task to follow.
-   * @param options - The poll interval, the overall deadline, the progress
-   * callback, and the per-call signal, per-request deadline, and headers.
-   * @returns The record at whichever terminal status it reached.
+   * @param taskId - This names the task to follow.
+   * @param options - These set the poll interval, the overall deadline, the
+   * progress callback, and the signal, per-request deadline, and headers.
+   * @returns The record shows the task at whichever terminal status it reached.
    * @throws A `NarsilError` with `CLIENT_TASK_TIMEOUT` when the wait passes
    * `waitTimeoutMs`, and with `TASK_NOT_FOUND` when the record expires before
    * the task finishes.

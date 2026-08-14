@@ -7,11 +7,11 @@ import { indexPath } from './paths'
 import { readArray, readBody } from './response-shape'
 
 /**
- * Running the operations that maintain an index: checkpoints, snapshots,
- * vector maintenance, partitioning, and analysis rebuilds.
+ * These methods run the operations that maintain an index: checkpoints,
+ * snapshots, vector maintenance, partitioning, and analysis rebuilds.
  *
- * The four that can run for minutes answer with a {@link TaskRecord} while the
- * work carries on, so follow each one with
+ * Four of them can run for minutes, so each answers with a {@link TaskRecord}
+ * while the work carries on, and you follow it with
  * {@link TaskOperations.waitForTask}. The {@link Narsil} methods they mirror
  * return nothing and finish before they resolve, which is the one place this
  * client parts from the engine.
@@ -23,21 +23,23 @@ export interface AdminOperations {
    * Writes everything an index holds to durable storage, so recovery starts
    * from this point instead of replaying the log from the previous one.
    *
-   * @param indexName - The index to checkpoint.
-   * @param options - Per-call signal, deadline, and headers.
+   * @param indexName - This names the index to checkpoint.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
    */
   checkpoint(indexName: string, options?: RequestOptions): Promise<void>
   /**
    * Downloads one index as a portable `.nrsl` file, which any Narsil
    * implementation can read back.
    *
-   * The whole index is transferred, so this call sets no deadline of its own.
-   * It waits for as long as the download takes unless
+   * The whole index crosses the network, so this call sets no deadline of its
+   * own and waits for as long as the download takes until
    * {@link NarsilClientOptions.timeoutMs} or a per-call `timeoutMs` sets one.
    *
-   * @param indexName - The index to serialise.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The file's bytes.
+   * @param indexName - This names the index to serialise.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The bytes make up the file.
    */
   snapshot(indexName: string, options?: RequestOptions): Promise<Uint8Array>
   /**
@@ -45,12 +47,13 @@ export interface AdminOperations {
    * the index held.
    *
    * The load runs as a task, so this resolves once the server has read the
-   * bytes. The index comes back later.
+   * bytes, and the index comes back afterwards.
    *
-   * @param indexName - The index to replace.
-   * @param data - The file's bytes.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The task record to follow.
+   * @param indexName - This names the index to replace.
+   * @param data - These are the file's bytes.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The record is the task to follow.
    * @throws A `NarsilError` with `DOC_VALIDATION_FAILED` or an `ENVELOPE_`
    * code, reported on the task, when the bytes hold no readable snapshot.
    */
@@ -58,27 +61,32 @@ export interface AdminOperations {
   /**
    * Reports the state of each vector field, and what maintenance would cost.
    *
-   * @param indexName - The index to describe.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns One entry per vector field.
+   * @param indexName - This names the index to describe.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns Each vector field appears once.
    */
   vectorMaintenanceStatus(indexName: string, options?: RequestOptions): Promise<VectorMaintenanceResult[]>
   /**
    * Reclaims the space removed vectors left behind, which a search would
    * otherwise scan past.
    *
-   * @param indexName - The index to compact.
-   * @param fieldName - One vector field, or every one when omitted.
-   * @param options - Per-call signal, deadline, and headers.
+   * @param indexName - This names the index to compact.
+   * @param fieldName - This names one vector field, and omitting it covers
+   * every one.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
    */
   compactVectors(indexName: string, fieldName?: string, options?: RequestOptions): Promise<void>
   /**
-   * Rebuilds the vector graphs so searches run at full speed again, as a task.
+   * Rebuilds the vector graphs as a task, so searches run at full speed again.
    *
-   * @param indexName - The index to optimise.
-   * @param fieldName - One vector field, or every one when omitted.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The task record to follow.
+   * @param indexName - This names the index to optimise.
+   * @param fieldName - This names one vector field, and omitting it covers
+   * every one.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The record is the task to follow.
    */
   optimizeVectors(indexName: string, fieldName?: string, options?: RequestOptions): Promise<TaskRecord>
   /**
@@ -87,21 +95,22 @@ export interface AdminOperations {
    * The server holds the writes that arrive while it runs and replays them in
    * order, so an index stays writable throughout.
    *
-   * @param indexName - The index to reshape.
-   * @param targetPartitionCount - How many partitions the index should end up
-   * with.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The task record to follow.
+   * @param indexName - This names the index to reshape.
+   * @param targetPartitionCount - The index ends up with this many partitions.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The record is the task to follow.
    */
   rebalance(indexName: string, targetPartitionCount: number, options?: RequestOptions): Promise<TaskRecord>
   /**
    * Changes when an index splits into another partition, and how far it may
    * grow.
    *
-   * @param indexName - The index to reconfigure.
-   * @param partitionConfig - The settings to change, leaving the rest as they
-   * are.
-   * @param options - Per-call signal, deadline, and headers.
+   * @param indexName - This names the index to reconfigure.
+   * @param partitionConfig - These are the settings to change, and the rest
+   * stay as they are.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
    * @throws A `NarsilError` with `PARTITION_CAPACITY_EXCEEDED` when the new
    * ceiling falls below what the index already holds.
    */
@@ -117,17 +126,19 @@ export interface AdminOperations {
    *
    * A result with `analysisStale: true` says the index is due one.
    *
-   * @param indexName - The index to reanalyse.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The task record to follow.
+   * @param indexName - This names the index to reanalyse.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The record is the task to follow.
    */
   rebuildAnalysis(indexName: string, options?: RequestOptions): Promise<TaskRecord>
   /**
    * Reports the server process's heap usage, its estimate of what the indexes
    * hold, and each worker's heap.
    *
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The figures you size a host from.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The figures are what you size a host from.
    */
   getMemoryStats(options?: RequestOptions): Promise<MemoryStats>
 }

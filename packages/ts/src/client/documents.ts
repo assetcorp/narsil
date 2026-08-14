@@ -6,8 +6,8 @@ import { documentPath, indexPath } from './paths'
 import { readBoolean, readNumber, readObject, readString } from './response-shape'
 
 /**
- * What an upsert did, which is how {@link DocumentOperations.put} reports
- * whether the id already held a document.
+ * This says what an upsert did, which is how {@link DocumentOperations.put}
+ * reports whether the id already held a document.
  *
  * @public
  */
@@ -19,9 +19,9 @@ export interface PutResult {
 }
 
 /**
- * Writing and reading one document at a time over HTTP.
+ * These methods write and read one document at a time over HTTP.
  *
- * Each method has the name of the {@link Narsil} method it mirrors. Use
+ * Each one has the name of the {@link Narsil} method it mirrors. Reach for
  * {@link BulkOperations} to load a corpus, because a document per request would
  * cost a round trip each.
  *
@@ -34,14 +34,15 @@ export interface DocumentOperations {
    * The id comes from the `docId` argument when you pass one, otherwise from
    * the document's own `id` field, and otherwise the server generates it.
    *
-   * @param indexName - The index that receives the document.
+   * @param indexName - This names the index that receives the document.
    * @param document - Its fields must match the types the schema declares.
    * @param docId - Pass an id to control it yourself, or omit it and read the
    * returned value.
-   * @param insertOptions - Per-write settings the server applies, such as
+   * @param insertOptions - These per-write settings reach the server, such as
    * skipping the defensive copy.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The id the document is stored under.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The document is stored under this id.
    */
   insert(
     indexName: string,
@@ -53,11 +54,12 @@ export interface DocumentOperations {
   /**
    * Reads one stored document back.
    *
-   * @param indexName - The index holding the document.
-   * @param docId - The document to read.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The stored document, or `undefined` when the index holds no such
-   * id.
+   * @param indexName - This names the index holding the document.
+   * @param docId - This names the document to read.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The stored document comes back, and `undefined` says the index
+   * holds no such id.
    * @throws A `NarsilError` with `INDEX_NOT_FOUND` for an unknown index.
    */
   get(indexName: string, docId: string, options?: RequestOptions): Promise<AnyDocument | undefined>
@@ -65,32 +67,35 @@ export interface DocumentOperations {
    * Reports whether an index holds a document under an id, without returning
    * the document itself.
    *
-   * @param indexName - The index to look in.
-   * @param docId - The id to look for.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns True when the id holds a document.
+   * @param indexName - This names the index to look in.
+   * @param docId - This is the id to look for.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns This is true when the id holds a document.
    */
   has(indexName: string, docId: string, options?: RequestOptions): Promise<boolean>
   /**
    * Writes a document at an id, whether or not one is already there, which
    * suits an application that assigns its own identifiers.
    *
-   * @param indexName - The index that receives the document.
-   * @param docId - The id to write at.
+   * @param indexName - This names the index that receives the document.
+   * @param docId - This is the id to write at.
    * @param document - Its fields must match the types the schema declares.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The id, and whether the write created the document or replaced
-   * one.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The result names the id, and says whether the write created the
+   * document or replaced one.
    */
   put(indexName: string, docId: string, document: AnyDocument, options?: RequestOptions): Promise<PutResult>
   /**
    * Replaces the stored document at an id.
    *
-   * @param indexName - The index holding the document.
-   * @param docId - The document to replace.
-   * @param document - The replacement, which the schema validates as an insert
-   * would.
-   * @param options - Per-call signal, deadline, and headers.
+   * @param indexName - This names the index holding the document.
+   * @param docId - This names the document to replace.
+   * @param document - This replacement goes through the same schema validation
+   * an insert would.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
    * @throws A `NarsilError` with `DOC_NOT_FOUND` when the index holds no such
    * document.
    */
@@ -98,9 +103,10 @@ export interface DocumentOperations {
   /**
    * Removes one document.
    *
-   * @param indexName - The index holding the document.
-   * @param docId - The document to remove.
-   * @param options - Per-call signal, deadline, and headers.
+   * @param indexName - This names the index holding the document.
+   * @param docId - This names the document to remove.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
    * @throws A `NarsilError` with `DOC_NOT_FOUND` when the index holds no such
    * document.
    */
@@ -108,9 +114,10 @@ export interface DocumentOperations {
   /**
    * Counts the documents in an index.
    *
-   * @param indexName - The index to count.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns How many documents the index holds.
+   * @param indexName - This names the index to count.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The count covers every document the index holds.
    */
   countDocuments(indexName: string, options?: RequestOptions): Promise<number>
 }

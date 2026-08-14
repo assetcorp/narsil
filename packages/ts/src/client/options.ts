@@ -1,7 +1,7 @@
 /**
- * The `fetch` implementation the client sends every request with.
+ * This is the `fetch` implementation the client sends every request through.
  *
- * It matches the global `fetch`. Pass one to add a proxy agent, a retry
+ * It matches the global `fetch`, so pass one only to add a proxy agent, a retry
  * wrapper, or a stub in a test.
  *
  * @public
@@ -9,10 +9,10 @@
 export type FetchFunction = (input: string, init: RequestInit) => Promise<Response>
 
 /**
- * Everything {@link createNarsilClient} accepts.
+ * These are the settings {@link createNarsilClient} accepts.
  *
- * Only `url` is required. A client built with nothing else sends no
- * credentials, and it waits 30 seconds for each answer.
+ * Only `url` is required. A client built from the address alone sends no
+ * credentials, and it gives every request 30 seconds to answer.
  *
  * @public
  */
@@ -24,21 +24,20 @@ export interface NarsilClientOptions {
    */
   url: string
   /**
-   * The client sends this key as `authorization: Bearer <key>`, which is the
-   * scheme the `onRequest` hook checks in Narsil's own examples. For any other
-   * scheme, set the header yourself through
-   * {@link NarsilClientOptions.headers}.
+   * The client sends this key as `authorization: Bearer <key>`, which a server
+   * reads in its `onRequest` hook. For any other scheme, set the header
+   * yourself through {@link NarsilClientOptions.headers}.
    */
   apiKey?: string
-  /** The client sends these headers with every request. A per-call header of the same name replaces one. */
+  /** The client sends these headers with every request, and a per-call header of the same name replaces one. */
   headers?: Record<string, string>
   /**
-   * The client waits this many milliseconds for an answer, then fails with
-   * `CLIENT_REQUEST_TIMEOUT`. Pass 0 to wait for as long as the server takes.
-   * It defaults to 30000. The three routes that carry a corpus or a snapshot
-   * ({@link BulkOperations.importDocuments}, {@link AdminOperations.snapshot},
-   * and {@link AdminOperations.restore}) set no deadline of their own, so they
-   * wait until you set this.
+   * The client waits this many milliseconds for an answer before it fails with
+   * `CLIENT_REQUEST_TIMEOUT`, and it waits 30000 unless you say otherwise. Pass
+   * 0 so that it waits for as long as the server takes. Three routes carry a
+   * corpus or a whole index, so {@link BulkOperations.importDocuments},
+   * {@link AdminOperations.snapshot}, and {@link AdminOperations.restore} set no
+   * deadline of their own until this one arrives.
    */
   timeoutMs?: number
   /** The client sends every request through this instead of the global `fetch`. */
@@ -46,9 +45,9 @@ export interface NarsilClientOptions {
 }
 
 /**
- * What one call changes about the request it sends.
+ * These settings change the one request a method sends.
  *
- * Every client method takes this as its last argument.
+ * Every client method takes them as its last argument.
  *
  * @public
  */
@@ -57,6 +56,6 @@ export interface RequestOptions {
   signal?: AbortSignal
   /** The client waits this many milliseconds for this one answer, and 0 waits for as long as the server takes. */
   timeoutMs?: number
-  /** The client adds these headers to this request, replacing any of the same name it would otherwise send. */
+  /** The client adds these headers to this request, and one of the same name replaces what it would otherwise send. */
   headers?: Record<string, string>
 }

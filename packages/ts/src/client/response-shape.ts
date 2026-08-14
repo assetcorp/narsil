@@ -10,7 +10,8 @@ function malformed(path: string, expected: string): NarsilError {
   })
 }
 
-/** Reads one array field out of an envelope such as `{ indexes: [...] }`. */
+/** Reads one array field out of an envelope such as `{ indexes: [...] }`, and
+ * fails when the answer holds no such field. */
 export function readArray<T>(payload: unknown, key: string, path: string): T[] {
   if (!isRecord(payload) || !Array.isArray(payload[key])) throw malformed(path, `"${key}" array`)
   return payload[key] as T[]
@@ -34,14 +35,14 @@ export function readString(payload: unknown, key: string, path: string): string 
   return payload[key]
 }
 
-/** Reads one object field, which is how the document routes wrap what they
- * return. */
+/** Reads one object field, which is how the document routes wrap a document. */
 export function readObject<T>(payload: unknown, key: string, path: string): T {
   if (!isRecord(payload) || !isRecord(payload[key])) throw malformed(path, `"${key}" object`)
   return payload[key] as T
 }
 
-/** Reads a whole answer that carries no envelope, such as an index's statistics. */
+/** Reads a whole answer that comes with no envelope, such as an index's
+ * statistics. */
 export function readBody<T>(payload: unknown, path: string): T {
   if (!isRecord(payload)) throw malformed(path, 'JSON object')
   return payload as T

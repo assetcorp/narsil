@@ -106,6 +106,26 @@ class ConcurrencyGate {
   }
 }
 
+/**
+ * Decodes one path segment, which uWebSockets.js passes on exactly as it
+ * arrived. Without this a document id such as `tt/0133093` never matches,
+ * because the client encodes the slash and the lookup then runs against the
+ * literal `tt%2F0133093`. Nearly every segment holds no `%` and needs no
+ * decoding, so the scan for one is all the common path pays.
+ *
+ * @param raw - This is the segment as it arrived.
+ * @returns The decoded segment comes back, and null says its escapes are
+ * malformed.
+ */
+function decodePathParameter(raw: string): string | null {
+  if (!raw.includes('%')) return raw
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return null
+  }
+}
+
 export interface RunnerDeps {
   onRequest?: OnRequestHook
   maxConcurrentRequests: number
@@ -148,7 +168,15 @@ export function createRouteRunner(deps: RunnerDeps) {
 
     return (res: HttpResponse, req: HttpRequest): void => {
       const params: string[] = []
-      for (let i = 0; i < paramCount; i++) params.push(req.getParameter(i) ?? '')
+      let malformed: string | null = null
+      for (let i = 0; i < paramCount; i++) {
+        const decoded = decodePathParameter(req.getParameter(i) ?? '')
+        if (decoded === null) {
+          malformed = req.getParameter(i) ?? ''
+          break
+        }
+        params.push(decoded)
+      }
       const query = new URLSearchParams(req.getQuery() ?? '')
       const contentType = req.getHeader('content-type')
 
@@ -169,6 +197,16 @@ export function createRouteRunner(deps: RunnerDeps) {
       if (writeCors) writeCors(res, req)
 
       const abort = initAbortHandler(res)
+      if (malformed !== null) {
+        sendError(
+          res,
+          400,
+          ServerErrorCodes.INVALID_REQUEST,
+          'A path segment holds a percent-escape the server cannot decode',
+          { segment: malformed },
+        )
+        return
+      }
       const bodyPromise = needsBody ? readBody(res, opts.maxBytes, abort) : Promise.resolve<Buffer | null>(null)
       const hookPromise = hookCtx && onRequest ? runHook(res, hookCtx, onRequest) : Promise.resolve(true)
 
