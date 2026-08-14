@@ -9,7 +9,7 @@ import { indexPath } from './paths'
 import { readArray, readBody, readObject } from './response-shape'
 
 /**
- * A corpus, in whichever form you already hold it.
+ * This is a corpus, in whichever form you already hold it.
  *
  * The client encodes documents as NDJSON. It sends a string or a byte array
  * unchanged, so NDJSON read from a file needs no re-encoding.
@@ -19,11 +19,11 @@ import { readArray, readBody, readObject } from './response-shape'
 export type ImportSource = AnyDocument[] | string | Uint8Array
 
 /**
- * Writing and reading many documents in one request.
+ * These methods write and read many documents in one request.
  *
  * A batch reports every document's outcome, so one refusal leaves the rest
- * written. An import streams a corpus, which the server writes in bounded
- * batches.
+ * written. An import streams a whole corpus instead, which the server writes in
+ * bounded batches.
  *
  * @public
  */
@@ -31,15 +31,18 @@ export interface BulkOperations {
   /**
    * Adds many documents in one request and reports each one's outcome.
    *
-   * A document the server rejects appears in `failed` with the error that
-   * rejected it, and every other document is still written.
+   * A document the server rejects appears in `failed` under the error that
+   * rejected it, while every other document is still written.
    *
-   * @param indexName - The index that receives the documents.
-   * @param documents - The documents to write, each carrying its own id or
-   * leaving the server to generate one.
-   * @param insertOptions - Per-write settings applied to every document.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The ids written, and each rejection with its error.
+   * @param indexName - This names the index that receives the documents.
+   * @param documents - Each document carries its own id, or leaves the server
+   * to generate one.
+   * @param insertOptions - These per-write settings reach the server, and apply
+   * to every document.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The result lists the ids written, and each rejection with its
+   * error.
    */
   insertBatch(
     indexName: string,
@@ -50,11 +53,13 @@ export interface BulkOperations {
   /**
    * Replaces many documents in one request and reports each one's outcome.
    *
-   * @param indexName - The index holding the documents.
-   * @param updates - Each entry names the document to replace and its
+   * @param indexName - This names the index holding the documents.
+   * @param updates - Each entry names the document to replace and holds its
    * replacement.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The ids replaced, and each failure with its error.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The result lists the ids replaced, and each failure with its
+   * error.
    */
   updateBatch(
     indexName: string,
@@ -64,34 +69,38 @@ export interface BulkOperations {
   /**
    * Removes many documents in one request and reports each one's outcome.
    *
-   * @param indexName - The index holding the documents.
-   * @param docIds - The documents to remove.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The ids removed, and each failure with its error.
+   * @param indexName - This names the index holding the documents.
+   * @param docIds - These name the documents to remove.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The result lists the ids removed, and each failure with its error.
    */
   removeBatch(indexName: string, docIds: string[], options?: RequestOptions): Promise<BatchResult>
   /**
    * Reads many documents by id in one request.
    *
-   * The result leaves out an id the index does not hold, and the call still
+   * The result leaves out an id the index does not hold while the call still
    * succeeds, so compare the size against what you asked for.
    *
-   * @param indexName - The index holding the documents.
-   * @param docIds - The ids to read.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The documents found, keyed by id.
+   * @param indexName - This names the index holding the documents.
+   * @param docIds - These are the ids to read.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The map holds every document found, keyed by id.
    */
   getMultiple(indexName: string, docIds: string[], options?: RequestOptions): Promise<Map<string, AnyDocument>>
   /**
    * Pages through the stored documents without searching, in document-id order
    * until the parameters name a sort.
    *
-   * @typeParam T - Shape of the stored documents.
-   * @param indexName - The index to page through.
-   * @param params - The page size, the cursor, and any filter, sort, or
-   * projection.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns One page, with the cursor that reaches the next.
+   * @typeParam T - This is the shape of the stored documents.
+   * @param indexName - This names the index to page through.
+   * @param params - These set the page size, the cursor, and any filter, sort,
+   * or projection.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The page holds the documents, and the cursor that reaches the next
+   * one.
    */
   listDocuments<T = AnyDocument>(
     indexName: string,
@@ -102,19 +111,20 @@ export interface BulkOperations {
    * Loads a corpus in one request and answers once the whole load has finished.
    *
    * The server writes the documents in bounded batches, so one bad record never
-   * abandons the rest. For a load that would outlast a proxy's response
-   * timeout, use {@link BulkOperations.startImport}, which answers straight
-   * away and reports progress through a task.
+   * abandons the rest. Where a load would outlast a proxy's response timeout,
+   * reach for {@link BulkOperations.startImport}, which answers straight away
+   * and reports progress through a task.
    *
-   * This call sets no deadline of its own. It waits for as long as the load
-   * takes unless {@link NarsilClientOptions.timeoutMs} or a per-call
-   * `timeoutMs` sets one.
+   * This call sets no deadline of its own, so it waits for as long as the load
+   * takes until {@link NarsilClientOptions.timeoutMs} or a per-call `timeoutMs`
+   * sets one.
    *
-   * @param indexName - The index that receives the corpus.
-   * @param source - The documents, or NDJSON you already hold.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns How many documents the server accepted and refused, with the first
-   * refusals.
+   * @param indexName - This names the index that receives the corpus.
+   * @param source - These are the documents, or the NDJSON you already hold.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The result counts what the server accepted and refused, and lists
+   * the first refusals.
    * @throws A `NarsilError` with `PAYLOAD_TOO_LARGE` when the corpus passes the
    * server's import limit, which defaults to 100 MB.
    */
@@ -128,15 +138,16 @@ export interface BulkOperations {
    * {@link TaskOperations.cancelTask}.
    *
    * This call sets no deadline of its own, so it waits for the server to read
-   * the body unless {@link NarsilClientOptions.timeoutMs} or a per-call
+   * the body until {@link NarsilClientOptions.timeoutMs} or a per-call
    * `timeoutMs` sets one.
    *
-   * @param indexName - The index that receives the corpus.
-   * @param source - The documents, or NDJSON you already hold.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The task record to poll.
+   * @param indexName - This names the index that receives the corpus.
+   * @param source - These are the documents, or the NDJSON you already hold.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The record is the task to poll.
    * @throws A `NarsilError` with `NOT_FOUND` when the server predates the
-   * asynchronous import. {@link ServerOperations.supports} reports that before
+   * asynchronous import, which {@link ServerOperations.supports} reports before
    * you call.
    */
   startImport(indexName: string, source: ImportSource, options?: RequestOptions): Promise<TaskRecord>

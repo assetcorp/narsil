@@ -30,6 +30,7 @@ The full surface:
 | --- | --- |
 | `GET /livez`, `GET /readyz`, `GET /health` | The probes report liveness and readiness without authentication. |
 | `GET /version` | The endpoint reports the build identity stamped at startup. |
+| `GET /capabilities` | The endpoint lists the optional routes this server serves, and it needs no key either. See [Tasks](#tasks). |
 | `GET /stats/memory` | The endpoint returns `getMemoryStats()`. |
 | `POST /indexes`, `GET /indexes`, `DELETE /indexes/{name}` | The endpoints create, list, and drop indexes. |
 | `GET /indexes/{name}/stats`, `GET /indexes/{name}/partitions`, `GET /indexes/{name}/count` | The endpoints report index, partition, and document-count statistics. |
@@ -40,12 +41,44 @@ The full surface:
 | `POST /indexes/{name}/documents/_batch` | The endpoint runs a batch insert, update, or delete with partial results. |
 | `POST /indexes/{name}/documents/_multi-get` | The endpoint fetches many documents by id. |
 | `POST /indexes/{name}/documents/_list` | The endpoint pages through every stored document, in document-id order or in an order the body names. See [Listing documents](#listing-documents). |
-| `POST /indexes/{name}/documents/_import` | The endpoint streams an NDJSON corpus in bounded batches. |
+| `POST /indexes/{name}/documents/_import` | The endpoint streams an NDJSON corpus in bounded batches, and `?async=true` runs it as a task instead. See [Tasks](#tasks). |
 | `POST /indexes/{name}/search`, `POST /indexes/{name}/search/preflight`, `POST /indexes/{name}/suggest` | The endpoints run queries, match counts, and autocomplete. Each response carries `analysisStale: true` while the index holds terms an earlier analysis produced. See [Analysis revisions](language-support.md#analysis-revisions). |
 | `POST /indexes/{name}/_checkpoint`, `GET /indexes/{name}/snapshot`, `POST /indexes/{name}/restore` | The endpoints force a checkpoint, download a snapshot, and restore one. |
 | `GET /indexes/{name}/vector-maintenance`, `POST /indexes/{name}/vectors/_compact`, `POST /indexes/{name}/vectors/_optimize` | The endpoints report and run vector maintenance. |
 | `POST /indexes/{name}/_rebalance`, `POST /indexes/{name}/partition-config` | The endpoints reshape partitions and adjust partition caps. |
-| `GET /tasks`, `GET /tasks/{id}` | The endpoints report long-running task status. |
+| `POST /indexes/{name}/_rebuild-analysis` | The endpoint reanalyses every document, which an index needs after its language module changes revision. |
+| `GET /tasks`, `GET /tasks/{id}`, `POST /tasks/{id}/_cancel` | The endpoints list, report, and stop long-running tasks. See [Tasks](#tasks). |
+
+## Tasks
+
+Five operations can run for minutes: an import sent with `?async=true`, `restore`, `_rebalance`, `vectors/_optimize`, and `_rebuild-analysis`. Each one answers 202 with a task record and carries on in the background. Every one of them uses the same record shape, which `GET /tasks/{id}` returns again as the work runs.
+
+```json
+{
+  "id": "0f0d9d3a-6d1e-4a1a-9a9f-2f0d0a1b2c3d",
+  "type": "import",
+  "indexName": "movies",
+  "status": "running",
+  "owner": "narsil-0",
+  "createdAt": 1755180000000,
+  "startedAt": 1755180000000,
+  "progress": { "indexed": 12000, "failed": 3, "bytesProcessed": 4194304, "bytesTotal": 9437184 }
+}
+```
+
+A task ends at `succeeded`, `failed`, or `cancelled`. A failed one holds `error` with the code and the message that stopped it, while a finished import holds `result` with what it indexed and the first refusals. An import alone reports `progress`.
+
+`GET /tasks` pages through the records, newest first, and filters them by `indexName`, by a comma-separated `type`, and by a comma-separated `status`. It answers `{"tasks":[],"total":0,"from":0,"limit":20,"next":null}`, where `next` holds the offset the following page starts at, and null closes the listing. A `limit` above `limits.maxTaskPageSize`, which defaults to 1,000, answers 400 `INVALID_REQUEST`.
+
+`POST /tasks/{id}/_cancel` asks a running task to stop, and it answers 202 with the record. The work stops between units, so a task reaches `cancelled` only once it has stopped, and a request that comes too late leaves it `succeeded`. Cancelling a finished task answers 409 `TASK_NOT_CANCELLABLE`. A task another instance started answers 409 `TASK_OWNED_BY_ANOTHER_INSTANCE`, because only the process running the work can stop it.
+
+`options.taskStore` decides where the records live. The default keeps 1,000 records in this process and drops the oldest finished ones first. A restart loses them, and a second instance never sees them. Supply a store of your own, such as Redis, DynamoDB, or a database, so that any instance can answer for a task. That store receives a time to live with every write: 24 hours for a running record, and an hour for a finished one. The work itself still runs in the process that accepted it, so a shared store gives cross-instance visibility instead of distributed execution. Set `options.instanceId` to a stable value as well, because a restart then marks that instance's own running tasks failed instead of leaving them stuck.
+
+`GET /capabilities` lists the optional routes this server answers, so a client can check before it sends a request that an older server would refuse with 404.
+
+```json
+{ "capabilities": ["documents.import.async", "tasks.cancel", "tasks.filter", "indexes.rebuildAnalysis"] }
+```
 
 ## Listing documents
 
@@ -70,4 +103,6 @@ Send the cursor back on the next request, and stop once it comes back null. The 
 
 The server bounds `limit` by `limits.maxFetchDocuments`, which defaults to 10,000, and answers 400 `INVALID_REQUEST` for a larger value. It answers a body naming more than eight `sort` fields the same way. A search whose `offset` plus `limit` passes the 10,000-result window answers 400 `SEARCH_RESULT_WINDOW_EXCEEDED`, which names the cursor as the way to page further. For a cursor it never issued, or one sent back under a different `sort`, it answers 400 `SEARCH_INVALID_CURSOR`.
 
-The [HTTP server example](../packages/ts/examples/http-server/README.md) documents every endpoint with request and response bodies, curl walkthroughs, Docker packaging, and the environment-driven configuration of a production launcher.
+A document id crosses the wire percent-encoded, and the server decodes every path segment, so an id holding a slash, a space, or an accent reaches the document it names. An index name never needs the encoding, because the engine accepts alphanumerics, dots, hyphens, and underscores alone. A segment holding an escape the server cannot decode answers 400 `INVALID_REQUEST`.
+
+The [client guide](client.md) covers `@delali/narsil/client`, which reaches every route here through `fetch` and turns each failure back into a `NarsilError`. The [HTTP server example](../packages/ts/examples/http-server/README.md) documents every endpoint with request and response bodies, curl walkthroughs, Docker packaging, and the environment-driven configuration of a production launcher.

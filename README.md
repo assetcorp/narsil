@@ -124,7 +124,7 @@ Each guide under [`docs/`](docs/) documents one area with working examples. The 
 
 **Scale.** [Partitioned indexes](docs/partitions-and-workers.md#partitions-and-rebalancing) route documents by deterministic hash and reshape online through `rebalance()`, with writes buffering in a write-ahead queue during the reshape. [Worker promotion](docs/partitions-and-workers.md#workers) moves search off the main thread once document counts cross a threshold, and [three scoring modes](docs/full-text-search.md#scoring-modes) handle BM25 statistics skew across partitions and instances.
 
-**Operations.** The [HTTP server](docs/http-server.md#http-server) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. [Events](docs/observability.md#events), [typed errors](docs/errors.md#errors), [plugins](docs/observability.md#plugins), and [memory reporting](docs/observability.md#memory-reporting) cover observability, and [language modules](docs/language-support.md#language-support) cover 107 languages as separate entry points, 20 of them African.
+**Operations.** The [HTTP server](docs/http-server.md#http-server) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. The [client](docs/client.md#client) subpath reaches every one of those routes from a browser or from Node under the engine's own method names, and `waitForTask` follows a long load to its finish. [Events](docs/observability.md#events), [typed errors](docs/errors.md#errors), [plugins](docs/observability.md#plugins), and [memory reporting](docs/observability.md#memory-reporting) cover observability, and [language modules](docs/language-support.md#language-support) cover 107 languages as separate entry points, 20 of them African.
 
 ## Examples
 
@@ -162,7 +162,8 @@ Measured in one process against Orama and MiniSearch, with the same stop words a
 | [Persistence and durability](docs/persistence-and-durability.md) | Storage backends, the write-ahead log, checkpoints, recovery, and snapshots |
 | [Partitions and workers](docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker promotion, and multi-instance invalidation |
 | [Language support](docs/language-support.md) | The 107 language modules, analysis revisions and rebuilds, and named tokenizers and stop words |
-| [HTTP server](docs/http-server.md) | Wrapping an engine in a REST API, and every route it serves |
+| [HTTP server](docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |
+| [Client](docs/client.md) | Reaching a server from a browser or Node, following a task, and the codes it raises |
 | [Observability](docs/observability.md) | Plugin hooks, engine events, and memory reporting |
 | [Errors](docs/errors.md) | Every error code and what throws it |
 

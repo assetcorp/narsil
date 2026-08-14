@@ -9,15 +9,16 @@ import { createServerOperations, type ServerOperations } from './server-info'
 import { createTaskOperations, type TaskOperations } from './tasks'
 
 /**
- * A Narsil server, and everything you do with it.
+ * This client reaches one Narsil server, and it runs every operation that
+ * server serves.
  *
  * Every method has the name the embedded engine uses, so a call written against
- * {@link Narsil} works here. HTTP forces two differences. Every method takes
+ * {@link Narsil} works here. HTTP forces two differences: every method takes
  * per-call request settings as its last argument, and the operations that can
  * run for minutes answer with a task record while the work carries on.
  *
- * The client reaches a server through `fetch` alone, so it runs in a browser,
- * in Node, and in an edge function.
+ * The client sends through `fetch` alone, so it runs in a browser, in Node, and
+ * in an edge function.
  *
  * @public
  */
@@ -34,13 +35,13 @@ export interface NarsilClient
  * Builds a client for one Narsil server.
  *
  * The client opens no connection, and it holds no state beyond the
- * capabilities it has read. Nothing needs closing, so keep one client for the
+ * capabilities it has read, so nothing needs closing. Keep one client for the
  * application's lifetime.
  *
- * @param options - The server address, the credentials, and the defaults every
- * request inherits.
- * @returns The client, ready to use.
- * @throws A `NarsilError` with `CONFIG_INVALID` when the address cannot be read
+ * @param options - These set the server address, the credentials, and the
+ * defaults every request inherits.
+ * @returns The client is ready to use.
+ * @throws A `NarsilError` with `CONFIG_INVALID` when it cannot read the address
  * as a URL.
  *
  * @public

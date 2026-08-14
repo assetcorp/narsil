@@ -3,6 +3,10 @@ import { NarsilError, ServerErrorCodes } from '../errors'
 export type { ServerErrorCode } from '../errors'
 export { ServerErrorCodes } from '../errors'
 
+/** This maps each code the server can raise to the status it answers with.
+ * Every code in `ErrorCodes` and `ServerErrorCodes` belongs here, because a
+ * missing one answers 500. The `ClientErrorCodes` are absent on purpose, since
+ * the HTTP client raises those and no request can arrive under one. */
 const STATUS_BY_CODE: Record<string, number> = {
   INVALID_REQUEST: 400,
   INVALID_JSON: 400,

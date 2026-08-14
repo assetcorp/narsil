@@ -139,11 +139,13 @@ export const ServerErrorCodes = {
 export type ServerErrorCode = (typeof ServerErrorCodes)[keyof typeof ServerErrorCodes]
 
 /**
- * Every code the HTTP client raises for a failure that stops a request from
- * reaching a server, or stops its answer from being read.
+ * Every code the HTTP client raises when a request never reaches a server, or
+ * when the client cannot read the answer.
  *
- * No server sends one of these, so a failure with one of these codes means the
- * exchange broke before the operation ran.
+ * No server sends one of these, so a failure under one of them means the
+ * exchange broke before the operation ran. `STATUS_BY_CODE` in
+ * `src/server/errors.ts` therefore maps none of them, because no request can
+ * arrive under one and no HTTP status belongs to one.
  *
  * @public
  */
@@ -166,9 +168,9 @@ export type ClientErrorCode = (typeof ClientErrorCodes)[keyof typeof ClientError
  * Every code a {@link NarsilError} can carry: one the engine raised, one the
  * HTTP layer raised, one the client raised, or any other string.
  *
- * A server's `onRequest` hook rejects a request with a code of its own, such as
- * `UNAUTHORIZED`, and the client passes that code through unchanged, which is
- * what the last arm allows. An editor still completes the codes Narsil
+ * The last arm exists for a server's `onRequest` hook, which rejects a request
+ * under a code of its own, such as `UNAUTHORIZED`, and the client then passes
+ * that code through unchanged. An editor still completes every code Narsil
  * defines.
  *
  * @public

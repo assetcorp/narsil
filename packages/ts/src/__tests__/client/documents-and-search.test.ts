@@ -138,9 +138,14 @@ describe('client against a live server', () => {
     expect((await client.getStats('movies')).schema).toEqual(SCHEMA)
   })
 
-  it('keeps a name carrying a slash inside the route it belongs to', async () => {
-    const failure = await client.getStats('movies/2000').catch((err: unknown) => err)
-    expect(failure).toBeInstanceOf(NarsilError)
-    expect((failure as NarsilError).code).toBe('INDEX_NOT_FOUND')
+  it('round-trips a document id that holds a slash, a space, and an accent', async () => {
+    const docId = 'tt/0133093 Amélie'
+    await client.put('movies', docId, { title: 'The Matrix', year: 1999 })
+
+    expect(await client.has('movies', docId)).toBe(true)
+    expect(await client.get('movies', docId)).toMatchObject({ title: 'The Matrix' })
+
+    await client.remove('movies', docId)
+    expect(await client.has('movies', docId)).toBe(false)
   })
 })

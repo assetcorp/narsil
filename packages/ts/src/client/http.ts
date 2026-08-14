@@ -3,28 +3,28 @@ import type { FetchFunction, NarsilClientOptions, RequestOptions } from './optio
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
-/** Sets no deadline, so the request runs for as long as the server takes. The
- * routes that carry a corpus or a snapshot start here, because the caller alone
- * knows how long that should be. */
+/** This sets no deadline, so the request runs for as long as the server takes.
+ * The routes that carry a corpus or a snapshot start here, because only the
+ * caller knows how long one of those should run. */
 export const NO_TIMEOUT = 0
 
-/** One HTTP exchange, as a client method describes it. The transport turns it
- * into a request. */
+/** This describes one exchange, which a client method fills in and the
+ * transport turns into a request. */
 export interface RequestSpec {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   path: string
   query?: Record<string, string | undefined>
   body?: string | Uint8Array
   contentType?: string
-  /** Reads a successful answer as bytes, which the snapshot download needs. A
-   * failure still holds a JSON error envelope. */
+  /** Setting this reads a successful answer as bytes, which the snapshot
+   * download needs. A failure still answers with a JSON error envelope. */
   binaryAnswer?: boolean
   defaultTimeoutMs?: number
   options?: RequestOptions
 }
 
-/** Sends the request every client method builds. It turns each failure into a
- * {@link NarsilError} holding the code the server sent. */
+/** This sends the request every client method builds, and it turns each
+ * failure into a {@link NarsilError} under the code the server sent. */
 export interface Transport {
   json<T>(spec: RequestSpec): Promise<T>
   jsonOrNull<T>(spec: RequestSpec, absentCode: string): Promise<T | null>
@@ -42,7 +42,7 @@ function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
 }
 
 /** Combines the caller's signal with the request deadline into the one signal
- * `fetch` accepts. It also reports which of the two ended the request. */
+ * `fetch` accepts, and reports afterwards which of the two ended the request. */
 function startDeadline(timeoutMs: number, caller: AbortSignal | undefined) {
   const controller = new AbortController()
   let expired = false
@@ -79,8 +79,8 @@ function invalidResponse(message: string, details: Record<string, unknown>): Nar
 
 /** Rebuilds the failure the server described. A body that holds no error
  * envelope came from something other than a Narsil server, such as a proxy, so
- * the client reports an unreadable response instead of borrowing a code Narsil
- * defines. */
+ * the client reports an unreadable answer instead of borrowing a code Narsil
+ * defines for something else. */
 function errorFromBody(status: number, payload: unknown, url: string): NarsilError {
   const envelope = isRecord(payload) && isRecord(payload.error) ? payload.error : undefined
   if (envelope === undefined || typeof envelope.code !== 'string' || typeof envelope.message !== 'string') {
@@ -126,12 +126,12 @@ function withQuery(path: string, query: RequestSpec['query']): string {
 
 /**
  * Builds the transport every client method shares. It resolves the address, the
- * credentials, and the deadline, then sends the request and translates the
- * answer.
+ * credentials, and the deadline before it sends a request, and it translates
+ * whatever comes back.
  *
- * @param options - The address, the credentials, and the defaults the client
- * was built with.
- * @returns The transport the operation groups send through.
+ * @param options - These are the address, the credentials, and the defaults the
+ * client was built with.
+ * @returns This is the transport each group of operations sends through.
  */
 export function createTransport(options: NarsilClientOptions): Transport {
   const base = normaliseBase(options.url)

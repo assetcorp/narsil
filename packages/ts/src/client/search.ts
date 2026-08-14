@@ -7,11 +7,11 @@ import { indexPath } from './paths'
 import { readBody } from './response-shape'
 
 /**
- * Searching an index over HTTP.
+ * These methods search an index over HTTP.
  *
- * Each method has the name of the {@link Narsil} method it mirrors, and takes
- * the same parameters, so a query written against an embedded engine runs
- * against a server unchanged.
+ * Each one has the name of the {@link Narsil} method it mirrors and takes the
+ * same parameters, so a query written against an embedded engine runs against a
+ * server unchanged.
  *
  * @public
  */
@@ -21,16 +21,17 @@ export interface SearchOperations {
    *
    * The parameters hold the text, the filters, the sort, the facets, the
    * grouping, and the vector or hybrid settings, exactly as the engine takes
-   * them. For a vector search that names `text` instead of a vector, the server
+   * them. Where a vector search names `text` instead of a vector, the server
    * must hold the embedding adapter the index was created with.
    *
-   * @typeParam T - Shape of the stored documents, which flows through to each
-   * hit's `document`.
-   * @param indexName - The index to search.
-   * @param params - Everything the search asks for.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The hits, the total match count, and whatever the query asked for
-   * alongside them.
+   * @typeParam T - This is the shape of the stored documents, which flows
+   * through to each hit's `document`.
+   * @param indexName - This names the index to search.
+   * @param params - These carry everything the search asks for.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The result holds the hits, the total match count, and whatever
+   * else the query asked for.
    * @throws A `NarsilError` with `SEARCH_RESULT_WINDOW_EXCEEDED` when `offset`
    * plus `limit` passes the server's result window, which the cursor pages
    * beyond.
@@ -40,20 +41,23 @@ export interface SearchOperations {
    * Counts what a search would match, without building or ranking a single hit,
    * which is enough to show a result count beside a filter.
    *
-   * @param indexName - The index to count in.
-   * @param params - The same parameters {@link SearchOperations.query} takes.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The match count and how long it took.
+   * @param indexName - This names the index to count in.
+   * @param params - These are the parameters {@link SearchOperations.query}
+   * takes.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The result holds the match count and how long it took.
    */
   preflight(indexName: string, params: QueryParams, options?: RequestOptions): Promise<PreflightResult>
   /**
    * Completes a prefix from the terms the index holds, ready to offer as
    * you-type suggestions.
    *
-   * @param indexName - The index to complete from.
-   * @param params - The prefix, the field, and how many completions to return.
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The completions, most widely used first.
+   * @param indexName - This names the index to complete from.
+   * @param params - These set the prefix and how many completions to return.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The completions run most widely used first.
    */
   suggest(indexName: string, params: SuggestParams, options?: RequestOptions): Promise<SuggestResult>
 }

@@ -4,8 +4,8 @@ import type { RequestOptions } from './options'
 import { readArray, readBody } from './response-shape'
 
 /**
- * What a server reports about the build it is running, so you can tie a result
- * or an incident to the exact code that produced it.
+ * This is what a server reports about the build it runs, so you can tie a
+ * result or an incident to the exact code that produced it.
  *
  * The values are whatever the build stamped in, so an unstamped build reports
  * nulls.
@@ -24,29 +24,33 @@ export interface ServerVersion {
 }
 
 /**
- * Asking a server what it is and what it serves, before asking it for any work.
+ * These methods ask a server what it is and what it serves, before you ask it
+ * for any work.
  *
- * Every route here answers without credentials, so a probe or a health check
- * reaches them without a key.
+ * Every route behind them answers without credentials, so a probe or a health
+ * check reaches them without a key.
  *
  * @public
  */
 export interface ServerOperations {
   /**
-   * Reports the build the server is running.
+   * Reports the build the server runs.
    *
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns The package version and commit the server was built from.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The report names the package version and the commit the server was
+   * built from.
    */
   version(options?: RequestOptions): Promise<ServerVersion>
   /**
    * Lists the optional routes and modes this server serves.
    *
-   * A server that predates a capability leaves it out. One that predates the
-   * whole endpoint reports an empty list, and the call still succeeds.
+   * A server that predates a capability leaves it out, while one that predates
+   * the whole endpoint reports an empty list and the call still succeeds.
    *
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns Each capability the server announces.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The list names each capability the server announces.
    */
   capabilities(options?: RequestOptions): Promise<string[]>
   /**
@@ -56,17 +60,18 @@ export interface ServerOperations {
    * The client reads the answer once and keeps it for its own lifetime, because
    * a server cannot take on a capability without restarting.
    *
-   * @param capability - The capability to ask about.
-   * @param options - Per-call signal, deadline, and headers, used only when the
-   * answer is not already known.
-   * @returns True when the server announced it.
+   * @param capability - This names the capability to ask about.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * the one request that reads the answer.
+   * @returns This is true when the server announced it.
    */
   supports(capability: string, options?: RequestOptions): Promise<boolean>
   /**
-   * Reports whether the server is answering HTTP at all.
+   * Reports whether the server answers HTTP at all.
    *
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns True when the liveness probe answered.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns This is true when the liveness probe answered.
    * @throws A `NarsilError` with `CLIENT_CONNECTION_FAILED` when the client
    * cannot reach the server, which is a different failure from a server that
    * answers and reports itself unready.
@@ -76,8 +81,9 @@ export interface ServerOperations {
    * Reports whether the server is ready to take work, which turns false while
    * it starts up and again once it starts draining.
    *
-   * @param options - Per-call signal, deadline, and headers.
-   * @returns True when the readiness probe answered ready.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns This is true when the readiness probe answered ready.
    * @throws A `NarsilError` with `CLIENT_CONNECTION_FAILED` when the client
    * cannot reach the server.
    */
