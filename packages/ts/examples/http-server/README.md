@@ -212,7 +212,7 @@ curl -X POST localhost:7700/indexes/movies/search \
 
 **`POST /indexes/{name}/search/preflight`** takes the same body and returns `{ "count", "elapsed" }` without materializing hits, which sizes a result set before an expensive query.
 
-**`POST /indexes/{name}/suggest`** takes `{ "prefix": "mat", "limit"?: 5 }` and returns autocomplete candidates ranked by document frequency: `{ "terms": [{ "term", "documentFrequency" }], "elapsed" }`. Candidates are stemmed index terms; an index created with `surfaceForms: true` returns the original spellings.
+**`POST /indexes/{name}/suggest`** takes `{ "prefix": "mat", "limit"?: 5 }` and returns autocomplete candidates ranked by document frequency: `{ "terms": [{ "term", "documentFrequency" }], "elapsed" }`. Candidates are the original spellings; an index created with `surfaceForms: false` returns stemmed index terms instead.
 
 ### Snapshots and checkpoints
 

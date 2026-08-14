@@ -139,8 +139,10 @@ export interface IndexConfig {
   /** The engine rejects a document that omits any of these fields. */
   required?: string[]
   /**
-   * Return the words users typed from suggest() and prefix expansion
-   * instead of index stems, at an insert-throughput cost. Default false.
+   * Setting this to false stops the index recording the spellings a stemmer
+   * changed, so {@link Narsil.suggest} and prefix completions fall back to
+   * index stems such as `qualiti`. It defaults to true, which costs a little
+   * insert throughput and one entry per changed spelling.
    */
   surfaceForms?: boolean
 }

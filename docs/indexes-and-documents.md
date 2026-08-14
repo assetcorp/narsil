@@ -36,7 +36,7 @@ await narsil.createIndex('articles', {
 | `stopWords` | `StopWordOverride \| string` | Replaces or transforms the language module's stop word set, inline or by the name of a set registered with `registerStopWords`. See [Named tokenizers and stop words](language-support.md#named-tokenizers-and-stop-words). |
 | `tokenizer` | `CustomTokenizer \| string` | Replaces the built-in tokenizer with your own `tokenize(text)` implementation, inline or by the name of a tokenizer registered with `registerTokenizer`. See [Named tokenizers and stop words](language-support.md#named-tokenizers-and-stop-words). |
 | `trackPositions` | `boolean` | Stores token positions for highlighting. The default is `true`. |
-| `surfaceForms` | `boolean` | Records the original spellings of stemmed words for suggestions and prefix completions. The default is `false`. See [Suggestions](full-text-search.md#suggestions). |
+| `surfaceForms` | `boolean` | Records the original spellings of stemmed words for suggestions and prefix completions. The default is `true`. See [Suggestions](full-text-search.md#suggestions). |
 | `vectorPromotion` | `VectorIndexConfig` | Tunes the HNSW promotion threshold, graph parameters, and quantization. See [Vector search](vector-search.md#vector-search). |
 | `strict` | `boolean` | Rejects documents that carry fields missing from the schema. |
 | `embedding` | `EmbeddingFieldConfig` | Maps text fields to vector fields for auto-embedding. See [Embedding adapters](embedding-adapters.md#embedding-adapters). |

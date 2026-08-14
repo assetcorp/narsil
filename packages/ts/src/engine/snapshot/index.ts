@@ -60,7 +60,7 @@ export async function createSnapshot(manager: PartitionManager, entry: IndexRegi
           },
         }
       : {}),
-    ...(config.surfaceForms === true ? { surfaceForms: true } : {}),
+    surfaceForms: config.surfaceForms !== false,
     ...(config.partitions !== undefined ? { partitionConfig: config.partitions } : {}),
     ...(config.defaultScoring !== undefined ? { defaultScoring: config.defaultScoring } : {}),
     ...(config.trackPositions !== undefined ? { trackPositions: config.trackPositions } : {}),
