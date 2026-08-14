@@ -152,3 +152,7 @@ The client reads the answer once and keeps it, because a server cannot take on a
 `createIndex` takes whatever JSON can express of the engine's configuration. A custom tokeniser, a stop-word function, and an embedding adapter are all functions, so name a language and a server-registered adapter instead. The [HTTP server guide](http-server.md) covers the `embeddingAdapters` option a server registers those under.
 
 The client encodes every index name and document id it puts in a path, and the server decodes each segment. An id holding a slash, a space, or an accent therefore reaches the document it names.
+
+## In a React application
+
+The [React guide](react.md) covers `@delali/narsil/react`, which gives these methods to components as hooks. Two components asking for the same thing send one request, a search re-runs as its parameters change, and `useImport` follows a load from the component that started it.
