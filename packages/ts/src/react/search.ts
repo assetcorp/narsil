@@ -1,7 +1,8 @@
 import type { PreflightResult, QueryResult, SuggestResult } from '../types/results'
 import type { AnyDocument } from '../types/schema'
 import type { QueryParams, SuggestParams } from '../types/search'
-import { type NarsilReadOptions, type NarsilReadState, useRead } from './read'
+import type { NarsilReadOptions, NarsilReadState } from './options'
+import { useRead } from './read'
 
 /**
  * Searches an index and re-runs the search whenever the parameters change.

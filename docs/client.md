@@ -153,6 +153,8 @@ The client reads the answer once and keeps it, because a server cannot take on a
 
 The client encodes every index name and document id it puts in a path, and the server decodes each segment. An id holding a slash, a space, or an accent therefore reaches the document it names.
 
+The engine reads a vector as a number array or a `Float32Array`, in a document field and in a query alike, and JSON writes a `Float32Array` as an object keyed by index. The client converts one to the numbers it holds before it sends, so either form reaches the server as a vector.
+
 ## In a React application
 
 The [React guide](react.md) covers `@delali/narsil/react`, which gives these methods to components as hooks. Two components asking for the same thing send one request, a search re-runs as its parameters change, and `useImport` follows a load from the component that started it.

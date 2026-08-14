@@ -1,3 +1,4 @@
+import { encodeJson } from '../json-encoding'
 import type { TaskRecord } from '../server/types'
 import type { MemoryStats, VectorMaintenanceResult } from '../types/results'
 import type { PartitionConfig } from '../types/schema'
@@ -148,7 +149,7 @@ export function createAdminOperations(transport: Transport): AdminOperations {
     const payload = await transport.json({
       method: 'POST',
       path,
-      body: JSON.stringify(body),
+      body: encodeJson(body),
       contentType: 'application/json',
       options,
     })

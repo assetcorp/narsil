@@ -27,6 +27,23 @@ describe('client against a live server', () => {
     await server.stop()
   })
 
+  it('sends a vector as numbers, whether it arrives as an array or a Float32Array', async () => {
+    await client.createIndex('vectors', { schema: { title: 'string', embedding: 'vector[3]' }, language: 'english' })
+    await client.insert('vectors', { id: 'v1', title: 'typed', embedding: new Float32Array([1, 0, 0]) })
+    await client.insert('vectors', { id: 'v2', title: 'plain', embedding: [0, 1, 0] })
+
+    const typed = await client.get('vectors', 'v1')
+    const plain = await client.get('vectors', 'v2')
+    expect({ typed: typed?.embedding, plain: plain?.embedding }).toEqual({ typed: [1, 0, 0], plain: [0, 1, 0] })
+
+    const found = await client.query('vectors', {
+      mode: 'vector',
+      vector: { field: 'embedding', value: new Float32Array([1, 0, 0]) },
+      limit: 1,
+    })
+    expect(found.hits.map(hit => hit.id)).toEqual(['v1'])
+  })
+
   it('creates, describes, and drops an index', async () => {
     const listed = await client.listIndexes()
     expect(listed.map(entry => entry.name)).toEqual(['movies'])

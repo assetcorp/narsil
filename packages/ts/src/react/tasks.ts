@@ -1,24 +1,8 @@
 import type { TaskListPage, TaskListQuery, TaskRecord } from '../server/types'
+import type { NarsilReadOptions, NarsilReadState } from './options'
 import { usePolling } from './poll'
-import { type NarsilReadOptions, type NarsilReadState, useRead } from './read'
-
-/** The server writes an import's progress this often, so a faster poll reads
- * the same figures twice. */
-export const DEFAULT_TASK_POLL_INTERVAL_MS = 250
-
-/** A poll that failed waits at least this long before the next one, which stops
- * a server that is refusing every request from taking four more every second.
- * SWR waits the same five seconds before it retries. */
-export const ERROR_RETRY_INTERVAL_MS = 5000
-
-export function pollInterval(interval: number, failed: boolean): number {
-  return failed ? Math.max(interval, ERROR_RETRY_INTERVAL_MS) : interval
-}
-
-export function isTerminalTask(record: TaskRecord | null | undefined): boolean {
-  if (record === null || record === undefined) return false
-  return record.status === 'succeeded' || record.status === 'failed' || record.status === 'cancelled'
-}
+import { useRead } from './read'
+import { DEFAULT_TASK_POLL_INTERVAL_MS, isTerminalTask, pollInterval } from './task-state'
 
 /**
  * These settings say how a task hook follows the work.

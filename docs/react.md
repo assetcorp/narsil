@@ -43,7 +43,7 @@ Every hook takes the same settings as its last argument.
 
 | Setting | What it does |
 | --- | --- |
-| `enabled` | The hook sends nothing while this is false, which is how a search waits for a term. |
+| `enabled` | The hook sends nothing while this is false, which is how a search waits for a term. A request already in flight stops when its key does. |
 | `keepPreviousData` | The hits already on screen stay there while the next answer loads. |
 | `refreshIntervalMs` | The hook asks again this often, and it pauses while the page is hidden. |
 | `headers` | The hook sends these with its request. |
@@ -108,7 +108,7 @@ function Search() {
 
 ## Loading a corpus
 
-`useImport` sends the documents, asks the server to load them as a task, and then follows that task.
+`useImport` sends the documents and asks the server to load them as a task. It then follows that task to the end.
 
 ```tsx
 function Importer({ documents }: { documents: AnyDocument[] }) {
@@ -130,7 +130,9 @@ function Importer({ documents }: { documents: AnyDocument[] }) {
 }
 ```
 
-`start` returns once the server has read the body and taken the work on. Where the server refuses the corpus, `start` throws the server's own failure and the hook reports it in `error`, so catch the one you await. From then on the hook asks every 250 ms, which is how often the server writes the figures, and it stops as soon as the load succeeds, fails, or is cancelled. Pass `onSettled` to act on the final record.
+`start` returns once the server has read the body and taken the work on. Where the server refuses the corpus, `start` throws the server's own failure and the hook reports it in `error`, so catch the one you await. From then on the hook asks every 250 ms, which is how often the server writes the figures. It stops as soon as the load succeeds, fails, or is cancelled, and it leaves five seconds between attempts while the server is failing.
+
+`task` holds the record from the moment the server takes the load on, and `progress` and `result` read two of its fields. `onSettled` fires once, on the final record. `cancel` stops the upload while the corpus is still going up, and asks the server to stop the task after that. `reset` clears the record and the failure, ready for another load.
 
 Unmounting the component stops the polling alone, because the server finishes the load either way. Follow it again with `useTask`, under the id `start` returned.
 
@@ -154,7 +156,7 @@ A hook identifies its request by the method name and the arguments, read the way
 
 The hook refuses an argument an HTTP request cannot express, and it throws `CONFIG_INVALID` as it renders. It refuses a function, a symbol, an object that holds a reference back to itself, and more than 32 levels of nesting.
 
-Pass the same object between renders, through `useMemo` or a constant, and the hook reuses the key rather than building it again. The parameters a search sends are small, so the difference shows only with a raw query vector of a thousand dimensions or more.
+A hook that receives the same object between renders, through `useMemo` or a constant, reuses the key instead of building it again. The parameters a search sends are small, so that saving shows only with a raw query vector of a thousand dimensions or more.
 
 ## Errors
 
