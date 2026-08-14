@@ -1,4 +1,5 @@
 import { ErrorCodes } from '../errors'
+import { encodeJson } from '../json-encoding'
 import type { AnyDocument, InsertOptions } from '../types/schema'
 import type { Transport } from './http'
 import type { RequestOptions } from './options'
@@ -129,7 +130,7 @@ export function createDocumentOperations(transport: Transport): DocumentOperatio
       const payload = await transport.json({
         method: 'POST',
         path,
-        body: JSON.stringify({
+        body: encodeJson({
           document,
           ...(docId === undefined ? {} : { id: docId }),
           ...(insertOptions === undefined ? {} : { options: insertOptions }),
@@ -154,7 +155,7 @@ export function createDocumentOperations(transport: Transport): DocumentOperatio
       const payload = await transport.json({
         method: 'PUT',
         path,
-        body: JSON.stringify({ document }),
+        body: encodeJson({ document }),
         contentType: 'application/json',
         options,
       })
@@ -164,7 +165,7 @@ export function createDocumentOperations(transport: Transport): DocumentOperatio
       await transport.json({
         method: 'PATCH',
         path: documentPath(indexName, docId),
-        body: JSON.stringify({ document }),
+        body: encodeJson({ document }),
         contentType: 'application/json',
         options,
       })

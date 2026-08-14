@@ -3,15 +3,17 @@ import type { ImportSource, RequestOptions } from '../client'
 import { NarsilError, ServerErrorCodes } from '../errors'
 import type { ImportResult, TaskProgress, TaskRecord } from '../server/types'
 import { useNarsilClient } from './context'
+import { asNarsilError } from './failure'
+import { type NarsilRequestSettings, requestOf } from './options'
 import { usePolling } from './poll'
-import { DEFAULT_TASK_POLL_INTERVAL_MS, isTerminalTask, pollInterval } from './tasks'
+import { DEFAULT_TASK_POLL_INTERVAL_MS, isTerminalTask, pollInterval } from './task-state'
 
 /**
  * These settings say how {@link useImport} runs a load and follows it.
  *
  * @public
  */
-export interface NarsilImportOptions {
+export interface NarsilImportOptions extends NarsilRequestSettings {
   /** The hook asks the server how far the load has gone this often, and every
    * 250 ms unless you say otherwise, which is how often the server writes the
    * figures. It leaves five seconds between attempts while the server is
@@ -20,11 +22,6 @@ export interface NarsilImportOptions {
   /** The hook calls this once the load reaches a final status, whichever status
    * that is. */
   onSettled?: (record: TaskRecord) => void
-  /** The hook sends these headers with every request it makes. */
-  headers?: Record<string, string>
-  /** The hook gives the server this many milliseconds to answer each request,
-   * and it waits for as long as the server takes unless you set this. */
-  timeoutMs?: number
 }
 
 /**
@@ -44,8 +41,10 @@ export interface NarsilImportState {
    * `NOT_FOUND` where the server predates the asynchronous import.
    */
   start: (source: ImportSource) => Promise<TaskRecord>
-  /** Asks the running load to stop. The work stops between batches, so whatever
-   * it had already written stays written. */
+  /** Asks the running load to stop. Calling it while the corpus is still going
+   * up stops the upload, and calling it afterwards asks the server to stop the
+   * task, which stops between batches, so whatever it had already written stays
+   * written. */
   cancel: () => void
   /** Clears the record and the failure, ready for another load. */
   reset: () => void
@@ -72,19 +71,13 @@ interface ImportProgress {
 
 const NOTHING: ImportProgress = { task: undefined, error: undefined, starting: false }
 
-function asNarsilError(err: unknown): NarsilError {
-  if (err instanceof NarsilError) return err
-  const message = err instanceof Error ? err.message : String(err)
-  return new NarsilError(ServerErrorCodes.INTERNAL_ERROR, `The import failed unexpectedly: ${message}`)
-}
-
 /**
  * Loads a corpus into an index and reports how far the load has gone.
  *
  * The hook starts the load as a task, so the request returns as soon as the
- * server has read the body, and a corpus longer than a proxy's response timeout
- * still loads. It then polls the task, pausing while the page is hidden, until
- * the load succeeds, fails, or stops.
+ * server has read the body. A corpus that would outlast a proxy's response
+ * timeout therefore still loads. The hook then polls the task, pausing while
+ * the page is hidden, until the load succeeds, fails, or is cancelled.
  *
  * Unmounting the component stops the polling alone, because the server finishes
  * the load either way. Follow it again with {@link useTask}, under the id of the
@@ -103,13 +96,14 @@ export function useImport(indexName: string, options?: NarsilImportOptions): Nar
   const [progress, setProgress] = useState<ImportProgress>(NOTHING)
 
   const polling = useRef<AbortController | null>(null)
+  const sending = useRef<AbortController | null>(null)
   const inFlight = useRef(false)
   const reported = useRef<string | null>(null)
-  const request = useRef<RequestOptions>({ headers: options?.headers, timeoutMs: options?.timeoutMs })
+  const request = useRef<RequestOptions>(requestOf(options))
   const settled = useEffectEvent((record: TaskRecord) => options?.onSettled?.(record))
 
   useEffect(() => {
-    request.current = { headers: options?.headers, timeoutMs: options?.timeoutMs }
+    request.current = requestOf(options)
   })
 
   useEffect(() => {
@@ -128,15 +122,20 @@ export function useImport(indexName: string, options?: NarsilImportOptions): Nar
 
   const start = useCallback(
     async (source: ImportSource): Promise<TaskRecord> => {
+      const controller = new AbortController()
+      sending.current = controller
       setProgress({ task: undefined, error: undefined, starting: true })
       try {
-        const record = await client.startImport(indexName, source, request.current)
+        const record = await client.startImport(indexName, source, { ...request.current, signal: controller.signal })
         setProgress({ task: record, error: undefined, starting: false })
         return record
       } catch (err) {
-        const failure = asNarsilError(err)
-        setProgress({ task: undefined, error: failure, starting: false })
+        const failure = asNarsilError(err, 'The import')
+        const stopped = controller.signal.aborted
+        setProgress({ task: undefined, error: stopped ? undefined : failure, starting: false })
         throw failure
+      } finally {
+        if (sending.current === controller) sending.current = null
       }
     },
     [client, indexName],
@@ -170,7 +169,7 @@ export function useImport(indexName: string, options?: NarsilImportOptions): Nar
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return
-        setProgress(prev => (prev.task?.id === taskId ? { ...prev, error: asNarsilError(err) } : prev))
+        setProgress(prev => (prev.task?.id === taskId ? { ...prev, error: asNarsilError(err, 'The import') } : prev))
       })
       .finally(() => {
         inFlight.current = false
@@ -178,6 +177,10 @@ export function useImport(indexName: string, options?: NarsilImportOptions): Nar
   }
 
   const cancel = useCallback(() => {
+    if (progress.starting) {
+      sending.current?.abort()
+      return
+    }
     if (taskId === undefined || !running) return
     client
       .cancelTask(taskId, request.current)
@@ -186,9 +189,9 @@ export function useImport(indexName: string, options?: NarsilImportOptions): Nar
       })
       .catch((err: unknown) => {
         if (err instanceof NarsilError && err.code === ServerErrorCodes.TASK_NOT_CANCELLABLE) return
-        setProgress(prev => (prev.task?.id === taskId ? { ...prev, error: asNarsilError(err) } : prev))
+        setProgress(prev => (prev.task?.id === taskId ? { ...prev, error: asNarsilError(err, 'The import') } : prev))
       })
-  }, [client, taskId, running])
+  }, [client, taskId, running, progress.starting])
 
   const reset = useCallback(() => {
     reported.current = null

@@ -142,11 +142,9 @@ export class NarsilError extends Error {
 export type NarsilErrorCode = ErrorCode | ServerErrorCode | ClientErrorCode | (string & {});
 
 // @public
-export interface NarsilImportOptions {
-    headers?: Record<string, string>;
+export interface NarsilImportOptions extends NarsilRequestSettings {
     onSettled?: (record: TaskRecord) => void;
     pollIntervalMs?: number;
-    timeoutMs?: number;
 }
 
 // @public
@@ -172,12 +170,10 @@ export interface NarsilProviderProps {
 }
 
 // @public
-export interface NarsilReadOptions {
+export interface NarsilReadOptions extends NarsilRequestSettings {
     enabled?: boolean;
-    headers?: Record<string, string>;
     keepPreviousData?: boolean;
     refreshIntervalMs?: number;
-    timeoutMs?: number;
 }
 
 // @public
@@ -187,6 +183,12 @@ export interface NarsilReadState<T> {
     isFetching: boolean;
     isLoading: boolean;
     refresh: () => void;
+}
+
+// @public
+export interface NarsilRequestSettings {
+    headers?: Record<string, string>;
+    timeoutMs?: number;
 }
 
 // @public

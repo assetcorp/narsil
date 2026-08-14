@@ -1,3 +1,4 @@
+import { encodeJson } from '../json-encoding'
 import type { HttpIndexConfig } from '../server/types'
 import type { IndexInfo, IndexStats, PartitionStatsResult } from '../types/results'
 import type { Transport } from './http'
@@ -84,7 +85,7 @@ export function createIndexOperations(transport: Transport): IndexOperations {
       await transport.json({
         method: 'POST',
         path: '/indexes',
-        body: JSON.stringify({ name, config }),
+        body: encodeJson({ name, config }),
         contentType: 'application/json',
         options,
       })

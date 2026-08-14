@@ -1,4 +1,5 @@
 import { NarsilError, ServerErrorCodes } from '../errors'
+import { encodeJson } from '../json-encoding'
 import type { ImportResult, TaskRecord } from '../server/types'
 import type { BatchResult, ListResult } from '../types/results'
 import type { AnyDocument, InsertOptions } from '../types/schema'
@@ -155,7 +156,7 @@ export interface BulkOperations {
 
 function toNdjson(source: ImportSource): string | Uint8Array {
   if (typeof source === 'string') return source
-  if (Array.isArray(source)) return source.map(document => JSON.stringify(document)).join('\n')
+  if (Array.isArray(source)) return source.map(document => encodeJson(document)).join('\n')
   return source
 }
 
@@ -179,7 +180,7 @@ export function createBulkOperations(transport: Transport): BulkOperations {
   function batch(indexName: string, body: unknown, options: RequestOptions | undefined): Promise<BatchResult> {
     const path = `${indexPath(indexName)}/documents/_batch`
     return transport
-      .json({ method: 'POST', path, body: JSON.stringify(body), contentType: 'application/json', options })
+      .json({ method: 'POST', path, body: encodeJson(body), contentType: 'application/json', options })
       .then(payload => toBatchResult(payload, path))
   }
 
@@ -214,7 +215,7 @@ export function createBulkOperations(transport: Transport): BulkOperations {
       const payload = await transport.json({
         method: 'POST',
         path,
-        body: JSON.stringify({ docIds }),
+        body: encodeJson({ docIds }),
         contentType: 'application/json',
         options,
       })
@@ -226,7 +227,7 @@ export function createBulkOperations(transport: Transport): BulkOperations {
       const payload = await transport.json({
         method: 'POST',
         path,
-        body: JSON.stringify(params ?? {}),
+        body: encodeJson(params ?? {}),
         contentType: 'application/json',
         options,
       })

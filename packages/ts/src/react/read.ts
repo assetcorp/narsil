@@ -1,67 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import type { NarsilClient, RequestOptions } from '../client'
-import type { NarsilError } from '../errors'
 import { useNarsilContext } from './context'
 import { hashKey } from './key'
+import { type NarsilReadOptions, type NarsilReadState, requestOf } from './options'
 import { usePolling } from './poll'
 import { IDLE_SNAPSHOT, LOADING_SNAPSHOT, type ResourceSnapshot } from './store'
 
 const NO_SUBSCRIPTION = (): void => {}
 
-/**
- * These settings change what a read hook does, and every read hook takes them
- * as its last argument.
- *
- * @public
- */
-export interface NarsilReadOptions {
-  /** The hook sends nothing while this is false, and it reports no data and no
-   * failure, which is how a search waits for a term. */
-  enabled?: boolean
-  /** The hook keeps showing the last answer while the next one loads, which
-   * holds a result list steady as somebody types. */
-  keepPreviousData?: boolean
-  /** The hook asks again this often, in milliseconds, and it pauses while the
-   * page is hidden. It asks once and stops unless you set this. */
-  refreshIntervalMs?: number
-  /** The hook sends these headers with its request. */
-  headers?: Record<string, string>
-  /** The hook gives the server this many milliseconds to answer, and 0 waits
-   * for as long as the server takes. */
-  timeoutMs?: number
-}
-
-/**
- * What a read hook reports.
- *
- * `isLoading` covers the wait for the first answer, so a spinner reads it,
- * while `isFetching` covers every request including a refresh, so a quieter
- * indicator reads that one.
- *
- * @typeParam T - This is what the underlying client method answers with.
- *
- * @public
- */
-export interface NarsilReadState<T> {
-  /** This is the answer, and it stays undefined until the first one arrives. */
-  data: T | undefined
-  /** This is the failure the last request ended on, and the next success clears it. */
-  error: NarsilError | undefined
-  /** This is true while the hook waits for an answer and has none to show. */
-  isLoading: boolean
-  /** This is true while a request is in flight, including a refresh. */
-  isFetching: boolean
-  /** Calling this asks the server again, keeping the answer on screen until the
-   * new one arrives. */
-  refresh: () => void
-}
-
+/** Sends one client method's request, which is the part a read hook fills in. */
 export type ReadRunner<T> = (client: NarsilClient, request: RequestOptions) => Promise<T>
 
 interface LatestCall<T> {
   run: ReadRunner<T>
-  headers: Record<string, string> | undefined
-  timeoutMs: number | undefined
+  request: RequestOptions
 }
 
 function useKey(parts: readonly unknown[]): string {
@@ -104,9 +56,9 @@ export function useRead<T>(
   const timeoutMs = options?.timeoutMs
   const key = useKey([...parts, headers, timeoutMs])
 
-  const call = useRef<LatestCall<T>>({ run, headers, timeoutMs })
+  const call = useRef<LatestCall<T>>({ run, request: requestOf(options) })
   useEffect(() => {
-    call.current = { run, headers, timeoutMs }
+    call.current = { run, request: requestOf(options) }
   })
 
   const subscribe = useCallback(
@@ -114,7 +66,7 @@ export function useRead<T>(
       if (!enabled) return NO_SUBSCRIPTION
       const loader = (signal: AbortSignal): Promise<T> => {
         const held = call.current
-        return held.run(client, { signal, headers: held.headers, timeoutMs: held.timeoutMs })
+        return held.run(client, { ...held.request, signal })
       }
       return store.subscribe(key, loader, onChange)
     },
@@ -142,8 +94,8 @@ export function useRead<T>(
 
   usePolling(refresh, options?.refreshIntervalMs ?? 0, enabled)
 
-  const keepPrevious = options?.keepPreviousData ?? false
-  const data = snapshot.data === undefined && keepPrevious ? kept.current : snapshot.data
+  const keepPrevious = (options?.keepPreviousData ?? false) && snapshot.isLoading
+  const data = keepPrevious && snapshot.data === undefined ? kept.current : snapshot.data
 
   return useMemo(
     () => ({

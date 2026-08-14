@@ -1,3 +1,4 @@
+import { encodeJson } from '../json-encoding'
 import type { PreflightResult, QueryResult, SuggestResult } from '../types/results'
 import type { AnyDocument } from '../types/schema'
 import type { QueryParams, SuggestParams } from '../types/search'
@@ -67,7 +68,7 @@ export function createSearchOperations(transport: Transport): SearchOperations {
     const payload = await transport.json({
       method: 'POST',
       path,
-      body: JSON.stringify(params),
+      body: encodeJson(params),
       contentType: 'application/json',
       options,
     })

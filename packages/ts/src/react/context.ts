@@ -1,11 +1,14 @@
-import { createContext, createElement, type ReactElement, type ReactNode, useContext, useEffect, useMemo } from 'react'
+import { createContext, createElement, type ReactElement, type ReactNode, useContext, useEffect, useState } from 'react'
 import type { NarsilClient } from '../client'
 import { ErrorCodes, NarsilError } from '../errors'
 import { createResourceStore, type ResourceStore } from './store'
 
+/** What a hook reads out of the context: the client to send through, and the
+ * state every hook under one provider shares. */
 export interface NarsilContextValue {
   client: NarsilClient
   store: ResourceStore
+  keepAliveMs: number | undefined
 }
 
 const NarsilContext = createContext<NarsilContextValue | null>(null)
@@ -30,12 +33,16 @@ export interface NarsilProviderProps {
   children?: ReactNode
 }
 
+function build(client: NarsilClient, keepAliveMs: number | undefined): NarsilContextValue {
+  return { client, store: createResourceStore(keepAliveMs), keepAliveMs }
+}
+
 /**
  * Gives every hook below it the client to send through, and the shared state
  * they read.
  *
  * Two components asking for the same thing under one provider send one request
- * and read one answer. The provider drops that state when it unmounts, and it
+ * and read one answer. The provider drops that state once it unmounts, and it
  * stops whatever is still in flight.
  *
  * @param props - These name the client and the components the provider covers.
@@ -45,14 +52,17 @@ export interface NarsilProviderProps {
  */
 export function NarsilProvider(props: NarsilProviderProps): ReactElement {
   const { client, keepAliveMs, children } = props
-  const value = useMemo<NarsilContextValue>(
-    () => ({ client, store: createResourceStore(keepAliveMs) }),
-    [client, keepAliveMs],
-  )
+  const [value, setValue] = useState<NarsilContextValue>(() => build(client, keepAliveMs))
+  if (value.client !== client || value.keepAliveMs !== keepAliveMs) {
+    setValue(build(client, keepAliveMs))
+  }
+
   useEffect(() => value.store.retain(), [value])
+
   return createElement(NarsilContext.Provider, { value }, children)
 }
 
+/** Reads the context a hook runs in, and refuses to run without one. */
 export function useNarsilContext(): NarsilContextValue {
   const value = useContext(NarsilContext)
   if (value === null) {

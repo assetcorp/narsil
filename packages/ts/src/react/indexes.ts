@@ -1,5 +1,6 @@
 import type { IndexInfo, IndexStats } from '../types/results'
-import { type NarsilReadOptions, type NarsilReadState, useRead } from './read'
+import type { NarsilReadOptions, NarsilReadState } from './options'
+import { useRead } from './read'
 
 /**
  * Lists every index the server holds, with its size and its language.

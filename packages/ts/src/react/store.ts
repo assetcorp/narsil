@@ -1,4 +1,5 @@
-import { NarsilError, ServerErrorCodes } from '../errors'
+import type { NarsilError } from '../errors'
+import { asNarsilError } from './failure'
 
 /** The store keeps an answer for this long after the last component reading it
  * has gone. The wait covers the gap between React unmounting a component and
@@ -7,7 +8,7 @@ import { NarsilError, ServerErrorCodes } from '../errors'
 export const DEFAULT_KEEP_ALIVE_MS = 2000
 
 /**
- * What one hook knows about the answer it asked for.
+ * Where one key stands: the answer, the failure, and the two loading flags.
  *
  * `isLoading` stays true until the first answer arrives, whether that answer is
  * a value or a failure, while `isFetching` marks a request in flight, including
@@ -65,8 +66,9 @@ export interface ResourceStore {
    * Reads a key, and starts its request where nothing has answered yet.
    *
    * @param key - This identifies the request.
-   * @param loader - This sends the request, and only the first subscriber's
-   * loader runs, because the key already carries every argument.
+   * @param loader - This sends the request. The store holds the newest one it
+   * was given, and any of them computes the same request, because the key
+   * carries every argument.
    * @param onChange - The store calls this whenever the answer moves.
    * @returns Calling this drops the subscription.
    */
@@ -97,12 +99,6 @@ export interface ResourceStore {
   retain(): () => void
   /** Stops every request in flight and forgets every answer. */
   dispose(): void
-}
-
-function asNarsilError(err: unknown): NarsilError {
-  if (err instanceof NarsilError) return err
-  const message = err instanceof Error ? err.message : String(err)
-  return new NarsilError(ServerErrorCodes.INTERNAL_ERROR, `A Narsil hook failed unexpectedly: ${message}`)
 }
 
 /**
@@ -144,7 +140,7 @@ export function createResourceStore(keepAliveMs = DEFAULT_KEEP_ALIVE_MS): Resour
         if (controller.signal.aborted) return
         publish(entry, {
           data: entry.snapshot.data,
-          error: asNarsilError(err),
+          error: asNarsilError(err, 'A Narsil hook'),
           isLoading: false,
           isFetching: false,
         })

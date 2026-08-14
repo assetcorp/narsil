@@ -159,6 +159,23 @@ describe('react read hooks', () => {
     await view.unmount()
   })
 
+  it('shows no stale document for an id the index does not hold, even while keeping the last answer', async () => {
+    const server = stubServer([
+      route('/documents/known', () => json({ document: { id: 'known', title: 'The Matrix' } })),
+      route('/documents/', () => json({ error: { code: 'DOC_NOT_FOUND', message: 'gone' } }, 404)),
+    ])
+    let docId = 'known'
+    const view = await renderHook(() => useDocument('movies', docId, { keepPreviousData: true }), clientFor(server))
+    await waitFor(() => view.current().data !== undefined)
+
+    docId = 'missing'
+    await view.rerender()
+    await waitFor(() => server.calls.length === 2 && view.current().isFetching === false)
+    expect(view.current().data).toBeUndefined()
+    expect(view.current().error).toBeUndefined()
+    await view.unmount()
+  })
+
   it('refuses to run outside a provider', async () => {
     function Orphan(): null {
       useNarsilClient()

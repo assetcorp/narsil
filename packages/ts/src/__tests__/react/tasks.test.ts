@@ -185,6 +185,45 @@ describe('useImport', () => {
     await view.unmount()
   })
 
+  it('stops the upload when cancel arrives before the server has taken the load on', async () => {
+    const held: { release: (() => void) | null } = { release: null }
+    const server = stubServer([
+      route(
+        '_import',
+        () =>
+          new Promise<{ status: number; body: unknown }>(resolve => {
+            held.release = () => resolve({ status: 200, body: record('running') })
+          }),
+        'POST',
+      ),
+    ])
+    const view = await renderHook(() => useImport('movies', { pollIntervalMs: FAST_POLL_MS }), clientFor(server))
+
+    let thrown: unknown = null
+    await interact(() => {
+      void view
+        .current()
+        .start([{ id: 'm1' }])
+        .catch((err: unknown) => {
+          thrown = err
+        })
+    })
+    await waitFor(() => view.current().isImporting)
+    expect(server.calls[0].signal?.aborted).toBe(false)
+
+    await interact(() => {
+      view.current().cancel()
+    })
+    expect(server.calls[0].signal?.aborted).toBe(true)
+
+    held.release?.()
+    await waitFor(() => view.current().isImporting === false)
+    expect(view.current().error).toBeUndefined()
+    expect(view.current().task).toBeUndefined()
+    expect(thrown).toBeInstanceOf(NarsilError)
+    await view.unmount()
+  })
+
   it('clears the record so that another load can start', async () => {
     const server = importServer([record('succeeded', 1)])
     const view = await renderHook(() => useImport('movies', { pollIntervalMs: FAST_POLL_MS }), clientFor(server))
