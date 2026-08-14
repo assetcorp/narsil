@@ -139,12 +139,41 @@ export const ServerErrorCodes = {
 export type ServerErrorCode = (typeof ServerErrorCodes)[keyof typeof ServerErrorCodes]
 
 /**
- * Every code a {@link NarsilError} can carry, whichever part of Narsil raised
- * it: the engine, or the HTTP layer in front of it.
+ * Every code the HTTP client raises for a failure that stops a request from
+ * reaching a server, or stops its answer from being read.
+ *
+ * No server sends one of these, so a failure with one of these codes means the
+ * exchange broke before the operation ran.
  *
  * @public
  */
-export type NarsilErrorCode = ErrorCode | ServerErrorCode
+export const ClientErrorCodes = {
+  CLIENT_CONNECTION_FAILED: 'CLIENT_CONNECTION_FAILED',
+  CLIENT_REQUEST_TIMEOUT: 'CLIENT_REQUEST_TIMEOUT',
+  CLIENT_REQUEST_ABORTED: 'CLIENT_REQUEST_ABORTED',
+  CLIENT_INVALID_RESPONSE: 'CLIENT_INVALID_RESPONSE',
+  CLIENT_TASK_TIMEOUT: 'CLIENT_TASK_TIMEOUT',
+} as const
+
+/**
+ * Any one of the codes in {@link ClientErrorCodes}.
+ *
+ * @public
+ */
+export type ClientErrorCode = (typeof ClientErrorCodes)[keyof typeof ClientErrorCodes]
+
+/**
+ * Every code a {@link NarsilError} can carry: one the engine raised, one the
+ * HTTP layer raised, one the client raised, or any other string.
+ *
+ * A server's `onRequest` hook rejects a request with a code of its own, such as
+ * `UNAUTHORIZED`, and the client passes that code through unchanged, which is
+ * what the last arm allows. An editor still completes the codes Narsil
+ * defines.
+ *
+ * @public
+ */
+export type NarsilErrorCode = ErrorCode | ServerErrorCode | ClientErrorCode | (string & {})
 
 /**
  * The error every part of the engine throws.
@@ -166,8 +195,9 @@ export class NarsilError extends Error {
    * Builds an error carrying a code the caller can branch on.
    *
    * @param code - The failure this error reports, from {@link ErrorCodes} for
-   * an engine failure or {@link ServerErrorCodes} for one the HTTP layer
-   * raised.
+   * an engine failure, {@link ServerErrorCodes} for one the HTTP layer raised,
+   * or {@link ClientErrorCodes} for one that stopped a request from reaching a
+   * server.
    * @param message - Plain description, for a log or a person.
    * @param details - Values behind the failure, which reach
    * {@link NarsilError.details}.

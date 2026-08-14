@@ -1,5 +1,5 @@
 import { decode } from '@msgpack/msgpack'
-import { NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '../../errors'
 import { mergePartitionStats } from '../../partitioning/distributed-scoring'
 import type {
   GlobalStatistics,
@@ -63,7 +63,7 @@ export async function collectDistributedStats(
   }
 
   if (validStats.length === 0) {
-    throw new NarsilError('QUERY_NODE_TIMEOUT', 'All partition stats requests failed during DFS pre-pass', {
+    throw new NarsilError(ErrorCodes.QUERY_NODE_TIMEOUT, 'All partition stats requests failed during DFS pre-pass', {
       nodeCount: nodeEntries.length,
     })
   }

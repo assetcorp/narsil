@@ -6,6 +6,7 @@ Read the file you're editing and follow what it already does. The rules below co
 
 ## Rules
 
+- Re-read and apply the user's writing guidelines fully, if available, whenever you are writing TS-Doc or any prose in the repo.
 - Leave `packages/spec` alone. The developer owns every spec change and makes it directly. When your work needs a different header field, envelope version, payload encoding, client-facing error code, or replication invariant, say so and wait for their decision. Write no code against a spec change they have not approved.
 - Keep every source file under 400 lines. Measure a file when you touch it, and split it before your change pushes it over. Turn a module that outgrows one file into a directory with an `index.ts` that re-exports it, and drop the module prefix from each filename inside. Copy `src/core/partition/` or `src/engine/mutations/`. The limit covers source only, and `src/languages/` is exempt as well, because each module ports a published stemmer and a reader checks those line by line against the reference.
 - Keep everything tree-shakeable. A bundler must be able to drop any capability the caller never imports, so add no barrel that pulls siblings in, and register no optional capability at module load. `src/languages/registry.ts` holds English alone for exactly this reason, and a caller imports and registers any other language itself. Registering all of them there would pull every stop word list and every stemmer into every bundle, so leave that file as it is and make each new language reachable by direct import.

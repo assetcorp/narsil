@@ -505,7 +505,7 @@ export class NarsilError extends Error {
 }
 
 // @public
-export type NarsilErrorCode = ErrorCode | ServerErrorCode;
+export type NarsilErrorCode = ErrorCode | ServerErrorCode | ClientErrorCode | (string & {});
 
 // @public
 export type NarsilEventMap = {

@@ -1,5 +1,5 @@
 import { toComparableSortValue } from '../../core/ordering'
-import { NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '../../errors'
 import { decodePageCursor, encodePageCursor, requireMatchingCursor } from '../../search/cursor'
 import { requireWithinResultWindow } from '../../search/pagination'
 import type { FacetBucket, GlobalStatistics, ScoredEntry, SortField, WireQueryParams } from '../transport/types'
@@ -54,7 +54,9 @@ export async function distributedQuery(
 
   const allocationTable = await deps.getAllocation(indexName)
   if (allocationTable === null) {
-    throw new NarsilError('QUERY_ROUTING_FAILED', `No allocation table found for index '${indexName}'`, { indexName })
+    throw new NarsilError(ErrorCodes.QUERY_ROUTING_FAILED, `No allocation table found for index '${indexName}'`, {
+      indexName,
+    })
   }
 
   if (allocationTable.assignments.size === 0) {
@@ -71,7 +73,7 @@ export async function distributedQuery(
   const totalPartitions = allocationTable.assignments.size
 
   if (routing.unavailablePartitions.length > 0 && !resolvedConfig.allowPartialResults) {
-    throw new NarsilError('QUERY_NO_ACTIVE_REPLICA', 'No active replica for one or more partitions', {
+    throw new NarsilError(ErrorCodes.QUERY_NO_ACTIVE_REPLICA, 'No active replica for one or more partitions', {
       unavailablePartitions: routing.unavailablePartitions,
     })
   }
@@ -79,7 +81,7 @@ export async function distributedQuery(
   const isHybrid = params.hybrid !== null && params.term !== null && params.vector !== null
 
   if (isHybrid && params.searchAfter !== null) {
-    throw new NarsilError('QUERY_ROUTING_FAILED', 'Cursor pagination is not supported for hybrid queries', {
+    throw new NarsilError(ErrorCodes.QUERY_ROUTING_FAILED, 'Cursor pagination is not supported for hybrid queries', {
       indexName,
     })
   }
@@ -166,7 +168,7 @@ async function executeSingleFanOut(
   if (!config.allowPartialResults) {
     const failedCount = coverage.timedOutPartitions + coverage.failedPartitions
     if (failedCount > 0) {
-      throw new NarsilError('QUERY_PARTIAL_FAILURE', 'One or more partitions failed during query', {
+      throw new NarsilError(ErrorCodes.QUERY_PARTIAL_FAILURE, 'One or more partitions failed during query', {
         coverage,
       })
     }
@@ -270,7 +272,7 @@ async function executeHybridQuery(
   if (!config.allowPartialResults) {
     const failedCount = coverage.timedOutPartitions + coverage.failedPartitions
     if (failedCount > 0) {
-      throw new NarsilError('QUERY_PARTIAL_FAILURE', 'One or more partitions failed during hybrid query', {
+      throw new NarsilError(ErrorCodes.QUERY_PARTIAL_FAILURE, 'One or more partitions failed during hybrid query', {
         coverage,
       })
     }
