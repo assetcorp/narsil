@@ -40,7 +40,7 @@ const nodeEntry: Record<string, string> = {
   server: 'src/server/index.ts',
 }
 
-const browserEntry: Record<string, string> = { client: 'src/client/index.ts' }
+const browserEntry: Record<string, string> = { client: 'src/client/index.ts', react: 'src/react/index.ts' }
 
 const shared: Options = {
   format: ['esm'],

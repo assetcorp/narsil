@@ -137,6 +137,10 @@
     "./client": {
       "import": "./dist/client.mjs",
       "types": "./dist/client.d.ts"
+    },
+    "./react": {
+      "import": "./dist/react.mjs",
+      "types": "./dist/react.d.ts"
     }
   },
   "files": [
@@ -152,9 +156,14 @@
     "@delali/narsil-embeddings-transformers": "workspace:*",
     "@microsoft/api-extractor": "7.58.12",
     "@types/node": "22.15.32",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
     "@vitest/coverage-v8": "4.0.18",
     "etcd3": "1.1.2",
     "fflate": "0.8.3",
+    "jsdom": "28.1.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
     "selfsigned": "5.5.0",
     "tsup": "8.5.1",
     "tsx": "4.21.0",
@@ -165,10 +174,14 @@
   },
   "peerDependencies": {
     "etcd3": "1.1.2",
+    "react": ">=19.2.0",
     "uWebSockets.js": ">=20.0.0"
   },
   "peerDependenciesMeta": {
     "etcd3": {
+      "optional": true
+    },
+    "react": {
       "optional": true
     },
     "uWebSockets.js": {

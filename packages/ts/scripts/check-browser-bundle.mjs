@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-const BROWSER_ENTRIES = ['dist/index.browser.mjs', 'dist/client.mjs']
+const BROWSER_ENTRIES = ['dist/index.browser.mjs', 'dist/client.mjs', 'dist/react.mjs']
 
 const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)["']([^"']+)["']/g
 const builtins = new Set([...builtinModules, ...builtinModules.map(name => `node:${name}`)])
