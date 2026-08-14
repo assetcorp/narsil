@@ -35,3 +35,17 @@ Read the file you're editing and follow what it already does. The rules below co
 - **The dependency age gate refuses a package published less than four days ago,** and the supply-chain gate refuses an unpinned action reference, a `pull_request_target` trigger, and any URL dependency other than the pinned `uWebSockets.js`.
 
 Read `CONTRIBUTING.md` for the house style and `ROADMAP.md` for where the project is heading. Cluster mode under `src/distribution/` is the project's active focus, so preserve its recovery and failover invariants when you change replication or bootstrap code.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as GitHub issues on `assetcorp/narsil`, and every operation runs through the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` and one `docs/adr/` at the repo root cover all four packages. See `docs/agents/domain.md`.
