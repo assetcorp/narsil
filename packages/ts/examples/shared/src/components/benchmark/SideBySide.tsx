@@ -1,28 +1,31 @@
+import type { Hit } from '@delali/narsil'
 import { useEffect, useState } from 'react'
-import type { NarsilBackend, QueryHit } from '../../backend'
 import type { QueryMetrics } from '../../lib/metrics'
+import { useQueryRunner } from '../../query-runner'
 import { Badge } from '../ui/badge'
 
 interface SideBySideProps {
   query: QueryMetrics
-  backend: NarsilBackend
 }
 
 const GRADE_LABELS = ['Not relevant', 'Relevant']
 const GRADE_COLORS = ['bg-destructive/12 text-foreground', 'bg-chart-2/15 text-foreground']
 
-export function SideBySide({ query, backend }: SideBySideProps) {
-  const [narsilHits, setNarsilHits] = useState<QueryHit[]>([])
+export function SideBySide({ query }: SideBySideProps) {
+  const runQuery = useQueryRunner()
+  const [narsilHits, setNarsilHits] = useState<Hit[]>([])
 
   useEffect(() => {
-    let cancelled = false
-    backend.query({ indexName: 'scifact', term: query.queryText, limit: 10 }).then(res => {
-      if (!cancelled) setNarsilHits(res.hits)
-    })
+    const controller = new AbortController()
+    runQuery('scifact', { term: query.queryText, limit: 10 }, controller.signal)
+      .then(result => {
+        if (!controller.signal.aborted) setNarsilHits(result.hits)
+      })
+      .catch(() => undefined)
     return () => {
-      cancelled = true
+      controller.abort()
     }
-  }, [backend, query.queryText])
+  }, [runQuery, query.queryText])
 
   const expertRanking = Array.from(query.judgments.entries())
     .filter(([, rel]) => rel > 0)

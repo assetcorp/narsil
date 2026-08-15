@@ -1,8 +1,8 @@
+import type { ListedDocument } from '@delali/narsil'
 import type { Column, Table as DocumentTableInstance } from '@tanstack/react-table'
 import { ArrowUpDown, Columns3, SlidersHorizontal } from 'lucide-react'
 import { useCallback } from 'react'
-import type { ListedDocument } from '../../backend'
-import { DOCUMENT_PAGE_SIZES } from '../../hooks/use-document-list'
+import { DOCUMENT_PAGE_SIZES } from '../../hooks/use-document-browser'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import {

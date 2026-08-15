@@ -1,7 +1,7 @@
+import type { ListedDocument } from '@delali/narsil'
 import type { Table as DocumentTableInstance, Header, Row } from '@tanstack/react-table'
 import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react'
 import { useCallback } from 'react'
-import type { ListedDocument } from '../../backend'
 import { formatFieldValue } from '../../lib/display-fields'
 import { Button } from '../ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table'

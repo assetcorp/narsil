@@ -1,9 +1,9 @@
-import type { DisplayDocument } from '../../backend'
+import type { Hit } from '@delali/narsil'
 import { formatFieldValue } from '../../lib/display-fields'
 import { Badge } from '../ui/badge'
 
 interface ResultDetailProps {
-  hit: DisplayDocument
+  hit: Hit
 }
 
 function isLongText(value: unknown): boolean {

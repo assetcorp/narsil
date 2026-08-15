@@ -1,5 +1,5 @@
+import type { Hit } from '@delali/narsil'
 import { useCallback, useState } from 'react'
-import type { QueryHit } from '../../backend'
 import { type DisplayFieldMapping, displayHeading } from '../../lib/display-fields'
 import type { DatasetId } from '../../manifest'
 import { Pagination } from '../Pagination'
@@ -10,7 +10,7 @@ import { ResultCard } from './ResultCard'
 import { ResultDetail } from './ResultDetail'
 
 interface ResultListProps {
-  hits: QueryHit[]
+  hits: Hit[]
   isLoading: boolean
   error: string | null
   count: number
@@ -30,10 +30,10 @@ function ResultHitCard({
   displayFields,
   onSelect,
 }: {
-  hit: QueryHit
+  hit: Hit
   datasetId: DatasetId
   displayFields: DisplayFieldMapping | null
-  onSelect: (hit: QueryHit) => void
+  onSelect: (hit: Hit) => void
 }) {
   const handleClick = useCallback(() => {
     onSelect(hit)
@@ -56,7 +56,7 @@ export function ResultList({
   datasetId,
   displayFields,
 }: ResultListProps) {
-  const [selectedHit, setSelectedHit] = useState<QueryHit | null>(null)
+  const [selectedHit, setSelectedHit] = useState<Hit | null>(null)
   const currentPage = Math.floor(offset / limit)
   const totalPages = Math.ceil(count / limit)
 

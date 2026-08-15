@@ -1,6 +1,6 @@
+import type { Hit } from '@delali/narsil'
 import { Loader2 } from 'lucide-react'
 import { useCallback, useState } from 'react'
-import type { QueryHit } from '../../backend'
 import { type DisplayFieldMapping, displayHeading } from '../../lib/display-fields'
 import { hitDocumentId, type JudgedQuestion, type RelevanceGrade } from '../../lib/judging'
 import type { DatasetId } from '../../manifest'
@@ -13,13 +13,13 @@ const RELEVANT: RelevanceGrade = 1
 const NOT_RELEVANT: RelevanceGrade = 0
 
 interface JudgedResultRowProps {
-  hit: QueryHit
+  hit: Hit
   rank: number
   datasetId: DatasetId
   displayFields: DisplayFieldMapping | null
   grade: RelevanceGrade | undefined
   onJudge: (documentId: string, grade: RelevanceGrade) => void
-  onOpen: (hit: QueryHit) => void
+  onOpen: (hit: Hit) => void
 }
 
 function JudgedResultRow({ hit, rank, datasetId, displayFields, grade, onJudge, onOpen }: JudgedResultRowProps) {
@@ -69,7 +69,7 @@ function JudgedResultRow({ hit, rank, datasetId, displayFields, grade, onJudge, 
 
 interface JudgingPanelProps {
   question: JudgedQuestion
-  hits: QueryHit[] | undefined
+  hits: Hit[] | undefined
   datasetId: DatasetId
   displayFields: DisplayFieldMapping | null
   isRetrieving: boolean
@@ -77,7 +77,7 @@ interface JudgingPanelProps {
 }
 
 export function JudgingPanel({ question, hits, datasetId, displayFields, isRetrieving, onJudge }: JudgingPanelProps) {
-  const [openedHit, setOpenedHit] = useState<QueryHit | null>(null)
+  const [openedHit, setOpenedHit] = useState<Hit | null>(null)
 
   const handleJudge = useCallback(
     (documentId: string, grade: RelevanceGrade) => {

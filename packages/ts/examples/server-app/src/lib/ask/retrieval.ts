@@ -1,6 +1,6 @@
-import type { QueryHit, QueryRequest } from '@delali/narsil-example-shared/backend'
+import type { Hit, QueryParams } from '@delali/narsil'
+import type { NarsilClient } from '@delali/narsil/client'
 import { EMBEDDING_FIELD, WIKIPEDIA_LEAD_FIELD } from '../embedding-config'
-import type { RestBackend } from '../rest-backend'
 import type { AskSource, RetrievalMode } from './types'
 
 export const MAX_SOURCES = 8
@@ -60,7 +60,7 @@ function excerpt(text: string, maxChars: number): string {
   return `${lastSpace > maxChars / 2 ? slice.slice(0, lastSpace) : slice}...`
 }
 
-function sourceTitle(hit: QueryHit): string {
+function sourceTitle(hit: Hit): string {
   const title = hit.document.title ?? hit.document.name
   if (typeof title === 'string' && title.trim().length > 0) return title.trim()
   return `Document ${hit.id}`
@@ -72,7 +72,7 @@ function sourceTitle(hit: QueryHit): string {
  * Sources panel); vector-only matches have no term positions, so the passage
  * falls back to the opening of the longest text field.
  */
-function buildPassage(hit: QueryHit, bodyFields: string[]): { snippet: string; passage: string } {
+function buildPassage(hit: Hit, bodyFields: string[]): { snippet: string; passage: string } {
   let bestHighlight = ''
   for (const field of bodyFields) {
     const highlight = hit.highlights?.[field]
@@ -96,48 +96,44 @@ function buildPassage(hit: QueryHit, bodyFields: string[]): { snippet: string; p
   return { snippet: sanitizeSnippet(fallback), passage: fallback }
 }
 
-function buildQueryRequest(
-  indexName: string,
-  mode: RetrievalMode,
-  query: string,
-  stringFields: string[],
-): QueryRequest {
+function buildQueryParams(mode: RetrievalMode, query: string, stringFields: string[]): QueryParams {
   const highlight = stringFields.length > 0 ? { fields: stringFields, maxSnippetLength: PASSAGE_MAX_CHARS } : undefined
+  const document = { exclude: [EMBEDDING_FIELD] }
   switch (mode) {
     case 'keyword':
-      return { indexName, term: query, limit: MAX_SOURCES, highlight }
+      return { term: query, limit: MAX_SOURCES, highlight, document }
     case 'semantic':
       return {
-        indexName,
         mode: 'vector',
         vector: { field: EMBEDDING_FIELD, text: query },
         limit: MAX_SOURCES,
+        document,
       }
     case 'hybrid':
       return {
-        indexName,
         mode: 'hybrid',
         term: query,
         vector: { field: EMBEDDING_FIELD, text: query },
         hybrid: { strategy: 'rrf' },
         limit: MAX_SOURCES,
         highlight,
+        document,
       }
   }
 }
 
 /**
- * Runs one retrieval pass against the Narsil server and shapes the hits into
+ * Runs one retrieval pass against the search server and shapes the hits into
  * cited sources. The total passage volume is capped so a run of long
  * documents cannot blow up the prompt.
  */
 export async function retrieveSources(
-  backend: RestBackend,
+  client: NarsilClient,
   params: { indexName: string; mode: RetrievalMode; query: string; signal?: AbortSignal },
 ): Promise<RetrievalResult> {
   const { indexName, mode, query, signal } = params
 
-  const stats = await backend.getStats(indexName)
+  const stats = await client.getStats(indexName, { signal })
   const schema = stats.schema as Record<string, unknown>
   if (mode !== 'keyword' && !(EMBEDDING_FIELD in schema)) {
     throw new RetrievalModeUnavailableError(mode, indexName)
@@ -145,9 +141,7 @@ export async function retrieveSources(
 
   const stringFields = schemaStringFields(schema)
   const bodyFields = stringFields.filter(field => field !== 'title')
-  const request = buildQueryRequest(indexName, mode, query, stringFields)
-
-  const response = await backend.query(request, signal)
+  const response = await client.query(indexName, buildQueryParams(mode, query, stringFields), { signal })
 
   const sources: RetrievedSource[] = []
   let contextChars = 0
@@ -162,7 +156,7 @@ export async function retrieveSources(
       indexName,
       title: sourceTitle(hit),
       snippet,
-      score: hit.score,
+      score: hit.score ?? 0,
       passage,
     })
   }

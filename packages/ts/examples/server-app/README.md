@@ -1,16 +1,18 @@
 # Narsil server-app example
 
-This example is a TanStack Start web application backed by a real Narsil HTTP server. Every search operation the app performs (index creation, dataset loading, search, suggestions, and statistics) goes over REST to a `@delali/narsil/server` instance. Together with the other examples it completes the lineup: `browser` embeds the engine in the page, `server-app` talks to the Narsil server from an application backend, and `http-server` is the server itself.
+This example is a TanStack Start web application backed by a real Narsil HTTP server. Every call it makes goes through `@delali/narsil/client`, and every page reads through the hooks in `@delali/narsil/react`. Together with the other examples it completes the lineup: `browser` embeds the engine in the page, `server-app` talks to the Narsil server through the client SDK, and `http-server` is the server itself.
 
 ## How it works
 
-The browser never talks to the Narsil server directly. The app's own server side (TanStack server functions plus a few API routes) holds the REST client and keeps the API key out of the client bundle. Dataset loads run as background jobs on the app server: the page polls their progress, keeps working while a long load runs, and reattaches to a running load after a reload.
+The pages hold a client that points at this app rather than at the search server, because anybody can read what a browser bundle was built with. `src/routes/api/narsil.$.ts` passes each request on with the API key attached, so the browser reaches every route the SDK uses and the credential stays here.
 
 ```text
-Browser  ->  app server (TanStack Start)  ->  Narsil HTTP server (REST)
+Browser (@delali/narsil/react)  ->  this app (/api/narsil)  ->  Narsil HTTP server
 ```
 
-Dataset loading works the same way: the app server reads the corpus files from `data/processed/`, pushes them to the Narsil server in size-capped `documents/_batch` requests, and reports progress to the page while it goes.
+A dataset load starts on this app's server, because the corpus files sit on its disk: `startDatasetLoadFn` creates the index and hands the documents to `startImport`, which answers with a task record. From there the browser follows the task through `useTasks`, and the search server owns the work. A load therefore carries on when the page closes, a page opened mid-load picks it up, and the stop button is `cancelTask`. A corpus you upload yourself never takes that detour: the browser already holds it, so `useImport` sends it straight through the proxy.
+
+The demo server raises two limits for these corpora, both in `demo-server.ts`: `maxImportBytes` covers the 168 MB French Wikipedia sample, and `importBatchSize` keeps each embedding request inside the provider's token ceiling.
 
 ## Run it
 
@@ -23,7 +25,9 @@ pnpm --filter @delali/narsil-example-server-app dev
 
 `pnpm dev` starts a demo Narsil server on a loopback port automatically and prints its address, so one command gives you the full setup. The demo server registers every language the Wikipedia dataset uses and persists its indexes to `.narsil-data` in this package (override the location with `NARSIL_DATA_DIR`). Loaded datasets survive dev-server restarts through the engine's snapshot and write-ahead-log recovery, and documents embedded with your OpenAI key recover with their vectors, so a restart never repeats an embedding spend. Delete the `.narsil-data` directory to reset every index. The directory has no cross-process lock, so run one dev server per data directory.
 
-The app itself serves on [http://localhost:3000](http://localhost:3000). Five views exercise the server: the search playground, the Ask view (chat with grounded answers), the relevance lab, the benchmark view (SciFact with relevance judgments), and the index inspector.
+The app itself serves on [http://localhost:3000](http://localhost:3000). Six views exercise the server: the datasets page, the search playground, the Ask view (chat with grounded answers), the relevance lab, the benchmark view (SciFact with relevance judgments), and the index inspector.
+
+Every one of them is a short route file over a hook, so the page reads as the code you would write yourself. `src/routes/search.tsx` is `useQuery` and `useSuggest` over a deferred form value; `src/routes/documents.tsx` is `useDocuments` with the browsing state beside it; `src/routes/inspector.tsx` reads the partitions and the vector-graph state through the client.
 
 Since the demo server speaks plain REST, you can query it directly while the app runs. Its address appears in the dev console:
 
@@ -72,7 +76,7 @@ With the key set, dataset loads also embed documents through the demo server's e
 | `ASK_EMBEDDING_BASE_URL`   | `https://api.openai.com/v1` | Any OpenAI-compatible embeddings endpoint                                                   |
 | `ASK_EMBEDDING_API_KEY`    | `OPENAI_API_KEY`            | Separate key for embeddings                                                                 |
 
-Every key and URL is read only in server-side code, so none of them reach the browser bundle.
+Every key and URL is read only in server-side code, so none of them reach the browser bundle. The proxy route passes anything the SDK sends on to the search server, which is what a demo wants and what a production app would narrow to the routes its pages need.
 
 An external Narsil server named by `NARSIL_SERVER_URL` must register its own adapter under the name `openai`, which `embeddingAdapters` in `createServer` covers, because an embedding adapter is code and no configuration value carries it across. Embedded dataset loads and vector queries work once it does.
 

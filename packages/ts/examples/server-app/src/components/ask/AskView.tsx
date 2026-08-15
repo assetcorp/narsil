@@ -1,5 +1,6 @@
 import { useChat } from '@ai-sdk/react'
-import { useAppDispatch, useAppState } from '@delali/narsil-example-shared'
+import { useStats } from '@delali/narsil/react'
+import { useIndexWorkspace } from '@delali/narsil-example-shared'
 import { DefaultChatTransport } from 'ai'
 import { TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -22,7 +23,7 @@ import {
   EMBEDDING_FIELD,
   type RetrievalMode,
 } from '#/lib/ask/types'
-import { askCapabilitiesFn, getStatsFn } from '#/lib/server-fns'
+import { askCapabilitiesFn } from '#/lib/server-fns'
 import { HeroHeading, HeroSuggestions } from './AskHero'
 import { SourcesSheet, ThreadsSheet } from './AskMobilePanels'
 import { AskPromptInput } from './AskPromptInput'
@@ -35,15 +36,14 @@ import { ThreadSidebar } from './ThreadSidebar'
 import { useAskThreads } from './use-ask-threads'
 
 export function AskView() {
-  const state = useAppState()
-  const dispatch = useAppDispatch()
+  const workspace = useIndexWorkspace()
 
-  const indexes = useMemo(() => state.indexes.filter(index => index.documentCount > 0), [state.indexes])
-  const activeFromState = state.activeIndexName
+  const indexes = useMemo(() => workspace.indexes.filter(index => index.documentCount > 0), [workspace.indexes])
+  const activeFromWorkspace = workspace.activeIndexName
   const indexName = useMemo(() => {
-    if (activeFromState && indexes.some(index => index.name === activeFromState)) return activeFromState
+    if (activeFromWorkspace && indexes.some(index => index.name === activeFromWorkspace)) return activeFromWorkspace
     return indexes[0]?.name ?? null
-  }, [activeFromState, indexes])
+  }, [activeFromWorkspace, indexes])
   const selectedIndex = indexes.find(index => index.name === indexName) ?? null
 
   const [mode, setMode] = useState<RetrievalMode>('keyword')
@@ -51,7 +51,6 @@ export function AskView() {
   const [webSearch, setWebSearch] = useState(false)
   const [capabilities, setCapabilities] = useState<AskCapabilities | null>(null)
   const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null)
-  const [vectorReadyByIndex, setVectorReadyByIndex] = useState<Record<string, boolean>>({})
   const [openSource, setOpenSource] = useState<AskSource | null>(null)
 
   const {
@@ -95,24 +94,9 @@ export function AskView() {
     }
   }, [])
 
-  useEffect(() => {
-    if (!indexName || indexName in vectorReadyByIndex) return
-    let cancelled = false
-    getStatsFn({ data: { indexName } })
-      .then(stats => {
-        if (cancelled) return
-        const hasVectors = EMBEDDING_FIELD in (stats.schema as Record<string, unknown>)
-        setVectorReadyByIndex(prev => ({ ...prev, [indexName]: hasVectors }))
-      })
-      .catch(() => {
-        if (!cancelled) setVectorReadyByIndex(prev => ({ ...prev, [indexName]: false }))
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [indexName, vectorReadyByIndex])
-
-  const indexHasVectors = indexName ? (vectorReadyByIndex[indexName] ?? null) : null
+  const stats = useStats(indexName ?? '', { enabled: Boolean(indexName) })
+  const indexHasVectors =
+    stats.data === undefined ? null : EMBEDDING_FIELD in (stats.data.schema as Record<string, unknown>)
   const disabledReason = vectorModesDisabledReason(capabilities, indexHasVectors)
 
   useEffect(() => {
@@ -161,12 +145,7 @@ export function AskView() {
     setMode(next)
   }, [])
 
-  const handleIndexChange = useCallback(
-    (name: string) => {
-      dispatch({ type: 'SET_ACTIVE_INDEX', payload: name })
-    },
-    [dispatch],
-  )
+  const handleIndexChange = workspace.setActiveIndexName
 
   const handleSubmitText = useCallback(
     (text: string) => {
@@ -204,10 +183,10 @@ export function AskView() {
       setActiveThreadId(id)
       setMessages(thread.messages)
       if (thread.indexName !== indexNameRef.current) {
-        dispatch({ type: 'SET_ACTIVE_INDEX', payload: thread.indexName })
+        workspace.setActiveIndexName(thread.indexName)
       }
     },
-    [stop, clearError, loadThread, setActiveThreadId, setMessages, dispatch, threadIdRef],
+    [stop, clearError, loadThread, setActiveThreadId, setMessages, workspace.setActiveIndexName, threadIdRef],
   )
 
   const handleDeleteThread = useCallback(

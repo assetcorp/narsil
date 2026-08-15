@@ -9,129 +9,37 @@
       "import": "./src/index.ts",
       "types": "./src/index.ts"
     },
-    "./manifest": {
-      "import": "./src/manifest.ts",
-      "types": "./src/manifest.ts"
-    },
-    "./backend": {
-      "import": "./src/backend.ts",
-      "types": "./src/backend.ts"
-    },
-    "./state": {
-      "import": "./src/state.ts",
-      "types": "./src/state.ts"
-    },
-    "./context": {
-      "import": "./src/context.ts",
-      "types": "./src/context.ts"
-    },
-    "./schemas": {
-      "import": "./src/schemas.ts",
-      "types": "./src/schemas.ts"
-    },
-    "./scoring": {
-      "import": "./src/scoring.ts",
-      "types": "./src/scoring.ts"
-    },
-    "./types": {
-      "import": "./src/types.ts",
-      "types": "./src/types.ts"
-    },
-    "./ui/button": {
-      "import": "./src/components/ui/button.tsx",
-      "types": "./src/components/ui/button.tsx"
-    },
-    "./ui/card": {
-      "import": "./src/components/ui/card.tsx",
-      "types": "./src/components/ui/card.tsx"
-    },
-    "./ui/badge": {
-      "import": "./src/components/ui/badge.tsx",
-      "types": "./src/components/ui/badge.tsx"
-    },
-    "./ui/input": {
-      "import": "./src/components/ui/input.tsx",
-      "types": "./src/components/ui/input.tsx"
-    },
-    "./ui/sheet": {
-      "import": "./src/components/ui/sheet.tsx",
-      "types": "./src/components/ui/sheet.tsx"
-    },
-    "./ui/progress": {
-      "import": "./src/components/ui/progress.tsx",
-      "types": "./src/components/ui/progress.tsx"
-    },
-    "./ui/tabs": {
-      "import": "./src/components/ui/tabs.tsx",
-      "types": "./src/components/ui/tabs.tsx"
-    },
-    "./ui/separator": {
-      "import": "./src/components/ui/separator.tsx",
-      "types": "./src/components/ui/separator.tsx"
-    },
-    "./ui/switch": {
-      "import": "./src/components/ui/switch.tsx",
-      "types": "./src/components/ui/switch.tsx"
-    },
-    "./lib/utils": {
-      "import": "./src/lib/utils.ts",
-      "types": "./src/lib/utils.ts"
-    },
-    "./components/LoadProgress": {
-      "import": "./src/components/LoadProgress.tsx",
-      "types": "./src/components/LoadProgress.tsx"
-    },
-    "./components/search/SearchPlayground": {
-      "import": "./src/components/search/SearchPlayground.tsx",
-      "types": "./src/components/search/SearchPlayground.tsx"
-    },
-    "./components/search/ResultDetail": {
-      "import": "./src/components/search/ResultDetail.tsx",
-      "types": "./src/components/search/ResultDetail.tsx"
-    },
-    "./hooks/use-search": {
-      "import": "./src/hooks/use-search.ts",
-      "types": "./src/hooks/use-search.ts"
-    },
-    "./components/benchmark/BenchmarkView": {
-      "import": "./src/components/benchmark/BenchmarkView.tsx",
-      "types": "./src/components/benchmark/BenchmarkView.tsx"
-    },
-    "./lib/metrics": {
-      "import": "./src/lib/metrics.ts",
-      "types": "./src/lib/metrics.ts"
-    },
-    "./lib/judging": {
-      "import": "./src/lib/judging.ts",
-      "types": "./src/lib/judging.ts"
+    "./components/CommandPalette": {
+      "import": "./src/components/CommandPalette.tsx",
+      "types": "./src/components/CommandPalette.tsx"
     },
     "./components/CustomConfig": {
       "import": "./src/components/CustomConfig.tsx",
       "types": "./src/components/CustomConfig.tsx"
     },
-    "./lib/display-fields": {
-      "import": "./src/lib/display-fields.ts",
-      "types": "./src/lib/display-fields.ts"
+    "./components/IndexSelector": {
+      "import": "./src/components/IndexSelector.tsx",
+      "types": "./src/components/IndexSelector.tsx"
     },
-    "./hooks/use-judging": {
-      "import": "./src/hooks/use-judging.ts",
-      "types": "./src/hooks/use-judging.ts"
+    "./components/LoadProgress": {
+      "import": "./src/components/LoadProgress.tsx",
+      "types": "./src/components/LoadProgress.tsx"
     },
-    "./hooks/use-display-fields": {
-      "import": "./src/hooks/use-display-fields.ts",
-      "types": "./src/hooks/use-display-fields.ts"
+    "./components/SchemaEditor": {
+      "import": "./src/components/SchemaEditor.tsx",
+      "types": "./src/components/SchemaEditor.tsx"
     },
-    "./hooks/use-benchmark": {
-      "import": "./src/hooks/use-benchmark.ts",
-      "types": "./src/hooks/use-benchmark.ts"
+    "./components/benchmark/BenchmarkView": {
+      "import": "./src/components/benchmark/BenchmarkView.tsx",
+      "types": "./src/components/benchmark/BenchmarkView.tsx"
     },
-    "./components/relevance/RelevanceLab": {
-      "import": "./src/components/relevance/RelevanceLab.tsx",
-      "types": "./src/components/relevance/RelevanceLab.tsx"
+    "./components/datasets/DatasetCard": {
+      "import": "./src/components/datasets/DatasetCard.tsx",
+      "types": "./src/components/datasets/DatasetCard.tsx"
     },
-    "./hooks/use-relevance": {
-      "import": "./src/hooks/use-relevance.ts",
-      "types": "./src/hooks/use-relevance.ts"
+    "./components/documents/DocumentsView": {
+      "import": "./src/components/documents/DocumentsView.tsx",
+      "types": "./src/components/documents/DocumentsView.tsx"
     },
     "./components/inspector/InspectorView": {
       "import": "./src/components/inspector/InspectorView.tsx",
@@ -149,17 +57,77 @@
       "import": "./src/components/layout/ThemeToggle.tsx",
       "types": "./src/components/layout/ThemeToggle.tsx"
     },
-    "./components/datasets/DatasetCard": {
-      "import": "./src/components/datasets/DatasetCard.tsx",
-      "types": "./src/components/datasets/DatasetCard.tsx"
+    "./components/relevance/RelevanceLab": {
+      "import": "./src/components/relevance/RelevanceLab.tsx",
+      "types": "./src/components/relevance/RelevanceLab.tsx"
     },
-    "./components/documents/DocumentsView": {
-      "import": "./src/components/documents/DocumentsView.tsx",
-      "types": "./src/components/documents/DocumentsView.tsx"
+    "./components/search/ResultDetail": {
+      "import": "./src/components/search/ResultDetail.tsx",
+      "types": "./src/components/search/ResultDetail.tsx"
+    },
+    "./components/search/SearchPlayground": {
+      "import": "./src/components/search/SearchPlayground.tsx",
+      "types": "./src/components/search/SearchPlayground.tsx"
+    },
+    "./context": {
+      "import": "./src/context.ts",
+      "types": "./src/context.ts"
+    },
+    "./hooks/use-benchmark": {
+      "import": "./src/hooks/use-benchmark.ts",
+      "types": "./src/hooks/use-benchmark.ts"
+    },
+    "./hooks/use-display-fields": {
+      "import": "./src/hooks/use-display-fields.ts",
+      "types": "./src/hooks/use-display-fields.ts"
+    },
+    "./hooks/use-document-browser": {
+      "import": "./src/hooks/use-document-browser.ts",
+      "types": "./src/hooks/use-document-browser.ts"
+    },
+    "./hooks/use-index-schema": {
+      "import": "./src/hooks/use-index-schema.ts",
+      "types": "./src/hooks/use-index-schema.ts"
+    },
+    "./hooks/use-judging": {
+      "import": "./src/hooks/use-judging.ts",
+      "types": "./src/hooks/use-judging.ts"
+    },
+    "./hooks/use-search-form": {
+      "import": "./src/hooks/use-search-form.ts",
+      "types": "./src/hooks/use-search-form.ts"
+    },
+    "./hooks/use-workspace": {
+      "import": "./src/hooks/use-workspace.ts",
+      "types": "./src/hooks/use-workspace.ts"
+    },
+    "./lib/concurrency": {
+      "import": "./src/lib/concurrency.ts",
+      "types": "./src/lib/concurrency.ts"
+    },
+    "./lib/display-fields": {
+      "import": "./src/lib/display-fields.ts",
+      "types": "./src/lib/display-fields.ts"
+    },
+    "./lib/field-filters": {
+      "import": "./src/lib/field-filters.ts",
+      "types": "./src/lib/field-filters.ts"
     },
     "./lib/file-parser": {
       "import": "./src/lib/file-parser.ts",
       "types": "./src/lib/file-parser.ts"
+    },
+    "./lib/judging": {
+      "import": "./src/lib/judging.ts",
+      "types": "./src/lib/judging.ts"
+    },
+    "./lib/language-names": {
+      "import": "./src/lib/language-names.ts",
+      "types": "./src/lib/language-names.ts"
+    },
+    "./lib/metrics": {
+      "import": "./src/lib/metrics.ts",
+      "types": "./src/lib/metrics.ts"
     },
     "./lib/schema-detector": {
       "import": "./src/lib/schema-detector.ts",
@@ -169,29 +137,41 @@
       "import": "./src/lib/umap-loader.ts",
       "types": "./src/lib/umap-loader.ts"
     },
-    "./components/SchemaEditor": {
-      "import": "./src/components/SchemaEditor.tsx",
-      "types": "./src/components/SchemaEditor.tsx"
+    "./lib/utils": {
+      "import": "./src/lib/utils.ts",
+      "types": "./src/lib/utils.ts"
     },
-    "./components/CommandPalette": {
-      "import": "./src/components/CommandPalette.tsx",
-      "types": "./src/components/CommandPalette.tsx"
+    "./manifest": {
+      "import": "./src/manifest.ts",
+      "types": "./src/manifest.ts"
     },
-    "./ui/slider": {
-      "import": "./src/components/ui/slider.tsx",
-      "types": "./src/components/ui/slider.tsx"
+    "./query-runner": {
+      "import": "./src/query-runner.ts",
+      "types": "./src/query-runner.ts"
     },
-    "./ui/skeleton": {
-      "import": "./src/components/ui/skeleton.tsx",
-      "types": "./src/components/ui/skeleton.tsx"
+    "./schemas": {
+      "import": "./src/schemas.ts",
+      "types": "./src/schemas.ts"
     },
-    "./ui/tooltip": {
-      "import": "./src/components/ui/tooltip.tsx",
-      "types": "./src/components/ui/tooltip.tsx"
+    "./scoring": {
+      "import": "./src/scoring.ts",
+      "types": "./src/scoring.ts"
     },
-    "./ui/scroll-area": {
-      "import": "./src/components/ui/scroll-area.tsx",
-      "types": "./src/components/ui/scroll-area.tsx"
+    "./types": {
+      "import": "./src/types.ts",
+      "types": "./src/types.ts"
+    },
+    "./ui/badge": {
+      "import": "./src/components/ui/badge.tsx",
+      "types": "./src/components/ui/badge.tsx"
+    },
+    "./ui/button": {
+      "import": "./src/components/ui/button.tsx",
+      "types": "./src/components/ui/button.tsx"
+    },
+    "./ui/card": {
+      "import": "./src/components/ui/card.tsx",
+      "types": "./src/components/ui/card.tsx"
     },
     "./ui/collapsible": {
       "import": "./src/components/ui/collapsible.tsx",
@@ -204,6 +184,50 @@
     "./ui/dialog": {
       "import": "./src/components/ui/dialog.tsx",
       "types": "./src/components/ui/dialog.tsx"
+    },
+    "./ui/input": {
+      "import": "./src/components/ui/input.tsx",
+      "types": "./src/components/ui/input.tsx"
+    },
+    "./ui/progress": {
+      "import": "./src/components/ui/progress.tsx",
+      "types": "./src/components/ui/progress.tsx"
+    },
+    "./ui/scroll-area": {
+      "import": "./src/components/ui/scroll-area.tsx",
+      "types": "./src/components/ui/scroll-area.tsx"
+    },
+    "./ui/separator": {
+      "import": "./src/components/ui/separator.tsx",
+      "types": "./src/components/ui/separator.tsx"
+    },
+    "./ui/sheet": {
+      "import": "./src/components/ui/sheet.tsx",
+      "types": "./src/components/ui/sheet.tsx"
+    },
+    "./ui/skeleton": {
+      "import": "./src/components/ui/skeleton.tsx",
+      "types": "./src/components/ui/skeleton.tsx"
+    },
+    "./ui/slider": {
+      "import": "./src/components/ui/slider.tsx",
+      "types": "./src/components/ui/slider.tsx"
+    },
+    "./ui/switch": {
+      "import": "./src/components/ui/switch.tsx",
+      "types": "./src/components/ui/switch.tsx"
+    },
+    "./ui/tabs": {
+      "import": "./src/components/ui/tabs.tsx",
+      "types": "./src/components/ui/tabs.tsx"
+    },
+    "./ui/tooltip": {
+      "import": "./src/components/ui/tooltip.tsx",
+      "types": "./src/components/ui/tooltip.tsx"
+    },
+    "./workspace": {
+      "import": "./src/workspace.ts",
+      "types": "./src/workspace.ts"
     }
   },
   "scripts": {
@@ -242,5 +266,8 @@
     "@react-three/drei": {
       "optional": true
     }
+  },
+  "dependencies": {
+    "@delali/narsil": "workspace:*"
   }
 }

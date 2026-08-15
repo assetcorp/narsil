@@ -1,4 +1,4 @@
-import type { QueryHit } from '../backend'
+import type { Hit } from '@delali/narsil'
 import type { AggregateMetrics, BenchmarkResult, QueryMetrics, RelevanceMap } from './metrics'
 import { averagePrecision, ndcgAtK, precisionAtK, reciprocalRank } from './metrics'
 
@@ -16,7 +16,7 @@ export interface JudgedQuestion {
   judgments: Record<string, RelevanceGrade>
 }
 
-export function hitDocumentId(hit: QueryHit): string {
+export function hitDocumentId(hit: Hit): string {
   return String(hit.document.id ?? hit.id)
 }
 

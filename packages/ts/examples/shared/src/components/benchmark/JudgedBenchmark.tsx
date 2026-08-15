@@ -1,8 +1,8 @@
 import { type ChangeEvent, type FormEvent, useCallback, useMemo, useState } from 'react'
-import type { NarsilBackend } from '../../backend'
 import { useDisplayFields } from '../../hooks/use-display-fields'
 import { useJudging } from '../../hooks/use-judging'
 import type { QueryMetrics } from '../../lib/metrics'
+import { useQueryRunner } from '../../query-runner'
 import type { LoadedIndex } from '../../types'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
@@ -48,12 +48,12 @@ function QuestionComposer({ onAdd }: QuestionComposerProps) {
 }
 
 interface JudgedBenchmarkProps {
-  backend: NarsilBackend
   index: LoadedIndex
 }
 
-export function JudgedBenchmark({ backend, index }: JudgedBenchmarkProps) {
-  const judging = useJudging(backend, index.name)
+export function JudgedBenchmark({ index }: JudgedBenchmarkProps) {
+  const runQuery = useQueryRunner()
+  const judging = useJudging(runQuery, index.name)
   const displayFields = useDisplayFields(index.name)
 
   const metricsByQuestion = useMemo(() => {

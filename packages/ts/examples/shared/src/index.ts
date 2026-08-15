@@ -1,36 +1,14 @@
-export type {
-  BackendEventHandler,
-  BackendEventPayload,
-  BackendEventType,
-  DisplayDocument,
-  HybridQueryRequest,
-  IndexListEntry,
-  IndexStats,
-  ListDocumentsRequest,
-  ListDocumentsResponse,
-  ListedDocument,
-  MemoryStatsResponse,
-  NarsilBackend,
-  PartitionStats,
-  QueryHit,
-  QueryRequest,
-  QueryResponse,
-  SearchMode,
-  SuggestRequest,
-  SuggestResponse,
-  VectorQueryRequest,
-} from './backend'
 export type { CommandPaletteControls } from './context'
-export {
-  AppDispatchContext,
-  AppStateContext,
-  BackendContext,
-  CommandPaletteContext,
-  useAppDispatch,
-  useAppState,
-  useBackend,
-  useCommandPalette,
-} from './context'
+export { CommandPaletteContext, useCommandPalette } from './context'
+export type { DocumentBrowser } from './hooks/use-document-browser'
+export { DOCUMENT_PAGE_SIZE, DOCUMENT_PAGE_SIZES, useDocumentBrowser } from './hooks/use-document-browser'
+export type { IndexSchemaView } from './hooks/use-index-schema'
+export { deriveIndexSchema, EMPTY_INDEX_SCHEMA, useIndexSchema } from './hooks/use-index-schema'
+export type { SearchForm, SearchFormValues } from './hooks/use-search-form'
+export { toQueryParams, useSearchForm } from './hooks/use-search-form'
+export type { IndexSource } from './hooks/use-workspace'
+export { useWorkspace } from './hooks/use-workspace'
+export { languageName } from './lib/language-names'
 export { cn } from './lib/utils'
 export type {
   CustomDataset,
@@ -42,22 +20,14 @@ export type {
   WikiLanguage,
   WikipediaDataset,
 } from './manifest'
-export {
-  COMMITTED_SIZE_THRESHOLD,
-  custom,
-  datasets,
-  scifact,
-  tmdb,
-  wikipedia,
-} from './manifest'
+export { COMMITTED_SIZE_THRESHOLD, custom, datasets, scifact, tmdb, wikipedia } from './manifest'
+export type { QueryRunner, SearchRunners, SuggestRunner } from './query-runner'
+export { SearchRunnersContext, useQueryRunner, useSuggestRunner } from './query-runner'
 export type { SchemaDefinition } from './schemas'
 export { scifactSchema, tmdbSchema, wikipediaSchema } from './schemas'
 export type { BM25Config, RecomputedHit } from './scoring'
 export { computeFieldAverages, DEFAULT_BM25_CONFIG, recomputeScores } from './scoring'
-export { appReducer, createInitialState } from './state'
 export type {
-  AppAction,
-  AppState,
   DatasetLoadPhase,
   DatasetLoadProgress,
   LoadCustomRequest,
@@ -69,3 +39,6 @@ export type {
   TabId,
   TabStatus,
 } from './types'
+export { computeTabStatus, inferDatasetId, toLoadedIndexes } from './types'
+export type { IndexWorkspace } from './workspace'
+export { IndexWorkspaceContext, useActiveIndex, useIndexWorkspace } from './workspace'
