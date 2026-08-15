@@ -167,7 +167,7 @@ const { error } = useQuery('movies', params)
 if (error?.code === ErrorCodes.INDEX_NOT_FOUND) return <CreateIndexPrompt />
 ```
 
-The five client codes in the [client guide](client.md#errors) reach a hook as well, so a hook reports `CLIENT_CONNECTION_FAILED` for a request the browser could not send. A failure leaves whatever the hook already showed on screen, and the next success clears it.
+The six client codes in the [client guide](client.md#errors) reach a hook as well, so a hook reports `CLIENT_CONNECTION_FAILED` for a request the browser could not send, and `CLIENT_UNEXPECTED_ERROR` for a failure it cannot place at all. A failure leaves whatever the hook already showed on screen, and the next success clears it.
 
 A hook that runs outside a `NarsilProvider` throws `CONFIG_INVALID` as it renders.
 
