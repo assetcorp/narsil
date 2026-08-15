@@ -150,6 +150,7 @@ describe('the react resource store', () => {
     calls[0].reject(new TypeError('fetch is not a function'))
     await drain()
     expect(store.snapshot('k').error).toBeInstanceOf(NarsilError)
+    expect(store.snapshot('k').error?.code).toBe('CLIENT_UNEXPECTED_ERROR')
     expect(store.snapshot('k').error?.message).toContain('fetch is not a function')
   })
 
