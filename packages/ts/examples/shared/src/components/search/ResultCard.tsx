@@ -1,4 +1,4 @@
-import type { QueryHit } from '../../backend'
+import type { Hit } from '@delali/narsil'
 import { type DisplayFieldMapping, resolveDisplay } from '../../lib/display-fields'
 import type { DatasetId } from '../../manifest'
 import { Badge } from '../ui/badge'
@@ -6,7 +6,7 @@ import { Badge } from '../ui/badge'
 const BODY_SNIPPET_LENGTH = 200
 
 interface ResultCardProps {
-  hit: QueryHit
+  hit: Hit
   datasetId: DatasetId
   displayFields: DisplayFieldMapping | null
   onClick: () => void
@@ -21,6 +21,7 @@ function sanitizeHighlight(html: string): string {
 export function ResultCard({ hit, datasetId, displayFields, onClick }: ResultCardProps) {
   const doc = hit.document
   const highlights = hit.highlights
+  const score = hit.score ?? 0
 
   function renderHighlightedText(field: string | null, fallback: string): React.ReactNode {
     const hl = field === null ? undefined : highlights?.[field]
@@ -67,7 +68,7 @@ export function ResultCard({ hit, datasetId, displayFields, onClick }: ResultCar
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
             <Badge variant="outline" className="font-mono text-[10px]">
-              {hit.score.toFixed(3)}
+              {score.toFixed(3)}
             </Badge>
             {rating > 0 && <span className="text-[10px] text-muted-foreground">{rating.toFixed(1)}/10</span>}
           </div>
@@ -111,7 +112,7 @@ export function ResultCard({ hit, datasetId, displayFields, onClick }: ResultCar
             )}
           </div>
           <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
-            {hit.score.toFixed(3)}
+            {score.toFixed(3)}
           </Badge>
         </div>
       </button>
@@ -143,7 +144,7 @@ export function ResultCard({ hit, datasetId, displayFields, onClick }: ResultCar
           )}
         </div>
         <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
-          {hit.score.toFixed(3)}
+          {score.toFixed(3)}
         </Badge>
       </div>
     </button>

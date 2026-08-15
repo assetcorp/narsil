@@ -1,8 +1,9 @@
 import { Link } from '@tanstack/react-router'
-import { Check, type Database, Loader2, Lock, Menu, Search } from 'lucide-react'
+import { Check, type Database, Lock, Menu, Search } from 'lucide-react'
 import { useCallback, useState } from 'react'
-import { useAppState, useCommandPalette } from '../../context'
+import { useCommandPalette } from '../../context'
 import type { TabId } from '../../types'
+import { useIndexWorkspace } from '../../workspace'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../ui/sheet'
@@ -85,7 +86,7 @@ function BarNavLink({ tab, isLocked, isReady }: NavLinkProps) {
 }
 
 export function AppHeader({ appLabel, tabs }: AppHeaderProps) {
-  const state = useAppState()
+  const { tabStatus } = useIndexWorkspace()
   const { setOpen } = useCommandPalette()
   const [menuOpen, setMenuOpen] = useState(false)
   const openSearch = useCallback(() => setOpen(true), [setOpen])
@@ -117,8 +118,8 @@ export function AppHeader({ appLabel, tabs }: AppHeaderProps) {
                 <MenuNavLink
                   key={tab.to}
                   tab={tab}
-                  isLocked={state.tabStatus[tab.tabId] === 'locked'}
-                  isReady={state.tabStatus[tab.tabId] === 'ready' && tab.tabId !== 'datasets'}
+                  isLocked={tabStatus[tab.tabId] === 'locked'}
+                  isReady={tabStatus[tab.tabId] === 'ready' && tab.tabId !== 'datasets'}
                   onNavigate={closeMenu}
                 />
               ))}
@@ -141,19 +142,13 @@ export function AppHeader({ appLabel, tabs }: AppHeaderProps) {
             <BarNavLink
               key={tab.to}
               tab={tab}
-              isLocked={state.tabStatus[tab.tabId] === 'locked'}
-              isReady={state.tabStatus[tab.tabId] === 'ready' && tab.tabId !== 'datasets'}
+              isLocked={tabStatus[tab.tabId] === 'locked'}
+              isReady={tabStatus[tab.tabId] === 'ready' && tab.tabId !== 'datasets'}
             />
           ))}
         </nav>
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          {state.loadingDatasets.size > 0 && (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" />
-              <span className="hidden sm:inline">Loading...</span>
-            </div>
-          )}
           <Button
             type="button"
             variant="outline"

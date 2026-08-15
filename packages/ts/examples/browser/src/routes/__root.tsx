@@ -1,22 +1,28 @@
-import type { DatasetId } from '@delali/narsil-example-shared'
 import {
-  AppDispatchContext,
-  AppStateContext,
-  appReducer,
-  BackendContext,
-  createInitialState,
+  IndexWorkspaceContext,
+  type SearchRunners,
+  SearchRunnersContext,
+  useWorkspace,
 } from '@delali/narsil-example-shared'
 import { CommandPaletteProvider } from '@delali/narsil-example-shared/components/CommandPalette'
 import { Footer } from '@delali/narsil-example-shared/components/layout/Footer'
 import { createRootRoute, HeadContent, Outlet, Scripts, useNavigate } from '@tanstack/react-router'
-import { useCallback, useEffect, useReducer, useRef } from 'react'
-import Header from '../components/Header'
+import { useCallback, useMemo } from 'react'
+import Header from '#/components/Header'
+import { narsilWorker } from '#/worker/bridge'
+import { useWorkerIndexes } from '#/worker/hooks'
 import appCss from '../styles.css?url'
-import { WorkerBackend } from '../worker/bridge'
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`
 
 const asset = (name: string) => `${import.meta.env.BASE_URL}${name}`
+
+const AVAILABLE_TABS = ['datasets', 'search', 'relevance', 'benchmark', 'inspector', 'documents']
+
+const SEARCH_RUNNERS: SearchRunners = {
+  query: (indexName, params, signal) => narsilWorker.call('query', [indexName, params], signal),
+  suggest: (indexName, params, signal) => narsilWorker.call('suggest', [indexName, params], signal),
+}
 
 export const Route = createRootRoute({
   head: () => ({
@@ -57,68 +63,31 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   )
 }
 
-function inferDatasetId(indexName: string): DatasetId {
-  if (indexName.startsWith('tmdb-')) return 'tmdb'
-  if (indexName.startsWith('wikipedia-')) return 'wikipedia'
-  if (indexName === 'scifact') return 'scifact'
-  return 'custom'
-}
-
 function RootLayout() {
-  const backendRef = useRef<WorkerBackend | null>(null)
-  if (!backendRef.current) {
-    backendRef.current = new WorkerBackend()
-  }
-  const backend = backendRef.current
-  const [state, dispatch] = useReducer(appReducer, undefined, createInitialState)
-
-  useEffect(() => {
-    backend
-      .listIndexes()
-      .then(indexes => {
-        for (const idx of indexes) {
-          dispatch({
-            type: 'INDEX_READY',
-            payload: {
-              name: idx.name,
-              datasetId: inferDatasetId(idx.name),
-              documentCount: idx.documentCount,
-              language: idx.language,
-            },
-          })
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        dispatch({ type: 'SET_RESTORING', payload: false })
-      })
-  }, [backend])
+  const indexes = useWorkerIndexes()
+  const source = useMemo(
+    () => ({ data: indexes.data, isLoading: indexes.isLoading, error: indexes.error, refresh: indexes.refresh }),
+    [indexes.data, indexes.isLoading, indexes.error, indexes.refresh],
+  )
+  const workspace = useWorkspace(source)
 
   const navigate = useNavigate()
-
   const handleNavigate = useCallback((to: string) => navigate({ to }), [navigate])
-
   const handleSearch = useCallback((term: string) => navigate({ to: '/search', search: { q: term } }), [navigate])
 
   return (
-    <BackendContext value={backend}>
-      <AppStateContext value={state}>
-        <AppDispatchContext value={dispatch}>
-          <CommandPaletteProvider
-            navigate={handleNavigate}
-            onSearch={handleSearch}
-            availableTabs={['datasets', 'search', 'relevance', 'benchmark', 'inspector', 'documents']}
-          >
-            <div className="flex min-h-dvh flex-col">
-              <Header />
-              <main className="flex-1">
-                <Outlet />
-              </main>
-              <Footer />
-            </div>
-          </CommandPaletteProvider>
-        </AppDispatchContext>
-      </AppStateContext>
-    </BackendContext>
+    <IndexWorkspaceContext value={workspace}>
+      <SearchRunnersContext value={SEARCH_RUNNERS}>
+        <CommandPaletteProvider navigate={handleNavigate} onSearch={handleSearch} availableTabs={AVAILABLE_TABS}>
+          <div className="flex min-h-dvh flex-col">
+            <Header />
+            <main className="flex-1">
+              <Outlet />
+            </main>
+            <Footer />
+          </div>
+        </CommandPaletteProvider>
+      </SearchRunnersContext>
+    </IndexWorkspaceContext>
   )
 }

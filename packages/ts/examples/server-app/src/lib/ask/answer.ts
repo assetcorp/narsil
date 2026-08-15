@@ -1,4 +1,6 @@
 import { createOpenAI } from '@ai-sdk/openai'
+import { NarsilError } from '@delali/narsil'
+import type { NarsilClient } from '@delali/narsil/client'
 import {
   consumeStream,
   convertToModelMessages,
@@ -12,8 +14,6 @@ import {
   type UIMessageStreamWriter,
 } from 'ai'
 import { saveTurn, setThreadTitle } from '../chat/store'
-import { NarsilServerError } from '../narsil-server-client'
-import type { RestBackend } from '../rest-backend'
 import type { LlmProviderConfig } from './config'
 import type { AskTurn } from './history'
 import { type AskRequest, boundHistory } from './messages'
@@ -38,7 +38,7 @@ function redactSecrets(message: string): string {
 }
 
 function publicErrorMessage(err: unknown): string {
-  if (err instanceof RetrievalModeUnavailableError || err instanceof NarsilServerError) {
+  if (err instanceof RetrievalModeUnavailableError || err instanceof NarsilError) {
     return err.message
   }
   if (err instanceof Error && err.message.length > 0 && err.message.length <= 600) {
@@ -73,7 +73,7 @@ async function writeThreadTitle(
 }
 
 export function createAskResponse(
-  backend: RestBackend,
+  client: NarsilClient,
   llm: LlmProviderConfig,
   request: AskRequest,
   turn: AskTurn,
@@ -101,7 +101,7 @@ export function createAskResponse(
     },
     execute: async ({ writer }) => {
       if (request.mode !== 'keyword') {
-        const stats = await backend.getStats(request.indexName)
+        const stats = await client.getStats(request.indexName)
         if (!(EMBEDDING_FIELD in (stats.schema as Record<string, unknown>))) {
           throw new RetrievalModeUnavailableError(request.mode, request.indexName)
         }
@@ -124,7 +124,7 @@ export function createAskResponse(
       const provider = askProvider(llm)
       const titleTask = writeThreadTitle(writer, provider.chat(llm.titleModel), request, turn, signal)
       const retrieval = createAskTools({
-        backend,
+        client,
         indexName: request.indexName,
         mode: request.mode,
         signal,

@@ -122,7 +122,7 @@ The [specification](../spec/) defines the `.nrsl` format, the analysis pipeline,
 | --- | --- |
 | [HTTP server](examples/http-server/README.md) | The launcher runs the engine as a REST service with durability, API-key auth, and Docker packaging, and its README documents the full API surface. |
 | [Browser](examples/browser/README.md) | The app embeds the engine in a browser with IndexedDB persistence and Web Worker search. |
-| [Server app](examples/server-app/README.md) | The app pairs a search UI with the HTTP server, including dataset loading and an embedding-backed Ask view. |
+| [Server app](examples/server-app/README.md) | The app reaches the HTTP server through the client SDK and the React hooks, loads corpora as import tasks, and answers questions from them in an Ask view. |
 
 ## Distribution
 
@@ -154,7 +154,7 @@ Narsil also runs as a search server. On the BEIR information-retrieval datasets 
 | Deno | Web Workers | Filesystem | BroadcastChannel |
 | Browser | Web Workers | IndexedDB | BroadcastChannel |
 
-The [browser example](examples/browser/README.md) shows an embedded engine with IndexedDB persistence, and the [server app example](examples/server-app/README.md) shows a full search UI backed by the HTTP server.
+The [browser example](examples/browser/README.md) shows an embedded engine with IndexedDB persistence, and the [server app example](examples/server-app/README.md) shows the same UI over the client SDK and the React hooks.
 
 ## License
 

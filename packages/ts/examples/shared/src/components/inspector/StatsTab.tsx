@@ -1,10 +1,11 @@
-import type { IndexStats, MemoryStatsResponse, PartitionStats } from '../../backend'
+import type { IndexStats, MemoryStats, PartitionStatsResult, VectorMaintenanceResult } from '@delali/narsil'
 import { Badge } from '../ui/badge'
 
 interface StatsTabProps {
   stats: IndexStats
-  partitionStats: PartitionStats[]
-  memoryStats: MemoryStatsResponse | null
+  partitionStats: PartitionStatsResult[]
+  memoryStats: MemoryStats | null
+  vectorFields: VectorMaintenanceResult[]
 }
 
 function formatBytes(bytes: number): string {
@@ -14,7 +15,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function StatsTab({ stats, partitionStats, memoryStats }: StatsTabProps) {
+export function StatsTab({ stats, partitionStats, memoryStats, vectorFields }: StatsTabProps) {
   const process = memoryStats?.process ?? null
   const workerCount = memoryStats?.workers.length ?? 0
   const workerHeapUsed = memoryStats?.workers.reduce((sum, worker) => sum + worker.heapUsed, 0) ?? 0
@@ -58,7 +59,6 @@ export function StatsTab({ stats, partitionStats, memoryStats }: StatsTabProps) 
                     <th className="pb-1.5 text-left font-medium">ID</th>
                     <th className="pb-1.5 text-right font-medium">Docs</th>
                     <th className="pb-1.5 text-right font-medium">Memory</th>
-                    <th className="pb-1.5 text-right font-medium">Vectors</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -67,14 +67,6 @@ export function StatsTab({ stats, partitionStats, memoryStats }: StatsTabProps) 
                       <td className="py-1 font-mono">{p.partitionId}</td>
                       <td className="py-1 text-right font-mono">{p.documentCount.toLocaleString()}</td>
                       <td className="py-1 text-right font-mono">{formatBytes(p.estimatedMemoryBytes)}</td>
-                      <td className="py-1 text-right font-mono">
-                        {p.vectorFieldCount}
-                        {p.isHnswPromoted && (
-                          <Badge variant="secondary" className="ml-1 text-[9px]">
-                            HNSW
-                          </Badge>
-                        )}
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -83,6 +75,40 @@ export function StatsTab({ stats, partitionStats, memoryStats }: StatsTabProps) 
           </div>
         )}
       </div>
+
+      {vectorFields.length > 0 ? (
+        <div className="min-w-0 rounded-lg border p-4">
+          <h3 className="mb-2 text-sm font-semibold">Vector Fields</h3>
+          <div className="max-h-48 overflow-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b">
+                  <th className="pb-1.5 text-left font-medium">Field</th>
+                  <th className="pb-1.5 text-right font-medium">Graphs</th>
+                  <th className="pb-1.5 text-right font-medium">Buffered</th>
+                  <th className="pb-1.5 text-right font-medium">Deleted</th>
+                  <th className="pb-1.5 text-right font-medium">State</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vectorFields.map(field => (
+                  <tr key={field.fieldName} className="border-b last:border-b-0">
+                    <td className="py-1 font-mono">{field.fieldName}</td>
+                    <td className="py-1 text-right font-mono">{field.graphCount}</td>
+                    <td className="py-1 text-right font-mono">{field.bufferSize.toLocaleString()}</td>
+                    <td className="py-1 text-right font-mono">{(field.tombstoneRatio * 100).toFixed(1)}%</td>
+                    <td className="py-1 text-right">
+                      <Badge variant="secondary" className="text-[9px]">
+                        {field.building ? 'Building' : field.graphCount > 0 ? 'HNSW' : 'Scanning'}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
         <div className="min-w-0 rounded-lg border p-4">

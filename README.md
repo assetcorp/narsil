@@ -133,7 +133,7 @@ Each guide under [`docs/`](docs/) documents one area with working examples. The 
 | [Live demo](https://narsil.sondelali.com/demo) | The hosted demo runs Narsil in the browser, so you can try search without installing anything. |
 | [HTTP server](packages/ts/examples/http-server) | The launcher runs the engine as a REST service with durability, API-key auth, and Docker packaging, and its README documents the full API surface. |
 | [Browser](packages/ts/examples/browser) | The app embeds the engine in a browser with IndexedDB persistence and Web Worker search. |
-| [Server app](packages/ts/examples/server-app) | The app pairs a search UI with the HTTP server, including dataset loading and an embedding-backed Ask view. |
+| [Server app](packages/ts/examples/server-app) | The app reaches the HTTP server through the client SDK and the React hooks, loads corpora as import tasks, and answers questions from them in an Ask view. |
 
 ## Benchmarks
 

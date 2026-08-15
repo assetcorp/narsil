@@ -1,5 +1,6 @@
+import type { Hit } from '@delali/narsil'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { NarsilBackend, QueryHit, QueryRequest, QueryResponse } from '../backend'
+import { QUERY_CONCURRENCY, runPooled } from '../lib/concurrency'
 import type { JudgedQuestion, RelevanceGrade } from '../lib/judging'
 import {
   evaluateJudgedQuestions,
@@ -10,10 +11,11 @@ import {
   writeJudgedQuestions,
 } from '../lib/judging'
 import type { BenchmarkResult } from '../lib/metrics'
+import type { QueryRunner } from '../query-runner'
 
 export interface JudgingController {
   questions: JudgedQuestion[]
-  hitsByQuestion: ReadonlyMap<number, QueryHit[]>
+  hitsByQuestion: ReadonlyMap<number, Hit[]>
   selectedQuestion: JudgedQuestion | null
   result: BenchmarkResult | null
   isRunning: boolean
@@ -32,9 +34,9 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-export function useJudging(backend: NarsilBackend, indexName: string): JudgingController {
+export function useJudging(runQuery: QueryRunner, indexName: string): JudgingController {
   const [questions, setQuestions] = useState<JudgedQuestion[]>([])
-  const [hitsByQuestion, setHitsByQuestion] = useState<ReadonlyMap<number, QueryHit[]>>(new Map())
+  const [hitsByQuestion, setHitsByQuestion] = useState<ReadonlyMap<number, Hit[]>>(new Map())
   const [selectedQuestionId, setSelectedQuestionId] = useState<number | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [isRetrieving, setIsRetrieving] = useState(false)
@@ -70,43 +72,40 @@ export function useJudging(backend: NarsilBackend, indexName: string): JudgingCo
     if (selectedQuestion === null) return
     if (hitsByQuestion.has(selectedQuestion.id)) return
 
-    let cancelled = false
+    const controller = new AbortController()
     setIsRetrieving(true)
-    backend
-      .query({ indexName, term: selectedQuestion.text, limit: JUDGING_POOL_DEPTH })
-      .then(response => {
-        if (cancelled) return
-        setHitsByQuestion(previous => new Map(previous).set(selectedQuestion.id, response.hits))
+    runQuery(indexName, { term: selectedQuestion.text, limit: JUDGING_POOL_DEPTH }, controller.signal)
+      .then(result => {
+        if (controller.signal.aborted) return
+        setHitsByQuestion(previous => new Map(previous).set(selectedQuestion.id, result.hits))
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(errorMessage(err))
+        if (!controller.signal.aborted) setError(errorMessage(err))
       })
       .finally(() => {
-        if (!cancelled) setIsRetrieving(false)
+        if (!controller.signal.aborted) setIsRetrieving(false)
       })
 
     return () => {
-      cancelled = true
+      controller.abort()
     }
-  }, [backend, indexName, selectedQuestion, hitsByQuestion])
+  }, [runQuery, indexName, selectedQuestion, hitsByQuestion])
 
-  const addQuestion = useCallback(
-    (text: string) => {
-      const trimmed = text.trim()
-      if (trimmed.length === 0) return
+  const addQuestion = useCallback((text: string) => {
+    const trimmed = text.trim()
+    if (trimmed.length === 0) return
 
-      const existing = questions.find(question => question.text === trimmed)
+    setQuestions(previous => {
+      const existing = previous.find(question => question.text === trimmed)
       if (existing) {
         setSelectedQuestionId(existing.id)
-        return
+        return previous
       }
-
-      const id = nextQuestionId(questions)
-      setQuestions([...questions, { id, text: trimmed, judgments: {} }])
+      const id = nextQuestionId(previous)
       setSelectedQuestionId(id)
-    },
-    [questions],
-  )
+      return [...previous, { id, text: trimmed, judgments: {} }]
+    })
+  }, [])
 
   const removeQuestion = useCallback((questionId: number) => {
     setQuestions(previous => previous.filter(question => question.id !== questionId))
@@ -146,34 +145,25 @@ export function useJudging(backend: NarsilBackend, indexName: string): JudgingCo
     setProgress(0)
     setError(null)
 
-    const collected = new Map<number, QueryHit[]>()
-    const requests: QueryRequest[] = questions.map(question => ({
-      indexName,
-      term: question.text,
-      limit: JUDGING_POOL_DEPTH,
-    }))
-
-    const receive = (position: number, response: QueryResponse) => {
-      collected.set(questions[position].id, response.hits)
-      setProgress(position + 1)
-    }
-
+    const collected = new Map<number, Hit[]>()
     try {
-      if (backend.batchQuery) {
-        await backend.batchQuery(requests, receive)
-      } else {
-        for (let position = 0; position < requests.length; position++) {
-          if (abortRef.current) break
-          receive(position, await backend.query(requests[position]))
-        }
-      }
+      await runPooled(
+        questions,
+        QUERY_CONCURRENCY,
+        async question => {
+          const result = await runQuery(indexName, { term: question.text, limit: JUDGING_POOL_DEPTH })
+          collected.set(question.id, result.hits)
+          setProgress(collected.size)
+        },
+        () => abortRef.current,
+      )
       setHitsByQuestion(previous => new Map([...previous, ...collected]))
     } catch (err) {
       setError(errorMessage(err))
     } finally {
       setIsRunning(false)
     }
-  }, [backend, indexName, questions])
+  }, [runQuery, indexName, questions])
 
   const abort = useCallback(() => {
     abortRef.current = true

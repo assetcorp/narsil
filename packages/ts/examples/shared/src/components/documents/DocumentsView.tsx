@@ -1,57 +1,36 @@
-import { getCoreRowModel, type SortingState, useReactTable, type VisibilityState } from '@tanstack/react-table'
-import { type Dispatch, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ListedDocument, NarsilBackend } from '../../backend'
+import type { ListedDocument, ListResult } from '@delali/narsil'
+import { getCoreRowModel, useReactTable } from '@tanstack/react-table'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDisplayFields } from '../../hooks/use-display-fields'
-import { DOCUMENT_PAGE_SIZE, useDocumentList } from '../../hooks/use-document-list'
-import { useIndexSchema } from '../../hooks/use-index-schema'
+import { DOCUMENT_PAGE_SIZE, type DocumentBrowser } from '../../hooks/use-document-browser'
+import type { IndexSchemaView } from '../../hooks/use-index-schema'
 import { displayHeading } from '../../lib/display-fields'
-import { buildFilterExpression, type FilterRule, isRuleComplete } from '../../lib/field-filters'
-import type { AppAction, AppState } from '../../types'
+import { useActiveIndex, useIndexWorkspace } from '../../workspace'
+import { IndexSelector } from '../IndexSelector'
 import { Pagination } from '../Pagination'
 import { ResultDetail } from '../search/ResultDetail'
-import { Button } from '../ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet'
 import { Skeleton } from '../ui/skeleton'
-import { buildDocumentColumns, collectFieldPaths, hiddenColumnState } from './columns'
+import { buildDocumentColumns, collectFieldPaths } from './columns'
 import { DocumentTable } from './DocumentTable'
 import { DocumentToolbar } from './DocumentToolbar'
 import { FilterPanel } from './FilterPanel'
 
 const SKELETON_ROW_KEYS = Array.from({ length: DOCUMENT_PAGE_SIZE }, (_, index) => `placeholder-${index}`)
 const MAX_SORT_FIELDS = 8
+const NO_DOCUMENTS: ListedDocument[] = []
 
-interface DocumentsViewProps {
-  backend: NarsilBackend
-  state: AppState
-  dispatch: Dispatch<AppAction>
+export interface DocumentsViewProps {
+  browser: DocumentBrowser
+  schema: IndexSchemaView
+  list: ListResult | undefined
+  isLoading: boolean
+  isFetching: boolean
+  error: Error | undefined
 }
 
 function getDocumentRowId(row: ListedDocument): string {
   return row.id
-}
-
-function toSortRecord(sorting: SortingState): Record<string, 'asc' | 'desc'> | undefined {
-  if (sorting.length === 0) return undefined
-  const sort: Record<string, 'asc' | 'desc'> = {}
-  for (const entry of sorting) sort[entry.id] = entry.desc ? 'desc' : 'asc'
-  return sort
-}
-
-function describeOrder(sorting: SortingState): string {
-  if (sorting.length === 0) return 'document-id order'
-  return sorting.map(entry => `${entry.id} ${entry.desc ? 'descending' : 'ascending'}`).join(', then ')
-}
-
-function IndexButton({ name, active, dispatch }: { name: string; active: boolean; dispatch: Dispatch<AppAction> }) {
-  const handleClick = useCallback(() => {
-    dispatch({ type: 'SET_ACTIVE_INDEX', payload: name })
-  }, [dispatch, name])
-
-  return (
-    <Button variant={active ? 'default' : 'outline'} size="xs" className="font-mono text-xs" onClick={handleClick}>
-      {name}
-    </Button>
-  )
 }
 
 function DocumentSkeleton() {
@@ -64,54 +43,38 @@ function DocumentSkeleton() {
   )
 }
 
-export function DocumentsView({ backend, state, dispatch }: DocumentsViewProps) {
-  const indexName = state.activeIndexName
-  const schema = useIndexSchema(backend, indexName)
-  const displayFields = useDisplayFields(indexName)
-
-  const [rules, setRules] = useState<FilterRule[]>([])
+export function DocumentsView({ browser, schema, list, isLoading, isFetching, error }: DocumentsViewProps) {
+  const { activeIndexName } = useIndexWorkspace()
+  const activeIndex = useActiveIndex()
+  const displayFields = useDisplayFields(activeIndexName)
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false)
-  const [sorting, setSorting] = useState<SortingState>([])
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
-  const [pageSize, setPageSize] = useState(DOCUMENT_PAGE_SIZE)
   const [selected, setSelected] = useState<ListedDocument | null>(null)
-  const [browsedIndex, setBrowsedIndex] = useState(indexName)
-  const hiddenVectorIndex = useRef<string | null>(null)
 
-  if (indexName !== browsedIndex) {
-    setBrowsedIndex(indexName)
-    setRules([])
-    setSorting([])
-    setColumnVisibility({})
-    setSelected(null)
-  }
+  const { hideColumns, recordCursor } = browser
+  const vectorPaths = schema.vectorPaths
 
   useEffect(() => {
-    if (!indexName || schema.vectorPaths.size === 0) return
-    if (hiddenVectorIndex.current === indexName) return
-    hiddenVectorIndex.current = indexName
-    const defaults = hiddenColumnState(schema.vectorPaths)
-    setColumnVisibility(current => ({ ...defaults, ...current }))
-  }, [indexName, schema.vectorPaths])
+    hideColumns(vectorPaths)
+  }, [hideColumns, vectorPaths])
 
-  const filters = useMemo(() => buildFilterExpression(rules, schema.fields), [rules, schema.fields])
-  const sort = useMemo(() => toSortRecord(sorting), [sorting])
-  const request = useMemo(() => ({ pageSize, filters, sort }), [pageSize, filters, sort])
-  const list = useDocumentList(backend, indexName, request)
+  useEffect(() => {
+    recordCursor(list)
+  }, [recordCursor, list])
 
+  const documents = list?.documents ?? NO_DOCUMENTS
   const schemaPaths = useMemo(() => schema.leaves.map(leaf => leaf.path), [schema.leaves])
-  const fieldPaths = useMemo(() => collectFieldPaths(list.documents, schemaPaths), [list.documents, schemaPaths])
+  const fieldPaths = useMemo(() => collectFieldPaths(documents, schemaPaths), [documents, schemaPaths])
   const columns = useMemo(
     () => buildDocumentColumns(fieldPaths, schema.sortablePaths),
     [fieldPaths, schema.sortablePaths],
   )
 
   const table = useReactTable({
-    data: list.documents,
+    data: documents,
     columns,
-    state: { sorting, columnVisibility },
-    onSortingChange: setSorting,
-    onColumnVisibilityChange: setColumnVisibility,
+    state: { sorting: browser.sorting, columnVisibility: browser.columnVisibility },
+    onSortingChange: browser.setSorting,
+    onColumnVisibilityChange: browser.setColumnVisibility,
     getCoreRowModel: getCoreRowModel(),
     getRowId: getDocumentRowId,
     manualSorting: true,
@@ -128,12 +91,7 @@ export function DocumentsView({ backend, state, dispatch }: DocumentsViewProps) 
     setIsFilterPanelOpen(open => !open)
   }, [])
 
-  const activeFilterCount = useMemo(
-    () => rules.filter(rule => isRuleComplete(rule, schema.fields)).length,
-    [rules, schema.fields],
-  )
-
-  if (!indexName) {
+  if (activeIndexName === null) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-8">
         <h1 className="mb-2 text-3xl font-bold tracking-tight">Documents</h1>
@@ -144,12 +102,12 @@ export function DocumentsView({ backend, state, dispatch }: DocumentsViewProps) 
     )
   }
 
-  const activeIndex = state.indexes.find(i => i.name === indexName)
-  const first = list.page * pageSize + 1
-  const last = list.page * pageSize + list.documents.length
-  const totalPages = Math.ceil(list.total / pageSize)
+  const total = list?.total ?? 0
+  const first = browser.page * browser.pageSize + 1
+  const last = browser.page * browser.pageSize + documents.length
+  const totalPages = Math.ceil(total / browser.pageSize)
   const selectedTitle = selected ? displayHeading(selected.document, displayFields, selected.id) : ''
-  const isFiltered = activeFilterCount > 0
+  const isFiltered = browser.activeFilterCount > 0
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
@@ -158,67 +116,66 @@ export function DocumentsView({ backend, state, dispatch }: DocumentsViewProps) 
         {activeIndex ? (
           <p className="text-sm text-muted-foreground">
             Browsing <span className="font-mono font-medium text-foreground">{activeIndex.name}</span> in{' '}
-            {describeOrder(sorting)}
+            {browser.orderDescription}
           </p>
         ) : null}
       </div>
 
-      {state.indexes.length > 1 ? (
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          {state.indexes.map(idx => (
-            <IndexButton key={idx.name} name={idx.name} active={idx.name === indexName} dispatch={dispatch} />
-          ))}
-        </div>
-      ) : null}
+      <IndexSelector />
 
       <DocumentToolbar
         table={table}
-        activeFilterCount={activeFilterCount}
+        activeFilterCount={browser.activeFilterCount}
         isFilterPanelOpen={isFilterPanelOpen}
         onFilterPanelToggle={handleFilterPanelToggle}
-        pageSize={pageSize}
-        onPageSizeChange={setPageSize}
+        pageSize={browser.pageSize}
+        onPageSizeChange={browser.setPageSize}
       />
 
       {isFilterPanelOpen ? (
         <div className="mb-4 rounded-lg border bg-card p-4 shadow-xs">
-          <FilterPanel fields={schema.fields} rules={rules} onChange={setRules} />
+          <FilterPanel fields={schema.fields} rules={browser.rules} onChange={browser.setRules} />
         </div>
       ) : null}
 
       <div className="mb-3 flex min-h-4 items-center gap-3 text-xs text-muted-foreground">
-        {list.documents.length > 0 ? (
+        {documents.length > 0 ? (
           <>
             <span>
-              {first.toLocaleString()}-{last.toLocaleString()} of {list.total.toLocaleString()} document
-              {list.total === 1 ? '' : 's'}
+              {first.toLocaleString()}-{last.toLocaleString()} of {total.toLocaleString()} document
+              {total === 1 ? '' : 's'}
               {isFiltered ? ' matching' : ''}
             </span>
-            <span className="font-mono">{list.elapsed.toFixed(1)}ms</span>
+            <span className="font-mono">{(list?.elapsed ?? 0).toFixed(1)}ms</span>
           </>
         ) : null}
       </div>
 
-      {list.error === null ? null : (
+      {error === undefined ? null : (
         <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-4 text-sm text-destructive">
-          {list.error}
+          {error.message}
         </div>
       )}
 
-      {list.error !== null || list.hasLoaded ? null : <DocumentSkeleton />}
+      {error !== undefined || list !== undefined ? null : <DocumentSkeleton />}
 
-      {list.error === null && list.hasLoaded && list.documents.length === 0 ? (
+      {error === undefined && list !== undefined && documents.length === 0 ? (
         <div className="py-12 text-center text-sm text-muted-foreground">
           {isFiltered ? 'No document matches these conditions.' : 'This index holds no documents yet.'}
         </div>
       ) : null}
 
-      {list.error === null && list.documents.length > 0 ? (
-        <DocumentTable table={table} isLoading={list.isLoading} onSelect={setSelected} />
+      {error === undefined && documents.length > 0 ? (
+        <DocumentTable table={table} isLoading={isFetching} onSelect={setSelected} />
       ) : null}
 
-      {list.error === null ? (
-        <Pagination page={list.page} totalPages={totalPages} onPageChange={list.setPage} disabled={list.isLoading} />
+      {error === undefined ? (
+        <Pagination
+          page={browser.page}
+          totalPages={totalPages}
+          onPageChange={browser.setPage}
+          disabled={isLoading || isFetching}
+        />
       ) : null}
 
       <Sheet open={selected !== null} onOpenChange={handleSheetOpenChange}>

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { createNarsil, type EmbeddingAdapter, type Narsil } from '@delali/narsil'
+import { createNarsilClient, type NarsilClient } from '@delali/narsil/client'
 import { createServer, type NarsilServer } from '@delali/narsil/server'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createAskResponse } from '../src/lib/ask/answer'
@@ -13,8 +14,6 @@ import { persistTurnStart, reconstructTurn } from '../src/lib/ask/history'
 import { parseAskRequest } from '../src/lib/ask/messages'
 import type { AskUIMessage } from '../src/lib/ask/types'
 import { loadThread } from '../src/lib/chat/store'
-import { NarsilServerClient } from '../src/lib/narsil-server-client'
-import { RestBackend } from '../src/lib/rest-backend'
 
 const DIMENSIONS = 8
 
@@ -233,7 +232,7 @@ function textOfChunks(chunks: StreamedChunk[]): string {
 describe('agentic ask pipeline against a live Narsil server', () => {
   let engine: Narsil
   let narsilServer: NarsilServer
-  let backend: RestBackend
+  let client: NarsilClient
   let llm: StubLlm
   let llmConfig: LlmProviderConfig
   let tempChatDir: string
@@ -248,18 +247,13 @@ describe('agentic ask pipeline against a live Narsil server', () => {
       embeddingAdapters: { openai: stubAdapter },
     })
     await narsilServer.listen()
-    const config = { baseUrl: `http://127.0.0.1:${narsilServer.listeningPort}` }
-
-    const client = new NarsilServerClient(config)
+    client = createNarsilClient({ url: `http://127.0.0.1:${narsilServer.listeningPort}` })
     await client.createIndex('handbook', {
       schema: { title: 'string', text: 'string', embedding: `vector[${DIMENSIONS}]` },
       language: 'english',
       embedding: { fields: { embedding: ['title', 'text'] }, adapter: 'openai' },
     })
-    const inserted = await client.insertBatchSerialized(
-      'handbook',
-      DOCS.map(doc => JSON.stringify(doc)),
-    )
+    const inserted = await client.insertBatch('handbook', DOCS)
     expect(inserted.failed).toHaveLength(0)
 
     await client.createIndex('keyword-only', {
@@ -267,7 +261,6 @@ describe('agentic ask pipeline against a live Narsil server', () => {
       language: 'english',
     })
 
-    backend = new RestBackend(config)
     llm = await startStubLlm()
     llmConfig = { apiKey: 'stub-key', baseUrl: llm.baseUrl, model: ANSWER_MODEL, titleModel: TITLE_MODEL }
   })
@@ -294,7 +287,7 @@ describe('agentic ask pipeline against a live Narsil server', () => {
     })
     const turn = await reconstructTurn(request)
     await persistTurnStart(request, turn, Date.now())
-    const response = createAskResponse(backend, llmConfig, request, turn, new AbortController().signal)
+    const response = createAskResponse(client, llmConfig, request, turn, new AbortController().signal)
     expect(response.status).toBe(200)
     return readUiChunks(response)
   }

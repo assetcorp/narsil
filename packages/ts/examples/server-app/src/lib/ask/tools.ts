@@ -1,5 +1,5 @@
+import type { NarsilClient } from '@delali/narsil/client'
 import { jsonSchema, type ToolSet, tool } from 'ai'
-import type { RestBackend } from '../rest-backend'
 import { retrieveSources, stripMarkup } from './retrieval'
 import type { AskReadInput, AskReadOutput, AskSearchInput, AskSearchOutput, AskSource, RetrievalMode } from './types'
 
@@ -96,13 +96,13 @@ function paginate(body: string): string[] {
  * `candidateCount` lets the caller answer directly when a search found nothing.
  */
 export function createAskTools(params: {
-  backend: RestBackend
+  client: NarsilClient
   indexName: string
   mode: RetrievalMode
   signal: AbortSignal
   onOpen: (sources: AskSource[], elapsedMs: number, query: string) => void
 }): AskToolset {
-  const { backend, indexName, mode, signal, onOpen } = params
+  const { client, indexName, mode, signal, onOpen } = params
 
   const candidates = new Map<string, Candidate>()
   const opened = new Map<string, OpenedDocument>()
@@ -137,7 +137,7 @@ export function createAskTools(params: {
       additionalProperties: false,
     }),
     execute: async ({ query }, { abortSignal }): Promise<AskSearchOutput> => {
-      const retrieval = await retrieveSources(backend, {
+      const retrieval = await retrieveSources(client, {
         indexName,
         mode,
         query,
@@ -178,7 +178,7 @@ export function createAskTools(params: {
     execute: async ({ docId, page }): Promise<AskReadOutput> => {
       let entry = opened.get(docId)
       if (!entry) {
-        const document = await backend.getDocument(indexName, docId)
+        const document = await client.get(indexName, docId)
         if (!document) {
           return {
             docId,

@@ -1,152 +1,97 @@
-import type {
-  BackendEventHandler,
-  BackendEventType,
-  IndexListEntry,
-  IndexStats,
-  ListDocumentsRequest,
-  ListDocumentsResponse,
-  MemoryStatsResponse,
-  NarsilBackend,
-  PartitionStats,
-  QueryRequest,
-  QueryResponse,
-  SuggestRequest,
-  SuggestResponse,
-} from '@delali/narsil-example-shared/backend'
-import type { LoadDatasetRequest } from '@delali/narsil-example-shared/types'
-import type { WorkerOutbound, WorkerRequest } from './messages'
+import { NarsilError } from '@delali/narsil'
+import { ClientErrorCodes } from '@delali/narsil/client'
+import type { DatasetLoadProgress } from '@delali/narsil-example-shared'
+import type { WorkerArgs, WorkerMethod, WorkerOutbound, WorkerRequest, WorkerResult } from './protocol'
 
-type PendingRequest = {
+interface PendingCall {
   resolve: (value: unknown) => void
-  reject: (error: Error) => void
+  reject: (error: NarsilError) => void
 }
 
-let requestCounter = 0
-
-function nextId(): string {
-  return `req_${++requestCounter}_${Date.now()}`
-}
-
-export class WorkerBackend implements NarsilBackend {
+/**
+ * Calls the engine running in the Web Worker. Every method mirrors the one on
+ * `Narsil` it forwards to, and a failure arrives as the `NarsilError` the
+ * engine threw, under the code it carried.
+ */
+export class NarsilWorkerClient {
   private worker: Worker | null = null
-  private pending = new Map<string, PendingRequest>()
-  private listeners = new Map<string, Set<BackendEventHandler<BackendEventType>>>()
+  private nextId = 0
+  private readonly pending = new Map<string, PendingCall>()
+  private readonly progressListeners = new Set<(progress: DatasetLoadProgress) => void>()
 
-  private getWorker(): Worker {
-    if (this.worker) return this.worker
+  private connect(): Worker {
+    if (this.worker !== null) return this.worker
 
-    this.worker = new Worker(new URL('./narsil-worker.ts', import.meta.url), { type: 'module' })
-    this.worker.onmessage = (event: MessageEvent<WorkerOutbound>) => {
-      this.handleMessage(event.data)
+    const worker = new Worker(new URL('./narsil-worker.ts', import.meta.url), { type: 'module' })
+    worker.onmessage = (event: MessageEvent<WorkerOutbound>) => {
+      this.receive(event.data)
     }
-    this.worker.onerror = (event: ErrorEvent) => {
-      const message = event.message || 'Worker error'
-      this.rejectAllPending(message)
-      this.emit('error', { message })
+    worker.onerror = (event: ErrorEvent) => {
+      this.failAll(event.message || 'The search worker stopped')
     }
-    return this.worker
+    this.worker = worker
+    return worker
   }
 
-  private rejectAllPending(reason: string) {
+  private receive(message: WorkerOutbound): void {
+    if (message.kind === 'progress') {
+      for (const listener of this.progressListeners) listener(message.progress)
+      return
+    }
+
+    const pending = this.pending.get(message.id)
+    if (!pending) return
+    this.pending.delete(message.id)
+
+    if (message.kind === 'failure') {
+      pending.reject(new NarsilError(message.code, message.message))
+      return
+    }
+    pending.resolve(message.result)
+  }
+
+  private failAll(message: string): void {
     for (const [, pending] of this.pending) {
-      pending.reject(new Error(reason))
+      pending.reject(new NarsilError(ClientErrorCodes.CLIENT_CONNECTION_FAILED, message))
     }
     this.pending.clear()
   }
 
-  destroy() {
-    this.rejectAllPending('Worker backend destroyed')
-    this.worker?.terminate()
-    this.worker = null
-    this.listeners.clear()
-  }
-
-  private handleMessage(msg: WorkerOutbound) {
-    if (msg.type === 'progress') {
-      this.emit('progress', msg.payload)
-      return
+  call<K extends WorkerMethod>(method: K, args: WorkerArgs<K>, signal?: AbortSignal): Promise<WorkerResult<K>> {
+    if (signal?.aborted === true) {
+      return Promise.reject(new NarsilError(ClientErrorCodes.CLIENT_REQUEST_ABORTED, 'The request was aborted'))
     }
 
-    const pending = this.pending.get(msg.requestId)
-    if (!pending) return
-    this.pending.delete(msg.requestId)
+    const id = `call-${++this.nextId}`
+    const request: WorkerRequest<K> = { id, method, args }
 
-    if (msg.error) {
-      pending.reject(new Error(msg.error))
-    } else {
-      pending.resolve(msg.result)
-    }
-  }
+    return new Promise<WorkerResult<K>>((resolve, reject) => {
+      const onAbort = () => {
+        this.pending.delete(id)
+        reject(new NarsilError(ClientErrorCodes.CLIENT_REQUEST_ABORTED, 'The request was aborted'))
+      }
+      signal?.addEventListener('abort', onAbort, { once: true })
 
-  private send(type: WorkerRequest['type'], payload: unknown): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      const requestId = nextId()
-      this.pending.set(requestId, { resolve, reject })
-      const msg: WorkerRequest = { requestId, type, payload }
-      this.getWorker().postMessage(msg)
+      this.pending.set(id, {
+        resolve: value => {
+          signal?.removeEventListener('abort', onAbort)
+          resolve(value as WorkerResult<K>)
+        },
+        reject: error => {
+          signal?.removeEventListener('abort', onAbort)
+          reject(error)
+        },
+      })
+      this.connect().postMessage(request)
     })
   }
 
-  private emit<T extends BackendEventType>(event: T, payload: unknown) {
-    const handlers = this.listeners.get(event)
-    if (!handlers) return
-    for (const handler of handlers) {
-      try {
-        handler(payload as never)
-      } catch {
-        // Prevent a failing handler from breaking other handlers
-      }
+  onProgress(listener: (progress: DatasetLoadProgress) => void): () => void {
+    this.progressListeners.add(listener)
+    return () => {
+      this.progressListeners.delete(listener)
     }
-  }
-
-  async loadDataset(request: LoadDatasetRequest): Promise<void> {
-    await this.send('loadDataset', { request })
-  }
-
-  async query(request: QueryRequest): Promise<QueryResponse> {
-    return this.send('query', request) as Promise<QueryResponse>
-  }
-
-  async suggest(request: SuggestRequest): Promise<SuggestResponse> {
-    return this.send('suggest', request) as Promise<SuggestResponse>
-  }
-
-  async listDocuments(request: ListDocumentsRequest): Promise<ListDocumentsResponse> {
-    return this.send('listDocuments', request) as Promise<ListDocumentsResponse>
-  }
-
-  async getStats(indexName: string): Promise<IndexStats> {
-    return this.send('getStats', { indexName }) as Promise<IndexStats>
-  }
-
-  async getPartitionStats(indexName: string): Promise<PartitionStats[]> {
-    return this.send('getPartitionStats', { indexName }) as Promise<PartitionStats[]>
-  }
-
-  async getMemoryStats(): Promise<MemoryStatsResponse> {
-    return this.send('getMemoryStats', {}) as Promise<MemoryStatsResponse>
-  }
-
-  async listIndexes(): Promise<IndexListEntry[]> {
-    return this.send('listIndexes', {}) as Promise<IndexListEntry[]>
-  }
-
-  async deleteIndex(indexName: string): Promise<void> {
-    await this.send('deleteIndex', { indexName })
-  }
-
-  subscribe<T extends BackendEventType>(event: T, handler: BackendEventHandler<T>): void {
-    let handlers = this.listeners.get(event)
-    if (!handlers) {
-      handlers = new Set()
-      this.listeners.set(event, handlers)
-    }
-    handlers.add(handler as BackendEventHandler<BackendEventType>)
-  }
-
-  unsubscribe<T extends BackendEventType>(event: T, handler: BackendEventHandler<T>): void {
-    const handlers = this.listeners.get(event)
-    if (!handlers) return
-    handlers.delete(handler as BackendEventHandler<BackendEventType>)
   }
 }
+
+export const narsilWorker = new NarsilWorkerClient()

@@ -10,8 +10,6 @@ import { Progress } from '../ui/progress'
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '../ui/sheet'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 
-export type EnginePhase = 'checking' | 'starting' | 'ready' | 'error'
-
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
@@ -119,7 +117,7 @@ interface DatasetCardProps {
   onView: (datasetId: DatasetId) => void
   configContent: ReactNode
   loadDisabled: boolean
-  enginePhase?: EnginePhase
+  serverUnavailable?: boolean
   onCancel?: (datasetId: DatasetId) => void
 }
 
@@ -134,13 +132,12 @@ export function DatasetCard({
   onView,
   configContent,
   loadDisabled,
-  enginePhase = 'ready',
+  serverUnavailable = false,
   onCancel,
 }: DatasetCardProps) {
   const [sheetOpen, setSheetOpen] = useState(false)
   const Icon = ds.icon
-  const busy = loading || restoring || enginePhase === 'checking' || enginePhase === 'starting'
-  const engineFailed = enginePhase === 'error'
+  const busy = loading || restoring
   const canCancel = loading && onCancel !== undefined
 
   function handleLoadClick() {
@@ -241,19 +238,19 @@ export function DatasetCard({
             )}
           </div>
         )}
-        {!busy && engineFailed && (
+        {!busy && serverUnavailable && (
           <Button type="button" variant="outline" className="w-full" disabled>
             <TriangleAlert className="size-3.5" />
             Server unavailable
           </Button>
         )}
-        {!busy && !engineFailed && !loaded && (
+        {!busy && !serverUnavailable && !loaded && (
           <Button type="button" className="w-full" onClick={handleConfigureClick}>
             <Settings2 className="size-3.5" />
             Configure
           </Button>
         )}
-        {!busy && !engineFailed && loaded && (
+        {!busy && !serverUnavailable && loaded && (
           <div className="flex w-full items-center gap-2">
             <Button type="button" className="flex-1" onClick={handleViewClick}>
               <FileText className="size-3.5" />

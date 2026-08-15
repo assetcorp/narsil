@@ -1,17 +1,14 @@
-import type { NarsilBackend } from '../../backend'
 import { useBenchmark } from '../../hooks/use-benchmark'
+import { useQueryRunner } from '../../query-runner'
 import { Button } from '../ui/button'
 import { Progress } from '../ui/progress'
 import { AggregateTable } from './AggregateTable'
 import { QueryExplorer } from './QueryExplorer'
 import { SideBySide } from './SideBySide'
 
-interface ScifactBenchmarkProps {
-  backend: NarsilBackend
-}
-
-export function ScifactBenchmark({ backend }: ScifactBenchmarkProps) {
-  const benchmark = useBenchmark(backend)
+export function ScifactBenchmark() {
+  const runQuery = useQueryRunner()
+  const benchmark = useBenchmark(runQuery)
 
   return (
     <>
@@ -57,7 +54,7 @@ export function ScifactBenchmark({ backend }: ScifactBenchmarkProps) {
               selectedQuery={benchmark.selectedQuery}
               onSelect={benchmark.selectQuery}
             />
-            {benchmark.selectedQuery && <SideBySide query={benchmark.selectedQuery} backend={backend} />}
+            {benchmark.selectedQuery && <SideBySide query={benchmark.selectedQuery} />}
           </div>
         </div>
       )}

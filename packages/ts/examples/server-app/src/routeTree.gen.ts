@@ -17,6 +17,7 @@ import { Route as BenchmarkRouteImport } from './routes/benchmark'
 import { Route as AskRouteImport } from './routes/ask'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiAskRouteImport } from './routes/api/ask'
+import { Route as ApiNarsilSplatRouteImport } from './routes/api/narsil.$'
 
 const SearchRoute = SearchRouteImport.update({
   id: '/search',
@@ -58,6 +59,11 @@ const ApiAskRoute = ApiAskRouteImport.update({
   path: '/api/ask',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiNarsilSplatRoute = ApiNarsilSplatRouteImport.update({
+  id: '/api/narsil/$',
+  path: '/api/narsil/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -68,6 +74,7 @@ export interface FileRoutesByFullPath {
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
   '/api/ask': typeof ApiAskRoute
+  '/api/narsil/$': typeof ApiNarsilSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -78,6 +85,7 @@ export interface FileRoutesByTo {
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
   '/api/ask': typeof ApiAskRoute
+  '/api/narsil/$': typeof ApiNarsilSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -89,6 +97,7 @@ export interface FileRoutesById {
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
   '/api/ask': typeof ApiAskRoute
+  '/api/narsil/$': typeof ApiNarsilSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -101,6 +110,7 @@ export interface FileRouteTypes {
     | '/relevance'
     | '/search'
     | '/api/ask'
+    | '/api/narsil/$'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -111,6 +121,7 @@ export interface FileRouteTypes {
     | '/relevance'
     | '/search'
     | '/api/ask'
+    | '/api/narsil/$'
   id:
     | '__root__'
     | '/'
@@ -121,6 +132,7 @@ export interface FileRouteTypes {
     | '/relevance'
     | '/search'
     | '/api/ask'
+    | '/api/narsil/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -132,6 +144,7 @@ export interface RootRouteChildren {
   RelevanceRoute: typeof RelevanceRoute
   SearchRoute: typeof SearchRoute
   ApiAskRoute: typeof ApiAskRoute
+  ApiNarsilSplatRoute: typeof ApiNarsilSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -192,6 +205,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAskRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/narsil/$': {
+      id: '/api/narsil/$'
+      path: '/api/narsil/$'
+      fullPath: '/api/narsil/$'
+      preLoaderRoute: typeof ApiNarsilSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -204,6 +224,7 @@ const rootRouteChildren: RootRouteChildren = {
   RelevanceRoute: RelevanceRoute,
   SearchRoute: SearchRoute,
   ApiAskRoute: ApiAskRoute,
+  ApiNarsilSplatRoute: ApiNarsilSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

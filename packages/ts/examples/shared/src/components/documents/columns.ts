@@ -1,5 +1,5 @@
-import type { ColumnDef, VisibilityState } from '@tanstack/react-table'
-import type { ListedDocument } from '../../backend'
+import type { ListedDocument } from '@delali/narsil'
+import type { ColumnDef } from '@tanstack/react-table'
 
 export const ID_COLUMN = 'id'
 
@@ -65,10 +65,4 @@ export function buildDocumentColumns(
   }
 
   return columns
-}
-
-export function hiddenColumnState(paths: Iterable<string>): VisibilityState {
-  const visibility: VisibilityState = {}
-  for (const path of paths) visibility[path] = false
-  return visibility
 }

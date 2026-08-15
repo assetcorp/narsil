@@ -1,17 +1,18 @@
-import { type Dispatch, useCallback } from 'react'
-import type { AppAction, LoadedIndex } from '../types'
+import { useCallback } from 'react'
+import type { LoadedIndex } from '../types'
+import { useIndexWorkspace } from '../workspace'
 import { Button } from './ui/button'
 
 interface IndexButtonProps {
   index: LoadedIndex
   isActive: boolean
-  dispatch: Dispatch<AppAction>
+  onSelect: (indexName: string) => void
 }
 
-function IndexButton({ index, isActive, dispatch }: IndexButtonProps) {
+function IndexButton({ index, isActive, onSelect }: IndexButtonProps) {
   const handleClick = useCallback(() => {
-    dispatch({ type: 'SET_ACTIVE_INDEX', payload: index.name })
-  }, [dispatch, index.name])
+    onSelect(index.name)
+  }, [onSelect, index.name])
 
   return (
     <Button
@@ -26,19 +27,20 @@ function IndexButton({ index, isActive, dispatch }: IndexButtonProps) {
   )
 }
 
-interface IndexSelectorProps {
-  indexes: LoadedIndex[]
-  activeIndexName: string | null
-  dispatch: Dispatch<AppAction>
-}
-
-export function IndexSelector({ indexes, activeIndexName, dispatch }: IndexSelectorProps) {
-  if (indexes.length < 2) return null
+export function IndexSelector({ indexes }: { indexes?: LoadedIndex[] }) {
+  const workspace = useIndexWorkspace()
+  const shown = indexes ?? workspace.indexes
+  if (shown.length < 2) return null
 
   return (
     <div className="mb-4 flex flex-wrap gap-1.5">
-      {indexes.map(index => (
-        <IndexButton key={index.name} index={index} isActive={index.name === activeIndexName} dispatch={dispatch} />
+      {shown.map(index => (
+        <IndexButton
+          key={index.name}
+          index={index}
+          isActive={index.name === workspace.activeIndexName}
+          onSelect={workspace.setActiveIndexName}
+        />
       ))}
     </div>
   )
