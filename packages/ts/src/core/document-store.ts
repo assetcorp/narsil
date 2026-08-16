@@ -39,6 +39,77 @@ export interface DocumentStore extends DocumentStoreReader {
   ensureInternalId(docId: string): number
 }
 
+type SliceableView = ArrayBufferView & { slice(begin?: number, end?: number): ArrayBufferView }
+
+function detachedView(view: ArrayBufferView): ArrayBufferView {
+  if (view.byteOffset === 0 && view.byteLength === view.buffer.byteLength) return view
+  if (view instanceof DataView) {
+    return new DataView(view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength))
+  }
+  return (view as SliceableView).slice()
+}
+
+function sharesABiggerBuffer(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false
+  if (ArrayBuffer.isView(value)) return value.byteOffset !== 0 || value.byteLength !== value.buffer.byteLength
+
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      if (sharesABiggerBuffer(value[i])) return true
+    }
+    return false
+  }
+
+  const source = value as Record<string, unknown>
+  for (const key of Object.keys(source)) {
+    if (sharesABiggerBuffer(source[key])) return true
+  }
+  return false
+}
+
+function withOwnBuffers(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value
+  if (ArrayBuffer.isView(value)) return detachedView(value)
+
+  if (Array.isArray(value)) {
+    const copy = new Array(value.length)
+    for (let i = 0; i < value.length; i++) {
+      copy[i] = withOwnBuffers(value[i])
+    }
+    return copy
+  }
+
+  const source = value as Record<string, unknown>
+  const copy: Record<string, unknown> = {}
+  for (const key of Object.keys(source)) {
+    Object.defineProperty(copy, key, {
+      value: withOwnBuffers(source[key]),
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    })
+  }
+  return copy
+}
+
+/**
+ * Gives a document its own memory where a field points into a buffer larger
+ * than itself. Msgpack decodes a binary field as a window onto the buffer it
+ * read, so a document recovered from a snapshot holds a vector that reports
+ * six kilobytes and carries the whole partition behind it. Every copy of that
+ * document, and every structured clone a worker boundary makes, would move the
+ * partition rather than the vector, and the buffer would stay in memory for as
+ * long as one document did.
+ *
+ * @param document - The document about to reach the store.
+ * @returns The document itself where every field already owns its memory, and
+ * a copy carrying loose fields otherwise.
+ */
+export function documentWithOwnBuffers(document: AnyDocument): AnyDocument {
+  if (!sharesABiggerBuffer(document)) return document
+  return withOwnBuffers(document) as AnyDocument
+}
+
 export function createDocumentStore(): DocumentStore {
   const docs = new Map<string, StoredDocument>()
   const forwardMap = new Map<string, number>()
@@ -89,13 +160,13 @@ export function createDocumentStore(): DocumentStore {
     store(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
       if (!docs.has(docId)) sortedIds = null
       writeFieldLengths(assignInternalId(docId), fieldLengths)
-      docs.set(docId, { fields: document as Record<string, unknown>, fieldLengths })
+      docs.set(docId, { fields: documentWithOwnBuffers(document) as Record<string, unknown>, fieldLengths })
     },
 
     storeRef(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
       if (!docs.has(docId)) sortedIds = null
       writeFieldLengths(assignInternalId(docId), fieldLengths)
-      docs.set(docId, { fields: document as Record<string, unknown>, fieldLengths })
+      docs.set(docId, { fields: documentWithOwnBuffers(document) as Record<string, unknown>, fieldLengths })
     },
 
     get(docId: string): ReadonlyStoredDocument | undefined {
@@ -164,7 +235,8 @@ export function createDocumentStore(): DocumentStore {
       for (const docId of Object.keys(data)) {
         const stored = data[docId]
         writeFieldLengths(assignInternalId(docId), stored.fieldLengths)
-        docs.set(docId, stored)
+        const fields = documentWithOwnBuffers(stored.fields as AnyDocument) as Record<string, unknown>
+        docs.set(docId, fields === stored.fields ? stored : { fields, fieldLengths: stored.fieldLengths })
       }
     },
 

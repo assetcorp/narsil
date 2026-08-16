@@ -1,5 +1,6 @@
 import { compareCodePoints, compareComparableKeys } from '../../core/ordering'
 import type { PartitionFilterMatches, PartitionIndex, SortedPageEntry } from '../../core/partition'
+import { resolveProjection } from '../../core/projection'
 import type { PartitionManager } from '../../partitioning/manager'
 import { flattenSchema } from '../../schema/validator'
 import {
@@ -15,7 +16,6 @@ import type { FilterExpression } from '../../types/filters'
 import type { ListedDocument, ListResult } from '../../types/results'
 import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { ListParams, SortSpec } from '../../types/search'
-import { applyProjection, projectionKeepsField, resolveProjection } from '../query/projection'
 import { clampLimit, now } from '../validation'
 
 export interface ListContext {
@@ -178,7 +178,6 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
       : pageInSortOrder(partitions, cursor, filtered, limit, params.sort, signature, schema)
 
   const projection = resolveProjection(params.document)
-  const keepVectorField = (fieldPath: string): boolean => projectionKeepsField(projection, fieldPath)
 
   const documents: Array<ListedDocument<T>> = []
   for (const docId of page.ids) {
@@ -186,9 +185,9 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
       documents.push({ id: docId, document: {} as T })
       continue
     }
-    const stored = manager.get(docId, keepVectorField)
+    const stored = manager.get(docId, projection)
     if (stored === undefined) continue
-    documents.push({ id: docId, document: applyProjection(stored, projection) as T })
+    documents.push({ id: docId, document: stored as T })
   }
 
   if (page.nextCursor === null) {

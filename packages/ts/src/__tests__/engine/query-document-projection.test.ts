@@ -99,6 +99,33 @@ describe('document projection', () => {
     expect(projected.hits[0].document.title).toBe('alpha')
   })
 
+  it('returns the vector where include names it', async () => {
+    await narsil.createIndex('docs', { schema: vectorSchema, language: 'english' })
+    await narsil.insert('docs', { title: 'alpha', body: 'searchable text', embedding: vec(0.9) })
+
+    const result = await narsil.query('docs', { term: 'searchable', document: { include: ['embedding'] } })
+
+    const embedding = result.hits[0].document.embedding as ArrayLike<number>
+    expect(Object.keys(result.hits[0].document)).toEqual(['embedding'])
+    expect(embedding.length).toBe(DIM)
+  })
+
+  it('leaves the stored document untouched where the caller changes a hit it kept', async () => {
+    await narsil.createIndex('docs', { schema: nestedSchema, language: 'english' })
+    await narsil.insert('docs', {
+      id: 'doc-1',
+      title: 'alpha',
+      author: { name: 'ama', email: 'ama@example.com' },
+    })
+
+    const result = await narsil.query('docs', { term: 'alpha', document: { include: ['author'] } })
+    const author = result.hits[0].document.author as Record<string, unknown>
+    author.name = 'someone else'
+
+    const stored = await narsil.get('docs', 'doc-1')
+    expect((stored?.author as Record<string, unknown>).name).toBe('ama')
+  })
+
   it('addresses a nested field through dots', async () => {
     await narsil.createIndex('docs', { schema: nestedSchema, language: 'english' })
     await narsil.insert('docs', {

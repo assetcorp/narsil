@@ -258,4 +258,63 @@ describe('DocumentStore', () => {
       expect(resolver.toInternal('missing')).toBeUndefined()
     })
   })
+
+  describe('a field that views a bigger buffer', () => {
+    function viewInto(bufferBytes: number, values: number[]): Float32Array {
+      const buffer = new ArrayBuffer(bufferBytes)
+      const view = new Float32Array(buffer, 128, values.length)
+      view.set(values)
+      return view
+    }
+
+    it('reaches the store holding its own memory', () => {
+      const embedding = viewInto(64_000, [0.5, 0.25, 0.125])
+
+      store.store('doc1', { title: 'A', embedding }, {})
+
+      const stored = store.get('doc1')?.fields.embedding as Float32Array
+      expect(Array.from(stored)).toEqual([0.5, 0.25, 0.125])
+      expect(stored.buffer.byteLength).toBe(12)
+    })
+
+    it('reaches the store holding its own memory from inside a nested field', () => {
+      const embedding = viewInto(64_000, [1, 2])
+
+      store.store('doc1', { title: 'A', vectors: { primary: embedding } }, {})
+
+      const nested = store.get('doc1')?.fields.vectors as { primary: Float32Array }
+      expect(Array.from(nested.primary)).toEqual([1, 2])
+      expect(nested.primary.buffer.byteLength).toBe(8)
+    })
+
+    it('reaches the store holding its own memory through a reload', () => {
+      const embedding = viewInto(64_000, [3, 4])
+
+      store.deserialize({ doc1: { fields: { title: 'A', embedding }, fieldLengths: { title: 1 } } })
+
+      const stored = store.get('doc1')?.fields.embedding as Float32Array
+      expect(Array.from(stored)).toEqual([3, 4])
+      expect(stored.buffer.byteLength).toBe(8)
+    })
+
+    it('writes no prototype through where a document carries a reserved key beside it', () => {
+      const hostile = JSON.parse('{"title":"A","__proto__":{"polluted":"yes"}}')
+      hostile.embedding = viewInto(64_000, [5])
+
+      store.store('doc1', hostile, {})
+
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+      expect(Object.getPrototypeOf(store.get('doc1')?.fields)).toBe(Object.prototype)
+    })
+  })
+
+  describe('a document whose fields own their memory', () => {
+    it('reaches the store as the very object the caller passed', () => {
+      const document = { title: 'A', embedding: new Float32Array([1, 2, 3]), author: { name: 'ama' } }
+
+      store.store('doc1', document, {})
+
+      expect(store.get('doc1')?.fields).toBe(document)
+    })
+  })
 })

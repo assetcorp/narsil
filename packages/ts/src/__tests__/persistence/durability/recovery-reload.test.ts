@@ -114,3 +114,40 @@ describe('loadSnapshotBundleBytes partition reconciliation', () => {
     }
   })
 })
+
+describe('a recovered document owns the memory of its binary fields', () => {
+  const vectorSchema = { title: 'string', embedding: 'vector[8]' } as const
+
+  function makeVectorManager(): PartitionManager {
+    return createPartitionManager(
+      'vectors',
+      { schema: vectorSchema, language: 'english' },
+      getLanguage('english'),
+      createPartitionRouter(),
+      1,
+    )
+  }
+
+  it('reads a vector back without the snapshot buffer behind it', async () => {
+    const source = makeVectorManager()
+    for (let i = 0; i < 25; i++) {
+      source.insert(`vec-${i}`, { title: `Vector document ${i}`, embedding: new Float32Array(8).fill(i / 25) })
+    }
+    const { parts } = await buildSnapshotBundleBytes({
+      indexName: 'vectors',
+      schema: vectorSchema,
+      language: 'english',
+      manager: source,
+      vectorIndexes: new Map(),
+      seqNoByPartition: new Map([[0, 0]]),
+      primaryTermByPartition: new Map([[0, SINGLE_NODE_PRIMARY_TERM]]),
+    })
+
+    const target = makeVectorManager()
+    await loadSnapshotBundleBytes(concatEnvelopeParts(parts), emptyDeps(target))
+
+    const recovered = target.get('vec-0')?.embedding
+    if (!ArrayBuffer.isView(recovered)) throw new Error('the recovered document lost its embedding')
+    expect(recovered.buffer.byteLength).toBe(recovered.byteLength)
+  })
+})
