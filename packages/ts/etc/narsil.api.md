@@ -41,6 +41,19 @@ export interface BM25Params {
 export function clearNormalizationCache(): void;
 
 // @public
+export type ClientErrorCode = (typeof ClientErrorCodes)[keyof typeof ClientErrorCodes];
+
+// @public
+export const ClientErrorCodes: {
+    readonly CLIENT_CONNECTION_FAILED: "CLIENT_CONNECTION_FAILED";
+    readonly CLIENT_REQUEST_TIMEOUT: "CLIENT_REQUEST_TIMEOUT";
+    readonly CLIENT_REQUEST_ABORTED: "CLIENT_REQUEST_ABORTED";
+    readonly CLIENT_INVALID_RESPONSE: "CLIENT_INVALID_RESPONSE";
+    readonly CLIENT_TASK_TIMEOUT: "CLIENT_TASK_TIMEOUT";
+    readonly CLIENT_UNEXPECTED_ERROR: "CLIENT_UNEXPECTED_ERROR";
+};
+
+// @public
 export type ComparisonFilter = {
     eq?: number | string | boolean;
     ne?: number | string | boolean;

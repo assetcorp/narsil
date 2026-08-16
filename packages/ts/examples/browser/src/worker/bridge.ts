@@ -1,5 +1,4 @@
-import { NarsilError } from '@delali/narsil'
-import { ClientErrorCodes } from '@delali/narsil/client'
+import { ClientErrorCodes, NarsilError } from '@delali/narsil'
 import type { DatasetLoadProgress } from '@delali/narsil-example-shared'
 import type { WorkerArgs, WorkerMethod, WorkerOutbound, WorkerRequest, WorkerResult } from './protocol'
 
