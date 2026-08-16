@@ -235,7 +235,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@tanstack/react-router": "1.169.2",
+    "@tanstack/react-router": "1.170.27",
     "@tanstack/react-table": "8.21.3",
     "@types/react": "^19.2.0",
     "@types/three": "0.183.1",
