@@ -1,5 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
-import { applyProjection, resolveProjection } from '../../../engine/query/projection'
+import { applyProjection, resolveProjection } from '../../../core/projection'
 import { normalizeSort, readSortValues } from '../../../search/sorting'
 import type { QueryResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'

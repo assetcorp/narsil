@@ -8,6 +8,7 @@ import type { AnyDocument, SchemaDefinition } from '../../../types/schema'
 import type { FacetConfig } from '../../../types/search'
 import type { ComparableSortValue } from '../../ordering'
 import { compareCodePoints } from '../../ordering'
+import { cloneProjected, type ResolvedProjection } from '../../projection'
 import { computeFacets } from '../facets'
 import type { PartitionFilterMatches } from '../filters'
 import { createFrozenSegment, type FrozenSegment } from '../frozen'
@@ -307,13 +308,13 @@ export function createCompositePartition(
       return compositeExpandTermPrefix(subs(), surfacePrefix, stemmedToken, maxExpansions)
     },
 
-    get(docId: string): AnyDocument | undefined {
+    get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined {
       const owner = frozenOwner(docId)
       if (owner !== undefined) {
         const stored = owner.docStore.get(docId)
-        return stored === undefined ? undefined : (structuredClone(stored.fields) as AnyDocument)
+        return stored === undefined ? undefined : cloneProjected(stored.fields, projection)
       }
-      return live.get(docId)
+      return live.get(docId, projection)
     },
 
     getRef(docId: string): AnyDocument | undefined {

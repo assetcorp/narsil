@@ -1,5 +1,5 @@
 import { generateId } from '../../core/id-generator'
-import { type ResolvedProjection, resolveProjection } from '../../engine/query/projection'
+import { type ResolvedProjection, resolveProjection } from '../../core/projection'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'

@@ -1,4 +1,5 @@
 import type { ComparableSortValue } from '../../core/ordering'
+import { resolveProjection } from '../../core/projection'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
 import { flattenSchema } from '../../schema/validator'
@@ -12,7 +13,6 @@ import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import { clampLimit, clampOffset, now } from '../validation'
 import { applyHighlights } from './highlight'
-import { applyProjection, projectionKeepsField, resolveProjection } from './projection'
 import { broadcastStatsForWorker, type QueryContext, scoringConfigFor, searchOptionsFor } from './shared'
 import { executeSortedQueryPage, sortsWithoutScores } from './sorted'
 import { executeHybridSearch, executeVectorSearch } from './vector'
@@ -163,7 +163,6 @@ export async function executeQuery<T = AnyDocument>(
   }
 
   const projection = resolveProjection(params.document)
-  const keepVectorField = (fieldPath: string): boolean => projectionKeepsField(projection, fieldPath)
 
   if (projection.kind === 'none') {
     for (const hit of paginated) {
@@ -171,8 +170,7 @@ export async function executeQuery<T = AnyDocument>(
     }
   } else {
     for (const hit of paginated) {
-      const stored = manager.get(hit.id, keepVectorField)
-      hit.document = (stored ? applyProjection(stored, projection) : {}) as T
+      hit.document = (manager.get(hit.id, projection) ?? {}) as T
     }
   }
 
@@ -183,8 +181,7 @@ export async function executeQuery<T = AnyDocument>(
           hit.document = {}
           continue
         }
-        const stored = manager.get(hit.id, keepVectorField)
-        hit.document = stored ? applyProjection(stored, projection) : {}
+        hit.document = manager.get(hit.id, projection) ?? {}
       }
     }
   }

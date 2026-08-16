@@ -1,6 +1,6 @@
-import { PROTOTYPE_POLLUTION_KEYS } from '../../schema/validator/shared'
-import type { AnyDocument } from '../../types/schema'
-import type { DocumentProjection } from '../../types/search'
+import { PROTOTYPE_POLLUTION_KEYS } from '../schema/validator/shared'
+import type { AnyDocument } from '../types/schema'
+import type { DocumentProjection } from '../types/search'
 
 export type ResolvedProjection =
   | { kind: 'full' }
@@ -35,7 +35,7 @@ function covers(outer: string[], inner: string[]): boolean {
   return true
 }
 
-function readPath(source: Record<string, unknown>, path: string[]): { found: boolean; value: unknown } {
+function readPath(source: Readonly<Record<string, unknown>>, path: string[]): { found: boolean; value: unknown } {
   let current: unknown = source
   for (const segment of path) {
     if (typeof current !== 'object' || current === null || Array.isArray(current))
@@ -77,12 +77,26 @@ function omitPath(source: Record<string, unknown>, path: string[]): Record<strin
   return copy
 }
 
+function cloneExcept(value: unknown, path: string[], exclude: string[][]): unknown {
+  const reachesDeeper = exclude.some(excluded => excluded.length > path.length && covers(path, excluded))
+  if (!reachesDeeper) return structuredClone(value)
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return structuredClone(value)
+  const source = value as Record<string, unknown>
+  const kept: Record<string, unknown> = {}
+  for (const key of Object.keys(source)) {
+    const childPath = [...path, key]
+    if (exclude.some(excluded => covers(excluded, childPath))) continue
+    kept[key] = cloneExcept(source[key], childPath, exclude)
+  }
+  return kept
+}
+
 /**
- * Reads the projection a query asked for into the shape the query path uses.
+ * Reads what the caller set under `document` into the form the read path uses.
  *
- * @param projection - What the query set under `document`, which may be absent.
- * @returns The resolved projection, which is `full` when the query asked for
- * nothing and when it asked for a shape that keeps every field.
+ * @param projection - The caller's projection, which may be absent.
+ * @returns The resolved projection, which is `full` where the caller set
+ * nothing and where the shape they set covers every field.
  */
 export function resolveProjection(projection: DocumentProjection | undefined): ResolvedProjection {
   if (projection === undefined || projection === true) return { kind: 'full' }
@@ -99,12 +113,12 @@ export function resolveProjection(projection: DocumentProjection | undefined): R
 }
 
 /**
- * Answers whether a field survives the projection, which is what lets the
- * engine skip reading a vector it is about to drop.
+ * Answers whether the projection keeps a field, so the read path skips a
+ * vector the caller dropped instead of reading it out of the vector index.
  *
  * @param projection - The resolved projection.
  * @param fieldPath - The dotted path of the field, as the schema names it.
- * @returns True when any part of the field can reach the response.
+ * @returns True where the projection keeps any part of the field.
  */
 export function projectionKeepsField(projection: ResolvedProjection, fieldPath: string): boolean {
   if (projection.kind === 'full') return true
@@ -116,12 +130,43 @@ export function projectionKeepsField(projection: ResolvedProjection, fieldPath: 
 }
 
 /**
- * Cuts a stored document down to what the projection keeps.
+ * Copies a stored document into the shape the projection keeps, and copies
+ * nothing the projection drops. Where a query excludes a vector field, the
+ * copy holds the other fields alone, so the cost of the read follows the size
+ * of the fields the caller kept.
  *
- * @param document - The stored document, which is never modified.
+ * @param document - The stored document, which this function never modifies.
+ * @param projection - The resolved projection. Leave it out to copy every
+ * field.
+ * @returns A new document, sharing no reference with the stored one.
+ */
+export function cloneProjected(
+  document: Readonly<Record<string, unknown>>,
+  projection?: ResolvedProjection,
+): AnyDocument {
+  if (projection === undefined || projection.kind === 'full') return structuredClone(document) as AnyDocument
+  if (projection.kind === 'none') return {}
+  if (projection.include === null) return cloneExcept(document, [], projection.exclude) as AnyDocument
+
+  const projected: Record<string, unknown> = {}
+  for (const path of projection.include) {
+    if (projection.exclude.some(excluded => covers(excluded, path))) continue
+    const { found, value } = readPath(document, path)
+    if (!found) continue
+    writePath(projected, path, cloneExcept(value, path, projection.exclude))
+  }
+  return projected as AnyDocument
+}
+
+/**
+ * Cuts a document the caller already holds down to what the projection keeps.
+ * A cluster node uses this on a document another node sent it, because the
+ * read that built that document ran on the other machine.
+ *
+ * @param document - The document, which this function never modifies.
  * @param projection - The resolved projection.
- * @returns The document itself when everything survives, and a new object
- * carrying the kept fields otherwise.
+ * @returns The document itself where the projection keeps every field, and a
+ * new object holding the kept fields otherwise.
  */
 export function applyProjection(document: AnyDocument, projection: ResolvedProjection): AnyDocument {
   if (projection.kind === 'full') return document

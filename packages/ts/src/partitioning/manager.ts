@@ -4,6 +4,7 @@ import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions 
 import { type CompositePartition, createCompositePartition } from '../core/partition/composite'
 import type { FrozenSegment } from '../core/partition/frozen'
 import type { SegmentPayload } from '../core/partition/segment-payload'
+import { projectionKeepsField, type ResolvedProjection } from '../core/projection'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { SerializablePartition } from '../types/internal'
 import type { LanguageModule } from '../types/language'
@@ -36,7 +37,7 @@ export interface PartitionManager {
   endBatchRemove(): void
   update(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
   rebuildTextIndex(partitionId: number): void
-  get(docId: string, keepVectorField?: (fieldPath: string) => boolean): AnyDocument | undefined
+  get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
   sortValues(
     docId: string,
@@ -296,13 +297,13 @@ export function createPartitionManager(
       docPartitionMap.set(docId, pid)
     },
 
-    get(docId: string, keepVectorField?: (fieldPath: string) => boolean): AnyDocument | undefined {
+    get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined {
       const pid = locateDocument(docId)
       if (pid === undefined) return undefined
-      const doc = partitions[pid].get(docId)
+      const doc = partitions[pid].get(docId, projection)
       if (!doc) return undefined
       for (const [fieldPath, vecIndex] of vecIndexes) {
-        if (keepVectorField && !keepVectorField(fieldPath)) continue
+        if (projection !== undefined && !projectionKeepsField(projection, fieldPath)) continue
         const vector = vecIndex.getVector(docId)
         if (vector) {
           setNestedValue(doc as Record<string, unknown>, fieldPath, vector)

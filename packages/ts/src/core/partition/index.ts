@@ -16,6 +16,7 @@ import type { FacetConfig } from '../../types/search'
 import { createDocumentStore } from '../document-store'
 import { createInvertedIndex } from '../inverted-index'
 import type { ComparableSortValue } from '../ordering'
+import { cloneProjected, type ResolvedProjection } from '../projection'
 import { createPartitionStats, type PartitionStatsView } from '../statistics'
 import { createSurfaceRegistry } from '../surface-registry'
 import { computeFacets } from './facets'
@@ -79,7 +80,7 @@ export interface PartitionIndex {
     options?: PartitionInsertOptions,
   ): void
   rebuildTextIndex(schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void
-  get(docId: string): AnyDocument | undefined
+  get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
   has(docId: string): boolean
   count(): number
@@ -318,10 +319,10 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       rebuildTextIndex(state, schema, language, options)
     },
 
-    get(docId: string): AnyDocument | undefined {
+    get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined {
       const stored = state.docStore.get(docId)
       if (!stored) return undefined
-      return structuredClone(stored.fields) as AnyDocument
+      return cloneProjected(stored.fields, projection)
     },
 
     getRef(docId: string): AnyDocument | undefined {

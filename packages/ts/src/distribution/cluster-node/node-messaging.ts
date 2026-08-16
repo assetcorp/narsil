@@ -1,5 +1,5 @@
 import { decode } from '@msgpack/msgpack'
-import { applyProjection, type ResolvedProjection } from '../../engine/query/projection'
+import { applyProjection, type ResolvedProjection } from '../../core/projection'
 import type { AnyDocument } from '../../types/schema'
 import type { AllocationTable } from '../coordinator/types'
 import { createFetchMessage, validateFetchResultPayload } from '../query/codec'
