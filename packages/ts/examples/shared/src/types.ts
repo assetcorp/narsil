@@ -67,15 +67,13 @@ export function toLoadedIndexes(indexes: readonly IndexInfo[]): LoadedIndex[] {
 export function computeTabStatus(indexes: readonly LoadedIndex[]): Record<TabId, TabStatus> {
   const hasAnyIndex = indexes.length > 0
   const hasAnyDocs = indexes.some(index => index.documentCount > 0)
-  const hasNonScifactDocs = indexes.some(index => index.datasetId !== 'scifact' && index.documentCount > 0)
-  const hasScifact = indexes.some(index => index.datasetId === 'scifact')
 
   return {
     datasets: 'ready',
-    search: hasNonScifactDocs ? 'ready' : 'locked',
+    search: hasAnyDocs ? 'ready' : 'locked',
     ask: hasAnyDocs ? 'ready' : 'locked',
-    relevance: hasNonScifactDocs ? 'ready' : 'locked',
-    benchmark: hasScifact || hasNonScifactDocs ? 'ready' : 'locked',
+    relevance: hasAnyDocs ? 'ready' : 'locked',
+    benchmark: hasAnyDocs ? 'ready' : 'locked',
     inspector: hasAnyIndex ? 'ready' : 'locked',
     documents: hasAnyIndex ? 'ready' : 'locked',
   }

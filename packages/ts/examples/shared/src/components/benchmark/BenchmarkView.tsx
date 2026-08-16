@@ -6,10 +6,7 @@ import { ScifactBenchmark } from './ScifactBenchmark'
 
 export function BenchmarkView() {
   const { indexes, activeIndexName } = useIndexWorkspace()
-  const targets = useMemo(
-    () => indexes.filter(index => index.datasetId === 'scifact' || index.documentCount > 0),
-    [indexes],
-  )
+  const targets = useMemo(() => indexes.filter(index => index.documentCount > 0), [indexes])
   const target = targets.find(entry => entry.name === activeIndexName) ?? targets[0] ?? null
 
   if (target === null) {
