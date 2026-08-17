@@ -70,7 +70,6 @@ export async function admitBatchDocuments(
         const { partitionDoc, extractedVectors } = prepareDocumentVectors(
           documents[i] as Record<string, unknown>,
           vectorFieldPaths,
-          vecIndexes,
         )
         if (extractedVectors.size > 0) {
           validateVectorDimensions(extractedVectors, vecIndexes)

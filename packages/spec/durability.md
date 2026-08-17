@@ -255,7 +255,7 @@ VectorSegmentRef {
 ### Writing a Checkpoint
 
 1. For each partition, read the log records between the previous checkpoint's `lastSeqNo` and the new one, build one segment holding the documents those records inserted or updated and a tombstone for each document they removed, and write it under the next segment id. A partition with no changes writes no segment.
-2. When a partition changed, rewrite each of its vector fields as a new vector segment at the next generation. A partition with no changes keeps its previous vector segments.
+2. When a partition changed, rewrite each of its vector fields as a new vector segment at the next generation. A partition with no changes keeps its previous vector segments. A vector segment is the only place a checkpoint stores a vector value, so the document segment written in step 1 holds none. When a log record stores a document carrying no value for a vector field, the new vector segment must omit that document's vector, because the record replaced the document the earlier vector came from.
 3. When a partition's segment count exceeds the compaction threshold, 12 by default, merge its oldest segments into one so the count returns to the threshold.
 4. Write the manifest atomically over `<indexName>/manifest` with the same atomic write as the snapshot bundle. The manifest write is the commit point: a crash before it leaves the previous manifest in force and the new files unreferenced.
 5. Once the manifest is durable, delete every key the previous manifest referenced that the new one does not, and delete the legacy `<indexName>/snapshot` bundle.

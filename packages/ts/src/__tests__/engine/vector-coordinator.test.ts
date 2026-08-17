@@ -215,9 +215,8 @@ describe('prepareDocumentVectors', () => {
   it('extracts vectors and strips them from a cloned document', () => {
     const doc: Record<string, unknown> = { title: 'test', embedding: [1.0, 2.0, 3.0] }
     const fieldPaths = new Set(['embedding'])
-    const indexes = new Map<string, VectorIndex>([['embedding', createMockVectorIndex(3)]])
 
-    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, fieldPaths, indexes)
+    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, fieldPaths)
 
     expect(extractedVectors.size).toBe(1)
     expect(extractedVectors.has('embedding')).toBe(true)
@@ -231,31 +230,37 @@ describe('prepareDocumentVectors', () => {
   it('returns the original document when no vectors are present', () => {
     const doc: Record<string, unknown> = { title: 'test' }
     const fieldPaths = new Set(['embedding'])
-    const indexes = new Map<string, VectorIndex>([['embedding', createMockVectorIndex(3)]])
 
-    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, fieldPaths, indexes)
+    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, fieldPaths)
 
     expect(extractedVectors.size).toBe(0)
     expect(partitionDoc).toBe(doc)
   })
 
-  it('returns the original document when vecIndexes is empty', () => {
+  it('returns the original document when the schema declares no vector field', () => {
     const doc: Record<string, unknown> = { title: 'test', embedding: [1, 2, 3] }
-    const fieldPaths = new Set(['embedding'])
-    const indexes = new Map<string, VectorIndex>()
 
-    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, fieldPaths, indexes)
+    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, new Set())
 
     expect(extractedVectors.size).toBe(0)
     expect(partitionDoc).toBe(doc)
+  })
+
+  it('strips a vector field that no vector index covers', () => {
+    const doc: Record<string, unknown> = { title: 'test', embedding: [1, 2, 3] }
+
+    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, new Set(['embedding']))
+
+    expect(extractedVectors.size).toBe(1)
+    expect(partitionDoc.embedding).toBeUndefined()
+    expect(partitionDoc.title).toBe('test')
   })
 
   it('handles nested vector fields', () => {
     const doc: Record<string, unknown> = { meta: { vec: [1.0, 2.0] }, title: 'nested' }
     const fieldPaths = new Set(['meta.vec'])
-    const indexes = new Map<string, VectorIndex>([['meta.vec', createMockVectorIndex(2, 'meta.vec')]])
 
-    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, fieldPaths, indexes)
+    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, fieldPaths)
 
     expect(extractedVectors.size).toBe(1)
     expect(extractedVectors.has('meta.vec')).toBe(true)

@@ -136,7 +136,7 @@ Document {
 }
 ```
 
-`fields` holds the raw field values keyed by field name, and a nested object uses a dot-separated key such as `author.name`. A vector field value never appears in `fields`, because it is held in the vector index file for that field. `field_lengths` holds the token count of each text field after analysis, which BM25 scoring reads.
+`fields` holds the raw field values keyed by field name, and a nested object uses a dot-separated key such as `author.name`. A vector field value never appears in `fields`, because it is held in the vector index file for that field. A writer must remove every value the schema declares as a vector before it encodes a document. A reader must discard any vector value it finds in `fields`, because an earlier writer may have stored one there. `field_lengths` holds the token count of each text field after analysis, which BM25 scoring reads.
 
 ### Inverted Index
 
