@@ -51,7 +51,7 @@ The full surface:
 
 ## Tasks
 
-Five operations can run for minutes: an import sent with `?async=true`, `restore`, `_rebalance`, `vectors/_optimize`, and `_rebuild-analysis`. Each one answers 202 with a task record and carries on in the background. Every one of them uses the same record shape, which `GET /tasks/{id}` returns again as the work runs.
+Five operations run long enough that the server answers before they finish: an import sent with `?async=true`, `restore`, `_rebalance`, `vectors/_optimize`, and `_rebuild-analysis`. Each one answers 202 with a task record and carries on in the background. Every one of them uses the same record shape, which `GET /tasks/{id}` returns again as the work runs.
 
 ```json
 {
@@ -68,11 +68,13 @@ Five operations can run for minutes: an import sent with `?async=true`, `restore
 
 A task ends at `succeeded`, `failed`, or `cancelled`. A failed one holds `error` with the code and the message that stopped it, while a finished import holds `result` with what it indexed and the first refusals. An import alone reports `progress`.
 
+An import counts every refusal, and it lists the first `limits.maxImportErrors` of them, which defaults to 100. Where the list is shorter than the count, the result sets `errorsTruncated`. A body over `limits.maxImportBytes`, which defaults to 100 MB, answers 413 `PAYLOAD_TOO_LARGE` before any of it is indexed.
+
 `GET /tasks` pages through the records, newest first, and filters them by `indexName`, by a comma-separated `type`, and by a comma-separated `status`. It answers `{"tasks":[],"total":0,"from":0,"limit":20,"next":null}`, where `next` holds the offset the following page starts at, and null closes the listing. A `limit` above `limits.maxTaskPageSize`, which defaults to 1,000, answers 400 `INVALID_REQUEST`.
 
 `POST /tasks/{id}/_cancel` asks a running task to stop, and it answers 202 with the record. The work stops between units, so a task reaches `cancelled` only once it has stopped, and a request that comes too late leaves it `succeeded`. Cancelling a finished task answers 409 `TASK_NOT_CANCELLABLE`. A task another instance started answers 409 `TASK_OWNED_BY_ANOTHER_INSTANCE`, because only the process running the work can stop it.
 
-`options.taskStore` decides where the records live. The default keeps 1,000 records in this process and drops the oldest finished ones first. A restart loses them, and a second instance never sees them. Supply a store of your own, such as Redis, DynamoDB, or a database, so that any instance can answer for a task. That store receives a time to live with every write: 24 hours for a running record, and an hour for a finished one. The work itself still runs in the process that accepted it, so a shared store gives cross-instance visibility instead of distributed execution. Set `options.instanceId` to a stable value as well, because a restart then marks that instance's own running tasks failed instead of leaving them stuck.
+`options.taskStore` decides where the records are kept. The default holds 1,000 of them in this process and drops the oldest finished ones first. A restart loses them, and a second instance never sees them. Supply a store of your own, such as Redis, DynamoDB, or a database, so that any instance can answer for a task. That store receives a time to live with every write: 24 hours for a running record, and an hour for a finished one. The work itself still runs in the process that accepted it, so a shared store gives cross-instance visibility instead of distributed execution. Set `options.instanceId` to a stable value as well, because a restart then marks that instance's own running tasks failed instead of leaving them stuck.
 
 `GET /capabilities` lists the optional routes this server answers, so a client can check before it sends a request that an older server would refuse with 404.
 
@@ -103,6 +105,6 @@ Send the cursor back on the next request, and stop once it comes back null. The 
 
 The server bounds `limit` by `limits.maxFetchDocuments`, which defaults to 10,000, and answers 400 `INVALID_REQUEST` for a larger value. It answers a body naming more than eight `sort` fields the same way. A search whose `offset` plus `limit` passes the 10,000-result window answers 400 `SEARCH_RESULT_WINDOW_EXCEEDED`, which names the cursor as the way to page further. For a cursor it never issued, or one sent back under a different `sort`, it answers 400 `SEARCH_INVALID_CURSOR`.
 
-A document id crosses the wire percent-encoded, and the server decodes every path segment, so an id holding a slash, a space, or an accent reaches the document it names. An index name never needs the encoding, because the engine accepts alphanumerics, dots, hyphens, and underscores alone. A segment holding an escape the server cannot decode answers 400 `INVALID_REQUEST`.
+A document id crosses the wire percent-encoded, and the server decodes every path segment, so it finds the document that an id holding a slash, a space, or an accent names. An index name never needs the encoding, because the engine accepts alphanumerics, dots, hyphens, and underscores alone. A segment holding an escape the server cannot decode answers 400 `INVALID_REQUEST`.
 
 The [client guide](client.md) covers `@delali/narsil/client`, which reaches every route here through `fetch` and turns each failure back into a `NarsilError`. The [HTTP server example](../packages/ts/examples/http-server/README.md) documents every endpoint with request and response bodies, curl walkthroughs, Docker packaging, and the environment-driven configuration of a production launcher.

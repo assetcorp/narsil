@@ -21,7 +21,7 @@ const narsil = await createNarsil({
 })
 ```
 
-In the browser, `createIndexedDBPersistence({ dbName, storeName })` takes the same place, and both config fields are optional. A filesystem adapter runs the write-ahead log durability tier, so every acknowledged write survives a crash. Every other adapter persists snapshots on the checkpoint triggers: the `durability.checkpointIntervalMs` timer or `durability.checkpointMutationThreshold` mutations, whichever fires first. See [Durability](#durability) for both tiers and the `tier` override.
+In the browser, `createIndexedDBPersistence({ dbName, storeName })` takes the same place, and both config fields are optional. A filesystem adapter runs the write-ahead log durability tier, so a crash never loses a write the engine acknowledged. Every other adapter persists snapshots on the checkpoint triggers: the `durability.checkpointIntervalMs` timer or `durability.checkpointMutationThreshold` mutations, whichever fires first. See [Durability](#durability) for both tiers and the `tier` override.
 
 The serialization format is `.nrsl`, a 32-byte header followed by a MessagePack payload. The format is cross-language portable and specified in [`packages/spec`](../packages/spec), so a Python or Rust implementation can read and write the same files.
 
@@ -29,7 +29,7 @@ A custom backend satisfies the `PersistenceAdapter` interface: `save(key, data)`
 
 ## Durability
 
-Snapshot-only persistence can lose the writes made after the last checkpoint. Durability closes that window with a write-ahead log: every mutation appends to the log before it is acknowledged, periodic checkpoints capture the index state, and recovery replays the log over the newest checkpoint. Enable it with a directory:
+Snapshot-only persistence may lose the writes made after the last checkpoint. Durability closes that window with a write-ahead log. The engine appends every mutation to the log before it acknowledges the write, and it captures the index state in a checkpoint on a schedule, so recovery replays the log over the newest checkpoint. Enable it with a directory:
 
 ```ts
 const narsil = await createNarsil({
@@ -40,7 +40,7 @@ const narsil = await createNarsil({
 })
 ```
 
-`createNarsil` runs recovery before it resolves, so every index is back before the first call with its documents and its full config: partition limits, the scoring default, position tracking, strictness, required fields, vector promotion settings, named embedding adapter bindings, and its stop words and tokenizer. A stop word `Set` persists as an explicit word list, and a named tokenizer or stop word set persists by name, so register the names before calling `createNarsil` (see [Named tokenizers and stop words](language-support.md#named-tokenizers-and-stop-words)). An inline tokenizer instance and a stop word function cannot persist, so use the named forms for any index that must survive recovery unchanged. `checkpoint(indexName)` forces a checkpoint outside the automatic schedule:
+`createNarsil` runs recovery before it resolves, so every index is in place before your first call, holding its documents and its full config: partition limits, the scoring default, position tracking, strictness, required fields, vector promotion settings, named embedding adapter bindings, and its stop words and tokenizer. A stop word `Set` persists as an explicit word list, and a named tokenizer or stop word set persists by name, so register the names before calling `createNarsil` (see [Named tokenizers and stop words](language-support.md#named-tokenizers-and-stop-words)). An inline tokenizer instance and a stop word function cannot persist, so use the named forms for any index that must survive recovery unchanged. `checkpoint(indexName)` forces a checkpoint outside the automatic schedule:
 
 ```ts
 await narsil.checkpoint('products')
@@ -50,7 +50,7 @@ await narsil.checkpoint('products')
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `tier` | `'wal' \| 'snapshot'` | resolved from the adapter | Overrides tier selection. `'snapshot'` forces snapshot-only persistence onto any adapter, a filesystem-backed one included, which is the tier to pick when several processes share one directory, because the write-ahead log owns its directory exclusively. `'snapshot'` without a persistence adapter and `'wal'` without a resolvable directory both fail with `CONFIG_INVALID`, and `'snapshot'` also rejects the write-ahead log fields `directory`, `mode`, `flushIntervalMs`, `segmentMaxBytes`, and `compactionThreshold`. |
+| `tier` | `'wal' \| 'snapshot'` | resolved from the adapter | Overrides tier selection. `'snapshot'` forces snapshot-only persistence onto any adapter, a filesystem-backed one included, which is the tier to pick where several processes share one directory, because the write-ahead log requires exclusive use of its own. `'snapshot'` without a persistence adapter and `'wal'` without a resolvable directory both fail with `CONFIG_INVALID`, and `'snapshot'` also rejects the write-ahead log fields `directory`, `mode`, `flushIntervalMs`, `segmentMaxBytes`, and `compactionThreshold`. |
 | `directory` | `string` | none | Sets the root directory for the log and checkpoints. |
 | `mode` | `'sync' \| 'async'` | `'sync'` | Selects the acknowledgement contract described below. |
 | `flushIntervalMs` | `number` | `1000` | Sets how often the async mode flushes the log to disk. |
@@ -59,7 +59,7 @@ await narsil.checkpoint('products')
 | `checkpointMutationThreshold` | `number` | `100000` | Sets the mutation count that triggers a checkpoint early. |
 | `compactionThreshold` | `number` | `12` | Sets the checkpoint segment count that triggers compaction. |
 
-In `sync` mode a write is not acknowledged until it is on disk, so a crash never loses a write your caller saw succeed. In `async` mode writes acknowledge immediately while the log flushes on `flushIntervalMs`, which is faster but can lose the final interval on a hard crash. Durability failures surface through the `durabilityError` event; see [Events](observability.md#events).
+In `sync` mode the engine acknowledges a write only once the log holds it on disk, so a crash never loses a write your caller saw succeed. In `async` mode it acknowledges the write at once and flushes the log every `flushIntervalMs`, which is faster and may lose the final interval on a hard crash. The engine reports a durability failure through the `durabilityError` event; see [Events](observability.md#events).
 
 `createNarsil` validates every durability field and rejects an invalid value with `CONFIG_INVALID`: an unknown `tier` or `mode` string, a non-finite number, a negative interval, or a size or threshold below 1. An interval of `0` disables that timer.
 

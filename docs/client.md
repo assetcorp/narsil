@@ -12,7 +12,7 @@ const results = await client.query('movies', { term: 'matrix', fields: ['title']
 
 That call takes the arguments [`query`](full-text-search.md#basic-queries) takes on an embedded engine, and it answers with the same `QueryResult`. Every other method follows the same rule, so a module written against an engine moves to a server when you change what it imports.
 
-HTTP forces two differences. Every method takes per-call request settings as a last argument, which hold the signal, the deadline, and any extra headers. The operations that can run for minutes answer with a task record while the work carries on, so you follow that record instead of awaiting the work.
+HTTP forces two differences. Every method takes per-call request settings as a last argument, which hold the signal, the deadline, and any extra headers. The operations that run long enough for the server to answer first come back with a task record while the work carries on, so you follow that record instead of awaiting the work.
 
 The client sends through `fetch` and imports no Node built-in, so it runs in a browser, in Node, and in an edge function. `scripts/check-browser-bundle.mjs` walks its import graph on every build so that a Node import cannot reach it unnoticed.
 
@@ -47,11 +47,11 @@ const controller = new AbortController()
 const results = await client.query('movies', { term: 'matrix' }, { signal: controller.signal, timeoutMs: 2000 })
 ```
 
-Three routes carry a corpus or a whole index, so `importDocuments`, `snapshot`, and `restore` set no deadline of their own. Each waits until you set `timeoutMs`, either on the client or on the call.
+Three routes move a corpus or a whole index, so `importDocuments`, `snapshot`, and `restore` set no deadline of their own. Each of them waits for as long as the server takes, until you set `timeoutMs` on the client or on the call.
 
 ## Errors
 
-Every failure throws a `NarsilError` under the code the server sent, so a branch written against an embedded engine works here unchanged. `details.status` holds the HTTP status alongside whatever details the server sent.
+The client throws a `NarsilError` for every failure, under the code the server sent, so a branch written against an embedded engine works here unchanged. `details.status` holds the HTTP status alongside whatever details the server sent.
 
 ```ts
 import { ErrorCodes, NarsilError } from '@delali/narsil/client'
@@ -152,10 +152,10 @@ The client reads the answer once and keeps it, because a server cannot take on a
 
 `createIndex` takes whatever JSON can express of the engine's configuration. A custom tokeniser, a stop-word function, and an embedding adapter are all functions, so name a language and a server-registered adapter instead. The [HTTP server guide](http-server.md) covers the `embeddingAdapters` option a server registers those under.
 
-The client encodes every index name and document id it puts in a path, and the server decodes each segment. An id holding a slash, a space, or an accent therefore reaches the document it names.
+The client encodes every index name and document id it puts in a path, and the server decodes each segment, so the server finds the document that an id holding a slash, a space, or an accent names.
 
 The engine reads a vector as a number array or a `Float32Array`, in a document field and in a query alike, and JSON writes a `Float32Array` as an object keyed by index. The client converts one to the numbers it holds before it sends, so either form reaches the server as a vector.
 
 ## In a React application
 
-The [React guide](react.md) covers `@delali/narsil/react`, which gives these methods to components as hooks. Two components asking for the same thing send one request, a search re-runs as its parameters change, and `useImport` follows a load from the component that started it.
+The [React guide](react.md) covers `@delali/narsil/react`, which gives these methods to components as hooks. Two components asking for the same thing send one request between them. A search re-runs as its parameters change, and `useImport` follows a load from the component that started it.

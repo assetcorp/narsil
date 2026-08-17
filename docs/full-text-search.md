@@ -22,7 +22,7 @@ const results = await narsil.query('products', {
 
 ## Choosing what comes back
 
-Each hit includes the whole stored document by default, and `document` narrows that. Pass `false` when the ids and scores are all you need, and every hit's `document` is then an empty object. Pass `include` to keep named fields alone, or `exclude` to drop named fields and keep the rest. Use dots to name a nested field, such as `author.name`. The engine ignores a name that matches no field.
+Each hit includes the whole stored document by default, and `document` narrows that. Pass `false` where the ids and scores are all you need; every hit's `document` is then an empty object. Pass `include` to keep the named fields alone, or `exclude` to drop the named fields and keep the rest. Use dots to name a nested field, such as `author.name`. The engine ignores a name that matches no field.
 
 ```ts
 const results = await narsil.query('products', {
@@ -31,7 +31,7 @@ const results = await narsil.query('products', {
 })
 ```
 
-Exclude a vector field on a similarity search. The engine otherwise reads every hit's vector back out of the index and writes it into the response, which costs about 8 KB per hit for a 384-dimension field.
+Exclude a vector field on a similarity search. The projection decides what the read copies out of the store, so a field you drop is never copied, and the engine skips reading its vector back out of the index as well. A 384-dimension vector that you keep costs about 8 KB per hit in the response.
 
 ## Fuzzy matching
 
@@ -49,7 +49,7 @@ const results = await narsil.query('products', {
 
 `prefix: true` treats the last word of the query as an unfinished word, so `secur` matches documents containing `security`. Earlier words must match fully, and `tolerance` keeps applying to them while the unfinished word is completed instead of typo-corrected. Completions score against a shared document frequency and rank below full-word matches, so a document containing the exact typed word comes first. The option is off by default; turn it on for queries fired on every keystroke.
 
-Completions match against the original spellings the index records, so `securi` still finds `security` even though the term dictionary stores the stem `secur`. Create the index with `surfaceForms: false` to match against the stemmed tokens instead, which saves a little insert throughput and costs you every typed word that runs past the end of a stem.
+Completions match against the original spellings the index records, so `securi` still finds `security` even though the term dictionary stores the stem `secur`. Create the index with `surfaceForms: false` to match against the stemmed tokens instead, which saves the insert throughput the original spellings cost and gives up every typed word that runs past the end of a stem.
 
 ```ts
 const results = await narsil.query('products', {
@@ -94,7 +94,7 @@ Three scoring modes handle the statistics-skew problem that appears when an inde
 
 - `'local'` scores each partition with its own statistics. It is the fastest mode and the default.
 - `'dfs'` runs a two-phase query that first collects global term statistics, then scores with unified IDF values.
-- `'broadcast'` has instances share statistics through the invalidation adapter, so scoring uses pre-computed global values.
+- `'broadcast'` scores from statistics the instances publish to each other through the invalidation adapter, which are already global by the time a query reads them.
 
 Set a per-index default with `defaultScoring` in the index config, or set `scoring` per query:
 
@@ -115,7 +115,7 @@ const { count, elapsed } = await narsil.preflight('products', { term: 'keyboard'
 
 ## Suggestions
 
-`suggest(indexName, params)` returns autocomplete candidates. It tokenizes the input, takes the last word as the prefix, and ranks completions by the number of documents they match. The candidates are the words as they appear in your documents, so a catalogue containing "mechanical" suggests `mechanical` rather than the stem `mechan`. The engine records the original spelling of every word the stemmer changed to do this. Create the index with `surfaceForms: false` to suggest the stored stems instead.
+`suggest(indexName, params)` returns autocomplete candidates. It tokenizes the input, takes the last word as the prefix, and ranks completions by the number of documents they match. The candidates are the words as they appear in your documents, so a catalogue containing 'mechanical' suggests `mechanical` rather than the stem `mechan`. The engine records the original spelling of every word the stemmer changed to do this. Create the index with `surfaceForms: false` to suggest the stored stems instead.
 
 ```ts
 await narsil.createIndex('products', {

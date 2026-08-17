@@ -22,7 +22,7 @@ const results = await narsil.query('products', {
 })
 ```
 
-Field conditions live under `fields`, and the `and`, `or`, and `not` combinators nest whole filter expressions, so any boolean shape is expressible. The engine rejects any other key with `SEARCH_INVALID_FILTER`, so a field name written at the top level, such as `{ category: { eq: 'books' } }`, raises an error instead of silently matching everything, and so does a misspelled operator. Filters narrow the candidates a search scores: a full-text query needs a `term` to produce hits, and in vector and hybrid modes the filters restrict which documents the vector search considers.
+Field conditions belong under `fields`, and the `and`, `or`, and `not` combinators nest whole filter expressions, so you can write any boolean shape. The engine rejects any other key with `SEARCH_INVALID_FILTER`, so a field name written at the top level, such as `{ category: { eq: 'books' } }`, raises an error instead of silently matching everything, and so does a misspelled operator. Filters narrow the candidates a search scores: a full-text query needs a `term` to produce hits, and in vector and hybrid modes the filters restrict which documents the vector search considers.
 
 ## Facets
 
@@ -48,7 +48,7 @@ A sorted query computes no relevance scores, so each hit arrives without a `scor
 
 A sort names a `number`, a `boolean`, or an `enum` field with no preparation. A sort names a text field only where the schema declares it `string:sortable`, and a sort naming a plain `string` field raises `SEARCH_INVALID_FIELD`. Every other field type, including every array field, counts as missing, so a sort naming one leaves every document equal.
 
-The engine compares string values by their Unicode case fold, so `apple` orders between `Apple` and `Banana`. Two values with an equal fold compare by their raw code points. Only the first 512 code points of a value take part. The engine reads no locale, so a sorted page is the same on every machine. A sort names at most eight fields, because the paging cursor carries one value for each of them, and each field name holds at most 255 characters.
+The engine compares string values by their Unicode case fold, so `apple` orders between `Apple` and `Banana`. Two values with an equal fold compare by their raw code points. The engine compares only the first 512 code points of a value. The engine reads no locale, so a sorted page is the same on every machine. A sort names at most eight fields, because the paging cursor carries one value for each of them, and each field name holds at most 255 characters.
 
 A missing value orders after every present value, under either direction. Present values of different types rank numbers first, then strings, then booleans.
 
@@ -102,7 +102,7 @@ const withTotals = await narsil.query('products', {
 
 ## Pagination
 
-Shallow pagination uses `limit` and `offset`. Deep pagination uses `searchAfter` cursors. The cost of a cursor page stays flat at any depth. A cursor anchors on the last result of the page: the score for a relevance-ranked query, or the sort values for a sorted one. Every page's result carries a `cursor` string; pass it back as `searchAfter` to fetch the next page.
+Shallow pagination uses `limit` and `offset`, while deep pagination uses `searchAfter` cursors, whose cost per page stays flat at any depth. A cursor anchors on the last result of the page: the score for a relevance-ranked query, or the sort values for a sorted one. Every page's result carries a `cursor` string; pass it back as `searchAfter` to fetch the next page.
 
 ```ts
 const firstPage = await narsil.query('products', { term: 'keyboard', limit: 20 })
