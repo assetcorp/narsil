@@ -1,6 +1,6 @@
 # Errors
 
-Every failure throws a `NarsilError` carrying a stable string `code`, a human-readable `message`, and a `details` object with the values that produced the failure. The full set of codes is exported as `ErrorCodes`. Match on the code, because the message changes between releases.
+The engine throws a `NarsilError` for every failure, and each one carries a stable string `code`, a message written for a person to read, and a `details` object holding the values that produced the failure. The full set of codes is exported as `ErrorCodes`. Match on the code, because the message changes between releases.
 
 ```ts
 import { ErrorCodes, NarsilError } from '@delali/narsil'

@@ -12,11 +12,11 @@ Distributed search, reforged.
 
 Narsil is a distributed search engine with full-text, vector, hybrid, and geosearch. One codebase runs in two contexts: embedded in your application process, where queries answer without a network hop, and as a standalone search server with a REST API, a write-ahead log, and bulk NDJSON ingest. Both contexts run the same engine and store indexes in the same cross-language binary format (.nrsl), so an index built in one loads in the other.
 
-The engine partitions large indexes across workers and merges partition results into a single ranked answer. Its BM25 ranking matches the Anserini reference within 0.006 nDCG@10 on the BEIR datasets. On BEIR SciFact it takes the top nDCG@10 at 0.681, just ahead of Elasticsearch and OpenSearch at 0.679, and answers 958 keyword queries per second against their 841 and 878 ([benchmarks](BENCHMARKS.md)). The TypeScript package is the reference implementation.
+The engine partitions large indexes across workers and merges partition results into a single ranked answer. Its BM25 ranking matches the Anserini reference within 0.006 nDCG@10 on the BEIR datasets. On BEIR SciFact it takes the top nDCG@10 at 0.681, narrowly ahead of Elasticsearch and OpenSearch at 0.679, and answers 958 keyword queries per second against their 841 and 878 ([benchmarks](BENCHMARKS.md)). The TypeScript package is the reference implementation.
 
 Try it in your browser at [narsil.sondelali.com/demo](https://narsil.sondelali.com/demo). Read the full documentation at [narsil.sondelali.com/docs](https://narsil.sondelali.com/docs).
 
-> *narsil* is the sword of Elendil in Tolkien's Lord of the Rings, shattered into shards and later reforged. The name maps to the architecture: data shatters into partitions, each shard is independently persisted, and every query reforges them into a unified result.
+> *narsil* is the sword of Elendil in Tolkien's Lord of the Rings, shattered into shards and later reforged. The name maps to the architecture: data shatters into partitions, the engine persists each shard on its own, and every query reforges them into one ranked answer.
 
 ## Project status
 
@@ -110,7 +110,7 @@ curl -X POST localhost:7700/indexes/products/search \
 
 The [HTTP server guide](docs/http-server.md) shows the embedding API, and the [example's README](packages/ts/examples/http-server/README.md) documents every endpoint with request and response bodies.
 
-Each guide under [`docs/`](docs/) documents one area with working examples. The highlights:
+Each guide under [`docs/`](docs/) documents one area with working examples, and the highlights follow.
 
 ## Features
 
@@ -122,7 +122,7 @@ Each guide under [`docs/`](docs/) documents one area with working examples. The 
 
 **Storage.** [Persistence adapters](docs/persistence-and-durability.md#persistence) plug in filesystem, IndexedDB, memory, or custom backends. [Durability](docs/persistence-and-durability.md#durability) adds a write-ahead log with periodic checkpoints and automatic recovery, and [snapshots](docs/persistence-and-durability.md#snapshots-and-restore) capture a whole index as one portable byte array. The `.nrsl` serialization format is specified in [`packages/spec`](packages/spec) so other language implementations read and write the same files.
 
-**Scale.** [Partitioned indexes](docs/partitions-and-workers.md#partitions-and-rebalancing) route documents by deterministic hash and reshape online through `rebalance()`, with writes buffering in a write-ahead queue during the reshape. [Worker promotion](docs/partitions-and-workers.md#workers) moves search off the main thread once document counts cross a threshold, and [three scoring modes](docs/full-text-search.md#scoring-modes) handle BM25 statistics skew across partitions and instances.
+**Scale.** [Partitioned indexes](docs/partitions-and-workers.md#partitions-and-rebalancing) route documents by deterministic hash and reshape online through `rebalance()`, with writes buffering in a write-ahead queue during the reshape. [Worker promotion](docs/partitions-and-workers.md#workers) moves search off the main thread once document counts cross a threshold, and a promoted index [analyses a batch once](docs/partitions-and-workers.md#how-a-batch-reaches-the-worker-copies) and shares the result with every copy rather than indexing it again per copy. [Three scoring modes](docs/full-text-search.md#scoring-modes) handle BM25 statistics skew across partitions and instances.
 
 **Operations.** The [HTTP server](docs/http-server.md#http-server) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. The [client](docs/client.md#client) subpath reaches every one of those routes from a browser or from Node under the engine's own method names, and `waitForTask` follows a long load to its finish. The [React](docs/react.md#react) subpath gives those methods to components as hooks, which share one request per set of arguments. [Events](docs/observability.md#events), [typed errors](docs/errors.md#errors), [plugins](docs/observability.md#plugins), and [memory reporting](docs/observability.md#memory-reporting) cover observability, and [language modules](docs/language-support.md#language-support) cover 107 languages as separate entry points, 20 of them African.
 
@@ -172,7 +172,7 @@ The [specification](packages/spec/) defines the `.nrsl` format, the analysis pip
 
 ## Distribution status
 
-The multi-node cluster mode under `@delali/narsil/distribution` is under active development and highly experimental. It runs only in-process today, and its APIs change without notice. The design is specified in [`packages/spec/distribution`](packages/spec/distribution).
+The multi-node cluster mode under `@delali/narsil/distribution` is under active development and experimental. It runs only in process today, and its APIs change without notice, so no production deployment should depend on it yet. The design is specified in [`packages/spec/distribution`](packages/spec/distribution).
 
 ## Runtime support
 

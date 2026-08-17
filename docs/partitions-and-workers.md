@@ -25,7 +25,7 @@ await narsil.updatePartitionConfig('logs', { maxDocsPerPartition: 500_000 })
 
 Two measured costs are worth knowing before raising partition counts:
 
-**Single-process overhead.** Partitioning pays off when shards live on separate workers or hosts. Inside one Node.js thread, going from 1 to 20 partitions costs about 14% of insert throughput, 28% of median search latency, and 27% at p95, with no scaling upside. Keep `maxPartitions` low for single-process deployments and raise it once partitions fan out.
+**Single-process overhead.** Partitioning pays off where the shards run on separate workers or on separate hosts. Inside one Node.js thread, going from 1 to 20 partitions costs about 14% of insert throughput, 28% of median search latency, and 27% at p95, and it buys no scaling in return. Keep `maxPartitions` low for a single-process deployment, and raise it once the partitions fan out.
 
 **Rebalance latency spikes.** While a reshape runs, worst-tick p95 latency can climb to about 25ms compared with around 11ms in steady state. Schedule reshapes during low-traffic windows, or pre-size the index with `maxDocsPerPartition` so mid-load reshapes never become necessary.
 
@@ -59,9 +59,19 @@ const narsil = await createNarsil({
 
 An index that fails these checks stays on the main thread while eligible indexes promote, and the engine reports it once through the `workerPromoteFailure` event with `retryable: false`. A promotion that fails for a deterministic reason, such as a bootstrap module that does not register a needed language, blocks every later promotion and reports `retryable: false`; a transient failure reports `retryable: true` and retries on the next threshold check.
 
+## How a batch reaches the worker copies
+
+Each worker holds a copy of the whole index rather than a slice of it, because any copy may answer any query. Every copy therefore needs the documents you insert, and the way they arrive changes what a large batch costs.
+
+A batch of 64 documents or more, on an index the pool already holds, takes the segment path. The engine analyses each document once, builds one segment per partition from the result, and sends that segment to the copies. Where the runtime offers `SharedArrayBuffer`, the engine freezes the segment into shared memory and every copy attaches the same bytes, so the engine pays for the analysis and the posting lists once, however many copies you run. Where the runtime offers none, which includes a browser page that is not cross-origin isolated, the engine sends the segment to each copy to merge instead, and that path indexes the same documents and answers the same queries.
+
+A smaller batch, and any insert on an index with no worker copies, takes the per-document path instead, which builds no segment at all.
+
+Segments accumulate as you keep inserting, so a partition holding eight of them compacts them into one in the background while queries keep answering. All of this runs without configuration, and `getMemoryStats()` reports what each worker holds.
+
 ## Multi-instance invalidation
 
-When several engine instances share one persistence backend, the invalidation adapter tells the others which partitions changed so they evict stale cache instead of serving old data. The package includes two adapters, and `@delali/narsil/invalidation/noop` stubs the interface for single-instance deployments:
+When several engine instances share one persistence backend, the invalidation adapter publishes which partitions have changed, so that the other instances evict their stale cache instead of answering from it. The package includes two adapters, and `@delali/narsil/invalidation/noop` stubs the interface for single-instance deployments:
 
 | Adapter | Import | Use case |
 | --- | --- | --- |
@@ -80,6 +90,6 @@ const narsil = await createNarsil({
 })
 ```
 
-Invalidation requires the snapshot durability tier, because the write-ahead log owns its directory exclusively and shares nothing between instances. A filesystem persistence adapter resolves to the write-ahead-log tier on its own, so the config above forces `tier: 'snapshot'`; without that line, `createNarsil` rejects the combination with `CONFIG_INVALID`. See [Durability](persistence-and-durability.md#durability) for the two tiers. Adapter failures never surface on the calls that trigger them, so subscribe to the `invalidationError` event in any multi-instance deployment; see [Events](observability.md#events).
+Invalidation requires the snapshot durability tier, because the write-ahead log requires exclusive use of its directory and passes nothing between instances. A filesystem persistence adapter resolves to the write-ahead-log tier on its own, so the config above sets `tier: 'snapshot'`; without that line, `createNarsil` rejects the combination with `CONFIG_INVALID`. See [Durability](persistence-and-durability.md#durability) for the two tiers. An adapter failure never appears on the call that triggered it, so subscribe to the `invalidationError` event in any multi-instance deployment; see [Events](observability.md#events).
 
 The invalidation channel also carries partition statistics for the `broadcast` scoring mode: each instance publishes its statistics every five seconds and drops a peer's statistics after sixty seconds without an update. See [Scoring modes](full-text-search.md#scoring-modes). A custom adapter satisfies the `InvalidationAdapter` interface: `publish(event)`, `subscribe(handler)`, and `shutdown()`.

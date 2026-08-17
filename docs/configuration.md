@@ -49,7 +49,7 @@ See [Analysis revisions](language-support.md#analysis-revisions) for what makes 
 
 ## Tokenizer cache
 
-The stemmer normalization cache auto-sizes based on the runtime environment. On Node.js it reads container memory limits through `process.constrainedMemory()`, in browsers it checks `navigator.deviceMemory`, and it falls back to a fixed default elsewhere.
+The engine sizes the stemmer normalization cache from what the runtime reports about the machine it runs on. On Node.js it reads the container memory limit through `process.constrainedMemory()`, in a browser it reads `navigator.deviceMemory`, and on any other runtime it takes a fixed default.
 
 This cache is process-global and shared across all Narsil instances in the same process. Override the size by calling `configureNormalizationCache` once at startup, before creating any instances:
 
@@ -61,7 +61,7 @@ configureNormalizationCache(500_000)
 const narsil = await createNarsil()
 ```
 
-The value clamps to a floor of 50,000 and a ceiling of 2,000,000 entries. Invalid values (NaN, Infinity, negative numbers, and zero) throw a `NarsilError` with code `CONFIG_INVALID`.
+The value clamps to a floor of 50,000 entries and a ceiling of 2,000,000. `configureNormalizationCache` throws a `NarsilError` with code `CONFIG_INVALID` for `NaN`, for `Infinity`, for a negative number, and for zero.
 
 Four functions manage the cache:
 

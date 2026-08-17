@@ -43,7 +43,7 @@ Every hook takes the same settings as its last argument.
 
 | Setting | What it does |
 | --- | --- |
-| `enabled` | The hook sends nothing while this is false, which is how a search waits for a term. A request already in flight stops when its key does. |
+| `enabled` | The hook sends nothing while this is false, which is how a search waits for a term. A request already in flight stops as soon as the key it belongs to goes away. |
 | `keepPreviousData` | The hits already on screen stay there while the next answer loads. |
 | `refreshIntervalMs` | The hook asks again this often, and it pauses while the page is hidden. |
 | `headers` | The hook sends these with its request. |
@@ -75,7 +75,7 @@ const onSave = useCallback(() => client.put('movies', id, document), [client, id
 
 ## One request for the whole tree
 
-Two components asking for the same thing under one provider send one request and read one answer. The provider gives each set of arguments a key, and one key holds one request. A header, a filter, or a page size that differs therefore gives a request of its own.
+Two components asking for the same thing under one provider send one request and read one answer. The provider gives each set of arguments a key, and one key holds one request. A header, a filter, or a page size that differs therefore starts a request of its own.
 
 The provider keeps an answer for two seconds after the last component reading it unmounts, which is the interval [SWR dedupes requests within](https://swr.vercel.app/docs/api). That wait covers the gap React leaves between unmounting a component and mounting it again, so a development double render and a quick navigation back each send one request rather than two. Set `keepAliveMs` on the provider for a longer or a shorter wait.
 
@@ -132,7 +132,7 @@ function Importer({ documents }: { documents: AnyDocument[] }) {
 
 `start` returns once the server has read the body and taken the work on. Where the server refuses the corpus, `start` throws the server's own failure and the hook reports it in `error`, so catch the one you await. From then on the hook asks every 250 ms, which is how often the server writes the figures. It stops as soon as the load succeeds, fails, or is cancelled, and it leaves five seconds between attempts while the server is failing.
 
-`task` holds the record from the moment the server takes the load on, and `progress` and `result` read two of its fields. `onSettled` fires once, on the final record. `cancel` stops the upload while the corpus is still going up, and asks the server to stop the task after that. `reset` clears the record and the failure, ready for another load.
+`task` holds the record from the moment the server takes the load on, and `progress` and `result` read two of its fields. `onSettled` fires once, on the final record. `cancel` stops the upload while the corpus is still being sent, and asks the server to stop the task after that. `reset` clears the record and the failure, ready for another load.
 
 Unmounting the component stops the polling alone, because the server finishes the load either way. Follow it again with `useTask`, under the id `start` returned.
 
@@ -148,7 +148,7 @@ const { data: task } = useTask(taskId)
 
 A failed task comes back with its `error` set rather than as a thrown failure, because a part-finished import still reports what it indexed, so read `task.status`. The hook reports `null` for a record the server no longer holds, and it stops asking.
 
-Polling pauses while the page is hidden, and it reads the figures once as soon as the page comes back, so a background tab asks for nothing nobody is reading.
+Polling pauses while the page is hidden, and it reads the figures once as soon as the page comes back, so a hidden tab stops asking until somebody looks at it again.
 
 ## Keys and arguments
 
@@ -156,11 +156,11 @@ A hook identifies its request by the method name and the arguments, read the way
 
 The hook refuses an argument an HTTP request cannot express, and it throws `CONFIG_INVALID` as it renders. It refuses a function, a symbol, an object that holds a reference back to itself, and more than 32 levels of nesting.
 
-A hook that receives the same object between renders, through `useMemo` or a constant, reuses the key instead of building it again. The parameters a search sends are small, so that saving shows only with a raw query vector of a thousand dimensions or more.
+A hook that receives the same object between renders, through `useMemo` or a constant, reuses the key instead of building it again. The parameters a search sends are small, so the saving matters only with a raw query vector of a thousand dimensions or more.
 
 ## Errors
 
-Every failure comes back as a `NarsilError` under the code the server sent, so a branch written against an embedded engine works here unchanged.
+A hook reports every failure as a `NarsilError` under the code the server sent, so a branch written against an embedded engine works here unchanged.
 
 ```tsx
 const { error } = useQuery('movies', params)

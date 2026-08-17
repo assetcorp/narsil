@@ -2,7 +2,7 @@
 
 An embedding adapter turns text into vectors, so a caller searches by meaning without producing a single vector by hand. This guide covers the bundled adapters, naming them, and writing one of your own.
 
-Embedding adapters turn text into vectors automatically, on insert and at query time. Configure a default adapter for the whole engine, register named adapters, or set one per index. Map each vector field to the text fields it embeds; multiple source fields concatenate before embedding.
+An adapter runs on insert and at query time. Configure a default adapter for the whole engine, register named adapters, or set one per index. Map each vector field to the text fields it embeds, and the engine joins several source fields into one input before it embeds them.
 
 ```ts
 import { createNarsil } from '@delali/narsil'
@@ -43,7 +43,7 @@ const results = await narsil.query('articles', {
 
 ## Named adapters
 
-An adapter instance is a function and cannot be serialized, so an index that names its adapter survives durability recovery: the engine persists the name in index metadata and rebinds it on the next start. Register names through the config or at runtime, and reference them from the index config:
+An adapter holds functions, which no format serializes, so an index that names its adapter comes back intact from durability recovery: the engine persists the name in index metadata and rebinds it at the next start. Register names through the config or at runtime, and reference them from the index config:
 
 ```ts
 import { createNarsil } from '@delali/narsil'

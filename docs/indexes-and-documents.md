@@ -72,7 +72,7 @@ const explicitId = await narsil.insert('products', { title: 'Split Keyboard' }, 
 await narsil.insert('products', { id: 'kb-043', title: 'Tenkeyless Keyboard' })
 ```
 
-Inserting an id that already exists fails with `DOC_ALREADY_EXISTS`, and `update` fails with `DOC_NOT_FOUND` when the id is missing, so an upsert checks `has()` first and picks the right call. The HTTP server's PUT endpoint packages that check as one request.
+Inserting an id that already exists fails with `DOC_ALREADY_EXISTS`, and `update` fails with `DOC_NOT_FOUND` where the id is missing, so an upsert would have to check `has()` first and pick the call that fits. The HTTP server's PUT endpoint packages that check as one request.
 
 ### Read
 
@@ -104,13 +104,13 @@ do {
 } while (cursor !== undefined)
 ```
 
-A document that stays in the index for the whole listing comes back exactly once. The engine skips a document you remove part-way through. It returns one you insert part-way through once that document's id sorts above the cursor.
+A document that stays in the index for the whole listing comes back exactly once. The engine skips a document you remove part-way through, and it returns one you insert part-way through as soon as that document's id sorts above the cursor.
 
 The cursor holds no engine state, so it stays valid after a restart, a snapshot restore, and a rebalance. Reaching the last page of a large index costs what reaching the first page costs.
 
-The engine compares ids by their Unicode code points, so `"10"` sorts ahead of `"9"`. Every machine and every Narsil implementation produces the same order.
+The engine compares ids by their Unicode code points, so `'10'` sorts ahead of `'9'`. Every machine and every Narsil implementation produces the same order.
 
-`filters` narrows the listing to the documents your filter accepts, and `total` then counts those documents. `document` takes the same projection [`query`](full-text-search.md) takes. Pass it to drop a vector field, because the engine otherwise reads every listed document's vector back out of the index.
+`filters` narrows the listing to the documents your filter accepts, and `total` then counts those documents. `document` takes the same projection [`query`](full-text-search.md) takes. Pass it to drop a vector field, because a field the projection keeps is copied out of the store for every listed document, and the engine reads its vector back out of the index as well.
 
 ```ts
 const page = await narsil.listDocuments('products', {
@@ -129,7 +129,7 @@ const page = await narsil.listDocuments('products', {
 })
 ```
 
-The engine reads every document the listing covers to build a sorted page, so a sorted listing costs more than the default order on a large index. It holds one page of documents while it selects, so memory follows the page size rather than the index size.
+The engine reads every document the listing covers to build a sorted page, so a sorted listing usually costs more than the default order on a large index. It holds one page of documents while it selects, so the memory it needs is set by the page size rather than by the size of the index.
 
 The engine ties each cursor to the sort that produced it. Sending a cursor back under a different `sort` throws `SEARCH_INVALID_CURSOR`, and so does a cursor the engine never issued.
 
@@ -147,7 +147,7 @@ Both methods throw `DOC_NOT_FOUND` for an unknown id.
 
 ## Batch operations
 
-`insertBatch`, `updateBatch`, and `removeBatch` process many documents in one call and return partial results. One bad document never aborts the batch: every failure is collected with its id and error, and every success is applied.
+`insertBatch`, `updateBatch`, and `removeBatch` process many documents in one call and return partial results. One bad document never aborts the batch, because the engine records every failure with its id and error, and applies every success.
 
 ```ts
 const result = await narsil.insertBatch('products', [
@@ -166,4 +166,4 @@ await narsil.updateBatch('products', [
 await narsil.removeBatch('products', ['p1', 'p2'])
 ```
 
-Batch inserts resolve ids from each document's `id` field and generate UUID v7 ids for the rest. Large batches process in chunks and yield the event loop between chunks, so searches stay responsive during a bulk load.
+Batch inserts resolve ids from each document's `id` field and generate UUID v7 ids for the rest. The engine processes a large batch in chunks and yields the event loop between them, so searches keep answering during a bulk load. On an index the worker pool already holds, a batch of 64 documents or more is analysed once and sent to the copies as a segment; see [How a batch reaches the worker copies](partitions-and-workers.md#how-a-batch-reaches-the-worker-copies).
