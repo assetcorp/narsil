@@ -23,14 +23,14 @@ export const listThreadsFn = createServerFn({ method: 'POST' }).handler(async ()
 })
 
 export const loadThreadFn = createServerFn({ method: 'POST' })
-  .inputValidator(parseThreadIdInput)
+  .validator(parseThreadIdInput)
   .handler(async ({ data }) => {
     const { loadThreadSerialized } = await import('./chat/store')
     return loadThreadSerialized(data.id)
   })
 
 export const deleteThreadFn = createServerFn({ method: 'POST' })
-  .inputValidator(parseThreadIdInput)
+  .validator(parseThreadIdInput)
   .handler(async ({ data }) => {
     const { deleteThread } = await import('./chat/store')
     await deleteThread(data.id)

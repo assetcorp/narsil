@@ -73,7 +73,7 @@ function plansFor(request: LoadDatasetRequest): IndexPlan[] {
  * and the browser follows it through the task API.
  */
 export const startDatasetLoadFn = createServerFn({ method: 'POST' })
-  .inputValidator(parseLoadRequest)
+  .validator(parseLoadRequest)
   .handler(async ({ data }) => {
     const [
       { getNarsilClient },
