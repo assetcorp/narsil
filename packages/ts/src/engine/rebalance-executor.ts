@@ -63,13 +63,12 @@ async function replayEntry(
   ctx: RebalanceContext,
 ): Promise<void> {
   const vecIndexes = manager.getVectorIndexes()
-  const vectorFieldPaths = vecIndexes.size > 0 ? ctx.requireIndex(indexName).vectorFieldPaths : new Set<string>()
+  const vectorFieldPaths = ctx.requireIndex(indexName).vectorFieldPaths
 
   if (entry.action === 'insert' && entry.document) {
     const { partitionDoc, extractedVectors } = prepareDocumentVectors(
       entry.document as Record<string, unknown>,
       vectorFieldPaths,
-      vecIndexes,
     )
     const overwrote = manager.has(entry.docId)
     if (overwrote) {

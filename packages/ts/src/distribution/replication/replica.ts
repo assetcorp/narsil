@@ -40,7 +40,7 @@ export function applyIndexEntry(
     manager.remove(entry.documentId)
   }
 
-  const { partitionDoc, extractedVectors } = prepareDocumentVectors(document, vectorFieldPaths, vecIndexes)
+  const { partitionDoc, extractedVectors } = prepareDocumentVectors(document, vectorFieldPaths)
   manager.insert(entry.documentId, partitionDoc)
   try {
     insertDocumentVectors(entry.documentId, extractedVectors, vecIndexes)
@@ -71,7 +71,7 @@ export function applyDeleteEntry(
   manager.remove(entry.documentId)
 }
 
-function restoreVectorFields(document: Record<string, unknown>, vectorFieldPaths: Set<string>): void {
+export function restoreVectorFields(document: Record<string, unknown>, vectorFieldPaths: Set<string>): void {
   for (const fieldPath of vectorFieldPaths) {
     const value = getNestedValue(document, fieldPath)
     if (value instanceof Uint8Array && !(value instanceof Float32Array)) {

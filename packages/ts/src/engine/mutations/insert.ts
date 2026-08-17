@@ -50,7 +50,6 @@ export async function insertDocument(
   const { partitionDoc, extractedVectors } = prepareDocumentVectors(
     document as Record<string, unknown>,
     entry.vectorFieldPaths,
-    insertVecIndexes,
   )
 
   if (extractedVectors.size > 0) {

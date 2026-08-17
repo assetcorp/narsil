@@ -80,7 +80,6 @@ export async function insertDocumentBatch(
         const { partitionDoc, extractedVectors } = prepareDocumentVectors(
           documents[i] as Record<string, unknown>,
           batchVectorFieldPaths,
-          batchVecIndexes,
         )
 
         if (extractedVectors.size > 0) {

@@ -128,11 +128,7 @@ describe('a recovered document owns the memory of its binary fields', () => {
     )
   }
 
-  it('reads a vector back without the snapshot buffer behind it', async () => {
-    const source = makeVectorManager()
-    for (let i = 0; i < 25; i++) {
-      source.insert(`vec-${i}`, { title: `Vector document ${i}`, embedding: new Float32Array(8).fill(i / 25) })
-    }
+  async function recoverThrough(source: PartitionManager, target: PartitionManager): Promise<void> {
     const { parts } = await buildSnapshotBundleBytes({
       indexName: 'vectors',
       schema: vectorSchema,
@@ -142,12 +138,34 @@ describe('a recovered document owns the memory of its binary fields', () => {
       seqNoByPartition: new Map([[0, 0]]),
       primaryTermByPartition: new Map([[0, SINGLE_NODE_PRIMARY_TERM]]),
     })
+    await loadSnapshotBundleBytes(concatEnvelopeParts(parts), emptyDeps(target))
+  }
+
+  it('reads a byte field back without the snapshot buffer behind it', async () => {
+    const source = makeVectorManager()
+    for (let i = 0; i < 25; i++) {
+      source.insert(`vec-${i}`, { title: `Vector document ${i}`, thumbnail: new Uint8Array(64).fill(i) })
+    }
 
     const target = makeVectorManager()
-    await loadSnapshotBundleBytes(concatEnvelopeParts(parts), emptyDeps(target))
+    await recoverThrough(source, target)
 
-    const recovered = target.get('vec-0')?.embedding
-    if (!ArrayBuffer.isView(recovered)) throw new Error('the recovered document lost its embedding')
+    const recovered = target.get('vec-0')?.thumbnail
+    if (!ArrayBuffer.isView(recovered)) throw new Error('the recovered document lost its thumbnail')
+    expect(recovered.byteLength).toBe(64)
     expect(recovered.buffer.byteLength).toBe(recovered.byteLength)
+  })
+
+  it('drops a vector value an older writer stored beside the other fields', async () => {
+    const source = makeVectorManager()
+    for (let i = 0; i < 25; i++) {
+      source.insert(`vec-${i}`, { title: `Vector document ${i}`, embedding: new Float32Array(8).fill(i / 25) })
+    }
+
+    const target = makeVectorManager()
+    await recoverThrough(source, target)
+
+    expect(target.get('vec-0')?.embedding).toBeUndefined()
+    expect(target.get('vec-0')?.title).toBe('Vector document 0')
   })
 })
