@@ -95,6 +95,12 @@ export interface ServerLimits {
   maxImportErrors?: number
   /** Ceiling for how many task records one `/tasks` page returns. Excess → 400. Defaults to 1000. */
   maxTaskPageSize?: number
+  /** Ceiling for how many tasks this instance drives at once; excess is shed
+   * with 429. Each running task holds its own working set, and an async import
+   * holds the whole uploaded corpus until it finishes, so this is what bounds
+   * the memory a burst of task requests can claim. Defaults to 4. Set 0 to
+   * accept every task. */
+  maxConcurrentTasks?: number
 }
 
 /**

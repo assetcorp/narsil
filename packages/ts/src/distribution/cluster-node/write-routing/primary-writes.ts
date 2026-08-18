@@ -1,7 +1,7 @@
 import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError, type NarsilErrorCode } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
-import type { AnyDocument } from '../../../types/schema'
+import type { AnyDocument, InsertOptions } from '../../../types/schema'
 import type { PartitionAssignment } from '../../coordinator/types'
 import type { ReplicationLogEntry } from '../../replication/types'
 import type { ForwardPayload } from '../../transport/types'
@@ -24,9 +24,10 @@ export async function applyPrimaryInsert(
   partitionId: number,
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
+  options?: InsertOptions,
 ): Promise<string> {
   assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
-  const insertedDocId = await deps.engine.insert(indexName, document, docId)
+  const insertedDocId = await deps.engine.insert(indexName, document, docId, options)
   const storedDocument = await deps.engine.get(indexName, insertedDocId)
 
   if (storedDocument === undefined) {
@@ -116,6 +117,7 @@ export async function applyPrimaryInsertBatch(
   partitionId: number,
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
+  options?: InsertOptions,
 ): Promise<BatchResult> {
   assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const failed: BatchResult['failed'] = []
@@ -123,7 +125,7 @@ export async function applyPrimaryInsertBatch(
 
   for (const item of items) {
     try {
-      const insertedDocId = await deps.engine.insert(indexName, item.doc, item.docId)
+      const insertedDocId = await deps.engine.insert(indexName, item.doc, item.docId, options)
       const storedDocument = await deps.engine.get(indexName, insertedDocId)
       if (storedDocument === undefined) {
         throw new NarsilError(

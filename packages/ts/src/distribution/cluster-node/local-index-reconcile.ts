@@ -1,4 +1,4 @@
-import { ErrorCodes, NarsilError } from '../../errors'
+import { describeError, ErrorCodes, NarsilError } from '../../errors'
 import { getIndexMetadata } from '../cluster/index-metadata'
 import type { ClusterCoordinator } from '../coordinator/types'
 import type { ClusterLocalEngine } from './local-engine'
@@ -106,7 +106,7 @@ async function reconcileOne(deps: LocalIndexReconcileDeps, indexName: string): P
   try {
     clusterUuid = (await getIndexMetadata(deps.coordinator, indexName))?.indexUuid ?? null
   } catch (error) {
-    report(deps, indexName, `its metadata could not be read: ${describe(error)}`)
+    report(deps, indexName, `its metadata could not be read: ${describeError(error)}`)
     return 'orphaned'
   }
 
@@ -139,8 +139,4 @@ function report(deps: LocalIndexReconcileDeps, indexName: string, reason: string
       { indexName, nodeId: deps.nodeId },
     ),
   )
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

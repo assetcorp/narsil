@@ -1,9 +1,21 @@
+import { NarsilError, ServerErrorCodes } from '../errors'
+
 const NEWLINE = 0x0a
 const CARRIAGE_RETURN = 0x0d
 
-export class NdjsonLineTooLongError extends Error {
-  constructor(readonly lineNumber: number) {
-    super(`NDJSON line ${lineNumber} exceeds the configured per-line size limit`)
+/**
+ * The failure a corpus raises where one of its records is longer than the
+ * server's per-line limit. It carries `PAYLOAD_TOO_LARGE` and the line number
+ * in its details, so the request path answers 413 and the task path records
+ * the same code and the same line.
+ *
+ * @internal
+ */
+export class NdjsonLineTooLongError extends NarsilError {
+  constructor(lineNumber: number) {
+    super(ServerErrorCodes.PAYLOAD_TOO_LARGE, `NDJSON line ${lineNumber} exceeds the configured per-line size limit`, {
+      line: lineNumber,
+    })
     this.name = 'NdjsonLineTooLongError'
   }
 }

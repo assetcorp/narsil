@@ -33,6 +33,7 @@ function resolveLimits(limits: ServerLimits | undefined): ResolvedLimits {
     maxFetchDocuments: limits?.maxFetchDocuments ?? 10_000,
     maxImportErrors: limits?.maxImportErrors ?? 100,
     maxTaskPageSize: limits?.maxTaskPageSize ?? 1000,
+    maxConcurrentTasks: limits?.maxConcurrentTasks ?? 4,
   }
 }
 
@@ -81,10 +82,11 @@ class NarsilHttpServer implements NarsilServer {
     }
     const taskStore = options.taskStore ?? new InMemoryTaskStore()
     const instanceId = options.instanceId ?? randomUUID()
+    const limits = resolveLimits(options.limits)
     this.deps = {
       engine,
-      tasks: new TaskRegistry(taskStore, instanceId),
-      limits: resolveLimits(options.limits),
+      tasks: new TaskRegistry(taskStore, instanceId, limits.maxConcurrentTasks),
+      limits,
       isReady: () => this.ready,
       build: resolveBuild(options.build),
     }

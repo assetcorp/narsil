@@ -58,9 +58,10 @@ describe('clusterNodeEngine', () => {
     )
 
     await engine.insert('products', { title: 'a' }, 'doc-1')
-    expect(node.insert).toHaveBeenCalledWith('products', { title: 'a' }, 'doc-1')
+    expect(node.insert).toHaveBeenCalledWith('products', { title: 'a' }, 'doc-1', undefined)
 
-    await engine.insertBatch('products', [{ title: 'a' }])
+    await engine.insertBatch('products', [{ title: 'a' }], { skipClone: true })
+    expect(node.insertBatch).toHaveBeenCalledWith('products', [{ title: 'a' }], { skipClone: true })
     await engine.remove('products', 'doc-1')
     await engine.removeBatch('products', ['doc-1'])
     await engine.update('products', 'doc-1', { title: 'b' })

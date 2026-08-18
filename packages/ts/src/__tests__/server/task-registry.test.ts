@@ -4,8 +4,12 @@ import { InMemoryTaskStore } from '../../server'
 import { TaskRegistry } from '../../server/tasks'
 import type { TaskRecord, TaskStore } from '../../server/types'
 
-function createRegistry(store: TaskStore = new InMemoryTaskStore(), instanceId = 'test-instance'): TaskRegistry {
-  return new TaskRegistry(store, instanceId)
+function createRegistry(
+  store: TaskStore = new InMemoryTaskStore(),
+  instanceId = 'test-instance',
+  maxConcurrent = 0,
+): TaskRegistry {
+  return new TaskRegistry(store, instanceId, maxConcurrent)
 }
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (reason: unknown) => void } {
@@ -236,5 +240,59 @@ describe('TaskRegistry restart recovery', () => {
     expect((await owner.get(record.id))?.status).toBe('running')
     finish.resolve()
     await settledRecord(owner, record.id)
+  })
+})
+
+describe('TaskRegistry admission', () => {
+  it('sheds a task once the running ones reach the ceiling', async () => {
+    const registry = createRegistry(new InMemoryTaskStore(), 'test-instance', 2)
+    const finish = deferred<void>()
+    const hold = async (): Promise<void> => {
+      await finish.promise
+    }
+
+    const first = await registry.start('import', 'movies', hold)
+    const second = await registry.start('import', 'movies', hold)
+
+    await expect(registry.start('import', 'movies', hold)).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' })
+
+    finish.resolve()
+    await settledRecord(registry, first.id)
+    await settledRecord(registry, second.id)
+  })
+
+  it('takes a task again once a running one finished', async () => {
+    const registry = createRegistry(new InMemoryTaskStore(), 'test-instance', 1)
+    const finish = deferred<void>()
+
+    const first = await registry.start('import', 'movies', async () => {
+      await finish.promise
+    })
+    await expect(registry.start('import', 'movies', async () => {})).rejects.toMatchObject({
+      code: 'TOO_MANY_REQUESTS',
+    })
+
+    finish.resolve()
+    await settledRecord(registry, first.id)
+
+    const second = await registry.start('import', 'movies', async () => {})
+    expect(await settledRecord(registry, second.id)).toMatchObject({ status: 'succeeded' })
+  })
+
+  it('takes every task where no ceiling is set', async () => {
+    const registry = createRegistry()
+    const finish = deferred<void>()
+    const started: string[] = []
+
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const record = await registry.start('import', 'movies', async () => {
+        await finish.promise
+      })
+      started.push(record.id)
+    }
+
+    expect(started).toHaveLength(12)
+    finish.resolve()
+    for (const id of started) await settledRecord(registry, id)
   })
 })

@@ -68,7 +68,9 @@ Five operations run long enough that the server answers before they finish: an i
 
 A task ends at `succeeded`, `failed`, or `cancelled`. A failed one holds `error` with the code and the message that stopped it, while a finished import holds `result` with what it indexed and the first refusals. An import alone reports `progress`.
 
-An import counts every refusal, and it lists the first `limits.maxImportErrors` of them, which defaults to 100. Where the list is shorter than the count, the result sets `errorsTruncated`. A body over `limits.maxImportBytes`, which defaults to 100 MB, answers 413 `PAYLOAD_TOO_LARGE` before any of it is indexed.
+An import counts every refusal, and it lists the first `limits.maxImportErrors` of them, which defaults to 100. Where the list is shorter than the count, the result sets `errorsTruncated`. A body over `limits.maxImportBytes`, which defaults to 100 MB, answers 413 `PAYLOAD_TOO_LARGE` before any of it is indexed, and a single line over `limits.maxLineBytes` answers the same code with the line number in `details.line`.
+
+Each running task holds its own working set, and an async import holds the whole uploaded corpus until it finishes, so one instance drives `limits.maxConcurrentTasks` of them at once, which defaults to 4. A request that arrives while that many are running answers 429 `TOO_MANY_REQUESTS`. Set it to 0 to accept every task, which suits a server behind a queue of your own.
 
 `GET /tasks` pages through the records, newest first, and filters them by `indexName`, by a comma-separated `type`, and by a comma-separated `status`. It answers `{"tasks":[],"total":0,"from":0,"limit":20,"next":null}`, where `next` holds the offset the following page starts at, and null closes the listing. A `limit` above `limits.maxTaskPageSize`, which defaults to 1,000, answers 400 `INVALID_REQUEST`.
 

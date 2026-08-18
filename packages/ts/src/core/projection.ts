@@ -41,7 +41,7 @@ function readPath(source: Readonly<Record<string, unknown>>, path: string[]): { 
     if (typeof current !== 'object' || current === null || Array.isArray(current))
       return { found: false, value: undefined }
     const record = current as Record<string, unknown>
-    if (!(segment in record)) return { found: false, value: undefined }
+    if (!Object.hasOwn(record, segment)) return { found: false, value: undefined }
     current = record[segment]
   }
   return { found: true, value: current }
@@ -65,7 +65,7 @@ function writePath(target: Record<string, unknown>, path: string[], value: unkno
 
 function omitPath(source: Record<string, unknown>, path: string[]): Record<string, unknown> {
   const segment = path[0]
-  if (!(segment in source)) return source
+  if (!Object.hasOwn(source, segment)) return source
   const copy: Record<string, unknown> = { ...source }
   if (path.length === 1) {
     delete copy[segment]

@@ -17,7 +17,7 @@ import { createDocumentStore } from '../document-store'
 import { createInvertedIndex } from '../inverted-index'
 import type { ComparableSortValue } from '../ordering'
 import { cloneProjected, type ResolvedProjection } from '../projection'
-import { createPartitionStats, type PartitionStatsView } from '../statistics'
+import { createPartitionStats } from '../statistics'
 import { createSurfaceRegistry } from '../surface-registry'
 import { computeFacets, type FacetMatchSet } from './facets'
 import { updateFieldIndexOnly } from './field-updates'
@@ -31,6 +31,7 @@ import { indexDocument, removeFromIndexes } from './indexing'
 import { type PartitionSearchMatches, searchFulltextMatches } from './matches'
 import { estimatePartitionBytes } from './memory'
 import { mergeSegmentState } from './merge'
+import type { PartitionIndex } from './partition-index'
 import { rebuildTextIndex } from './rebuild'
 import { searchFulltext } from './search'
 import { encodeSegmentState, mergeSegmentPayload, type SegmentPayload } from './segment-payload'
@@ -53,69 +54,9 @@ export type { PartitionInsertOptions }
 export type { FacetMatchSet, FacetOrdinalSet } from './facets'
 export type { PartitionFilterMatches } from './filters'
 export type { PartitionSearchMatches } from './matches'
+export type { PartitionIndex } from './partition-index'
 export type { SortedPageEntry, SortPageRequest } from './sorting'
 export type { PartitionSuggestion } from './suggestions'
-
-export interface PartitionIndex {
-  readonly partitionId: number
-  readonly stats: PartitionStatsView
-
-  insert(
-    docId: string,
-    document: AnyDocument,
-    schema: SchemaDefinition,
-    language: LanguageModule,
-    options?: PartitionInsertOptions,
-  ): void
-  remove(docId: string, schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void
-  beginBatch(): void
-  endBatch(): void
-  mergeSegment(segment: PartitionIndex): void
-  encodeSegment(): SegmentPayload
-  mergeSegmentPayload(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
-  update(
-    docId: string,
-    document: AnyDocument,
-    schema: SchemaDefinition,
-    language: LanguageModule,
-    options?: PartitionInsertOptions,
-  ): void
-  rebuildTextIndex(schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void
-  get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined
-  getRef(docId: string): AnyDocument | undefined
-  has(docId: string): boolean
-  count(): number
-  docIds(): IterableIterator<string>
-  sortedDocIds(): readonly string[]
-  releaseSortedDocIds(): void
-  clear(): void
-
-  searchFulltext(params: InternalSearchParams): InternalSearchResult
-  searchFulltextMatches(params: InternalSearchParams): PartitionSearchMatches
-  sortedPage(request: SortPageRequest): SortedPageEntry[]
-  sortValues(
-    docId: string,
-    fields: readonly string[],
-    fieldTypes: readonly (string | undefined)[],
-  ): ComparableSortValue[]
-  applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string>
-  applyFiltersBitset(filters: FilterExpression, schema: SchemaDefinition): Uint32Array
-  filterMatches(filters: FilterExpression, schema: SchemaDefinition): PartitionFilterMatches
-  computeFacets(matched: FacetMatchSet, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult>
-  suggestTerms(surfacePrefix: string, stemmedPrefix: string, limit: number): PartitionSuggestion[]
-  expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number): string[]
-
-  estimateMemoryBytes(): number
-
-  serialize(
-    indexName: string,
-    totalPartitions: number,
-    language: string,
-    schema: SchemaDefinition,
-  ): SerializablePartition
-  serializeToBytes(indexName: string, totalPartitions: number, language: string, schema: SchemaDefinition): Uint8Array
-  deserialize(data: SerializablePartition, schema: SchemaDefinition): void
-}
 
 const statesByPartition = new WeakMap<PartitionIndex, PartitionState>()
 

@@ -223,3 +223,18 @@ export function createNarsilError(
 ): NarsilError {
   return new NarsilError(code, message, details)
 }
+
+/**
+ * Reads whatever was thrown into the message a log or an error detail carries.
+ *
+ * A thrown value need not be an `Error`, so this takes the message where there
+ * is one and the value's own text otherwise.
+ *
+ * @param error - The value a `catch` received.
+ * @returns The message, for a person to read.
+ *
+ * @internal
+ */
+export function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}

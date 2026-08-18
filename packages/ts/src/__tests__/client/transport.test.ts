@@ -232,3 +232,48 @@ describe('client transport', () => {
     expect(calls).toBe(1)
   })
 })
+
+describe('a server answering more than the client agreed to read', () => {
+  const OVERSIZED = JSON.stringify({ indexes: Array.from({ length: 400 }, (_, index) => `index-${index}`) })
+
+  it('refuses a body past the ceiling rather than holding it', async () => {
+    const client = createNarsilClient({
+      url: 'https://search.example.com',
+      fetch: answering(200, OVERSIZED),
+      maxResponseBytes: 64,
+    })
+
+    const failure = await failureOf(client.listIndexes())
+    expect(failure.code).toBe('CLIENT_INVALID_RESPONSE')
+    expect(failure.message).toContain('64')
+  })
+
+  it('reads a body inside the ceiling as usual', async () => {
+    const client = createNarsilClient({
+      url: 'https://search.example.com',
+      fetch: answering(200, JSON.stringify({ indexes: [] })),
+      maxResponseBytes: 64,
+    })
+
+    await expect(client.listIndexes()).resolves.toEqual([])
+  })
+
+  it('still holds the ceiling where a supplied fetch exposes no stream', async () => {
+    const bodyless: FetchFunction = () =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(OVERSIZED),
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+      } as Response)
+    const client = createNarsilClient({ url: 'https://search.example.com', fetch: bodyless, maxResponseBytes: 64 })
+
+    expect((await failureOf(client.listIndexes())).code).toBe('CLIENT_INVALID_RESPONSE')
+  })
+
+  it('reads any size where no ceiling is set', async () => {
+    const client = createNarsilClient({ url: 'https://search.example.com', fetch: answering(200, OVERSIZED) })
+
+    await expect(client.listIndexes()).resolves.toHaveLength(400)
+  })
+})

@@ -1,86 +1,22 @@
-import { type ResolvedAnalysis, resolveIndexAnalysis } from '../analysis/registry'
-import type { ComparableSortValue } from '../core/ordering'
-import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../core/partition'
-import { type CompositePartition, createCompositePartition } from '../core/partition/composite'
-import type { FrozenSegment } from '../core/partition/frozen'
-import type { SegmentPayload } from '../core/partition/segment-payload'
-import { projectionKeepsField, type ResolvedProjection } from '../core/projection'
-import { ErrorCodes, NarsilError } from '../errors'
-import type { SerializablePartition } from '../types/internal'
-import type { LanguageModule } from '../types/language'
-import type { PartitionStatsResult } from '../types/results'
-import type { AnyDocument, IndexConfig, SchemaDefinition } from '../types/schema'
-import type { VectorIndex } from '../vector/vector-index'
-import { resolvePartitionInsertOptions } from './insert-options'
-import type { PartitionRouter } from './router'
+import { resolveIndexAnalysis } from '../../analysis/registry'
+import type { ComparableSortValue } from '../../core/ordering'
+import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../../core/partition'
+import { type CompositePartition, createCompositePartition } from '../../core/partition/composite'
+import type { FrozenSegment } from '../../core/partition/frozen'
+import type { SegmentPayload } from '../../core/partition/segment-payload'
+import { projectionKeepsField, type ResolvedProjection } from '../../core/projection'
+import { ErrorCodes, NarsilError } from '../../errors'
+import type { SerializablePartition } from '../../types/internal'
+import type { LanguageModule } from '../../types/language'
+import type { PartitionStatsResult } from '../../types/results'
+import type { AnyDocument, IndexConfig } from '../../types/schema'
+import type { VectorIndex } from '../../vector/vector-index'
+import { resolvePartitionInsertOptions } from '../insert-options'
+import type { PartitionRouter } from '../router'
+import { setNestedValue } from './nested-values'
+import type { PartitionManager } from './types'
 
-export interface PartitionManager {
-  readonly partitionCount: number
-  readonly indexName: string
-  readonly schema: SchemaDefinition
-  readonly language: LanguageModule
-  readonly config: IndexConfig
-  readonly analysis: ResolvedAnalysis
-
-  getPartition(partitionId: number): PartitionIndex
-  partitionAt(index: number): PartitionIndex | undefined
-  getAllPartitions(): PartitionIndex[]
-  setPartitions(partitions: PartitionIndex[]): void
-  addPartition(): PartitionIndex
-  removePartition(partitionId: number): void
-  trimPartitions(count: number): void
-
-  assertCapacity(pendingWrites?: number, partitionCountCap?: number): void
-  insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
-  remove(docId: string): void
-  beginBatchRemove(): void
-  endBatchRemove(): void
-  update(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
-  rebuildTextIndex(partitionId: number): void
-  get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined
-  getRef(docId: string): AnyDocument | undefined
-  sortValues(
-    docId: string,
-    fields: readonly string[],
-    fieldTypes: readonly (string | undefined)[],
-  ): ComparableSortValue[]
-  has(docId: string): boolean
-  partitionIdOf(docId: string): number | undefined
-  countDocuments(): number
-
-  serializePartition(partitionId: number): SerializablePartition
-  serializePartitionToBytes(partitionId: number): Uint8Array
-  deserializePartition(partitionId: number, data: SerializablePartition): void
-  mergeSegment(partitionId: number, payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
-  attachFrozenSegment(partitionId: number, segment: FrozenSegment): void
-  getAggregateStats(): {
-    totalDocuments: number
-    docFrequencies: Record<string, number>
-    totalFieldLengths: Record<string, number>
-  }
-  estimateMemoryBytes(): number
-  getPartitionStats(): PartitionStatsResult[]
-  getVectorIndexes(): Map<string, VectorIndex>
-  resetVectorIndexes(newIndexes: Map<string, VectorIndex>): void
-}
-
-function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
-  if (!path.includes('.')) {
-    obj[path] = value
-    return
-  }
-  const segments = path.split('.')
-  let current: Record<string, unknown> = obj
-  for (let i = 0; i < segments.length - 1; i++) {
-    let next = current[segments[i]]
-    if (next === null || next === undefined || typeof next !== 'object') {
-      next = {}
-      current[segments[i]] = next
-    }
-    current = next as Record<string, unknown>
-  }
-  current[segments[segments.length - 1]] = value
-}
+export type { PartitionManager } from './types'
 
 export function createPartitionManager(
   indexName: string,

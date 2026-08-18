@@ -8,7 +8,7 @@ import { createInMemoryNetwork, createInMemoryTransport } from '../../distributi
 import type { NodeTransport } from '../../distribution/transport/types'
 import type { NarsilServer } from '../../server'
 import { createServer } from '../../server'
-import { del, getJson, patchJson, postJson } from './helpers'
+import { del, getJson, patchJson, postJson, postRaw, toNdjson } from './helpers'
 
 const POLL_INTERVAL_MS = 25
 const POLL_BUDGET_MS = 15_000
@@ -128,6 +128,31 @@ describe('the HTTP server serves a cluster node', () => {
       expect(refusal.status, operation).toBe(501)
       expect((refusal.body as { error: { code: string } }).error.code, operation).toBe('CLUSTER_OPERATION_UNSUPPORTED')
     }
+
+    const importedAsync = await postRaw<{ id: string }>(
+      base,
+      '/indexes/products/documents/_import?async=true',
+      toNdjson([{ id: 'bulk-1', title: 'Bulk Widget', price: 3 }]),
+      'application/x-ndjson',
+    )
+    expect(importedAsync.status).toBe(202)
+
+    const importFinished = await pollUntil(async () => {
+      const record = await getJson<{ status: string }>(base, `/tasks/${importedAsync.body.id}`)
+      return record.body.status === 'succeeded'
+    })
+    expect(importFinished).toBe(true)
+
+    const importedIntoCluster = await getJson(base, '/indexes/products/documents/bulk-1')
+    expect(importedIntoCluster.status).toBe(200)
+
+    const importedIntoMissingIndex = await postRaw(
+      base,
+      '/indexes/absent/documents/_import?async=true',
+      toNdjson([{ id: 'bulk-2' }]),
+      'application/x-ndjson',
+    )
+    expect(importedIntoMissingIndex.status).toBe(404)
 
     const dropped = await del(base, '/indexes/products')
     expect(dropped.status).toBe(200)

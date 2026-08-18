@@ -1,4 +1,4 @@
-import { ClientErrorCodes, ErrorCodes, NarsilError } from '../errors'
+import { ClientErrorCodes, describeError, ErrorCodes, NarsilError } from '../errors'
 import type { FetchFunction, NarsilClientOptions, RequestOptions } from './options'
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -69,8 +69,69 @@ function startDeadline(timeoutMs: number, caller: AbortSignal | undefined) {
   }
 }
 
-function describe(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
+/** Raised while a body is still arriving, so the caller can tell a server that
+ * answered too much from a connection that dropped. */
+class ResponseTooLargeError extends Error {
+  constructor(readonly limitBytes: number) {
+    super(`The answer passed the ${limitBytes} byte ceiling this client reads`)
+  }
+}
+
+/** Reads a body a chunk at a time and gives up the moment it passes the
+ * ceiling, so an answer larger than the caller agreed to read is never held
+ * whole. */
+async function readStreamCapped(stream: ReadableStream<Uint8Array>, limitBytes: number): Promise<Uint8Array> {
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > limitBytes) throw new ResponseTooLargeError(limitBytes)
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+    if (total > limitBytes) await stream.cancel().catch(() => undefined)
+  }
+
+  const body = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    body.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return body
+}
+
+/** Reads an answer under whatever ceiling the caller set. With no ceiling the
+ * runtime reads the whole body, which is what every request did before a
+ * ceiling existed. With one, a body the runtime exposes as a stream stops the
+ * moment it passes the ceiling, and a `fetch` implementation that exposes no
+ * stream is measured once it has arrived, which is the most such an
+ * implementation allows. */
+async function readAnswer(
+  response: Response,
+  limitBytes: number,
+  wantsBytes: boolean,
+): Promise<{ text: string; bytes: Uint8Array | null }> {
+  const stream: ReadableStream<Uint8Array> | null | undefined = response.body
+  if (limitBytes > 0 && stream !== null && stream !== undefined) {
+    const body = await readStreamCapped(stream, limitBytes)
+    return wantsBytes ? { text: '', bytes: body } : { text: new TextDecoder().decode(body), bytes: null }
+  }
+
+  if (wantsBytes) {
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    if (limitBytes > 0 && bytes.byteLength > limitBytes) throw new ResponseTooLargeError(limitBytes)
+    return { text: '', bytes }
+  }
+
+  const text = await response.text()
+  if (limitBytes > 0 && text.length > limitBytes) throw new ResponseTooLargeError(limitBytes)
+  return { text, bytes: null }
 }
 
 function invalidResponse(message: string, details: Record<string, unknown>): NarsilError {
@@ -148,6 +209,12 @@ export function createTransport(options: NarsilClientOptions): Transport {
     return spec.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS
   }
 
+  function resolveResponseCeiling(spec: RequestSpec): number {
+    const perCall = spec.options?.maxResponseBytes
+    if (perCall !== undefined) return perCall
+    return options.maxResponseBytes ?? 0
+  }
+
   async function exchange(spec: RequestSpec): Promise<{ status: number; text: string; bytes: Uint8Array | null }> {
     const url = `${base}${withQuery(spec.path, spec.query)}`
     const headers: Record<string, string> = { ...baseHeaders, ...spec.options?.headers }
@@ -159,12 +226,16 @@ export function createTransport(options: NarsilClientOptions): Transport {
       const init: RequestInit = { method: spec.method, headers, signal: deadline.signal }
       if (spec.body !== undefined) init.body = spec.body as BodyInit
       const response = await send(url, init)
-      if (spec.binaryAnswer === true && response.ok) {
-        const buffer = await response.arrayBuffer()
-        return { status: response.status, text: '', bytes: new Uint8Array(buffer) }
-      }
-      return { status: response.status, text: await response.text(), bytes: null }
+      const wantsBytes = spec.binaryAnswer === true && response.ok
+      const answer = await readAnswer(response, resolveResponseCeiling(spec), wantsBytes)
+      return { status: response.status, ...answer }
     } catch (err) {
+      if (err instanceof ResponseTooLargeError) {
+        throw invalidResponse(`The server at ${url} answered more than this client reads: ${err.message}`, {
+          url,
+          maxResponseBytes: err.limitBytes,
+        })
+      }
       if (deadline.expired()) {
         throw new NarsilError(
           ClientErrorCodes.CLIENT_REQUEST_TIMEOUT,
@@ -179,7 +250,7 @@ export function createTransport(options: NarsilClientOptions): Transport {
       }
       throw new NarsilError(
         ClientErrorCodes.CLIENT_CONNECTION_FAILED,
-        `The client could not reach ${url}: ${describe(err)}`,
+        `The client could not reach ${url}: ${describeError(err)}`,
         { url },
       )
     } finally {

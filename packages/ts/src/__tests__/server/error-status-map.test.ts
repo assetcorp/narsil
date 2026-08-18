@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ErrorCodes } from '../../errors'
+import { ClientErrorCodes, ErrorCodes } from '../../errors'
 import { httpStatusForNarsilError, ServerErrorCodes } from '../../server/errors'
 
 describe('httpStatusForNarsilError', () => {
@@ -48,5 +48,35 @@ describe('httpStatusForNarsilError', () => {
   it('treats a malformed narsil file as a client failure', () => {
     expect(httpStatusForNarsilError(ErrorCodes.ENVELOPE_INVALID_MAGIC)).toBe(400)
     expect(httpStatusForNarsilError(ErrorCodes.ENVELOPE_VERSION_MISMATCH)).toBe(400)
+  })
+
+  it('maps every engine code, because a cluster node answers HTTP through the same map', () => {
+    const DELIBERATELY_INTERNAL: string[] = [
+      ServerErrorCodes.HOOK_ERROR,
+      ServerErrorCodes.INTERNAL_ERROR,
+      ErrorCodes.TRANSPORT_DEPENDENCY_MISSING,
+      ErrorCodes.COORDINATOR_DEPENDENCY_MISSING,
+      ErrorCodes.CONTROLLER_METADATA_INVALID,
+    ]
+    const everyServerRaisedCode = [...Object.values(ErrorCodes), ...Object.values(ServerErrorCodes)]
+    const answeringFiveHundred = everyServerRaisedCode.filter(code => httpStatusForNarsilError(code) === 500)
+
+    expect(answeringFiveHundred.sort()).toEqual([...DELIBERATELY_INTERNAL].sort())
+  })
+
+  it('leaves the client-only codes out, because no request can arrive under one', () => {
+    for (const code of Object.values(ClientErrorCodes)) {
+      expect(httpStatusForNarsilError(code)).toBe(500)
+    }
+  })
+
+  it('separates a cluster that cannot place a shard from one that refuses the request', () => {
+    expect(httpStatusForNarsilError(ErrorCodes.ALLOCATION_NO_DATA_NODES)).toBe(503)
+    expect(httpStatusForNarsilError(ErrorCodes.ALLOCATION_INVALID_CONFIG)).toBe(400)
+    expect(httpStatusForNarsilError(ErrorCodes.NODE_ALREADY_JOINED)).toBe(409)
+    expect(httpStatusForNarsilError(ErrorCodes.NODE_NOT_JOINED)).toBe(503)
+    expect(httpStatusForNarsilError(ErrorCodes.SNAPSHOT_SYNC_UNAUTHORIZED)).toBe(403)
+    expect(httpStatusForNarsilError(ErrorCodes.SNAPSHOT_SYNC_INDEX_NOT_FOUND)).toBe(404)
+    expect(httpStatusForNarsilError(ErrorCodes.SNAPSHOT_SYNC_TOO_LARGE)).toBe(413)
   })
 })

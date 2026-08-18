@@ -127,6 +127,53 @@ describe('import failure reporting', () => {
   })
 })
 
+describe('an import line past the per-line limit', () => {
+  let server: TestServer
+
+  beforeEach(async () => {
+    server = await startTestServer({ limits: { maxLineBytes: 64 } })
+    await createIndex(server.base, 'movies')
+  })
+
+  afterEach(async () => {
+    await server.stop()
+  })
+
+  it('answers 413 inside the request, naming the line', async () => {
+    const result = await postRaw<{ error: { code: string; details?: { line?: number } } }>(
+      server.base,
+      '/indexes/movies/documents/_import',
+      toNdjson([
+        { id: 'short', title: 'ok' },
+        { id: 'long', title: 'x'.repeat(200) },
+      ]),
+      'application/x-ndjson',
+    )
+
+    expect(result.status).toBe(413)
+    expect(result.body.error.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(result.body.error.details?.line).toBe(2)
+  })
+
+  it('names the line on the task record as well', async () => {
+    const started = await postRaw<TaskRecord>(
+      server.base,
+      '/indexes/movies/documents/_import?async=true',
+      toNdjson([
+        { id: 'short', title: 'ok' },
+        { id: 'long', title: 'x'.repeat(200) },
+      ]),
+      'application/x-ndjson',
+    )
+    expect(started.status).toBe(202)
+
+    const finished = await waitForTerminalStatus(server.base, started.body.id)
+    expect(finished.status).toBe('failed')
+    expect(finished.error?.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(finished.error?.details?.line).toBe(2)
+  })
+})
+
 describe('task cancellation', () => {
   let server: TestServer
 

@@ -77,8 +77,8 @@ export interface ClusterNode {
     getPartitionStats(indexName: string): Promise<PartitionStatsResult[]>;
     getStats(indexName: string): Promise<IndexStats>;
     has(indexName: string, docId: string): Promise<boolean>;
-    insert(indexName: string, document: AnyDocument, docId?: string): Promise<string>;
-    insertBatch(indexName: string, documents: AnyDocument[]): Promise<BatchResult>;
+    insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string>;
+    insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult>;
     listDocuments<T = AnyDocument>(indexName: string, params?: ListParams): Promise<ListResult<T>>;
     readonly nodeId: string;
     off<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;

@@ -1,7 +1,7 @@
 import { generateId } from '../../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
-import type { AnyDocument } from '../../../types/schema'
+import type { AnyDocument, InsertOptions } from '../../../types/schema'
 import type { AllocationTable, PartitionAssignment } from '../../coordinator/types'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
 import { type ForwardBatchItem, forwardBatchToRemote } from './forward-batch'
@@ -85,10 +85,11 @@ export async function routeInsertBatch(
   indexName: string,
   documents: AnyDocument[],
   deps: WriteRoutingDeps,
+  options?: InsertOptions,
 ): Promise<BatchResult> {
   const table = await deps.coordinator.getAllocation(indexName)
   if (table === null || table.assignments.size === 0) {
-    return deps.engine.insertBatch(indexName, documents)
+    return deps.engine.insertBatch(indexName, documents, options)
   }
 
   const withIds = documents.map(doc => ({
@@ -101,7 +102,7 @@ export async function routeInsertBatch(
 
   for (const [partitionId, group] of routed.localGroups) {
     try {
-      const result = await applyPrimaryInsertBatch(indexName, group.items, partitionId, group.assignment, deps)
+      const result = await applyPrimaryInsertBatch(indexName, group.items, partitionId, group.assignment, deps, options)
       succeeded.push(...result.succeeded)
       failed.push(...result.failed)
     } catch (err) {
