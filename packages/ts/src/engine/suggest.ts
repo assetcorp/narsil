@@ -8,6 +8,10 @@ import type { SuggestParams } from '../types/search'
 
 export const DEFAULT_SUGGEST_LIMIT = 10
 export const MAX_SUGGEST_LIMIT = 100
+export const SUGGEST_OVERSAMPLE_FACTOR = 1.5
+export const SUGGEST_OVERSAMPLE_PADDING = 10
+export const MAX_SUGGEST_SCATTER_LIMIT =
+  Math.ceil(MAX_SUGGEST_LIMIT * SUGGEST_OVERSAMPLE_FACTOR) + SUGGEST_OVERSAMPLE_PADDING
 
 interface MergedSuggestion {
   documentFrequency: number
@@ -21,7 +25,8 @@ export function executeSuggest(
   partitionIds?: number[],
 ): SuggestResult {
   const t0 = performance.now()
-  const limit = Math.max(1, Math.min(clampRowCount(params.limit, DEFAULT_SUGGEST_LIMIT), MAX_SUGGEST_LIMIT))
+  const ceiling = partitionIds === undefined ? MAX_SUGGEST_LIMIT : MAX_SUGGEST_SCATTER_LIMIT
+  const limit = Math.max(1, Math.min(clampRowCount(params.limit, DEFAULT_SUGGEST_LIMIT), ceiling))
   const rawPrefix = params.prefix.trim()
 
   if (rawPrefix.length === 0) {

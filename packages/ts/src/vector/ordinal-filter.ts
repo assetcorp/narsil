@@ -61,6 +61,24 @@ export function ordinalFilterHas(filter: OrdinalFilter, ordinal: number): boolea
 }
 
 /**
+ * Clears one ordinal from the filter, counting the removal once however often
+ * it is repeated.
+ *
+ * @param filter The filter to clear from.
+ * @param ordinal The store ordinal to clear.
+ *
+ * @internal
+ */
+export function removeFromOrdinalFilter(filter: OrdinalFilter, ordinal: number): void {
+  const index = ordinal >>> 3
+  if (index >= filter.bits.length) return
+  const bit = 1 << (ordinal & 7)
+  if ((filter.bits[index] & bit) === 0) return
+  filter.bits[index] &= ~bit
+  filter.count -= 1
+}
+
+/**
  * Yields every ordinal the filter holds, in ascending order.
  *
  * @param filter The filter to walk.

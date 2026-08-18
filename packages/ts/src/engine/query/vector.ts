@@ -8,7 +8,7 @@ import {
   broadcastStatsForWorker,
   clampAlpha,
   collectFilterDocIds,
-  partitionDocIdFilter,
+  partitionsForVectorSearch,
   type QueryContext,
   resolveVectorIndex,
   scoringConfigFor,
@@ -35,13 +35,14 @@ export async function executeVectorSearch(
   }
 
   let filterDocIds: Set<string> | undefined
+  let filterPartitions: ReadonlySet<number> | undefined
   if (params.filters) {
     filterDocIds = collectFilterDocIds(manager, params, config.schema, partitionIds)
+    if (filterDocIds.size === 0) {
+      return { scored: [], totalMatched: 0 }
+    }
   } else {
-    filterDocIds = partitionDocIdFilter(manager, partitionIds, undefined)
-  }
-  if (filterDocIds !== undefined && filterDocIds.size === 0) {
-    return { scored: [], totalMatched: 0 }
+    filterPartitions = partitionsForVectorSearch(manager, vecIndex, partitionIds)
   }
 
   const queryVec = new Float32Array(vectorConfig.value)
@@ -49,7 +50,8 @@ export async function executeVectorSearch(
   const results = await vecIndex.searchParallel(queryVec, k, {
     metric: vectorConfig.metric ?? 'cosine',
     minSimilarity: vectorConfig.similarity ?? -Infinity,
-    filterDocIds,
+    ...(filterDocIds !== undefined ? { filterDocIds } : {}),
+    ...(filterPartitions !== undefined ? { filterPartitions } : {}),
     efSearch: vectorConfig.efSearch,
   })
 
@@ -70,11 +72,6 @@ export async function executeHybridSearch(
   if (params.filters) {
     filterDocIds = collectFilterDocIds(manager, params, config.schema, context.partitionIds)
     if (filterDocIds.size === 0) {
-      return { scored: [], totalMatched: 0 }
-    }
-  } else {
-    filterDocIds = partitionDocIdFilter(manager, context.partitionIds, undefined)
-    if (filterDocIds !== undefined && filterDocIds.size === 0) {
       return { scored: [], totalMatched: 0 }
     }
   }
@@ -116,10 +113,13 @@ export async function executeHybridSearch(
   if (vecIndex) {
     const queryVec = new Float32Array(vectorConfig.value)
     const vectorK = limit + offset + 1
+    const filterPartitions =
+      filterDocIds === undefined ? partitionsForVectorSearch(manager, vecIndex, context.partitionIds) : undefined
     const vectorResults = await vecIndex.searchParallel(queryVec, vectorK, {
       metric: vectorConfig.metric ?? 'cosine',
       minSimilarity: vectorConfig.similarity ?? -Infinity,
-      filterDocIds,
+      ...(filterDocIds !== undefined ? { filterDocIds } : {}),
+      ...(filterPartitions !== undefined ? { filterPartitions } : {}),
       efSearch: vectorConfig.efSearch,
     })
     vectorScored = vectorResultsToScored(vectorResults)

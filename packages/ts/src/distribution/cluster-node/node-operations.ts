@@ -56,11 +56,12 @@ export type ClusterNodeOperations = Pick<
 >
 
 export interface ClusterNodeOperationDeps {
-  trackOp: <T>(fn: () => Promise<T>) => Promise<T>
+  trackOp: <T>(indexName: string | null, fn: () => Promise<T>) => Promise<T>
   readDeps: ClusterReadDeps
   writeDeps: WriteRoutingDeps
   engine: ClusterLocalEngine
   coordinator: ClusterCoordinator
+  forgetIndex: (indexName: string) => void
 }
 
 export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): ClusterNodeOperations {
@@ -68,71 +69,74 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
 
   return {
     async createIndex(name, indexConfig, options?: CreateIndexOptions) {
-      return trackOp(() => routeCreateIndex(name, indexConfig, options, coordinator, engine))
+      return trackOp(name, () => routeCreateIndex(name, indexConfig, options, coordinator, engine))
     },
 
     async insert(indexName, document, docId?) {
-      return trackOp(() => routeInsert(indexName, document, docId, writeDeps))
+      return trackOp(indexName, () => routeInsert(indexName, document, docId, writeDeps))
     },
 
     async insertBatch(indexName, documents) {
-      return trackOp(() => routeInsertBatch(indexName, documents, writeDeps))
+      return trackOp(indexName, () => routeInsertBatch(indexName, documents, writeDeps))
     },
 
     async remove(indexName, docId) {
-      return trackOp(() => routeRemove(indexName, docId, writeDeps))
+      return trackOp(indexName, () => routeRemove(indexName, docId, writeDeps))
     },
 
     async removeBatch(indexName, docIds) {
-      return trackOp(() => routeRemoveBatch(indexName, docIds, writeDeps))
+      return trackOp(indexName, () => routeRemoveBatch(indexName, docIds, writeDeps))
     },
 
     async update(indexName, docId, document) {
-      return trackOp(() => routeUpdate(indexName, docId, document, writeDeps))
+      return trackOp(indexName, () => routeUpdate(indexName, docId, document, writeDeps))
     },
 
     async updateBatch(indexName, updates) {
-      return trackOp(() => routeUpdateBatch(indexName, updates, writeDeps))
+      return trackOp(indexName, () => routeUpdateBatch(indexName, updates, writeDeps))
     },
 
     async dropIndex(name) {
-      return trackOp(() => routeDropIndex(name, coordinator, engine))
+      return trackOp(null, async () => {
+        await routeDropIndex(name, coordinator, engine)
+        deps.forgetIndex(name)
+      })
     },
 
     async clear(indexName) {
-      return trackOp(() => clearCluster(readDeps, writeDeps, indexName))
+      return trackOp(indexName, () => clearCluster(readDeps, writeDeps, indexName))
     },
 
     async countDocuments(indexName) {
-      return trackOp(() => countCluster(readDeps, indexName))
+      return trackOp(indexName, () => countCluster(readDeps, indexName))
     },
 
     async listDocuments(indexName, params?) {
-      return trackOp(() => listCluster(readDeps, indexName, params ?? {}))
+      return trackOp(indexName, () => listCluster(readDeps, indexName, params ?? {}))
     },
 
     async suggest(indexName, params) {
-      return trackOp(() => suggestCluster(readDeps, indexName, params))
+      return trackOp(indexName, () => suggestCluster(readDeps, indexName, params))
     },
 
     async preflight(indexName, params) {
-      return trackOp(() => preflightCluster(readDeps, indexName, params))
+      return trackOp(indexName, () => preflightCluster(readDeps, indexName, params))
     },
 
     async getStats(indexName) {
-      return trackOp(() => statsCluster(readDeps, indexName))
+      return trackOp(indexName, () => statsCluster(readDeps, indexName))
     },
 
     async getPartitionStats(indexName) {
-      return trackOp(() => partitionStatsCluster(readDeps, indexName))
+      return trackOp(indexName, () => partitionStatsCluster(readDeps, indexName))
     },
 
     async checkpoint(indexName) {
-      return trackOp(() => engine.checkpoint(indexName))
+      return trackOp(indexName, () => engine.checkpoint(indexName))
     },
 
     async getMemoryStats() {
-      return trackOp(() => engine.getMemoryStats())
+      return trackOp(null, () => engine.getMemoryStats())
     },
 
     on(event, handler) {
@@ -144,19 +148,19 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
     },
 
     async query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>> {
-      return trackOp(() => queryCluster<T>(readDeps, indexName, params))
+      return trackOp(indexName, () => queryCluster<T>(readDeps, indexName, params))
     },
 
     async get(indexName, docId) {
-      return trackOp(async () => (await readClusterDocuments(readDeps, indexName, [docId])).get(docId))
+      return trackOp(indexName, async () => (await readClusterDocuments(readDeps, indexName, [docId])).get(docId))
     },
 
     async getMultiple(indexName, docIds) {
-      return trackOp(() => readClusterDocuments(readDeps, indexName, docIds))
+      return trackOp(indexName, () => readClusterDocuments(readDeps, indexName, docIds))
     },
 
     async has(indexName, docId) {
-      return trackOp(async () => (await readClusterDocuments(readDeps, indexName, [docId])).has(docId))
+      return trackOp(indexName, async () => (await readClusterDocuments(readDeps, indexName, [docId])).has(docId))
     },
   }
 }

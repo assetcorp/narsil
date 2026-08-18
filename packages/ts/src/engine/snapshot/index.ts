@@ -198,6 +198,7 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
     embeddingAdapter,
     embeddingAdapterName: adapterName,
     vectorFieldPaths,
+    indexUuid: null,
   })
 
   try {

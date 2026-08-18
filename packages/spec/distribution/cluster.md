@@ -390,11 +390,14 @@ Creating an index in cluster mode stores index-level configuration in the coordi
 
 ```text
 IndexMetadata {
+  indexUuid:         string   (unique identifier, such as a UUID v7)
   partitionCount:    uint32
   replicationFactor: uint8
   constraints:       AllocationConstraints
 }
 ```
+
+The `indexUuid` identifies the index for as long as it exists, and the creating node generates it. An index created again under a dropped name carries a new `indexUuid`, so the two indexes stay distinct where their names do not. A node must compare the value with the one it persisted before it adopts a local copy; see [Joining the Cluster](#joining-the-cluster).
 
 The record is serialised as MessagePack and stored in the coordinator's general key-value store under a well-known key:
 
@@ -406,10 +409,11 @@ _narsil/index/{indexName}/config
 
 ```text
 1. The node receiving the create request:
-   a. writes the index metadata with
+   a. generates a fresh indexUuid
+   b. writes the index metadata with
       compareAndSet('_narsil/index/{indexName}/config', absent, bytes),
       where the absent check blocks a duplicate creation
-   b. writes the schema with putSchema(indexName, schema), which
+   c. writes the schema with putSchema(indexName, schema), which
       fires a schema_created event
 
 2. The controller observes that event:
@@ -419,7 +423,7 @@ _narsil/index/{indexName}/config
       replicationFactor, and constraints it found
    c. it writes the first allocation table with putAllocation
 
-3. A creating node that crashes between steps 1a and 1b leaves
+3. A creating node that crashes between steps 1b and 1c leaves
    metadata behind with no schema event, so the controller does
    nothing and the metadata is orphaned. The next create call for
    the same name fails its compareAndSet, because the key already
@@ -466,6 +470,11 @@ Deleting an index reverses the creation flow, and the controller drives the tear
    absent, so the next create call for the same name may replace
    it with fresh metadata. A non-empty value still blocks the
    create, exactly as the creation flow describes.
+
+6. A node that stays offline for the whole teardown keeps its
+   local copy, because it observes no allocation change while it
+   is gone. It finds that copy orphaned when it rejoins; see
+   [Joining the Cluster](#joining-the-cluster).
 ```
 
 A drop is not atomic across nodes: a query routed while the teardown runs can reach a node that already dropped its partitions, and the coordinator then reports the failure through the partial-results rules in [query-routing.md](query-routing.md#partial-results).
@@ -479,16 +488,42 @@ A drop is not atomic across nodes: a query routed while the teardown runs can re
 ```text
 1. The node starts and opens a cluster coordinator connection.
 2. The node calls registerNode with its registration.
-3. The node reads the current allocation table with getAllocation.
-4. For each partition assigned to it:
+3. For each index it holds locally, the node reads the stored
+   metadata with get('_narsil/index/{indexName}/config') and
+   compares the stored indexUuid with the one it persisted:
+   a. equal values mean the local copy belongs to this index, and
+      the node adopts it
+   b. differing values mean the cluster created another index
+      under the name this copy carries, so the node drops the
+      copy and takes the new index on from its primary
+   c. a local copy that carries no identity takes the stored one,
+      which is how an index created before the field existed
+      joins, and the node adopts it
+   d. metadata the node cannot read, and a name the coordinator
+      holds none for, leave the copy orphaned, and the rules
+      below govern it
+4. The node reads the current allocation table with getAllocation.
+5. For each partition assigned to it:
    a. a partition in INITIALISING starts bootstrapping from the
       primary, following the sync protocol in replication.md
-   b. a partition in ACTIVE loads from local persistence when that
-      exists, and otherwise bootstraps from the primary
-5. The node starts watching allocation changes with watchAllocation.
-6. The node starts accepting queries and mutations over the node
+   b. a partition in ACTIVE loads from an adopted local copy when
+      that exists, and otherwise bootstraps from the primary
+6. The node starts watching allocation changes with watchAllocation.
+7. The node starts accepting queries and mutations over the node
    transport.
 ```
+
+A node must persist the `indexUuid` alongside its local copy, in the `index_uuid` field of the [index metadata payload](../envelope.md#index-metadata-payload), so that the comparison survives a restart. A node must also record the identity on every index it bootstraps, whether it took the partition on as primary or as replica, because an index that carries none proves nothing at the next join.
+
+Step 3b is the only step that deletes local data, and the stored metadata is what permits it: metadata naming another index under the same name proves that the index this copy belongs to was dropped, so the copy holds documents no reader may see again.
+
+Three rules govern an orphaned copy:
+
+- The node must neither serve it nor adopt it into an index of the same name, because an index created again under a dropped name holds different documents.
+- The node must report it, naming the index and the reason the adoption failed, so that an operator can act on it.
+- The node must keep the data. Absent metadata follows equally from a dropped index, an unreachable coordinator, and a coordinator restored from a backup, and in the last two cases the local copy is the only one left.
+
+An operator deletes an orphaned copy explicitly, and every automatic path leaves it alone.
 
 ### Leaving the Cluster Gracefully
 

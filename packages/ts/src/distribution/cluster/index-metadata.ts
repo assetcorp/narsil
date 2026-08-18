@@ -3,6 +3,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { AllocationConstraints, ClusterCoordinator } from '../coordinator/types'
 
 export interface IndexMetadata {
+  indexUuid: string
   indexName: string
   partitionCount: number
   replicationFactor: number
@@ -71,6 +72,14 @@ function validateDecodedMetadata(decoded: unknown, indexName: string): IndexMeta
     )
   }
 
+  if (typeof decoded.indexUuid !== 'string' || decoded.indexUuid.length === 0 || decoded.indexUuid.length > 128) {
+    throw new NarsilError(
+      ErrorCodes.CONTROLLER_METADATA_INVALID,
+      `Index metadata for '${indexName}' has invalid indexUuid`,
+      { indexName, received: truncateForDisplay(decoded.indexUuid) },
+    )
+  }
+
   if (typeof decoded.indexName !== 'string') {
     throw new NarsilError(
       ErrorCodes.CONTROLLER_METADATA_INVALID,
@@ -126,6 +135,7 @@ function validateDecodedMetadata(decoded: unknown, indexName: string): IndexMeta
   }
 
   return {
+    indexUuid: decoded.indexUuid as string,
     indexName: decoded.indexName as string,
     partitionCount: decoded.partitionCount as number,
     replicationFactor: decoded.replicationFactor as number,

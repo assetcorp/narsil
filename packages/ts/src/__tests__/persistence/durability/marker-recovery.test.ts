@@ -52,6 +52,7 @@ const noopDeps = {
     insert: () => undefined,
     remove: () => undefined,
     has: () => false,
+    partitionIdOf: () => undefined,
     getVectorIndexes: () => new Map(),
   } as never,
   vectorFieldPaths: new Set<string>(),

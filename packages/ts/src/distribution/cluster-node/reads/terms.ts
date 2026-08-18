@@ -1,5 +1,11 @@
 import { compareCodePoints } from '../../../core/ordering'
-import { DEFAULT_SUGGEST_LIMIT, MAX_SUGGEST_LIMIT } from '../../../engine/suggest'
+import {
+  DEFAULT_SUGGEST_LIMIT,
+  MAX_SUGGEST_LIMIT,
+  MAX_SUGGEST_SCATTER_LIMIT,
+  SUGGEST_OVERSAMPLE_FACTOR,
+  SUGGEST_OVERSAMPLE_PADDING,
+} from '../../../engine/suggest'
 import { clampRowCount } from '../../../search/pagination'
 import type { PreflightResult, SuggestResult } from '../../../types/results'
 import type { QueryParams, SuggestParams } from '../../../types/search'
@@ -12,8 +18,21 @@ import {
 import { localParamsToWire } from '../query-conversion'
 import { activeAllocation, type ClusterReadDeps, sendReadRequest, strictScatterGroups } from './scatter'
 
-const SUGGEST_OVERSAMPLE_FACTOR = 1.5
-const SUGGEST_OVERSAMPLE_PADDING = 10
+/**
+ * Works out how many completions one node must return so that merging the
+ * nodes' answers ranks the same terms the whole index would.
+ *
+ * A term ranking low on every node can still lead the cluster, so each node
+ * reports more completions than the caller asked for, and the coordinator
+ * merges from that wider pool.
+ *
+ * @param clientLimit - The number of completions the caller asked for.
+ * @returns The number of completions to ask each node for.
+ */
+export function suggestNodeLimit(clientLimit: number): number {
+  const oversampled = Math.ceil(clientLimit * SUGGEST_OVERSAMPLE_FACTOR) + SUGGEST_OVERSAMPLE_PADDING
+  return Math.min(oversampled, MAX_SUGGEST_SCATTER_LIMIT)
+}
 
 export async function suggestCluster(
   deps: ClusterReadDeps,
@@ -32,10 +51,7 @@ export async function suggestCluster(
     return { terms: [], elapsed: performance.now() - startTime }
   }
 
-  const nodeLimit = Math.min(
-    Math.ceil(clientLimit * SUGGEST_OVERSAMPLE_FACTOR) + SUGGEST_OVERSAMPLE_PADDING,
-    MAX_SUGGEST_LIMIT,
-  )
+  const nodeLimit = suggestNodeLimit(clientLimit)
   const groups = strictScatterGroups(allocation, deps.nodeId, indexName)
 
   const gathered = await Promise.all(

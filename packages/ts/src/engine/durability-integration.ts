@@ -39,6 +39,7 @@ export interface DurabilityIntegrationHooks {
   getVectorIndexes: IndexDurabilityHooks['getVectorIndexes']
   getIndexConfig: (indexName: string) =>
     | {
+        indexUuid?: string
         schema: Record<string, string>
         language: string
         k1: number
@@ -112,6 +113,9 @@ function buildMetadata(indexName: string, hooks: DurabilityIntegrationHooks): In
   }
   if (config.vectorPromotion !== undefined) {
     metadata.vectorPromotion = config.vectorPromotion
+  }
+  if (config.indexUuid !== undefined) {
+    metadata.indexUuid = config.indexUuid
   }
   return metadata
 }

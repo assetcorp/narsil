@@ -28,6 +28,7 @@ interface RawMetadataPayload {
     hnsw_config?: { m?: unknown; ef_construction?: unknown; metric?: unknown }
     quantization?: unknown
   }
+  index_uuid?: unknown
 }
 
 function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
@@ -105,6 +106,9 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
         : {}),
       ...(promotion.quantization !== undefined ? { quantization: promotion.quantization } : {}),
     }
+  }
+  if (meta.indexUuid !== undefined) {
+    wire.index_uuid = meta.indexUuid
   }
   return wire
 }
@@ -199,6 +203,9 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
     if (Object.keys(restored).length > 0) {
       meta.vectorPromotion = restored
     }
+  }
+  if (typeof raw.index_uuid === 'string' && raw.index_uuid.length > 0) {
+    meta.indexUuid = raw.index_uuid
   }
   return meta
 }

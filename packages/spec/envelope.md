@@ -372,6 +372,7 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   strict:                boolean              (optional)
   required:              List<string>         (optional; field paths every document must supply)
   vector_promotion:      VectorPromotionMeta  (optional)
+  index_uuid:            string               (optional; the cluster identity of the index)
 }
 
 VectorFieldMeta {
@@ -409,7 +410,9 @@ The `analysis_revision` field records the [revision](adapters.md#revision) of th
 
 The `tokenizer` and `stop_words` fields record the names the index resolved its analysis from, as described in [Analysis Registry](adapters.md#analysis-registry). A writer includes each field only when the index configuration gave a name, because a tokeniser instance and a stop word function are code and no payload carries code. An engine with durability configured refuses an index whose analysis is given as code, as [Analysis Registry](adapters.md#analysis-registry) requires, so an absent field means the index analyses with the language default. An index configured with a literal stop word set persists the words themselves in `stop_word_list`, and a payload carries at most one of `stop_words` and `stop_word_list`. Recovery resolves each name against the engine's analysis registry so that a recovered index analyses text the way the original did; see [Index Metadata](durability.md#index-metadata).
 
-The last six fields record the rest of the index configuration: the partition limits, the scoring mode, position tracking, strict document validation, the required field paths, and the vector promotion settings. All six are additive. A writer includes each field only when the index configuration set it, and a reader treats an absent field as that option's default, so a recovered index behaves exactly as the original did.
+The `partition_limits`, `default_scoring`, `track_positions`, `strict`, `required`, and `vector_promotion` fields record the rest of the index configuration: the partition limits, the scoring mode, position tracking, strict document validation, the required field paths, and the vector promotion settings. All six are additive. A writer includes each field only when the index configuration set it, and a reader treats an absent field as that option's default, so a recovered index behaves exactly as the original did.
+
+The `index_uuid` field records the identity a cluster assigned the index when it was created, as [Index Metadata](distribution/cluster.md#index-metadata) defines it. A node running in cluster mode writes the value, and a single engine leaves it absent. A rejoining node compares the recovered value with the one the coordinator holds before it adopts the index, so the node never serves a predecessor's documents from an index created again under the same name; see [Joining the Cluster](distribution/cluster.md#joining-the-cluster). The field is additive, and a reader that finds it absent treats the index as belonging to no cluster.
 
 ---
 

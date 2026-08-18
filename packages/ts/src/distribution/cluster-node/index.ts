@@ -18,6 +18,7 @@ import {
   runBootstrapSync,
 } from './bootstrap-sync'
 import { createClusterLocalEngine } from './local-engine'
+import { adoptClusterIdentity, orphanedIndexError, reconcileLocalIndexes } from './local-index-reconcile'
 import { createDataNodeHandler } from './message-handler'
 import { resolveNodeTargets as resolveTargetsForNode, sendToNode as sendMessageToNode } from './node-messaging'
 import { createClusterNodeOperations } from './node-operations'
@@ -117,6 +118,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     waitForActiveReplicas: config.replication?.waitForActiveReplicas,
   }
 
+  const orphanedIndexes = new Set<string>()
   let lifecycle: DataNodeHandle | null = null
   let controller: ControllerNode | null = null
   let unregisterHandler: (() => void) | null = null
@@ -135,6 +137,17 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     applyReplicationEntry: engine.applyReplicationEntry,
     restoreReplicationPartition: engine.restoreReplicationPartition,
     onError: forwardOnError,
+  }
+
+  async function bootstrapPartition(indexName: string, partitionId: number, primaryNodeId: string): Promise<boolean> {
+    const succeeded =
+      primaryNodeId === nodeId
+        ? await preparePrimaryPartition(indexName)
+        : await runBootstrapSync(bootstrapSyncState, indexName, partitionId, primaryNodeId, bootstrapSyncDeps)
+    if (succeeded) {
+      await adoptClusterIdentity(engine, config.coordinator, indexName)
+    }
+    return succeeded
   }
 
   async function preparePrimaryPartition(indexName: string): Promise<boolean> {
@@ -179,10 +192,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       bootstrapRetryMaxMs: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapRetryMaxMs,
       bootstrapMaxRetries: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapMaxRetries,
       allocationDebounceMs: DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs,
-      onBootstrapPartition: (indexName: string, partitionId: number, primaryNodeId: string) =>
-        primaryNodeId === nodeId
-          ? preparePrimaryPartition(indexName)
-          : runBootstrapSync(bootstrapSyncState, indexName, partitionId, primaryNodeId, bootstrapSyncDeps),
+      onBootstrapPartition: bootstrapPartition,
       onRemovePartition: (indexName: string, partitionId: number) => {
         clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
         replicationLogs.delete(replicationLogKey(indexName, partitionId))
@@ -216,8 +226,11 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     }
   }
 
-  async function trackOp<T>(fn: () => Promise<T>): Promise<T> {
+  async function trackOp<T>(indexName: string | null, fn: () => Promise<T>): Promise<T> {
     guardShutdown()
+    if (indexName !== null && orphanedIndexes.has(indexName)) {
+      throw orphanedIndexError(nodeId, indexName)
+    }
     activeOps++
     try {
       return await fn()
@@ -234,7 +247,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
 
   const cluster: ClusterNamespace = {
     async getAllocation(indexName: string) {
-      return trackOp(() => config.coordinator.getAllocation(indexName))
+      return trackOp(null, () => config.coordinator.getAllocation(indexName))
     },
     getNodeInfo() {
       const status = lifecycle !== null ? lifecycle.status : isShutdown ? 'shutdown' : 'stopped'
@@ -263,12 +276,29 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       writeDeps,
       engine,
       coordinator: config.coordinator,
+      forgetIndex: (indexName: string) => {
+        if (engine.listIndexes().every(index => index.name !== indexName)) {
+          orphanedIndexes.delete(indexName)
+        }
+      },
     }),
 
     cluster,
 
     async start() {
       guardShutdown()
+
+      const dispositions = await reconcileLocalIndexes({
+        engine,
+        coordinator: config.coordinator,
+        nodeId,
+        onError: forwardOnError,
+      })
+      for (const [indexName, disposition] of dispositions) {
+        if (disposition === 'orphaned') {
+          orphanedIndexes.add(indexName)
+        }
+      }
 
       if (lifecycle !== null) {
         await lifecycle.join()

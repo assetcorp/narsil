@@ -1,7 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorIndexConfig } from '../../types/schema'
 import type { HNSWConfig } from '../hnsw'
-import type { OrdinalFilter } from '../ordinal-filter'
 import { createScalarQuantizer } from '../scalar-quantization'
 import { createVectorStore } from '../vector-store'
 import { scheduleBuild as scheduleBuildOp } from './build'
@@ -16,9 +15,9 @@ import { search as searchOp, searchWithFilter } from './search'
 import {
   DEFAULT_FILTER_THRESHOLD,
   DEFAULT_PROMOTION_THRESHOLD,
+  filterForOptions,
   liveSize,
   type MaintenanceStatus,
-  ordinalFilterForDocIds,
   type VectorIndexPayload,
   type VectorIndexState,
   type VectorScoredResult,
@@ -29,8 +28,11 @@ import { invalidateWorkerCopies, scheduleWorkerCopyLoad, searchViaWorkerCopies }
 export type { MaintenanceStatus, VectorIndexPayload, VectorScoredResult, VectorSearchOptions } from './shared'
 
 export interface VectorIndex {
-  insert(docId: string, vector: Float32Array): void
+  insert(docId: string, vector: Float32Array, partitionId?: number): void
   remove(docId: string): void
+  /** False while any stored vector is there without the partition it belongs to. */
+  partitionsKnown(): boolean
+  assignPartitions(resolve: (docId: string) => number | undefined): void
   scheduleBuild(): void
   awaitPendingBuild(): Promise<void>
   dispose(): void
@@ -104,12 +106,26 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     }
   }
 
-  function insert(docId: string, vector: Float32Array): void {
+  function insert(docId: string, vector: Float32Array, partitionId?: number): void {
     validateDimension(vector)
     invalidateWorkerCopies(state)
     state.tombstones.delete(docId)
-    state.store.insert(docId, vector)
+    state.store.insert(docId, vector, partitionId)
     state.buffer.add(docId)
+  }
+
+  function assignPartitions(resolve: (docId: string) => number | undefined): void {
+    for (let ordinal = 0; ordinal < state.store.slots; ordinal += 1) {
+      if (state.store.partitionOfOrdinal(ordinal) !== undefined) continue
+      const docId = state.store.docIdForOrdinal(ordinal)
+      if (docId === undefined) continue
+      const partitionId = resolve(docId)
+      if (partitionId === undefined) {
+        state.store.forgetPartition(docId)
+        continue
+      }
+      state.store.setPartition(docId, partitionId)
+    }
   }
 
   function remove(docId: string): void {
@@ -149,10 +165,9 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     k: number,
     options: VectorSearchOptions,
   ): Promise<VectorScoredResult[]> {
-    const filterDocIds = options.filterDocIds
-    let filter: OrdinalFilter | undefined
-    if (filterDocIds !== undefined) {
-      filter = ordinalFilterForDocIds(state, filterDocIds)
+    const confined = options.filterDocIds !== undefined || options.filterPartitions !== undefined
+    let filter = filterForOptions(state, options)
+    if (filter !== undefined) {
       if (state.hnsw) {
         const hnswLiveSize = state.hnsw.size
         const selectivity = hnswLiveSize > 0 ? filter.count / hnswLiveSize : 1
@@ -176,8 +191,8 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     )
     if (viaWorkerCopy !== null) return viaWorkerCopy
 
-    if (filterDocIds !== undefined && state.revision !== filterRevision) {
-      filter = ordinalFilterForDocIds(state, filterDocIds)
+    if (confined && state.revision !== filterRevision) {
+      filter = filterForOptions(state, options)
     }
     return searchWithFilter(state, query, k, options, filter)
   }
@@ -194,6 +209,8 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     },
     insert,
     remove,
+    partitionsKnown: () => state.store.partitionsKnown,
+    assignPartitions,
     scheduleBuild: () => scheduleBuildOp(state),
     awaitPendingBuild,
     dispose,

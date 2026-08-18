@@ -35,6 +35,8 @@ export type IndexRegistryEntry = {
    * persist the binding and lets late registration rebind recovered indexes. */
   embeddingAdapterName: string | null
   vectorFieldPaths: Set<string>
+  /** The identity the cluster gave this index, or null where no cluster owns it. */
+  indexUuid: string | null
 }
 
 export type EventHandler = (payload: unknown) => void
@@ -105,6 +107,7 @@ function createDurabilityFromTier(tier: DurabilityTier | null, wiring: Durabilit
           }
         : undefined
       return {
+        ...(entry.indexUuid !== null ? { indexUuid: entry.indexUuid } : {}),
         schema: flattenSchema(entry.config.schema) as Record<string, string>,
         language: entry.language.name,
         k1: entry.config.bm25?.k1 ?? 1.2,
@@ -264,6 +267,7 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
       embeddingAdapter,
       embeddingAdapterName: adapterName,
       vectorFieldPaths: getVectorFieldPaths(indexConfig.schema),
+      indexUuid: metadata.indexUuid ?? null,
     })
     if (metadata.analysisRevision !== language.revision) {
       analysisRebuild.markStale({

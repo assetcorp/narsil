@@ -18,6 +18,7 @@ describe('IndexMetadata', () => {
 
   it('round-trips metadata through put and get', async () => {
     const metadata: IndexMetadata = {
+      indexUuid: 'uuid-products',
       indexName: 'products',
       partitionCount: 5,
       replicationFactor: 2,
@@ -48,6 +49,7 @@ describe('IndexMetadata', () => {
 
   it('prevents overwriting existing metadata via compareAndSet', async () => {
     const metadata = {
+      indexUuid: 'uuid-products',
       indexName: 'products',
       partitionCount: 3,
       replicationFactor: 1,
@@ -66,6 +68,7 @@ describe('IndexMetadata', () => {
 
   it('treats an emptied metadata key as absent, so a dropped name can be recreated', async () => {
     const metadata = {
+      indexUuid: 'uuid-products',
       indexName: 'products',
       partitionCount: 3,
       replicationFactor: 1,
@@ -85,6 +88,7 @@ describe('IndexMetadata', () => {
 
   it('defaults constraint fields when they are missing from stored data', async () => {
     const metadata: IndexMetadata = {
+      indexUuid: 'uuid-articles',
       indexName: 'articles',
       partitionCount: 2,
       replicationFactor: 0,

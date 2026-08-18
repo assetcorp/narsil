@@ -77,7 +77,7 @@ async function replayEntry(
     }
     manager.insert(entry.docId, partitionDoc as AnyDocument)
     if (extractedVectors.size > 0) {
-      insertDocumentVectors(entry.docId, extractedVectors, vecIndexes)
+      insertDocumentVectors(entry.docId, extractedVectors, vecIndexes, manager.partitionIdOf(entry.docId))
       for (const fieldPath of extractedVectors.keys()) {
         vecIndexes.get(fieldPath)?.scheduleBuild()
       }

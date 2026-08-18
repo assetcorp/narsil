@@ -42,12 +42,17 @@ function validateCreateIndexOptions(partitionCount: number, replicationFactor: n
   }
 }
 
+/** The part of the local engine an index creation needs. */
+interface IndexCreatingEngine {
+  createIndexWithUuid(name: string, config: IndexConfig, indexUuid?: string): Promise<void>
+}
+
 export async function routeCreateIndex(
   name: string,
   config: IndexConfig,
   options: CreateIndexOptions | undefined,
   coordinator: ClusterCoordinator,
-  engine: Narsil,
+  engine: IndexCreatingEngine,
 ): Promise<void> {
   validateIndexName(name)
 
@@ -62,6 +67,7 @@ export async function routeCreateIndex(
   }
 
   const metadata: IndexMetadata = {
+    indexUuid: generateId(),
     indexName: name,
     partitionCount,
     replicationFactor,
@@ -79,10 +85,11 @@ export async function routeCreateIndex(
 
   try {
     await coordinator.putSchema(name, config.schema)
-    await engine.createIndex(name, {
-      ...config,
-      partitions: { ...config.partitions, maxPartitions: partitionCount },
-    })
+    await engine.createIndexWithUuid(
+      name,
+      { ...config, partitions: { ...config.partitions, maxPartitions: partitionCount } },
+      metadata.indexUuid,
+    )
   } catch (createErr) {
     let cleanupFailed = false
     let cleanupError: unknown

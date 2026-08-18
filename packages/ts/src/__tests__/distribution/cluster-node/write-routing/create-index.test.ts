@@ -1,17 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DEFAULT_PARTITION_COUNT } from '../../../../distribution/cluster-node'
+import { type ClusterLocalEngine, createClusterLocalEngine } from '../../../../distribution/cluster-node/local-engine'
 import { routeCreateIndex } from '../../../../distribution/cluster-node/write-routing'
 import { createInMemoryCoordinator } from '../../../../distribution/coordinator'
 import type { ClusterCoordinator } from '../../../../distribution/coordinator/types'
-import { createNarsil, type Narsil } from '../../../../narsil'
 
 describe('routeCreateIndex partition layout', () => {
   let coordinator: ClusterCoordinator
-  let engine: Narsil
+  let engine: ClusterLocalEngine
 
   beforeEach(async () => {
     coordinator = createInMemoryCoordinator()
-    engine = await createNarsil()
+    engine = await createClusterLocalEngine()
   })
 
   afterEach(async () => {
@@ -23,6 +23,7 @@ describe('routeCreateIndex partition layout', () => {
     await routeCreateIndex('products', { schema: { title: 'string' } }, { partitionCount: 4 }, coordinator, engine)
 
     expect(engine.getStats('products').partitionCount).toBe(4)
+    expect(engine.indexUuidOf('products')).toEqual(expect.any(String))
   })
 
   it('creates the local index with the default cluster partition count when no count is given', async () => {

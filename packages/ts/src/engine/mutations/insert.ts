@@ -74,7 +74,12 @@ export async function insertDocument(
     })
     inserted = true
     try {
-      insertDocumentVectors(resolvedDocId, extractedVectors, insertVecIndexes)
+      insertDocumentVectors(
+        resolvedDocId,
+        extractedVectors,
+        insertVecIndexes,
+        insertManager.partitionIdOf(resolvedDocId),
+      )
     } catch (err) {
       try {
         await ctx.executor.execute({ type: 'remove', indexName, docId: resolvedDocId, requestId: resolvedDocId })

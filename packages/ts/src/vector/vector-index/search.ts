@@ -7,8 +7,8 @@ import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitud
 import { scheduleBuild } from './build'
 import {
   allLiveDocIds,
+  filterForOptions,
   liveSize,
-  ordinalFilterForDocIds,
   type VectorIndexState,
   type VectorScoredResult,
   type VectorSearchOptions,
@@ -130,8 +130,7 @@ export function search(
   k: number,
   options: VectorSearchOptions,
 ): VectorScoredResult[] {
-  const filter = options.filterDocIds === undefined ? undefined : ordinalFilterForDocIds(state, options.filterDocIds)
-  return searchWithFilter(state, query, k, options, filter)
+  return searchWithFilter(state, query, k, options, filterForOptions(state, options))
 }
 
 export function searchWithFilter(
