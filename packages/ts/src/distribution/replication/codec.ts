@@ -2,6 +2,7 @@ import { decode, encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import type {
   AckPayload,
+  EntryBatchPayload,
   EntryPayload,
   ForwardPayload,
   InsyncConfirmPayload,
@@ -15,6 +16,16 @@ export function createEntryMessage(entry: ReplicationLogEntry, sourceId: string)
   const payload: EntryPayload = { entry }
   return {
     type: ReplicationMessageTypes.ENTRY,
+    sourceId,
+    requestId: generateId(),
+    payload: encode(payload),
+  }
+}
+
+export function createEntryBatchMessage(entries: ReplicationLogEntry[], sourceId: string): TransportMessage {
+  const payload: EntryBatchPayload = { entries }
+  return {
+    type: ReplicationMessageTypes.ENTRY_BATCH,
     sourceId,
     requestId: generateId(),
     payload: encode(payload),
@@ -106,6 +117,33 @@ export function validateEntryPayload(decoded: unknown): EntryPayload {
     throw new Error('Invalid EntryPayload: "entry.checksum" must be a number')
   }
   return decoded as unknown as EntryPayload
+}
+
+export function validateEntryBatchPayload(decoded: unknown): EntryBatchPayload {
+  if (!isRecord(decoded) || !Array.isArray(decoded.entries)) {
+    throw new Error('Invalid EntryBatchPayload: missing or invalid "entries" field')
+  }
+  if (decoded.entries.length === 0) {
+    throw new Error('Invalid EntryBatchPayload: "entries" must not be empty')
+  }
+
+  const validated = decoded.entries.map(candidate => validateEntryPayload({ entry: candidate }).entry)
+  const first = validated[0]
+
+  for (let index = 1; index < validated.length; index++) {
+    const entry = validated[index]
+    if (entry.indexName !== first.indexName || entry.partitionId !== first.partitionId) {
+      throw new Error('Invalid EntryBatchPayload: entries must belong to one partition of one index')
+    }
+    if (entry.primaryTerm !== first.primaryTerm) {
+      throw new Error('Invalid EntryBatchPayload: entries must share one primary term')
+    }
+    if (entry.seqNo !== validated[index - 1].seqNo + 1) {
+      throw new Error('Invalid EntryBatchPayload: entries must carry contiguous ascending sequence numbers')
+    }
+  }
+
+  return { entries: validated }
 }
 
 export function validateInsyncConfirmPayload(decoded: unknown): InsyncConfirmPayload {

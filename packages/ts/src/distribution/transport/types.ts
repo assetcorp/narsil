@@ -115,6 +115,7 @@ export class TransportError extends Error {
 export const ReplicationMessageTypes = {
   FORWARD: 'replication.forward',
   ENTRY: 'replication.entry',
+  ENTRY_BATCH: 'replication.entry_batch',
   ACK: 'replication.ack',
   SYNC_REQUEST: 'replication.sync_request',
   SYNC_ENTRIES: 'replication.sync_entries',
@@ -151,6 +152,10 @@ export interface ForwardPayload {
 
 export interface EntryPayload {
   entry: ReplicationLogEntry
+}
+
+export interface EntryBatchPayload {
+  entries: ReplicationLogEntry[]
 }
 
 export interface AckPayload {

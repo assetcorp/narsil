@@ -65,6 +65,7 @@ TransportMessage {
 |------|-----------|-------------|
 | `replication.forward` | any node to primary | Forwards a client mutation to the partition's primary |
 | `replication.entry` | primary to replica | A replication log entry to apply |
+| `replication.entry_batch` | primary to replica | Contiguous log entries for one partition, applied in order |
 | `replication.ack` | replica to primary | Acknowledges a replicated entry |
 | `replication.sync_request` | replica to primary | Asks to start a sync, carrying lastSeqNo and lastPrimaryTerm |
 | `replication.sync_entries` | primary to replica | A batch of log entries for incremental catch-up |
@@ -120,6 +121,16 @@ The primary handles each operation differently. An `insert` generates the embedd
   entry: ReplicationLogEntry   (see replication.md)
 }
 ```
+
+### replication.entry_batch
+
+```text
+{
+  entries: List<ReplicationLogEntry>   (see replication.md)
+}
+```
+
+The entries must belong to one partition of one index, share one `primaryTerm`, and carry contiguous ascending sequence numbers. The replica applies them in order and answers one `replication.ack` carrying the last entry's `seqNo`, which acknowledges every entry in the batch. A failure on any entry fails the whole batch.
 
 ### replication.ack
 

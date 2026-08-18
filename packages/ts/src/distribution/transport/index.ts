@@ -6,6 +6,7 @@ export type {
   AckPayload,
   BootstrapCompletePayload,
   BootstrapCompleteResultPayload,
+  EntryBatchPayload,
   EntryPayload,
   FacetBucket,
   FetchDocumentId,

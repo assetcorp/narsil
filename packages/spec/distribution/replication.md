@@ -256,6 +256,8 @@ The in-sync set is stored in the cluster coordinator as the `inSyncSet` field of
 
 Every write replicates to every in-sync replica before it is acknowledged, and that is not configurable. The primary always forwards the operation to every replica in the in-sync set and waits for all of them.
 
+A primary may group contiguous entries for one partition into a single `replication.entry_batch` message, and the replica's one acknowledgement of the batch's last entry then covers every entry in it. A primary must send each partition's entries in sequence-number order, whichever message carries them.
+
 A replica that fails during replication is removed from the in-sync set through the controller, and the primary then acknowledges. The write is durable on every remaining in-sync replica.
 
 ### Waiting for Active Replicas

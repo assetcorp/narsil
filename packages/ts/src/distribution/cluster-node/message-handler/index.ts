@@ -6,7 +6,7 @@ import { handleSnapshotSyncRequest } from '../snapshot-sync-handler'
 import { handleFetch, handleSearch, handleStats } from './queries'
 import { handleSyncRequestMessage } from './sync'
 import type { DataNodeHandlerDeps, TransportHandler } from './types'
-import { handleForward, handleReplicationEntry } from './writes'
+import { handleForward, handleReplicationEntry, handleReplicationEntryBatch } from './writes'
 
 export type { DataNodeHandlerDeps, TransportHandler } from './types'
 export { validateForwardPayload } from './writes'
@@ -34,6 +34,9 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
           return
         case ReplicationMessageTypes.ENTRY:
           await handleReplicationEntry(message, respond, deps)
+          return
+        case ReplicationMessageTypes.ENTRY_BATCH:
+          await handleReplicationEntryBatch(message, respond, deps)
           return
         case QueryMessageTypes.SEARCH:
           await handleSearch(message, respond, deps)
