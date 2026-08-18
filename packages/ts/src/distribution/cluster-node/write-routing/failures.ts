@@ -14,7 +14,7 @@ export function throwWriteFailure(error: unknown): never {
 }
 
 export function createRollbackFailure(
-  operation: 'insert' | 'remove',
+  operation: 'insert' | 'remove' | 'update',
   indexName: string,
   partitionId: number,
   documentId: string,
@@ -48,6 +48,34 @@ export async function rollbackPrimaryInsert(
     if (!(rollbackError instanceof NarsilError && rollbackError.code === ErrorCodes.DOC_NOT_FOUND)) {
       throw createRollbackFailure('insert', indexName, partitionId, documentId, originalError, rollbackError)
     }
+  }
+
+  throwWriteFailure(originalError)
+}
+
+export async function rollbackPrimaryUpdate(
+  indexName: string,
+  partitionId: number,
+  documentId: string,
+  previousDocument: AnyDocument | undefined,
+  originalError: unknown,
+  deps: WriteRoutingDeps,
+): Promise<never> {
+  if (previousDocument === undefined) {
+    throw createRollbackFailure(
+      'update',
+      indexName,
+      partitionId,
+      documentId,
+      originalError,
+      new Error('No local document snapshot was available for restore'),
+    )
+  }
+
+  try {
+    await deps.engine.update(indexName, documentId, previousDocument)
+  } catch (rollbackError) {
+    throw createRollbackFailure('update', indexName, partitionId, documentId, originalError, rollbackError)
   }
 
   throwWriteFailure(originalError)

@@ -2,9 +2,57 @@ import { clampRowCount, DEFAULT_PAGE_SIZE } from '../../search/pagination'
 import { normalizeSort } from '../../search/sorting'
 import type { QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
-import type { QueryParams } from '../../types/search'
+import type { FacetConfig, QueryParams } from '../../types/search'
 import type { DistributedQueryResult } from '../query/types'
 import type { SortField, WireQueryParams, WireVectorQueryParams } from '../transport/types'
+
+export function wireParamsToLocal(wire: WireQueryParams, facetShardSize?: number | null): QueryParams {
+  return {
+    term: wire.term ?? undefined,
+    fields: wire.fields ?? undefined,
+    filters: wire.filters ?? undefined,
+    boost: wire.boost ?? undefined,
+    scoring: wire.scoring,
+    tolerance: wire.tolerance ?? undefined,
+    minScore: wire.threshold ?? undefined,
+    includeScores: wire.includeScores ?? undefined,
+    limit: wire.limit,
+    offset: wire.offset,
+    searchAfter: wire.searchAfter ?? undefined,
+    sort: convertWireSortToLocal(wire.sort),
+    group: wire.group !== null ? { fields: [wire.group.field], maxPerGroup: wire.group.maxPerGroup } : undefined,
+    facets: convertWireFacetConfigToLocal(wire.facets, facetShardSize ?? wire.facetSize),
+    vector:
+      wire.vector !== null
+        ? {
+            field: wire.vector.field,
+            value: wire.vector.value ?? undefined,
+            text: wire.vector.text ?? undefined,
+            similarity: wire.vector.similarity ?? undefined,
+          }
+        : undefined,
+    hybrid:
+      wire.hybrid !== null ? { strategy: wire.hybrid.strategy, k: wire.hybrid.k, alpha: wire.hybrid.alpha } : undefined,
+  }
+}
+
+export function convertWireSortToLocal(wireSort: SortField[] | null): SortField[] | undefined {
+  if (wireSort === null || wireSort.length === 0) {
+    return undefined
+  }
+  return wireSort.map(entry => ({ field: entry.field, direction: entry.direction }))
+}
+
+export function convertWireFacetConfigToLocal(facets: string[] | null, limit: number | null): FacetConfig | undefined {
+  if (facets === null || facets.length === 0) {
+    return undefined
+  }
+  const result: FacetConfig = {}
+  for (const field of facets) {
+    result[field] = limit !== null ? { limit } : {}
+  }
+  return result
+}
 
 export function localParamsToWire(params: QueryParams): WireQueryParams {
   return {

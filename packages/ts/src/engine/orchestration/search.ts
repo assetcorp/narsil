@@ -35,6 +35,7 @@ export async function searchViaWorker(
   indexName: string,
   params: QueryParams,
   globalStats?: GlobalStatistics,
+  partitionIds?: number[],
 ): Promise<FanOutResult | null> {
   const pool = state.workerPool
   if (!pool) return null
@@ -58,6 +59,7 @@ export async function searchViaWorker(
         indexName,
         params,
         requestId: createRequestId(),
+        ...(partitionIds !== undefined ? { partitionIds } : {}),
         ...stats,
       })
     } catch (err) {
@@ -67,16 +69,29 @@ export async function searchViaWorker(
   }
 
   const assignments = partitionsPerWorker(manager.partitionCount, allExecutors.length)
+  const scopedAssignments =
+    partitionIds === undefined
+      ? assignments
+      : assignments.map(assigned => assigned.filter(partitionId => partitionIds.includes(partitionId)))
+  const activeAssignments: Array<{ executor: Executor; partitionIds: number[] }> = []
+  for (let index = 0; index < allExecutors.length; index++) {
+    if (scopedAssignments[index].length > 0) {
+      activeAssignments.push({ executor: allExecutors[index], partitionIds: scopedAssignments[index] })
+    }
+  }
+  if (activeAssignments.length === 0) {
+    return { scored: [], totalMatched: 0 }
+  }
 
   try {
     const results = await Promise.all(
-      allExecutors.map((workerExecutor: Executor, index: number) =>
-        workerExecutor.execute<FanOutResult>({
+      activeAssignments.map(assignment =>
+        assignment.executor.execute<FanOutResult>({
           type: 'query',
           indexName,
           params,
           requestId: createRequestId(),
-          partitionIds: assignments[index],
+          partitionIds: assignment.partitionIds,
           ...stats,
         }),
       ),

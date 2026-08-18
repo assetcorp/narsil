@@ -29,7 +29,9 @@ export interface AllocationTable {
 export interface ClusterCoordinator {
     acquireLease(key: string, nodeId: string, ttlMs: number): Promise<boolean>;
     compareAndSet(key: string, expected: Uint8Array | null, value: Uint8Array): Promise<boolean>;
+    deleteAllocation(indexName: string): Promise<void>;
     deregisterNode(nodeId: string): Promise<void>;
+    dropSchema(indexName: string): Promise<void>;
     get(key: string): Promise<Uint8Array | null>;
     getAllocation(indexName: string): Promise<AllocationTable | null>;
     getLeaseHolder(key: string): Promise<string | null>;
@@ -63,20 +65,37 @@ export interface ClusterNamespace {
 
 // @public
 export interface ClusterNode {
+    checkpoint(indexName: string): Promise<void>;
+    clear(indexName: string): Promise<void>;
     cluster: ClusterNamespace;
+    countDocuments(indexName: string): Promise<number>;
     createIndex(name: string, config: IndexConfig, options?: CreateIndexOptions): Promise<void>;
+    dropIndex(name: string): Promise<void>;
     get(indexName: string, docId: string): Promise<AnyDocument | undefined>;
+    getMemoryStats(): Promise<MemoryStats>;
     getMultiple(indexName: string, docIds: string[]): Promise<Map<string, AnyDocument>>;
+    getPartitionStats(indexName: string): Promise<PartitionStatsResult[]>;
+    getStats(indexName: string): Promise<IndexStats>;
     has(indexName: string, docId: string): Promise<boolean>;
     insert(indexName: string, document: AnyDocument, docId?: string): Promise<string>;
     insertBatch(indexName: string, documents: AnyDocument[]): Promise<BatchResult>;
+    listDocuments<T = AnyDocument>(indexName: string, params?: ListParams): Promise<ListResult<T>>;
     readonly nodeId: string;
+    off<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;
+    on<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;
+    preflight(indexName: string, params: QueryParams): Promise<PreflightResult>;
     query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>;
     remove(indexName: string, docId: string): Promise<void>;
     removeBatch(indexName: string, docIds: string[]): Promise<BatchResult>;
     readonly roles: ReadonlyArray<NodeRole>;
     shutdown(): Promise<void>;
     start(): Promise<void>;
+    suggest(indexName: string, params: SuggestParams): Promise<SuggestResult>;
+    update(indexName: string, docId: string, document: AnyDocument): Promise<void>;
+    updateBatch(indexName: string, updates: Array<{
+        docId: string;
+        document: AnyDocument;
+    }>): Promise<BatchResult>;
 }
 
 // @public

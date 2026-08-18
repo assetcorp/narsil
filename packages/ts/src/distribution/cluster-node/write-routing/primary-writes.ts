@@ -6,7 +6,7 @@ import type { PartitionAssignment } from '../../coordinator/types'
 import type { ReplicationLogEntry } from '../../replication/types'
 import type { ForwardPayload } from '../../transport/types'
 import { assertSufficientActiveReplicas, resolvePrimaryAssignment } from './assignment'
-import { rollbackPrimaryInsert, rollbackPrimaryRemove } from './failures'
+import { rollbackPrimaryInsert, rollbackPrimaryRemove, rollbackPrimaryUpdate } from './failures'
 import { enqueuePartitionWrite } from './partition-queue'
 import {
   appendDeleteReplicationEntry,
@@ -69,6 +69,37 @@ export async function applyPrimaryRemove(
   }
 }
 
+export async function applyPrimaryUpdate(
+  indexName: string,
+  docId: string,
+  document: AnyDocument,
+  partitionId: number,
+  assignment: PartitionAssignment,
+  deps: WriteRoutingDeps,
+): Promise<void> {
+  assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
+  const previousDocument = await deps.engine.get(indexName, docId)
+  await deps.engine.update(indexName, docId, document)
+  const storedDocument = await deps.engine.get(indexName, docId)
+
+  if (storedDocument === undefined) {
+    throw new NarsilError(
+      ErrorCodes.REPLICATION_ENTRY_INVALID,
+      `Updated document '${docId}' could not be read back for replication`,
+      { indexName, documentId: docId, partitionId },
+    )
+  }
+
+  try {
+    await enqueuePartitionWrite(deps.partitionWriteQueues, indexName, partitionId, async () => {
+      const entry = appendIndexReplicationEntry(indexName, partitionId, assignment, docId, storedDocument, deps)
+      await replicateEntry(entry, assignment, deps)
+    })
+  } catch (error) {
+    await rollbackPrimaryUpdate(indexName, partitionId, docId, previousDocument, error, deps)
+  }
+}
+
 interface AppendedWrite {
   docId: string
   entry: ReplicationLogEntry
@@ -116,6 +147,53 @@ export async function applyPrimaryInsertBatch(
       })),
       failed,
       (docId, error) => rollbackPrimaryInsert(indexName, partitionId, docId, error, deps),
+      deps,
+    ),
+  )
+
+  return { succeeded, failed }
+}
+
+export async function applyPrimaryUpdateBatch(
+  indexName: string,
+  updates: Array<{ docId: string; document: AnyDocument }>,
+  partitionId: number,
+  assignment: PartitionAssignment,
+  deps: WriteRoutingDeps,
+): Promise<BatchResult> {
+  assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
+  const failed: BatchResult['failed'] = []
+  const prepared: Array<{ docId: string; document: AnyDocument; previousDocument?: AnyDocument }> = []
+
+  for (const update of updates) {
+    try {
+      const previousDocument = await deps.engine.get(indexName, update.docId)
+      await deps.engine.update(indexName, update.docId, update.document)
+      const storedDocument = await deps.engine.get(indexName, update.docId)
+      if (storedDocument === undefined) {
+        throw new NarsilError(
+          ErrorCodes.REPLICATION_ENTRY_INVALID,
+          `Updated document '${update.docId}' could not be read back for replication`,
+          { indexName, documentId: update.docId, partitionId },
+        )
+      }
+      prepared.push({ docId: update.docId, document: storedDocument, previousDocument })
+    } catch (err) {
+      failed.push({ docId: update.docId, error: asWriteError(err, ErrorCodes.DOC_VALIDATION_FAILED, update.docId) })
+    }
+  }
+
+  const preparedByDocId = new Map(prepared.map(item => [item.docId, item]))
+  const succeeded = await enqueuePartitionWrite(deps.partitionWriteQueues, indexName, partitionId, () =>
+    replicateAppendedWrites(
+      assignment,
+      prepared.map(item => ({
+        docId: item.docId,
+        entry: appendIndexReplicationEntry(indexName, partitionId, assignment, item.docId, item.document, deps),
+      })),
+      failed,
+      (docId, error) =>
+        rollbackPrimaryUpdate(indexName, partitionId, docId, preparedByDocId.get(docId)?.previousDocument, error, deps),
       deps,
     ),
   )
@@ -230,5 +308,46 @@ export async function applyForwardedWrite(payload: ForwardPayload, deps: WriteRo
     return payload.documentId
   }
 
-  throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Forward update operations are not supported yet')
+  const replacement = await resolveForwardedUpdateDocument(
+    payload.indexName,
+    payload.documentId,
+    payload.document,
+    payload.updateFields,
+    deps,
+  )
+  await applyPrimaryUpdate(
+    payload.indexName,
+    payload.documentId,
+    replacement,
+    resolution.partitionId,
+    resolution.assignment,
+    deps,
+  )
+  return payload.documentId
+}
+
+export async function resolveForwardedUpdateDocument(
+  indexName: string,
+  documentId: string,
+  document: Uint8Array | null,
+  updateFields: Record<string, unknown> | null,
+  deps: WriteRoutingDeps,
+): Promise<AnyDocument> {
+  if (document !== null) {
+    return decode(document) as AnyDocument
+  }
+  if (updateFields === null) {
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      'Invalid ForwardPayload: update requires a document or updateFields',
+    )
+  }
+  const existing = await deps.engine.get(indexName, documentId)
+  if (existing === undefined) {
+    throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document '${documentId}' does not exist in index '${indexName}'`, {
+      indexName,
+      documentId,
+    })
+  }
+  return { ...existing, ...updateFields }
 }

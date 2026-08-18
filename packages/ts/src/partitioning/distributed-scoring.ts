@@ -69,13 +69,21 @@ export function collectQueryTermStats(
   term: string,
   language: LanguageModule,
   analysis: QueryTermAnalysis,
+  partitionIds?: number[],
 ): GlobalStatistics {
   const queryTokens = analysedQueryTokens(term, language, analysis)
   let totalDocuments = 0
   const docFrequencies: Record<string, number> = Object.create(null)
   const totalFieldLengths: Record<string, number> = Object.create(null)
 
-  for (const partition of manager.getAllPartitions()) {
+  const statsPartitions =
+    partitionIds === undefined
+      ? manager.getAllPartitions()
+      : partitionIds
+          .map(partitionId => manager.partitionAt(partitionId))
+          .filter((partition): partition is NonNullable<typeof partition> => partition !== undefined)
+
+  for (const partition of statsPartitions) {
     const stats = partition.stats
     totalDocuments += stats.totalDocuments
     for (const [field, length] of Object.entries(stats.totalFieldLengths)) {

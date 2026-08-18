@@ -39,6 +39,8 @@ Each partition has exactly one primary node that accepts writes, and zero or mor
    takes over from step 4.
 ```
 
+A node forwarding many mutations to one primary should send them in a single `replication.forward_batch` message, and the primary then answers one outcome per mutation; see [transport.md](transport.md#replicationforward_batch).
+
 ### Rollback of a Failed Write
 
 A primary must never leave a locally applied mutation visible when the write fails before it can be acknowledged. That covers a failure while forwarding to in-sync replicas, a failure while removing a failed replica from the in-sync set, and a failure while checking that the node still holds primary authority for the partition.

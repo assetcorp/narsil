@@ -1,12 +1,20 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import type {
+  CountPayload,
+  CountResultPayload,
   FetchPayload,
   FetchResultPayload,
+  ListPayload,
+  ListResultPayload,
+  PreflightPayload,
+  PreflightResultPayload,
   SearchPayload,
   SearchResultPayload,
   StatsPayload,
   StatsResultPayload,
+  SuggestPayload,
+  SuggestResultPayload,
   TransportMessage,
 } from '../transport/types'
 import { QueryMessageTypes } from '../transport/types'
@@ -77,11 +85,111 @@ export function createStatsResultMessage(
   }
 }
 
+export function createCountMessage(payload: CountPayload, sourceId: string): TransportMessage {
+  return {
+    type: QueryMessageTypes.COUNT,
+    sourceId,
+    requestId: generateId(),
+    payload: encode(payload),
+  }
+}
+
+export function createCountResultMessage(
+  payload: CountResultPayload,
+  sourceId: string,
+  requestId: string,
+): TransportMessage {
+  return {
+    type: QueryMessageTypes.COUNT_RESULT,
+    sourceId,
+    requestId,
+    payload: encode(payload),
+  }
+}
+
+export function createListMessage(payload: ListPayload, sourceId: string): TransportMessage {
+  return {
+    type: QueryMessageTypes.LIST,
+    sourceId,
+    requestId: generateId(),
+    payload: encode(payload),
+  }
+}
+
+export function createListResultMessage(
+  payload: ListResultPayload,
+  sourceId: string,
+  requestId: string,
+): TransportMessage {
+  return {
+    type: QueryMessageTypes.LIST_RESULT,
+    sourceId,
+    requestId,
+    payload: encode(payload),
+  }
+}
+
+export function createSuggestMessage(payload: SuggestPayload, sourceId: string): TransportMessage {
+  return {
+    type: QueryMessageTypes.SUGGEST,
+    sourceId,
+    requestId: generateId(),
+    payload: encode(payload),
+  }
+}
+
+export function createSuggestResultMessage(
+  payload: SuggestResultPayload,
+  sourceId: string,
+  requestId: string,
+): TransportMessage {
+  return {
+    type: QueryMessageTypes.SUGGEST_RESULT,
+    sourceId,
+    requestId,
+    payload: encode(payload),
+  }
+}
+
+export function createPreflightMessage(payload: PreflightPayload, sourceId: string): TransportMessage {
+  return {
+    type: QueryMessageTypes.PREFLIGHT,
+    sourceId,
+    requestId: generateId(),
+    payload: encode(payload),
+  }
+}
+
+export function createPreflightResultMessage(
+  payload: PreflightResultPayload,
+  sourceId: string,
+  requestId: string,
+): TransportMessage {
+  return {
+    type: QueryMessageTypes.PREFLIGHT_RESULT,
+    sourceId,
+    requestId,
+    payload: encode(payload),
+  }
+}
+
 export function decodePayload<T>(payload: Uint8Array): T {
   return decode(payload) as T
 }
 
 export { validateFetchPayload, validateFetchResultPayload } from './validators/fetch'
+export {
+  MAX_LIST_CURSOR_LENGTH,
+  MAX_SUGGEST_WIRE_LIMIT,
+  validateCountPayload,
+  validateCountResultPayload,
+  validateListPayload,
+  validateListResultPayload,
+  validatePreflightPayload,
+  validatePreflightResultPayload,
+  validateSuggestPayload,
+  validateSuggestResultPayload,
+} from './validators/reads'
 export {
   MAX_FACET_SHARD_SIZE,
   MAX_VECTOR_DIMENSION,

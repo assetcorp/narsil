@@ -21,7 +21,12 @@ export interface WorkerOrchestrator {
   awaitCompactions(): Promise<void>
   buildSegments(requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null>
   segmentBuildConcurrency(indexName: string): number
-  searchViaWorker(indexName: string, params: QueryParams, globalStats?: GlobalStatistics): Promise<FanOutResult | null>
+  searchViaWorker(
+    indexName: string,
+    params: QueryParams,
+    globalStats?: GlobalStatistics,
+    partitionIds?: number[],
+  ): Promise<FanOutResult | null>
   isPromoted(): boolean
   desyncIndex(indexName: string): boolean
   resyncIndex(indexName: string, wasPromoted: boolean): Promise<void>

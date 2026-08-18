@@ -163,6 +163,7 @@ Measured in one process against Orama and MiniSearch, with the same stop words a
 | [Partitions and workers](docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker promotion, and multi-instance invalidation |
 | [Language support](docs/language-support.md) | The 107 language modules, analysis revisions and rebuilds, and named tokenizers and stop words |
 | [HTTP server](docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |
+| [Cluster mode](docs/cluster.md) | Multi-node indexes: nodes and roles, replication, routed writes, distributed searches and reads, and what a cluster refuses |
 | [Client](docs/client.md) | Reaching a server from a browser or Node, following a task, and the codes it raises |
 | [React](docs/react.md) | The hooks over the client, one shared request per key, and loading a corpus from a component |
 | [Observability](docs/observability.md) | Plugin hooks, engine events, and memory reporting |

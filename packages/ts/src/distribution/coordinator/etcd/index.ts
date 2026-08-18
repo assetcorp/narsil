@@ -187,6 +187,11 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       return txn.succeeded
     },
 
+    async deleteAllocation(indexName: string): Promise<void> {
+      assertNotShutdown()
+      await client.delete().key(keys.allocation(indexName)).exec()
+    },
+
     async watchAllocation(handler: (event: AllocationEvent) => void): Promise<() => void> {
       assertNotShutdown()
       const prefix = keys.allocationPrefix()
@@ -320,6 +325,11 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       assertNotShutdown()
       const key = keys.schema(indexName)
       await client.put(key).value(serializeSchema(schema)).exec()
+    },
+
+    async dropSchema(indexName: string): Promise<void> {
+      assertNotShutdown()
+      await client.delete().key(keys.schema(indexName)).exec()
     },
 
     async listSchemas(): Promise<string[]> {

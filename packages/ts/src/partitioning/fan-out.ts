@@ -59,10 +59,16 @@ export async function fanOutQuery(
 
   if (effectiveMode === 'dfs') {
     if (params.term !== undefined && params.term.trim().length > 0) {
-      globalStats = collectQueryTermStats(manager, params.term, language, {
-        stopWords: searchOptions?.stopWords,
-        customTokenizer: searchOptions?.customTokenizer,
-      })
+      globalStats = collectQueryTermStats(
+        manager,
+        params.term,
+        language,
+        {
+          stopWords: searchOptions?.stopWords,
+          customTokenizer: searchOptions?.customTokenizer,
+        },
+        config.partitionIds,
+      )
     }
   } else if (effectiveMode === 'broadcast') {
     globalStats = config.globalStats

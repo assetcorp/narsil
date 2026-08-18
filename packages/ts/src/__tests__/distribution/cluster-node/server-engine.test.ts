@@ -11,6 +11,26 @@ function stubClusterNode(): ClusterNode {
     insertBatch: vi.fn(async () => ({ succeeded: [], failed: [] })),
     remove: vi.fn(async () => undefined),
     removeBatch: vi.fn(async () => ({ succeeded: [], failed: [] })),
+    update: vi.fn(async () => undefined),
+    updateBatch: vi.fn(async () => ({ succeeded: [], failed: [] })),
+    dropIndex: vi.fn(async () => undefined),
+    clear: vi.fn(async () => undefined),
+    countDocuments: vi.fn(async () => 0),
+    listDocuments: vi.fn(async () => ({ documents: [], cursor: null, total: 0, elapsed: 0 })),
+    suggest: vi.fn(async () => ({ terms: [], elapsed: 0 })),
+    preflight: vi.fn(async () => ({ count: 0, elapsed: 0 })),
+    getStats: vi.fn(async () => ({
+      documentCount: 0,
+      partitionCount: 0,
+      estimatedMemoryBytes: 0,
+      language: 'english',
+      schema: {},
+    })),
+    getPartitionStats: vi.fn(async () => []),
+    checkpoint: vi.fn(async () => undefined),
+    getMemoryStats: vi.fn(async () => ({ process: null, estimatedIndexBytes: 0, workers: [] })),
+    on: vi.fn(),
+    off: vi.fn(),
     query: vi.fn(async () => ({ hits: [], count: 0, elapsed: 0 })),
     get: vi.fn(async () => ({ title: 'stored' })),
     getMultiple: vi.fn(async () => new Map()),
@@ -43,12 +63,37 @@ describe('clusterNodeEngine', () => {
     await engine.insertBatch('products', [{ title: 'a' }])
     await engine.remove('products', 'doc-1')
     await engine.removeBatch('products', ['doc-1'])
+    await engine.update('products', 'doc-1', { title: 'b' })
+    await engine.updateBatch('products', [{ docId: 'doc-1', document: { title: 'b' } }])
+    await engine.dropIndex('products')
+    await engine.clear('products')
+    await engine.countDocuments('products')
+    await engine.listDocuments('products', { limit: 5 })
+    await engine.suggest('products', { prefix: 'a' })
+    await engine.preflight('products', { term: 'a' })
+    await engine.checkpoint('products')
+    await engine.getMemoryStats()
+    const listener = (): void => undefined
+    engine.on('persistenceError', listener)
+    engine.off('persistenceError', listener)
     await engine.query('products', { term: 'a' })
     await engine.get('products', 'doc-1')
     await engine.getMultiple('products', ['doc-1'])
     await engine.has('products', 'doc-1')
     await engine.shutdown()
 
+    expect(node.update).toHaveBeenCalledWith('products', 'doc-1', { title: 'b' })
+    expect(node.updateBatch).toHaveBeenCalledWith('products', [{ docId: 'doc-1', document: { title: 'b' } }])
+    expect(node.dropIndex).toHaveBeenCalledWith('products')
+    expect(node.clear).toHaveBeenCalledWith('products')
+    expect(node.countDocuments).toHaveBeenCalledWith('products')
+    expect(node.listDocuments).toHaveBeenCalledWith('products', { limit: 5 })
+    expect(node.suggest).toHaveBeenCalledWith('products', { prefix: 'a' })
+    expect(node.preflight).toHaveBeenCalledWith('products', { term: 'a' })
+    expect(node.checkpoint).toHaveBeenCalledWith('products')
+    expect(node.getMemoryStats).toHaveBeenCalled()
+    expect(node.on).toHaveBeenCalledWith('persistenceError', listener)
+    expect(node.off).toHaveBeenCalledWith('persistenceError', listener)
     expect(node.query).toHaveBeenCalledWith('products', { term: 'a' })
     expect(node.get).toHaveBeenCalledWith('products', 'doc-1')
     expect(node.shutdown).toHaveBeenCalled()
@@ -67,29 +112,17 @@ describe('clusterNodeEngine', () => {
 
     const refused: Array<() => unknown> = [
       () => engine.registerEmbeddingAdapter('x', { dimensions: 3, embed: async () => new Float32Array(3) }),
-      () => engine.dropIndex('products'),
       () => engine.listIndexes(),
       () => engine.getStats('products'),
       () => engine.getPartitionStats('products'),
-      () => engine.update('products', 'doc-1', {}),
-      () => engine.updateBatch('products', []),
-      () => engine.countDocuments('products'),
-      () => engine.listDocuments('products'),
-      () => engine.preflight('products', { term: 'a' }),
-      () => engine.suggest('products', { prefix: 'a' }),
       () => engine.rebuildAnalysis('products'),
       () => engine.snapshot('products'),
       () => engine.restore('products', new Uint8Array()),
-      () => engine.checkpoint('products'),
-      () => engine.clear('products'),
       () => engine.rebalance('products', 2),
       () => engine.updatePartitionConfig('products', {}),
-      () => engine.getMemoryStats(),
       () => engine.compactVectors('products'),
       () => engine.optimizeVectors('products'),
       () => engine.vectorMaintenanceStatus('products'),
-      () => engine.on('persistenceError', () => undefined),
-      () => engine.off('persistenceError', () => undefined),
     ]
 
     for (const call of refused) {

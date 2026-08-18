@@ -4,9 +4,20 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
 import type { Narsil } from '../../narsil'
 import { createNarsilFromCore } from '../../narsil'
+import {
+  type PartitionQueryStats,
+  runEngineListDocuments,
+  runEnginePreflight,
+  runEngineQuery,
+  runEngineQueryStats,
+  runEngineSuggest,
+} from '../../narsil/reads'
 import { deserializePayloadV2 } from '../../serialization/payload-v2'
 import type { NarsilConfig } from '../../types/config'
-import type { FieldType, IndexConfig, SchemaDefinition } from '../../types/schema'
+import type { GlobalStatistics } from '../../types/internal'
+import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
+import type { AnyDocument, FieldType, IndexConfig, SchemaDefinition } from '../../types/schema'
+import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
 import { MAX_PARTITION_COUNT } from '../cluster/index-metadata'
 import { applyDeleteEntry, applyIndexEntry } from '../replication/replica'
 import type { ReplicationLogEntry } from '../replication/types'
@@ -21,6 +32,16 @@ export interface ClusterLocalEngine extends Narsil {
     schema: SchemaDefinition,
     partitionCount: number,
   ): Promise<void>
+  queryPartitions<T = AnyDocument>(
+    indexName: string,
+    params: QueryParams,
+    partitionIds: number[],
+    globalStats?: GlobalStatistics,
+  ): Promise<QueryResult<T>>
+  preflightPartitions(indexName: string, params: QueryParams, partitionIds: number[]): Promise<PreflightResult>
+  suggestPartitions(indexName: string, params: SuggestParams, partitionIds: number[]): Promise<SuggestResult>
+  listPartitions<T = AnyDocument>(indexName: string, params: ListParams, partitionIds: number[]): Promise<ListResult<T>>
+  collectQueryStats(indexName: string, terms: string[], partitionIds: number[]): PartitionQueryStats
 }
 
 export async function createClusterLocalEngine(config?: NarsilConfig): Promise<ClusterLocalEngine> {
@@ -38,6 +59,20 @@ export async function createClusterLocalEngine(config?: NarsilConfig): Promise<C
       schema: SchemaDefinition,
       partitionCount: number,
     ) => restoreReplicationPartition(core, engine, indexName, partitionId, bytes, schema, partitionCount),
+    queryPartitions: <T = AnyDocument>(
+      indexName: string,
+      params: QueryParams,
+      partitionIds: number[],
+      globalStats?: GlobalStatistics,
+    ) => runEngineQuery<T>(core, indexName, params, { partitionIds, globalStats }),
+    preflightPartitions: (indexName: string, params: QueryParams, partitionIds: number[]) =>
+      runEnginePreflight(core, indexName, params, { partitionIds }),
+    suggestPartitions: (indexName: string, params: SuggestParams, partitionIds: number[]) =>
+      runEngineSuggest(core, indexName, params, partitionIds),
+    listPartitions: <T = AnyDocument>(indexName: string, params: ListParams, partitionIds: number[]) =>
+      runEngineListDocuments<T>(core, indexName, params, partitionIds),
+    collectQueryStats: (indexName: string, terms: string[], partitionIds: number[]) =>
+      runEngineQueryStats(core, indexName, terms, partitionIds),
   })
 }
 

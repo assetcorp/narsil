@@ -1,3 +1,4 @@
+import type { PartitionIndex } from '../../core/partition'
 import { pruneStatsToQueryTerms } from '../../partitioning/distributed-scoring'
 import type { FanOutConfig, FanOutResult } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
@@ -16,17 +17,52 @@ export interface QueryContext {
     indexName: string,
     params: QueryParams,
     globalStats?: GlobalStatistics,
+    partitionIds?: number[],
   ) => Promise<FanOutResult | null>
   indexName: string
   broadcastStats?: (indexName: string) => GlobalStatistics | undefined
+  partitionIds?: number[]
+}
+
+export function partitionsFor(manager: PartitionManager, partitionIds: number[] | undefined): PartitionIndex[] {
+  if (partitionIds === undefined) {
+    return manager.getAllPartitions()
+  }
+  const partitions: PartitionIndex[] = []
+  for (const partitionId of partitionIds) {
+    const partition = manager.partitionAt(partitionId)
+    if (partition !== undefined) {
+      partitions.push(partition)
+    }
+  }
+  return partitions
+}
+
+export function partitionDocIdFilter(
+  manager: PartitionManager,
+  partitionIds: number[] | undefined,
+  filterDocIds: Set<string> | undefined,
+): Set<string> | undefined {
+  if (partitionIds === undefined) {
+    return filterDocIds
+  }
+  const allowed = new Set<string>()
+  for (const partition of partitionsFor(manager, partitionIds)) {
+    for (const docId of partition.docIds()) {
+      if (filterDocIds === undefined || filterDocIds.has(docId)) {
+        allowed.add(docId)
+      }
+    }
+  }
+  return allowed
 }
 
 export function scoringConfigFor(params: QueryParams, context: QueryContext): FanOutConfig {
   const scoringMode = params.scoring ?? context.config.defaultScoring ?? 'local'
   if (scoringMode !== 'broadcast') {
-    return { scoringMode }
+    return { scoringMode, partitionIds: context.partitionIds }
   }
-  return { scoringMode, globalStats: context.broadcastStats?.(context.indexName) }
+  return { scoringMode, globalStats: context.broadcastStats?.(context.indexName), partitionIds: context.partitionIds }
 }
 
 export function broadcastStatsForWorker(
@@ -56,10 +92,11 @@ export function collectFilterDocIds(
   manager: PartitionManager,
   params: QueryParams,
   schema: IndexConfig['schema'],
+  partitionIds?: number[],
 ): Set<string> {
   const filterDocIds = new Set<string>()
   if (!params.filters) return filterDocIds
-  for (const partition of manager.getAllPartitions()) {
+  for (const partition of partitionsFor(manager, partitionIds)) {
     const partitionFiltered = partition.applyFilters(params.filters, schema)
     for (const docId of partitionFiltered) {
       filterDocIds.add(docId)

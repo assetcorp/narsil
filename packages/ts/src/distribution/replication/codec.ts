@@ -4,6 +4,8 @@ import type {
   AckPayload,
   EntryBatchPayload,
   EntryPayload,
+  ForwardBatchPayload,
+  ForwardBatchResultPayload,
   ForwardPayload,
   InsyncConfirmPayload,
   InsyncRemovePayload,
@@ -53,6 +55,30 @@ export function createForwardMessage(payload: ForwardPayload, sourceId: string):
     type: ReplicationMessageTypes.FORWARD,
     sourceId,
     requestId: generateId(),
+    payload: encode(payload),
+  }
+}
+
+export const MAX_FORWARD_BATCH_OPERATIONS = 1_000
+
+export function createForwardBatchMessage(payload: ForwardBatchPayload, sourceId: string): TransportMessage {
+  return {
+    type: ReplicationMessageTypes.FORWARD_BATCH,
+    sourceId,
+    requestId: generateId(),
+    payload: encode(payload),
+  }
+}
+
+export function createForwardBatchResultMessage(
+  payload: ForwardBatchResultPayload,
+  sourceId: string,
+  requestId: string,
+): TransportMessage {
+  return {
+    type: ReplicationMessageTypes.FORWARD_BATCH,
+    sourceId,
+    requestId,
     payload: encode(payload),
   }
 }
@@ -144,6 +170,78 @@ export function validateEntryBatchPayload(decoded: unknown): EntryBatchPayload {
   }
 
   return { entries: validated }
+}
+
+export function validateForwardBatchPayload(decoded: unknown): ForwardBatchPayload {
+  if (!isRecord(decoded)) {
+    throw new Error('Invalid ForwardBatchPayload: expected an object')
+  }
+  if (typeof decoded.indexName !== 'string' || decoded.indexName.length === 0) {
+    throw new Error('Invalid ForwardBatchPayload: "indexName" must be a non-empty string')
+  }
+  if (!Array.isArray(decoded.operations)) {
+    throw new Error('Invalid ForwardBatchPayload: "operations" must be an array')
+  }
+  if (decoded.operations.length === 0) {
+    throw new Error('Invalid ForwardBatchPayload: "operations" must not be empty')
+  }
+  if (decoded.operations.length > MAX_FORWARD_BATCH_OPERATIONS) {
+    throw new Error(
+      `Invalid ForwardBatchPayload: "operations" exceeds maximum length of ${MAX_FORWARD_BATCH_OPERATIONS}`,
+    )
+  }
+  for (let index = 0; index < decoded.operations.length; index++) {
+    const operation = decoded.operations[index]
+    if (!isRecord(operation)) {
+      throw new Error(`Invalid ForwardBatchPayload: "operations[${index}]" must be an object`)
+    }
+    if (typeof operation.documentId !== 'string' || operation.documentId.length === 0) {
+      throw new Error(`Invalid ForwardBatchPayload: "operations[${index}].documentId" must be a non-empty string`)
+    }
+    if (operation.operation !== 'insert' && operation.operation !== 'remove' && operation.operation !== 'update') {
+      throw new Error(
+        `Invalid ForwardBatchPayload: "operations[${index}].operation" must be "insert", "remove", or "update"`,
+      )
+    }
+    if (operation.document !== null && !(operation.document instanceof Uint8Array)) {
+      throw new Error(`Invalid ForwardBatchPayload: "operations[${index}].document" must be Uint8Array or null`)
+    }
+    if (operation.operation === 'insert' && operation.document === null) {
+      throw new Error(`Invalid ForwardBatchPayload: "operations[${index}]" requires a document`)
+    }
+    if (operation.operation === 'update' && operation.document === null && !isRecord(operation.updateFields)) {
+      throw new Error(`Invalid ForwardBatchPayload: "operations[${index}]" requires a document or updateFields`)
+    }
+  }
+  return decoded as unknown as ForwardBatchPayload
+}
+
+export function validateForwardBatchResultPayload(decoded: unknown): ForwardBatchResultPayload {
+  if (!isRecord(decoded)) {
+    throw new Error('Invalid ForwardBatchResultPayload: expected an object')
+  }
+  if (!Array.isArray(decoded.results)) {
+    throw new Error('Invalid ForwardBatchResultPayload: "results" must be an array')
+  }
+  for (let index = 0; index < decoded.results.length; index++) {
+    const result = decoded.results[index]
+    if (!isRecord(result)) {
+      throw new Error(`Invalid ForwardBatchResultPayload: "results[${index}]" must be an object`)
+    }
+    if (typeof result.documentId !== 'string') {
+      throw new Error(`Invalid ForwardBatchResultPayload: "results[${index}].documentId" must be a string`)
+    }
+    if (typeof result.success !== 'boolean') {
+      throw new Error(`Invalid ForwardBatchResultPayload: "results[${index}].success" must be a boolean`)
+    }
+    if (result.errorCode !== null && typeof result.errorCode !== 'string') {
+      throw new Error(`Invalid ForwardBatchResultPayload: "results[${index}].errorCode" must be a string or null`)
+    }
+    if (result.errorMessage !== null && typeof result.errorMessage !== 'string') {
+      throw new Error(`Invalid ForwardBatchResultPayload: "results[${index}].errorMessage" must be a string or null`)
+    }
+  }
+  return decoded as unknown as ForwardBatchResultPayload
 }
 
 export function validateInsyncConfirmPayload(decoded: unknown): InsyncConfirmPayload {

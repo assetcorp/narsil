@@ -16,7 +16,7 @@ The index is split into 6 partitions with 2 copies each, so losing any one node 
 | node-b | 127.0.0.1:9702 | 127.0.0.1:9302 |
 | node-c | 127.0.0.1:9703 | 127.0.0.1:9303 |
 
-A cluster node serves index creation, writes, searches, and document reads over HTTP. It answers every other endpoint, such as suggest, snapshot, and the admin routes, with status 501 and the code `CLUSTER_OPERATION_UNSUPPORTED`, so a client learns the operation is missing rather than reading a wrong answer.
+A cluster node serves index creation and removal, writes, updates, searches, suggestions, listings, counts, and document reads over HTTP, and it checkpoints and reports memory for itself. It answers the remaining endpoints, such as snapshot and restore, with status 501 and the code `CLUSTER_OPERATION_UNSUPPORTED`, so a client learns the operation is missing rather than reading a wrong answer.
 
 The nodes run without durability, so `docker compose down` and a process kill leave nothing behind. Replication is the only persistence in this example.
 

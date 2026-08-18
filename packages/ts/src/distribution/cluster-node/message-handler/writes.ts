@@ -1,12 +1,18 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { PartitionAssignment } from '../../coordinator/types'
-import { createAckMessage, validateEntryBatchPayload, validateEntryPayload } from '../../replication/codec'
+import {
+  createAckMessage,
+  createForwardBatchResultMessage,
+  validateEntryBatchPayload,
+  validateEntryPayload,
+  validateForwardBatchPayload,
+} from '../../replication/codec'
 import { validateReplicationEntry } from '../../replication/replica'
 import type { ReplicationLogEntry } from '../../replication/types'
 import type { ForwardPayload, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
-import { applyForwardedWrite } from '../write-routing'
+import { applyForwardedBatch, applyForwardedWrite } from '../write-routing'
 import type { DataNodeHandlerDeps } from './types'
 
 export async function handleForward(
@@ -24,6 +30,16 @@ export async function handleForward(
     requestId: message.requestId,
     payload: encode({ documentId, success: true }),
   })
+}
+
+export async function handleForwardBatch(
+  message: TransportMessage,
+  respond: (response: TransportMessage) => void,
+  deps: DataNodeHandlerDeps,
+): Promise<void> {
+  const payload = validateForwardBatchPayload(decode(message.payload))
+  const results = await applyForwardedBatch(payload, deps.writeDeps)
+  respond(createForwardBatchResultMessage({ results }, deps.nodeId, message.requestId))
 }
 
 export async function handleReplicationEntry(

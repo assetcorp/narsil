@@ -295,6 +295,13 @@ function validateParams(params: Record<string, unknown>): void {
   }
 }
 
+export function validateWireParams(params: unknown): void {
+  if (!isRecord(params)) {
+    throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "params" must be an object')
+  }
+  validateParams(params)
+}
+
 export function validateSearchPayload(decoded: unknown): SearchPayload {
   if (!isRecord(decoded)) {
     throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: expected an object')

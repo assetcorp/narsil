@@ -142,7 +142,14 @@ export async function putIndexMetadata(coordinator: ClusterCoordinator, metadata
   const key = indexConfigKey(metadata.indexName)
   const encoded = encode(metadata)
   const bytes = new Uint8Array(encoded)
-  return coordinator.compareAndSet(key, null, bytes)
+  if (await coordinator.compareAndSet(key, null, bytes)) {
+    return true
+  }
+  const current = await coordinator.get(key)
+  if (current === null || current.byteLength > 0) {
+    return false
+  }
+  return coordinator.compareAndSet(key, current, bytes)
 }
 
 export async function getIndexMetadata(
@@ -152,7 +159,7 @@ export async function getIndexMetadata(
   validateIndexName(indexName)
   const key = indexConfigKey(indexName)
   const raw = await coordinator.get(key)
-  if (raw === null) {
+  if (raw === null || raw.byteLength === 0) {
     return null
   }
   const decoded = decode(raw)

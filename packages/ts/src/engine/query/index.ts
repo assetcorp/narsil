@@ -66,13 +66,13 @@ export async function executeQuery<T = AnyDocument>(
     let fanOutResult: FanOutResult
 
     if (isVectorOnly && hasGlobalVectorIndex) {
-      fanOutResult = await executeVectorSearch(params, manager, config, limit, offset)
+      fanOutResult = await executeVectorSearch(params, manager, config, limit, offset, context.partitionIds)
     } else if (isHybridMode && hasGlobalVectorIndex) {
       fanOutResult = await executeHybridSearch(params, context, limit, offset)
     } else {
       const scoring = scoringConfigFor(params, context)
       const workerResult = workerSearch
-        ? await workerSearch(indexName, params, broadcastStatsForWorker(params, context, scoring))
+        ? await workerSearch(indexName, params, broadcastStatsForWorker(params, context, scoring), context.partitionIds)
         : null
       if (workerResult) {
         fanOutResult = workerResult
@@ -221,7 +221,14 @@ export async function executePreflight(params: QueryParams, context: QueryContex
   const preflightOffset = 0
 
   if (isVectorOnly && hasGlobalVectorIndex) {
-    const result = await executeVectorSearch(params, manager, config, preflightLimit, preflightOffset)
+    const result = await executeVectorSearch(
+      params,
+      manager,
+      config,
+      preflightLimit,
+      preflightOffset,
+      context.partitionIds,
+    )
     totalMatched = result.totalMatched
   } else if (isHybridMode && hasGlobalVectorIndex) {
     const result = await executeHybridSearch(params, context, preflightLimit, preflightOffset)
@@ -229,7 +236,7 @@ export async function executePreflight(params: QueryParams, context: QueryContex
   } else {
     const scoring = scoringConfigFor(params, context)
     const workerResult = workerSearch
-      ? await workerSearch(indexName, params, broadcastStatsForWorker(params, context, scoring))
+      ? await workerSearch(indexName, params, broadcastStatsForWorker(params, context, scoring), context.partitionIds)
       : null
     if (workerResult) {
       totalMatched = workerResult.totalMatched

@@ -6,8 +6,8 @@ import type { LanguageModule } from '../types/language'
 import type { SuggestResult } from '../types/results'
 import type { SuggestParams } from '../types/search'
 
-const DEFAULT_SUGGEST_LIMIT = 10
-const MAX_SUGGEST_LIMIT = 100
+export const DEFAULT_SUGGEST_LIMIT = 10
+export const MAX_SUGGEST_LIMIT = 100
 
 interface MergedSuggestion {
   documentFrequency: number
@@ -18,6 +18,7 @@ export function executeSuggest(
   manager: PartitionManager,
   language: LanguageModule,
   params: SuggestParams,
+  partitionIds?: number[],
 ): SuggestResult {
   const t0 = performance.now()
   const limit = Math.max(1, Math.min(clampRowCount(params.limit, DEFAULT_SUGGEST_LIMIT), MAX_SUGGEST_LIMIT))
@@ -40,7 +41,14 @@ export function executeSuggest(
   const merged = new Map<string, MergedSuggestion>()
   const perPartitionLimit = limit * 2
 
-  for (const partition of manager.getAllPartitions()) {
+  const partitions =
+    partitionIds === undefined
+      ? manager.getAllPartitions()
+      : partitionIds
+          .map(partitionId => manager.partitionAt(partitionId))
+          .filter((partition): partition is NonNullable<typeof partition> => partition !== undefined)
+
+  for (const partition of partitions) {
     for (const suggestion of partition.suggestTerms(lastToken, stemmed, perPartitionLimit)) {
       let entry = merged.get(suggestion.token)
       if (!entry) {
