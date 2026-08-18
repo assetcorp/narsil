@@ -1,32 +1,17 @@
-import { resolveProjection } from '../../core/projection'
-import type { QueryResult } from '../../types/results'
-import type { AnyDocument } from '../../types/schema'
-import type { QueryParams } from '../../types/search'
-import { distributedQuery } from '../query/routing'
-import type { ClusterLocalEngine } from './local-engine'
-import { fetchDistributedDocuments, readDistributedDocuments } from './node-messaging'
-import { distributedResultToLocal, localParamsToWire } from './query-conversion'
-import type { ClusterNodeConfig } from './types'
+import { resolveProjection } from '../../../core/projection'
+import type { QueryResult } from '../../../types/results'
+import type { AnyDocument } from '../../../types/schema'
+import type { QueryParams } from '../../../types/search'
+import { distributedQuery } from '../../query/routing'
+import { fetchDistributedDocuments, readDistributedDocuments } from '../node-messaging'
+import { distributedResultToLocal, localParamsToWire } from '../query-conversion'
+import { activeAllocation, type ClusterReadDeps } from './scatter'
 
-export interface ClusterReadDeps {
-  config: ClusterNodeConfig
-  nodeId: string
-  engine: ClusterLocalEngine
-  resolveNodeTargets: (targetNodeId: string) => Promise<string[]>
-}
-
-async function activeAllocation(deps: ClusterReadDeps, indexName: string) {
-  const allocation = await deps.config.coordinator.getAllocation(indexName)
-  if (allocation === null || allocation.assignments.size === 0) {
-    return null
-  }
-  for (const [, assignment] of allocation.assignments) {
-    if (assignment.state === 'ACTIVE') {
-      return allocation
-    }
-  }
-  return null
-}
+export { countCluster, partitionStatsCluster, statsCluster } from './counts'
+export { listCluster } from './list'
+export type { ClusterReadDeps } from './scatter'
+export { activeAllocation } from './scatter'
+export { preflightCluster, suggestCluster } from './terms'
 
 export async function readClusterDocuments(
   deps: ClusterReadDeps,

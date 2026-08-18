@@ -19,6 +19,7 @@ ClusterCoordinator {
 
   async getAllocation(indexName: string) -> AllocationTable or absent
   async putAllocation(indexName: string, table: AllocationTable, expectedVersion: uint64 or absent) -> boolean
+  async deleteAllocation(indexName: string) -> nothing
   async watchAllocation(handler: (event: AllocationEvent) -> nothing) -> (() -> nothing)
 
   async getPartitionState(indexName: string, partitionId: uint32) -> PartitionState
@@ -33,6 +34,8 @@ ClusterCoordinator {
 
   async getSchema(indexName: string) -> SchemaDefinition or absent
   async putSchema(indexName: string, schema: SchemaDefinition) -> nothing
+  async dropSchema(indexName: string) -> nothing
+  async listSchemas() -> List<string>
   async watchSchemas(handler: (event: SchemaEvent) -> nothing) -> (() -> nothing)
 
   async getLeaseHolder(key: string) -> string or absent
@@ -66,6 +69,11 @@ ClusterCoordinator {
 - `putAllocation` takes an optimistic concurrency check through `expectedVersion`. With a version supplied, the write succeeds only when the stored table carries that version. With `expectedVersion` absent, the write succeeds only when no table exists for the index yet. It returns true when the write succeeded and false when the check failed.
 - That check is what stops a split brain: a controller that has lost its lease cannot overwrite a newer table written by its successor, because the version has already moved on.
 
+### deleteAllocation(indexName)
+
+- Removes the allocation table of one index, which is the last step of the [deletion flow](#index-deletion-flow).
+- It is idempotent, so deleting a table that does not exist is not an error.
+
 ### watchAllocation(handler)
 
 - Fires whenever any allocation table changes, carrying the index name and the new table.
@@ -87,9 +95,10 @@ ClusterCoordinator {
 - Sets `key` to `value` and returns true when the current value equals `expected`, and returns false otherwise.
 - With `expected` absent, it succeeds only when the key does not exist.
 
-### getSchema, putSchema, listSchemas, and watchSchemas
+### getSchema, putSchema, dropSchema, listSchemas, and watchSchemas
 
 - Schema metadata is stored in the coordinator, not in the replication log; see [replication.md](replication.md).
+- `dropSchema` removes the stored schema and fires a `schema_dropped` event, which starts the [deletion flow](#index-deletion-flow). It is idempotent.
 - `listSchemas` returns the name of every stored schema, which is how a newly elected controller finds the indexes it must reconcile.
 - `watchSchemas` fires when an index schema is created or dropped, which is how a node discovers a new index and learns that one has gone.
 
@@ -426,6 +435,40 @@ _narsil/index/{indexName}/config
 The `partitionCount` is fixed once the index exists. Changing it means creating a new index and reindexing into it. Every node must create its local index with exactly `partitionCount` partitions, so that a serialised partition loads unchanged on any holder.
 
 The `replicationFactor` can change after creation by updating the allocation table, and the controller applies the new factor on the next rebalance.
+
+### Index Deletion Flow
+
+Deleting an index reverses the creation flow, and the controller drives the teardown so that every holder learns of it through the allocation watch it already runs.
+
+```text
+1. The node receiving the drop request:
+   a. clears the index metadata with
+      compareAndSet('_narsil/index/{indexName}/config', current, empty)
+   b. drops the schema with dropSchema(indexName), which fires a
+      schema_dropped event
+
+2. The controller observes that event:
+   a. it writes an allocation table with no assignments through
+      putAllocation, using the stored table's version as the
+      expected version
+   b. it deletes the table with deleteAllocation
+
+3. Every node holding a partition observes the empty table, drops
+   the partitions it held, and drops its local index once it holds
+   no partition of that index.
+
+4. A controller that crashes between steps 2a and 2b leaves an
+   empty table behind. Every reader must treat an allocation table
+   with no assignments as absent, so the next create call for the
+   same name allocates afresh and the empty table is overwritten.
+
+5. An empty metadata value under the index config key counts as
+   absent, so the next create call for the same name may replace
+   it with fresh metadata. A non-empty value still blocks the
+   create, exactly as the creation flow describes.
+```
+
+A drop is not atomic across nodes: a query routed while the teardown runs can reach a node that already dropped its partitions, and the coordinator then reports the failure through the partial-results rules in [query-routing.md](query-routing.md#partial-results).
 
 ---
 

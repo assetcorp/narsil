@@ -64,6 +64,25 @@ describe('IndexMetadata', () => {
     expect(retrieved?.partitionCount).toBe(3)
   })
 
+  it('treats an emptied metadata key as absent, so a dropped name can be recreated', async () => {
+    const metadata = {
+      indexName: 'products',
+      partitionCount: 3,
+      replicationFactor: 1,
+      constraints: defaultConstraints,
+    }
+    expect(await putIndexMetadata(coordinator, metadata)).toBe(true)
+
+    const current = await coordinator.get('_narsil/index/products/config')
+    expect(current).not.toBeNull()
+    if (current === null) throw new Error('metadata is missing')
+    expect(await coordinator.compareAndSet('_narsil/index/products/config', current, new Uint8Array(0))).toBe(true)
+
+    expect(await getIndexMetadata(coordinator, 'products')).toBeNull()
+    expect(await putIndexMetadata(coordinator, { ...metadata, partitionCount: 4 })).toBe(true)
+    expect((await getIndexMetadata(coordinator, 'products'))?.partitionCount).toBe(4)
+  })
+
   it('defaults constraint fields when they are missing from stored data', async () => {
     const metadata: IndexMetadata = {
       indexName: 'articles',

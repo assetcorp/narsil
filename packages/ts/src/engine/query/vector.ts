@@ -8,6 +8,7 @@ import {
   broadcastStatsForWorker,
   clampAlpha,
   collectFilterDocIds,
+  partitionDocIdFilter,
   type QueryContext,
   resolveVectorIndex,
   scoringConfigFor,
@@ -21,6 +22,7 @@ export async function executeVectorSearch(
   config: IndexConfig,
   limit: number,
   offset: number,
+  partitionIds?: number[],
 ): Promise<FanOutResult> {
   const vectorConfig = params.vector
   if (!vectorConfig || !vectorConfig.value) {
@@ -34,10 +36,12 @@ export async function executeVectorSearch(
 
   let filterDocIds: Set<string> | undefined
   if (params.filters) {
-    filterDocIds = collectFilterDocIds(manager, params, config.schema)
-    if (filterDocIds.size === 0) {
-      return { scored: [], totalMatched: 0 }
-    }
+    filterDocIds = collectFilterDocIds(manager, params, config.schema, partitionIds)
+  } else {
+    filterDocIds = partitionDocIdFilter(manager, partitionIds, undefined)
+  }
+  if (filterDocIds !== undefined && filterDocIds.size === 0) {
+    return { scored: [], totalMatched: 0 }
   }
 
   const queryVec = new Float32Array(vectorConfig.value)
@@ -64,8 +68,13 @@ export async function executeHybridSearch(
 
   let filterDocIds: Set<string> | undefined
   if (params.filters) {
-    filterDocIds = collectFilterDocIds(manager, params, config.schema)
+    filterDocIds = collectFilterDocIds(manager, params, config.schema, context.partitionIds)
     if (filterDocIds.size === 0) {
+      return { scored: [], totalMatched: 0 }
+    }
+  } else {
+    filterDocIds = partitionDocIdFilter(manager, context.partitionIds, undefined)
+    if (filterDocIds !== undefined && filterDocIds.size === 0) {
       return { scored: [], totalMatched: 0 }
     }
   }
@@ -73,7 +82,12 @@ export async function executeHybridSearch(
   let textFanOutResult: FanOutResult
   const scoring = scoringConfigFor(params, context)
   const textWorkerResult = workerSearch
-    ? await workerSearch(indexName, textOnlyParams, broadcastStatsForWorker(textOnlyParams, context, scoring))
+    ? await workerSearch(
+        indexName,
+        textOnlyParams,
+        broadcastStatsForWorker(textOnlyParams, context, scoring),
+        context.partitionIds,
+      )
     : null
   if (textWorkerResult) {
     textFanOutResult = textWorkerResult

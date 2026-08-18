@@ -152,6 +152,24 @@ describe('EtcdCoordinator integration - CAS and allocations', () => {
 
       expect(await coordinator.getSchema('products')).toEqual(testSchema)
       expect(await coordinator.listSchemas()).toEqual(['products'])
+
+      await coordinator.dropSchema('products')
+      await eventually(
+        async () => {
+          expect(schemaEvents).toHaveLength(2)
+          expect(schemaEvents[1]?.type).toBe('schema_dropped')
+          expect(schemaEvents[1]?.indexName).toBe('products')
+        },
+        5_000,
+        'Timed out waiting for schema drop watch event',
+      )
+      expect(await coordinator.getSchema('products')).toBeNull()
+      expect(await coordinator.listSchemas()).toEqual([])
+      await coordinator.dropSchema('products')
+
+      await coordinator.deleteAllocation('products')
+      expect(await coordinator.getAllocation('products')).toBeNull()
+      await coordinator.deleteAllocation('products')
     } finally {
       stopAllocationWatch()
       stopSchemaWatch()

@@ -53,7 +53,7 @@ describe('the HTTP server serves a cluster node', () => {
     await coordinator.shutdown()
   })
 
-  it('creates, writes, searches, and reads through the cluster, and refuses the rest with 501', async () => {
+  it('creates, writes, updates, searches, reads, and administers through the cluster, and refuses the rest with 501', async () => {
     const created = await postJson(base, '/indexes', {
       name: 'products',
       config: { schema: { title: 'string', price: 'number' } },
@@ -89,23 +89,54 @@ describe('the HTTP server serves a cluster node', () => {
     const exists = await getJson<{ exists: boolean }>(base, '/indexes/products/documents/widget-1/_exists')
     expect(exists.status).toBe(200)
 
+    const patched = await patchJson<{ id: string }>(base, '/indexes/products/documents/widget-1', {
+      document: { title: 'Patched Widget', price: 15 },
+    })
+    expect(patched.status).toBe(200)
+
+    const patchedSearch = await postJson<{ count: number }>(base, '/indexes/products/search', { term: 'patched' })
+    expect(patchedSearch.status).toBe(200)
+    expect(patchedSearch.body.count).toBe(1)
+
+    const suggested = await postJson<{ terms: Array<{ term: string }> }>(base, '/indexes/products/suggest', {
+      prefix: 'patc',
+    })
+    expect(suggested.status).toBe(200)
+    expect(suggested.body.terms.length).toBeGreaterThan(0)
+
+    const preflighted = await postJson<{ count: number }>(base, '/indexes/products/search/preflight', {
+      term: 'patched',
+    })
+    expect(preflighted.status).toBe(200)
+    expect(preflighted.body.count).toBe(1)
+
+    const checkpointed = await postJson(base, '/indexes/products/_checkpoint', {})
+    expect(checkpointed.status).toBe(200)
+
+    const memory = await getJson<{ estimatedIndexBytes: number }>(base, '/stats/memory')
+    expect(memory.status).toBe(200)
+
     const removed = await del(base, '/indexes/products/documents/widget-1')
     expect(removed.status).toBe(200)
 
     const refusals: Array<[string, Promise<{ status: number; body: unknown }>]> = [
-      ['patch document', patchJson(base, '/indexes/products/documents/widget-2', { document: { title: 'x' } })],
-      ['suggest', postJson(base, '/indexes/products/suggest', { prefix: 'clu' })],
-      ['preflight', postJson(base, '/indexes/products/search/preflight', { term: 'clustered' })],
       ['list indexes', getJson(base, '/indexes')],
       ['index stats', getJson(base, '/indexes/products/stats')],
-      ['drop index', del(base, '/indexes/products')],
-      ['memory stats', getJson(base, '/stats/memory')],
-      ['checkpoint', postJson(base, '/indexes/products/_checkpoint', {})],
     ]
     for (const [operation, request] of refusals) {
       const refusal = await request
       expect(refusal.status, operation).toBe(501)
       expect((refusal.body as { error: { code: string } }).error.code, operation).toBe('CLUSTER_OPERATION_UNSUPPORTED')
     }
+
+    const dropped = await del(base, '/indexes/products')
+    expect(dropped.status).toBe(200)
+
+    const goneFromCoordinator = await pollUntil(async () => {
+      const allocation = await coordinator.getAllocation('products')
+      const schema = await coordinator.getSchema('products')
+      return allocation === null && schema === null
+    })
+    expect(goneFromCoordinator).toBe(true)
   })
 })

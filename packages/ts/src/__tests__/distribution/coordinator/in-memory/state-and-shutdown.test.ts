@@ -109,6 +109,15 @@ describe('InMemoryCoordinator', () => {
       const retrieved = await coordinator.getAllocation('products')
       expect(retrieved?.version).toBe(2)
     })
+
+    it('deletes an allocation table and tolerates deleting a missing one', async () => {
+      await coordinator.putAllocation('products', makeAllocationTable('products'))
+      await coordinator.deleteAllocation('products')
+      expect(await coordinator.getAllocation('products')).toBeNull()
+
+      await coordinator.deleteAllocation('products')
+      expect(await coordinator.getAllocation('products')).toBeNull()
+    })
   })
 
   describe('partition state', () => {
@@ -166,6 +175,30 @@ describe('InMemoryCoordinator', () => {
       await coordinator.putSchema('articles', testSchema)
 
       expect(await coordinator.listSchemas()).toEqual(['articles', 'products'])
+    })
+
+    it('drops a schema and tells every watcher', async () => {
+      const events: SchemaEvent[] = []
+      await coordinator.putSchema('articles', testSchema)
+      await coordinator.watchSchemas(event => events.push(event))
+
+      await coordinator.dropSchema('articles')
+
+      expect(await coordinator.getSchema('articles')).toBeNull()
+      expect(await coordinator.listSchemas()).toEqual([])
+      expect(events).toHaveLength(1)
+      expect(events[0].type).toBe('schema_dropped')
+      expect(events[0].indexName).toBe('articles')
+      expect(events[0].schema).toBeNull()
+    })
+
+    it('drops a missing schema silently, with no event', async () => {
+      const events: SchemaEvent[] = []
+      await coordinator.watchSchemas(event => events.push(event))
+
+      await coordinator.dropSchema('never-created')
+
+      expect(events).toHaveLength(0)
     })
 
     it('overwrites an existing schema', async () => {

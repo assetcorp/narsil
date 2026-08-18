@@ -1,8 +1,5 @@
 import { generateId } from '../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../errors'
-import type { QueryResult } from '../../types/results'
-import type { AnyDocument } from '../../types/schema'
-import type { QueryParams } from '../../types/search'
 import { createController } from '../cluster/controller'
 import type { ControllerNode } from '../cluster/controller/types'
 import { DEFAULT_CONTROLLER_CONFIG } from '../cluster/controller/types'
@@ -23,7 +20,8 @@ import {
 import { createClusterLocalEngine } from './local-engine'
 import { createDataNodeHandler } from './message-handler'
 import { resolveNodeTargets as resolveTargetsForNode, sendToNode as sendMessageToNode } from './node-messaging'
-import { type ClusterReadDeps, queryCluster, readClusterDocuments } from './reads'
+import { createClusterNodeOperations } from './node-operations'
+import type { ClusterReadDeps } from './reads'
 import {
   replicationLogKey as buildReplicationLogKey,
   getReplicationLog as readReplicationLog,
@@ -31,17 +29,10 @@ import {
 } from './replication-logs'
 import { createSnapshotSyncHandlerState, defaultSnapshotHeaderMetadataProvider } from './snapshot-sync-handler'
 import { createMultiplexedControllerTransport } from './transport-listener'
-import type { ClusterNamespace, ClusterNode, ClusterNodeConfig, CreateIndexOptions } from './types'
+import type { ClusterNamespace, ClusterNode, ClusterNodeConfig } from './types'
 import { DEFAULT_CAPACITY } from './types'
 import { validateClusterNodeConfig } from './validate-config'
-import {
-  routeCreateIndex,
-  routeInsert,
-  routeInsertBatch,
-  routeRemove,
-  routeRemoveBatch,
-  type WriteRoutingDeps,
-} from './write-routing'
+import type { WriteRoutingDeps } from './write-routing'
 import { createPartitionWriteQueues } from './write-routing/partition-queue'
 
 const SPEC_VERSION = '1.0'
@@ -266,41 +257,13 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       return roles
     },
 
-    async createIndex(name, indexConfig, options?: CreateIndexOptions) {
-      return trackOp(() => routeCreateIndex(name, indexConfig, options, config.coordinator, engine))
-    },
-
-    async insert(indexName, document, docId?) {
-      return trackOp(() => routeInsert(indexName, document, docId, writeDeps))
-    },
-
-    async insertBatch(indexName, documents) {
-      return trackOp(() => routeInsertBatch(indexName, documents, writeDeps))
-    },
-
-    async remove(indexName, docId) {
-      return trackOp(() => routeRemove(indexName, docId, writeDeps))
-    },
-
-    async removeBatch(indexName, docIds) {
-      return trackOp(() => routeRemoveBatch(indexName, docIds, writeDeps))
-    },
-
-    async query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>> {
-      return trackOp(() => queryCluster<T>(readDeps, indexName, params))
-    },
-
-    async get(indexName, docId) {
-      return trackOp(async () => (await readClusterDocuments(readDeps, indexName, [docId])).get(docId))
-    },
-
-    async getMultiple(indexName, docIds) {
-      return trackOp(() => readClusterDocuments(readDeps, indexName, docIds))
-    },
-
-    async has(indexName, docId) {
-      return trackOp(async () => (await readClusterDocuments(readDeps, indexName, [docId])).has(docId))
-    },
+    ...createClusterNodeOperations({
+      trackOp,
+      readDeps,
+      writeDeps,
+      engine,
+      coordinator: config.coordinator,
+    }),
 
     cluster,
 

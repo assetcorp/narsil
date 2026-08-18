@@ -111,6 +111,7 @@ Every hit holds the document, its id, and its BM25 score. `results.count` report
 | [Partitions and workers](../../docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker promotion, and multi-instance invalidation |
 | [Language support](../../docs/language-support.md) | The 107 language modules, analysis revisions and rebuilds, and named tokenizers and stop words |
 | [HTTP server](../../docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |
+| [Cluster mode](../../docs/cluster.md) | Multi-node indexes: nodes and roles, replication, routed writes, distributed searches and reads, and what a cluster refuses |
 | [Client](../../docs/client.md) | Reaching a server from a browser or Node, following a task, and the codes it raises |
 | [React](../../docs/react.md) | The hooks over the client, one shared request per key, and loading a corpus from a component |
 | [Observability](../../docs/observability.md) | Plugin hooks, engine events, and memory reporting |
@@ -128,7 +129,7 @@ The [specification](../spec/) defines the `.nrsl` format, the analysis pipeline,
 
 ## Distribution
 
-`@delali/narsil/distribution` holds the building blocks of Narsil's multi-node cluster mode: node roles, replication, coordinator adapters, and query routing. The distribution layer is under active development and experimental. It runs only in process today, and its APIs change without notice, so no production deployment should depend on it yet. The design is specified in [`packages/spec/distribution`](../spec/distribution), and this section will grow into full documentation once the cluster mode is runnable.
+`@delali/narsil/distribution` holds Narsil's multi-node cluster mode: nodes and roles, replication, coordinator adapters for etcd and in-process testing, TCP and gRPC transports with mutual TLS, and distributed query routing. A cluster node creates, drops, clears, writes, updates, searches, lists, counts, and suggests across every partition, and the [cluster example](examples/cluster) runs three node processes against etcd and survives a kill. The layer is experimental and its APIs change without notice, so pin an exact version before you depend on it. The [cluster guide](../../docs/cluster.md) covers the surface, and [`packages/spec/distribution`](../spec/distribution) specifies the contract every implementation follows.
 
 ## Search quality
 

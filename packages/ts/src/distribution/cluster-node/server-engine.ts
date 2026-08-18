@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../types/engine'
 import type { AnyDocument, IndexConfig } from '../../types/schema'
-import type { QueryParams } from '../../types/search'
+import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
 import type { ClusterNode, CreateIndexOptions } from './types'
 
 /**
@@ -27,10 +27,16 @@ function unsupported(operation: string): never {
  * `createServer` from `@delali/narsil/server` serves the cluster the way it
  * serves a single engine.
  *
- * Writes, searches, index creation, and document reads route through the
- * cluster. Every other operation fails with `CLUSTER_OPERATION_UNSUPPORTED`,
- * which the HTTP server answers with status 501, so a caller learns the
- * operation is missing rather than reading a wrong answer.
+ * Writes, updates, searches, suggestions, listings, counts, index creation,
+ * index removal, and document reads route through the cluster. Checkpointing,
+ * memory statistics, and engine events reach this node's local engine, because
+ * each covers a per-node fact. Every other operation fails with
+ * `CLUSTER_OPERATION_UNSUPPORTED`, which the HTTP server answers with status
+ * 501, so a caller learns the operation is missing rather than reading a
+ * wrong answer. That covers `getStats`, `getPartitionStats`, and
+ * `listIndexes` as well, because {@link Narsil} declares them synchronous and
+ * a cluster answer needs a round trip; call them on the
+ * {@link ClusterNode} itself, where they are asynchronous.
  *
  * @param node - The cluster node the adapter serves.
  * @param options - How the forwarded operations are shaped, such as the
@@ -61,6 +67,38 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
       return node.removeBatch(indexName, docIds)
     },
 
+    async update(indexName: string, docId: string, document: AnyDocument): Promise<void> {
+      return node.update(indexName, docId, document)
+    },
+
+    async updateBatch(indexName: string, updates: Array<{ docId: string; document: AnyDocument }>) {
+      return node.updateBatch(indexName, updates)
+    },
+
+    async dropIndex(name: string): Promise<void> {
+      return node.dropIndex(name)
+    },
+
+    async clear(indexName: string): Promise<void> {
+      return node.clear(indexName)
+    },
+
+    async countDocuments(indexName: string): Promise<number> {
+      return node.countDocuments(indexName)
+    },
+
+    async listDocuments<T = AnyDocument>(indexName: string, params?: ListParams) {
+      return node.listDocuments<T>(indexName, params)
+    },
+
+    async suggest(indexName: string, params: SuggestParams) {
+      return node.suggest(indexName, params)
+    },
+
+    async preflight(indexName: string, params: QueryParams) {
+      return node.preflight(indexName, params)
+    },
+
     async query<T = AnyDocument>(indexName: string, params: QueryParams) {
       return node.query<T>(indexName, params)
     },
@@ -77,33 +115,37 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
       return node.has(indexName, docId)
     },
 
+    async checkpoint(indexName: string): Promise<void> {
+      return node.checkpoint(indexName)
+    },
+
+    async getMemoryStats() {
+      return node.getMemoryStats()
+    },
+
+    on(event, handler) {
+      node.on(event, handler)
+    },
+
+    off(event, handler) {
+      node.off(event, handler)
+    },
+
     async shutdown(): Promise<void> {
       return node.shutdown()
     },
 
     registerEmbeddingAdapter: () => unsupported('registerEmbeddingAdapter'),
-    dropIndex: () => unsupported('dropIndex'),
     listIndexes: () => unsupported('listIndexes'),
     getStats: () => unsupported('getStats'),
     getPartitionStats: () => unsupported('getPartitionStats'),
-    update: () => unsupported('update'),
-    updateBatch: () => unsupported('updateBatch'),
-    countDocuments: () => unsupported('countDocuments'),
-    listDocuments: () => unsupported('listDocuments'),
-    preflight: () => unsupported('preflight'),
-    suggest: () => unsupported('suggest'),
     rebuildAnalysis: () => unsupported('rebuildAnalysis'),
     snapshot: () => unsupported('snapshot'),
     restore: () => unsupported('restore'),
-    checkpoint: () => unsupported('checkpoint'),
-    clear: () => unsupported('clear'),
     rebalance: () => unsupported('rebalance'),
     updatePartitionConfig: () => unsupported('updatePartitionConfig'),
-    getMemoryStats: () => unsupported('getMemoryStats'),
     compactVectors: () => unsupported('compactVectors'),
     optimizeVectors: () => unsupported('optimizeVectors'),
     vectorMaintenanceStatus: () => unsupported('vectorMaintenanceStatus'),
-    on: () => unsupported('on'),
-    off: () => unsupported('off'),
   }
 }

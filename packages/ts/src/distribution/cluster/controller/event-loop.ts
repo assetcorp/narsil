@@ -1,5 +1,11 @@
 import { decode } from '@msgpack/msgpack'
-import type { ClusterCoordinator, NodeEvent, NodeRegistration, SchemaEvent } from '../../coordinator/types'
+import type {
+  AllocationTable,
+  ClusterCoordinator,
+  NodeEvent,
+  NodeRegistration,
+  SchemaEvent,
+} from '../../coordinator/types'
 import { createInsyncConfirmMessage } from '../../replication/codec'
 import { handleInsyncRemoval } from '../../replication/insync'
 import type { InsyncRemovePayload, NodeTransport, TransportMessage } from '../../transport/types'
@@ -185,11 +191,13 @@ async function handleSchemaCreated(
     return
   }
 
-  const currentTable = await coordinator.getAllocation(indexName)
+  const storedTable = await coordinator.getAllocation(indexName)
 
   if (!isActive()) {
     return
   }
+
+  const currentTable = storedTable !== null && storedTable.assignments.size === 0 ? null : storedTable
 
   const result = allocate(
     nodes,
@@ -204,12 +212,52 @@ async function handleSchemaCreated(
     return
   }
 
-  const expectedVersion = currentTable !== null ? currentTable.version : null
+  const expectedVersion = storedTable !== null ? storedTable.version : null
   await coordinator.putAllocation(indexName, result.table, expectedVersion)
 }
 
-function handleSchemaDropped(indexName: string, knownIndexes: Set<string>): void {
+const TEARDOWN_CAS_ATTEMPTS = 5
+
+async function handleSchemaDropped(
+  indexName: string,
+  coordinator: ClusterCoordinator,
+  knownIndexes: Set<string>,
+  isActive: () => boolean,
+): Promise<void> {
   knownIndexes.delete(indexName)
+
+  for (let attempt = 0; attempt < TEARDOWN_CAS_ATTEMPTS; attempt++) {
+    if (!isActive()) {
+      return
+    }
+
+    const currentTable = await coordinator.getAllocation(indexName)
+    if (currentTable === null) {
+      return
+    }
+    if (!isActive()) {
+      return
+    }
+
+    if (currentTable.assignments.size > 0) {
+      const emptyTable: AllocationTable = {
+        indexName,
+        version: currentTable.version + 1,
+        replicationFactor: currentTable.replicationFactor,
+        assignments: new Map(),
+      }
+      const written = await coordinator.putAllocation(indexName, emptyTable, currentTable.version)
+      if (!written) {
+        continue
+      }
+      if (!isActive()) {
+        return
+      }
+    }
+
+    await coordinator.deleteAllocation(indexName)
+    return
+  }
 }
 
 async function handleSchemaEvent(
@@ -221,7 +269,7 @@ async function handleSchemaEvent(
   if (event.type === 'schema_created') {
     await handleSchemaCreated(event.indexName, coordinator, knownIndexes, isActive)
   } else if (event.type === 'schema_dropped') {
-    handleSchemaDropped(event.indexName, knownIndexes)
+    await handleSchemaDropped(event.indexName, coordinator, knownIndexes, isActive)
   }
 }
 

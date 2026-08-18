@@ -114,6 +114,7 @@ export class TransportError extends Error {
 
 export const ReplicationMessageTypes = {
   FORWARD: 'replication.forward',
+  FORWARD_BATCH: 'replication.forward_batch',
   ENTRY: 'replication.entry',
   ENTRY_BATCH: 'replication.entry_batch',
   ACK: 'replication.ack',
@@ -134,6 +135,14 @@ export const QueryMessageTypes = {
   FETCH_RESULT: 'query.fetch_result',
   STATS: 'query.stats',
   STATS_RESULT: 'query.stats_result',
+  COUNT: 'query.count',
+  COUNT_RESULT: 'query.count_result',
+  LIST: 'query.list',
+  LIST_RESULT: 'query.list_result',
+  SUGGEST: 'query.suggest',
+  SUGGEST_RESULT: 'query.suggest_result',
+  PREFLIGHT: 'query.preflight',
+  PREFLIGHT_RESULT: 'query.preflight_result',
 } as const
 
 export const ClusterMessageTypes = {
@@ -148,6 +157,29 @@ export interface ForwardPayload {
   operation: 'insert' | 'remove' | 'update'
   document: Uint8Array | null
   updateFields: Record<string, unknown> | null
+}
+
+export interface ForwardBatchOperation {
+  documentId: string
+  operation: 'insert' | 'remove' | 'update'
+  document: Uint8Array | null
+  updateFields: Record<string, unknown> | null
+}
+
+export interface ForwardBatchPayload {
+  indexName: string
+  operations: ForwardBatchOperation[]
+}
+
+export interface ForwardBatchOperationResult {
+  documentId: string
+  success: boolean
+  errorCode: string | null
+  errorMessage: string | null
+}
+
+export interface ForwardBatchResultPayload {
+  results: ForwardBatchOperationResult[]
 }
 
 export interface EntryPayload {
@@ -221,126 +253,36 @@ export interface InsyncConfirmPayload {
   accepted: boolean
 }
 
-export interface SortField {
-  field: string
-  direction: 'asc' | 'desc'
-}
-
-export interface WireGroupConfig {
-  field: string
-  maxPerGroup: number
-}
-
-export interface WireVectorQueryParams {
-  field: string
-  value: number[] | null
-  text: string | null
-  similarity: number | null
-}
-
-export interface WireHybridConfig {
-  strategy: 'rrf' | 'linear'
-  k: number
-  alpha: number
-}
-
-export interface WireQueryParams {
-  term: string | null
-  filters: Record<string, unknown> | null
-  sort: SortField[] | null
-  group: WireGroupConfig | null
-  facets: string[] | null
-  facetSize: number | null
-  limit: number
-  offset: number
-  searchAfter: string | null
-  fields: string[] | null
-  boost: Record<string, number> | null
-  tolerance: number | null
-  threshold: number | null
-  includeScores: boolean | null
-  scoring: 'local' | 'dfs' | 'broadcast'
-  vector: WireVectorQueryParams | null
-  hybrid: WireHybridConfig | null
-}
-
-export interface GlobalStatistics {
-  totalDocuments: number
-  docFrequencies: Record<string, number>
-  totalFieldLengths: Record<string, number>
-  averageFieldLengths: Record<string, number>
-}
-
-export interface WireHighlightConfig {
-  fields: string[] | null
-  before: string
-  after: string
-  maxSnippetLength: number
-}
-
-export interface ScoredEntry {
-  docId: string
-  score: number | null
-  sortValues: unknown[] | null
-}
-
-export interface FacetBucket {
-  value: string
-  count: number
-}
-
-export interface PartitionSearchResult {
-  partitionId: number
-  scored: ScoredEntry[]
-  totalHits: number
-}
-
-export interface SearchPayload {
-  indexName: string
-  partitionIds: number[]
-  params: WireQueryParams
-  globalStats: GlobalStatistics | null
-  facetShardSize: number | null
-}
-
-export interface SearchResultPayload {
-  results: PartitionSearchResult[]
-  facets: Record<string, FacetBucket[]> | null
-}
-
-export interface FetchDocumentId {
-  docId: string
-  partitionId: number
-}
-
-export interface FetchPayload {
-  indexName: string
-  documentIds: FetchDocumentId[]
-  fields: string[] | null
-  highlight: WireHighlightConfig | null
-}
-
-export interface FetchedDocument {
-  docId: string
-  document: Record<string, unknown>
-  highlights: Record<string, string[]> | null
-}
-
-export interface FetchResultPayload {
-  documents: FetchedDocument[]
-}
-
-export interface StatsPayload {
-  indexName: string
-  partitionIds: number[]
-  terms: string[]
-}
-
-export interface StatsResultPayload {
-  totalDocuments: number
-  docFrequencies: Record<string, number>
-  totalFieldLengths: Record<string, number>
-}
+export type {
+  CountPayload,
+  CountResultPayload,
+  FacetBucket,
+  FetchDocumentId,
+  FetchedDocument,
+  FetchPayload,
+  FetchResultPayload,
+  GlobalStatistics,
+  ListEntryWire,
+  ListPayload,
+  ListResultPayload,
+  PartitionCountEntry,
+  PartitionSearchResult,
+  PreflightPayload,
+  PreflightResultPayload,
+  ScoredEntry,
+  SearchPayload,
+  SearchResultPayload,
+  SortField,
+  StatsPayload,
+  StatsResultPayload,
+  SuggestPayload,
+  SuggestResultPayload,
+  WireGroupConfig,
+  WireHighlightConfig,
+  WireHybridConfig,
+  WireQueryParams,
+  WireVectorQueryParams,
+} from './query-payloads'
 
 export interface PingPayload {
   timestamp: number

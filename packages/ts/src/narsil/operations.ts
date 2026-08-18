@@ -1,7 +1,6 @@
 import { type EngineCore, type EventHandler, getVectorFieldPaths } from '../engine/core'
 import { createEngineIndex, dropEngineIndex, registerEngineEmbeddingAdapter } from '../engine/index-lifecycle'
 import { shutdownEngine } from '../engine/lifecycle'
-import { executeListDocuments } from '../engine/list-documents'
 import {
   insertDocument,
   insertDocumentBatch,
@@ -10,11 +9,8 @@ import {
   updateDocument,
   updateDocumentBatch,
 } from '../engine/mutations'
-import { executePreflight, executeQuery } from '../engine/query'
 import { executeRebalance } from '../engine/rebalance-executor'
-import { resolveVectorText } from '../engine/resolve-vector-text'
 import { createSnapshot, restoreFromSnapshot } from '../engine/snapshot'
-import { executeSuggest } from '../engine/suggest'
 import { validatePartitionConfig } from '../engine/validation'
 import {
   compactVectors as executeCompactVectors,
@@ -41,11 +37,11 @@ import type {
 } from '../types/results'
 import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig } from '../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
+import { runEngineListDocuments, runEnginePreflight, runEngineQuery, runEngineSuggest } from './reads'
 
 export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): Narsil {
   const {
     executor,
-    pluginRegistry,
     durability,
     indexRegistry,
     eventHandlers,
@@ -59,9 +55,6 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     mutationCtx,
     rebalanceCtx,
   } = core
-
-  const invalidation = core.invalidation
-  const broadcastStats = invalidation === null ? undefined : (name: string) => invalidation.broadcastStats(name)
 
   const narsil: Narsil = {
     createIndex(name: string, indexConfig: IndexConfig): Promise<void> {
@@ -153,83 +146,17 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       return executor.execute({ type: 'count', indexName, requestId: indexName })
     },
     async listDocuments<T = AnyDocument>(indexName: string, params?: ListParams): Promise<ListResult<T>> {
-      guardShutdown()
-      const entry = requireIndex(indexName)
-      return executeListDocuments<T>(params ?? {}, { manager: requireManager(indexName), schema: entry.config.schema })
+      return runEngineListDocuments<T>(core, indexName, params ?? {})
     },
     async query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>> {
-      guardShutdown()
-      const entry = requireIndex(indexName)
-      const manager = requireManager(indexName)
-
-      const resolvedParams = await resolveVectorText(
-        params,
-        entry.embeddingAdapter,
-        abortController.signal,
-        entry.embeddingAdapterName,
-      )
-
-      await pluginRegistry.runHook('beforeSearch', { indexName, params: resolvedParams })
-
-      const workerSearch = orchestrator.isPromoted() ? orchestrator.searchViaWorker.bind(orchestrator) : undefined
-
-      const result = await executeQuery<T>(resolvedParams, {
-        manager,
-        language: entry.language,
-        config: entry.config,
-        workerSearch,
-        indexName,
-        broadcastStats,
-      })
-
-      try {
-        await pluginRegistry.runHook('afterSearch', {
-          indexName,
-          params: resolvedParams,
-          results: result as unknown as QueryResult,
-        })
-      } catch (err) {
-        console.warn('afterSearch plugin hook error:', err)
-      }
-
-      if (core.analysisRebuild.isStale(indexName)) {
-        result.analysisStale = true
-      }
-
-      return result
+      return runEngineQuery<T>(core, indexName, params)
     },
 
     async preflight(indexName: string, params: QueryParams): Promise<PreflightResult> {
-      guardShutdown()
-      const entry = requireIndex(indexName)
-      const manager = requireManager(indexName)
-      const resolvedParams = await resolveVectorText(
-        params,
-        entry.embeddingAdapter,
-        abortController.signal,
-        entry.embeddingAdapterName,
-      )
-      const workerSearch = orchestrator.isPromoted() ? orchestrator.searchViaWorker.bind(orchestrator) : undefined
-      const result = await executePreflight(resolvedParams, {
-        manager,
-        language: entry.language,
-        config: entry.config,
-        workerSearch,
-        indexName,
-        broadcastStats,
-      })
-      if (core.analysisRebuild.isStale(indexName)) {
-        result.analysisStale = true
-      }
-      return result
+      return runEnginePreflight(core, indexName, params)
     },
     async suggest(indexName: string, params: SuggestParams): Promise<SuggestResult> {
-      guardShutdown()
-      const result = await executeSuggest(requireManager(indexName), requireIndex(indexName).language, params)
-      if (core.analysisRebuild.isStale(indexName)) {
-        result.analysisStale = true
-      }
-      return result
+      return runEngineSuggest(core, indexName, params)
     },
 
     async rebuildAnalysis(indexName: string): Promise<void> {

@@ -21,6 +21,7 @@ import { clampLimit, now } from '../validation'
 export interface ListContext {
   manager: PartitionManager
   schema: SchemaDefinition
+  partitionIds?: number[]
 }
 
 interface DocumentPage {
@@ -147,6 +148,21 @@ function pageInSortOrder(
   return { ids: page.map(entry => entry.id), nextCursor }
 }
 
+function countAcrossPartitions(
+  manager: PartitionManager,
+  partitionIds: number[] | undefined,
+  partitions: PartitionIndex[],
+): number {
+  if (partitionIds === undefined) {
+    return manager.countDocuments()
+  }
+  let total = 0
+  for (const partition of partitions) {
+    total += partition.count()
+  }
+  return total
+}
+
 /**
  * Builds one page of stored documents, in document-id order by default and in
  * the caller's sort order when they ask for one.
@@ -168,9 +184,14 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
     requireMatchingCursor(cursor, params.cursor, signature, false)
   }
 
-  const partitions = manager.getAllPartitions()
+  const partitions =
+    context.partitionIds === undefined
+      ? manager.getAllPartitions()
+      : context.partitionIds
+          .map(partitionId => manager.partitionAt(partitionId))
+          .filter((partition): partition is NonNullable<typeof partition> => partition !== undefined)
   const filtered = params.filters === undefined ? null : collectFilterMatches(partitions, params.filters, schema)
-  const total = filtered === null ? manager.countDocuments() : filtered.total
+  const total = filtered === null ? countAcrossPartitions(manager, context.partitionIds, partitions) : filtered.total
 
   const page =
     params.sort === undefined || signature === null
