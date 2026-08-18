@@ -6,6 +6,7 @@ import type { AnyDocument } from '../../../types/schema'
 import { validateFetchPayload, validateSearchPayload, validateStatsPayload } from '../../query/codec'
 import type {
   FetchResultPayload,
+  RespondFn,
   SearchResultPayload,
   StatsResultPayload,
   TransportMessage,
@@ -16,7 +17,7 @@ import type { DataNodeHandlerDeps } from './types'
 
 export async function handleSearch(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const decoded = decode(message.payload) as unknown
@@ -46,9 +47,13 @@ export async function handleSearch(
     totalHits: partitionId === payload.partitionIds[0] ? queryResult.count : 0,
   }))
 
-  const resultPayload: SearchResultPayload = { results, facets: convertLocalFacetsToWire(queryResult.facets) }
+  const resultPayload: SearchResultPayload = {
+    results,
+    facets: convertLocalFacetsToWire(queryResult.facets),
+    facetErrorBounds: convertLocalFacetBoundsToWire(queryResult.facets),
+  }
 
-  respond({
+  await respond({
     type: QueryMessageTypes.SEARCH_RESULT,
     sourceId: deps.nodeId,
     requestId: message.requestId,
@@ -58,7 +63,7 @@ export async function handleSearch(
 
 export async function handleFetch(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const decoded = decode(message.payload) as unknown
@@ -80,7 +85,7 @@ export async function handleFetch(
 
   const resultPayload: FetchResultPayload = { documents }
 
-  respond({
+  await respond({
     type: QueryMessageTypes.FETCH_RESULT,
     sourceId: deps.nodeId,
     requestId: message.requestId,
@@ -90,7 +95,7 @@ export async function handleFetch(
 
 export async function handleStats(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const decoded = decode(message.payload) as unknown
@@ -102,7 +107,7 @@ export async function handleStats(
     payload.partitionIds,
   )
 
-  respond({
+  await respond({
     type: QueryMessageTypes.STATS_RESULT,
     sourceId: deps.nodeId,
     requestId: message.requestId,
@@ -115,6 +120,23 @@ function toWireSortValue(value: unknown): string | number | boolean | null {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null
   if (typeof value === 'boolean') return value
   return null
+}
+
+/**
+ * Reads the largest count each field left out into the shape the wire carries.
+ *
+ * @param facets - What this node counted, or undefined where the query asked for none.
+ * @returns One figure per field, or null where the node counted nothing.
+ */
+export function convertLocalFacetBoundsToWire(facets: QueryResult['facets']): Record<string, number> | null {
+  if (facets === undefined) {
+    return null
+  }
+  const result: Record<string, number> = {}
+  for (const [field, facet] of Object.entries(facets)) {
+    result[field] = facet.errorBound
+  }
+  return result
 }
 
 export function convertLocalFacetsToWire(

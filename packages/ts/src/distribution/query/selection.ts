@@ -35,9 +35,25 @@ export function collectActiveCandidates(assignment: PartitionAssignment): string
   return candidates
 }
 
+/**
+ * Builds a selector that reads a partition from this node wherever this node
+ * holds an eligible copy, and defers to `fallback` otherwise.
+ *
+ * A local read saves a network hop, and it also sends every partition this
+ * node holds to this node whatever its load, so the default stays
+ * {@link randomSelector} and a caller asks for locality by name.
+ *
+ * @param localNodeId - The node doing the reading.
+ * @param fallback - Picks the copy where this node holds none.
+ * @returns The selector to pass to {@link selectReplica}.
+ */
+export function preferLocalSelector(localNodeId: string, fallback: ReplicaSelector = randomSelector): ReplicaSelector {
+  return (candidates: string[], partitionId: number): string =>
+    candidates.includes(localNodeId) ? localNodeId : fallback(candidates, partitionId)
+}
+
 export function selectReplica(
   assignment: PartitionAssignment,
-  localNodeId: string | null,
   selector: ReplicaSelector = randomSelector,
   partitionId: number = 0,
 ): string | null {
@@ -45,10 +61,6 @@ export function selectReplica(
 
   if (candidates.length === 0) {
     return null
-  }
-
-  if (localNodeId !== null && candidates.includes(localNodeId)) {
-    return localNodeId
   }
 
   return selector(candidates, partitionId)
@@ -61,14 +73,13 @@ export interface PartitionRouting {
 
 export function selectReplicasForQuery(
   allocationTable: AllocationTable,
-  localNodeId: string | null,
   selector: ReplicaSelector = randomSelector,
 ): PartitionRouting {
   const nodeToPartitions = new Map<string, number[]>()
   const unavailablePartitions: number[] = []
 
   for (const [partitionId, assignment] of allocationTable.assignments) {
-    const selectedNode = selectReplica(assignment, localNodeId, selector, partitionId)
+    const selectedNode = selectReplica(assignment, selector, partitionId)
 
     if (selectedNode === null) {
       unavailablePartitions.push(partitionId)

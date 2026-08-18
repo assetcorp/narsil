@@ -1,4 +1,5 @@
 import {
+  type ListenHandler,
   MAX_MESSAGE_SIZE_BYTES,
   type NodeTransport,
   TransportError,
@@ -10,8 +11,6 @@ import { TcpServer } from './server'
 import { DEFAULT_TCP_CONFIG, type TcpTransportConfig, type TlsConfig } from './types'
 
 export type { TcpTransportConfig, TlsConfig } from './types'
-
-type ListenHandler = (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>
 
 /**
  * Builds the TCP transport a cluster node reaches its peers through, with

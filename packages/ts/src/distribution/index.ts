@@ -27,4 +27,4 @@ export type {
   SchemaEvent,
 } from './coordinator'
 export type { ReplicationConfig } from './replication/types'
-export type { NodeTransport, TransportConfig, TransportMessage } from './transport/types'
+export type { ListenHandler, NodeTransport, RespondFn, TransportConfig, TransportMessage } from './transport/types'

@@ -10,21 +10,21 @@ import {
 } from '../../replication/codec'
 import { validateReplicationEntry } from '../../replication/replica'
 import type { ReplicationLogEntry } from '../../replication/types'
-import type { ForwardPayload, TransportMessage } from '../../transport/types'
+import type { ForwardPayload, RespondFn, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
 import { applyForwardedBatch, applyForwardedWrite } from '../write-routing'
 import type { DataNodeHandlerDeps } from './types'
 
 export async function handleForward(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const decoded = decode(message.payload) as Record<string, unknown>
   const payload = validateForwardPayload(decoded)
   const documentId = await applyForwardedWrite(payload, deps.writeDeps)
 
-  respond({
+  await respond({
     type: ReplicationMessageTypes.FORWARD,
     sourceId: deps.nodeId,
     requestId: message.requestId,
@@ -34,17 +34,17 @@ export async function handleForward(
 
 export async function handleForwardBatch(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateForwardBatchPayload(decode(message.payload))
   const results = await applyForwardedBatch(payload, deps.writeDeps)
-  respond(createForwardBatchResultMessage({ results }, deps.nodeId, message.requestId))
+  await respond(createForwardBatchResultMessage({ results }, deps.nodeId, message.requestId))
 }
 
 export async function handleReplicationEntry(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateEntryPayload(decode(message.payload))
@@ -53,12 +53,12 @@ export async function handleReplicationEntry(
   const assignment = await resolveValidatedAssignment(entry, message.sourceId, deps)
   await applyEntryToLog(entry, assignment, deps)
 
-  respond(createAckMessage(entry.seqNo, entry.partitionId, entry.indexName, deps.nodeId, message.requestId))
+  await respond(createAckMessage(entry.seqNo, entry.partitionId, entry.indexName, deps.nodeId, message.requestId))
 }
 
 export async function handleReplicationEntryBatch(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateEntryBatchPayload(decode(message.payload))
@@ -70,7 +70,9 @@ export async function handleReplicationEntryBatch(
     await applyEntryToLog(entry, assignment, deps)
   }
 
-  respond(createAckMessage(lastEntry.seqNo, lastEntry.partitionId, lastEntry.indexName, deps.nodeId, message.requestId))
+  await respond(
+    createAckMessage(lastEntry.seqNo, lastEntry.partitionId, lastEntry.indexName, deps.nodeId, message.requestId),
+  )
 }
 
 async function resolveValidatedAssignment(

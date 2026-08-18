@@ -1,6 +1,21 @@
 import { describeError, ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
+import type { PartitionAssignment } from '../../coordinator/types'
+import { appendDeleteReplicationEntry, appendIndexReplicationEntry } from './replication'
 import type { WriteRoutingDeps } from './types'
+
+/**
+ * The partition one primary write belongs to, which every rollback needs to
+ * restore the document and to compensate the entry it already appended.
+ *
+ * @internal
+ */
+export interface PrimaryWriteScope {
+  indexName: string
+  partitionId: number
+  assignment: PartitionAssignment
+  deps: WriteRoutingDeps
+}
 
 export function throwWriteFailure(error: unknown): never {
   if (error instanceof Error) {
@@ -11,19 +26,18 @@ export function throwWriteFailure(error: unknown): never {
 
 export function createRollbackFailure(
   operation: 'insert' | 'remove' | 'update',
-  indexName: string,
-  partitionId: number,
+  scope: PrimaryWriteScope,
   documentId: string,
   originalError: unknown,
   rollbackError: unknown,
 ): NarsilError {
   return new NarsilError(
     ErrorCodes.REPLICATION_ROLLBACK_FAILED,
-    `Primary ${operation} for document '${documentId}' in index '${indexName}' failed before acknowledgement and local rollback also failed`,
+    `Primary ${operation} for document '${documentId}' in index '${scope.indexName}' failed before acknowledgement and local rollback also failed`,
     {
       operation,
-      indexName,
-      partitionId,
+      indexName: scope.indexName,
+      partitionId: scope.partitionId,
       documentId,
       originalError: describeError(originalError),
       rollbackError: describeError(rollbackError),
@@ -31,37 +45,70 @@ export function createRollbackFailure(
   )
 }
 
+/**
+ * Answers whether the write failed because this node no longer holds the term
+ * it wrote under. A new primary owns the log from the newer term onwards, so
+ * this node must append nothing more to it.
+ */
+function lostPrimaryAuthority(originalError: unknown): boolean {
+  return originalError instanceof NarsilError && originalError.code === ErrorCodes.PARTITION_NOT_PRIMARY
+}
+
+/**
+ * Appends the entry that undoes what the failed write already appended, so a
+ * replica catching up from this log reaches what the primary now holds. The
+ * log is append-only, which is why the undo is an entry of its own rather than
+ * a removal.
+ */
+function compensate(
+  operation: 'insert' | 'remove' | 'update',
+  scope: PrimaryWriteScope,
+  documentId: string,
+  restored: AnyDocument | undefined,
+  originalError: unknown,
+): void {
+  if (lostPrimaryAuthority(originalError)) {
+    return
+  }
+
+  try {
+    if (restored === undefined) {
+      appendDeleteReplicationEntry(scope.indexName, scope.partitionId, scope.assignment, documentId, scope.deps)
+      return
+    }
+    appendIndexReplicationEntry(scope.indexName, scope.partitionId, scope.assignment, documentId, restored, scope.deps)
+  } catch (appendError) {
+    throw createRollbackFailure(operation, scope, documentId, originalError, appendError)
+  }
+}
+
 export async function rollbackPrimaryInsert(
-  indexName: string,
-  partitionId: number,
+  scope: PrimaryWriteScope,
   documentId: string,
   originalError: unknown,
-  deps: WriteRoutingDeps,
 ): Promise<never> {
   try {
-    await deps.engine.remove(indexName, documentId)
+    await scope.deps.engine.remove(scope.indexName, documentId)
   } catch (rollbackError) {
     if (!(rollbackError instanceof NarsilError && rollbackError.code === ErrorCodes.DOC_NOT_FOUND)) {
-      throw createRollbackFailure('insert', indexName, partitionId, documentId, originalError, rollbackError)
+      throw createRollbackFailure('insert', scope, documentId, originalError, rollbackError)
     }
   }
 
+  compensate('insert', scope, documentId, undefined, originalError)
   throwWriteFailure(originalError)
 }
 
 export async function rollbackPrimaryUpdate(
-  indexName: string,
-  partitionId: number,
+  scope: PrimaryWriteScope,
   documentId: string,
   previousDocument: AnyDocument | undefined,
   originalError: unknown,
-  deps: WriteRoutingDeps,
 ): Promise<never> {
   if (previousDocument === undefined) {
     throw createRollbackFailure(
       'update',
-      indexName,
-      partitionId,
+      scope,
       documentId,
       originalError,
       new Error('No local document snapshot was available for restore'),
@@ -69,27 +116,25 @@ export async function rollbackPrimaryUpdate(
   }
 
   try {
-    await deps.engine.update(indexName, documentId, previousDocument)
+    await scope.deps.engine.update(scope.indexName, documentId, previousDocument)
   } catch (rollbackError) {
-    throw createRollbackFailure('update', indexName, partitionId, documentId, originalError, rollbackError)
+    throw createRollbackFailure('update', scope, documentId, originalError, rollbackError)
   }
 
+  compensate('update', scope, documentId, previousDocument, originalError)
   throwWriteFailure(originalError)
 }
 
 export async function rollbackPrimaryRemove(
-  indexName: string,
-  partitionId: number,
+  scope: PrimaryWriteScope,
   documentId: string,
   previousDocument: AnyDocument | undefined,
   originalError: unknown,
-  deps: WriteRoutingDeps,
 ): Promise<never> {
   if (previousDocument === undefined) {
     throw createRollbackFailure(
       'remove',
-      indexName,
-      partitionId,
+      scope,
       documentId,
       originalError,
       new Error('No local document snapshot was available for restore'),
@@ -97,10 +142,11 @@ export async function rollbackPrimaryRemove(
   }
 
   try {
-    await deps.engine.insert(indexName, previousDocument, documentId)
+    await scope.deps.engine.insert(scope.indexName, previousDocument, documentId)
   } catch (rollbackError) {
-    throw createRollbackFailure('remove', indexName, partitionId, documentId, originalError, rollbackError)
+    throw createRollbackFailure('remove', scope, documentId, originalError, rollbackError)
   }
 
+  compensate('remove', scope, documentId, previousDocument, originalError)
   throwWriteFailure(originalError)
 }

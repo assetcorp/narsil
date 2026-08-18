@@ -47,7 +47,19 @@ A primary must never leave a locally applied mutation visible when the write fai
 
 A primary that has already applied an insert locally must remove that document before it returns the failure. A primary that has already applied a remove locally must restore the document that was visible before, again before it returns the failure.
 
-When the rollback itself fails, the primary must still refuse to acknowledge the write. It reports `REPLICATION_ROLLBACK_FAILED` with enough context to identify both the original write failure and the rollback failure. An implementation may then mark the local partition unhealthy or take it out of service; the partition must not carry on serving reads that could expose the unacknowledged mutation.
+The log is append-only, so a primary that has already appended the entry must not remove it. It must append a compensating entry before it returns the failure, because a replica catching up through the [Sync Protocol](#sync-protocol) receives every appended entry whether or not the primary acknowledged the write.
+
+| Rolled-back entry | Compensating entry |
+|-------------------|--------------------|
+| `INDEX` over a document that existed before | `INDEX` carrying that earlier document |
+| `INDEX` of a document that did not exist | `DELETE` |
+| `DELETE` | `INDEX` carrying the removed document |
+
+A primary must append the compensating entry under the same `primaryTerm` as the entry it compensates. Where the rollback runs because that term is no longer current, the primary must abandon the compensating entry, because a new primary owns the log from the newer term onwards.
+
+A primary rolling back a batch must compensate every entry it appended for that batch, in the reverse of the order it appended them.
+
+When the rollback itself fails, which covers a failed local restore and a failed compensating append alike, the primary must still refuse to acknowledge the write. It reports `REPLICATION_ROLLBACK_FAILED` with enough context to identify both the original write failure and the rollback failure. An implementation may then mark the local partition unhealthy or take it out of service; the partition must not carry on serving reads that could expose the unacknowledged mutation.
 
 ### Read Path
 

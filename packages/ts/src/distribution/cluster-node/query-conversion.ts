@@ -1,6 +1,6 @@
 import { clampRowCount, DEFAULT_PAGE_SIZE } from '../../search/pagination'
 import { normalizeSort } from '../../search/sorting'
-import type { QueryResult } from '../../types/results'
+import type { FacetResult, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { FacetConfig, QueryParams } from '../../types/search'
 import type { DistributedQueryResult } from '../query/types'
@@ -89,7 +89,7 @@ export function distributedResultToLocal<T = AnyDocument>(
     count: result.totalHits,
     elapsed: 0,
     cursor: result.cursor ?? undefined,
-    facets: result.facets !== null ? convertWireFacetsToLocal(result.facets) : undefined,
+    facets: result.facets !== null ? convertWireFacetsToLocal(result.facets, result.facetErrorBounds) : undefined,
   }
 }
 
@@ -142,8 +142,9 @@ function convertLocalHybridToWire(
 
 function convertWireFacetsToLocal(
   wireFacets: Record<string, Array<{ value: string; count: number }>>,
-): Record<string, { values: Record<string, number>; count: number }> {
-  const result: Record<string, { values: Record<string, number>; count: number }> = {}
+  errorBounds: Record<string, number> | null,
+): Record<string, FacetResult> {
+  const result: Record<string, FacetResult> = {}
   for (const [field, buckets] of Object.entries(wireFacets)) {
     const values: Record<string, number> = {}
     let totalCount = 0
@@ -151,7 +152,7 @@ function convertWireFacetsToLocal(
       values[bucket.value] = bucket.count
       totalCount += bucket.count
     }
-    result[field] = { values, count: totalCount }
+    result[field] = { values, count: totalCount, errorBound: errorBounds?.[field] ?? 0 }
   }
   return result
 }

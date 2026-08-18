@@ -14,7 +14,7 @@ async function gatherPartitionCounts(
   indexName: string,
   allocation: AllocationTable,
 ): Promise<GatheredCounts> {
-  const groups = strictScatterGroups(allocation, deps.nodeId, indexName)
+  const groups = strictScatterGroups(allocation, indexName)
   const countsByPartition = new Map<number, { documentCount: number; estimatedMemoryBytes: number }>()
   let language = ''
 

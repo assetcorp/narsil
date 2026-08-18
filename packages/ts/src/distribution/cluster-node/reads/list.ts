@@ -102,7 +102,7 @@ export async function listCluster<T = AnyDocument>(
     fields: wireFieldsFor(projection, sortFieldNames ?? []),
   }
 
-  const groups = strictScatterGroups(allocation, deps.nodeId, indexName)
+  const groups = strictScatterGroups(allocation, indexName)
   const gathered = await Promise.all(
     groups.map(group => {
       if (group.nodeId === deps.nodeId) {

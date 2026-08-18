@@ -64,12 +64,13 @@ export async function distributedQuery(
       scored: [],
       totalHits: 0,
       facets: null,
+      facetErrorBounds: null,
       cursor: null,
       coverage: { totalPartitions: 0, queriedPartitions: 0, timedOutPartitions: 0, failedPartitions: 0 },
     }
   }
 
-  const routing = selectReplicasForQuery(allocationTable, deps.sourceNodeId, selector ?? randomSelector)
+  const routing = selectReplicasForQuery(allocationTable, selector ?? randomSelector)
   const totalPartitions = allocationTable.assignments.size
 
   if (routing.unavailablePartitions.length > 0 && !resolvedConfig.allowPartialResults) {
@@ -176,6 +177,7 @@ async function executeSingleFanOut(
 
   const allScored: ScoredEntry[][] = []
   const allFacets: Array<Record<string, FacetBucket[]>> = []
+  const allFacetBounds: Array<Record<string, number> | null> = []
   let totalHits = 0
 
   for (const outcome of outcomes) {
@@ -190,6 +192,7 @@ async function executeSingleFanOut(
 
     if (outcome.results.facets !== null) {
       allFacets.push(outcome.results.facets)
+      allFacetBounds.push(outcome.results.facetErrorBounds)
     }
   }
 
@@ -202,7 +205,7 @@ async function executeSingleFanOut(
         )
       : mergeAndTruncateScoredEntries(allScored, depth)
   const mergedScored = offset > 0 ? merged.slice(offset) : merged
-  const mergedFacets = allFacets.length > 0 ? mergeDistributedFacets(allFacets, facetSize) : null
+  const mergedFacets = allFacets.length > 0 ? mergeDistributedFacets(allFacets, allFacetBounds, facetSize) : null
 
   let cursor: string | null = null
   if (mergedScored.length > 0) {
@@ -218,7 +221,14 @@ async function executeSingleFanOut(
         : encodePageCursor({ anchor: lastEntry.docId, score: lastEntry.score, sortKey: null, sortSignature: null })
   }
 
-  return { scored: mergedScored, totalHits, facets: mergedFacets, cursor, coverage }
+  return {
+    scored: mergedScored,
+    totalHits,
+    facets: mergedFacets?.facets ?? null,
+    facetErrorBounds: mergedFacets?.errorBounds ?? null,
+    cursor,
+    coverage,
+  }
 }
 
 function failOutcomesMissingSortValues(outcomes: NodeQueryOutcome[]): void {
@@ -281,6 +291,7 @@ async function executeHybridQuery(
   const textScored: ScoredEntry[][] = []
   const vectorScored: ScoredEntry[][] = []
   const allFacets: Array<Record<string, FacetBucket[]>> = []
+  const allFacetBounds: Array<Record<string, number> | null> = []
   let totalHits = 0
 
   for (const outcome of textOutcomes) {
@@ -293,6 +304,7 @@ async function executeHybridQuery(
     }
     if (outcome.results.facets !== null) {
       allFacets.push(outcome.results.facets)
+      allFacetBounds.push(outcome.results.facetErrorBounds)
     }
   }
 
@@ -319,7 +331,7 @@ async function executeHybridQuery(
   }
 
   const truncated = fused.slice(offset, depth)
-  const mergedFacets = allFacets.length > 0 ? mergeDistributedFacets(allFacets, facetSize) : null
+  const mergedFacets = allFacets.length > 0 ? mergeDistributedFacets(allFacets, allFacetBounds, facetSize) : null
 
   let cursor: string | null = null
   if (truncated.length > 0) {
@@ -327,7 +339,14 @@ async function executeHybridQuery(
     cursor = encodePageCursor({ anchor: lastEntry.docId, score: lastEntry.score, sortKey: null, sortSignature: null })
   }
 
-  return { scored: truncated, totalHits, facets: mergedFacets, cursor, coverage }
+  return {
+    scored: truncated,
+    totalHits,
+    facets: mergedFacets?.facets ?? null,
+    facetErrorBounds: mergedFacets?.errorBounds ?? null,
+    cursor,
+    coverage,
+  }
 }
 
 function worstCaseCoverage(a: Coverage, b: Coverage): Coverage {

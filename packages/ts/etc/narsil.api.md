@@ -224,6 +224,7 @@ export interface FacetConfig {
 // @public
 export interface FacetResult {
     count: number;
+    errorBound: number;
     values: Record<string, number>;
 }
 

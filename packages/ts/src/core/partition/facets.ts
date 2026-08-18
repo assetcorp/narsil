@@ -180,12 +180,16 @@ export function computeFacets(
         ? countNumericRanges(state, fieldPath, fieldType, facetOpts.ranges, bitset, matched)
         : countFieldValues(state, fieldPath, fieldType, bitset, matched)
 
-    let entries = Array.from(valueCounts.entries())
+    const ordered = Array.from(valueCounts.entries())
     const sortDir = facetOpts.sort ?? 'desc'
-    entries.sort((a, b) => (sortDir === 'asc' ? a[1] - b[1] : b[1] - a[1]) || compareCodePoints(a[0], b[0]))
+    ordered.sort((a, b) => (sortDir === 'asc' ? a[1] - b[1] : b[1] - a[1]) || compareCodePoints(a[0], b[0]))
 
-    if (facetOpts.limit && facetOpts.limit > 0) {
-      entries = entries.slice(0, facetOpts.limit)
+    const keep = facetOpts.limit && facetOpts.limit > 0 ? facetOpts.limit : ordered.length
+    const entries = ordered.slice(0, keep)
+
+    let errorBound = 0
+    for (let index = keep; index < ordered.length; index++) {
+      if (ordered[index][1] > errorBound) errorBound = ordered[index][1]
     }
 
     const values: Record<string, number> = {}
@@ -193,7 +197,7 @@ export function computeFacets(
       values[key] = count
     }
 
-    result[fieldPath] = { values, count: entries.length }
+    result[fieldPath] = { values, count: entries.length, errorBound }
   }
 
   return result

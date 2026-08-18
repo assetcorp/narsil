@@ -83,6 +83,7 @@ export interface SearchPayload {
 export interface SearchResultPayload {
   results: PartitionSearchResult[]
   facets: Record<string, FacetBucket[]> | null
+  facetErrorBounds: Record<string, number> | null
 }
 
 export interface FetchDocumentId {

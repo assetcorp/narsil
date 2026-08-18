@@ -1,3 +1,4 @@
+import type { ListenHandler } from '../types'
 import { type NodeTransport, TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import { GrpcClientPool } from './client'
 import { loadGrpcModule } from './loader'
@@ -6,8 +7,6 @@ import { DEFAULT_GRPC_CONFIG, type GrpcTransportConfig } from './types'
 
 export type { TlsConfig } from '../tcp/types'
 export type { GrpcTransportConfig } from './types'
-
-type ListenHandler = (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>
 
 /**
  * Builds the gRPC transport a cluster node reaches its peers through,

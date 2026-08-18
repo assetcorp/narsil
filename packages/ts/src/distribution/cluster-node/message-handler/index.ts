@@ -1,6 +1,6 @@
 import { encode } from '@msgpack/msgpack'
 import { NarsilError } from '../../../errors'
-import type { TransportMessage } from '../../transport/types'
+import type { RespondFn, TransportMessage } from '../../transport/types'
 import { QueryMessageTypes, ReplicationMessageTypes } from '../../transport/types'
 import { handleSnapshotSyncRequest } from '../snapshot-sync-handler'
 import { handleFetch, handleSearch, handleStats } from './queries'
@@ -13,7 +13,7 @@ export type { DataNodeHandlerDeps, TransportHandler } from './types'
 export { validateForwardPayload } from './writes'
 
 export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandler {
-  return async (message: TransportMessage, respond: (response: TransportMessage) => void): Promise<void> => {
+  return async (message: TransportMessage, respond: RespondFn): Promise<void> => {
     if (message.type === ReplicationMessageTypes.SNAPSHOT_SYNC_REQUEST) {
       await handleSnapshotSyncRequest(message, respond, {
         nodeId: deps.nodeId,
@@ -72,7 +72,7 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
         code: err instanceof NarsilError ? err.code : 'INTERNAL_ERROR',
         message: err instanceof Error ? err.message : String(err),
       })
-      respond({
+      await respond({
         type: `${message.type}.error`,
         sourceId: deps.nodeId,
         requestId: message.requestId,

@@ -146,6 +146,28 @@ function validateFacets(value: unknown): void {
   }
 }
 
+function validateFacetErrorBounds(value: unknown): void {
+  if (!isRecord(value)) {
+    throwInvalid(CONFIG_INVALID, 'Invalid SearchResultPayload: "facetErrorBounds" must be an object or null')
+  }
+  const entries = Object.entries(value)
+  if (entries.length > MAX_FACET_FIELDS) {
+    throwInvalid(
+      CONFIG_INVALID,
+      `Invalid SearchResultPayload: "facetErrorBounds" exceeds maximum field count of ${MAX_FACET_FIELDS}`,
+      { length: entries.length, limit: MAX_FACET_FIELDS },
+    )
+  }
+  for (const [fieldName, bound] of entries) {
+    if (!isInteger(bound) || bound < 0) {
+      throwInvalid(
+        CONFIG_INVALID,
+        `Invalid SearchResultPayload: "facetErrorBounds.${fieldName}" must be a non-negative integer`,
+      )
+    }
+  }
+}
+
 export function validateSearchResultPayload(decoded: unknown): SearchResultPayload {
   if (!isRecord(decoded)) {
     throwInvalid(CONFIG_INVALID, 'Invalid SearchResultPayload: expected an object')
@@ -158,6 +180,9 @@ export function validateSearchResultPayload(decoded: unknown): SearchResultPaylo
   }
   if (decoded.facets !== null) {
     validateFacets(decoded.facets)
+  }
+  if (decoded.facetErrorBounds !== null && decoded.facetErrorBounds !== undefined) {
+    validateFacetErrorBounds(decoded.facetErrorBounds)
   }
   return decoded as unknown as SearchResultPayload
 }

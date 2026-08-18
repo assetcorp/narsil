@@ -1,5 +1,6 @@
 import { createServer, type Server, type Socket } from 'node:net'
 import { createServer as createTlsServer, type SecureContextOptions, type Server as TlsServer } from 'node:tls'
+import type { ListenHandler, RespondFn } from '../types'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import { decodeTransportMessage, encodeFrame, encodeTransportMessage, FrameParser } from './framing'
 import {
@@ -11,7 +12,23 @@ import {
   type TlsConfig,
 } from './types'
 
-type ListenHandler = (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>
+/**
+ * Writes one frame and settles once the socket has taken it, waiting for the
+ * kernel buffer to drain where the socket reports itself full. That is what
+ * lets a snapshot travel no faster than the receiver reads it.
+ *
+ * @param socket - The connection to the peer.
+ * @param frame - The bytes to write.
+ * @returns A promise that settles once the socket accepts more.
+ */
+function writeAwaitingDrain(socket: Socket, frame: Uint8Array): Promise<void> {
+  if (socket.write(frame)) {
+    return Promise.resolve()
+  }
+  return new Promise<void>(resolve => {
+    socket.once('drain', resolve)
+  })
+}
 
 export class TcpServer {
   private server: Server | null = null
@@ -151,23 +168,22 @@ export class TcpServer {
       const message = decodeTransportMessage(frame.data)
       let respondCount = 0
 
-      const result = handler(message, (response: TransportMessage) => {
+      const respond: RespondFn = (response: TransportMessage): Promise<void> => {
         if (socket.destroyed) {
-          return
+          return Promise.resolve()
         }
 
         respondCount++
 
         if (respondCount === 1) {
           const responseBytes = encodeTransportMessage(response)
-          const responseFrame = encodeFrame(FRAME_TYPE_RESPONSE, frame.requestId, responseBytes)
-          socket.write(responseFrame)
-          return
+          return writeAwaitingDrain(socket, encodeFrame(FRAME_TYPE_RESPONSE, frame.requestId, responseBytes))
         }
 
-        const chunkFrame = encodeFrame(FRAME_TYPE_STREAM_CHUNK, frame.requestId, response.payload)
-        socket.write(chunkFrame)
-      })
+        return writeAwaitingDrain(socket, encodeFrame(FRAME_TYPE_STREAM_CHUNK, frame.requestId, response.payload))
+      }
+
+      const result = handler(message, respond)
 
       const finalize = (): void => {
         if (respondCount > 0 && !socket.destroyed) {

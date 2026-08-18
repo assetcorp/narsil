@@ -12,13 +12,13 @@ import {
   validatePreflightPayload,
   validateSuggestPayload,
 } from '../../query/codec'
-import type { ListEntryWire, TransportMessage } from '../../transport/types'
+import type { ListEntryWire, RespondFn, TransportMessage } from '../../transport/types'
 import { wireParamsToLocal } from '../query-conversion'
 import type { DataNodeHandlerDeps } from './types'
 
 export async function handleCount(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateCountPayload(decode(message.payload))
@@ -33,12 +33,12 @@ export async function handleCount(
     }))
   const language = deps.engine.getStats(payload.indexName).language
 
-  respond(createCountResultMessage({ partitions, language }, deps.nodeId, message.requestId))
+  await respond(createCountResultMessage({ partitions, language }, deps.nodeId, message.requestId))
 }
 
 export async function handleList(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateListPayload(decode(message.payload))
@@ -63,7 +63,7 @@ export async function handleList(
         : readSortValues(listed.document as AnyDocument | undefined, sortFields).map(toWireSortValue),
   }))
 
-  respond(
+  await respond(
     createListResultMessage(
       { entries, total: result.total, hasMore: result.cursor !== null },
       deps.nodeId,
@@ -74,7 +74,7 @@ export async function handleList(
 
 export async function handleSuggest(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateSuggestPayload(decode(message.payload))
@@ -84,7 +84,7 @@ export async function handleSuggest(
     payload.partitionIds,
   )
 
-  respond(
+  await respond(
     createSuggestResultMessage(
       { terms: result.terms, analysisStale: result.analysisStale === true },
       deps.nodeId,
@@ -95,14 +95,14 @@ export async function handleSuggest(
 
 export async function handlePreflight(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validatePreflightPayload(decode(message.payload))
   const params = wireParamsToLocal(payload.params)
   const result = await deps.engine.preflightPartitions(payload.indexName, params, payload.partitionIds)
 
-  respond(
+  await respond(
     createPreflightResultMessage(
       { count: result.count, analysisStale: result.analysisStale === true },
       deps.nodeId,
