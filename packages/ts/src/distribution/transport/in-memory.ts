@@ -11,13 +11,34 @@ import {
 } from './types'
 
 /**
- * Receives the chunks a streamed response carries, in order.
+ * Receives a streamed response one chunk at a time.
  *
- * @param chunks - Every chunk the responder produced.
+ * A sender hands each chunk over through {@link InMemoryStreamSink.chunk} and
+ * waits for it before building the next, so a snapshot travels no faster than
+ * the receiver reads it. A stream that breaks part way through ends at
+ * {@link InMemoryStreamSink.fail} rather than at
+ * {@link InMemoryStreamSink.end}, which is what stops a half-copied snapshot
+ * from reading as a whole one.
  *
  * @public
  */
-export type StreamResponder = (chunks: Uint8Array[]) => void
+export interface InMemoryStreamSink {
+  /**
+   * Hands one chunk to the caller waiting on the stream.
+   *
+   * @param payload - The bytes this chunk carries.
+   * @returns A promise that settles once the caller has taken the chunk.
+   */
+  chunk(payload: Uint8Array): Promise<void>
+  /** Closes the stream, which settles the caller's `stream` call. */
+  end(): void
+  /**
+   * Breaks the stream, which rejects the caller's `stream` call.
+   *
+   * @param error - Why the stream broke.
+   */
+  fail(error: Error): void
+}
 
 export type { ListenHandler, RespondFn } from './types'
 
@@ -42,9 +63,9 @@ export interface InMemoryTransportInternal extends NodeTransport {
    * Delivers one streamed request to this node's listener.
    *
    * @param message - The request the sender posted.
-   * @param responder - Hands the chunks back to the sender.
+   * @param sink - Takes each chunk, and the end or the failure of the stream.
    */
-  deliverStream(message: TransportMessage, responder: StreamResponder): void
+  deliverStream(message: TransportMessage, sink: InMemoryStreamSink): void
 }
 
 /**
@@ -161,26 +182,49 @@ export function createInMemoryTransport(
       listenHandler(message, respond)
     },
 
-    deliverStream(message: TransportMessage, responder: StreamResponder): void {
+    deliverStream(message: TransportMessage, sink: InMemoryStreamSink): void {
       if (listenHandler === undefined) {
-        responder([])
-        return
-      }
-
-      const chunks: Uint8Array[] = []
-      const handlerResult = listenHandler(message, async (response: TransportMessage): Promise<void> => {
-        chunks.push(response.payload)
-      })
-
-      if (handlerResult instanceof Promise) {
-        handlerResult.then(
-          () => responder(chunks),
-          () => responder(chunks),
+        sink.fail(
+          new TransportError(TransportErrorCodes.PEER_UNAVAILABLE, `Node '${nodeId}' has no listener registered`, {
+            nodeId,
+            requestId: message.requestId,
+          }),
         )
         return
       }
 
-      responder(chunks)
+      let chunkCount = 0
+      const respond: RespondFn = async (response: TransportMessage): Promise<void> => {
+        chunkCount++
+        await sink.chunk(response.payload)
+      }
+
+      const finish = (): void => {
+        if (chunkCount === 0) {
+          sink.fail(
+            new TransportError(
+              TransportErrorCodes.PEER_UNAVAILABLE,
+              `Node '${nodeId}' answered the stream with no chunks`,
+              { nodeId, requestId: message.requestId },
+            ),
+          )
+          return
+        }
+        sink.end()
+      }
+
+      try {
+        const handlerResult = listenHandler(message, respond)
+        if (handlerResult instanceof Promise) {
+          handlerResult.then(finish, (error: unknown) => {
+            sink.fail(error instanceof Error ? error : new Error(String(error)))
+          })
+          return
+        }
+        finish()
+      } catch (error) {
+        sink.fail(error instanceof Error ? error : new Error(String(error)))
+      }
     },
 
     async send(target: string, message: TransportMessage): Promise<TransportMessage> {
@@ -246,23 +290,53 @@ export function createInMemoryTransport(
           }
         }, resolvedConfig.snapshotTimeout)
 
-        try {
-          peer.deliverStream(message, (chunks: Uint8Array[]) => {
-            if (!settled) {
-              settled = true
-              clearTimeout(timeoutId)
-              for (const chunk of chunks) {
-                handler(chunk)
-              }
-              resolve()
-            }
-          })
-        } catch (error) {
-          if (!settled) {
-            settled = true
-            clearTimeout(timeoutId)
-            reject(error)
+        const settle = (action: () => void): void => {
+          if (settled) {
+            return
           }
+          settled = true
+          clearTimeout(timeoutId)
+          action()
+        }
+
+        const sink: InMemoryStreamSink = {
+          chunk(payload: Uint8Array): Promise<void> {
+            if (settled) {
+              return Promise.resolve()
+            }
+            try {
+              handler(payload)
+            } catch (error) {
+              settle(() => {
+                reject(
+                  new TransportError(
+                    TransportErrorCodes.DECODE_FAILED,
+                    `The stream chunk handler failed: ${error instanceof Error ? error.message : String(error)}`,
+                    { target, requestId: message.requestId },
+                  ),
+                )
+              })
+            }
+            return Promise.resolve()
+          },
+
+          end(): void {
+            settle(resolve)
+          },
+
+          fail(error: Error): void {
+            settle(() => {
+              reject(error)
+            })
+          },
+        }
+
+        try {
+          peer.deliverStream(message, sink)
+        } catch (error) {
+          settle(() => {
+            reject(error)
+          })
         }
       })
     },
