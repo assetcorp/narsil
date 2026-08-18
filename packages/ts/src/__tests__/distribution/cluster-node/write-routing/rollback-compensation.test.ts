@@ -53,7 +53,9 @@ describe('a primary write rolled back after it reached the log', () => {
     await engine.createIndex(INDEX, { schema: { title: 'string' } })
     log = createReplicationLog(PARTITION_ID)
     await coordinator.putAllocation(INDEX, {
+      indexName: INDEX,
       version: 1,
+      replicationFactor: 1,
       assignments: new Map([[PARTITION_ID, ASSIGNMENT]]),
     })
     deps = {
@@ -129,7 +131,9 @@ describe('a primary write rolled back after it reached the log', () => {
   it('appends no compensation once another node holds the term, because that node owns the log', async () => {
     const soleCopy: PartitionAssignment = { ...ASSIGNMENT, replicas: [], inSyncSet: ['node-a'] }
     await coordinator.putAllocation(INDEX, {
+      indexName: INDEX,
       version: 2,
+      replicationFactor: 1,
       assignments: new Map([
         [PARTITION_ID, { ...soleCopy, primary: 'node-b', primaryTerm: PRIMARY_TERM + 1, inSyncSet: ['node-b'] }],
       ]),

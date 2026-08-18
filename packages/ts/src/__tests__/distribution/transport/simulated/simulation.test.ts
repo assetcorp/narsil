@@ -6,11 +6,9 @@ import { createInMemoryCoordinator } from '../../../../distribution/coordinator'
 import type { AllocationTable, ClusterCoordinator, NodeRole } from '../../../../distribution/coordinator/types'
 import type { ConvergenceOracle, WriteJournal } from '../../../../distribution/transport/simulated/convergence'
 import { createConvergenceOracle, createWriteJournal } from '../../../../distribution/transport/simulated/convergence'
-import type { SimulatedNetwork } from '../../../../distribution/transport/simulated/transport'
-import {
-  createSimulatedNetwork,
-  createSimulatedTransport,
-} from '../../../../distribution/transport/simulated/transport'
+import type { SimulatedNetwork } from '../../../../distribution/transport/simulated/network'
+import { createSimulatedNetwork } from '../../../../distribution/transport/simulated/network'
+import { createSimulatedTransport } from '../../../../distribution/transport/simulated/transport'
 import type { NodeTransport, TransportConfig } from '../../../../distribution/transport/types'
 
 const START_TIME = 1_000_000_000
@@ -49,6 +47,10 @@ function allInSync(table: AllocationTable): boolean {
   return true
 }
 
+interface NodeOptions {
+  logRetentionBytes?: number
+}
+
 describe('simulated cluster scenarios', () => {
   let coordinator: ClusterCoordinator
   let network: SimulatedNetwork
@@ -56,6 +58,7 @@ describe('simulated cluster scenarios', () => {
   let journal: WriteJournal
   let nodes: ClusterNode[]
   let transports: NodeTransport[]
+  let streamChunkCounts: number[]
 
   beforeEach(() => {
     vi.useFakeTimers()
@@ -71,6 +74,7 @@ describe('simulated cluster scenarios', () => {
     journal = createWriteJournal()
     nodes = []
     transports = []
+    streamChunkCounts = []
   })
 
   afterEach(async () => {
@@ -87,8 +91,27 @@ describe('simulated cluster scenarios', () => {
     vi.useRealTimers()
   })
 
-  async function startNode(nodeId: string, roles: NodeRole[]): Promise<ClusterNode> {
-    const transport = createSimulatedTransport(nodeId, network, TRANSPORT_TIMEOUTS)
+  function countingTransport(base: NodeTransport): NodeTransport {
+    return {
+      send: (target, message) => base.send(target, message),
+      stream: (target, message, handler) => {
+        let chunks = 0
+        return base
+          .stream(target, message, chunk => {
+            chunks++
+            handler(chunk)
+          })
+          .finally(() => {
+            streamChunkCounts.push(chunks)
+          })
+      },
+      listen: handler => base.listen(handler),
+      shutdown: () => base.shutdown(),
+    }
+  }
+
+  async function startNode(nodeId: string, roles: NodeRole[], options: NodeOptions = {}): Promise<ClusterNode> {
+    const transport = countingTransport(createSimulatedTransport(nodeId, network, TRANSPORT_TIMEOUTS))
     transports.push(transport)
     const node = await createClusterNode({
       coordinator,
@@ -96,6 +119,9 @@ describe('simulated cluster scenarios', () => {
       address: `${nodeId}:9200`,
       nodeId,
       roles,
+      ...(options.logRetentionBytes === undefined
+        ? {}
+        : { replication: { logRetentionBytes: options.logRetentionBytes } }),
       onError:
         process.env.SIM_DEBUG === '1'
           ? error => console.log(`onError ${nodeId} @${network.scheduler.now - START_TIME}: ${error.message}`)
@@ -126,9 +152,11 @@ describe('simulated cluster scenarios', () => {
     throw new Error('Allocation never reached the expected shape')
   }
 
-  async function startPairWithIndex(): Promise<{ nodeA: ClusterNode; nodeB: ClusterNode; table: AllocationTable }> {
-    const nodeA = await startNode('node-a', ['data', 'coordinator', 'controller'])
-    const nodeB = await startNode('node-b', ['data'])
+  async function startPairWithIndex(
+    options: NodeOptions = {},
+  ): Promise<{ nodeA: ClusterNode; nodeB: ClusterNode; table: AllocationTable }> {
+    const nodeA = await startNode('node-a', ['data', 'coordinator', 'controller'], options)
+    const nodeB = await startNode('node-b', ['data'], options)
     await network.scheduler.runWithDrain(() =>
       nodeA.createIndex(INDEX_NAME, { schema: { title: 'string' } }, { partitionCount: 4, replicationFactor: 1 }),
     )
@@ -260,6 +288,33 @@ describe('simulated cluster scenarios', () => {
     await waitForAllocation(allInSync)
 
     expect(acknowledged).toBeGreaterThan(0)
+    await oracle.assertConverged(INDEX_NAME, journal)
+  }, 60_000)
+
+  it('rebuilds a replica from a multi-chunk snapshot once the log no longer holds its position', async () => {
+    const { nodeA, table } = await startPairWithIndex({ logRetentionBytes: 256 })
+
+    const partitionCount = table.assignments.size
+    const primaryOnA = [...table.assignments.entries()].find(([, assignment]) => assignment.primary === 'node-a')
+    if (primaryOnA === undefined) {
+      throw new Error('No partition has node-a as its primary')
+    }
+    const [partitionId] = primaryOnA
+
+    await insertAcked(nodeA, docIdForPartition(partitionId, partitionCount, 'pre-snapshot'), 'Written before the fault')
+    await network.scheduler.runUntilQuiet()
+
+    network.faultPolicy.addPartition('node-a', 'node-b')
+    for (let i = 0; i < 12; i++) {
+      const docId = docIdForPartition(partitionId, partitionCount, `beyond-retention-${i}`)
+      await insertAcked(nodeA, docId, `Written past the retention window ${i}`)
+    }
+
+    streamChunkCounts.length = 0
+    network.faultPolicy.removePartition('node-a', 'node-b')
+    await waitForAllocation(allInSync)
+
+    expect(Math.max(...streamChunkCounts)).toBeGreaterThan(1)
     await oracle.assertConverged(INDEX_NAME, journal)
   }, 60_000)
 })

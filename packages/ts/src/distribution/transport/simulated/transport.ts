@@ -1,7 +1,6 @@
 import {
   DEFAULT_TRANSPORT_CONFIG,
   type ListenHandler,
-  MAX_MESSAGE_SIZE_BYTES,
   type NodeTransport,
   type RespondFn,
   type TransportConfig,
@@ -9,79 +8,12 @@ import {
   TransportErrorCodes,
   type TransportMessage,
 } from '../types'
-import { createFaultPolicy, type FaultPolicy, type FaultPolicyConfig } from './fault-policy'
-import { createSeededPrng } from './prng'
-import { createDeterministicScheduler, type DeterministicScheduler } from './scheduler'
+import type { SimulatedNetwork, SimulatedStreamSink, SimulatedTransportInternal } from './network'
+import { createSimulatedStreamSink } from './stream-sink'
+import { decodeMessageFrame, encodeMessageFrame } from './wire'
 
-export interface SimulatedTransportInternal extends NodeTransport {
-  deliverMessage(message: TransportMessage, respond: RespondFn): void
-  deliverStream(message: TransportMessage, responder: (chunks: Uint8Array[]) => void): void
-}
-
-export interface SimulatedNetworkConfig {
-  seed: number
-  startTime: number
-  advanceTimers: (ms: number) => Promise<unknown>
-  faults?: FaultPolicyConfig
-}
-
-export interface SimulatedNetwork {
-  readonly scheduler: DeterministicScheduler
-  readonly faultPolicy: FaultPolicy
-  register(nodeId: string, transport: SimulatedTransportInternal): void
-  unregister(nodeId: string): void
-  getTransport(nodeId: string): SimulatedTransportInternal | undefined
-  directExchange(target: string, message: TransportMessage): Promise<TransportMessage>
-}
-
-export function createSimulatedNetwork(config: SimulatedNetworkConfig): SimulatedNetwork {
-  const transports = new Map<string, SimulatedTransportInternal>()
-  const faultPolicy = createFaultPolicy(config.faults ?? {}, createSeededPrng(config.seed))
-  const scheduler = createDeterministicScheduler({
-    startTime: config.startTime,
-    advanceTimers: config.advanceTimers,
-  })
-
-  return {
-    scheduler,
-
-    faultPolicy,
-
-    register(nodeId: string, transport: SimulatedTransportInternal): void {
-      transports.set(nodeId, transport)
-    },
-
-    unregister(nodeId: string): void {
-      transports.delete(nodeId)
-    },
-
-    getTransport(nodeId: string): SimulatedTransportInternal | undefined {
-      return transports.get(nodeId)
-    },
-
-    async directExchange(target: string, message: TransportMessage): Promise<TransportMessage> {
-      const peer = transports.get(target)
-      if (peer === undefined) {
-        throw new TransportError(TransportErrorCodes.PEER_UNAVAILABLE, `Node '${target}' is not reachable`, { target })
-      }
-      return new Promise<TransportMessage>((resolve, reject) => {
-        let settled = false
-        try {
-          peer.deliverMessage(message, async (response: TransportMessage): Promise<void> => {
-            if (!settled) {
-              settled = true
-              resolve(response)
-            }
-          })
-        } catch (error) {
-          if (!settled) {
-            settled = true
-            reject(error)
-          }
-        }
-      })
-    },
-  }
+function asError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value))
 }
 
 export function createSimulatedTransport(
@@ -125,37 +57,54 @@ export function createSimulatedTransport(
       listenHandler(message, respond)
     },
 
-    deliverStream(message: TransportMessage, responder: (chunks: Uint8Array[]) => void): void {
+    deliverStream(message: TransportMessage, sink: SimulatedStreamSink): void {
       if (listenHandler === undefined) {
-        responder([])
-        return
-      }
-
-      const chunks: Uint8Array[] = []
-      const handlerResult = listenHandler(message, async (response: TransportMessage): Promise<void> => {
-        chunks.push(response.payload)
-      })
-
-      if (handlerResult instanceof Promise) {
-        handlerResult.then(
-          () => responder(chunks),
-          () => responder(chunks),
+        sink.fail(
+          new TransportError(TransportErrorCodes.PEER_UNAVAILABLE, `Node '${nodeId}' has no listener registered`, {
+            nodeId,
+            requestId: message.requestId,
+          }),
         )
         return
       }
 
-      responder(chunks)
+      let chunkCount = 0
+      const respond: RespondFn = async (response: TransportMessage): Promise<void> => {
+        chunkCount++
+        await sink.chunk(response.payload)
+      }
+
+      const finish = (): void => {
+        if (chunkCount === 0) {
+          sink.fail(
+            new TransportError(
+              TransportErrorCodes.PEER_UNAVAILABLE,
+              `Node '${nodeId}' answered the stream with no chunks`,
+              { nodeId, requestId: message.requestId },
+            ),
+          )
+          return
+        }
+        sink.end()
+      }
+
+      try {
+        const handlerResult = listenHandler(message, respond)
+        if (handlerResult instanceof Promise) {
+          handlerResult.then(finish, (error: unknown) => {
+            sink.fail(asError(error))
+          })
+          return
+        }
+        finish()
+      } catch (error) {
+        sink.fail(asError(error))
+      }
     },
 
     async send(target: string, message: TransportMessage): Promise<TransportMessage> {
       assertNotShutdown()
-      if (message.payload.byteLength > MAX_MESSAGE_SIZE_BYTES) {
-        throw new TransportError(
-          TransportErrorCodes.MESSAGE_TOO_LARGE,
-          `Message payload (${message.payload.byteLength} bytes) exceeds the ${MAX_MESSAGE_SIZE_BYTES} byte limit`,
-          { target, requestId: message.requestId, payloadSize: message.payload.byteLength },
-        )
-      }
+      const requestFrame = encodeMessageFrame(message)
       lookupPeer(target)
 
       return new Promise<TransportMessage>((resolve, reject) => {
@@ -173,13 +122,39 @@ export function createSimulatedTransport(
           }
         }, resolvedConfig.requestTimeout)
 
+        const settle = (action: () => void): void => {
+          if (settled) {
+            return
+          }
+          settled = true
+          clearTimeout(timeoutId)
+          action()
+        }
+
+        const respond: RespondFn = async (response: TransportMessage): Promise<void> => {
+          if (settled) {
+            return
+          }
+          const responseFrame = encodeMessageFrame(response)
+          if (faultPolicy.shouldDrop(target, nodeId, response.type)) {
+            return
+          }
+          scheduler.enqueue({
+            deliverAt: scheduler.now + faultPolicy.sampleLatency(target, nodeId, response.type),
+            run: () => {
+              settle(() => {
+                resolve(decodeMessageFrame(responseFrame))
+              })
+            },
+          })
+        }
+
         if (faultPolicy.shouldDrop(nodeId, target, message.type)) {
           return
         }
 
-        const requestLatency = faultPolicy.sampleLatency(nodeId, target, message.type)
         scheduler.enqueue({
-          deliverAt: scheduler.now + requestLatency,
+          deliverAt: scheduler.now + faultPolicy.sampleLatency(nodeId, target, message.type),
           run: () => {
             if (settled) {
               return
@@ -189,31 +164,11 @@ export function createSimulatedTransport(
               return
             }
             try {
-              peer.deliverMessage(message, async (response: TransportMessage): Promise<void> => {
-                if (settled) {
-                  return
-                }
-                if (faultPolicy.shouldDrop(target, nodeId, response.type)) {
-                  return
-                }
-                const responseLatency = faultPolicy.sampleLatency(target, nodeId, response.type)
-                scheduler.enqueue({
-                  deliverAt: scheduler.now + responseLatency,
-                  run: () => {
-                    if (!settled) {
-                      settled = true
-                      clearTimeout(timeoutId)
-                      resolve(response)
-                    }
-                  },
-                })
-              })
+              peer.deliverMessage(decodeMessageFrame(requestFrame), respond)
             } catch (error) {
-              if (!settled) {
-                settled = true
-                clearTimeout(timeoutId)
-                reject(error)
-              }
+              settle(() => {
+                reject(asError(error))
+              })
             }
           },
         })
@@ -222,6 +177,7 @@ export function createSimulatedTransport(
 
     async stream(target: string, message: TransportMessage, handler: (chunk: Uint8Array) => void): Promise<void> {
       assertNotShutdown()
+      const requestFrame = encodeMessageFrame(message)
       lookupPeer(target)
 
       return new Promise<void>((resolve, reject) => {
@@ -239,13 +195,21 @@ export function createSimulatedTransport(
           }
         }, resolvedConfig.snapshotTimeout)
 
+        const settle = (action: () => void): void => {
+          if (settled) {
+            return
+          }
+          settled = true
+          clearTimeout(timeoutId)
+          action()
+        }
+
         if (faultPolicy.shouldDrop(nodeId, target, message.type)) {
           return
         }
 
-        const requestLatency = faultPolicy.sampleLatency(nodeId, target, message.type)
         scheduler.enqueue({
-          deliverAt: scheduler.now + requestLatency,
+          deliverAt: scheduler.now + faultPolicy.sampleLatency(nodeId, target, message.type),
           run: () => {
             if (settled) {
               return
@@ -254,36 +218,24 @@ export function createSimulatedTransport(
             if (peer === undefined) {
               return
             }
+            const sink = createSimulatedStreamSink({
+              nodeId,
+              target,
+              message,
+              scheduler,
+              faultPolicy,
+              handler,
+              isSettled: () => settled,
+              settle,
+              resolve,
+              reject,
+            })
             try {
-              peer.deliverStream(message, (chunks: Uint8Array[]) => {
-                if (settled) {
-                  return
-                }
-                if (faultPolicy.shouldDrop(target, nodeId, message.type)) {
-                  return
-                }
-                const responseLatency = faultPolicy.sampleLatency(target, nodeId, message.type)
-                scheduler.enqueue({
-                  deliverAt: scheduler.now + responseLatency,
-                  run: () => {
-                    if (settled) {
-                      return
-                    }
-                    settled = true
-                    clearTimeout(timeoutId)
-                    for (const chunk of chunks) {
-                      handler(chunk)
-                    }
-                    resolve()
-                  },
-                })
-              })
+              peer.deliverStream(decodeMessageFrame(requestFrame), sink)
             } catch (error) {
-              if (!settled) {
-                settled = true
-                clearTimeout(timeoutId)
-                reject(error)
-              }
+              settle(() => {
+                reject(asError(error))
+              })
             }
           },
         })

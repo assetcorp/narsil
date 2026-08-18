@@ -6,7 +6,7 @@ import {
   type SnapshotSyncHandlerState,
 } from '../../../distribution/cluster-node/snapshot-sync-handler'
 import type { AllocationTable, ClusterCoordinator, PartitionAssignment } from '../../../distribution/coordinator/types'
-import { ReplicationMessageTypes, type TransportMessage } from '../../../distribution/transport/types'
+import { ReplicationMessageTypes, type RespondFn, type TransportMessage } from '../../../distribution/transport/types'
 import { ErrorCodes } from '../../../errors'
 import type { Narsil } from '../../../narsil'
 
@@ -90,10 +90,10 @@ function makeRequest(indexName: string, requestId = 'req-1', sourceId = 'replica
   }
 }
 
-function collectResponses(): { respond: (response: TransportMessage) => void; responses: TransportMessage[] } {
+function collectResponses(): { respond: RespondFn; responses: TransportMessage[] } {
   const responses: TransportMessage[] = []
   return {
-    respond: (response: TransportMessage) => {
+    respond: async (response: TransportMessage) => {
       responses.push(response)
     },
     responses,

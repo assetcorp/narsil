@@ -1,4 +1,4 @@
-import type { SeededPrng } from './prng'
+import { createSeededPrng, deriveStreamSeed } from './prng'
 
 export interface FaultPolicyConfig {
   dropRate?: number
@@ -19,11 +19,16 @@ export interface FaultPolicy {
   setLatencyRange(minMs: number, maxMs: number): void
 }
 
+const DROP_STREAM = 'drop'
+const LATENCY_STREAM = 'latency'
+
 function partitionKey(a: string, b: string): string {
   return a < b ? `${a}:${b}` : `${b}:${a}`
 }
 
-export function createFaultPolicy(config: FaultPolicyConfig, prng: SeededPrng): FaultPolicy {
+export function createFaultPolicy(config: FaultPolicyConfig, seed: number): FaultPolicy {
+  const dropPrng = createSeededPrng(deriveStreamSeed(seed, DROP_STREAM))
+  const latencyPrng = createSeededPrng(deriveStreamSeed(seed, LATENCY_STREAM))
   const partitionSet = new Set<string>()
   let dropRate = config.dropRate ?? 0
   let dropMessageTypes: Set<string> | null =
@@ -37,20 +42,22 @@ export function createFaultPolicy(config: FaultPolicyConfig, prng: SeededPrng): 
 
   return {
     shouldDrop(from: string, to: string, messageType: string): boolean {
+      const roll = dropPrng.next()
       if (partitionSet.has(partitionKey(from, to))) {
         return true
       }
       if (dropMessageTypes !== null && !dropMessageTypes.has(messageType)) {
         return false
       }
-      return dropRate > 0 && prng.nextBool(dropRate)
+      return dropRate > 0 && roll < dropRate
     },
 
     sampleLatency(_from: string, _to: string, _messageType: string): number {
+      const roll = latencyPrng.next()
       if (latencyMinMs >= latencyMaxMs) {
         return latencyMinMs
       }
-      return prng.nextInt(latencyMinMs, latencyMaxMs)
+      return latencyMinMs + Math.floor(roll * (latencyMaxMs - latencyMinMs))
     },
 
     addPartition(nodeA: string, nodeB: string): void {
