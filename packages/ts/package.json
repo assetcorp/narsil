@@ -134,6 +134,10 @@
       "import": "./dist/distribution/transport/tcp.mjs",
       "types": "./dist/distribution/transport/tcp.d.ts"
     },
+    "./distribution/transport/in-memory": {
+      "import": "./dist/distribution/transport/in-memory.mjs",
+      "types": "./dist/distribution/transport/in-memory.d.ts"
+    },
     "./server": {
       "import": "./dist/server.mjs",
       "types": "./dist/server.d.ts"

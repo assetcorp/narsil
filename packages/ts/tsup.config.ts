@@ -38,6 +38,7 @@ const nodeEntry: Record<string, string> = {
   'distribution/coordinator/in-memory': 'src/distribution/coordinator/in-memory.ts',
   'distribution/coordinator/etcd': 'src/distribution/coordinator/etcd/index.ts',
   'distribution/transport/tcp': 'src/distribution/transport/tcp/index.ts',
+  'distribution/transport/in-memory': 'src/distribution/transport/in-memory.ts',
   server: 'src/server/index.ts',
 }
 
