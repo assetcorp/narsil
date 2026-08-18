@@ -37,3 +37,14 @@ export function channelOptions(): Record<string, number> {
     'grpc.keepalive_permit_without_calls': 1,
   }
 }
+
+/**
+ * Reads TLS material the caller gave as text or as bytes into the buffer the
+ * gRPC credentials take.
+ *
+ * @param material - The certificate, key, or authority the caller configured.
+ * @returns The same material as a buffer.
+ */
+export function toCredentialBuffer(material: Buffer | string): Buffer {
+  return typeof material === 'string' ? Buffer.from(material) : material
+}

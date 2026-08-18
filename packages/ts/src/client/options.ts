@@ -42,6 +42,15 @@ export interface NarsilClientOptions {
   timeoutMs?: number
   /** The client sends every request through this instead of the global `fetch`. */
   fetch?: FetchFunction
+  /**
+   * The client stops reading an answer once it passes this many bytes, and
+   * fails with `CLIENT_INVALID_RESPONSE` rather than holding the rest. Set it
+   * where the client runs somewhere a runaway answer would matter, such as a
+   * browser tab, and leave it out to read whatever the server sends. A
+   * snapshot download reads the whole index, so give it its own ceiling
+   * through {@link RequestOptions.maxResponseBytes} or none at all.
+   */
+  maxResponseBytes?: number
 }
 
 /**
@@ -58,4 +67,6 @@ export interface RequestOptions {
   timeoutMs?: number
   /** The client adds these headers to this request, and one of the same name replaces what it would otherwise send. */
   headers?: Record<string, string>
+  /** The client stops reading this one answer past this many bytes, and 0 reads whatever the server sends. */
+  maxResponseBytes?: number
 }

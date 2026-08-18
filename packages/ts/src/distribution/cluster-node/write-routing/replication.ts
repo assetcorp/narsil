@@ -1,6 +1,7 @@
 import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
+import { chunkByBudget, WIRE_BATCH_BUDGET } from '../../chunking'
 import { CONTROLLER_LEASE_KEY } from '../../cluster/controller/types'
 import type { PartitionAssignment } from '../../coordinator/types'
 import { requestInsyncRemoval } from '../../replication/insync'
@@ -171,36 +172,10 @@ export async function replicateEntryBatch(
   await assertPrimaryWriteAuthority(lastEntry, deps)
 }
 
-const MAX_ENTRY_BATCH_COUNT = 1_000
-const MAX_ENTRY_BATCH_BYTES = 8_388_608
-const ENTRY_ENCODING_OVERHEAD_BYTES = 256
-
 export function chunkReplicationEntries<T extends { entry: ReplicationLogEntry }>(items: T[]): T[][] {
-  const chunks: T[][] = []
-  let current: T[] = []
-  let currentBytes = 0
-
-  for (const item of items) {
-    const itemBytes = (item.entry.document?.byteLength ?? 0) + ENTRY_ENCODING_OVERHEAD_BYTES
-    const previous = current[current.length - 1]
-    const breaksSequence = previous !== undefined && item.entry.seqNo !== previous.entry.seqNo + 1
-    const overflows =
-      current.length >= MAX_ENTRY_BATCH_COUNT ||
-      (current.length > 0 && currentBytes + itemBytes > MAX_ENTRY_BATCH_BYTES)
-
-    if (breaksSequence || overflows) {
-      chunks.push(current)
-      current = []
-      currentBytes = 0
-    }
-
-    current.push(item)
-    currentBytes += itemBytes
-  }
-
-  if (current.length > 0) {
-    chunks.push(current)
-  }
-
-  return chunks
+  return chunkByBudget(items, {
+    ...WIRE_BATCH_BUDGET,
+    payloadBytesOf: item => item.entry.document?.byteLength ?? 0,
+    breaksRun: (item, previous) => item.entry.seqNo !== previous.entry.seqNo + 1,
+  })
 }

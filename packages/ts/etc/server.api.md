@@ -145,6 +145,7 @@ export interface ServerLimits {
     importBatchSize?: number;
     maxBodyBytes?: number;
     maxConcurrentRequests?: number;
+    maxConcurrentTasks?: number;
     maxFetchDocuments?: number;
     maxImportBytes?: number;
     maxImportErrors?: number;

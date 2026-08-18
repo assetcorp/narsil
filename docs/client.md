@@ -35,17 +35,20 @@ Only `url` is required.
 | `headers` | The client sends these with every request, and a per-call header of the same name replaces one. |
 | `timeoutMs` | The client waits this many milliseconds for an answer, and 30,000 unless you say otherwise. Pass 0 so that it waits for as long as the server takes. |
 | `fetch` | The client sends through this instead of the global `fetch`, which is what a proxy agent or a test stub needs. |
+| `maxResponseBytes` | The client stops reading an answer past this many bytes and fails with `CLIENT_INVALID_RESPONSE`, rather than holding the rest. Leave it out to read whatever the server sends. |
 
 The client opens no connection, and it holds no state beyond the capabilities it reads once, so nothing needs closing. Keep one for the application's lifetime.
 
 ## Settings for one call
 
-Every method takes `signal`, `timeoutMs`, and `headers` last. Aborting the signal fails the call with `CLIENT_REQUEST_ABORTED`, and it stops the HTTP request as well.
+Every method takes `signal`, `timeoutMs`, `headers`, and `maxResponseBytes` last. Aborting the signal fails the call with `CLIENT_REQUEST_ABORTED`, and it stops the HTTP request as well.
 
 ```ts
 const controller = new AbortController()
 const results = await client.query('movies', { term: 'matrix' }, { signal: controller.signal, timeoutMs: 2000 })
 ```
+
+A `snapshot` reads the whole index, so give that call its own `maxResponseBytes` or none at all where the client sets one.
 
 Three routes move a corpus or a whole index, so `importDocuments`, `snapshot`, and `restore` set no deadline of their own. Each of them waits for as long as the server takes, until you set `timeoutMs` on the client or on the call.
 

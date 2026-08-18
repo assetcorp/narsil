@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../types/engine'
-import type { AnyDocument, IndexConfig } from '../../types/schema'
+import type { AnyDocument, IndexConfig, InsertOptions } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
 import type { ClusterNode, CreateIndexOptions } from './types'
 
@@ -51,12 +51,17 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
       return node.createIndex(name, config, options?.createIndex)
     },
 
-    async insert(indexName: string, document: AnyDocument, docId?: string): Promise<string> {
-      return node.insert(indexName, document, docId)
+    async insert(
+      indexName: string,
+      document: AnyDocument,
+      docId?: string,
+      insertOptions?: InsertOptions,
+    ): Promise<string> {
+      return node.insert(indexName, document, docId, insertOptions)
     },
 
-    async insertBatch(indexName: string, documents: AnyDocument[]) {
-      return node.insertBatch(indexName, documents)
+    async insertBatch(indexName: string, documents: AnyDocument[], insertOptions?: InsertOptions) {
+      return node.insertBatch(indexName, documents, insertOptions)
     },
 
     async remove(indexName: string, docId: string): Promise<void> {

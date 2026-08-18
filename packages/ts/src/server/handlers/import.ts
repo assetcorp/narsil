@@ -4,7 +4,7 @@ import type { AnyDocument } from '../../types/schema'
 import type { HandlerDeps } from '../deps'
 import { ServerErrorCodes, serializeNarsilError } from '../errors'
 import { respondError, respondJson } from '../handler-utils'
-import { iterateNdjson, NdjsonLineTooLongError } from '../ndjson'
+import { iterateNdjson } from '../ndjson'
 import type { RouteContext } from '../request'
 import { sendError } from '../response'
 import type { ImportError, ImportResult, TaskProgress } from '../types'
@@ -141,7 +141,7 @@ export function createImportHandler(deps: HandlerDeps) {
 
     if (ctx.query.get('async') === 'true') {
       try {
-        engine.getStats(indexName)
+        await engine.countDocuments(indexName)
       } catch (err) {
         respondError(ctx, err)
         return
@@ -169,10 +169,6 @@ export function createImportHandler(deps: HandlerDeps) {
       respondJson(ctx, await runImport(engine, { ...runOptions, signal: controller.signal }))
     } catch (err) {
       if (ctx.abort.aborted) return
-      if (err instanceof NdjsonLineTooLongError) {
-        sendError(ctx.res, 413, ServerErrorCodes.PAYLOAD_TOO_LARGE, err.message, { line: err.lineNumber })
-        return
-      }
       respondError(ctx, err)
     }
   }

@@ -10,13 +10,9 @@ import { decodeTransportMessage, encodeTransportMessage } from '../tcp/framing'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import type { GrpcModule } from './loader'
 import { nodeTransportService } from './service'
-import { channelOptions, type GrpcTransportConfig } from './types'
+import { channelOptions, type GrpcTransportConfig, toCredentialBuffer } from './types'
 
 type ListenHandler = (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>
-
-function toBuffer(material: Buffer | string): Buffer {
-  return typeof material === 'string' ? Buffer.from(material) : material
-}
 
 function errorEnvelope(requestId: string, err: unknown): TransportMessage {
   const errorMsg = err instanceof Error ? err.message : String(err)
@@ -111,8 +107,8 @@ export class GrpcServerHost {
       return this.grpc.ServerCredentials.createInsecure()
     }
     return this.grpc.ServerCredentials.createSsl(
-      tls.ca !== undefined ? toBuffer(tls.ca) : null,
-      [{ private_key: toBuffer(tls.key), cert_chain: toBuffer(tls.cert) }],
+      tls.ca !== undefined ? toCredentialBuffer(tls.ca) : null,
+      [{ private_key: toCredentialBuffer(tls.key), cert_chain: toCredentialBuffer(tls.cert) }],
       tls.rejectUnauthorized ?? true,
     )
   }

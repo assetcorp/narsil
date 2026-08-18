@@ -88,7 +88,7 @@ export async function distributedQuery(
 
   if (isHybrid && params.sort !== null && params.sort.length > 0) {
     throw new NarsilError(
-      'SEARCH_INVALID_MODE',
+      ErrorCodes.SEARCH_INVALID_MODE,
       'A hybrid query cannot carry a sort, because fusion defines the order of hybrid results',
       { indexName },
     )

@@ -72,12 +72,12 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
       return trackOp(name, () => routeCreateIndex(name, indexConfig, options, coordinator, engine))
     },
 
-    async insert(indexName, document, docId?) {
-      return trackOp(indexName, () => routeInsert(indexName, document, docId, writeDeps))
+    async insert(indexName, document, docId?, options?) {
+      return trackOp(indexName, () => routeInsert(indexName, document, docId, writeDeps, options))
     },
 
-    async insertBatch(indexName, documents) {
-      return trackOp(indexName, () => routeInsertBatch(indexName, documents, writeDeps))
+    async insertBatch(indexName, documents, options?) {
+      return trackOp(indexName, () => routeInsertBatch(indexName, documents, writeDeps, options))
     },
 
     async remove(indexName, docId) {

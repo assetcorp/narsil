@@ -113,4 +113,24 @@ describe('a projected copy of a stored document', () => {
   it('returns an empty document where the projection keeps nothing', () => {
     expect(cloneProjected(storedDocument(), resolveProjection(false))).toEqual({})
   })
+
+  it('keeps nothing where an included path names an inherited property', () => {
+    expect(cloneProjected(storedDocument(), resolveProjection({ include: ['toString'] }))).toEqual({})
+  })
+
+  it('keeps nothing where an included path walks through an inherited property', () => {
+    expect(cloneProjected(storedDocument(), resolveProjection({ include: ['constructor.name'] }))).toEqual({})
+  })
+
+  it('copies nothing inherited where the projection only excludes', () => {
+    const projected = cloneProjected(storedDocument(), resolveProjection({ exclude: ['embedding'] }))
+
+    expect(Object.hasOwn(projected, 'toString')).toBe(false)
+  })
+
+  it('leaves an inherited property out of a document another node sent', () => {
+    const document: AnyDocument = { title: 'gravity waves' }
+
+    expect(applyProjection(document, resolveProjection({ include: ['toString'] }))).toEqual({})
+  })
 })

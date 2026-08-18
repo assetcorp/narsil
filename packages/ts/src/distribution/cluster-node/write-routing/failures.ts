@@ -1,10 +1,6 @@
-import { ErrorCodes, NarsilError } from '../../../errors'
+import { describeError, ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
 import type { WriteRoutingDeps } from './types'
-
-export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
 
 export function throwWriteFailure(error: unknown): never {
   if (error instanceof Error) {
@@ -29,8 +25,8 @@ export function createRollbackFailure(
       indexName,
       partitionId,
       documentId,
-      originalError: errorMessage(originalError),
-      rollbackError: errorMessage(rollbackError),
+      originalError: describeError(originalError),
+      rollbackError: describeError(rollbackError),
     },
   )
 }

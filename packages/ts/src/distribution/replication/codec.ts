@@ -1,5 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
+import { WIRE_BATCH_BUDGET } from '../chunking'
 import type {
   AckPayload,
   EntryBatchPayload,
@@ -59,7 +60,7 @@ export function createForwardMessage(payload: ForwardPayload, sourceId: string):
   }
 }
 
-export const MAX_FORWARD_BATCH_OPERATIONS = 1_000
+export const MAX_FORWARD_BATCH_OPERATIONS = WIRE_BATCH_BUDGET.maxCount
 
 export function createForwardBatchMessage(payload: ForwardBatchPayload, sourceId: string): TransportMessage {
   return {

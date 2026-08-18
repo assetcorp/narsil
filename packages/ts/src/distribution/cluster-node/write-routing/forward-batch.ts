@@ -2,12 +2,9 @@ import { decode, encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
+import { chunkByBudget, WIRE_BATCH_BUDGET } from '../../chunking'
 import type { PartitionAssignment } from '../../coordinator/types'
-import {
-  createForwardBatchMessage,
-  MAX_FORWARD_BATCH_OPERATIONS,
-  validateForwardBatchResultPayload,
-} from '../../replication/codec'
+import { createForwardBatchMessage, validateForwardBatchResultPayload } from '../../replication/codec'
 import type { ForwardBatchOperation, ForwardBatchOperationResult, ForwardBatchPayload } from '../../transport/types'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
 import {
@@ -25,9 +22,6 @@ import {
 } from './primary-writes'
 import type { WriteRoutingDeps } from './types'
 
-const MAX_FORWARD_BATCH_BYTES = 8_388_608
-const OPERATION_ENCODING_OVERHEAD_BYTES = 256
-
 export interface ForwardBatchItem {
   documentId: string
   operation: 'insert' | 'remove' | 'update'
@@ -44,28 +38,10 @@ function toWireOperation(item: ForwardBatchItem): ForwardBatchOperation {
 }
 
 function chunkWireOperations(operations: ForwardBatchOperation[]): ForwardBatchOperation[][] {
-  const chunks: ForwardBatchOperation[][] = []
-  let current: ForwardBatchOperation[] = []
-  let currentBytes = 0
-
-  for (const operation of operations) {
-    const operationBytes = (operation.document?.byteLength ?? 0) + OPERATION_ENCODING_OVERHEAD_BYTES
-    const overflows =
-      current.length >= MAX_FORWARD_BATCH_OPERATIONS ||
-      (current.length > 0 && currentBytes + operationBytes > MAX_FORWARD_BATCH_BYTES)
-    if (overflows) {
-      chunks.push(current)
-      current = []
-      currentBytes = 0
-    }
-    current.push(operation)
-    currentBytes += operationBytes
-  }
-
-  if (current.length > 0) {
-    chunks.push(current)
-  }
-  return chunks
+  return chunkByBudget(operations, {
+    ...WIRE_BATCH_BUDGET,
+    payloadBytesOf: operation => operation.document?.byteLength ?? 0,
+  })
 }
 
 async function forwardSingleItem(

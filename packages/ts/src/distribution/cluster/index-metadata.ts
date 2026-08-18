@@ -55,7 +55,13 @@ function isValidInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value)
 }
 
-function indexConfigKey(indexName: string): string {
+/**
+ * Builds the coordinator key one index's metadata is stored under.
+ *
+ * @param indexName - The index the key names.
+ * @returns The key, which every reader and writer of that metadata shares.
+ */
+export function indexConfigKey(indexName: string): string {
   return `${INDEX_CONFIG_PREFIX}${indexName}${INDEX_CONFIG_SUFFIX}`
 }
 

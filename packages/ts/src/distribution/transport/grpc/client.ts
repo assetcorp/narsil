@@ -3,15 +3,11 @@ import { decodeTransportMessage, encodeTransportMessage } from '../tcp/framing'
 import { MAX_MESSAGE_SIZE_BYTES, TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import type { GrpcModule } from './loader'
 import { openStreamMethod, sendMethod } from './service'
-import { channelOptions, type GrpcTransportConfig } from './types'
+import { channelOptions, type GrpcTransportConfig, toCredentialBuffer } from './types'
 
 interface StatusCarrier {
   code?: number
   message?: string
-}
-
-function toBuffer(material: Buffer | string): Buffer {
-  return typeof material === 'string' ? Buffer.from(material) : material
 }
 
 export class GrpcClientPool {
@@ -173,9 +169,9 @@ export class GrpcClientPool {
       return this.grpc.credentials.createInsecure()
     }
     return this.grpc.credentials.createSsl(
-      tls.ca !== undefined ? toBuffer(tls.ca) : null,
-      toBuffer(tls.key),
-      toBuffer(tls.cert),
+      tls.ca !== undefined ? toCredentialBuffer(tls.ca) : null,
+      toCredentialBuffer(tls.key),
+      toCredentialBuffer(tls.cert),
       {
         rejectUnauthorized: tls.rejectUnauthorized ?? true,
       },

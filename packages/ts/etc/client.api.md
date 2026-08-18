@@ -245,6 +245,7 @@ export interface NarsilClientOptions {
     apiKey?: string;
     fetch?: FetchFunction;
     headers?: Record<string, string>;
+    maxResponseBytes?: number;
     timeoutMs?: number;
     url: string;
 }
@@ -271,6 +272,7 @@ export const REBUILD_ANALYSIS_CAPABILITY = "indexes.rebuildAnalysis";
 // @public
 export interface RequestOptions {
     headers?: Record<string, string>;
+    maxResponseBytes?: number;
     signal?: AbortSignal;
     timeoutMs?: number;
 }

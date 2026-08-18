@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { NarsilError } from '../errors'
+import { NarsilError, ServerErrorCodes } from '../errors'
 import { serializeNarsilError } from './errors'
 import type { ImportResult, TaskListPage, TaskListQuery, TaskProgress, TaskRecord, TaskStore, TaskType } from './types'
 
@@ -80,11 +80,22 @@ export class TaskRegistry {
   constructor(
     private readonly store: TaskStore,
     private readonly instanceId: string,
+    private readonly maxConcurrent: number = 0,
   ) {}
 
   /** Records a task as running and drives `op` to completion in the background.
-   * Returns the record once it is persisted so the caller can respond 202. */
+   * Returns the record once it is persisted so the caller can respond 202.
+   * @throws A `NarsilError` with `TOO_MANY_REQUESTS` where this instance
+   * already drives {@link ServerLimits.maxConcurrentTasks} tasks, because each
+   * one holds its own working set until it finishes. */
   async start(type: TaskType, indexName: string, op: TaskOperation, progress?: TaskProgress): Promise<TaskRecord> {
+    if (this.maxConcurrent > 0 && this.live.size >= this.maxConcurrent) {
+      throw new NarsilError(
+        ServerErrorCodes.TOO_MANY_REQUESTS,
+        `This instance already drives ${this.maxConcurrent} tasks; poll one to completion before starting another`,
+        { running: this.live.size, limit: this.maxConcurrent },
+      )
+    }
     const now = Date.now()
     const record: TaskRecord = {
       id: randomUUID(),

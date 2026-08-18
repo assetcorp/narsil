@@ -1,9 +1,10 @@
 import { generateId } from '../../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { Narsil } from '../../../narsil'
-import type { AnyDocument, IndexConfig } from '../../../types/schema'
+import type { AnyDocument, IndexConfig, InsertOptions } from '../../../types/schema'
 import {
   type IndexMetadata,
+  indexConfigKey,
   MAX_PARTITION_COUNT,
   putIndexMetadata,
   validateIndexName,
@@ -42,9 +43,11 @@ function validateCreateIndexOptions(partitionCount: number, replicationFactor: n
   }
 }
 
-/** The part of the local engine an index creation needs. */
+/** The part of the local engine an index creation needs, including the drop
+ * a half-finished creation takes its own copy back with. */
 interface IndexCreatingEngine {
   createIndexWithUuid(name: string, config: IndexConfig, indexUuid?: string): Promise<void>
+  dropIndex(name: string): Promise<void>
 }
 
 export async function routeCreateIndex(
@@ -84,29 +87,18 @@ export async function routeCreateIndex(
   }
 
   try {
-    await coordinator.putSchema(name, config.schema)
     await engine.createIndexWithUuid(
       name,
       { ...config, partitions: { ...config.partitions, maxPartitions: partitionCount } },
       metadata.indexUuid,
     )
+    await coordinator.putSchema(name, config.schema)
   } catch (createErr) {
-    let cleanupFailed = false
-    let cleanupError: unknown
-    try {
-      const currentBytes = await coordinator.get(`_narsil/index/${name}/config`)
-      if (currentBytes !== null) {
-        await coordinator.compareAndSet(`_narsil/index/${name}/config`, currentBytes, new Uint8Array(0))
-      }
-    } catch (cleanErr) {
-      cleanupFailed = true
-      cleanupError = cleanErr
-    }
-
-    if (cleanupFailed) {
+    const cleanupError = await withdrawPartialIndex(name, coordinator, engine)
+    if (cleanupError !== null) {
       throw new NarsilError(
         ErrorCodes.CONFIG_INVALID,
-        `Index creation for '${name}' failed and metadata cleanup also failed. The index may be in a partial state and require manual intervention.`,
+        `Index creation for '${name}' failed and the withdrawal of its cluster metadata also failed. The index may be in a partial state and require manual intervention.`,
         {
           indexName: name,
           createError: createErr instanceof Error ? createErr.message : String(createErr),
@@ -119,10 +111,54 @@ export async function routeCreateIndex(
   }
 }
 
+/**
+ * Takes back everything a half-finished creation left behind, so the name is
+ * free again, no controller allocates partitions for an index no node holds,
+ * and no node keeps a copy the cluster never claimed. The metadata goes first,
+ * because an empty value there counts as absent and unblocks the next
+ * creation; the schema follows, because its presence alone is what drives
+ * allocation; and the local copy goes last.
+ *
+ * @param name - The index whose creation failed.
+ * @param coordinator - The coordinator holding the published state.
+ * @param engine - The local engine that may already hold the copy.
+ * @returns The failure that stopped the withdrawal, or null when it finished.
+ */
+async function withdrawPartialIndex(
+  name: string,
+  coordinator: ClusterCoordinator,
+  engine: IndexCreatingEngine,
+): Promise<unknown> {
+  try {
+    const currentBytes = await coordinator.get(indexConfigKey(name))
+    if (currentBytes !== null && currentBytes.byteLength > 0) {
+      await coordinator.compareAndSet(indexConfigKey(name), currentBytes, new Uint8Array(0))
+    }
+    await coordinator.dropSchema(name)
+    await dropLocalCopy(name, engine)
+    return null
+  } catch (cleanupError) {
+    return cleanupError
+  }
+}
+
+/** Drops the copy a failed creation may have left on this node, treating an
+ * absent one as nothing to do, because the creation may have failed before it. */
+async function dropLocalCopy(name: string, engine: IndexCreatingEngine): Promise<void> {
+  try {
+    await engine.dropIndex(name)
+  } catch (dropError) {
+    if (dropError instanceof NarsilError && dropError.code === ErrorCodes.INDEX_NOT_FOUND) {
+      return
+    }
+    throw dropError
+  }
+}
+
 export async function routeDropIndex(name: string, coordinator: ClusterCoordinator, engine: Narsil): Promise<void> {
   validateIndexName(name)
 
-  const metadataKey = `_narsil/index/${name}/config`
+  const metadataKey = indexConfigKey(name)
   const metadataBytes = await coordinator.get(metadataKey)
   const hasClusterMetadata = metadataBytes !== null && metadataBytes.byteLength > 0
   const schema = await coordinator.getSchema(name)
@@ -150,17 +186,26 @@ export async function routeInsert(
   document: AnyDocument,
   docId: string | undefined,
   deps: WriteRoutingDeps,
+  options?: InsertOptions,
 ): Promise<string> {
   const resolvedDocId = docId ?? generateId()
   const resolution = await resolvePrimaryAssignment(indexName, resolvedDocId, deps, false)
 
   if (resolution === null) {
-    return deps.engine.insert(indexName, document, resolvedDocId)
+    return deps.engine.insert(indexName, document, resolvedDocId, options)
   }
 
   const primaryNodeId = resolution.assignment.primary
   if (primaryNodeId === deps.nodeId) {
-    return applyPrimaryInsert(indexName, document, resolvedDocId, resolution.partitionId, resolution.assignment, deps)
+    return applyPrimaryInsert(
+      indexName,
+      document,
+      resolvedDocId,
+      resolution.partitionId,
+      resolution.assignment,
+      deps,
+      options,
+    )
   }
 
   return forwardInsertToRemote(indexName, document, resolvedDocId, primaryNodeId, deps)
