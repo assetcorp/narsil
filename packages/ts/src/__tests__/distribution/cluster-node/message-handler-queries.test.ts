@@ -67,7 +67,9 @@ describe('handleSearch on a data node', () => {
             ],
           }),
         ),
-        response => responses.push(response),
+        async response => {
+          responses.push(response)
+        },
         deps,
       )
 
@@ -103,7 +105,9 @@ describe('handleSearch on a data node', () => {
             includeScores: true,
           }),
         ),
-        response => responses.push(response),
+        async response => {
+          responses.push(response)
+        },
         deps,
       )
 
@@ -136,7 +140,9 @@ describe('handleSearch on a data node', () => {
             ],
           }),
         ),
-        response => responses.push(response),
+        async response => {
+          responses.push(response)
+        },
         deps,
       )
 
@@ -161,7 +167,9 @@ describe('handleSearch on a data node', () => {
       const responses: TransportMessage[] = []
       await handleSearch(
         makeSearchMessage(makeWireParams({ term: 'widget' })),
-        response => responses.push(response),
+        async response => {
+          responses.push(response)
+        },
         deps,
       )
 

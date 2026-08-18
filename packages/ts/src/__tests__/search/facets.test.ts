@@ -6,13 +6,13 @@ describe('mergeFacets', () => {
   describe('overlapping values across partitions', () => {
     it('sums counts for the same value across three partitions', () => {
       const partition1: Record<string, FacetResult> = {
-        category: { values: { electronics: 5, clothing: 3 }, count: 2 },
+        category: { values: { electronics: 5, clothing: 3 }, count: 2, errorBound: 0 },
       }
       const partition2: Record<string, FacetResult> = {
-        category: { values: { electronics: 2, food: 4 }, count: 2 },
+        category: { values: { electronics: 2, food: 4 }, count: 2, errorBound: 0 },
       }
       const partition3: Record<string, FacetResult> = {
-        category: { values: { electronics: 1, clothing: 2, food: 1 }, count: 3 },
+        category: { values: { electronics: 1, clothing: 2, food: 1 }, count: 3, errorBound: 0 },
       }
 
       const result = mergeFacets([partition1, partition2, partition3])
@@ -27,10 +27,10 @@ describe('mergeFacets', () => {
   describe('disjoint values', () => {
     it('preserves all values when partitions have no overlap', () => {
       const partition1: Record<string, FacetResult> = {
-        color: { values: { red: 3 }, count: 1 },
+        color: { values: { red: 3 }, count: 1, errorBound: 0 },
       }
       const partition2: Record<string, FacetResult> = {
-        color: { values: { blue: 5 }, count: 1 },
+        color: { values: { blue: 5 }, count: 1, errorBound: 0 },
       }
 
       const result = mergeFacets([partition1, partition2])
@@ -54,7 +54,7 @@ describe('mergeFacets', () => {
 
     it('skips empty partitions while merging non-empty ones', () => {
       const partition1: Record<string, FacetResult> = {
-        size: { values: { small: 2, large: 5 }, count: 2 },
+        size: { values: { small: 2, large: 5 }, count: 2, errorBound: 0 },
       }
 
       const result = mergeFacets([{}, partition1, {}])
@@ -68,8 +68,8 @@ describe('mergeFacets', () => {
   describe('single partition passthrough', () => {
     it('returns the same facet data when given a single partition', () => {
       const partition: Record<string, FacetResult> = {
-        brand: { values: { nike: 10, adidas: 8 }, count: 2 },
-        color: { values: { white: 3 }, count: 1 },
+        brand: { values: { nike: 10, adidas: 8 }, count: 2, errorBound: 0 },
+        color: { values: { white: 3 }, count: 1, errorBound: 0 },
       }
 
       const result = mergeFacets([partition])
@@ -85,12 +85,12 @@ describe('mergeFacets', () => {
   describe('multiple facet fields', () => {
     it('merges each field independently', () => {
       const partition1: Record<string, FacetResult> = {
-        category: { values: { books: 3 }, count: 1 },
-        format: { values: { hardcover: 2 }, count: 1 },
+        category: { values: { books: 3 }, count: 1, errorBound: 0 },
+        format: { values: { hardcover: 2 }, count: 1, errorBound: 0 },
       }
       const partition2: Record<string, FacetResult> = {
-        category: { values: { books: 1, games: 4 }, count: 2 },
-        format: { values: { paperback: 5 }, count: 1 },
+        category: { values: { books: 1, games: 4 }, count: 2, errorBound: 0 },
+        format: { values: { paperback: 5 }, count: 1, errorBound: 0 },
       }
 
       const result = mergeFacets([partition1, partition2])
@@ -101,6 +101,29 @@ describe('mergeFacets', () => {
       expect(result.format.values.hardcover).toBe(2)
       expect(result.format.values.paperback).toBe(5)
       expect(result.format.count).toBe(2)
+    })
+  })
+
+  describe('error bounds', () => {
+    it('adds up what each partition left out, because each undercounts on its own', () => {
+      const partition1: Record<string, FacetResult> = {
+        category: { values: { books: 3 }, count: 1, errorBound: 4 },
+      }
+      const partition2: Record<string, FacetResult> = {
+        category: { values: { books: 1 }, count: 1, errorBound: 7 },
+      }
+
+      const result = mergeFacets([partition1, partition2])
+
+      expect(result.category.errorBound).toBe(11)
+    })
+
+    it('reports an exact merge as 0 where no partition dropped a value', () => {
+      const partition: Record<string, FacetResult> = {
+        colour: { values: { red: 2 }, count: 1, errorBound: 0 },
+      }
+
+      expect(mergeFacets([partition]).colour.errorBound).toBe(0)
     })
   })
 })

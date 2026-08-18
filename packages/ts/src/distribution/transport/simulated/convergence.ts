@@ -2,7 +2,7 @@ import { resolvePartitionId } from '../../cluster-node/write-routing'
 import type { ClusterCoordinator, PartitionAssignment } from '../../coordinator/types'
 import { createListMessage, decodePayload } from '../../query/codec'
 import { type ListResultPayload, QueryMessageTypes } from '../types'
-import type { SimulatedNetwork } from './transport'
+import type { SimulatedNetwork } from './network'
 
 export type AcknowledgedWriteState = 'present' | 'removed'
 

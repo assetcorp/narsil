@@ -4,6 +4,17 @@ export interface SeededPrng {
   nextBool(probability: number): boolean
 }
 
+const FNV_OFFSET_BASIS = 0x811c9dc5
+const FNV_PRIME = 0x01000193
+
+export function deriveStreamSeed(seed: number, streamName: string): number {
+  let hash = (seed ^ FNV_OFFSET_BASIS) | 0
+  for (let i = 0; i < streamName.length; i++) {
+    hash = Math.imul(hash ^ streamName.charCodeAt(i), FNV_PRIME)
+  }
+  return hash | 0
+}
+
 export function createSeededPrng(seed: number): SeededPrng {
   let state = seed | 0
 

@@ -1,11 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SimulatedNetwork } from '../../../../distribution/transport/simulated/transport'
-import {
-  createSimulatedNetwork,
-  createSimulatedTransport,
-} from '../../../../distribution/transport/simulated/transport'
+import type { SimulatedNetwork } from '../../../../distribution/transport/simulated/network'
+import { createSimulatedNetwork } from '../../../../distribution/transport/simulated/network'
+import { createSimulatedTransport } from '../../../../distribution/transport/simulated/transport'
 import type { NodeTransport, TransportMessage } from '../../../../distribution/transport/types'
-import { TransportError, TransportErrorCodes } from '../../../../distribution/transport/types'
+import { MAX_MESSAGE_SIZE_BYTES, TransportError, TransportErrorCodes } from '../../../../distribution/transport/types'
 
 const START_TIME = 1_000_000_000
 
@@ -154,14 +152,134 @@ describe('simulated transport', () => {
     })
   })
 
-  it('rejects an oversized payload without scheduling it', async () => {
+  it('rejects a payload whose encoded frame passes the limit, without scheduling it', async () => {
     const transportA = createSimulatedTransport('node-a', network)
     createSimulatedTransport('node-b', network)
 
     await expect(
-      transportA.send('node-b', makeMessage('query.search', 'node-a', new Uint8Array(67_108_865))),
+      transportA.send('node-b', makeMessage('query.search', 'node-a', new Uint8Array(MAX_MESSAGE_SIZE_BYTES))),
     ).rejects.toMatchObject({ code: TransportErrorCodes.MESSAGE_TOO_LARGE })
     expect(network.scheduler.pendingCount).toBe(0)
+  })
+
+  it('hands the receiver its own decoded copy of the message', async () => {
+    const transportA = createSimulatedTransport('node-a', network)
+    const transportB = createSimulatedTransport('node-b', network)
+    const payload = new Uint8Array([1, 2, 3])
+    const sent = makeMessage('query.search', 'node-a', payload)
+    let received: TransportMessage | undefined
+    await transportB.listen((message, respond) => {
+      received = message
+      respond({ type: 'echo', sourceId: 'node-b', requestId: message.requestId, payload: message.payload })
+    })
+
+    await network.scheduler.runWithDrain(() => {
+      const pending = transportA.send('node-b', sent)
+      payload[0] = 99
+      return pending
+    })
+
+    expect(received).not.toBe(sent)
+    expect(Array.from(received?.payload ?? [])).toEqual([1, 2, 3])
+  })
+
+  it('delivers each stream chunk to the caller before the peer produces the next', async () => {
+    const transportA = createSimulatedTransport('node-a', network)
+    const transportB = createSimulatedTransport('node-b', network)
+    const order: string[] = []
+    await transportB.listen(async (message, respond) => {
+      for (let i = 0; i < 3; i++) {
+        order.push(`produced ${i}`)
+        await respond({
+          type: 'replication.snapshot_chunk',
+          sourceId: 'node-b',
+          requestId: message.requestId,
+          payload: new Uint8Array([i]),
+        })
+      }
+    })
+
+    await network.scheduler.runWithDrain(() =>
+      transportA.stream('node-b', makeMessage('replication.snapshot_sync_request', 'node-a'), chunk => {
+        order.push(`received ${chunk[0]}`)
+      }),
+    )
+
+    expect(order).toEqual(['produced 0', 'received 0', 'produced 1', 'received 1', 'produced 2', 'received 2'])
+  })
+
+  it('fails a stream the peer abandons after its first chunk', async () => {
+    const transportA = createSimulatedTransport('node-a', network, { snapshotTimeout: 1_000 })
+    const transportB = createSimulatedTransport('node-b', network)
+    await transportB.listen(async (message, respond) => {
+      await respond({
+        type: 'replication.snapshot_chunk',
+        sourceId: 'node-b',
+        requestId: message.requestId,
+        payload: new Uint8Array([0]),
+      })
+      throw new Error('the snapshot source failed halfway')
+    })
+
+    const chunks: number[] = []
+    const outcome = await network.scheduler.runWithDrain(() =>
+      transportA
+        .stream('node-b', makeMessage('replication.snapshot_sync_request', 'node-a'), chunk => {
+          chunks.push(chunk[0])
+        })
+        .then(
+          () => 'resolved',
+          (error: unknown) => (error as Error).message,
+        ),
+    )
+
+    expect(chunks).toEqual([0])
+    expect(outcome).toBe('the snapshot source failed halfway')
+  })
+
+  it('fails a stream whose chunk the network drops', async () => {
+    const transportA = createSimulatedTransport('node-a', network, { snapshotTimeout: 1_000 })
+    const transportB = createSimulatedTransport('node-b', network)
+    await transportB.listen(async (message, respond) => {
+      network.faultPolicy.setDropRate(1)
+      await respond({
+        type: 'replication.snapshot_chunk',
+        sourceId: 'node-b',
+        requestId: message.requestId,
+        payload: new Uint8Array([0]),
+      })
+    })
+
+    const chunks: number[] = []
+    const outcome = await network.scheduler.runWithDrain(() =>
+      transportA
+        .stream('node-b', makeMessage('replication.snapshot_sync_request', 'node-a'), chunk => {
+          chunks.push(chunk[0])
+        })
+        .then(
+          () => 'resolved',
+          (error: unknown) => (error as TransportError).code,
+        ),
+    )
+
+    expect(chunks).toEqual([])
+    expect(outcome).toBe(TransportErrorCodes.PEER_UNAVAILABLE)
+  })
+
+  it('fails a stream to a peer that registered no listener', async () => {
+    const transportA = createSimulatedTransport('node-a', network, { snapshotTimeout: 1_000 })
+    createSimulatedTransport('node-b', network)
+
+    const outcome = await network.scheduler.runWithDrain(() =>
+      transportA
+        .stream('node-b', makeMessage('replication.snapshot_sync_request', 'node-a'), () => undefined)
+        .then(
+          () => 'resolved',
+          (error: unknown) => (error as TransportError).code,
+        ),
+    )
+
+    expect(outcome).toBe(TransportErrorCodes.PEER_UNAVAILABLE)
   })
 
   it('times out when the peer shuts down before delivery', async () => {

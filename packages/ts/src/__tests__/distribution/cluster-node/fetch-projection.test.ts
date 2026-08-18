@@ -40,7 +40,13 @@ async function fetchWith(fields: string[] | null): Promise<FetchResultPayload> {
   try {
     const deps = { nodeId: 'node-a', engine } as DataNodeHandlerDeps
     const responses: TransportMessage[] = []
-    await handleFetch(makeFetchMessage(fields), response => responses.push(response), deps)
+    await handleFetch(
+      makeFetchMessage(fields),
+      async response => {
+        responses.push(response)
+      },
+      deps,
+    )
     expect(responses).toHaveLength(1)
     return decode(responses[0].payload) as FetchResultPayload
   } finally {

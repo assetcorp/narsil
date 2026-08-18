@@ -74,6 +74,7 @@ export function makeSearchResultResponse(
       totalHits: r.totalHits,
     })),
     facets,
+    facetErrorBounds: null,
   }
 }
 

@@ -12,7 +12,7 @@ import {
   SNAPSHOT_HEADER_SENTINEL_PARTITION_ID,
   SNAPSHOT_HEADER_SENTINEL_SEQNO,
 } from '../../../distribution/replication/snapshot-constants'
-import { ReplicationMessageTypes, type TransportMessage } from '../../../distribution/transport/types'
+import { ReplicationMessageTypes, type RespondFn, type TransportMessage } from '../../../distribution/transport/types'
 import { ErrorCodes } from '../../../errors'
 import type { Narsil } from '../../../narsil'
 import { crc32 } from '../../../serialization/crc32'
@@ -92,10 +92,10 @@ function makeRequest(indexName: string, requestId = 'req-1', sourceId = 'replica
   }
 }
 
-function collectResponses(): { respond: (response: TransportMessage) => void; responses: TransportMessage[] } {
+function collectResponses(): { respond: RespondFn; responses: TransportMessage[] } {
   const responses: TransportMessage[] = []
   return {
-    respond: (response: TransportMessage) => {
+    respond: async (response: TransportMessage) => {
       responses.push(response)
     },
     responses,

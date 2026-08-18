@@ -192,15 +192,15 @@ describe('createMultiplexedControllerTransport dispatch guard', () => {
       payload: new Uint8Array(),
     }
 
-    await wrapped(forwardMsg, () => {})
+    await wrapped(forwardMsg, async () => {})
     expect(dataHandler).toHaveBeenCalledTimes(1)
     expect(controllerHandler).toHaveBeenCalledTimes(0)
 
-    await wrapped(insyncMsg, () => {})
+    await wrapped(insyncMsg, async () => {})
     expect(dataHandler).toHaveBeenCalledTimes(1)
     expect(controllerHandler).toHaveBeenCalledTimes(1)
 
-    await wrapped(bootstrapMsg, () => {})
+    await wrapped(bootstrapMsg, async () => {})
     expect(dataHandler).toHaveBeenCalledTimes(1)
     expect(controllerHandler).toHaveBeenCalledTimes(2)
   })
@@ -236,7 +236,7 @@ describe('createMultiplexedControllerTransport dispatch guard', () => {
         requestId: 'req-dup',
         payload: new Uint8Array(),
       },
-      (r: TransportMessage) => {
+      async (r: TransportMessage) => {
         received.push(r)
       },
     )
