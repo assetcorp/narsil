@@ -1,4 +1,5 @@
 import type { Etcd3 as Etcd3Client, IKeyValue, Watcher } from 'etcd3'
+import { compareCodePoints } from '../../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { SchemaDefinition } from '../../../types/schema'
 import type {
@@ -319,6 +320,13 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       assertNotShutdown()
       const key = keys.schema(indexName)
       await client.put(key).value(serializeSchema(schema)).exec()
+    },
+
+    async listSchemas(): Promise<string[]> {
+      assertNotShutdown()
+      const prefix = keys.schemaPrefix()
+      const result = await client.getAll().prefix(prefix).keys()
+      return result.map(fullKey => extractSuffix(fullKey, prefix)).sort(compareCodePoints)
     },
 
     async watchSchemas(handler: (event: SchemaEvent) => void): Promise<() => void> {

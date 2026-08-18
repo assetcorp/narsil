@@ -1,3 +1,4 @@
+import { compareCodePoints } from '../../core/ordering'
 import type { SchemaDefinition } from '../../types/schema'
 import type {
   AllocationEvent,
@@ -294,6 +295,11 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
       assertNotShutdown()
       schemas.set(indexName, schema)
       emitSchemaEvent({ type: 'schema_created', indexName, schema })
+    },
+
+    async listSchemas(): Promise<string[]> {
+      assertNotShutdown()
+      return Array.from(schemas.keys()).sort(compareCodePoints)
     },
 
     async watchSchemas(handler: (event: SchemaEvent) => void): Promise<() => void> {

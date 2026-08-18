@@ -32,11 +32,31 @@ function makeAllocationTable(
 }
 
 describe('collectActiveCandidates', () => {
-  it('returns primary and replicas when state is ACTIVE', () => {
-    const assignment = makeAssignment({ primary: 'node-a', replicas: ['node-b', 'node-c'] })
+  it('returns primary and in-sync replicas when state is ACTIVE', () => {
+    const assignment = makeAssignment({
+      primary: 'node-a',
+      replicas: ['node-b', 'node-c'],
+      inSyncSet: ['node-a', 'node-b', 'node-c'],
+    })
     const candidates = collectActiveCandidates(assignment)
 
     expect(candidates).toEqual(['node-a', 'node-b', 'node-c'])
+  })
+
+  it('excludes a replica outside the in-sync set', () => {
+    const assignment = makeAssignment({
+      primary: 'node-a',
+      replicas: ['node-b', 'node-c'],
+      inSyncSet: ['node-a', 'node-b'],
+    })
+
+    expect(collectActiveCandidates(assignment)).toEqual(['node-a', 'node-b'])
+  })
+
+  it('keeps the primary when the in-sync set omits it', () => {
+    const assignment = makeAssignment({ primary: 'node-a', replicas: ['node-b'], inSyncSet: [] })
+
+    expect(collectActiveCandidates(assignment)).toEqual(['node-a'])
   })
 
   it('returns empty array when partition state is INITIALISING', () => {

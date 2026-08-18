@@ -11,8 +11,7 @@ import { clearEventLoopWatchers, createEventLoopState, type EventLoopState, star
 import type { ControllerConfig, ControllerNode } from './types'
 
 export function createController(config: ControllerConfig): ControllerNode {
-  const { nodeId, coordinator, transport, leaseTtlMs, standbyRetryMs, knownIndexNames, resolveIndexNames, onError } =
-    config
+  const { nodeId, coordinator, transport, leaseTtlMs, standbyRetryMs, knownIndexNames, onError } = config
 
   let electionState: ElectionState = createElectionState()
   let eventLoopState: EventLoopState = createEventLoopState(knownIndexNames)
@@ -47,10 +46,12 @@ export function createController(config: ControllerConfig): ControllerNode {
 
     startRenewalInterval(electionState, coordinator, nodeId, leaseTtlMs, stepDown)
 
-    if (resolveIndexNames !== undefined) {
-      for (const indexName of resolveIndexNames()) {
+    try {
+      for (const indexName of await coordinator.listSchemas()) {
         eventLoopState.knownIndexes.add(indexName)
       }
+    } catch (_) {
+      /* Listing failure is recoverable; schema events refill knownIndexes */
     }
 
     await startEventLoop(eventLoopState, coordinator, transport, nodeId, isActive, onError)

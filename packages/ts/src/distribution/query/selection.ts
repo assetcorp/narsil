@@ -23,6 +23,9 @@ export function collectActiveCandidates(assignment: PartitionAssignment): string
   }
 
   for (const replica of assignment.replicas) {
+    if (!assignment.inSyncSet.includes(replica)) {
+      continue
+    }
     if (!candidates.includes(replica)) {
       candidates.push(replica)
     }

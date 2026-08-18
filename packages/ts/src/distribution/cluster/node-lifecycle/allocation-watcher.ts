@@ -156,7 +156,33 @@ function handleExistingAssignment(
 
       startBootstrap(state, config, existing.indexName, existing.partitionId, assignment.primary)
     }
+    return
   }
+
+  if (assignment.primary !== null && replicaNeedsResync(state, existing, assignment, nodeId)) {
+    startBootstrap(state, config, existing.indexName, existing.partitionId, assignment.primary)
+  }
+}
+
+function replicaNeedsResync(
+  state: AllocationWatcherState,
+  existing: TrackedPartition,
+  assignment: PartitionAssignment,
+  nodeId: string,
+): boolean {
+  if (assignment.state !== 'ACTIVE') {
+    return false
+  }
+  if (assignment.primary === null || assignment.primary === nodeId) {
+    return false
+  }
+  if (!assignment.replicas.includes(nodeId)) {
+    return false
+  }
+  if (assignment.inSyncSet.includes(nodeId)) {
+    return false
+  }
+  return !state.activeBootstraps.has(partitionKey(existing.indexName, existing.partitionId))
 }
 
 function startBootstrap(

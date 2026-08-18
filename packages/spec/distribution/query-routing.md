@@ -108,13 +108,13 @@ DFS costs one extra round trip. Use it when partition sizes or term distribution
 
 The coordinator picks one replica per partition. The strategy is pluggable, and the default is random.
 
-**Random selection**, the default, picks a replica at random from the `ACTIVE` replicas of the partition, the primary included. Load spreads evenly when the replicas are alike.
+**Random selection**, the default, picks a replica at random from the eligible copies of the partition, the primary included. Load spreads evenly when the replicas are alike.
 
 **Adaptive selection** is optional. It tracks per-replica response time and queue depth and routes to the replica with the lowest estimated latency. The algorithm is implementation-defined; an implementation that offers one must document how it behaves.
 
 The selection contract holds whichever strategy runs:
 
-- The coordinator must select only replicas whose partition state is `ACTIVE`.
+- The coordinator must select only the primary or an in-sync replica of a partition whose state is `ACTIVE`; see [In-Sync Replica Tracking](replication.md#in-sync-replica-tracking).
 - Replicas in `INITIALISING` or `DECOMMISSIONING` are never selected.
 - With no `ACTIVE` replica for a partition, the coordinator either fails the query or returns partial results; see [Partial Results](#partial-results).
 
