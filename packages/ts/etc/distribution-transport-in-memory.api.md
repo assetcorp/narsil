@@ -18,9 +18,16 @@ export interface InMemoryNetwork {
 }
 
 // @public
+export interface InMemoryStreamSink {
+    chunk(payload: Uint8Array): Promise<void>;
+    end(): void;
+    fail(error: Error): void;
+}
+
+// @public
 export interface InMemoryTransportInternal extends NodeTransport {
     deliverMessage(message: TransportMessage, respond: RespondFn): void;
-    deliverStream(message: TransportMessage, responder: StreamResponder): void;
+    deliverStream(message: TransportMessage, sink: InMemoryStreamSink): void;
 }
 
 // @public
@@ -28,9 +35,6 @@ export type ListenHandler = (message: TransportMessage, respond: RespondFn) => v
 
 // @public
 export type RespondFn = (response: TransportMessage) => Promise<void>;
-
-// @public
-export type StreamResponder = (chunks: Uint8Array[]) => void;
 
 // (No @packageDocumentation comment for this package)
 
