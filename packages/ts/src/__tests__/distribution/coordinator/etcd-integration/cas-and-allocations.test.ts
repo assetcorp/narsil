@@ -151,6 +151,7 @@ describe('EtcdCoordinator integration - CAS and allocations', () => {
       )
 
       expect(await coordinator.getSchema('products')).toEqual(testSchema)
+      expect(await coordinator.listSchemas()).toEqual(['products'])
     } finally {
       stopAllocationWatch()
       stopSchemaWatch()

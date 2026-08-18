@@ -152,6 +152,30 @@ describe('Controller election and event loop', () => {
     })
   })
 
+  describe('election seeding', () => {
+    it('seeds known indexes from the coordinator schema listing at election', async () => {
+      await coordinator.registerNode(makeNode('data-1'))
+      await coordinator.registerNode(makeNode('data-2'))
+      await coordinator.putSchema('products', testSchema)
+      await setupIndexWithAllocation(coordinator, 'products', ['data-1'])
+
+      const tableBefore = await coordinator.getAllocation('products')
+      const versionBefore = tableBefore?.version ?? 0
+
+      createDefaultController()
+      if (controller === undefined) throw new Error('controller not initialised')
+      await controller.start()
+
+      vi.advanceTimersByTime(501)
+      await flushPromises()
+      await flushPromises()
+
+      const tableAfter = await coordinator.getAllocation('products')
+      expect(tableAfter).not.toBeNull()
+      expect(tableAfter?.version).toBeGreaterThan(versionBefore)
+    })
+  })
+
   describe('event loop: node events', () => {
     it('runs allocator for all known indexes on node_joined', async () => {
       await coordinator.registerNode(makeNode('data-1'))

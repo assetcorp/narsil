@@ -296,6 +296,13 @@ export interface ClusterCoordinator {
    */
   putSchema(indexName: string, schema: SchemaDefinition): Promise<void>
   /**
+   * Lists the name of every published schema, which is how a newly elected
+   * controller finds the indexes it must reconcile.
+   *
+   * @returns Every index name holding a schema, sorted by code point.
+   */
+  listSchemas(): Promise<string[]>
+  /**
    * Watches schemas being published and dropped.
    *
    * @param handler - Called once per change.

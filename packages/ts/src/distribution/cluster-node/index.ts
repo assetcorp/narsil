@@ -214,7 +214,6 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       leaseTtlMs: DEFAULT_CONTROLLER_CONFIG.leaseTtlMs,
       standbyRetryMs: DEFAULT_CONTROLLER_CONFIG.standbyRetryMs,
       knownIndexNames: [],
-      resolveIndexNames: () => engine.listIndexes().map(index => index.name),
     })
   }
 

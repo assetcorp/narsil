@@ -218,6 +218,8 @@ A replica joins the in-sync set once it has applied every log entry up to the pr
 
 A replica leaves the in-sync set when the primary detects it has failed, whether by a timeout on a forwarded entry or by a lost connection. The primary then asks the controller to remove it.
 
+A replica that reads an `ACTIVE` assignment naming it as a replica outside the in-sync set must run the sync protocol against the primary, and it rejoins the set through the bootstrap completion report.
+
 ### Finding the Controller
 
 The primary calls `getLeaseHolder('_narsil/controller')` on the cluster coordinator, which returns the `nodeId` of the active controller. The primary looks that node's `address` up in its cached node registry, kept current by the node watch, and sends the removal request over the node transport.

@@ -159,6 +159,15 @@ describe('InMemoryCoordinator', () => {
       expect(events[0].schema).toEqual(testSchema)
     })
 
+    it('lists every schema name sorted by code point', async () => {
+      expect(await coordinator.listSchemas()).toEqual([])
+
+      await coordinator.putSchema('products', testSchema)
+      await coordinator.putSchema('articles', testSchema)
+
+      expect(await coordinator.listSchemas()).toEqual(['articles', 'products'])
+    })
+
     it('overwrites an existing schema', async () => {
       await coordinator.putSchema('articles', testSchema)
 

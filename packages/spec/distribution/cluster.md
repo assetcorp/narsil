@@ -87,9 +87,10 @@ ClusterCoordinator {
 - Sets `key` to `value` and returns true when the current value equals `expected`, and returns false otherwise.
 - With `expected` absent, it succeeds only when the key does not exist.
 
-### getSchema, putSchema, and watchSchemas
+### getSchema, putSchema, listSchemas, and watchSchemas
 
 - Schema metadata is stored in the coordinator, not in the replication log; see [replication.md](replication.md).
+- `listSchemas` returns the name of every stored schema, which is how a newly elected controller finds the indexes it must reconcile.
 - `watchSchemas` fires when an index schema is created or dropped, which is how a node discovers a new index and learns that one has gone.
 
 ### getLeaseHolder(key)
@@ -418,11 +419,11 @@ _narsil/index/{indexName}/config
 
 4. A controller that crashes between steps 2a and 2c leaves a
    schema with no allocation. The next controller finds the schema
-   through getSchema and no table through getAllocation, and runs
+   through listSchemas and no table through getAllocation, and runs
    the allocator to finish the job.
 ```
 
-The `partitionCount` is fixed once the index exists. Changing it means creating a new index and reindexing into it.
+The `partitionCount` is fixed once the index exists. Changing it means creating a new index and reindexing into it. Every node must create its local index with exactly `partitionCount` partitions, so that a serialised partition loads unchanged on any holder.
 
 The `replicationFactor` can change after creation by updating the allocation table, and the controller applies the new factor on the next rebalance.
 

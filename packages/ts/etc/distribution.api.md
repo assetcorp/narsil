@@ -36,6 +36,7 @@ export interface ClusterCoordinator {
     getPartitionState(indexName: string, partitionId: number): Promise<PartitionState>;
     getSchema(indexName: string): Promise<SchemaDefinition | null>;
     listNodes(): Promise<NodeRegistration[]>;
+    listSchemas(): Promise<string[]>;
     putAllocation(indexName: string, table: AllocationTable, expectedVersion?: number | null): Promise<boolean>;
     putPartitionState(indexName: string, partitionId: number, state: PartitionState): Promise<void>;
     putSchema(indexName: string, schema: SchemaDefinition): Promise<void>;

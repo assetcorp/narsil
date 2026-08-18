@@ -78,7 +78,10 @@ export async function routeCreateIndex(
 
   try {
     await coordinator.putSchema(name, config.schema)
-    await engine.createIndex(name, config)
+    await engine.createIndex(name, {
+      ...config,
+      partitions: { ...config.partitions, maxPartitions: partitionCount },
+    })
   } catch (createErr) {
     let cleanupFailed = false
     let cleanupError: unknown
