@@ -148,6 +148,70 @@ describe('runBootstrapSync - happy path and state', () => {
     expect(mockEngine.restoreCalls.length).toBe(2)
   })
 
+  it('re-runs a completed sync when the allocation shows this replica outside the in-sync set', async () => {
+    const { chunks } = makeScriptedSnapshot('products', 1024)
+    scripted.setScript(chunks)
+
+    const state = createBootstrapSyncState()
+    const deps = makeDeps(mockEngine.engine, coordinator, scripted.transport)
+
+    const first = await runBootstrapSync(state, 'products', 0, 'primary-node', deps)
+    expect(first).toBe(true)
+    expect(scripted.streamCalls.length).toBe(1)
+
+    const outOfSyncAssignments = new Map()
+    outOfSyncAssignments.set(0, {
+      primary: 'primary-node',
+      replicas: ['replica-node'],
+      inSyncSet: ['primary-node'],
+      state: 'ACTIVE',
+      primaryTerm: 1,
+    })
+    vi.mocked(coordinator.getAllocation).mockResolvedValue({
+      indexName: 'products',
+      version: 2,
+      replicationFactor: 1,
+      assignments: outOfSyncAssignments,
+    })
+
+    scripted.setScript(chunks)
+    const second = await runBootstrapSync(state, 'products', 0, 'primary-node', deps)
+    expect(second).toBe(true)
+    expect(scripted.streamCalls.length).toBe(2)
+    expect(mockEngine.restoreCalls.length).toBe(2)
+  })
+
+  it('keeps the completed short-circuit while the allocation shows this replica in sync', async () => {
+    const { chunks } = makeScriptedSnapshot('products', 1024)
+    scripted.setScript(chunks)
+
+    const state = createBootstrapSyncState()
+    const deps = makeDeps(mockEngine.engine, coordinator, scripted.transport)
+
+    const first = await runBootstrapSync(state, 'products', 0, 'primary-node', deps)
+    expect(first).toBe(true)
+
+    const inSyncAssignments = new Map()
+    inSyncAssignments.set(0, {
+      primary: 'primary-node',
+      replicas: ['replica-node'],
+      inSyncSet: ['primary-node', 'replica-node'],
+      state: 'ACTIVE',
+      primaryTerm: 1,
+    })
+    vi.mocked(coordinator.getAllocation).mockResolvedValue({
+      indexName: 'products',
+      version: 2,
+      replicationFactor: 1,
+      assignments: inSyncAssignments,
+    })
+
+    const second = await runBootstrapSync(state, 'products', 0, 'primary-node', deps)
+    expect(second).toBe(true)
+    expect(scripted.streamCalls.length).toBe(1)
+    expect(mockEngine.restoreCalls.length).toBe(1)
+  })
+
   it('fetches the schema when the local index is missing and does not pre-create the empty shell', async () => {
     const getSchemaSpy = vi.fn().mockResolvedValue({ title: 'text' })
     const coord: ClusterCoordinator = { getSchema: getSchemaSpy } as unknown as ClusterCoordinator
