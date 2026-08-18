@@ -12,9 +12,8 @@ class OpenSearchDriver(LuceneRestDriver):
     def __init__(self, engine: EngineConfig, bm25: BM25Params) -> None:
         super().__init__(engine, bm25)
         self.keyword_setup = (
-            f"BM25 k1={bm25.k1} b={bm25.b} (custom default similarity, native Lucene "
-            f"BM25Similarity in 3.x); OpenSearch `{self._analyzer}` analyzer "
-            "(Porter stemmer, English stop words)"
+            f"BM25 k1={bm25.k1} b={bm25.b} (custom default similarity); "
+            f"OpenSearch `{self._analyzer}` analyzer"
         )
         self.vector_setup = (
             "knn_vector HNSW (faiss engine, inner product on L2-normalized vectors = cosine), "
@@ -25,6 +24,13 @@ class OpenSearchDriver(LuceneRestDriver):
         self.vector_knob = "ef_search"
         self._vector_profile = EQUAL_PRECISION
         self._pipeline_ready = False
+
+    def set_vector_profile(self, profile: str) -> None:
+        """Adopts a profile the driver did not itself create the index under, so a
+        load-generator process searching an index another process built asks for the
+        same precision the run tuned to."""
+
+        self._vector_profile = profile
 
     def _ensure_pipeline(self) -> None:
         if self._pipeline_ready:

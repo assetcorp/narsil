@@ -4,8 +4,10 @@ import type {
   InternalIdResolver,
   PostingEntry,
   PostingList,
+  PostingListView,
 } from '../types/internal'
 import { boundedLevenshtein } from './fuzzy'
+import { compareCodePoints } from './ordering'
 import {
   COMPACTION_THRESHOLD,
   compactDocEntries,
@@ -20,7 +22,27 @@ export interface TermSuggestion {
   documentFrequency: number
 }
 
-export interface InvertedIndex {
+/**
+ * The lookups the query path performs against an inverted index. The live
+ * index implements it over its token map, and a frozen segment implements it
+ * over a sorted token table.
+ *
+ * @internal
+ */
+export interface InvertedIndexReader {
+  lookup(token: string): PostingListView | undefined
+  fuzzyLookup(
+    token: string,
+    tolerance: number,
+    prefixLength: number,
+  ): Array<{ token: string; postingList: PostingListView }>
+  prefixSearch(prefix: string, limit: number): TermSuggestion[]
+  has(token: string): boolean
+  tokens(): IterableIterator<string>
+  size(): number
+}
+
+export interface InvertedIndex extends InvertedIndexReader {
   insert(
     token: string,
     internalId: number,
@@ -37,10 +59,6 @@ export interface InvertedIndex {
     tolerance: number,
     prefixLength: number,
   ): Array<{ token: string; postingList: CompactPostingList }>
-  prefixSearch(prefix: string, limit: number): TermSuggestion[]
-  has(token: string): boolean
-  tokens(): IterableIterator<string>
-  size(): number
   clear(): void
   serialize(resolver: InternalIdResolver): Record<string, PostingList>
   deserialize(data: Record<string, PostingList>, resolver: InternalIdResolver): void
@@ -121,6 +139,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       }
 
       const idx = list.length
+      if (idx > 0 && internalId < list.docIds[idx - 1]) list.ordered = false
       list.docIds.push(internalId)
       list.termFrequencies[idx] = termFrequency > MAX_TERM_FREQUENCY ? MAX_TERM_FREQUENCY : termFrequency
       list.fieldNameIndices[idx] = fieldNameIndex
@@ -147,6 +166,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       const list = index.get(token)
       if (!list || !list.docIdSet.has(internalId)) return
 
+      list.structureRevision++
       list.docIdSet.delete(internalId)
       list.deletedDocs.add(internalId)
 
@@ -225,7 +245,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
         results.push({ term, documentFrequency: list.docIdSet.size })
       }
 
-      results.sort((a, b) => b.documentFrequency - a.documentFrequency)
+      results.sort((a, b) => b.documentFrequency - a.documentFrequency || compareCodePoints(a.term, b.term))
       if (results.length > limit) results.length = limit
       return results
     },
@@ -324,6 +344,14 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
           }
         }
 
+        let ordered = true
+        for (let i = 1; i < validCount; i++) {
+          if (docIds[i] < docIds[i - 1]) {
+            ordered = false
+            break
+          }
+        }
+
         index.set(token, {
           length: validCount,
           docIds,
@@ -333,6 +361,8 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
           docIdSet,
           deletedDocs: new Set(),
           totalTermFrequency,
+          structureRevision: 0,
+          ordered,
         })
         trackToken(token)
       }

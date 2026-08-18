@@ -1,7 +1,12 @@
+import { createPartitionIndex } from '../core/partition'
+import { isCompositePartition } from '../core/partition/composite'
+import { buildCompactedSegmentPayload } from '../core/partition/composite/compaction'
+import { createSharedFrozenSegment, freezeSegmentShared } from '../core/partition/frozen'
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
 import { sanitizeGlobalStats } from '../partitioning/distributed-scoring'
 import { fanOutQuery } from '../partitioning/fan-out'
+import { resolvePartitionInsertOptions } from '../partitioning/insert-options'
 import { createPartitionManager, type PartitionManager } from '../partitioning/manager'
 import { createPartitionRouter } from '../partitioning/router'
 import { extractVectorFieldsFromSchema } from '../schema/validator'
@@ -90,13 +95,11 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
   async function execute<T>(action: WorkerAction): Promise<T> {
     switch (action.type) {
       case 'bootstrap': {
-        if (typeof action.moduleUrl !== 'string' || action.moduleUrl.trim().length === 0) {
-          throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'A bootstrap module needs a non-empty module URL', {
-            moduleUrl: action.moduleUrl,
-          })
-        }
-        await import(action.moduleUrl)
-        return undefined as T
+        throw new NarsilError(
+          ErrorCodes.CONFIG_INVALID,
+          'A bootstrap module loads inside a worker, and the thread that owns this executor imports it directly',
+          { moduleUrl: action.moduleUrl },
+        )
       }
 
       case 'createIndex': {
@@ -113,6 +116,72 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
       case 'insert': {
         const entry = requireIndex(action.indexName)
         entry.manager.insert(action.docId, action.document, action.skipClone ? { skipClone: true } : undefined)
+        return undefined as T
+      }
+
+      case 'buildSegment': {
+        const entry = requireIndex(action.indexName)
+        const segment = createPartitionIndex(0, entry.config.trackPositions ?? true)
+        const options = resolvePartitionInsertOptions(entry.config, entry.manager.analysis, action.options)
+        segment.beginBatch()
+        for (const doc of action.documents) {
+          segment.insert(doc.docId, doc.document, entry.config.schema, entry.language, options)
+        }
+        segment.endBatch()
+        return segment.encodeSegment() as T
+      }
+
+      case 'mergeSegments': {
+        const entry = requireIndex(action.indexName)
+        for (const segment of action.segments) {
+          if (segment.payload.docIds.some(docId => entry.manager.has(docId))) {
+            console.warn(
+              `Skipping replicated segment for index "${action.indexName}": its documents already exist on this copy`,
+            )
+            continue
+          }
+          entry.manager.mergeSegment(segment.partitionId, segment.payload, segment.documents)
+        }
+        return undefined as T
+      }
+
+      case 'attachSegments': {
+        const entry = requireIndex(action.indexName)
+        for (const segment of action.segments) {
+          while (entry.manager.partitionCount <= segment.partitionId) {
+            entry.manager.addPartition()
+          }
+          entry.manager.attachFrozenSegment(segment.partitionId, createSharedFrozenSegment(segment.snapshot))
+        }
+        return undefined as T
+      }
+
+      case 'compactSegments': {
+        const entry = requireIndex(action.indexName)
+        const partition = entry.manager.getPartition(action.partitionId)
+        if (!isCompositePartition(partition)) {
+          throw new NarsilError(
+            ErrorCodes.PARTITION_CORRUPTED,
+            `Partition ${action.partitionId} of "${action.indexName}" holds no frozen segments to compact`,
+            { indexName: action.indexName, partitionId: action.partitionId },
+          )
+        }
+        const segments = partition.frozenSegmentsById(action.segmentIds)
+        const { payload, documents } = buildCompactedSegmentPayload(segments)
+        return freezeSegmentShared(payload, documents) as T
+      }
+
+      case 'swapSegments': {
+        const entry = requireIndex(action.indexName)
+        const partition = entry.manager.getPartition(action.partitionId)
+        if (!isCompositePartition(partition)) {
+          throw new NarsilError(
+            ErrorCodes.PARTITION_CORRUPTED,
+            `Partition ${action.partitionId} of "${action.indexName}" holds no frozen segments to swap`,
+            { indexName: action.indexName, partitionId: action.partitionId },
+          )
+        }
+        partition.swapFrozenSegments(action.dropSegmentIds, createSharedFrozenSegment(action.snapshot))
         return undefined as T
       }
 

@@ -30,6 +30,20 @@ async function resolvePrimaryTerm(
   return assignment.primaryTerm
 }
 
+async function resolveControllerTargets(coordinator: ClusterCoordinator, controllerNodeId: string): Promise<string[]> {
+  const targets = [controllerNodeId]
+  try {
+    const nodes = await coordinator.listNodes()
+    const registration = nodes.find(entry => entry.nodeId === controllerNodeId)
+    if (registration !== undefined && registration.address.length > 0 && registration.address !== controllerNodeId) {
+      targets.push(registration.address)
+    }
+  } catch (_) {
+    return targets
+  }
+  return targets
+}
+
 export async function reportBootstrapComplete(
   indexName: string,
   partitionId: number,
@@ -61,12 +75,13 @@ export async function reportBootstrapComplete(
     payload: encode(payload),
   }
 
-  try {
-    const response = await transport.send(controllerNodeId, message)
-    return isAcceptedResponse(response)
-  } catch (_) {
-    return false
+  for (const target of await resolveControllerTargets(coordinator, controllerNodeId)) {
+    try {
+      const response = await transport.send(target, message)
+      return isAcceptedResponse(response)
+    } catch (_) {}
   }
+  return false
 }
 
 function isAcceptedResponse(response: TransportMessage): boolean {
@@ -92,15 +107,45 @@ export async function bootstrapPartition(
   onBootstrapPartition: (indexName: string, partitionId: number, primaryNodeId: string) => Promise<boolean>,
   onError?: (error: unknown) => void,
 ): Promise<boolean> {
-  if (state.aborted) {
-    return false
-  }
-
-  try {
-    const synced = await onBootstrapPartition(state.indexName, state.partitionId, state.primaryNodeId)
-    if (!synced || state.aborted) {
+  for (let attempt = 0; attempt <= bootstrapMaxRetries; attempt++) {
+    if (state.aborted) {
       return false
     }
+
+    const synced = await runBootstrapSyncAttempt(state, onBootstrapPartition, onError)
+    if (state.aborted) {
+      return false
+    }
+
+    if (synced) {
+      return retryReportBootstrapComplete(
+        state,
+        coordinator,
+        transport,
+        nodeId,
+        bootstrapRetryBaseMs,
+        bootstrapRetryMaxMs,
+        bootstrapMaxRetries,
+        onError,
+      )
+    }
+
+    if (attempt < bootstrapMaxRetries) {
+      const backoffMs = computeBackoffMs(bootstrapRetryBaseMs, bootstrapRetryMaxMs, attempt)
+      await waitWithAbort(state, backoffMs)
+    }
+  }
+
+  return false
+}
+
+async function runBootstrapSyncAttempt(
+  state: PartitionBootstrapState,
+  onBootstrapPartition: (indexName: string, partitionId: number, primaryNodeId: string) => Promise<boolean>,
+  onError?: (error: unknown) => void,
+): Promise<boolean> {
+  try {
+    return await onBootstrapPartition(state.indexName, state.partitionId, state.primaryNodeId)
   } catch (error) {
     if (state.aborted) {
       return false
@@ -117,17 +162,6 @@ export async function bootstrapPartition(
     }
     return false
   }
-
-  return retryReportBootstrapComplete(
-    state,
-    coordinator,
-    transport,
-    nodeId,
-    bootstrapRetryBaseMs,
-    bootstrapRetryMaxMs,
-    bootstrapMaxRetries,
-    onError,
-  )
 }
 
 async function retryReportBootstrapComplete(

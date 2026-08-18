@@ -2,7 +2,7 @@
 
 A geo field holds a latitude and a longitude, and this guide covers the radius and polygon filters that match against it.
 
-Declare a `geopoint` field and insert documents with `{ lat, lon }` values. Geo conditions are filters that refine a search, so a geo query pairs a `term` (or a vector query) with a location filter, and it composes with other filters, facets, and every other query feature. A query with only a location filter and no `term` matches nothing, the same way any other filter refines a term search.
+Declare a `geopoint` field and insert documents with `{ lat, lon }` values. Geo conditions are filters that refine a search, so a geo query pairs a `term` (or a vector query) with a location filter, and it composes with other filters, facets, and every other query feature. A query carrying a location filter but no `term` matches nothing, because a filter narrows a term search rather than running a search of its own.
 
 ```ts
 await narsil.createIndex('stores', {

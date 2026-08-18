@@ -1,7 +1,11 @@
 import { useCallback, useRef, useState } from 'react'
-import type { NarsilBackend, QueryResponse } from '../backend'
+import { QUERY_CONCURRENCY, runPooled } from '../lib/concurrency'
 import type { BenchmarkResult, QueryMetrics, RelevanceMap } from '../lib/metrics'
 import { averagePrecision, ndcgAtK, precisionAtK, reciprocalRank } from '../lib/metrics'
+import type { QueryRunner } from '../query-runner'
+
+const SCIFACT_INDEX = 'scifact'
+const RESULT_DEPTH = 100
 
 interface ScifactQuery {
   id: number
@@ -23,150 +27,127 @@ export interface BenchmarkState {
   error: string | null
 }
 
-export function useBenchmark(backend: NarsilBackend) {
-  const [state, setState] = useState<BenchmarkState>({
-    isRunning: false,
-    progress: 0,
-    totalQueries: 0,
-    result: null,
-    selectedQuery: null,
-    error: null,
-  })
+const IDLE_STATE: BenchmarkState = {
+  isRunning: false,
+  progress: 0,
+  totalQueries: 0,
+  result: null,
+  selectedQuery: null,
+  error: null,
+}
 
+function aggregate(measured: ReadonlyArray<QueryMetrics | undefined>): BenchmarkResult {
+  const perQuery: QueryMetrics[] = []
+  let sumNdcg10 = 0
+  let sumPrecision10 = 0
+  let sumAp = 0
+  let sumRr = 0
+  for (const metrics of measured) {
+    if (metrics === undefined) continue
+    perQuery.push(metrics)
+    sumNdcg10 += metrics.ndcg10
+    sumPrecision10 += metrics.precision10
+    sumAp += metrics.ap
+    sumRr += metrics.rr
+  }
+  const evaluated = perQuery.length || 1
+  return {
+    aggregate: {
+      meanNdcg10: sumNdcg10 / evaluated,
+      meanPrecision10: sumPrecision10 / evaluated,
+      map: sumAp / evaluated,
+      mrr: sumRr / evaluated,
+      queriesEvaluated: perQuery.length,
+    },
+    perQuery,
+  }
+}
+
+async function readScifactJudgments(): Promise<{ queries: ScifactQuery[]; qrelsByQuery: Map<number, RelevanceMap> }> {
+  const [queriesResponse, qrelsResponse] = await Promise.all([
+    fetch('/data/processed/scifact/scifact-queries.json'),
+    fetch('/data/processed/scifact/scifact-qrels.json'),
+  ])
+  if (!queriesResponse.ok || !qrelsResponse.ok) {
+    throw new Error('The SciFact query and judgment files could not be read. Load the SciFact dataset first.')
+  }
+
+  const queries = (await queriesResponse.json()) as ScifactQuery[]
+  const qrels = (await qrelsResponse.json()) as ScifactQrel[]
+  const qrelsByQuery = new Map<number, RelevanceMap>()
+  for (const qrel of qrels) {
+    let judgments = qrelsByQuery.get(qrel.queryId)
+    if (!judgments) {
+      judgments = new Map()
+      qrelsByQuery.set(qrel.queryId, judgments)
+    }
+    judgments.set(String(qrel.docId), qrel.relevance)
+  }
+  return { queries, qrelsByQuery }
+}
+
+/**
+ * Measures retrieval quality over the SciFact claims against their expert
+ * judgments. The searches run through the injected runner, several at a time,
+ * and the figures update as each one answers.
+ */
+export function useBenchmark(runQuery: QueryRunner) {
+  const [state, setState] = useState<BenchmarkState>(IDLE_STATE)
   const abortRef = useRef(false)
 
   const run = useCallback(async () => {
     abortRef.current = false
-    setState({
-      isRunning: true,
-      progress: 0,
-      totalQueries: 0,
-      result: null,
-      selectedQuery: null,
-      error: null,
-    })
+    setState({ ...IDLE_STATE, isRunning: true })
 
     try {
-      const [queriesResp, qrelsResp] = await Promise.all([
-        fetch('/data/processed/scifact/scifact-queries.json'),
-        fetch('/data/processed/scifact/scifact-qrels.json'),
-      ])
+      const { queries, qrelsByQuery } = await readScifactJudgments()
+      setState(current => ({ ...current, totalQueries: queries.length }))
 
-      if (!queriesResp.ok || !qrelsResp.ok) {
-        throw new Error('Failed to fetch SciFact data files. Ensure scifact data is available.')
-      }
-
-      const queries: ScifactQuery[] = await queriesResp.json()
-      const qrels: ScifactQrel[] = await qrelsResp.json()
-
-      const qrelsByQuery = new Map<number, RelevanceMap>()
-      for (const qrel of qrels) {
-        let map = qrelsByQuery.get(qrel.queryId)
-        if (!map) {
-          map = new Map()
-          qrelsByQuery.set(qrel.queryId, map)
-        }
-        map.set(String(qrel.docId), qrel.relevance)
-      }
-
-      setState(s => ({ ...s, totalQueries: queries.length }))
-
-      const perQuery: QueryMetrics[] = []
-      let sumNdcg10 = 0
-      let sumPrecision10 = 0
-      let sumAp = 0
-      let sumRr = 0
-
-      function processResult(i: number, response: QueryResponse) {
-        const query = queries[i]
-        const judgments = qrelsByQuery.get(query.id) ?? new Map<string, number>()
-        const totalRelevant = Array.from(judgments.values()).filter(r => r > 0).length
-
-        const resultIds = response.hits.map(h => String(h.document.id ?? h.id))
-
-        const ndcg10 = ndcgAtK(resultIds, judgments, 10)
-        const precision10 = precisionAtK(resultIds, judgments, 10)
-        const ap = averagePrecision(resultIds, judgments, totalRelevant)
-        const rr = reciprocalRank(resultIds, judgments)
-
-        sumNdcg10 += ndcg10
-        sumPrecision10 += precision10
-        sumAp += ap
-        sumRr += rr
-
-        perQuery.push({
-          queryId: query.id,
-          queryText: query.text,
-          ndcg10,
-          precision10,
-          ap,
-          rr,
-          resultIds,
-          judgments,
-        })
-
-        setState(s => ({
-          ...s,
-          progress: i + 1,
-          result: {
-            aggregate: {
-              meanNdcg10: sumNdcg10 / (i + 1),
-              meanPrecision10: sumPrecision10 / (i + 1),
-              map: sumAp / (i + 1),
-              mrr: sumRr / (i + 1),
-              queriesEvaluated: i + 1,
-            },
-            perQuery: [...perQuery],
-          },
-        }))
-      }
-
-      const queryRequests = queries.map(q => ({
-        indexName: 'scifact',
-        term: q.text,
-        limit: 100,
-      }))
-
-      if (backend.batchQuery) {
-        await backend.batchQuery(queryRequests, (i, response) => processResult(i, response))
-      } else {
-        for (let i = 0; i < queries.length; i++) {
-          if (abortRef.current) break
-          const response = await backend.query(queryRequests[i])
-          processResult(i, response)
-        }
-      }
-
-      const n = perQuery.length
-      setState(s => ({
-        ...s,
-        isRunning: false,
-        result: {
-          aggregate: {
-            meanNdcg10: n > 0 ? sumNdcg10 / n : 0,
-            meanPrecision10: n > 0 ? sumPrecision10 / n : 0,
-            map: n > 0 ? sumAp / n : 0,
-            mrr: n > 0 ? sumRr / n : 0,
-            queriesEvaluated: n,
-          },
-          perQuery,
+      const measured: Array<QueryMetrics | undefined> = new Array(queries.length)
+      let answered = 0
+      await runPooled(
+        queries,
+        QUERY_CONCURRENCY,
+        async (query, position) => {
+          const result = await runQuery(SCIFACT_INDEX, { term: query.text, limit: RESULT_DEPTH })
+          const judgments = qrelsByQuery.get(query.id) ?? new Map<string, number>()
+          let totalRelevant = 0
+          for (const relevance of judgments.values()) {
+            if (relevance > 0) totalRelevant++
+          }
+          const resultIds = result.hits.map(hit => String(hit.document.id ?? hit.id))
+          measured[position] = {
+            queryId: query.id,
+            queryText: query.text,
+            ndcg10: ndcgAtK(resultIds, judgments, 10),
+            precision10: precisionAtK(resultIds, judgments, 10),
+            ap: averagePrecision(resultIds, judgments, totalRelevant),
+            rr: reciprocalRank(resultIds, judgments),
+            resultIds,
+            judgments,
+          }
+          answered++
+          setState(current => ({ ...current, progress: answered, result: aggregate(measured) }))
         },
-      }))
+        () => abortRef.current,
+      )
+
+      setState(current => ({ ...current, isRunning: false, result: aggregate(measured) }))
     } catch (err) {
-      setState(s => ({
-        ...s,
+      setState(current => ({
+        ...current,
         isRunning: false,
         error: err instanceof Error ? err.message : String(err),
       }))
     }
-  }, [backend])
+  }, [runQuery])
 
   const abort = useCallback(() => {
     abortRef.current = true
   }, [])
 
   const selectQuery = useCallback((query: QueryMetrics | null) => {
-    setState(s => ({ ...s, selectedQuery: query }))
+    setState(current => ({ ...current, selectedQuery: query }))
   }, [])
 
   return { ...state, run, abort, selectQuery }

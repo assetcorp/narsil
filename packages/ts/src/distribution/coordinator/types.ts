@@ -211,6 +211,13 @@ export interface ClusterCoordinator {
    */
   putAllocation(indexName: string, table: AllocationTable, expectedVersion?: number | null): Promise<boolean>
   /**
+   * Removes one index's allocation, which is the last step of dropping the
+   * index. Deleting an allocation that does not exist does nothing.
+   *
+   * @param indexName - The index whose allocation goes.
+   */
+  deleteAllocation(indexName: string): Promise<void>
+  /**
    * Watches allocations changing.
    *
    * @param handler - Called once per change.
@@ -295,6 +302,21 @@ export interface ClusterCoordinator {
    * @param schema - Its field layout.
    */
   putSchema(indexName: string, schema: SchemaDefinition): Promise<void>
+  /**
+   * Removes one index's schema and tells every watcher it was dropped, which
+   * starts the cluster-wide teardown of that index. Dropping a schema that
+   * does not exist does nothing.
+   *
+   * @param indexName - The index whose schema goes.
+   */
+  dropSchema(indexName: string): Promise<void>
+  /**
+   * Lists the name of every published schema, which is how a newly elected
+   * controller finds the indexes it must reconcile.
+   *
+   * @returns Every index name holding a schema, sorted by code point.
+   */
+  listSchemas(): Promise<string[]>
   /**
    * Watches schemas being published and dropped.
    *

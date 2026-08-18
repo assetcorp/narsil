@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { createNarsil, type EmbeddingAdapter, type Narsil } from '@delali/narsil'
+import { createNarsilClient, type NarsilClient } from '@delali/narsil/client'
 import { createServer, type NarsilServer } from '@delali/narsil/server'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createAskResponse } from '../src/lib/ask/answer'
@@ -13,10 +14,11 @@ import { persistTurnStart, reconstructTurn } from '../src/lib/ask/history'
 import { parseAskRequest } from '../src/lib/ask/messages'
 import type { AskUIMessage } from '../src/lib/ask/types'
 import { loadThread } from '../src/lib/chat/store'
-import { NarsilServerClient } from '../src/lib/narsil-server-client'
-import { RestBackend } from '../src/lib/rest-backend'
 
 const DIMENSIONS = 8
+
+const ANSWER_MODEL = 'stub-model'
+const TITLE_MODEL = 'stub-title-model'
 
 function vectorFor(input: string): Float32Array {
   const vector = new Float32Array(DIMENSIONS)
@@ -47,6 +49,7 @@ interface OpenAiMessage {
 
 interface LlmCall {
   messages: OpenAiMessage[]
+  model: string
 }
 
 interface StubLlm {
@@ -73,18 +76,28 @@ function lastUserQuery(messages: OpenAiMessage[]): string {
   return ''
 }
 
+function toolResultValue(content: unknown): unknown {
+  const text = messageContentText(content)
+  if (text.length === 0) return null
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
 function candidateDocIds(messages: OpenAiMessage[]): string[] {
-  const searchMessage = messages.find(
-    message => message.role === 'tool' && JSON.stringify(message).includes('"results"'),
-  )
-  if (!searchMessage) return []
   const ids: string[] = []
-  const pattern = /"docId":"([^"]+)"/g
-  const serialized = JSON.stringify(searchMessage)
-  let match = pattern.exec(serialized)
-  while (match) {
-    if (!ids.includes(match[1])) ids.push(match[1])
-    match = pattern.exec(serialized)
+  for (const message of messages) {
+    if (message.role !== 'tool') continue
+    const value = toolResultValue(message.content)
+    if (value === null || typeof value !== 'object' || !('results' in value)) continue
+    const { results } = value as { results: unknown }
+    if (!Array.isArray(results)) continue
+    for (const result of results) {
+      const docId = (result as { docId?: unknown }).docId
+      if (typeof docId === 'string' && !ids.includes(docId)) ids.push(docId)
+    }
   }
   return ids
 }
@@ -126,14 +139,18 @@ function startStubLlm(): Promise<StubLlm> {
     res.end()
   }
 
-  const emitAnswer = (res: http.ServerResponse): void => {
+  const emitText = (res: http.ServerResponse, pieces: string[]): void => {
     frame(res, { index: 0, delta: { role: 'assistant' }, finish_reason: null })
-    for (const piece of stub.streamedAnswer) {
+    for (const piece of pieces) {
       frame(res, { index: 0, delta: { content: piece }, finish_reason: null })
     }
     frame(res, { index: 0, delta: {}, finish_reason: 'stop' })
     res.write('data: [DONE]\n\n')
     res.end()
+  }
+
+  const emitAnswer = (res: http.ServerResponse): void => {
+    emitText(res, stub.streamedAnswer)
   }
 
   stub.server.on('request', (req, res) => {
@@ -144,10 +161,16 @@ function startStubLlm(): Promise<StubLlm> {
     const chunks: Buffer[] = []
     req.on('data', chunk => chunks.push(chunk as Buffer))
     req.on('end', () => {
-      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { messages: OpenAiMessage[] }
-      stub.calls.push({ messages: body.messages })
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { messages: OpenAiMessage[]; model: string }
+      stub.calls.push({ messages: body.messages, model: body.model })
 
       res.writeHead(200, { 'content-type': 'text/event-stream' })
+
+      if (body.model === TITLE_MODEL) {
+        emitText(res, ['Incident response'])
+        return
+      }
+
       const toolMessages = body.messages.filter(message => message.role === 'tool')
 
       if (toolMessages.length === 0) {
@@ -209,7 +232,7 @@ function textOfChunks(chunks: StreamedChunk[]): string {
 describe('agentic ask pipeline against a live Narsil server', () => {
   let engine: Narsil
   let narsilServer: NarsilServer
-  let backend: RestBackend
+  let client: NarsilClient
   let llm: StubLlm
   let llmConfig: LlmProviderConfig
   let tempChatDir: string
@@ -224,18 +247,13 @@ describe('agentic ask pipeline against a live Narsil server', () => {
       embeddingAdapters: { openai: stubAdapter },
     })
     await narsilServer.listen()
-    const config = { baseUrl: `http://127.0.0.1:${narsilServer.listeningPort}` }
-
-    const client = new NarsilServerClient(config)
+    client = createNarsilClient({ url: `http://127.0.0.1:${narsilServer.listeningPort}` })
     await client.createIndex('handbook', {
       schema: { title: 'string', text: 'string', embedding: `vector[${DIMENSIONS}]` },
       language: 'english',
       embedding: { fields: { embedding: ['title', 'text'] }, adapter: 'openai' },
     })
-    const inserted = await client.insertBatchSerialized(
-      'handbook',
-      DOCS.map(doc => JSON.stringify(doc)),
-    )
+    const inserted = await client.insertBatch('handbook', DOCS)
     expect(inserted.failed).toHaveLength(0)
 
     await client.createIndex('keyword-only', {
@@ -243,10 +261,13 @@ describe('agentic ask pipeline against a live Narsil server', () => {
       language: 'english',
     })
 
-    backend = new RestBackend(config)
     llm = await startStubLlm()
-    llmConfig = { apiKey: 'stub-key', baseUrl: llm.baseUrl, model: 'stub-model', titleModel: 'stub-model' }
+    llmConfig = { apiKey: 'stub-key', baseUrl: llm.baseUrl, model: ANSWER_MODEL, titleModel: TITLE_MODEL }
   })
+
+  function answerCallsSince(before: number): number {
+    return llm.calls.slice(before).filter(call => call.model === ANSWER_MODEL).length
+  }
 
   afterAll(async () => {
     await narsilServer.close()
@@ -266,7 +287,7 @@ describe('agentic ask pipeline against a live Narsil server', () => {
     })
     const turn = await reconstructTurn(request)
     await persistTurnStart(request, turn, Date.now())
-    const response = createAskResponse(backend, llmConfig, request, turn, new AbortController().signal)
+    const response = createAskResponse(client, llmConfig, request, turn, new AbortController().signal)
     expect(response.status).toBe(200)
     return readUiChunks(response)
   }
@@ -297,7 +318,7 @@ describe('agentic ask pipeline against a live Narsil server', () => {
     expect(data.sources[0].snippet).toContain('<mark>')
 
     expect(textOfChunks(chunks)).toBe('The handbook covers incident response [1].')
-    expect(llm.calls.length - before).toBeGreaterThanOrEqual(3)
+    expect(answerCallsSince(before)).toBeGreaterThanOrEqual(3)
   })
 
   it('reads several distinct documents before answering when the search returns many', async () => {
@@ -307,9 +328,9 @@ describe('agentic ask pipeline against a live Narsil server', () => {
         mode,
         message: userMessage('m1', 'How does incident response work?'),
       })
-      const sources = chunks.find(chunk => chunk.type === 'data-ask-sources')
-      expect(sources, `${mode} sources part`).toBeDefined()
-      const data = (sources as StreamedChunk).data as { mode: string; sources: Array<{ rank: number }> }
+      const sourceParts = chunks.filter(chunk => chunk.type === 'data-ask-sources')
+      expect(sourceParts.length, `${mode} sources parts`).toBeGreaterThan(0)
+      const data = sourceParts[sourceParts.length - 1].data as { mode: string; sources: Array<{ rank: number }> }
       expect(data.mode).toBe(mode)
       expect(data.sources.length).toBeGreaterThanOrEqual(2)
       expect(data.sources.map(source => source.rank)).toEqual(data.sources.map((_source, index) => index + 1))
@@ -326,7 +347,7 @@ describe('agentic ask pipeline against a live Narsil server', () => {
     })
     expect(chunks.find(chunk => chunk.type === 'data-ask-sources')).toBeUndefined()
     expect(textOfChunks(chunks).length).toBeGreaterThan(0)
-    expect(llm.calls.length - before).toBe(2)
+    expect(answerCallsSince(before)).toBe(2)
   })
 
   it('reports a clear error when vector modes hit an index without embeddings', async () => {

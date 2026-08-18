@@ -35,8 +35,8 @@ export function reconstructSchemaFromMetadata(metadata: IndexMetadata): IndexCon
         ? { adapter: metadata.embedding.adapter, fields: metadata.embedding.fields }
         : { fields: metadata.embedding.fields }
   }
-  if (metadata.surfaceForms === true) {
-    config.surfaceForms = true
+  if (metadata.surfaceForms !== undefined) {
+    config.surfaceForms = metadata.surfaceForms
   }
   if (metadata.tokenizer !== undefined) {
     config.tokenizer = metadata.tokenizer

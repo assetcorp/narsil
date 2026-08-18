@@ -22,11 +22,11 @@ const results = await narsil.query('products', {
 })
 ```
 
-Field conditions live under `fields`, and the `and`, `or`, and `not` combinators nest whole filter expressions, so any boolean shape is expressible. Filters narrow the candidates a search scores: a full-text query needs a `term` to produce hits, and in vector and hybrid modes the filters restrict which documents the vector search considers.
+Field conditions belong under `fields`, and the `and`, `or`, and `not` combinators nest whole filter expressions, so you can write any boolean shape. The engine rejects any other key with `SEARCH_INVALID_FILTER`, so a field name written at the top level, such as `{ category: { eq: 'books' } }`, raises an error instead of silently matching everything, and so does a misspelled operator. Filters narrow the candidates a search scores: a full-text query needs a `term` to produce hits, and in vector and hybrid modes the filters restrict which documents the vector search considers.
 
 ## Facets
 
-Facets return value counts alongside the hits for building filter UIs. String and enum facets take a `limit` and a `sort` direction, and numeric facets take explicit `ranges`.
+Facets return value counts alongside the hits for building filter UIs. Each count covers every document the query matches rather than the documents the page returns, so the counts stay the same whatever `limit` you ask for. String and enum facets take a `limit` and a `sort` direction, and numeric facets take explicit `ranges`.
 
 ```ts
 const results = await narsil.query('products', {
@@ -42,12 +42,34 @@ const results = await narsil.query('products', {
 
 ## Sort
 
-`sort` orders hits by field values instead of score. Multiple entries apply in order, so the second field breaks ties in the first.
+`sort` orders hits by field values instead of score. Multiple entries apply in order, so the second field breaks ties in the first. When every sort field ties, the engine orders the tied hits by document id.
+
+A sorted query computes no relevance scores, so each hit arrives without a `score`. Pass `includeScores: true` to restore them, and each hit then carries the score it would carry without the sort. A sorted query carrying `minScore` still applies the floor, and it reports the scores only where `includeScores` is true.
+
+A sort names a `number`, a `boolean`, or an `enum` field with no preparation. A sort names a text field only where the schema declares it `string:sortable`, and a sort naming a plain `string` field raises `SEARCH_INVALID_FIELD`. Every other field type, including every array field, counts as missing, so a sort naming one leaves every document equal.
+
+The engine compares string values by their Unicode case fold, so `apple` orders between `Apple` and `Banana`. Two values with an equal fold compare by their raw code points. The engine compares only the first 512 code points of a value. The engine reads no locale, so a sorted page is the same on every machine. A sort names at most eight fields, because the paging cursor carries one value for each of them, and each field name holds at most 255 characters.
+
+A missing value orders after every present value, under either direction. Present values of different types rank numbers first, then strings, then booleans.
+
+The first sorted query on a field builds a column of that field's values, and every page after it reads the documents that follow its cursor anchor rather than walking the index. Measured on 120,000 documents on an Apple M-series laptop, the build cost 159ms for short text and 398ms for values above the 512 code point window, and each page after it cost 0.1ms. Writes keep the column current, which cost 12% of insert throughput for one text field and one number field over 119,000 documents.
 
 ```ts
 const results = await narsil.query('products', {
   term: 'keyboard',
   sort: { price: 'asc', title: 'asc' },
+})
+```
+
+A sort also takes a list, which is the form to use where the order of the fields matters and an object cannot carry it, because JavaScript moves an all-digit key such as `2024` to the front of an object.
+
+```ts
+const results = await narsil.query('sales', {
+  term: 'keyboard',
+  sort: [
+    { field: 'region', direction: 'asc' },
+    { field: '2024', direction: 'desc' },
+  ],
 })
 ```
 
@@ -80,7 +102,7 @@ const withTotals = await narsil.query('products', {
 
 ## Pagination
 
-Shallow pagination uses `limit` and `offset`. Deep pagination uses `searchAfter` cursors, which track a position per partition and keep latency flat at any depth. Every page's result carries a `cursor` string; pass it back as `searchAfter` to fetch the next page.
+Shallow pagination uses `limit` and `offset`, while deep pagination uses `searchAfter` cursors, whose cost per page stays flat at any depth. A cursor anchors on the last result of the page: the score for a relevance-ranked query, or the sort values for a sorted one. Every page's result carries a `cursor` string; pass it back as `searchAfter` to fetch the next page.
 
 ```ts
 const firstPage = await narsil.query('products', { term: 'keyboard', limit: 20 })
@@ -95,6 +117,8 @@ if (firstPage.cursor) {
 ```
 
 A cursor is only valid for the same query parameters it came from. A malformed cursor fails with `SEARCH_INVALID_CURSOR`.
+
+`offset` and `limit` together reach the first 10,000 results, which is the result window. A request past it throws `SEARCH_RESULT_WINDOW_EXCEEDED`, and a cursor pages beyond it because each page returns the `limit` results that follow its anchor. The window bounds paging depth rather than what the engine considers: a sort, a group, a `minScore`, and a `termMatch` other than `any` each read every matching document, and `count` reports the number of matches exactly.
 
 ## Pinning
 

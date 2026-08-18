@@ -11,7 +11,7 @@ import type { AnyDocument, SchemaDefinition } from './schema'
  * @public
  */
 export interface QueryResult<T = AnyDocument> {
-  /** These documents matched, best score first, cut to the query's `limit`. */
+  /** These documents matched, cut to the query's `limit`, best score first or in the query's sort order. */
   hits: Array<Hit<T>>
   /** This many documents matched in total, before `limit` and `offset` applied. */
   count: number
@@ -37,8 +37,12 @@ export interface QueryResult<T = AnyDocument> {
 export interface Hit<T = AnyDocument> {
   /** The document is stored under this id. */
   id: string
-  /** This score ranked the hit. Scores compare within one result set, never across searches. */
-  score: number
+  /**
+   * This score ranked the hit. Scores compare within one result set, never
+   * across searches. A sorted query ranks by sort values instead and carries
+   * no score unless it sets `includeScores`.
+   */
+  score?: number
   /** This is the stored document. */
   document: T
   /** These are the parts the score was built from, which arrive when the query asked for them. */
@@ -84,6 +88,13 @@ export interface FacetResult {
   values: Record<string, number>
   /** The field held this many distinct values across the matching documents. */
   count: number
+  /**
+   * No value's count is short by more than this. Counting runs per partition
+   * and each one reports only its own top values, so a value that is common
+   * overall but ranks low on a partition loses that partition's share. A bound
+   * of 0 means every count here is exact.
+   */
+  errorBound: number
 }
 
 /**
@@ -290,4 +301,37 @@ export interface VectorMaintenanceResult {
   estimatedCompactMs: number
   /** {@link Narsil.optimizeVectors} would take about this many milliseconds. */
   estimatedOptimizeMs: number
+}
+
+/**
+ * One stored document, as {@link Narsil.listDocuments} returns it.
+ *
+ * @typeParam T - Shape of the stored document.
+ *
+ * @public
+ */
+export interface ListedDocument<T = AnyDocument> {
+  /** The document is stored under this id. */
+  id: string
+  /** This holds the stored document, cut down to what the projection kept. */
+  document: T
+}
+
+/**
+ * What {@link Narsil.listDocuments} returns: one page of stored documents and
+ * the cursor that reaches the next one.
+ *
+ * @typeParam T - Shape of the stored documents.
+ *
+ * @public
+ */
+export interface ListResult<T = AnyDocument> {
+  /** These documents make up the page, in ascending document-id order. */
+  documents: Array<ListedDocument<T>>
+  /** This opaque cursor reaches the next page, and is null once the listing is finished. */
+  cursor: string | null
+  /** The listing covers this many documents in total, and any filter narrows that count. */
+  total: number
+  /** The engine spent this many milliseconds building the page. */
+  elapsed: number
 }

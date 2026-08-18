@@ -12,8 +12,8 @@ export {
   getNormalizationCacheSize,
   resetNormalizationCache,
 } from './core/tokenizer'
-export type { ErrorCode } from './errors'
-export { ErrorCodes, NarsilError } from './errors'
+export type { ClientErrorCode, ErrorCode, NarsilErrorCode, ServerErrorCode } from './errors'
+export { ClientErrorCodes, ErrorCodes, NarsilError, ServerErrorCodes } from './errors'
 export { getLanguage, registerLanguage } from './languages/registry'
 export type { Narsil } from './narsil'
 export { createNarsil } from './narsil'
@@ -62,6 +62,8 @@ export type {
   Hit,
   IndexInfo,
   IndexStats,
+  ListedDocument,
+  ListResult,
   MemoryStats,
   PartitionStatsResult,
   PreflightResult,
@@ -87,13 +89,17 @@ export type {
   VectorQuantizationMode,
 } from './types/schema'
 export type {
+  DocumentProjection,
   FacetConfig,
   GroupConfig,
   GroupReducer,
   HighlightConfig,
   HybridConfig,
+  ListParams,
   QueryParams,
   SearchMode,
+  SortField,
+  SortSpec,
   SuggestParams,
   TermMatchPolicy,
   VectorQueryConfig,

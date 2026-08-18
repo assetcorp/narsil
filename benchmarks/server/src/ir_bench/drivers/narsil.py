@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Iterable, Iterator
+from typing import Iterable
 
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
+from ..core.ingest import BatchOutcome, import_batches
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
@@ -41,25 +42,11 @@ def _raise_for_envelope(response: httpx.Response) -> None:
     raise EngineError(f"HTTP {response.status_code} from {response.request.url}: {detail}")
 
 
-def _chunked(items: Iterable[tuple[str, str]], size: int) -> Iterator[list[tuple[str, str]]]:
-    batch: list[tuple[str, str]] = []
-    for item in items:
-        batch.append(item)
-        if len(batch) >= size:
-            yield batch
-            batch = []
-    if batch:
-        yield batch
-
-
 class NarsilDriver:
     def __init__(self, engine: EngineConfig, bm25: BM25Params) -> None:
         self.name = engine.name
         self.run_tag = engine.run_tag
-        self.keyword_setup = (
-            f"BM25 k1={bm25.k1} b={bm25.b}; Narsil english analyzer "
-            "(Porter stemmer, 70-word stop list)"
-        )
+        self.keyword_setup = f"BM25 k1={bm25.k1} b={bm25.b}; language left at the server default"
         self.vector_setup = "HNSW over the shared precomputed vectors, full precision (SQ8 quantization off), cosine"
         self.hybrid_setup = "BM25 (text) fused with HNSW vector search via Reciprocal Rank Fusion"
         self.hybrid_fusion = f"RRF (k={_RRF_K})"
@@ -99,28 +86,37 @@ class NarsilDriver:
         response = self._client.post("/indexes", json={"name": index, "config": config})
         _raise_for_envelope(response)
 
-    def _import_docs(self, index: str, documents: Iterable[dict], batch_size: int) -> ImportResult:
-        submitted = 0
-        indexed = 0
-        failures: list[object] = []
-        for batch in _chunked(documents, batch_size):
-            body = "\n".join(json.dumps(doc) for doc in batch)
-            response = self._client.post(
-                f"/indexes/{index}/documents/_import",
-                content=body.encode("utf-8"),
-                headers={"content-type": "application/x-ndjson"},
-            )
-            _raise_for_envelope(response)
-            payload = response.json()
-            submitted += len(batch)
-            indexed += int(payload.get("indexed", 0))
-            failures.extend(payload.get("errors") or [])
-        if failures:
-            raise EngineError(f"Narsil rejected {len(failures)} document(s); first error: {failures[0]}")
-        return ImportResult(submitted=submitted, indexed=indexed)
+    def _send_import(self, index: str, batch: list[dict]) -> BatchOutcome:
+        body = "\n".join(json.dumps(doc) for doc in batch)
+        response = self._client.post(
+            f"/indexes/{index}/documents/_import",
+            content=body.encode("utf-8"),
+            headers={"content-type": "application/x-ndjson"},
+        )
+        _raise_for_envelope(response)
+        payload = response.json()
+        return BatchOutcome(
+            submitted=len(batch),
+            indexed=int(payload.get("indexed", 0)),
+            failures=tuple(payload.get("errors") or []),
+        )
 
-    def import_documents(self, index: str, documents: Iterable[tuple[str, str]], batch_size: int) -> ImportResult:
-        return self._import_docs(index, ({"id": doc_id, "text": text} for doc_id, text in documents), batch_size)
+    def _import_docs(
+        self, index: str, documents: Iterable[dict], batch_size: int, clients: int
+    ) -> ImportResult:
+        total = import_batches(documents, batch_size, clients, lambda batch: self._send_import(index, batch))
+        if total.failures:
+            raise EngineError(
+                f"Narsil rejected {len(total.failures)} document(s); first error: {total.failures[0]}"
+            )
+        return ImportResult(submitted=total.submitted, indexed=total.indexed)
+
+    def import_documents(
+        self, index: str, documents: Iterable[tuple[str, str]], batch_size: int, clients: int
+    ) -> ImportResult:
+        return self._import_docs(
+            index, ({"id": doc_id, "text": text} for doc_id, text in documents), batch_size, clients
+        )
 
     def count(self, index: str) -> int:
         response = self._client.get(f"/indexes/{index}/count")
@@ -128,7 +124,7 @@ class NarsilDriver:
         return int(response.json().get("count", 0))
 
     def _post_search(self, index: str, body: dict) -> SearchResponse:
-        response = self._client.post(f"/indexes/{index}/search", json=body)
+        response = self._client.post(f"/indexes/{index}/search", json={**body, "document": False})
         _raise_for_envelope(response)
         payload = response.json()
         hits = [Hit(doc_id=str(hit["id"]), score=float(hit["score"])) for hit in payload.get("hits", [])]
@@ -140,6 +136,20 @@ class NarsilDriver:
 
     def search(self, index: str, term: str, limit: int) -> SearchResponse:
         return self._post_search(index, {"term": term, "fields": ["text"], "limit": limit})
+
+    def set_vector_profile(self, profile: str) -> None:
+        """Adopts a profile the driver did not itself create the index under, so a
+        load-generator process searching an index another process built asks for the
+        same precision the run tuned to."""
+
+        self._vector_profile = profile
+
+    def set_vector_metric(self, metric: str) -> None:
+        """Adopts the similarity every vector clause names. The index carries no
+        metric of its own here, so a worker that kept the driver default would score
+        against a different similarity from the one the run indexed for."""
+
+        self._metric = metric
 
     def create_vector_index(self, index: str, params: VectorIndexParams) -> None:
         self._metric = params.metric
@@ -170,11 +180,14 @@ class NarsilDriver:
         response = self._client.post("/indexes", json={"name": index, "config": config})
         _raise_for_envelope(response)
 
-    def import_vectors(self, index: str, documents: Iterable[VectorDoc], batch_size: int) -> ImportResult:
+    def import_vectors(
+        self, index: str, documents: Iterable[VectorDoc], batch_size: int, clients: int
+    ) -> ImportResult:
         return self._import_docs(
             index,
             ({"id": doc.doc_id, "text": doc.text, _VECTOR_FIELD: list(doc.vector)} for doc in documents),
             batch_size,
+            clients,
         )
 
     def build_vectors(self, index: str) -> None:
@@ -235,6 +248,11 @@ class NarsilDriver:
         response = self._client.get(f"/indexes/{index}/stats")
         _raise_for_envelope(response)
         raw = response.json()
+        reported_language = raw.get("language")
+        if isinstance(reported_language, str) and reported_language:
+            self.keyword_setup = (
+                f"BM25 k1={self._k1} b={self._b}; language {reported_language}, as the server reports it"
+            )
         size = None
         for key in _MEMORY_KEYS:
             value = raw.get(key)

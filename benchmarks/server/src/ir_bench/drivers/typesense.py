@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Iterable, Iterator
+from typing import Iterable
 
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
+from ..core.ingest import BatchOutcome, import_batches
 from ..core.types import (
     INTEGER_MS,
     EngineError,
@@ -22,17 +23,6 @@ from ..core.types import (
 _PER_PAGE = 250
 
 
-def _chunked(items: Iterable[tuple[str, str]], size: int) -> Iterator[list[tuple[str, str]]]:
-    batch: list[tuple[str, str]] = []
-    for item in items:
-        batch.append(item)
-        if len(batch) >= size:
-            yield batch
-            batch = []
-    if batch:
-        yield batch
-
-
 def _raise(response: httpx.Response) -> None:
     if response.is_success:
         return
@@ -44,8 +34,8 @@ class TypesenseDriver:
         self.name = engine.name
         self.run_tag = engine.run_tag
         self.keyword_setup = (
-            "Native token match/proximity scoring (text_match), not BM25; "
-            "english locale, Snowball stemming enabled, default typo tolerance"
+            "Not BM25; the harness creates the text field with locale `en` and `stem` "
+            "enabled, sorts by `_text_match`, and leaves every other setting at its default"
         )
         self.server_time = ServerTimeSource(source="response `search_time_ms` field", resolution=INTEGER_MS)
         api_key = os.environ.get("BENCH_API_KEY", "localdev")
@@ -79,25 +69,28 @@ class TypesenseDriver:
         response = self._client.post("/collections", json=body)
         _raise(response)
 
-    def import_documents(self, index: str, documents: Iterable[tuple[str, str]], batch_size: int) -> ImportResult:
-        submitted = 0
+    def _send_import(self, index: str, batch: list[tuple[str, str]]) -> BatchOutcome:
+        body = "\n".join(json.dumps({"id": doc_id, "text": text}) for doc_id, text in batch)
+        response = self._client.post(
+            f"/collections/{index}/documents/import",
+            params={"action": "create"},
+            content=body.encode("utf-8"),
+            headers={"content-type": "text/plain"},
+        )
+        _raise(response)
         indexed = 0
-        for batch in _chunked(documents, batch_size):
-            body = "\n".join(json.dumps({"id": doc_id, "text": text}) for doc_id, text in batch)
-            response = self._client.post(
-                f"/collections/{index}/documents/import",
-                params={"action": "create"},
-                content=body.encode("utf-8"),
-                headers={"content-type": "text/plain"},
-            )
-            _raise(response)
-            submitted += len(batch)
-            for line in response.text.splitlines():
-                if not line.strip():
-                    continue
-                if json.loads(line).get("success") is True:
-                    indexed += 1
-        return ImportResult(submitted=submitted, indexed=indexed)
+        for line in response.text.splitlines():
+            if not line.strip():
+                continue
+            if json.loads(line).get("success") is True:
+                indexed += 1
+        return BatchOutcome(submitted=len(batch), indexed=indexed)
+
+    def import_documents(
+        self, index: str, documents: Iterable[tuple[str, str]], batch_size: int, clients: int
+    ) -> ImportResult:
+        total = import_batches(documents, batch_size, clients, lambda batch: self._send_import(index, batch))
+        return ImportResult(submitted=total.submitted, indexed=total.indexed)
 
     def count(self, index: str) -> int:
         response = self._client.get(f"/collections/{index}")

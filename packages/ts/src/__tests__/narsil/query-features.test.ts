@@ -13,23 +13,20 @@ describe('Narsil query features', () => {
     await narsil.shutdown()
   })
 
-  describe('limit and offset clamping', () => {
-    it('clamps limit to [0, 10000] and offset to [0, 100000]', async () => {
+  describe('the result window', () => {
+    it('refuses a request reaching past the window and reads a negative offset as zero', async () => {
       await narsil.createIndex('products', indexConfig)
       await narsil.insert('products', { title: 'Test Item', category: 'test', price: 10 })
 
-      const result = await narsil.query('products', {
-        term: 'test',
-        limit: 999999,
-        offset: -5,
+      await expect(narsil.query('products', { term: 'test', limit: 999999, offset: -5 })).rejects.toMatchObject({
+        code: 'SEARCH_RESULT_WINDOW_EXCEEDED',
       })
-      expect(result.hits.length).toBeLessThanOrEqual(10000)
 
-      const result2 = await narsil.query('products', {
-        term: 'test',
-        limit: -1,
-      })
-      expect(result2.hits).toEqual([])
+      const atTheWindow = await narsil.query('products', { term: 'test', limit: 9_000, offset: 1_000 })
+      expect(atTheWindow.count).toBe(1)
+
+      const emptyPage = await narsil.query('products', { term: 'test', limit: -1 })
+      expect(emptyPage.hits).toEqual([])
     })
   })
 
@@ -198,6 +195,34 @@ describe('Narsil query features', () => {
       expect(facets).toBeDefined()
       expect(facets?.category).toBeDefined()
       expect(facets?.category.values).toBeDefined()
+    })
+
+    it('counts a value repeated inside one document array once', async () => {
+      await narsil.createIndex('articles', { schema: { title: 'string', topics: 'enum[]', ratings: 'number[]' } })
+      await narsil.insert('articles', { title: 'alpha piece', topics: ['news', 'news', 'sport'], ratings: [4, 4, 5] })
+      await narsil.insert('articles', { title: 'alpha follow-up', topics: ['news'], ratings: [3] })
+
+      const result = await narsil.query('articles', { term: 'alpha', facets: { topics: {}, ratings: {} } })
+
+      expect(result.facets?.topics.values).toEqual({ news: 2, sport: 1 })
+      expect(result.facets?.ratings.values).toEqual({ '4': 1, '5': 1, '3': 1 })
+    })
+
+    it('returns the same facet counts with and without a sort', async () => {
+      await narsil.createIndex('articles', { schema: { title: 'string', topics: 'enum[]', rank: 'number' } })
+      await narsil.insert('articles', { title: 'alpha one', topics: ['news', 'tech'], rank: 2 })
+      await narsil.insert('articles', { title: 'alpha two', topics: ['news'], rank: 1 })
+      await narsil.insert('articles', { title: 'beta three', topics: ['sport'], rank: 3 })
+
+      const unsorted = await narsil.query('articles', { term: 'alpha', facets: { topics: {} } })
+      const sorted = await narsil.query('articles', {
+        term: 'alpha',
+        sort: { rank: 'asc' },
+        facets: { topics: {} },
+      })
+
+      expect(unsorted.facets?.topics.values).toEqual({ news: 2, tech: 1 })
+      expect(sorted.facets?.topics.values).toEqual(unsorted.facets?.topics.values)
     })
   })
 

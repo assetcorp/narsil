@@ -4,13 +4,14 @@ from pathlib import Path
 from time import perf_counter
 
 from . import datasets as ds
-from .config import BenchmarkConfig, DatasetSpec, VectorConfig
+from .config import BenchmarkConfig, DatasetSpec, EngineConfig, VectorConfig
 from .embeddings import EmbeddingStore
 from .latency import measure_latency
 from .recall_tuning import TuningResult, tune_to_recall
 from .runfile import run_mapping, strict_ranking, write_run_file
 from .scoring import evaluate
 from .throughput import measure_throughput
+from .throughput_workload import Workload, request_caller
 from .track_common import bulk_load_begin, bulk_load_end, best_effort, index_name, index_size_bytes, verify_indexed
 from .types import BEST_CONFIG, EQUAL_PRECISION, HYBRID, SERVER_TIME_UNAVAILABLE, VECTOR, VectorDoc, VectorIndexParams
 
@@ -34,7 +35,7 @@ def _create_and_load(
     driver.create_vector_index(index, params)
     bulk_load_begin(driver, index, spec)
     build_start = perf_counter()
-    imported = driver.import_vectors(index, documents(), config.import_batch)
+    imported = driver.import_vectors(index, documents(), config.import_batch, config.import_clients)
     driver.build_vectors(index)
     build_seconds = perf_counter() - build_start
     bulk_load_end(driver, index, spec)
@@ -107,6 +108,7 @@ def _tune_rescore_oversample(
 
 def run_vector_track(
     driver,
+    engine_cfg: EngineConfig,
     config: BenchmarkConfig,
     spec: DatasetSpec,
     runs_dir: Path,
@@ -159,11 +161,21 @@ def run_vector_track(
     print(f"[{driver.name}:{spec.dataset_id}:vector] measuring latency and throughput at the operating point", flush=True)
     server_time = getattr(driver, "server_time", SERVER_TIME_UNAVAILABLE)
 
-    def vector_once(vector):
-        return driver.vector_search(index, vector, config.latency.top_k, tuning.chosen_param)
+    workload = Workload(
+        engine=engine_cfg,
+        bm25=config.bm25,
+        track=VECTOR,
+        index=index,
+        top_k=config.latency.top_k,
+        ef=tuning.chosen_param,
+        vector_profile=profile,
+        vector_metric=vec.metric,
+        rescore_oversample=chosen_oversample,
+    )
+    vector_once = request_caller(driver, workload)
 
     latency = measure_latency(vector_once, query_vectors, config.latency, server_time)
-    throughput = measure_throughput(vector_once, query_vectors, config.throughput, server_time)
+    throughput = measure_throughput(workload, query_vectors, config.throughput, server_time)
 
     stats = best_effort(lambda: driver.index_stats(index), "index stats")
     driver.drop_index(index)
@@ -185,6 +197,8 @@ def run_vector_track(
             "documents_indexed": indexed,
             "build_seconds": build_seconds,
             "ingest_docs_per_sec": ingest_rate,
+            "ingest_clients": config.import_clients,
+            "ingest_batch_size": config.import_batch,
             "index_size_bytes": index_size_bytes(stats),
             "raw_stats": stats,
         },
@@ -196,6 +210,7 @@ def run_vector_track(
 
 def run_hybrid_track(
     driver,
+    engine_cfg: EngineConfig,
     config: BenchmarkConfig,
     spec: DatasetSpec,
     runs_dir: Path,
@@ -237,15 +252,23 @@ def run_hybrid_track(
 
     print(f"[{driver.name}:{spec.dataset_id}:hybrid] measuring latency and throughput", flush=True)
     server_time = getattr(driver, "server_time", SERVER_TIME_UNAVAILABLE)
-    query_ids = list(qset.ids)
+    pairs = [(query_terms[query_id], query_vectors[query_id]) for query_id in qset.ids]
 
-    def hybrid_once(query_id):
-        return driver.hybrid_search(
-            index, query_terms[query_id], query_vectors[query_id], config.latency.top_k, operating_ef
-        )
+    workload = Workload(
+        engine=engine_cfg,
+        bm25=config.bm25,
+        track=HYBRID,
+        index=index,
+        top_k=config.latency.top_k,
+        ef=operating_ef,
+        vector_profile=profile,
+        vector_metric=vec.metric,
+        rescore_oversample=vector_oversample,
+    )
+    hybrid_once = request_caller(driver, workload)
 
-    latency = measure_latency(hybrid_once, query_ids, config.latency, server_time)
-    throughput = measure_throughput(hybrid_once, query_ids, config.throughput, server_time)
+    latency = measure_latency(hybrid_once, pairs, config.latency, server_time)
+    throughput = measure_throughput(workload, pairs, config.throughput, server_time)
 
     stats = best_effort(lambda: driver.index_stats(index), "index stats")
     driver.drop_index(index)
@@ -272,6 +295,8 @@ def run_hybrid_track(
             "documents_indexed": indexed,
             "build_seconds": build_seconds,
             "ingest_docs_per_sec": ingest_rate,
+            "ingest_clients": config.import_clients,
+            "ingest_batch_size": config.import_batch,
             "index_size_bytes": index_size_bytes(stats),
             "raw_stats": stats,
         },

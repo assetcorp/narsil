@@ -163,6 +163,99 @@ describe('DataNodeLifecycle join and allocation watcher', () => {
       expect(bootstrapFn).toHaveBeenCalledWith('products', 0, 'primary-node')
     })
 
+    it('re-runs bootstrap when an active replica falls out of the in-sync set', async () => {
+      const bootstrapFn = vi.fn().mockResolvedValue(true)
+      await coordinator.registerNode(makeNode('primary-node'))
+
+      const assignments = new Map<number, PartitionAssignment>()
+      assignments.set(
+        0,
+        makeAssignment({
+          primary: 'primary-node',
+          replicas: ['data-1'],
+          inSyncSet: ['primary-node', 'data-1'],
+          state: 'ACTIVE',
+        }),
+      )
+      await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
+
+      await startController(['products'])
+
+      createLifecycle({ knownIndexNames: ['products'], onBootstrapPartition: bootstrapFn })
+      if (lifecycle === undefined) throw new Error('lifecycle not initialised')
+      await lifecycle.join()
+
+      vi.advanceTimersByTime(DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs + 10)
+      await flushPromises()
+      await flushPromises()
+      bootstrapFn.mockClear()
+
+      const droppedAssignments = new Map<number, PartitionAssignment>()
+      droppedAssignments.set(
+        0,
+        makeAssignment({
+          primary: 'primary-node',
+          replicas: ['data-1'],
+          inSyncSet: ['primary-node'],
+          state: 'ACTIVE',
+        }),
+      )
+      await coordinator.putAllocation('products', makeAllocationTable('products', droppedAssignments, 2))
+
+      vi.advanceTimersByTime(DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs + 10)
+      await flushPromises()
+      await flushPromises()
+
+      expect(bootstrapFn).toHaveBeenCalledWith('products', 0, 'primary-node')
+    })
+
+    it('leaves an in-flight bootstrap running when the in-sync set drops the replica again', async () => {
+      const neverCompletes = new Promise<boolean>(() => {})
+      const bootstrapFn = vi.fn().mockReturnValue(neverCompletes)
+      await coordinator.registerNode(makeNode('primary-node'))
+
+      const assignments = new Map<number, PartitionAssignment>()
+      assignments.set(
+        0,
+        makeAssignment({
+          primary: 'primary-node',
+          replicas: ['data-1'],
+          inSyncSet: ['primary-node'],
+          state: 'ACTIVE',
+        }),
+      )
+      await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
+
+      await startController(['products'])
+
+      createLifecycle({ knownIndexNames: ['products'], onBootstrapPartition: bootstrapFn })
+      if (lifecycle === undefined) throw new Error('lifecycle not initialised')
+      await lifecycle.join()
+
+      vi.advanceTimersByTime(DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs + 10)
+      await flushPromises()
+      await flushPromises()
+
+      const repeatedAssignments = new Map<number, PartitionAssignment>()
+      repeatedAssignments.set(
+        0,
+        makeAssignment({
+          primary: 'primary-node',
+          replicas: ['data-1'],
+          inSyncSet: ['primary-node'],
+          state: 'ACTIVE',
+          primaryTerm: 1,
+        }),
+      )
+      await coordinator.putAllocation('products', makeAllocationTable('products', repeatedAssignments, 2))
+
+      vi.advanceTimersByTime(DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs + 10)
+      await flushPromises()
+      await flushPromises()
+
+      expect(bootstrapFn).toHaveBeenCalledTimes(1)
+    })
+
     it('calls onRemovePartition when partition is removed from node', async () => {
       const removeFn = vi.fn()
       const bootstrapFn = vi.fn().mockResolvedValue(true)

@@ -1,115 +1,72 @@
+import { compareCodePoints, compareSortValues, type SortDirection, toComparableSortValue } from '../core/ordering'
 import { ErrorCodes, NarsilError } from '../errors'
+import { decodePageCursor, encodePageCursor, type PageCursor, requireMatchingCursor } from './cursor'
 
-export interface SearchCursor {
-  s: number
-  d: string
-  p: number
+export const RESULT_WINDOW = 10_000
+export const DEFAULT_PAGE_SIZE = 10
+
+export function clampRowCount(value: number | undefined, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback
+  return Math.max(0, Math.floor(value))
 }
 
-export function encodeCursor(state: SearchCursor[]): string {
-  const json = JSON.stringify(state)
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(json).toString('base64')
-  }
-  return btoa(json)
+export function requireWithinResultWindow(limit: number, offset: number): void {
+  const depth = offset + limit
+  if (depth <= RESULT_WINDOW) return
+  throw new NarsilError(
+    ErrorCodes.SEARCH_RESULT_WINDOW_EXCEEDED,
+    `A request reaches the first ${RESULT_WINDOW} results, and offset + limit is ${depth}. Page past that with the cursor each result carries`,
+    { limit, offset, window: RESULT_WINDOW },
+  )
 }
 
-export function decodeCursor(encoded: string): SearchCursor[] {
-  let json: string
-  try {
-    if (typeof Buffer !== 'undefined') {
-      json = Buffer.from(encoded, 'base64').toString('utf-8')
-    } else {
-      json = atob(encoded)
-    }
-  } catch {
-    throw new NarsilError(ErrorCodes.SEARCH_INVALID_CURSOR, 'Failed to decode cursor: invalid base64 encoding', {
-      cursor: encoded,
-    })
-  }
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(json)
-  } catch {
-    throw new NarsilError(ErrorCodes.SEARCH_INVALID_CURSOR, 'Failed to decode cursor: invalid JSON', {
-      cursor: encoded,
-    })
-  }
-
-  if (!Array.isArray(parsed)) {
-    throw new NarsilError(ErrorCodes.SEARCH_INVALID_CURSOR, 'Invalid cursor structure: expected an array', {
-      cursor: encoded,
-    })
-  }
-
-  for (let i = 0; i < parsed.length; i++) {
-    const entry = parsed[i]
-    if (typeof entry !== 'object' || entry === null) {
-      throw new NarsilError(
-        ErrorCodes.SEARCH_INVALID_CURSOR,
-        `Invalid cursor entry at index ${i}: expected an object`,
-        {
-          cursor: encoded,
-          index: i,
-        },
-      )
-    }
-
-    const { s, d, p } = entry as Record<string, unknown>
-
-    if (typeof s !== 'number' || !Number.isFinite(s)) {
-      throw new NarsilError(
-        ErrorCodes.SEARCH_INVALID_CURSOR,
-        `Invalid cursor entry at index ${i}: "s" must be a finite number`,
-        { cursor: encoded, index: i },
-      )
-    }
-
-    if (typeof d !== 'string') {
-      throw new NarsilError(
-        ErrorCodes.SEARCH_INVALID_CURSOR,
-        `Invalid cursor entry at index ${i}: "d" must be a string`,
-        { cursor: encoded, index: i },
-      )
-    }
-
-    if (typeof p !== 'number' || !Number.isInteger(p) || p < 0) {
-      throw new NarsilError(
-        ErrorCodes.SEARCH_INVALID_CURSOR,
-        `Invalid cursor entry at index ${i}: "p" must be a non-negative integer`,
-        { cursor: encoded, index: i },
-      )
-    }
-  }
-
-  return parsed as SearchCursor[]
+export interface PaginationSortContext {
+  signature: string
+  directions: readonly SortDirection[]
+  sortKeyOf(docId: string): readonly unknown[]
 }
 
-export function applyPagination<T extends { id: string; score: number }>(
+function ordersAfterAnchor<T extends { id: string; score?: number }>(
+  result: T,
+  anchor: PageCursor,
+  sort: PaginationSortContext | undefined,
+): boolean {
+  if (sort !== undefined && anchor.sortKey !== null) {
+    const comparison =
+      compareSortValues(sort.sortKeyOf(result.id), anchor.sortKey, sort.directions) ||
+      compareCodePoints(result.id, anchor.anchor)
+    return comparison > 0
+  }
+  if (anchor.score === null) return true
+  if (result.score === undefined) return true
+  if (result.score < anchor.score) return true
+  return result.score === anchor.score && compareCodePoints(result.id, anchor.anchor) > 0
+}
+
+export function applyPagination<T extends { id: string; score?: number }>(
   results: T[],
   limit: number,
   offset: number,
   cursor?: string,
+  sort?: PaginationSortContext,
 ): { paginated: T[]; nextCursor?: string } {
+  const decoded = cursor ? decodePageCursor(cursor) : null
+  if (decoded !== null && cursor !== undefined) {
+    requireMatchingCursor(decoded, cursor, sort?.signature ?? null, true)
+  }
+
   if (limit <= 0) {
     return { paginated: [] }
   }
 
   let startIndex = 0
 
-  if (cursor) {
-    const cursorState = decodeCursor(cursor)
-    const anchor = cursorState[0]
-
+  if (decoded !== null) {
+    startIndex = results.length
     for (let i = 0; i < results.length; i++) {
-      const result = results[i]
-      if (result.score < anchor.s || (result.score === anchor.s && result.id > anchor.d)) {
+      if (ordersAfterAnchor(results[i], decoded, sort)) {
         startIndex = i
         break
-      }
-      if (i === results.length - 1) {
-        startIndex = results.length
       }
     }
   }
@@ -122,8 +79,20 @@ export function applyPagination<T extends { id: string; score: number }>(
   const hasMore = afterOffset + limit < results.length
   if (hasMore && sliced.length > 0) {
     const lastResult = sliced[sliced.length - 1]
-    const cursorState: SearchCursor[] = [{ s: lastResult.score, d: lastResult.id, p: 0 }]
-    nextCursor = encodeCursor(cursorState)
+    nextCursor =
+      sort !== undefined
+        ? encodePageCursor({
+            anchor: lastResult.id,
+            score: null,
+            sortKey: sort.sortKeyOf(lastResult.id).map(toComparableSortValue),
+            sortSignature: sort.signature,
+          })
+        : encodePageCursor({
+            anchor: lastResult.id,
+            score: lastResult.score ?? null,
+            sortKey: null,
+            sortSignature: null,
+          })
   }
 
   return { paginated: sliced, nextCursor }

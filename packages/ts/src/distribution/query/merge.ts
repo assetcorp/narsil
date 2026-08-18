@@ -1,45 +1,62 @@
+import { compareCodePoints, compareSortValues, type SortDirection } from '../../core/ordering'
 import type { FacetBucket, ScoredEntry } from '../transport/types'
 
-function compareScoredEntries(a: ScoredEntry, b: ScoredEntry): number {
-  if (a.score !== b.score) {
-    return b.score - a.score
+type EntryComparator = (a: ScoredEntry, b: ScoredEntry) => number
+
+function compareByScoreThenId(a: ScoredEntry, b: ScoredEntry): number {
+  const aScore = a.score ?? Number.NEGATIVE_INFINITY
+  const bScore = b.score ?? Number.NEGATIVE_INFINITY
+  if (aScore !== bScore) {
+    return bScore - aScore
   }
-  if (a.docId < b.docId) return -1
-  if (a.docId > b.docId) return 1
-  return 0
+  return compareCodePoints(a.docId, b.docId)
 }
 
 export function mergeAndTruncateScoredEntries(arrays: ScoredEntry[][], limit: number): ScoredEntry[] {
+  return mergeAndTruncate(arrays, limit, compareByScoreThenId)
+}
+
+export function mergeAndTruncateSortedEntries(
+  arrays: ScoredEntry[][],
+  limit: number,
+  directions: readonly SortDirection[],
+): ScoredEntry[] {
+  const bySortValues: EntryComparator = (a, b) =>
+    compareSortValues(a.sortValues ?? [], b.sortValues ?? [], directions) || compareCodePoints(a.docId, b.docId)
+  return mergeAndTruncate(arrays, limit, bySortValues)
+}
+
+function mergeAndTruncate(arrays: ScoredEntry[][], limit: number, compare: EntryComparator): ScoredEntry[] {
   const nonEmpty = arrays.filter(a => a.length > 0)
 
   if (nonEmpty.length === 0) return []
   if (nonEmpty.length === 1) return nonEmpty[0].slice(0, limit)
 
   if (nonEmpty.length <= 4) {
-    return sequentialMergeScoredEntries(nonEmpty, limit)
+    return sequentialMergeScoredEntries(nonEmpty, limit, compare)
   }
 
-  return heapMergeScoredEntries(nonEmpty, limit)
+  return heapMergeScoredEntries(nonEmpty, limit, compare)
 }
 
-function sequentialMergeScoredEntries(arrays: ScoredEntry[][], limit: number): ScoredEntry[] {
+function sequentialMergeScoredEntries(arrays: ScoredEntry[][], limit: number, compare: EntryComparator): ScoredEntry[] {
   let merged = arrays[0]
 
   for (let i = 1; i < arrays.length; i++) {
-    merged = mergeTwoSortedScoredEntries(merged, arrays[i])
+    merged = mergeTwoSortedScoredEntries(merged, arrays[i], compare)
   }
 
   return merged.slice(0, limit)
 }
 
-function mergeTwoSortedScoredEntries(a: ScoredEntry[], b: ScoredEntry[]): ScoredEntry[] {
+function mergeTwoSortedScoredEntries(a: ScoredEntry[], b: ScoredEntry[], compare: EntryComparator): ScoredEntry[] {
   const result: ScoredEntry[] = new Array(a.length + b.length)
   let ai = 0
   let bi = 0
   let ri = 0
 
   while (ai < a.length && bi < b.length) {
-    if (compareScoredEntries(a[ai], b[bi]) <= 0) {
+    if (compare(a[ai], b[bi]) <= 0) {
       result[ri++] = a[ai++]
     } else {
       result[ri++] = b[bi++]
@@ -58,59 +75,51 @@ function mergeTwoSortedScoredEntries(a: ScoredEntry[], b: ScoredEntry[]): Scored
 }
 
 interface ScoredHeapNode {
-  score: number
-  docId: string
+  entry: ScoredEntry
   sourceIdx: number
   resultIdx: number
 }
 
-function scoredHeapNodeGreater(a: ScoredHeapNode, b: ScoredHeapNode): boolean {
-  if (a.score !== b.score) return a.score > b.score
-  return a.docId < b.docId
-}
-
-function heapMergeScoredEntries(arrays: ScoredEntry[][], limit: number): ScoredEntry[] {
+function heapMergeScoredEntries(arrays: ScoredEntry[][], limit: number, compare: EntryComparator): ScoredEntry[] {
   const heap: ScoredHeapNode[] = []
+  const nodeFirst = (a: ScoredHeapNode, b: ScoredHeapNode): boolean => compare(a.entry, b.entry) < 0
 
   for (let i = 0; i < arrays.length; i++) {
     if (arrays[i].length > 0) {
-      pushScoredHeap(heap, {
-        score: arrays[i][0].score,
-        docId: arrays[i][0].docId,
-        sourceIdx: i,
-        resultIdx: 0,
-      })
+      pushScoredHeap(heap, { entry: arrays[i][0], sourceIdx: i, resultIdx: 0 }, nodeFirst)
     }
   }
 
   const result: ScoredEntry[] = []
 
   while (heap.length > 0 && result.length < limit) {
-    const top = popScoredHeap(heap)
-    result.push(arrays[top.sourceIdx][top.resultIdx])
+    const top = popScoredHeap(heap, nodeFirst)
+    result.push(top.entry)
 
     const nextIdx = top.resultIdx + 1
     if (nextIdx < arrays[top.sourceIdx].length) {
-      const nextEntry = arrays[top.sourceIdx][nextIdx]
-      pushScoredHeap(heap, {
-        score: nextEntry.score,
-        docId: nextEntry.docId,
-        sourceIdx: top.sourceIdx,
-        resultIdx: nextIdx,
-      })
+      pushScoredHeap(
+        heap,
+        { entry: arrays[top.sourceIdx][nextIdx], sourceIdx: top.sourceIdx, resultIdx: nextIdx },
+        nodeFirst,
+      )
     }
   }
 
   return result
 }
 
-function pushScoredHeap(heap: ScoredHeapNode[], node: ScoredHeapNode): void {
+function pushScoredHeap(
+  heap: ScoredHeapNode[],
+  node: ScoredHeapNode,
+  nodeFirst: (a: ScoredHeapNode, b: ScoredHeapNode) => boolean,
+): void {
   heap.push(node)
   let idx = heap.length - 1
 
   while (idx > 0) {
     const parentIdx = (idx - 1) >> 1
-    if (scoredHeapNodeGreater(heap[idx], heap[parentIdx])) {
+    if (nodeFirst(heap[idx], heap[parentIdx])) {
       const tmp = heap[idx]
       heap[idx] = heap[parentIdx]
       heap[parentIdx] = tmp
@@ -121,7 +130,10 @@ function pushScoredHeap(heap: ScoredHeapNode[], node: ScoredHeapNode): void {
   }
 }
 
-function popScoredHeap(heap: ScoredHeapNode[]): ScoredHeapNode {
+function popScoredHeap(
+  heap: ScoredHeapNode[],
+  nodeFirst: (a: ScoredHeapNode, b: ScoredHeapNode) => boolean,
+): ScoredHeapNode {
   const top = heap[0]
   const last = heap.pop()
 
@@ -132,20 +144,20 @@ function popScoredHeap(heap: ScoredHeapNode[]): ScoredHeapNode {
     for (;;) {
       const left = 2 * idx + 1
       const right = 2 * idx + 2
-      let largest = idx
+      let first = idx
 
-      if (left < heap.length && scoredHeapNodeGreater(heap[left], heap[largest])) {
-        largest = left
+      if (left < heap.length && nodeFirst(heap[left], heap[first])) {
+        first = left
       }
-      if (right < heap.length && scoredHeapNodeGreater(heap[right], heap[largest])) {
-        largest = right
+      if (right < heap.length && nodeFirst(heap[right], heap[first])) {
+        first = right
       }
 
-      if (largest !== idx) {
+      if (first !== idx) {
         const tmp = heap[idx]
-        heap[idx] = heap[largest]
-        heap[largest] = tmp
-        idx = largest
+        heap[idx] = heap[first]
+        heap[first] = tmp
+        idx = first
       } else {
         break
       }
@@ -157,11 +169,26 @@ function popScoredHeap(heap: ScoredHeapNode[]): ScoredHeapNode {
 
 const DEFAULT_MAX_FACET_BUCKETS = 100
 
+/**
+ * Merges the facet counts every node returned and adds up what each of them
+ * left out.
+ *
+ * A truncation here drops buckets the caller never sees, so it raises the
+ * field's bound to the largest count it dropped where that is higher than what
+ * the nodes reported.
+ *
+ * @param allFacets - The buckets each node returned, keyed by field.
+ * @param allBounds - The largest count each node left out, keyed by field.
+ * @param maxBuckets - The buckets one field keeps.
+ * @returns The merged buckets and one bound per field.
+ */
 export function mergeDistributedFacets(
   allFacets: Array<Record<string, FacetBucket[]>>,
+  allBounds: Array<Record<string, number> | null | undefined>,
   maxBuckets: number = DEFAULT_MAX_FACET_BUCKETS,
-): Record<string, FacetBucket[]> {
+): { facets: Record<string, FacetBucket[]>; errorBounds: Record<string, number> } {
   const merged = new Map<string, Map<string, number>>()
+  const bounds = new Map<string, number>()
 
   for (const facetMap of allFacets) {
     for (const [field, buckets] of Object.entries(facetMap)) {
@@ -177,7 +204,15 @@ export function mergeDistributedFacets(
     }
   }
 
-  const result: Record<string, FacetBucket[]> = {}
+  for (const boundMap of allBounds) {
+    if (boundMap === null || boundMap === undefined) continue
+    for (const [field, bound] of Object.entries(boundMap)) {
+      bounds.set(field, (bounds.get(field) ?? 0) + bound)
+    }
+  }
+
+  const facets: Record<string, FacetBucket[]> = {}
+  const errorBounds: Record<string, number> = {}
 
   for (const [field, valueMap] of merged) {
     const buckets: FacetBucket[] = []
@@ -187,13 +222,16 @@ export function mergeDistributedFacets(
 
     buckets.sort((a, b) => {
       if (a.count !== b.count) return b.count - a.count
-      if (a.value < b.value) return -1
-      if (a.value > b.value) return 1
-      return 0
+      return compareCodePoints(a.value, b.value)
     })
 
-    result[field] = buckets.slice(0, maxBuckets)
+    facets[field] = buckets.slice(0, maxBuckets)
+    let bound = bounds.get(field) ?? 0
+    for (let index = maxBuckets; index < buckets.length; index++) {
+      if (buckets[index].count > bound) bound = buckets[index].count
+    }
+    errorBounds[field] = bound
   }
 
-  return result
+  return { facets, errorBounds }
 }

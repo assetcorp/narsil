@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import time
-from typing import Iterable, Iterator
+from typing import Iterable
 
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
+from ..core.ingest import BatchOutcome, import_batches
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
@@ -32,17 +33,6 @@ _DENSE = "dense"
 _SPARSE = "text"
 _INDEXING_THRESHOLD = 100
 _FULL_SCAN_THRESHOLD_KB = 10
-
-
-def _chunked(items: Iterable[VectorDoc], size: int) -> Iterator[list[VectorDoc]]:
-    batch: list[VectorDoc] = []
-    for item in items:
-        batch.append(item)
-        if len(batch) >= size:
-            yield batch
-            batch = []
-    if batch:
-        yield batch
 
 
 def _raise(response: httpx.Response) -> None:
@@ -74,6 +64,13 @@ class QdrantDriver:
         self._sparse_model_name = "Qdrant/bm25"
         self._sparse = None
         self._client = build_client(engine.url)
+
+    def set_vector_profile(self, profile: str) -> None:
+        """Adopts a profile the driver did not itself create the collection under, so
+        a load-generator process searching a collection another process built asks for
+        the same precision the run tuned to."""
+
+        self._vector_profile = profile
 
     def set_rescore_oversample(self, value: float | None) -> None:
         self._rescore_oversample = value
@@ -146,34 +143,37 @@ class QdrantDriver:
             self._sparse = SparseTextEmbedding(model_name=self._sparse_model_name)
         return self._sparse
 
-    def import_vectors(self, index: str, documents: Iterable[VectorDoc], batch_size: int) -> ImportResult:
-        model = self._sparse_model()
-        submitted = 0
-        point_id = 0
-        for batch in _chunked(documents, batch_size):
-            sparse = list(model.embed([doc.text for doc in batch]))
-            points = []
-            for doc, sparse_vec in zip(batch, sparse):
-                points.append(
-                    {
-                        "id": point_id,
-                        "vector": {
-                            _DENSE: list(doc.vector),
-                            _SPARSE: {
-                                "indices": [int(i) for i in sparse_vec.indices.tolist()],
-                                "values": [float(v) for v in sparse_vec.values.tolist()],
-                            },
+    def _send_points(self, index: str, model, batch: list[tuple[int, VectorDoc]]) -> BatchOutcome:
+        sparse = list(model.embed([doc.text for _, doc in batch]))
+        points = []
+        for (point_id, doc), sparse_vec in zip(batch, sparse):
+            points.append(
+                {
+                    "id": point_id,
+                    "vector": {
+                        _DENSE: list(doc.vector),
+                        _SPARSE: {
+                            "indices": [int(i) for i in sparse_vec.indices.tolist()],
+                            "values": [float(v) for v in sparse_vec.values.tolist()],
                         },
-                        "payload": {"doc_id": doc.doc_id},
-                    }
-                )
-                point_id += 1
-            response = self._client.put(
-                f"/collections/{index}/points", params={"wait": "true"}, json={"points": points}
+                    },
+                    "payload": {"doc_id": doc.doc_id},
+                }
             )
-            _raise(response)
-            submitted += len(batch)
-        return ImportResult(submitted=submitted, indexed=submitted)
+        response = self._client.put(
+            f"/collections/{index}/points", params={"wait": "true"}, json={"points": points}
+        )
+        _raise(response)
+        return BatchOutcome(submitted=len(batch), indexed=len(batch))
+
+    def import_vectors(
+        self, index: str, documents: Iterable[VectorDoc], batch_size: int, clients: int
+    ) -> ImportResult:
+        model = self._sparse_model()
+        total = import_batches(
+            enumerate(documents), batch_size, clients, lambda batch: self._send_points(index, model, batch)
+        )
+        return ImportResult(submitted=total.submitted, indexed=total.indexed)
 
     def build_vectors(self, index: str, timeout_seconds: float = 600.0) -> None:
         deadline = time.perf_counter() + timeout_seconds

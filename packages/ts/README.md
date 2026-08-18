@@ -12,11 +12,11 @@ Distributed search, reforged.
 
 Narsil is a distributed search engine with full-text, vector, hybrid, and geosearch. One codebase runs in two contexts: embedded in your application process, where queries answer without a network hop, and as a standalone search server with a REST API, a write-ahead log, and bulk NDJSON ingest. Both contexts run the same engine and store indexes in the same cross-language binary format (.nrsl), so an index built in one loads in the other.
 
-The engine partitions large indexes across workers and merges partition results into a single ranked answer. Its BM25 ranking matches the Anserini reference within 0.005 nDCG@10 on the BEIR datasets. On BEIR SciFact it ranks level with Elasticsearch and OpenSearch at 0.678 nDCG@10 and answers 1,020 keyword queries per second, about a quarter more than either ([benchmarks](https://github.com/assetcorp/narsil/blob/main/BENCHMARKS.md)). This TypeScript package is the reference implementation of the cross-language `.nrsl` format, and a second-language port in Go or Rust is the headline item on the [roadmap](https://github.com/assetcorp/narsil/blob/main/ROADMAP.md).
+The engine partitions large indexes across workers and merges partition results into a single ranked answer. Its BM25 ranking matches the Anserini reference within 0.006 nDCG@10 on the BEIR datasets. On BEIR SciFact it takes the top nDCG@10 at 0.681, narrowly ahead of Elasticsearch and OpenSearch at 0.679, and answers 958 keyword queries per second against their 841 and 878 ([benchmarks](https://github.com/assetcorp/narsil/blob/main/BENCHMARKS.md)). This TypeScript package is the reference implementation of the cross-language `.nrsl` format, and a second-language port in Go or Rust is the headline item on the [roadmap](https://github.com/assetcorp/narsil/blob/main/ROADMAP.md).
 
 Try it in your browser at [narsil.sondelali.com/demo](https://narsil.sondelali.com/demo). Read the full documentation at [narsil.sondelali.com/docs](https://narsil.sondelali.com/docs).
 
-> *narsil* is the sword of Elendil in Tolkien's Lord of the Rings, shattered into shards and later reforged. The name maps to the architecture: data shatters into partitions, each shard is independently persisted, and every query reforges them into a unified result.
+> *narsil* is the sword of Elendil in Tolkien's Lord of the Rings, shattered into shards and later reforged. The name maps to the architecture: data shatters into partitions, the engine persists each shard on its own, and every query reforges them into one ranked answer.
 
 ## Contents
 
@@ -79,7 +79,7 @@ const results = await narsil.query('products', {
 })
 ```
 
-Every hit carries the document, its id, and its BM25 score. `results.count` reports how many documents matched in total, and `results.elapsed` reports the query time in milliseconds.
+Every hit holds the document, its id, and its BM25 score. `results.count` reports how many documents matched in total, and `results.elapsed` reports the query time in milliseconds.
 
 ## Features
 
@@ -93,7 +93,7 @@ Every hit carries the document, its id, and its BM25 score. `results.count` repo
 
 **Scale.** [Partitioned indexes](https://github.com/assetcorp/narsil/blob/main/docs/partitions-and-workers.md) route documents by deterministic hash and reshape online through `rebalance()`, with writes buffering in a write-ahead queue during the reshape. Worker promotion moves search off the main thread once document counts cross a threshold.
 
-**Operations.** The [HTTP server](https://github.com/assetcorp/narsil/blob/main/docs/http-server.md) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. [Events, plugins, and memory reporting](https://github.com/assetcorp/narsil/blob/main/docs/observability.md) cover observability, and [language modules](https://github.com/assetcorp/narsil/blob/main/docs/language-support.md) cover 107 languages as separate entry points, 20 of them African.
+**Operations.** The [HTTP server](https://github.com/assetcorp/narsil/blob/main/docs/http-server.md) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. The [client](https://github.com/assetcorp/narsil/blob/main/docs/client.md) subpath reaches every one of those routes from a browser or from Node under the engine's own method names, and the [React](https://github.com/assetcorp/narsil/blob/main/docs/react.md) subpath gives those methods to components as hooks. [Events, plugins, and memory reporting](https://github.com/assetcorp/narsil/blob/main/docs/observability.md) cover observability, and [language modules](https://github.com/assetcorp/narsil/blob/main/docs/language-support.md) cover 107 languages as separate entry points, 20 of them African.
 
 ## Documentation
 
@@ -110,7 +110,10 @@ Every hit carries the document, its id, and its BM25 score. `results.count` repo
 | [Persistence and durability](../../docs/persistence-and-durability.md) | Storage backends, the write-ahead log, checkpoints, recovery, and snapshots |
 | [Partitions and workers](../../docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker promotion, and multi-instance invalidation |
 | [Language support](../../docs/language-support.md) | The 107 language modules, analysis revisions and rebuilds, and named tokenizers and stop words |
-| [HTTP server](../../docs/http-server.md) | Wrapping an engine in a REST API, and every route it serves |
+| [HTTP server](../../docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |
+| [Cluster mode](../../docs/cluster.md) | Multi-node indexes: nodes and roles, replication, routed writes, distributed searches and reads, and what a cluster refuses |
+| [Client](../../docs/client.md) | Reaching a server from a browser or Node, following a task, and the codes it raises |
+| [React](../../docs/react.md) | The hooks over the client, one shared request per key, and loading a corpus from a component |
 | [Observability](../../docs/observability.md) | Plugin hooks, engine events, and memory reporting |
 | [Errors](../../docs/errors.md) | Every error code and what throws it |
 
@@ -122,15 +125,15 @@ The [specification](../spec/) defines the `.nrsl` format, the analysis pipeline,
 | --- | --- |
 | [HTTP server](examples/http-server/README.md) | The launcher runs the engine as a REST service with durability, API-key auth, and Docker packaging, and its README documents the full API surface. |
 | [Browser](examples/browser/README.md) | The app embeds the engine in a browser with IndexedDB persistence and Web Worker search. |
-| [Server app](examples/server-app/README.md) | The app pairs a search UI with the HTTP server, including dataset loading and an embedding-backed Ask view. |
+| [Server app](examples/server-app/README.md) | The app reaches the HTTP server through the client SDK and the React hooks, loads corpora as import tasks, and answers questions from them in an Ask view. |
 
 ## Distribution
 
-`@delali/narsil/distribution` holds the building blocks of Narsil's multi-node cluster mode: node roles, replication, coordinator adapters, and query routing. The distribution layer is under active development and highly experimental. It currently runs only in-process, its APIs change without notice, and it is not ready for production deployments. The design is specified in [`packages/spec/distribution`](../spec/distribution), and this section will grow into full documentation once the cluster mode is runnable.
+`@delali/narsil/distribution` holds Narsil's multi-node cluster mode: nodes and roles, replication, coordinator adapters for etcd and in-process testing, TCP and gRPC transports with mutual TLS, and distributed query routing. A cluster node creates, drops, clears, writes, updates, searches, lists, counts, and suggests across every partition, and the [cluster example](examples/cluster) runs three node processes against etcd and survives a kill. The layer is experimental and its APIs change without notice, so pin an exact version before you depend on it. The [cluster guide](../../docs/cluster.md) covers the surface, and [`packages/spec/distribution`](../spec/distribution) specifies the contract every implementation follows.
 
 ## Search quality
 
-Ranking quality is measured against the [BEIR](https://github.com/beir-cellar/beir) SciFact corpus, 5,183 documents with 300 judged queries, where a human relevance judgment scores each query-document pair. Narsil runs in one process against Orama and MiniSearch, and every engine uses identical stop words (Lucene English, 35 terms), Porter stemming, and default BM25 parameters. Narsil takes the top nDCG@10 of the three.
+Ranking quality is measured against the [BEIR](https://github.com/beir-cellar/beir) SciFact corpus, 5,183 documents with 300 judged queries, where a human relevance judgment scores each query-document pair. Narsil runs in one process against Orama and MiniSearch, and every engine uses identical stop words (Lucene English, 33 terms) and default BM25 parameters, while each one stems English with its own implementation. Narsil takes the top nDCG@10 of the three.
 
 **What these metrics mean:**
 
@@ -154,7 +157,7 @@ Narsil also runs as a search server. On the BEIR information-retrieval datasets 
 | Deno | Web Workers | Filesystem | BroadcastChannel |
 | Browser | Web Workers | IndexedDB | BroadcastChannel |
 
-The [browser example](examples/browser/README.md) shows an embedded engine with IndexedDB persistence, and the [server app example](examples/server-app/README.md) shows a full search UI backed by the HTTP server.
+The [browser example](examples/browser/README.md) shows an embedded engine with IndexedDB persistence, and the [server app example](examples/server-app/README.md) shows the same UI over the client SDK and the React hooks.
 
 ## License
 

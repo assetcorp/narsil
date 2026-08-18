@@ -19,6 +19,7 @@ export const ErrorCodes = {
   DOC_VALIDATION_FAILED: 'DOC_VALIDATION_FAILED',
   INDEX_NOT_FOUND: 'INDEX_NOT_FOUND',
   INDEX_ALREADY_EXISTS: 'INDEX_ALREADY_EXISTS',
+  INDEX_ORPHANED: 'INDEX_ORPHANED',
   PARTITION_CORRUPTED: 'PARTITION_CORRUPTED',
   PARTITION_REBALANCING_BACKPRESSURE: 'PARTITION_REBALANCING_BACKPRESSURE',
   WORKER_CRASHED: 'WORKER_CRASHED',
@@ -36,6 +37,7 @@ export const ErrorCodes = {
   SEARCH_INVALID_FILTER: 'SEARCH_INVALID_FILTER',
   SEARCH_INVALID_MODE: 'SEARCH_INVALID_MODE',
   SEARCH_INVALID_CURSOR: 'SEARCH_INVALID_CURSOR',
+  SEARCH_RESULT_WINDOW_EXCEEDED: 'SEARCH_RESULT_WINDOW_EXCEEDED',
   LANGUAGE_NOT_SUPPORTED: 'LANGUAGE_NOT_SUPPORTED',
   ENVELOPE_VERSION_MISMATCH: 'ENVELOPE_VERSION_MISMATCH',
   ENVELOPE_INVALID_MAGIC: 'ENVELOPE_INVALID_MAGIC',
@@ -50,6 +52,7 @@ export const ErrorCodes = {
   QUERY_PARTIAL_FAILURE: 'QUERY_PARTIAL_FAILURE',
   QUERY_NODE_TIMEOUT: 'QUERY_NODE_TIMEOUT',
   QUERY_NO_ACTIVE_REPLICA: 'QUERY_NO_ACTIVE_REPLICA',
+  CLUSTER_OPERATION_UNSUPPORTED: 'CLUSTER_OPERATION_UNSUPPORTED',
   ALLOCATION_NO_DATA_NODES: 'ALLOCATION_NO_DATA_NODES',
   ALLOCATION_INVALID_CONFIG: 'ALLOCATION_INVALID_CONFIG',
   ALLOCATION_FAILED: 'ALLOCATION_FAILED',
@@ -60,6 +63,7 @@ export const ErrorCodes = {
   NODE_ALREADY_JOINED: 'NODE_ALREADY_JOINED',
   NODE_NOT_JOINED: 'NODE_NOT_JOINED',
   COORDINATOR_DEPENDENCY_MISSING: 'COORDINATOR_DEPENDENCY_MISSING',
+  TRANSPORT_DEPENDENCY_MISSING: 'TRANSPORT_DEPENDENCY_MISSING',
   REPLICATION_ENTRY_INVALID: 'REPLICATION_ENTRY_INVALID',
   REPLICATION_INSYNC_REMOVAL_FAILED: 'REPLICATION_INSYNC_REMOVAL_FAILED',
   REPLICATION_ROLLBACK_FAILED: 'REPLICATION_ROLLBACK_FAILED',
@@ -101,11 +105,81 @@ export const ErrorCodes = {
 
 /**
  * Any one of the codes in {@link ErrorCodes}, which is the type to narrow on
- * when you branch on a failure.
+ * when you branch on a failure the engine raised.
  *
  * @public
  */
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes]
+
+/**
+ * Every code the HTTP layer raises for a failure that arises before or around
+ * the engine call, such as parsing the body, enforcing a limit, or routing.
+ *
+ * The engine raises none of these, so a failure carrying one of them says the
+ * request never reached the engine.
+ *
+ * @public
+ */
+export const ServerErrorCodes = {
+  INVALID_REQUEST: 'INVALID_REQUEST',
+  INVALID_JSON: 'INVALID_JSON',
+  EMPTY_BODY: 'EMPTY_BODY',
+  PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
+  NOT_FOUND: 'NOT_FOUND',
+  TASK_NOT_FOUND: 'TASK_NOT_FOUND',
+  TASK_NOT_CANCELLABLE: 'TASK_NOT_CANCELLABLE',
+  TASK_OWNED_BY_ANOTHER_INSTANCE: 'TASK_OWNED_BY_ANOTHER_INSTANCE',
+  TOO_MANY_REQUESTS: 'TOO_MANY_REQUESTS',
+  HOOK_ERROR: 'HOOK_ERROR',
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
+} as const
+
+/**
+ * Any one of the codes in {@link ServerErrorCodes}.
+ *
+ * @public
+ */
+export type ServerErrorCode = (typeof ServerErrorCodes)[keyof typeof ServerErrorCodes]
+
+/**
+ * Every code the HTTP client raises when a request never reaches a server, or
+ * when the client cannot read the answer.
+ *
+ * No server sends one of these, so a failure under one of them means the
+ * exchange broke before the operation ran. `STATUS_BY_CODE` in
+ * `src/server/errors.ts` therefore maps none of them, because no request can
+ * arrive under one and no HTTP status belongs to one.
+ *
+ * @public
+ */
+export const ClientErrorCodes = {
+  CLIENT_CONNECTION_FAILED: 'CLIENT_CONNECTION_FAILED',
+  CLIENT_REQUEST_TIMEOUT: 'CLIENT_REQUEST_TIMEOUT',
+  CLIENT_REQUEST_ABORTED: 'CLIENT_REQUEST_ABORTED',
+  CLIENT_INVALID_RESPONSE: 'CLIENT_INVALID_RESPONSE',
+  CLIENT_TASK_TIMEOUT: 'CLIENT_TASK_TIMEOUT',
+  CLIENT_UNEXPECTED_ERROR: 'CLIENT_UNEXPECTED_ERROR',
+} as const
+
+/**
+ * Any one of the codes in {@link ClientErrorCodes}.
+ *
+ * @public
+ */
+export type ClientErrorCode = (typeof ClientErrorCodes)[keyof typeof ClientErrorCodes]
+
+/**
+ * Every code a {@link NarsilError} can carry: one the engine raised, one the
+ * HTTP layer raised, one the client raised, or any other string.
+ *
+ * The last arm exists for a server's `onRequest` hook, which rejects a request
+ * under a code of its own, such as `UNAUTHORIZED`, and the client then passes
+ * that code through unchanged. An editor still completes every code Narsil
+ * defines.
+ *
+ * @public
+ */
+export type NarsilErrorCode = ErrorCode | ServerErrorCode | ClientErrorCode | (string & {})
 
 /**
  * The error every part of the engine throws.
@@ -119,19 +193,22 @@ export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes]
  */
 export class NarsilError extends Error {
   /** This says which failure it is. */
-  readonly code: ErrorCode
+  readonly code: NarsilErrorCode
   /** This carries the values behind the failure, such as the field, index, or limit involved. It is empty when the code says everything. */
   readonly details: Record<string, unknown>
 
   /**
    * Builds an error carrying a code the caller can branch on.
    *
-   * @param code - The failure this error reports.
+   * @param code - The failure this error reports, from {@link ErrorCodes} for
+   * an engine failure, {@link ServerErrorCodes} for one the HTTP layer raised,
+   * or {@link ClientErrorCodes} for one that stopped a request from reaching a
+   * server.
    * @param message - Plain description, for a log or a person.
    * @param details - Values behind the failure, which reach
    * {@link NarsilError.details}.
    */
-  constructor(code: ErrorCode, message: string, details?: Record<string, unknown>) {
+  constructor(code: NarsilErrorCode, message: string, details?: Record<string, unknown>) {
     super(message)
     this.name = 'NarsilError'
     this.code = code
@@ -139,6 +216,25 @@ export class NarsilError extends Error {
   }
 }
 
-export function createNarsilError(code: ErrorCode, message: string, details?: Record<string, unknown>): NarsilError {
+export function createNarsilError(
+  code: NarsilErrorCode,
+  message: string,
+  details?: Record<string, unknown>,
+): NarsilError {
   return new NarsilError(code, message, details)
+}
+
+/**
+ * Reads whatever was thrown into the message a log or an error detail carries.
+ *
+ * A thrown value need not be an `Error`, so this takes the message where there
+ * is one and the value's own text otherwise.
+ *
+ * @param error - The value a `catch` received.
+ * @returns The message, for a person to read.
+ *
+ * @internal
+ */
+export function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }

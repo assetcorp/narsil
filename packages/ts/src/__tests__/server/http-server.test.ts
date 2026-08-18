@@ -159,6 +159,39 @@ describe('Narsil HTTP server', () => {
     expect(Object.keys(multi.body.documents).sort()).toEqual(['m1', 'm3'])
   })
 
+  it('pages every document through the listing endpoint', async () => {
+    await createMovies(srv.base)
+    await postJson(srv.base, '/indexes/movies/documents/_batch', { action: 'insert', documents: MOVIES })
+
+    const seen: string[] = []
+    let cursor: string | undefined
+    for (;;) {
+      const page = await postJson<{ documents: Array<{ id: string }>; cursor: string | null; total: number }>(
+        srv.base,
+        '/indexes/movies/documents/_list',
+        { limit: 2, cursor },
+      )
+      expect(page.status).toBe(200)
+      expect(page.body.total).toBe(3)
+      for (const entry of page.body.documents) seen.push(entry.id)
+      if (page.body.cursor === null) break
+      cursor = page.body.cursor
+    }
+
+    expect(seen).toEqual(['m1', 'm2', 'm3'])
+  })
+
+  it('rejects a listing cursor the server did not issue', async () => {
+    await createMovies(srv.base)
+
+    const result = await postJson<{ error: { code: string } }>(srv.base, '/indexes/movies/documents/_list', {
+      cursor: 'not-a-cursor',
+    })
+
+    expect(result.status).toBe(400)
+    expect(result.body.error.code).toBe('SEARCH_INVALID_CURSOR')
+  })
+
   it('imports an NDJSON stream and honors each document id', async () => {
     await createMovies(srv.base)
 

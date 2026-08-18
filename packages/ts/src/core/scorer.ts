@@ -8,6 +8,23 @@ export function computeIDF(docFrequency: number, totalDocs: number): number {
   return Math.log((totalDocs - docFrequency + 0.5) / (docFrequency + 0.5) + 1)
 }
 
+/**
+ * Reports whether block pruning may trust its score bound under these BM25
+ * parameters. The bound takes a block's highest term frequency and shortest
+ * field length as the best case, which holds only while the score never falls
+ * as term frequency grows and never rises as field length grows: `k1` at or
+ * above zero and finite, and `b` between zero and one. Outside that range the
+ * pruned scan must stand down and the query runs on the unpruned loop.
+ *
+ * @param params - The index's BM25 parameters; absent values take the defaults.
+ * @returns True when the pruned scan's block bound is a true upper bound.
+ */
+export function bm25PruningSound(params?: BM25Params): boolean {
+  const k1 = params?.k1 ?? DEFAULT_K1
+  const b = params?.b ?? DEFAULT_B
+  return Number.isFinite(k1) && k1 >= 0 && b >= 0 && b <= 1
+}
+
 export function computeBM25(
   termFrequency: number,
   docFrequency: number,

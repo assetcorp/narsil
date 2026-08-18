@@ -1,8 +1,11 @@
+import type { FilterExpression, QueryResult, SuggestResult } from '@delali/narsil'
 import { SlidersHorizontal } from 'lucide-react'
-import { type Dispatch, useCallback, useState } from 'react'
-import type { NarsilBackend } from '../../backend'
-import { useSearch } from '../../hooks/use-search'
-import type { AppAction, AppState, LoadedIndex } from '../../types'
+import { useCallback, useMemo, useState } from 'react'
+import { useDisplayFields } from '../../hooks/use-display-fields'
+import type { IndexSchemaView } from '../../hooks/use-index-schema'
+import type { SearchForm } from '../../hooks/use-search-form'
+import { useActiveIndex, useIndexWorkspace } from '../../workspace'
+import { IndexSelector } from '../IndexSelector'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../ui/sheet'
@@ -11,19 +14,19 @@ import { FacetSidebar } from './FacetSidebar'
 import { ResultList } from './ResultList'
 import { SearchBar } from './SearchBar'
 
-function countActiveFilters(filters: Record<string, unknown>): number {
+function countActiveFilters(filters: FilterExpression): number {
   const fields = filters.fields
-  if (!fields || typeof fields !== 'object') return 0
-  return Object.values(fields as Record<string, { in?: string[] }>).reduce(
-    (total, field) => total + (field.in?.length ?? 0),
-    0,
-  )
+  if (!fields) return 0
+  return Object.values(fields).reduce((total, field) => {
+    const inValues = (field as { in?: string[] }).in
+    return total + (inValues?.length ?? 0)
+  }, 0)
 }
 
 interface FacetSheetProps {
-  facets: Record<string, { values: Record<string, number>; count: number }>
-  filters: Record<string, unknown>
-  onFilterChange: (filters: Record<string, unknown>) => void
+  facets: NonNullable<QueryResult['facets']>
+  filters: FilterExpression
+  onFilterChange: (filters: FilterExpression) => void
 }
 
 function FacetSheet({ facets, filters, onFilterChange }: FacetSheetProps) {
@@ -36,11 +39,11 @@ function FacetSheet({ facets, filters, onFilterChange }: FacetSheetProps) {
         <Button type="button" variant="outline" size="sm" className="lg:hidden">
           <SlidersHorizontal className="size-3.5" />
           Filters
-          {activeCount > 0 && (
+          {activeCount > 0 ? (
             <Badge variant="secondary" className="text-[10px]">
               {activeCount}
             </Badge>
-          )}
+          ) : null}
         </Button>
       </SheetTrigger>
       <SheetContent side="left" className="w-72 gap-0">
@@ -55,173 +58,106 @@ function FacetSheet({ facets, filters, onFilterChange }: FacetSheetProps) {
   )
 }
 
-function IndexButton({
-  idx,
-  isActive,
-  dispatch,
-}: {
-  idx: LoadedIndex
-  isActive: boolean
-  dispatch: Dispatch<AppAction>
-}) {
-  const handleClick = useCallback(() => {
-    dispatch({ type: 'SET_ACTIVE_INDEX', payload: idx.name })
-  }, [dispatch, idx.name])
-
-  return (
-    <Button
-      type="button"
-      variant={isActive ? 'default' : 'outline'}
-      size="xs"
-      className="font-mono text-xs"
-      onClick={handleClick}
-    >
-      {idx.name}
-    </Button>
-  )
+export interface SearchPlaygroundProps {
+  form: SearchForm
+  schema: IndexSchemaView
+  result: QueryResult | undefined
+  suggestions: SuggestResult | undefined
+  isLoading: boolean
+  isSuggesting: boolean
+  error: Error | undefined
 }
 
-interface SearchPlaygroundProps {
-  backend: NarsilBackend
-  state: AppState
-  dispatch: Dispatch<AppAction>
-  initialTerm?: string
-}
+export function SearchPlayground({
+  form,
+  schema,
+  result,
+  suggestions,
+  isLoading,
+  isSuggesting,
+  error,
+}: SearchPlaygroundProps) {
+  const { activeIndexName } = useIndexWorkspace()
+  const activeIndex = useActiveIndex()
+  const displayFields = useDisplayFields(activeIndexName)
+  const sortableFields = useMemo(() => [...schema.sortablePaths], [schema.sortablePaths])
+  const cursor = result?.cursor
 
-function getSearchableFields(state: AppState): string[] {
-  const activeIndex = state.indexes.find(i => i.name === state.activeIndexName)
-  if (!activeIndex) return []
+  const handleLoadMore = useCallback(() => {
+    form.loadMore(cursor)
+  }, [form, cursor])
 
-  switch (activeIndex.datasetId) {
-    case 'tmdb':
-      return ['title', 'overview', 'tagline']
-    case 'wikipedia':
-      return ['title', 'text']
-    case 'scifact':
-      return ['title', 'text']
-    default:
-      return []
-  }
-}
-
-function getAllFields(state: AppState): string[] {
-  const activeIndex = state.indexes.find(i => i.name === state.activeIndexName)
-  if (!activeIndex) return []
-
-  switch (activeIndex.datasetId) {
-    case 'tmdb':
-      return [
-        'title',
-        'overview',
-        'tagline',
-        'genres',
-        'original_language',
-        'vote_average',
-        'popularity',
-        'runtime',
-        'revenue',
-        'release_year',
-        'production_countries',
-        'status',
-      ]
-    case 'wikipedia':
-      return ['title', 'text', 'language', 'categories']
-    case 'scifact':
-      return ['title', 'text']
-    default:
-      return []
-  }
-}
-
-export function SearchPlayground({ backend, state, dispatch, initialTerm }: SearchPlaygroundProps) {
-  const indexName = state.activeIndexName
-  const searchableFields = getSearchableFields(state)
-  const allFields = getAllFields(state)
-  const search = useSearch(backend, indexName, initialTerm)
-
-  if (!indexName) {
+  if (activeIndexName === null) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-8">
-        <h1 className="mb-2 font-serif text-3xl tracking-tight">Search Playground</h1>
+        <h1 className="mb-2 text-3xl font-bold tracking-tight">Search Playground</h1>
         <p className="text-sm text-muted-foreground">Load a dataset from the Datasets tab to start searching.</p>
       </div>
     )
   }
 
-  const activeIndex = state.indexes.find(i => i.name === indexName)
+  const facets = result?.facets
+  const hasFacets = facets !== undefined && Object.keys(facets).length > 0
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
       <div className="mb-6">
-        <h1 className="mb-1 font-serif text-3xl tracking-tight">Search Playground</h1>
-        {activeIndex && (
+        <h1 className="mb-1 text-3xl font-bold tracking-tight">Search Playground</h1>
+        {activeIndex ? (
           <p className="text-sm text-muted-foreground">
             Searching <span className="font-mono font-medium text-foreground">{activeIndex.name}</span> (
             {activeIndex.documentCount.toLocaleString()} documents)
           </p>
-        )}
+        ) : null}
       </div>
 
-      {state.indexes.length > 1 && (
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          {state.indexes.map(idx => (
-            <IndexButton key={idx.name} idx={idx} isActive={idx.name === indexName} dispatch={dispatch} />
-          ))}
-        </div>
-      )}
+      <IndexSelector />
 
       <SearchBar
-        term={search.params.term}
-        onTermChange={search.setTerm}
-        resultCount={search.results?.count ?? null}
-        elapsed={search.results?.elapsed ?? null}
-        isLoading={search.isLoading}
-        suggestions={search.suggestions}
+        term={form.values.term}
+        onTermChange={form.setTerm}
+        resultCount={result?.count ?? null}
+        elapsed={result?.elapsed ?? null}
+        isLoading={isLoading || isSuggesting}
+        suggestions={suggestions ?? null}
       />
 
       <AdvancedOptions
-        params={search.params}
-        searchableFields={searchableFields}
-        allFields={allFields}
-        onFieldsChange={search.setFields}
-        onBoostChange={search.setBoost}
-        onSortChange={search.setSort}
-        onParamChange={search.updateParam}
+        values={form.values}
+        searchableFields={schema.searchablePaths}
+        sortableFields={sortableFields}
+        onFieldsChange={form.setFields}
+        onBoostChange={form.setBoost}
+        onSortChange={form.setSort}
+        onValueChange={form.setValue}
       />
 
       <div className="mt-6 flex gap-6">
-        {search.results?.facets && Object.keys(search.results.facets).length > 0 && (
+        {hasFacets ? (
           <aside className="hidden w-56 shrink-0 lg:block">
-            <FacetSidebar
-              facets={search.results.facets}
-              filters={search.params.filters as Record<string, { fields?: Record<string, { in?: string[] }> }>}
-              onFilterChange={search.setFilter}
-            />
+            <FacetSidebar facets={facets} filters={form.values.filters} onFilterChange={form.setFilters} />
           </aside>
-        )}
+        ) : null}
 
         <div className="min-w-0 flex-1">
-          {search.results?.facets && Object.keys(search.results.facets).length > 0 && (
+          {hasFacets ? (
             <div className="mb-3 lg:hidden">
-              <FacetSheet
-                facets={search.results.facets}
-                filters={search.params.filters as Record<string, unknown>}
-                onFilterChange={search.setFilter}
-              />
+              <FacetSheet facets={facets} filters={form.values.filters} onFilterChange={form.setFilters} />
             </div>
-          )}
+          ) : null}
           <ResultList
-            hits={search.results?.hits ?? []}
-            isLoading={search.isLoading}
-            error={search.error}
-            count={search.results?.count ?? 0}
-            limit={search.params.limit}
-            offset={search.params.offset}
-            cursor={search.results?.cursor}
-            paginationMode={search.params.paginationMode}
-            onPageChange={search.setPage}
-            onLoadMore={search.loadMore}
-            datasetId={activeIndex?.datasetId ?? 'tmdb'}
+            hits={result?.hits ?? []}
+            isLoading={isLoading}
+            error={error?.message ?? null}
+            count={result?.count ?? 0}
+            limit={form.values.limit}
+            offset={form.values.offset}
+            cursor={cursor}
+            paginationMode={form.values.paginationMode}
+            onPageChange={form.setPage}
+            onLoadMore={handleLoadMore}
+            datasetId={activeIndex?.datasetId ?? 'custom'}
+            displayFields={displayFields}
           />
         </div>
       </div>

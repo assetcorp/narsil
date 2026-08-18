@@ -1,0 +1,377 @@
+import { resolveIndexAnalysis } from '../../analysis/registry'
+import type { ComparableSortValue } from '../../core/ordering'
+import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../../core/partition'
+import { type CompositePartition, createCompositePartition } from '../../core/partition/composite'
+import type { FrozenSegment } from '../../core/partition/frozen'
+import type { SegmentPayload } from '../../core/partition/segment-payload'
+import { projectionKeepsField, type ResolvedProjection } from '../../core/projection'
+import { ErrorCodes, NarsilError } from '../../errors'
+import type { SerializablePartition } from '../../types/internal'
+import type { LanguageModule } from '../../types/language'
+import type { PartitionStatsResult } from '../../types/results'
+import type { AnyDocument, IndexConfig } from '../../types/schema'
+import type { VectorIndex } from '../../vector/vector-index'
+import { resolvePartitionInsertOptions } from '../insert-options'
+import type { PartitionRouter } from '../router'
+import { setNestedValue } from './nested-values'
+import type { PartitionManager } from './types'
+
+export type { PartitionManager } from './types'
+
+export function createPartitionManager(
+  indexName: string,
+  config: IndexConfig,
+  language: LanguageModule,
+  router: PartitionRouter,
+  initialPartitionCount?: number,
+  vectorIndexes?: Map<string, VectorIndex>,
+): PartitionManager {
+  const count = initialPartitionCount ?? 1
+  const analysis = resolveIndexAnalysis(config)
+  const trackPositions = config.trackPositions ?? true
+  const vecIndexes: Map<string, VectorIndex> = vectorIndexes ?? new Map()
+  let partitions: PartitionIndex[] = []
+  const docPartitionMap = new Map<string, number>()
+
+  for (let i = 0; i < count; i++) {
+    partitions.push(createPartitionIndex(i, trackPositions))
+  }
+
+  function validatePartitionId(partitionId: number): void {
+    if (partitionId < 0 || partitionId >= partitions.length) {
+      throw new NarsilError(
+        ErrorCodes.INDEX_NOT_FOUND,
+        `Partition ${partitionId} is out of bounds (0..${partitions.length - 1})`,
+        { partitionId, partitionCount: partitions.length },
+      )
+    }
+  }
+
+  function resolveInsertOptions(options?: PartitionInsertOptions): PartitionInsertOptions | undefined {
+    return resolvePartitionInsertOptions(config, analysis, options)
+  }
+
+  function locateDocument(docId: string): number | undefined {
+    const mapped = docPartitionMap.get(docId)
+    if (mapped !== undefined) return mapped
+    for (let i = 0; i < partitions.length; i++) {
+      if (partitions[i].has(docId)) return i
+    }
+    return undefined
+  }
+
+  function asCompositePartition(partitionId: number): CompositePartition {
+    const existing = partitions[partitionId]
+    if ('attachFrozenSegment' in existing) {
+      return existing as CompositePartition
+    }
+    const composite = createCompositePartition(partitionId, trackPositions, existing)
+    partitions[partitionId] = composite
+    return composite
+  }
+
+  function rebuildDocPartitionMap(): void {
+    docPartitionMap.clear()
+    for (let i = 0; i < partitions.length; i++) {
+      for (const docId of partitions[i].docIds()) {
+        docPartitionMap.set(docId, i)
+      }
+    }
+  }
+
+  function rebuildDocPartitionMapForPartition(partitionId: number): void {
+    for (const [docId, pid] of docPartitionMap) {
+      if (pid === partitionId) {
+        docPartitionMap.delete(docId)
+      }
+    }
+    for (const docId of partitions[partitionId].docIds()) {
+      docPartitionMap.set(docId, partitionId)
+    }
+  }
+
+  const manager: PartitionManager = {
+    get partitionCount() {
+      return partitions.length
+    },
+    get indexName() {
+      return indexName
+    },
+    get schema() {
+      return config.schema
+    },
+    get language() {
+      return language
+    },
+    get config() {
+      return config
+    },
+    get analysis() {
+      return analysis
+    },
+
+    getPartition(partitionId: number): PartitionIndex {
+      validatePartitionId(partitionId)
+      return partitions[partitionId]
+    },
+
+    partitionAt(index: number): PartitionIndex | undefined {
+      return partitions[index]
+    },
+
+    getAllPartitions(): PartitionIndex[] {
+      return [...partitions]
+    },
+
+    setPartitions(newPartitions: PartitionIndex[]): void {
+      partitions = [...newPartitions]
+      rebuildDocPartitionMap()
+    },
+
+    addPartition(): PartitionIndex {
+      const currentMaxPartitions = config.partitions?.maxPartitions
+      if (currentMaxPartitions !== undefined && partitions.length >= currentMaxPartitions) {
+        throw new NarsilError(
+          ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
+          `Cannot add partition: maximum of ${currentMaxPartitions} partitions reached`,
+          { maxPartitions: currentMaxPartitions, currentCount: partitions.length },
+        )
+      }
+      const partition = createPartitionIndex(partitions.length, trackPositions)
+      partitions.push(partition)
+      return partition
+    },
+
+    removePartition(partitionId: number): void {
+      validatePartitionId(partitionId)
+      partitions.splice(partitionId, 1)
+      rebuildDocPartitionMap()
+    },
+
+    trimPartitions(newCount: number): void {
+      if (newCount < 1) {
+        throw new NarsilError(ErrorCodes.CONFIG_INVALID, `Cannot trim index "${indexName}" below one partition`, {
+          indexName,
+          requestedCount: newCount,
+        })
+      }
+      if (newCount >= partitions.length) {
+        return
+      }
+      for (const [docId, pid] of docPartitionMap) {
+        if (pid >= newCount) {
+          docPartitionMap.delete(docId)
+        }
+      }
+      partitions.length = newCount
+    },
+
+    assertCapacity(pendingWrites = 0, partitionCountCap?: number): void {
+      const currentMaxDocs = config.partitions?.maxDocsPerPartition
+      if (currentMaxDocs === undefined) return
+      const effectivePartitionCount =
+        partitionCountCap === undefined ? partitions.length : Math.min(partitions.length, partitionCountCap)
+      const totalCapacity = currentMaxDocs * effectivePartitionCount
+      if (manager.countDocuments() + pendingWrites >= totalCapacity) {
+        throw new NarsilError(
+          ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
+          `Index "${indexName}" has reached its capacity of ${totalCapacity} documents (${currentMaxDocs} per partition × ${effectivePartitionCount} partitions)`,
+          {
+            indexName,
+            currentCount: docPartitionMap.size + pendingWrites,
+            totalCapacity,
+            maxDocsPerPartition: currentMaxDocs,
+            partitionCount: effectivePartitionCount,
+          },
+        )
+      }
+    },
+
+    insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void {
+      manager.assertCapacity()
+      const pid = router.route(docId, partitions.length)
+      const insertOpts = resolveInsertOptions(options)
+      partitions[pid].insert(docId, document, config.schema, language, insertOpts)
+      docPartitionMap.set(docId, pid)
+    },
+
+    remove(docId: string): void {
+      const pid = locateDocument(docId)
+      if (pid === undefined) {
+        throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
+      }
+      // Removal re-tokenises the stored document, so it must run with the
+      // same analyzer options as insertion or index and registry entries
+      // written under those options survive the remove.
+      partitions[pid].remove(docId, config.schema, language, resolveInsertOptions())
+      docPartitionMap.delete(docId)
+    },
+
+    rebuildTextIndex(partitionId: number): void {
+      validatePartitionId(partitionId)
+      partitions[partitionId].rebuildTextIndex(config.schema, language, resolveInsertOptions())
+    },
+
+    beginBatchRemove(): void {
+      for (let i = 0; i < partitions.length; i++) {
+        partitions[i].beginBatch()
+      }
+    },
+
+    endBatchRemove(): void {
+      for (let i = 0; i < partitions.length; i++) {
+        partitions[i].endBatch()
+      }
+    },
+
+    update(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void {
+      const pid = locateDocument(docId)
+      if (pid === undefined) {
+        throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
+      }
+      const updateOpts = resolveInsertOptions(options)
+      partitions[pid].update(docId, document, config.schema, language, updateOpts)
+      docPartitionMap.set(docId, pid)
+    },
+
+    get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined {
+      const pid = locateDocument(docId)
+      if (pid === undefined) return undefined
+      const doc = partitions[pid].get(docId, projection)
+      if (!doc) return undefined
+      for (const [fieldPath, vecIndex] of vecIndexes) {
+        if (projection !== undefined && !projectionKeepsField(projection, fieldPath)) continue
+        const vector = vecIndex.getVector(docId)
+        if (vector) {
+          setNestedValue(doc as Record<string, unknown>, fieldPath, vector)
+        }
+      }
+      return doc
+    },
+
+    getRef(docId: string): AnyDocument | undefined {
+      const pid = locateDocument(docId)
+      if (pid === undefined) return undefined
+      return partitions[pid].getRef(docId)
+    },
+
+    sortValues(
+      docId: string,
+      fields: readonly string[],
+      fieldTypes: readonly (string | undefined)[],
+    ): ComparableSortValue[] {
+      const pid = locateDocument(docId)
+      if (pid === undefined) return fields.map(() => null)
+      return partitions[pid].sortValues(docId, fields, fieldTypes)
+    },
+
+    has(docId: string): boolean {
+      return locateDocument(docId) !== undefined
+    },
+
+    partitionIdOf(docId: string): number | undefined {
+      return locateDocument(docId)
+    },
+
+    countDocuments(): number {
+      let total = 0
+      for (let i = 0; i < partitions.length; i++) {
+        total += partitions[i].count()
+      }
+      return total
+    },
+
+    serializePartition(partitionId: number): SerializablePartition {
+      validatePartitionId(partitionId)
+      return partitions[partitionId].serialize(indexName, partitions.length, language.name, config.schema)
+    },
+
+    serializePartitionToBytes(partitionId: number): Uint8Array {
+      validatePartitionId(partitionId)
+      return partitions[partitionId].serializeToBytes(indexName, partitions.length, language.name, config.schema)
+    },
+
+    mergeSegment(partitionId: number, payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void {
+      validatePartitionId(partitionId)
+      const partition = partitions[partitionId]
+      partition.beginBatch()
+      partition.mergeSegmentPayload(payload, documents)
+      partition.endBatch()
+      for (const docId of payload.docIds) {
+        docPartitionMap.set(docId, partitionId)
+      }
+    },
+
+    attachFrozenSegment(partitionId: number, segment: FrozenSegment): void {
+      validatePartitionId(partitionId)
+      asCompositePartition(partitionId).attachFrozenSegment(segment)
+      for (const internalId of segment.docStore.allInternalIds()) {
+        const docId = segment.docStore.getExternalId(internalId)
+        if (docId !== undefined) docPartitionMap.set(docId, partitionId)
+      }
+    },
+
+    deserializePartition(partitionId: number, data: SerializablePartition): void {
+      validatePartitionId(partitionId)
+      partitions[partitionId].deserialize(data, config.schema)
+      rebuildDocPartitionMapForPartition(partitionId)
+    },
+
+    getAggregateStats(): {
+      totalDocuments: number
+      docFrequencies: Record<string, number>
+      totalFieldLengths: Record<string, number>
+    } {
+      let totalDocuments = 0
+      const docFrequencies: Record<string, number> = Object.create(null)
+      const totalFieldLengths: Record<string, number> = Object.create(null)
+
+      for (let i = 0; i < partitions.length; i++) {
+        const stats = partitions[i].stats
+        totalDocuments += stats.totalDocuments
+
+        for (const [term, freq] of Object.entries(stats.docFrequencies)) {
+          docFrequencies[term] = (docFrequencies[term] ?? 0) + freq
+        }
+
+        for (const [field, length] of Object.entries(stats.totalFieldLengths)) {
+          totalFieldLengths[field] = (totalFieldLengths[field] ?? 0) + length
+        }
+      }
+
+      return { totalDocuments, docFrequencies, totalFieldLengths }
+    },
+
+    estimateMemoryBytes(): number {
+      let total = 0
+      for (let i = 0; i < partitions.length; i++) {
+        total += partitions[i].estimateMemoryBytes()
+      }
+      for (const [, vecIndex] of vecIndexes) {
+        total += vecIndex.estimateMemoryBytes()
+      }
+      return total
+    },
+
+    getPartitionStats(): PartitionStatsResult[] {
+      return partitions.map((p, i) => ({
+        partitionId: i,
+        documentCount: p.count(),
+        estimatedMemoryBytes: p.estimateMemoryBytes(),
+      }))
+    },
+
+    getVectorIndexes(): Map<string, VectorIndex> {
+      return vecIndexes
+    },
+
+    resetVectorIndexes(newIndexes: Map<string, VectorIndex>): void {
+      vecIndexes.clear()
+      for (const [key, value] of newIndexes) {
+        vecIndexes.set(key, value)
+      }
+    },
+  }
+
+  return manager
+}

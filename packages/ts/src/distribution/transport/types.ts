@@ -83,12 +83,31 @@ export interface NodeTransport {
    * the reply.
    * @returns A function that ends the listener.
    */
-  listen(
-    handler: (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>,
-  ): Promise<() => void>
+  listen(handler: ListenHandler): Promise<() => void>
   /** Closes every connection and releases the port or registration it held. */
   shutdown(): Promise<void>
 }
+
+/**
+ * Sends one reply back to the peer that asked.
+ *
+ * It settles once the transport has taken the reply, which a transport whose
+ * connection is full delays until the connection accepts more. A handler
+ * sending many replies awaits each one before it builds the next, so a
+ * snapshot cannot outrun a slow receiver and exhaust this node's memory.
+ *
+ * @param response - The reply to send.
+ *
+ * @public
+ */
+export type RespondFn = (response: TransportMessage) => Promise<void>
+
+/**
+ * Handles one request a peer sent, replying through `respond`.
+ *
+ * @public
+ */
+export type ListenHandler = (message: TransportMessage, respond: RespondFn) => void | Promise<void>
 
 export const TransportErrorCodes = {
   CONNECT_FAILED: 'TRANSPORT_CONNECT_FAILED',
@@ -114,7 +133,9 @@ export class TransportError extends Error {
 
 export const ReplicationMessageTypes = {
   FORWARD: 'replication.forward',
+  FORWARD_BATCH: 'replication.forward_batch',
   ENTRY: 'replication.entry',
+  ENTRY_BATCH: 'replication.entry_batch',
   ACK: 'replication.ack',
   SYNC_REQUEST: 'replication.sync_request',
   SYNC_ENTRIES: 'replication.sync_entries',
@@ -133,6 +154,14 @@ export const QueryMessageTypes = {
   FETCH_RESULT: 'query.fetch_result',
   STATS: 'query.stats',
   STATS_RESULT: 'query.stats_result',
+  COUNT: 'query.count',
+  COUNT_RESULT: 'query.count_result',
+  LIST: 'query.list',
+  LIST_RESULT: 'query.list_result',
+  SUGGEST: 'query.suggest',
+  SUGGEST_RESULT: 'query.suggest_result',
+  PREFLIGHT: 'query.preflight',
+  PREFLIGHT_RESULT: 'query.preflight_result',
 } as const
 
 export const ClusterMessageTypes = {
@@ -149,8 +178,35 @@ export interface ForwardPayload {
   updateFields: Record<string, unknown> | null
 }
 
+export interface ForwardBatchOperation {
+  documentId: string
+  operation: 'insert' | 'remove' | 'update'
+  document: Uint8Array | null
+  updateFields: Record<string, unknown> | null
+}
+
+export interface ForwardBatchPayload {
+  indexName: string
+  operations: ForwardBatchOperation[]
+}
+
+export interface ForwardBatchOperationResult {
+  documentId: string
+  success: boolean
+  errorCode: string | null
+  errorMessage: string | null
+}
+
+export interface ForwardBatchResultPayload {
+  results: ForwardBatchOperationResult[]
+}
+
 export interface EntryPayload {
   entry: ReplicationLogEntry
+}
+
+export interface EntryBatchPayload {
+  entries: ReplicationLogEntry[]
 }
 
 export interface AckPayload {
@@ -216,125 +272,36 @@ export interface InsyncConfirmPayload {
   accepted: boolean
 }
 
-export interface SortField {
-  field: string
-  direction: 'asc' | 'desc'
-}
-
-export interface WireGroupConfig {
-  field: string
-  maxPerGroup: number
-}
-
-export interface WireVectorQueryParams {
-  field: string
-  value: number[] | null
-  text: string | null
-  similarity: number | null
-}
-
-export interface WireHybridConfig {
-  strategy: 'rrf' | 'linear'
-  k: number
-  alpha: number
-}
-
-export interface WireQueryParams {
-  term: string | null
-  filters: Record<string, unknown> | null
-  sort: SortField[] | null
-  group: WireGroupConfig | null
-  facets: string[] | null
-  facetSize: number | null
-  limit: number
-  offset: number
-  searchAfter: string | null
-  fields: string[] | null
-  boost: Record<string, number> | null
-  tolerance: number | null
-  threshold: number | null
-  scoring: 'local' | 'dfs' | 'broadcast'
-  vector: WireVectorQueryParams | null
-  hybrid: WireHybridConfig | null
-}
-
-export interface GlobalStatistics {
-  totalDocuments: number
-  docFrequencies: Record<string, number>
-  totalFieldLengths: Record<string, number>
-  averageFieldLengths: Record<string, number>
-}
-
-export interface WireHighlightConfig {
-  fields: string[] | null
-  before: string
-  after: string
-  maxSnippetLength: number
-}
-
-export interface ScoredEntry {
-  docId: string
-  score: number
-  sortValues: unknown[] | null
-}
-
-export interface FacetBucket {
-  value: string
-  count: number
-}
-
-export interface PartitionSearchResult {
-  partitionId: number
-  scored: ScoredEntry[]
-  totalHits: number
-}
-
-export interface SearchPayload {
-  indexName: string
-  partitionIds: number[]
-  params: WireQueryParams
-  globalStats: GlobalStatistics | null
-  facetShardSize: number | null
-}
-
-export interface SearchResultPayload {
-  results: PartitionSearchResult[]
-  facets: Record<string, FacetBucket[]> | null
-}
-
-export interface FetchDocumentId {
-  docId: string
-  partitionId: number
-}
-
-export interface FetchPayload {
-  indexName: string
-  documentIds: FetchDocumentId[]
-  fields: string[] | null
-  highlight: WireHighlightConfig | null
-}
-
-export interface FetchedDocument {
-  docId: string
-  document: Record<string, unknown>
-  highlights: Record<string, string[]> | null
-}
-
-export interface FetchResultPayload {
-  documents: FetchedDocument[]
-}
-
-export interface StatsPayload {
-  indexName: string
-  partitionIds: number[]
-  terms: string[]
-}
-
-export interface StatsResultPayload {
-  totalDocuments: number
-  docFrequencies: Record<string, number>
-  totalFieldLengths: Record<string, number>
-}
+export type {
+  CountPayload,
+  CountResultPayload,
+  FacetBucket,
+  FetchDocumentId,
+  FetchedDocument,
+  FetchPayload,
+  FetchResultPayload,
+  GlobalStatistics,
+  ListEntryWire,
+  ListPayload,
+  ListResultPayload,
+  PartitionCountEntry,
+  PartitionSearchResult,
+  PreflightPayload,
+  PreflightResultPayload,
+  ScoredEntry,
+  SearchPayload,
+  SearchResultPayload,
+  SortField,
+  StatsPayload,
+  StatsResultPayload,
+  SuggestPayload,
+  SuggestResultPayload,
+  WireGroupConfig,
+  WireHighlightConfig,
+  WireHybridConfig,
+  WireQueryParams,
+  WireVectorQueryParams,
+} from './query-payloads'
 
 export interface PingPayload {
   timestamp: number

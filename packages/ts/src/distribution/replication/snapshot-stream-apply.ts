@@ -1,4 +1,4 @@
-import { type ErrorCode, ErrorCodes } from '../../errors'
+import { type ErrorCode, ErrorCodes, type NarsilErrorCode } from '../../errors'
 import type {
   ReplicationSnapshotHeader,
   SnapshotChunkPayload,
@@ -9,7 +9,7 @@ import { MAX_SNAPSHOT_SIZE_BYTES, SNAPSHOT_CHUNK_SIZE } from './snapshot-constan
 
 export interface SnapshotStreamFailure {
   ok: false
-  code: ErrorCode
+  code: NarsilErrorCode
   message: string
   details: Record<string, unknown>
 }

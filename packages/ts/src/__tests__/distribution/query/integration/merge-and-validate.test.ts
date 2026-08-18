@@ -57,7 +57,7 @@ describe('mergeAndTruncateScoredEntries', () => {
     for (let i = 1; i < result.length; i++) {
       const prev = result[i - 1]
       const curr = result[i]
-      expect(prev.score).toBeGreaterThanOrEqual(curr.score)
+      expect(prev.score).toBeGreaterThanOrEqual(curr.score ?? Number.NaN)
     }
   })
 
@@ -86,7 +86,7 @@ describe('mergeDistributedFacets', () => {
       },
     ]
 
-    const result = mergeDistributedFacets(facets)
+    const result = mergeDistributedFacets(facets, []).facets
 
     expect(result.color).toHaveLength(3)
     expect(result.color[0]).toEqual({ value: 'red', count: 18 })
@@ -109,7 +109,7 @@ describe('mergeDistributedFacets', () => {
       },
     ]
 
-    const result = mergeDistributedFacets(facets)
+    const result = mergeDistributedFacets(facets, []).facets
 
     expect(result.color).toHaveLength(2)
     expect(result.size).toHaveLength(2)
@@ -127,7 +127,7 @@ describe('mergeDistributedFacets', () => {
       },
     ]
 
-    const result = mergeDistributedFacets(facets)
+    const result = mergeDistributedFacets(facets, []).facets
 
     expect(result.tag[0].value).toBe('alpha')
     expect(result.tag[1].value).toBe('beta')
@@ -135,7 +135,7 @@ describe('mergeDistributedFacets', () => {
   })
 
   it('returns empty object for empty input', () => {
-    expect(mergeDistributedFacets([])).toEqual({})
+    expect(mergeDistributedFacets([], []).facets).toEqual({})
   })
 
   it('truncates buckets to maxBuckets', () => {
@@ -144,7 +144,7 @@ describe('mergeDistributedFacets', () => {
       count: 200 - i,
     }))
     const facets = [{ category: buckets }]
-    const result = mergeDistributedFacets(facets, 5)
+    const result = mergeDistributedFacets(facets, [], 5).facets
     expect(result.category).toHaveLength(5)
     expect(result.category[0].count).toBe(200)
     expect(result.category[4].count).toBe(196)
@@ -212,5 +212,34 @@ describe('validateSearchResultPayload', () => {
       facets: null,
     })
     expect(result.results).toHaveLength(1)
+  })
+
+  it('accepts a null score where the entry carries sort values', () => {
+    const result = validateSearchResultPayload({
+      results: [
+        {
+          partitionId: 0,
+          scored: [{ docId: 'doc-1', score: null, sortValues: ['alpha', 2] }],
+          totalHits: 1,
+        },
+      ],
+      facets: null,
+    })
+    expect(result.results).toHaveLength(1)
+  })
+
+  it('rejects a null score on an entry without sort values', () => {
+    expect(() =>
+      validateSearchResultPayload({
+        results: [
+          {
+            partitionId: 0,
+            scored: [{ docId: 'doc-1', score: null, sortValues: null }],
+            totalHits: 1,
+          },
+        ],
+        facets: null,
+      }),
+    ).toThrow()
   })
 })

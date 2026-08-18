@@ -10,10 +10,12 @@ coverage/
 !.env.example
 packages/ts/benchmarks/results/*.json
 benchmarks/datasets/
+benchmarks/*/results/.smoke/
 *.heapsnapshot
 .turbo/
 .cache/
 .venv/
+scratch/
 
 # Python bytecode caches, written when the writeup tool runs on the host
 __pycache__/
@@ -40,3 +42,4 @@ data/processed/wikipedia/wikipedia-yo.json
 packages/ts/examples/*/dist/
 packages/ts/examples/*/.output/
 packages/ts/examples/server-app/data/
+packages/ts/examples/shared/sample-data/

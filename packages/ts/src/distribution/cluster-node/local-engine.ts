@@ -1,17 +1,32 @@
 import { createPartitionIndex } from '../../core/partition'
 import { createEngineCore, type EngineCore } from '../../engine/core'
+import { createEngineIndex } from '../../engine/index-lifecycle'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
 import type { Narsil } from '../../narsil'
 import { createNarsilFromCore } from '../../narsil'
+import {
+  type PartitionQueryStats,
+  runEngineListDocuments,
+  runEnginePreflight,
+  runEngineQuery,
+  runEngineQueryStats,
+  runEngineSuggest,
+} from '../../narsil/reads'
 import { deserializePayloadV2 } from '../../serialization/payload-v2'
 import type { NarsilConfig } from '../../types/config'
-import type { FieldType, IndexConfig, SchemaDefinition } from '../../types/schema'
+import type { GlobalStatistics } from '../../types/internal'
+import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
+import type { AnyDocument, FieldType, IndexConfig, SchemaDefinition } from '../../types/schema'
+import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
 import { MAX_PARTITION_COUNT } from '../cluster/index-metadata'
 import { applyDeleteEntry, applyIndexEntry } from '../replication/replica'
 import type { ReplicationLogEntry } from '../replication/types'
 
 export interface ClusterLocalEngine extends Narsil {
+  createIndexWithUuid(name: string, config: IndexConfig, indexUuid?: string): Promise<void>
+  indexUuidOf(indexName: string): string | null | undefined
+  stampIndexUuid(indexName: string, indexUuid: string): Promise<void>
   applyReplicationEntry(entry: ReplicationLogEntry): Promise<void>
   serializeReplicationPartition(indexName: string, partitionId: number): Promise<Uint8Array>
   restoreReplicationPartition(
@@ -21,13 +36,34 @@ export interface ClusterLocalEngine extends Narsil {
     schema: SchemaDefinition,
     partitionCount: number,
   ): Promise<void>
+  queryPartitions<T = AnyDocument>(
+    indexName: string,
+    params: QueryParams,
+    partitionIds: number[],
+    globalStats?: GlobalStatistics,
+  ): Promise<QueryResult<T>>
+  preflightPartitions(indexName: string, params: QueryParams, partitionIds: number[]): Promise<PreflightResult>
+  suggestPartitions(indexName: string, params: SuggestParams, partitionIds: number[]): Promise<SuggestResult>
+  listPartitions<T = AnyDocument>(indexName: string, params: ListParams, partitionIds: number[]): Promise<ListResult<T>>
+  collectQueryStats(indexName: string, terms: string[], partitionIds: number[]): PartitionQueryStats
 }
 
 export async function createClusterLocalEngine(config?: NarsilConfig): Promise<ClusterLocalEngine> {
   const core = createEngineCore(config)
+  if (core.durability !== null) {
+    await core.durability.manager.recover()
+  }
+  if (core.invalidation !== null) {
+    await core.invalidation.start()
+  }
+  await core.analysisRebuild.reviewStaleIndexes()
   const engine = createNarsilFromCore(core, config)
 
   return Object.assign(engine, {
+    createIndexWithUuid: (name: string, indexConfig: IndexConfig, indexUuid?: string) =>
+      createEngineIndex(core, config, name, indexConfig, indexUuid),
+    indexUuidOf: (indexName: string) => core.indexRegistry.get(indexName)?.indexUuid,
+    stampIndexUuid: (indexName: string, indexUuid: string) => stampIndexUuid(core, indexName, indexUuid),
     applyReplicationEntry: (entry: ReplicationLogEntry) => applyReplicationEntry(core, entry),
     serializeReplicationPartition: (indexName: string, partitionId: number) =>
       serializeReplicationPartition(core, indexName, partitionId),
@@ -38,7 +74,32 @@ export async function createClusterLocalEngine(config?: NarsilConfig): Promise<C
       schema: SchemaDefinition,
       partitionCount: number,
     ) => restoreReplicationPartition(core, engine, indexName, partitionId, bytes, schema, partitionCount),
+    queryPartitions: <T = AnyDocument>(
+      indexName: string,
+      params: QueryParams,
+      partitionIds: number[],
+      globalStats?: GlobalStatistics,
+    ) => runEngineQuery<T>(core, indexName, params, { partitionIds, globalStats }),
+    preflightPartitions: (indexName: string, params: QueryParams, partitionIds: number[]) =>
+      runEnginePreflight(core, indexName, params, { partitionIds }),
+    suggestPartitions: (indexName: string, params: SuggestParams, partitionIds: number[]) =>
+      runEngineSuggest(core, indexName, params, partitionIds),
+    listPartitions: <T = AnyDocument>(indexName: string, params: ListParams, partitionIds: number[]) =>
+      runEngineListDocuments<T>(core, indexName, params, partitionIds),
+    collectQueryStats: (indexName: string, terms: string[], partitionIds: number[]) =>
+      runEngineQueryStats(core, indexName, terms, partitionIds),
   })
+}
+
+async function stampIndexUuid(core: EngineCore, indexName: string, indexUuid: string): Promise<void> {
+  const entry = core.indexRegistry.get(indexName)
+  if (entry === undefined || entry.indexUuid === indexUuid) {
+    return
+  }
+  core.indexRegistry.set(indexName, { ...entry, indexUuid })
+  if (core.durability !== null) {
+    await core.durability.manager.persistMetadata(indexName)
+  }
 }
 
 async function serializeReplicationPartition(

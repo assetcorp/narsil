@@ -18,8 +18,19 @@ function createMockVectorIndex(
 ): VectorIndex & { vectors: Map<string, Float32Array> } {
   const vectors = new Map<string, Float32Array>()
 
+  const partitions = new Map<string, number>()
+
   return {
     vectors,
+    partitionsKnown() {
+      return partitions.size === vectors.size
+    },
+    assignPartitions(resolve: (docId: string) => number | undefined) {
+      for (const docId of vectors.keys()) {
+        const partitionId = resolve(docId)
+        if (partitionId !== undefined) partitions.set(docId, partitionId)
+      }
+    },
     get dimension() {
       return dim
     },
@@ -29,7 +40,8 @@ function createMockVectorIndex(
     get size() {
       return vectors.size
     },
-    insert(docId: string, vector: Float32Array) {
+    insert(docId: string, vector: Float32Array, partitionId?: number) {
+      if (partitionId !== undefined) partitions.set(docId, partitionId)
       if (vector.length !== dim) {
         throw new NarsilError(
           ErrorCodes.VECTOR_DIMENSION_MISMATCH,
@@ -48,6 +60,9 @@ function createMockVectorIndex(
     },
     has(docId: string) {
       return vectors.has(docId)
+    },
+    async searchParallel() {
+      return []
     },
     search() {
       return []
@@ -212,9 +227,8 @@ describe('prepareDocumentVectors', () => {
   it('extracts vectors and strips them from a cloned document', () => {
     const doc: Record<string, unknown> = { title: 'test', embedding: [1.0, 2.0, 3.0] }
     const fieldPaths = new Set(['embedding'])
-    const indexes = new Map<string, VectorIndex>([['embedding', createMockVectorIndex(3)]])
 
-    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, fieldPaths, indexes)
+    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, fieldPaths)
 
     expect(extractedVectors.size).toBe(1)
     expect(extractedVectors.has('embedding')).toBe(true)
@@ -228,31 +242,37 @@ describe('prepareDocumentVectors', () => {
   it('returns the original document when no vectors are present', () => {
     const doc: Record<string, unknown> = { title: 'test' }
     const fieldPaths = new Set(['embedding'])
-    const indexes = new Map<string, VectorIndex>([['embedding', createMockVectorIndex(3)]])
 
-    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, fieldPaths, indexes)
+    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, fieldPaths)
 
     expect(extractedVectors.size).toBe(0)
     expect(partitionDoc).toBe(doc)
   })
 
-  it('returns the original document when vecIndexes is empty', () => {
+  it('returns the original document when the schema declares no vector field', () => {
     const doc: Record<string, unknown> = { title: 'test', embedding: [1, 2, 3] }
-    const fieldPaths = new Set(['embedding'])
-    const indexes = new Map<string, VectorIndex>()
 
-    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, fieldPaths, indexes)
+    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, new Set())
 
     expect(extractedVectors.size).toBe(0)
     expect(partitionDoc).toBe(doc)
+  })
+
+  it('strips a vector field that no vector index covers', () => {
+    const doc: Record<string, unknown> = { title: 'test', embedding: [1, 2, 3] }
+
+    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, new Set(['embedding']))
+
+    expect(extractedVectors.size).toBe(1)
+    expect(partitionDoc.embedding).toBeUndefined()
+    expect(partitionDoc.title).toBe('test')
   })
 
   it('handles nested vector fields', () => {
     const doc: Record<string, unknown> = { meta: { vec: [1.0, 2.0] }, title: 'nested' }
     const fieldPaths = new Set(['meta.vec'])
-    const indexes = new Map<string, VectorIndex>([['meta.vec', createMockVectorIndex(2, 'meta.vec')]])
 
-    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, fieldPaths, indexes)
+    const { partitionDoc, extractedVectors } = prepareDocumentVectors(doc, fieldPaths)
 
     expect(extractedVectors.size).toBe(1)
     expect(extractedVectors.has('meta.vec')).toBe(true)
@@ -267,7 +287,7 @@ describe('insertDocumentVectors', () => {
     const indexes = new Map<string, VectorIndex>([['embedding', idx]])
     const vectors = new Map<string, Float32Array>([['embedding', new Float32Array([1, 2, 3])]])
 
-    const inserted = insertDocumentVectors('doc-1', vectors, indexes)
+    const inserted = insertDocumentVectors('doc-1', vectors, indexes, 0)
 
     expect(inserted).toEqual(['embedding'])
     expect(idx.has('doc-1')).toBe(true)
@@ -285,7 +305,7 @@ describe('insertDocumentVectors', () => {
       ['field_b', new Float32Array([1, 2, 3])],
     ])
 
-    expect(() => insertDocumentVectors('doc-1', vectors, indexes)).toThrow()
+    expect(() => insertDocumentVectors('doc-1', vectors, indexes, 0)).toThrow()
     expect(idx1.has('doc-1')).toBe(false)
     expect(idx2.has('doc-1')).toBe(false)
   })
@@ -318,7 +338,7 @@ describe('updateDocumentVectors', () => {
 
     const updates = new Map<string, Float32Array | null>([['embedding', new Float32Array([0, 1, 0])]])
 
-    updateDocumentVectors('doc-1', updates, indexes)
+    updateDocumentVectors('doc-1', updates, indexes, 0)
 
     const stored = idx.getVector('doc-1')
     expect(stored).not.toBeNull()
@@ -334,7 +354,7 @@ describe('updateDocumentVectors', () => {
     const sameVec = new Float32Array([1, 2, 3])
     const updates = new Map<string, Float32Array | null>([['embedding', sameVec]])
 
-    updateDocumentVectors('doc-1', updates, indexes)
+    updateDocumentVectors('doc-1', updates, indexes, 0)
 
     expect(idx.has('doc-1')).toBe(true)
   })
@@ -345,7 +365,7 @@ describe('updateDocumentVectors', () => {
     const indexes = new Map<string, VectorIndex>([['embedding', idx]])
 
     const updates = new Map<string, Float32Array | null>([['embedding', null]])
-    updateDocumentVectors('doc-1', updates, indexes)
+    updateDocumentVectors('doc-1', updates, indexes, 0)
 
     expect(idx.has('doc-1')).toBe(false)
   })
@@ -365,7 +385,7 @@ describe('updateDocumentVectors', () => {
       ['field_b', new Float32Array([1, 2, 3])],
     ])
 
-    expect(() => updateDocumentVectors('doc-1', updates, indexes)).toThrow()
+    expect(() => updateDocumentVectors('doc-1', updates, indexes, 0)).toThrow()
 
     const restoredA = idx1.getVector('doc-1')
     expect(restoredA).not.toBeNull()

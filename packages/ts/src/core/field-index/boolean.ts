@@ -1,16 +1,25 @@
-import { bitsetSet, createBitSet } from '../bitset'
+import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 
-export interface BooleanFieldIndex {
-  insert(internalId: number, value: boolean): void
-  remove(internalId: number, value: boolean): void
+/**
+ * The reads a filter performs against a boolean field index.
+ *
+ * @internal
+ */
+export interface BooleanFieldIndexReader {
   queryEq(value: boolean): Set<number>
   queryNe(value: boolean): Set<number>
   getAllDocIds(): Set<number>
   queryEqBitset(value: boolean, capacity: number): Uint32Array
   getAllDocIdsBitset(capacity: number): Uint32Array
   count(): number
-  clear(): void
   serialize(): { trueDocs: number[]; falseDocs: number[] }
+  facetCounts(matched: Uint32Array): { trueCount: number; falseCount: number }
+}
+
+export interface BooleanFieldIndex extends BooleanFieldIndexReader {
+  insert(internalId: number, value: boolean): void
+  remove(internalId: number, value: boolean): void
+  clear(): void
   deserialize(data: { trueDocs: number[]; falseDocs: number[] }): void
 }
 
@@ -61,6 +70,18 @@ export function createBooleanIndex(): BooleanFieldIndex {
 
     count(): number {
       return trueDocs.size + falseDocs.size
+    },
+
+    facetCounts(matched: Uint32Array): { trueCount: number; falseCount: number } {
+      let trueCount = 0
+      let falseCount = 0
+      for (const id of trueDocs) {
+        if (bitsetHas(matched, id)) trueCount++
+      }
+      for (const id of falseDocs) {
+        if (bitsetHas(matched, id)) falseCount++
+      }
+      return { trueCount, falseCount }
     },
 
     clear(): void {

@@ -1,4 +1,5 @@
-import type { PartitionState } from './utils'
+import { compareCodePoints } from '../ordering'
+import type { PartitionReadState } from './utils'
 
 export interface PartitionSuggestion {
   token: string
@@ -13,7 +14,7 @@ interface TokenGroup {
 
 // Total term frequency runs stale-high until compaction; counts only break
 // ties between display spellings, so visibility stays correct.
-function verbatimOccurrences(state: PartitionState, token: string): number {
+function verbatimOccurrences(state: PartitionReadState, token: string): number {
   const postingList = state.invertedIdx.lookup(token)
   if (!postingList) return 0
   const derived = postingList.totalTermFrequency - state.surfaceRegistry.stemChangedTotalFor(token)
@@ -21,7 +22,7 @@ function verbatimOccurrences(state: PartitionState, token: string): number {
 }
 
 export function suggestDisplayTerms(
-  state: PartitionState,
+  state: PartitionReadState,
   surfacePrefix: string,
   stemmedPrefix: string,
   limit: number,
@@ -67,7 +68,7 @@ export function suggestDisplayTerms(
   for (const [token, group] of groups) {
     results.push({ token, documentFrequency: group.documentFrequency, surfaces: group.surfaces })
   }
-  results.sort((a, b) => b.documentFrequency - a.documentFrequency || (a.token < b.token ? -1 : 1))
+  results.sort((a, b) => b.documentFrequency - a.documentFrequency || compareCodePoints(a.token, b.token))
   if (results.length > limit) results.length = limit
   return results
 }
@@ -75,7 +76,7 @@ export function suggestDisplayTerms(
 // Expansion runs in surface space because a typed prefix can be longer than
 // the stem it maps to ("securi" never prefixes the term "secur").
 export function expandTermPrefix(
-  state: PartitionState,
+  state: PartitionReadState,
   surfacePrefix: string,
   stemmedToken: string,
   maxExpansions: number,
@@ -105,7 +106,7 @@ export function expandTermPrefix(
   }
 
   const entries = Array.from(dfByToken.entries())
-  entries.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+  entries.sort((a, b) => b[1] - a[1] || compareCodePoints(a[0], b[0]))
   if (entries.length > maxExpansions) entries.length = maxExpansions
   return entries.map(e => e[0])
 }

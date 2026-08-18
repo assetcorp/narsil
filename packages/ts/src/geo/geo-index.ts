@@ -3,14 +3,22 @@ import { haversineDistance } from './haversine'
 import { isPointInPolygon } from './polygon'
 import { vincentyDistance } from './vincenty'
 
-export interface GeoIndex {
+/**
+ * The reads a geo filter performs against a geopoint index.
+ *
+ * @internal
+ */
+export interface GeoIndexReader {
   readonly entries: readonly GeopointEntry[]
-  insert(internalId: number, lat: number, lon: number): void
-  remove(internalId: number): void
   radiusQuery(lat: number, lon: number, distanceMeters: number, inside: boolean, highPrecision: boolean): Set<number>
   polygonQuery(points: Array<{ lat: number; lon: number }>, inside: boolean): Set<number>
-  clear(): void
   serialize(): GeopointEntry[]
+}
+
+export interface GeoIndex extends GeoIndexReader {
+  insert(internalId: number, lat: number, lon: number): void
+  remove(internalId: number): void
+  clear(): void
   deserialize(data: GeopointEntry[]): void
 }
 

@@ -1,8 +1,17 @@
+import { compareCodePoints } from '../core/ordering'
 import { tokenize } from '../core/tokenizer'
 import type { PartitionManager } from '../partitioning/manager'
+import { clampRowCount } from '../search/pagination'
 import type { LanguageModule } from '../types/language'
 import type { SuggestResult } from '../types/results'
 import type { SuggestParams } from '../types/search'
+
+export const DEFAULT_SUGGEST_LIMIT = 10
+export const MAX_SUGGEST_LIMIT = 100
+export const SUGGEST_OVERSAMPLE_FACTOR = 1.5
+export const SUGGEST_OVERSAMPLE_PADDING = 10
+export const MAX_SUGGEST_SCATTER_LIMIT =
+  Math.ceil(MAX_SUGGEST_LIMIT * SUGGEST_OVERSAMPLE_FACTOR) + SUGGEST_OVERSAMPLE_PADDING
 
 interface MergedSuggestion {
   documentFrequency: number
@@ -13,9 +22,11 @@ export function executeSuggest(
   manager: PartitionManager,
   language: LanguageModule,
   params: SuggestParams,
+  partitionIds?: number[],
 ): SuggestResult {
   const t0 = performance.now()
-  const limit = Math.max(1, Math.min(params.limit ?? 10, 100))
+  const ceiling = partitionIds === undefined ? MAX_SUGGEST_LIMIT : MAX_SUGGEST_SCATTER_LIMIT
+  const limit = Math.max(1, Math.min(clampRowCount(params.limit, DEFAULT_SUGGEST_LIMIT), ceiling))
   const rawPrefix = params.prefix.trim()
 
   if (rawPrefix.length === 0) {
@@ -35,7 +46,14 @@ export function executeSuggest(
   const merged = new Map<string, MergedSuggestion>()
   const perPartitionLimit = limit * 2
 
-  for (const partition of manager.getAllPartitions()) {
+  const partitions =
+    partitionIds === undefined
+      ? manager.getAllPartitions()
+      : partitionIds
+          .map(partitionId => manager.partitionAt(partitionId))
+          .filter((partition): partition is NonNullable<typeof partition> => partition !== undefined)
+
+  for (const partition of partitions) {
     for (const suggestion of partition.suggestTerms(lastToken, stemmed, perPartitionLimit)) {
       let entry = merged.get(suggestion.token)
       if (!entry) {
@@ -51,7 +69,7 @@ export function executeSuggest(
 
   const terms = Array.from(merged.values())
     .map(entry => ({ term: pickDisplaySurface(entry.surfaceOccurrences), documentFrequency: entry.documentFrequency }))
-    .sort((a, b) => b.documentFrequency - a.documentFrequency || (a.term < b.term ? -1 : 1))
+    .sort((a, b) => b.documentFrequency - a.documentFrequency || compareCodePoints(a.term, b.term))
 
   if (terms.length > limit) terms.length = limit
 
@@ -62,7 +80,7 @@ function pickDisplaySurface(surfaceOccurrences: Map<string, number>): string {
   let best = ''
   let bestCount = -1
   for (const [surface, occurrences] of surfaceOccurrences) {
-    if (occurrences > bestCount || (occurrences === bestCount && surface < best)) {
+    if (occurrences > bestCount || (occurrences === bestCount && compareCodePoints(surface, best) < 0)) {
       best = surface
       bestCount = occurrences
     }

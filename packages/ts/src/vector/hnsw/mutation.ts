@@ -1,19 +1,25 @@
+import {
+  addNeighbor,
+  collectNeighbors,
+  createNode,
+  deleteNode,
+  neighborCount,
+  removeNeighbor,
+  replaceNeighbors,
+  resetAdjacency,
+} from './adjacency'
 import { nearestFromHeap, pruneConnections, searchLayer, selectNeighborsHeuristic } from './graph-ops'
 import {
   addConnection,
   type DistancePair,
   ensureCapacity,
   type HNSWGraphState,
-  type HNSWNode,
   maxConns,
   nodeDistanceByOrd,
+  nodeExists,
+  nodeMaxLayer,
   randomLevel,
 } from './shared'
-
-function removeFromArray(arr: number[], ord: number): void {
-  const idx = arr.indexOf(ord)
-  if (idx !== -1) arr.splice(idx, 1)
-}
 
 function clearTombstone(state: HNSWGraphState, ord: number): void {
   if (state.tombstones[ord] === 1) {
@@ -25,21 +31,21 @@ function clearTombstone(state: HNSWGraphState, ord: number): void {
 function reassignEntryPoint(state: HNSWGraphState): void {
   let bestOrd = -1
   let bestLayer = -1
-  for (let ord = 0; ord < state.nodesByOrd.length; ord++) {
-    const n = state.nodesByOrd[ord]
-    if (!n) continue
+  for (let ord = 0; ord < state.adjacency.slots; ord++) {
+    const level = nodeMaxLayer(state, ord)
+    if (level === -1) continue
     if (state.tombstones[ord] === 1) continue
-    if (n.maxLayer > bestLayer) {
-      bestLayer = n.maxLayer
+    if (level > bestLayer) {
+      bestLayer = level
       bestOrd = ord
     }
   }
   if (bestOrd === -1) {
-    for (let ord = 0; ord < state.nodesByOrd.length; ord++) {
-      const n = state.nodesByOrd[ord]
-      if (!n) continue
-      if (n.maxLayer > bestLayer) {
-        bestLayer = n.maxLayer
+    for (let ord = 0; ord < state.adjacency.slots; ord++) {
+      const level = nodeMaxLayer(state, ord)
+      if (level === -1) continue
+      if (level > bestLayer) {
+        bestLayer = level
         bestOrd = ord
       }
     }
@@ -63,19 +69,14 @@ export function insertNode(state: HNSWGraphState, docId: string): void {
 
   ensureCapacity(state, ord + 1)
 
-  if (state.nodesByOrd[ord] !== undefined) {
+  if (nodeExists(state, ord)) {
     removeNodeEager(state, ord)
   }
 
   clearTombstone(state, ord)
   const l = randomLevel(state.mL)
 
-  const node: HNSWNode = {
-    maxLayer: l,
-    connections: Array.from({ length: l + 1 }, () => [] as number[]),
-  }
-
-  state.nodesByOrd[ord] = node
+  createNode(state.adjacency, ord, l)
   state.nodeCount++
 
   if (state.entryPointOrd === -1) {
@@ -113,10 +114,9 @@ export function insertNode(state: HNSWGraphState, docId: string): void {
     const neighbors = selectNeighborsHeuristic(state, ord, candidates, mc, layer, metric, false, true)
 
     for (const neighbor of neighbors) {
-      addConnection(node.connections[layer], neighbor.ord)
-      const neighborNode = state.nodesByOrd[neighbor.ord]
-      if (neighborNode && layer < neighborNode.connections.length) {
-        addConnection(neighborNode.connections[layer], ord)
+      addNeighbor(state.adjacency, ord, layer, neighbor.ord)
+      if (layer <= nodeMaxLayer(state, neighbor.ord)) {
+        addNeighbor(state.adjacency, neighbor.ord, layer, ord)
         pruneConnections(state, neighbor.ord, layer, metric)
       }
     }
@@ -133,30 +133,27 @@ export function insertNode(state: HNSWGraphState, docId: string): void {
 }
 
 export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?: Set<number>): void {
-  const node = state.nodesByOrd[ord]
-  if (!node) return
+  const maxLayer = nodeMaxLayer(state, ord)
+  if (maxLayer === -1) return
 
   const metric = state.buildMetric
 
-  for (let layer = 0; layer <= node.maxLayer; layer++) {
-    if (layer >= node.connections.length) continue
-    const formerNeighbors = [...node.connections[layer]]
+  for (let layer = 0; layer <= maxLayer; layer++) {
+    const formerNeighbors = collectNeighbors(state.adjacency, ord, layer)
 
     for (const neighborOrd of formerNeighbors) {
-      const neighborNode = state.nodesByOrd[neighborOrd]
-      if (neighborNode && layer < neighborNode.connections.length) {
-        removeFromArray(neighborNode.connections[layer], ord)
+      if (layer <= nodeMaxLayer(state, neighborOrd)) {
+        removeNeighbor(state.adjacency, neighborOrd, layer, ord)
       }
     }
 
     for (const neighborOrd of formerNeighbors) {
-      const neighborNode = state.nodesByOrd[neighborOrd]
-      if (!neighborNode || layer >= neighborNode.connections.length) continue
+      if (layer > nodeMaxLayer(state, neighborOrd)) continue
 
       const mc = maxConns(state, layer)
-      if (neighborNode.connections[layer].length >= mc) continue
+      if (neighborCount(state.adjacency, neighborOrd, layer) >= mc) continue
 
-      const candidateOrds = new Set<number>(neighborNode.connections[layer])
+      const candidateOrds = new Set<number>(collectNeighbors(state.adjacency, neighborOrd, layer))
       for (const otherOrd of formerNeighbors) {
         if (otherOrd !== neighborOrd && otherOrd !== ord) {
           if (excludeOrds?.has(otherOrd)) continue
@@ -174,19 +171,18 @@ export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?
       const selected = selectNeighborsHeuristic(state, neighborOrd, candidates, mc, layer, metric, false, true)
       const newConns: number[] = []
       for (const s of selected) addConnection(newConns, s.ord)
-      neighborNode.connections[layer] = newConns
+      replaceNeighbors(state.adjacency, neighborOrd, layer, newConns)
 
       for (const newConnOrd of newConns) {
-        const newConnNode = state.nodesByOrd[newConnOrd]
-        if (newConnNode && layer < newConnNode.connections.length) {
-          addConnection(newConnNode.connections[layer], neighborOrd)
+        if (layer <= nodeMaxLayer(state, newConnOrd)) {
+          addNeighbor(state.adjacency, newConnOrd, layer, neighborOrd)
           pruneConnections(state, newConnOrd, layer, metric)
         }
       }
     }
   }
 
-  state.nodesByOrd[ord] = undefined
+  deleteNode(state.adjacency, ord)
   state.nodeCount--
   clearTombstone(state, ord)
 
@@ -202,7 +198,7 @@ export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?
 
 export function markTombstone(state: HNSWGraphState, docId: string): void {
   const ord = state.store.getOrdinal(docId)
-  if (ord === undefined || state.nodesByOrd[ord] === undefined) return
+  if (ord === undefined || !nodeExists(state, ord)) return
 
   if (state.tombstones[ord] === 0) {
     state.tombstones[ord] = 1
@@ -212,12 +208,12 @@ export function markTombstone(state: HNSWGraphState, docId: string): void {
   if (state.entryPointOrd === ord) {
     let bestOrd = -1
     let bestLayer = -1
-    for (let o = 0; o < state.nodesByOrd.length; o++) {
-      const n = state.nodesByOrd[o]
-      if (!n) continue
+    for (let o = 0; o < state.adjacency.slots; o++) {
+      const level = nodeMaxLayer(state, o)
+      if (level === -1) continue
       if (state.tombstones[o] === 1) continue
-      if (n.maxLayer > bestLayer) {
-        bestLayer = n.maxLayer
+      if (level > bestLayer) {
+        bestLayer = level
         bestOrd = o
       }
     }
@@ -235,8 +231,8 @@ export function compactTombstones(state: HNSWGraphState): void {
   if (state.tombstoneCount === 0) return
 
   const tombstonedOrds: number[] = []
-  for (let ord = 0; ord < state.nodesByOrd.length; ord++) {
-    if (state.tombstones[ord] === 1 && state.nodesByOrd[ord] !== undefined) {
+  for (let ord = 0; ord < state.adjacency.slots; ord++) {
+    if (state.tombstones[ord] === 1 && nodeExists(state, ord)) {
       tombstonedOrds.push(ord)
     }
   }
@@ -251,13 +247,13 @@ export function rebuild(state: HNSWGraphState): void {
   if (state.tombstoneCount === 0 && state.nodeCount === 0) return
 
   const liveOrds: number[] = []
-  for (let ord = 0; ord < state.nodesByOrd.length; ord++) {
-    if (state.nodesByOrd[ord] !== undefined && state.tombstones[ord] !== 1) {
+  for (let ord = 0; ord < state.adjacency.slots; ord++) {
+    if (nodeExists(state, ord) && state.tombstones[ord] !== 1) {
       liveOrds.push(ord)
     }
   }
 
-  state.nodesByOrd = []
+  resetAdjacency(state.adjacency)
   state.tombstones.fill(0)
   state.tombstoneCount = 0
   state.nodeCount = 0

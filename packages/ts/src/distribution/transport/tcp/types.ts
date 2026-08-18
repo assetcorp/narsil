@@ -1,16 +1,34 @@
 import type { TransportConfig } from '../types'
 
+/**
+ * The certificate material one node presents to its peers.
+ *
+ * @public
+ */
 export interface TlsConfig {
+  /** This node presents this certificate, in PEM form. */
   cert: Buffer | string
+  /** The private key matching the certificate, in PEM form. */
   key: Buffer | string
+  /** Peers must chain to this authority. The Node.js default authorities apply when absent. */
   ca?: Buffer | string
+  /** Setting this to false accepts an unverified peer, for tests alone. */
   rejectUnauthorized?: boolean
 }
 
+/**
+ * How the TCP transport listens and dials.
+ *
+ * @public
+ */
 export interface TcpTransportConfig extends TransportConfig {
+  /** The transport listens on this host. */
   host: string
+  /** The transport listens on this port, and 0 asks the system for a free one. */
   port: number
+  /** The connection pool holds at most this many outbound connections. */
   maxConnections: number
+  /** Presenting this makes every connection mutually authenticated TLS. */
   tls?: TlsConfig
 }
 

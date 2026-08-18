@@ -1,10 +1,8 @@
 import { decode, encode } from '@msgpack/msgpack'
-import { applyDeleteEntry, applyIndexEntry } from '../../../distribution/replication/replica'
+import { restoreVectorFields } from '../../../distribution/replication/replica'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
-import { createPartitionManager } from '../../../partitioning/manager'
-import { createPartitionRouter } from '../../../partitioning/router'
+import { extractVectorFromDoc, insertDocumentVectors, removeDocumentVectors } from '../../../engine/vector-coordinator'
 import { packSnapshotEnvelopePartsRetrying, unpackEnvelopeBytes } from '../../../serialization/envelope'
-import type { LanguageModule } from '../../../types/language'
 import type { IndexConfig } from '../../../types/schema'
 import { createVectorIndex, type VectorIndex, type VectorIndexPayload } from '../../../vector/vector-index'
 import type { DurableDirectory } from '../durable-filesystem'
@@ -16,7 +14,6 @@ export interface VectorWriteInput {
   indexName: string
   partitionId: number
   config: IndexConfig
-  language: LanguageModule
   vectorFields: Map<string, number>
   vectorFieldPaths: Set<string>
   entries: ReplicationLogEntry[]
@@ -41,9 +38,6 @@ export async function writePartitionVectors(input: VectorWriteInput): Promise<Ve
     vectorIndexes.set(fieldPath, createVectorIndex(fieldPath, dimension, input.config.vectorPromotion))
   }
 
-  const router = createPartitionRouter()
-  const manager = createPartitionManager(input.indexName, input.config, input.language, router, 1, vectorIndexes)
-
   for (const ref of input.priorVectors) {
     const vecIndex = vectorIndexes.get(ref.fieldPath)
     if (vecIndex === undefined) {
@@ -57,11 +51,7 @@ export async function writePartitionVectors(input: VectorWriteInput): Promise<Ve
   }
 
   for (const entry of input.entries) {
-    if (entry.operation === 'DELETE') {
-      applyDeleteEntry(entry, manager, vectorIndexes)
-    } else {
-      applyIndexEntry(entry, manager, input.vectorFieldPaths, vectorIndexes)
-    }
+    applyEntryVectors(entry, input.vectorFieldPaths, vectorIndexes)
   }
 
   const result: VectorSegmentRef[] = []
@@ -73,4 +63,32 @@ export async function writePartitionVectors(input: VectorWriteInput): Promise<Ve
     result.push({ fieldPath, generation, key })
   }
   return result
+}
+
+function applyEntryVectors(
+  entry: ReplicationLogEntry,
+  vectorFieldPaths: Set<string>,
+  vectorIndexes: Map<string, VectorIndex>,
+): void {
+  if (entry.operation === 'DELETE') {
+    removeDocumentVectors(entry.documentId, vectorIndexes)
+    return
+  }
+  if (entry.document === null) {
+    return
+  }
+
+  const document = decode(entry.document) as Record<string, unknown>
+  restoreVectorFields(document, vectorFieldPaths)
+
+  const vectors = new Map<string, Float32Array>()
+  for (const fieldPath of vectorFieldPaths) {
+    const vector = extractVectorFromDoc(document, fieldPath)
+    if (vector !== null) {
+      vectors.set(fieldPath, vector)
+    }
+  }
+
+  removeDocumentVectors(entry.documentId, vectorIndexes)
+  insertDocumentVectors(entry.documentId, vectors, vectorIndexes, entry.partitionId)
 }

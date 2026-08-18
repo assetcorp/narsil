@@ -39,6 +39,7 @@ export interface DurabilityIntegrationHooks {
   getVectorIndexes: IndexDurabilityHooks['getVectorIndexes']
   getIndexConfig: (indexName: string) =>
     | {
+        indexUuid?: string
         schema: Record<string, string>
         language: string
         k1: number
@@ -80,8 +81,8 @@ function buildMetadata(indexName: string, hooks: DurabilityIntegrationHooks): In
   if (config.embedding) {
     metadata.embedding = config.embedding
   }
-  if (config.surfaceForms) {
-    metadata.surfaceForms = true
+  if (config.surfaceForms !== undefined) {
+    metadata.surfaceForms = config.surfaceForms
   }
   if (config.analysisRevision !== undefined) {
     metadata.analysisRevision = config.analysisRevision
@@ -112,6 +113,9 @@ function buildMetadata(indexName: string, hooks: DurabilityIntegrationHooks): In
   }
   if (config.vectorPromotion !== undefined) {
     metadata.vectorPromotion = config.vectorPromotion
+  }
+  if (config.indexUuid !== undefined) {
+    metadata.indexUuid = config.indexUuid
   }
   return metadata
 }

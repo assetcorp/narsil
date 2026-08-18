@@ -1,6 +1,6 @@
 import type * as React from 'react'
 import { useCallback } from 'react'
-import type { DetectedField } from '../lib/schema-detector'
+import { type DetectedField, fieldNameError, isDocumentIdField } from '../lib/schema-detector'
 
 const FIELD_TYPES = ['string', 'number', 'boolean', 'enum', 'string[]', 'number[]'] as const
 
@@ -19,14 +19,23 @@ const SUPPORTED_LANGUAGES: Array<{ code: string; name: string }> = [
 
 export const INDEX_NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/
 
+const NOT_APPLICABLE = '—'
+
+const DISPLAY_SELECT_CLASS =
+  'h-8 w-full cursor-pointer rounded-md border bg-transparent px-2 text-xs outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/30'
+
 interface SchemaEditorProps {
   fields: DetectedField[]
   documents: Record<string, unknown>[]
   indexName: string
   language: string
+  titleField: string | null
+  bodyField: string | null
   onFieldsChange: (fields: DetectedField[]) => void
   onIndexNameChange: (name: string) => void
   onLanguageChange: (lang: string) => void
+  onTitleFieldChange: (field: string | null) => void
+  onBodyFieldChange: (field: string | null) => void
 }
 
 function validateIndexName(name: string): string | null {
@@ -58,34 +67,48 @@ function FieldRow({
     onSearchableToggle(fieldIndex)
   }, [onSearchableToggle, fieldIndex])
 
+  const nameError = fieldNameError(field.name)
+  const isDocumentId = isDocumentIdField(field.name)
+
   return (
     <tr className="border-b last:border-b-0 hover:bg-muted/30">
       <td className="px-3 py-1.5">
-        <span className="font-mono text-foreground">{field.name}</span>
+        <span className={`font-mono ${nameError ? 'text-destructive' : 'text-foreground'}`}>{field.name}</span>
+        {nameError && <span className="block text-[10px] text-destructive">{nameError}</span>}
       </td>
       <td className="px-3 py-1.5">
         <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground">{field.detectedType}</span>
       </td>
       <td className="px-3 py-1.5">
-        <select
-          value={field.overrideType ?? field.detectedType}
-          onChange={handleTypeChange}
-          className="h-6 cursor-pointer rounded border bg-transparent px-1 text-xs outline-none focus:border-primary"
-        >
-          {FIELD_TYPES.map(t => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
+        {isDocumentId ? (
+          <span className="text-muted-foreground">Document ID</span>
+        ) : (
+          <select
+            value={field.overrideType ?? field.detectedType}
+            onChange={handleTypeChange}
+            disabled={nameError !== null}
+            className="h-6 cursor-pointer rounded border bg-transparent px-1 text-xs outline-none focus:border-primary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {FIELD_TYPES.map(t => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        )}
       </td>
       <td className="px-3 py-1.5 text-center">
-        <input
-          type="checkbox"
-          checked={field.searchable}
-          onChange={handleSearchableToggle}
-          className="size-3.5 cursor-pointer rounded accent-primary"
-        />
+        {isDocumentId ? (
+          <span className="text-muted-foreground">{NOT_APPLICABLE}</span>
+        ) : (
+          <input
+            type="checkbox"
+            checked={field.searchable}
+            onChange={handleSearchableToggle}
+            disabled={nameError !== null}
+            className="size-3.5 cursor-pointer rounded accent-primary disabled:cursor-not-allowed disabled:opacity-50"
+          />
+        )}
       </td>
     </tr>
   )
@@ -96,13 +119,20 @@ export function SchemaEditor({
   documents,
   indexName,
   language,
+  titleField,
+  bodyField,
   onFieldsChange,
   onIndexNameChange,
   onLanguageChange,
+  onTitleFieldChange,
+  onBodyFieldChange,
 }: SchemaEditorProps) {
   const nameError = validateIndexName(indexName)
   const preview = documents.slice(0, 3)
   const previewFields = fields.slice(0, 6)
+  const rejectedFields = fields.filter(field => fieldNameError(field.name) !== null)
+  const hasDocumentIdField = fields.some(field => isDocumentIdField(field.name))
+  const hasIndexableField = fields.some(field => !isDocumentIdField(field.name) && fieldNameError(field.name) === null)
 
   function handleTypeChange(fieldIndex: number, newType: string) {
     const updated = fields.map((f, i) => {
@@ -132,6 +162,20 @@ export function SchemaEditor({
       onLanguageChange(e.target.value)
     },
     [onLanguageChange],
+  )
+
+  const handleTitleFieldChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      onTitleFieldChange(e.target.value === '' ? null : e.target.value)
+    },
+    [onTitleFieldChange],
+  )
+
+  const handleBodyFieldChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      onBodyFieldChange(e.target.value === '' ? null : e.target.value)
+    },
+    [onBodyFieldChange],
   )
 
   return (
@@ -172,6 +216,52 @@ export function SchemaEditor({
         </div>
       </div>
 
+      <div>
+        <span className="mb-1 block text-xs font-medium">Result display</span>
+        <p className="mb-2 text-[10px] text-muted-foreground">
+          Search results show the title first, then the body text. Choose None for the title when your documents have no
+          headline, and the body text leads instead.
+        </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
+          <div className="flex-1">
+            <label htmlFor="custom-title-field" className="mb-1 block text-xs font-medium">
+              Title field
+            </label>
+            <select
+              id="custom-title-field"
+              value={titleField ?? ''}
+              onChange={handleTitleFieldChange}
+              className={DISPLAY_SELECT_CLASS}
+            >
+              <option value="">None</option>
+              {fields.map(field => (
+                <option key={field.name} value={field.name}>
+                  {field.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex-1">
+            <label htmlFor="custom-body-field" className="mb-1 block text-xs font-medium">
+              Body field
+            </label>
+            <select
+              id="custom-body-field"
+              value={bodyField ?? ''}
+              onChange={handleBodyFieldChange}
+              className={DISPLAY_SELECT_CLASS}
+            >
+              {fields.map(field => (
+                <option key={field.name} value={field.name}>
+                  {field.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span className="font-mono font-medium text-foreground">{documents.length.toLocaleString()}</span>
         <span>documents</span>
@@ -182,6 +272,13 @@ export function SchemaEditor({
 
       <div>
         <span className="mb-2 block text-xs font-medium">Field Configuration</span>
+        {rejectedFields.length > 0 && (
+          <p className="mb-2 rounded-md border border-destructive/50 bg-destructive/5 px-3 py-2 text-[11px] text-destructive">
+            Narsil cannot index {rejectedFields.length === 1 ? 'this field' : 'these fields'}:{' '}
+            <span className="font-mono">{rejectedFields.map(field => field.name).join(', ')}</span>. Rename the
+            {rejectedFields.length === 1 ? ' column' : ' columns'} in your file and upload it again.
+          </p>
+        )}
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full text-xs">
             <thead>
@@ -205,6 +302,18 @@ export function SchemaEditor({
             </tbody>
           </table>
         </div>
+        {!hasIndexableField && (
+          <p className="mt-2 rounded-md border border-destructive/50 bg-destructive/5 px-3 py-2 text-[11px] text-destructive">
+            This file has no field Narsil can index. Add at least one column besides{' '}
+            <span className="font-mono">id</span> and upload it again.
+          </p>
+        )}
+        {hasDocumentIdField && (
+          <p className="mt-1.5 text-[10px] text-muted-foreground">
+            Narsil uses <span className="font-mono">id</span> as the document identifier, so it stays out of the schema
+            and keeps your saved relevance marks pointing at the same documents after a reload.
+          </p>
+        )}
       </div>
 
       {preview.length > 0 && (

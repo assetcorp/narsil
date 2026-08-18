@@ -11,10 +11,11 @@ import {
   optimize as optimizeOp,
 } from './maintenance'
 import { deserialize as deserializeOp, serialize as serializeOp } from './persistence'
-import { search as searchOp } from './search'
+import { search as searchOp, searchWithFilter } from './search'
 import {
   DEFAULT_FILTER_THRESHOLD,
   DEFAULT_PROMOTION_THRESHOLD,
+  filterForOptions,
   liveSize,
   type MaintenanceStatus,
   type VectorIndexPayload,
@@ -22,16 +23,21 @@ import {
   type VectorScoredResult,
   type VectorSearchOptions,
 } from './shared'
+import { invalidateWorkerCopies, scheduleWorkerCopyLoad, searchViaWorkerCopies } from './worker-copies'
 
 export type { MaintenanceStatus, VectorIndexPayload, VectorScoredResult, VectorSearchOptions } from './shared'
 
 export interface VectorIndex {
-  insert(docId: string, vector: Float32Array): void
+  insert(docId: string, vector: Float32Array, partitionId?: number): void
   remove(docId: string): void
+  /** False while any stored vector is there without the partition it belongs to. */
+  partitionsKnown(): boolean
+  assignPartitions(resolve: (docId: string) => number | undefined): void
   scheduleBuild(): void
   awaitPendingBuild(): Promise<void>
   dispose(): void
   search(query: Float32Array, k: number, options: VectorSearchOptions): VectorScoredResult[]
+  searchParallel(query: Float32Array, k: number, options: VectorSearchOptions): Promise<VectorScoredResult[]>
   getVector(docId: string): Float32Array | null
   has(docId: string): boolean
   compact(): void
@@ -82,6 +88,12 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     buildScheduled: false,
     pendingBuild: null,
     disposed: false,
+    revision: 0,
+    workerCopyPool: null,
+    workerCopyHandle: null,
+    workerCopyRevision: -1,
+    workerCopyMode: null,
+    workerCopyLoading: false,
   }
 
   function validateDimension(vector: Float32Array): void {
@@ -94,15 +106,31 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     }
   }
 
-  function insert(docId: string, vector: Float32Array): void {
+  function insert(docId: string, vector: Float32Array, partitionId?: number): void {
     validateDimension(vector)
+    invalidateWorkerCopies(state)
     state.tombstones.delete(docId)
-    state.store.insert(docId, vector)
+    state.store.insert(docId, vector, partitionId)
     state.buffer.add(docId)
+  }
+
+  function assignPartitions(resolve: (docId: string) => number | undefined): void {
+    for (let ordinal = 0; ordinal < state.store.slots; ordinal += 1) {
+      if (state.store.partitionOfOrdinal(ordinal) !== undefined) continue
+      const docId = state.store.docIdForOrdinal(ordinal)
+      if (docId === undefined) continue
+      const partitionId = resolve(docId)
+      if (partitionId === undefined) {
+        state.store.forgetPartition(docId)
+        continue
+      }
+      state.store.setPartition(docId, partitionId)
+    }
   }
 
   function remove(docId: string): void {
     if (!state.store.has(docId)) return
+    invalidateWorkerCopies(state)
     state.tombstones.add(docId)
     state.buffer.delete(docId)
     if (state.hnsw) {
@@ -129,6 +157,44 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
 
   function dispose(): void {
     state.disposed = true
+    invalidateWorkerCopies(state)
+  }
+
+  async function searchParallel(
+    query: Float32Array,
+    k: number,
+    options: VectorSearchOptions,
+  ): Promise<VectorScoredResult[]> {
+    const confined = options.filterDocIds !== undefined || options.filterPartitions !== undefined
+    let filter = filterForOptions(state, options)
+    if (filter !== undefined) {
+      if (state.hnsw) {
+        const hnswLiveSize = state.hnsw.size
+        const selectivity = hnswLiveSize > 0 ? filter.count / hnswLiveSize : 1
+        if (selectivity < state.filterThreshold) {
+          return searchWithFilter(state, query, k, options, filter)
+        }
+      }
+    }
+    const filterRevision = state.revision
+
+    scheduleWorkerCopyLoad(state)
+
+    const viaWorkerCopy = await searchViaWorkerCopies(
+      state,
+      query,
+      k,
+      options.metric,
+      options.minSimilarity,
+      options.efSearch,
+      filter,
+    )
+    if (viaWorkerCopy !== null) return viaWorkerCopy
+
+    if (confined && state.revision !== filterRevision) {
+      filter = filterForOptions(state, options)
+    }
+    return searchWithFilter(state, query, k, options, filter)
   }
 
   return {
@@ -143,17 +209,29 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     },
     insert,
     remove,
+    partitionsKnown: () => state.store.partitionsKnown,
+    assignPartitions,
     scheduleBuild: () => scheduleBuildOp(state),
     awaitPendingBuild,
     dispose,
     search: (query: Float32Array, k: number, options: VectorSearchOptions) => searchOp(state, query, k, options),
+    searchParallel,
     getVector,
     has,
-    compact: () => compactOp(state),
-    optimize: () => optimizeOp(state),
+    compact: () => {
+      invalidateWorkerCopies(state)
+      compactOp(state)
+    },
+    optimize: async () => {
+      invalidateWorkerCopies(state)
+      await optimizeOp(state)
+    },
     maintenanceStatus: () => maintenanceStatusOp(state),
     estimateMemoryBytes: () => estimateMemoryBytesOp(state),
     serialize: () => serializeOp(state),
-    deserialize: (payload: VectorIndexPayload) => deserializeOp(state, payload),
+    deserialize: (payload: VectorIndexPayload) => {
+      invalidateWorkerCopies(state)
+      deserializeOp(state, payload)
+    },
   }
 }

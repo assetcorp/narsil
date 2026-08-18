@@ -14,7 +14,7 @@ export function HeroHeading({ index }: HeroHeadingProps) {
         <MessagesSquare className="size-6 text-primary" />
       </div>
       <div className="space-y-2">
-        <h2 className="font-serif text-3xl tracking-tight text-balance sm:text-4xl">Ask {index.name}</h2>
+        <h2 className="text-3xl font-bold tracking-tight text-balance sm:text-4xl">Ask {index.name}</h2>
         <p className="mx-auto max-w-md text-sm leading-relaxed text-muted-foreground text-pretty">
           Answers come only from the {index.documentCount.toLocaleString()} documents in this index, with the retrieved
           passages shown beside every answer. Switch retrieval modes to watch the same question pull different evidence.

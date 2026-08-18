@@ -70,11 +70,11 @@ def main(argv: list[str] | None = None) -> int:
         "run_tag": engine_cfg.run_tag,
         "ranking": engine_cfg.ranking,
         "url": engine_cfg.url,
-        "version": os.environ.get("ENGINE_VERSION"),
+        "version": None,
         "image_digest": os.environ.get("ENGINE_IMAGE_DIGEST") or None,
         "build_identity": None,
         "tracks": list(engine_cfg.tracks),
-        "keyword_setup": getattr(driver, "keyword_setup", None),
+        "keyword_setup": None,
         "vector_profile": vector_profile,
     }
     config_summary = {
@@ -85,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
         "throughput": {
             "enabled": config.throughput.enabled,
             "concurrency": list(config.throughput.concurrency),
+            "client_processes": config.throughput.client_processes,
             "duration_seconds": config.throughput.duration_seconds,
             "warmup_seconds": config.throughput.warmup_seconds,
         },
@@ -116,6 +117,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"waiting for {engine_cfg.name} at {engine_cfg.url} (vector profile: {vector_profile})", flush=True)
         results = run_engine(driver, engine_cfg, config, specs, runfiles_dir, store, vector_profile)
         engine_info["build_identity"] = _safe_build_identity(driver)
+        engine_info["version"] = (engine_info["build_identity"] or {}).get("version")
+        engine_info["keyword_setup"] = getattr(driver, "keyword_setup", None)
     finally:
         driver.close()
 

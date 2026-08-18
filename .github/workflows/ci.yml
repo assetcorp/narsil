@@ -64,6 +64,9 @@ jobs:
       - name: Check every recorded lookalike past the bar folds
         run: pnpm nx run narsil-ts:lookalikes
 
+      - name: Check the case fold table matches a fresh generation
+        run: pnpm nx run narsil-ts:fold-table
+
       - name: Typecheck (incl. tests)
         run: pnpm nx run narsil-ts:typecheck
 

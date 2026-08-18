@@ -8,6 +8,7 @@ import {
   broadcastStatsForWorker,
   clampAlpha,
   collectFilterDocIds,
+  partitionsForVectorSearch,
   type QueryContext,
   resolveVectorIndex,
   scoringConfigFor,
@@ -15,13 +16,14 @@ import {
   vectorResultsToScored,
 } from './shared'
 
-export function executeVectorSearch(
+export async function executeVectorSearch(
   params: QueryParams,
   manager: PartitionManager,
   config: IndexConfig,
   limit: number,
   offset: number,
-): FanOutResult {
+  partitionIds?: number[],
+): Promise<FanOutResult> {
   const vectorConfig = params.vector
   if (!vectorConfig || !vectorConfig.value) {
     return { scored: [], totalMatched: 0 }
@@ -33,19 +35,23 @@ export function executeVectorSearch(
   }
 
   let filterDocIds: Set<string> | undefined
+  let filterPartitions: ReadonlySet<number> | undefined
   if (params.filters) {
-    filterDocIds = collectFilterDocIds(manager, params, config.schema)
+    filterDocIds = collectFilterDocIds(manager, params, config.schema, partitionIds)
     if (filterDocIds.size === 0) {
       return { scored: [], totalMatched: 0 }
     }
+  } else {
+    filterPartitions = partitionsForVectorSearch(manager, vecIndex, partitionIds)
   }
 
   const queryVec = new Float32Array(vectorConfig.value)
   const k = limit + offset + 1
-  const results = vecIndex.search(queryVec, k, {
+  const results = await vecIndex.searchParallel(queryVec, k, {
     metric: vectorConfig.metric ?? 'cosine',
     minSimilarity: vectorConfig.similarity ?? -Infinity,
-    filterDocIds,
+    ...(filterDocIds !== undefined ? { filterDocIds } : {}),
+    ...(filterPartitions !== undefined ? { filterPartitions } : {}),
     efSearch: vectorConfig.efSearch,
   })
 
@@ -64,7 +70,7 @@ export async function executeHybridSearch(
 
   let filterDocIds: Set<string> | undefined
   if (params.filters) {
-    filterDocIds = collectFilterDocIds(manager, params, config.schema)
+    filterDocIds = collectFilterDocIds(manager, params, config.schema, context.partitionIds)
     if (filterDocIds.size === 0) {
       return { scored: [], totalMatched: 0 }
     }
@@ -73,7 +79,12 @@ export async function executeHybridSearch(
   let textFanOutResult: FanOutResult
   const scoring = scoringConfigFor(params, context)
   const textWorkerResult = workerSearch
-    ? await workerSearch(indexName, textOnlyParams, broadcastStatsForWorker(textOnlyParams, context, scoring))
+    ? await workerSearch(
+        indexName,
+        textOnlyParams,
+        broadcastStatsForWorker(textOnlyParams, context, scoring),
+        context.partitionIds,
+      )
     : null
   if (textWorkerResult) {
     textFanOutResult = textWorkerResult
@@ -102,10 +113,13 @@ export async function executeHybridSearch(
   if (vecIndex) {
     const queryVec = new Float32Array(vectorConfig.value)
     const vectorK = limit + offset + 1
-    const vectorResults = vecIndex.search(queryVec, vectorK, {
+    const filterPartitions =
+      filterDocIds === undefined ? partitionsForVectorSearch(manager, vecIndex, context.partitionIds) : undefined
+    const vectorResults = await vecIndex.searchParallel(queryVec, vectorK, {
       metric: vectorConfig.metric ?? 'cosine',
       minSimilarity: vectorConfig.similarity ?? -Infinity,
-      filterDocIds,
+      ...(filterDocIds !== undefined ? { filterDocIds } : {}),
+      ...(filterPartitions !== undefined ? { filterPartitions } : {}),
       efSearch: vectorConfig.efSearch,
     })
     vectorScored = vectorResultsToScored(vectorResults)
@@ -126,10 +140,6 @@ export async function executeHybridSearch(
   if (params.minScore !== undefined && params.minScore > 0) {
     const threshold = params.minScore
     fusedScored = fusedScored.filter(doc => doc.score >= threshold)
-  }
-
-  if (filterDocIds) {
-    fusedScored = fusedScored.filter(doc => filterDocIds.has(doc.docId))
   }
 
   return {

@@ -1,6 +1,8 @@
+import type { Hit } from '@delali/narsil'
 import { useCallback, useState } from 'react'
-import type { QueryHit } from '../../backend'
+import { type DisplayFieldMapping, displayHeading } from '../../lib/display-fields'
 import type { DatasetId } from '../../manifest'
+import { Pagination } from '../Pagination'
 import { Button } from '../ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../ui/sheet'
 import { Skeleton } from '../ui/skeleton'
@@ -8,7 +10,7 @@ import { ResultCard } from './ResultCard'
 import { ResultDetail } from './ResultDetail'
 
 interface ResultListProps {
-  hits: QueryHit[]
+  hits: Hit[]
   isLoading: boolean
   error: string | null
   count: number
@@ -19,22 +21,25 @@ interface ResultListProps {
   onPageChange: (page: number) => void
   onLoadMore: () => void
   datasetId: DatasetId
+  displayFields: DisplayFieldMapping | null
 }
 
 function ResultHitCard({
   hit,
   datasetId,
+  displayFields,
   onSelect,
 }: {
-  hit: QueryHit
+  hit: Hit
   datasetId: DatasetId
-  onSelect: (hit: QueryHit) => void
+  displayFields: DisplayFieldMapping | null
+  onSelect: (hit: Hit) => void
 }) {
   const handleClick = useCallback(() => {
     onSelect(hit)
   }, [onSelect, hit])
 
-  return <ResultCard hit={hit} datasetId={datasetId} onClick={handleClick} />
+  return <ResultCard hit={hit} datasetId={datasetId} displayFields={displayFields} onClick={handleClick} />
 }
 
 export function ResultList({
@@ -49,22 +54,15 @@ export function ResultList({
   onPageChange,
   onLoadMore,
   datasetId,
+  displayFields,
 }: ResultListProps) {
-  const [selectedHit, setSelectedHit] = useState<QueryHit | null>(null)
+  const [selectedHit, setSelectedHit] = useState<Hit | null>(null)
   const currentPage = Math.floor(offset / limit)
   const totalPages = Math.ceil(count / limit)
 
   const handleSheetOpenChange = useCallback((open: boolean) => {
     if (!open) setSelectedHit(null)
   }, [])
-
-  const handlePreviousPage = useCallback(() => {
-    onPageChange(currentPage - 1)
-  }, [onPageChange, currentPage])
-
-  const handleNextPage = useCallback(() => {
-    onPageChange(currentPage + 1)
-  }, [onPageChange, currentPage])
 
   if (error) {
     return (
@@ -89,29 +87,23 @@ export function ResultList({
     )
   }
 
-  const selectedTitle = selectedHit
-    ? String(selectedHit.document.title ?? selectedHit.document.name ?? selectedHit.id)
-    : ''
+  const selectedTitle = selectedHit ? displayHeading(selectedHit.document, displayFields, selectedHit.id) : ''
 
   return (
     <>
       <div className="flex flex-col gap-3">
         {hits.map(hit => (
-          <ResultHitCard key={hit.id} hit={hit} datasetId={datasetId} onSelect={setSelectedHit} />
+          <ResultHitCard
+            key={hit.id}
+            hit={hit}
+            datasetId={datasetId}
+            displayFields={displayFields}
+            onSelect={setSelectedHit}
+          />
         ))}
 
-        {paginationMode === 'offset' && totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 pt-4">
-            <Button variant="outline" size="sm" disabled={currentPage === 0} onClick={handlePreviousPage}>
-              Previous
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              Page {currentPage + 1} of {totalPages}
-            </span>
-            <Button variant="outline" size="sm" disabled={currentPage >= totalPages - 1} onClick={handleNextPage}>
-              Next
-            </Button>
-          </div>
+        {paginationMode === 'offset' && (
+          <Pagination page={currentPage} totalPages={totalPages} onPageChange={onPageChange} />
         )}
 
         {paginationMode === 'cursor' && cursor && (

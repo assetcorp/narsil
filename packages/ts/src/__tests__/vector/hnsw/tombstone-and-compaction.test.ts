@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createHNSWIndex, type HNSWIndex } from '../../../vector/hnsw'
 import { createVectorStore, type VectorStore } from '../../../vector/vector-store'
-import { DIM, insertVec, randomVector, removeVec, vectorFromValues } from './fixtures'
+import { DIM, insertVec, removeVec, seededVector, vectorFromValues } from './fixtures'
 
 describe('HNSWIndex tombstone removal', () => {
   let store: VectorStore
@@ -13,8 +13,8 @@ describe('HNSWIndex tombstone removal', () => {
   })
 
   it('removes a vector via tombstone', () => {
-    insertVec(store, index, 'doc1', randomVector(DIM))
-    insertVec(store, index, 'doc2', randomVector(DIM))
+    insertVec(store, index, 'doc1', seededVector(DIM, 10))
+    insertVec(store, index, 'doc2', seededVector(DIM, 17))
 
     removeVec(store, index, 'doc1')
     expect(index.has('doc1')).toBe(false)
@@ -26,7 +26,7 @@ describe('HNSWIndex tombstone removal', () => {
   })
 
   it('removes the only vector', () => {
-    insertVec(store, index, 'doc1', randomVector(DIM))
+    insertVec(store, index, 'doc1', seededVector(DIM, 24))
     removeVec(store, index, 'doc1')
 
     expect(index.size).toBe(0)
@@ -35,7 +35,7 @@ describe('HNSWIndex tombstone removal', () => {
 
   it('removes the entry point and elects a new one', () => {
     for (let i = 0; i < 10; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     const oldEntry = index.entryPointId
@@ -60,7 +60,7 @@ describe('HNSWIndex tombstone removal', () => {
 
   it('search works after multiple removals', () => {
     for (let i = 0; i < 30; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     for (let i = 0; i < 15; i++) {
@@ -69,7 +69,7 @@ describe('HNSWIndex tombstone removal', () => {
 
     expect(index.size).toBe(15)
 
-    const results = index.search(randomVector(DIM), 5, 'cosine', 0)
+    const results = index.search(seededVector(DIM, 104), 5, 'cosine', 0)
     expect(results.length).toBeLessThanOrEqual(5)
     for (const r of results) {
       expect(Number.parseInt(r.docId.replace('doc', ''), 10)).toBeGreaterThanOrEqual(15)
@@ -78,7 +78,7 @@ describe('HNSWIndex tombstone removal', () => {
 
   it('removes all vectors one by one', () => {
     for (let i = 0; i < 10; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
     for (let i = 0; i < 10; i++) {
       removeVec(store, index, `doc${i}`)
@@ -89,7 +89,7 @@ describe('HNSWIndex tombstone removal', () => {
   })
 
   it('isTombstoned reports correctly', () => {
-    insertVec(store, index, 'doc1', randomVector(DIM))
+    insertVec(store, index, 'doc1', seededVector(DIM, 59))
     expect(index.isTombstoned('doc1')).toBe(false)
 
     index.markTombstone('doc1')
@@ -108,14 +108,14 @@ describe('HNSWIndex compaction', () => {
 
   it('compactionNeeded returns false when no tombstones', () => {
     for (let i = 0; i < 10; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
     expect(index.compactionNeeded()).toBe(false)
   })
 
   it('compactionNeeded returns true when tombstone ratio exceeds threshold', () => {
     for (let i = 0; i < 10; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
     index.markTombstone('doc0')
     store.remove('doc0')
@@ -127,7 +127,7 @@ describe('HNSWIndex compaction', () => {
 
   it('rebuild reconstructs the graph without tombstoned nodes', () => {
     for (let i = 0; i < 20; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     for (let i = 0; i < 5; i++) {
@@ -139,7 +139,7 @@ describe('HNSWIndex compaction', () => {
     index.rebuild()
     expect(index.size).toBe(15)
 
-    const results = index.search(randomVector(DIM), 5, 'cosine', 0)
+    const results = index.search(seededVector(DIM, 87), 5, 'cosine', 0)
     expect(results.length).toBeGreaterThan(0)
     for (const r of results) {
       expect(Number.parseInt(r.docId.replace('doc', ''), 10)).toBeGreaterThanOrEqual(5)
@@ -148,7 +148,7 @@ describe('HNSWIndex compaction', () => {
 
   it('rebuild with all nodes tombstoned results in empty index', () => {
     for (let i = 0; i < 10; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     for (let i = 0; i < 10; i++) {
@@ -161,7 +161,7 @@ describe('HNSWIndex compaction', () => {
     expect(index.entryPointId).toBeNull()
     expect(index.topLayer).toBe(-1)
 
-    const results = index.search(randomVector(DIM), 5, 'cosine', 0)
+    const results = index.search(seededVector(DIM, 101), 5, 'cosine', 0)
     expect(results).toHaveLength(0)
   })
 })

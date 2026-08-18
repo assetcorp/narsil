@@ -12,6 +12,7 @@ import { executeLiveBootstrapSync } from './live'
 import { applyRestore, fetchSchemaAndPrepare } from './snapshot-restore'
 import {
   anotherBootstrapOwnsKey,
+  clearBootstrapSyncIndex,
   createEntry,
   DEFAULT_BOOTSTRAP_SYNC_DEADLINE_MS,
   entryKey,
@@ -43,7 +44,10 @@ export async function runBootstrapSync(
   const key = entryKey(indexName, partitionId)
 
   if (state.completed.has(key)) {
-    return true
+    if (!(await replicaResyncRequired(indexName, partitionId, deps))) {
+      return true
+    }
+    clearBootstrapSyncIndex(state, indexName, partitionId)
   }
 
   const existing = state.inFlight.get(key)
@@ -74,6 +78,23 @@ export async function runBootstrapSync(
   })
   state.inFlight.set(key, entry)
   return entry.promise
+}
+
+async function replicaResyncRequired(
+  indexName: string,
+  partitionId: number,
+  deps: BootstrapSyncDeps,
+): Promise<boolean> {
+  const allocation = await deps.coordinator.getAllocation(indexName)
+  const assignment = allocation?.assignments.get(partitionId)
+  if (assignment === undefined) {
+    return false
+  }
+  return (
+    assignment.state === 'ACTIVE' &&
+    assignment.replicas.includes(deps.sourceNodeId) &&
+    !assignment.inSyncSet.includes(deps.sourceNodeId)
+  )
 }
 
 export async function executeBootstrapSync(

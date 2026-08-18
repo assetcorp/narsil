@@ -129,14 +129,14 @@ describe('segmented snapshot recovery', () => {
       const recoveredScore = recoveredScores.get(hit.id)
       expect(recoveredScore).toBeDefined()
       if (recoveredScore !== undefined) {
-        expect(recoveredScore).toBeCloseTo(hit.score, 10)
+        expect(recoveredScore).toBeCloseTo(hit.score ?? Number.NaN, 10)
       }
     }
 
     const recoveredScoreSequence = recoveredResult.hits.map(hit => hit.score)
     const freshScoreSequence = freshResult.hits.map(hit => hit.score)
     for (let i = 0; i < freshScoreSequence.length; i += 1) {
-      expect(recoveredScoreSequence[i]).toBeCloseTo(freshScoreSequence[i], 10)
+      expect(recoveredScoreSequence[i]).toBeCloseTo(freshScoreSequence[i] ?? Number.NaN, 10)
     }
   })
 

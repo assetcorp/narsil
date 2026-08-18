@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
-import type { SnapshotSyncRequestPayload, TransportMessage } from '../../transport/types'
+import type { RespondFn, SnapshotSyncRequestPayload, TransportMessage } from '../../transport/types'
 import { authorizeSnapshotRequest } from '../snapshot-auth'
 import {
   createSnapshotCacheState,
@@ -34,13 +34,13 @@ export function createSnapshotSyncHandlerState(
 
 export async function handleSnapshotSyncRequest(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: SnapshotSyncHandlerDeps,
 ): Promise<void> {
   const sink = createSingleResponseSink(respond)
   try {
     if (message.payload.byteLength > MAX_SNAPSHOT_SYNC_REQUEST_BYTES) {
-      respondError(
+      await respondError(
         sink,
         deps.nodeId,
         message.requestId,
@@ -53,7 +53,7 @@ export async function handleSnapshotSyncRequest(
   } catch (err) {
     const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_SNAPSHOT_FAILED
     const errMessage = err instanceof Error ? err.message : String(err)
-    respondError(sink, deps.nodeId, message.requestId, code, errMessage)
+    await respondError(sink, deps.nodeId, message.requestId, code, errMessage)
   }
 }
 
@@ -62,7 +62,7 @@ export async function runSnapshotSyncRequest(
   sink: SingleResponseSink,
   deps: SnapshotSyncHandlerDeps,
 ): Promise<void> {
-  const request = decodeRequest(message, sink, deps)
+  const request = await decodeRequest(message, sink, deps)
   if (request === null) {
     return
   }
@@ -79,19 +79,19 @@ export async function streamValidatedSnapshotRequest(
 ): Promise<void> {
   const sourceIdError = validateSourceId(message.sourceId)
   if (sourceIdError !== null) {
-    respondError(sink, deps.nodeId, message.requestId, ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID, sourceIdError)
+    await respondError(sink, deps.nodeId, message.requestId, ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID, sourceIdError)
     return
   }
 
   const authResult = await authorizeSnapshotRequest(deps.coordinator, request.indexName, message.sourceId)
   if (authResult.outcome === 'denied') {
-    respondError(sink, deps.nodeId, message.requestId, authResult.code, authResult.reason)
+    await respondError(sink, deps.nodeId, message.requestId, authResult.code, authResult.reason)
     return
   }
 
   const existingIndex = deps.engine.listIndexes().find(idx => idx.name === request.indexName)
   if (existingIndex === undefined) {
-    respondError(
+    await respondError(
       sink,
       deps.nodeId,
       message.requestId,

@@ -53,10 +53,10 @@ Each field uses its own `|D|`, the token count in that field, and its own `avgdl
 
 | Parameter | Default | Range | Effect |
 |-----------|---------|-------|--------|
-| `k1` | 1.2 | 0 to 3 | Controls how fast term frequency saturates |
+| `k1` | 1.2 | 0 or above | Controls how fast term frequency saturates |
 | `b` | 0.75 | 0 to 1 | Controls document length normalisation |
 
-A higher `k1` gives repeated terms more weight. A `b` of 0 applies no length normalisation, and a `b` of 1 applies it fully. Both are configured per index when the index is created.
+A higher `k1` gives repeated terms more weight. A `b` of 0 applies no length normalisation, and a `b` of 1 applies it fully. Both are configured per index when the index is created. An implementation must reject index creation when `k1` is negative or not finite, or when `b` falls outside 0 to 1.
 
 ### Edge Cases
 
@@ -478,6 +478,93 @@ The input must be encoded as UTF-8 bytes before hashing. Every implementation mu
 
 ---
 
+## String Ordering
+
+Narsil orders strings with the two comparisons this section defines, and with nothing else. Neither reads a locale, a collation library, or any other host state, so every implementation on every machine produces the same order for the same input.
+
+### Code Point Order
+
+Code point order compares two strings position by position through their Unicode code points. The first position where they differ decides the order, and the lower code point orders first. When one string is a prefix of the other, the shorter orders first. Two strings are equal only when their code points are identical.
+
+Comparing the UTF-8 encodings of two strings byte by byte gives the same order, so an implementation whose strings are UTF-8 compares raw bytes.
+
+An implementation whose strings are UTF-16 must not compare 16-bit units directly, because a supplementary character encodes as a surrogate pair whose units compare below the code points U+E000 to U+FFFF. Adjusting the two units at the first differing position restores code point order:
+
+```text
+adjust(unit: uint16) -> uint16
+  when unit is below 0xD800, return unit
+  when unit is below 0xE000, return unit + 0x2000
+  return unit - 0x800
+```
+
+### Where Each Order Applies
+
+Code point order compares document IDs everywhere: result tiebreaks, cursor anchors, merges, and the default listing order. An ID compares raw, with no folding and no normalisation, so two distinct IDs never compare equal.
+
+Every tie on a rank key breaks the same way. Results sharing a score, facet buckets sharing a count, and suggestions sharing a document frequency each order by their string key, ascending in code point order: the document ID, the bucket value, or the term. A truncation to a limit keeps the entries that order first under this rule, so what survives the cut never depends on insertion order.
+
+The sort value order below applies to the fields a query or a listing names in its `sort`.
+
+A sort names a `number`, a `boolean`, or an `enum` field with no preparation. A sort names a `string` field only where the schema marks that field sortable, and a sort naming an unmarked `string` field raises `SEARCH_INVALID_FIELD`, because ordering free text costs an implementation far more memory per document than ordering a scalar. Every other field type counts as missing under the rules below, so a sort naming one leaves every document equal.
+
+A query that names a sort ranks by sort values alone, and it must not compute relevance scores. Setting `includeScores` to true restores scoring, and each hit then carries the score it would carry without the sort. A sorted query carrying a score threshold must compute scores to apply the floor, and it still reports them only where `includeScores` is true. A hit returned without scoring carries no score.
+
+### Sort Value Order
+
+A sort compares two documents field by field, in the order the sort names its fields, and the first field that separates them decides. Within one field:
+
+1. A missing value orders after every present value, in ascending and in descending direction alike. An absent field, a null, an array, an object, and a number that is not finite each count as missing. Two missing values are equal.
+2. Present values of different types order by type: numbers, then strings, then booleans.
+3. Numbers compare numerically. Booleans compare with false first. Strings compare as defined below.
+4. A field with direction `desc` reverses the outcome of steps 2 and 3. Step 1 is exempt, so a missing value stays last under either direction.
+
+Two documents that every sort field leaves equal order by document ID, ascending in code point order, whatever the sort directions.
+
+A string sort value is its first 512 code points, and the rest never takes part. Two string values compare by their case folds in code point order, and when the folds are equal, by their raw code points. Folding first keeps `apple` and `Banana` in the order a reader expects, and comparing raw on a folded tie keeps `Apple` and `apple` distinct.
+
+### Case Folding
+
+The fold is Unicode full case folding: the mappings of `CaseFolding.txt` with status `C` or `F`, pinned at Unicode 17.0.0, which holds 1,585 mappings, 104 of them to more than one code point and none to more than three. A code point with no mapping folds to itself. Folding is context-free, each code point folding alone wherever it stands, so an implementation may fold lazily while comparing instead of materialising folded strings.
+
+Folding differs from lowercasing: lowercasing `ΣΊΣΥΦΟΣ` ends in the final sigma `ς`, while folding maps every sigma to `σ`. An implementation must fold from the table, never through its runtime's lowercase function.
+
+Folding serves ordering alone. It never changes a stored value, an analysed token, or anything written to disk or to the wire.
+
+The fold table is part of this specification, and every implementation ships it. Changing the table is a breaking change to the specification's major version, so the registration check in [Node Registration](distribution/cluster.md#version) keeps engines with different tables out of one cluster. Unicode guarantees that a folding never changes once its character is assigned, so a table regenerated from a later Unicode version differs only for characters the earlier version left unassigned.
+
+### Test Vectors
+
+Folding:
+
+| Input | Code points | Folded | Code points |
+|-------|-------------|--------|-------------|
+| `apple` | U+0061 U+0070 U+0070 U+006C U+0065 | `apple` | unchanged |
+| `Straße` | U+0053 U+0074 U+0072 U+0061 U+00DF U+0065 | `strasse` | U+0073 U+0074 U+0072 U+0061 U+0073 U+0073 U+0065 |
+| `ẞ` | U+1E9E | `ss` | U+0073 U+0073 |
+| `ﬃ` | U+FB03 | `ffi` | U+0066 U+0066 U+0069 |
+| `İ` | U+0130 | `i` + combining dot | U+0069 U+0307 |
+| `ΣΊΣΥΦΟΣ` | U+03A3 U+038A U+03A3 U+03A5 U+03A6 U+039F U+03A3 | `σίσυφοσ` | U+03C3 U+03AF U+03C3 U+03C5 U+03C6 U+03BF U+03C3 |
+
+Code point order, listed ascending:
+
+```text
+""  <  "B"  <  "a"  <  "doc-1"  <  "doc-10"  <  "doc-2"  <  U+FF61  <  U+1F600
+```
+
+The last pair is the trap the adjustment exists for: an unadjusted UTF-16 comparison puts U+1F600 first, because its high surrogate 0xD83D compares below 0xFF61.
+
+Sort value order for strings, listed ascending:
+
+```text
+""  <  "Apple"  <  "apple"  <  "Banana"  <  "FUSS"  <  "Fuß"  <  "fuss"  <  "Zebra"  <  "école"
+```
+
+`Apple` precedes `apple` because their folds are equal and the raw comparison decides. `FUSS`, `Fuß`, and `fuss` are adjacent because all three fold to `fuss`. `école` orders last because `é` folds to itself and U+00E9 is above `z`.
+
+An implementation must reproduce both lists exactly.
+
+---
+
 ## Reciprocal Rank Fusion
 
 RRF is the default hybrid fusion strategy. It combines ranked lists from different search modes, such as BM25 text results and vector similarity results, by fusing on rank position instead of score magnitude.
@@ -512,7 +599,7 @@ Three properties follow:
 
 - **RRF needs no normalisation.** BM25 scores and cosine similarities have different distributions, and their rank positions compare directly.
 - **A document in one list only** takes a contribution from that list alone, and its contribution from a list it is missing from is 0, which is the same as ranking it infinitely far down.
-- **Ties break by document ID**, compared lexicographically, which keeps pagination deterministic.
+- **Ties break by document ID**, compared in [code point order](#code-point-order), which keeps pagination deterministic.
 
 ---
 

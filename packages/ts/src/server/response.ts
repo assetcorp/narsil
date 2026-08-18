@@ -1,4 +1,5 @@
 import type { HttpResponse } from 'uWebSockets.js'
+import { encodeJson } from '../json-encoding'
 import type { ResponseAbort } from './request'
 import type { ErrorEnvelope } from './types'
 
@@ -66,7 +67,7 @@ function streamBody(
  * above {@link STREAM_THRESHOLD} are streamed so a slow reader cannot pin the
  * whole payload in native memory; this needs the request's abort handle. */
 export function sendJson(res: HttpResponse, data: unknown, status = 200, abort?: ResponseAbort): void {
-  const payload = JSON.stringify(data)
+  const payload = encodeJson(data)
   if (abort && payload !== undefined && Buffer.byteLength(payload) >= STREAM_THRESHOLD) {
     streamBody(res, abort, Buffer.from(payload, 'utf8'), status, 'application/json')
     return
@@ -84,7 +85,7 @@ export function sendError(
   details?: Record<string, unknown>,
 ): void {
   const body: ErrorEnvelope = { error: details ? { code, message, details } : { code, message } }
-  const payload = JSON.stringify(body)
+  const payload = encodeJson(body)
   res.cork(() => {
     res.writeStatus(statusLine(status)).writeHeader('Content-Type', 'application/json').end(payload)
   })

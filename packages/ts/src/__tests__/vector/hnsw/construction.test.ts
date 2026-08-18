@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createHNSWIndex, type HNSWIndex } from '../../../vector/hnsw'
 import { createVectorStore, type VectorStore } from '../../../vector/vector-store'
-import { DIM, insertVec, randomVector, vectorFromValues } from './fixtures'
+import { DIM, insertVec, seededVector, vectorFromValues } from './fixtures'
 
 describe('HNSWIndex construction and basic operations', () => {
   let store: VectorStore
@@ -20,7 +20,7 @@ describe('HNSWIndex construction and basic operations', () => {
   })
 
   it('inserts a single vector and sets it as entry point', () => {
-    insertVec(store, index, 'doc1', randomVector(DIM))
+    insertVec(store, index, 'doc1', seededVector(DIM, 10))
 
     expect(index.size).toBe(1)
     expect(index.has('doc1')).toBe(true)
@@ -30,7 +30,7 @@ describe('HNSWIndex construction and basic operations', () => {
 
   it('inserts multiple vectors', () => {
     for (let i = 0; i < 20; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
     expect(index.size).toBe(20)
   })
@@ -51,14 +51,14 @@ describe('HNSWIndex construction and basic operations', () => {
   })
 
   it('reports has correctly', () => {
-    insertVec(store, index, 'doc1', randomVector(DIM))
+    insertVec(store, index, 'doc1', seededVector(DIM, 24))
     expect(index.has('doc1')).toBe(true)
     expect(index.has('nonexistent')).toBe(false)
   })
 
   it('clears all data', () => {
     for (let i = 0; i < 10; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
     index.clear()
 
@@ -69,7 +69,7 @@ describe('HNSWIndex construction and basic operations', () => {
 
   it('iterates entries', () => {
     for (let i = 0; i < 5; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     const entries = Array.from(index.entries())

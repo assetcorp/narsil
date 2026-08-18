@@ -9,25 +9,16 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SearchRouteImport } from './routes/search'
-import { Route as RelevanceRouteImport } from './routes/relevance'
-import { Route as InspectorRouteImport } from './routes/inspector'
-import { Route as BenchmarkRouteImport } from './routes/benchmark'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as BenchmarkRouteImport } from './routes/benchmark'
+import { Route as DocumentsRouteImport } from './routes/documents'
+import { Route as InspectorRouteImport } from './routes/inspector'
+import { Route as RelevanceRouteImport } from './routes/relevance'
+import { Route as SearchRouteImport } from './routes/search'
 
-const SearchRoute = SearchRouteImport.update({
-  id: '/search',
-  path: '/search',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RelevanceRoute = RelevanceRouteImport.update({
-  id: '/relevance',
-  path: '/relevance',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const InspectorRoute = InspectorRouteImport.update({
-  id: '/inspector',
-  path: '/inspector',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BenchmarkRoute = BenchmarkRouteImport.update({
@@ -35,15 +26,31 @@ const BenchmarkRoute = BenchmarkRouteImport.update({
   path: '/benchmark',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const DocumentsRoute = DocumentsRouteImport.update({
+  id: '/documents',
+  path: '/documents',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InspectorRoute = InspectorRouteImport.update({
+  id: '/inspector',
+  path: '/inspector',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RelevanceRoute = RelevanceRouteImport.update({
+  id: '/relevance',
+  path: '/relevance',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SearchRoute = SearchRouteImport.update({
+  id: '/search',
+  path: '/search',
   getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/benchmark': typeof BenchmarkRoute
+  '/documents': typeof DocumentsRoute
   '/inspector': typeof InspectorRoute
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
@@ -51,6 +58,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/benchmark': typeof BenchmarkRoute
+  '/documents': typeof DocumentsRoute
   '/inspector': typeof InspectorRoute
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
@@ -59,21 +67,42 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/benchmark': typeof BenchmarkRoute
+  '/documents': typeof DocumentsRoute
   '/inspector': typeof InspectorRoute
   '/relevance': typeof RelevanceRoute
   '/search': typeof SearchRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/benchmark' | '/inspector' | '/relevance' | '/search'
+  fullPaths:
+    | '/'
+    | '/benchmark'
+    | '/documents'
+    | '/inspector'
+    | '/relevance'
+    | '/search'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/benchmark' | '/inspector' | '/relevance' | '/search'
-  id: '__root__' | '/' | '/benchmark' | '/inspector' | '/relevance' | '/search'
+  to:
+    | '/'
+    | '/benchmark'
+    | '/documents'
+    | '/inspector'
+    | '/relevance'
+    | '/search'
+  id:
+    | '__root__'
+    | '/'
+    | '/benchmark'
+    | '/documents'
+    | '/inspector'
+    | '/relevance'
+    | '/search'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BenchmarkRoute: typeof BenchmarkRoute
+  DocumentsRoute: typeof DocumentsRoute
   InspectorRoute: typeof InspectorRoute
   RelevanceRoute: typeof RelevanceRoute
   SearchRoute: typeof SearchRoute
@@ -81,25 +110,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/search': {
-      id: '/search'
-      path: '/search'
-      fullPath: '/search'
-      preLoaderRoute: typeof SearchRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/relevance': {
-      id: '/relevance'
-      path: '/relevance'
-      fullPath: '/relevance'
-      preLoaderRoute: typeof RelevanceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/inspector': {
-      id: '/inspector'
-      path: '/inspector'
-      fullPath: '/inspector'
-      preLoaderRoute: typeof InspectorRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/benchmark': {
@@ -109,11 +124,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BenchmarkRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/documents': {
+      id: '/documents'
+      path: '/documents'
+      fullPath: '/documents'
+      preLoaderRoute: typeof DocumentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/inspector': {
+      id: '/inspector'
+      path: '/inspector'
+      fullPath: '/inspector'
+      preLoaderRoute: typeof InspectorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/relevance': {
+      id: '/relevance'
+      path: '/relevance'
+      fullPath: '/relevance'
+      preLoaderRoute: typeof RelevanceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/search': {
+      id: '/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof SearchRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -122,6 +158,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BenchmarkRoute: BenchmarkRoute,
+  DocumentsRoute: DocumentsRoute,
   InspectorRoute: InspectorRoute,
   RelevanceRoute: RelevanceRoute,
   SearchRoute: SearchRoute,

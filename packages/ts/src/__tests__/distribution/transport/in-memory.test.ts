@@ -221,17 +221,51 @@ describe('InMemoryTransport', () => {
       await expect(transportA.stream('node-b', makeMessage(), () => {})).rejects.toThrow(TransportError)
     })
 
-    it('handles empty stream with no chunks', async () => {
-      await transportB.listen((_message, _respond) => {
-        /* no respond calls means no chunks */
+    it('fails a stream the peer answers with no chunks', async () => {
+      await transportB.listen(() => undefined)
+
+      await expect(transportA.stream('node-b', makeMessage(), () => {})).rejects.toMatchObject({
+        code: TransportErrorCodes.PEER_UNAVAILABLE,
+      })
+    })
+
+    it('fails a stream to a peer that registered no listener', async () => {
+      createInMemoryTransport('node-c', network)
+
+      await expect(transportA.stream('node-c', makeMessage(), () => {})).rejects.toMatchObject({
+        code: TransportErrorCodes.PEER_UNAVAILABLE,
+      })
+    })
+
+    it('fails a stream the peer abandons after its first chunk', async () => {
+      await transportB.listen(async (message, respond) => {
+        await respond({ ...message, sourceId: 'node-b', payload: new Uint8Array([1]) })
+        throw new Error('the snapshot source failed halfway')
       })
 
       const received: Uint8Array[] = []
-      await transportA.stream('node-b', makeMessage(), chunk => {
-        received.push(chunk)
+      await expect(
+        transportA.stream('node-b', makeMessage(), chunk => {
+          received.push(chunk)
+        }),
+      ).rejects.toThrow('the snapshot source failed halfway')
+      expect(received).toHaveLength(1)
+    })
+
+    it('delivers each chunk to the caller before the peer produces the next', async () => {
+      const order: string[] = []
+      await transportB.listen(async (message, respond) => {
+        for (let i = 0; i < 3; i++) {
+          order.push(`produced ${i}`)
+          await respond({ ...message, sourceId: 'node-b', payload: new Uint8Array([i]) })
+        }
       })
 
-      expect(received).toHaveLength(0)
+      await transportA.stream('node-b', makeMessage(), chunk => {
+        order.push(`received ${chunk[0]}`)
+      })
+
+      expect(order).toEqual(['produced 0', 'received 0', 'produced 1', 'received 1', 'produced 2', 'received 2'])
     })
   })
 

@@ -15,8 +15,8 @@ const vectorSchema: SchemaDefinition = {
   embedding: 'vector[32]' as const,
 }
 
-function randomVector(dim: number): number[] {
-  return Array.from({ length: dim }, () => Math.random() * 2 - 1)
+function seededVector(dim: number, seed: number): number[] {
+  return Array.from({ length: dim }, (_, i) => Math.sin(seed * (i + 1) * 1.618) * Math.cos(seed * 0.7 + i))
 }
 
 describe('capacity + rebalancing + strict mode integration', () => {
@@ -95,10 +95,10 @@ describe('capacity + rebalancing + strict mode integration', () => {
     await narsil.createIndex('vectors', { schema: vectorSchema, language: 'english' })
 
     for (let i = 0; i < 50; i++) {
-      await narsil.insert('vectors', { title: `Vector Document ${i}`, embedding: randomVector(32) })
+      await narsil.insert('vectors', { title: `Vector Document ${i}`, embedding: seededVector(32, i + 1) })
     }
 
-    const queryVec = randomVector(32)
+    const queryVec = seededVector(32, 201)
 
     const before = await narsil.query('vectors', {
       mode: 'vector',

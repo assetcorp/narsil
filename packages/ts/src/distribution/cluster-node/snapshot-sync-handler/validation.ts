@@ -55,18 +55,18 @@ export const REQUEST_DECODE_OPTIONS = {
   keyDecoder: null,
 } as const
 
-export function decodeRequest(
+export async function decodeRequest(
   message: TransportMessage,
   sink: SingleResponseSink,
   deps: SnapshotSyncHandlerDeps,
-): SnapshotSyncRequestPayload | null {
+): Promise<SnapshotSyncRequestPayload | null> {
   try {
     const decoded = decode(message.payload, REQUEST_DECODE_OPTIONS) as unknown
     return validateSnapshotSyncRequestPayload(decoded)
   } catch (err) {
     const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID
     const errMessage = err instanceof Error ? err.message : String(err)
-    respondError(sink, deps.nodeId, message.requestId, code, errMessage)
+    await respondError(sink, deps.nodeId, message.requestId, code, errMessage)
     return null
   }
 }

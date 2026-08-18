@@ -46,7 +46,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsup && node scripts/check-browser-bundle.mjs && tsx scripts/api-surface.ts",
+    "build": "rm -rf dist && tsup && node scripts/check-browser-bundle.mjs && tsx scripts/api-surface.ts",
     "test": "vitest run --exclude='**/vector/recall.test.ts'",
     "test:etcd": "vitest run src/__tests__/distribution/coordinator/etcd-integration/*.test.ts",
     "test:watch": "vitest",
@@ -61,6 +61,8 @@
     "api:write": "tsx scripts/api-surface.ts --write",
     "lookalikes": "tsx scripts/lookalike-counts.ts",
     "lookalikes:collect": "tsx scripts/lookalike-counts.ts --collect",
+    "fold-table": "tsx scripts/fold-table.ts",
+    "fold-table:write": "tsx scripts/fold-table.ts --write",
     "lint": "biome check src/",
     "typecheck:src": "tsc --noEmit",
     "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
@@ -104,6 +106,10 @@
       "import": "./dist/vector/hnsw-build-worker.mjs",
       "types": "./dist/vector/hnsw-build-worker.d.ts"
     },
+    "./vector/search-worker": {
+      "import": "./dist/vector/search-worker.mjs",
+      "types": "./dist/vector/search-worker.d.ts"
+    },
     "./embeddings/openai": {
       "import": "./dist/embeddings/openai.mjs",
       "types": "./dist/embeddings/openai.d.ts"
@@ -124,9 +130,29 @@
       "import": "./dist/distribution/coordinator/etcd.mjs",
       "types": "./dist/distribution/coordinator/etcd.d.ts"
     },
+    "./distribution/transport/tcp": {
+      "import": "./dist/distribution/transport/tcp.mjs",
+      "types": "./dist/distribution/transport/tcp.d.ts"
+    },
+    "./distribution/transport/in-memory": {
+      "import": "./dist/distribution/transport/in-memory.mjs",
+      "types": "./dist/distribution/transport/in-memory.d.ts"
+    },
+    "./distribution/transport/grpc": {
+      "import": "./dist/distribution/transport/grpc.mjs",
+      "types": "./dist/distribution/transport/grpc.d.ts"
+    },
     "./server": {
       "import": "./dist/server.mjs",
       "types": "./dist/server.d.ts"
+    },
+    "./client": {
+      "import": "./dist/client.mjs",
+      "types": "./dist/client.d.ts"
+    },
+    "./react": {
+      "import": "./dist/react.mjs",
+      "types": "./dist/react.d.ts"
     }
   },
   "files": [
@@ -140,11 +166,17 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.4",
     "@delali/narsil-embeddings-transformers": "workspace:*",
+    "@grpc/grpc-js": "1.14.4",
     "@microsoft/api-extractor": "7.58.12",
     "@types/node": "22.15.32",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
     "@vitest/coverage-v8": "4.0.18",
     "etcd3": "1.1.2",
     "fflate": "0.8.3",
+    "jsdom": "28.1.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
     "selfsigned": "5.5.0",
     "tsup": "8.5.1",
     "tsx": "4.21.0",
@@ -154,11 +186,19 @@
     "wabt": "1.0.39"
   },
   "peerDependencies": {
+    "@grpc/grpc-js": "1.14.4",
     "etcd3": "1.1.2",
+    "react": ">=19.2.0",
     "uWebSockets.js": ">=20.0.0"
   },
   "peerDependenciesMeta": {
+    "@grpc/grpc-js": {
+      "optional": true
+    },
     "etcd3": {
+      "optional": true
+    },
+    "react": {
       "optional": true
     },
     "uWebSockets.js": {

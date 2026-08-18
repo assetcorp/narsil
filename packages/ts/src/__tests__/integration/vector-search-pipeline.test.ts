@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { ErrorCodes, NarsilError } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
 import type { IndexConfig, SchemaDefinition } from '../../types/schema'
 
@@ -6,6 +7,7 @@ const DIM = 8
 
 const schema: SchemaDefinition = {
   title: 'string',
+  category: 'string',
   embedding: `vector[${DIM}]`,
 }
 
@@ -20,10 +22,10 @@ function paddedVector(lead: number, rest = 0): number[] {
   return v
 }
 
-function randomVector(): number[] {
+function seededVector(seed: number): number[] {
   const v: number[] = []
   for (let i = 0; i < DIM; i++) {
-    v.push(Math.random() * 2 - 1)
+    v.push(Math.sin(seed * (i + 1) * 1.618) * Math.cos(seed * 0.7 + i))
   }
   return v
 }
@@ -53,7 +55,7 @@ describe('vector search through Narsil query API', () => {
     expect(result.hits).toHaveLength(2)
     expect(result.hits[0].id).toBe('near')
     expect(result.hits[1].id).toBe('mid')
-    expect(result.hits[0].score).toBeGreaterThan(result.hits[1].score)
+    expect(result.hits[0].score).toBeGreaterThan(result.hits[1].score ?? Number.NaN)
   })
 
   it('respects the limit parameter', async () => {
@@ -92,13 +94,13 @@ describe('vector search through Narsil query API', () => {
 
   it('passes efSearch through the query pipeline', async () => {
     for (let i = 0; i < 30; i++) {
-      await narsil.insert('docs', { title: `doc ${i}`, embedding: randomVector() })
+      await narsil.insert('docs', { title: `doc ${i}`, embedding: seededVector(i + 1) })
     }
 
     const result = await narsil.query('docs', {
       vector: {
         field: 'embedding',
-        value: randomVector(),
+        value: seededVector(202),
         efSearch: 200,
       },
       limit: 5,
@@ -125,6 +127,59 @@ describe('vector search through Narsil query API', () => {
     expect(result.hits[0].id).toBe('close')
   })
 
+  it('returns only filter-matching documents from a filtered vector query', async () => {
+    for (let i = 0; i < 12; i++) {
+      const lead = 1.0 - i * 0.05
+      await narsil.insert(
+        'docs',
+        { title: `doc ${i}`, category: i % 2 === 0 ? 'keep' : 'drop', embedding: paddedVector(lead, 0.01) },
+        `doc-${i}`,
+      )
+    }
+
+    const result = await narsil.query('docs', {
+      vector: { field: 'embedding', value: paddedVector(1.0, 0.0), metric: 'cosine' },
+      filters: { fields: { category: { eq: 'keep' } } },
+      limit: 4,
+    })
+
+    expect(result.hits.map(h => h.id)).toEqual(['doc-0', 'doc-2', 'doc-4', 'doc-6'])
+  })
+
+  it('returns only filter-matching documents from a filtered hybrid query', async () => {
+    await narsil.insert(
+      'docs',
+      { title: 'wireless headphones review', category: 'keep', embedding: paddedVector(0.9, 0.1) },
+      'kept-both',
+    )
+    await narsil.insert(
+      'docs',
+      { title: 'wireless earbuds review', category: 'drop', embedding: paddedVector(0.95, 0.05) },
+      'dropped-both',
+    )
+    await narsil.insert(
+      'docs',
+      { title: 'cooking recipes', category: 'keep', embedding: paddedVector(0.85, 0.15) },
+      'kept-vec-only',
+    )
+
+    const result = await narsil.query('docs', {
+      term: 'wireless',
+      vector: { field: 'embedding', value: paddedVector(1.0, 0.0) },
+      mode: 'hybrid',
+      hybrid: { alpha: 0.5 },
+      filters: { fields: { category: { eq: 'keep' } } },
+      limit: 3,
+    })
+
+    const ids = result.hits.map(h => h.id)
+    expect(ids).toContain('kept-both')
+    expect(ids).not.toContain('dropped-both')
+    for (const hit of result.hits) {
+      expect(['kept-both', 'kept-vec-only']).toContain(hit.id)
+    }
+  })
+
   it('returns results in hybrid mode combining text and vector', async () => {
     await narsil.insert(
       'docs',
@@ -145,5 +200,24 @@ describe('vector search through Narsil query API', () => {
     expect(result.hits.length).toBeGreaterThan(0)
     const ids = result.hits.map(h => h.id)
     expect(ids).toContain('text-and-vec')
+  })
+
+  it('rejects a hybrid query carrying a sort with SEARCH_INVALID_MODE', async () => {
+    await narsil.insert('docs', { title: 'wireless headphones', embedding: paddedVector(0.9, 0.1) }, 'doc-1')
+
+    let error: unknown
+    try {
+      await narsil.query('docs', {
+        term: 'wireless',
+        vector: { field: 'embedding', value: paddedVector(1.0, 0.0) },
+        mode: 'hybrid',
+        sort: { title: 'asc' },
+        limit: 3,
+      })
+    } catch (e) {
+      error = e
+    }
+    expect(error).toBeInstanceOf(NarsilError)
+    expect((error as NarsilError).code).toBe(ErrorCodes.SEARCH_INVALID_MODE)
   })
 })

@@ -113,7 +113,7 @@ export async function updateDocument(
       requestId: docId,
     })
     try {
-      updateDocumentVectors(docId, updateExtractedVectors, updateVecIndexes)
+      updateDocumentVectors(docId, updateExtractedVectors, updateVecIndexes, updateManager.partitionIdOf(docId))
     } catch (err) {
       if (rollbackDoc) {
         try {

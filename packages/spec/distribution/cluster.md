@@ -19,6 +19,7 @@ ClusterCoordinator {
 
   async getAllocation(indexName: string) -> AllocationTable or absent
   async putAllocation(indexName: string, table: AllocationTable, expectedVersion: uint64 or absent) -> boolean
+  async deleteAllocation(indexName: string) -> nothing
   async watchAllocation(handler: (event: AllocationEvent) -> nothing) -> (() -> nothing)
 
   async getPartitionState(indexName: string, partitionId: uint32) -> PartitionState
@@ -33,6 +34,8 @@ ClusterCoordinator {
 
   async getSchema(indexName: string) -> SchemaDefinition or absent
   async putSchema(indexName: string, schema: SchemaDefinition) -> nothing
+  async dropSchema(indexName: string) -> nothing
+  async listSchemas() -> List<string>
   async watchSchemas(handler: (event: SchemaEvent) -> nothing) -> (() -> nothing)
 
   async getLeaseHolder(key: string) -> string or absent
@@ -66,6 +69,11 @@ ClusterCoordinator {
 - `putAllocation` takes an optimistic concurrency check through `expectedVersion`. With a version supplied, the write succeeds only when the stored table carries that version. With `expectedVersion` absent, the write succeeds only when no table exists for the index yet. It returns true when the write succeeded and false when the check failed.
 - That check is what stops a split brain: a controller that has lost its lease cannot overwrite a newer table written by its successor, because the version has already moved on.
 
+### deleteAllocation(indexName)
+
+- Removes the allocation table of one index, which is the last step of the [deletion flow](#index-deletion-flow).
+- It is idempotent, so deleting a table that does not exist is not an error.
+
 ### watchAllocation(handler)
 
 - Fires whenever any allocation table changes, carrying the index name and the new table.
@@ -87,9 +95,11 @@ ClusterCoordinator {
 - Sets `key` to `value` and returns true when the current value equals `expected`, and returns false otherwise.
 - With `expected` absent, it succeeds only when the key does not exist.
 
-### getSchema, putSchema, and watchSchemas
+### getSchema, putSchema, dropSchema, listSchemas, and watchSchemas
 
 - Schema metadata is stored in the coordinator, not in the replication log; see [replication.md](replication.md).
+- `dropSchema` removes the stored schema and fires a `schema_dropped` event, which starts the [deletion flow](#index-deletion-flow). It is idempotent.
+- `listSchemas` returns the name of every stored schema, which is how a newly elected controller finds the indexes it must reconcile.
 - `watchSchemas` fires when an index schema is created or dropped, which is how a node discovers a new index and learns that one has gone.
 
 ### getLeaseHolder(key)
@@ -380,11 +390,14 @@ Creating an index in cluster mode stores index-level configuration in the coordi
 
 ```text
 IndexMetadata {
+  indexUuid:         string   (unique identifier, such as a UUID v7)
   partitionCount:    uint32
   replicationFactor: uint8
   constraints:       AllocationConstraints
 }
 ```
+
+The `indexUuid` identifies the index for as long as it exists, and the creating node generates it. An index created again under a dropped name carries a new `indexUuid`, so the two indexes stay distinct where their names do not. A node must compare the value with the one it persisted before it adopts a local copy; see [Joining the Cluster](#joining-the-cluster).
 
 The record is serialised as MessagePack and stored in the coordinator's general key-value store under a well-known key:
 
@@ -396,10 +409,11 @@ _narsil/index/{indexName}/config
 
 ```text
 1. The node receiving the create request:
-   a. writes the index metadata with
+   a. generates a fresh indexUuid
+   b. writes the index metadata with
       compareAndSet('_narsil/index/{indexName}/config', absent, bytes),
       where the absent check blocks a duplicate creation
-   b. writes the schema with putSchema(indexName, schema), which
+   c. writes the schema with putSchema(indexName, schema), which
       fires a schema_created event
 
 2. The controller observes that event:
@@ -409,7 +423,7 @@ _narsil/index/{indexName}/config
       replicationFactor, and constraints it found
    c. it writes the first allocation table with putAllocation
 
-3. A creating node that crashes between steps 1a and 1b leaves
+3. A creating node that crashes between steps 1b and 1c leaves
    metadata behind with no schema event, so the controller does
    nothing and the metadata is orphaned. The next create call for
    the same name fails its compareAndSet, because the key already
@@ -418,13 +432,52 @@ _narsil/index/{indexName}/config
 
 4. A controller that crashes between steps 2a and 2c leaves a
    schema with no allocation. The next controller finds the schema
-   through getSchema and no table through getAllocation, and runs
+   through listSchemas and no table through getAllocation, and runs
    the allocator to finish the job.
 ```
 
-The `partitionCount` is fixed once the index exists. Changing it means creating a new index and reindexing into it.
+The `partitionCount` is fixed once the index exists. Changing it means creating a new index and reindexing into it. Every node must create its local index with exactly `partitionCount` partitions, so that a serialised partition loads unchanged on any holder.
 
 The `replicationFactor` can change after creation by updating the allocation table, and the controller applies the new factor on the next rebalance.
+
+### Index Deletion Flow
+
+Deleting an index reverses the creation flow, and the controller drives the teardown so that every holder learns of it through the allocation watch it already runs.
+
+```text
+1. The node receiving the drop request:
+   a. clears the index metadata with
+      compareAndSet('_narsil/index/{indexName}/config', current, empty)
+   b. drops the schema with dropSchema(indexName), which fires a
+      schema_dropped event
+
+2. The controller observes that event:
+   a. it writes an allocation table with no assignments through
+      putAllocation, using the stored table's version as the
+      expected version
+   b. it deletes the table with deleteAllocation
+
+3. Every node holding a partition observes the empty table, drops
+   the partitions it held, and drops its local index once it holds
+   no partition of that index.
+
+4. A controller that crashes between steps 2a and 2b leaves an
+   empty table behind. Every reader must treat an allocation table
+   with no assignments as absent, so the next create call for the
+   same name allocates afresh and the empty table is overwritten.
+
+5. An empty metadata value under the index config key counts as
+   absent, so the next create call for the same name may replace
+   it with fresh metadata. A non-empty value still blocks the
+   create, exactly as the creation flow describes.
+
+6. A node that stays offline for the whole teardown keeps its
+   local copy, because it observes no allocation change while it
+   is gone. It finds that copy orphaned when it rejoins; see
+   [Joining the Cluster](#joining-the-cluster).
+```
+
+A drop is not atomic across nodes: a query routed while the teardown runs can reach a node that already dropped its partitions, and the coordinator then reports the failure through the partial-results rules in [query-routing.md](query-routing.md#partial-results).
 
 ---
 
@@ -435,16 +488,42 @@ The `replicationFactor` can change after creation by updating the allocation tab
 ```text
 1. The node starts and opens a cluster coordinator connection.
 2. The node calls registerNode with its registration.
-3. The node reads the current allocation table with getAllocation.
-4. For each partition assigned to it:
+3. For each index it holds locally, the node reads the stored
+   metadata with get('_narsil/index/{indexName}/config') and
+   compares the stored indexUuid with the one it persisted:
+   a. equal values mean the local copy belongs to this index, and
+      the node adopts it
+   b. differing values mean the cluster created another index
+      under the name this copy carries, so the node drops the
+      copy and takes the new index on from its primary
+   c. a local copy that carries no identity takes the stored one,
+      which is how an index created before the field existed
+      joins, and the node adopts it
+   d. metadata the node cannot read, and a name the coordinator
+      holds none for, leave the copy orphaned, and the rules
+      below govern it
+4. The node reads the current allocation table with getAllocation.
+5. For each partition assigned to it:
    a. a partition in INITIALISING starts bootstrapping from the
       primary, following the sync protocol in replication.md
-   b. a partition in ACTIVE loads from local persistence when that
-      exists, and otherwise bootstraps from the primary
-5. The node starts watching allocation changes with watchAllocation.
-6. The node starts accepting queries and mutations over the node
+   b. a partition in ACTIVE loads from an adopted local copy when
+      that exists, and otherwise bootstraps from the primary
+6. The node starts watching allocation changes with watchAllocation.
+7. The node starts accepting queries and mutations over the node
    transport.
 ```
+
+A node must persist the `indexUuid` alongside its local copy, in the `index_uuid` field of the [index metadata payload](../envelope.md#index-metadata-payload), so that the comparison survives a restart. A node must also record the identity on every index it bootstraps, whether it took the partition on as primary or as replica, because an index that carries none proves nothing at the next join.
+
+Step 3b is the only step that deletes local data, and the stored metadata is what permits it: metadata naming another index under the same name proves that the index this copy belongs to was dropped, so the copy holds documents no reader may see again.
+
+Three rules govern an orphaned copy:
+
+- The node must neither serve it nor adopt it into an index of the same name, because an index created again under a dropped name holds different documents.
+- The node must report it, naming the index and the reason the adoption failed, so that an operator can act on it.
+- The node must keep the data. Absent metadata follows equally from a dropped index, an unreachable coordinator, and a coordinator restored from a backup, and in the last two cases the local copy is the only one left.
+
+An operator deletes an orphaned copy explicitly, and every automatic path leaves it alone.
 
 ### Leaving the Cluster Gracefully
 

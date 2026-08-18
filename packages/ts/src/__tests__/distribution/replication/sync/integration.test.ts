@@ -139,11 +139,11 @@ describe('sync protocol integration', () => {
       primaryTerm: 1,
     }
 
-    await cluster.primaryTransport.listen((message: TransportMessage, respond) => {
+    await cluster.primaryTransport.listen(async (message: TransportMessage, respond) => {
       if (message.type === ReplicationMessageTypes.SYNC_REQUEST) {
-        respond(handleSyncRequest(decodeSyncRequest(message), deps).response)
+        await respond(handleSyncRequest(decodeSyncRequest(message), deps).response)
       } else if (message.type === ReplicationMessageTypes.SNAPSHOT_CHUNK) {
-        handleSnapshotStream(deps, respond)
+        await handleSnapshotStream(deps, respond)
       }
     })
 
@@ -185,11 +185,11 @@ describe('sync protocol integration', () => {
       primaryTerm: 1,
     }
 
-    await cluster.primaryTransport.listen((message: TransportMessage, respond) => {
+    await cluster.primaryTransport.listen(async (message: TransportMessage, respond) => {
       if (message.type === ReplicationMessageTypes.SYNC_REQUEST) {
-        respond(handleSyncRequest(decodeSyncRequest(message), deps).response)
+        await respond(handleSyncRequest(decodeSyncRequest(message), deps).response)
       } else if (message.type === ReplicationMessageTypes.SNAPSHOT_CHUNK) {
-        handleSnapshotStream(deps, respond)
+        await handleSnapshotStream(deps, respond)
       }
     })
 
@@ -291,11 +291,11 @@ describe('sync protocol integration', () => {
     const corruptedBytes = realBytes.slice()
     corruptedBytes[Math.floor(corruptedBytes.length / 2)] ^= 0xff
 
-    await cluster.primaryTransport.listen((message: TransportMessage, respond) => {
+    await cluster.primaryTransport.listen(async (message: TransportMessage, respond) => {
       if (message.type === ReplicationMessageTypes.SYNC_REQUEST) {
-        respond(handleSyncRequest(decodeSyncRequest(message), deps).response)
+        await respond(handleSyncRequest(decodeSyncRequest(message), deps).response)
       } else if (message.type === ReplicationMessageTypes.SNAPSHOT_CHUNK) {
-        handleSnapshotStream(deps, respond, corruptedBytes)
+        await handleSnapshotStream(deps, respond, corruptedBytes)
       }
     })
 

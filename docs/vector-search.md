@@ -2,7 +2,7 @@
 
 A vector field stores one dense embedding per document and answers nearest-neighbour queries over it. This guide covers the distance metrics, the HNSW graph a field promotes to, and the maintenance a changing index needs.
 
-Declare a `vector[N]` field in the schema and insert documents carrying arrays of that exact length. Small fields use an exact brute-force scan. Once a field reaches 1,024 vectors, the engine builds an HNSW graph in the background and switches the field to approximate search. The cutoff and graph parameters are configurable per index through `vectorPromotion`.
+Declare a `vector[N]` field in the schema and insert documents carrying arrays of that exact length. The engine scans a small field exactly, comparing the query against every vector in it. Once a field reaches 1,024 vectors, the engine builds an HNSW graph in the background and answers from that graph approximately instead. The cutoff and graph parameters are configurable per index through `vectorPromotion`.
 
 ```ts
 await narsil.createIndex('docs', {

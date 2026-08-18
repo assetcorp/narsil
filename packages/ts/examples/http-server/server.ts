@@ -11,6 +11,8 @@ import { createServer, type OnRequestHook, type ServerLimits } from '@delali/nar
  *   NARSIL_HOST              listen address           (default 0.0.0.0)
  *   NARSIL_PORT              listen port              (default 7700)
  *   NARSIL_DURABILITY_DIR    enable filesystem durability rooted at this path
+ *   NARSIL_WORKERS           run this many worker copies for parallel search and indexing (default off)
+ *   NARSIL_PROMOTION_THRESHOLD  documents in one index that trigger the worker copies (default 10000)
  *   NARSIL_API_KEY           require this bearer token / x-api-key when set
  *   NARSIL_MAX_BODY_BYTES    JSON body cap            (default 16 MiB)
  *   NARSIL_MAX_IMPORT_BYTES  NDJSON / restore cap     (default 100 MiB)
@@ -67,11 +69,21 @@ function buildAuthHook(): OnRequestHook | undefined {
 }
 
 async function buildEngine(): Promise<Narsil> {
+  const config: Parameters<typeof createNarsil>[0] = {}
   const directory = process.env.NARSIL_DURABILITY_DIR
   if (directory && directory.length > 0) {
-    return createNarsil({ durability: { directory } })
+    config.durability = { directory }
   }
-  return createNarsil()
+  const workerCount = intFromEnv('NARSIL_WORKERS')
+  if (workerCount !== undefined && workerCount > 0) {
+    const promotionThreshold = intFromEnv('NARSIL_PROMOTION_THRESHOLD')
+    config.workers = {
+      enabled: true,
+      count: workerCount,
+      ...(promotionThreshold !== undefined ? { promotionThreshold } : {}),
+    }
+  }
+  return createNarsil(config)
 }
 
 async function main(): Promise<void> {

@@ -1,31 +1,31 @@
+import type { Hit } from '@delali/narsil'
 import { useEffect, useState } from 'react'
-import type { NarsilBackend, QueryHit } from '../../backend'
 import type { QueryMetrics } from '../../lib/metrics'
+import { useQueryRunner } from '../../query-runner'
 import { Badge } from '../ui/badge'
 
 interface SideBySideProps {
   query: QueryMetrics
-  backend: NarsilBackend
 }
 
 const GRADE_LABELS = ['Not relevant', 'Relevant']
-const GRADE_COLORS = [
-  'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-]
+const GRADE_COLORS = ['bg-destructive/12 text-foreground', 'bg-chart-2/15 text-foreground']
 
-export function SideBySide({ query, backend }: SideBySideProps) {
-  const [narsilHits, setNarsilHits] = useState<QueryHit[]>([])
+export function SideBySide({ query }: SideBySideProps) {
+  const runQuery = useQueryRunner()
+  const [narsilHits, setNarsilHits] = useState<Hit[]>([])
 
   useEffect(() => {
-    let cancelled = false
-    backend.query({ indexName: 'scifact', term: query.queryText, limit: 10 }).then(res => {
-      if (!cancelled) setNarsilHits(res.hits)
-    })
+    const controller = new AbortController()
+    runQuery('scifact', { term: query.queryText, limit: 10 }, controller.signal)
+      .then(result => {
+        if (!controller.signal.aborted) setNarsilHits(result.hits)
+      })
+      .catch(() => undefined)
     return () => {
-      cancelled = true
+      controller.abort()
     }
-  }, [backend, query.queryText])
+  }, [runQuery, query.queryText])
 
   const expertRanking = Array.from(query.judgments.entries())
     .filter(([, rel]) => rel > 0)
@@ -72,7 +72,7 @@ export function SideBySide({ query, backend }: SideBySideProps) {
                   <span className="w-4 font-mono text-muted-foreground">{i + 1}</span>
                   <span className="flex-1 truncate font-mono">Doc {docId}</span>
                   {displacement !== null && displacement !== 0 && (
-                    <span className={`text-[10px] ${displacement > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    <span className={`text-[10px] ${displacement > 0 ? 'text-chart-2' : 'text-destructive'}`}>
                       {displacement > 0 ? `\u2191${displacement}` : `\u2193${Math.abs(displacement)}`}
                     </span>
                   )}

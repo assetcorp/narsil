@@ -14,7 +14,7 @@ The `NodeTransport` adapter covers the network layer between nodes. Every method
 NodeTransport {
   async send(target: string, message: TransportMessage) -> TransportMessage
   async stream(target: string, message: TransportMessage, handler: (chunk: bytes) -> nothing) -> nothing
-  async listen(handler: (message: TransportMessage, respond: (TransportMessage) -> nothing) -> nothing) -> (() -> nothing)
+  async listen(handler: (message: TransportMessage, respond: async (TransportMessage) -> nothing) -> nothing) -> (() -> nothing)
   async shutdown() -> nothing
 }
 ```
@@ -38,6 +38,8 @@ NodeTransport {
 - It returns an unsubscribe function that removes the handler, so a component such as the controller can tear its listener down on step-down without shutting the whole transport down.
 - A node must call `listen` before it can receive queries or replication entries.
 - Calling `listen` again replaces the previous handler, and the old unsubscribe function then does nothing.
+- `respond` completes once the transport has taken the reply, and a handler sending many replies must await each one before it builds the next.
+- A transport whose connection reports that it is full must hold that completion until the connection accepts more, so that a snapshot cannot outrun a slow receiver and exhaust the sender's memory. A transport that buffers without limit completes immediately.
 
 ### shutdown()
 
@@ -64,7 +66,9 @@ TransportMessage {
 | Type | Direction | Description |
 |------|-----------|-------------|
 | `replication.forward` | any node to primary | Forwards a client mutation to the partition's primary |
+| `replication.forward_batch` | any node to primary | Forwards many client mutations to a node that is primary for their partitions |
 | `replication.entry` | primary to replica | A replication log entry to apply |
+| `replication.entry_batch` | primary to replica | Contiguous log entries for one partition, applied in order |
 | `replication.ack` | replica to primary | Acknowledges a replicated entry |
 | `replication.sync_request` | replica to primary | Asks to start a sync, carrying lastSeqNo and lastPrimaryTerm |
 | `replication.sync_entries` | primary to replica | A batch of log entries for incremental catch-up |
@@ -84,6 +88,14 @@ TransportMessage {
 | `query.fetch_result` | data node to coordinator | Phase 2 response with full document bodies |
 | `query.stats` | coordinator to data node | DFS phase 0 statistics request |
 | `query.stats_result` | data node to coordinator | DFS phase 0 response with partition statistics |
+| `query.count` | coordinator to data node | Per-partition document counts for named partitions |
+| `query.count_result` | data node to coordinator | One count entry per named partition the node holds |
+| `query.list` | coordinator to data node | One id-ordered page of stored documents from named partitions |
+| `query.list_result` | data node to coordinator | The page entries with the values the merge orders by |
+| `query.suggest` | coordinator to data node | Prefix completions drawn from named partitions |
+| `query.suggest_result` | data node to coordinator | Completions with the document frequencies the coordinator sums |
+| `query.preflight` | coordinator to data node | Match count for a query over named partitions |
+| `query.preflight_result` | data node to coordinator | The match count, without any hits |
 
 ### Cluster Messages
 
@@ -111,7 +123,38 @@ A client mutation forwarded to the partition's primary. The primary turns it int
 }
 ```
 
-The primary handles each operation differently. An `insert` generates the embeddings when the index configures them and then writes an `INDEX` entry. An `update` reads the existing document, merges `updateFields`, generates any embeddings that changed, and writes an `INDEX` entry. A `remove` writes a `DELETE` entry.
+The primary handles each operation differently. An `insert` generates the embeddings when the index configures them and then writes an `INDEX` entry. An `update` reads the existing document, merges `updateFields`, generates any embeddings that changed, and writes an `INDEX` entry. An `update` whose `document` is present and whose `updateFields` is absent replaces the stored document whole. A `remove` writes a `DELETE` entry.
+
+### replication.forward_batch
+
+Many client mutations forwarded in one message to a node that is primary for their partitions. The receiver groups the operations by partition, applies each group through the same path a single forwarded mutation takes, and answers one result per operation.
+
+```text
+{
+  indexName:  string
+  operations: List<{
+    documentId:   string
+    operation:    'insert' or 'remove' or 'update'
+    document:     bytes or absent               (the full MessagePack document, for insert and update)
+    updateFields: Map<string, value> or absent  (the changed fields alone, for update)
+  }>
+}
+```
+
+A sender must keep one message under 1,000 operations and under 8 MB of document bytes, and it must split a larger batch across several messages. An operation whose partition the receiver is not primary for fails in the results rather than failing the message.
+
+The response carries one result per operation, in operation order:
+
+```text
+{
+  results: List<{
+    documentId:   string
+    success:      boolean
+    errorCode:    string or absent   (the NarsilError code, present when success is false)
+    errorMessage: string or absent   (present when success is false)
+  }>
+}
+```
 
 ### replication.entry
 
@@ -120,6 +163,16 @@ The primary handles each operation differently. An `insert` generates the embedd
   entry: ReplicationLogEntry   (see replication.md)
 }
 ```
+
+### replication.entry_batch
+
+```text
+{
+  entries: List<ReplicationLogEntry>   (see replication.md)
+}
+```
+
+The entries must belong to one partition of one index, share one `primaryTerm`, and carry contiguous ascending sequence numbers. The replica applies them in order and answers one `replication.ack` carrying the last entry's `seqNo`, which acknowledges every entry in the batch. A failure on any entry fails the whole batch.
 
 ### replication.ack
 
@@ -270,22 +323,23 @@ These types appear in more than one payload.
 
 ```text
 QueryParams {
-  term:        string or absent
-  filters:     FilterExpression or absent
-  sort:        List<SortField> or absent
-  group:       GroupConfig or absent
-  facets:      List<string> or absent
-  facetSize:   uint32 or absent                 (default 10, the bucket cap per facet field)
-  limit:       uint32                           (default 10)
-  offset:      uint32                           (default 0)
-  searchAfter: string or absent                 (base64-encoded cursor)
-  fields:      List<string> or absent           (the fields searched; absent means every text field)
-  boost:       Map<string, float32> or absent   (per-field boost)
-  tolerance:   uint8 or absent                  (fuzzy matching tolerance)
-  threshold:   float32 or absent                (minimum score)
-  scoring:     'local' or 'dfs' or 'broadcast'  (default 'local')
-  vector:      VectorQueryParams or absent
-  hybrid:      HybridConfig or absent
+  term:          string or absent
+  filters:       FilterExpression or absent
+  sort:          List<SortField> or absent
+  group:         GroupConfig or absent
+  facets:        List<string> or absent
+  facetSize:     uint32 or absent                 (default 10, the bucket cap per facet field)
+  limit:         uint32                           (default 10)
+  offset:        uint32                           (default 0)
+  searchAfter:   string or absent                 (base64-encoded cursor)
+  fields:        List<string> or absent           (the fields searched; absent means every text field)
+  boost:         Map<string, float32> or absent   (per-field boost)
+  tolerance:     uint8 or absent                  (fuzzy matching tolerance)
+  threshold:     float32 or absent                (minimum score)
+  includeScores: boolean or absent                (default false; a sorted query computes scores only where true)
+  scoring:       'local' or 'dfs' or 'broadcast'  (default 'local')
+  vector:        VectorQueryParams or absent
+  hybrid:        HybridConfig or absent
 }
 
 SortField {
@@ -360,11 +414,12 @@ HighlightConfig {
     totalHits:   uint32
   }>
   facets: Map<string, List<FacetBucket>> or absent
+  facetErrorBounds: Map<string, uint32> or absent
 }
 
 ScoredEntry {
   docId:      string
-  score:      float32
+  score:      float32 or absent       (absent when a sort suppressed scoring)
   sortValues: List<value> or absent   (present when the query specifies a sort)
 }
 
@@ -373,6 +428,12 @@ FacetBucket {
   count: uint32
 }
 ```
+
+`sortValues` carries the raw values of the sort fields, one per field in sort order, each a string, a number, a boolean, or nil, read from the document before any folding. The coordinator merges sorted results with the [sort value order](../algorithms.md#sort-value-order), so a data node must never send pre-folded or pre-transformed values.
+
+`score` is absent where the query named a sort without `includeScores`, because a [sorted query computes no relevance scores](../algorithms.md#string-ordering), and the coordinator then merges by sort values alone.
+
+`facetErrorBounds` holds one figure per field in `facets`, which is the largest count the node left out of that field, and 0 where the node sent every bucket it holds. A node that sends `facets` must send it, and the coordinator sums the figures across nodes to report the [error bound](query-routing.md#distributed-facets).
 
 ### query.fetch
 
@@ -420,6 +481,106 @@ FacetBucket {
 }
 ```
 
+### query.count
+
+```text
+{
+  indexName:    string
+  partitionIds: List<uint32>
+}
+```
+
+### query.count_result
+
+```text
+{
+  partitions: List<{
+    partitionId:         uint32
+    documentCount:       uint32
+    estimatedMemoryBytes: uint64
+  }>
+  language: string   (the language module the node's local index analyses with)
+}
+```
+
+The node answers for exactly the named partitions it holds, one entry per partition. The coordinator treats a named partition that is missing from every response as a failure, because a count with a partition missing is a wrong count rather than a partial one.
+
+### query.list
+
+```text
+{
+  indexName:    string
+  partitionIds: List<uint32>
+  cursor:       string or absent            (the listing cursor, passed unchanged to every node)
+  limit:        uint32
+  filters:      FilterExpression or absent
+  sort:         List<SortField> or absent   (field-value order; absent means document-id order)
+  fields:       List<string> or absent      (field projection; absent means every field)
+}
+```
+
+### query.list_result
+
+```text
+{
+  entries: List<{
+    docId:      string
+    document:   Map<string, value>
+    sortValues: List<value> or absent   (present when the request carries a sort)
+  }>
+  total:   uint32    (documents the listing covers in the named partitions)
+  hasMore: boolean   (true when matching documents remain past the returned page)
+}
+```
+
+The node lists from the named partitions alone, in the order the request names, and returns up to `limit` entries past the cursor. The coordinator merges the pages, by document id in code point order or by the [sort value order](../algorithms.md#sort-value-order) when the request sorts, truncates to the client's limit, sums `total` across responses, and encodes the next cursor from the last merged entry. The listing continues while the merge dropped entries past the client's limit or any node reported `hasMore`.
+
+### query.suggest
+
+```text
+{
+  indexName:    string
+  partitionIds: List<uint32>
+  prefix:       string
+  limit:        uint32   (the oversampled per-node count, ceiling(clientLimit * 1.5) + 10)
+}
+```
+
+### query.suggest_result
+
+```text
+{
+  terms: List<{
+    term:              string
+    documentFrequency: uint32
+  }>
+  analysisStale: boolean
+}
+```
+
+The node completes the prefix from the named partitions alone. The coordinator merges by term, sums the document frequencies, orders by merged frequency with ties by term in code point order, and truncates to the client's limit. The oversampled per-node count bounds the undercount the same way [Distributed Facets](query-routing.md#distributed-facets) bounds theirs, and the merged counts stay approximate for a term that falls below the per-node count somewhere.
+
+### query.preflight
+
+```text
+{
+  indexName:    string
+  partitionIds: List<uint32>
+  params:       QueryParams
+}
+```
+
+### query.preflight_result
+
+```text
+{
+  count:         uint32   (documents the query matches in the named partitions)
+  analysisStale: boolean
+}
+```
+
+The node counts matches in the named partitions alone, and the coordinator sums the counts. The count, list, suggest, and preflight operations fail rather than answer partially: a named partition with no `ACTIVE` copy, or a node that fails or times out, fails the whole operation, because each returns a figure a missing partition would silently falsify.
+
 ---
 
 ## Wire Format
@@ -465,11 +626,16 @@ TransportConfig {
 | Adapter | Transport | Use |
 |---------|-----------|-----|
 | TcpTransport | Raw TCP with MessagePack framing | Server to server, with the lowest overhead |
+| GrpcTransport | gRPC over HTTP/2, per [transport.proto](transport.proto) | Server to server, where gRPC tooling and infrastructure already exist |
 | InMemoryTransport | Direct function calls | Testing and single-process development |
+
+### gRPC Carrier
+
+The gRPC adapter implements the `narsil.transport.v1.NodeTransport` service defined in [transport.proto](transport.proto). A `Send` request and its response each carry one MessagePack-serialised `TransportMessage` in the `Envelope.message` field, so the envelope encoding in [Wire Format](#wire-format) stays the contract and gRPC only frames it. An `OpenStream` request carries its message the same way, and each `Chunk.data` in the reply stream is one chunk for the caller's handler, in order. A listener error travels as an `Envelope` reply whose message has type `error`, which keeps gRPC statuses for transport faults alone.
 
 ### Community Adapter Guidelines
 
-A community adapter, whether it carries gRPC, QUIC, HTTP/2, or Unix sockets, must:
+A community adapter, whether it carries QUIC, HTTP/2, or Unix sockets, must:
 
 - Serialise every message as MessagePack.
 - Support `send`, `stream`, and `listen`.

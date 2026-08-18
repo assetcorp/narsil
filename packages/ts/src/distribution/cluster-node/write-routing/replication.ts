@@ -1,10 +1,11 @@
 import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
+import { chunkByBudget, WIRE_BATCH_BUDGET } from '../../chunking'
 import { CONTROLLER_LEASE_KEY } from '../../cluster/controller/types'
 import type { PartitionAssignment } from '../../coordinator/types'
 import { requestInsyncRemoval } from '../../replication/insync'
-import { replicateToReplicas } from '../../replication/primary'
+import { replicateBatchToReplicas, replicateToReplicas } from '../../replication/primary'
 import type { ReplicationLogEntry } from '../../replication/types'
 import { getInSyncReplicaTargets, resolveNodeTargets } from './assignment'
 import type { WriteRoutingDeps } from './types'
@@ -148,4 +149,33 @@ export async function replicateEntry(
   const result = await replicateToReplicas(entry, replicaTargets, deps.transport, deps.nodeId, deps.resolveNodeTargets)
   await removeFailedReplicasFromInsync(entry, result.failed, deps)
   await assertPrimaryWriteAuthority(entry, deps)
+}
+
+export async function replicateEntryBatch(
+  entries: ReplicationLogEntry[],
+  assignment: PartitionAssignment,
+  deps: WriteRoutingDeps,
+): Promise<void> {
+  if (entries.length === 0) {
+    return
+  }
+  const lastEntry = entries[entries.length - 1]
+  const replicaTargets = getInSyncReplicaTargets(assignment, deps.nodeId)
+  const result = await replicateBatchToReplicas(
+    entries,
+    replicaTargets,
+    deps.transport,
+    deps.nodeId,
+    deps.resolveNodeTargets,
+  )
+  await removeFailedReplicasFromInsync(lastEntry, result.failed, deps)
+  await assertPrimaryWriteAuthority(lastEntry, deps)
+}
+
+export function chunkReplicationEntries<T extends { entry: ReplicationLogEntry }>(items: T[]): T[][] {
+  return chunkByBudget(items, {
+    ...WIRE_BATCH_BUDGET,
+    payloadBytesOf: item => item.entry.document?.byteLength ?? 0,
+    breaksRun: (item, previous) => item.entry.seqNo !== previous.entry.seqNo + 1,
+  })
 }

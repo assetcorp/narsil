@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createHNSWIndex, type HNSWIndex } from '../../../vector/hnsw'
 import { createVectorStore, type VectorStore } from '../../../vector/vector-store'
-import { DIM, insertVec, randomVector, removeVec } from './fixtures'
+import { DIM, insertVec, removeVec, seededVector } from './fixtures'
 
 describe('HNSWIndex graph structure integrity', () => {
   let store: VectorStore
@@ -16,7 +16,7 @@ describe('HNSWIndex graph structure integrity', () => {
     const connStore = createVectorStore()
     const connIndex = createHNSWIndex(DIM, connStore, { m: 4, efConstruction: 32, metric: 'cosine' })
     for (let i = 0; i < 50; i++) {
-      insertVec(connStore, connIndex, `doc${i}`, randomVector(DIM))
+      insertVec(connStore, connIndex, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     for (let i = 0; i < 25; i++) {
@@ -33,13 +33,13 @@ describe('HNSWIndex graph structure integrity', () => {
       }
     }
 
-    const results = connIndex.search(randomVector(DIM), 10, 'cosine', 0)
+    const results = connIndex.search(seededVector(DIM, 17), 10, 'cosine', 0)
     expect(results.length).toBeGreaterThan(0)
   })
 
   it('most connections are bidirectional after insertion', () => {
     for (let i = 0; i < 20; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     const serialized = index.serialize()
@@ -74,7 +74,7 @@ describe('HNSWIndex graph structure integrity', () => {
     const largeStore = createVectorStore()
     const largeIndex = createHNSWIndex(DIM, largeStore, { m: 4, efConstruction: 32 })
     for (let i = 0; i < 50; i++) {
-      insertVec(largeStore, largeIndex, `doc${i}`, randomVector(DIM))
+      insertVec(largeStore, largeIndex, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     const serialized = largeIndex.serialize()
@@ -92,7 +92,7 @@ describe('HNSWIndex graph structure integrity', () => {
     const largeStore = createVectorStore()
     const largeIndex = createHNSWIndex(DIM, largeStore, { m: 8, efConstruction: 64 })
     for (let i = 0; i < 200; i++) {
-      insertVec(largeStore, largeIndex, `doc${i}`, randomVector(DIM))
+      insertVec(largeStore, largeIndex, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     const serialized = largeIndex.serialize()

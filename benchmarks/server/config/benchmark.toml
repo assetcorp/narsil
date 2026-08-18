@@ -19,6 +19,7 @@ b = 0.4
 [retrieval]
 run_depth = 1000
 import_batch = 2000
+import_clients = 16
 
 [fairness]
 # Equal memory ceiling applied identically to every engine container (8 GiB).
@@ -42,6 +43,16 @@ top_k = 10
 # recorded in every result. Override the levels with BENCH_THROUGHPUT_CONCURRENCY
 # (comma-separated) or disable the whole measurement with BENCH_THROUGHPUT=off.
 # Each level must not exceed the client connection pool (256).
+#
+# `client_processes` splits that concurrency across operating-system processes.
+# Building a request and parsing its response is interpreter work, so one Python
+# process saturates near a single core. A threads-only client therefore holds every
+# engine to that one core divided by its per-request cost, whatever the engine could
+# serve. The extra CPU comes off the same host the engine runs on, so a higher count
+# buys headroom to measure with and costs the engine cores to be measured on. The
+# harness resolves an unset value to half the host's logical cores, and
+# BENCH_THROUGHPUT_CLIENT_PROCESSES overrides whatever is set here. Every level
+# records the value used.
 [throughput]
 enabled = true
 concurrency = [16]

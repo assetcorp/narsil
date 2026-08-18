@@ -6,10 +6,11 @@ Read the file you're editing and follow what it already does. The rules below co
 
 ## Rules
 
+- Re-read and apply the user's writing guidelines fully, if available, whenever you are writing TS-Doc or any prose in the repo.
 - Leave `packages/spec` alone. The developer owns every spec change and makes it directly. When your work needs a different header field, envelope version, payload encoding, client-facing error code, or replication invariant, say so and wait for their decision. Write no code against a spec change they have not approved.
 - Keep every source file under 400 lines. Measure a file when you touch it, and split it before your change pushes it over. Turn a module that outgrows one file into a directory with an `index.ts` that re-exports it, and drop the module prefix from each filename inside. Copy `src/core/partition/` or `src/engine/mutations/`. The limit covers source only, and `src/languages/` is exempt as well, because each module ports a published stemmer and a reader checks those line by line against the reference.
 - Keep everything tree-shakeable. A bundler must be able to drop any capability the caller never imports, so add no barrel that pulls siblings in, and register no optional capability at module load. `src/languages/registry.ts` holds English alone for exactly this reason, and a caller imports and registers any other language itself. Registering all of them there would pull every stop word list and every stemmer into every bundle, so leave that file as it is and make each new language reachable by direct import.
-- Throw a `NarsilError` carrying a code from `ErrorCodes` in `src/errors.ts`, and let it propagate unchanged, because its code is what the server maps to an HTTP status. Add every new code to `STATUS_BY_CODE` in `src/server/errors.ts`, or the server answers 500.
+- Throw a `NarsilError` carrying a code from `ErrorCodes` in `src/errors.ts`, and let it propagate unchanged, because its code is what the server maps to an HTTP status. Add every new code in `ErrorCodes` or `ServerErrorCodes` to `STATUS_BY_CODE` in `src/server/errors.ts`, or the server answers 500. The `ClientErrorCodes` stay out of that map, because the HTTP client raises those after the response and no request can arrive under one.
 - Leave `VERSION` in `src/index.ts` alone unless the developer asks for a new value. `serialization/envelope.ts` writes it into the engine-version bytes of every `.nrsl` file, where the format gives each part a single byte and nothing reads it back. It records the engine, and it carries no relation to the published package version, so never sync it to `package.json` and never bump it alongside a release.
 - Put every test under its package's `src/__tests__/`, mirroring the directory it covers. All three packages collect `src/**/__tests__/**/*.test.ts`, and `packages/ts` adds `benchmarks/__tests__/`, so a test beside its source never runs.
 - Never propose refusing, narrowing, or deferring a capability because implementing it properly is harder. Read how established engines solve it and what this repository already does, then propose that. `registerEmbeddingAdapter` in `src/narsil.ts` takes a name because an instance survives neither a worker boundary nor a restart, and a custom tokenizer, a stop word function, and a language module all need that same treatment.
@@ -21,7 +22,7 @@ Read the file you're editing and follow what it already does. The rules below co
 ## Gotchas
 
 - **Every worker loads its entry from `dist/`.** `workers/factory.ts`, `vector/hnsw-worker-dispatch.ts`, `serialization/checksum-dispatch.ts`, and `persistence/durability/checkpoint-worker-dispatch.ts` each rewrite their own `/src/` path to a `/dist/*.mjs` path. Build before you run a test that promotes to a worker, builds an HNSW graph off-thread, checksums off-thread, or offloads a checkpoint.
-- **Node builtins break the browser bundle.** Lint, typecheck, and the tests all pass when a file under `src/` imports `node:fs`; only `scripts/check-browser-bundle.mjs` reports it, and it reads `dist/index.browser.mjs`, which `pnpm build` produces before running the check. Route Node-only code through a `#platform/*` subpath declared in the `imports` block of `packages/ts/package.json`, with a `.browser.ts` variant beside the Node one.
+- **Node builtins break the browser bundle.** Lint, typecheck, and the tests all pass when a file under `src/` imports `node:fs`; only `scripts/check-browser-bundle.mjs` reports it, and it walks the import graph from `dist/index.browser.mjs` and `dist/client.mjs`, which `pnpm build` produces before running the check. Add every new browser-facing entry to that list. Route Node-only code through a `#platform/*` subpath declared in the `imports` block of `packages/ts/package.json`, with a `.browser.ts` variant beside the Node one.
 - **`narsil-ts:lint` checks `src/` only.** That target skips `packages/ts/scripts/`, `packages/ts/wasm/`, and `packages/ts/benchmarks/`. `typecheck:tooling` type-checks those three, and root `pnpm format` formats them.
 - **The default test target skips the slow suites.** `narsil-ts:test` excludes `vector/recall.test.ts`. Recall runs under `test:recall`, etcd integration under `test:etcd` against a live endpoint in `NARSIL_ETCD_ENDPOINT`, and embedding end-to-end under `test:embeddings` with `NARSIL_TEST_EMBEDDINGS=1`. Continuous integration runs recall and embedding only when a pull request touches their paths.
 - **A language change needs steps the usual four targets do not cover.** Changing analysis means bumping the module's revision, adding a language means writing the fixture the coverage gate requires, and an alphabet with lookalike letters means recording a substitution count. `packages/ts/src/languages/README.md` lists every command, when to run it, and which ones continuous integration enforces. Read it before you edit `src/languages/`.
@@ -35,3 +36,17 @@ Read the file you're editing and follow what it already does. The rules below co
 - **The dependency age gate refuses a package published less than four days ago,** and the supply-chain gate refuses an unpinned action reference, a `pull_request_target` trigger, and any URL dependency other than the pinned `uWebSockets.js`.
 
 Read `CONTRIBUTING.md` for the house style and `ROADMAP.md` for where the project is heading. Cluster mode under `src/distribution/` is the project's active focus, so preserve its recovery and failover invariants when you change replication or bootstrap code.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as GitHub issues on `assetcorp/narsil`, and every operation runs through the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` and one `docs/adr/` at the repo root cover all four packages. See `docs/agents/domain.md`.

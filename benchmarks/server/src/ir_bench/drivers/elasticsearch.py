@@ -17,7 +17,7 @@ class ElasticsearchDriver(LuceneRestDriver):
         super().__init__(engine, bm25)
         self.keyword_setup = (
             f"BM25 k1={bm25.k1} b={bm25.b} (custom default similarity); "
-            f"Elasticsearch `{self._analyzer}` analyzer (Porter stemmer, English stop words)"
+            f"Elasticsearch `{self._analyzer}` analyzer"
         )
         self.vector_setup = "dense_vector HNSW, similarity cosine, over the shared precomputed vectors"
         self.hybrid_setup = "BM25 match fused with dense_vector kNN via the RRF retriever"
@@ -26,6 +26,13 @@ class ElasticsearchDriver(LuceneRestDriver):
         self._vector_profile = EQUAL_PRECISION
         self.rescore_oversample_grid = _BBQ_OVERSAMPLE_GRID
         self._rescore_oversample: float | None = None
+
+    def set_vector_profile(self, profile: str) -> None:
+        """Adopts a profile the driver did not itself create the index under, so a
+        load-generator process searching an index another process built asks for the
+        same precision the run tuned to."""
+
+        self._vector_profile = profile
 
     def set_rescore_oversample(self, value: float | None) -> None:
         self._rescore_oversample = value

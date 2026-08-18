@@ -33,6 +33,7 @@ export function makeNode(nodeId: string): NodeRegistration {
 
 export function makeIndexMetadata(indexName: string, partitionCount = 3, replicationFactor = 1): IndexMetadata {
   return {
+    indexUuid: `uuid-${indexName}`,
     indexName,
     partitionCount,
     replicationFactor,

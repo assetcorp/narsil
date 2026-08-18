@@ -1,6 +1,10 @@
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { SchemaDefinition } from '../../types/schema'
 
+function seededComponent(seed: number, index: number): number {
+  return Math.abs(Math.sin((seed + 1) * (index + 1) * 1.618))
+}
+
 export function createMockAdapter(
   dimensions: number = 384,
 ): EmbeddingAdapter & { calls: Array<{ input: string; purpose: string }> } {
@@ -11,14 +15,14 @@ export function createMockAdapter(
     async embed(input, purpose) {
       calls.push({ input, purpose })
       const vec = new Float32Array(dimensions)
-      for (let i = 0; i < dimensions; i++) vec[i] = Math.random()
+      for (let i = 0; i < dimensions; i++) vec[i] = seededComponent(calls.length, i)
       return vec
     },
     async embedBatch(inputs, purpose) {
       return inputs.map(input => {
         calls.push({ input, purpose })
         const vec = new Float32Array(dimensions)
-        for (let i = 0; i < dimensions; i++) vec[i] = Math.random()
+        for (let i = 0; i < dimensions; i++) vec[i] = seededComponent(calls.length, i)
         return vec
       })
     },

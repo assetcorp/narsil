@@ -1,3 +1,4 @@
+import { compareCodePoints } from '../../core/ordering'
 import type { ScoredEntry } from '../transport/types'
 
 export interface DistributedRRFOptions {
@@ -16,12 +17,12 @@ export function clampAlpha(alpha: number): number {
 }
 
 function compareFusedEntries(a: ScoredEntry, b: ScoredEntry): number {
-  if (a.score !== b.score) {
-    return b.score - a.score
+  const aScore = a.score ?? 0
+  const bScore = b.score ?? 0
+  if (aScore !== bScore) {
+    return bScore - aScore
   }
-  if (a.docId < b.docId) return -1
-  if (a.docId > b.docId) return 1
-  return 0
+  return compareCodePoints(a.docId, b.docId)
 }
 
 export function distributedRRF(lists: ScoredEntry[][], options: DistributedRRFOptions): ScoredEntry[] {
@@ -89,11 +90,12 @@ export function distributedLinearCombination(
 export function minMaxNormalizeScoredEntries(entries: ScoredEntry[]): Array<{ docId: string; score: number }> {
   if (entries.length === 0) return []
 
-  let min = entries[0].score
-  let max = entries[0].score
+  let min = entries[0].score ?? 0
+  let max = entries[0].score ?? 0
   for (let i = 1; i < entries.length; i++) {
-    if (entries[i].score < min) min = entries[i].score
-    if (entries[i].score > max) max = entries[i].score
+    const score = entries[i].score ?? 0
+    if (score < min) min = score
+    if (score > max) max = score
   }
 
   const range = max - min
@@ -101,5 +103,5 @@ export function minMaxNormalizeScoredEntries(entries: ScoredEntry[]): Array<{ do
     return entries.map(e => ({ docId: e.docId, score: 1.0 }))
   }
 
-  return entries.map(e => ({ docId: e.docId, score: (e.score - min) / range }))
+  return entries.map(e => ({ docId: e.docId, score: ((e.score ?? 0) - min) / range }))
 }

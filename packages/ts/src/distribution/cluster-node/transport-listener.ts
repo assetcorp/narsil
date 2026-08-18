@@ -2,13 +2,11 @@ import {
   ClusterMessageTypes,
   type NodeTransport,
   ReplicationMessageTypes,
+  type RespondFn,
   type TransportMessage,
 } from '../transport/types'
 
-export type TransportHandler = (
-  message: TransportMessage,
-  respond: (response: TransportMessage) => void,
-) => void | Promise<void>
+export type TransportHandler = (message: TransportMessage, respond: RespondFn) => void | Promise<void>
 
 export interface MultiplexedControllerTransport {
   transport: NodeTransport
@@ -63,15 +61,13 @@ export function createMultiplexedControllerTransport(baseTransport: NodeTranspor
   }
 }
 
-function createSingleResponseRespond(
-  respond: (response: TransportMessage) => void,
-): (response: TransportMessage) => void {
+function createSingleResponseRespond(respond: RespondFn): RespondFn {
   let delivered = false
-  return (response: TransportMessage) => {
+  return (response: TransportMessage): Promise<void> => {
     if (delivered) {
-      return
+      return Promise.resolve()
     }
     delivered = true
-    respond(response)
+    return respond(response)
   }
 }

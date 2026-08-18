@@ -1,7 +1,29 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FieldType, SchemaDefinition } from '../../types/schema'
 import { validateFieldValue } from './field-values'
-import { isPlainObject } from './shared'
+import { isPlainObject, VECTOR_PATTERN } from './shared'
+import { assertStorableDocument } from './storable'
+
+const vectorPathCache = new WeakMap<SchemaDefinition, Set<string>>()
+
+function vectorFieldPaths(schema: SchemaDefinition): Set<string> {
+  let paths = vectorPathCache.get(schema)
+  if (paths !== undefined) return paths
+  paths = new Set()
+  const collect = (level: SchemaDefinition, prefix: string): void => {
+    for (const [field, type] of Object.entries(level)) {
+      const path = prefix === '' ? field : `${prefix}.${field}`
+      if (typeof type === 'string' && VECTOR_PATTERN.test(type)) {
+        paths?.add(path)
+      } else if (isPlainObject(type)) {
+        collect(type as SchemaDefinition, path)
+      }
+    }
+  }
+  collect(schema, '')
+  vectorPathCache.set(schema, paths)
+  return paths
+}
 
 function validateDocumentFields(doc: Record<string, unknown>, schema: SchemaDefinition, prefix: string): void {
   for (const [field, type] of Object.entries(schema)) {
@@ -32,6 +54,7 @@ export function validateDocument(document: Record<string, unknown>, schema: Sche
     })
   }
 
+  assertStorableDocument(document, vectorFieldPaths(schema))
   validateDocumentFields(document, schema, '')
 }
 

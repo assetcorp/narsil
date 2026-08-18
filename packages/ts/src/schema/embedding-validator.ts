@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { EmbeddingFieldConfig, SchemaDefinition } from '../types/schema'
-import { flattenSchema } from './validator'
+import { flattenSchema, isTextFieldType } from './validator'
 
 const VECTOR_DIMENSION_PATTERN = /^vector\[(\d+)]$/
 
@@ -92,7 +92,7 @@ export function validateEmbeddingConfig(
           { field: source, targetField },
         )
       }
-      if (sourceType !== 'string') {
+      if (!isTextFieldType(sourceType)) {
         throw new NarsilError(
           ErrorCodes.EMBEDDING_CONFIG_INVALID,
           `Embedding source field "${source}" must be a string type, got "${sourceType}"`,

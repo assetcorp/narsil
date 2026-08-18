@@ -1,84 +1,76 @@
+import {
+  type ComparableSortValue,
+  compareCodePoints,
+  compareComparableKeys,
+  readSortField,
+  type SortDirection,
+} from '../core/ordering'
+import { ErrorCodes, NarsilError } from '../errors'
+import { flattenSchema, SORTABLE_TEXT_FIELD_TYPE } from '../schema/validator'
 import type { Hit } from '../types/results'
-import type { AnyDocument } from '../types/schema'
+import type { AnyDocument, SchemaDefinition } from '../types/schema'
+import type { SortField, SortSpec } from '../types/search'
 
-function getNestedValue(obj: AnyDocument, path: string): unknown {
-  const segments = path.split('.')
-  let current: unknown = obj
-  for (const segment of segments) {
-    if (current === null || current === undefined || typeof current !== 'object') {
-      return undefined
-    }
-    if (!Object.hasOwn(current as Record<string, unknown>, segment)) {
-      return undefined
-    }
-    current = (current as Record<string, unknown>)[segment]
+export type { SortDirection } from '../core/ordering'
+export { compareSortValues } from '../core/ordering'
+
+function isFieldList(sort: SortSpec): sort is readonly SortField[] {
+  return Array.isArray(sort)
+}
+
+export function normalizeSort(sort: SortSpec | undefined): SortField[] {
+  if (sort === undefined) return []
+  if (isFieldList(sort)) {
+    return sort.map(entry => ({ field: entry.field, direction: entry.direction }))
   }
-  return current
+  return Object.entries(sort).map(([field, direction]) => ({ field, direction }))
+}
+
+export function requireSortableFields(sort: SortSpec | undefined, schema: SchemaDefinition): void {
+  const fields = normalizeSort(sort)
+  if (fields.length === 0) return
+
+  const flatSchema = flattenSchema(schema)
+  for (const entry of fields) {
+    if (flatSchema[entry.field] !== 'string') continue
+    throw new NarsilError(
+      ErrorCodes.SEARCH_INVALID_FIELD,
+      `A sort names text field "${entry.field}" only where the schema declares it "${SORTABLE_TEXT_FIELD_TYPE}", because ordering text costs far more memory per document than ordering a number`,
+      { field: entry.field, fieldType: 'string' },
+    )
+  }
+}
+
+export function readFieldValue(obj: AnyDocument, path: string): unknown {
+  return readSortField(obj, path)
+}
+
+export function readSortValues(document: AnyDocument | undefined, fields: readonly string[]): unknown[] {
+  if (!document) return fields.map(() => undefined)
+  return fields.map(field => readFieldValue(document, field))
 }
 
 export function applySorting<T = AnyDocument>(
   hits: Array<Hit<T>>,
-  sort: Record<string, 'asc' | 'desc'>,
-  getDocument: (docId: string) => AnyDocument | undefined,
+  sort: SortSpec,
+  sortKeyOf: (docId: string) => readonly ComparableSortValue[],
 ): Array<Hit<T>> {
-  const sortFields = Object.entries(sort)
-  if (sortFields.length === 0) return hits
+  const normalized = normalizeSort(sort)
+  if (normalized.length === 0) return hits
 
-  const collator = new Intl.Collator(undefined, { sensitivity: 'base' })
-  const valueCache = new Map<string, unknown[]>()
+  const directions: SortDirection[] = normalized.map(entry => entry.direction)
+  const keyCache = new Map<string, readonly ComparableSortValue[]>()
 
   for (const hit of hits) {
-    const doc = getDocument(hit.id)
-    if (!doc) {
-      valueCache.set(
-        hit.id,
-        sortFields.map(() => undefined),
-      )
-      continue
-    }
-    const values = sortFields.map(([field]) => getNestedValue(doc, field))
-    valueCache.set(hit.id, values)
+    keyCache.set(hit.id, sortKeyOf(hit.id))
   }
 
   const sorted = hits.slice()
-  sorted.sort((a, b) => {
-    const aValues = valueCache.get(a.id) ?? []
-    const bValues = valueCache.get(b.id) ?? []
-
-    for (let i = 0; i < sortFields.length; i++) {
-      const direction = sortFields[i][1]
-      const aVal = aValues[i]
-      const bVal = bValues[i]
-
-      const aIsNullish = aVal === undefined || aVal === null
-      const bIsNullish = bVal === undefined || bVal === null
-
-      if (aIsNullish && bIsNullish) continue
-      if (aIsNullish) return 1
-      if (bIsNullish) return -1
-
-      let comparison = 0
-
-      if (typeof aVal === 'string' && typeof bVal === 'string') {
-        comparison = collator.compare(aVal, bVal)
-      } else if (typeof aVal === 'number' && typeof bVal === 'number') {
-        const aIsNaN = Number.isNaN(aVal)
-        const bIsNaN = Number.isNaN(bVal)
-        if (aIsNaN && bIsNaN) continue
-        if (aIsNaN) return 1
-        if (bIsNaN) return -1
-        comparison = aVal - bVal
-      } else if (typeof aVal === 'boolean' && typeof bVal === 'boolean') {
-        comparison = aVal === bVal ? 0 : aVal ? 1 : -1
-      }
-
-      if (comparison !== 0) {
-        return direction === 'desc' ? -comparison : comparison
-      }
-    }
-
-    return 0
-  })
+  sorted.sort(
+    (a, b) =>
+      compareComparableKeys(keyCache.get(a.id) ?? [], keyCache.get(b.id) ?? [], directions) ||
+      compareCodePoints(a.id, b.id),
+  )
 
   return sorted
 }

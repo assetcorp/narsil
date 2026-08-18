@@ -2,7 +2,6 @@ import { encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AllocationTable } from '../../../../distribution/coordinator/types'
 import { decodePayload } from '../../../../distribution/query/codec'
-import { decodeDistributedCursor, encodeDistributedCursor } from '../../../../distribution/query/cursor'
 import { distributedQuery } from '../../../../distribution/query/routing'
 import type { QueryRoutingDeps } from '../../../../distribution/query/types'
 import {
@@ -14,6 +13,7 @@ import {
 } from '../../../../distribution/transport'
 import type { SearchPayload, StatsResultPayload } from '../../../../distribution/transport/types'
 import { NarsilError } from '../../../../errors'
+import { decodePageCursor, encodePageCursor } from '../../../../search/cursor'
 import {
   makeAllocationTable,
   makeAssignment,
@@ -123,10 +123,10 @@ describe('distributed hybrid query - params, cursor, and DFS', () => {
     )
 
     expect(result.cursor).not.toBeNull()
-    const decoded = decodeDistributedCursor(result.cursor as string)
+    const decoded = decodePageCursor(result.cursor as string)
     const lastScored = result.scored[result.scored.length - 1]
-    expect(decoded.s).toBe(lastScored.score)
-    expect(decoded.d).toBe(lastScored.docId)
+    expect(decoded.score).toBe(lastScored.score)
+    expect(decoded.anchor).toBe(lastScored.docId)
   })
 
   it('returns null cursor when hybrid search produces no results', async () => {
@@ -203,7 +203,7 @@ describe('distributed hybrid query - params, cursor, and DFS', () => {
     })
 
     const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
-    const cursor = encodeDistributedCursor(5.0, 'doc-1')
+    const cursor = encodePageCursor({ anchor: 'doc-1', score: 5.0, sortKey: null, sortSignature: null })
 
     const error = await distributedQuery(
       'products',
@@ -219,6 +219,24 @@ describe('distributed hybrid query - params, cursor, and DFS', () => {
     expect(error).toBeInstanceOf(NarsilError)
     expect((error as NarsilError).code).toBe('QUERY_ROUTING_FAILED')
     expect((error as NarsilError).message).toContain('Cursor pagination is not supported for hybrid queries')
+  })
+
+  it('rejects a hybrid query carrying a sort with SEARCH_INVALID_MODE', async () => {
+    const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
+
+    const error = await distributedQuery(
+      'products',
+      makeQueryParams({
+        term: 'laptop',
+        vector: makeVectorParams(),
+        hybrid: makeHybridConfig(),
+        sort: [{ field: 'title', direction: 'asc' }],
+      }),
+      makeDeps(table),
+    ).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(NarsilError)
+    expect((error as NarsilError).code).toBe('SEARCH_INVALID_MODE')
   })
 
   it('performs DFS stats pre-pass then two fan-outs for hybrid with dfs scoring', async () => {

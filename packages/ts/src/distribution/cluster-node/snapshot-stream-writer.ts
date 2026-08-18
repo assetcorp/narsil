@@ -3,6 +3,7 @@ import { type ErrorCode, ErrorCodes, NarsilError } from '../../errors'
 import { SNAPSHOT_CHUNK_SIZE } from '../replication/snapshot-constants'
 import type {
   ReplicationSnapshotHeader,
+  RespondFn,
   SnapshotChunkPayload,
   SnapshotEndPayload,
   SnapshotStartPayload,
@@ -22,7 +23,7 @@ export interface SnapshotHeaderMetadata {
 }
 
 export interface SingleResponseSink {
-  (response: TransportMessage): void
+  (response: TransportMessage): Promise<void>
   closed: boolean
 }
 
@@ -30,12 +31,12 @@ export interface StreamSnapshotOptions {
   closeOnEnd?: boolean
 }
 
-export function createSingleResponseSink(respond: (response: TransportMessage) => void): SingleResponseSink {
-  const sink = ((response: TransportMessage) => {
+export function createSingleResponseSink(respond: RespondFn): SingleResponseSink {
+  const sink = ((response: TransportMessage): Promise<void> => {
     if (sink.closed) {
-      return
+      return Promise.resolve()
     }
-    respond(response)
+    return respond(response)
   }) as SingleResponseSink
   sink.closed = false
   return sink
@@ -65,7 +66,7 @@ export async function streamSnapshotToReplica(
   const startPayload: SnapshotStartPayload = { header, totalBytes }
   const startBytes = encode(startPayload)
   assertMessageWithinLimit(startBytes, 'SNAPSHOT_START')
-  respondMessage(sink, ReplicationMessageTypes.SNAPSHOT_START, nodeId, requestId, startBytes)
+  await respondMessage(sink, ReplicationMessageTypes.SNAPSHOT_START, nodeId, requestId, startBytes)
 
   // Yield immediately after SNAPSHOT_START so a single-chunk snapshot still
   // gives the event loop a breath before the chunk emission, and the first
@@ -86,7 +87,7 @@ export async function streamSnapshotToReplica(
     }
     const chunkBytes = encode(chunkPayload)
     assertMessageWithinLimit(chunkBytes, 'SNAPSHOT_CHUNK')
-    respondMessage(sink, ReplicationMessageTypes.SNAPSHOT_CHUNK, nodeId, requestId, chunkBytes)
+    await respondMessage(sink, ReplicationMessageTypes.SNAPSHOT_CHUNK, nodeId, requestId, chunkBytes)
 
     offset = end
 
@@ -108,7 +109,7 @@ export async function streamSnapshotToReplica(
   }
   const endBytes = encode(endPayload)
   assertMessageWithinLimit(endBytes, 'SNAPSHOT_END')
-  respondMessage(sink, ReplicationMessageTypes.SNAPSHOT_END, nodeId, requestId, endBytes)
+  await respondMessage(sink, ReplicationMessageTypes.SNAPSHOT_END, nodeId, requestId, endBytes)
   if (options.closeOnEnd !== false) {
     sink.closed = true
   }
@@ -137,8 +138,8 @@ function respondMessage(
   sourceId: string,
   requestId: string,
   payload: Uint8Array,
-): void {
-  sink({ type, sourceId, requestId, payload })
+): Promise<void> {
+  return sink({ type, sourceId, requestId, payload })
 }
 
 function assertMessageWithinLimit(bytes: Uint8Array, label: string): void {
@@ -150,19 +151,19 @@ function assertMessageWithinLimit(bytes: Uint8Array, label: string): void {
   }
 }
 
-export function respondError(
+export async function respondError(
   sink: SingleResponseSink,
   sourceId: string,
   requestId: string,
   code: ErrorCode | string,
   message: string,
-): void {
+): Promise<void> {
   const response: TransportMessage = {
     type: SNAPSHOT_SYNC_ERROR_TYPE,
     sourceId,
     requestId,
     payload: encode({ error: true, code, message }),
   }
-  sink(response)
+  await sink(response)
   sink.closed = true
 }

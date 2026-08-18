@@ -70,6 +70,22 @@
         "cwd": "packages/ts"
       }
     },
+    "fold-table": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run fold-table",
+        "cwd": "packages/ts"
+      }
+    },
+    "fold-table:write": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run fold-table:write",
+        "cwd": "packages/ts"
+      }
+    },
     "lookalikes:collect": {
       "executor": "nx:run-commands",
       "cache": false,

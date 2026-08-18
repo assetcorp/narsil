@@ -1,3 +1,4 @@
+import { compareCodePoints } from '../core/ordering'
 import type { ScoredDocument } from '../types/internal'
 
 export interface RRFOptions {
@@ -37,7 +38,7 @@ export function reciprocalRankFusion(lists: ScoredDocument[][], options: RRFOpti
     })
   }
 
-  result.sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
+  result.sort((a, b) => b.score - a.score || compareCodePoints(a.docId, b.docId))
   return result
 }
 
@@ -86,7 +87,7 @@ export function linearCombination(
     })
   }
 
-  result.sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
+  result.sort((a, b) => b.score - a.score || compareCodePoints(a.docId, b.docId))
   return result
 }
 

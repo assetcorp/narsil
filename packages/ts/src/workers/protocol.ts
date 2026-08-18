@@ -1,4 +1,7 @@
 import { generateId } from '../core/id-generator'
+import type { PartitionInsertOptions } from '../core/partition'
+import type { SharedSegmentSnapshot } from '../core/partition/frozen'
+import type { SegmentPayload } from '../core/partition/segment-payload'
 import type { GlobalStatistics, SerializablePartition } from '../types/internal'
 import type { AnyDocument, IndexConfig } from '../types/schema'
 import type { QueryParams } from '../types/search'
@@ -31,6 +34,41 @@ export type WorkerAction =
       data: SerializablePartition
       requestId: string
     }
+  | {
+      type: 'buildSegment'
+      indexName: string
+      documents: Array<{ docId: string; document: AnyDocument }>
+      options?: PartitionInsertOptions
+      requestId: string
+    }
+  | {
+      type: 'mergeSegments'
+      indexName: string
+      segments: Array<{ partitionId: number; payload: SegmentPayload; documents: AnyDocument[] }>
+      requestId: string
+      skipClone?: boolean
+    }
+  | {
+      type: 'attachSegments'
+      indexName: string
+      segments: Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }>
+      requestId: string
+    }
+  | {
+      type: 'compactSegments'
+      indexName: string
+      partitionId: number
+      segmentIds: string[]
+      requestId: string
+    }
+  | {
+      type: 'swapSegments'
+      indexName: string
+      partitionId: number
+      dropSegmentIds: string[]
+      snapshot: SharedSegmentSnapshot
+      requestId: string
+    }
   | { type: 'memoryReport'; requestId: string }
   | { type: 'bootstrap'; moduleUrl: string; requestId: string }
   | { type: 'shutdown'; requestId: string }
@@ -54,6 +92,11 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'clear',
   'serialize',
   'deserialize',
+  'buildSegment',
+  'mergeSegments',
+  'attachSegments',
+  'compactSegments',
+  'swapSegments',
   'memoryReport',
   'bootstrap',
   'shutdown',

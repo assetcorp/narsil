@@ -10,13 +10,14 @@ import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexConfig } from '../types/schema'
 import { type EngineCore, getVectorFieldPaths, type IndexRegistryEntry } from './core'
-import { validateIndexName, validatePartitionConfig } from './validation'
+import { validateBM25Params, validateIndexName, validatePartitionConfig } from './validation'
 
 export async function createEngineIndex(
   core: EngineCore,
   config: NarsilConfig | undefined,
   name: string,
   indexConfig: IndexConfig,
+  indexUuid?: string,
 ): Promise<void> {
   core.guardShutdown()
   validateIndexName(name)
@@ -25,6 +26,7 @@ export async function createEngineIndex(
   }
   validateSchema(indexConfig.schema)
   validateVectorPromotion(indexConfig.vectorPromotion)
+  validateBM25Params(indexConfig.bm25)
   if (indexConfig.partitions) {
     validatePartitionConfig(indexConfig.partitions)
   }
@@ -77,6 +79,7 @@ export async function createEngineIndex(
     embeddingAdapter: resolvedEmbeddingAdapter,
     embeddingAdapterName,
     vectorFieldPaths: getVectorFieldPaths(indexConfig.schema),
+    indexUuid: indexUuid ?? null,
   })
   if (core.durability) {
     await core.durability.manager.persistMetadata(name)

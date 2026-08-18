@@ -1,3 +1,4 @@
+import { compareCodePoints } from '../../core/ordering'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { AppendHandle, DurableDirectory } from './durable-filesystem'
@@ -122,7 +123,9 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
 
   async function findActiveSegmentKey(): Promise<string | null> {
     const prefix = `${config.indexName}/wal/${config.partitionId}/`
-    const keys = (await directory.list(prefix)).filter(k => SEGMENT_TAIL_PATTERN.test(k.slice(prefix.length))).sort()
+    const keys = (await directory.list(prefix))
+      .filter(k => SEGMENT_TAIL_PATTERN.test(k.slice(prefix.length)))
+      .sort(compareCodePoints)
     return keys.length > 0 ? keys[keys.length - 1] : null
   }
 

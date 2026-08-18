@@ -54,7 +54,9 @@ describe('createClusterNode message handler', () => {
     await nodeB.createIndex('products', { schema: { title: 'string' } })
 
     const assignments = new Map<number, PartitionAssignment>()
-    assignments.set(0, makeAssignment({ primary: 'node-b', state: 'ACTIVE' }))
+    for (let partitionId = 0; partitionId < 5; partitionId++) {
+      assignments.set(partitionId, makeAssignment({ primary: 'node-b', state: 'ACTIVE' }))
+    }
     await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
 
     const { encode } = await import('@msgpack/msgpack')
@@ -118,6 +120,7 @@ describe('createClusterNode message handler', () => {
           boost: null,
           tolerance: null,
           threshold: null,
+          includeScores: null,
           scoring: 'local',
           vector: null,
           hybrid: null,

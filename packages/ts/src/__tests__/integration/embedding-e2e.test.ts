@@ -223,11 +223,12 @@ describe.skipIf(!shouldRun)('Embedding E2E: auto-vectorization with Transformers
     for (const hit of result.hits) {
       const doc = hit.document as Record<string, unknown>
       const cat = doc.category as string
-      if (cat === 'animals' && hit.score > bestAnimalScore) {
-        bestAnimalScore = hit.score
+      const score = hit.score ?? Number.NaN
+      if (cat === 'animals' && score > bestAnimalScore) {
+        bestAnimalScore = score
       }
-      if (cat === 'cooking' && hit.score > bestCookingScore) {
-        bestCookingScore = hit.score
+      if (cat === 'cooking' && score > bestCookingScore) {
+        bestCookingScore = score
       }
     }
 

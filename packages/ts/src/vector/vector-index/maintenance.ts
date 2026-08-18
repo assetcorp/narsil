@@ -111,26 +111,7 @@ export function estimateMemoryBytes(state: VectorIndexState): number {
   bytes += BUFFER_SET_OVERHEAD + state.buffer.size * BUFFER_ENTRY_COST
 
   if (state.hnsw) {
-    const HNSW_NODE_OBJ = 48
-    const MAP_ENTRY = 72
-    const MAP_OVERHEAD = 64
-    const CONN_ARRAY_HEADER = 32
-    const SET_OVERHEAD = 64
-    const SET_ENTRY_COST = 72
-
-    const m = state.hnsw.m
-    const avgLayers = m > 1 ? m / (m - 1) : 1
-    const avgConnsLayer0 = m
-    const avgConnsUpper = Math.ceil(m / 2)
-
-    const connMemPerNode =
-      CONN_ARRAY_HEADER +
-      (SET_OVERHEAD + avgConnsLayer0 * SET_ENTRY_COST) +
-      Math.max(0, avgLayers - 1) * (SET_OVERHEAD + avgConnsUpper * SET_ENTRY_COST)
-
-    const hnswNodeCount = state.hnsw.size + state.hnsw.tombstoneCount
-    const perHnswNode = MAP_ENTRY + HNSW_NODE_OBJ + connMemPerNode
-    bytes += MAP_OVERHEAD + hnswNodeCount * perHnswNode
+    bytes += state.hnsw.adjacencyBytes
   }
 
   if (state.sq8?.isCalibrated()) {

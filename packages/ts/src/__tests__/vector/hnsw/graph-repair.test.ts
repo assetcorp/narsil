@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createHNSWIndex } from '../../../vector/hnsw'
 import { magnitude } from '../../../vector/similarity'
 import { createVectorStore } from '../../../vector/vector-store'
-import { DIM, insertVec, normalizedVector, randomVector } from './fixtures'
+import { DIM, insertVec, normalizedVector, seededVector } from './fixtures'
 
 describe('HNSWIndex removeNodeEager graph repair', () => {
   it('remaining nodes are still reachable via search after middle removals', () => {
@@ -10,7 +10,7 @@ describe('HNSWIndex removeNodeEager graph repair', () => {
     const repairIndex = createHNSWIndex(DIM, repairStore, { m: 4, efConstruction: 32, metric: 'cosine' })
 
     for (let i = 0; i < 30; i++) {
-      insertVec(repairStore, repairIndex, `doc${i}`, randomVector(DIM))
+      insertVec(repairStore, repairIndex, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     for (let i = 10; i < 20; i++) {
@@ -23,7 +23,7 @@ describe('HNSWIndex removeNodeEager graph repair', () => {
     expect(repairIndex.size).toBe(20)
     expect(repairIndex.tombstoneCount).toBe(0)
 
-    const query = randomVector(DIM)
+    const query = seededVector(DIM, 17)
     const results = repairIndex.search(query, 10, 'cosine', 0)
     expect(results.length).toBeGreaterThan(0)
 
@@ -38,7 +38,7 @@ describe('HNSWIndex removeNodeEager graph repair', () => {
     const epIndex = createHNSWIndex(DIM, epStore, { m: 4, efConstruction: 32, metric: 'cosine' })
 
     for (let i = 0; i < 20; i++) {
-      insertVec(epStore, epIndex, `doc${i}`, randomVector(DIM))
+      insertVec(epStore, epIndex, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     const oldEntry = epIndex.entryPointId
@@ -53,7 +53,7 @@ describe('HNSWIndex removeNodeEager graph repair', () => {
     expect(epIndex.entryPointId).not.toBeNull()
     expect(epIndex.entryPointId).not.toBe(oldEntry)
 
-    const results = epIndex.search(randomVector(DIM), 5, 'cosine', 0)
+    const results = epIndex.search(seededVector(DIM, 31), 5, 'cosine', 0)
     expect(results.length).toBeGreaterThan(0)
   })
 
@@ -62,7 +62,7 @@ describe('HNSWIndex removeNodeEager graph repair', () => {
     const multiIndex = createHNSWIndex(DIM, multiStore, { m: 4, efConstruction: 32, metric: 'cosine' })
 
     for (let i = 0; i < 40; i++) {
-      insertVec(multiStore, multiIndex, `doc${i}`, randomVector(DIM))
+      insertVec(multiStore, multiIndex, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     for (let i = 0; i < 10; i++) {
@@ -80,7 +80,7 @@ describe('HNSWIndex removeNodeEager graph repair', () => {
     expect(multiIndex.size).toBe(20)
     expect(multiIndex.tombstoneCount).toBe(0)
 
-    const results = multiIndex.search(randomVector(DIM), 10, 'cosine', 0)
+    const results = multiIndex.search(seededVector(DIM, 45), 10, 'cosine', 0)
     expect(results.length).toBeGreaterThan(0)
 
     for (const r of results) {
@@ -101,7 +101,7 @@ describe('HNSWIndex neighbor selection heuristic (indirect verification)', () =>
       const v = new Float32Array(DIM)
       v[0] = 1
       for (let d = 1; d < DIM; d++) {
-        v[d] = (Math.random() - 0.5) * 0.1
+        v[d] = Math.sin((i + 1) * (d + 1) * 1.618) * 0.05
       }
       const mag = magnitude(v)
       for (let d = 0; d < DIM; d++) {
@@ -112,7 +112,7 @@ describe('HNSWIndex neighbor selection heuristic (indirect verification)', () =>
     }
 
     for (let i = 0; i < 10; i++) {
-      const v = normalizedVector(DIM)
+      const v = normalizedVector(DIM, i + 1)
       allVecs.set(`outlier${i}`, v)
       insertVec(clusterStore, clusterIndex, `outlier${i}`, v)
     }

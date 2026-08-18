@@ -7,6 +7,7 @@ import {
   WORKER_BUILD_SIZE_THRESHOLD,
   yieldToEventLoop,
 } from './shared'
+import { invalidateWorkerCopies } from './worker-copies'
 
 async function tryWorkerBuild(
   state: VectorIndexState,
@@ -59,6 +60,7 @@ async function tryWorkerBuild(
 
 export function triggerBuild(state: VectorIndexState): void {
   if (state.building) return
+  invalidateWorkerCopies(state)
   state.building = true
 
   const liveDocIds: string[] = []
