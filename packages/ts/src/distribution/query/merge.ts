@@ -169,11 +169,26 @@ function popScoredHeap(
 
 const DEFAULT_MAX_FACET_BUCKETS = 100
 
+/**
+ * Merges the facet counts every node returned and adds up what each of them
+ * left out.
+ *
+ * A truncation here drops buckets the caller never sees, so it raises the
+ * field's bound to the largest count it dropped where that is higher than what
+ * the nodes reported.
+ *
+ * @param allFacets - The buckets each node returned, keyed by field.
+ * @param allBounds - The largest count each node left out, keyed by field.
+ * @param maxBuckets - The buckets one field keeps.
+ * @returns The merged buckets and one bound per field.
+ */
 export function mergeDistributedFacets(
   allFacets: Array<Record<string, FacetBucket[]>>,
+  allBounds: Array<Record<string, number> | null | undefined>,
   maxBuckets: number = DEFAULT_MAX_FACET_BUCKETS,
-): Record<string, FacetBucket[]> {
+): { facets: Record<string, FacetBucket[]>; errorBounds: Record<string, number> } {
   const merged = new Map<string, Map<string, number>>()
+  const bounds = new Map<string, number>()
 
   for (const facetMap of allFacets) {
     for (const [field, buckets] of Object.entries(facetMap)) {
@@ -189,7 +204,15 @@ export function mergeDistributedFacets(
     }
   }
 
-  const result: Record<string, FacetBucket[]> = {}
+  for (const boundMap of allBounds) {
+    if (boundMap === null || boundMap === undefined) continue
+    for (const [field, bound] of Object.entries(boundMap)) {
+      bounds.set(field, (bounds.get(field) ?? 0) + bound)
+    }
+  }
+
+  const facets: Record<string, FacetBucket[]> = {}
+  const errorBounds: Record<string, number> = {}
 
   for (const [field, valueMap] of merged) {
     const buckets: FacetBucket[] = []
@@ -202,8 +225,13 @@ export function mergeDistributedFacets(
       return compareCodePoints(a.value, b.value)
     })
 
-    result[field] = buckets.slice(0, maxBuckets)
+    facets[field] = buckets.slice(0, maxBuckets)
+    let bound = bounds.get(field) ?? 0
+    for (let index = maxBuckets; index < buckets.length; index++) {
+      if (buckets[index].count > bound) bound = buckets[index].count
+    }
+    errorBounds[field] = bound
   }
 
-  return result
+  return { facets, errorBounds }
 }

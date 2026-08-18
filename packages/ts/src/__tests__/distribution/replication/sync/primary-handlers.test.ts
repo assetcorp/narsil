@@ -166,7 +166,7 @@ describe('handleSyncRequest', () => {
 })
 
 describe('handleSnapshotStream', () => {
-  it('produces snapshot chunks and a snapshot_end message', () => {
+  it('produces snapshot chunks and a snapshot_end message', async () => {
     const cluster = setupCluster()
     const doc = { title: 'Streaming Widget', body: 'Sent as snapshot', price: 42 }
     insertDocument(cluster.primaryManager, 'prod-snap', doc)
@@ -175,7 +175,9 @@ describe('handleSnapshotStream', () => {
     const deps = makePrimaryDeps(cluster)
     const responses: TransportMessage[] = []
 
-    handleSnapshotStream(deps, msg => responses.push(msg))
+    await handleSnapshotStream(deps, async msg => {
+      responses.push(msg)
+    })
 
     const chunkMessages = responses.filter(r => r.type === ReplicationMessageTypes.SNAPSHOT_CHUNK)
     const endMessages = responses.filter(r => r.type === ReplicationMessageTypes.SNAPSHOT_END)

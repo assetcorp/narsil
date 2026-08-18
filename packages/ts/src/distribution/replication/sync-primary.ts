@@ -4,6 +4,7 @@ import type { PartitionManager } from '../../partitioning/manager'
 import { crc32 } from '../../serialization/crc32'
 import type {
   ReplicationSnapshotHeader,
+  RespondFn,
   SnapshotChunkPayload,
   SnapshotEndPayload,
   SnapshotStartPayload,
@@ -98,11 +99,11 @@ function buildSnapshotStartResponse(deps: SyncPrimaryDeps): SyncRequestResult {
   }
 }
 
-export function handleSnapshotStream(
+export async function handleSnapshotStream(
   deps: SyncPrimaryDeps,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   preSerializedBytes?: Uint8Array,
-): void {
+): Promise<void> {
   const snapshotBytes = preSerializedBytes ?? deps.manager.serializePartitionToBytes(deps.partitionId)
   const checksum = crc32(snapshotBytes)
   const snapshotSeqNo = deps.log.committedSeqNo
@@ -119,7 +120,7 @@ export function handleSnapshotStream(
       data: chunk,
     }
 
-    respond({
+    await respond({
       type: ReplicationMessageTypes.SNAPSHOT_CHUNK,
       sourceId: deps.sourceNodeId,
       requestId: generateId(),
@@ -136,7 +137,7 @@ export function handleSnapshotStream(
     checksum,
   }
 
-  respond({
+  await respond({
     type: ReplicationMessageTypes.SNAPSHOT_END,
     sourceId: deps.sourceNodeId,
     requestId: generateId(),
@@ -150,7 +151,7 @@ export function handleSnapshotStream(
       isLast: true,
     }
 
-    respond({
+    await respond({
       type: ReplicationMessageTypes.SYNC_ENTRIES,
       sourceId: deps.sourceNodeId,
       requestId: generateId(),

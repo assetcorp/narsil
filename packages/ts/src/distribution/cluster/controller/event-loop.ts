@@ -8,7 +8,7 @@ import type {
 } from '../../coordinator/types'
 import { createInsyncConfirmMessage } from '../../replication/codec'
 import { handleInsyncRemoval } from '../../replication/insync'
-import type { InsyncRemovePayload, NodeTransport, TransportMessage } from '../../transport/types'
+import type { InsyncRemovePayload, NodeTransport, RespondFn, TransportMessage } from '../../transport/types'
 import { ClusterMessageTypes, ReplicationMessageTypes } from '../../transport/types'
 import { allocate } from '../allocator/index'
 import { getIndexMetadata } from '../index-metadata'
@@ -295,18 +295,16 @@ export async function startEventLoop(
   })
   state.unwatchSchemas = unwatchSchemas
 
-  const unwatchTransport = await transport.listen(
-    (message: TransportMessage, respond: (response: TransportMessage) => void) => {
-      if (!isActive()) {
-        return
-      }
-      if (message.type === ReplicationMessageTypes.INSYNC_REMOVE) {
-        handleInsyncRemoveMessage(state, message, respond, coordinator, nodeId)
-      } else if (message.type === ClusterMessageTypes.BOOTSTRAP_COMPLETE) {
-        handleBootstrapCompleteMessage(message, respond, coordinator, nodeId)
-      }
-    },
-  )
+  const unwatchTransport = await transport.listen((message: TransportMessage, respond: RespondFn) => {
+    if (!isActive()) {
+      return
+    }
+    if (message.type === ReplicationMessageTypes.INSYNC_REMOVE) {
+      handleInsyncRemoveMessage(state, message, respond, coordinator, nodeId)
+    } else if (message.type === ClusterMessageTypes.BOOTSTRAP_COMPLETE) {
+      handleBootstrapCompleteMessage(message, respond, coordinator, nodeId)
+    }
+  })
   state.unwatchTransport = unwatchTransport
 
   scheduleDebouncedAllocation(state, coordinator, isActive, onError)
@@ -315,7 +313,7 @@ export async function startEventLoop(
 function handleInsyncRemoveMessage(
   state: EventLoopState,
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   coordinator: ClusterCoordinator,
   nodeId: string,
 ): void {
@@ -349,7 +347,7 @@ function handleInsyncRemoveMessage(
 
       const confirmPayload = await handleInsyncRemoval(payload, coordinator)
       const response = createInsyncConfirmMessage(confirmPayload, nodeId, message.requestId)
-      respond(response)
+      await respond(response)
     })
     .catch(() => {
       /* Insync removal failure; the primary will retry or detect the stale state */

@@ -32,12 +32,8 @@ export interface ScatterGroup {
   partitionIds: number[]
 }
 
-export function strictScatterGroups(
-  allocation: AllocationTable,
-  localNodeId: string,
-  indexName: string,
-): ScatterGroup[] {
-  const routing = selectReplicasForQuery(allocation, localNodeId, randomSelector)
+export function strictScatterGroups(allocation: AllocationTable, indexName: string): ScatterGroup[] {
+  const routing = selectReplicasForQuery(allocation, randomSelector)
   if (routing.unavailablePartitions.length > 0) {
     throw new NarsilError(
       ErrorCodes.QUERY_NO_ACTIVE_REPLICA,

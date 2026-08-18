@@ -1,7 +1,9 @@
 import {
   DEFAULT_TRANSPORT_CONFIG,
+  type ListenHandler,
   MAX_MESSAGE_SIZE_BYTES,
   type NodeTransport,
+  type RespondFn,
   type TransportConfig,
   TransportError,
   TransportErrorCodes,
@@ -11,10 +13,8 @@ import { createFaultPolicy, type FaultPolicy, type FaultPolicyConfig } from './f
 import { createSeededPrng } from './prng'
 import { createDeterministicScheduler, type DeterministicScheduler } from './scheduler'
 
-type ListenHandler = (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>
-
 export interface SimulatedTransportInternal extends NodeTransport {
-  deliverMessage(message: TransportMessage, respond: (response: TransportMessage) => void): void
+  deliverMessage(message: TransportMessage, respond: RespondFn): void
   deliverStream(message: TransportMessage, responder: (chunks: Uint8Array[]) => void): void
 }
 
@@ -67,7 +67,7 @@ export function createSimulatedNetwork(config: SimulatedNetworkConfig): Simulate
       return new Promise<TransportMessage>((resolve, reject) => {
         let settled = false
         try {
-          peer.deliverMessage(message, (response: TransportMessage) => {
+          peer.deliverMessage(message, async (response: TransportMessage): Promise<void> => {
             if (!settled) {
               settled = true
               resolve(response)
@@ -118,7 +118,7 @@ export function createSimulatedTransport(
   }
 
   const internal: SimulatedTransportInternal = {
-    deliverMessage(message: TransportMessage, respond: (response: TransportMessage) => void): void {
+    deliverMessage(message: TransportMessage, respond: RespondFn): void {
       if (listenHandler === undefined) {
         return
       }
@@ -132,7 +132,7 @@ export function createSimulatedTransport(
       }
 
       const chunks: Uint8Array[] = []
-      const handlerResult = listenHandler(message, (response: TransportMessage) => {
+      const handlerResult = listenHandler(message, async (response: TransportMessage): Promise<void> => {
         chunks.push(response.payload)
       })
 
@@ -189,7 +189,7 @@ export function createSimulatedTransport(
               return
             }
             try {
-              peer.deliverMessage(message, (response: TransportMessage) => {
+              peer.deliverMessage(message, async (response: TransportMessage): Promise<void> => {
                 if (settled) {
                   return
                 }

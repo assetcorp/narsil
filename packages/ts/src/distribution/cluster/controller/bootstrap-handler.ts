@@ -1,6 +1,11 @@
 import { decode, encode } from '@msgpack/msgpack'
 import type { ClusterCoordinator, PartitionAssignment } from '../../coordinator/types'
-import type { BootstrapCompletePayload, BootstrapCompleteResultPayload, TransportMessage } from '../../transport/types'
+import type {
+  BootstrapCompletePayload,
+  BootstrapCompleteResultPayload,
+  RespondFn,
+  TransportMessage,
+} from '../../transport/types'
 import { ClusterMessageTypes } from '../../transport/types'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -35,13 +40,13 @@ export function validateBootstrapCompletePayload(decoded: unknown): BootstrapCom
   }
 }
 
-function sendRejection(
-  respond: (response: TransportMessage) => void,
+async function sendRejection(
+  respond: RespondFn,
   controllerNodeId: string,
   requestId: string,
   indexName: string,
   partitionId: number,
-): void {
+): Promise<void> {
   const resultPayload: BootstrapCompleteResultPayload = {
     indexName,
     partitionId,
@@ -53,12 +58,12 @@ function sendRejection(
     requestId,
     payload: encode(resultPayload),
   }
-  respond(response)
+  await respond(response)
 }
 
 export function handleBootstrapCompleteMessage(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   coordinator: ClusterCoordinator,
   controllerNodeId: string,
 ): void {
@@ -66,23 +71,23 @@ export function handleBootstrapCompleteMessage(
   try {
     decoded = decode(message.payload)
   } catch (_) {
-    sendRejection(respond, controllerNodeId, message.requestId, '', -1)
+    void sendRejection(respond, controllerNodeId, message.requestId, '', -1)
     return
   }
 
   const payload = validateBootstrapCompletePayload(decoded)
   if (payload === null) {
-    sendRejection(respond, controllerNodeId, message.requestId, '', -1)
+    void sendRejection(respond, controllerNodeId, message.requestId, '', -1)
     return
   }
 
   if (message.sourceId !== payload.nodeId) {
-    sendRejection(respond, controllerNodeId, message.requestId, payload.indexName, payload.partitionId)
+    void sendRejection(respond, controllerNodeId, message.requestId, payload.indexName, payload.partitionId)
     return
   }
 
   processBootstrapComplete(payload, coordinator)
-    .then(accepted => {
+    .then(async accepted => {
       const resultPayload: BootstrapCompleteResultPayload = {
         indexName: payload.indexName,
         partitionId: payload.partitionId,
@@ -94,11 +99,9 @@ export function handleBootstrapCompleteMessage(
         requestId: message.requestId,
         payload: encode(resultPayload),
       }
-      respond(response)
+      await respond(response)
     })
-    .catch(() => {
-      sendRejection(respond, controllerNodeId, message.requestId, payload.indexName, payload.partitionId)
-    })
+    .catch(() => sendRejection(respond, controllerNodeId, message.requestId, payload.indexName, payload.partitionId))
 }
 
 function ensurePrimaryInSyncSet(assignment: PartitionAssignment, inSyncSet: string[]): string[] {

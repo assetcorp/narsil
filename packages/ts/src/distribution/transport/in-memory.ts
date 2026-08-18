@@ -1,14 +1,14 @@
 import {
   DEFAULT_TRANSPORT_CONFIG,
+  type ListenHandler,
   MAX_MESSAGE_SIZE_BYTES,
   type NodeTransport,
+  type RespondFn,
   type TransportConfig,
   TransportError,
   TransportErrorCodes,
   type TransportMessage,
 } from './types'
-
-type ListenHandler = (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>
 
 /**
  * Receives the chunks a streamed response carries, in order.
@@ -18,6 +18,8 @@ type ListenHandler = (message: TransportMessage, respond: (response: TransportMe
  * @public
  */
 export type StreamResponder = (chunks: Uint8Array[]) => void
+
+export type { ListenHandler, RespondFn } from './types'
 
 /**
  * The delivery side of an in-memory transport, which the network calls to hand
@@ -35,7 +37,7 @@ export interface InMemoryTransportInternal extends NodeTransport {
    * @param message - The request the sender posted.
    * @param respond - Hands the reply back to the sender.
    */
-  deliverMessage(message: TransportMessage, respond: (response: TransportMessage) => void): void
+  deliverMessage(message: TransportMessage, respond: RespondFn): void
   /**
    * Delivers one streamed request to this node's listener.
    *
@@ -152,7 +154,7 @@ export function createInMemoryTransport(
   }
 
   const internal: InMemoryTransportInternal = {
-    deliverMessage(message: TransportMessage, respond: (response: TransportMessage) => void): void {
+    deliverMessage(message: TransportMessage, respond: RespondFn): void {
       if (listenHandler === undefined) {
         return
       }
@@ -166,7 +168,7 @@ export function createInMemoryTransport(
       }
 
       const chunks: Uint8Array[] = []
-      const handlerResult = listenHandler(message, (response: TransportMessage) => {
+      const handlerResult = listenHandler(message, async (response: TransportMessage): Promise<void> => {
         chunks.push(response.payload)
       })
 
@@ -208,7 +210,7 @@ export function createInMemoryTransport(
         }, resolvedConfig.requestTimeout)
 
         try {
-          peer.deliverMessage(message, (response: TransportMessage) => {
+          peer.deliverMessage(message, async (response: TransportMessage): Promise<void> => {
             if (!settled) {
               settled = true
               clearTimeout(timeoutId)

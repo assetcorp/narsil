@@ -29,6 +29,7 @@ export interface DistributedQueryResult {
    */
   totalHits: number
   facets: Record<string, FacetBucket[]> | null
+  facetErrorBounds: Record<string, number> | null
   cursor: string | null
   coverage: Coverage
 }

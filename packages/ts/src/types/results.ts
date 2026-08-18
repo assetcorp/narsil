@@ -88,6 +88,13 @@ export interface FacetResult {
   values: Record<string, number>
   /** The field held this many distinct values across the matching documents. */
   count: number
+  /**
+   * No value's count is short by more than this. Counting runs per partition
+   * and each one reports only its own top values, so a value that is common
+   * overall but ranks low on a partition loses that partition's share. A bound
+   * of 0 means every count here is exact.
+   */
+  errorBound: number
 }
 
 /**

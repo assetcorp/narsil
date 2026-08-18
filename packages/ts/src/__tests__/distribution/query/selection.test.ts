@@ -3,6 +3,7 @@ import type { AllocationTable, PartitionAssignment } from '../../../distribution
 import {
   collectActiveCandidates,
   hashBasedSelector,
+  preferLocalSelector,
   randomSelector,
   selectReplica,
   selectReplicasForQuery,
@@ -131,30 +132,35 @@ describe('randomSelector', () => {
 describe('selectReplica', () => {
   it('returns null when no ACTIVE candidates are available', () => {
     const assignment = makeAssignment({ state: 'INITIALISING' })
-    expect(selectReplica(assignment, null)).toBeNull()
+    expect(selectReplica(assignment)).toBeNull()
   })
 
-  it('prefers local node when available in candidates', () => {
-    const assignment = makeAssignment({ primary: 'node-a', replicas: ['node-b', 'node-c'] })
-    expect(selectReplica(assignment, 'node-b')).toBe('node-b')
-  })
-
-  it('falls back to hash-based selection when local node is not a candidate', () => {
-    const assignment = makeAssignment({ primary: 'node-a', replicas: ['node-b'] })
-    const selected = selectReplica(assignment, 'node-x', hashBasedSelector, 0)
-    expect(['node-a', 'node-b']).toContain(selected)
+  it('picks from every eligible copy by default, without favouring any node', () => {
+    const assignment = makeAssignment({
+      primary: 'node-a',
+      replicas: ['node-b', 'node-c'],
+      inSyncSet: ['node-a', 'node-b', 'node-c'],
+    })
+    const seen = new Set<string>()
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const selected = selectReplica(assignment)
+      if (selected !== null) seen.add(selected)
+    }
+    expect([...seen].sort()).toEqual(['node-a', 'node-b', 'node-c'])
   })
 
   it('uses custom selector when provided', () => {
     const assignment = makeAssignment({ primary: 'node-a', replicas: ['node-b'] })
     const alwaysLast = (candidates: string[]) => candidates[candidates.length - 1]
-    expect(selectReplica(assignment, null, alwaysLast, 0)).toBe('node-b')
+    expect(selectReplica(assignment, alwaysLast, 0)).toBe('node-b')
   })
 
-  it('falls back to hash-based when localNodeId is null', () => {
-    const assignment = makeAssignment({ primary: 'node-a', replicas: ['node-b'] })
-    const result = selectReplica(assignment, null, hashBasedSelector, 0)
-    expect(result).not.toBeNull()
+  it('reads locally under preferLocalSelector, and defers where this node holds no copy', () => {
+    const held = makeAssignment({ primary: 'node-a', replicas: ['node-b', 'node-c'] })
+    const notHeld = makeAssignment({ primary: 'node-a', replicas: ['node-b'] })
+
+    expect(selectReplica(held, preferLocalSelector('node-b'), 0)).toBe('node-b')
+    expect(['node-a', 'node-b']).toContain(selectReplica(notHeld, preferLocalSelector('node-x', hashBasedSelector), 0))
   })
 })
 
@@ -166,7 +172,7 @@ describe('selectReplicasForQuery', () => {
       [2, makeAssignment({ primary: 'node-b', replicas: [] })],
     ])
 
-    const routing = selectReplicasForQuery(table, null)
+    const routing = selectReplicasForQuery(table)
     expect(routing.unavailablePartitions).toEqual([])
 
     const nodeAPartitions = routing.nodeToPartitions.get('node-a')
@@ -185,19 +191,19 @@ describe('selectReplicasForQuery', () => {
       [2, makeAssignment({ state: 'DECOMMISSIONING' })],
     ])
 
-    const routing = selectReplicasForQuery(table, null)
+    const routing = selectReplicasForQuery(table)
     expect(routing.unavailablePartitions).toContain(1)
     expect(routing.unavailablePartitions).toContain(2)
     expect(routing.unavailablePartitions).not.toContain(0)
   })
 
-  it('prefers local node for partitions it holds', () => {
+  it('sends every partition to this node under preferLocalSelector', () => {
     const table = makeAllocationTable([
       [0, makeAssignment({ primary: 'node-a', replicas: ['node-b'] })],
       [1, makeAssignment({ primary: 'node-b', replicas: ['node-a'] })],
     ])
 
-    const routing = selectReplicasForQuery(table, 'node-a')
+    const routing = selectReplicasForQuery(table, preferLocalSelector('node-a'))
     const nodeAPartitions = routing.nodeToPartitions.get('node-a')
     expect(nodeAPartitions).toContain(0)
     expect(nodeAPartitions).toContain(1)
@@ -205,7 +211,7 @@ describe('selectReplicasForQuery', () => {
 
   it('handles empty assignments', () => {
     const table = makeAllocationTable([])
-    const routing = selectReplicasForQuery(table, null)
+    const routing = selectReplicasForQuery(table)
     expect(routing.nodeToPartitions.size).toBe(0)
     expect(routing.unavailablePartitions).toEqual([])
   })
@@ -218,7 +224,7 @@ describe('selectReplicasForQuery', () => {
     ])
 
     for (let i = 0; i < 20; i += 1) {
-      const routing = selectReplicasForQuery(table, null)
+      const routing = selectReplicasForQuery(table)
       expect(routing.unavailablePartitions).toEqual([])
       const assigned: number[] = []
       for (const [nodeId, partitions] of routing.nodeToPartitions) {
@@ -236,8 +242,8 @@ describe('selectReplicasForQuery', () => {
       [2, makeAssignment({ primary: 'node-c', replicas: ['node-a', 'node-b'] })],
     ])
 
-    const routing1 = selectReplicasForQuery(table, null, hashBasedSelector)
-    const routing2 = selectReplicasForQuery(table, null, hashBasedSelector)
+    const routing1 = selectReplicasForQuery(table, hashBasedSelector)
+    const routing2 = selectReplicasForQuery(table, hashBasedSelector)
 
     for (const [nodeId, partitions] of routing1.nodeToPartitions) {
       expect(routing2.nodeToPartitions.get(nodeId)).toEqual(partitions)

@@ -7,12 +7,11 @@ import type {
   sendUnaryData,
 } from '@grpc/grpc-js'
 import { decodeTransportMessage, encodeTransportMessage } from '../tcp/framing'
+import type { ListenHandler, RespondFn } from '../types'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import type { GrpcModule } from './loader'
 import { nodeTransportService } from './service'
 import { channelOptions, type GrpcTransportConfig, toCredentialBuffer } from './types'
-
-type ListenHandler = (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>
 
 function errorEnvelope(requestId: string, err: unknown): TransportMessage {
   const errorMsg = err instanceof Error ? err.message : String(err)
@@ -129,7 +128,7 @@ export class GrpcServerHost {
     }
 
     let responded = false
-    const respond = (response: TransportMessage): void => {
+    const respond: RespondFn = async (response: TransportMessage): Promise<void> => {
       if (responded) {
         return
       }
@@ -164,11 +163,17 @@ export class GrpcServerHost {
     }
 
     let chunkCount = 0
-    const respond = (response: TransportMessage): void => {
-      if (call.writable) {
-        chunkCount++
-        call.write(response.payload)
+    const respond: RespondFn = (response: TransportMessage): Promise<void> => {
+      if (!call.writable) {
+        return Promise.resolve()
       }
+      chunkCount++
+      if (call.write(response.payload)) {
+        return Promise.resolve()
+      }
+      return new Promise<void>(resolve => {
+        call.once('drain', resolve)
+      })
     }
 
     const fail = (err: unknown): void => {
@@ -202,7 +207,7 @@ export class GrpcServerHost {
   private runHandler(
     handler: ListenHandler,
     message: TransportMessage,
-    respond: (response: TransportMessage) => void,
+    respond: RespondFn,
     onFailure: (err: unknown) => void,
   ): void {
     try {

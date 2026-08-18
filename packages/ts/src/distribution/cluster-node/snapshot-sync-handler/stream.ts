@@ -31,7 +31,7 @@ export async function acquireAndStream(
   } catch (err) {
     const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_CAPACITY_EXHAUSTED
     const errMessage = err instanceof Error ? err.message : String(err)
-    respondError(sink, deps.nodeId, message.requestId, code, errMessage)
+    await respondError(sink, deps.nodeId, message.requestId, code, errMessage)
     return
   }
 
@@ -46,12 +46,12 @@ export async function acquireAndStream(
     } catch (err) {
       const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_SNAPSHOT_FAILED
       const errMessage = err instanceof Error ? err.message : String(err)
-      respondError(sink, deps.nodeId, message.requestId, code, errMessage)
+      await respondError(sink, deps.nodeId, message.requestId, code, errMessage)
       return
     }
 
     if (build.bytes.byteLength > MAX_SNAPSHOT_SIZE_BYTES) {
-      respondError(
+      await respondError(
         sink,
         deps.nodeId,
         message.requestId,
@@ -67,7 +67,7 @@ export async function acquireAndStream(
     } catch (err) {
       const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_CAPACITY_EXHAUSTED
       const errMessage = err instanceof Error ? err.message : String(err)
-      respondError(sink, deps.nodeId, message.requestId, code, errMessage)
+      await respondError(sink, deps.nodeId, message.requestId, code, errMessage)
       return
     }
 

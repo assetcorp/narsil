@@ -165,19 +165,22 @@ Each data node counts facets over its own partitions, and the coordinator merges
    the search message.
 3. Each data node returns up to shardSize buckets per requested
    field, ordered by count, highest first, with ties by value
-   in code point order.
+   in code point order, and the largest count it left out of
+   that field as the field's error bound.
 4. The coordinator merges the buckets:
      group the buckets of each field by value
      sum the counts of identical values
      order by merged count, highest first, ties by value in
        code point order
      truncate to facetSize
-5. The merged facets travel in the query response.
+     sum the error bounds of each field across the nodes
+5. The merged facets and their error bounds travel in the
+   query response.
 ```
 
 Distributed facet counts are approximate. A value that is frequent across the whole index but falls below `shardSize` on the individual partitions can be undercounted or missed altogether. A larger `shardSize` buys accuracy with transfer.
 
-Where it can, the response should carry an error bound: the sum, across data nodes, of the largest bucket count each node excluded. That figure is the largest undercount any value can have.
+A response must carry one error bound per field it counts, and that figure is the largest undercount any value of the field can have. A node sets its own bound to the largest count it excluded from the field, and to 0 where it excluded nothing, so a bound of 0 on every node proves the field's counts exact. The coordinator sums the nodes' bounds rather than taking the largest, because each node undercounts a value independently of the rest.
 
 ---
 

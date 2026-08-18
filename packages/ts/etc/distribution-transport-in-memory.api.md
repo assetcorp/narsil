@@ -19,9 +19,15 @@ export interface InMemoryNetwork {
 
 // @public
 export interface InMemoryTransportInternal extends NodeTransport {
-    deliverMessage(message: TransportMessage, respond: (response: TransportMessage) => void): void;
+    deliverMessage(message: TransportMessage, respond: RespondFn): void;
     deliverStream(message: TransportMessage, responder: StreamResponder): void;
 }
+
+// @public
+export type ListenHandler = (message: TransportMessage, respond: RespondFn) => void | Promise<void>;
+
+// @public
+export type RespondFn = (response: TransportMessage) => Promise<void>;
 
 // @public
 export type StreamResponder = (chunks: Uint8Array[]) => void;

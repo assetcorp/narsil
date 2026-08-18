@@ -64,7 +64,7 @@ export async function fetchDistributedDocuments<T>(
     if (assignment === undefined) {
       continue
     }
-    const selectedNodeId = selectReplica(assignment, nodeId, undefined, partitionId)
+    const selectedNodeId = selectReplica(assignment, undefined, partitionId)
     if (selectedNodeId === null) {
       continue
     }
@@ -123,7 +123,7 @@ export async function readDistributedDocuments(
   for (const docId of new Set(docIds)) {
     const partitionId = resolvePartitionId(docId, partitionCount)
     const assignment = allocation.assignments.get(partitionId)
-    const selectedNodeId = assignment === undefined ? null : selectReplica(assignment, nodeId, undefined, partitionId)
+    const selectedNodeId = assignment === undefined ? null : selectReplica(assignment, undefined, partitionId)
     if (selectedNodeId === null) {
       unreachablePartitions.add(partitionId)
       continue

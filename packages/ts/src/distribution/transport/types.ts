@@ -83,12 +83,31 @@ export interface NodeTransport {
    * the reply.
    * @returns A function that ends the listener.
    */
-  listen(
-    handler: (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>,
-  ): Promise<() => void>
+  listen(handler: ListenHandler): Promise<() => void>
   /** Closes every connection and releases the port or registration it held. */
   shutdown(): Promise<void>
 }
+
+/**
+ * Sends one reply back to the peer that asked.
+ *
+ * It settles once the transport has taken the reply, which a transport whose
+ * connection is full delays until the connection accepts more. A handler
+ * sending many replies awaits each one before it builds the next, so a
+ * snapshot cannot outrun a slow receiver and exhaust this node's memory.
+ *
+ * @param response - The reply to send.
+ *
+ * @public
+ */
+export type RespondFn = (response: TransportMessage) => Promise<void>
+
+/**
+ * Handles one request a peer sent, replying through `respond`.
+ *
+ * @public
+ */
+export type ListenHandler = (message: TransportMessage, respond: RespondFn) => void | Promise<void>
 
 export const TransportErrorCodes = {
   CONNECT_FAILED: 'TRANSPORT_CONNECT_FAILED',

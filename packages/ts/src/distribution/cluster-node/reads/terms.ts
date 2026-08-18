@@ -52,7 +52,7 @@ export async function suggestCluster(
   }
 
   const nodeLimit = suggestNodeLimit(clientLimit)
-  const groups = strictScatterGroups(allocation, deps.nodeId, indexName)
+  const groups = strictScatterGroups(allocation, indexName)
 
   const gathered = await Promise.all(
     groups.map(async group => {
@@ -104,7 +104,7 @@ export async function preflightCluster(
 
   const startTime = performance.now()
   const wireParams = localParamsToWire(params)
-  const groups = strictScatterGroups(allocation, deps.nodeId, indexName)
+  const groups = strictScatterGroups(allocation, indexName)
 
   const gathered = await Promise.all(
     groups.map(async group => {

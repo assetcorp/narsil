@@ -140,6 +140,9 @@ export const DEFAULT_PARTITION_COUNT = 5;
 export const DEFAULT_REPLICATION_FACTOR = 1;
 
 // @public
+export type ListenHandler = (message: TransportMessage, respond: RespondFn) => void | Promise<void>;
+
+// @public
 export interface NodeCapacity {
     cpuCores: number;
     diskBytes: number | null;
@@ -169,7 +172,7 @@ export type NodeRole = 'data' | 'coordinator' | 'controller';
 
 // @public
 export interface NodeTransport {
-    listen(handler: (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>): Promise<() => void>;
+    listen(handler: ListenHandler): Promise<() => void>;
     send(target: string, message: TransportMessage): Promise<TransportMessage>;
     shutdown(): Promise<void>;
     stream(target: string, message: TransportMessage, handler: (chunk: Uint8Array) => void): Promise<void>;
@@ -192,6 +195,9 @@ export interface ReplicationConfig {
     logRetentionBytes: number;
     waitForActiveReplicas: number;
 }
+
+// @public
+export type RespondFn = (response: TransportMessage) => Promise<void>;
 
 // @public
 export interface SchemaEvent {

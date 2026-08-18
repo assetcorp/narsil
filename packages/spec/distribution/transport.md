@@ -14,7 +14,7 @@ The `NodeTransport` adapter covers the network layer between nodes. Every method
 NodeTransport {
   async send(target: string, message: TransportMessage) -> TransportMessage
   async stream(target: string, message: TransportMessage, handler: (chunk: bytes) -> nothing) -> nothing
-  async listen(handler: (message: TransportMessage, respond: (TransportMessage) -> nothing) -> nothing) -> (() -> nothing)
+  async listen(handler: (message: TransportMessage, respond: async (TransportMessage) -> nothing) -> nothing) -> (() -> nothing)
   async shutdown() -> nothing
 }
 ```
@@ -38,6 +38,8 @@ NodeTransport {
 - It returns an unsubscribe function that removes the handler, so a component such as the controller can tear its listener down on step-down without shutting the whole transport down.
 - A node must call `listen` before it can receive queries or replication entries.
 - Calling `listen` again replaces the previous handler, and the old unsubscribe function then does nothing.
+- `respond` completes once the transport has taken the reply, and a handler sending many replies must await each one before it builds the next.
+- A transport whose connection reports that it is full must hold that completion until the connection accepts more, so that a snapshot cannot outrun a slow receiver and exhaust the sender's memory. A transport that buffers without limit completes immediately.
 
 ### shutdown()
 
@@ -412,6 +414,7 @@ HighlightConfig {
     totalHits:   uint32
   }>
   facets: Map<string, List<FacetBucket>> or absent
+  facetErrorBounds: Map<string, uint32> or absent
 }
 
 ScoredEntry {
@@ -429,6 +432,8 @@ FacetBucket {
 `sortValues` carries the raw values of the sort fields, one per field in sort order, each a string, a number, a boolean, or nil, read from the document before any folding. The coordinator merges sorted results with the [sort value order](../algorithms.md#sort-value-order), so a data node must never send pre-folded or pre-transformed values.
 
 `score` is absent where the query named a sort without `includeScores`, because a [sorted query computes no relevance scores](../algorithms.md#string-ordering), and the coordinator then merges by sort values alone.
+
+`facetErrorBounds` holds one figure per field in `facets`, which is the largest count the node left out of that field, and 0 where the node sent every bucket it holds. A node that sends `facets` must send it, and the coordinator sums the figures across nodes to report the [error bound](query-routing.md#distributed-facets).
 
 ### query.fetch
 

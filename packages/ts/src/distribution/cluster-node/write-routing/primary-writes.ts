@@ -44,7 +44,7 @@ export async function applyPrimaryInsert(
       await replicateEntry(entry, assignment, deps)
     })
   } catch (error) {
-    await rollbackPrimaryInsert(indexName, partitionId, insertedDocId, error, deps)
+    await rollbackPrimaryInsert({ indexName, partitionId, assignment, deps }, insertedDocId, error)
   }
 
   return insertedDocId
@@ -66,7 +66,7 @@ export async function applyPrimaryRemove(
       await replicateEntry(entry, assignment, deps)
     })
   } catch (error) {
-    await rollbackPrimaryRemove(indexName, partitionId, docId, previousDocument, error, deps)
+    await rollbackPrimaryRemove({ indexName, partitionId, assignment, deps }, docId, previousDocument, error)
   }
 }
 
@@ -97,7 +97,7 @@ export async function applyPrimaryUpdate(
       await replicateEntry(entry, assignment, deps)
     })
   } catch (error) {
-    await rollbackPrimaryUpdate(indexName, partitionId, docId, previousDocument, error, deps)
+    await rollbackPrimaryUpdate({ indexName, partitionId, assignment, deps }, docId, previousDocument, error)
   }
 }
 
@@ -148,7 +148,7 @@ export async function applyPrimaryInsertBatch(
         entry: appendIndexReplicationEntry(indexName, partitionId, assignment, item.docId, item.document, deps),
       })),
       failed,
-      (docId, error) => rollbackPrimaryInsert(indexName, partitionId, docId, error, deps),
+      (docId, error) => rollbackPrimaryInsert({ indexName, partitionId, assignment, deps }, docId, error),
       deps,
     ),
   )
@@ -195,7 +195,12 @@ export async function applyPrimaryUpdateBatch(
       })),
       failed,
       (docId, error) =>
-        rollbackPrimaryUpdate(indexName, partitionId, docId, preparedByDocId.get(docId)?.previousDocument, error, deps),
+        rollbackPrimaryUpdate(
+          { indexName, partitionId, assignment, deps },
+          docId,
+          preparedByDocId.get(docId)?.previousDocument,
+          error,
+        ),
       deps,
     ),
   )
@@ -234,7 +239,12 @@ export async function applyPrimaryRemoveBatch(
       })),
       failed,
       (docId, error) =>
-        rollbackPrimaryRemove(indexName, partitionId, docId, preparedByDocId.get(docId)?.previousDocument, error, deps),
+        rollbackPrimaryRemove(
+          { indexName, partitionId, assignment, deps },
+          docId,
+          preparedByDocId.get(docId)?.previousDocument,
+          error,
+        ),
       deps,
     ),
   )
@@ -251,6 +261,7 @@ async function replicateAppendedWrites(
 ): Promise<string[]> {
   const succeeded: string[] = []
   const chunks = chunkReplicationEntries(appended)
+  const abandoned: AppendedWrite[] = []
   let abortError: unknown
 
   for (const chunk of chunks) {
@@ -268,12 +279,15 @@ async function replicateAppendedWrites(
       }
     }
 
-    for (const item of chunk) {
-      try {
-        await rollback(item.docId, abortError)
-      } catch (err) {
-        failed.push({ docId: item.docId, error: asWriteError(err, ErrorCodes.DOC_VALIDATION_FAILED, item.docId) })
-      }
+    abandoned.push(...chunk)
+  }
+
+  for (let index = abandoned.length - 1; index >= 0; index--) {
+    const item = abandoned[index]
+    try {
+      await rollback(item.docId, abortError)
+    } catch (err) {
+      failed.push({ docId: item.docId, error: asWriteError(err, ErrorCodes.DOC_VALIDATION_FAILED, item.docId) })
     }
   }
 
