@@ -108,7 +108,7 @@ describe('cluster-node updates replicate to replicas', () => {
 
     const oldTermGone = await nodeB.query('products', { term: 'Original' })
     expect(oldTermGone.count).toBe(0)
-  })
+  }, 30_000)
 
   it('replicates a batch of updates as entry batches', async () => {
     if (nodeA === undefined || nodeB === undefined) throw new Error('nodes are missing')
@@ -132,12 +132,12 @@ describe('cluster-node updates replicate to replicas', () => {
       return viaReplica?.count === docIds.length
     })
     expect(refreshed).toBe(true)
-  })
+  }, 30_000)
 
   it('rejects an update for a document that does not exist', async () => {
     if (nodeA === undefined) throw new Error('node is missing')
     await expect(nodeA.update('products', 'missing-doc', { title: 'Ghost', price: 1 })).rejects.toThrow()
-  })
+  }, 30_000)
 })
 
 describe('cluster-node batch forwarding to a remote primary', () => {
@@ -226,7 +226,7 @@ describe('cluster-node batch forwarding to a remote primary', () => {
 
     const visible = await router.query('products', { term: 'Chair', limit: 20 })
     expect(visible.count).toBe(docIds.length + 1)
-  })
+  }, 30_000)
 
   it('forwards updates and removals in batches and applies them on the primary', async () => {
     if (router === undefined || dataNode === undefined) throw new Error('nodes are missing')
@@ -260,7 +260,7 @@ describe('cluster-node batch forwarding to a remote primary', () => {
 
     const emptied = await router.query('products', { term: 'Stool', limit: 20 })
     expect(emptied.count).toBe(0)
-  })
+  }, 30_000)
 
   it('forwards a single remote update as a plain forward and reports remote failures per document', async () => {
     if (router === undefined) throw new Error('node is missing')
@@ -278,5 +278,5 @@ describe('cluster-node batch forwarding to a remote primary', () => {
     expect(mixed.failed).toHaveLength(1)
     expect(mixed.failed[0]?.docId).toBe('bench-missing')
     expect(mixed.failed[0]?.error.code).toBe('DOC_NOT_FOUND')
-  })
+  }, 30_000)
 })

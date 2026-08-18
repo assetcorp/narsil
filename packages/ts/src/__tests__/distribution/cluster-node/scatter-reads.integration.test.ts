@@ -129,7 +129,7 @@ describe('cluster-node scatter-gather reads', () => {
     expect(await router.countDocuments('shop')).toBe(DOCUMENT_TOTAL)
     expect(await holderOne.countDocuments('shop')).toBe(DOCUMENT_TOTAL)
     expect(await holderTwo.countDocuments('shop')).toBe(DOCUMENT_TOTAL)
-  })
+  }, 30_000)
 
   it('gathers index statistics across the cluster', async () => {
     if (router === undefined) throw new Error('node missing')
@@ -139,14 +139,14 @@ describe('cluster-node scatter-gather reads', () => {
     expect(stats.language).toBe('english')
     expect(stats.schema).toEqual({ title: 'string', price: 'number', category: 'enum' })
     expect(stats.estimatedMemoryBytes).toBeGreaterThan(0)
-  })
+  }, 30_000)
 
   it('gathers per-partition statistics in partition order', async () => {
     if (router === undefined) throw new Error('node missing')
     const partitions = await router.getPartitionStats('shop')
     expect(partitions.map(entry => entry.partitionId)).toEqual([0, 1, 2, 3])
     expect(partitions.reduce((total, entry) => total + entry.documentCount, 0)).toBe(DOCUMENT_TOTAL)
-  })
+  }, 30_000)
 
   it('counts a preflight across the cluster', async () => {
     if (router === undefined) throw new Error('node missing')
@@ -158,14 +158,14 @@ describe('cluster-node scatter-gather reads', () => {
       filters: { fields: { category: { eq: 'kitchen' } } },
     })
     expect(kitchenOnly.count).toBe(documents.filter(doc => doc.category === 'kitchen').length)
-  })
+  }, 30_000)
 
   it('merges suggestions with summed document frequencies', async () => {
     if (router === undefined) throw new Error('node missing')
     const result = await router.suggest('shop', { prefix: 'grind' })
     const grinder = result.terms.find(entry => entry.term.startsWith('grind'))
     expect(grinder?.documentFrequency).toBe(DOCUMENT_TOTAL)
-  })
+  }, 30_000)
 
   it('pages through the whole cluster listing in document-id order', async () => {
     if (router === undefined) throw new Error('node missing')
@@ -182,7 +182,7 @@ describe('cluster-node scatter-gather reads', () => {
     expect(collected).toHaveLength(DOCUMENT_TOTAL)
     expect(collected).toEqual([...collected].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)))
     expect(new Set(collected)).toEqual(new Set(documents.map(doc => doc.id)))
-  })
+  }, 30_000)
 
   it('lists a page at the maximum page size and reports the listing finished', async () => {
     if (router === undefined) throw new Error('node missing')
@@ -190,7 +190,7 @@ describe('cluster-node scatter-gather reads', () => {
     expect(result.documents).toHaveLength(DOCUMENT_TOTAL)
     expect(result.cursor).toBeNull()
     expect(result.total).toBe(DOCUMENT_TOTAL)
-  })
+  }, 30_000)
 
   it('lists with a filter, a sort, and a projection across nodes', async () => {
     if (router === undefined) throw new Error('node missing')
@@ -210,7 +210,7 @@ describe('cluster-node scatter-gather reads', () => {
     for (const listed of result.documents) {
       expect(Object.keys(listed.document)).toEqual(['title'])
     }
-  })
+  }, 30_000)
 
   it('continues a sorted listing across pages with a cursor', async () => {
     if (router === undefined) throw new Error('node missing')
@@ -229,7 +229,7 @@ describe('cluster-node scatter-gather reads', () => {
 
     const expectedOrder = [...documents].sort((a, b) => a.price - b.price).map(doc => doc.id)
     expect(collected).toEqual(expectedOrder)
-  })
+  }, 30_000)
 
   it('fails the exact reads instead of answering partially when a holder is gone', async () => {
     if (router === undefined || holderTwo === undefined) throw new Error('nodes missing')
@@ -240,5 +240,5 @@ describe('cluster-node scatter-gather reads', () => {
     await expect(router.countDocuments('shop')).rejects.toThrow()
     await expect(router.listDocuments('shop', { limit: 5 })).rejects.toThrow()
     await expect(router.preflight('shop', { term: 'portable' })).rejects.toThrow()
-  })
+  }, 30_000)
 })

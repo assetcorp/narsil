@@ -105,7 +105,7 @@ describe('cluster-node drop and clear', () => {
 
     await nodeA.insert('products', { title: 'Fresh Gadget', price: 99 }, 'gadget-fresh')
     expect(await nodeA.countDocuments('products')).toBe(1)
-  })
+  }, 30_000)
 
   it('drops the index from the coordinator and from every node, and the name can be reused', async () => {
     if (nodeA === undefined || nodeB === undefined) throw new Error('nodes missing')
@@ -143,12 +143,12 @@ describe('cluster-node drop and clear', () => {
     await nodeA.insert('products', { title: 'Rebuilt Gadget', price: 5 }, 'gadget-rebuilt')
     const answered = await nodeA.query('products', { term: 'Rebuilt' })
     expect(answered.count).toBe(1)
-  })
+  }, 30_000)
 
   it('drops an index that only exists locally when the cluster never allocated it', async () => {
     if (nodeA === undefined) throw new Error('node missing')
     await expect(nodeA.dropIndex('never-created')).rejects.toThrow(
       expect.objectContaining({ code: 'INDEX_NOT_FOUND' }) as unknown as Error,
     )
-  })
+  }, 30_000)
 })

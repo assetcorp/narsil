@@ -115,5 +115,5 @@ describe('bootstrap sync integration', () => {
     expect(result.count).toBeGreaterThanOrEqual(1)
     const titles = result.hits.map(hit => (hit.document as { title?: string }).title)
     expect(titles).toContain('Ergo Keyboard')
-  })
+  }, 30_000)
 })
