@@ -90,5 +90,5 @@ function applyEntryVectors(
   }
 
   removeDocumentVectors(entry.documentId, vectorIndexes)
-  insertDocumentVectors(entry.documentId, vectors, vectorIndexes)
+  insertDocumentVectors(entry.documentId, vectors, vectorIndexes, entry.partitionId)
 }

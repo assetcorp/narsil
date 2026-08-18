@@ -17,6 +17,7 @@ export async function createEngineIndex(
   config: NarsilConfig | undefined,
   name: string,
   indexConfig: IndexConfig,
+  indexUuid?: string,
 ): Promise<void> {
   core.guardShutdown()
   validateIndexName(name)
@@ -78,6 +79,7 @@ export async function createEngineIndex(
     embeddingAdapter: resolvedEmbeddingAdapter,
     embeddingAdapterName,
     vectorFieldPaths: getVectorFieldPaths(indexConfig.schema),
+    indexUuid: indexUuid ?? null,
   })
   if (core.durability) {
     await core.durability.manager.persistMetadata(name)

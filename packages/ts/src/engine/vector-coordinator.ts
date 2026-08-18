@@ -130,13 +130,14 @@ export function insertDocumentVectors(
   docId: string,
   vectors: Map<string, Float32Array>,
   vecIndexes: Map<string, VectorIndex>,
+  partitionId: number | undefined,
 ): string[] {
   const insertedFields: string[] = []
   try {
     for (const [fieldPath, vector] of vectors) {
       const vecIndex = vecIndexes.get(fieldPath)
       if (!vecIndex) continue
-      vecIndex.insert(docId, vector)
+      vecIndex.insert(docId, vector, partitionId)
       insertedFields.push(fieldPath)
     }
   } catch (err) {
@@ -161,6 +162,7 @@ export function updateDocumentVectors(
   docId: string,
   vectors: Map<string, Float32Array | null>,
   vecIndexes: Map<string, VectorIndex>,
+  partitionId: number | undefined,
 ): void {
   const updatedFields: Array<{ fieldPath: string; oldVec: Float32Array | null }> = []
 
@@ -183,11 +185,11 @@ export function updateDocumentVectors(
 
       vecIndex.remove(docId)
       try {
-        vecIndex.insert(docId, newVec)
+        vecIndex.insert(docId, newVec, partitionId)
         updatedFields.push({ fieldPath, oldVec })
       } catch (err) {
         if (oldVec) {
-          vecIndex.insert(docId, oldVec)
+          vecIndex.insert(docId, oldVec, partitionId)
         }
         throw err
       }
@@ -198,7 +200,7 @@ export function updateDocumentVectors(
       if (!vecIndex) continue
       vecIndex.remove(docId)
       if (oldVec) {
-        vecIndex.insert(docId, oldVec)
+        vecIndex.insert(docId, oldVec, partitionId)
       }
     }
     throw err

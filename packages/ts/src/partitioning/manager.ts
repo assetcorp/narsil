@@ -45,6 +45,7 @@ export interface PartitionManager {
     fieldTypes: readonly (string | undefined)[],
   ): ComparableSortValue[]
   has(docId: string): boolean
+  partitionIdOf(docId: string): number | undefined
   countDocuments(): number
 
   serializePartition(partitionId: number): SerializablePartition
@@ -330,6 +331,10 @@ export function createPartitionManager(
 
     has(docId: string): boolean {
       return locateDocument(docId) !== undefined
+    },
+
+    partitionIdOf(docId: string): number | undefined {
+      return locateDocument(docId)
     },
 
     countDocuments(): number {

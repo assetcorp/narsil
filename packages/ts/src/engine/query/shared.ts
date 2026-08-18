@@ -38,23 +38,34 @@ export function partitionsFor(manager: PartitionManager, partitionIds: number[] 
   return partitions
 }
 
-export function partitionDocIdFilter(
+/**
+ * Works out which partitions a vector search may answer from.
+ *
+ * The vector index records the partition of every vector it stores, so a
+ * search reads its own membership rather than a list of document ids. A vector
+ * the index stored before it tracked partitions carries none. This fills those
+ * in from the manager first, so every later search reads the membership the
+ * index already holds.
+ *
+ * @param manager - The partition manager holding the documents.
+ * @param vecIndex - The vector index the search runs against.
+ * @param partitionIds - The partitions the search may answer from, or
+ * undefined to search the whole index.
+ * @returns The partitions to confine the search to, or undefined where the
+ * caller named none.
+ */
+export function partitionsForVectorSearch(
   manager: PartitionManager,
+  vecIndex: VectorIndex,
   partitionIds: number[] | undefined,
-  filterDocIds: Set<string> | undefined,
-): Set<string> | undefined {
+): ReadonlySet<number> | undefined {
   if (partitionIds === undefined) {
-    return filterDocIds
+    return undefined
   }
-  const allowed = new Set<string>()
-  for (const partition of partitionsFor(manager, partitionIds)) {
-    for (const docId of partition.docIds()) {
-      if (filterDocIds === undefined || filterDocIds.has(docId)) {
-        allowed.add(docId)
-      }
-    }
+  if (!vecIndex.partitionsKnown()) {
+    vecIndex.assignPartitions(docId => manager.partitionIdOf(docId))
   }
-  return allowed
+  return new Set(partitionIds)
 }
 
 export function scoringConfigFor(params: QueryParams, context: QueryContext): FanOutConfig {

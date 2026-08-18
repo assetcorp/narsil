@@ -1,4 +1,5 @@
 import type { VectorMetric } from './brute-force'
+import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter } from './ordinal-filter'
 import { type ArenaSimd, arenaFloat32Distance, createArenaSimd } from './simd'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from './similarity'
 
@@ -47,7 +48,13 @@ export interface VectorSearchReader {
 export interface VectorStore extends VectorSearchReader {
   readonly size: number
   readonly slots: number
-  insert(docId: string, vector: Float32Array): void
+  /** False while any stored document is there without the partition it belongs to. */
+  readonly partitionsKnown: boolean
+  insert(docId: string, vector: Float32Array, partitionId?: number): void
+  setPartition(docId: string, partitionId: number): void
+  forgetPartition(docId: string): void
+  partitionOfOrdinal(ordinal: number): number | undefined
+  partitionFilter(partitionIds: ReadonlySet<number>): OrdinalFilter
   remove(docId: string): void
   get(docId: string): VectorStoreEntry | undefined
   has(docId: string): boolean
@@ -67,11 +74,15 @@ export interface VectorStore extends VectorSearchReader {
 
 const INITIAL_CAPACITY = 16
 const PAGE_BYTES = 65536
+const UNKNOWN_PARTITION = -1
+const NO_PARTITION = -2
 
 export function createVectorStore(): VectorStore {
   const docToOrd = new Map<string, number>()
   const recycledOrds = new Map<string, number>()
   const ordToDoc: Array<string | undefined> = []
+  let partitionOf = new Int32Array(0)
+  let unknownPartitions = 0
   let simd: ArenaSimd | null = createArenaSimd()
 
   let dimension = 0
@@ -137,6 +148,30 @@ export function createVectorStore(): VectorStore {
     return { vector: arena.subarray(base, base + dimension), magnitude: mags[ord] }
   }
 
+  function ensurePartitionSlots(ord: number): void {
+    if (ord < partitionOf.length) return
+    let length = partitionOf.length === 0 ? INITIAL_CAPACITY : partitionOf.length
+    while (length <= ord) length *= 2
+    const grown = new Int32Array(length).fill(UNKNOWN_PARTITION)
+    grown.set(partitionOf)
+    partitionOf = grown
+  }
+
+  function recordPartition(ord: number, partitionId: number | undefined, wasLive: boolean): void {
+    ensurePartitionSlots(ord)
+    const previous = partitionOf[ord]
+    const given = partitionId !== undefined && partitionId >= 0 ? partitionId : undefined
+    const next = given ?? (wasLive ? previous : UNKNOWN_PARTITION)
+    partitionOf[ord] = next
+    if (!wasLive && next === UNKNOWN_PARTITION) {
+      unknownPartitions += 1
+      return
+    }
+    if (wasLive && previous === UNKNOWN_PARTITION && next !== UNKNOWN_PARTITION) {
+      unknownPartitions -= 1
+    }
+  }
+
   return {
     get size() {
       return liveCount
@@ -146,12 +181,13 @@ export function createVectorStore(): VectorStore {
       return ordToDoc.length
     },
 
-    insert(docId: string, vector: Float32Array): void {
+    insert(docId: string, vector: Float32Array, partitionId?: number): void {
       if (dimension === 0) initStorage(vector.length)
 
       const existing = docToOrd.get(docId)
       if (existing !== undefined) {
         writeVector(existing, vector)
+        recordPartition(existing, partitionId, true)
         return
       }
       const recycled = recycledOrds.get(docId)
@@ -161,6 +197,7 @@ export function createVectorStore(): VectorStore {
         ordToDoc[recycled] = docId
         ensureCapacity(recycled + 1)
         writeVector(recycled, vector)
+        recordPartition(recycled, partitionId, false)
         liveCount++
         return
       }
@@ -169,7 +206,54 @@ export function createVectorStore(): VectorStore {
       ordToDoc.push(docId)
       ensureCapacity(ord + 1)
       writeVector(ord, vector)
+      recordPartition(ord, partitionId, false)
       liveCount++
+    },
+
+    setPartition(docId: string, partitionId: number): void {
+      const ord = docToOrd.get(docId)
+      if (ord === undefined) return
+      recordPartition(ord, partitionId, true)
+    },
+
+    forgetPartition(docId: string): void {
+      const ord = docToOrd.get(docId)
+      if (ord === undefined || ord >= partitionOf.length) return
+      if (partitionOf[ord] === UNKNOWN_PARTITION) {
+        unknownPartitions -= 1
+      }
+      partitionOf[ord] = NO_PARTITION
+    },
+
+    partitionOfOrdinal(ordinal: number): number | undefined {
+      if (ordinal < 0 || ordinal >= partitionOf.length) return undefined
+      const partitionId = partitionOf[ordinal]
+      return partitionId < 0 ? undefined : partitionId
+    },
+
+    get partitionsKnown(): boolean {
+      return unknownPartitions === 0
+    },
+
+    partitionFilter(partitionIds: ReadonlySet<number>): OrdinalFilter {
+      const filter = createOrdinalFilter(ordToDoc.length)
+      let highest = -1
+      for (const partitionId of partitionIds) {
+        if (partitionId > highest) highest = partitionId
+      }
+      if (highest < 0) return filter
+      const wanted = new Uint8Array(highest + 1)
+      for (const partitionId of partitionIds) {
+        if (partitionId >= 0) wanted[partitionId] = 1
+      }
+      const upperBound = Math.min(ordToDoc.length, partitionOf.length)
+      for (let ord = 0; ord < upperBound; ord++) {
+        if (ordToDoc[ord] === undefined) continue
+        const partitionId = partitionOf[ord]
+        if (partitionId < 0 || partitionId > highest || wanted[partitionId] === 0) continue
+        addToOrdinalFilter(filter, ord)
+      }
+      return filter
     },
 
     remove(docId: string): void {
@@ -178,6 +262,9 @@ export function createVectorStore(): VectorStore {
       docToOrd.delete(docId)
       ordToDoc[ord] = undefined
       recycledOrds.set(docId, ord)
+      if (ord < partitionOf.length && partitionOf[ord] === UNKNOWN_PARTITION) {
+        unknownPartitions -= 1
+      }
       liveCount--
     },
 
@@ -202,6 +289,8 @@ export function createVectorStore(): VectorStore {
       docToOrd.clear()
       recycledOrds.clear()
       ordToDoc.length = 0
+      partitionOf = new Int32Array(0)
+      unknownPartitions = 0
       mags = new Float64Array(0)
       if (!simd) {
         arena = new Float32Array(0)
@@ -291,6 +380,8 @@ export function createVectorStore(): VectorStore {
       docToOrd.clear()
       recycledOrds.clear()
       ordToDoc.length = 0
+      partitionOf = new Int32Array(0)
+      unknownPartitions = 0
       liveCount = 0
       capacity = 0
       dimension = 0
@@ -309,11 +400,13 @@ export function createVectorStore(): VectorStore {
 
       mags.set(snapshot.magnitudes.subarray(0, Math.min(snapshot.slots, mags.length)))
 
+      ensurePartitionSlots(snapshot.slots)
       for (let ord = 0; ord < snapshot.slots; ord++) {
         const docId = snapshot.docIds[ord]
         ordToDoc.push(docId ?? undefined)
         if (docId === null || docId === undefined) continue
         docToOrd.set(docId, ord)
+        unknownPartitions += 1
         liveCount++
       }
     },

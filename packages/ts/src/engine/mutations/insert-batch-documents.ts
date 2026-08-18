@@ -57,7 +57,7 @@ export async function applyAdmittedDocuments(
         })
         inserted = true
         try {
-          insertDocumentVectors(doc.docId, doc.extractedVectors, vecIndexes)
+          insertDocumentVectors(doc.docId, doc.extractedVectors, vecIndexes, manager.partitionIdOf(doc.docId))
         } catch (vecErr) {
           try {
             await ctx.executor.execute({ type: 'remove', indexName, docId: doc.docId, requestId: doc.docId })

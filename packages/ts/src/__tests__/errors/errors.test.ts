@@ -129,10 +129,11 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE).toBe('SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE')
     expect(ErrorCodes.SNAPSHOT_SYNC_NOT_ASSIGNED).toBe('SNAPSHOT_SYNC_NOT_ASSIGNED')
     expect(ErrorCodes.SNAPSHOT_SYNC_ABORTED).toBe('SNAPSHOT_SYNC_ABORTED')
+    expect(ErrorCodes.INDEX_ORPHANED).toBe('INDEX_ORPHANED')
   })
 
-  it('has exactly 91 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(91)
+  it('has exactly 92 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(92)
   })
 
   it('has unique values for every code', () => {

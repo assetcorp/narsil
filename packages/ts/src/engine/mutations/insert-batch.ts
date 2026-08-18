@@ -113,7 +113,7 @@ export async function insertDocumentBatch(
           })
           batchInserted = true
           try {
-            insertDocumentVectors(batchDocId, extractedVectors, batchVecIndexes)
+            insertDocumentVectors(batchDocId, extractedVectors, batchVecIndexes, batchManager.partitionIdOf(batchDocId))
           } catch (vecErr) {
             try {
               await ctx.executor.execute({ type: 'remove', indexName, docId: batchDocId, requestId: batchDocId })

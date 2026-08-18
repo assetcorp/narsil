@@ -43,7 +43,7 @@ export function applyIndexEntry(
   const { partitionDoc, extractedVectors } = prepareDocumentVectors(document, vectorFieldPaths)
   manager.insert(entry.documentId, partitionDoc)
   try {
-    insertDocumentVectors(entry.documentId, extractedVectors, vecIndexes)
+    insertDocumentVectors(entry.documentId, extractedVectors, vecIndexes, manager.partitionIdOf(entry.documentId))
   } catch (err) {
     manager.remove(entry.documentId)
     throw err

@@ -58,6 +58,8 @@ function createMockVectorIndex(dimension: number): VectorIndex {
     remove: vi.fn((docId: string) => {
       vectors.delete(docId)
     }),
+    partitionsKnown: vi.fn(() => true),
+    assignPartitions: vi.fn(),
     scheduleBuild: vi.fn(),
     awaitPendingBuild: vi.fn(async () => {}),
     dispose: vi.fn(),

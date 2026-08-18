@@ -48,6 +48,14 @@ await node.createIndex(
 
 `clear` empties an index and keeps it. Each removal runs through the replication log the way a single `remove` does, so clearing a large index costs one listing and one batched removal per page.
 
+## What a node does with the indexes it already holds
+
+A node that stores its indexes on disk still holds them when it starts again, and the cluster may have moved on while it was down. Every index carries the identity the cluster gave it at creation, so a rejoining node compares that identity with the coordinator's and does one of three things:
+
+- The identities match, so the node adopts its copy and serves it.
+- The coordinator names another index under that name, which happens when you drop an index and create another with the same name, so the node drops its copy and takes the new index on from its primary. Without that check the old documents would come back under the new name.
+- The coordinator holds nothing for the name, so the node keeps the data, serves none of it, and reports the index through the `onError` callback you configured. Every call naming that index fails with `INDEX_ORPHANED`, which the HTTP server answers with status 409. The node keeps the data because a coordinator that was wiped or restored from a backup looks exactly like one that never held the index, and it is the operator who decides. `dropIndex` on that node deletes the copy and frees the space.
+
 ## Writes
 
 `insert`, `update`, and `remove` route each document to its partition's primary by hashing the document id. When this node is the primary, it applies the write locally, appends a log entry, and waits for every in-sync replica to acknowledge before it returns. When another node is the primary, this node forwards the mutation there and the primary takes over.

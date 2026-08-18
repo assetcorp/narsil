@@ -1,6 +1,6 @@
 import type { VectorMetric } from '../brute-force'
 import type { HNSWConfig, HNSWIndex, SerializedHNSWGraph } from '../hnsw'
-import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter } from '../ordinal-filter'
+import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter, removeFromOrdinalFilter } from '../ordinal-filter'
 import type { ScalarQuantizer, SerializedSQ8 } from '../scalar-quantization-types'
 import type { VectorSearchPool } from '../search-pool'
 import type { VectorStore } from '../vector-store'
@@ -21,6 +21,8 @@ export interface VectorSearchOptions {
   metric: VectorMetric
   minSimilarity: number
   filterDocIds?: Set<string>
+  /** The partitions the search may answer from, which the index resolves to ordinals itself. */
+  filterPartitions?: ReadonlySet<number>
   efSearch?: number
 }
 
@@ -79,6 +81,53 @@ export function* allLiveDocIds(state: VectorIndexState): Iterable<string> {
     if (state.tombstones.has(docId)) continue
     yield docId
   }
+}
+
+/**
+ * Builds the filter holding every live ordinal of the named partitions.
+ *
+ * The store keeps each vector's partition, so this walks ordinals rather than
+ * document ids, and it clears the removed documents the index has yet to
+ * compact away.
+ *
+ * @param state The index to read.
+ * @param partitionIds The partitions the caller may see.
+ * @returns The ordinals of those partitions.
+ *
+ * @internal
+ */
+export function ordinalFilterForPartitions(state: VectorIndexState, partitionIds: ReadonlySet<number>): OrdinalFilter {
+  const filter = state.store.partitionFilter(partitionIds)
+  for (const docId of state.tombstones) {
+    const ordinal = state.store.getOrdinal(docId)
+    if (ordinal === undefined) continue
+    removeFromOrdinalFilter(filter, ordinal)
+  }
+  return filter
+}
+
+/**
+ * Builds the ordinal filter a search must respect, from whichever confinement
+ * the caller gave.
+ *
+ * @param state The index to read.
+ * @param options The search options carrying the confinement.
+ * @returns The ordinals the search may return, or undefined where the caller
+ * confined nothing.
+ *
+ * @internal
+ */
+export function filterForOptions(
+  state: VectorIndexState,
+  options: { filterDocIds?: Set<string>; filterPartitions?: ReadonlySet<number> },
+): OrdinalFilter | undefined {
+  if (options.filterDocIds !== undefined) {
+    return ordinalFilterForDocIds(state, options.filterDocIds)
+  }
+  if (options.filterPartitions !== undefined) {
+    return ordinalFilterForPartitions(state, options.filterPartitions)
+  }
+  return undefined
 }
 
 export function ordinalFilterForDocIds(state: VectorIndexState, docIds: Iterable<string>): OrdinalFilter {

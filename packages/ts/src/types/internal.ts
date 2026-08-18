@@ -147,6 +147,8 @@ export interface SerializablePartition {
 
 export interface IndexMetadata {
   indexName: string
+  /** The identity a cluster gave the index at creation; absent on a single engine. */
+  indexUuid?: string
   schema: Record<string, string>
   language: string
   partitionCount: number

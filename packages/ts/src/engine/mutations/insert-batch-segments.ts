@@ -73,7 +73,7 @@ async function recordMergedDocuments(
     const doc = admitted[i]
     try {
       try {
-        insertDocumentVectors(doc.docId, doc.extractedVectors, vecIndexes)
+        insertDocumentVectors(doc.docId, doc.extractedVectors, vecIndexes, manager.partitionIdOf(doc.docId))
       } catch (vecErr) {
         try {
           await ctx.executor.execute({ type: 'remove', indexName, docId: doc.docId, requestId: doc.docId })
