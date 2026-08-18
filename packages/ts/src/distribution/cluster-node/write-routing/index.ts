@@ -14,7 +14,12 @@ import type { CreateIndexOptions } from '../types'
 import { DEFAULT_PARTITION_COUNT, DEFAULT_REPLICATION_FACTOR } from '../types'
 import { requireAssignedPrimary, resolvePartitionId, resolvePrimaryAssignment } from './assignment'
 import { forwardInsertToRemote, forwardRemoveToRemote } from './forwarding'
-import { applyPrimaryInsert, applyPrimaryRemove } from './primary-writes'
+import {
+  applyPrimaryInsert,
+  applyPrimaryInsertBatch,
+  applyPrimaryRemove,
+  applyPrimaryRemoveBatch,
+} from './primary-writes'
 import type { WriteRoutingDeps } from './types'
 
 export { resolvePartitionId } from './assignment'
@@ -173,21 +178,49 @@ export async function routeInsertBatch(
   }
 
   const succeeded: string[] = []
+  const localGroups = new Map<
+    number,
+    { assignment: PartitionAssignment & { primary: string }; items: Array<{ doc: AnyDocument; docId: string }> }
+  >()
+  const remoteInserts: typeof routedInserts = []
 
   for (const routed of routedInserts) {
-    const primaryNodeId = routed.assignment.primary
-    try {
-      const insertedDocId =
-        primaryNodeId === deps.nodeId
-          ? await applyPrimaryInsert(indexName, routed.doc, routed.docId, routed.partitionId, routed.assignment, deps)
-          : await forwardInsertToRemote(indexName, routed.doc, routed.docId, primaryNodeId, deps)
+    if (routed.assignment.primary !== deps.nodeId) {
+      remoteInserts.push(routed)
+      continue
+    }
+    let group = localGroups.get(routed.partitionId)
+    if (group === undefined) {
+      group = { assignment: routed.assignment, items: [] }
+      localGroups.set(routed.partitionId, group)
+    }
+    group.items.push({ doc: routed.doc, docId: routed.docId })
+  }
 
-      succeeded.push(insertedDocId)
+  for (const [partitionId, group] of localGroups) {
+    try {
+      const result = await applyPrimaryInsertBatch(indexName, group.items, partitionId, group.assignment, deps)
+      succeeded.push(...result.succeeded)
+      failed.push(...result.failed)
     } catch (err) {
-      const fallbackCode =
-        primaryNodeId === deps.nodeId ? ErrorCodes.DOC_VALIDATION_FAILED : ErrorCodes.QUERY_ROUTING_FAILED
       const narsilErr =
-        err instanceof NarsilError ? err : new NarsilError(fallbackCode, String(err), { docId: routed.docId })
+        err instanceof NarsilError
+          ? err
+          : new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, String(err), { indexName, partitionId })
+      for (const item of group.items) {
+        failed.push({ docId: item.docId, error: narsilErr })
+      }
+    }
+  }
+
+  for (const routed of remoteInserts) {
+    try {
+      succeeded.push(await forwardInsertToRemote(indexName, routed.doc, routed.docId, routed.assignment.primary, deps))
+    } catch (err) {
+      const narsilErr =
+        err instanceof NarsilError
+          ? err
+          : new NarsilError(ErrorCodes.QUERY_ROUTING_FAILED, String(err), { docId: routed.docId })
       failed.push({ docId: routed.docId, error: narsilErr })
     }
   }
@@ -248,15 +281,41 @@ export async function routeRemoveBatch(
   }
 
   const succeeded: string[] = []
+  const localGroups = new Map<number, { assignment: PartitionAssignment & { primary: string }; docIds: string[] }>()
+  const remoteRemoves: typeof routedRemoves = []
 
   for (const routed of routedRemoves) {
+    if (routed.assignment.primary !== deps.nodeId) {
+      remoteRemoves.push(routed)
+      continue
+    }
+    let group = localGroups.get(routed.partitionId)
+    if (group === undefined) {
+      group = { assignment: routed.assignment, docIds: [] }
+      localGroups.set(routed.partitionId, group)
+    }
+    group.docIds.push(routed.docId)
+  }
+
+  for (const [partitionId, group] of localGroups) {
     try {
-      const primaryNodeId = routed.assignment.primary
-      if (primaryNodeId === deps.nodeId) {
-        await applyPrimaryRemove(indexName, routed.docId, routed.partitionId, routed.assignment, deps)
-      } else {
-        await forwardRemoveToRemote(indexName, routed.docId, primaryNodeId, deps)
+      const result = await applyPrimaryRemoveBatch(indexName, group.docIds, partitionId, group.assignment, deps)
+      succeeded.push(...result.succeeded)
+      failed.push(...result.failed)
+    } catch (err) {
+      const narsilErr =
+        err instanceof NarsilError
+          ? err
+          : new NarsilError(ErrorCodes.QUERY_ROUTING_FAILED, String(err), { indexName, partitionId })
+      for (const docId of group.docIds) {
+        failed.push({ docId, error: narsilErr })
       }
+    }
+  }
+
+  for (const routed of remoteRemoves) {
+    try {
+      await forwardRemoveToRemote(indexName, routed.docId, routed.assignment.primary, deps)
       succeeded.push(routed.docId)
     } catch (err) {
       const narsilErr =

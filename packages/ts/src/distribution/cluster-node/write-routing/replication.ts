@@ -4,7 +4,7 @@ import type { AnyDocument } from '../../../types/schema'
 import { CONTROLLER_LEASE_KEY } from '../../cluster/controller/types'
 import type { PartitionAssignment } from '../../coordinator/types'
 import { requestInsyncRemoval } from '../../replication/insync'
-import { replicateToReplicas } from '../../replication/primary'
+import { replicateBatchToReplicas, replicateToReplicas } from '../../replication/primary'
 import type { ReplicationLogEntry } from '../../replication/types'
 import { getInSyncReplicaTargets, resolveNodeTargets } from './assignment'
 import type { WriteRoutingDeps } from './types'
@@ -148,4 +148,59 @@ export async function replicateEntry(
   const result = await replicateToReplicas(entry, replicaTargets, deps.transport, deps.nodeId, deps.resolveNodeTargets)
   await removeFailedReplicasFromInsync(entry, result.failed, deps)
   await assertPrimaryWriteAuthority(entry, deps)
+}
+
+export async function replicateEntryBatch(
+  entries: ReplicationLogEntry[],
+  assignment: PartitionAssignment,
+  deps: WriteRoutingDeps,
+): Promise<void> {
+  if (entries.length === 0) {
+    return
+  }
+  const lastEntry = entries[entries.length - 1]
+  const replicaTargets = getInSyncReplicaTargets(assignment, deps.nodeId)
+  const result = await replicateBatchToReplicas(
+    entries,
+    replicaTargets,
+    deps.transport,
+    deps.nodeId,
+    deps.resolveNodeTargets,
+  )
+  await removeFailedReplicasFromInsync(lastEntry, result.failed, deps)
+  await assertPrimaryWriteAuthority(lastEntry, deps)
+}
+
+const MAX_ENTRY_BATCH_COUNT = 1_000
+const MAX_ENTRY_BATCH_BYTES = 8_388_608
+const ENTRY_ENCODING_OVERHEAD_BYTES = 256
+
+export function chunkReplicationEntries<T extends { entry: ReplicationLogEntry }>(items: T[]): T[][] {
+  const chunks: T[][] = []
+  let current: T[] = []
+  let currentBytes = 0
+
+  for (const item of items) {
+    const itemBytes = (item.entry.document?.byteLength ?? 0) + ENTRY_ENCODING_OVERHEAD_BYTES
+    const previous = current[current.length - 1]
+    const breaksSequence = previous !== undefined && item.entry.seqNo !== previous.entry.seqNo + 1
+    const overflows =
+      current.length >= MAX_ENTRY_BATCH_COUNT ||
+      (current.length > 0 && currentBytes + itemBytes > MAX_ENTRY_BATCH_BYTES)
+
+    if (breaksSequence || overflows) {
+      chunks.push(current)
+      current = []
+      currentBytes = 0
+    }
+
+    current.push(item)
+    currentBytes += itemBytes
+  }
+
+  if (current.length > 0) {
+    chunks.push(current)
+  }
+
+  return chunks
 }

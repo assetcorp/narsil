@@ -42,6 +42,7 @@ import {
   routeRemoveBatch,
   type WriteRoutingDeps,
 } from './write-routing'
+import { createPartitionWriteQueues } from './write-routing/partition-queue'
 
 const SPEC_VERSION = '1.0'
 
@@ -120,6 +121,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     transport: config.transport,
     getReplicationLog,
     resetReplicationLog: seedReplicationLog,
+    partitionWriteQueues: createPartitionWriteQueues(),
     resolveNodeTargets,
     waitForActiveReplicas: config.replication?.waitForActiveReplicas,
   }

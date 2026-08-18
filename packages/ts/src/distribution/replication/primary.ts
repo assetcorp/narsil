@@ -1,7 +1,7 @@
 import { decode } from '@msgpack/msgpack'
 import type { NodeTransport, TransportMessage } from '../transport/types'
 import { ReplicationMessageTypes, TransportError } from '../transport/types'
-import { createEntryMessage, validateAckPayload } from './codec'
+import { createEntryBatchMessage, createEntryMessage, validateAckPayload } from './codec'
 import type { ReplicateResult, ReplicationLogEntry } from './types'
 
 export async function replicateToReplicas(
@@ -11,13 +11,42 @@ export async function replicateToReplicas(
   sourceNodeId: string,
   resolveNodeTargets?: (nodeId: string) => Promise<string[]>,
 ): Promise<ReplicateResult> {
+  const message = createEntryMessage(entry, sourceNodeId)
+  return sendAndCollectAcks(message, entry, inSyncReplicas, transport, resolveNodeTargets)
+}
+
+export async function replicateBatchToReplicas(
+  entries: ReplicationLogEntry[],
+  inSyncReplicas: string[],
+  transport: NodeTransport,
+  sourceNodeId: string,
+  resolveNodeTargets?: (nodeId: string) => Promise<string[]>,
+): Promise<ReplicateResult> {
+  if (entries.length === 0) {
+    return { acknowledged: [], failed: [] }
+  }
+  if (entries.length === 1) {
+    return replicateToReplicas(entries[0], inSyncReplicas, transport, sourceNodeId, resolveNodeTargets)
+  }
+
+  const message = createEntryBatchMessage(entries, sourceNodeId)
+  const lastEntry = entries[entries.length - 1]
+  return sendAndCollectAcks(message, lastEntry, inSyncReplicas, transport, resolveNodeTargets)
+}
+
+async function sendAndCollectAcks(
+  message: TransportMessage,
+  ackEntry: ReplicationLogEntry,
+  inSyncReplicas: string[],
+  transport: NodeTransport,
+  resolveNodeTargets?: (nodeId: string) => Promise<string[]>,
+): Promise<ReplicateResult> {
   const uniqueReplicas = [...new Set(inSyncReplicas)]
 
   if (uniqueReplicas.length === 0) {
     return { acknowledged: [], failed: [] }
   }
 
-  const message = createEntryMessage(entry, sourceNodeId)
   const sendResults = await Promise.allSettled(
     uniqueReplicas.map(replicaNodeId => sendToReplica(transport, replicaNodeId, message, resolveNodeTargets)),
   )
@@ -38,7 +67,7 @@ export async function replicateToReplicas(
     }
 
     const response = result.value
-    if (isMatchingAck(response, entry)) {
+    if (isMatchingAck(response, ackEntry)) {
       acknowledged.push(replicaNodeId)
     } else {
       failed.push(replicaNodeId)
