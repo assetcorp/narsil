@@ -49,6 +49,11 @@ export interface ClusterCoordinator {
 }
 
 // @public
+export interface ClusterEngineOptions {
+    createIndex?: CreateIndexOptions;
+}
+
+// @public
 export interface ClusterNamespace {
     getAllocation(indexName: string): Promise<AllocationTable | null>;
     getNodeInfo(): ClusterNodeInfo;
@@ -59,6 +64,9 @@ export interface ClusterNamespace {
 export interface ClusterNode {
     cluster: ClusterNamespace;
     createIndex(name: string, config: IndexConfig, options?: CreateIndexOptions): Promise<void>;
+    get(indexName: string, docId: string): Promise<AnyDocument | undefined>;
+    getMultiple(indexName: string, docIds: string[]): Promise<Map<string, AnyDocument>>;
+    has(indexName: string, docId: string): Promise<boolean>;
     insert(indexName: string, document: AnyDocument, docId?: string): Promise<string>;
     insertBatch(indexName: string, documents: AnyDocument[]): Promise<BatchResult>;
     readonly nodeId: string;
@@ -82,6 +90,9 @@ export interface ClusterNodeConfig {
     roles?: NodeRole[];
     transport: NodeTransport;
 }
+
+// @public
+export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOptions): Narsil;
 
 // @public
 export interface ClusterNodeInfo {

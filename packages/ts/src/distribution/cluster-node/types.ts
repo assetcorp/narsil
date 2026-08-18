@@ -165,6 +165,41 @@ export interface ClusterNode {
    * @returns The merged hits, the total count, and the elapsed time.
    */
   query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>
+  /**
+   * Reads one document, from this node when it holds the partition and from a
+   * node that does otherwise.
+   *
+   * A read fails with `QUERY_NO_ACTIVE_REPLICA` when no reachable node serves
+   * the document's partition, rather than reporting the document missing.
+   *
+   * @param indexName - The index holding the document.
+   * @param docId - The document to read.
+   * @returns The document, or `undefined` when the partition holds no
+   * document under this id.
+   */
+  get(indexName: string, docId: string): Promise<AnyDocument | undefined>
+  /**
+   * Reads many documents, grouping the ids by the node that serves each
+   * partition and fetching every group in one round trip.
+   *
+   * The read fails with `QUERY_NO_ACTIVE_REPLICA` when no reachable node
+   * serves some document's partition, rather than leaving that document out.
+   *
+   * @param indexName - The index holding the documents.
+   * @param docIds - The documents to read.
+   * @returns The documents found, keyed by id; an id nothing is stored under
+   * is absent.
+   */
+  getMultiple(indexName: string, docIds: string[]): Promise<Map<string, AnyDocument>>
+  /**
+   * Reports whether a document exists, reading through the same routing as
+   * {@link ClusterNode.get}.
+   *
+   * @param indexName - The index to check.
+   * @param docId - The document id to check.
+   * @returns True when a node serving the partition holds the document.
+   */
+  has(indexName: string, docId: string): Promise<boolean>
 
   /** This reaches the cluster-facing side of the node. */
   cluster: ClusterNamespace

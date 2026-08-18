@@ -130,6 +130,10 @@
       "import": "./dist/distribution/coordinator/etcd.mjs",
       "types": "./dist/distribution/coordinator/etcd.d.ts"
     },
+    "./distribution/transport/tcp": {
+      "import": "./dist/distribution/transport/tcp.mjs",
+      "types": "./dist/distribution/transport/tcp.d.ts"
+    },
     "./server": {
       "import": "./dist/server.mjs",
       "types": "./dist/server.d.ts"

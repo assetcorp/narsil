@@ -1,5 +1,4 @@
 import { generateId } from '../../core/id-generator'
-import { type ResolvedProjection, resolveProjection } from '../../core/projection'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
@@ -10,12 +9,11 @@ import { DEFAULT_CONTROLLER_CONFIG } from '../cluster/controller/types'
 import { createDataNodeLifecycle } from '../cluster/node-lifecycle'
 import type { DataNodeHandle } from '../cluster/node-lifecycle/types'
 import { DEFAULT_NODE_LIFECYCLE_CONFIG } from '../cluster/node-lifecycle/types'
-import type { AllocationTable, NodeRegistration, NodeRole } from '../coordinator/types'
-import { distributedQuery } from '../query/routing'
-import type { DistributedQueryResult } from '../query/types'
+import type { NodeRegistration, NodeRole } from '../coordinator/types'
 import type { ReplicationLog } from '../replication/types'
 import type { TransportMessage } from '../transport/types'
 import { cleanupRemovedPartition } from './bootstrap-cleanup'
+import { validateRestoredSchema } from './bootstrap-restore'
 import {
   clearBootstrapSyncIndex,
   createBootstrapSyncState,
@@ -24,12 +22,8 @@ import {
 } from './bootstrap-sync'
 import { createClusterLocalEngine } from './local-engine'
 import { createDataNodeHandler } from './message-handler'
-import {
-  fetchDistributedDocuments as fetchDocumentsAcrossNodes,
-  resolveNodeTargets as resolveTargetsForNode,
-  sendToNode as sendMessageToNode,
-} from './node-messaging'
-import { distributedResultToLocal, localParamsToWire } from './query-conversion'
+import { resolveNodeTargets as resolveTargetsForNode, sendToNode as sendMessageToNode } from './node-messaging'
+import { type ClusterReadDeps, queryCluster, readClusterDocuments } from './reads'
 import {
   replicationLogKey as buildReplicationLogKey,
   getReplicationLog as readReplicationLog,
@@ -97,15 +91,6 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     return sendMessageToNode(config, targetNodeId, message)
   }
 
-  async function fetchDistributedDocuments<T>(
-    indexName: string,
-    result: DistributedQueryResult,
-    allocation: AllocationTable,
-    projection: ResolvedProjection,
-  ): Promise<Map<string, T>> {
-    return fetchDocumentsAcrossNodes<T>(config, nodeId, engine, indexName, result, allocation, projection)
-  }
-
   const forwardOnError = (error: unknown): void => {
     if (config.onError === undefined) {
       return
@@ -146,6 +131,51 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   let activeOps = 0
   let drainResolve: (() => void) | null = null
 
+  const bootstrapSyncDeps = {
+    engine,
+    coordinator: config.coordinator,
+    transport: config.transport,
+    sourceNodeId: nodeId,
+    resolveNodeTargets,
+    getReplicationLog,
+    resetReplicationLog: seedReplicationLog,
+    applyReplicationEntry: engine.applyReplicationEntry,
+    restoreReplicationPartition: engine.restoreReplicationPartition,
+    onError: forwardOnError,
+  }
+
+  async function preparePrimaryPartition(indexName: string): Promise<boolean> {
+    const schema = await config.coordinator.getSchema(indexName)
+    if (schema === null) {
+      return false
+    }
+    const allocation = await config.coordinator.getAllocation(indexName)
+    if (allocation === null || allocation.assignments.size === 0) {
+      return false
+    }
+    const existing = engine.listIndexes().find(index => index.name === indexName)
+    if (existing !== undefined) {
+      const schemaError = validateRestoredSchema(engine, indexName, nodeId, schema)
+      if (schemaError !== null) {
+        forwardOnError(schemaError)
+        return false
+      }
+      return true
+    }
+    try {
+      await engine.createIndex(indexName, {
+        schema,
+        partitions: { maxPartitions: allocation.assignments.size },
+      })
+    } catch (error) {
+      if (!(error instanceof NarsilError) || error.code !== ErrorCodes.INDEX_ALREADY_EXISTS) {
+        forwardOnError(error)
+        return false
+      }
+    }
+    return true
+  }
+
   if (hasDataRole) {
     lifecycle = createDataNodeLifecycle({
       registration,
@@ -157,18 +187,9 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       bootstrapMaxRetries: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapMaxRetries,
       allocationDebounceMs: DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs,
       onBootstrapPartition: (indexName: string, partitionId: number, primaryNodeId: string) =>
-        runBootstrapSync(bootstrapSyncState, indexName, partitionId, primaryNodeId, {
-          engine,
-          coordinator: config.coordinator,
-          transport: config.transport,
-          sourceNodeId: nodeId,
-          resolveNodeTargets,
-          getReplicationLog,
-          resetReplicationLog: seedReplicationLog,
-          applyReplicationEntry: engine.applyReplicationEntry,
-          restoreReplicationPartition: engine.restoreReplicationPartition,
-          onError: forwardOnError,
-        }),
+        primaryNodeId === nodeId
+          ? preparePrimaryPartition(indexName)
+          : runBootstrapSync(bootstrapSyncState, indexName, partitionId, primaryNodeId, bootstrapSyncDeps),
       onRemovePartition: (indexName: string, partitionId: number) => {
         clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
         replicationLogs.delete(replicationLogKey(indexName, partitionId))
@@ -193,6 +214,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       leaseTtlMs: DEFAULT_CONTROLLER_CONFIG.leaseTtlMs,
       standbyRetryMs: DEFAULT_CONTROLLER_CONFIG.standbyRetryMs,
       knownIndexNames: [],
+      resolveIndexNames: () => engine.listIndexes().map(index => index.name),
     })
   }
 
@@ -215,6 +237,8 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       }
     }
   }
+
+  const readDeps: ClusterReadDeps = { config, nodeId, engine, resolveNodeTargets }
 
   const cluster: ClusterNamespace = {
     async getAllocation(indexName: string) {
@@ -262,37 +286,19 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     },
 
     async query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>> {
-      return trackOp(async () => {
-        const allocation = await config.coordinator.getAllocation(indexName)
-        if (allocation === null || allocation.assignments.size === 0) {
-          return engine.query<T>(indexName, params)
-        }
-        let hasActivePartition = false
-        for (const [, assignment] of allocation.assignments) {
-          if (assignment.state === 'ACTIVE') {
-            hasActivePartition = true
-            break
-          }
-        }
-        if (!hasActivePartition) {
-          return engine.query<T>(indexName, params)
-        }
-        const wireParams = localParamsToWire(params)
-        const queryDeps = {
-          transport: config.transport,
-          sourceNodeId: nodeId,
-          getAllocation: (idx: string) => config.coordinator.getAllocation(idx),
-          resolveNodeTargets,
-        }
-        const distributed = await distributedQuery(indexName, wireParams, queryDeps)
-        const documents = await fetchDistributedDocuments<T>(
-          indexName,
-          distributed,
-          allocation,
-          resolveProjection(params.document),
-        )
-        return distributedResultToLocal<T>(distributed, documents)
-      })
+      return trackOp(() => queryCluster<T>(readDeps, indexName, params))
+    },
+
+    async get(indexName, docId) {
+      return trackOp(async () => (await readClusterDocuments(readDeps, indexName, [docId])).get(docId))
+    },
+
+    async getMultiple(indexName, docIds) {
+      return trackOp(() => readClusterDocuments(readDeps, indexName, docIds))
+    },
+
+    async has(indexName, docId) {
+      return trackOp(async () => (await readClusterDocuments(readDeps, indexName, [docId])).has(docId))
     },
 
     cluster,

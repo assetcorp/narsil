@@ -1,5 +1,6 @@
 import { decode } from '@msgpack/msgpack'
 import { applyProjection, type ResolvedProjection } from '../../core/projection'
+import { ErrorCodes, NarsilError } from '../../errors'
 import type { AnyDocument } from '../../types/schema'
 import type { AllocationTable } from '../coordinator/types'
 import { createFetchMessage, validateFetchResultPayload } from '../query/codec'
@@ -101,6 +102,66 @@ export async function fetchDistributedDocuments<T>(
     const payload = validateFetchResultPayload(decoded)
     for (const fetched of payload.documents) {
       documents.set(fetched.docId, applyProjection(fetched.document as AnyDocument, projection) as T)
+    }
+  }
+
+  return documents
+}
+
+export async function readDistributedDocuments(
+  config: ClusterNodeConfig,
+  nodeId: string,
+  engine: ClusterLocalEngine,
+  indexName: string,
+  docIds: readonly string[],
+  allocation: AllocationTable,
+): Promise<Map<string, AnyDocument>> {
+  const partitionCount = allocation.assignments.size
+  const nodeToDocumentIds = new Map<string, FetchDocumentId[]>()
+  const unreachablePartitions = new Set<number>()
+
+  for (const docId of new Set(docIds)) {
+    const partitionId = resolvePartitionId(docId, partitionCount)
+    const assignment = allocation.assignments.get(partitionId)
+    const selectedNodeId = assignment === undefined ? null : selectReplica(assignment, nodeId, undefined, partitionId)
+    if (selectedNodeId === null) {
+      unreachablePartitions.add(partitionId)
+      continue
+    }
+    let documentIds = nodeToDocumentIds.get(selectedNodeId)
+    if (documentIds === undefined) {
+      documentIds = []
+      nodeToDocumentIds.set(selectedNodeId, documentIds)
+    }
+    documentIds.push({ docId, partitionId })
+  }
+
+  if (unreachablePartitions.size > 0) {
+    throw new NarsilError(
+      ErrorCodes.QUERY_NO_ACTIVE_REPLICA,
+      `No active replica serves one or more partitions of index '${indexName}'`,
+      { indexName, partitionIds: [...unreachablePartitions].sort((a, b) => a - b) },
+    )
+  }
+
+  const documents = new Map<string, AnyDocument>()
+  for (const [targetNodeId, documentIds] of nodeToDocumentIds) {
+    if (targetNodeId === nodeId) {
+      const local = await engine.getMultiple(
+        indexName,
+        documentIds.map(ref => ref.docId),
+      )
+      for (const [docId, document] of local) {
+        documents.set(docId, document)
+      }
+      continue
+    }
+
+    const fetchMessage = createFetchMessage({ indexName, documentIds, fields: null, highlight: null }, nodeId)
+    const response = await sendToNode(config, targetNodeId, fetchMessage)
+    const payload = validateFetchResultPayload(decode(response.payload))
+    for (const fetched of payload.documents) {
+      documents.set(fetched.docId, fetched.document as AnyDocument)
     }
   }
 

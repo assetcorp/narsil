@@ -260,6 +260,8 @@ export async function startEventLoop(
     },
   )
   state.unwatchTransport = unwatchTransport
+
+  scheduleDebouncedAllocation(state, coordinator, isActive, onError)
 }
 
 function handleInsyncRemoveMessage(

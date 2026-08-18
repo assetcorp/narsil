@@ -8,6 +8,7 @@ export interface ControllerConfig {
   leaseTtlMs: number
   standbyRetryMs: number
   knownIndexNames: string[]
+  resolveIndexNames?: () => string[]
   onError?: (indexName: string, error: unknown) => void
 }
 
