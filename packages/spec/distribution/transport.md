@@ -470,11 +470,16 @@ TransportConfig {
 | Adapter | Transport | Use |
 |---------|-----------|-----|
 | TcpTransport | Raw TCP with MessagePack framing | Server to server, with the lowest overhead |
+| GrpcTransport | gRPC over HTTP/2, per [transport.proto](transport.proto) | Server to server, where gRPC tooling and infrastructure already exist |
 | InMemoryTransport | Direct function calls | Testing and single-process development |
+
+### gRPC Carrier
+
+The gRPC adapter implements the `narsil.transport.v1.NodeTransport` service defined in [transport.proto](transport.proto). A `Send` request and its response each carry one MessagePack-serialised `TransportMessage` in the `Envelope.message` field, so the envelope encoding in [Wire Format](#wire-format) stays the contract and gRPC only frames it. An `OpenStream` request carries its message the same way, and each `Chunk.data` in the reply stream is one chunk for the caller's handler, in order. A listener error travels as an `Envelope` reply whose message has type `error`, which keeps gRPC statuses for transport faults alone.
 
 ### Community Adapter Guidelines
 
-A community adapter, whether it carries gRPC, QUIC, HTTP/2, or Unix sockets, must:
+A community adapter, whether it carries QUIC, HTTP/2, or Unix sockets, must:
 
 - Serialise every message as MessagePack.
 - Support `send`, `stream`, and `listen`.

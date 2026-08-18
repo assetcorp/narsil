@@ -85,6 +85,7 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.NODE_ALREADY_JOINED).toBe('NODE_ALREADY_JOINED')
     expect(ErrorCodes.NODE_NOT_JOINED).toBe('NODE_NOT_JOINED')
     expect(ErrorCodes.COORDINATOR_DEPENDENCY_MISSING).toBe('COORDINATOR_DEPENDENCY_MISSING')
+    expect(ErrorCodes.TRANSPORT_DEPENDENCY_MISSING).toBe('TRANSPORT_DEPENDENCY_MISSING')
   })
 
   it('has replication error codes', () => {
@@ -130,8 +131,8 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.SNAPSHOT_SYNC_ABORTED).toBe('SNAPSHOT_SYNC_ABORTED')
   })
 
-  it('has exactly 90 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(90)
+  it('has exactly 91 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(91)
   })
 
   it('has unique values for every code', () => {
