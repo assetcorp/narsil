@@ -77,7 +77,13 @@ export function executeSortedQueryPage<T = AnyDocument>(
   for (const partition of partitions) {
     const matches = fulltextMatches(partition, params, language, schema, options)
     if (params.facets !== undefined) {
-      partitionFacets.push(partition.computeFacets(matches?.matchedDocIds() ?? new Set(), params.facets, schema))
+      partitionFacets.push(
+        partition.computeFacets(
+          matches === null ? new Set<string>() : { ordinalBitset: matches.ordinalBitset() },
+          params.facets,
+          schema,
+        ),
+      )
     }
     if (matches === null || matches.count === 0) continue
     count += matches.count

@@ -1,4 +1,4 @@
-import type { PartitionIndex } from '../core/partition'
+import type { FacetMatchSet, PartitionIndex } from '../core/partition'
 import { kWayMerge } from '../core/partition/scored-merge'
 import { mergeFacets } from '../search/facets'
 import { type FulltextSearchOptions, fulltextSearch } from '../search/fulltext'
@@ -74,12 +74,33 @@ export async function fanOutQuery(
     const result = dispatchSinglePartition(partitions[0], params, language, schema, options)
     let facets: Record<string, FacetResult> | undefined
     if (params.facets) {
-      facets = partitions[0].computeFacets(matchedDocIds(result), params.facets, schema)
+      facets = partitions[0].computeFacets(facetMatchSetOf(result), params.facets, schema)
     }
     return { scored: result.scored, totalMatched: result.totalMatched, facets }
   }
 
-  const outcomes = await dispatchToAllPartitions(partitions, params, language, schema, options, config.dispatcher)
+  let outcomes: PartitionSearchOutcome[]
+  let facets: Record<string, FacetResult> | undefined
+
+  if (config.dispatcher) {
+    outcomes = await dispatchWithDispatcher(partitions, params, language, schema, options, config.dispatcher)
+    if (params.facets) {
+      facets = collectAndMergeFacets(outcomes, params, schema)
+    }
+  } else {
+    outcomes = []
+    const partitionFacets: Array<Record<string, FacetResult>> = []
+    for (const partition of partitions) {
+      const result = dispatchSinglePartition(partition, params, language, schema, options)
+      if (params.facets) {
+        partitionFacets.push(partition.computeFacets(facetMatchSetOf(result), params.facets, schema))
+      }
+      outcomes.push({ result, partition })
+    }
+    if (params.facets) {
+      facets = mergeFacets(partitionFacets)
+    }
+  }
 
   const allScoredArrays = outcomes.map(o => o.result.scored)
   const merged = kWayMerge(allScoredArrays)
@@ -89,15 +110,13 @@ export async function fanOutQuery(
     totalMatched += outcome.result.totalMatched
   }
 
-  let facets: Record<string, FacetResult> | undefined
-  if (params.facets) {
-    facets = collectAndMergeFacets(outcomes, params, schema)
-  }
-
   return { scored: merged, totalMatched, facets }
 }
 
-function matchedDocIds(result: InternalSearchResult): Set<string> {
+function facetMatchSetOf(result: InternalSearchResult): FacetMatchSet {
+  if (result.matchedOrdinalBitset !== undefined) {
+    return { ordinalBitset: result.matchedOrdinalBitset }
+  }
   return new Set(result.matchedIds ?? [])
 }
 
@@ -118,23 +137,14 @@ function buildSearchOptions(
   }
 }
 
-function dispatchToAllPartitions(
+function dispatchWithDispatcher(
   partitions: PartitionIndex[],
   params: QueryParams,
   language: LanguageModule,
   schema: SchemaDefinition,
   options: FulltextSearchOptions,
-  dispatcher?: PartitionSearchDispatcher,
-): PartitionSearchOutcome[] | Promise<PartitionSearchOutcome[]> {
-  if (!dispatcher) {
-    const outcomes: PartitionSearchOutcome[] = []
-    for (const partition of partitions) {
-      const result = dispatchSinglePartition(partition, params, language, schema, options)
-      outcomes.push({ result, partition })
-    }
-    return outcomes
-  }
-
+  dispatcher: PartitionSearchDispatcher,
+): Promise<PartitionSearchOutcome[]> {
   const promises = partitions.map(partition =>
     dispatcher.dispatch(partition, params, language, schema, options).then(result => ({ result, partition })),
   )
@@ -160,7 +170,7 @@ function collectAndMergeFacets(
 
   for (const outcome of outcomes) {
     if (!params.facets) continue
-    const facetResult = outcome.partition.computeFacets(matchedDocIds(outcome.result), params.facets, schema)
+    const facetResult = outcome.partition.computeFacets(facetMatchSetOf(outcome.result), params.facets, schema)
     partitionFacets.push(facetResult)
   }
 

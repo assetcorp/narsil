@@ -1,4 +1,4 @@
-import { bitsetSet, createBitSet } from '../bitset'
+import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 
 /**
  * The reads a filter performs against an enum field index.
@@ -16,6 +16,7 @@ export interface EnumFieldIndexReader {
   getAllDocIdsBitset(capacity: number): Uint32Array
   count(): number
   serialize(): Record<string, number[]>
+  facetCounts(matched: Uint32Array): Map<string, number>
 }
 
 export interface EnumFieldIndex extends EnumFieldIndexReader {
@@ -121,6 +122,18 @@ export function createEnumIndex(): EnumFieldIndex {
       let total = 0
       for (const docSet of valueMap.values()) total += docSet.size
       return total
+    },
+
+    facetCounts(matched: Uint32Array): Map<string, number> {
+      const counts = new Map<string, number>()
+      for (const [value, docSet] of valueMap) {
+        let count = 0
+        for (const id of docSet) {
+          if (bitsetHas(matched, id)) count++
+        }
+        if (count > 0) counts.set(value, count)
+      }
+      return counts
     },
 
     clear(): void {

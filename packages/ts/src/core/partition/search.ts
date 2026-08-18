@@ -1,5 +1,5 @@
 import type { InternalSearchParams, InternalSearchResult, PostingListView } from '../../types/internal'
-import { bitsetHas } from '../bitset'
+import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 import type { InvertedIndexReader } from '../inverted-index'
 import { bm25PruningSound, computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
 import { addScore, beginScoring, createScoreBuffer, hasScore, topKFromBuffer } from './score-buffer'
@@ -39,7 +39,7 @@ export function prunableSingleTermList(
   if (params.exact !== true && (params.tolerance ?? 0) !== 0) return null
   if (params.termMatch !== undefined && params.termMatch !== 'any') return null
   if (params.collectComponents !== false) return null
-  if (params.collectMatchedIds === true) return null
+  if (params.collectMatchedSet !== undefined) return null
   if (params.maxResults === undefined) return null
   if (params.fields !== undefined) return null
   if (params.filterBitset !== undefined) return null
@@ -376,8 +376,16 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
   const k = maxResults === undefined ? totalMatched : Math.max(0, Math.min(maxResults, totalMatched))
   const scored = topKFromBuffer(scoreBuffer, k, resolver, components)
 
-  if (params.collectMatchedIds !== true) {
+  if (params.collectMatchedSet === undefined) {
     return { scored, totalMatched }
+  }
+
+  if (params.collectMatchedSet === 'ordinals') {
+    const matchedOrdinalBitset = createBitSet(state.docStore.internalIdCapacity())
+    for (let index = 0; index < scoreBuffer.touchedCount; index++) {
+      bitsetSet(matchedOrdinalBitset, scoreBuffer.touched[index])
+    }
+    return { scored, totalMatched, matchedOrdinalBitset }
   }
 
   const matchedIds: string[] = []

@@ -9,7 +9,7 @@ import type { FacetConfig } from '../../../types/search'
 import type { ComparableSortValue } from '../../ordering'
 import { compareCodePoints } from '../../ordering'
 import { cloneProjected, type ResolvedProjection } from '../../projection'
-import { computeFacets } from '../facets'
+import { computeFacets, type FacetMatchSet } from '../facets'
 import type { PartitionFilterMatches } from '../filters'
 import { createFrozenSegment, type FrozenSegment } from '../frozen'
 import { createPartitionIndex, type PartitionIndex, partitionStateOf } from '../index'
@@ -27,6 +27,7 @@ import {
   compositeFiltersBitset,
   computeOrdinalLayout,
   type OrdinalLayout,
+  subBitsetView,
 } from './filters'
 import { compositeSearchFulltext, compositeSearchMatches } from './search'
 import { compositeSortedPage, compositeSortValues } from './sorting'
@@ -288,8 +289,21 @@ export function createCompositePartition(
       return compositeFilterMatches(subs(), layout(), filters, schema)
     },
 
-    computeFacets(docIds: Set<string>, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult> {
-      return mergeFacets(subs().map(sub => computeFacets(sub, docIds, config, schema)))
+    computeFacets(matched: FacetMatchSet, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult> {
+      if ('ordinalBitset' in matched) {
+        const ordinalLayout = layout()
+        return mergeFacets(
+          subs().map((sub, index) =>
+            computeFacets(
+              sub,
+              { ordinalBitset: subBitsetView(matched.ordinalBitset, ordinalLayout, index) },
+              config,
+              schema,
+            ),
+          ),
+        )
+      }
+      return mergeFacets(subs().map(sub => computeFacets(sub, matched, config, schema)))
     },
 
     sortedPage(request: SortPageRequest): SortedPageEntry[] {

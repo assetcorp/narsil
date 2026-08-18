@@ -13,6 +13,11 @@ import type { PartitionReadState } from './utils'
 export interface PartitionSearchMatches extends PartitionFilterMatches {
   /** Returns the external ids of every matching document, for facet counting. */
   matchedDocIds(): Set<string>
+  /**
+   * Returns the matches as a bit per ordinal in this partition's ordinal
+   * space, which a same-process facet count reads in place of the id set.
+   */
+  ordinalBitset(): Uint32Array
 }
 
 function markPostingList(
@@ -99,6 +104,9 @@ export function searchFulltextMatches(state: PartitionReadState, params: Interna
         }
       }
       return external
+    },
+    ordinalBitset(): Uint32Array {
+      return matched
     },
   }
 }

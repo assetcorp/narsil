@@ -1,4 +1,4 @@
-import { bitsetSet, createBitSet } from '../bitset'
+import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 
 /**
  * The reads a filter performs against a boolean field index.
@@ -13,6 +13,7 @@ export interface BooleanFieldIndexReader {
   getAllDocIdsBitset(capacity: number): Uint32Array
   count(): number
   serialize(): { trueDocs: number[]; falseDocs: number[] }
+  facetCounts(matched: Uint32Array): { trueCount: number; falseCount: number }
 }
 
 export interface BooleanFieldIndex extends BooleanFieldIndexReader {
@@ -69,6 +70,18 @@ export function createBooleanIndex(): BooleanFieldIndex {
 
     count(): number {
       return trueDocs.size + falseDocs.size
+    },
+
+    facetCounts(matched: Uint32Array): { trueCount: number; falseCount: number } {
+      let trueCount = 0
+      let falseCount = 0
+      for (const id of trueDocs) {
+        if (bitsetHas(matched, id)) trueCount++
+      }
+      for (const id of falseDocs) {
+        if (bitsetHas(matched, id)) falseCount++
+      }
+      return { trueCount, falseCount }
     },
 
     clear(): void {

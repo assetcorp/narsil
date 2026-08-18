@@ -1,5 +1,5 @@
 import type { NumericIndexEntry } from '../../types/internal'
-import { bitsetSet, createBitSet } from '../bitset'
+import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 
 function lowerBound(entries: NumericIndexEntry[], value: number): number {
   let lo = 0
@@ -63,6 +63,8 @@ export interface NumericFieldIndexReader {
   getAllDocIdsBitset(capacity: number): Uint32Array
   count(): number
   serialize(): NumericIndexEntry[]
+  facetValueCounts(matched: Uint32Array): Map<number, number>
+  facetRangeCount(from: number, to: number, matched: Uint32Array): number
 }
 
 export interface NumericFieldIndex extends NumericFieldIndexReader {
@@ -181,6 +183,41 @@ export function createNumericIndex(): NumericFieldIndex {
 
     count(): number {
       return entries.length
+    },
+
+    facetValueCounts(matched: Uint32Array): Map<number, number> {
+      ensureSorted()
+      const counts = new Map<number, number>()
+      let i = 0
+      while (i < entries.length) {
+        const value = entries[i].value
+        let runEnd = i + 1
+        while (runEnd < entries.length && entries[runEnd].value === value) runEnd++
+        if (runEnd - i === 1) {
+          if (bitsetHas(matched, entries[i].docId)) counts.set(value, 1)
+        } else {
+          const seen = new Set<number>()
+          for (let j = i; j < runEnd; j++) {
+            const docId = entries[j].docId
+            if (bitsetHas(matched, docId)) seen.add(docId)
+          }
+          if (seen.size > 0) counts.set(value, seen.size)
+        }
+        i = runEnd
+      }
+      return counts
+    },
+
+    facetRangeCount(from: number, to: number, matched: Uint32Array): number {
+      ensureSorted()
+      const start = lowerBound(entries, from)
+      const end = lowerBound(entries, to)
+      const seen = new Set<number>()
+      for (let i = start; i < end; i++) {
+        const docId = entries[i].docId
+        if (bitsetHas(matched, docId)) seen.add(docId)
+      }
+      return seen.size
     },
 
     clear(): void {
