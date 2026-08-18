@@ -9,6 +9,26 @@ describe('evaluateFilters fields and logical combinators', () => {
     expect(resultSet({}, ctx)).toEqual(ctx.allDocIds)
   })
 
+  it('rejects a field name at the top level instead of matching everything', () => {
+    const expr = { category: { eq: 'books' } } as unknown as FilterExpression
+    expect(() => resultSet(expr, ctx)).toThrowError(/belongs under "fields"/)
+  })
+
+  it('rejects a field name nested inside a logical combinator', () => {
+    const expr = { and: [{ category: { eq: 'books' } }] } as unknown as FilterExpression
+    expect(() => resultSet(expr, ctx)).toThrowError(/belongs under "fields"/)
+  })
+
+  it('rejects an unknown operator inside a field filter', () => {
+    const expr = { fields: { category: { equals: 'books' } } } as unknown as FilterExpression
+    expect(() => resultSet(expr, ctx)).toThrowError(/no filter operator/)
+  })
+
+  it('accepts an empty field filter as matching everything', () => {
+    const expr: FilterExpression = { fields: { category: {} } }
+    expect(resultSet(expr, ctx)).toEqual(ctx.allDocIds)
+  })
+
   describe('single field filters', () => {
     it('filters by numeric eq using index', () => {
       const expr: FilterExpression = { fields: { price: { eq: 999 } } }

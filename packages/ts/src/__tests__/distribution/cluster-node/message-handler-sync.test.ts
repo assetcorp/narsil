@@ -68,7 +68,9 @@ describe('createDataNodeHandler sync_request routing', () => {
     })
     const responses: TransportMessage[] = []
 
-    await handler(makeSyncRequest(0), response => responses.push(response))
+    await handler(makeSyncRequest(0), async response => {
+      responses.push(response)
+    })
 
     expect(responses).toHaveLength(1)
     expect(responses[0].type).toBe(ReplicationMessageTypes.SYNC_ENTRIES)
@@ -105,7 +107,9 @@ describe('createDataNodeHandler sync_request routing', () => {
     })
     const responses: TransportMessage[] = []
 
-    await handler(makeSyncRequest(0), response => responses.push(response))
+    await handler(makeSyncRequest(0), async response => {
+      responses.push(response)
+    })
 
     expect(responses.map(response => response.type)).toEqual([
       ReplicationMessageTypes.SNAPSHOT_START,

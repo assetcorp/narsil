@@ -48,6 +48,7 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.SEARCH_INVALID_FILTER).toBe('SEARCH_INVALID_FILTER')
     expect(ErrorCodes.SEARCH_INVALID_MODE).toBe('SEARCH_INVALID_MODE')
     expect(ErrorCodes.SEARCH_INVALID_CURSOR).toBe('SEARCH_INVALID_CURSOR')
+    expect(ErrorCodes.SEARCH_RESULT_WINDOW_EXCEEDED).toBe('SEARCH_RESULT_WINDOW_EXCEEDED')
   })
 
   it('has language and envelope error codes', () => {
@@ -73,6 +74,7 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.QUERY_PARTIAL_FAILURE).toBe('QUERY_PARTIAL_FAILURE')
     expect(ErrorCodes.QUERY_NODE_TIMEOUT).toBe('QUERY_NODE_TIMEOUT')
     expect(ErrorCodes.QUERY_NO_ACTIVE_REPLICA).toBe('QUERY_NO_ACTIVE_REPLICA')
+    expect(ErrorCodes.CLUSTER_OPERATION_UNSUPPORTED).toBe('CLUSTER_OPERATION_UNSUPPORTED')
   })
 
   it('has allocation error codes', () => {
@@ -83,6 +85,7 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.NODE_ALREADY_JOINED).toBe('NODE_ALREADY_JOINED')
     expect(ErrorCodes.NODE_NOT_JOINED).toBe('NODE_NOT_JOINED')
     expect(ErrorCodes.COORDINATOR_DEPENDENCY_MISSING).toBe('COORDINATOR_DEPENDENCY_MISSING')
+    expect(ErrorCodes.TRANSPORT_DEPENDENCY_MISSING).toBe('TRANSPORT_DEPENDENCY_MISSING')
   })
 
   it('has replication error codes', () => {
@@ -126,10 +129,11 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE).toBe('SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE')
     expect(ErrorCodes.SNAPSHOT_SYNC_NOT_ASSIGNED).toBe('SNAPSHOT_SYNC_NOT_ASSIGNED')
     expect(ErrorCodes.SNAPSHOT_SYNC_ABORTED).toBe('SNAPSHOT_SYNC_ABORTED')
+    expect(ErrorCodes.INDEX_ORPHANED).toBe('INDEX_ORPHANED')
   })
 
-  it('has exactly 88 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(88)
+  it('has exactly 92 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(92)
   })
 
   it('has unique values for every code', () => {

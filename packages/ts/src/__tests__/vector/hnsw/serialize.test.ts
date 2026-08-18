@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createHNSWIndex, type HNSWIndex } from '../../../vector/hnsw'
 import { createVectorStore, type VectorStore } from '../../../vector/vector-store'
-import { DIM, insertVec, randomVector } from './fixtures'
+import { DIM, insertVec, seededVector } from './fixtures'
 
 describe('HNSWIndex serialize / deserialize', () => {
   let store: VectorStore
@@ -14,7 +14,7 @@ describe('HNSWIndex serialize / deserialize', () => {
 
   it('round-trips the graph structure', () => {
     for (let i = 0; i < 20; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     const serialized = index.serialize()
@@ -35,7 +35,7 @@ describe('HNSWIndex serialize / deserialize', () => {
 
   it('produces search results after deserialization', () => {
     for (let i = 0; i < 20; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     const serialized = index.serialize()
@@ -43,15 +43,15 @@ describe('HNSWIndex serialize / deserialize', () => {
     const restored = createHNSWIndex(DIM, store, { m: 4, efConstruction: 32 })
     restored.deserialize(serialized)
 
-    const query = randomVector(DIM)
+    const query = seededVector(DIM, 24)
     const results = restored.search(query, 5, 'cosine', 0)
     expect(results.length).toBeGreaterThan(0)
     expect(results.length).toBeLessThanOrEqual(5)
   })
 
   it('serialized node format matches the expected tuple structure', () => {
-    insertVec(store, index, 'doc1', randomVector(DIM))
-    insertVec(store, index, 'doc2', randomVector(DIM))
+    insertVec(store, index, 'doc1', seededVector(DIM, 31))
+    insertVec(store, index, 'doc2', seededVector(DIM, 38))
 
     const serialized = index.serialize()
     for (const node of serialized.nodes) {
@@ -71,7 +71,7 @@ describe('HNSWIndex serialize / deserialize', () => {
   it('serializes the build metric', () => {
     const eucStore = createVectorStore()
     const eucIndex = createHNSWIndex(DIM, eucStore, { m: 4, efConstruction: 32, metric: 'euclidean' })
-    insertVec(eucStore, eucIndex, 'doc1', randomVector(DIM))
+    insertVec(eucStore, eucIndex, 'doc1', seededVector(DIM, 45))
 
     const serialized = eucIndex.serialize()
     expect(serialized.metric).toBe('euclidean')
@@ -79,7 +79,7 @@ describe('HNSWIndex serialize / deserialize', () => {
 
   it('recovers when entry point vector is missing from store', () => {
     for (let i = 0; i < 10; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     const serialized = index.serialize()
@@ -99,13 +99,13 @@ describe('HNSWIndex serialize / deserialize', () => {
     expect(restored.entryPointId).not.toBeNull()
     expect(restored.entryPointId).not.toBe(epDocId)
 
-    const results = restored.search(randomVector(DIM), 5, 'cosine', 0)
+    const results = restored.search(seededVector(DIM, 59), 5, 'cosine', 0)
     expect(results.length).toBeGreaterThan(0)
   })
 
   it('handles all vectors missing from store during deserialization', () => {
     for (let i = 0; i < 5; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     const serialized = index.serialize()
@@ -118,13 +118,13 @@ describe('HNSWIndex serialize / deserialize', () => {
     expect(restored.entryPointId).toBeNull()
     expect(restored.topLayer).toBe(-1)
 
-    const results = restored.search(randomVector(DIM), 5, 'cosine', 0)
+    const results = restored.search(seededVector(DIM, 73), 5, 'cosine', 0)
     expect(results).toHaveLength(0)
   })
 
   it('deserializes data without metric field (backward compatibility)', () => {
     for (let i = 0; i < 10; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     const serialized = index.serialize()
@@ -139,7 +139,7 @@ describe('HNSWIndex serialize / deserialize', () => {
 
   it('serialization excludes tombstoned nodes', () => {
     for (let i = 0; i < 10; i++) {
-      insertVec(store, index, `doc${i}`, randomVector(DIM))
+      insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     index.markTombstone('doc0')

@@ -18,10 +18,15 @@ export type AnyDocument = Record<string, unknown> & { id?: string }
  * and `vector[N]` holds an N-dimensional embedding. Each array form indexes
  * every element of the field.
  *
+ * `string:sortable` is a `string` in every respect, and a sort may name it.
+ * Ordering text costs far more memory per document than ordering a number, so
+ * a sort naming a plain `string` field raises `SEARCH_INVALID_FIELD`.
+ *
  * @public
  */
 export type FieldType =
   | 'string'
+  | 'string:sortable'
   | 'number'
   | 'boolean'
   | 'enum'
@@ -134,8 +139,10 @@ export interface IndexConfig {
   /** The engine rejects a document that omits any of these fields. */
   required?: string[]
   /**
-   * Return the words users typed from suggest() and prefix expansion
-   * instead of index stems, at an insert-throughput cost. Default false.
+   * Setting this to false stops the index recording the spellings a stemmer
+   * changed, so {@link Narsil.suggest} and prefix completions fall back to
+   * index stems such as `qualiti`. It defaults to true, which costs a little
+   * insert throughput and one entry per changed spelling.
    */
   surfaceForms?: boolean
 }
@@ -149,9 +156,17 @@ export interface IndexConfig {
  * @public
  */
 export interface BM25Params {
-  /** This saturates term frequency, so a higher value lets a repeated term keep raising a score. It defaults to 1.2. */
+  /**
+   * This saturates term frequency, so a higher value lets a repeated term
+   * keep raising a score. It defaults to 1.2, and it must be a finite number
+   * at or above 0 or index creation fails with `CONFIG_INVALID`.
+   */
   k1?: number
-  /** This normalises by field length, from 0 for none to 1 for full. It defaults to 0.75. */
+  /**
+   * This normalises by field length, from 0 for none to 1 for full. It
+   * defaults to 0.75, and it must lie between 0 and 1 or index creation
+   * fails with `CONFIG_INVALID`.
+   */
   b?: number
 }
 

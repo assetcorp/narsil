@@ -46,7 +46,7 @@ describe('VectorIndex serialization', () => {
 
   it('serialize includes HNSW graph when built', async () => {
     for (let i = 0; i < 6; i++) {
-      index.insert(`doc${i}`, normalizedVector(DIM))
+      index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
     index.scheduleBuild()
     await vi.advanceTimersToNextTimerAsync()
@@ -62,7 +62,7 @@ describe('VectorIndex serialization', () => {
     const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
     try {
       for (let i = 0; i < 6; i++) {
-        sqIndex.insert(`doc${i}`, normalizedVector(DIM))
+        sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
       }
       sqIndex.scheduleBuild()
       await vi.advanceTimersToNextTimerAsync()
@@ -99,7 +99,7 @@ describe('VectorIndex serialization', () => {
 
   it('deserialize restores HNSW graph', async () => {
     for (let i = 0; i < 6; i++) {
-      index.insert(`doc${i}`, normalizedVector(DIM))
+      index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
     index.scheduleBuild()
     await vi.advanceTimersToNextTimerAsync()
@@ -119,7 +119,7 @@ describe('VectorIndex serialization', () => {
   it('deserialize restores SQ8 data', async () => {
     const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
     for (let i = 0; i < 6; i++) {
-      sqIndex.insert(`doc${i}`, normalizedVector(DIM))
+      sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
     sqIndex.scheduleBuild()
     await vi.advanceTimersToNextTimerAsync()
@@ -166,7 +166,7 @@ describe('VectorIndex serialization', () => {
   it('serialize then deserialize round-trip preserves search results', async () => {
     const vectors = new Map<string, Float32Array>()
     for (let i = 0; i < 6; i++) {
-      const v = normalizedVector(DIM)
+      const v = normalizedVector(DIM, i + 1)
       vectors.set(`doc${i}`, v)
       index.insert(`doc${i}`, v)
     }
@@ -174,7 +174,7 @@ describe('VectorIndex serialization', () => {
     await vi.advanceTimersToNextTimerAsync()
     await index.awaitPendingBuild()
 
-    const query = normalizedVector(DIM)
+    const query = normalizedVector(DIM, 45)
     const originalResults = index.search(query, 5, { metric: 'cosine', minSimilarity: 0 })
 
     const payload = index.serialize()
@@ -216,7 +216,7 @@ describe('VectorIndex serialization', () => {
 
   it('deserialize with graphs puts unmatched docs in buffer', async () => {
     for (let i = 0; i < 6; i++) {
-      index.insert(`doc${i}`, normalizedVector(DIM))
+      index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
     index.scheduleBuild()
     await vi.advanceTimersToNextTimerAsync()
@@ -224,7 +224,7 @@ describe('VectorIndex serialization', () => {
 
     const payload = index.serialize()
 
-    payload.vectors.push({ docId: 'extra', vector: Array.from(normalizedVector(DIM)) })
+    payload.vectors.push({ docId: 'extra', vector: Array.from(normalizedVector(DIM, 59)) })
 
     const restored = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' })
     restored.deserialize(payload)

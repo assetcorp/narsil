@@ -4,13 +4,15 @@ This example runs the full Narsil engine inside the page. Indexing and search ha
 
 ## How it works
 
-A Web Worker owns the Narsil instance, so the page stays responsive while indexing runs. The page sends the worker commands over a small message bridge and renders the results and progress events it sends back.
+A Web Worker owns the Narsil instance, so the page stays responsive while indexing runs. The page calls the worker over a small typed bridge, and each method on it mirrors the one on `Narsil` it forwards to.
 
 ```text
-Page (React)  ->  Web Worker (Narsil engine)  ->  IndexedDB (snapshots)
+Page (React)  ->  Web Worker (Narsil engine)  ->  IndexedDB (@delali/narsil/adapters/indexeddb)
 ```
 
-After a dataset finishes indexing, the worker persists an index snapshot to IndexedDB, so the next visit restores the index without re-indexing. Clear the site's browser storage to start fresh.
+The engine writes its own indexes through the IndexedDB persistence adapter, and `createNarsil` recovers them before it resolves, so an index built on one visit is there on the next without loading anything again. `checkpoint` runs at the end of each load rather than waiting for the engine's own schedule. Clear the site's browser storage to start fresh.
+
+Every language the Wikipedia dataset offers is registered before the engine starts, because recovery rebuilds each index under the language it was created with.
 
 ## Run it
 
@@ -29,7 +31,7 @@ The app serves on [http://localhost:5173](http://localhost:5173). Everything aft
 - **Search** is the playground: instant results, facets, field boosts, sorting, highlighting, and pagination.
 - **Relevance** breaks down BM25 scoring per result and lets you tune k1, b, and field boosts to watch the ranking change.
 - **Benchmark** runs the 300 SciFact claim queries against the index and reports nDCG@10, P@10, MAP, and MRR against expert relevance judgments.
-- **Inspector** shows the index structure: schema, partitions, document counts, and memory statistics.
+- **Inspector** shows the index structure: schema, partitions, document counts, memory statistics, and the state of each vector field's graph.
 
 ## Datasets
 

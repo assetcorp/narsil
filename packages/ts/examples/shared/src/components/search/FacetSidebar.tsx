@@ -1,10 +1,11 @@
+import type { FacetResult, FilterExpression } from '@delali/narsil'
 import { useCallback } from 'react'
 import { Badge } from '../ui/badge'
 
 interface FacetSidebarProps {
-  facets: Record<string, { values: Record<string, number>; count: number }>
-  filters: Record<string, unknown>
-  onFilterChange: (filters: Record<string, unknown>) => void
+  facets: Record<string, FacetResult>
+  filters: FilterExpression
+  onFilterChange: (filters: FilterExpression) => void
 }
 
 function FacetValueButton({
@@ -40,11 +41,10 @@ function FacetValueButton({
 
 export function FacetSidebar({ facets, filters, onFilterChange }: FacetSidebarProps) {
   function getFilteredValues(field: string): string[] {
-    const fieldsObj = (filters as Record<string, Record<string, Record<string, string[]>>>).fields
-    if (!fieldsObj) return []
-    const fieldFilter = fieldsObj[field]
+    const fieldFilter = filters.fields?.[field]
     if (!fieldFilter) return []
-    return fieldFilter.in ?? []
+    const values = (fieldFilter as { in?: unknown }).in
+    return Array.isArray(values) ? values.map(String) : []
   }
 
   function isSelected(field: string, value: string): boolean {
@@ -61,8 +61,7 @@ export function FacetSidebar({ facets, filters, onFilterChange }: FacetSidebarPr
       next = [...current, value]
     }
 
-    const existingFields = (filters as Record<string, Record<string, unknown>>).fields ?? {}
-    const fields: Record<string, unknown> = { ...existingFields }
+    const fields = { ...filters.fields }
 
     if (next.length === 0) {
       delete fields[field]

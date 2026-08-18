@@ -2,6 +2,7 @@ import { encode } from '@msgpack/msgpack'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONTROLLER_LEASE_KEY } from '../../../distribution/cluster/controller/types'
 import { routeInsert, routeRemove, type WriteRoutingDeps } from '../../../distribution/cluster-node/write-routing'
+import { createPartitionWriteQueues } from '../../../distribution/cluster-node/write-routing/partition-queue'
 import { createInMemoryCoordinator } from '../../../distribution/coordinator'
 import type { AllocationTable, ClusterCoordinator, PartitionAssignment } from '../../../distribution/coordinator/types'
 import { createAckMessage, createInsyncConfirmMessage } from '../../../distribution/replication/codec'
@@ -78,6 +79,7 @@ function makeDeps(coordinator: ClusterCoordinator, engine: Narsil, transport: No
     coordinator,
     engine,
     transport,
+    partitionWriteQueues: createPartitionWriteQueues(),
     ...createLogAccessors(),
   }
 }

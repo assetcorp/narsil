@@ -2,7 +2,7 @@ import { decode, encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { crc32 } from '../../../serialization/crc32'
 import { decideSyncTier, validateSyncRequest } from '../../replication/sync-primary'
-import type { SyncEntriesPayload, TransportMessage } from '../../transport/types'
+import type { RespondFn, SyncEntriesPayload, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
 import { authorizeSnapshotRequest } from '../snapshot-auth'
 import { createSingleResponseSink } from '../snapshot-stream-writer'
@@ -11,7 +11,7 @@ import type { DataNodeHandlerDeps } from './types'
 
 export async function handleSyncRequestMessage(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const request = validateSyncRequest(decode(message.payload))
@@ -73,7 +73,7 @@ export async function handleSyncRequestMessage(
   const log = deps.writeDeps.getReplicationLog(request.indexName, request.partitionId)
   const tier = decideSyncTier(log, request.lastSeqNo)
   if (tier === 'incremental') {
-    sendSyncEntriesResponse(message, respond, deps, log.getEntriesFrom(request.lastSeqNo + 1))
+    await sendSyncEntriesResponse(message, respond, deps, log.getEntriesFrom(request.lastSeqNo + 1))
     return
   }
 
@@ -102,25 +102,25 @@ export async function handleSyncRequestMessage(
         const bytes = await deps.engine.serializeReplicationPartition(request.indexName, request.partitionId)
         return { bytes, checksum: crc32(bytes) }
       },
-      afterSnapshot: trailingSink => {
+      afterSnapshot: async trailingSink => {
         const entries = log.getEntriesFrom(snapshotSeqNo + 1)
-        sendSyncEntriesResponse(message, trailingSink, deps, entries)
+        await sendSyncEntriesResponse(message, trailingSink, deps, entries)
       },
     },
   )
 }
 
-export function sendSyncEntriesResponse(
+export async function sendSyncEntriesResponse(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
   entries: SyncEntriesPayload['entries'],
-): void {
+): Promise<void> {
   const payload: SyncEntriesPayload = {
     entries,
     isLast: true,
   }
-  respond({
+  await respond({
     type: ReplicationMessageTypes.SYNC_ENTRIES,
     sourceId: deps.nodeId,
     requestId: message.requestId,

@@ -17,6 +17,26 @@ export interface FieldNameTable {
   indexMap: Map<string, number>
 }
 
+/**
+ * The read-only face of a posting list, holding exactly what the query path
+ * touches. The live {@link CompactPostingList} satisfies it directly, and a
+ * frozen segment serves it as views over flat typed arrays.
+ *
+ * @internal
+ */
+export interface PostingListView {
+  readonly length: number
+  readonly docIds: ArrayLike<number>
+  readonly termFrequencies: ArrayLike<number>
+  readonly fieldNameIndices: ArrayLike<number>
+  readonly positions: ReadonlyArray<readonly number[] | undefined> | null
+  readonly docIdSet: { readonly size: number }
+  readonly deletedDocs: { readonly size: number; has(internalId: number): boolean }
+  readonly totalTermFrequency: number
+  readonly structureRevision: number
+  readonly ordered: boolean
+}
+
 export interface CompactPostingList {
   length: number
   docIds: number[]
@@ -27,6 +47,17 @@ export interface CompactPostingList {
   deletedDocs: Set<number>
   /** Sum of live termFrequencies; stale-high between remove and compaction. */
   totalTermFrequency: number
+  /**
+   * Counts changes to existing entries or to the tombstone set. An append
+   * leaves it alone, so derived block bounds extend over the new tail instead
+   * of rebuilding from the start.
+   */
+  structureRevision: number
+  /**
+   * False once an entry lands with a lower document id than the one before
+   * it; compaction recomputes it from the surviving entries.
+   */
+  ordered: boolean
 }
 
 export interface StoredDocument {
@@ -116,6 +147,8 @@ export interface SerializablePartition {
 
 export interface IndexMetadata {
   indexName: string
+  /** The identity a cluster gave the index at creation; absent on a single engine. */
+  indexUuid?: string
   schema: Record<string, string>
   language: string
   partitionCount: number
@@ -163,6 +196,20 @@ export interface ScoredDocument {
 export interface InternalSearchResult {
   scored: ScoredDocument[]
   totalMatched: number
+  /**
+   * Every document the query matches, as external ids, present when the
+   * caller asked for the id form. A facet count reads this rather than the
+   * returned page.
+   */
+  matchedIds?: string[]
+  /**
+   * Every document the query matches, as a bit per ordinal in the searched
+   * partition's ordinal space, present when the caller asked for the ordinal
+   * form. Another copy of the partition numbers its ordinals differently, so
+   * a result that crosses a thread or process must carry `matchedIds`
+   * instead.
+   */
+  matchedOrdinalBitset?: Uint32Array
 }
 
 /**
@@ -192,4 +239,11 @@ export interface InternalSearchParams {
   termMatch?: import('../types/search').TermMatchPolicy
   filterBitset?: Uint32Array
   collectComponents?: boolean
+  /**
+   * Asks the search to report every matching document alongside the scored
+   * page, for facet counting. `'ordinals'` returns a bit per ordinal and is
+   * the form for a same-process caller; `'ids'` returns external ids, which
+   * survive a thread or process boundary.
+   */
+  collectMatchedSet?: 'ids' | 'ordinals'
 }

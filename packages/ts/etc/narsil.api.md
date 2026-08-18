@@ -41,6 +41,19 @@ export interface BM25Params {
 export function clearNormalizationCache(): void;
 
 // @public
+export type ClientErrorCode = (typeof ClientErrorCodes)[keyof typeof ClientErrorCodes];
+
+// @public
+export const ClientErrorCodes: {
+    readonly CLIENT_CONNECTION_FAILED: "CLIENT_CONNECTION_FAILED";
+    readonly CLIENT_REQUEST_TIMEOUT: "CLIENT_REQUEST_TIMEOUT";
+    readonly CLIENT_REQUEST_ABORTED: "CLIENT_REQUEST_ABORTED";
+    readonly CLIENT_INVALID_RESPONSE: "CLIENT_INVALID_RESPONSE";
+    readonly CLIENT_TASK_TIMEOUT: "CLIENT_TASK_TIMEOUT";
+    readonly CLIENT_UNEXPECTED_ERROR: "CLIENT_UNEXPECTED_ERROR";
+};
+
+// @public
 export type ComparisonFilter = {
     eq?: number | string | boolean;
     ne?: number | string | boolean;
@@ -64,6 +77,12 @@ export interface CustomTokenizer {
         position: number;
     }>;
 }
+
+// @public
+export type DocumentProjection = boolean | {
+    include?: string[];
+    exclude?: string[];
+};
 
 // @public
 export interface DurabilityConfig {
@@ -106,6 +125,7 @@ export const ErrorCodes: {
     readonly DOC_VALIDATION_FAILED: "DOC_VALIDATION_FAILED";
     readonly INDEX_NOT_FOUND: "INDEX_NOT_FOUND";
     readonly INDEX_ALREADY_EXISTS: "INDEX_ALREADY_EXISTS";
+    readonly INDEX_ORPHANED: "INDEX_ORPHANED";
     readonly PARTITION_CORRUPTED: "PARTITION_CORRUPTED";
     readonly PARTITION_REBALANCING_BACKPRESSURE: "PARTITION_REBALANCING_BACKPRESSURE";
     readonly WORKER_CRASHED: "WORKER_CRASHED";
@@ -123,6 +143,7 @@ export const ErrorCodes: {
     readonly SEARCH_INVALID_FILTER: "SEARCH_INVALID_FILTER";
     readonly SEARCH_INVALID_MODE: "SEARCH_INVALID_MODE";
     readonly SEARCH_INVALID_CURSOR: "SEARCH_INVALID_CURSOR";
+    readonly SEARCH_RESULT_WINDOW_EXCEEDED: "SEARCH_RESULT_WINDOW_EXCEEDED";
     readonly LANGUAGE_NOT_SUPPORTED: "LANGUAGE_NOT_SUPPORTED";
     readonly ENVELOPE_VERSION_MISMATCH: "ENVELOPE_VERSION_MISMATCH";
     readonly ENVELOPE_INVALID_MAGIC: "ENVELOPE_INVALID_MAGIC";
@@ -137,6 +158,7 @@ export const ErrorCodes: {
     readonly QUERY_PARTIAL_FAILURE: "QUERY_PARTIAL_FAILURE";
     readonly QUERY_NODE_TIMEOUT: "QUERY_NODE_TIMEOUT";
     readonly QUERY_NO_ACTIVE_REPLICA: "QUERY_NO_ACTIVE_REPLICA";
+    readonly CLUSTER_OPERATION_UNSUPPORTED: "CLUSTER_OPERATION_UNSUPPORTED";
     readonly ALLOCATION_NO_DATA_NODES: "ALLOCATION_NO_DATA_NODES";
     readonly ALLOCATION_INVALID_CONFIG: "ALLOCATION_INVALID_CONFIG";
     readonly ALLOCATION_FAILED: "ALLOCATION_FAILED";
@@ -147,6 +169,7 @@ export const ErrorCodes: {
     readonly NODE_ALREADY_JOINED: "NODE_ALREADY_JOINED";
     readonly NODE_NOT_JOINED: "NODE_NOT_JOINED";
     readonly COORDINATOR_DEPENDENCY_MISSING: "COORDINATOR_DEPENDENCY_MISSING";
+    readonly TRANSPORT_DEPENDENCY_MISSING: "TRANSPORT_DEPENDENCY_MISSING";
     readonly REPLICATION_ENTRY_INVALID: "REPLICATION_ENTRY_INVALID";
     readonly REPLICATION_INSYNC_REMOVAL_FAILED: "REPLICATION_INSYNC_REMOVAL_FAILED";
     readonly REPLICATION_ROLLBACK_FAILED: "REPLICATION_ROLLBACK_FAILED";
@@ -201,6 +224,7 @@ export interface FacetConfig {
 // @public
 export interface FacetResult {
     count: number;
+    errorBound: number;
     values: Record<string, number>;
 }
 
@@ -208,7 +232,7 @@ export interface FacetResult {
 export type FieldFilter = ComparisonFilter | StringFilter | ArrayFilter | PresenceFilter | GeoFilter;
 
 // @public
-export type FieldType = 'string' | 'number' | 'boolean' | 'enum' | 'geopoint' | `vector[${number}]` | 'string[]' | 'number[]' | 'boolean[]' | 'enum[]';
+export type FieldType = 'string' | 'string:sortable' | 'number' | 'boolean' | 'enum' | 'geopoint' | `vector[${number}]` | 'string[]' | 'number[]' | 'boolean[]' | 'enum[]';
 
 // @public
 export type FilterExpression = {
@@ -303,7 +327,7 @@ export interface Hit<T = AnyDocument> {
     document: T;
     highlights?: Record<string, HighlightMatch>;
     id: string;
-    score: number;
+    score?: number;
     scoreComponents?: ScoreComponents;
 }
 
@@ -402,6 +426,29 @@ export interface LanguageModule {
 }
 
 // @public
+export interface ListedDocument<T = AnyDocument> {
+    document: T;
+    id: string;
+}
+
+// @public
+export interface ListParams {
+    cursor?: string;
+    document?: DocumentProjection;
+    filters?: FilterExpression;
+    limit?: number;
+    sort?: SortSpec;
+}
+
+// @public
+export interface ListResult<T = AnyDocument> {
+    cursor: string | null;
+    documents: Array<ListedDocument<T>>;
+    elapsed: number;
+    total: number;
+}
+
+// @public
 export interface MemoryStats {
     estimatedIndexBytes: number;
     process: ProcessMemoryReport | null;
@@ -429,6 +476,7 @@ export interface Narsil {
     has(indexName: string, docId: string): Promise<boolean>;
     insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string>;
     insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult>;
+    listDocuments<T = AnyDocument>(indexName: string, params?: ListParams): Promise<ListResult<T>>;
     listIndexes(): IndexInfo[];
     off<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;
     on<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;
@@ -468,10 +516,13 @@ export interface NarsilConfig {
 
 // @public
 export class NarsilError extends Error {
-    constructor(code: ErrorCode, message: string, details?: Record<string, unknown>);
-    readonly code: ErrorCode;
+    constructor(code: NarsilErrorCode, message: string, details?: Record<string, unknown>);
+    readonly code: NarsilErrorCode;
     readonly details: Record<string, unknown>;
 }
+
+// @public
+export type NarsilErrorCode = ErrorCode | ServerErrorCode | ClientErrorCode | (string & {});
 
 // @public
 export type NarsilEventMap = {
@@ -601,6 +652,7 @@ export interface ProcessMemoryReport {
 // @public
 export interface QueryParams {
     boost?: Record<string, number>;
+    document?: DocumentProjection;
     exact?: boolean;
     facets?: FacetConfig;
     fields?: string[];
@@ -609,6 +661,7 @@ export interface QueryParams {
     highlight?: HighlightConfig;
     hybrid?: HybridConfig;
     includeScoreComponents?: boolean;
+    includeScores?: boolean;
     limit?: number;
     minScore?: number;
     mode?: SearchMode;
@@ -621,7 +674,7 @@ export interface QueryParams {
     prefixLength?: number;
     scoring?: ScoringMode;
     searchAfter?: string;
-    sort?: Record<string, 'asc' | 'desc'>;
+    sort?: SortSpec;
     term?: string;
     termMatch?: TermMatchPolicy;
     tolerance?: number;
@@ -681,6 +734,33 @@ export interface SearchContext {
 
 // @public
 export type SearchMode = 'fulltext' | 'vector' | 'hybrid';
+
+// @public
+export type ServerErrorCode = (typeof ServerErrorCodes)[keyof typeof ServerErrorCodes];
+
+// @public
+export const ServerErrorCodes: {
+    readonly INVALID_REQUEST: "INVALID_REQUEST";
+    readonly INVALID_JSON: "INVALID_JSON";
+    readonly EMPTY_BODY: "EMPTY_BODY";
+    readonly PAYLOAD_TOO_LARGE: "PAYLOAD_TOO_LARGE";
+    readonly NOT_FOUND: "NOT_FOUND";
+    readonly TASK_NOT_FOUND: "TASK_NOT_FOUND";
+    readonly TASK_NOT_CANCELLABLE: "TASK_NOT_CANCELLABLE";
+    readonly TASK_OWNED_BY_ANOTHER_INSTANCE: "TASK_OWNED_BY_ANOTHER_INSTANCE";
+    readonly TOO_MANY_REQUESTS: "TOO_MANY_REQUESTS";
+    readonly HOOK_ERROR: "HOOK_ERROR";
+    readonly INTERNAL_ERROR: "INTERNAL_ERROR";
+};
+
+// @public
+export interface SortField {
+    direction: 'asc' | 'desc';
+    field: string;
+}
+
+// @public
+export type SortSpec = Record<string, 'asc' | 'desc'> | readonly SortField[];
 
 // @public
 export interface StaleAnalysis {

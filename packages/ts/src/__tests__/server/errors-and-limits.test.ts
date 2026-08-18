@@ -213,13 +213,13 @@ describe('Narsil HTTP server async tasks', () => {
       ],
     })
 
-    const accepted = await postJson<{ taskId: string; status: string }>(srv.base, '/indexes/movies/vectors/_optimize', {
+    const accepted = await postJson<{ id: string; status: string }>(srv.base, '/indexes/movies/vectors/_optimize', {
       field: 'embedding',
     })
     expect(accepted.status).toBe(202)
-    expect(accepted.body.taskId).toBeTruthy()
+    expect(accepted.body.id).toBeTruthy()
 
-    const final = await pollTask(srv.base, accepted.body.taskId)
+    const final = await pollTask(srv.base, accepted.body.id)
     expect(final.status).toBe('succeeded')
   })
 

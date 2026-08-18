@@ -1,51 +1,78 @@
-import type { CompactPostingList, ScoredDocument } from '../../types/internal'
+import type { PostingListView } from '../../types/internal'
 
 export const EMPTY_COMPONENTS: Record<string, number> = Object.freeze({})
 
-export interface ScoreAccumulator {
-  score: number
+/**
+ * The per-document scoring record a query keeps only where the caller asked to
+ * see score components or set a term-coverage policy.
+ *
+ * @internal
+ */
+export interface ScoreComponents {
   termFrequencies: Record<string, number>
   fieldLengths: Record<string, number>
   idf: Record<string, number>
 }
 
-export function accumulateTermScore(
-  docScores: Map<number, ScoreAccumulator>,
+/**
+ * Records one term's contribution to a document's score components.
+ *
+ * @param components - The records collected so far in this query.
+ * @param internalId - The internal id of the document that matched.
+ * @param fieldName - The field the term was found in.
+ * @param token - The index term that matched.
+ * @param termFrequency - How often the term occurs in that field.
+ * @param fieldLength - The length of that field in the document.
+ * @param idf - The inverse document frequency used for the term.
+ */
+export function recordComponents(
+  components: Map<number, ScoreComponents>,
   internalId: number,
-  termScore: number,
-  collect: boolean,
   fieldName: string,
   token: string,
   termFrequency: number,
   fieldLength: number,
   idf: number,
 ): void {
-  const existing = docScores.get(internalId)
+  const existing = components.get(internalId)
   if (existing) {
-    existing.score += termScore
-    if (collect) {
-      existing.termFrequencies[`${fieldName}:${token}`] = termFrequency
-      existing.fieldLengths[fieldName] = fieldLength
-      existing.idf[token] = idf
-    }
+    existing.termFrequencies[`${fieldName}:${token}`] = termFrequency
+    existing.fieldLengths[fieldName] = fieldLength
+    existing.idf[token] = idf
     return
   }
+  components.set(internalId, {
+    termFrequencies: { [`${fieldName}:${token}`]: termFrequency },
+    fieldLengths: { [fieldName]: fieldLength },
+    idf: { [token]: idf },
+  })
+}
 
-  if (collect) {
-    docScores.set(internalId, {
-      score: termScore,
-      termFrequencies: { [`${fieldName}:${token}`]: termFrequency },
-      fieldLengths: { [fieldName]: fieldLength },
-      idf: { [token]: idf },
-    })
-  } else {
-    docScores.set(internalId, {
-      score: termScore,
-      termFrequencies: EMPTY_COMPONENTS,
-      fieldLengths: EMPTY_COMPONENTS,
-      idf: EMPTY_COMPONENTS,
-    })
+/**
+ * Folds a prefix expansion's winning contribution into a document's score
+ * components.
+ *
+ * @param components - The records collected so far in this query.
+ * @param internalId - The internal id of the document that matched.
+ * @param contribution - The best-scoring expanded term for that document.
+ */
+export function mergePrefixComponents(
+  components: Map<number, ScoreComponents>,
+  internalId: number,
+  contribution: PrefixContribution,
+): void {
+  const existing = components.get(internalId)
+  if (existing) {
+    Object.assign(existing.termFrequencies, contribution.termFrequencies)
+    Object.assign(existing.fieldLengths, contribution.fieldLengths)
+    existing.idf[contribution.token] = contribution.idf
+    return
   }
+  components.set(internalId, {
+    termFrequencies: contribution.termFrequencies,
+    fieldLengths: contribution.fieldLengths,
+    idf: { [contribution.token]: contribution.idf },
+  })
 }
 
 export interface ResolvedTokenPostings {
@@ -54,7 +81,7 @@ export interface ResolvedTokenPostings {
     token: string
     docFreq: number
     idf: number
-    postingList: CompactPostingList
+    postingList: PostingListView
   }>
   totalPostings: number
   isPrefix?: boolean
@@ -63,7 +90,7 @@ export interface ResolvedTokenPostings {
 export interface PrefixMatch {
   token: string
   factor: number
-  postingList: CompactPostingList
+  postingList: PostingListView
   docFreq: number
   idf: number
 }
@@ -74,65 +101,4 @@ export interface PrefixContribution {
   idf: number
   termFrequencies: Record<string, number>
   fieldLengths: Record<string, number>
-}
-
-export function topKFromMap(
-  docScores: Map<number, ScoreAccumulator>,
-  k: number,
-  resolver: { toExternal(id: number): string | undefined },
-): ScoredDocument[] {
-  if (k <= 0) return []
-
-  const heap: Array<{ internalId: number; score: number }> = []
-
-  for (const [internalId, data] of docScores) {
-    if (heap.length < k) {
-      heap.push({ internalId, score: data.score })
-      if (heap.length === k) buildMinHeap(heap)
-    } else if (data.score > heap[0].score) {
-      heap[0] = { internalId, score: data.score }
-      siftDown(heap, 0)
-    }
-  }
-
-  heap.sort((a, b) => b.score - a.score)
-
-  const result: ScoredDocument[] = []
-  for (let i = 0; i < heap.length; i++) {
-    const data = docScores.get(heap[i].internalId)
-    if (!data) continue
-    const externalId = resolver.toExternal(heap[i].internalId)
-    if (externalId === undefined) continue
-    result.push({
-      docId: externalId,
-      score: data.score,
-      termFrequencies: data.termFrequencies,
-      fieldLengths: data.fieldLengths,
-      idf: data.idf,
-    })
-  }
-
-  return result
-}
-
-function buildMinHeap(heap: Array<{ score: number }>): void {
-  for (let i = (heap.length >> 1) - 1; i >= 0; i--) {
-    siftDown(heap, i)
-  }
-}
-
-function siftDown(heap: Array<{ score: number }>, idx: number): void {
-  const len = heap.length
-  while (true) {
-    let smallest = idx
-    const left = 2 * idx + 1
-    const right = 2 * idx + 2
-    if (left < len && heap[left].score < heap[smallest].score) smallest = left
-    if (right < len && heap[right].score < heap[smallest].score) smallest = right
-    if (smallest === idx) break
-    const tmp = heap[idx]
-    heap[idx] = heap[smallest]
-    heap[smallest] = tmp
-    idx = smallest
-  }
 }

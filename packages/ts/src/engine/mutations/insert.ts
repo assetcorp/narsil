@@ -1,36 +1,11 @@
-import { ErrorCodes, NarsilError } from '../../errors'
-import type { PartitionManager } from '../../partitioning/manager'
 import { validateRequiredFields } from '../../schema/validator'
-import type { EmbeddingAdapter } from '../../types/adapters'
-import type { BatchResult } from '../../types/results'
-import type { AnyDocument, EmbeddingFieldConfig, InsertOptions } from '../../types/schema'
-import { assertDocumentCarriesMappedVectors, embedBatchDocumentFields, embedDocumentFields } from '../embed'
-import { BATCH_CHUNK_SIZE, validateDocId } from '../validation'
+import type { AnyDocument, InsertOptions } from '../../types/schema'
+import { assertDocumentCarriesMappedVectors, embedDocumentFields } from '../embed'
+import { validateDocId } from '../validation'
 import { insertDocumentVectors, prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
 import type { MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
-
-/** Resolves a document's own `id` field as its identifier when present, so a
- * caller that embeds an id in the document (the cross-language convention) keeps
- * it. Returns undefined for an absent or non-string id, leaving the caller to
- * fall back to an explicit id argument or generation. */
-function providedDocId(document: AnyDocument): string | undefined {
-  const id = (document as { id?: unknown }).id
-  return typeof id === 'string' && id.length > 0 ? id : undefined
-}
-
-function admitInsert(ctx: MutationContext, indexName: string, manager: PartitionManager, docId: string): void {
-  if (!ctx.isRebalancing(indexName)) {
-    manager.assertCapacity()
-    return
-  }
-  const bufferedState = ctx.bufferedDocState(indexName, docId)
-  const exists = bufferedState !== undefined ? bufferedState === 'present' : manager.has(docId)
-  if (exists) {
-    throw new NarsilError(ErrorCodes.DOC_ALREADY_EXISTS, `Document "${docId}" already exists`, { docId })
-  }
-  manager.assertCapacity(ctx.pendingRebalanceWrites(indexName), ctx.rebalanceTargetPartitionCount(indexName))
-}
+import { admitInsert, providedDocId } from './insert-admission'
 
 export async function insertDocument(
   ctx: MutationContext,
@@ -75,7 +50,6 @@ export async function insertDocument(
   const { partitionDoc, extractedVectors } = prepareDocumentVectors(
     document as Record<string, unknown>,
     entry.vectorFieldPaths,
-    insertVecIndexes,
   )
 
   if (extractedVectors.size > 0) {
@@ -100,7 +74,12 @@ export async function insertDocument(
     })
     inserted = true
     try {
-      insertDocumentVectors(resolvedDocId, extractedVectors, insertVecIndexes)
+      insertDocumentVectors(
+        resolvedDocId,
+        extractedVectors,
+        insertVecIndexes,
+        insertManager.partitionIdOf(resolvedDocId),
+      )
     } catch (err) {
       try {
         await ctx.executor.execute({ type: 'remove', indexName, docId: resolvedDocId, requestId: resolvedDocId })
@@ -157,236 +136,4 @@ export async function insertDocument(
   await ctx.orchestrator.checkPromotion()
 
   return resolvedDocId
-}
-
-export async function insertDocumentBatch(
-  ctx: MutationContext,
-  indexName: string,
-  documents: AnyDocument[],
-  options?: InsertOptions,
-): Promise<BatchResult> {
-  ctx.guardShutdown()
-  const entry = ctx.requireIndex(indexName)
-
-  const succeeded: string[] = []
-  const succeededDocs: AnyDocument[] = []
-  const failed: BatchResult['failed'] = []
-  const hasBeforeHook = ctx.pluginRegistry.hasHooks('beforeInsert')
-  const hasAfterHook = ctx.pluginRegistry.hasHooks('afterInsert')
-  const hasRequired = entry.config.required && entry.config.required.length > 0
-  const hasEmbedding = entry.embeddingAdapter && entry.config.embedding
-  const embeddingUnbound = !entry.embeddingAdapter && entry.config.embedding
-
-  const batchManager = ctx.requireManager(indexName)
-  const batchVecIndexes = batchManager.getVectorIndexes()
-  const batchVectorFieldPaths = batchVecIndexes.size > 0 ? entry.vectorFieldPaths : new Set<string>()
-  const touchedVectorFields = new Set<string>()
-  const bufferedDocIds = new Set<string>()
-
-  for (let chunkStart = 0; chunkStart < documents.length; chunkStart += BATCH_CHUNK_SIZE) {
-    if (ctx.abortController.signal.aborted) break
-
-    const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, documents.length)
-    const chunkFailedIndexes = new Set<number>()
-
-    if (hasRequired) {
-      for (let i = chunkStart; i < chunkEnd; i++) {
-        try {
-          validateRequiredFields(documents[i] as Record<string, unknown>, entry.config.required as string[])
-        } catch (err) {
-          chunkFailedIndexes.add(i)
-          failed.push({
-            docId: providedDocId(documents[i]) ?? '',
-            error: err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, String(err)),
-          })
-        }
-      }
-    }
-
-    if (hasEmbedding) {
-      const embeddableSlice: Record<string, unknown>[] = []
-      const embeddableOriginalIndexes: number[] = []
-      for (let i = chunkStart; i < chunkEnd; i++) {
-        if (chunkFailedIndexes.has(i)) continue
-        embeddableSlice.push(documents[i] as Record<string, unknown>)
-        embeddableOriginalIndexes.push(i)
-      }
-
-      if (embeddableSlice.length > 0) {
-        try {
-          const embedResult = await embedBatchDocumentFields(
-            embeddableSlice,
-            entry.config.embedding as EmbeddingFieldConfig,
-            entry.embeddingAdapter as EmbeddingAdapter,
-            ctx.abortController.signal,
-          )
-
-          for (const [sliceIndex, error] of embedResult.failed) {
-            const originalIdx = embeddableOriginalIndexes[sliceIndex]
-            chunkFailedIndexes.add(originalIdx)
-            failed.push({ docId: providedDocId(documents[originalIdx]) ?? '', error })
-          }
-        } catch (err) {
-          const embeddingError =
-            err instanceof NarsilError ? err : new NarsilError(ErrorCodes.EMBEDDING_FAILED, String(err))
-          for (const originalIdx of embeddableOriginalIndexes) {
-            chunkFailedIndexes.add(originalIdx)
-            failed.push({ docId: providedDocId(documents[originalIdx]) ?? '', error: embeddingError })
-          }
-        }
-      }
-    } else if (embeddingUnbound) {
-      for (let i = chunkStart; i < chunkEnd; i++) {
-        if (chunkFailedIndexes.has(i)) continue
-        try {
-          assertDocumentCarriesMappedVectors(
-            documents[i] as Record<string, unknown>,
-            entry.config.embedding as EmbeddingFieldConfig,
-            entry.embeddingAdapterName,
-          )
-        } catch (err) {
-          chunkFailedIndexes.add(i)
-          failed.push({
-            docId: providedDocId(documents[i]) ?? '',
-            error: err instanceof NarsilError ? err : new NarsilError(ErrorCodes.EMBEDDING_FAILED, String(err)),
-          })
-        }
-      }
-    }
-
-    for (let i = chunkStart; i < chunkEnd; i++) {
-      if (ctx.abortController.signal.aborted) break
-      if (chunkFailedIndexes.has(i)) continue
-
-      const batchDocId = providedDocId(documents[i]) ?? ctx.idGenerator()
-      try {
-        validateDocId(batchDocId)
-
-        if (hasBeforeHook) {
-          await ctx.pluginRegistry.runHook('beforeInsert', { indexName, docId: batchDocId, document: documents[i] })
-        }
-
-        const { partitionDoc, extractedVectors } = prepareDocumentVectors(
-          documents[i] as Record<string, unknown>,
-          batchVectorFieldPaths,
-          batchVecIndexes,
-        )
-
-        if (extractedVectors.size > 0) {
-          validateVectorDimensions(extractedVectors, batchVecIndexes)
-        }
-
-        admitInsert(ctx, indexName, batchManager, batchDocId)
-
-        let batchInserted = false
-        let batchBuffered = false
-        const applyBatchInsert = async (): Promise<void> => {
-          admitInsert(ctx, indexName, batchManager, batchDocId)
-          if (
-            ctx.bufferIfRebalancing(indexName, {
-              action: 'insert',
-              docId: batchDocId,
-              document: documents[i],
-              indexName,
-            })
-          ) {
-            batchBuffered = true
-            return
-          }
-          const result = ctx.executor.execute({
-            type: 'insert',
-            indexName,
-            docId: batchDocId,
-            document: partitionDoc as AnyDocument,
-            requestId: batchDocId,
-            skipClone: extractedVectors.size > 0 ? true : options?.skipClone,
-          })
-          if (result && typeof (result as Promise<unknown>).then === 'function') {
-            await result
-          }
-          batchInserted = true
-          try {
-            insertDocumentVectors(batchDocId, extractedVectors, batchVecIndexes)
-          } catch (vecErr) {
-            try {
-              await ctx.executor.execute({ type: 'remove', indexName, docId: batchDocId, requestId: batchDocId })
-              batchInserted = false
-            } catch (rollbackErr) {
-              console.warn(
-                `Rollback failed for doc "${batchDocId}" during batch insert atomicity:`,
-                rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
-              )
-            }
-            throw vecErr
-          }
-        }
-
-        if (ctx.durability) {
-          try {
-            await ctx.durability.recordInsertOrUpdate(indexName, batchDocId, documents[i], applyBatchInsert)
-          } catch (durableErr) {
-            await rollbackInsertedDocument(ctx, indexName, batchDocId, batchInserted, durableErr)
-            throw durableErr
-          }
-        } else {
-          await applyBatchInsert()
-        }
-
-        if (batchBuffered) {
-          bufferedDocIds.add(batchDocId)
-          succeeded.push(batchDocId)
-          succeededDocs.push(documents[i])
-          continue
-        }
-
-        for (const fieldPath of extractedVectors.keys()) {
-          touchedVectorFields.add(fieldPath)
-        }
-
-        if (hasAfterHook) {
-          try {
-            await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: batchDocId, document: documents[i] })
-          } catch (err) {
-            console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
-          }
-        }
-
-        succeeded.push(batchDocId)
-        succeededDocs.push(documents[i])
-      } catch (err) {
-        failed.push({
-          docId: batchDocId,
-          error: err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, String(err)),
-        })
-      }
-    }
-
-    if (chunkEnd < documents.length) {
-      await new Promise<void>(r => setTimeout(r, 0))
-    }
-  }
-
-  for (let i = 0; i < succeeded.length; i++) {
-    if (bufferedDocIds.has(succeeded[i])) continue
-    await ctx.orchestrator.replicateToWorkers({
-      type: 'insert',
-      indexName,
-      docId: succeeded[i],
-      document: succeededDocs[i],
-      requestId: `replicate-insert-${succeeded[i]}`,
-      skipClone: options?.skipClone,
-    })
-  }
-
-  for (const fieldPath of touchedVectorFields) {
-    const vecIndex = batchVecIndexes.get(fieldPath)
-    if (vecIndex) {
-      vecIndex.scheduleBuild()
-    }
-  }
-
-  ctx.checkWatermark(indexName)
-  await ctx.orchestrator.checkPromotion()
-
-  return { succeeded, failed }
 }

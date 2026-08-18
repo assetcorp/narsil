@@ -67,7 +67,7 @@ describe('Rebalancing Integration', () => {
     expect(manager.partitionCount).toBe(2)
 
     const searchTermBefore = 'wireless'
-    const resultBefore = await fanOutQuery(manager, { term: searchTermBefore }, language, schema, {
+    const resultBefore = await fanOutQuery(manager, { term: searchTermBefore, limit: 500 }, language, schema, {
       scoringMode: 'local',
     })
     const matchedIdsBefore = new Set(resultBefore.scored.map(s => s.docId))
@@ -98,7 +98,7 @@ describe('Rebalancing Integration', () => {
       expect(retrieved?.category).toBe(doc.category)
     }
 
-    const resultAfter = await fanOutQuery(manager, { term: searchTermBefore }, language, schema, {
+    const resultAfter = await fanOutQuery(manager, { term: searchTermBefore, limit: 500 }, language, schema, {
       scoringMode: 'local',
     })
     const matchedIdsAfter = new Set(resultAfter.scored.map(s => s.docId))
@@ -121,7 +121,7 @@ describe('Rebalancing Integration', () => {
     expect(manager.partitionCount).toBe(4)
 
     const searchTermBefore = 'portable'
-    const resultBefore = await fanOutQuery(manager, { term: searchTermBefore }, language, schema, {
+    const resultBefore = await fanOutQuery(manager, { term: searchTermBefore, limit: 500 }, language, schema, {
       scoringMode: 'local',
     })
     const matchedIdsBefore = new Set(resultBefore.scored.map(s => s.docId))
@@ -139,7 +139,7 @@ describe('Rebalancing Integration', () => {
       expect(retrieved?.category).toBe(doc.category)
     }
 
-    const resultAfter = await fanOutQuery(manager, { term: searchTermBefore }, language, schema, {
+    const resultAfter = await fanOutQuery(manager, { term: searchTermBefore, limit: 500 }, language, schema, {
       scoringMode: 'local',
     })
     const matchedIdsAfter = new Set(resultAfter.scored.map(s => s.docId))
@@ -158,7 +158,7 @@ describe('Rebalancing Integration', () => {
       manager.insert(docId, doc)
     }
 
-    const resultOriginal = await fanOutQuery(manager, { term: 'headphones' }, language, schema, {
+    const resultOriginal = await fanOutQuery(manager, { term: 'headphones', limit: 500 }, language, schema, {
       scoringMode: 'local',
     })
     const originalIds = new Set(resultOriginal.scored.map(s => s.docId))
@@ -169,7 +169,7 @@ describe('Rebalancing Integration', () => {
     expect(manager.partitionCount).toBe(4)
     expect(manager.countDocuments()).toBe(500)
 
-    const resultExpanded = await fanOutQuery(manager, { term: 'headphones' }, language, schema, {
+    const resultExpanded = await fanOutQuery(manager, { term: 'headphones', limit: 500 }, language, schema, {
       scoringMode: 'local',
     })
     const expandedIds = new Set(resultExpanded.scored.map(s => s.docId))
@@ -182,7 +182,7 @@ describe('Rebalancing Integration', () => {
     expect(manager.partitionCount).toBe(2)
     expect(manager.countDocuments()).toBe(500)
 
-    const resultCompacted = await fanOutQuery(manager, { term: 'headphones' }, language, schema, {
+    const resultCompacted = await fanOutQuery(manager, { term: 'headphones', limit: 500 }, language, schema, {
       scoringMode: 'local',
     })
     const compactedIds = new Set(resultCompacted.scored.map(s => s.docId))
@@ -237,6 +237,7 @@ describe('Rebalancing Integration', () => {
       manager,
       {
         term: 'premium',
+        limit: 500,
         filters: {
           fields: {
             category: { eq: 'electronics' },
@@ -259,6 +260,7 @@ describe('Rebalancing Integration', () => {
       manager,
       {
         term: 'premium',
+        limit: 500,
         filters: {
           fields: {
             category: { eq: 'electronics' },

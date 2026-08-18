@@ -191,7 +191,7 @@ describe('createClusterNode (write forwarding across nodes, distributed query)',
       await nodeA.start()
 
       const assignments = new Map<number, PartitionAssignment>()
-      for (let i = 0; i < 1; i++) {
+      for (let i = 0; i < 5; i++) {
         assignments.set(i, makeAssignment({ primary: 'node-b', state: 'ACTIVE' }))
       }
       await coordinator.putAllocation('products', makeAllocationTable('products', assignments))

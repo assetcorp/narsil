@@ -3,6 +3,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { AllocationConstraints, ClusterCoordinator } from '../coordinator/types'
 
 export interface IndexMetadata {
+  indexUuid: string
   indexName: string
   partitionCount: number
   replicationFactor: number
@@ -54,7 +55,13 @@ function isValidInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value)
 }
 
-function indexConfigKey(indexName: string): string {
+/**
+ * Builds the coordinator key one index's metadata is stored under.
+ *
+ * @param indexName - The index the key names.
+ * @returns The key, which every reader and writer of that metadata shares.
+ */
+export function indexConfigKey(indexName: string): string {
   return `${INDEX_CONFIG_PREFIX}${indexName}${INDEX_CONFIG_SUFFIX}`
 }
 
@@ -68,6 +75,14 @@ function validateDecodedMetadata(decoded: unknown, indexName: string): IndexMeta
       ErrorCodes.CONTROLLER_METADATA_INVALID,
       `Index metadata for '${indexName}' is not an object`,
       { indexName },
+    )
+  }
+
+  if (typeof decoded.indexUuid !== 'string' || decoded.indexUuid.length === 0 || decoded.indexUuid.length > 128) {
+    throw new NarsilError(
+      ErrorCodes.CONTROLLER_METADATA_INVALID,
+      `Index metadata for '${indexName}' has invalid indexUuid`,
+      { indexName, received: truncateForDisplay(decoded.indexUuid) },
     )
   }
 
@@ -126,6 +141,7 @@ function validateDecodedMetadata(decoded: unknown, indexName: string): IndexMeta
   }
 
   return {
+    indexUuid: decoded.indexUuid as string,
     indexName: decoded.indexName as string,
     partitionCount: decoded.partitionCount as number,
     replicationFactor: decoded.replicationFactor as number,
@@ -142,7 +158,14 @@ export async function putIndexMetadata(coordinator: ClusterCoordinator, metadata
   const key = indexConfigKey(metadata.indexName)
   const encoded = encode(metadata)
   const bytes = new Uint8Array(encoded)
-  return coordinator.compareAndSet(key, null, bytes)
+  if (await coordinator.compareAndSet(key, null, bytes)) {
+    return true
+  }
+  const current = await coordinator.get(key)
+  if (current === null || current.byteLength > 0) {
+    return false
+  }
+  return coordinator.compareAndSet(key, current, bytes)
 }
 
 export async function getIndexMetadata(
@@ -152,7 +175,7 @@ export async function getIndexMetadata(
   validateIndexName(indexName)
   const key = indexConfigKey(indexName)
   const raw = await coordinator.get(key)
-  if (raw === null) {
+  if (raw === null || raw.byteLength === 0) {
     return null
   }
   const decoded = decode(raw)

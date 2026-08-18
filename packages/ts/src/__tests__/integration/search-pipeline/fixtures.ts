@@ -3,7 +3,7 @@ import { booksItems, electronicsItems } from './products'
 import { clothingItems, homeItems, sportsItems } from './products-extra'
 
 export const schema: SchemaDefinition = {
-  title: 'string',
+  title: 'string:sortable',
   description: 'string',
   price: 'number',
   inStock: 'boolean',

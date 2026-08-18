@@ -1,5 +1,15 @@
-import type { QueryParams, SuggestParams } from '../types/search'
-import type { BatchBody, CreateIndexRequest, DocumentBody, InsertBody, MultiGetBody, RebalanceBody } from './types'
+import type { ListParams, QueryParams, SuggestParams } from '../types/search'
+import type {
+  BatchBody,
+  CreateIndexRequest,
+  DocumentBody,
+  InsertBody,
+  MultiGetBody,
+  RebalanceBody,
+  TaskListQuery,
+  TaskStatus,
+  TaskType,
+} from './types'
 
 /**
  * Outcome of a request-shape check. A `null` return means the request is
@@ -12,6 +22,8 @@ export interface ValidationFailure {
   message: string
   details?: Record<string, unknown>
 }
+
+const MAX_LIST_SORT_FIELDS = 8
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -84,6 +96,51 @@ export function validateMultiGet(body: MultiGetBody, maxFetch: number): Validati
   return null
 }
 
+export function validateList(params: ListParams, maxFetch: number): ValidationFailure | null {
+  if (params.cursor !== undefined && typeof params.cursor !== 'string') {
+    return { message: 'Field "cursor" must be a string' }
+  }
+  if (params.limit !== undefined && typeof params.limit !== 'number') {
+    return { message: 'Field "limit" must be a number' }
+  }
+  if (typeof params.limit === 'number' && params.limit > maxFetch) {
+    return {
+      message: `Field "limit" exceeds the maximum of ${maxFetch} documents per request`,
+      details: { value: params.limit, limit: maxFetch },
+    }
+  }
+  return validateListSort(params.sort)
+}
+
+function validateListSort(sort: ListParams['sort']): ValidationFailure | null {
+  if (sort === undefined) return null
+  if (typeof sort !== 'object' || sort === null) {
+    return { message: 'Field "sort" must be an object keyed by field name, or a list of fields' }
+  }
+
+  const entries = Array.isArray(sort)
+    ? sort.map((entry): [unknown, unknown] =>
+        typeof entry === 'object' && entry !== null ? [entry.field, entry.direction] : [entry, undefined],
+      )
+    : Object.entries(sort)
+
+  if (entries.length > MAX_LIST_SORT_FIELDS) {
+    return {
+      message: `Field "sort" exceeds the maximum of ${MAX_LIST_SORT_FIELDS} fields`,
+      details: { count: entries.length, limit: MAX_LIST_SORT_FIELDS },
+    }
+  }
+  for (const [field, direction] of entries) {
+    if (typeof field !== 'string' || field.length === 0) {
+      return { message: 'Every entry of "sort" must name a field', details: { value: field } }
+    }
+    if (direction !== 'asc' && direction !== 'desc') {
+      return { message: `Field "sort.${field}" must be "asc" or "desc"`, details: { value: direction } }
+    }
+  }
+  return null
+}
+
 export function validateBatch(body: BatchBody): ValidationFailure | null {
   const action = body.action ?? 'insert'
   if (action === 'insert') {
@@ -117,4 +174,79 @@ export function validateRebalance(body: RebalanceBody): ValidationFailure | null
     return { message: 'Field "targetPartitionCount" is required and must be a positive integer' }
   }
   return null
+}
+
+const TASK_TYPES: readonly TaskType[] = ['optimizeVectors', 'rebalance', 'restore', 'import', 'rebuildAnalysis']
+const TASK_STATUSES: readonly TaskStatus[] = ['queued', 'running', 'succeeded', 'failed', 'cancelled']
+
+function parseCountParam(raw: string | null, field: string, minimum: number): number | ValidationFailure {
+  if (raw === null) return minimum
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value < minimum) {
+    return { message: `Query parameter "${field}" must be an integer of ${minimum} or more`, details: { value: raw } }
+  }
+  return value
+}
+
+function parseEnumParam<T extends string>(
+  raw: string | null,
+  field: string,
+  allowed: readonly T[],
+): T[] | undefined | ValidationFailure {
+  if (raw === null) return undefined
+  const requested = raw.split(',').map(entry => entry.trim())
+  const unknown = requested.filter(entry => !allowed.includes(entry as T))
+  if (requested.length === 0 || unknown.length > 0) {
+    return {
+      message: `Query parameter "${field}" accepts only ${allowed.join(', ')}`,
+      details: { unknown },
+    }
+  }
+  return requested as T[]
+}
+
+function isFailure(value: unknown): value is ValidationFailure {
+  return isPlainObject(value) && typeof value.message === 'string'
+}
+
+/**
+ * Reads the filters and the page window off a `/tasks` query string, rejecting
+ * an unknown task type or status, a negative window, and a page larger than the
+ * server allows.
+ *
+ * @param params - The request's query string.
+ * @param maxPageSize - The largest page the server serves.
+ * @returns The parsed query, or the failure to answer with 400.
+ */
+export function parseTaskListQuery(
+  params: URLSearchParams,
+  maxPageSize: number,
+): { query: TaskListQuery } | { failure: ValidationFailure } {
+  const type = parseEnumParam(params.get('type'), 'type', TASK_TYPES)
+  if (isFailure(type)) return { failure: type }
+  const status = parseEnumParam(params.get('status'), 'status', TASK_STATUSES)
+  if (isFailure(status)) return { failure: status }
+  const from = parseCountParam(params.get('from'), 'from', 0)
+  if (isFailure(from)) return { failure: from }
+  const limit = parseCountParam(params.get('limit'), 'limit', 1)
+  if (isFailure(limit)) return { failure: limit }
+  if (params.get('limit') !== null && limit > maxPageSize) {
+    return {
+      failure: {
+        message: `Query parameter "limit" exceeds the maximum page size of ${maxPageSize}`,
+        details: { value: limit, limit: maxPageSize },
+      },
+    }
+  }
+
+  const indexName = params.get('indexName')
+  return {
+    query: {
+      ...(indexName === null ? {} : { indexName }),
+      ...(type === undefined ? {} : { type }),
+      ...(status === undefined ? {} : { status }),
+      from,
+      ...(params.get('limit') === null ? {} : { limit }),
+    },
+  }
 }

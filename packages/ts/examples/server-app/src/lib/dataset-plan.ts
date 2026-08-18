@@ -1,3 +1,4 @@
+import { languageName } from '@delali/narsil-example-shared/lib/language-names'
 import type { DatasetId } from '@delali/narsil-example-shared/manifest'
 import {
   EMBEDDING_FIELD,
@@ -7,22 +8,7 @@ import {
   WIKIPEDIA_LEAD_MAX_CHARS,
 } from './embedding-config'
 
-const WIKIPEDIA_LANGUAGE_NAMES: Record<string, string> = {
-  en: 'english',
-  fr: 'french',
-  ee: 'ewe',
-  zu: 'zulu',
-  tw: 'twi',
-  yo: 'yoruba',
-  sw: 'swahili',
-  ha: 'hausa',
-  dag: 'dagbani',
-  ig: 'igbo',
-}
-
-export function languageName(code: string): string {
-  return WIKIPEDIA_LANGUAGE_NAMES[code] ?? 'english'
-}
+export { languageName }
 
 export interface IndexLoadPlan {
   indexName: string

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { validateSearchPayload } from '../../../../../distribution/query/codec'
-import { MAX_CURSOR_LENGTH } from '../../../../../distribution/query/cursor'
 import {
   MAX_BOOST_FIELDS,
   MAX_FACETS,
@@ -14,6 +13,7 @@ import {
   MAX_TOLERANCE,
 } from '../../../../../distribution/query/validators/common'
 import { NarsilError } from '../../../../../errors'
+import { MAX_CURSOR_LENGTH } from '../../../../../search/cursor'
 import { makeSearchPayload } from './fixtures'
 
 describe('validateSearchPayload top-level', () => {
@@ -197,6 +197,29 @@ describe('validateSearchPayload params.sort', () => {
 
   it('rejects sort entry with empty field name', () => {
     expect(() => validateSearchPayload(makeSearchPayload({ sort: [{ field: '', direction: 'asc' }] }))).toThrow(/field/)
+  })
+
+  it('rejects a sort alongside a hybrid config', () => {
+    expect(() =>
+      validateSearchPayload(
+        makeSearchPayload({
+          sort: [{ field: 'title', direction: 'asc' }],
+          hybrid: { strategy: 'rrf', k: 60, alpha: 0.5 },
+        }),
+      ),
+    ).toThrow(/hybrid query cannot carry a sort/)
+  })
+
+  it('rejects a sort alongside both a term and a vector', () => {
+    expect(() =>
+      validateSearchPayload(
+        makeSearchPayload({
+          sort: [{ field: 'title', direction: 'asc' }],
+          term: 'wireless',
+          vector: { field: 'embedding', value: [0.1, 0.2], text: null, similarity: null },
+        }),
+      ),
+    ).toThrow(/hybrid query cannot carry a sort/)
   })
 
   it('rejects sort entry with unknown direction', () => {

@@ -1,3 +1,4 @@
+import type { PartitionIndex } from '../../core/partition'
 import { pruneStatsToQueryTerms } from '../../partitioning/distributed-scoring'
 import type { FanOutConfig, FanOutResult } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
@@ -16,17 +17,63 @@ export interface QueryContext {
     indexName: string,
     params: QueryParams,
     globalStats?: GlobalStatistics,
+    partitionIds?: number[],
   ) => Promise<FanOutResult | null>
   indexName: string
   broadcastStats?: (indexName: string) => GlobalStatistics | undefined
+  partitionIds?: number[]
+}
+
+export function partitionsFor(manager: PartitionManager, partitionIds: number[] | undefined): PartitionIndex[] {
+  if (partitionIds === undefined) {
+    return manager.getAllPartitions()
+  }
+  const partitions: PartitionIndex[] = []
+  for (const partitionId of partitionIds) {
+    const partition = manager.partitionAt(partitionId)
+    if (partition !== undefined) {
+      partitions.push(partition)
+    }
+  }
+  return partitions
+}
+
+/**
+ * Works out which partitions a vector search may answer from.
+ *
+ * The vector index records the partition of every vector it stores, so a
+ * search reads its own membership rather than a list of document ids. A vector
+ * the index stored before it tracked partitions carries none. This fills those
+ * in from the manager first, so every later search reads the membership the
+ * index already holds.
+ *
+ * @param manager - The partition manager holding the documents.
+ * @param vecIndex - The vector index the search runs against.
+ * @param partitionIds - The partitions the search may answer from, or
+ * undefined to search the whole index.
+ * @returns The partitions to confine the search to, or undefined where the
+ * caller named none.
+ */
+export function partitionsForVectorSearch(
+  manager: PartitionManager,
+  vecIndex: VectorIndex,
+  partitionIds: number[] | undefined,
+): ReadonlySet<number> | undefined {
+  if (partitionIds === undefined) {
+    return undefined
+  }
+  if (!vecIndex.partitionsKnown()) {
+    vecIndex.assignPartitions(docId => manager.partitionIdOf(docId))
+  }
+  return new Set(partitionIds)
 }
 
 export function scoringConfigFor(params: QueryParams, context: QueryContext): FanOutConfig {
   const scoringMode = params.scoring ?? context.config.defaultScoring ?? 'local'
   if (scoringMode !== 'broadcast') {
-    return { scoringMode }
+    return { scoringMode, partitionIds: context.partitionIds }
   }
-  return { scoringMode, globalStats: context.broadcastStats?.(context.indexName) }
+  return { scoringMode, globalStats: context.broadcastStats?.(context.indexName), partitionIds: context.partitionIds }
 }
 
 export function broadcastStatsForWorker(
@@ -56,10 +103,11 @@ export function collectFilterDocIds(
   manager: PartitionManager,
   params: QueryParams,
   schema: IndexConfig['schema'],
+  partitionIds?: number[],
 ): Set<string> {
   const filterDocIds = new Set<string>()
   if (!params.filters) return filterDocIds
-  for (const partition of manager.getAllPartitions()) {
+  for (const partition of partitionsFor(manager, partitionIds)) {
     const partitionFiltered = partition.applyFilters(params.filters, schema)
     for (const docId of partitionFiltered) {
       filterDocIds.add(docId)

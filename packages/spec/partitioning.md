@@ -1,6 +1,6 @@
 # Narsil Partitioning Specification
 
-A large index is split across several independent partitions, each holding a slice of the documents. This document defines how documents route to partitions, how a rebalance redistributes them, how a query fans out and merges, and how deep pagination works. Every implementation must follow these rules so that two implementations reading the same index return the same results.
+A large index is split across several independent partitions, each holding a slice of the documents. This document defines how documents route to partitions, how a rebalance redistributes them, how a query fans out and merges, how deep pagination works, and how a listing pages through stored documents. Every implementation must follow these rules so that two implementations reading the same index return the same results.
 
 Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` a mapping from keys to values, and `T or absent` a value that may be missing; each implementation expresses these in its own type system.
 
@@ -184,7 +184,8 @@ A search against a multi-partition index runs on a coordinator that queries ever
 3. Collect the results from every partition.
 4. Merge them into one sorted list.
 5. Apply limit and offset, or the searchAfter cursor.
-6. Merge facet counts by summing them, when facets are requested.
+6. Count facets over every matching document and sum the counts,
+   when facets are requested.
 7. Merge groups by group key, keeping maxPerGroup, when groups
    are requested.
 8. Encode the cursor for the next page, when there is one.
@@ -197,10 +198,12 @@ A query carrying both a text term and a vector runs the two searches independent
 
 ### Merge Algorithm
 
-Merging the K sorted lists, one per partition, uses a max-heap ordered by score, highest first:
+Merging the K sorted lists, one per partition, uses a max-heap ordered by score, highest first, with ties in document ID order as [String Ordering](algorithms.md#string-ordering) defines. A query carrying a sort orders the heap by the [sort value order](algorithms.md#sort-value-order) instead.
+
+The merge runs:
 
 1. Seed the heap with the first result from each partition.
-2. Pop the highest-scoring result.
+2. Pop the top result.
 3. Push the next result from the partition the popped result came from, when that partition has one.
 4. Repeat until `offset + limit` results have been collected.
 
@@ -222,7 +225,9 @@ The distributed scoring formulas are in [Distributed BM25](algorithms.md#distrib
 
 ## Deep Pagination
 
-Narsil supports two ways to page through results.
+Narsil supports two ways to page through results, and one window bounds how deep either reaches.
+
+A query pages no further than the first 10,000 results, which is the result window. `offset + limit` must not exceed the window, and a request beyond it raises `SEARCH_RESULT_WINDOW_EXCEEDED`, which names the cursor as the way to reach the rest. A cursor pages past the window, because each page returns the `limit` results that follow its anchor. The engine considers every matching document when a query carries a sort, a group, a `threshold`, or a `termMatch` other than `any`, whatever the window. `count` reports the number of matching documents exactly.
 
 ### Offset and Limit
 
@@ -242,23 +247,49 @@ A cursor makes each partition seek to the cursor point and return `limit` result
 
 #### Cursor Format
 
-The cursor is base64-encoded JSON:
+The cursor is base64-encoded JSON. One format serves search pagination and [Document Listing](#document-listing). A search without a sort encodes:
 
 ```json
 {
-  "s": 4.523,
-  "d": "doc-id-123"
+  "v": 2,
+  "a": "doc-id-123",
+  "s": 4.523
+}
+```
+
+A sorted search or a sorted listing encodes:
+
+```json
+{
+  "v": 2,
+  "a": "doc-id-123",
+  "k": ["Widget", 42],
+  "o": "[[\"title\",\"asc\"],[\"price\",\"desc\"]]"
 }
 ```
 
 | Field | Description |
 |-------|-------------|
-| `s` | The score, or the sort value, of the last document returned. |
-| `d` | The document ID of that last document, used to break ties. |
+| `v` | The cursor format version, 2. A reader rejects any other value. |
+| `a` | The document ID of the last document returned, the anchor. Always present. |
+| `s` | The score of that document. Present when the query carries no sort. |
+| `k` | The raw sort values of that document, one per sort field in sort order. Present when a sort is set. |
+| `o` | The sort's fields and directions, serialised as the JSON text `[["field","asc"],...]`. Present exactly when `k` is. |
+
+A cursor carries `s` or `k`, never both. A search without a sort anchors on `s` and `a`, a sorted search or listing anchors on `k` and `a`, and an unsorted listing anchors on `a` alone.
+
+A reader must reject a cursor, raising `SEARCH_INVALID_CURSOR`, when any rule below fails:
+
+- The encoded cursor is longer than 40,960 characters, which covers the largest payload the rules below allow.
+- `v` is not 2, or `a` is empty, missing, or longer than 512 code points.
+- `k` holds more than 8 values, or a value that is not a string of at most 512 code points, a finite number, a boolean, or null.
+- `o` and `k` do not arrive together, or `o` differs from the request's own sort.
+
+A sort names at most 8 fields, because the cursor carries one value per field. More raises `SEARCH_INVALID_FIELD`. A sort field name holds at most 255 characters, and a longer name raises `SEARCH_INVALID_FIELD` as well.
 
 #### Tiebreaking
 
-Documents sharing a score are ordered by comparing `docId` lexicographically. That keeps pagination stable and deterministic across requests.
+Documents sharing a score, or sharing every sort value, order by document ID, ascending in [code point order](algorithms.md#code-point-order), whatever the sort directions. That keeps pagination stable across requests and identical across implementations.
 
 #### Cursor Flow
 
@@ -266,21 +297,54 @@ Documents sharing a score are ordered by comparing `docId` lexicographically. Th
 First query:
   fan out to every partition with the limit
   merge the results and take the top `limit`
-  encode a cursor from the last result's score and docId
+  encode a cursor from the last result
   return the results and the cursor
 
 Next query, carrying the cursor:
-  decode the cursor
+  decode the cursor, rejecting it when `o` differs from
+    the request's sort
   fan out to every partition with the same cursor
-  each partition seeks past every document whose score is
-    below cursor.s, and past every document whose score
-    equals cursor.s and whose docId sorts at or before
-    cursor.d
+  each partition seeks past every document that orders at
+    or before the anchor: by score then document ID for a
+    search without a sort, and by the sort value order
+    then document ID for a sorted one
   each partition returns up to `limit` results
   merge the results and take the top `limit`
   encode a new cursor
   return the results and the cursor
 ```
+
+---
+
+## Document Listing
+
+The listing operation pages through the stored documents of an index without a search. It serves exports, browsing, and administrative views.
+
+```text
+list(indexName, params) -> {
+  documents: List<{ id: string, document: Map<string, value> }>
+  cursor:    string or absent   (absent on the last page)
+  total:     uint32             (how many documents the listing covers)
+}
+
+params {
+  cursor:   string or absent
+  limit:    uint32 or absent            (default 10, capped at 10,000, raised to 1 when below 1)
+  filters:  FilterExpression or absent
+  sort:     List<SortField> or absent
+  document: projection or absent
+}
+```
+
+`FilterExpression`, `SortField`, and the projection form match the Narsil query API, as [transport.md](distribution/transport.md#queryparams) describes.
+
+The listing behaves as follows:
+
+- Without `sort`, documents come in document ID order, ascending in [code point order](algorithms.md#code-point-order).
+- With `sort`, documents come in the [sort value order](algorithms.md#sort-value-order), and the sort obeys the 8-field cap of [Cursor Format](#cursor-format).
+- `filters` narrows the listing to the documents it accepts, and `total` counts those documents.
+- Each page holds the documents that order strictly after the cursor's anchor, and the cursor uses [Cursor Format](#cursor-format): an unsorted listing anchors on `a` alone, and a sorted one carries `k` and `o`.
+- A listing gives no snapshot guarantee, so a write that lands between two pages may appear in a later page or not at all. The anchor still bounds every page, so no page repeats a document the cursor has passed.
 
 ---
 

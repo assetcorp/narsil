@@ -1,6 +1,6 @@
 # Observability
 
-The engine reports itself through three channels, and this guide covers all of them: plugin hooks around each operation, events for work that finishes in the background, and memory reporting.
+The engine reports on its own work through three channels, and this guide covers all of them: plugin hooks around each operation, events for work that finishes in the background, and memory reporting.
 
 ## Plugins
 
@@ -32,7 +32,7 @@ const auditLog: NarsilPlugin = {
 const narsil = await createNarsil({ plugins: [auditLog] })
 ```
 
-Hooks can be async, and `before*` hooks run to completion before the operation applies, so a thrown error in `beforeInsert` rejects the insert. Errors thrown in `after*` hooks log a warning and never fail the operation that already succeeded.
+A hook may be async, and every `before*` hook runs to completion before the operation applies, so an error thrown in `beforeInsert` rejects the insert. Where an `after*` hook throws, the engine logs a warning and leaves the operation that already succeeded alone.
 
 ## Events
 
@@ -89,4 +89,4 @@ console.log(memory.process?.heapUsed)
 console.log(memory.workers)
 ```
 
-`memory.estimatedIndexBytes` sums `estimatedMemoryBytes` across every index in this Narsil instance. `memory.process` comes from `process.memoryUsage()` when the runtime exposes it. It measures the whole host process, so two Narsil instances in one Node.js process report the same process numbers, and browser runtimes return `null`. `memory.workers` lists `heapUsed`, `heapTotal`, and `external` for each active worker, and the array is empty before worker promotion.
+`memory.estimatedIndexBytes` sums `estimatedMemoryBytes` across every index in this Narsil instance. `memory.process` comes from `process.memoryUsage()` when the runtime exposes it. It measures the whole host process, so two Narsil instances in one Node.js process report the same process numbers, and browser runtimes return `null`. `memory.workers` lists `heapUsed`, `heapTotal`, and `external` for each active worker, and the array is empty before worker promotion. Where the runtime offers `SharedArrayBuffer`, a worker attaches the frozen segments of a batch rather than copying them, so its `heapUsed` is often well below what the same index costs on the main thread; see [How a batch reaches the worker copies](partitions-and-workers.md#how-a-batch-reaches-the-worker-copies).

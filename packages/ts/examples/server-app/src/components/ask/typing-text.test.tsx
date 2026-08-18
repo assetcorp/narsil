@@ -52,10 +52,16 @@ describe('useTypewriter', () => {
 
     act(() => {
       rerender({ text: 'abcdef' })
-      vi.advanceTimersByTime(48)
     })
     act(() => {
+      vi.advanceTimersByTime(48)
+    })
+    expect(result.current).toBe('ab')
+
+    act(() => {
       rerender({ text: 'xy' })
+    })
+    act(() => {
       vi.advanceTimersByTime(48)
     })
 

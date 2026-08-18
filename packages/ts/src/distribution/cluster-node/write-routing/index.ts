@@ -1,23 +1,25 @@
 import { generateId } from '../../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { Narsil } from '../../../narsil'
-import type { BatchResult } from '../../../types/results'
-import type { AnyDocument, IndexConfig } from '../../../types/schema'
+import type { AnyDocument, IndexConfig, InsertOptions } from '../../../types/schema'
 import {
   type IndexMetadata,
+  indexConfigKey,
   MAX_PARTITION_COUNT,
   putIndexMetadata,
   validateIndexName,
 } from '../../cluster/index-metadata'
-import type { AllocationConstraints, ClusterCoordinator, PartitionAssignment } from '../../coordinator/types'
+import type { AllocationConstraints, ClusterCoordinator } from '../../coordinator/types'
 import type { CreateIndexOptions } from '../types'
 import { DEFAULT_PARTITION_COUNT, DEFAULT_REPLICATION_FACTOR } from '../types'
-import { requireAssignedPrimary, resolvePartitionId, resolvePrimaryAssignment } from './assignment'
-import { forwardInsertToRemote, forwardRemoveToRemote } from './forwarding'
-import { applyPrimaryInsert, applyPrimaryRemove } from './primary-writes'
+import { resolvePrimaryAssignment } from './assignment'
+import { forwardInsertToRemote, forwardRemoveToRemote, forwardUpdateToRemote } from './forwarding'
+import { applyPrimaryInsert, applyPrimaryRemove, applyPrimaryUpdate } from './primary-writes'
 import type { WriteRoutingDeps } from './types'
 
 export { resolvePartitionId } from './assignment'
+export { routeInsertBatch, routeRemoveBatch, routeUpdateBatch } from './batches'
+export { applyForwardedBatch } from './forward-batch'
 export { applyForwardedWrite } from './primary-writes'
 export type { WriteRoutingDeps } from './types'
 
@@ -41,12 +43,19 @@ function validateCreateIndexOptions(partitionCount: number, replicationFactor: n
   }
 }
 
+/** The part of the local engine an index creation needs, including the drop
+ * a half-finished creation takes its own copy back with. */
+interface IndexCreatingEngine {
+  createIndexWithUuid(name: string, config: IndexConfig, indexUuid?: string): Promise<void>
+  dropIndex(name: string): Promise<void>
+}
+
 export async function routeCreateIndex(
   name: string,
   config: IndexConfig,
   options: CreateIndexOptions | undefined,
   coordinator: ClusterCoordinator,
-  engine: Narsil,
+  engine: IndexCreatingEngine,
 ): Promise<void> {
   validateIndexName(name)
 
@@ -61,6 +70,7 @@ export async function routeCreateIndex(
   }
 
   const metadata: IndexMetadata = {
+    indexUuid: generateId(),
     indexName: name,
     partitionCount,
     replicationFactor,
@@ -77,25 +87,18 @@ export async function routeCreateIndex(
   }
 
   try {
+    await engine.createIndexWithUuid(
+      name,
+      { ...config, partitions: { ...config.partitions, maxPartitions: partitionCount } },
+      metadata.indexUuid,
+    )
     await coordinator.putSchema(name, config.schema)
-    await engine.createIndex(name, config)
   } catch (createErr) {
-    let cleanupFailed = false
-    let cleanupError: unknown
-    try {
-      const currentBytes = await coordinator.get(`_narsil/index/${name}/config`)
-      if (currentBytes !== null) {
-        await coordinator.compareAndSet(`_narsil/index/${name}/config`, currentBytes, new Uint8Array(0))
-      }
-    } catch (cleanErr) {
-      cleanupFailed = true
-      cleanupError = cleanErr
-    }
-
-    if (cleanupFailed) {
+    const cleanupError = await withdrawPartialIndex(name, coordinator, engine)
+    if (cleanupError !== null) {
       throw new NarsilError(
         ErrorCodes.CONFIG_INVALID,
-        `Index creation for '${name}' failed and metadata cleanup also failed. The index may be in a partial state and require manual intervention.`,
+        `Index creation for '${name}' failed and the withdrawal of its cluster metadata also failed. The index may be in a partial state and require manual intervention.`,
         {
           indexName: name,
           createError: createErr instanceof Error ? createErr.message : String(createErr),
@@ -108,88 +111,104 @@ export async function routeCreateIndex(
   }
 }
 
+/**
+ * Takes back everything a half-finished creation left behind, so the name is
+ * free again, no controller allocates partitions for an index no node holds,
+ * and no node keeps a copy the cluster never claimed. The metadata goes first,
+ * because an empty value there counts as absent and unblocks the next
+ * creation; the schema follows, because its presence alone is what drives
+ * allocation; and the local copy goes last.
+ *
+ * @param name - The index whose creation failed.
+ * @param coordinator - The coordinator holding the published state.
+ * @param engine - The local engine that may already hold the copy.
+ * @returns The failure that stopped the withdrawal, or null when it finished.
+ */
+async function withdrawPartialIndex(
+  name: string,
+  coordinator: ClusterCoordinator,
+  engine: IndexCreatingEngine,
+): Promise<unknown> {
+  try {
+    const currentBytes = await coordinator.get(indexConfigKey(name))
+    if (currentBytes !== null && currentBytes.byteLength > 0) {
+      await coordinator.compareAndSet(indexConfigKey(name), currentBytes, new Uint8Array(0))
+    }
+    await coordinator.dropSchema(name)
+    await dropLocalCopy(name, engine)
+    return null
+  } catch (cleanupError) {
+    return cleanupError
+  }
+}
+
+/** Drops the copy a failed creation may have left on this node, treating an
+ * absent one as nothing to do, because the creation may have failed before it. */
+async function dropLocalCopy(name: string, engine: IndexCreatingEngine): Promise<void> {
+  try {
+    await engine.dropIndex(name)
+  } catch (dropError) {
+    if (dropError instanceof NarsilError && dropError.code === ErrorCodes.INDEX_NOT_FOUND) {
+      return
+    }
+    throw dropError
+  }
+}
+
+export async function routeDropIndex(name: string, coordinator: ClusterCoordinator, engine: Narsil): Promise<void> {
+  validateIndexName(name)
+
+  const metadataKey = indexConfigKey(name)
+  const metadataBytes = await coordinator.get(metadataKey)
+  const hasClusterMetadata = metadataBytes !== null && metadataBytes.byteLength > 0
+  const schema = await coordinator.getSchema(name)
+
+  if (!hasClusterMetadata && schema === null) {
+    return engine.dropIndex(name)
+  }
+
+  if (hasClusterMetadata) {
+    const cleared = await coordinator.compareAndSet(metadataKey, metadataBytes, new Uint8Array(0))
+    if (!cleared) {
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        `Index '${name}' changed while it was being dropped; retry the drop`,
+        { indexName: name },
+      )
+    }
+  }
+
+  await coordinator.dropSchema(name)
+}
+
 export async function routeInsert(
   indexName: string,
   document: AnyDocument,
   docId: string | undefined,
   deps: WriteRoutingDeps,
+  options?: InsertOptions,
 ): Promise<string> {
   const resolvedDocId = docId ?? generateId()
   const resolution = await resolvePrimaryAssignment(indexName, resolvedDocId, deps, false)
 
   if (resolution === null) {
-    return deps.engine.insert(indexName, document, resolvedDocId)
+    return deps.engine.insert(indexName, document, resolvedDocId, options)
   }
 
   const primaryNodeId = resolution.assignment.primary
   if (primaryNodeId === deps.nodeId) {
-    return applyPrimaryInsert(indexName, document, resolvedDocId, resolution.partitionId, resolution.assignment, deps)
+    return applyPrimaryInsert(
+      indexName,
+      document,
+      resolvedDocId,
+      resolution.partitionId,
+      resolution.assignment,
+      deps,
+      options,
+    )
   }
 
   return forwardInsertToRemote(indexName, document, resolvedDocId, primaryNodeId, deps)
-}
-
-export async function routeInsertBatch(
-  indexName: string,
-  documents: AnyDocument[],
-  deps: WriteRoutingDeps,
-): Promise<BatchResult> {
-  const table = await deps.coordinator.getAllocation(indexName)
-
-  if (table === null || table.assignments.size === 0) {
-    return deps.engine.insertBatch(indexName, documents)
-  }
-
-  const partitionCount = table.assignments.size
-  const failed: Array<{ docId: string; error: NarsilError }> = []
-  const routedInserts: Array<{
-    doc: AnyDocument
-    docId: string
-    partitionId: number
-    assignment: PartitionAssignment & { primary: string }
-  }> = []
-
-  for (const doc of documents) {
-    const docId = typeof doc.id === 'string' && doc.id.length > 0 ? doc.id : generateId()
-
-    const partitionId = resolvePartitionId(docId, partitionCount)
-    const assignment = table.assignments.get(partitionId)
-
-    try {
-      const assignedPrimary = requireAssignedPrimary(assignment, indexName, partitionId)
-      routedInserts.push({ doc, docId, partitionId, assignment: assignedPrimary })
-    } catch (err) {
-      failed.push({
-        docId,
-        error:
-          err instanceof NarsilError
-            ? err
-            : new NarsilError(ErrorCodes.QUERY_ROUTING_FAILED, String(err), { indexName, partitionId }),
-      })
-    }
-  }
-
-  const succeeded: string[] = []
-
-  for (const routed of routedInserts) {
-    const primaryNodeId = routed.assignment.primary
-    try {
-      const insertedDocId =
-        primaryNodeId === deps.nodeId
-          ? await applyPrimaryInsert(indexName, routed.doc, routed.docId, routed.partitionId, routed.assignment, deps)
-          : await forwardInsertToRemote(indexName, routed.doc, routed.docId, primaryNodeId, deps)
-
-      succeeded.push(insertedDocId)
-    } catch (err) {
-      const fallbackCode =
-        primaryNodeId === deps.nodeId ? ErrorCodes.DOC_VALIDATION_FAILED : ErrorCodes.QUERY_ROUTING_FAILED
-      const narsilErr =
-        err instanceof NarsilError ? err : new NarsilError(fallbackCode, String(err), { docId: routed.docId })
-      failed.push({ docId: routed.docId, error: narsilErr })
-    }
-  }
-
-  return { succeeded, failed }
 }
 
 export async function routeRemove(indexName: string, docId: string, deps: WriteRoutingDeps): Promise<void> {
@@ -207,62 +226,22 @@ export async function routeRemove(indexName: string, docId: string, deps: WriteR
   return forwardRemoveToRemote(indexName, docId, primaryNodeId, deps)
 }
 
-export async function routeRemoveBatch(
+export async function routeUpdate(
   indexName: string,
-  docIds: string[],
+  docId: string,
+  document: AnyDocument,
   deps: WriteRoutingDeps,
-): Promise<BatchResult> {
-  const table = await deps.coordinator.getAllocation(indexName)
+): Promise<void> {
+  const resolution = await resolvePrimaryAssignment(indexName, docId, deps, false)
 
-  if (table === null || table.assignments.size === 0) {
-    return deps.engine.removeBatch(indexName, docIds)
+  if (resolution === null) {
+    return deps.engine.update(indexName, docId, document)
   }
 
-  const partitionCount = table.assignments.size
-  const failed: Array<{ docId: string; error: NarsilError }> = []
-  const routedRemoves: Array<{
-    docId: string
-    partitionId: number
-    assignment: PartitionAssignment & { primary: string }
-  }> = []
-
-  for (const docId of docIds) {
-    const partitionId = resolvePartitionId(docId, partitionCount)
-    const assignment = table.assignments.get(partitionId)
-
-    try {
-      const assignedPrimary = requireAssignedPrimary(assignment, indexName, partitionId)
-      routedRemoves.push({ docId, partitionId, assignment: assignedPrimary })
-    } catch (err) {
-      failed.push({
-        docId,
-        error:
-          err instanceof NarsilError
-            ? err
-            : new NarsilError(ErrorCodes.QUERY_ROUTING_FAILED, String(err), { indexName, partitionId }),
-      })
-    }
+  const primaryNodeId = resolution.assignment.primary
+  if (primaryNodeId === deps.nodeId) {
+    return applyPrimaryUpdate(indexName, docId, document, resolution.partitionId, resolution.assignment, deps)
   }
 
-  const succeeded: string[] = []
-
-  for (const routed of routedRemoves) {
-    try {
-      const primaryNodeId = routed.assignment.primary
-      if (primaryNodeId === deps.nodeId) {
-        await applyPrimaryRemove(indexName, routed.docId, routed.partitionId, routed.assignment, deps)
-      } else {
-        await forwardRemoveToRemote(indexName, routed.docId, primaryNodeId, deps)
-      }
-      succeeded.push(routed.docId)
-    } catch (err) {
-      const narsilErr =
-        err instanceof NarsilError
-          ? err
-          : new NarsilError(ErrorCodes.QUERY_ROUTING_FAILED, String(err), { docId: routed.docId })
-      failed.push({ docId: routed.docId, error: narsilErr })
-    }
-  }
-
-  return { succeeded, failed }
+  return forwardUpdateToRemote(indexName, document, docId, primaryNodeId, deps)
 }

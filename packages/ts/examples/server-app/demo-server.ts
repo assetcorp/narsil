@@ -17,17 +17,20 @@ import { createServer, type OnRequestHook } from '@delali/narsil/server'
 /* Relative imports carry the .ts extension because demo-server-child.ts runs
  * this file under plain Node with type stripping, which resolves ESM
  * specifiers exactly as written. */
-import {
-  type DemoNarsilServer,
-  demoServerPromise,
-  setDemoEngineStatus,
-  setDemoServerPromise,
-} from './src/lib/demo-server-state.ts'
+import { type DemoNarsilServer, demoServerPromise, setDemoServerPromise } from './src/lib/demo-server-state.ts'
 import { EMBEDDING_ADAPTER_NAME, readEmbeddingConfig } from './src/lib/embedding-config.ts'
 
 export type { DemoNarsilServer } from './src/lib/demo-server-state.ts'
 
 export type DemoServerChildMessage = { type: 'ready'; url: string } | { type: 'error'; error: string }
+
+/* The largest corpus this demo offers, the French Wikipedia sample, is 168 MB
+ * of NDJSON, well past the 100 MB a server accepts by default. Each import
+ * batch also becomes one embedding request when a provider is configured, and
+ * OpenAI refuses an embedding request past 300k tokens, so 256 documents at
+ * roughly 400 tokens each leaves ample headroom. */
+const MAX_IMPORT_BYTES = 256 * 1024 * 1024
+const IMPORT_BATCH_SIZE = 256
 
 function apiKeyHook(apiKey: string): OnRequestHook {
   return ctx => {
@@ -88,6 +91,7 @@ export async function startDemoNarsilServer(): Promise<DemoNarsilServer> {
     port: portFromEnv(),
     onRequest: apiKey && apiKey.length > 0 ? apiKeyHook(apiKey) : undefined,
     embeddingAdapters: embeddingAdaptersFromEnv(),
+    limits: { maxImportBytes: MAX_IMPORT_BYTES, importBatchSize: IMPORT_BATCH_SIZE },
   })
   await server.listen()
   return {
@@ -171,25 +175,22 @@ function spawnDemoNarsilServer(onExitAfterReady: (detail: string) => void): Prom
  *
  * NARSIL_SERVER_URL is set here, in a then-handler registered before any
  * other awaiter, so code that awaits the returned promise always finds the
- * URL in the environment. The status record backs /api/engine-status.
+ * URL in the environment.
  */
 export function ensureDemoNarsilServer(): Promise<DemoNarsilServer> {
   const existing = demoServerPromise()
   if (existing) return existing
-  setDemoEngineStatus({ phase: 'starting' })
   const starting = spawnDemoNarsilServer(detail => {
     setDemoServerPromise(undefined)
-    setDemoEngineStatus({ phase: 'error', error: `The demo Narsil server exited unexpectedly (${detail})` })
+    console.error(`[narsil] the demo Narsil server exited unexpectedly (${detail})`)
   })
   setDemoServerPromise(starting)
   starting
     .then(server => {
       process.env.NARSIL_SERVER_URL = server.url
-      setDemoEngineStatus({ phase: 'ready' })
     })
-    .catch((err: unknown) => {
+    .catch(() => {
       setDemoServerPromise(undefined)
-      setDemoEngineStatus({ phase: 'error', error: err instanceof Error ? err.message : String(err) })
     })
   return starting
 }

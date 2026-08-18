@@ -429,6 +429,8 @@ function VectorCanvas({
         enableDamping
         dampingFactor={0.15}
         target={[cx, cy, cz]}
+        screenSpacePanning
+        zoomToCursor
         minDistance={bounds.radius * 0.01}
         maxDistance={camDistance * 3}
         zoomSpeed={0.6}

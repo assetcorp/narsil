@@ -69,7 +69,7 @@ Removing a `docId` the index does not hold does nothing.
 
 ### search(query, k, options)
 
-Returns up to `k` vectors closest to `query`, ordered by similarity, with the highest score first for cosine and dot product and the smallest distance first for Euclidean.
+Returns up to `k` vectors closest to `query`, ordered by similarity, with the highest score first for cosine and dot product and the smallest distance first for Euclidean. Vectors tied on score order by document ID, ascending in [code point order](algorithms.md#code-point-order).
 
 See [Filtered Search](#filtered-search) for what `filterDocIds` does, and [algorithms.md](algorithms.md) for the metric definitions.
 
@@ -145,6 +145,8 @@ The mechanism is implementation-specific; the contract is that a document is ful
 ## Hybrid Search
 
 A query carrying both a text term and a vector runs hybrid search. Text indexes are held in partitions and vector indexes are independent, so the coordinator is where the two result sets fuse.
+
+Fusion defines the order of hybrid results, and a sort would replace it, so a hybrid query carries no `sort`. An implementation must reject a query whose sort names any field while the query also carries `hybrid`, or both a term and a vector, with `SEARCH_INVALID_MODE`.
 
 ```text
 1. Fan the text query out to every partition and collect

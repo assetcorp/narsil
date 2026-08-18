@@ -28,6 +28,7 @@ interface RawMetadataPayload {
     hnsw_config?: { m?: unknown; ef_construction?: unknown; metric?: unknown }
     quantization?: unknown
   }
+  index_uuid?: unknown
 }
 
 function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
@@ -49,8 +50,8 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
         ? { adapter: meta.embedding.adapter, fields: meta.embedding.fields }
         : { fields: meta.embedding.fields }
   }
-  if (meta.surfaceForms === true) {
-    wire.surface_forms_enabled = true
+  if (meta.surfaceForms !== undefined) {
+    wire.surface_forms_enabled = meta.surfaceForms
   }
   if (meta.analysisRevision !== undefined) {
     wire.analysis_revision = meta.analysisRevision
@@ -106,6 +107,9 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
       ...(promotion.quantization !== undefined ? { quantization: promotion.quantization } : {}),
     }
   }
+  if (meta.indexUuid !== undefined) {
+    wire.index_uuid = meta.indexUuid
+  }
   return wire
 }
 
@@ -128,8 +132,8 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
         ? { adapter: raw.embedding.adapter, fields: raw.embedding.fields }
         : { fields: raw.embedding.fields }
   }
-  if (raw.surface_forms_enabled === true) {
-    meta.surfaceForms = true
+  if (typeof raw.surface_forms_enabled === 'boolean') {
+    meta.surfaceForms = raw.surface_forms_enabled
   }
   if (typeof raw.analysis_revision === 'string') {
     meta.analysisRevision = raw.analysis_revision
@@ -199,6 +203,9 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
     if (Object.keys(restored).length > 0) {
       meta.vectorPromotion = restored
     }
+  }
+  if (typeof raw.index_uuid === 'string' && raw.index_uuid.length > 0) {
+    meta.indexUuid = raw.index_uuid
   }
   return meta
 }

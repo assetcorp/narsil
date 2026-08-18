@@ -18,6 +18,7 @@ This roadmap sets out where the project is heading. It covers direction and inte
 
 - **A second-language implementation.** A second implementation in Go or Rust will read and write the same `.nrsl` files and pass the same format tests as the reference. The choice between Go and Rust is open, and the decision will weigh runtime footprint, the concurrency model, and the ecosystem each language reaches. This is the headline item, because a second implementation proves the format is portable across languages.
 - **A conformance suite for the format.** A shared set of format tests will let any implementation, in any language, check that it reads and writes `.nrsl` files identically to the reference.
+- **Popular query suggestions.** Autocomplete today completes a word against the index vocabulary. Established engines instead suggest whole queries other people have searched, ranked by how often they were searched and filtered to those that returned results. The engine would count submitted queries, and a periodic build step would turn those counts into an ordinary Narsil index that you can also seed by hand, so a new deployment has something to suggest on its first day. Counting across a cluster depends on a write path that merges rather than overwrites, which cluster mode does not offer today.
 
 ## How to get involved
 

@@ -25,12 +25,14 @@ services:
       NARSIL_ALLOW_INSECURE: "true"
       NARSIL_MAX_BODY_BYTES: "67108864"
       NARSIL_MAX_IMPORT_BYTES: "268435456"
+      NARSIL_WORKERS: "${BENCH_NARSIL_WORKERS:-}"
+      NARSIL_PROMOTION_THRESHOLD: "${BENCH_NARSIL_PROMOTION_THRESHOLD:-}"
     expose:
       - "7700"
 
   elasticsearch:
     profiles: ["elasticsearch"]
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.4.2
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.0
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     environment:
       discovery.type: "single-node"
@@ -65,7 +67,7 @@ services:
 
   qdrant:
     profiles: ["qdrant"]
-    image: qdrant/qdrant:v1.18.2
+    image: qdrant/qdrant:v1.18.3
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     volumes:
       - qdrant_data:/qdrant/storage
@@ -74,7 +76,7 @@ services:
 
   weaviate:
     profiles: ["weaviate"]
-    image: cr.weaviate.io/semitechnologies/weaviate:1.38.2
+    image: cr.weaviate.io/semitechnologies/weaviate:1.39.0
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     environment:
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
@@ -99,7 +101,7 @@ services:
 
   meilisearch:
     profiles: ["meilisearch"]
-    image: getmeili/meilisearch:v1.48.2
+    image: getmeili/meilisearch:v1.52.0
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     environment:
       MEILI_MASTER_KEY: "${BENCH_API_KEY:-localdev}"
@@ -126,12 +128,16 @@ services:
       BENCH_EMBEDDINGS_DIR: "/data/embeddings"
       BENCH_MEM_CAP: "${BENCH_MEM_CAP:-8g}"
       BENCH_DATASETS: "${BENCH_DATASETS:-}"
+      BENCH_IMPORT_CLIENTS: "${BENCH_IMPORT_CLIENTS:-}"
+      BENCH_THROUGHPUT: "${BENCH_THROUGHPUT:-}"
+      BENCH_THROUGHPUT_CONCURRENCY: "${BENCH_THROUGHPUT_CONCURRENCY:-}"
+      BENCH_THROUGHPUT_CLIENT_PROCESSES: "${BENCH_THROUGHPUT_CLIENT_PROCESSES:-}"
       IR_DATASETS_DL_TRIES: "${IR_DATASETS_DL_TRIES:-10}"
       IR_DATASETS_DL_TIMEOUT: "${IR_DATASETS_DL_TIMEOUT:-60}"
     volumes:
       - ir_datasets_cache:/data/ir_datasets
       - embeddings_cache:/data/embeddings
-      - ./results:/app/results
+      - ./${BENCH_HOST_RESULTS_DIR:-results}:/app/results
 
 volumes:
   ir_datasets_cache:

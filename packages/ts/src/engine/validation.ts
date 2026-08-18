@@ -1,13 +1,13 @@
 import { MAX_INDEX_NAME_LENGTH } from '../distribution/cluster/index-metadata'
 import { ErrorCodes, NarsilError } from '../errors'
+import { clampRowCount, DEFAULT_PAGE_SIZE } from '../search/pagination'
+import type { BM25Params } from '../types/schema'
 
 const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
 const MAX_DOC_ID_LENGTH = 512
 
 export const BATCH_CHUNK_SIZE = 1000
-export const MAX_LIMIT = 10_000
-export const MAX_OFFSET = 100_000
-export const DEFAULT_LIMIT = 10
+export const DEFAULT_LIMIT = DEFAULT_PAGE_SIZE
 export const DEFAULT_OFFSET = 0
 
 export function now(): number {
@@ -90,12 +90,21 @@ export function validatePartitionConfig(partitions: {
   }
 }
 
+export function validateBM25Params(bm25: BM25Params | undefined): void {
+  if (bm25 === undefined) return
+  const { k1, b } = bm25
+  if (k1 !== undefined && (!Number.isFinite(k1) || k1 < 0)) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'bm25.k1 must be a finite number at or above 0', { k1 })
+  }
+  if (b !== undefined && (!Number.isFinite(b) || b < 0 || b > 1)) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'bm25.b must be between 0 and 1', { b })
+  }
+}
+
 export function clampLimit(limit: number | undefined): number {
-  if (limit === undefined) return DEFAULT_LIMIT
-  return Math.max(0, Math.min(limit, MAX_LIMIT))
+  return clampRowCount(limit, DEFAULT_LIMIT)
 }
 
 export function clampOffset(offset: number | undefined): number {
-  if (offset === undefined) return DEFAULT_OFFSET
-  return Math.max(0, Math.min(offset, MAX_OFFSET))
+  return clampRowCount(offset, DEFAULT_OFFSET)
 }

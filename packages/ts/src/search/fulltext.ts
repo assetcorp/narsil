@@ -1,13 +1,14 @@
 import { bitsetIsEmpty } from '../core/bitset'
 import { boundedLevenshtein } from '../core/fuzzy'
-import type { PartitionIndex } from '../core/partition'
+import type { PartitionIndex, PartitionSearchMatches } from '../core/partition'
 import { tokenize } from '../core/tokenizer'
 import { ErrorCodes, NarsilError } from '../errors'
-import { flattenSchema } from '../schema/validator'
+import { flattenSchema, isTextFieldType } from '../schema/validator'
 import type { GlobalStatistics, InternalSearchResult, ScoredDocument } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { BM25Params, CustomTokenizer, FieldType, SchemaDefinition } from '../types/schema'
 import type { QueryParams, TermMatchPolicy } from '../types/search'
+import { clampRowCount, DEFAULT_PAGE_SIZE } from './pagination'
 
 export interface FulltextSearchOptions {
   bm25Params?: BM25Params
@@ -59,20 +60,21 @@ function resolvePrefixExpansion(
   return undefined
 }
 
-export function fulltextSearch(
+interface PreparedFulltextQuery {
+  queryTokens: Array<{ token: string; position: number }>
+  prefixExpansion?: { token: string; terms: string[] }
+  filterBitset?: Uint32Array
+}
+
+function prepareFulltextQuery(
   partition: PartitionIndex,
   params: QueryParams,
   language: LanguageModule,
   schema: SchemaDefinition,
   options?: FulltextSearchOptions,
-): InternalSearchResult {
-  if (!params.term || params.term.trim().length === 0) {
-    return { scored: [], totalMatched: 0 }
-  }
-
-  if (params.fields && params.fields.length === 0) {
-    return { scored: [], totalMatched: 0 }
-  }
+): PreparedFulltextQuery | null {
+  if (!params.term || params.term.trim().length === 0) return null
+  if (params.fields && params.fields.length === 0) return null
 
   const flatSchema = flattenSchema(schema)
 
@@ -87,9 +89,7 @@ export function fulltextSearch(
     stopWordOverride: options?.stopWords,
   })
 
-  if (queryTokenResult.tokens.length === 0) {
-    return { scored: [], totalMatched: 0 }
-  }
+  if (queryTokenResult.tokens.length === 0) return null
 
   const queryTokens = deduplicateTokens(queryTokenResult.tokens)
 
@@ -102,10 +102,57 @@ export function fulltextSearch(
   let filterBitset: Uint32Array | undefined
   if (params.filters) {
     filterBitset = partition.applyFiltersBitset(params.filters, schema)
-    if (bitsetIsEmpty(filterBitset)) {
-      return { scored: [], totalMatched: 0 }
-    }
+    if (bitsetIsEmpty(filterBitset)) return null
   }
+
+  return { queryTokens, prefixExpansion, filterBitset }
+}
+
+/**
+ * Finds the documents of one partition that a full-text query matches, without
+ * computing a single relevance score. A sorted query without `includeScores`
+ * feeds the result to the partition's sort columns as its match filter.
+ *
+ * @param partition - The partition to match against.
+ * @param params - The query, of which the matching inputs are read: term, fields, filters, tolerance, prefix, and exact.
+ * @param language - The language module the index analyses text with.
+ * @param schema - The index schema, read for field validation and filters.
+ * @param options - The index's tokenizer and stop-word configuration.
+ * @returns The matches, or null when the query provably matches nothing.
+ */
+export function fulltextMatches(
+  partition: PartitionIndex,
+  params: QueryParams,
+  language: LanguageModule,
+  schema: SchemaDefinition,
+  options?: FulltextSearchOptions,
+): PartitionSearchMatches | null {
+  const prepared = prepareFulltextQuery(partition, params, language, schema, options)
+  if (prepared === null) return null
+
+  return partition.searchFulltextMatches({
+    queryTokens: prepared.queryTokens,
+    prefixExpansion: prepared.prefixExpansion,
+    fields: params.fields,
+    tolerance: params.tolerance ?? 0,
+    prefixLength: params.prefixLength ?? 2,
+    exact: params.exact ?? false,
+    filterBitset: prepared.filterBitset,
+  })
+}
+
+export function fulltextSearch(
+  partition: PartitionIndex,
+  params: QueryParams,
+  language: LanguageModule,
+  schema: SchemaDefinition,
+  options?: FulltextSearchOptions,
+): InternalSearchResult {
+  const prepared = prepareFulltextQuery(partition, params, language, schema, options)
+  if (prepared === null) {
+    return { scored: [], totalMatched: 0 }
+  }
+  const { queryTokens, prefixExpansion, filterBitset } = prepared
 
   const needsAllResults =
     params.minScore !== undefined ||
@@ -114,11 +161,10 @@ export function fulltextSearch(
     params.group !== undefined ||
     params.pinned !== undefined ||
     params.searchAfter !== undefined
-  const requestedLimit =
-    params.limit !== undefined || params.offset !== undefined
-      ? (params.limit ?? 10) + (params.offset ?? 0) + 1
-      : undefined
-  const maxResults = requestedLimit !== undefined && !needsAllResults ? requestedLimit : undefined
+  const maxResults = needsAllResults
+    ? undefined
+    : clampRowCount(params.limit, DEFAULT_PAGE_SIZE) + clampRowCount(params.offset, 0) + 1
+  const collectMatchedSet = params.facets !== undefined && !needsAllResults ? ('ordinals' as const) : undefined
 
   const collectComponents =
     params.includeScoreComponents === true || (params.termMatch !== undefined && params.termMatch !== 'any')
@@ -137,6 +183,7 @@ export function fulltextSearch(
     termMatch: params.termMatch,
     filterBitset,
     collectComponents,
+    collectMatchedSet,
   })
 
   let scored = rawResult.scored
@@ -159,7 +206,13 @@ export function fulltextSearch(
   }
 
   const totalMatched = needsAllResults ? scored.length : rawResult.totalMatched
-  return { scored, totalMatched }
+  if (params.facets === undefined) {
+    return { scored, totalMatched }
+  }
+  if (needsAllResults) {
+    return { scored, totalMatched, matchedIds: scored.map(doc => doc.docId) }
+  }
+  return { scored, totalMatched, matchedOrdinalBitset: rawResult.matchedOrdinalBitset }
 }
 
 function validateSearchFields(fields: string[], flatSchema: Record<string, FieldType>): void {
@@ -168,7 +221,7 @@ function validateSearchFields(fields: string[], flatSchema: Record<string, Field
     if (!fieldType) {
       throw new NarsilError(ErrorCodes.SEARCH_INVALID_FIELD, `Field "${field}" does not exist in the schema`, { field })
     }
-    if (fieldType !== 'string' && fieldType !== 'string[]') {
+    if (!isTextFieldType(fieldType) && fieldType !== 'string[]') {
       throw new NarsilError(
         ErrorCodes.SEARCH_INVALID_FIELD,
         `Field "${field}" has type "${fieldType}" which cannot be used for full-text search`,

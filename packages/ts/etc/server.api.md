@@ -5,6 +5,14 @@
 ```ts
 
 // @public
+export const ASYNC_IMPORT_CAPABILITY = "documents.import.async";
+
+// @public
+export interface CapabilitiesResponse {
+    capabilities: string[];
+}
+
+// @public
 export interface CorsOptions {
     headers?: string[];
     methods?: string[];
@@ -62,6 +70,22 @@ export interface HttpIndexConfig {
 export function httpStatusForNarsilError(code: string): number;
 
 // @public
+export interface ImportError {
+    code: string;
+    docId?: string;
+    line?: number;
+    message: string;
+}
+
+// @public
+export interface ImportResult {
+    errors: ImportError[];
+    errorsTruncated: boolean;
+    failed: number;
+    indexed: number;
+}
+
+// @public
 export class InMemoryTaskStore implements TaskStore {
     constructor(maxRetained?: number);
     delete(id: string): Promise<void>;
@@ -81,6 +105,9 @@ export interface NarsilServer {
 export type OnRequestHook = (ctx: RequestContext) => undefined | RequestDenial | Promise<undefined | RequestDenial>;
 
 // @public
+export const REBUILD_ANALYSIS_CAPABILITY = "indexes.rebuildAnalysis";
+
+// @public
 export interface RequestContext {
     headers: Record<string, string>;
     method: string;
@@ -96,18 +123,21 @@ export interface RequestDenial {
 }
 
 // @public
+export const SERVER_CAPABILITIES: readonly string[];
+
+// @public
 export const ServerErrorCodes: {
     readonly INVALID_REQUEST: "INVALID_REQUEST";
     readonly INVALID_JSON: "INVALID_JSON";
     readonly EMPTY_BODY: "EMPTY_BODY";
     readonly PAYLOAD_TOO_LARGE: "PAYLOAD_TOO_LARGE";
-    readonly UNSUPPORTED_MEDIA_TYPE: "UNSUPPORTED_MEDIA_TYPE";
     readonly NOT_FOUND: "NOT_FOUND";
     readonly TASK_NOT_FOUND: "TASK_NOT_FOUND";
+    readonly TASK_NOT_CANCELLABLE: "TASK_NOT_CANCELLABLE";
+    readonly TASK_OWNED_BY_ANOTHER_INSTANCE: "TASK_OWNED_BY_ANOTHER_INSTANCE";
     readonly TOO_MANY_REQUESTS: "TOO_MANY_REQUESTS";
     readonly HOOK_ERROR: "HOOK_ERROR";
     readonly INTERNAL_ERROR: "INTERNAL_ERROR";
-    readonly REQUEST_ABORTED: "REQUEST_ABORTED";
 };
 
 // @public
@@ -115,10 +145,13 @@ export interface ServerLimits {
     importBatchSize?: number;
     maxBodyBytes?: number;
     maxConcurrentRequests?: number;
+    maxConcurrentTasks?: number;
     maxFetchDocuments?: number;
     maxImportBytes?: number;
+    maxImportErrors?: number;
     maxLineBytes?: number;
     maxResultWindow?: number;
+    maxTaskPageSize?: number;
 }
 
 // @public
@@ -140,7 +173,50 @@ export interface ServerOptions {
 }
 
 // @public
+export const TASK_CANCEL_CAPABILITY = "tasks.cancel";
+
+// @public
+export const TASK_FILTER_CAPABILITY = "tasks.filter";
+
+// @public
+export interface TaskContext {
+    reportProgress(progress: TaskProgress): void;
+    reportResult(result: ImportResult): void;
+    readonly signal: AbortSignal;
+}
+
+// @public
+export interface TaskListPage {
+    from: number;
+    limit: number;
+    next: number | null;
+    tasks: TaskRecord[];
+    total: number;
+}
+
+// @public
+export interface TaskListQuery {
+    from?: number;
+    indexName?: string;
+    limit?: number;
+    status?: TaskStatus[];
+    type?: TaskType[];
+}
+
+// @public
+export type TaskOperation = (ctx: TaskContext) => Promise<void>;
+
+// @public
+export interface TaskProgress {
+    bytesProcessed: number;
+    bytesTotal: number;
+    failed: number;
+    indexed: number;
+}
+
+// @public
 export interface TaskRecord {
+    cancelRequestedAt?: number;
     completedAt?: number;
     createdAt: number;
     error?: {
@@ -151,13 +227,15 @@ export interface TaskRecord {
     id: string;
     indexName: string;
     owner: string;
+    progress?: TaskProgress;
+    result?: ImportResult;
     startedAt?: number;
     status: TaskStatus;
     type: TaskType;
 }
 
 // @public
-export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 // @public
 export interface TaskStore {
@@ -169,7 +247,7 @@ export interface TaskStore {
 }
 
 // @public
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore';
+export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'rebuildAnalysis';
 
 // (No @packageDocumentation comment for this package)
 

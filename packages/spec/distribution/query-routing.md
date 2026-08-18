@@ -31,7 +31,10 @@ A distributed query runs in two phases so that the cluster moves as few bytes as
      the hit count for each partition
 7. The coordinator merges every returned list with the K-way
    merge, which uses a heap above four sources and a
-   sequential merge at four or fewer.
+   sequential merge at four or fewer. The merge orders by
+   score then document ID, or by the sort value order when
+   the query sorts, as the merge algorithm in
+   partitioning.md defines.
 8. The coordinator takes the global top-k from the merged list.
 ```
 
@@ -71,6 +74,10 @@ Query for index 'products', partitions 0-9:
   merge:  K-way merge of both          -> global top-k
 ```
 
+### Sorted Queries
+
+A query carrying a sort makes each data node return the raw sort values of every entry in `ScoredEntry.sortValues`, and the coordinator merges by the [sort value order](../algorithms.md#sort-value-order). A sorted entry that arrives without its sort values cannot be merged, so the coordinator treats the node's response as a failure and [Partial Results](#partial-results) governs what happens next.
+
 ---
 
 ## DFS Scoring Across the Cluster
@@ -101,13 +108,13 @@ DFS costs one extra round trip. Use it when partition sizes or term distribution
 
 The coordinator picks one replica per partition. The strategy is pluggable, and the default is random.
 
-**Random selection**, the default, picks a replica at random from the `ACTIVE` replicas of the partition, the primary included. Load spreads evenly when the replicas are alike.
+**Random selection**, the default, picks a replica at random from the eligible copies of the partition, the primary included. Load spreads evenly when the replicas are alike.
 
 **Adaptive selection** is optional. It tracks per-replica response time and queue depth and routes to the replica with the lowest estimated latency. The algorithm is implementation-defined; an implementation that offers one must document how it behaves.
 
 The selection contract holds whichever strategy runs:
 
-- The coordinator must select only replicas whose partition state is `ACTIVE`.
+- The coordinator must select only the primary or an in-sync replica of a partition whose state is `ACTIVE`; see [In-Sync Replica Tracking](replication.md#in-sync-replica-tracking).
 - Replicas in `INITIALISING` or `DECOMMISSIONING` are never selected.
 - With no `ACTIVE` replica for a partition, the coordinator either fails the query or returns partial results; see [Partial Results](#partial-results).
 
@@ -147,7 +154,7 @@ With `allowPartialResults` set to false, any partition failure or timeout fails 
 
 ## Distributed Facets
 
-Each data node counts facets over its own partitions, and the coordinator merges those counts.
+Each data node counts facets over its own partitions, and the coordinator merges those counts. A count covers every document the query matches rather than the documents the page returns.
 
 ```text
 1. The coordinator computes the oversampled bucket count:
@@ -157,18 +164,23 @@ Each data node counts facets over its own partitions, and the coordinator merges
 2. It sends shardSize to each data node as facetShardSize in
    the search message.
 3. Each data node returns up to shardSize buckets per requested
-   field, ordered by count, highest first.
+   field, ordered by count, highest first, with ties by value
+   in code point order, and the largest count it left out of
+   that field as the field's error bound.
 4. The coordinator merges the buckets:
      group the buckets of each field by value
      sum the counts of identical values
-     order by merged count, highest first
+     order by merged count, highest first, ties by value in
+       code point order
      truncate to facetSize
-5. The merged facets travel in the query response.
+     sum the error bounds of each field across the nodes
+5. The merged facets and their error bounds travel in the
+   query response.
 ```
 
 Distributed facet counts are approximate. A value that is frequent across the whole index but falls below `shardSize` on the individual partitions can be undercounted or missed altogether. A larger `shardSize` buys accuracy with transfer.
 
-Where it can, the response should carry an error bound: the sum, across data nodes, of the largest bucket count each node excluded. That figure is the largest undercount any value can have.
+A response must carry one error bound per field it counts, and that figure is the largest undercount any value of the field can have. A node sets its own bound to the largest count it excluded from the field, and to 0 where it excluded nothing, so a bound of 0 on every node proves the field's counts exact. The coordinator sums the nodes' bounds rather than taking the largest, because each node undercounts a value independently of the rest.
 
 ---
 
@@ -182,8 +194,9 @@ The cursor format defined in [searchAfter Cursor](../partitioning.md#searchafter
 
 ```json
 {
-  "s": 4.523,
-  "d": "doc-id-123"
+  "v": 2,
+  "a": "doc-id-123",
+  "s": 4.523
 }
 ```
 
@@ -194,7 +207,7 @@ First query:
   the coordinator fans out to every data node
   each data node returns scored results for its partitions
   the coordinator merges them and takes the top `limit`
-  the cursor encodes the last result's score and docId
+  the cursor encodes the last result
 
 Next query, carrying the cursor:
   the coordinator decodes the cursor
@@ -208,7 +221,7 @@ Next query, carrying the cursor:
 
 ### Tiebreaker
 
-A cursor needs a unique tiebreaker to order results deterministically, and the document ID is that tiebreaker. Documents sharing a score, or a sort value, are ordered by comparing `docId` lexicographically, which keeps pagination stable across requests even when scores are identical.
+A cursor needs a unique tiebreaker to order results deterministically, and the document ID is that tiebreaker. Documents sharing a score, or sharing every sort value, order by document ID, ascending in [code point order](../algorithms.md#code-point-order), which keeps pagination stable across requests and identical across implementations.
 
 ---
 

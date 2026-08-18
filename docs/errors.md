@@ -1,6 +1,6 @@
 # Errors
 
-Every failure throws a `NarsilError` carrying a stable string `code`, a human-readable `message`, and a `details` object with the values that produced the failure. The full set of codes is exported as `ErrorCodes`. Match on the code, because the message changes between releases.
+The engine throws a `NarsilError` for every failure, and each one carries a stable string `code`, a message written for a person to read, and a `details` object holding the values that produced the failure. The full set of codes is exported as `ErrorCodes`. Match on the code, because the message changes between releases.
 
 ```ts
 import { ErrorCodes, NarsilError } from '@delali/narsil'
@@ -27,3 +27,5 @@ The codes you handle most often:
 | `PARTITION_CAPACITY_EXCEEDED` / `PARTITION_REBALANCING_BACKPRESSURE` | An insert passes the capacity cap, or a config change collides with a running reshape. |
 | `LANGUAGE_NOT_SUPPORTED` | An index config names a language module that was never imported. |
 | `CONFIG_INVALID` | A configuration value is out of range or contradictory. |
+
+The HTTP server raises codes of its own for a request that never reaches the engine, such as `INVALID_JSON`, `PAYLOAD_TOO_LARGE`, and `TOO_MANY_REQUESTS`, which `ServerErrorCodes` exports. The [client](client.md#errors) raises six more when a request cannot reach a server at all, or when nothing that came back explains what went wrong, which `ClientErrorCodes` exports. `NarsilError.code` covers all three sets, and it takes any other string as well, because a server's `onRequest` hook rejects a request under a code of its own and the client passes that code through unchanged.

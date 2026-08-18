@@ -1,4 +1,5 @@
 import { type FsModule, getFs, getPath, type PathModule } from '#platform/durable-fs'
+import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 
 type FileHandle = import('node:fs/promises').FileHandle
@@ -265,7 +266,7 @@ export function createDurableDirectory(root: string): DurableDirectory {
       const pathMod = await getPath()
       const resolvedBase = pathMod.resolve(root)
       const all = await listRecursive(resolvedBase, resolvedBase, pathMod, fs)
-      return all.filter(entry => entry.startsWith(prefix)).sort()
+      return all.filter(entry => entry.startsWith(prefix)).sort(compareCodePoints)
     },
   }
 }

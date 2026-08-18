@@ -51,14 +51,14 @@ export const Route = createFileRoute('/api/ask')({
           { AskRequestError, parseAskRequest },
           { readLlmConfig },
           { createAskResponse },
-          { getBackend },
+          { getNarsilClient },
           { persistTurnStart, reconstructTurn },
           { ThreadConflictError },
         ] = await Promise.all([
           import('#/lib/ask/messages'),
           import('#/lib/ask/config'),
           import('#/lib/ask/answer'),
-          import('#/lib/get-backend'),
+          import('#/lib/narsil/server-client'),
           import('#/lib/ask/history'),
           import('#/lib/chat/store'),
         ])
@@ -87,8 +87,8 @@ export const Route = createFileRoute('/api/ask')({
         try {
           const turn = await reconstructTurn(parsed)
           await persistTurnStart(parsed, turn, Date.now())
-          const backend = await getBackend()
-          return createAskResponse(backend, llm, parsed, turn, request.signal)
+          const client = await getNarsilClient()
+          return createAskResponse(client, llm, parsed, turn, request.signal)
         } catch (err) {
           if (err instanceof AskRequestError) return plainTextErrorResponse(err.status, err.message)
           if (err instanceof ThreadConflictError) return plainTextErrorResponse(409, err.message)

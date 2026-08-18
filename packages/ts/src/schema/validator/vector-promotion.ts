@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorIndexConfig } from '../../types/schema'
+import { MAX_M } from '../../vector/hnsw/adjacency'
 
 /**
  * Index config arrives untyped over HTTP, so these fields can hold values their
@@ -31,8 +32,8 @@ export function validateVectorPromotion(config: VectorIndexConfig | undefined): 
   const hnsw = config.hnswConfig
   if (hnsw === undefined) return
 
-  if (hnsw.m !== undefined && !isPositiveInteger(hnsw.m)) {
-    fail('vectorPromotion.hnswConfig.m must be a positive integer', { m: hnsw.m })
+  if (hnsw.m !== undefined && (!isPositiveInteger(hnsw.m) || hnsw.m > MAX_M)) {
+    fail(`vectorPromotion.hnswConfig.m must be a positive integer no greater than ${MAX_M}`, { m: hnsw.m })
   }
 
   if (hnsw.efConstruction !== undefined && !isPositiveInteger(hnsw.efConstruction)) {

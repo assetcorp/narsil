@@ -1,3 +1,4 @@
+import { isTextFieldType } from '../../schema/validator'
 import type { LanguageModule } from '../../types/language'
 import type { AnyDocument, FieldType, SchemaDefinition } from '../../types/schema'
 import { indexStringArrayField, indexStringField } from './indexing'
@@ -11,7 +12,7 @@ const EMPTY_STATS = {
 }
 
 function textFieldsOf(flatSchema: Record<string, FieldType>): Array<[string, FieldType]> {
-  return Object.entries(flatSchema).filter(([, fieldType]) => fieldType === 'string' || fieldType === 'string[]')
+  return Object.entries(flatSchema).filter(([, fieldType]) => isTextFieldType(fieldType) || fieldType === 'string[]')
 }
 
 export function rebuildTextIndex(
@@ -39,7 +40,7 @@ export function rebuildTextIndex(
       for (const [fieldPath, fieldType] of textFields) {
         const value = getNestedValue(fields, fieldPath)
         if (value === undefined || value === null) continue
-        if (fieldType === 'string') {
+        if (isTextFieldType(fieldType)) {
           indexStringField(
             state,
             internalId,

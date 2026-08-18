@@ -1,5 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
 import type { SerializablePartition, SerializedSurfaceForms } from '../../types/internal'
+import { dropStoredVectorValues } from '../stored-vector-values'
 
 export function sanitizeSurfaceForms(raw: unknown): SerializedSurfaceForms | undefined {
   if (raw === undefined || raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined
@@ -156,6 +157,7 @@ function wireToPartition(raw: RawPartitionPayload): SerializablePartition {
       fieldLengths: doc.field_lengths ?? {},
     }
   }
+  dropStoredVectorValues(documents, raw.schema ?? {})
 
   const invertedIndex: SerializablePartition['invertedIndex'] = {}
   for (const [token, list] of Object.entries(raw.inverted_index ?? {})) {

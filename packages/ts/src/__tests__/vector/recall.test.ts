@@ -5,10 +5,10 @@ import { createScalarQuantizer } from '../../vector/scalar-quantization'
 import { magnitude } from '../../vector/similarity'
 import { createVectorStore } from '../../vector/vector-store'
 
-function normalizedVector(dim: number): Float32Array {
+function normalizedVector(dim: number, seed: number): Float32Array {
   const v = new Float32Array(dim)
   for (let i = 0; i < dim; i++) {
-    v[i] = Math.random() * 2 - 1
+    v[i] = Math.sin(seed * (i + 1) * 1.618) * Math.cos(seed * 0.7 + i)
   }
   const mag = magnitude(v)
   if (mag === 0) return v
@@ -38,7 +38,7 @@ function runRecallBenchmark(dim: number, vectorCount: number, queryCount: number
   const vectors = new Map<string, Float32Array>()
 
   for (let i = 0; i < vectorCount; i++) {
-    const v = normalizedVector(dim)
+    const v = normalizedVector(dim, i + 1)
     const docId = `doc${i}`
     vectors.set(docId, v)
     store.insert(docId, v)
@@ -60,7 +60,7 @@ function runRecallBenchmark(dim: number, vectorCount: number, queryCount: number
 
   let totalRecall = 0
   for (let q = 0; q < queryCount; q++) {
-    const query = normalizedVector(dim)
+    const query = normalizedVector(dim, q + 1)
     const bfResults = bruteForce.search(query, k, 'cosine', 0)
     const hnswResults = hnsw.search(query, k, 'cosine', 0, undefined, efSearch)
 

@@ -1,44 +1,29 @@
-import type { DatasetId, DatasetLoadProgress, LoadDatasetRequest } from '@delali/narsil-example-shared'
-import { useAppDispatch, useAppState, useBackend } from '@delali/narsil-example-shared'
-import { createFileRoute } from '@tanstack/react-router'
-import { useCallback, useEffect, useState } from 'react'
-import { CustomConfig, type CustomDatasetConfig } from '#/components/datasets/CustomConfig'
-import { DatasetCard, datasetMeta } from '#/components/datasets/DatasetCard'
+import type { DatasetId, LoadDatasetRequest } from '@delali/narsil-example-shared'
+import { useIndexWorkspace } from '@delali/narsil-example-shared'
+import { CustomConfig, type CustomDatasetConfig } from '@delali/narsil-example-shared/components/CustomConfig'
+import { DatasetCard, datasetMeta } from '@delali/narsil-example-shared/components/datasets/DatasetCard'
+import { writeDisplayFields } from '@delali/narsil-example-shared/lib/display-fields'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { useCallback, useState } from 'react'
 import { ScifactConfig, TmdbConfig, WikiConfig } from '#/components/datasets/DatasetConfigs'
-import { useEngineStatus } from '#/lib/engine-status'
-import { requestLoadCancel } from '#/lib/load-status-client'
+import { useCustomDatasetLoad } from '#/lib/use-custom-dataset-load'
+import { useDatasetTasks } from '#/lib/use-dataset-tasks'
 
 export const Route = createFileRoute('/')({ component: HomePage })
 
 function HomePage() {
-  const backend = useBackend()
-  const state = useAppState()
-  const dispatch = useAppDispatch()
-  const engineStatus = useEngineStatus()
+  const { indexes, isLoading, error, setActiveIndexName, refresh } = useIndexWorkspace()
+  const tasks = useDatasetTasks(indexes, refresh)
+  const navigate = useNavigate()
 
   const [tmdbTier, setTmdbTier] = useState('10k')
-  const [wikiLangs, setWikiLangs] = useState<Set<string>>(new Set(['en']))
+  const [wikiLanguages, setWikiLanguages] = useState<Set<string>>(new Set(['en']))
   const [customConfig, setCustomConfig] = useState<CustomDatasetConfig | null>(null)
+  const custom = useCustomDatasetLoad(customConfig, refresh)
 
-  useEffect(() => {
-    const handler = (progress: DatasetLoadProgress) => {
-      dispatch({ type: 'SET_LOADING', payload: progress })
-
-      if (progress.phase === 'error') {
-        dispatch({
-          type: 'LOADING_ERROR',
-          payload: { datasetId: progress.datasetId, error: progress.error ?? 'Unknown error' },
-        })
-      }
-    }
-
-    backend.subscribe('progress', handler)
-    return () => backend.unsubscribe('progress', handler)
-  }, [backend, dispatch])
-
-  function toggleWikiLang(code: string) {
-    setWikiLangs(prev => {
-      const next = new Set(prev)
+  const toggleWikiLanguage = useCallback((code: string) => {
+    setWikiLanguages(current => {
+      const next = new Set(current)
       if (next.has(code)) {
         next.delete(code)
       } else {
@@ -46,137 +31,111 @@ function HomePage() {
       }
       return next
     })
-  }
+  }, [])
 
   const handleLoad = useCallback(
     async (datasetId: DatasetId) => {
+      if (datasetId === 'custom') {
+        if (customConfig === null) return
+        await custom.start()
+        writeDisplayFields(customConfig.indexName, customConfig.displayFields)
+        return
+      }
+
       let request: LoadDatasetRequest
       switch (datasetId) {
         case 'tmdb':
           request = { datasetId: 'tmdb', tier: tmdbTier }
           break
         case 'wikipedia':
-          request = { datasetId: 'wikipedia', languages: [...wikiLangs] }
+          request = { datasetId: 'wikipedia', languages: [...wikiLanguages] }
           break
         case 'scifact':
           request = { datasetId: 'scifact' }
           break
-        case 'custom': {
-          if (!customConfig) return
-          request = {
-            datasetId: 'custom',
-            documents: customConfig.documents,
-            schema: customConfig.schema,
-            indexName: customConfig.indexName,
-            language: customConfig.language,
-          }
-          break
-        }
       }
-
-      dispatch({
-        type: 'SET_LOADING',
-        payload: { datasetId, phase: 'fetching' },
-      })
-
-      try {
-        await backend.loadDataset(request)
-        const indexes = await backend.listIndexes()
-        for (const idx of indexes) {
-          if (
-            (datasetId === 'tmdb' && idx.name.startsWith('tmdb-')) ||
-            (datasetId === 'wikipedia' && idx.name.startsWith('wikipedia-')) ||
-            (datasetId === 'scifact' && idx.name === 'scifact') ||
-            (datasetId === 'custom' && customConfig && idx.name === customConfig.indexName)
-          ) {
-            dispatch({
-              type: 'INDEX_READY',
-              payload: {
-                name: idx.name,
-                datasetId,
-                documentCount: idx.documentCount,
-                language: idx.language,
-              },
-            })
-          }
-        }
-      } catch (err) {
-        dispatch({
-          type: 'LOADING_ERROR',
-          payload: { datasetId, error: err instanceof Error ? err.message : String(err) },
-        })
-      }
+      await tasks.start(request)
     },
-    [backend, dispatch, tmdbTier, wikiLangs, customConfig],
+    [tasks, custom, tmdbTier, wikiLanguages, customConfig],
   )
-
-  const handleCancel = useCallback((datasetId: DatasetId) => {
-    void requestLoadCancel(datasetId)
-  }, [])
 
   const handleRemove = useCallback(
     async (datasetId: DatasetId) => {
-      const indexesForDataset = state.indexes.filter(idx => idx.datasetId === datasetId)
-      for (const idx of indexesForDataset) {
-        try {
-          await backend.deleteIndex(idx.name)
-          dispatch({ type: 'REMOVE_INDEX', payload: idx.name })
-        } catch {
-          // Index may already be gone
-        }
-      }
+      if (datasetId === 'custom') custom.reset()
+      await tasks.remove(datasetId)
     },
-    [backend, dispatch, state.indexes],
+    [tasks, custom],
   )
 
-  function isLoaded(datasetId: DatasetId): boolean {
-    return state.indexes.some(idx => idx.datasetId === datasetId)
-  }
+  const handleCancel = useCallback(
+    (datasetId: DatasetId) => {
+      if (datasetId === 'custom') {
+        custom.cancel()
+        return
+      }
+      tasks.cancel(datasetId)
+    },
+    [tasks, custom],
+  )
 
-  function isLoading(datasetId: DatasetId): boolean {
-    const progress = state.loadingDatasets.get(datasetId)
-    return !!progress && progress.phase !== 'complete' && progress.phase !== 'error'
-  }
+  const handleView = useCallback(
+    (datasetId: DatasetId) => {
+      const index = indexes.find(entry => entry.datasetId === datasetId)
+      if (!index) return
+      setActiveIndexName(index.name)
+      navigate({ to: '/documents' })
+    },
+    [indexes, setActiveIndexName, navigate],
+  )
 
-  function isLoadDisabled(datasetId: DatasetId): boolean {
-    if (datasetId === 'custom') return !customConfig
-    return false
+  const progressFor = (datasetId: DatasetId) =>
+    datasetId === 'custom' ? custom.progress : tasks.progressByDataset.get(datasetId)
+
+  const isBusy = (datasetId: DatasetId): boolean => {
+    const progress = progressFor(datasetId)
+    return progress !== undefined && progress.phase !== 'complete' && progress.phase !== 'error'
   }
 
   const configContent: Record<DatasetId, React.ReactNode> = {
     tmdb: <TmdbConfig tier={tmdbTier} setTier={setTmdbTier} />,
-    wikipedia: <WikiConfig selected={wikiLangs} toggle={toggleWikiLang} />,
+    wikipedia: <WikiConfig selected={wikiLanguages} toggle={toggleWikiLanguage} />,
     scifact: <ScifactConfig />,
     custom: <CustomConfig onReady={setCustomConfig} />,
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
-      <section className="mb-8">
-        <h1 className="mb-2 font-serif text-3xl tracking-tight">Datasets</h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          Choose a dataset to index. Narsil runs on the server with filesystem persistence, so indexed data survives
-          restarts. Configure the tier and fields, then explore search, relevance tuning, and quality benchmarks.
-        </p>
+    <div>
+      <section className="relative border-b border-border bg-surface-raised">
+        <div aria-hidden="true" className="pattern-dots absolute inset-0" />
+        <div className="relative mx-auto max-w-6xl px-4 py-12 md:py-16">
+          <h1 className="text-4xl font-bold tracking-tight md:text-5xl">Datasets</h1>
+          <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">
+            Choose a dataset to index. Each load runs as a task on the Narsil server, so it carries on when you leave
+            this page, and the indexes it builds survive a restart.
+          </p>
+        </div>
       </section>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {datasetMeta.map(ds => (
-          <DatasetCard
-            key={ds.id}
-            ds={ds}
-            loaded={isLoaded(ds.id)}
-            loading={isLoading(ds.id)}
-            restoring={state.restoring}
-            enginePhase={engineStatus.phase}
-            progress={state.loadingDatasets.get(ds.id)}
-            onLoad={handleLoad}
-            onRemove={handleRemove}
-            onCancel={handleCancel}
-            configContent={configContent[ds.id]}
-            loadDisabled={isLoadDisabled(ds.id)}
-          />
-        ))}
+      <div className="mx-auto max-w-6xl px-4 py-8">
+        <div className="stagger-in grid gap-4 sm:grid-cols-2">
+          {datasetMeta.map(dataset => (
+            <DatasetCard
+              key={dataset.id}
+              ds={dataset}
+              loaded={indexes.some(index => index.datasetId === dataset.id)}
+              loading={isBusy(dataset.id)}
+              restoring={isLoading}
+              progress={progressFor(dataset.id)}
+              onLoad={handleLoad}
+              onRemove={handleRemove}
+              onView={handleView}
+              onCancel={handleCancel}
+              configContent={configContent[dataset.id]}
+              loadDisabled={dataset.id === 'custom' && customConfig === null}
+              serverUnavailable={error !== null}
+            />
+          ))}
+        </div>
       </div>
     </div>
   )

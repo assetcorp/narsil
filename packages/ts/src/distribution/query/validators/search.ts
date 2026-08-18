@@ -1,6 +1,6 @@
+import { MAX_CURSOR_LENGTH } from '../../../search/cursor'
 import { validateIndexName } from '../../cluster/index-metadata'
 import type { SearchPayload } from '../../transport/types'
-import { MAX_CURSOR_LENGTH } from '../cursor'
 import {
   CONFIG_INVALID,
   isFiniteNumber,
@@ -130,10 +130,14 @@ function validateSortParams(value: unknown): void {
     throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "params.sort" must be an array or null')
   }
   if (value.length > MAX_SORT_FIELDS) {
-    throwInvalid(CONFIG_INVALID, `Invalid SearchPayload: "params.sort" exceeds maximum length of ${MAX_SORT_FIELDS}`, {
-      length: value.length,
-      limit: MAX_SORT_FIELDS,
-    })
+    throwInvalid(
+      SEARCH_INVALID_FIELD,
+      `Invalid SearchPayload: "params.sort" exceeds maximum length of ${MAX_SORT_FIELDS}`,
+      {
+        length: value.length,
+        limit: MAX_SORT_FIELDS,
+      },
+    )
   }
   for (let i = 0; i < value.length; i++) {
     const entry = value[i]
@@ -196,6 +200,13 @@ function validateParams(params: Record<string, unknown>): void {
 
   if (params.sort !== null) {
     validateSortParams(params.sort)
+    const isHybridRequest = params.hybrid !== null || (params.term !== null && params.vector !== null)
+    if (Array.isArray(params.sort) && params.sort.length > 0 && isHybridRequest) {
+      throwInvalid(
+        SEARCH_INVALID_MODE,
+        'Invalid SearchPayload: a hybrid query cannot carry a sort, because fusion defines the order of hybrid results',
+      )
+    }
   }
 
   if (params.group !== null) {
@@ -260,6 +271,14 @@ function validateParams(params: Record<string, unknown>): void {
     }
   }
 
+  if (
+    params.includeScores !== null &&
+    params.includeScores !== undefined &&
+    typeof params.includeScores !== 'boolean'
+  ) {
+    throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "params.includeScores" must be a boolean, null, or absent')
+  }
+
   if (!ALLOWED_SCORING.includes(params.scoring as (typeof ALLOWED_SCORING)[number])) {
     throwInvalid(
       SEARCH_INVALID_MODE,
@@ -274,6 +293,13 @@ function validateParams(params: Record<string, unknown>): void {
   if (params.hybrid !== null) {
     validateHybridParams(params.hybrid)
   }
+}
+
+export function validateWireParams(params: unknown): void {
+  if (!isRecord(params)) {
+    throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "params" must be an object')
+  }
+  validateParams(params)
 }
 
 export function validateSearchPayload(decoded: unknown): SearchPayload {

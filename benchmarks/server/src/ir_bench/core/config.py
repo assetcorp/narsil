@@ -29,12 +29,19 @@ class ThroughputConfig:
     drive in turn, so a single level gives one throughput number and a list sweeps
     the saturation curve. The level used is recorded with every result. Throughput
     runs at the same matched-recall operating point as the latency comparison
-    because both reuse the same per-query closure."""
+    because both reuse the same per-query workload.
+
+    `client_processes` splits that offered concurrency across operating-system
+    processes. One process saturates near a single core, so a threads-only client
+    caps every engine at one core divided by its per-request cost; raising this
+    lifts the cap and costs the engine that much CPU when the two share a host.
+    Left unset it resolves to half the host's logical cores."""
 
     enabled: bool
     concurrency: tuple[int, ...]
     duration_seconds: float
     warmup_seconds: float
+    client_processes: int
 
 
 @dataclass(frozen=True)
@@ -83,6 +90,7 @@ class BenchmarkConfig:
     bm25: BM25Params
     run_depth: int
     import_batch: int
+    import_clients: int
     memory_cap_bytes: int | None
     latency: LatencyConfig
     throughput: ThroughputConfig
@@ -129,6 +137,22 @@ def _load_tracks(name: str, entry: dict) -> tuple[str, ...]:
     return tuple(tracks)
 
 
+def _import_clients(section: dict) -> int:
+    raw = section.get("import_clients", 16)
+    env_value = os.environ.get("BENCH_IMPORT_CLIENTS")
+    if env_value and env_value.strip():
+        raw = env_value.strip()
+    clients = int(raw)
+    if clients < 1:
+        raise ValueError("retrieval.import_clients must be positive")
+    if clients > POOL_CONNECTIONS:
+        raise ValueError(
+            f"retrieval.import_clients {clients} exceeds the client connection pool of "
+            f"{POOL_CONNECTIONS}; lower the value or raise POOL_CONNECTIONS"
+        )
+    return clients
+
+
 def _throughput_levels(section: dict) -> tuple[int, ...]:
     levels_raw = section.get("concurrency", [16])
     env_levels = os.environ.get("BENCH_THROUGHPUT_CONCURRENCY")
@@ -148,6 +172,23 @@ def _throughput_levels(section: dict) -> tuple[int, ...]:
     return levels
 
 
+def _throughput_client_processes(section: dict) -> int:
+    """How many processes drive the load. An explicit setting wins, the environment
+    overrides it for a one-off run, and the fallback leaves half the host's cores to
+    the engine on a run where the client and the engine share a machine."""
+
+    configured = section.get("client_processes")
+    override = os.environ.get("BENCH_THROUGHPUT_CLIENT_PROCESSES")
+    if override and override.strip():
+        configured = override.strip()
+    if configured is None:
+        return max(1, (os.cpu_count() or 2) // 2)
+    processes = int(configured)
+    if processes < 1:
+        raise ValueError("throughput.client_processes must be positive")
+    return processes
+
+
 def _load_throughput(raw: dict) -> ThroughputConfig:
     section = raw.get("throughput", {})
     enabled = bool(section.get("enabled", True))
@@ -165,6 +206,7 @@ def _load_throughput(raw: dict) -> ThroughputConfig:
         concurrency=_throughput_levels(section),
         duration_seconds=duration,
         warmup_seconds=warmup,
+        client_processes=_throughput_client_processes(section),
     )
 
 
@@ -239,6 +281,7 @@ def load_config(path: Path) -> BenchmarkConfig:
     retrieval = raw.get("retrieval", {})
     run_depth = int(retrieval.get("run_depth", 1000))
     import_batch = int(retrieval.get("import_batch", 2000))
+    import_clients = _import_clients(retrieval)
     if run_depth < 100:
         raise ValueError("retrieval.run_depth must be at least 100 to compute Recall@100")
     if import_batch < 1:
@@ -283,6 +326,7 @@ def load_config(path: Path) -> BenchmarkConfig:
         bm25=bm25,
         run_depth=run_depth,
         import_batch=import_batch,
+        import_clients=import_clients,
         memory_cap_bytes=memory_cap_bytes,
         latency=latency,
         throughput=throughput,

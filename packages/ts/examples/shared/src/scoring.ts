@@ -1,4 +1,4 @@
-import type { QueryHit } from './backend'
+import type { Hit } from '@delali/narsil'
 
 export interface BM25Config {
   k1: number
@@ -13,7 +13,7 @@ export const DEFAULT_BM25_CONFIG: BM25Config = {
 }
 
 export interface RecomputedHit {
-  hit: QueryHit
+  hit: Hit
   originalScore: number
   recomputedScore: number
   originalRank: number
@@ -26,7 +26,7 @@ interface FieldAverages {
   totalDocs: number
 }
 
-export function computeFieldAverages(hits: QueryHit[]): FieldAverages {
+export function computeFieldAverages(hits: Hit[]): FieldAverages {
   if (hits.length === 0) {
     return { avgFieldLengths: {}, totalDocs: 0 }
   }
@@ -65,14 +65,14 @@ function computeBM25FieldScore(
   return idf * (numerator / denominator)
 }
 
-export function recomputeScores(hits: QueryHit[], config: BM25Config, fieldAverages: FieldAverages): RecomputedHit[] {
+export function recomputeScores(hits: Hit[], config: BM25Config, fieldAverages: FieldAverages): RecomputedHit[] {
   const scored = hits.map((hit, index) => {
     const components = hit.scoreComponents
     if (!components) {
       return {
         hit,
-        originalScore: hit.score,
-        recomputedScore: hit.score,
+        originalScore: hit.score ?? 0,
+        recomputedScore: hit.score ?? 0,
         originalRank: index + 1,
         recomputedRank: 0,
         fieldScores: {},
@@ -103,7 +103,7 @@ export function recomputeScores(hits: QueryHit[], config: BM25Config, fieldAvera
 
     return {
       hit,
-      originalScore: hit.score,
+      originalScore: hit.score ?? 0,
       recomputedScore: totalScore,
       originalRank: index + 1,
       recomputedRank: 0,

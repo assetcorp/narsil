@@ -1,62 +1,44 @@
 import { decode, encode } from '@msgpack/msgpack'
+import { applyProjection, resolveProjection } from '../../../core/projection'
+import { normalizeSort, readSortValues } from '../../../search/sorting'
 import type { QueryResult } from '../../../types/results'
-import type { FacetConfig, QueryParams } from '../../../types/search'
+import type { AnyDocument } from '../../../types/schema'
 import { validateFetchPayload, validateSearchPayload, validateStatsPayload } from '../../query/codec'
 import type {
   FetchResultPayload,
+  RespondFn,
   SearchResultPayload,
   StatsResultPayload,
   TransportMessage,
 } from '../../transport/types'
 import { QueryMessageTypes } from '../../transport/types'
+import { wireParamsToLocal } from '../query-conversion'
 import type { DataNodeHandlerDeps } from './types'
 
 export async function handleSearch(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const decoded = decode(message.payload) as unknown
   const payload = validateSearchPayload(decoded)
 
-  const queryParams: QueryParams = {
-    term: payload.params.term ?? undefined,
-    fields: payload.params.fields ?? undefined,
-    filters: payload.params.filters ?? undefined,
-    boost: payload.params.boost ?? undefined,
-    scoring: payload.params.scoring,
-    tolerance: payload.params.tolerance ?? undefined,
-    minScore: payload.params.threshold ?? undefined,
-    limit: payload.params.limit,
-    offset: payload.params.offset,
-    searchAfter: payload.params.searchAfter ?? undefined,
-    sort: convertWireSortToLocal(payload.params.sort),
-    group:
-      payload.params.group !== null
-        ? { fields: [payload.params.group.field], maxPerGroup: payload.params.group.maxPerGroup }
-        : undefined,
-    facets: convertWireFacetsToLocal(payload.params.facets, payload.facetShardSize ?? payload.params.facetSize),
-    vector:
-      payload.params.vector !== null
-        ? {
-            field: payload.params.vector.field,
-            value: payload.params.vector.value ?? undefined,
-            text: payload.params.vector.text ?? undefined,
-            similarity: payload.params.vector.similarity ?? undefined,
-          }
-        : undefined,
-    hybrid:
-      payload.params.hybrid !== null
-        ? { strategy: payload.params.hybrid.strategy, k: payload.params.hybrid.k, alpha: payload.params.hybrid.alpha }
-        : undefined,
-  }
+  const queryParams = wireParamsToLocal(payload.params, payload.facetShardSize)
+  const queryResult = await deps.engine.queryPartitions(
+    payload.indexName,
+    queryParams,
+    payload.partitionIds,
+    payload.globalStats ?? undefined,
+  )
 
-  const queryResult = await deps.engine.query(payload.indexName, queryParams)
-
+  const sortFields = queryParams.sort !== undefined ? normalizeSort(queryParams.sort).map(entry => entry.field) : null
   const scored = queryResult.hits.map(hit => ({
     docId: hit.id,
-    score: hit.score,
-    sortValues: null,
+    score: hit.score ?? null,
+    sortValues:
+      sortFields !== null
+        ? readSortValues(hit.document as AnyDocument | undefined, sortFields).map(toWireSortValue)
+        : null,
   }))
 
   const results = payload.partitionIds.map(partitionId => ({
@@ -65,9 +47,13 @@ export async function handleSearch(
     totalHits: partitionId === payload.partitionIds[0] ? queryResult.count : 0,
   }))
 
-  const resultPayload: SearchResultPayload = { results, facets: convertLocalFacetsToWire(queryResult.facets) }
+  const resultPayload: SearchResultPayload = {
+    results,
+    facets: convertLocalFacetsToWire(queryResult.facets),
+    facetErrorBounds: convertLocalFacetBoundsToWire(queryResult.facets),
+  }
 
-  respond({
+  await respond({
     type: QueryMessageTypes.SEARCH_RESULT,
     sourceId: deps.nodeId,
     requestId: message.requestId,
@@ -77,11 +63,13 @@ export async function handleSearch(
 
 export async function handleFetch(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const decoded = decode(message.payload) as unknown
   const payload = validateFetchPayload(decoded)
+
+  const projection = resolveProjection(payload.fields === null ? undefined : { include: payload.fields })
 
   const documents = []
   for (const docRef of payload.documentIds) {
@@ -89,7 +77,7 @@ export async function handleFetch(
     if (doc !== undefined) {
       documents.push({
         docId: docRef.docId,
-        document: doc as Record<string, unknown>,
+        document: applyProjection(doc as AnyDocument, projection) as Record<string, unknown>,
         highlights: null,
       })
     }
@@ -97,7 +85,7 @@ export async function handleFetch(
 
   const resultPayload: FetchResultPayload = { documents }
 
-  respond({
+  await respond({
     type: QueryMessageTypes.FETCH_RESULT,
     sourceId: deps.nodeId,
     requestId: message.requestId,
@@ -107,20 +95,19 @@ export async function handleFetch(
 
 export async function handleStats(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const decoded = decode(message.payload) as unknown
   const payload = validateStatsPayload(decoded)
 
-  const stats = deps.engine.getStats(payload.indexName)
-  const resultPayload: StatsResultPayload = {
-    totalDocuments: stats.documentCount,
-    docFrequencies: {},
-    totalFieldLengths: {},
-  }
+  const resultPayload: StatsResultPayload = deps.engine.collectQueryStats(
+    payload.indexName,
+    payload.terms,
+    payload.partitionIds,
+  )
 
-  respond({
+  await respond({
     type: QueryMessageTypes.STATS_RESULT,
     sourceId: deps.nodeId,
     requestId: message.requestId,
@@ -128,31 +115,31 @@ export async function handleStats(
   })
 }
 
-function convertWireSortToLocal(
-  wireSort: Array<{ field: string; direction: 'asc' | 'desc' }> | null,
-): Record<string, 'asc' | 'desc'> | undefined {
-  if (wireSort === null || wireSort.length === 0) {
-    return undefined
+function toWireSortValue(value: unknown): string | number | boolean | null {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value === 'boolean') return value
+  return null
+}
+
+/**
+ * Reads the largest count each field left out into the shape the wire carries.
+ *
+ * @param facets - What this node counted, or undefined where the query asked for none.
+ * @returns One figure per field, or null where the node counted nothing.
+ */
+export function convertLocalFacetBoundsToWire(facets: QueryResult['facets']): Record<string, number> | null {
+  if (facets === undefined) {
+    return null
   }
-  const result: Record<string, 'asc' | 'desc'> = {}
-  for (const entry of wireSort) {
-    result[entry.field] = entry.direction
+  const result: Record<string, number> = {}
+  for (const [field, facet] of Object.entries(facets)) {
+    result[field] = facet.errorBound
   }
   return result
 }
 
-function convertWireFacetsToLocal(facets: string[] | null, limit: number | null): FacetConfig | undefined {
-  if (facets === null || facets.length === 0) {
-    return undefined
-  }
-  const result: FacetConfig = {}
-  for (const field of facets) {
-    result[field] = limit !== null ? { limit } : {}
-  }
-  return result
-}
-
-function convertLocalFacetsToWire(
+export function convertLocalFacetsToWire(
   facets: QueryResult['facets'],
 ): Record<string, Array<{ value: string; count: number }>> | null {
   if (facets === undefined) {

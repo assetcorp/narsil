@@ -27,17 +27,17 @@ reporting) lives in `src/ir_bench/core`, and each engine is a small driver in
 ## Engines and pinned versions
 
 Each engine runs from a pinned image. Every version was checked against the
-engine's release source on 2026-06-29.
+engine's release source on 2026-08-04.
 
 | Engine | Image (pinned) | Version | Source |
 | ------ | -------------- | ------- | ------ |
 | Narsil | built from this repo (`node:22-trixie-slim` base) | working tree | local source |
-| Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:9.4.2` | 9.4.2 | [release notes](https://www.elastic.co/docs/release-notes/elasticsearch), [GitHub releases](https://github.com/elastic/elasticsearch/releases) |
+| Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:9.5.0` | 9.5.0 | [release notes](https://www.elastic.co/docs/release-notes/elasticsearch), [GitHub releases](https://github.com/elastic/elasticsearch/releases) |
 | OpenSearch | `opensearchproject/opensearch:3.7.0` | 3.7.0 | [opensearch.org/releases](https://opensearch.org/releases/), [GitHub releases](https://github.com/opensearch-project/OpenSearch/releases) |
-| Qdrant | `qdrant/qdrant:v1.18.2` | 1.18.2 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
-| Weaviate | `cr.weaviate.io/semitechnologies/weaviate:1.38.2` | 1.38.2 | [GitHub releases](https://github.com/weaviate/weaviate/releases) |
+| Qdrant | `qdrant/qdrant:v1.18.3` | 1.18.3 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
+| Weaviate | `cr.weaviate.io/semitechnologies/weaviate:1.39.0` | 1.39.0 | [GitHub releases](https://github.com/weaviate/weaviate/releases) |
 | Typesense | `typesense/typesense:30.2` | 30.2 | [GitHub releases](https://github.com/typesense/typesense/releases) |
-| Meilisearch | `getmeili/meilisearch:v1.48.2` | 1.48.2 | [GitHub releases](https://github.com/meilisearch/meilisearch/releases) |
+| Meilisearch | `getmeili/meilisearch:v1.52.0` | 1.52.0 | [GitHub releases](https://github.com/meilisearch/meilisearch/releases) |
 
 ## Tracks and which engines run them
 
@@ -81,24 +81,29 @@ names the method per engine rather than claiming one shared method.
 
 ## Keyword setup per engine
 
-Each engine uses its documented keyword configuration. The engines that implement
-BM25 adopt the Anserini and Pyserini reference parameters. The two engines without
-BM25 run their own documented ranking, recorded plainly so you know the comparison
-there is model against model.
+Each engine runs the keyword configuration this harness sets, and its own defaults
+everywhere else. The engines that implement BM25 take the Anserini and Pyserini
+reference parameters. The two engines without BM25 rank their own way, named here
+so that you know the comparison there is model against model.
 
-| Engine | Ranking model | BM25 k1/b | Analyzer |
-| ------ | ------------- | --------- | -------- |
-| Narsil | BM25 | 0.9 / 0.4 | Porter stemmer, 70-word stop list |
-| Elasticsearch | BM25 (custom default similarity) | 0.9 / 0.4 | `english` (Porter stemmer, English stop words) |
-| OpenSearch | BM25 (native Lucene `BM25Similarity` in 3.x) | 0.9 / 0.4 | `english` (Porter stemmer, English stop words) |
-| Typesense | Token match and proximity (`text_match`), not BM25 | n/a | English locale, Snowball stemming, default typo tolerance |
-| Meilisearch | Bucket-sort ranking rules (`_rankingScore`), not BM25 | n/a | Default tokenization, default typo tolerance and prefix search |
+The table records what the harness configures. It names no stemmer and counts no
+stop words, because an engine changes both between releases and a description
+typed here would go out of date without anyone editing it. Every results file
+records these same values, and Narsil's line shows the language its server
+reported during the run.
+
+| Engine | Ranking model | BM25 k1/b | Analysis the harness sets |
+| ------ | ------------- | --------- | ------------------------- |
+| Narsil | BM25 | 0.9 / 0.4 | Language left at the server default, read back from `/indexes/{name}/stats` |
+| Elasticsearch | BM25 (custom default similarity) | 0.9 / 0.4 | `english` analyzer |
+| OpenSearch | BM25 (custom default similarity) | 0.9 / 0.4 | `english` analyzer |
+| Typesense | Not BM25, sorted by `_text_match` | n/a | Text field created with locale `en` and `stem` enabled |
+| Meilisearch | Not BM25, scored by `_rankingScore` | n/a | `searchableAttributes` set to the text field |
 
 BM25 `k1=0.9, b=0.4` is Anserini's default, sourced to Trotman et al. (SIGIR 2012
-OSIR Workshop) and used throughout the Pyserini BEIR reproductions. The standard
-BEIR BM25 analyzer is Lucene's English analyzer (lowercasing, English stop-word
-removal, and Porter stemming), which the `english` analyzer on Elasticsearch and
-OpenSearch mirrors.
+OSIR Workshop) and used throughout the Pyserini BEIR reproductions. The BEIR BM25
+reference runs Lucene's English analyzer, and both Elasticsearch and OpenSearch
+build on Lucene, so their `english` analyzer is that same analyzer.
 
 ## Narsil's BM25 calibration
 
@@ -109,14 +114,14 @@ nDCG@10 margin.
 
 | Dataset | Narsil nDCG@10 | Published BM25 | Delta | Recall@100 |
 | ------- | -------------- | -------------- | ----- | ---------- |
-| SciFact | 0.6614 | 0.679 | -0.0176 | 0.910 |
-| NFCorpus | 0.3112 | 0.322 | -0.0108 | 0.236 |
+| SciFact | 0.6814 | 0.679 | +0.0024 | 0.925 |
+| NFCorpus | 0.3278 | 0.322 | +0.0058 | 0.249 |
 
 Published baselines are the Pyserini two-click reproductions
 ([castorini.github.io/pyserini/2cr/beir.html](https://castorini.github.io/pyserini/2cr/beir.html)),
 cross-checked against Kamalloo et al., "Resources for Brewing BEIR," SIGIR 2024
-([arXiv:2306.07471](https://arxiv.org/abs/2306.07471)). The small negative deltas
-come from the analyzer difference, not a ranking defect: Kamphuis et al., "Which
+([arXiv:2306.07471](https://arxiv.org/abs/2306.07471)). The small deltas come from
+the analyzer difference, not from the ranking model: Kamphuis et al., "Which
 BM25 Do You Mean?," ECIR 2020
 ([preprint](https://cs.uwaterloo.ca/~jimmylin/publications/Kamphuis_etal_ECIR2020_preprint.pdf))
 show the BM25 scoring variant moves results by under 0.01, while tokenization,
@@ -192,6 +197,23 @@ For a published run, record the host machine:
 BENCH_MACHINE_LABEL="Apple M3 Pro, macOS 26.5.1" ./run-all.sh
 ```
 
+## Profiles
+
+A published run comes from the disclosed cloud machine, and a local run answers a
+different question: did anything break or move since the last time. `BENCH_PROFILE`
+picks which results tree receives the run.
+
+```bash
+./run-all.sh narsil                      # cloud profile, writes results/runs/
+BENCH_PROFILE=smoke ./run-all.sh narsil  # smoke profile, writes results/.smoke/runs/
+```
+
+`results/.smoke/` is git-ignored, and the writeup generator reads `results/runs/`
+alone, so a smoke run reaches neither the repository nor the published page. The
+script prints where it left the results and how to delete them. The profile changes
+where results go and nothing about the measurement, so name the engines you care
+about, or set `BENCH_DATASETS`, when you want a faster check.
+
 ## What it reports
 
 - A per-engine file at `results/runs/<run-id>/engine-<name>.json` and `.md` carries,
@@ -203,9 +225,18 @@ BENCH_MACHINE_LABEL="Apple M3 Pro, macOS 26.5.1" ./run-all.sh
   and reports the queries per second an engine sustains, which still separates engines
   on the small corpora where one query's server time falls below a millisecond. Both
   measures use the same matched-recall operating point, and the file records the
-  concurrency level. Each throughput level also records whether the engine or the
-  client set the limit, read from the client's CPU use and the concurrency it reached,
-  so you can spot a client-bound number before you trust it.
+  concurrency level. The load generator spreads that concurrency across processes,
+  because building a request and parsing its response is interpreter work and one
+  Python process saturates near a single core: a threads-only client holds every
+  engine to that core divided by its per-request cost, whatever the engine could
+  serve. `throughput.client_processes` sets how many processes drive the load
+  (`BENCH_THROUGHPUT_CLIENT_PROCESSES` overrides it, and unset it takes half the
+  host's logical cores), and every level records the value used. That CPU comes out
+  of the same host the engine runs on, so raising it buys headroom to measure with
+  and costs the engine cores to be measured on. Each level also records whether the
+  engine or the client set the limit, read from the client's CPU against the cores
+  its own processes can reach and from the concurrency it achieved, so you can spot
+  a client-bound number before you trust it.
 - Each result records what produced it: the engine's build identity (its version, and
   the git build hash where the engine exposes one), the image digest the engine ran as,
   and each dataset's content hash. With these you can tie a number back to an exact

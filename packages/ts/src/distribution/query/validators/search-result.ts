@@ -10,6 +10,7 @@ import {
 } from './common'
 
 const MAX_RESULTS_PER_PARTITION = 10_000
+const MAX_SORT_VALUES = 8
 
 const MAX_FACET_FIELDS = 64
 const MAX_FACET_BUCKETS = 10_000
@@ -29,12 +30,40 @@ function validateScoredEntry(value: unknown, fieldLabel: string): void {
       { length: value.docId.length, limit: MAX_DOC_ID_LENGTH },
     )
   }
-  if (!isFiniteNumber(value.score)) {
+  const scoreAbsent = value.score === null || value.score === undefined
+  if (scoreAbsent) {
+    if (!Array.isArray(value.sortValues)) {
+      throwInvalid(
+        CONFIG_INVALID,
+        `Invalid SearchResultPayload: "${fieldLabel}.score" is absent only where "sortValues" carries the sort key`,
+      )
+    }
+  } else if (!isFiniteNumber(value.score)) {
     throwInvalid(CONFIG_INVALID, `Invalid SearchResultPayload: "${fieldLabel}.score" must be a finite number`)
   }
-  if (value.sortValues !== null) {
+  if (value.sortValues !== null && value.sortValues !== undefined) {
     if (!Array.isArray(value.sortValues)) {
       throwInvalid(CONFIG_INVALID, `Invalid SearchResultPayload: "${fieldLabel}.sortValues" must be an array or null`)
+    }
+    if (value.sortValues.length > MAX_SORT_VALUES) {
+      throwInvalid(
+        CONFIG_INVALID,
+        `Invalid SearchResultPayload: "${fieldLabel}.sortValues" carries more than ${MAX_SORT_VALUES} values`,
+        { length: value.sortValues.length, limit: MAX_SORT_VALUES },
+      )
+    }
+    for (const sortValue of value.sortValues) {
+      if (
+        sortValue !== null &&
+        typeof sortValue !== 'string' &&
+        typeof sortValue !== 'boolean' &&
+        !isFiniteNumber(sortValue)
+      ) {
+        throwInvalid(
+          CONFIG_INVALID,
+          `Invalid SearchResultPayload: "${fieldLabel}.sortValues" accepts a string, a finite number, a boolean, or null`,
+        )
+      }
     }
   }
 }
@@ -117,6 +146,28 @@ function validateFacets(value: unknown): void {
   }
 }
 
+function validateFacetErrorBounds(value: unknown): void {
+  if (!isRecord(value)) {
+    throwInvalid(CONFIG_INVALID, 'Invalid SearchResultPayload: "facetErrorBounds" must be an object or null')
+  }
+  const entries = Object.entries(value)
+  if (entries.length > MAX_FACET_FIELDS) {
+    throwInvalid(
+      CONFIG_INVALID,
+      `Invalid SearchResultPayload: "facetErrorBounds" exceeds maximum field count of ${MAX_FACET_FIELDS}`,
+      { length: entries.length, limit: MAX_FACET_FIELDS },
+    )
+  }
+  for (const [fieldName, bound] of entries) {
+    if (!isInteger(bound) || bound < 0) {
+      throwInvalid(
+        CONFIG_INVALID,
+        `Invalid SearchResultPayload: "facetErrorBounds.${fieldName}" must be a non-negative integer`,
+      )
+    }
+  }
+}
+
 export function validateSearchResultPayload(decoded: unknown): SearchResultPayload {
   if (!isRecord(decoded)) {
     throwInvalid(CONFIG_INVALID, 'Invalid SearchResultPayload: expected an object')
@@ -129,6 +180,9 @@ export function validateSearchResultPayload(decoded: unknown): SearchResultPaylo
   }
   if (decoded.facets !== null) {
     validateFacets(decoded.facets)
+  }
+  if (decoded.facetErrorBounds !== null && decoded.facetErrorBounds !== undefined) {
+    validateFacetErrorBounds(decoded.facetErrorBounds)
   }
   return decoded as unknown as SearchResultPayload
 }

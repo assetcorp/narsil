@@ -9,6 +9,9 @@ export interface ResolvedLimits {
   maxConcurrentRequests: number
   maxResultWindow: number
   maxFetchDocuments: number
+  maxImportErrors: number
+  maxTaskPageSize: number
+  maxConcurrentTasks: number
 }
 
 /** Build identity the server reports at `/version`, resolved from the optional

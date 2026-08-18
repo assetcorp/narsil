@@ -1,6 +1,7 @@
+import type { IndexInfo } from '@delali/narsil'
 import type { DatasetId } from './manifest'
 
-export type TabId = 'datasets' | 'search' | 'ask' | 'relevance' | 'benchmark' | 'inspector'
+export type TabId = 'datasets' | 'search' | 'ask' | 'relevance' | 'benchmark' | 'inspector' | 'documents'
 
 export type TabStatus = 'locked' | 'ready'
 
@@ -47,20 +48,33 @@ export interface LoadCustomRequest {
 
 export type LoadDatasetRequest = LoadTmdbRequest | LoadWikipediaRequest | LoadScifactRequest | LoadCustomRequest
 
-export interface AppState {
-  indexes: LoadedIndex[]
-  activeIndexName: string | null
-  loadingDatasets: Map<DatasetId, DatasetLoadProgress>
-  scifactLoaded: boolean
-  restoring: boolean
-  tabStatus: Record<TabId, TabStatus>
+export function inferDatasetId(indexName: string): DatasetId {
+  if (indexName.startsWith('tmdb-')) return 'tmdb'
+  if (indexName.startsWith('wikipedia-')) return 'wikipedia'
+  if (indexName === 'scifact') return 'scifact'
+  return 'custom'
 }
 
-export type AppAction =
-  | { type: 'SET_LOADING'; payload: DatasetLoadProgress }
-  | { type: 'INDEX_READY'; payload: LoadedIndex }
-  | { type: 'REMOVE_INDEX'; payload: string }
-  | { type: 'SET_ACTIVE_INDEX'; payload: string }
-  | { type: 'SCIFACT_LOADED' }
-  | { type: 'LOADING_ERROR'; payload: { datasetId: DatasetId; error: string } }
-  | { type: 'SET_RESTORING'; payload: boolean }
+export function toLoadedIndexes(indexes: readonly IndexInfo[]): LoadedIndex[] {
+  return indexes.map(index => ({
+    name: index.name,
+    datasetId: inferDatasetId(index.name),
+    documentCount: index.documentCount,
+    language: index.language,
+  }))
+}
+
+export function computeTabStatus(indexes: readonly LoadedIndex[]): Record<TabId, TabStatus> {
+  const hasAnyIndex = indexes.length > 0
+  const hasAnyDocs = indexes.some(index => index.documentCount > 0)
+
+  return {
+    datasets: 'ready',
+    search: hasAnyDocs ? 'ready' : 'locked',
+    ask: hasAnyDocs ? 'ready' : 'locked',
+    relevance: hasAnyDocs ? 'ready' : 'locked',
+    benchmark: hasAnyDocs ? 'ready' : 'locked',
+    inspector: hasAnyIndex ? 'ready' : 'locked',
+    documents: hasAnyIndex ? 'ready' : 'locked',
+  }
+}

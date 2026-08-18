@@ -11,6 +11,8 @@ export {
   DEFAULT_PARTITION_COUNT,
   DEFAULT_REPLICATION_FACTOR,
 } from './cluster-node'
+export type { ClusterEngineOptions } from './cluster-node/server-engine'
+export { clusterNodeEngine } from './cluster-node/server-engine'
 export type {
   AllocationConstraints,
   AllocationEvent,
@@ -24,14 +26,5 @@ export type {
   PartitionState,
   SchemaEvent,
 } from './coordinator'
-export { createInMemoryCoordinator } from './coordinator'
 export type { ReplicationConfig } from './replication/types'
-export type {
-  InMemoryNetwork,
-  InMemoryTransportInternal,
-  NodeTransport,
-  StreamResponder,
-  TransportConfig,
-  TransportMessage,
-} from './transport'
-export { createInMemoryNetwork, createInMemoryTransport } from './transport'
+export type { ListenHandler, NodeTransport, RespondFn, TransportConfig, TransportMessage } from './transport/types'

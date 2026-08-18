@@ -175,7 +175,7 @@ describe('distributedQuery basic fan-out', () => {
     expect(result.totalHits).toBe(5)
   })
 
-  it('clamps limit to MAX_QUERY_LIMIT', async () => {
+  it('reads a negative limit as an empty page and refuses one past the result window', async () => {
     setupDataNode(network, transports, 'node-a', (msg, respond) => {
       const resultPayload = makeSearchResultResponse([
         { partitionId: 0, scored: [{ docId: 'doc-1', score: 5.0 }], totalHits: 1 },
@@ -188,7 +188,11 @@ describe('distributedQuery basic fan-out', () => {
     const resultNegative = await distributedQuery('products', makeQueryParams({ limit: -5 }), makeDeps(table))
     expect(resultNegative.scored).toHaveLength(0)
 
-    const resultHuge = await distributedQuery('products', makeQueryParams({ limit: 999_999 }), makeDeps(table))
-    expect(resultHuge.scored).toHaveLength(1)
+    await expect(
+      distributedQuery('products', makeQueryParams({ limit: 999_999 }), makeDeps(table)),
+    ).rejects.toMatchObject({ code: 'SEARCH_RESULT_WINDOW_EXCEEDED' })
+
+    const atTheWindow = await distributedQuery('products', makeQueryParams({ limit: 10_000 }), makeDeps(table))
+    expect(atTheWindow.scored).toHaveLength(1)
   })
 })

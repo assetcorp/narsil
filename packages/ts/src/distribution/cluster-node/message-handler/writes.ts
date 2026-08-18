@@ -1,22 +1,30 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { createAckMessage, validateEntryPayload } from '../../replication/codec'
+import type { PartitionAssignment } from '../../coordinator/types'
+import {
+  createAckMessage,
+  createForwardBatchResultMessage,
+  validateEntryBatchPayload,
+  validateEntryPayload,
+  validateForwardBatchPayload,
+} from '../../replication/codec'
 import { validateReplicationEntry } from '../../replication/replica'
-import type { ForwardPayload, TransportMessage } from '../../transport/types'
+import type { ReplicationLogEntry } from '../../replication/types'
+import type { ForwardPayload, RespondFn, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
-import { applyForwardedWrite } from '../write-routing'
+import { applyForwardedBatch, applyForwardedWrite } from '../write-routing'
 import type { DataNodeHandlerDeps } from './types'
 
 export async function handleForward(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const decoded = decode(message.payload) as Record<string, unknown>
   const payload = validateForwardPayload(decoded)
   const documentId = await applyForwardedWrite(payload, deps.writeDeps)
 
-  respond({
+  await respond({
     type: ReplicationMessageTypes.FORWARD,
     sourceId: deps.nodeId,
     requestId: message.requestId,
@@ -24,14 +32,54 @@ export async function handleForward(
   })
 }
 
+export async function handleForwardBatch(
+  message: TransportMessage,
+  respond: RespondFn,
+  deps: DataNodeHandlerDeps,
+): Promise<void> {
+  const payload = validateForwardBatchPayload(decode(message.payload))
+  const results = await applyForwardedBatch(payload, deps.writeDeps)
+  await respond(createForwardBatchResultMessage({ results }, deps.nodeId, message.requestId))
+}
+
 export async function handleReplicationEntry(
   message: TransportMessage,
-  respond: (response: TransportMessage) => void,
+  respond: RespondFn,
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateEntryPayload(decode(message.payload))
   const { entry } = payload
 
+  const assignment = await resolveValidatedAssignment(entry, message.sourceId, deps)
+  await applyEntryToLog(entry, assignment, deps)
+
+  await respond(createAckMessage(entry.seqNo, entry.partitionId, entry.indexName, deps.nodeId, message.requestId))
+}
+
+export async function handleReplicationEntryBatch(
+  message: TransportMessage,
+  respond: RespondFn,
+  deps: DataNodeHandlerDeps,
+): Promise<void> {
+  const payload = validateEntryBatchPayload(decode(message.payload))
+  const firstEntry = payload.entries[0]
+  const lastEntry = payload.entries[payload.entries.length - 1]
+
+  const assignment = await resolveValidatedAssignment(firstEntry, message.sourceId, deps)
+  for (const entry of payload.entries) {
+    await applyEntryToLog(entry, assignment, deps)
+  }
+
+  await respond(
+    createAckMessage(lastEntry.seqNo, lastEntry.partitionId, lastEntry.indexName, deps.nodeId, message.requestId),
+  )
+}
+
+async function resolveValidatedAssignment(
+  entry: ReplicationLogEntry,
+  sourceNodeId: string,
+  deps: DataNodeHandlerDeps,
+): Promise<PartitionAssignment> {
   const table = await deps.coordinator.getAllocation(entry.indexName)
   if (table === null) {
     throw new NarsilError(
@@ -50,14 +98,14 @@ export async function handleReplicationEntry(
     )
   }
 
-  if (assignment.primary !== message.sourceId) {
+  if (assignment.primary !== sourceNodeId) {
     throw new NarsilError(
       ErrorCodes.REPLICATION_ENTRY_INVALID,
       `Replication entry for index '${entry.indexName}' partition ${entry.partitionId} came from a non-primary node`,
       {
         indexName: entry.indexName,
         partitionId: entry.partitionId,
-        sourceNodeId: message.sourceId,
+        sourceNodeId,
         primaryNodeId: assignment.primary,
       },
     )
@@ -79,6 +127,14 @@ export async function handleReplicationEntry(
     )
   }
 
+  return assignment
+}
+
+async function applyEntryToLog(
+  entry: ReplicationLogEntry,
+  assignment: PartitionAssignment,
+  deps: DataNodeHandlerDeps,
+): Promise<void> {
   let log = deps.writeDeps.getReplicationLog(entry.indexName, entry.partitionId)
   const existing = log.getEntry(entry.seqNo)
   if (existing !== undefined) {
@@ -89,7 +145,6 @@ export async function handleReplicationEntry(
         { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo },
       )
     }
-    respond(createAckMessage(entry.seqNo, entry.partitionId, entry.indexName, deps.nodeId, message.requestId))
     return
   }
 
@@ -123,8 +178,6 @@ export async function handleReplicationEntry(
 
   await deps.engine.applyReplicationEntry(entry)
   log.appendCommitted(entry)
-
-  respond(createAckMessage(entry.seqNo, entry.partitionId, entry.indexName, deps.nodeId, message.requestId))
 }
 
 export function validateForwardPayload(decoded: unknown): ForwardPayload {

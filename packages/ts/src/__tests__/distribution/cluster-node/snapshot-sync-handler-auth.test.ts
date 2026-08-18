@@ -11,7 +11,7 @@ import type {
   PartitionAssignment,
   PartitionState,
 } from '../../../distribution/coordinator/types'
-import { ReplicationMessageTypes, type TransportMessage } from '../../../distribution/transport/types'
+import { ReplicationMessageTypes, type RespondFn, type TransportMessage } from '../../../distribution/transport/types'
 import { ErrorCodes } from '../../../errors'
 import type { Narsil } from '../../../narsil'
 
@@ -68,10 +68,10 @@ function makeRequest(indexName: string, sourceId = 'replica-node', requestId = '
   }
 }
 
-function collect(): { respond: (r: TransportMessage) => void; responses: TransportMessage[] } {
+function collect(): { respond: RespondFn; responses: TransportMessage[] } {
   const responses: TransportMessage[] = []
   return {
-    respond: (r: TransportMessage) => {
+    respond: async (r: TransportMessage) => {
       responses.push(r)
     },
     responses,

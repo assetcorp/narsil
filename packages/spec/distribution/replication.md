@@ -39,13 +39,27 @@ Each partition has exactly one primary node that accepts writes, and zero or mor
    takes over from step 4.
 ```
 
+A node forwarding many mutations to one primary should send them in a single `replication.forward_batch` message, and the primary then answers one outcome per mutation; see [transport.md](transport.md#replicationforward_batch).
+
 ### Rollback of a Failed Write
 
 A primary must never leave a locally applied mutation visible when the write fails before it can be acknowledged. That covers a failure while forwarding to in-sync replicas, a failure while removing a failed replica from the in-sync set, and a failure while checking that the node still holds primary authority for the partition.
 
 A primary that has already applied an insert locally must remove that document before it returns the failure. A primary that has already applied a remove locally must restore the document that was visible before, again before it returns the failure.
 
-When the rollback itself fails, the primary must still refuse to acknowledge the write. It reports `REPLICATION_ROLLBACK_FAILED` with enough context to identify both the original write failure and the rollback failure. An implementation may then mark the local partition unhealthy or take it out of service; the partition must not carry on serving reads that could expose the unacknowledged mutation.
+The log is append-only, so a primary that has already appended the entry must not remove it. It must append a compensating entry before it returns the failure, because a replica catching up through the [Sync Protocol](#sync-protocol) receives every appended entry whether or not the primary acknowledged the write.
+
+| Rolled-back entry | Compensating entry |
+|-------------------|--------------------|
+| `INDEX` over a document that existed before | `INDEX` carrying that earlier document |
+| `INDEX` of a document that did not exist | `DELETE` |
+| `DELETE` | `INDEX` carrying the removed document |
+
+A primary must append the compensating entry under the same `primaryTerm` as the entry it compensates. Where the rollback runs because that term is no longer current, the primary must abandon the compensating entry, because a new primary owns the log from the newer term onwards.
+
+A primary rolling back a batch must compensate every entry it appended for that batch, in the reverse of the order it appended them.
+
+When the rollback itself fails, which covers a failed local restore and a failed compensating append alike, the primary must still refuse to acknowledge the write. It reports `REPLICATION_ROLLBACK_FAILED` with enough context to identify both the original write failure and the rollback failure. An implementation may then mark the local partition unhealthy or take it out of service; the partition must not carry on serving reads that could expose the unacknowledged mutation.
 
 ### Read Path
 
@@ -218,6 +232,8 @@ A replica joins the in-sync set once it has applied every log entry up to the pr
 
 A replica leaves the in-sync set when the primary detects it has failed, whether by a timeout on a forwarded entry or by a lost connection. The primary then asks the controller to remove it.
 
+A replica that reads an `ACTIVE` assignment naming it as a replica outside the in-sync set must run the sync protocol against the primary, and it rejoins the set through the bootstrap completion report.
+
 ### Finding the Controller
 
 The primary calls `getLeaseHolder('_narsil/controller')` on the cluster coordinator, which returns the `nodeId` of the active controller. The primary looks that node's `address` up in its cached node registry, kept current by the node watch, and sends the removal request over the node transport.
@@ -253,6 +269,8 @@ The in-sync set is stored in the cluster coordinator as the `inSyncSet` field of
 ## Write Durability
 
 Every write replicates to every in-sync replica before it is acknowledged, and that is not configurable. The primary always forwards the operation to every replica in the in-sync set and waits for all of them.
+
+A primary may group contiguous entries for one partition into a single `replication.entry_batch` message, and the replica's one acknowledgement of the batch's last entry then covers every entry in it. A primary must send each partition's entries in sequence-number order, whichever message carries them.
 
 A replica that fails during replication is removed from the in-sync set through the controller, and the primary then acknowledges. The write is durable on every remaining in-sync replica.
 

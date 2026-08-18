@@ -1,6 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
-import { type ErrorCode, ErrorCodes, NarsilError } from '../../errors'
+import { type ErrorCode, ErrorCodes, NarsilError, type NarsilErrorCode } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
 import { crc32 } from '../../serialization/crc32'
 import { deserializePayloadV2 } from '../../serialization/payload-v2'
@@ -265,7 +265,7 @@ function entryValidationError(seqNo: number, code: ErrorCode | undefined, deps: 
   })
 }
 
-function snapshotStreamError(message: string, cause: ErrorCode, deps: SyncReplicaDeps): NarsilError {
+function snapshotStreamError(message: string, cause: NarsilErrorCode, deps: SyncReplicaDeps): NarsilError {
   return new NarsilError(ErrorCodes.REPLICATION_SYNC_FAILED, `Snapshot sync failed: ${message}`, {
     indexName: deps.indexName,
     partitionId: deps.partitionId,

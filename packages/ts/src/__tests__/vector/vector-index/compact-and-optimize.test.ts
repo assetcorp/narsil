@@ -38,7 +38,7 @@ describe('VectorIndex compact', () => {
     const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
     try {
       for (let i = 0; i < 6; i++) {
-        sqIndex.insert(`doc${i}`, normalizedVector(DIM))
+        sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
       }
       sqIndex.scheduleBuild()
       await vi.advanceTimersToNextTimerAsync()
@@ -78,7 +78,7 @@ describe('VectorIndex optimize', () => {
 
   it('optimize compacts then rebuilds HNSW', async () => {
     for (let i = 0; i < 8; i++) {
-      index.insert(`doc${i}`, normalizedVector(DIM))
+      index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
     index.remove('doc0')
 
@@ -91,7 +91,7 @@ describe('VectorIndex optimize', () => {
 
   it('optimize with empty index clears HNSW and buffer', async () => {
     for (let i = 0; i < 6; i++) {
-      index.insert(`doc${i}`, normalizedVector(DIM))
+      index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
     index.scheduleBuild()
     await vi.advanceTimersToNextTimerAsync()
@@ -112,7 +112,7 @@ describe('VectorIndex optimize', () => {
     const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
     try {
       for (let i = 0; i < 6; i++) {
-        sqIndex.insert(`doc${i}`, normalizedVector(DIM))
+        sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
       }
 
       await sqIndex.optimize()

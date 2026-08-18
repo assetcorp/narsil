@@ -1,15 +1,9 @@
-import type { QueryHit } from '../../backend'
+import type { Hit } from '@delali/narsil'
+import { formatFieldValue } from '../../lib/display-fields'
 import { Badge } from '../ui/badge'
 
 interface ResultDetailProps {
-  hit: QueryHit
-}
-
-function formatValue(value: unknown): string {
-  if (value === null || value === undefined) return ''
-  if (Array.isArray(value)) return value.join(', ')
-  if (typeof value === 'object') return JSON.stringify(value, null, 2)
-  return String(value)
+  hit: Hit
 }
 
 function isLongText(value: unknown): boolean {
@@ -24,9 +18,11 @@ export function ResultDetail({ hit }: ResultDetailProps) {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center gap-3">
-        <Badge variant="outline" className="font-mono text-xs">
-          Score: {hit.score.toFixed(4)}
-        </Badge>
+        {hit.score === undefined ? null : (
+          <Badge variant="outline" className="font-mono text-xs">
+            Score: {hit.score.toFixed(4)}
+          </Badge>
+        )}
         <span className="font-mono text-xs text-muted-foreground">ID: {hit.id}</span>
       </div>
 
@@ -35,7 +31,7 @@ export function ResultDetail({ hit }: ResultDetailProps) {
         <div className="flex flex-col gap-2">
           {fields.map(field => {
             const value = doc[field]
-            const display = formatValue(value)
+            const display = formatFieldValue(value)
             const long = isLongText(value)
             return (
               <div key={field} className="rounded-md border px-3 py-2">

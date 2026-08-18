@@ -46,6 +46,14 @@ export function createController(config: ControllerConfig): ControllerNode {
 
     startRenewalInterval(electionState, coordinator, nodeId, leaseTtlMs, stepDown)
 
+    try {
+      for (const indexName of await coordinator.listSchemas()) {
+        eventLoopState.knownIndexes.add(indexName)
+      }
+    } catch (_) {
+      /* Listing failure is recoverable; schema events refill knownIndexes */
+    }
+
     await startEventLoop(eventLoopState, coordinator, transport, nodeId, isActive, onError)
   }
 

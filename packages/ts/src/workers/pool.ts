@@ -45,7 +45,7 @@ export interface WorkerPoolConfig {
 
 declare const navigator: { hardwareConcurrency?: number } | undefined
 
-function resolveWorkerCount(requested?: number): number {
+export function resolveWorkerCount(requested?: number): number {
   if (requested !== undefined && requested > 0) {
     return requested
   }

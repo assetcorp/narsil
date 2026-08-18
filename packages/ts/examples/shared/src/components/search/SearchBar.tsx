@@ -1,6 +1,6 @@
+import type { SuggestResult } from '@delali/narsil'
 import { Loader2, Search } from 'lucide-react'
 import { useCallback, useRef, useState } from 'react'
-import type { SuggestResponse } from '../../backend'
 import { Input } from '../ui/input'
 
 interface SearchBarProps {
@@ -9,7 +9,7 @@ interface SearchBarProps {
   resultCount: number | null
   elapsed: number | null
   isLoading: boolean
-  suggestions: SuggestResponse | null
+  suggestions: SuggestResult | null
 }
 
 function SuggestionItem({

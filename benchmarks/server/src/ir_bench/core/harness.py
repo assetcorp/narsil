@@ -10,12 +10,15 @@ from .latency import measure_latency
 from .runfile import run_mapping, strict_ranking, write_run_file
 from .scoring import evaluate
 from .throughput import measure_throughput
+from .throughput_workload import Workload, request_caller
 from .track_common import bulk_load_begin, bulk_load_end, best_effort, index_name, index_size_bytes, verify_indexed
 from .types import BEST_CONFIG, EQUAL_PRECISION, EngineError, HYBRID, KEYWORD, SERVER_TIME_UNAVAILABLE, VECTOR
 from .vector_runner import run_hybrid_track, run_vector_track
 
 
-def run_keyword_track(driver, config: BenchmarkConfig, spec: DatasetSpec, runs_dir: Path) -> dict:
+def run_keyword_track(
+    driver, engine_cfg: EngineConfig, config: BenchmarkConfig, spec: DatasetSpec, runs_dir: Path
+) -> dict:
     index = index_name(spec.dataset_id)
     print(f"[{driver.name}:{spec.dataset_id}:keyword] loading queries and judgements", flush=True)
     queries = ds.load_queries(spec.dataset_id)
@@ -27,7 +30,9 @@ def run_keyword_track(driver, config: BenchmarkConfig, spec: DatasetSpec, runs_d
     print(f"[{driver.name}:{spec.dataset_id}:keyword] ingesting corpus", flush=True)
     bulk_load_begin(driver, index, spec)
     build_start = perf_counter()
-    imported = driver.import_documents(index, ds.iter_documents(spec.dataset_id), config.import_batch)
+    imported = driver.import_documents(
+        index, ds.iter_documents(spec.dataset_id), config.import_batch, config.import_clients
+    )
     build_seconds = perf_counter() - build_start
     bulk_load_end(driver, index, spec)
     indexed = verify_indexed(driver, index, imported, spec.dataset_id)
@@ -50,11 +55,17 @@ def run_keyword_track(driver, config: BenchmarkConfig, spec: DatasetSpec, runs_d
     server_time = getattr(driver, "server_time", SERVER_TIME_UNAVAILABLE)
     query_list = list(queries.values())
 
-    def search_once(term: str):
-        return driver.search(index, term, config.latency.top_k)
+    workload = Workload(
+        engine=engine_cfg,
+        bm25=config.bm25,
+        track=KEYWORD,
+        index=index,
+        top_k=config.latency.top_k,
+    )
+    search_once = request_caller(driver, workload)
 
     latency = measure_latency(search_once, query_list, config.latency, server_time)
-    throughput = measure_throughput(search_once, query_list, config.throughput, server_time)
+    throughput = measure_throughput(workload, query_list, config.throughput, server_time)
 
     stats = best_effort(lambda: driver.index_stats(index), "index stats")
     driver.drop_index(index)
@@ -85,6 +96,8 @@ def run_keyword_track(driver, config: BenchmarkConfig, spec: DatasetSpec, runs_d
             "documents_indexed": indexed,
             "build_seconds": build_seconds,
             "ingest_docs_per_sec": ingest_rate,
+            "ingest_clients": config.import_clients,
+            "ingest_batch_size": config.import_batch,
             "index_size_bytes": index_size_bytes(stats),
             "raw_stats": stats,
         },
@@ -113,12 +126,13 @@ def run_engine(
             if track == KEYWORD:
                 if vector_profile == BEST_CONFIG:
                     continue
-                results.append(run_keyword_track(driver, config, spec, runs_dir))
+                results.append(run_keyword_track(driver, engine_cfg, config, spec, runs_dir))
             elif track == VECTOR:
                 if store is None or config.vector is None:
                     raise EngineError("vector track requires an embedding store and a [vector] config section")
                 result = run_vector_track(
-                    driver, config, spec, runs_dir, store, f"{engine_cfg.name}_vector{suffix}", vector_profile
+                    driver, engine_cfg, config, spec, runs_dir, store,
+                    f"{engine_cfg.name}_vector{suffix}", vector_profile,
                 )
                 point = result.get("operating_point")
                 if point and point.get("chosen_value") is not None:
@@ -130,7 +144,7 @@ def run_engine(
                     raise EngineError("hybrid track requires an embedding store and a [vector] config section")
                 results.append(
                     run_hybrid_track(
-                        driver, config, spec, runs_dir, store, f"{engine_cfg.name}_hybrid{suffix}",
+                        driver, engine_cfg, config, spec, runs_dir, store, f"{engine_cfg.name}_hybrid{suffix}",
                         chosen_vector_ef, vector_profile, chosen_vector_oversample,
                     )
                 )

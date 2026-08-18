@@ -1,6 +1,7 @@
 import { decode, encode } from '@msgpack/msgpack'
 import type { SerializablePartition, SerializedSurfaceForms } from '../types/internal'
 import { sanitizeSurfaceForms } from './payload-v1'
+import { dropStoredVectorValues } from './stored-vector-values'
 
 interface ColumnarPostingList {
   df: number
@@ -85,6 +86,7 @@ export function deserializePayloadV2(data: Uint8Array): SerializablePartition {
       fieldLengths: doc.field_lengths ?? {},
     }
   }
+  dropStoredVectorValues(documents, raw.schema ?? {})
 
   const fieldNames = raw.inverted_index?.field_names ?? []
   const invertedIndex: SerializablePartition['invertedIndex'] = {}

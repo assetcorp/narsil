@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AllocationTable } from '../../../../distribution/coordinator/types'
 import { decodePayload } from '../../../../distribution/query/codec'
-import { decodeDistributedCursor, encodeDistributedCursor } from '../../../../distribution/query/cursor'
 import type { QueryRoutingDeps } from '../../../../distribution/query/routing'
 import { distributedQuery } from '../../../../distribution/query/routing'
 import {
@@ -11,6 +10,7 @@ import {
   type NodeTransport,
 } from '../../../../distribution/transport'
 import type { SearchPayload } from '../../../../distribution/transport/types'
+import { decodePageCursor, encodePageCursor } from '../../../../search/cursor'
 import {
   createSearchResultMessage,
   makeAllocationTable,
@@ -66,9 +66,9 @@ describe('distributedQuery cursor and searchAfter', () => {
     const result = await distributedQuery('products', makeQueryParams(), makeDeps(table))
 
     expect(result.cursor).not.toBeNull()
-    const decoded = decodeDistributedCursor(result.cursor as string)
-    expect(decoded.s).toBe(3.5)
-    expect(decoded.d).toBe('doc-3')
+    const decoded = decodePageCursor(result.cursor as string)
+    expect(decoded.score).toBe(3.5)
+    expect(decoded.anchor).toBe('doc-3')
   })
 
   it('returns cursor encoding the last result after limit truncation', async () => {
@@ -94,9 +94,9 @@ describe('distributedQuery cursor and searchAfter', () => {
 
     expect(result.scored).toHaveLength(3)
     expect(result.cursor).not.toBeNull()
-    const decoded = decodeDistributedCursor(result.cursor as string)
-    expect(decoded.s).toBe(6.0)
-    expect(decoded.d).toBe('doc-3')
+    const decoded = decodePageCursor(result.cursor as string)
+    expect(decoded.score).toBe(6.0)
+    expect(decoded.anchor).toBe('doc-3')
   })
 
   it('returns cursor: null when no scored entries exist', async () => {
@@ -121,7 +121,7 @@ describe('distributedQuery cursor and searchAfter', () => {
 
   it('passes searchAfter through to data nodes unchanged', async () => {
     const capturedPayloads: SearchPayload[] = []
-    const cursorValue = encodeDistributedCursor(5.5, 'doc-prev')
+    const cursorValue = encodePageCursor({ anchor: 'doc-prev', score: 5.5, sortKey: null, sortSignature: null })
 
     setupDataNode(network, transports, 'node-a', (msg, respond) => {
       capturedPayloads.push(decodePayload<SearchPayload>(msg.payload))
@@ -144,7 +144,7 @@ describe('distributedQuery cursor and searchAfter', () => {
 
   it('broadcasts the same searchAfter to all data nodes', async () => {
     const capturedPayloads: SearchPayload[] = []
-    const cursorValue = encodeDistributedCursor(7.0, 'doc-anchor')
+    const cursorValue = encodePageCursor({ anchor: 'doc-anchor', score: 7.0, sortKey: null, sortSignature: null })
 
     setupDataNode(network, transports, 'node-a', (msg, respond) => {
       capturedPayloads.push(decodePayload<SearchPayload>(msg.payload))

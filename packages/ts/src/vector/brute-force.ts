@@ -1,4 +1,5 @@
 import { createBoundedMaxHeap } from '../core/heap'
+import { compareCodePoints } from '../core/ordering'
 import type { ScoredDocument } from '../types/internal'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from './similarity'
 import type { VectorStore } from './vector-store'
@@ -39,7 +40,7 @@ export function createBruteForceSearch(dimension: number, store: VectorStore): B
       }
       const queryMag = magnitude(query)
       const highScoreFirst = (a: { score: number; docId: string }, b: { score: number; docId: string }) =>
-        b.score - a.score || a.docId.localeCompare(b.docId)
+        b.score - a.score || compareCodePoints(a.docId, b.docId)
       const heap = createBoundedMaxHeap<{ docId: string; score: number }>(highScoreFirst, k)
 
       for (const [docId, entry] of store.entries()) {

@@ -23,6 +23,7 @@ export interface MockEngineOptions {
   restoreRejects?: Error
   createIndexRejects?: Error
   statsSchema?: Record<string, unknown>
+  restoreDelayMs?: number
 }
 
 export interface MockEngineHandle {
@@ -31,6 +32,8 @@ export interface MockEngineHandle {
   createIndexCalls: string[]
   dropIndexCalls: string[]
   setHasIndex: (value: boolean) => void
+  restoreStarted: Promise<void>
+  holdRestore: () => () => void
 }
 
 export function makeMockEngine(options: MockEngineOptions = {}): MockEngineHandle {
@@ -38,6 +41,12 @@ export function makeMockEngine(options: MockEngineOptions = {}): MockEngineHandl
   const restoreCalls: Array<{ indexName: string; data: Uint8Array }> = []
   const createIndexCalls: string[] = []
   const dropIndexCalls: string[] = []
+  const restoreDelayMs = options.restoreDelayMs ?? 0
+  let announceRestoreStarted: () => void = () => {}
+  const restoreStarted = new Promise<void>(resolve => {
+    announceRestoreStarted = resolve
+  })
+  let restoreHold: Promise<void> | null = null
 
   const statsSchema = options.statsSchema ?? { title: 'text' }
   const engine = {
@@ -54,6 +63,13 @@ export function makeMockEngine(options: MockEngineOptions = {}): MockEngineHandl
       dropIndexCalls.push(name)
     },
     restore: async (indexName: string, data: Uint8Array) => {
+      announceRestoreStarted()
+      if (restoreHold !== null) {
+        await restoreHold
+      }
+      if (restoreDelayMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, restoreDelayMs))
+      }
       if (options.restoreRejects !== undefined) {
         throw options.restoreRejects
       }
@@ -70,6 +86,17 @@ export function makeMockEngine(options: MockEngineOptions = {}): MockEngineHandl
     dropIndexCalls,
     setHasIndex: (value: boolean) => {
       hasIndex = value
+    },
+    restoreStarted,
+    holdRestore: () => {
+      let releaseRestore: () => void = () => {}
+      restoreHold = new Promise<void>(resolve => {
+        releaseRestore = resolve
+      })
+      return () => {
+        restoreHold = null
+        releaseRestore()
+      }
     },
   }
 }
@@ -163,12 +190,23 @@ export interface ScriptedTransport {
   streamCalls: Array<{ target: string; message: TransportMessage }>
   setScript: (script: ScriptedChunk[] | 'reject' | Error) => void
   setPerTargetScript: (perTarget: Record<string, ScriptedChunk[] | Error>) => void
+  setChunkDelayMs: (ms: number) => void
 }
 
 export function makeScriptedTransport(initial: ScriptedChunk[] | 'reject' | Error = []): ScriptedTransport {
   const streamCalls: Array<{ target: string; message: TransportMessage }> = []
   let script: ScriptedChunk[] | 'reject' | Error = initial
   let perTarget: Record<string, ScriptedChunk[] | Error> | null = null
+  let chunkDelayMs = 0
+
+  const emit = async (chunks: ScriptedChunk[], handler: (chunk: Uint8Array) => void): Promise<void> => {
+    for (const chunk of chunks) {
+      if (chunkDelayMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, chunkDelayMs))
+      }
+      handler(chunk)
+    }
+  }
 
   const transport: NodeTransport = {
     send: async () => {
@@ -184,9 +222,7 @@ export function makeScriptedTransport(initial: ScriptedChunk[] | 'reject' | Erro
         if (entry === undefined) {
           return
         }
-        for (const chunk of entry) {
-          handler(chunk)
-        }
+        await emit(entry, handler)
         return
       }
       if (script instanceof Error) {
@@ -195,9 +231,7 @@ export function makeScriptedTransport(initial: ScriptedChunk[] | 'reject' | Erro
       if (script === 'reject') {
         throw new TransportError(TransportErrorCodes.PEER_UNAVAILABLE, 'peer unavailable')
       }
-      for (const chunk of script) {
-        handler(chunk)
-      }
+      await emit(script, handler)
     },
     listen: async () => () => {},
     shutdown: async () => {},
@@ -212,6 +246,9 @@ export function makeScriptedTransport(initial: ScriptedChunk[] | 'reject' | Erro
     },
     setPerTargetScript: value => {
       perTarget = value
+    },
+    setChunkDelayMs: ms => {
+      chunkDelayMs = ms
     },
   }
 }

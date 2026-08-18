@@ -1,0 +1,629 @@
+{
+  "environment": {
+    "captured_at": "2026-08-04T19:11:11.612716+00:00",
+    "harness_version": "0.1.0",
+    "containerized": true,
+    "machine_label": "GCP c3-standard-8, us-central1-a",
+    "os": "Linux 6.17.0-1021-gcp",
+    "arch": "x86_64",
+    "cpu_model": "Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz",
+    "logical_cpus": 8,
+    "total_memory_bytes": 33647976448,
+    "python_version": "3.12.13",
+    "ir_datasets_version": "0.6.1",
+    "pytrec_eval_version": "0.5.10"
+  },
+  "engine": {
+    "name": "elasticsearch",
+    "run_tag": "elasticsearch_bm25",
+    "ranking": "bm25",
+    "url": "http://elasticsearch:9200",
+    "version": "9.5.0",
+    "image_digest": "docker.elastic.co/elasticsearch/elasticsearch@sha256:8818ab9af72d7482e38a9d6f0454d5ee667564a25bbdc42360c0f9b8f8f72fc5",
+    "build_identity": {
+      "version": "9.5.0",
+      "build_hash": "8d4246a64bc255212407b1b313fe402391299c88",
+      "build_date": "2026-07-29T23:38:48.847847767Z",
+      "distribution": null,
+      "source_endpoint": "/",
+      "raw": {
+        "number": "9.5.0",
+        "build_flavor": "default",
+        "build_type": "docker",
+        "build_hash": "8d4246a64bc255212407b1b313fe402391299c88",
+        "build_date": "2026-07-29T23:38:48.847847767Z",
+        "build_snapshot": false,
+        "lucene_version": "10.5.0",
+        "minimum_wire_compatibility_version": "8.19.0",
+        "minimum_index_compatibility_version": "8.0.0"
+      }
+    },
+    "tracks": [
+      "keyword",
+      "vector",
+      "hybrid"
+    ],
+    "keyword_setup": "BM25 k1=0.9 b=0.4 (custom default similarity); Elasticsearch `english` analyzer",
+    "vector_profile": "best-config"
+  },
+  "config": {
+    "k1": 0.9,
+    "b": 0.4,
+    "run_depth": 1000,
+    "memory_cap_bytes": 8589934592,
+    "throughput": {
+      "enabled": true,
+      "concurrency": [
+        16
+      ],
+      "duration_seconds": 5.0,
+      "warmup_seconds": 1.0
+    },
+    "vector_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "vector_dims": 384,
+    "vector_metric": "cosine",
+    "recall_target": 0.99,
+    "recall_k": 10,
+    "vector_profile": "best-config"
+  },
+  "datasets": [
+    {
+      "dataset_id": "beir/scifact/test",
+      "dataset_identity": {
+        "source": "ir_datasets",
+        "md5": "5f7d1de60b170fc8027bb7898e2efca1",
+        "size_bytes": 2816079,
+        "subset": "scifact",
+        "archive": "scifact/source.zip",
+        "corpus_fingerprint": "7eef964b1e3042197cafe04e912a8065b91bab2dd3e591cb277dcd369d6fa381",
+        "fingerprint_algorithm": "sha256/len-framed/id-byte-sorted/v1"
+      },
+      "track": "vector",
+      "run_tag": "elasticsearch_vector_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "dense_vector BBQ (bbq_hnsw, binary quantization) with full-precision rescore (oversample tuned to the recall target), similarity cosine",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.6238596288000929,
+        "recall_100": 0.9226666666666667,
+        "map": 0.5797156406807212,
+        "recip_rank": 0.5848884643178871
+      },
+      "calibration": null,
+      "operating_point": {
+        "knob": "num_candidates",
+        "recall_metric": "ann_recall@10",
+        "recall_k": 10,
+        "target": 0.99,
+        "chosen_value": 256,
+        "rescore_oversample": 8.0,
+        "achieved_recall": 0.9956666666666668,
+        "met_target": true,
+        "secondary_target": 0.95,
+        "secondary_value": 128,
+        "secondary_recall": 0.9513333333333338,
+        "sweep": [
+          {
+            "value": 16,
+            "recall": 0.9320000000000008
+          },
+          {
+            "value": 32,
+            "recall": 0.9340000000000005
+          },
+          {
+            "value": 64,
+            "recall": 0.9453333333333338
+          },
+          {
+            "value": 128,
+            "recall": 0.9513333333333338
+          },
+          {
+            "value": 256,
+            "recall": 0.9516666666666672
+          },
+          {
+            "value": 512,
+            "recall": 0.9513333333333338
+          },
+          {
+            "value": 1024,
+            "recall": 0.9513333333333338
+          },
+          {
+            "value": 2048,
+            "recall": 0.9513333333333338
+          }
+        ]
+      },
+      "vector_oversample": 8.0,
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 4.454989725999894,
+        "ingest_docs_per_sec": 1163.4145797803626,
+        "index_size_bytes": 15489065,
+        "raw_stats": {
+          "index_size_bytes": 15489065,
+          "raw": {
+            "size_in_bytes": 15489065,
+            "total_data_set_size_in_bytes": 15489065,
+            "reserved_in_bytes": 0
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "mean_ms": 2.043437384666667,
+        "p50_ms": 2.043395,
+        "p90_ms": 2.168018,
+        "p95_ms": 2.220357,
+        "p99_ms": 2.354912,
+        "max_ms": 2.475913,
+        "top_k": 10,
+        "client": {
+          "samples": 1500,
+          "mean_ms": 2.043437384666667,
+          "p50_ms": 2.043395,
+          "p90_ms": 2.168018,
+          "p95_ms": 2.220357,
+          "p99_ms": 2.354912,
+          "max_ms": 2.475913,
+          "top_k": 10
+        },
+        "server": {
+          "samples": 1500,
+          "mean_ms": 0.0033333333333333335,
+          "p50_ms": 0.0,
+          "p90_ms": 0.0,
+          "p95_ms": 0.0,
+          "p99_ms": 0.0,
+          "max_ms": 1.0,
+          "top_k": 10
+        },
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond"
+      },
+      "throughput": {
+        "warmup_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond",
+        "levels": [
+          {
+            "concurrency": 16,
+            "qps": 705.2923782967974,
+            "completed": 3534,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.010687920000237,
+            "client_latency_ms": {
+              "samples": 3534,
+              "mean_ms": 22.540634064511526,
+              "p50_ms": 20.65762399979576,
+              "p90_ms": 34.61413399963931,
+              "p95_ms": 40.19096799993349,
+              "p99_ms": 52.634845999818936,
+              "max_ms": 83.15491099983774
+            },
+            "server_latency_ms": {
+              "samples": 3534,
+              "mean_ms": 0.09903791737408037,
+              "p50_ms": 0.0,
+              "p90_ms": 0.0,
+              "p95_ms": 1.0,
+              "p99_ms": 1.0,
+              "max_ms": 11.0
+            },
+            "achieved_concurrency": 15.897737407677141,
+            "client_cpu_seconds": 5.450160333000001,
+            "client_cores_busy": 1.0877070015168184,
+            "client_busy_fraction": 0.1359633751896023,
+            "logical_cpus": 8,
+            "client_bound": false
+          }
+        ]
+      },
+      "run_file": "results/runs/20260804T184221Z/runfiles/bench_beir_scifact_test.elasticsearch_vector_bestconfig.run"
+    },
+    {
+      "dataset_id": "beir/scifact/test",
+      "dataset_identity": {
+        "source": "ir_datasets",
+        "md5": "5f7d1de60b170fc8027bb7898e2efca1",
+        "size_bytes": 2816079,
+        "subset": "scifact",
+        "archive": "scifact/source.zip",
+        "corpus_fingerprint": "7eef964b1e3042197cafe04e912a8065b91bab2dd3e591cb277dcd369d6fa381",
+        "fingerprint_algorithm": "sha256/len-framed/id-byte-sorted/v1"
+      },
+      "track": "hybrid",
+      "run_tag": "elasticsearch_hybrid_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "BM25 match fused with BBQ dense_vector kNN (full-precision rescore) via the RRF retriever",
+      "queries": 300,
+      "judged_queries": 300,
+      "metrics": {
+        "ndcg_cut_10": 0.705330531832667,
+        "recall_100": 0.9610000000000001,
+        "map": 0.6587118978302187,
+        "recip_rank": 0.6643168549517746
+      },
+      "calibration": null,
+      "operating_point": {
+        "fusion": "RRF retriever (rank_constant=60)",
+        "vector_knob": "num_candidates",
+        "vector_value": 256,
+        "vector_ef_from_vector_track": true,
+        "rescore_oversample": 8.0
+      },
+      "operational": {
+        "documents_indexed": 5183,
+        "build_seconds": 3.71245232199999,
+        "ingest_docs_per_sec": 1396.1122057475447,
+        "index_size_bytes": 15487593,
+        "raw_stats": {
+          "index_size_bytes": 15487593,
+          "raw": {
+            "size_in_bytes": 15487593,
+            "total_data_set_size_in_bytes": 15487593,
+            "reserved_in_bytes": 0
+          }
+        }
+      },
+      "latency": {
+        "samples": 1500,
+        "mean_ms": 2.840117133333333,
+        "p50_ms": 2.808146,
+        "p90_ms": 3.096728,
+        "p95_ms": 3.201559,
+        "p99_ms": 3.366454,
+        "max_ms": 7.100008,
+        "top_k": 10,
+        "client": {
+          "samples": 1500,
+          "mean_ms": 2.840117133333333,
+          "p50_ms": 2.808146,
+          "p90_ms": 3.096728,
+          "p95_ms": 3.201559,
+          "p99_ms": 3.366454,
+          "max_ms": 7.100008,
+          "top_k": 10
+        },
+        "server": {
+          "samples": 1500,
+          "mean_ms": 1.006,
+          "p50_ms": 1.0,
+          "p90_ms": 1.0,
+          "p95_ms": 1.0,
+          "p99_ms": 1.0,
+          "max_ms": 5.0,
+          "top_k": 10
+        },
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond"
+      },
+      "throughput": {
+        "warmup_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond",
+        "levels": [
+          {
+            "concurrency": 16,
+            "qps": 652.0258832993876,
+            "completed": 3266,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.009003605000089,
+            "client_latency_ms": {
+              "samples": 3266,
+              "mean_ms": 24.37910957807555,
+              "p50_ms": 22.624687000188715,
+              "p90_ms": 36.43012500015175,
+              "p95_ms": 41.70204699994429,
+              "p99_ms": 52.7826779998577,
+              "max_ms": 84.19227900003534
+            },
+            "server_latency_ms": {
+              "samples": 3266,
+              "mean_ms": 1.0808328230251072,
+              "p50_ms": 1.0,
+              "p90_ms": 1.0,
+              "p95_ms": 2.0,
+              "p99_ms": 2.0,
+              "max_ms": 7.0
+            },
+            "achieved_concurrency": 15.895810456697271,
+            "client_cpu_seconds": 5.442424953,
+            "client_cores_busy": 1.086528455992178,
+            "client_busy_fraction": 0.13581605699902224,
+            "logical_cpus": 8,
+            "client_bound": false
+          }
+        ]
+      },
+      "run_file": "results/runs/20260804T184221Z/runfiles/bench_beir_scifact_test.elasticsearch_hybrid_bestconfig.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "dataset_identity": {
+        "source": "ir_datasets",
+        "md5": "a89dba18a62ef92f7d323ec890a0d38d",
+        "size_bytes": 2448432,
+        "subset": "nfcorpus",
+        "archive": "nfcorpus/source.zip",
+        "corpus_fingerprint": "4a844c96e864b1c4c8ff43e76c5bf1e681bd258e219d6b33e706a7f32f07a467",
+        "fingerprint_algorithm": "sha256/len-framed/id-byte-sorted/v1"
+      },
+      "track": "vector",
+      "run_tag": "elasticsearch_vector_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "dense_vector BBQ (bbq_hnsw, binary quantization) with full-precision rescore (oversample tuned to the recall target), similarity cosine",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.31453393519371436,
+        "recall_100": 0.3094260094121505,
+        "map": 0.15745287852267895,
+        "recip_rank": 0.5168401333752117
+      },
+      "calibration": null,
+      "operating_point": {
+        "knob": "num_candidates",
+        "recall_metric": "ann_recall@10",
+        "recall_k": 10,
+        "target": 0.99,
+        "chosen_value": 512,
+        "rescore_oversample": 9.0,
+        "achieved_recall": 0.9848297213622296,
+        "met_target": false,
+        "secondary_target": 0.95,
+        "secondary_value": null,
+        "secondary_recall": null,
+        "sweep": [
+          {
+            "value": 16,
+            "recall": 0.890712074303406
+          },
+          {
+            "value": 32,
+            "recall": 0.893808049535604
+          },
+          {
+            "value": 64,
+            "recall": 0.9111455108359136
+          },
+          {
+            "value": 128,
+            "recall": 0.9157894736842107
+          },
+          {
+            "value": 256,
+            "recall": 0.921362229102167
+          },
+          {
+            "value": 512,
+            "recall": 0.9219814241486066
+          },
+          {
+            "value": 1024,
+            "recall": 0.9219814241486066
+          },
+          {
+            "value": 2048,
+            "recall": 0.9219814241486066
+          }
+        ]
+      },
+      "vector_oversample": 9.0,
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 2.5783746050001355,
+        "ingest_docs_per_sec": 1409.0272193011338,
+        "index_size_bytes": 11050345,
+        "raw_stats": {
+          "index_size_bytes": 11050345,
+          "raw": {
+            "size_in_bytes": 11050345,
+            "total_data_set_size_in_bytes": 11050345,
+            "reserved_in_bytes": 0
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "mean_ms": 1.896091851393189,
+        "p50_ms": 1.895439,
+        "p90_ms": 1.979944,
+        "p95_ms": 2.021332,
+        "p99_ms": 2.192202,
+        "max_ms": 2.405469,
+        "top_k": 10,
+        "client": {
+          "samples": 1615,
+          "mean_ms": 1.896091851393189,
+          "p50_ms": 1.895439,
+          "p90_ms": 1.979944,
+          "p95_ms": 2.021332,
+          "p99_ms": 2.192202,
+          "max_ms": 2.405469,
+          "top_k": 10
+        },
+        "server": {
+          "samples": 1615,
+          "mean_ms": 0.0,
+          "p50_ms": 0.0,
+          "p90_ms": 0.0,
+          "p95_ms": 0.0,
+          "p99_ms": 0.0,
+          "max_ms": 0.0,
+          "top_k": 10
+        },
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond"
+      },
+      "throughput": {
+        "warmup_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond",
+        "levels": [
+          {
+            "concurrency": 16,
+            "qps": 704.013156316813,
+            "completed": 3527,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.009849558000042,
+            "client_latency_ms": {
+              "samples": 3527,
+              "mean_ms": 22.58481380975587,
+              "p50_ms": 20.241137000084564,
+              "p90_ms": 34.5752530001846,
+              "p95_ms": 40.719207000165625,
+              "p99_ms": 55.65372299997762,
+              "max_ms": 106.75307900010012
+            },
+            "server_latency_ms": {
+              "samples": 3527,
+              "mean_ms": 0.05670541536716756,
+              "p50_ms": 0.0,
+              "p90_ms": 0.0,
+              "p95_ms": 0.0,
+              "p99_ms": 0.0,
+              "max_ms": 15.0
+            },
+            "achieved_concurrency": 15.900006055033778,
+            "client_cpu_seconds": 5.43275088,
+            "client_cores_busy": 1.0844139763288188,
+            "client_busy_fraction": 0.13555174704110234,
+            "logical_cpus": 8,
+            "client_bound": false
+          }
+        ]
+      },
+      "run_file": "results/runs/20260804T184221Z/runfiles/bench_beir_nfcorpus_test.elasticsearch_vector_bestconfig.run"
+    },
+    {
+      "dataset_id": "beir/nfcorpus/test",
+      "dataset_identity": {
+        "source": "ir_datasets",
+        "md5": "a89dba18a62ef92f7d323ec890a0d38d",
+        "size_bytes": 2448432,
+        "subset": "nfcorpus",
+        "archive": "nfcorpus/source.zip",
+        "corpus_fingerprint": "4a844c96e864b1c4c8ff43e76c5bf1e681bd258e219d6b33e706a7f32f07a467",
+        "fingerprint_algorithm": "sha256/len-framed/id-byte-sorted/v1"
+      },
+      "track": "hybrid",
+      "run_tag": "elasticsearch_hybrid_bestconfig",
+      "vector_profile": "best-config",
+      "setup": "BM25 match fused with BBQ dense_vector kNN (full-precision rescore) via the RRF retriever",
+      "queries": 323,
+      "judged_queries": 323,
+      "metrics": {
+        "ndcg_cut_10": 0.35171048496476787,
+        "recall_100": 0.32138806067911113,
+        "map": 0.18672109789755578,
+        "recip_rank": 0.5632852708691976
+      },
+      "calibration": null,
+      "operating_point": {
+        "fusion": "RRF retriever (rank_constant=60)",
+        "vector_knob": "num_candidates",
+        "vector_value": 512,
+        "vector_ef_from_vector_track": true,
+        "rescore_oversample": 9.0
+      },
+      "operational": {
+        "documents_indexed": 3633,
+        "build_seconds": 2.5372426469998572,
+        "ingest_docs_per_sec": 1431.8693579803305,
+        "index_size_bytes": 11046633,
+        "raw_stats": {
+          "index_size_bytes": 11046633,
+          "raw": {
+            "size_in_bytes": 11046633,
+            "total_data_set_size_in_bytes": 11046633,
+            "reserved_in_bytes": 0
+          }
+        }
+      },
+      "latency": {
+        "samples": 1615,
+        "mean_ms": 2.486376637770898,
+        "p50_ms": 2.473929,
+        "p90_ms": 2.637653,
+        "p95_ms": 2.693761,
+        "p99_ms": 2.843502,
+        "max_ms": 5.364781,
+        "top_k": 10,
+        "client": {
+          "samples": 1615,
+          "mean_ms": 2.486376637770898,
+          "p50_ms": 2.473929,
+          "p90_ms": 2.637653,
+          "p95_ms": 2.693761,
+          "p99_ms": 2.843502,
+          "max_ms": 5.364781,
+          "top_k": 10
+        },
+        "server": {
+          "samples": 1615,
+          "mean_ms": 0.8315789473684211,
+          "p50_ms": 1.0,
+          "p90_ms": 1.0,
+          "p95_ms": 1.0,
+          "p99_ms": 1.0,
+          "max_ms": 3.0,
+          "top_k": 10
+        },
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond"
+      },
+      "throughput": {
+        "warmup_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "server_time_source": "response `took` field",
+        "server_time_resolution": "integer-millisecond",
+        "levels": [
+          {
+            "concurrency": 16,
+            "qps": 665.6910424671901,
+            "completed": 3334,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.008329370999945,
+            "client_latency_ms": {
+              "samples": 3334,
+              "mean_ms": 23.87611828404884,
+              "p50_ms": 21.34906899982525,
+              "p90_ms": 36.5020390004247,
+              "p95_ms": 42.76966399993398,
+              "p99_ms": 57.45201699983227,
+              "max_ms": 100.00628900024822
+            },
+            "server_latency_ms": {
+              "samples": 3334,
+              "mean_ms": 1.0020995800839831,
+              "p50_ms": 1.0,
+              "p90_ms": 1.0,
+              "p95_ms": 1.0,
+              "p99_ms": 1.0,
+              "max_ms": 15.0
+            },
+            "achieved_concurrency": 15.894118070578408,
+            "client_cpu_seconds": 5.445630864000002,
+            "client_cores_busy": 1.0873148430556887,
+            "client_busy_fraction": 0.1359143553819611,
+            "logical_cpus": 8,
+            "client_bound": false
+          }
+        ]
+      },
+      "run_file": "results/runs/20260804T184221Z/runfiles/bench_beir_nfcorpus_test.elasticsearch_hybrid_bestconfig.run"
+    }
+  ]
+}

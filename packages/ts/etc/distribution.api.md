@@ -29,13 +29,16 @@ export interface AllocationTable {
 export interface ClusterCoordinator {
     acquireLease(key: string, nodeId: string, ttlMs: number): Promise<boolean>;
     compareAndSet(key: string, expected: Uint8Array | null, value: Uint8Array): Promise<boolean>;
+    deleteAllocation(indexName: string): Promise<void>;
     deregisterNode(nodeId: string): Promise<void>;
+    dropSchema(indexName: string): Promise<void>;
     get(key: string): Promise<Uint8Array | null>;
     getAllocation(indexName: string): Promise<AllocationTable | null>;
     getLeaseHolder(key: string): Promise<string | null>;
     getPartitionState(indexName: string, partitionId: number): Promise<PartitionState>;
     getSchema(indexName: string): Promise<SchemaDefinition | null>;
     listNodes(): Promise<NodeRegistration[]>;
+    listSchemas(): Promise<string[]>;
     putAllocation(indexName: string, table: AllocationTable, expectedVersion?: number | null): Promise<boolean>;
     putPartitionState(indexName: string, partitionId: number, state: PartitionState): Promise<void>;
     putSchema(indexName: string, schema: SchemaDefinition): Promise<void>;
@@ -49,6 +52,11 @@ export interface ClusterCoordinator {
 }
 
 // @public
+export interface ClusterEngineOptions {
+    createIndex?: CreateIndexOptions;
+}
+
+// @public
 export interface ClusterNamespace {
     getAllocation(indexName: string): Promise<AllocationTable | null>;
     getNodeInfo(): ClusterNodeInfo;
@@ -57,17 +65,37 @@ export interface ClusterNamespace {
 
 // @public
 export interface ClusterNode {
+    checkpoint(indexName: string): Promise<void>;
+    clear(indexName: string): Promise<void>;
     cluster: ClusterNamespace;
+    countDocuments(indexName: string): Promise<number>;
     createIndex(name: string, config: IndexConfig, options?: CreateIndexOptions): Promise<void>;
-    insert(indexName: string, document: AnyDocument, docId?: string): Promise<string>;
-    insertBatch(indexName: string, documents: AnyDocument[]): Promise<BatchResult>;
+    dropIndex(name: string): Promise<void>;
+    get(indexName: string, docId: string): Promise<AnyDocument | undefined>;
+    getMemoryStats(): Promise<MemoryStats>;
+    getMultiple(indexName: string, docIds: string[]): Promise<Map<string, AnyDocument>>;
+    getPartitionStats(indexName: string): Promise<PartitionStatsResult[]>;
+    getStats(indexName: string): Promise<IndexStats>;
+    has(indexName: string, docId: string): Promise<boolean>;
+    insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string>;
+    insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult>;
+    listDocuments<T = AnyDocument>(indexName: string, params?: ListParams): Promise<ListResult<T>>;
     readonly nodeId: string;
+    off<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;
+    on<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;
+    preflight(indexName: string, params: QueryParams): Promise<PreflightResult>;
     query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>;
     remove(indexName: string, docId: string): Promise<void>;
     removeBatch(indexName: string, docIds: string[]): Promise<BatchResult>;
     readonly roles: ReadonlyArray<NodeRole>;
     shutdown(): Promise<void>;
     start(): Promise<void>;
+    suggest(indexName: string, params: SuggestParams): Promise<SuggestResult>;
+    update(indexName: string, docId: string, document: AnyDocument): Promise<void>;
+    updateBatch(indexName: string, updates: Array<{
+        docId: string;
+        document: AnyDocument;
+    }>): Promise<BatchResult>;
 }
 
 // @public
@@ -82,6 +110,9 @@ export interface ClusterNodeConfig {
     roles?: NodeRole[];
     transport: NodeTransport;
 }
+
+// @public
+export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOptions): Narsil;
 
 // @public
 export interface ClusterNodeInfo {
@@ -100,15 +131,6 @@ export interface CreateIndexOptions {
 }
 
 // @public
-export function createInMemoryCoordinator(): ClusterCoordinator;
-
-// @public
-export function createInMemoryNetwork(): InMemoryNetwork;
-
-// @public
-export function createInMemoryTransport(nodeId: string, network: InMemoryNetwork, config?: Partial<TransportConfig>): NodeTransport;
-
-// @public
 export const DEFAULT_CAPACITY: NodeCapacity;
 
 // @public
@@ -118,17 +140,7 @@ export const DEFAULT_PARTITION_COUNT = 5;
 export const DEFAULT_REPLICATION_FACTOR = 1;
 
 // @public
-export interface InMemoryNetwork {
-    getTransport(nodeId: string): InMemoryTransportInternal | undefined;
-    register(nodeId: string, transport: InMemoryTransportInternal): void;
-    unregister(nodeId: string): void;
-}
-
-// @public
-export interface InMemoryTransportInternal extends NodeTransport {
-    deliverMessage(message: TransportMessage, respond: (response: TransportMessage) => void): void;
-    deliverStream(message: TransportMessage, responder: StreamResponder): void;
-}
+export type ListenHandler = (message: TransportMessage, respond: RespondFn) => void | Promise<void>;
 
 // @public
 export interface NodeCapacity {
@@ -160,7 +172,7 @@ export type NodeRole = 'data' | 'coordinator' | 'controller';
 
 // @public
 export interface NodeTransport {
-    listen(handler: (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>): Promise<() => void>;
+    listen(handler: ListenHandler): Promise<() => void>;
     send(target: string, message: TransportMessage): Promise<TransportMessage>;
     shutdown(): Promise<void>;
     stream(target: string, message: TransportMessage, handler: (chunk: Uint8Array) => void): Promise<void>;
@@ -185,14 +197,14 @@ export interface ReplicationConfig {
 }
 
 // @public
+export type RespondFn = (response: TransportMessage) => Promise<void>;
+
+// @public
 export interface SchemaEvent {
     indexName: string;
     schema: SchemaDefinition | null;
     type: 'schema_created' | 'schema_dropped';
 }
-
-// @public
-export type StreamResponder = (chunks: Uint8Array[]) => void;
 
 // @public
 export interface TransportConfig {

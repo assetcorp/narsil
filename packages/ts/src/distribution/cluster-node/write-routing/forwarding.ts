@@ -2,9 +2,27 @@ import { decode, encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
 import { createForwardMessage } from '../../replication/codec'
-import type { ForwardPayload, NodeTransport } from '../../transport/types'
+import type { ForwardPayload, NodeTransport, TransportMessage } from '../../transport/types'
 import { resolveNodeTargets } from './assignment'
 import type { WriteRoutingDeps } from './types'
+
+export function assertForwardResponse(
+  response: TransportMessage,
+  indexName: string,
+  primaryNodeId: string,
+): Record<string, unknown> {
+  const decoded = decode(response.payload) as Record<string, unknown>
+  if (response.type.endsWith('.error') || response.type === 'error' || decoded.error === true) {
+    throw new NarsilError(
+      typeof decoded.code === 'string' ? decoded.code : ErrorCodes.QUERY_ROUTING_FAILED,
+      typeof decoded.message === 'string'
+        ? decoded.message
+        : `Remote primary rejected a forwarded write for index '${indexName}'`,
+      { indexName, primaryNodeId },
+    )
+  }
+  return decoded
+}
 
 export async function forwardInsertToRemote(
   indexName: string,
@@ -22,7 +40,7 @@ export async function forwardInsertToRemote(
   }
   const message = createForwardMessage(payload, deps.nodeId)
   const response = await sendToNode(primaryNodeId, message, deps)
-  const decoded = decode(response.payload) as Record<string, unknown>
+  const decoded = assertForwardResponse(response, indexName, primaryNodeId)
   if (typeof decoded.documentId !== 'string') {
     throw new NarsilError(
       ErrorCodes.QUERY_ROUTING_FAILED,
@@ -31,6 +49,25 @@ export async function forwardInsertToRemote(
     )
   }
   return decoded.documentId
+}
+
+export async function forwardUpdateToRemote(
+  indexName: string,
+  document: AnyDocument,
+  docId: string,
+  primaryNodeId: string,
+  deps: WriteRoutingDeps,
+): Promise<void> {
+  const payload: ForwardPayload = {
+    indexName,
+    documentId: docId,
+    operation: 'update',
+    document: encode(document),
+    updateFields: null,
+  }
+  const message = createForwardMessage(payload, deps.nodeId)
+  const response = await sendToNode(primaryNodeId, message, deps)
+  assertForwardResponse(response, indexName, primaryNodeId)
 }
 
 export async function forwardRemoveToRemote(
@@ -47,7 +84,8 @@ export async function forwardRemoveToRemote(
     updateFields: null,
   }
   const message = createForwardMessage(payload, deps.nodeId)
-  await sendToNode(primaryNodeId, message, deps)
+  const response = await sendToNode(primaryNodeId, message, deps)
+  assertForwardResponse(response, indexName, primaryNodeId)
 }
 
 export async function sendToNode(

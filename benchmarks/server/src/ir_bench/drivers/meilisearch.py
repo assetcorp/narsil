@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Iterable, Iterator
+from typing import Iterable
 
 import httpx
 
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
+from ..core.ingest import BatchOutcome, import_batches
 from ..core.types import (
     INTEGER_MS,
     EngineError,
@@ -18,17 +19,6 @@ from ..core.types import (
     ServerTimeSource,
     coerce_server_ms,
 )
-
-
-def _chunked(items: Iterable[tuple[str, str]], size: int) -> Iterator[list[tuple[str, str]]]:
-    batch: list[tuple[str, str]] = []
-    for item in items:
-        batch.append(item)
-        if len(batch) >= size:
-            yield batch
-            batch = []
-    if batch:
-        yield batch
 
 
 def _raise(response: httpx.Response) -> None:
@@ -42,9 +32,8 @@ class MeilisearchDriver:
         self.name = engine.name
         self.run_tag = engine.run_tag
         self.keyword_setup = (
-            "Bucket-sort ranking rules (words, typo, proximity, attribute, sort, "
-            "exactness), not BM25; _rankingScore for ordering; default typo "
-            "tolerance and prefix search; no stemming or stop-word removal"
+            "Not BM25; the harness sets `searchableAttributes` to the text field, reads "
+            "`_rankingScore` as the score, and leaves every other setting at its default"
         )
         self.server_time = ServerTimeSource(source="response `processingTimeMs` field", resolution=INTEGER_MS)
         api_key = os.environ.get("BENCH_API_KEY", "localdev")
@@ -102,22 +91,23 @@ class MeilisearchDriver:
         _raise(settings)
         self._wait_task(int(settings.json()["taskUid"]))
 
-    def import_documents(self, index: str, documents: Iterable[tuple[str, str]], batch_size: int) -> ImportResult:
-        submitted = 0
-        indexed = 0
-        for batch in _chunked(documents, batch_size):
-            body = "\n".join(json.dumps({"id": doc_id, "text": text}) for doc_id, text in batch)
-            response = self._client.post(
-                f"/indexes/{index}/documents",
-                content=body.encode("utf-8"),
-                headers={"content-type": "application/x-ndjson"},
-            )
-            _raise(response)
-            task = self._wait_task(int(response.json()["taskUid"]))
-            submitted += len(batch)
-            details = task.get("details", {})
-            indexed += int(details.get("indexedDocuments", len(batch)))
-        return ImportResult(submitted=submitted, indexed=indexed)
+    def _send_import(self, index: str, batch: list[tuple[str, str]]) -> BatchOutcome:
+        body = "\n".join(json.dumps({"id": doc_id, "text": text}) for doc_id, text in batch)
+        response = self._client.post(
+            f"/indexes/{index}/documents",
+            content=body.encode("utf-8"),
+            headers={"content-type": "application/x-ndjson"},
+        )
+        _raise(response)
+        task = self._wait_task(int(response.json()["taskUid"]))
+        details = task.get("details", {})
+        return BatchOutcome(submitted=len(batch), indexed=int(details.get("indexedDocuments", len(batch))))
+
+    def import_documents(
+        self, index: str, documents: Iterable[tuple[str, str]], batch_size: int, clients: int
+    ) -> ImportResult:
+        total = import_batches(documents, batch_size, clients, lambda batch: self._send_import(index, batch))
+        return ImportResult(submitted=total.submitted, indexed=total.indexed)
 
     def count(self, index: str) -> int:
         response = self._client.get(f"/indexes/{index}/stats")

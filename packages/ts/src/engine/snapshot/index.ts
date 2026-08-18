@@ -1,4 +1,5 @@
 import { resolveIndexAnalysis } from '../../analysis/registry'
+import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
 import type { PartitionManager } from '../../partitioning/manager'
@@ -50,7 +51,7 @@ export async function createSnapshot(manager: PartitionManager, entry: IndexRegi
     analysisRevision: entry.language.revision,
     ...(typeof config.tokenizer === 'string' ? { tokenizer: config.tokenizer } : {}),
     ...(typeof config.stopWords === 'string' ? { stopWords: config.stopWords } : {}),
-    ...(config.stopWords instanceof Set ? { stopWordList: [...config.stopWords].sort() } : {}),
+    ...(config.stopWords instanceof Set ? { stopWordList: [...config.stopWords].sort(compareCodePoints) } : {}),
     ...(bm25 !== undefined
       ? {
           bm25: {
@@ -59,7 +60,7 @@ export async function createSnapshot(manager: PartitionManager, entry: IndexRegi
           },
         }
       : {}),
-    ...(config.surfaceForms === true ? { surfaceForms: true } : {}),
+    surfaceForms: config.surfaceForms !== false,
     ...(config.partitions !== undefined ? { partitionConfig: config.partitions } : {}),
     ...(config.defaultScoring !== undefined ? { defaultScoring: config.defaultScoring } : {}),
     ...(config.trackPositions !== undefined ? { trackPositions: config.trackPositions } : {}),
@@ -98,7 +99,24 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
   }
 
   const { decode } = await import('@msgpack/msgpack')
-  const envelope = decode(data) as SnapshotEnvelope
+  let decoded: unknown
+  try {
+    decoded = decode(data)
+  } catch (err) {
+    throw new NarsilError(
+      ErrorCodes.DOC_VALIDATION_FAILED,
+      `Snapshot data is not a Narsil snapshot: ${err instanceof Error ? err.message : String(err)}`,
+      { bytes: data.length },
+    )
+  }
+
+  if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
+    throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Snapshot data does not hold a snapshot envelope', {
+      bytes: data.length,
+    })
+  }
+
+  const envelope = decoded as SnapshotEnvelope
 
   if (envelope.version !== 1 && envelope.version !== 2) {
     throw new NarsilError(
@@ -180,6 +198,7 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
     embeddingAdapter,
     embeddingAdapterName: adapterName,
     vectorFieldPaths,
+    indexUuid: null,
   })
 
   try {

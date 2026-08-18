@@ -19,6 +19,9 @@ function getLabel(progress: DatasetLoadProgress): string {
       if (progress.totalDocs && progress.indexedDocs) {
         return `Indexing ${progress.indexedDocs.toLocaleString()} of ${progress.totalDocs.toLocaleString()}`
       }
+      if (progress.indexedDocs && progress.totalBytes && progress.loadedBytes) {
+        return `Indexed ${progress.indexedDocs.toLocaleString()} of ${formatBytes(progress.totalBytes)}`
+      }
       return 'Indexing...'
     }
     case 'complete':
@@ -39,6 +42,9 @@ function getPercent(progress: DatasetLoadProgress): number {
     case 'indexing': {
       if (progress.totalDocs && progress.indexedDocs) {
         return Math.round((progress.indexedDocs / progress.totalDocs) * 100)
+      }
+      if (progress.totalBytes && progress.loadedBytes) {
+        return Math.round((progress.loadedBytes / progress.totalBytes) * 100)
       }
       return 0
     }

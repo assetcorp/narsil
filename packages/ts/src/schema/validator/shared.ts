@@ -1,5 +1,8 @@
+export const SORTABLE_TEXT_FIELD_TYPE = 'string:sortable'
+
 export const SCALAR_FIELD_TYPES = new Set<string>([
   'string',
+  SORTABLE_TEXT_FIELD_TYPE,
   'number',
   'boolean',
   'enum',
@@ -9,6 +12,10 @@ export const SCALAR_FIELD_TYPES = new Set<string>([
   'boolean[]',
   'enum[]',
 ])
+
+export function isTextFieldType(fieldType: string): boolean {
+  return fieldType === 'string' || fieldType === SORTABLE_TEXT_FIELD_TYPE
+}
 
 export const VECTOR_PATTERN = /^vector\[(\d+)]$/
 

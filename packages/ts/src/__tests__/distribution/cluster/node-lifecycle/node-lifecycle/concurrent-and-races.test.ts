@@ -185,8 +185,8 @@ describe('DataNodeLifecycle concurrent operations and races', () => {
     })
   })
 
-  describe('failed bootstrap retry via allocation watcher (M4)', () => {
-    it('re-triggers bootstrap after a failed sync on next allocation event', async () => {
+  describe('failed bootstrap sync retry', () => {
+    it('retries a failed bootstrap sync after the retry backoff without a new allocation event', async () => {
       const bootstrapFn = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true)
       await coordinator.registerNode(makeNode('primary-node'))
 
@@ -208,9 +208,7 @@ describe('DataNodeLifecycle concurrent operations and races', () => {
 
       expect(bootstrapFn).toHaveBeenCalledTimes(1)
 
-      await coordinator.putAllocation('products', makeAllocationTable('products', assignments, 3))
-
-      vi.advanceTimersByTime(DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs + 10)
+      vi.advanceTimersByTime(DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapRetryBaseMs + 10)
       await flushPromises()
       await flushPromises()
 

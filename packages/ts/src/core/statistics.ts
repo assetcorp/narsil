@@ -1,3 +1,17 @@
+/**
+ * The corpus statistics BM25 scoring reads. The live stats implement it with
+ * mutable counters, and a frozen segment serves the totals recorded at freeze
+ * time.
+ *
+ * @internal
+ */
+export interface PartitionStatsView {
+  readonly totalDocuments: number
+  readonly totalFieldLengths: Readonly<Record<string, number>>
+  readonly averageFieldLengths: Readonly<Record<string, number>>
+  readonly docFrequencies: Readonly<Record<string, number>>
+}
+
 export interface PartitionStats {
   totalDocuments: number
   totalFieldLengths: Record<string, number>

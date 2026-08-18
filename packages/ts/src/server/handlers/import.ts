@@ -1,22 +1,27 @@
 import { NarsilError } from '../../errors'
+import type { Narsil } from '../../narsil'
 import type { AnyDocument } from '../../types/schema'
 import type { HandlerDeps } from '../deps'
 import { ServerErrorCodes, serializeNarsilError } from '../errors'
 import { respondError, respondJson } from '../handler-utils'
-import { iterateNdjson, NdjsonLineTooLongError } from '../ndjson'
+import { iterateNdjson } from '../ndjson'
 import type { RouteContext } from '../request'
 import { sendError } from '../response'
-
-interface ImportError {
-  line?: number
-  docId?: string
-  code: string
-  message: string
-}
+import type { ImportError, ImportResult, TaskProgress } from '../types'
 
 interface PendingDoc {
   document: AnyDocument
   line: number
+}
+
+export interface ImportRunOptions {
+  indexName: string
+  body: Buffer
+  maxLineBytes: number
+  batchSize: number
+  maxErrors: number
+  signal?: AbortSignal
+  onProgress?: (progress: TaskProgress) => void
 }
 
 function yieldToEventLoop(): Promise<void> {
@@ -31,10 +36,92 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * Streams an NDJSON corpus into the engine in bounded batches, yielding the
  * event loop between batches so searches and health probes stay responsive on
  * the single thread. Per-line parse failures and per-document engine failures
- * are collected and returned together, so one bad record never aborts the load.
+ * are collected and returned together, so one bad record never aborts the load,
+ * and the collected list stops at `maxErrors` while the reported total keeps
+ * counting.
+ *
+ * @param engine - The engine the documents are written into.
+ * @param options - The index, the buffered body, the batching and reporting
+ * ceilings, an optional signal that stops the load between batches, and an
+ * optional progress callback.
+ * @returns How many documents the engine accepted and refused, with the first
+ * refusals and whether that list was cut short.
+ */
+export async function runImport(engine: Narsil, options: ImportRunOptions): Promise<ImportResult> {
+  const { indexName, body, maxLineBytes, batchSize, maxErrors, signal, onProgress } = options
+  const bytesTotal = body.length
+  const errors: ImportError[] = []
+  let indexed = 0
+  let failed = 0
+  let bytesProcessed = 0
+  let pending: PendingDoc[] = []
+
+  const recordFailure = (error: ImportError): void => {
+    failed += 1
+    if (errors.length < maxErrors) errors.push(error)
+  }
+
+  const flush = async (): Promise<void> => {
+    if (pending.length === 0) return
+    const documents = pending.map(entry => entry.document)
+    pending = []
+    const result = await engine.insertBatch(indexName, documents, { skipClone: true })
+    indexed += result.succeeded.length
+    for (const failure of result.failed) {
+      const serialized =
+        failure.error instanceof NarsilError
+          ? serializeNarsilError(failure.error)
+          : { code: ServerErrorCodes.INTERNAL_ERROR, message: String(failure.error) }
+      recordFailure({ docId: failure.docId, code: serialized.code, message: serialized.message })
+    }
+  }
+
+  const report = (): void => {
+    onProgress?.({ indexed, failed, bytesProcessed, bytesTotal })
+  }
+
+  for (const line of iterateNdjson(body, maxLineBytes)) {
+    bytesProcessed = line.bytesConsumed
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(line.text)
+    } catch {
+      recordFailure({ line: line.lineNumber, code: ServerErrorCodes.INVALID_JSON, message: 'Line is not valid JSON' })
+      continue
+    }
+    if (!isPlainObject(parsed)) {
+      recordFailure({
+        line: line.lineNumber,
+        code: ServerErrorCodes.INVALID_REQUEST,
+        message: 'Line is not a JSON object',
+      })
+      continue
+    }
+    pending.push({ document: parsed, line: line.lineNumber })
+    if (pending.length >= batchSize) {
+      signal?.throwIfAborted()
+      await flush()
+      report()
+      await yieldToEventLoop()
+      signal?.throwIfAborted()
+    }
+  }
+
+  await flush()
+  bytesProcessed = bytesTotal
+  report()
+  return { indexed, failed, errors, errorsTruncated: failed > errors.length }
+}
+
+/**
+ * Serves `POST /indexes/{name}/documents/_import`. The load runs inside the
+ * request by default. Asking for `?async=true` starts a task instead and
+ * answers 202 with its record, so a corpus larger than a request timeout can be
+ * followed through `GET /tasks/{id}` and stopped through
+ * `POST /tasks/{id}/_cancel`.
  */
 export function createImportHandler(deps: HandlerDeps) {
-  const { engine, limits } = deps
+  const { engine, limits, tasks } = deps
 
   return async function importNdjson(ctx: RouteContext): Promise<void> {
     const raw = ctx.rawBody
@@ -43,68 +130,46 @@ export function createImportHandler(deps: HandlerDeps) {
       return
     }
 
-    const name = ctx.params[0]
-    const errors: ImportError[] = []
-    let indexed = 0
-    let pending: PendingDoc[] = []
-
-    const flush = async (): Promise<boolean> => {
-      if (pending.length === 0) return true
-      const documents = pending.map(p => p.document)
-      try {
-        const result = await engine.insertBatch(name, documents)
-        indexed += result.succeeded.length
-        for (const failure of result.failed) {
-          const serialized =
-            failure.error instanceof NarsilError
-              ? serializeNarsilError(failure.error)
-              : { code: 'INTERNAL_ERROR', message: String(failure.error) }
-          errors.push({ docId: failure.docId, code: serialized.code, message: serialized.message })
-        }
-        pending = []
-        return true
-      } catch (err) {
-        respondError(ctx, err)
-        return false
-      }
+    const indexName = ctx.params[0]
+    const runOptions = {
+      indexName,
+      body: raw,
+      maxLineBytes: limits.maxLineBytes,
+      batchSize: limits.importBatchSize,
+      maxErrors: limits.maxImportErrors,
     }
 
-    try {
-      for (const { lineNumber, text } of iterateNdjson(raw, limits.maxLineBytes)) {
-        let parsed: unknown
-        try {
-          parsed = JSON.parse(text)
-        } catch {
-          errors.push({ line: lineNumber, code: ServerErrorCodes.INVALID_JSON, message: 'Line is not valid JSON' })
-          continue
-        }
-        if (!isPlainObject(parsed)) {
-          errors.push({
-            line: lineNumber,
-            code: ServerErrorCodes.INVALID_REQUEST,
-            message: 'Line is not a JSON object',
-          })
-          continue
-        }
-        pending.push({ document: parsed, line: lineNumber })
-        if (pending.length >= limits.importBatchSize) {
-          if (!(await flush())) return
-          if (ctx.abort.aborted) return
-          await yieldToEventLoop()
-          if (ctx.abort.aborted) return
-        }
-      }
-    } catch (err) {
-      if (err instanceof NdjsonLineTooLongError) {
-        sendError(ctx.res, 413, ServerErrorCodes.PAYLOAD_TOO_LARGE, err.message, { line: err.lineNumber })
+    if (ctx.query.get('async') === 'true') {
+      try {
+        await engine.countDocuments(indexName)
+      } catch (err) {
+        respondError(ctx, err)
         return
       }
-      respondError(ctx, err)
+      const record = await tasks.start(
+        'import',
+        indexName,
+        async context => {
+          const result = await runImport(engine, {
+            ...runOptions,
+            signal: context.signal,
+            onProgress: context.reportProgress,
+          })
+          context.reportResult(result)
+        },
+        { indexed: 0, failed: 0, bytesProcessed: 0, bytesTotal: raw.length },
+      )
+      respondJson(ctx, record, 202)
       return
     }
 
-    if (!(await flush())) return
-    if (ctx.abort.aborted) return
-    respondJson(ctx, { indexed, failed: errors.length, errors })
+    const controller = new AbortController()
+    ctx.abort.onAbort(() => controller.abort())
+    try {
+      respondJson(ctx, await runImport(engine, { ...runOptions, signal: controller.signal }))
+    } catch (err) {
+      if (ctx.abort.aborted) return
+      respondError(ctx, err)
+    }
   }
 }

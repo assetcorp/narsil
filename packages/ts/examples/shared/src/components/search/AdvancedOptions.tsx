@@ -1,6 +1,6 @@
 import { ChevronDown } from 'lucide-react'
 import { useCallback } from 'react'
-import type { SearchParams } from '../../hooks/use-search'
+import type { SearchFormValues } from '../../hooks/use-search-form'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible'
@@ -8,38 +8,38 @@ import { Input } from '../ui/input'
 import { Slider } from '../ui/slider'
 
 interface AdvancedOptionsProps {
-  params: SearchParams
+  values: SearchFormValues
   searchableFields: string[]
-  allFields: string[]
+  sortableFields: string[]
   onFieldsChange: (fields: string[]) => void
   onBoostChange: (field: string, value: number) => void
   onSortChange: (field: string, direction: 'asc' | 'desc' | null) => void
-  onParamChange: <K extends keyof SearchParams>(key: K, value: SearchParams[K]) => void
+  onValueChange: <K extends keyof SearchFormValues>(key: K, value: SearchFormValues[K]) => void
 }
 
 function SearchFieldBadge({
   field,
   active,
-  params,
+  values,
   searchableFields,
   onFieldsChange,
 }: {
   field: string
   active: boolean
-  params: SearchParams
+  values: SearchFormValues
   searchableFields: string[]
   onFieldsChange: (fields: string[]) => void
 }) {
   const handleClick = useCallback(() => {
-    if (params.fields.length === 0) {
+    if (values.fields.length === 0) {
       onFieldsChange(searchableFields.filter(f => f !== field))
-    } else if (params.fields.includes(field)) {
-      const next = params.fields.filter(f => f !== field)
+    } else if (values.fields.includes(field)) {
+      const next = values.fields.filter(f => f !== field)
       onFieldsChange(next.length === searchableFields.length ? [] : next)
     } else {
-      onFieldsChange([...params.fields, field])
+      onFieldsChange([...values.fields, field])
     }
-  }, [params.fields, searchableFields, field, onFieldsChange])
+  }, [values.fields, searchableFields, field, onFieldsChange])
 
   return (
     <Badge variant={active ? 'default' : 'outline'} className="cursor-pointer text-[10px]" onClick={handleClick}>
@@ -98,15 +98,15 @@ function SortBadge({
 function TermMatchButton({
   mode,
   active,
-  onParamChange,
+  onValueChange,
 }: {
   mode: 'any' | 'all'
   active: boolean
-  onParamChange: <K extends keyof SearchParams>(key: K, value: SearchParams[K]) => void
+  onValueChange: <K extends keyof SearchFormValues>(key: K, value: SearchFormValues[K]) => void
 }) {
   const handleClick = useCallback(() => {
-    onParamChange('termMatch', mode)
-  }, [onParamChange, mode])
+    onValueChange('termMatch', mode)
+  }, [onValueChange, mode])
 
   return (
     <Button variant={active ? 'default' : 'outline'} size="xs" onClick={handleClick}>
@@ -118,15 +118,15 @@ function TermMatchButton({
 function LimitButton({
   n,
   active,
-  onParamChange,
+  onValueChange,
 }: {
   n: number
   active: boolean
-  onParamChange: <K extends keyof SearchParams>(key: K, value: SearchParams[K]) => void
+  onValueChange: <K extends keyof SearchFormValues>(key: K, value: SearchFormValues[K]) => void
 }) {
   const handleClick = useCallback(() => {
-    onParamChange('limit', n)
-  }, [onParamChange, n])
+    onValueChange('limit', n)
+  }, [onValueChange, n])
 
   return (
     <Button variant={active ? 'default' : 'outline'} size="xs" onClick={handleClick}>
@@ -136,30 +136,30 @@ function LimitButton({
 }
 
 export function AdvancedOptions({
-  params,
+  values,
   searchableFields,
-  allFields,
+  sortableFields,
   onFieldsChange,
   onBoostChange,
   onSortChange,
-  onParamChange,
+  onValueChange,
 }: AdvancedOptionsProps) {
   const handleToleranceChange = useCallback(
     ([v]: number[]) => {
-      onParamChange('tolerance', v)
+      onValueChange('tolerance', v)
     },
-    [onParamChange],
+    [onValueChange],
   )
 
   const handleExactToggle = useCallback(() => {
-    onParamChange('exact', !params.exact)
-  }, [onParamChange, params.exact])
+    onValueChange('exact', !values.exact)
+  }, [onValueChange, values.exact])
 
   const handleMinScoreChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      onParamChange('minScore', parseFloat(e.target.value) || 0)
+      onValueChange('minScore', parseFloat(e.target.value) || 0)
     },
-    [onParamChange],
+    [onValueChange],
   )
 
   return (
@@ -175,13 +175,13 @@ export function AdvancedOptions({
             <span className="mb-1.5 block text-xs font-medium">Search fields</span>
             <div className="flex flex-wrap gap-1">
               {searchableFields.map(field => {
-                const active = params.fields.length === 0 || params.fields.includes(field)
+                const active = values.fields.length === 0 || values.fields.includes(field)
                 return (
                   <SearchFieldBadge
                     key={field}
                     field={field}
                     active={active}
-                    params={params}
+                    values={values}
                     searchableFields={searchableFields}
                     onFieldsChange={onFieldsChange}
                   />
@@ -197,7 +197,7 @@ export function AdvancedOptions({
                 <FieldBoostRow
                   key={field}
                   field={field}
-                  boost={params.boost[field] ?? 1}
+                  boost={values.boost[field] ?? 1}
                   onBoostChange={onBoostChange}
                 />
               ))}
@@ -211,11 +211,11 @@ export function AdvancedOptions({
                 min={0}
                 max={3}
                 step={1}
-                value={[params.tolerance]}
+                value={[values.tolerance]}
                 onValueChange={handleToleranceChange}
                 className="flex-1"
               />
-              <span className="w-4 text-right font-mono text-xs">{params.tolerance}</span>
+              <span className="w-4 text-right font-mono text-xs">{values.tolerance}</span>
             </div>
           </div>
 
@@ -226,8 +226,8 @@ export function AdvancedOptions({
                 <TermMatchButton
                   key={mode}
                   mode={mode}
-                  active={params.termMatch === mode}
-                  onParamChange={onParamChange}
+                  active={values.termMatch === mode}
+                  onValueChange={onValueChange}
                 />
               ))}
             </div>
@@ -235,8 +235,8 @@ export function AdvancedOptions({
 
           <div>
             <span className="mb-1.5 block text-xs font-medium">Exact match</span>
-            <Button variant={params.exact ? 'default' : 'outline'} size="xs" onClick={handleExactToggle}>
-              {params.exact ? 'On' : 'Off'}
+            <Button variant={values.exact ? 'default' : 'outline'} size="xs" onClick={handleExactToggle}>
+              {values.exact ? 'On' : 'Off'}
             </Button>
           </div>
 
@@ -249,7 +249,7 @@ export function AdvancedOptions({
               type="number"
               min="0"
               step="0.1"
-              value={params.minScore || ''}
+              value={values.minScore || ''}
               onChange={handleMinScoreChange}
               className="h-7 text-xs"
               placeholder="0"
@@ -259,10 +259,10 @@ export function AdvancedOptions({
           <div>
             <span className="mb-1.5 block text-xs font-medium">Sort by</span>
             <div className="flex flex-wrap gap-1">
-              {allFields
+              {sortableFields
                 .filter(f => !searchableFields.includes(f))
                 .map(field => {
-                  const dir = params.sort[field]
+                  const dir = values.sort[field]
                   return <SortBadge key={field} field={field} dir={dir} onSortChange={onSortChange} />
                 })}
             </div>
@@ -272,7 +272,7 @@ export function AdvancedOptions({
             <span className="mb-1.5 block text-xs font-medium">Results per page</span>
             <div className="flex gap-1">
               {[10, 20, 50].map(n => (
-                <LimitButton key={n} n={n} active={params.limit === n} onParamChange={onParamChange} />
+                <LimitButton key={n} n={n} active={values.limit === n} onValueChange={onValueChange} />
               ))}
             </div>
           </div>

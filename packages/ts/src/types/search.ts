@@ -18,11 +18,37 @@ export type SearchMode = 'fulltext' | 'vector' | 'hybrid'
 export type TermMatchPolicy = 'all' | 'any' | number
 
 /**
+ * One field of a sort, and the direction that field orders by.
+ *
+ * @public
+ */
+export interface SortField {
+  /** The field the engine reads, which may name a nested field with dots. */
+  field: string
+  /** Ascending or descending order for this field. */
+  direction: 'asc' | 'desc'
+}
+
+/**
+ * A sort, either as an object keyed by field or as a list of fields in the
+ * order they apply.
+ *
+ * Both forms order by the first field, break a tie on the second, and carry on
+ * that way. Prefer the list where the order of the fields matters, because
+ * JavaScript moves an all-digit key such as `2024` to the front of an object
+ * and the list keeps the order you wrote.
+ *
+ * @public
+ */
+export type SortSpec = Record<string, 'asc' | 'desc'> | readonly SortField[]
+
+/**
  * Everything {@link Narsil.query} accepts.
  *
- * Every field is optional, so a query with nothing set returns the first page
- * of the index. Set `term` for keyword search, `vector` for similarity
- * search, and `mode` when you want both.
+ * Set `term` for keyword search, `vector` for similarity search, and `mode`
+ * when you want both. The engine matches nothing for a query carrying neither
+ * of them, so page through an index with {@link Narsil.listDocuments}
+ * instead.
  *
  * @public
  */
@@ -58,8 +84,14 @@ export interface QueryParams {
   exact?: boolean
   /** These settings name the fields the query counts values for, and control how each count is cut and sorted. */
   facets?: FacetConfig
-  /** This sorts the hits by field value, keyed by field, which replaces the relevance ranking. */
-  sort?: Record<string, 'asc' | 'desc'>
+  /**
+   * This sorts the hits by field value, which replaces the relevance ranking.
+   * Pass an object keyed by field, or a list of fields in the order they
+   * apply. Fusion defines the order of hybrid results, so a hybrid query takes
+   * no sort. The engine throws `SEARCH_INVALID_MODE` for a query that sets
+   * both.
+   */
+  sort?: SortSpec
   /** These settings collapse the hits into groups by field value. */
   group?: GroupConfig
   /** The query returns this many hits, and 10 by default. */
@@ -78,9 +110,36 @@ export interface QueryParams {
   vector?: VectorQueryConfig
   /** These settings control how the keyword and vector rankings merge in `hybrid` mode. */
   hybrid?: HybridConfig
+  /**
+   * Setting this returns relevance scores on a sorted query. A query that
+   * names a sort ranks by sort values alone and computes no scores, so its
+   * hits carry none until this restores them. A query without a sort ignores
+   * this and always carries scores.
+   */
+  includeScores?: boolean
   /** Setting this returns the numbers behind each hit's score, which is what you read when a ranking surprises you. */
   includeScoreComponents?: boolean
+  /** This chooses how much of each stored document comes back, and the whole document by default. */
+  document?: DocumentProjection
 }
+
+/**
+ * How much of a stored document each hit carries back.
+ *
+ * Pass `false` when the ids and scores are all you need, and every hit's
+ * `document` is then an empty object. Pass `include` to keep named fields
+ * alone, or `exclude` to drop named fields and keep the rest; naming both
+ * keeps the included fields and then drops the excluded ones from those. Use
+ * dots to name a nested field, so `author.name` addresses the `name` inside
+ * `author`, and a name that matches no field changes nothing.
+ *
+ * Drop a vector field on a similarity search, because the engine otherwise
+ * reads every hit's vector back out of the index and writes it into the
+ * response.
+ *
+ * @public
+ */
+export type DocumentProjection = boolean | { include?: string[]; exclude?: string[] }
 
 /**
  * Vector-search inputs passed under `QueryParams.vector`.
@@ -231,4 +290,44 @@ export interface SuggestParams {
   prefix: string
   /** The lookup returns this many completions, most widely used first, and 10 by default. */
   limit?: number
+}
+
+/**
+ * Everything {@link Narsil.listDocuments} accepts.
+ *
+ * {@link Narsil.listDocuments} reads the stored documents without ranking them,
+ * which is how you page through a whole index. Leave `cursor` out to start at
+ * the first document, then pass back the cursor each result carries until it
+ * comes back null.
+ *
+ * A cursor belongs to the sort it was made under, so pass the same `sort` back
+ * with it. Changing `sort` invalidates the cursor, and the engine then throws
+ * `SEARCH_INVALID_CURSOR` rather than returning a page from the wrong order.
+ *
+ * @public
+ */
+export interface ListParams {
+  /**
+   * This cursor comes from a previous result, and continues where it stopped.
+   * The engine ties a cursor to the sort that produced it, and it throws
+   * `SEARCH_INVALID_CURSOR` for a cursor sent back under a different sort.
+   */
+  cursor?: string
+  /** The page carries this many documents, and 10 by default. The engine raises a value below one to one. */
+  limit?: number
+  /** This narrows the listing to the documents the filter accepts. */
+  filters?: FilterExpression
+  /**
+   * This orders the listing by field value rather than by document id, and the
+   * engine applies the fields in the order they are listed. Pass an object
+   * keyed by field, or a list of fields in the order they apply. It breaks a
+   * tie on document id, and it sorts by at most eight fields. The engine uses
+   * document-id order when you leave this out.
+   *
+   * The engine reads every document the listing covers to build a sorted page,
+   * so a sorted listing costs more than the default order on a large index.
+   */
+  sort?: SortSpec
+  /** This chooses how much of each stored document comes back, and the whole document by default. */
+  document?: DocumentProjection
 }

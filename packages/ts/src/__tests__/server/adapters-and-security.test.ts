@@ -58,26 +58,26 @@ describe('Narsil HTTP server task store adapter', () => {
   })
 
   it('drives a task through the injected store and reports a terminal status', async () => {
-    const accepted = await postJson<{ taskId: string }>(srv.base, '/indexes/movies/vectors/_optimize', {
+    const accepted = await postJson<{ id: string }>(srv.base, '/indexes/movies/vectors/_optimize', {
       field: 'embedding',
     })
     expect(accepted.status).toBe(202)
-    expect(store.records.has(accepted.body.taskId)).toBe(true)
+    expect(store.records.has(accepted.body.id)).toBe(true)
 
-    const final = await pollTask(srv.base, accepted.body.taskId)
+    const final = await pollTask(srv.base, accepted.body.id)
     expect(final.status).toBe('succeeded')
-    expect(store.records.get(accepted.body.taskId)?.status).toBe('succeeded')
-    expect(store.records.get(accepted.body.taskId)?.owner).toBeTruthy()
+    expect(store.records.get(accepted.body.id)?.status).toBe('succeeded')
+    expect(store.records.get(accepted.body.id)?.owner).toBeTruthy()
   })
 
   it('serves task reads from the injected store', async () => {
-    const accepted = await postJson<{ taskId: string }>(srv.base, '/indexes/movies/vectors/_optimize', {
+    const accepted = await postJson<{ id: string }>(srv.base, '/indexes/movies/vectors/_optimize', {
       field: 'embedding',
     })
-    await pollTask(srv.base, accepted.body.taskId)
+    await pollTask(srv.base, accepted.body.id)
 
     const listed = await getJson<{ tasks: TaskRecord[] }>(srv.base, '/tasks')
-    expect(listed.body.tasks.some(t => t.id === accepted.body.taskId)).toBe(true)
+    expect(listed.body.tasks.some(t => t.id === accepted.body.id)).toBe(true)
   })
 })
 

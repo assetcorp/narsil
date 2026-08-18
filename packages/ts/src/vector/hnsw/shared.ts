@@ -1,17 +1,13 @@
 import type { VectorMetric } from '../brute-force'
-import type { ScalarQuantizer } from '../scalar-quantization-types'
+import type { QuantizerSearchReader, ScalarQuantizer } from '../scalar-quantization-types'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance } from '../similarity'
-import type { VectorStore, VectorStoreEntry } from '../vector-store'
+import type { VectorSearchReader, VectorStore, VectorStoreEntry } from '../vector-store'
+import { type Adjacency, ensureAdjacencyCapacity, hasNode, MAX_LAYER_CAP, nodeLevel } from './adjacency'
 
-export const MAX_LAYER_CAP = 32
+export { MAX_LAYER_CAP, MAX_M } from './adjacency'
 export const COMPACTION_TOMBSTONE_RATIO = 0.1
 export const COMPACTION_ABSOLUTE_THRESHOLD = 1000
 export const SQ8_OVERSELECTION_FACTOR = 2
-
-export interface HNSWNode {
-  maxLayer: number
-  connections: number[][]
-}
 
 export interface DistancePair {
   ord: number
@@ -52,16 +48,20 @@ export interface SerializedHNSWGraph {
   nodes: Array<[string, number, Array<[number, string[]]>]>
 }
 
-export interface HNSWGraphState {
+/**
+ * The graph state a search reads, without the mutation-only members.
+ *
+ * A worker searching a shared copy builds this over read-only views, with its
+ * own visited array, and the full {@link HNSWGraphState} satisfies it on the
+ * main thread, so one search implementation serves both.
+ *
+ * @internal
+ */
+export interface HNSWSearchState {
   readonly dimension: number
-  readonly store: VectorStore
-  readonly quantizer: ScalarQuantizer | undefined
-  readonly M: number
-  readonly Mmax0: number
-  readonly efCons: number
-  readonly buildMetric: VectorMetric
-  readonly mL: number
-  nodesByOrd: Array<HNSWNode | undefined>
+  readonly store: VectorSearchReader
+  readonly quantizer: QuantizerSearchReader | undefined
+  adjacency: Adjacency
   tombstones: Uint8Array
   tombstoneCount: number
   nodeCount: number
@@ -72,7 +72,18 @@ export interface HNSWGraphState {
   topLayer: number
 }
 
+export interface HNSWGraphState extends HNSWSearchState {
+  readonly store: VectorStore
+  readonly quantizer: ScalarQuantizer | undefined
+  readonly M: number
+  readonly Mmax0: number
+  readonly efCons: number
+  readonly buildMetric: VectorMetric
+  readonly mL: number
+}
+
 export function ensureCapacity(state: HNSWGraphState, needed: number): void {
+  ensureAdjacencyCapacity(state.adjacency, needed)
   if (needed <= state.capacity) return
   let newCap = state.capacity === 0 ? 16 : state.capacity
   while (newCap < needed) newCap *= 2
@@ -84,7 +95,7 @@ export function ensureCapacity(state: HNSWGraphState, needed: number): void {
   state.capacity = newCap
 }
 
-export function nextVisitStamp(state: HNSWGraphState): number {
+export function nextVisitStamp(state: HNSWSearchState): number {
   state.visitStamp++
   if (state.visitStamp === 0xffffffff) {
     state.visited.fill(0)
@@ -93,12 +104,16 @@ export function nextVisitStamp(state: HNSWGraphState): number {
   return state.visitStamp
 }
 
-export function isTombstoned(state: HNSWGraphState, ord: number): boolean {
+export function isTombstoned(state: HNSWSearchState, ord: number): boolean {
   return state.tombstones[ord] === 1
 }
 
-export function nodeExists(state: HNSWGraphState, ord: number): boolean {
-  return state.nodesByOrd[ord] !== undefined
+export function nodeExists(state: HNSWSearchState, ord: number): boolean {
+  return hasNode(state.adjacency, ord)
+}
+
+export function nodeMaxLayer(state: HNSWGraphState, ord: number): number {
+  return nodeLevel(state.adjacency, ord)
 }
 
 export function toDistance(a: Float32Array, b: Float32Array, magA: number, magB: number, metric: VectorMetric): number {
@@ -132,7 +147,7 @@ export function randomLevel(mL: number): number {
   return Math.min(Math.floor(-Math.log(u) * mL), MAX_LAYER_CAP)
 }
 
-export function entryForOrd(state: HNSWGraphState, ord: number): VectorStoreEntry | undefined {
+export function entryForOrd(state: HNSWSearchState, ord: number): VectorStoreEntry | undefined {
   return state.store.entryForOrdinal(ord)
 }
 
@@ -141,7 +156,7 @@ export function nodeDistanceByOrd(state: HNSWGraphState, aOrd: number, bOrd: num
 }
 
 export function queryDistanceByOrd(
-  state: HNSWGraphState,
+  state: HNSWSearchState,
   qVec: Float32Array,
   qMag: number,
   ord: number,

@@ -1,24 +1,59 @@
-import type { CompactPostingList, InternalSearchParams, InternalSearchResult } from '../../types/internal'
-import { bitsetHas } from '../bitset'
-import { computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
+import type { InternalSearchParams, InternalSearchResult, PostingListView } from '../../types/internal'
+import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
+import type { InvertedIndexReader } from '../inverted-index'
+import { bm25PruningSound, computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
+import { addScore, beginScoring, createScoreBuffer, hasScore, topKFromBuffer } from './score-buffer'
 import {
-  accumulateTermScore,
   EMPTY_COMPONENTS,
+  mergePrefixComponents,
   type PrefixContribution,
   type PrefixMatch,
   type ResolvedTokenPostings,
-  type ScoreAccumulator,
-  topKFromMap,
+  recordComponents,
+  type ScoreComponents,
 } from './scoring'
-import type { PartitionState } from './utils'
-
-const DEFAULT_MAX_RESULTS = 1000
+import { singleTermTopK } from './single-term-topk'
+import type { PartitionReadState } from './utils'
 
 function globalDocFreqFor(docFreqs: Record<string, number>, term: string, fallback: number): number {
   return Object.hasOwn(docFreqs, term) ? docFreqs[term] : fallback
 }
 
-export function searchFulltext(state: PartitionState, params: InternalSearchParams): InternalSearchResult {
+/**
+ * Decides whether a query may run on the pruned single-term scan, returning
+ * the term's posting list when it may and null when the query needs the full
+ * term-at-a-time loop. The scan handles exactly one unexpanded term scored
+ * over every searchable field with a bounded page, on an ordered list, under
+ * BM25 parameters whose block bound stays a true upper bound.
+ *
+ * @param params - The resolved search parameters.
+ * @param index - The inverted index holding the term's postings.
+ * @returns The posting list to scan, or null when the query must fall back.
+ */
+export function prunableSingleTermList(
+  params: InternalSearchParams,
+  index: Pick<InvertedIndexReader, 'lookup'>,
+): PostingListView | null {
+  if (params.queryTokens.length !== 1) return null
+  if (params.prefixExpansion !== undefined) return null
+  if (params.exact !== true && (params.tolerance ?? 0) !== 0) return null
+  if (params.termMatch !== undefined && params.termMatch !== 'any') return null
+  if (params.collectComponents !== false) return null
+  if (params.collectMatchedSet !== undefined) return null
+  if (params.maxResults === undefined) return null
+  if (params.fields !== undefined) return null
+  if (params.filterBitset !== undefined) return null
+  if (!bm25PruningSound(params.bm25Params)) return null
+
+  const list = index.lookup(params.queryTokens[0].token)
+
+  if (list === undefined) return null
+  if (!list.ordered) return null
+
+  return list
+}
+
+export function searchFulltext(state: PartitionReadState, params: InternalSearchParams): InternalSearchResult {
   const {
     queryTokens,
     prefixExpansion,
@@ -45,26 +80,40 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
   const globalDocFreqs = globalStats?.docFrequencies ?? state.stats.docFrequencies
   const scoreFn = globalStats ? computeBM25WithGlobalStats : computeBM25
 
-  const docScores = new Map<number, ScoreAccumulator>()
-  const fieldLengthCache = new Map<number, Record<string, number> | null>()
+  if (state.scoreBuffer === null) state.scoreBuffer = createScoreBuffer(state.docStore.internalIdCapacity())
+  const scoreBuffer = state.scoreBuffer
+  beginScoring(scoreBuffer, state.docStore.internalIdCapacity())
+  const components = collectComponents ? new Map<number, ScoreComponents>() : null
   const useIntersection = termMatch === 'all' && queryTokens.length > 1
 
   const fieldNames = state.fieldNameTable.names
   const resolver = state.docStore.resolver()
 
-  function resolveFieldLength(internalId: number, fieldName: string, avgLen: number): number {
-    let cachedLengths = fieldLengthCache.get(internalId)
-    if (cachedLengths === undefined) {
-      const externalId = resolver.toExternal(internalId)
-      const storedDoc = externalId !== undefined ? state.docStore.get(externalId) : undefined
-      cachedLengths = storedDoc?.fieldLengths ?? null
-      fieldLengthCache.set(internalId, cachedLengths)
-    }
-    return cachedLengths?.[fieldName] ?? avgLen
+  const fieldMetaLoaded = new Uint8Array(fieldNames.length)
+  const fieldSearchable = new Uint8Array(fieldNames.length)
+  const fieldBoosts = new Float64Array(fieldNames.length)
+  const fieldAvgLengths = new Float64Array(fieldNames.length)
+  const fieldLengthColumns: Array<Uint32Array | null> = new Array(fieldNames.length).fill(null)
+
+  function loadFieldMeta(fieldIndex: number): void {
+    if (fieldMetaLoaded[fieldIndex] === 1) return
+    const fieldName = fieldNames[fieldIndex]
+    fieldMetaLoaded[fieldIndex] = 1
+    fieldSearchable[fieldIndex] = fields === undefined || fields.includes(fieldName) ? 1 : 0
+    fieldBoosts[fieldIndex] = boost?.[fieldName] ?? 1
+    fieldAvgLengths[fieldIndex] = avgFieldLengths[fieldName] ?? 1
+    fieldLengthColumns[fieldIndex] = state.docStore.fieldLengthColumn(fieldName)
+  }
+
+  function resolveFieldLength(internalId: number, fieldIndex: number, avgLen: number): number {
+    const column = fieldLengthColumns[fieldIndex]
+    if (column === null || internalId >= column.length) return avgLen
+    const stored = column[internalId]
+    return stored > 0 ? stored : avgLen
   }
 
   function resolvePrefixMatches(token: string, expansionTerms: string[]): PrefixMatch[] {
-    const found: Array<{ token: string; postingList: CompactPostingList; docFreq: number }> = []
+    const found: Array<{ token: string; postingList: PostingListView; docFreq: number }> = []
     const seen = new Set<string>()
     for (const term of [token, ...expansionTerms]) {
       if (seen.has(term)) continue
@@ -105,13 +154,15 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
         const internalId = list.docIds[pi]
         if (hasDeleted && list.deletedDocs.has(internalId)) continue
         if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
-        const fieldName = fieldNames[list.fieldNameIndices[pi]]
-        if (fields && !fields.includes(fieldName)) continue
+        const fieldIndex = list.fieldNameIndices[pi]
+        loadFieldMeta(fieldIndex)
+        if (fieldSearchable[fieldIndex] === 0) continue
+        const fieldName = fieldNames[fieldIndex]
 
         const termFrequency = list.termFrequencies[pi]
-        const fieldBoost = boost?.[fieldName] ?? 1
-        const avgLen = avgFieldLengths[fieldName] ?? 1
-        const actualFieldLength = resolveFieldLength(internalId, fieldName, avgLen)
+        const fieldBoost = fieldBoosts[fieldIndex]
+        const avgLen = fieldAvgLengths[fieldIndex]
+        const actualFieldLength = resolveFieldLength(internalId, fieldIndex, avgLen)
 
         const termScore =
           scoreFn(termFrequency, match.docFreq, totalDocs, actualFieldLength, avgLen, bm25Params) *
@@ -155,33 +206,28 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
     return best
   }
 
-  function mergePrefixContribution(internalId: number, contribution: PrefixContribution, collect: boolean): void {
-    const existing = docScores.get(internalId)
-    if (existing) {
-      existing.score += contribution.score
-      if (collect) {
-        Object.assign(existing.termFrequencies, contribution.termFrequencies)
-        Object.assign(existing.fieldLengths, contribution.fieldLengths)
-        existing.idf[contribution.token] = contribution.idf
-      }
-      return
-    }
+  function mergePrefixContribution(internalId: number, contribution: PrefixContribution): void {
+    addScore(scoreBuffer, internalId, contribution.score)
+    if (components !== null) mergePrefixComponents(components, internalId, contribution)
+  }
 
-    if (collect) {
-      docScores.set(internalId, {
-        score: contribution.score,
-        termFrequencies: contribution.termFrequencies,
-        fieldLengths: contribution.fieldLengths,
-        idf: { [contribution.token]: contribution.idf },
-      })
-    } else {
-      docScores.set(internalId, {
-        score: contribution.score,
-        termFrequencies: EMPTY_COMPONENTS,
-        fieldLengths: EMPTY_COMPONENTS,
-        idf: EMPTY_COMPONENTS,
-      })
-    }
+  const prunableList = prunableSingleTermList(params, state.invertedIdx)
+  if (prunableList !== null && maxResults !== undefined) {
+    for (let fieldIndex = 0; fieldIndex < fieldNames.length; fieldIndex++) loadFieldMeta(fieldIndex)
+    return singleTermTopK({
+      list: prunableList,
+      docFrequency: globalStats
+        ? globalDocFreqFor(globalDocFreqs, queryTokens[0].token, prunableList.docIdSet.size)
+        : prunableList.docIdSet.size,
+      totalDocs,
+      bm25Params,
+      limit: maxResults,
+      fieldSearchable,
+      fieldBoosts,
+      fieldAvgLengths,
+      fieldLengthColumns,
+      resolver,
+    })
   }
 
   if (useIntersection) {
@@ -225,8 +271,8 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
       if (resolved[tokenIndex].isPrefix) {
         const contributions = computePrefixContributions(prefixMatches, collectComponents)
         for (const [internalId, contribution] of contributions) {
-          if (tokenIndex > 0 && !docScores.has(internalId)) continue
-          mergePrefixContribution(internalId, contribution, collectComponents)
+          if (tokenIndex > 0 && !hasScore(scoreBuffer, internalId)) continue
+          mergePrefixContribution(internalId, contribution)
         }
         continue
       }
@@ -238,37 +284,31 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
           const internalId = list.docIds[pi]
           if (hasDeleted && list.deletedDocs.has(internalId)) continue
           if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
-          if (tokenIndex > 0 && !docScores.has(internalId)) continue
-          const fieldName = fieldNames[list.fieldNameIndices[pi]]
-          if (fields && !fields.includes(fieldName)) continue
+          if (tokenIndex > 0 && !hasScore(scoreBuffer, internalId)) continue
+          const fieldIndex = list.fieldNameIndices[pi]
+          loadFieldMeta(fieldIndex)
+          if (fieldSearchable[fieldIndex] === 0) continue
 
           const termFrequency = list.termFrequencies[pi]
-          const fieldBoost = boost?.[fieldName] ?? 1
-          const avgLen = avgFieldLengths[fieldName] ?? 1
-
-          let cachedLengths = fieldLengthCache.get(internalId)
-          if (cachedLengths === undefined) {
-            const externalId = resolver.toExternal(internalId)
-            const storedDoc = externalId !== undefined ? state.docStore.get(externalId) : undefined
-            cachedLengths = storedDoc?.fieldLengths ?? null
-            fieldLengthCache.set(internalId, cachedLengths)
-          }
-          const actualFieldLength = cachedLengths?.[fieldName] ?? avgLen
+          const fieldBoost = fieldBoosts[fieldIndex]
+          const avgLen = fieldAvgLengths[fieldIndex]
+          const actualFieldLength = resolveFieldLength(internalId, fieldIndex, avgLen)
 
           let termScore = scoreFn(termFrequency, match.docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
           termScore *= fieldBoost
 
-          accumulateTermScore(
-            docScores,
-            internalId,
-            termScore,
-            collectComponents,
-            fieldName,
-            match.token,
-            termFrequency,
-            actualFieldLength,
-            match.idf,
-          )
+          addScore(scoreBuffer, internalId, termScore)
+          if (components !== null) {
+            recordComponents(
+              components,
+              internalId,
+              fieldNames[fieldIndex],
+              match.token,
+              termFrequency,
+              actualFieldLength,
+              match.idf,
+            )
+          }
         }
       }
     }
@@ -280,7 +320,7 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
           collectComponents,
         )
         for (const [internalId, contribution] of contributions) {
-          mergePrefixContribution(internalId, contribution, collectComponents)
+          mergePrefixContribution(internalId, contribution)
         }
         continue
       }
@@ -304,42 +344,54 @@ export function searchFulltext(state: PartitionState, params: InternalSearchPara
           const internalId = list.docIds[pi]
           if (hasDeleted && list.deletedDocs.has(internalId)) continue
           if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
-          const fieldName = fieldNames[list.fieldNameIndices[pi]]
-          if (fields && !fields.includes(fieldName)) continue
+          const fieldIndex = list.fieldNameIndices[pi]
+          loadFieldMeta(fieldIndex)
+          if (fieldSearchable[fieldIndex] === 0) continue
           const termFrequency = list.termFrequencies[pi]
-          const fieldBoost = boost?.[fieldName] ?? 1
-          const avgLen = avgFieldLengths[fieldName] ?? 1
-
-          let cachedLengths = fieldLengthCache.get(internalId)
-          if (cachedLengths === undefined) {
-            const externalId = resolver.toExternal(internalId)
-            const storedDoc = externalId !== undefined ? state.docStore.get(externalId) : undefined
-            cachedLengths = storedDoc?.fieldLengths ?? null
-            fieldLengthCache.set(internalId, cachedLengths)
-          }
-          const actualFieldLength = cachedLengths?.[fieldName] ?? avgLen
+          const fieldBoost = fieldBoosts[fieldIndex]
+          const avgLen = fieldAvgLengths[fieldIndex]
+          const actualFieldLength = resolveFieldLength(internalId, fieldIndex, avgLen)
 
           let termScore = scoreFn(termFrequency, docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
           termScore *= fieldBoost
 
-          accumulateTermScore(
-            docScores,
-            internalId,
-            termScore,
-            collectComponents,
-            fieldName,
-            match.token,
-            termFrequency,
-            actualFieldLength,
-            idf,
-          )
+          addScore(scoreBuffer, internalId, termScore)
+          if (components !== null) {
+            recordComponents(
+              components,
+              internalId,
+              fieldNames[fieldIndex],
+              match.token,
+              termFrequency,
+              actualFieldLength,
+              idf,
+            )
+          }
         }
       }
     }
   }
 
-  const totalMatched = docScores.size
-  const k = maxResults !== undefined && maxResults > 0 ? maxResults : DEFAULT_MAX_RESULTS
-  const scored = topKFromMap(docScores, Math.min(k, totalMatched), resolver)
-  return { scored, totalMatched }
+  const totalMatched = scoreBuffer.touchedCount
+  const k = maxResults === undefined ? totalMatched : Math.max(0, Math.min(maxResults, totalMatched))
+  const scored = topKFromBuffer(scoreBuffer, k, resolver, components)
+
+  if (params.collectMatchedSet === undefined) {
+    return { scored, totalMatched }
+  }
+
+  if (params.collectMatchedSet === 'ordinals') {
+    const matchedOrdinalBitset = createBitSet(state.docStore.internalIdCapacity())
+    for (let index = 0; index < scoreBuffer.touchedCount; index++) {
+      bitsetSet(matchedOrdinalBitset, scoreBuffer.touched[index])
+    }
+    return { scored, totalMatched, matchedOrdinalBitset }
+  }
+
+  const matchedIds: string[] = []
+  for (let index = 0; index < scoreBuffer.touchedCount; index++) {
+    const externalId = resolver.toExternal(scoreBuffer.touched[index])
+    if (externalId !== undefined) matchedIds.push(externalId)
+  }
+  return { scored, totalMatched, matchedIds }
 }
