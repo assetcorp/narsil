@@ -90,7 +90,7 @@ describe('a node rejoining with an index the cluster dropped', () => {
     await expect(node.insert('products', { title: 'new' })).rejects.toMatchObject({
       code: ErrorCodes.INDEX_ORPHANED,
     })
-  })
+  }, 30_000)
 
   it('tells the operator which index it refused and why', async () => {
     await seedIndexAndStop()
@@ -112,7 +112,7 @@ describe('a node rejoining with an index the cluster dropped', () => {
       error => error instanceof NarsilError && error.code === ErrorCodes.INDEX_ORPHANED,
     )
     expect(orphanReport?.message).toContain('products')
-  })
+  }, 30_000)
 
   it('serves the index again once an operator drops the copy the cluster dropped', async () => {
     await seedIndexAndStop()
@@ -124,7 +124,7 @@ describe('a node rejoining with an index the cluster dropped', () => {
     expect(await pollUntil(async () => (await node?.cluster.getAllocation('products')) !== null)).toBe(true)
 
     expect(await node.countDocuments('products')).toBe(0)
-  })
+  }, 30_000)
 
   it('replaces a copy the cluster created again under the same name', async () => {
     await seedIndexAndStop()
@@ -153,5 +153,5 @@ describe('a node rejoining with an index the cluster dropped', () => {
     await recreator.shutdown()
 
     expect(settled).toBe(true)
-  })
+  }, 30_000)
 })

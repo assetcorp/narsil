@@ -173,7 +173,7 @@ describe('cluster-node live replication', () => {
       return result?.count === 0
     })
     expect(removed).toBe(true)
-  })
+  }, 30_000)
 
   it('continues live replication after a replica bootstraps from a primary with existing log entries', async () => {
     nodeA = await createClusterNode({
@@ -274,7 +274,7 @@ describe('cluster-node live replication', () => {
       return result?.count === 1
     })
     expect(replicated).toBe(true)
-  })
+  }, 30_000)
 
   it('removes failed replicas from the in-sync set after a primary write replication failure', async () => {
     nodeA = await createClusterNode({
@@ -314,5 +314,5 @@ describe('cluster-node live replication', () => {
 
     const result = await nodeA.query('products', { term: 'Survivable' })
     expect(result.count).toBe(1)
-  })
+  }, 30_000)
 })

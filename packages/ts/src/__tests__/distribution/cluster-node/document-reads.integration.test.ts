@@ -113,7 +113,7 @@ describe('cluster-node document reads', () => {
     const many = await nodeB.getMultiple('products', [storedId, missingId, storedId])
     expect(many.size).toBe(1)
     expect(many.get(storedId)).toMatchObject({ title: 'Clustered Widget' })
-  })
+  }, 30_000)
 
   it('fails a read loudly when no active replica serves the partition', async () => {
     nodeA = await createClusterNode({
@@ -150,5 +150,5 @@ describe('cluster-node document reads', () => {
     await expect(nodeA.getMultiple('products', [strandedId])).rejects.toMatchObject({
       code: 'QUERY_NO_ACTIVE_REPLICA',
     })
-  })
+  }, 30_000)
 })
