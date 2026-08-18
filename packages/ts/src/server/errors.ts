@@ -73,6 +73,7 @@ const STATUS_BY_CODE: Record<string, number> = {
   PARTITION_NOT_PRIMARY: 503,
   PARTITION_UNASSIGNED: 503,
   INSUFFICIENT_REPLICAS: 503,
+  TRANSPORT_DEPENDENCY_MISSING: 500,
 }
 
 /** Maps a {@link NarsilError} code to an HTTP status. Unknown or cluster-only

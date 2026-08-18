@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package narsil.transport.v1;
+
+message Envelope {
+  bytes message = 1;
+}
+
+message Chunk {
+  bytes data = 1;
+}
+
+service NodeTransport {
+  rpc Send(Envelope) returns (Envelope);
+  rpc OpenStream(Envelope) returns (stream Chunk);
+}

@@ -138,6 +138,10 @@
       "import": "./dist/distribution/transport/in-memory.mjs",
       "types": "./dist/distribution/transport/in-memory.d.ts"
     },
+    "./distribution/transport/grpc": {
+      "import": "./dist/distribution/transport/grpc.mjs",
+      "types": "./dist/distribution/transport/grpc.d.ts"
+    },
     "./server": {
       "import": "./dist/server.mjs",
       "types": "./dist/server.d.ts"
@@ -162,6 +166,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.4",
     "@delali/narsil-embeddings-transformers": "workspace:*",
+    "@grpc/grpc-js": "1.14.4",
     "@microsoft/api-extractor": "7.58.12",
     "@types/node": "22.15.32",
     "@types/react": "19.2.14",
@@ -181,11 +186,15 @@
     "wabt": "1.0.39"
   },
   "peerDependencies": {
+    "@grpc/grpc-js": "1.14.4",
     "etcd3": "1.1.2",
     "react": ">=19.2.0",
     "uWebSockets.js": ">=20.0.0"
   },
   "peerDependenciesMeta": {
+    "@grpc/grpc-js": {
+      "optional": true
+    },
     "etcd3": {
       "optional": true
     },

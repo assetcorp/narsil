@@ -127,6 +127,9 @@ importers:
       '@delali/narsil-embeddings-transformers':
         specifier: workspace:*
         version: link:../embeddings-transformers
+      '@grpc/grpc-js':
+        specifier: 1.14.4
+        version: 1.14.4
       '@microsoft/api-extractor':
         specifier: 7.58.12
         version: 7.58.12(@types/node@22.15.32)
@@ -335,7 +338,7 @@ importers:
         version: link:../shared
       '@delali/sirannon-db':
         specifier: 0.1.8
-        version: 0.1.8(@grpc/grpc-js@1.14.3)(better-sqlite3@12.11.1)(etcd3@1.1.2)
+        version: 0.1.8(@grpc/grpc-js@1.14.4)(better-sqlite3@12.11.1)(etcd3@1.1.2)
       '@radix-ui/react-use-controllable-state':
         specifier: 1.2.3
         version: 1.2.3(@types/react@19.2.14)(react@19.2.4)
@@ -1479,8 +1482,8 @@ packages:
   '@floating-ui/utils@0.2.11':
     resolution: {integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==}
 
-  '@grpc/grpc-js@1.14.3':
-    resolution: {integrity: sha512-Iq8QQQ/7X3Sac15oB6p0FmUg/klxQvXLeileoqrTRGJYLV+/9tubbr9ipz0GKHjmXVsgFPo/+W+2cA8eNcR+XA==}
+  '@grpc/grpc-js@1.14.4':
+    resolution: {integrity: sha512-k9Dj3DV/itK9D06Y8f190Qgop7/Ui+D0njFV3LHMPwPT75DpXLQohE9Wmz0QElrJnzsjB7KPWiKJbOl7IPDArQ==}
     engines: {node: '>=12.10.0'}
 
   '@grpc/proto-loader@0.7.15':
@@ -8288,9 +8291,9 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@delali/sirannon-db@0.1.8(@grpc/grpc-js@1.14.3)(better-sqlite3@12.11.1)(etcd3@1.1.2)':
+  '@delali/sirannon-db@0.1.8(@grpc/grpc-js@1.14.4)(better-sqlite3@12.11.1)(etcd3@1.1.2)':
     optionalDependencies:
-      '@grpc/grpc-js': 1.14.3
+      '@grpc/grpc-js': 1.14.4
       better-sqlite3: 12.11.1
       etcd3: 1.1.2
 
@@ -8427,7 +8430,7 @@ snapshots:
 
   '@floating-ui/utils@0.2.11': {}
 
-  '@grpc/grpc-js@1.14.3':
+  '@grpc/grpc-js@1.14.4':
     dependencies:
       '@grpc/proto-loader': 0.8.0
       '@js-sdsl/ordered-map': 4.4.2
@@ -11998,7 +12001,7 @@ snapshots:
 
   etcd3@1.1.2:
     dependencies:
-      '@grpc/grpc-js': 1.14.3
+      '@grpc/grpc-js': 1.14.4
       '@grpc/proto-loader': 0.7.15
       bignumber.js: 9.3.1
       cockatiel: 3.2.1

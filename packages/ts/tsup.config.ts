@@ -3,7 +3,7 @@ import { defineConfig, type Options } from 'tsup'
 
 const NODE_BUILTINS = ['worker_threads', 'fs', 'path', 'os', 'crypto', 'net', 'tls']
 const NODE_EXTERNAL = NODE_BUILTINS.flatMap(m => [m, `node:${m}`])
-const OPTIONAL_PEERS = ['etcd3', 'uWebSockets.js']
+const OPTIONAL_PEERS = ['etcd3', 'uWebSockets.js', '@grpc/grpc-js']
 
 const LANGUAGES_DIR = 'src/languages'
 const NON_LANGUAGE_MODULES = new Set(['registry'])
@@ -39,6 +39,7 @@ const nodeEntry: Record<string, string> = {
   'distribution/coordinator/etcd': 'src/distribution/coordinator/etcd/index.ts',
   'distribution/transport/tcp': 'src/distribution/transport/tcp/index.ts',
   'distribution/transport/in-memory': 'src/distribution/transport/in-memory.ts',
+  'distribution/transport/grpc': 'src/distribution/transport/grpc/index.ts',
   server: 'src/server/index.ts',
 }
 
