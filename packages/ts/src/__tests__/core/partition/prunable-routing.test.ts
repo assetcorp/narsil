@@ -60,7 +60,7 @@ describe('routing to the pruned single-term scan', () => {
       { termMatch: 'all' },
       { collectComponents: true },
       { collectComponents: undefined },
-      { collectMatchedIds: true },
+      { collectMatchedSet: 'ordinals' },
       { maxResults: undefined },
       { fields: ['title'] },
       { filterBitset: new Uint32Array(1) },

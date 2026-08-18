@@ -65,7 +65,7 @@ export async function runImport(engine: Narsil, options: ImportRunOptions): Prom
     if (pending.length === 0) return
     const documents = pending.map(entry => entry.document)
     pending = []
-    const result = await engine.insertBatch(indexName, documents)
+    const result = await engine.insertBatch(indexName, documents, { skipClone: true })
     indexed += result.succeeded.length
     for (const failure of result.failed) {
       const serialized =

@@ -164,7 +164,7 @@ export function fulltextSearch(
   const maxResults = needsAllResults
     ? undefined
     : clampRowCount(params.limit, DEFAULT_PAGE_SIZE) + clampRowCount(params.offset, 0) + 1
-  const collectMatchedIds = params.facets !== undefined && !needsAllResults
+  const collectMatchedSet = params.facets !== undefined && !needsAllResults ? ('ordinals' as const) : undefined
 
   const collectComponents =
     params.includeScoreComponents === true || (params.termMatch !== undefined && params.termMatch !== 'any')
@@ -183,7 +183,7 @@ export function fulltextSearch(
     termMatch: params.termMatch,
     filterBitset,
     collectComponents,
-    collectMatchedIds,
+    collectMatchedSet,
   })
 
   let scored = rawResult.scored
@@ -209,7 +209,10 @@ export function fulltextSearch(
   if (params.facets === undefined) {
     return { scored, totalMatched }
   }
-  return { scored, totalMatched, matchedIds: needsAllResults ? scored.map(doc => doc.docId) : rawResult.matchedIds }
+  if (needsAllResults) {
+    return { scored, totalMatched, matchedIds: scored.map(doc => doc.docId) }
+  }
+  return { scored, totalMatched, matchedOrdinalBitset: rawResult.matchedOrdinalBitset }
 }
 
 function validateSearchFields(fields: string[], flatSchema: Record<string, FieldType>): void {

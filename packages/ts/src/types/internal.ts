@@ -195,10 +195,19 @@ export interface InternalSearchResult {
   scored: ScoredDocument[]
   totalMatched: number
   /**
-   * Every document the query matches, present when the caller asked for it.
-   * A facet count reads this rather than the returned page.
+   * Every document the query matches, as external ids, present when the
+   * caller asked for the id form. A facet count reads this rather than the
+   * returned page.
    */
   matchedIds?: string[]
+  /**
+   * Every document the query matches, as a bit per ordinal in the searched
+   * partition's ordinal space, present when the caller asked for the ordinal
+   * form. Another copy of the partition numbers its ordinals differently, so
+   * a result that crosses a thread or process must carry `matchedIds`
+   * instead.
+   */
+  matchedOrdinalBitset?: Uint32Array
 }
 
 /**
@@ -228,5 +237,11 @@ export interface InternalSearchParams {
   termMatch?: import('../types/search').TermMatchPolicy
   filterBitset?: Uint32Array
   collectComponents?: boolean
-  collectMatchedIds?: boolean
+  /**
+   * Asks the search to report every matching document alongside the scored
+   * page, for facet counting. `'ordinals'` returns a bit per ordinal and is
+   * the form for a same-process caller; `'ids'` returns external ids, which
+   * survive a thread or process boundary.
+   */
+  collectMatchedSet?: 'ids' | 'ordinals'
 }

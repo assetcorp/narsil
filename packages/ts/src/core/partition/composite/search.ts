@@ -1,4 +1,5 @@
 import type { InternalSearchParams, InternalSearchResult } from '../../../types/internal'
+import { createBitSet } from '../../bitset'
 import { type PartitionSearchMatches, searchFulltextMatches } from '../matches'
 import type { PartitionReadState } from '../read-state'
 import { kWayMerge } from '../scored-merge'
@@ -41,8 +42,17 @@ export function compositeSearchFulltext(
     totalMatched += result.totalMatched
   }
 
-  if (params.collectMatchedIds !== true) {
+  if (params.collectMatchedSet === undefined) {
     return { scored, totalMatched }
+  }
+
+  if (params.collectMatchedSet === 'ordinals') {
+    const matchedOrdinalBitset = createBitSet(layout.totalCapacity)
+    for (let i = 0; i < results.length; i++) {
+      const subBitset = results[i].matchedOrdinalBitset
+      if (subBitset !== undefined) matchedOrdinalBitset.set(subBitset, layout.bases[i] >> 5)
+    }
+    return { scored, totalMatched, matchedOrdinalBitset }
   }
 
   const matchedIds: string[] = []
@@ -86,6 +96,13 @@ export function compositeSearchMatches(
         for (const docId of matches.matchedDocIds()) {
           combined.add(docId)
         }
+      }
+      return combined
+    },
+    ordinalBitset(): Uint32Array {
+      const combined = createBitSet(layout.totalCapacity)
+      for (let i = 0; i < subMatches.length; i++) {
+        combined.set(subMatches[i].ordinalBitset(), layout.bases[i] >> 5)
       }
       return combined
     },

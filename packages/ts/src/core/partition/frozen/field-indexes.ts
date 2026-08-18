@@ -1,4 +1,4 @@
-import { bitsetSet, createBitSet } from '../../bitset'
+import { bitsetHas, bitsetSet, createBitSet } from '../../bitset'
 import type { BooleanFieldIndexReader, EnumFieldIndexReader, NumericFieldIndexReader } from '../../field-index'
 import type { SegmentPayload } from '../segment-payload'
 
@@ -65,6 +65,35 @@ export function createFrozenNumericReader(entry: SegmentPayload['numeric'][numbe
       bitsetOfRange(docIds, lowerBound(values, min), upperBound(values, max), capacity),
     getAllDocIdsBitset: capacity => bitsetOfRange(docIds, 0, docIds.length, capacity),
     count: () => docIds.length,
+    facetValueCounts: matched => {
+      const counts = new Map<number, number>()
+      let i = 0
+      while (i < values.length) {
+        const value = values[i]
+        let runEnd = i + 1
+        while (runEnd < values.length && values[runEnd] === value) runEnd++
+        if (runEnd - i === 1) {
+          if (bitsetHas(matched, docIds[i])) counts.set(value, 1)
+        } else {
+          const seen = new Set<number>()
+          for (let j = i; j < runEnd; j++) {
+            if (bitsetHas(matched, docIds[j])) seen.add(docIds[j])
+          }
+          if (seen.size > 0) counts.set(value, seen.size)
+        }
+        i = runEnd
+      }
+      return counts
+    },
+    facetRangeCount: (from, to, matched) => {
+      const start = lowerBound(values, from)
+      const end = lowerBound(values, to)
+      const seen = new Set<number>()
+      for (let i = start; i < end; i++) {
+        if (bitsetHas(matched, docIds[i])) seen.add(docIds[i])
+      }
+      return seen.size
+    },
   }
 }
 
@@ -87,6 +116,17 @@ export function createFrozenBooleanReader(entry: SegmentPayload['boolean'][numbe
       return bits
     },
     count: () => trueDocs.length + falseDocs.length,
+    facetCounts: matched => {
+      let trueCount = 0
+      let falseCount = 0
+      for (let i = 0; i < trueDocs.length; i++) {
+        if (bitsetHas(matched, trueDocs[i])) trueCount++
+      }
+      for (let i = 0; i < falseDocs.length; i++) {
+        if (bitsetHas(matched, falseDocs[i])) falseCount++
+      }
+      return { trueCount, falseCount }
+    },
   }
 }
 
@@ -152,5 +192,16 @@ export function createFrozenEnumReader(entry: SegmentPayload['enums'][number]): 
     },
     getAllDocIdsBitset: capacity => bitsetOfRange(docIds, 0, docIds.length, capacity),
     count: () => docIds.length,
+    facetCounts: matched => {
+      const counts = new Map<string, number>()
+      for (let i = 0; i < values.length; i++) {
+        let count = 0
+        for (let j = offsets[i]; j < offsets[i + 1]; j++) {
+          if (bitsetHas(matched, docIds[j])) count++
+        }
+        if (count > 0) counts.set(values[i], count)
+      }
+      return counts
+    },
   }
 }
