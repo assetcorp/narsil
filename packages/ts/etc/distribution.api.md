@@ -111,15 +111,6 @@ export interface CreateIndexOptions {
 }
 
 // @public
-export function createInMemoryCoordinator(): ClusterCoordinator;
-
-// @public
-export function createInMemoryNetwork(): InMemoryNetwork;
-
-// @public
-export function createInMemoryTransport(nodeId: string, network: InMemoryNetwork, config?: Partial<TransportConfig>): NodeTransport;
-
-// @public
 export const DEFAULT_CAPACITY: NodeCapacity;
 
 // @public
@@ -127,19 +118,6 @@ export const DEFAULT_PARTITION_COUNT = 5;
 
 // @public
 export const DEFAULT_REPLICATION_FACTOR = 1;
-
-// @public
-export interface InMemoryNetwork {
-    getTransport(nodeId: string): InMemoryTransportInternal | undefined;
-    register(nodeId: string, transport: InMemoryTransportInternal): void;
-    unregister(nodeId: string): void;
-}
-
-// @public
-export interface InMemoryTransportInternal extends NodeTransport {
-    deliverMessage(message: TransportMessage, respond: (response: TransportMessage) => void): void;
-    deliverStream(message: TransportMessage, responder: StreamResponder): void;
-}
 
 // @public
 export interface NodeCapacity {
@@ -201,9 +179,6 @@ export interface SchemaEvent {
     schema: SchemaDefinition | null;
     type: 'schema_created' | 'schema_dropped';
 }
-
-// @public
-export type StreamResponder = (chunks: Uint8Array[]) => void;
 
 // @public
 export interface TransportConfig {

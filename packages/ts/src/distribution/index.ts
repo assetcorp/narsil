@@ -26,14 +26,5 @@ export type {
   PartitionState,
   SchemaEvent,
 } from './coordinator'
-export { createInMemoryCoordinator } from './coordinator'
 export type { ReplicationConfig } from './replication/types'
-export type {
-  InMemoryNetwork,
-  InMemoryTransportInternal,
-  NodeTransport,
-  StreamResponder,
-  TransportConfig,
-  TransportMessage,
-} from './transport'
-export { createInMemoryNetwork, createInMemoryTransport } from './transport'
+export type { NodeTransport, TransportConfig, TransportMessage } from './transport/types'
