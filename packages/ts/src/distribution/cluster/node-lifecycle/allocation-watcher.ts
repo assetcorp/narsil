@@ -132,6 +132,9 @@ function handleNewAssignment(
   }
 
   if (assignment.primary === nodeId) {
+    if (assignment.state === 'INITIALISING') {
+      startBootstrap(state, config, indexName, partitionId, nodeId)
+    }
     return
   }
 

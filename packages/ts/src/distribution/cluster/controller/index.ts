@@ -11,7 +11,8 @@ import { clearEventLoopWatchers, createEventLoopState, type EventLoopState, star
 import type { ControllerConfig, ControllerNode } from './types'
 
 export function createController(config: ControllerConfig): ControllerNode {
-  const { nodeId, coordinator, transport, leaseTtlMs, standbyRetryMs, knownIndexNames, onError } = config
+  const { nodeId, coordinator, transport, leaseTtlMs, standbyRetryMs, knownIndexNames, resolveIndexNames, onError } =
+    config
 
   let electionState: ElectionState = createElectionState()
   let eventLoopState: EventLoopState = createEventLoopState(knownIndexNames)
@@ -45,6 +46,12 @@ export function createController(config: ControllerConfig): ControllerNode {
     electionState.active = true
 
     startRenewalInterval(electionState, coordinator, nodeId, leaseTtlMs, stepDown)
+
+    if (resolveIndexNames !== undefined) {
+      for (const indexName of resolveIndexNames()) {
+        eventLoopState.knownIndexes.add(indexName)
+      }
+    }
 
     await startEventLoop(eventLoopState, coordinator, transport, nodeId, isActive, onError)
   }

@@ -294,6 +294,31 @@ importers:
         specifier: ^3.0.5
         version: 3.2.4(@types/debug@4.1.13)(@types/node@22.15.32)(jiti@2.7.0)(jsdom@28.1.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)
 
+  packages/ts/examples/cluster:
+    dependencies:
+      '@delali/narsil':
+        specifier: workspace:*
+        version: link:../..
+      '@delali/narsil-certutil':
+        specifier: workspace:*
+        version: link:../../../certutil
+      etcd3:
+        specifier: 1.1.2
+        version: 1.1.2
+      uWebSockets.js:
+        specifier: github:uNetworking/uWebSockets.js#v20.58.0
+        version: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/ba110e817908b56c61d625b02f367b4ec9cfc8ab
+    devDependencies:
+      '@types/node':
+        specifier: 22.15.32
+        version: 22.15.32
+      tsx:
+        specifier: 4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
   packages/ts/examples/server-app:
     dependencies:
       '@ai-sdk/openai':

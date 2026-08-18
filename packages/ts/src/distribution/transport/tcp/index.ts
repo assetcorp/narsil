@@ -13,6 +13,24 @@ export type { TcpTransportConfig, TlsConfig } from './types'
 
 type ListenHandler = (message: TransportMessage, respond: (response: TransportMessage) => void) => void | Promise<void>
 
+/**
+ * Builds the TCP transport a cluster node reaches its peers through, with
+ * length-prefixed MessagePack frames and optional mutual TLS.
+ *
+ * The transport listens on `config.host` and `config.port`, and it dials a
+ * peer at the `host:port` address that peer registered with the coordinator.
+ * Passing `config.tls` makes every connection mutually authenticated: the
+ * server requests a client certificate and both sides verify against the
+ * configured authority.
+ *
+ * @param nodeId - The node this transport belongs to, used in error reports.
+ * @param config - The listen address, the connection limits, the timeouts,
+ * and the TLS material.
+ * @returns The transport, with `getPort` for reading the bound port and
+ * `rotateTlsContext` for renewing certificates without a restart.
+ *
+ * @public
+ */
 export function createTcpTransport(
   nodeId: string,
   config?: Partial<TcpTransportConfig>,

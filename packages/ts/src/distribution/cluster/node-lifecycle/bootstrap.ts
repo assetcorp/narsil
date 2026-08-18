@@ -30,6 +30,20 @@ async function resolvePrimaryTerm(
   return assignment.primaryTerm
 }
 
+async function resolveControllerTargets(coordinator: ClusterCoordinator, controllerNodeId: string): Promise<string[]> {
+  const targets = [controllerNodeId]
+  try {
+    const nodes = await coordinator.listNodes()
+    const registration = nodes.find(entry => entry.nodeId === controllerNodeId)
+    if (registration !== undefined && registration.address.length > 0 && registration.address !== controllerNodeId) {
+      targets.push(registration.address)
+    }
+  } catch (_) {
+    return targets
+  }
+  return targets
+}
+
 export async function reportBootstrapComplete(
   indexName: string,
   partitionId: number,
@@ -61,12 +75,13 @@ export async function reportBootstrapComplete(
     payload: encode(payload),
   }
 
-  try {
-    const response = await transport.send(controllerNodeId, message)
-    return isAcceptedResponse(response)
-  } catch (_) {
-    return false
+  for (const target of await resolveControllerTargets(coordinator, controllerNodeId)) {
+    try {
+      const response = await transport.send(target, message)
+      return isAcceptedResponse(response)
+    } catch (_) {}
   }
+  return false
 }
 
 function isAcceptedResponse(response: TransportMessage): boolean {

@@ -74,6 +74,7 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.QUERY_PARTIAL_FAILURE).toBe('QUERY_PARTIAL_FAILURE')
     expect(ErrorCodes.QUERY_NODE_TIMEOUT).toBe('QUERY_NODE_TIMEOUT')
     expect(ErrorCodes.QUERY_NO_ACTIVE_REPLICA).toBe('QUERY_NO_ACTIVE_REPLICA')
+    expect(ErrorCodes.CLUSTER_OPERATION_UNSUPPORTED).toBe('CLUSTER_OPERATION_UNSUPPORTED')
   })
 
   it('has allocation error codes', () => {
@@ -129,8 +130,8 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.SNAPSHOT_SYNC_ABORTED).toBe('SNAPSHOT_SYNC_ABORTED')
   })
 
-  it('has exactly 89 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(89)
+  it('has exactly 90 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(90)
   })
 
   it('has unique values for every code', () => {
