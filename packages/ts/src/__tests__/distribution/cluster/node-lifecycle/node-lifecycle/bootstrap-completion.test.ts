@@ -67,6 +67,7 @@ describe('DataNodeLifecycle bootstrap completion reporting and validation', () =
       bootstrapRetryMaxMs: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapRetryMaxMs,
       bootstrapMaxRetries: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapMaxRetries,
       allocationDebounceMs: DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs,
+      nodeHeartbeatIntervalMs: DEFAULT_NODE_LIFECYCLE_CONFIG.nodeHeartbeatIntervalMs,
       onBootstrapPartition: vi.fn().mockResolvedValue(true),
       ...overrides,
     })

@@ -218,6 +218,7 @@ function startBootstrap(
       }
       if (!succeeded) {
         state.trackedPartitions.delete(key)
+        void restartBootstrapWhileOutOfSync(state, config, indexName, partitionId)
       }
     })
     .catch(() => {
@@ -285,4 +286,46 @@ export function processInitialAllocations(
   for (const table of tables) {
     processAllocationChange(state, config, table)
   }
+}
+
+async function restartBootstrapWhileOutOfSync(
+  state: AllocationWatcherState,
+  config: NodeLifecycleConfig,
+  indexName: string,
+  partitionId: number,
+): Promise<void> {
+  if (state.stopped) {
+    return
+  }
+
+  const nodeId = config.registration.nodeId
+  let table: AllocationTable | null
+  try {
+    table = await config.coordinator.getAllocation(indexName)
+  } catch (error) {
+    if (config.onError !== undefined) {
+      config.onError(error)
+    }
+    return
+  }
+
+  if (state.stopped || table === null) {
+    return
+  }
+
+  const assignment = table.assignments.get(partitionId)
+  if (assignment === undefined || assignment.primary === null || assignment.primary === nodeId) {
+    return
+  }
+  if (!assignment.replicas.includes(nodeId) || assignment.inSyncSet.includes(nodeId)) {
+    return
+  }
+  if (assignment.state !== 'ACTIVE' && assignment.state !== 'INITIALISING' && assignment.state !== 'MIGRATING') {
+    return
+  }
+  if (state.activeBootstraps.has(partitionKey(indexName, partitionId))) {
+    return
+  }
+
+  startBootstrap(state, config, indexName, partitionId, assignment.primary)
 }

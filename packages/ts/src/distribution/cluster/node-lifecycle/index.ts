@@ -1,11 +1,17 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { type AllocationWatcherState, createAllocationWatcherState, stopAllocationWatcher } from './allocation-watcher'
+import {
+  createRegistrationHeartbeatState,
+  type RegistrationHeartbeatState,
+  stopRegistrationHeartbeat,
+} from './heartbeat'
 import { joinCluster, leaveCluster } from './join'
 import type { DataNodeHandle, DataNodeLifecycleStatus, NodeLifecycleConfig } from './types'
 
 export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHandle {
   let status: DataNodeLifecycleStatus = 'stopped'
   let watcherState: AllocationWatcherState = createAllocationWatcherState()
+  const heartbeatState: RegistrationHeartbeatState = createRegistrationHeartbeatState()
   let operationLock: Promise<void> = Promise.resolve()
 
   function withLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -55,9 +61,10 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
         status = 'joining'
 
         try {
-          await joinCluster(config, watcherState)
+          await joinCluster(config, watcherState, heartbeatState)
           status = 'active'
         } catch (error) {
+          stopRegistrationHeartbeat(heartbeatState)
           status = 'stopped'
           throw error
         }
@@ -71,6 +78,7 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
         }
 
         status = 'leaving'
+        stopRegistrationHeartbeat(heartbeatState)
         stopAllocationWatcher(watcherState)
 
         try {
@@ -88,6 +96,7 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
           return
         }
 
+        stopRegistrationHeartbeat(heartbeatState)
         stopAllocationWatcher(watcherState)
 
         if (status === 'active' || status === 'joining') {

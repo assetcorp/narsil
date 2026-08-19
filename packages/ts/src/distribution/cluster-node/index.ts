@@ -192,6 +192,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       bootstrapRetryMaxMs: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapRetryMaxMs,
       bootstrapMaxRetries: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapMaxRetries,
       allocationDebounceMs: DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs,
+      nodeHeartbeatIntervalMs: DEFAULT_NODE_LIFECYCLE_CONFIG.nodeHeartbeatIntervalMs,
       onBootstrapPartition: bootstrapPartition,
       onRemovePartition: (indexName: string, partitionId: number) => {
         clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)

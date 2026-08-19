@@ -12,6 +12,7 @@ export interface NodeLifecycleConfig {
   bootstrapRetryMaxMs: number
   bootstrapMaxRetries: number
   allocationDebounceMs: number
+  nodeHeartbeatIntervalMs: number
   onBootstrapPartition: (indexName: string, partitionId: number, primaryNodeId: string) => Promise<boolean>
   onRemovePartition?: (indexName: string, partitionId: number) => void
   onPrimaryDemotion?: (indexName: string, partitionId: number, newPrimaryNodeId: string) => void
@@ -20,9 +21,10 @@ export interface NodeLifecycleConfig {
 
 export const DEFAULT_NODE_LIFECYCLE_CONFIG = {
   bootstrapRetryBaseMs: 1_000,
-  bootstrapRetryMaxMs: 30_000,
+  bootstrapRetryMaxMs: 5_000,
   bootstrapMaxRetries: 10,
   allocationDebounceMs: 250,
+  nodeHeartbeatIntervalMs: 10_000,
 } as const
 
 export interface DataNodeHandle {
