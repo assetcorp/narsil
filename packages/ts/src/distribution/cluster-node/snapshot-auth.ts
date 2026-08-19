@@ -1,5 +1,5 @@
 import { type ErrorCode, ErrorCodes } from '../../errors'
-import type { AllocationTable, ClusterCoordinator, PartitionAssignment, PartitionState } from '../coordinator/types'
+import type { AllocationTable, ClusterCoordinator, PartitionState } from '../coordinator/types'
 
 export type SnapshotAuthOutcome = { outcome: 'authorized' } | { outcome: 'denied'; code: ErrorCode; reason: string }
 
@@ -32,23 +32,14 @@ export async function authorizeSnapshotRequest(
 
   let sawAssignment = false
   for (const assignment of allocation.assignments.values()) {
-    const isPrimary = assignment.primary === sourceId
-    const isReplica = assignment.replicas.includes(sourceId)
+    const isAssigned = assignment.primary === sourceId || assignment.replicas.includes(sourceId)
 
-    if (!isPrimary && !isReplica) {
+    if (!isAssigned) {
       continue
     }
     sawAssignment = true
 
     if (!BOOTSTRAPPABLE_STATES.has(assignment.state)) {
-      continue
-    }
-
-    if (isPrimary) {
-      return { outcome: 'authorized' }
-    }
-
-    if (!assignmentAllowsReplicaBootstrap(assignment, sourceId)) {
       continue
     }
 
@@ -68,11 +59,4 @@ export async function authorizeSnapshotRequest(
     code: ErrorCodes.SNAPSHOT_SYNC_UNAUTHORIZED,
     reason: `node '${sourceId}' is not an assigned replica for index '${indexName}'`,
   }
-}
-
-function assignmentAllowsReplicaBootstrap(assignment: PartitionAssignment, sourceId: string): boolean {
-  if (assignment.state === 'INITIALISING' || assignment.state === 'MIGRATING') {
-    return true
-  }
-  return assignment.inSyncSet.includes(sourceId)
 }
