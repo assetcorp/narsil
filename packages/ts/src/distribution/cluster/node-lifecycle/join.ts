@@ -1,9 +1,16 @@
 import type { AllocationTable } from '../../coordinator/types'
 import { type AllocationWatcherState, processInitialAllocations, startAllocationWatcher } from './allocation-watcher'
+import { type RegistrationHeartbeatState, startRegistrationHeartbeat } from './heartbeat'
 import type { NodeLifecycleConfig } from './types'
 
-export async function joinCluster(config: NodeLifecycleConfig, watcherState: AllocationWatcherState): Promise<void> {
+export async function joinCluster(
+  config: NodeLifecycleConfig,
+  watcherState: AllocationWatcherState,
+  heartbeatState: RegistrationHeartbeatState,
+): Promise<void> {
   await config.coordinator.registerNode(config.registration)
+
+  startRegistrationHeartbeat(heartbeatState, config)
 
   const initialTables = await loadInitialAllocations(config)
 

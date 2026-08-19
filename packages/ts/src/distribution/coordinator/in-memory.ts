@@ -17,6 +17,7 @@ interface LeaseEntry {
 }
 
 const NODE_HEARTBEAT_PREFIX = '_narsil/node/'
+const NODE_HEARTBEAT_TTL_MS = 30_000
 
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.byteLength !== b.byteLength) {
@@ -121,17 +122,21 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
   const coordinator: ClusterCoordinator = {
     async registerNode(registration: NodeRegistration): Promise<void> {
       assertNotShutdown()
+      const previous = nodes.get(registration.nodeId)
       nodes.set(registration.nodeId, registration)
 
       const heartbeatKey = `${NODE_HEARTBEAT_PREFIX}${registration.nodeId}`
-      const defaultTtlMs = 30_000
       clearLeaseEntry(heartbeatKey)
-      const timer = createLeaseTimer(heartbeatKey, defaultTtlMs)
+      const timer = createLeaseTimer(heartbeatKey, NODE_HEARTBEAT_TTL_MS)
       leases.set(heartbeatKey, {
         nodeId: registration.nodeId,
-        expiresAt: Date.now() + defaultTtlMs,
+        expiresAt: Date.now() + NODE_HEARTBEAT_TTL_MS,
         timer,
       })
+
+      if (previous !== undefined && registrationsMatch(previous, registration)) {
+        return
+      }
 
       emitNodeEvent({ type: 'node_joined', nodeId: registration.nodeId, registration })
     },
@@ -355,4 +360,8 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
   }
 
   return coordinator
+}
+
+function registrationsMatch(left: NodeRegistration, right: NodeRegistration): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
 }
