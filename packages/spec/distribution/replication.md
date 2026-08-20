@@ -156,6 +156,8 @@ The retention mechanism is implementation-defined. A circular buffer, an append-
 
 A replica that needs to catch up with the primary, whether it is a new node, a node returning after downtime, or a node newly assigned the partition, runs the sync protocol against the primary.
 
+A replica must send `replication.sync_request` again once it has applied the sync so that the primary records its new position.
+
 ### Two-Tier Recovery
 
 The primary picks the tier, based on whether its log still covers the replica's gap.
@@ -228,11 +230,11 @@ A replica that is still bootstrapping holds the partition in `INITIALISING` and 
 
 The in-sync set records which replicas are fully caught up with the primary. Only a replica in that set is eligible for promotion during failover.
 
-A replica joins the in-sync set once it has applied every log entry up to the primary's current `seqNo`, which is the end of the sync protocol whichever tier ran.
+A replica joins the in-sync set once it has applied every entry up to the partition's commit point. The commit point is the highest sequence number the primary has acknowledged to a client, which the controller stores in the partition assignment.
 
 A replica leaves the in-sync set when the primary detects it has failed, whether by a timeout on a forwarded entry or by a lost connection. The primary then asks the controller to remove it.
 
-A replica that reads an `ACTIVE` assignment naming it as a replica outside the in-sync set must run the sync protocol against the primary, and it rejoins the set through the bootstrap completion report.
+A replica that reads an `ACTIVE` assignment naming it outside the in-sync set must run the sync protocol against the primary. The primary then asks the controller to admit that replica once its applied position reaches the commit point.
 
 ### Finding the Controller
 
@@ -268,11 +270,11 @@ The in-sync set is stored in the cluster coordinator as the `inSyncSet` field of
 
 ## Write Durability
 
-Every write replicates to every in-sync replica before it is acknowledged, and that is not configurable. The primary always forwards the operation to every replica in the in-sync set and waits for all of them.
+Every write replicates to every in-sync replica before it is acknowledged, and that is not configurable. The primary sends each entry to every assigned replica; however, it waits for the replicas in the in-sync set alone. A primary that has asked the controller to admit a replica must wait for that replica as well, until the controller answers. The primary raises the partition's commit point to the entry's `seqNo` once it acknowledges the write.
 
 A primary may group contiguous entries for one partition into a single `replication.entry_batch` message, and the replica's one acknowledgement of the batch's last entry then covers every entry in it. A primary must send each partition's entries in sequence-number order, whichever message carries them.
 
-A replica that fails during replication is removed from the in-sync set through the controller, and the primary then acknowledges. The write is durable on every remaining in-sync replica.
+A replica that fails during replication is removed from the in-sync set through the controller, and the primary then acknowledges. The write is durable on every remaining in-sync replica. A replica that fails while its admission is pending stays outside the set, so the primary abandons that admission and acknowledges without it.
 
 ### Waiting for Active Replicas
 
