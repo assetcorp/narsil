@@ -35,8 +35,25 @@ export function deserializeAllocationTable(data: Buffer): AllocationTable {
     indexName: raw.indexName,
     version: raw.version,
     replicationFactor: typeof raw.replicationFactor === 'number' ? raw.replicationFactor : 0,
-    assignments: new Map(raw.assignments as Array<[number, PartitionAssignment]>),
+    assignments: normaliseAssignments(raw.assignments),
   }
+}
+
+function normaliseAssignments(entries: unknown[]): Map<number, PartitionAssignment> {
+  const assignments = new Map<number, PartitionAssignment>()
+  for (const pair of entries) {
+    if (!Array.isArray(pair) || pair.length < 2) {
+      throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'AllocationTable holds a malformed assignment entry')
+    }
+    const [partitionId, assignment] = pair
+    if (typeof partitionId !== 'number' || assignment === null || typeof assignment !== 'object') {
+      throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'AllocationTable holds a malformed partition assignment')
+    }
+    const candidate = assignment as Partial<PartitionAssignment>
+    const commitPoint = typeof candidate.commitPoint === 'number' ? candidate.commitPoint : 0
+    assignments.set(partitionId, { ...(assignment as PartitionAssignment), commitPoint })
+  }
+  return assignments
 }
 
 export function serializeNodeRegistration(reg: NodeRegistration): Uint8Array {

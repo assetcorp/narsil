@@ -1,6 +1,11 @@
 import { encode } from '@msgpack/msgpack'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONTROLLER_LEASE_KEY } from '../../../distribution/cluster/controller/types'
+import {
+  createCatchUpState,
+  getPendingAdmissions,
+  markPendingAdmission,
+} from '../../../distribution/cluster-node/catch-up'
 import { routeInsert, routeRemove, type WriteRoutingDeps } from '../../../distribution/cluster-node/write-routing'
 import { createPartitionWriteQueues } from '../../../distribution/cluster-node/write-routing/partition-queue'
 import { createInMemoryCoordinator } from '../../../distribution/coordinator'
@@ -20,6 +25,7 @@ function makeAssignment(overrides: Partial<PartitionAssignment> = {}): Partition
     inSyncSet: ['node-b'],
     state: 'ACTIVE',
     primaryTerm: 1,
+    commitPoint: 0,
     ...overrides,
   }
 }
@@ -80,6 +86,7 @@ function makeDeps(coordinator: ClusterCoordinator, engine: Narsil, transport: No
     engine,
     transport,
     partitionWriteQueues: createPartitionWriteQueues(),
+    catchUp: createCatchUpState(),
     ...createLogAccessors(),
   }
 }
@@ -229,5 +236,82 @@ describe('primary write safety', () => {
     const deps = makeDeps(coordinator, engine, transport)
     await expect(routeRemove('products', 'doc-restore', deps)).rejects.toThrow('Controller rejected in-sync removal')
     await expect(engine.get('products', 'doc-restore')).resolves.toMatchObject({ title: 'Original Document' })
+  })
+})
+
+describe('pending admission during a primary write', () => {
+  let coordinator: ClusterCoordinator | undefined
+  let engine: Narsil | undefined
+  let transport: NodeTransport | undefined
+
+  afterEach(async () => {
+    await transport?.shutdown()
+    await engine?.shutdown()
+    await coordinator?.shutdown()
+    transport = undefined
+    engine = undefined
+    coordinator = undefined
+  })
+
+  it('cancels the admission and acknowledges when a catching-up replica fails the write', async () => {
+    coordinator = createInMemoryCoordinator()
+    engine = await createEngine()
+    await coordinator.putAllocation(
+      'products',
+      makeAllocationTable(makeAssignment({ replicas: ['node-b', 'node-c'], inSyncSet: ['node-b'] })),
+    )
+
+    const removalRequests: string[] = []
+    transport = makeTransport(async (target, message) => {
+      if (message.type === ReplicationMessageTypes.INSYNC_REMOVE) {
+        removalRequests.push(target)
+        return createInsyncConfirmMessage(
+          { indexName: 'products', partitionId: 0, accepted: true },
+          'controller',
+          message.requestId,
+        )
+      }
+      if (target === 'node-c') {
+        throw new TransportError(TransportErrorCodes.PEER_UNAVAILABLE, 'node-c is unreachable')
+      }
+      return createAckMessage(1, 0, 'products', target, message.requestId)
+    })
+
+    const deps = makeDeps(coordinator, engine, transport)
+    markPendingAdmission(deps.catchUp, 'products', 0, 'node-c')
+
+    await routeInsert('products', { title: 'a book' }, 'doc-1', deps)
+
+    expect(removalRequests).toEqual([])
+    expect(getPendingAdmissions(deps.catchUp, 'products', 0)).toEqual([])
+    expect(deps.getReplicationLog('products', 0).commitPoint).toBe(1)
+  })
+
+  it('still removes a failed in-sync replica through the controller', async () => {
+    coordinator = createInMemoryCoordinator()
+    engine = await createEngine()
+    await coordinator.putAllocation('products', makeAllocationTable(makeAssignment()))
+    await coordinator.acquireLease(CONTROLLER_LEASE_KEY, 'controller', 15_000)
+
+    const removalRequests: string[] = []
+    transport = makeTransport(async (target, message) => {
+      if (message.type === ReplicationMessageTypes.INSYNC_REMOVE) {
+        removalRequests.push(target)
+        return createInsyncConfirmMessage(
+          { indexName: 'products', partitionId: 0, accepted: true },
+          'controller',
+          message.requestId,
+        )
+      }
+      if (target === 'node-b') {
+        throw new TransportError(TransportErrorCodes.PEER_UNAVAILABLE, 'node-b is unreachable')
+      }
+      return createAckMessage(1, 0, 'products', target, message.requestId)
+    })
+
+    const deps = makeDeps(coordinator, engine, transport)
+    await routeInsert('products', { title: 'a book' }, 'doc-1', deps)
+
+    expect(removalRequests).toEqual(['controller'])
   })
 })

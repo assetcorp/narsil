@@ -246,6 +246,7 @@ describe('DataNodeLifecycle join and allocation watcher', () => {
           inSyncSet: ['primary-node'],
           state: 'ACTIVE',
           primaryTerm: 1,
+          commitPoint: 0,
         }),
       )
       await coordinator.putAllocation('products', makeAllocationTable('products', repeatedAssignments, 2))
@@ -304,6 +305,7 @@ describe('DataNodeLifecycle join and allocation watcher', () => {
           inSyncSet: ['data-2'],
           state: 'ACTIVE',
           primaryTerm: 1,
+          commitPoint: 0,
         }),
       )
       await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
@@ -329,6 +331,7 @@ describe('DataNodeLifecycle join and allocation watcher', () => {
           inSyncSet: ['data-1'],
           state: 'ACTIVE',
           primaryTerm: 2,
+          commitPoint: 0,
         }),
       )
       await coordinator.putAllocation('products', makeAllocationTable('products', demotedAssignments, 2))

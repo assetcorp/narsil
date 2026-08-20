@@ -48,6 +48,7 @@ function makeAllocationTable(): AllocationTable {
     inSyncSet: ['node-b'],
     state: 'ACTIVE',
     primaryTerm: 1,
+    commitPoint: 0,
   }
 
   return {

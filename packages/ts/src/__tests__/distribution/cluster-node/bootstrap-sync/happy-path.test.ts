@@ -166,6 +166,7 @@ describe('runBootstrapSync - happy path and state', () => {
       inSyncSet: ['primary-node'],
       state: 'ACTIVE',
       primaryTerm: 1,
+      commitPoint: 0,
     })
     vi.mocked(coordinator.getAllocation).mockResolvedValue({
       indexName: 'products',
@@ -198,6 +199,7 @@ describe('runBootstrapSync - happy path and state', () => {
       inSyncSet: ['primary-node', 'replica-node'],
       state: 'ACTIVE',
       primaryTerm: 1,
+      commitPoint: 0,
     })
     vi.mocked(coordinator.getAllocation).mockResolvedValue({
       indexName: 'products',

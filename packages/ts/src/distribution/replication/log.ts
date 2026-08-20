@@ -23,8 +23,9 @@ export function createReplicationLog(
 ): ReplicationLog {
   const retentionBytes = config?.logRetentionBytes ?? DEFAULT_LOG_RETENTION_BYTES
   let nextSeqNo = config?.startSeqNo ?? 1
-  let committedSeqNo = nextSeqNo - 1
-  let committedPrimaryTerm = config?.lastPrimaryTerm ?? 0
+  let localLogEnd = nextSeqNo - 1
+  let localLogEndPrimaryTerm = config?.lastPrimaryTerm ?? 0
+  let commitPoint = 0
   let entries: ReplicationLogEntry[] = []
   let headIndex = 0
   let totalSizeBytes = 0
@@ -90,9 +91,9 @@ export function createReplicationLog(
 
   function storeEntry(entry: ReplicationLogEntry): ReplicationLogEntry {
     entries.push(entry)
-    if (entry.seqNo >= committedSeqNo) {
-      committedSeqNo = entry.seqNo
-      committedPrimaryTerm = entry.primaryTerm
+    if (entry.seqNo >= localLogEnd) {
+      localLogEnd = entry.seqNo
+      localLogEndPrimaryTerm = entry.primaryTerm
     }
     totalSizeBytes += estimateEntrySize(entry)
     evictOldEntries()
@@ -211,12 +212,23 @@ export function createReplicationLog(
       return verifyEntryChecksum(entry)
     },
 
-    get committedSeqNo(): number {
-      return committedSeqNo
+    get localLogEnd(): number {
+      return localLogEnd
     },
 
-    get committedPrimaryTerm(): number {
-      return committedPrimaryTerm
+    get localLogEndPrimaryTerm(): number {
+      return localLogEndPrimaryTerm
+    },
+
+    get commitPoint(): number {
+      return commitPoint
+    },
+
+    advanceCommitPoint(seqNo: number): void {
+      const bounded = Math.min(seqNo, localLogEnd)
+      if (bounded > commitPoint) {
+        commitPoint = bounded
+      }
     },
 
     get oldestSeqNo(): number | undefined {
@@ -241,7 +253,8 @@ export function createReplicationLog(
       entries = []
       headIndex = 0
       totalSizeBytes = 0
-      committedSeqNo = nextSeqNo - 1
+      localLogEnd = nextSeqNo - 1
+      commitPoint = 0
     },
   }
 }

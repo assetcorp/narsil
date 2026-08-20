@@ -86,12 +86,16 @@ export function assertSufficientActiveReplicas(
   }
 }
 
-export function getInSyncReplicaTargets(assignment: PartitionAssignment, localNodeId: string): string[] {
+export function getInSyncReplicaTargets(
+  assignment: PartitionAssignment,
+  localNodeId: string,
+  pendingAdmissions: string[] = [],
+): string[] {
   const configuredReplicas = new Set(assignment.replicas)
   const targets: string[] = []
 
-  for (const nodeId of assignment.inSyncSet) {
-    if (nodeId !== localNodeId && configuredReplicas.has(nodeId)) {
+  for (const nodeId of [...assignment.inSyncSet, ...pendingAdmissions]) {
+    if (nodeId !== localNodeId && configuredReplicas.has(nodeId) && !targets.includes(nodeId)) {
       targets.push(nodeId)
     }
   }

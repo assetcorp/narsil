@@ -1,5 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { describe, expect, it, vi } from 'vitest'
+import { createCatchUpState } from '../../../distribution/cluster-node/catch-up'
 import type { ClusterLocalEngine } from '../../../distribution/cluster-node/local-engine'
 import { createDataNodeHandler, type DataNodeHandlerDeps } from '../../../distribution/cluster-node/message-handler'
 import { createSnapshotSyncHandlerState } from '../../../distribution/cluster-node/snapshot-sync-handler'
@@ -18,6 +19,7 @@ function makeAssignment(overrides: Partial<PartitionAssignment> = {}): Partition
     inSyncSet: [],
     state: 'INITIALISING',
     primaryTerm: 7,
+    commitPoint: 0,
     ...overrides,
   }
 }
@@ -63,7 +65,10 @@ describe('createDataNodeHandler sync_request routing', () => {
       nodeId: 'primary-node',
       engine: {} as ClusterLocalEngine,
       coordinator: makeCoordinator(makeAssignment()),
-      writeDeps: { getReplicationLog: () => log } as unknown as DataNodeHandlerDeps['writeDeps'],
+      writeDeps: {
+        getReplicationLog: () => log,
+        catchUp: createCatchUpState(),
+      } as unknown as DataNodeHandlerDeps['writeDeps'],
       snapshotSyncState: createSnapshotSyncHandlerState(),
     })
     const responses: TransportMessage[] = []
@@ -102,7 +107,10 @@ describe('createDataNodeHandler sync_request routing', () => {
       nodeId: 'primary-node',
       engine,
       coordinator: makeCoordinator(makeAssignment()),
-      writeDeps: { getReplicationLog: () => log } as unknown as DataNodeHandlerDeps['writeDeps'],
+      writeDeps: {
+        getReplicationLog: () => log,
+        catchUp: createCatchUpState(),
+      } as unknown as DataNodeHandlerDeps['writeDeps'],
       snapshotSyncState: createSnapshotSyncHandlerState(),
     })
     const responses: TransportMessage[] = []
