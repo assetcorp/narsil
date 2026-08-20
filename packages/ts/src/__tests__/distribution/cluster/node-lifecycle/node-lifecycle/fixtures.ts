@@ -30,6 +30,7 @@ export function makeAssignment(overrides: Partial<PartitionAssignment> = {}): Pa
     inSyncSet: [],
     state: 'INITIALISING',
     primaryTerm: 1,
+    commitPoint: 0,
     ...overrides,
   }
 }

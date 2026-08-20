@@ -18,10 +18,42 @@ import type {
 
 export function readLocalLogState(indexName: string, partitionId: number, deps: LiveBootstrapSyncDeps): LocalLogState {
   const log = deps.getReplicationLog(indexName, partitionId)
-  const lastSeqNo = log.committedSeqNo
-  const lastPrimaryTerm = log.committedPrimaryTerm
+  const lastSeqNo = log.localLogEnd
+  const lastPrimaryTerm = log.localLogEndPrimaryTerm
   const newestEntry = log.getEntry(lastSeqNo)
   return { lastSeqNo, lastPrimaryTerm: newestEntry?.primaryTerm ?? lastPrimaryTerm }
+}
+
+const SYNCED_POSITION_REPORT_TIMEOUT_MS = 5_000
+
+async function reportSyncedPosition(
+  indexName: string,
+  partitionId: number,
+  target: string,
+  deps: LiveBootstrapSyncDeps,
+): Promise<void> {
+  const logState = readLocalLogState(indexName, partitionId, deps)
+  const payload: SyncRequestPayload = {
+    indexName,
+    partitionId,
+    lastSeqNo: logState.lastSeqNo,
+    lastPrimaryTerm: logState.lastPrimaryTerm,
+  }
+  const request: TransportMessage = {
+    type: ReplicationMessageTypes.SYNC_REQUEST,
+    sourceId: deps.sourceNodeId,
+    requestId: generateId(),
+    payload: encode(payload),
+  }
+
+  try {
+    await withDeadline(
+      deps.transport.stream(target, request, () => {}),
+      SYNCED_POSITION_REPORT_TIMEOUT_MS,
+      indexName,
+      'synced-position-report',
+    )
+  } catch (_) {}
 }
 
 export async function syncFromAnyTarget(
@@ -84,6 +116,7 @@ export async function syncFromAnyTarget(
       abortCheck,
     )
     if (attempt.ok) {
+      await reportSyncedPosition(indexName, partitionId, target, deps)
       return attempt
     }
 

@@ -60,6 +60,7 @@ export function initialAllocate(
       primary: primaryNodeId,
       replicas,
       inSyncSet: [],
+      commitPoint: 0,
       state: 'INITIALISING',
       primaryTerm: 1,
     }

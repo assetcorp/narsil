@@ -110,6 +110,7 @@ export function makeMockCoordinator(schema: Record<string, string> | null, parti
       inSyncSet: [],
       state: 'INITIALISING',
       primaryTerm: 1,
+      commitPoint: 0,
     })
   }
   return {

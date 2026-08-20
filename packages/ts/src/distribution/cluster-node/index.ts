@@ -17,6 +17,7 @@ import {
   hasCompletedBootstrapSync,
   runBootstrapSync,
 } from './bootstrap-sync'
+import { createCatchUpState, startCatchUpPump, stopCatchUpPump } from './catch-up'
 import { createClusterLocalEngine } from './local-engine'
 import { adoptClusterIdentity, orphanedIndexError, reconcileLocalIndexes } from './local-index-reconcile'
 import { createDataNodeHandler } from './message-handler'
@@ -114,6 +115,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     getReplicationLog,
     resetReplicationLog: seedReplicationLog,
     partitionWriteQueues: createPartitionWriteQueues(),
+    catchUp: createCatchUpState(),
     resolveNodeTargets,
     waitForActiveReplicas: config.replication?.waitForActiveReplicas,
   }
@@ -322,10 +324,12 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
         })
         const listener = controllerTransport !== null ? controllerTransport.createHandler(dataHandler) : dataHandler
         unregisterHandler = await config.transport.listen(listener)
+        startCatchUpPump(writeDeps.catchUp, writeDeps)
       }
     },
 
     async shutdown() {
+      await stopCatchUpPump(writeDeps.catchUp)
       if (isShutdown) {
         return
       }

@@ -50,8 +50,8 @@ export async function handleReplicationEntry(
   const payload = validateEntryPayload(decode(message.payload))
   const { entry } = payload
 
-  const assignment = await resolveValidatedAssignment(entry, message.sourceId, deps)
-  await applyEntryToLog(entry, assignment, deps)
+  await resolveValidatedAssignment(entry, message.sourceId, deps)
+  await applyEntryToLog(entry, deps)
 
   await respond(createAckMessage(entry.seqNo, entry.partitionId, entry.indexName, deps.nodeId, message.requestId))
 }
@@ -65,9 +65,9 @@ export async function handleReplicationEntryBatch(
   const firstEntry = payload.entries[0]
   const lastEntry = payload.entries[payload.entries.length - 1]
 
-  const assignment = await resolveValidatedAssignment(firstEntry, message.sourceId, deps)
+  await resolveValidatedAssignment(firstEntry, message.sourceId, deps)
   for (const entry of payload.entries) {
-    await applyEntryToLog(entry, assignment, deps)
+    await applyEntryToLog(entry, deps)
   }
 
   await respond(
@@ -111,18 +111,18 @@ async function resolveValidatedAssignment(
     )
   }
 
-  if (assignment.primaryTerm !== entry.primaryTerm) {
+  if (entry.primaryTerm > assignment.primaryTerm) {
     throw new NarsilError(
       ErrorCodes.REPLICATION_TERM_MISMATCH,
-      `Replication entry term ${entry.primaryTerm} does not match allocation term ${assignment.primaryTerm}`,
+      `Replication entry term ${entry.primaryTerm} is newer than allocation term ${assignment.primaryTerm}`,
       { indexName: entry.indexName, partitionId: entry.partitionId },
     )
   }
 
-  if (!assignment.replicas.includes(deps.nodeId) || !assignment.inSyncSet.includes(deps.nodeId)) {
+  if (!assignment.replicas.includes(deps.nodeId)) {
     throw new NarsilError(
       ErrorCodes.REPLICATION_ENTRY_INVALID,
-      `Node '${deps.nodeId}' is not an in-sync replica for index '${entry.indexName}' partition ${entry.partitionId}`,
+      `Node '${deps.nodeId}' is not an assigned replica for index '${entry.indexName}' partition ${entry.partitionId}`,
       { indexName: entry.indexName, partitionId: entry.partitionId, nodeId: deps.nodeId },
     )
   }
@@ -130,11 +130,7 @@ async function resolveValidatedAssignment(
   return assignment
 }
 
-async function applyEntryToLog(
-  entry: ReplicationLogEntry,
-  assignment: PartitionAssignment,
-  deps: DataNodeHandlerDeps,
-): Promise<void> {
+async function applyEntryToLog(entry: ReplicationLogEntry, deps: DataNodeHandlerDeps): Promise<void> {
   let log = deps.writeDeps.getReplicationLog(entry.indexName, entry.partitionId)
   const existing = log.getEntry(entry.seqNo)
   if (existing !== undefined) {
@@ -167,7 +163,7 @@ async function applyEntryToLog(
     log = deps.writeDeps.getReplicationLog(entry.indexName, entry.partitionId)
   }
 
-  const validation = validateReplicationEntry(entry, assignment.primaryTerm, log)
+  const validation = validateReplicationEntry(entry, log.localLogEndPrimaryTerm, log)
   if (!validation.valid) {
     throw new NarsilError(
       validation.error ?? ErrorCodes.REPLICATION_ENTRY_INVALID,

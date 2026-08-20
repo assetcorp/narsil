@@ -33,6 +33,7 @@ export function makeAllocationTable(indexName: string): AllocationTable {
     inSyncSet: ['node-2'],
     state: 'ACTIVE',
     primaryTerm: 1,
+    commitPoint: 0,
   }
 
   return {

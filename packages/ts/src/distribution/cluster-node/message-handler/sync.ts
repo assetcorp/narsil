@@ -4,6 +4,7 @@ import { crc32 } from '../../../serialization/crc32'
 import { decideSyncTier, validateSyncRequest } from '../../replication/sync-primary'
 import type { RespondFn, SyncEntriesPayload, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
+import { recordReplicaPosition } from '../catch-up/state'
 import { authorizeSnapshotRequest } from '../snapshot-auth'
 import { createSingleResponseSink } from '../snapshot-stream-writer'
 import { streamValidatedSnapshotRequest } from '../snapshot-sync-handler'
@@ -70,6 +71,16 @@ export async function handleSyncRequestMessage(
     )
   }
 
+  if (message.sourceId !== deps.nodeId) {
+    recordReplicaPosition(
+      deps.writeDeps.catchUp,
+      request.indexName,
+      request.partitionId,
+      message.sourceId,
+      request.lastSeqNo,
+    )
+  }
+
   const log = deps.writeDeps.getReplicationLog(request.indexName, request.partitionId)
   const tier = decideSyncTier(log, request.lastSeqNo)
   if (tier === 'incremental') {
@@ -77,7 +88,7 @@ export async function handleSyncRequestMessage(
     return
   }
 
-  const snapshotSeqNo = log.committedSeqNo
+  const snapshotSeqNo = log.localLogEnd
   const sink = createSingleResponseSink(respond)
   await streamValidatedSnapshotRequest(
     message,

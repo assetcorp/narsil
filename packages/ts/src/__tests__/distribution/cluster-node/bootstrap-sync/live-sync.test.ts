@@ -92,7 +92,7 @@ describe('runBootstrapSync - live sync protocol alignment', () => {
     const result = await runBootstrapSync(state, 'products', 0, 'primary-node', makeLiveDeps())
 
     expect(result).toBe(true)
-    expect(scripted.streamCalls).toHaveLength(1)
+    expect(scripted.streamCalls).toHaveLength(2)
     expect(scripted.streamCalls[0].message.type).toBe(ReplicationMessageTypes.SYNC_REQUEST)
 
     const request = decode(scripted.streamCalls[0].message.payload) as SyncRequestPayload
@@ -102,6 +102,10 @@ describe('runBootstrapSync - live sync protocol alignment', () => {
       lastSeqNo: 0,
       lastPrimaryTerm: 0,
     })
+
+    expect(scripted.streamCalls[1].message.type).toBe(ReplicationMessageTypes.SYNC_REQUEST)
+    const positionReport = decode(scripted.streamCalls[1].message.payload) as SyncRequestPayload
+    expect(positionReport).toMatchObject({ indexName: 'products', partitionId: 0, lastSeqNo: 1 })
 
     expect(mockEngine.createIndexCalls).toEqual(['products'])
     expect(mockEngine.restoreCalls).toHaveLength(0)
@@ -203,8 +207,8 @@ describe('runBootstrapSync - live sync protocol alignment', () => {
     expect(resetCalls).toEqual([{ startSeqNo: 5, lastPrimaryTerm: 2 }])
     expect(replicaLog.entryCount).toBe(0)
     expect(replicaLog.newestSeqNo).toBeUndefined()
-    expect(replicaLog.committedSeqNo).toBe(4)
-    expect(replicaLog.committedPrimaryTerm).toBe(2)
+    expect(replicaLog.localLogEnd).toBe(4)
+    expect(replicaLog.localLogEndPrimaryTerm).toBe(2)
     expect(state.completed.has('products:0')).toBe(true)
   })
 
@@ -238,7 +242,7 @@ describe('runBootstrapSync - live sync protocol alignment', () => {
     expect(mockEngine.restoreCalls).toHaveLength(0)
     expect(mockEngine.dropIndexCalls).toHaveLength(0)
     expect(resetCalls).toEqual([{ startSeqNo: 5, lastPrimaryTerm: 2 }])
-    expect(replicaLog.committedSeqNo).toBe(4)
+    expect(replicaLog.localLogEnd).toBe(4)
     expect(state.completed.has('products:0')).toBe(false)
   })
 

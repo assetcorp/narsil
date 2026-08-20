@@ -8,6 +8,7 @@ export interface AllocationWatcherState {
   activeBootstraps: Map<string, PartitionBootstrapState>
   trackedPartitions: Map<string, TrackedPartition>
   pendingTables: Map<string, AllocationTable>
+  restartWaiters: Map<ReturnType<typeof setTimeout>, () => void>
   stopped: boolean
 }
 
@@ -30,6 +31,7 @@ export function createAllocationWatcherState(): AllocationWatcherState {
     activeBootstraps: new Map(),
     trackedPartitions: new Map(),
     pendingTables: new Map(),
+    restartWaiters: new Map(),
     stopped: false,
   }
 }
@@ -271,6 +273,12 @@ export function stopAllocationWatcher(state: AllocationWatcherState): void {
     state.debounceTimer = null
   }
 
+  for (const [timer, resolve] of state.restartWaiters) {
+    clearTimeout(timer)
+    resolve()
+  }
+  state.restartWaiters.clear()
+
   for (const bootstrapState of state.activeBootstraps.values()) {
     abortBootstrapState(bootstrapState)
   }
@@ -289,12 +297,32 @@ export function processInitialAllocations(
   }
 }
 
+function waitBeforeBootstrapRestart(state: AllocationWatcherState, config: NodeLifecycleConfig): Promise<void> {
+  const delayMs = Math.min(config.bootstrapRetryMaxMs, config.bootstrapRetryBaseMs)
+  if (delayMs <= 0) {
+    return Promise.resolve()
+  }
+  return new Promise<void>(resolve => {
+    const timer = setTimeout(() => {
+      state.restartWaiters.delete(timer)
+      resolve()
+    }, delayMs)
+    timer.unref?.()
+    state.restartWaiters.set(timer, resolve)
+  })
+}
+
 async function restartBootstrapWhileOutOfSync(
   state: AllocationWatcherState,
   config: NodeLifecycleConfig,
   indexName: string,
   partitionId: number,
 ): Promise<void> {
+  if (state.stopped) {
+    return
+  }
+
+  await waitBeforeBootstrapRestart(state, config)
   if (state.stopped) {
     return
   }

@@ -8,6 +8,7 @@ import type {
   ForwardBatchPayload,
   ForwardBatchResultPayload,
   ForwardPayload,
+  InsyncAddPayload,
   InsyncConfirmPayload,
   InsyncRemovePayload,
   TransportMessage,
@@ -80,6 +81,15 @@ export function createForwardBatchResultMessage(
     type: ReplicationMessageTypes.FORWARD_BATCH,
     sourceId,
     requestId,
+    payload: encode(payload),
+  }
+}
+
+export function createInsyncAddMessage(payload: InsyncAddPayload, sourceId: string): TransportMessage {
+  return {
+    type: ReplicationMessageTypes.INSYNC_ADD,
+    sourceId,
+    requestId: generateId(),
     payload: encode(payload),
   }
 }

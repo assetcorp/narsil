@@ -20,6 +20,7 @@ export function makeAssignment(overrides: Partial<PartitionAssignment> = {}): Pa
     inSyncSet: ['node-a'],
     state: 'ACTIVE',
     primaryTerm: 1,
+    commitPoint: 0,
     ...overrides,
   }
 }

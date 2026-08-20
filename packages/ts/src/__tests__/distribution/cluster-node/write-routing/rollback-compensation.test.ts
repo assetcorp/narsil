@@ -1,5 +1,6 @@
 import { decode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createCatchUpState } from '../../../../distribution/cluster-node/catch-up'
 import { type ClusterLocalEngine, createClusterLocalEngine } from '../../../../distribution/cluster-node/local-engine'
 import { createPartitionWriteQueues } from '../../../../distribution/cluster-node/write-routing/partition-queue'
 import {
@@ -25,6 +26,7 @@ const ASSIGNMENT: PartitionAssignment = {
   replicas: ['node-b'],
   inSyncSet: ['node-a', 'node-b'],
   primaryTerm: PRIMARY_TERM,
+  commitPoint: 0,
   state: 'ACTIVE',
 }
 
@@ -66,6 +68,7 @@ describe('a primary write rolled back after it reached the log', () => {
       getReplicationLog: () => log,
       resetReplicationLog: () => {},
       partitionWriteQueues: createPartitionWriteQueues(),
+      catchUp: createCatchUpState(),
     }
   })
 

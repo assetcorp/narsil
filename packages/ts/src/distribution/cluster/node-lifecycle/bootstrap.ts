@@ -96,6 +96,22 @@ function isAcceptedResponse(response: TransportMessage): boolean {
   }
 }
 
+async function partitionAwaitsBootstrapReport(
+  state: PartitionBootstrapState,
+  coordinator: ClusterCoordinator,
+): Promise<boolean> {
+  try {
+    const table = await coordinator.getAllocation(state.indexName)
+    const assignment = table?.assignments.get(state.partitionId)
+    if (assignment === undefined) {
+      return true
+    }
+    return assignment.state === 'INITIALISING'
+  } catch (_) {
+    return true
+  }
+}
+
 export async function bootstrapPartition(
   state: PartitionBootstrapState,
   coordinator: ClusterCoordinator,
@@ -118,6 +134,10 @@ export async function bootstrapPartition(
     }
 
     if (synced) {
+      if (!(await partitionAwaitsBootstrapReport(state, coordinator))) {
+        return true
+      }
+
       return retryReportBootstrapComplete(
         state,
         coordinator,
