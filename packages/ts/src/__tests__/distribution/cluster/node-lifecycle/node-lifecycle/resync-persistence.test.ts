@@ -8,6 +8,7 @@ import type { InMemoryNetwork, NodeTransport } from '../../../../../distribution
 import { createInMemoryNetwork, createInMemoryTransport } from '../../../../../distribution/transport'
 import { flushPromises, makeAllocationTable, makeAssignment, makeNode } from './fixtures'
 
+const LONGEST_ACCEPTABLE_RESYNC_GAP_MS = 10_000
 const RETRY_CYCLE_MS =
   DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapRetryMaxMs * (DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapMaxRetries + 2)
 
@@ -86,6 +87,26 @@ describe('replica resync while the assignment stands', () => {
 
     await advance(RETRY_CYCLE_MS)
     expect(attempts.mock.calls.length).toBeGreaterThan(afterFirstCycle)
+  })
+
+  it('retries often enough to catch a primary that becomes reachable again', async () => {
+    await seedActiveReplicaOutOfSync()
+    const attemptTimes: number[] = []
+    const attempts = vi.fn().mockImplementation(async () => {
+      attemptTimes.push(Date.now())
+      return false
+    })
+
+    const handle = createLifecycle(attempts)
+    await handle.join()
+    await advance(DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs + 10)
+    await advance(RETRY_CYCLE_MS * 2)
+
+    expect(attemptTimes.length).toBeGreaterThan(DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapMaxRetries)
+    const longestGap = attemptTimes
+      .slice(1)
+      .reduce((longest, at, index) => Math.max(longest, at - attemptTimes[index]), 0)
+    expect(longestGap).toBeLessThanOrEqual(LONGEST_ACCEPTABLE_RESYNC_GAP_MS)
   })
 
   it('stops attempting once the replica has rejoined the in-sync set', async () => {
