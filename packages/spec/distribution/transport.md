@@ -75,6 +75,7 @@ TransportMessage {
 | `replication.snapshot_start` | primary to replica | Starts a snapshot transfer, carrying the snapshot header |
 | `replication.snapshot_chunk` | primary to replica | One streamed chunk of snapshot data |
 | `replication.snapshot_end` | primary to replica | Ends the snapshot transfer |
+| `replication.insync_add` | primary to controller | Asks to add a caught-up replica to the in-sync set |
 | `replication.insync_remove` | primary to controller | Asks to remove a replica from the in-sync set |
 | `replication.insync_confirm` | controller to primary | Confirms the in-sync set update |
 
@@ -239,6 +240,31 @@ Chunks arrive through `stream`, and the receiver rebuilds the snapshot by writin
 
 This message says every chunk has been sent. The receiver checks that `totalBytes` matches what it accumulated and verifies the checksum before it loads the snapshot.
 
+### replication.insync_add
+
+The primary sends this to the active controller once a replica's applied position reaches the commit point.
+
+```text
+{
+  indexName:     string
+  partitionId:   uint32
+  replicaNodeId: string   (the caught-up replica's nodeId)
+  primaryTerm:   uint64   (the current term, which fences a stale primary)
+  appliedSeqNo:  uint64   (the highest seqNo the replica has acknowledged)
+  commitPoint:   uint64   (the primary's commit point when it sent the request)
+}
+```
+
+The controller checks five things:
+
+- The message's `sourceId` is the assignment's primary, which stops a replica from admitting itself.
+- The node is an assigned replica of this partition.
+- The `primaryTerm` matches the assignment's current term.
+- The partition is in `ACTIVE`.
+- `appliedSeqNo` is at or above both the assignment's stored `commitPoint` and the request's `commitPoint`.
+
+The controller answers with `replication.insync_confirm`. It raises the assignment's `commitPoint` to the request's value whenever it accepts, and that value never moves backwards.
+
 ### replication.insync_remove
 
 The primary sends this to the active controller, found through `getLeaseHolder('_narsil/controller')`, when a replica fails to acknowledge a replication entry.
@@ -284,7 +310,7 @@ The controller checks four things:
 - The message's `sourceId` matches the `nodeId` in the payload, which blocks spoofing.
 - The node is assigned to this partition, as primary or as replica.
 - The `primaryTerm` matches the assignment's current term, which rejects a completion left over from an earlier term.
-- The partition is in `INITIALISING`. The check is idempotent, so an already-`ACTIVE` partition returns `true`.
+- The partition is in `INITIALISING`. The controller returns `false` for an `ACTIVE` partition, because its primary admits the replica through `replication.insync_add` instead.
 
 The response is:
 
