@@ -226,6 +226,7 @@ function startBootstrap(
         state.activeBootstraps.delete(key)
       }
       state.trackedPartitions.delete(key)
+      void restartBootstrapWhileOutOfSync(state, config, indexName, partitionId)
     })
 }
 
