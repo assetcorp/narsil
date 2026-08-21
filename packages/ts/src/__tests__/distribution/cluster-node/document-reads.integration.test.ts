@@ -127,7 +127,14 @@ describe('cluster-node document reads', () => {
 
     const partitionCount = 3
     const assignments = new Map<number, PartitionAssignment>()
-    assignments.set(0, { primary: null, replicas: [], inSyncSet: [], state: 'UNASSIGNED', primaryTerm: 1 })
+    assignments.set(0, {
+      primary: null,
+      replicas: [],
+      inSyncSet: [],
+      state: 'UNASSIGNED',
+      primaryTerm: 1,
+      commitPoint: 0,
+    })
     for (let partitionId = 1; partitionId < partitionCount; partitionId += 1) {
       assignments.set(partitionId, {
         primary: 'node-a',
@@ -135,6 +142,7 @@ describe('cluster-node document reads', () => {
         inSyncSet: [],
         state: 'ACTIVE',
         primaryTerm: 1,
+        commitPoint: 0,
       })
     }
     await coordinator.putAllocation('products', {

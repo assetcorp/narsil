@@ -143,6 +143,7 @@ export const ReplicationMessageTypes = {
   SNAPSHOT_CHUNK: 'replication.snapshot_chunk',
   SNAPSHOT_END: 'replication.snapshot_end',
   SNAPSHOT_SYNC_REQUEST: 'replication.snapshot_sync_request',
+  INSYNC_ADD: 'replication.insync_add',
   INSYNC_REMOVE: 'replication.insync_remove',
   INSYNC_CONFIRM: 'replication.insync_confirm',
 } as const
@@ -264,6 +265,15 @@ export interface InsyncRemovePayload {
   partitionId: number
   replicaNodeId: string
   primaryTerm: number
+}
+
+export interface InsyncAddPayload {
+  indexName: string
+  partitionId: number
+  replicaNodeId: string
+  primaryTerm: number
+  appliedSeqNo: number
+  commitPoint: number
 }
 
 export interface InsyncConfirmPayload {

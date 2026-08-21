@@ -40,6 +40,7 @@ function makeAssignment(overrides: Partial<PartitionAssignment> = {}): Partition
     inSyncSet: [],
     state: 'UNASSIGNED',
     primaryTerm: 1,
+    commitPoint: 0,
     ...overrides,
   }
 }

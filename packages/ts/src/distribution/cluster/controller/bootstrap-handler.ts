@@ -1,5 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
 import type { ClusterCoordinator, PartitionAssignment } from '../../coordinator/types'
+import { isRecord, isValidInteger } from '../../payload-guards'
 import type {
   BootstrapCompletePayload,
   BootstrapCompleteResultPayload,
@@ -8,14 +9,12 @@ import type {
 } from '../../transport/types'
 import { ClusterMessageTypes } from '../../transport/types'
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-function isValidInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value)
-}
-
+/**
+ * Reads a bootstrap completion report out of a decoded payload, and reports a malformed one as `null`.
+ *
+ * @param decoded - The decoded message payload.
+ * @returns The validated payload, or `null` when a field is missing or holds the wrong type.
+ */
 export function validateBootstrapCompletePayload(decoded: unknown): BootstrapCompletePayload | null {
   if (!isRecord(decoded)) {
     return null
@@ -61,48 +60,97 @@ async function sendRejection(
   await respond(response)
 }
 
-export function handleBootstrapCompleteMessage(
+/**
+ * Rejects a bootstrap completion report without reading the allocation table.
+ *
+ * The controller answers this way when it no longer holds the controller lease, so that the reporting node learns
+ * the outcome at once and retries against whichever node took over.
+ *
+ * @param message - The report the node sent.
+ * @param respond - The function that returns the result to the reporting node.
+ * @param controllerNodeId - This node's own id, which names the sender of the result.
+ * @returns A promise that settles once the rejection has been sent.
+ */
+export async function rejectBootstrapComplete(
   message: TransportMessage,
   respond: RespondFn,
-  coordinator: ClusterCoordinator,
   controllerNodeId: string,
-): void {
+): Promise<void> {
   let decoded: unknown
   try {
     decoded = decode(message.payload)
   } catch (_) {
-    void sendRejection(respond, controllerNodeId, message.requestId, '', -1)
+    await sendRejection(respond, controllerNodeId, message.requestId, '', -1)
+    return
+  }
+  const payload = validateBootstrapCompletePayload(decoded)
+  if (payload === null) {
+    await sendRejection(respond, controllerNodeId, message.requestId, '', -1)
+    return
+  }
+  await sendRejection(respond, controllerNodeId, message.requestId, payload.indexName, payload.partitionId)
+}
+
+/**
+ * Moves a partition to `ACTIVE` on the report of a node that finished its bootstrap, and answers that node.
+ *
+ * The controller rejects the report unless the sender's own id matches the `nodeId` in the payload, the node is
+ * assigned to the partition, the term matches the assignment's term, and the partition is still `INITIALISING`. An
+ * accepted report adds the reporting node, and the partition's primary, to the in-sync set.
+ *
+ * @param message - The report the node sent.
+ * @param respond - The function that returns the result to the reporting node.
+ * @param coordinator - The cluster coordinator that stores the allocation table.
+ * @param controllerNodeId - The controller's own node id, which names the sender of the result.
+ * @returns A promise that settles once the result has been sent.
+ */
+export async function handleBootstrapCompleteMessage(
+  message: TransportMessage,
+  respond: RespondFn,
+  coordinator: ClusterCoordinator,
+  controllerNodeId: string,
+): Promise<void> {
+  let decoded: unknown
+  try {
+    decoded = decode(message.payload)
+  } catch (_) {
+    await sendRejection(respond, controllerNodeId, message.requestId, '', -1)
     return
   }
 
   const payload = validateBootstrapCompletePayload(decoded)
   if (payload === null) {
-    void sendRejection(respond, controllerNodeId, message.requestId, '', -1)
+    await sendRejection(respond, controllerNodeId, message.requestId, '', -1)
     return
   }
 
   if (message.sourceId !== payload.nodeId) {
-    void sendRejection(respond, controllerNodeId, message.requestId, payload.indexName, payload.partitionId)
+    await sendRejection(respond, controllerNodeId, message.requestId, payload.indexName, payload.partitionId)
     return
   }
 
-  processBootstrapComplete(payload, coordinator)
-    .then(async accepted => {
-      const resultPayload: BootstrapCompleteResultPayload = {
-        indexName: payload.indexName,
-        partitionId: payload.partitionId,
-        accepted,
-      }
-      const response: TransportMessage = {
-        type: ClusterMessageTypes.BOOTSTRAP_COMPLETE,
-        sourceId: controllerNodeId,
-        requestId: message.requestId,
-        payload: encode(resultPayload),
-      }
-      await respond(response)
-    })
-    .catch(() => sendRejection(respond, controllerNodeId, message.requestId, payload.indexName, payload.partitionId))
+  let accepted: boolean
+  try {
+    accepted = await processBootstrapComplete(payload, coordinator)
+  } catch (_) {
+    await sendRejection(respond, controllerNodeId, message.requestId, payload.indexName, payload.partitionId)
+    return
+  }
+
+  const resultPayload: BootstrapCompleteResultPayload = {
+    indexName: payload.indexName,
+    partitionId: payload.partitionId,
+    accepted,
+  }
+  await respond({
+    type: ClusterMessageTypes.BOOTSTRAP_COMPLETE,
+    sourceId: controllerNodeId,
+    requestId: message.requestId,
+    payload: encode(resultPayload),
+  })
 }
+
+const BOOTSTRAP_CAS_ATTEMPTS = 5
 
 function ensurePrimaryInSyncSet(assignment: PartitionAssignment, inSyncSet: string[]): string[] {
   if (assignment.primary === null) {
@@ -118,68 +166,49 @@ async function processBootstrapComplete(
   payload: BootstrapCompletePayload,
   coordinator: ClusterCoordinator,
 ): Promise<boolean> {
-  const table = await coordinator.getAllocation(payload.indexName)
-  if (table === null) {
-    return false
-  }
+  for (let attempt = 0; attempt < BOOTSTRAP_CAS_ATTEMPTS; attempt++) {
+    const table = await coordinator.getAllocation(payload.indexName)
+    if (table === null) {
+      return false
+    }
 
-  const assignment = table.assignments.get(payload.partitionId)
-  if (assignment === undefined) {
-    return false
-  }
+    const assignment = table.assignments.get(payload.partitionId)
+    if (assignment === undefined) {
+      return false
+    }
 
-  if (payload.primaryTerm !== assignment.primaryTerm) {
-    return false
-  }
+    if (payload.primaryTerm !== assignment.primaryTerm) {
+      return false
+    }
 
-  const isAssigned = assignment.primary === payload.nodeId || assignment.replicas.includes(payload.nodeId)
+    if (assignment.primary !== payload.nodeId && !assignment.replicas.includes(payload.nodeId)) {
+      return false
+    }
 
-  if (!isAssigned) {
-    return false
-  }
+    if (assignment.state !== 'INITIALISING') {
+      return false
+    }
 
-  if (assignment.state === 'ACTIVE') {
-    if (assignment.inSyncSet.includes(payload.nodeId)) {
+    const baseInSyncSet = assignment.inSyncSet.includes(payload.nodeId)
+      ? assignment.inSyncSet
+      : [...assignment.inSyncSet, payload.nodeId]
+
+    const updatedAssignments = new Map(table.assignments)
+    updatedAssignments.set(payload.partitionId, {
+      ...assignment,
+      state: 'ACTIVE' as const,
+      inSyncSet: ensurePrimaryInSyncSet(assignment, baseInSyncSet),
+    })
+
+    const written = await coordinator.putAllocation(
+      payload.indexName,
+      { ...table, version: table.version + 1, assignments: updatedAssignments },
+      table.version,
+    )
+    if (written) {
       return true
     }
-    const updatedInSyncSet = [...assignment.inSyncSet, payload.nodeId]
-    const updatedAssignment = {
-      ...assignment,
-      inSyncSet: updatedInSyncSet,
-    }
-    const updatedAssignments = new Map(table.assignments)
-    updatedAssignments.set(payload.partitionId, updatedAssignment)
-    const updatedTable = {
-      ...table,
-      version: table.version + 1,
-      assignments: updatedAssignments,
-    }
-    return coordinator.putAllocation(payload.indexName, updatedTable, table.version)
   }
 
-  if (assignment.state !== 'INITIALISING') {
-    return false
-  }
-
-  const baseInSyncSet = assignment.inSyncSet.includes(payload.nodeId)
-    ? assignment.inSyncSet
-    : [...assignment.inSyncSet, payload.nodeId]
-  const updatedInSyncSet = ensurePrimaryInSyncSet(assignment, baseInSyncSet)
-
-  const updatedAssignment = {
-    ...assignment,
-    state: 'ACTIVE' as const,
-    inSyncSet: updatedInSyncSet,
-  }
-
-  const updatedAssignments = new Map(table.assignments)
-  updatedAssignments.set(payload.partitionId, updatedAssignment)
-
-  const updatedTable = {
-    ...table,
-    version: table.version + 1,
-    assignments: updatedAssignments,
-  }
-
-  return coordinator.putAllocation(payload.indexName, updatedTable, table.version)
+  return false
 }

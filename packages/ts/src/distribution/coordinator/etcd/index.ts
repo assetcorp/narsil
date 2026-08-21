@@ -14,12 +14,12 @@ import type {
 import { coordinatorKeys, extractSuffix } from './keys'
 import { LeaseManager } from './leases'
 import { loadEtcd3Module } from './loader'
+import { writeNodeRegistration } from './registration'
 import {
   deserializeAllocationTable,
   deserializeNodeRegistration,
   deserializeSchema,
   serializeAllocationTable,
-  serializeNodeRegistration,
   serializeSchema,
 } from './serialization'
 import { DEFAULT_ETCD_CONFIG, type EtcdCoordinatorConfig } from './types'
@@ -84,19 +84,16 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
     async registerNode(registration: NodeRegistration): Promise<void> {
       assertNotShutdown()
       validateNodeId(registration.nodeId)
-      const ttl = resolvedConfig.nodeHeartbeatTtlSeconds
-      const lease = client.lease(ttl)
-      await lease.grant()
 
-      const key = keys.node(registration.nodeId)
-      const data = Buffer.from(serializeNodeRegistration(registration))
-      await lease.put(key).value(data).exec()
-
-      const existing = leaseManager.get(key)
-      if (existing !== undefined) {
-        await existing.lease.revoke().catch(() => {})
-      }
-      leaseManager.track(key, lease, registration.nodeId)
+      await writeNodeRegistration(
+        {
+          client,
+          leaseManager,
+          key: keys.node(registration.nodeId),
+          ttlSeconds: resolvedConfig.nodeHeartbeatTtlSeconds,
+        },
+        registration,
+      )
     },
 
     async deregisterNode(nodeId: string): Promise<void> {

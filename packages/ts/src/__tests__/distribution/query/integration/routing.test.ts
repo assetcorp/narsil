@@ -27,6 +27,7 @@ function makeAssignment(overrides: Partial<PartitionAssignment> = {}): Partition
     inSyncSet: ['node-a'],
     state: 'ACTIVE',
     primaryTerm: 1,
+    commitPoint: 0,
     ...overrides,
   }
 }

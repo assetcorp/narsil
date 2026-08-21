@@ -54,7 +54,18 @@ export function createController(config: ControllerConfig): ControllerNode {
       /* Listing failure is recoverable; schema events refill knownIndexes */
     }
 
-    await startEventLoop(eventLoopState, coordinator, transport, nodeId, isActive, onError)
+    try {
+      await startEventLoop(eventLoopState, coordinator, transport, nodeId, isActive, onError)
+    } catch (error) {
+      electionState.active = false
+      clearElectionTimers(electionState)
+      try {
+        await releaseLease(coordinator)
+      } catch (_) {
+        /* Lease release failure while abandoning an incomplete start is non-critical */
+      }
+      throw error
+    }
   }
 
   async function tryElection(): Promise<void> {

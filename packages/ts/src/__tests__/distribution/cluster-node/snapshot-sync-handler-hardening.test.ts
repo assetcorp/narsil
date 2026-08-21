@@ -17,6 +17,7 @@ function makeAssignment(overrides: Partial<PartitionAssignment> = {}): Partition
     inSyncSet: ['primary', 'replica-node'],
     state: 'ACTIVE',
     primaryTerm: 1,
+    commitPoint: 0,
     ...overrides,
   }
 }
@@ -170,16 +171,18 @@ describe('snapshot sync handler hardening', () => {
     expect(decoded.code).toBe(ErrorCodes.SNAPSHOT_SYNC_NOT_ASSIGNED)
   })
 
-  it('T3c: rejects ACTIVE replica that is not in inSyncSet', async () => {
+  it('T3c: serves a replica of an ACTIVE partition that has yet to join the in-sync set', async () => {
     const engine = makeMockEngine({ snapshotBytes: new Uint8Array(16) })
     const coordinator = makeCoordinator(makeAllocation(makeAssignment({ state: 'ACTIVE', inSyncSet: ['primary'] })))
     const { respond, responses } = collectResponses()
 
     await handleSnapshotSyncRequest(makeRequest('products'), respond, makeDeps(engine, coordinator))
 
-    expect(responses.length).toBe(1)
-    const decoded = decode(responses[0].payload) as { code: string }
-    expect(decoded.code).toBe(ErrorCodes.SNAPSHOT_SYNC_NOT_ASSIGNED)
+    expect(responses.map(response => response.type)).toEqual([
+      ReplicationMessageTypes.SNAPSHOT_START,
+      ReplicationMessageTypes.SNAPSHOT_CHUNK,
+      ReplicationMessageTypes.SNAPSHOT_END,
+    ])
   })
 
   it('T3d: authorizes INITIALISING replica that is not yet in inSyncSet', async () => {
@@ -191,8 +194,11 @@ describe('snapshot sync handler hardening', () => {
 
     await handleSnapshotSyncRequest(makeRequest('products'), respond, makeDeps(engine, coordinator))
 
-    expect(responses.length).toBeGreaterThan(1)
-    expect(responses[0].type).toBe(ReplicationMessageTypes.SNAPSHOT_START)
+    expect(responses.map(response => response.type)).toEqual([
+      ReplicationMessageTypes.SNAPSHOT_START,
+      ReplicationMessageTypes.SNAPSHOT_CHUNK,
+      ReplicationMessageTypes.SNAPSHOT_END,
+    ])
   })
 
   it('T8: per-source cap rejects a second concurrent request from the same source', async () => {

@@ -2,6 +2,10 @@ import { encode } from '@msgpack/msgpack'
 import { describe, expect, it } from 'vitest'
 import type { AllocationTable, NodeRegistration, PartitionAssignment } from '../../../distribution/coordinator'
 import {
+  deserializeAllocationTable,
+  serializeAllocationTable,
+} from '../../../distribution/coordinator/etcd/serialization'
+import {
   buildKey,
   DEFAULT_ETCD_CONFIG,
   ETCD_KEY_ALLOCATION,
@@ -10,7 +14,7 @@ import {
   ETCD_KEY_SCHEMA,
 } from '../../../distribution/coordinator/etcd/types'
 import { validateNodeId, validatePartitionState } from '../../../distribution/coordinator/etcd/validation'
-import { NarsilError } from '../../../errors'
+import { ErrorCodes, NarsilError } from '../../../errors'
 
 function makeNodeRegistration(overrides: Partial<NodeRegistration> = {}): NodeRegistration {
   return {
@@ -31,6 +35,7 @@ function makeAllocationTable(indexName: string): AllocationTable {
     inSyncSet: ['node-2'],
     state: 'ACTIVE',
     primaryTerm: 1,
+    commitPoint: 0,
   }
   return {
     indexName,
@@ -143,6 +148,7 @@ describe('EtcdCoordinator unit tests', () => {
           inSyncSet: [],
           state: 'ACTIVE',
           primaryTerm: 1,
+          commitPoint: 0,
         })
       }
       const table: AllocationTable = {
@@ -157,6 +163,76 @@ describe('EtcdCoordinator unit tests', () => {
       for (let i = 0; i < 5; i++) {
         expect(entries[i][0]).toBe(i)
       }
+    })
+  })
+
+  describe('allocation table commit point', () => {
+    it('round-trips a commit point through serialisation', () => {
+      const table = makeAllocationTable('products')
+      const assignment = table.assignments.get(0)
+      if (assignment === undefined) throw new Error('expected partition 0')
+      assignment.commitPoint = 42
+
+      const restored = deserializeAllocationTable(Buffer.from(serializeAllocationTable(table)))
+      expect(restored.assignments.get(0)?.commitPoint).toBe(42)
+    })
+
+    it('reads a table written without a commit point as zero', () => {
+      const legacy = {
+        indexName: 'products',
+        version: 1,
+        replicationFactor: 1,
+        assignments: [[0, { primary: 'node-a', replicas: [], inSyncSet: [], state: 'ACTIVE', primaryTerm: 1 }]],
+      }
+
+      const restored = deserializeAllocationTable(Buffer.from(new Uint8Array(encode(legacy))))
+      expect(restored.assignments.get(0)?.commitPoint).toBe(0)
+    })
+
+    it('reads every commit point outside the safe integer range as zero', () => {
+      const unusable = [Number.NaN, Number.POSITIVE_INFINITY, -1, 2.5]
+
+      for (const commitPoint of unusable) {
+        const stored = {
+          indexName: 'products',
+          version: 1,
+          replicationFactor: 1,
+          assignments: [
+            [0, { primary: 'node-a', replicas: [], inSyncSet: [], state: 'ACTIVE', primaryTerm: 1, commitPoint }],
+          ],
+        }
+
+        const restored = deserializeAllocationTable(Buffer.from(new Uint8Array(encode(stored))))
+        expect(restored.assignments.get(0)?.commitPoint).toBe(0)
+      }
+    })
+  })
+
+  describe('allocation table deserialisation guards', () => {
+    it('rejects a malformed assignment entry with CONFIG_INVALID', () => {
+      const malformed = {
+        indexName: 'products',
+        version: 1,
+        replicationFactor: 1,
+        assignments: [[0, null]],
+      }
+
+      expect(() => deserializeAllocationTable(Buffer.from(new Uint8Array(encode(malformed))))).toThrow(
+        expect.objectContaining({ code: ErrorCodes.CONFIG_INVALID }),
+      )
+    })
+
+    it('rejects an assignment entry that is not a pair', () => {
+      const malformed = {
+        indexName: 'products',
+        version: 1,
+        replicationFactor: 1,
+        assignments: ['not-a-pair'],
+      }
+
+      expect(() => deserializeAllocationTable(Buffer.from(new Uint8Array(encode(malformed))))).toThrow(
+        expect.objectContaining({ code: ErrorCodes.CONFIG_INVALID }),
+      )
     })
   })
 

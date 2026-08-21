@@ -8,6 +8,7 @@ import type {
   ForwardBatchPayload,
   ForwardBatchResultPayload,
   ForwardPayload,
+  InsyncAddPayload,
   InsyncConfirmPayload,
   InsyncRemovePayload,
   TransportMessage,
@@ -80,6 +81,23 @@ export function createForwardBatchResultMessage(
     type: ReplicationMessageTypes.FORWARD_BATCH,
     sourceId,
     requestId,
+    payload: encode(payload),
+  }
+}
+
+/**
+ * Wraps an in-sync admission request in the transport message the primary sends to the controller.
+ *
+ * @param payload - The request, which names the replica and states both its applied position and the primary's
+ *   commit point.
+ * @param sourceId - The primary's own node id, which the controller compares with the assignment's primary.
+ * @returns The message, which holds a fresh request id that the confirmation repeats.
+ */
+export function createInsyncAddMessage(payload: InsyncAddPayload, sourceId: string): TransportMessage {
+  return {
+    type: ReplicationMessageTypes.INSYNC_ADD,
+    sourceId,
+    requestId: generateId(),
     payload: encode(payload),
   }
 }

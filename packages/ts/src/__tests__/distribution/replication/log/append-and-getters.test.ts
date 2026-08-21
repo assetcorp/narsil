@@ -234,3 +234,57 @@ describe('ReplicationLog getEntry', () => {
     expect(log.getEntry(1)).toBeUndefined()
   })
 })
+
+describe('ReplicationLog commit point', () => {
+  it('starts at zero on a new log', () => {
+    const log = createReplicationLog(0)
+    expect(log.commitPoint).toBe(0)
+  })
+
+  it('stays at zero while entries are appended', () => {
+    const log = createReplicationLog(0)
+    log.append(makeIndexEntry())
+    log.append(makeIndexEntry({ documentId: 'doc-002' }))
+    expect(log.localLogEnd).toBe(2)
+    expect(log.commitPoint).toBe(0)
+  })
+
+  it('advances to the acknowledged sequence number', () => {
+    const log = createReplicationLog(0)
+    log.append(makeIndexEntry())
+    log.append(makeIndexEntry({ documentId: 'doc-002' }))
+    log.advanceCommitPoint(2)
+    expect(log.commitPoint).toBe(2)
+  })
+
+  it('refuses to move backwards', () => {
+    const log = createReplicationLog(0)
+    log.append(makeIndexEntry())
+    log.append(makeIndexEntry({ documentId: 'doc-002' }))
+    log.advanceCommitPoint(2)
+    log.advanceCommitPoint(1)
+    expect(log.commitPoint).toBe(2)
+  })
+
+  it('refuses to pass the local log end', () => {
+    const log = createReplicationLog(0)
+    log.append(makeIndexEntry())
+    log.advanceCommitPoint(9)
+    expect(log.commitPoint).toBe(1)
+  })
+
+  it('starts at the position a seeded log resumes from', () => {
+    const log = createReplicationLog(0, { startSeqNo: 501 })
+    expect(log.localLogEnd).toBe(500)
+    expect(log.commitPoint).toBe(500)
+  })
+
+  it('holds the commit point at the position a cleared log resumes from', () => {
+    const log = createReplicationLog(0, { startSeqNo: 501 })
+    log.append(makeIndexEntry())
+    log.advanceCommitPoint(501)
+    log.clear()
+    expect(log.localLogEnd).toBe(501)
+    expect(log.commitPoint).toBe(501)
+  })
+})

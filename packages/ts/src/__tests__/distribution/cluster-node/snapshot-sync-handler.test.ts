@@ -52,6 +52,7 @@ function makeAllocation(indexName: string, primary: string, replicas: string[]):
     inSyncSet: [primary, ...replicas],
     state: 'ACTIVE',
     primaryTerm: 1,
+    commitPoint: 0,
   }
   const assignments = new Map<number, PartitionAssignment>()
   assignments.set(0, assignment)

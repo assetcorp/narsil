@@ -9,7 +9,12 @@ export {
   validateEntryPayload,
   validateInsyncConfirmPayload,
 } from './codec'
-export { handleInsyncRemoval, requestInsyncRemoval } from './insync'
+export {
+  handleInsyncAdmission,
+  handleInsyncRemoval,
+  requestInsyncAdmission,
+  requestInsyncRemoval,
+} from './insync'
 export { createReplicationLog } from './log'
 export { replicateToReplicas } from './primary'
 export { applyDeleteEntry, applyIndexEntry, setNestedValue, validateReplicationEntry } from './replica'

@@ -105,7 +105,7 @@ ClusterCoordinator {
 ### getLeaseHolder(key)
 
 - Returns the `nodeId` of the node holding the lease at `key`, or absent when no node holds it.
-- A primary uses it to find the active controller before sending an in-sync set removal request.
+- A primary uses it to find the active controller before it asks to add a replica to the in-sync set or to remove one.
 - The value reflects the coordinator's state at the moment of the read, and it can go stale when the lease expires between the read and the use.
 
 ### shutdown()
@@ -257,6 +257,7 @@ PartitionAssignment {
   inSyncSet:   List<string>       (nodeIds of the replicas fully caught up)
   state:       PartitionState
   primaryTerm: uint64             (the current term, raised on failover)
+  commitPoint: uint64             (a floor on the seqNo acknowledged to a client)
 }
 ```
 

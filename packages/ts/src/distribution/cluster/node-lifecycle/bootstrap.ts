@@ -44,6 +44,20 @@ async function resolveControllerTargets(coordinator: ClusterCoordinator, control
   return targets
 }
 
+/**
+ * Tells the controller that this node has finished the sync protocol for a partition, and reports the answer.
+ *
+ * The node finds the controller through the controller lease, and it tries the controller's node id before the
+ * address its registration gives, because either may reach it. A controller that cannot be reached, or that refuses
+ * the report, leaves the result `false`, and the caller retries.
+ *
+ * @param indexName - The index the partition is part of.
+ * @param partitionId - The partition's id within that index.
+ * @param nodeId - This node's own id, which the controller compares with the assignment.
+ * @param coordinator - The cluster coordinator, which names the controller and holds the assignment.
+ * @param transport - The node transport this function sends the report over.
+ * @returns True when the controller accepted the report, and false otherwise.
+ */
 export async function reportBootstrapComplete(
   indexName: string,
   partitionId: number,
@@ -96,6 +110,41 @@ function isAcceptedResponse(response: TransportMessage): boolean {
   }
 }
 
+async function partitionAwaitsBootstrapReport(
+  state: PartitionBootstrapState,
+  coordinator: ClusterCoordinator,
+): Promise<boolean> {
+  try {
+    const table = await coordinator.getAllocation(state.indexName)
+    const assignment = table?.assignments.get(state.partitionId)
+    if (assignment === undefined) {
+      return true
+    }
+    return assignment.state === 'INITIALISING'
+  } catch (_) {
+    return true
+  }
+}
+
+/**
+ * Brings one partition into sync on this node and tells the controller once it is ready.
+ *
+ * The node retries the sync protocol with exponential backoff, and it then reports completion, retrying that report
+ * on the same schedule. It rereads the partition before and between reports, because a controller that committed
+ * the transition and lost the response would otherwise reject every retry, and the node would report a failure for
+ * a partition the cluster already treats as active.
+ *
+ * @param state - The bootstrap state, which names the partition and records whether a caller has abandoned it.
+ * @param coordinator - The cluster coordinator that holds the allocation table and the controller lease.
+ * @param transport - The node transport this function sends the completion report over.
+ * @param nodeId - This node's own id, which the controller compares with the assignment.
+ * @param bootstrapRetryBaseMs - The first backoff interval, which doubles on every further attempt.
+ * @param bootstrapRetryMaxMs - The longest backoff interval the doubling reaches.
+ * @param bootstrapMaxRetries - How many further attempts follow the first one.
+ * @param onBootstrapPartition - Runs the sync protocol, and reports whether the partition is now in sync.
+ * @param onError - Called with a coded error whenever a sync attempt or the whole report sequence fails.
+ * @returns True once the partition is in sync and the allocation table records it, and false otherwise.
+ */
 export async function bootstrapPartition(
   state: PartitionBootstrapState,
   coordinator: ClusterCoordinator,
@@ -118,6 +167,10 @@ export async function bootstrapPartition(
     }
 
     if (synced) {
+      if (!(await partitionAwaitsBootstrapReport(state, coordinator))) {
+        return true
+      }
+
       return retryReportBootstrapComplete(
         state,
         coordinator,
@@ -179,9 +232,17 @@ async function retryReportBootstrapComplete(
       return false
     }
 
+    if (attempt > 0 && !(await partitionAwaitsBootstrapReport(state, coordinator))) {
+      return true
+    }
+
     const accepted = await reportBootstrapComplete(state.indexName, state.partitionId, nodeId, coordinator, transport)
 
     if (accepted) {
+      return true
+    }
+
+    if (!(await partitionAwaitsBootstrapReport(state, coordinator))) {
       return true
     }
 
@@ -219,6 +280,14 @@ function waitWithAbort(state: PartitionBootstrapState, ms: number): Promise<void
   })
 }
 
+/**
+ * Abandons a bootstrap, so that the node stops retrying a partition the controller has taken away from it.
+ *
+ * The abort clears any pending backoff at once, which means a bootstrap waiting between attempts returns without
+ * serving out the rest of its interval.
+ *
+ * @param state - The bootstrap state to abandon.
+ */
 export function abortBootstrapState(state: PartitionBootstrapState): void {
   state.aborted = true
   if (state.retryTimer !== null) {
@@ -231,6 +300,14 @@ export function abortBootstrapState(state: PartitionBootstrapState): void {
   }
 }
 
+/**
+ * Builds the state one partition's bootstrap runs against.
+ *
+ * @param indexName - The index the partition is part of.
+ * @param partitionId - The partition's id within that index.
+ * @param primaryNodeId - The node this bootstrap syncs from.
+ * @returns The fresh state, which no caller has aborted and which holds no pending backoff.
+ */
 export function createBootstrapState(
   indexName: string,
   partitionId: number,
