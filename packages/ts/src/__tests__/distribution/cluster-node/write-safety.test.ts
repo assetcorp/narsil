@@ -1,4 +1,4 @@
-import { encode } from '@msgpack/msgpack'
+import { decode, encode } from '@msgpack/msgpack'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONTROLLER_LEASE_KEY } from '../../../distribution/cluster/controller/types'
 import {
@@ -13,7 +13,7 @@ import type { AllocationTable, ClusterCoordinator, PartitionAssignment } from '.
 import { createAckMessage, createInsyncConfirmMessage } from '../../../distribution/replication/codec'
 import { createReplicationLog } from '../../../distribution/replication/log'
 import type { ReplicationLog } from '../../../distribution/replication/types'
-import type { NodeTransport, TransportMessage } from '../../../distribution/transport/types'
+import type { InsyncRemovePayload, NodeTransport, TransportMessage } from '../../../distribution/transport/types'
 import { ReplicationMessageTypes, TransportError, TransportErrorCodes } from '../../../distribution/transport/types'
 import type { NarsilError } from '../../../errors'
 import { createNarsil, type Narsil } from '../../../narsil'
@@ -261,10 +261,10 @@ describe('pending admission during a primary write', () => {
       makeAllocationTable(makeAssignment({ replicas: ['node-b', 'node-c'], inSyncSet: ['node-b'] })),
     )
 
-    const removalRequests: string[] = []
+    const removalRequests: { target: string; payload: InsyncRemovePayload }[] = []
     transport = makeTransport(async (target, message) => {
       if (message.type === ReplicationMessageTypes.INSYNC_REMOVE) {
-        removalRequests.push(target)
+        removalRequests.push({ target, payload: decode(message.payload) as InsyncRemovePayload })
         return createInsyncConfirmMessage(
           { indexName: 'products', partitionId: 0, accepted: true },
           'controller',
@@ -293,10 +293,10 @@ describe('pending admission during a primary write', () => {
     await coordinator.putAllocation('products', makeAllocationTable(makeAssignment()))
     await coordinator.acquireLease(CONTROLLER_LEASE_KEY, 'controller', 15_000)
 
-    const removalRequests: string[] = []
+    const removalRequests: { target: string; payload: InsyncRemovePayload }[] = []
     transport = makeTransport(async (target, message) => {
       if (message.type === ReplicationMessageTypes.INSYNC_REMOVE) {
-        removalRequests.push(target)
+        removalRequests.push({ target, payload: decode(message.payload) as InsyncRemovePayload })
         return createInsyncConfirmMessage(
           { indexName: 'products', partitionId: 0, accepted: true },
           'controller',
@@ -312,6 +312,12 @@ describe('pending admission during a primary write', () => {
     const deps = makeDeps(coordinator, engine, transport)
     await routeInsert('products', { title: 'a book' }, 'doc-1', deps)
 
-    expect(removalRequests).toEqual(['controller'])
+    expect(removalRequests).toHaveLength(1)
+    expect(removalRequests[0].target).toBe('controller')
+    expect(removalRequests[0].payload).toMatchObject({
+      indexName: 'products',
+      partitionId: 0,
+      replicaNodeId: 'node-b',
+    })
   })
 })

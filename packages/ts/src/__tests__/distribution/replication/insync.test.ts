@@ -173,7 +173,7 @@ describe('handleInsyncAdmission', () => {
   async function admit(
     table: AllocationTable,
     payload: Partial<InsyncAddPayload> = {},
-  ): Promise<{ accepted: boolean; inSyncSet: string[]; commitPoint: number }> {
+  ): Promise<{ accepted: boolean; inSyncSet: string[]; commitPoint: number; version: number }> {
     coordinator = createInMemoryCoordinator()
     await coordinator.putAllocation('products', table)
     const confirm = await handleInsyncAdmission(
@@ -194,6 +194,7 @@ describe('handleInsyncAdmission', () => {
       accepted: confirm.accepted,
       inSyncSet: assignment?.inSyncSet ?? [],
       commitPoint: assignment?.commitPoint ?? -1,
+      version: stored?.version ?? -1,
     }
   }
 
@@ -250,12 +251,45 @@ describe('handleInsyncAdmission', () => {
     expect(result.inSyncSet).not.toContain('node-d')
   })
 
-  it('accepts without writing when the replica is already in the set', async () => {
+  it('accepts without writing when the replica is already in the set at the same commit point', async () => {
     const result = await admit(
-      tableWith({ replicas: ['node-b', 'node-c', 'node-d'], inSyncSet: ['node-b', 'node-c', 'node-d'] }),
+      tableWith({
+        replicas: ['node-b', 'node-c', 'node-d'],
+        inSyncSet: ['node-b', 'node-c', 'node-d'],
+        commitPoint: 10,
+      }),
     )
     expect(result.accepted).toBe(true)
     expect(result.inSyncSet).toEqual(['node-b', 'node-c', 'node-d'])
+    expect(result.version).toBe(1)
+  })
+
+  it('raises the commit point when a replica already in the set repeats its request', async () => {
+    const result = await admit(
+      tableWith({
+        replicas: ['node-b', 'node-c', 'node-d'],
+        inSyncSet: ['node-b', 'node-c', 'node-d'],
+        commitPoint: 4,
+      }),
+    )
+    expect(result.accepted).toBe(true)
+    expect(result.inSyncSet).toEqual(['node-b', 'node-c', 'node-d'])
+    expect(result.commitPoint).toBe(10)
+    expect(result.version).toBe(2)
+  })
+
+  it('leaves the commit point alone when a repeated request carries a lower value', async () => {
+    const result = await admit(
+      tableWith({
+        replicas: ['node-b', 'node-c', 'node-d'],
+        inSyncSet: ['node-b', 'node-c', 'node-d'],
+        commitPoint: 10,
+      }),
+      { appliedSeqNo: 12, commitPoint: 6 },
+    )
+    expect(result.accepted).toBe(true)
+    expect(result.commitPoint).toBe(10)
+    expect(result.version).toBe(1)
   })
 
   it('refuses an unknown index', async () => {

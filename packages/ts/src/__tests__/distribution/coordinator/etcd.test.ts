@@ -14,7 +14,7 @@ import {
   ETCD_KEY_SCHEMA,
 } from '../../../distribution/coordinator/etcd/types'
 import { validateNodeId, validatePartitionState } from '../../../distribution/coordinator/etcd/validation'
-import { NarsilError } from '../../../errors'
+import { ErrorCodes, NarsilError } from '../../../errors'
 
 function makeNodeRegistration(overrides: Partial<NodeRegistration> = {}): NodeRegistration {
   return {
@@ -188,6 +188,24 @@ describe('EtcdCoordinator unit tests', () => {
       const restored = deserializeAllocationTable(Buffer.from(new Uint8Array(encode(legacy))))
       expect(restored.assignments.get(0)?.commitPoint).toBe(0)
     })
+
+    it('reads every commit point outside the safe integer range as zero', () => {
+      const unusable = [Number.NaN, Number.POSITIVE_INFINITY, -1, 2.5]
+
+      for (const commitPoint of unusable) {
+        const stored = {
+          indexName: 'products',
+          version: 1,
+          replicationFactor: 1,
+          assignments: [
+            [0, { primary: 'node-a', replicas: [], inSyncSet: [], state: 'ACTIVE', primaryTerm: 1, commitPoint }],
+          ],
+        }
+
+        const restored = deserializeAllocationTable(Buffer.from(new Uint8Array(encode(stored))))
+        expect(restored.assignments.get(0)?.commitPoint).toBe(0)
+      }
+    })
   })
 
   describe('allocation table deserialisation guards', () => {
@@ -199,7 +217,9 @@ describe('EtcdCoordinator unit tests', () => {
         assignments: [[0, null]],
       }
 
-      expect(() => deserializeAllocationTable(Buffer.from(new Uint8Array(encode(malformed))))).toThrow(NarsilError)
+      expect(() => deserializeAllocationTable(Buffer.from(new Uint8Array(encode(malformed))))).toThrow(
+        expect.objectContaining({ code: ErrorCodes.CONFIG_INVALID }),
+      )
     })
 
     it('rejects an assignment entry that is not a pair', () => {
@@ -210,7 +230,9 @@ describe('EtcdCoordinator unit tests', () => {
         assignments: ['not-a-pair'],
       }
 
-      expect(() => deserializeAllocationTable(Buffer.from(new Uint8Array(encode(malformed))))).toThrow(NarsilError)
+      expect(() => deserializeAllocationTable(Buffer.from(new Uint8Array(encode(malformed))))).toThrow(
+        expect.objectContaining({ code: ErrorCodes.CONFIG_INVALID }),
+      )
     })
   })
 

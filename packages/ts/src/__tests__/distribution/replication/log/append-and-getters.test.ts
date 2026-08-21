@@ -272,4 +272,19 @@ describe('ReplicationLog commit point', () => {
     log.advanceCommitPoint(9)
     expect(log.commitPoint).toBe(1)
   })
+
+  it('starts at the position a seeded log resumes from', () => {
+    const log = createReplicationLog(0, { startSeqNo: 501 })
+    expect(log.localLogEnd).toBe(500)
+    expect(log.commitPoint).toBe(500)
+  })
+
+  it('holds the commit point at the position a cleared log resumes from', () => {
+    const log = createReplicationLog(0, { startSeqNo: 501 })
+    log.append(makeIndexEntry())
+    log.advanceCommitPoint(501)
+    log.clear()
+    expect(log.localLogEnd).toBe(501)
+    expect(log.commitPoint).toBe(501)
+  })
 })

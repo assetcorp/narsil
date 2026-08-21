@@ -50,7 +50,11 @@ function normaliseAssignments(entries: unknown[]): Map<number, PartitionAssignme
       throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'AllocationTable holds a malformed partition assignment')
     }
     const candidate = assignment as Partial<PartitionAssignment>
-    const commitPoint = typeof candidate.commitPoint === 'number' ? candidate.commitPoint : 0
+    const storedCommitPoint = candidate.commitPoint
+    const commitPoint =
+      typeof storedCommitPoint === 'number' && Number.isSafeInteger(storedCommitPoint) && storedCommitPoint >= 0
+        ? storedCommitPoint
+        : 0
     assignments.set(partitionId, { ...(assignment as PartitionAssignment), commitPoint })
   }
   return assignments

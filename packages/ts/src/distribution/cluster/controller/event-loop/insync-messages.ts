@@ -1,5 +1,6 @@
 import { decode } from '@msgpack/msgpack'
 import type { ClusterCoordinator } from '../../../coordinator/types'
+import { isRecord, isValidInteger } from '../../../payload-guards'
 import { createInsyncConfirmMessage } from '../../../replication/codec'
 import { handleInsyncAdmission, handleInsyncRemoval } from '../../../replication/insync'
 import type {
@@ -9,17 +10,17 @@ import type {
   RespondFn,
   TransportMessage,
 } from '../../../transport/types'
-import { handleBootstrapCompleteMessage } from '../bootstrap-handler'
+import { handleBootstrapCompleteMessage, rejectBootstrapComplete } from '../bootstrap-handler'
 import type { EventLoopState } from './state'
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
+const UNKNOWN_PARTITION_ID = -1
 
-function isValidInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value)
-}
-
+/**
+ * Reads an in-sync removal request out of a decoded payload, and reports a malformed one as `null`.
+ *
+ * @param decoded - The decoded message payload.
+ * @returns The validated payload, or `null` when a field is missing or holds the wrong type.
+ */
 export function validateInsyncRemovePayload(decoded: unknown): InsyncRemovePayload | null {
   if (!isRecord(decoded)) {
     return null
@@ -44,6 +45,15 @@ export function validateInsyncRemovePayload(decoded: unknown): InsyncRemovePaylo
   }
 }
 
+/**
+ * Reads an in-sync admission request out of a decoded payload, and reports a malformed one as `null`.
+ *
+ * An admission request holds every field a removal request holds, and it adds the replica's applied position
+ * alongside the primary's commit point. Both of those must be non-negative integers.
+ *
+ * @param decoded - The decoded message payload.
+ * @returns The validated payload, or `null` when a field is missing or holds the wrong type.
+ */
 export function validateInsyncAddPayload(decoded: unknown): InsyncAddPayload | null {
   const base = validateInsyncRemovePayload(decoded)
   if (base === null || !isRecord(decoded)) {
@@ -63,6 +73,16 @@ function decodeMessage(message: TransportMessage): unknown | null {
     return decode(message.payload)
   } catch (_) {
     return null
+  }
+}
+
+function describeRequest(decoded: unknown): { indexName: string; partitionId: number } {
+  if (!isRecord(decoded)) {
+    return { indexName: '', partitionId: UNKNOWN_PARTITION_ID }
+  }
+  return {
+    indexName: typeof decoded.indexName === 'string' ? decoded.indexName : '',
+    partitionId: isValidInteger(decoded.partitionId) ? decoded.partitionId : UNKNOWN_PARTITION_ID,
   }
 }
 
@@ -86,20 +106,63 @@ function enqueue(state: EventLoopState, task: () => Promise<void>): void {
   })
 }
 
+async function respondRefusal(
+  respond: RespondFn,
+  request: { indexName: string; partitionId: number },
+  nodeId: string,
+  requestId: string,
+): Promise<void> {
+  const payload: InsyncConfirmPayload = {
+    indexName: request.indexName,
+    partitionId: request.partitionId,
+    accepted: false,
+  }
+  try {
+    await respond(createInsyncConfirmMessage(payload, nodeId, requestId))
+  } catch (_) {
+    /* The primary falls back on its transport timeout when the refusal cannot be delivered. */
+  }
+}
+
+/**
+ * Answers a primary that asked the controller to drop a replica from a partition's in-sync set.
+ *
+ * The controller queues the work behind every other in-sync change, so that two changes to one allocation table
+ * never race. It refuses the request, rather than leaving the primary waiting for a transport timeout, when the
+ * payload fails validation, when the sender does not lead the partition, or when this node has lost leadership
+ * while the work waited in the queue.
+ *
+ * @param state - The event loop state that holds the in-sync queue.
+ * @param message - The request the primary sent.
+ * @param respond - The function that returns the confirmation to the primary.
+ * @param coordinator - The cluster coordinator that stores the allocation table.
+ * @param nodeId - The controller's own node id, which names the sender of the confirmation.
+ * @param isActive - Reports whether this node still holds the controller lease.
+ */
 export function handleInsyncRemoveMessage(
   state: EventLoopState,
   message: TransportMessage,
   respond: RespondFn,
   coordinator: ClusterCoordinator,
   nodeId: string,
+  isActive: () => boolean,
 ): void {
-  const payload = validateInsyncRemovePayload(decodeMessage(message))
+  const decoded = decodeMessage(message)
+  const payload = validateInsyncRemovePayload(decoded)
   if (payload === null) {
+    void respondRefusal(respond, describeRequest(decoded), nodeId, message.requestId)
     return
   }
 
   enqueue(state, async () => {
-    if (!(await assertSenderLeadsPartition(coordinator, payload.indexName, payload.partitionId, message.sourceId))) {
+    const leadsPartition = await assertSenderLeadsPartition(
+      coordinator,
+      payload.indexName,
+      payload.partitionId,
+      message.sourceId,
+    )
+    if (!leadsPartition || !isActive()) {
+      await respondRefusal(respond, payload, nodeId, message.requestId)
       return
     }
     const confirmPayload = await handleInsyncRemoval(payload, coordinator)
@@ -107,35 +170,77 @@ export function handleInsyncRemoveMessage(
   })
 }
 
+/**
+ * Answers a primary that asked the controller to admit a caught-up replica to a partition's in-sync set.
+ *
+ * The controller queues the work behind every other in-sync change, and it refuses the request when the payload
+ * fails validation, when the sender does not lead the partition, or when this node has lost leadership while the
+ * work waited in the queue. A refusal leaves the replica outside the set, and the primary proposes it again on a
+ * later catch-up tick.
+ *
+ * @param state - The event loop state that holds the in-sync queue.
+ * @param message - The request the primary sent.
+ * @param respond - The function that returns the confirmation to the primary.
+ * @param coordinator - The cluster coordinator that stores the allocation table.
+ * @param nodeId - The controller's own node id, which names the sender of the confirmation.
+ * @param isActive - Reports whether this node still holds the controller lease.
+ */
 export function handleInsyncAddMessage(
   state: EventLoopState,
   message: TransportMessage,
   respond: RespondFn,
   coordinator: ClusterCoordinator,
   nodeId: string,
+  isActive: () => boolean,
 ): void {
-  const payload = validateInsyncAddPayload(decodeMessage(message))
+  const decoded = decodeMessage(message)
+  const payload = validateInsyncAddPayload(decoded)
   if (payload === null) {
+    void respondRefusal(respond, describeRequest(decoded), nodeId, message.requestId)
     return
   }
 
   enqueue(state, async () => {
-    let confirmPayload: InsyncConfirmPayload
-    if (await assertSenderLeadsPartition(coordinator, payload.indexName, payload.partitionId, message.sourceId)) {
-      confirmPayload = await handleInsyncAdmission(payload, coordinator)
-    } else {
-      confirmPayload = { indexName: payload.indexName, partitionId: payload.partitionId, accepted: false }
+    const leadsPartition = await assertSenderLeadsPartition(
+      coordinator,
+      payload.indexName,
+      payload.partitionId,
+      message.sourceId,
+    )
+    if (!leadsPartition || !isActive()) {
+      await respondRefusal(respond, payload, nodeId, message.requestId)
+      return
     }
+    const confirmPayload = await handleInsyncAdmission(payload, coordinator)
     await respond(createInsyncConfirmMessage(confirmPayload, nodeId, message.requestId))
   })
 }
 
+/**
+ * Answers a node that reported a finished bootstrap, running the work behind every other in-sync change.
+ *
+ * Moving a partition to `ACTIVE` adds the reporting node to the in-sync set, so it shares the queue with admission
+ * and removal. The controller rejects the report when it has lost leadership while the work waited in the queue.
+ *
+ * @param state - The event loop state that holds the in-sync queue.
+ * @param message - The report the node sent.
+ * @param respond - The function that returns the result to the reporting node.
+ * @param coordinator - The cluster coordinator that stores the allocation table.
+ * @param nodeId - The controller's own node id, which names the sender of the result.
+ * @param isActive - Reports whether this node still holds the controller lease.
+ */
 export function handleQueuedBootstrapComplete(
   state: EventLoopState,
   message: TransportMessage,
   respond: RespondFn,
   coordinator: ClusterCoordinator,
   nodeId: string,
+  isActive: () => boolean,
 ): void {
-  enqueue(state, () => handleBootstrapCompleteMessage(message, respond, coordinator, nodeId))
+  enqueue(state, () => {
+    if (!isActive()) {
+      return rejectBootstrapComplete(message, respond, nodeId)
+    }
+    return handleBootstrapCompleteMessage(message, respond, coordinator, nodeId)
+  })
 }

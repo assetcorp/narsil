@@ -30,9 +30,20 @@ async function reportSyncedPosition(
   indexName: string,
   partitionId: number,
   target: string,
+  knownSeqNo: number,
+  deadline: number,
   deps: LiveBootstrapSyncDeps,
 ): Promise<void> {
   const logState = readLocalLogState(indexName, partitionId, deps)
+  if (logState.lastSeqNo <= knownSeqNo) {
+    return
+  }
+
+  const budgetMs = Math.min(SYNCED_POSITION_REPORT_TIMEOUT_MS, deadline - Date.now())
+  if (budgetMs <= 0) {
+    return
+  }
+
   const payload: SyncRequestPayload = {
     indexName,
     partitionId,
@@ -49,11 +60,15 @@ async function reportSyncedPosition(
   try {
     await withDeadline(
       deps.transport.stream(target, request, () => {}),
-      SYNCED_POSITION_REPORT_TIMEOUT_MS,
+      budgetMs,
       indexName,
       'synced-position-report',
     )
-  } catch (_) {}
+  } catch (error) {
+    if (deps.onError !== undefined) {
+      deps.onError(error)
+    }
+  }
 }
 
 export async function syncFromAnyTarget(
@@ -103,6 +118,7 @@ export async function syncFromAnyTarget(
       }
     }
 
+    const positionBeforeAttempt = readLocalLogState(indexName, partitionId, deps).lastSeqNo
     const attempt = await syncFromTarget(
       state,
       entry,
@@ -116,7 +132,7 @@ export async function syncFromAnyTarget(
       abortCheck,
     )
     if (attempt.ok) {
-      await reportSyncedPosition(indexName, partitionId, target, deps)
+      await reportSyncedPosition(indexName, partitionId, target, positionBeforeAttempt, deadline, deps)
       return attempt
     }
 

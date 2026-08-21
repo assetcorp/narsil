@@ -257,7 +257,7 @@ PartitionAssignment {
   inSyncSet:   List<string>       (nodeIds of the replicas fully caught up)
   state:       PartitionState
   primaryTerm: uint64             (the current term, raised on failover)
-  commitPoint: uint64             (the highest seqNo acknowledged to a client)
+  commitPoint: uint64             (a floor on the seqNo acknowledged to a client)
 }
 ```
 
