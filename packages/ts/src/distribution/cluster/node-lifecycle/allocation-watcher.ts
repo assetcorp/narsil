@@ -8,6 +8,7 @@ export interface AllocationWatcherState {
   activeBootstraps: Map<string, PartitionBootstrapState>
   trackedPartitions: Map<string, TrackedPartition>
   pendingTables: Map<string, AllocationTable>
+  restartWaiters: Map<ReturnType<typeof setTimeout>, () => void>
   stopped: boolean
 }
 
@@ -23,6 +24,12 @@ function partitionKey(indexName: string, partitionId: number): string {
   return `${indexName}:${partitionId}`
 }
 
+/**
+ * Builds the state a data node keeps while it follows the allocation table, which starts with no watcher, no
+ * tracked partition, and no bootstrap running.
+ *
+ * @returns The fresh state, ready for {@link startAllocationWatcher}.
+ */
 export function createAllocationWatcherState(): AllocationWatcherState {
   return {
     unwatchAllocation: null,
@@ -30,10 +37,21 @@ export function createAllocationWatcherState(): AllocationWatcherState {
     activeBootstraps: new Map(),
     trackedPartitions: new Map(),
     pendingTables: new Map(),
+    restartWaiters: new Map(),
     stopped: false,
   }
 }
 
+/**
+ * Starts following the allocation table, so that this node bootstraps every partition the controller gives it.
+ *
+ * A burst of allocation changes collapses into one pass over the table, because each event replaces the timer the
+ * previous one set.
+ *
+ * @param state - The watcher state this call registers the watcher on.
+ * @param config - The lifecycle configuration, which names the coordinator and the debounce window.
+ * @returns A promise that settles once the coordinator has registered the watcher.
+ */
 export async function startAllocationWatcher(
   state: AllocationWatcherState,
   config: NodeLifecycleConfig,
@@ -218,6 +236,7 @@ function startBootstrap(
       }
       if (!succeeded) {
         state.trackedPartitions.delete(key)
+        void restartBootstrapWhileOutOfSync(state, config, indexName, partitionId)
       }
     })
     .catch(() => {
@@ -225,6 +244,7 @@ function startBootstrap(
         state.activeBootstraps.delete(key)
       }
       state.trackedPartitions.delete(key)
+      void restartBootstrapWhileOutOfSync(state, config, indexName, partitionId)
     })
 }
 
@@ -256,6 +276,14 @@ function removeUnassignedPartitions(
   }
 }
 
+/**
+ * Stops following the allocation table and abandons every bootstrap in progress.
+ *
+ * The state keeps its `stopped` flag afterwards, so a callback that was already in flight does nothing when it
+ * resumes. A node that rejoins the cluster builds fresh state rather than reusing this one.
+ *
+ * @param state - The watcher state to stop.
+ */
 export function stopAllocationWatcher(state: AllocationWatcherState): void {
   state.stopped = true
 
@@ -269,6 +297,12 @@ export function stopAllocationWatcher(state: AllocationWatcherState): void {
     state.debounceTimer = null
   }
 
+  for (const [timer, resolve] of state.restartWaiters) {
+    clearTimeout(timer)
+    resolve()
+  }
+  state.restartWaiters.clear()
+
   for (const bootstrapState of state.activeBootstraps.values()) {
     abortBootstrapState(bootstrapState)
   }
@@ -277,6 +311,16 @@ export function stopAllocationWatcher(state: AllocationWatcherState): void {
   state.pendingTables.clear()
 }
 
+/**
+ * Bootstraps the partitions this node already holds, from the allocation tables it read when it joined.
+ *
+ * A node calls this before it starts watching, so that it acts on the tables that stood at join time rather than
+ * waiting for the next change to any of them.
+ *
+ * @param state - The watcher state that tracks the partitions.
+ * @param config - The lifecycle configuration, which names this node and the work each bootstrap runs.
+ * @param tables - The allocation tables the node read when it joined.
+ */
 export function processInitialAllocations(
   state: AllocationWatcherState,
   config: NodeLifecycleConfig,
@@ -285,4 +329,69 @@ export function processInitialAllocations(
   for (const table of tables) {
     processAllocationChange(state, config, table)
   }
+}
+
+function waitBeforeBootstrapRestart(state: AllocationWatcherState, config: NodeLifecycleConfig): Promise<void> {
+  const delayMs = Math.min(config.bootstrapRetryMaxMs, config.bootstrapRetryBaseMs)
+  if (delayMs <= 0) {
+    return Promise.resolve()
+  }
+  return new Promise<void>(resolve => {
+    const timer = setTimeout(() => {
+      state.restartWaiters.delete(timer)
+      resolve()
+    }, delayMs)
+    timer.unref?.()
+    state.restartWaiters.set(timer, resolve)
+  })
+}
+
+async function restartBootstrapWhileOutOfSync(
+  state: AllocationWatcherState,
+  config: NodeLifecycleConfig,
+  indexName: string,
+  partitionId: number,
+): Promise<void> {
+  if (state.stopped) {
+    return
+  }
+
+  await waitBeforeBootstrapRestart(state, config)
+  if (state.stopped) {
+    return
+  }
+
+  const nodeId = config.registration.nodeId
+  let table: AllocationTable | null
+  try {
+    table = await config.coordinator.getAllocation(indexName)
+  } catch (error) {
+    if (config.onError !== undefined) {
+      config.onError(error)
+    }
+    if (!state.stopped) {
+      void restartBootstrapWhileOutOfSync(state, config, indexName, partitionId)
+    }
+    return
+  }
+
+  if (state.stopped || table === null) {
+    return
+  }
+
+  const assignment = table.assignments.get(partitionId)
+  if (assignment === undefined || assignment.primary === null || assignment.primary === nodeId) {
+    return
+  }
+  if (!assignment.replicas.includes(nodeId) || assignment.inSyncSet.includes(nodeId)) {
+    return
+  }
+  if (assignment.state !== 'ACTIVE' && assignment.state !== 'INITIALISING' && assignment.state !== 'MIGRATING') {
+    return
+  }
+  if (state.activeBootstraps.has(partitionKey(indexName, partitionId))) {
+    return
+  }
+
+  startBootstrap(state, config, indexName, partitionId, assignment.primary)
 }

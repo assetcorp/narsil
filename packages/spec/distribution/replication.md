@@ -24,16 +24,22 @@ Each partition has exactly one primary node that accepts writes, and zero or mor
    b. It generates the embeddings, when the index configures them,
       computing each one once.
    c. It writes the operation to the replication log.
-   d. It forwards the log entry to every in-sync replica over the
-      node transport.
-   e. It waits for every in-sync replica to acknowledge.
-   f. When a replica fails to acknowledge:
+   d. It sends the log entry over the node transport to every
+      replica in the in-sync set, and to every replica whose
+      admission it has asked the controller to confirm.
+   e. It waits for each of those replicas to acknowledge.
+   f. When a replica in the in-sync set fails to acknowledge:
         it finds the active controller with
           getLeaseHolder('_narsil/controller')
         it sends a replication.insync_remove message to the
           controller over the node transport
         it waits for the controller's replication.insync_confirm
-   g. It acknowledges the write to the client.
+   g. When a replica whose admission is pending fails to
+      acknowledge, it abandons that admission.
+   h. It checks that it still holds primary authority for the
+      partition under the entry's primaryTerm.
+   i. It raises the partition's commit point to the entry's seqNo.
+   j. It acknowledges the write to the client.
 5. When the receiving node is not the primary, it forwards the
    mutation to the primary over the node transport, and the primary
    takes over from step 4.
@@ -156,6 +162,8 @@ The retention mechanism is implementation-defined. A circular buffer, an append-
 
 A replica that needs to catch up with the primary, whether it is a new node, a node returning after downtime, or a node newly assigned the partition, runs the sync protocol against the primary.
 
+A replica must send `replication.sync_request` again once it has applied the sync so that the primary records its new position.
+
 ### Two-Tier Recovery
 
 The primary picks the tier, based on whether its log still covers the replica's gap.
@@ -228,11 +236,11 @@ A replica that is still bootstrapping holds the partition in `INITIALISING` and 
 
 The in-sync set records which replicas are fully caught up with the primary. Only a replica in that set is eligible for promotion during failover.
 
-A replica joins the in-sync set once it has applied every log entry up to the primary's current `seqNo`, which is the end of the sync protocol whichever tier ran.
+A replica joins the in-sync set once it has applied every entry up to the partition's commit point. The commit point is the highest sequence number the primary has acknowledged to a client. The primary holds its own commit point, and the controller stores a floor on it in the partition assignment, raising that floor whenever it admits a replica and never lowering it.
 
 A replica leaves the in-sync set when the primary detects it has failed, whether by a timeout on a forwarded entry or by a lost connection. The primary then asks the controller to remove it.
 
-A replica that reads an `ACTIVE` assignment naming it as a replica outside the in-sync set must run the sync protocol against the primary, and it rejoins the set through the bootstrap completion report.
+A replica that reads an `ACTIVE` assignment naming it outside the in-sync set must run the sync protocol against the primary. The primary feeds it from there through the [Catch-Up Feed](#catch-up-feed), and asks the controller to admit it once it has caught up.
 
 ### Finding the Controller
 
@@ -255,7 +263,7 @@ The primary calls `getLeaseHolder('_narsil/controller')` on the cluster coordina
    coordinator with a compare-and-set.
 7. The controller replies with replication.insync_confirm:
      { indexName, partitionId, accepted: true }
-8. The primary acknowledges the write to the client.
+8. The primary resumes the write path at step 4h.
 ```
 
 A controller that rejects the request, because the `primaryTerm` is stale, replies with `accepted: false`. The primary must then refuse to acknowledge the write, and it should reread the allocation table for the current primary assignment, because another node may have taken over.
@@ -264,15 +272,29 @@ The write reaches the client only after the controller confirms the in-sync set 
 
 The in-sync set is stored in the cluster coordinator as the `inSyncSet` field of a partition assignment; see [Allocation Table](cluster.md#allocation-table). The controller updates it atomically with a compare-and-set on the allocation table.
 
+### Catch-Up Feed
+
+A primary must send every assigned replica outside the in-sync set the entries that replica lacks, because a replica that receives nothing between writes never reaches the commit point.
+
+The primary keeps one applied position for each such replica. It takes that position from the replica's `replication.sync_request`, and it raises the position whenever the replica acknowledges a batch.
+
+A `replication.sync_request` reporting a position below the recorded one opens a fresh sync session, so the primary must lower the recorded position to the reported one, and must discard every acknowledgement still in flight from before that request. A primary that kept the higher position instead would count entries the replica no longer holds, and a failover to that replica would then lose acknowledged writes.
+
+The primary sends the entries above the recorded position in sequence-number order, and it may group contiguous entries into one `replication.entry_batch` message. It must bound the bytes it holds in flight across every partition it leads, so that a replica rejoining an idle cluster cannot exhaust the primary's memory.
+
+The primary asks the controller to admit a replica once that replica's recorded position reaches the primary's own log end; see [replication.insync_add](transport.md#replicationinsync_add). The controller admits it only when the position is at or above the stored commit point.
+
+A replica whose recorded position falls below the oldest entry the primary retains must leave the feed and run the [Sync Protocol](#sync-protocol) again, because the primary can no longer send it what it lacks.
+
 ---
 
 ## Write Durability
 
-Every write replicates to every in-sync replica before it is acknowledged, and that is not configurable. The primary always forwards the operation to every replica in the in-sync set and waits for all of them.
+Every write replicates to every in-sync replica before it is acknowledged, and that is not configurable. The primary sends each entry to every replica in the in-sync set, and to every replica whose admission it has asked the controller to confirm, and it must wait for all of them. Every other assigned replica receives that entry through the [Catch-Up Feed](#catch-up-feed) instead, so no assigned replica misses an entry and no lagging replica holds a write up. The primary raises the partition's commit point to the entry's `seqNo` once it acknowledges the write.
 
 A primary may group contiguous entries for one partition into a single `replication.entry_batch` message, and the replica's one acknowledgement of the batch's last entry then covers every entry in it. A primary must send each partition's entries in sequence-number order, whichever message carries them.
 
-A replica that fails during replication is removed from the in-sync set through the controller, and the primary then acknowledges. The write is durable on every remaining in-sync replica.
+A replica that fails during replication is removed from the in-sync set through the controller, and the primary then acknowledges. The write is durable on every remaining in-sync replica. A replica that fails while its admission is pending stays outside the set, so the primary abandons that admission and acknowledges without it.
 
 ### Waiting for Active Replicas
 

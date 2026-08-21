@@ -75,6 +75,8 @@ export interface PartitionAssignment {
   state: PartitionState
   /** This rises each time the primary changes, which is what makes a stale primary's writes detectable. */
   primaryTerm: number
+  /** The primary has acknowledged every sequence number up to here, so every in-sync replica holds them. */
+  commitPoint: number
 }
 
 /**

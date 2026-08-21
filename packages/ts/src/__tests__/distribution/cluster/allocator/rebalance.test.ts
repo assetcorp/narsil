@@ -161,6 +161,7 @@ describe('rebalance allocation', () => {
           inSyncSet: ['node-x', 'node-y'],
           state: 'ACTIVE',
           primaryTerm: 1,
+          commitPoint: 0,
         },
       ],
     ])
@@ -182,6 +183,7 @@ describe('rebalance allocation', () => {
       inSyncSet: [],
       state: 'UNASSIGNED',
       primaryTerm: 1,
+      commitPoint: 0,
     })
   })
 
@@ -195,6 +197,7 @@ describe('rebalance allocation', () => {
           inSyncSet: ['node-a', 'node-b', 'node-c'],
           state: 'ACTIVE',
           primaryTerm: 1,
+          commitPoint: 0,
         },
       ],
     ])
@@ -223,6 +226,7 @@ describe('rebalance allocation', () => {
           inSyncSet: ['node-a', 'node-c'],
           state: 'ACTIVE',
           primaryTerm: 1,
+          commitPoint: 0,
         },
       ],
     ])
@@ -251,6 +255,7 @@ describe('rebalance allocation', () => {
           inSyncSet: ['node-a'],
           state: 'ACTIVE',
           primaryTerm: 1,
+          commitPoint: 0,
         },
       ],
     ])
@@ -272,6 +277,7 @@ describe('rebalance allocation', () => {
       inSyncSet: [],
       state: 'UNASSIGNED',
       primaryTerm: 1,
+      commitPoint: 0,
     })
   })
 
@@ -285,6 +291,7 @@ describe('rebalance allocation', () => {
           inSyncSet: ['node-a', 'node-b'],
           state: 'ACTIVE',
           primaryTerm: 3,
+          commitPoint: 0,
         },
       ],
     ])

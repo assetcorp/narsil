@@ -52,6 +52,7 @@ export function makeAllocationTable(indexName: string, nodeIds: string[], partit
       inSyncSet: primaryIdx !== replicaIdx ? [nodeIds[replicaIdx]] : [],
       state: 'ACTIVE',
       primaryTerm: 1,
+      commitPoint: 0,
     })
   }
   return {

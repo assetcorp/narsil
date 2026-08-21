@@ -180,6 +180,7 @@ export interface NodeTransport {
 
 // @public
 export interface PartitionAssignment {
+    commitPoint: number;
     inSyncSet: string[];
     primary: string | null;
     primaryTerm: number;

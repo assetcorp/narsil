@@ -4,7 +4,11 @@ import { generateId } from '../../../../../core/id-generator'
 import { createController } from '../../../../../distribution/cluster/controller'
 import type { ControllerNode } from '../../../../../distribution/cluster/controller/types'
 import { createDataNodeLifecycle } from '../../../../../distribution/cluster/node-lifecycle'
-import { reportBootstrapComplete } from '../../../../../distribution/cluster/node-lifecycle/bootstrap'
+import {
+  bootstrapPartition,
+  createBootstrapState,
+  reportBootstrapComplete,
+} from '../../../../../distribution/cluster/node-lifecycle/bootstrap'
 import type { DataNodeHandle, NodeLifecycleConfig } from '../../../../../distribution/cluster/node-lifecycle/types'
 import { DEFAULT_NODE_LIFECYCLE_CONFIG } from '../../../../../distribution/cluster/node-lifecycle/types'
 import { createInMemoryCoordinator } from '../../../../../distribution/coordinator'
@@ -67,6 +71,7 @@ describe('DataNodeLifecycle bootstrap completion reporting and validation', () =
       bootstrapRetryMaxMs: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapRetryMaxMs,
       bootstrapMaxRetries: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapMaxRetries,
       allocationDebounceMs: DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs,
+      nodeHeartbeatIntervalMs: DEFAULT_NODE_LIFECYCLE_CONFIG.nodeHeartbeatIntervalMs,
       onBootstrapPartition: vi.fn().mockResolvedValue(true),
       ...overrides,
     })
@@ -210,5 +215,212 @@ describe('DataNodeLifecycle bootstrap completion reporting and validation', () =
         await spoofedTransport.shutdown()
       }
     })
+  })
+})
+
+describe('bootstrapPartition reporting scope', () => {
+  let coordinator: ClusterCoordinator
+  let network: InMemoryNetwork
+  let nodeTransport: NodeTransport
+  let controllerTransport: NodeTransport
+
+  beforeEach(() => {
+    coordinator = createInMemoryCoordinator()
+    network = createInMemoryNetwork()
+    controllerTransport = createInMemoryTransport('controller-node', network)
+    nodeTransport = createInMemoryTransport('data-1', network)
+  })
+
+  afterEach(async () => {
+    await nodeTransport.shutdown()
+    await controllerTransport.shutdown()
+    await coordinator.shutdown()
+  })
+
+  async function runBootstrap(state: 'ACTIVE' | 'INITIALISING'): Promise<{ reported: boolean; result: boolean }> {
+    const assignments = new Map<number, PartitionAssignment>([
+      [0, makeAssignment({ primary: 'data-0', replicas: ['data-1'], inSyncSet: [], state, primaryTerm: 1 })],
+    ])
+    await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
+    await coordinator.acquireLease('_narsil/controller', 'controller-node', 15_000)
+    await coordinator.registerNode(makeNode('controller-node'))
+
+    let reported = false
+    await controllerTransport.listen(async (message, respond) => {
+      if (message.type === ClusterMessageTypes.BOOTSTRAP_COMPLETE) {
+        reported = true
+        await respond({
+          type: ClusterMessageTypes.BOOTSTRAP_COMPLETE,
+          sourceId: 'controller-node',
+          requestId: message.requestId,
+          payload: encode({ indexName: 'products', partitionId: 0, accepted: true }),
+        })
+      }
+    })
+
+    const bootstrapState = createBootstrapState('products', 0, 'data-0')
+    const result = await bootstrapPartition(
+      bootstrapState,
+      coordinator,
+      nodeTransport,
+      'data-1',
+      1,
+      2,
+      0,
+      async () => true,
+    )
+
+    return { reported, result }
+  }
+
+  it('treats a partition the controller already moved to ACTIVE as complete', async () => {
+    const assignments = new Map<number, PartitionAssignment>([
+      [
+        0,
+        makeAssignment({
+          primary: 'data-0',
+          replicas: ['data-1'],
+          inSyncSet: [],
+          state: 'INITIALISING',
+          primaryTerm: 1,
+        }),
+      ],
+    ])
+    await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
+    await coordinator.acquireLease('_narsil/controller', 'controller-node', 15_000)
+    await coordinator.registerNode(makeNode('controller-node'))
+
+    let reports = 0
+    await controllerTransport.listen(async (message, respond) => {
+      if (message.type === ClusterMessageTypes.BOOTSTRAP_COMPLETE) {
+        reports++
+        const activated = new Map<number, PartitionAssignment>([
+          [
+            0,
+            makeAssignment({
+              primary: 'data-0',
+              replicas: ['data-1'],
+              inSyncSet: ['data-0', 'data-1'],
+              state: 'ACTIVE',
+              primaryTerm: 1,
+            }),
+          ],
+        ])
+        const stored = await coordinator.getAllocation('products')
+        await coordinator.putAllocation(
+          'products',
+          makeAllocationTable('products', activated, (stored?.version ?? 1) + 1),
+          stored?.version ?? null,
+        )
+        await respond({
+          type: ClusterMessageTypes.BOOTSTRAP_COMPLETE,
+          sourceId: 'controller-node',
+          requestId: message.requestId,
+          payload: encode({ indexName: 'products', partitionId: 0, accepted: false }),
+        })
+      }
+    })
+
+    const bootstrapState = createBootstrapState('products', 0, 'data-0')
+    const result = await bootstrapPartition(
+      bootstrapState,
+      coordinator,
+      nodeTransport,
+      'data-1',
+      1,
+      2,
+      3,
+      async () => true,
+    )
+
+    expect(reports).toBe(1)
+    expect(result).toBe(true)
+  })
+
+  it('reports completion for a partition still INITIALISING', async () => {
+    const { reported, result } = await runBootstrap('INITIALISING')
+    expect(reported).toBe(true)
+    expect(result).toBe(true)
+  })
+
+  it('leaves an ACTIVE partition to the primary and sends no report', async () => {
+    const { reported, result } = await runBootstrap('ACTIVE')
+    expect(reported).toBe(false)
+    expect(result).toBe(true)
+  })
+})
+
+describe('bootstrapPartition when the partition state cannot be read', () => {
+  let coordinator: ClusterCoordinator
+  let network: InMemoryNetwork
+  let nodeTransport: NodeTransport
+  let controllerTransport: NodeTransport
+
+  beforeEach(() => {
+    coordinator = createInMemoryCoordinator()
+    network = createInMemoryNetwork()
+    controllerTransport = createInMemoryTransport('controller-node', network)
+    nodeTransport = createInMemoryTransport('data-1', network)
+  })
+
+  afterEach(async () => {
+    await nodeTransport.shutdown()
+    await controllerTransport.shutdown()
+    await coordinator.shutdown()
+  })
+
+  it('reports completion rather than assuming the partition is already ACTIVE', async () => {
+    const assignments = new Map<number, PartitionAssignment>([
+      [
+        0,
+        makeAssignment({
+          primary: 'data-0',
+          replicas: ['data-1'],
+          inSyncSet: [],
+          state: 'INITIALISING',
+          primaryTerm: 1,
+        }),
+      ],
+    ])
+    await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
+    await coordinator.acquireLease('_narsil/controller', 'controller-node', 15_000)
+    await coordinator.registerNode(makeNode('controller-node'))
+
+    let reported = false
+    await controllerTransport.listen(async (message, respond) => {
+      if (message.type === ClusterMessageTypes.BOOTSTRAP_COMPLETE) {
+        reported = true
+        await respond({
+          type: ClusterMessageTypes.BOOTSTRAP_COMPLETE,
+          sourceId: 'controller-node',
+          requestId: message.requestId,
+          payload: encode({ indexName: 'products', partitionId: 0, accepted: true }),
+        })
+      }
+    })
+
+    const readAllocation = coordinator.getAllocation.bind(coordinator)
+    let reads = 0
+    coordinator.getAllocation = async (indexName: string) => {
+      reads += 1
+      if (reads === 1) {
+        throw new Error('allocation read failed')
+      }
+      return readAllocation(indexName)
+    }
+
+    const result = await bootstrapPartition(
+      createBootstrapState('products', 0, 'data-0'),
+      coordinator,
+      nodeTransport,
+      'data-1',
+      1,
+      2,
+      0,
+      async () => true,
+    )
+
+    expect(reported).toBe(true)
+    expect(result).toBe(true)
   })
 })

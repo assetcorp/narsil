@@ -18,10 +18,57 @@ import type {
 
 export function readLocalLogState(indexName: string, partitionId: number, deps: LiveBootstrapSyncDeps): LocalLogState {
   const log = deps.getReplicationLog(indexName, partitionId)
-  const lastSeqNo = log.committedSeqNo
-  const lastPrimaryTerm = log.committedPrimaryTerm
+  const lastSeqNo = log.localLogEnd
+  const lastPrimaryTerm = log.localLogEndPrimaryTerm
   const newestEntry = log.getEntry(lastSeqNo)
   return { lastSeqNo, lastPrimaryTerm: newestEntry?.primaryTerm ?? lastPrimaryTerm }
+}
+
+const SYNCED_POSITION_REPORT_TIMEOUT_MS = 5_000
+
+async function reportSyncedPosition(
+  indexName: string,
+  partitionId: number,
+  target: string,
+  knownSeqNo: number,
+  deadline: number,
+  deps: LiveBootstrapSyncDeps,
+): Promise<void> {
+  const logState = readLocalLogState(indexName, partitionId, deps)
+  if (logState.lastSeqNo <= knownSeqNo) {
+    return
+  }
+
+  const budgetMs = Math.min(SYNCED_POSITION_REPORT_TIMEOUT_MS, deadline - Date.now())
+  if (budgetMs <= 0) {
+    return
+  }
+
+  const payload: SyncRequestPayload = {
+    indexName,
+    partitionId,
+    lastSeqNo: logState.lastSeqNo,
+    lastPrimaryTerm: logState.lastPrimaryTerm,
+  }
+  const request: TransportMessage = {
+    type: ReplicationMessageTypes.SYNC_REQUEST,
+    sourceId: deps.sourceNodeId,
+    requestId: generateId(),
+    payload: encode(payload),
+  }
+
+  try {
+    await withDeadline(
+      deps.transport.stream(target, request, () => {}),
+      budgetMs,
+      indexName,
+      'synced-position-report',
+    )
+  } catch (error) {
+    if (deps.onError !== undefined) {
+      deps.onError(error)
+    }
+  }
 }
 
 export async function syncFromAnyTarget(
@@ -71,6 +118,7 @@ export async function syncFromAnyTarget(
       }
     }
 
+    const positionBeforeAttempt = readLocalLogState(indexName, partitionId, deps).lastSeqNo
     const attempt = await syncFromTarget(
       state,
       entry,
@@ -84,6 +132,7 @@ export async function syncFromAnyTarget(
       abortCheck,
     )
     if (attempt.ok) {
+      await reportSyncedPosition(indexName, partitionId, target, positionBeforeAttempt, deadline, deps)
       return attempt
     }
 

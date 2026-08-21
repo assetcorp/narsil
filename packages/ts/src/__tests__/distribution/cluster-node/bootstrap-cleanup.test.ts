@@ -36,6 +36,7 @@ describe('cleanupRemovedPartition (L-D)', () => {
       inSyncSet: ['other-node'],
       state: 'ACTIVE',
       primaryTerm: 1,
+      commitPoint: 0,
     })
     const coordinator = makeCoordinator(makeAllocation(assignments))
 
@@ -53,6 +54,7 @@ describe('cleanupRemovedPartition (L-D)', () => {
       inSyncSet: ['other-node'],
       state: 'ACTIVE',
       primaryTerm: 1,
+      commitPoint: 0,
     })
     assignments.set(1, {
       primary: 'this-node',
@@ -60,6 +62,7 @@ describe('cleanupRemovedPartition (L-D)', () => {
       inSyncSet: ['this-node'],
       state: 'ACTIVE',
       primaryTerm: 1,
+      commitPoint: 0,
     })
     const coordinator = makeCoordinator(makeAllocation(assignments))
 

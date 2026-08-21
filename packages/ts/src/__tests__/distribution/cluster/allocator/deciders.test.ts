@@ -32,6 +32,7 @@ function makeAssignment(primary: string | null, replicas: string[]): PartitionAs
     inSyncSet: [],
     state: 'ACTIVE',
     primaryTerm: 1,
+    commitPoint: 0,
   }
 }
 

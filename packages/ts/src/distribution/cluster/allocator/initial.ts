@@ -9,6 +9,23 @@ import type {
 } from './types'
 import { computeNodeWeights, countNodeAssignments, findBestNode } from './weight'
 
+/**
+ * Spreads an index's partitions over the nodes that may hold them, for an index that has no allocation yet.
+ *
+ * The allocator picks a primary for each partition and then fills its replica slots, weighing each candidate by how
+ * many partitions it already holds and passing every candidate through the deciders, which is how zone awareness and a
+ * per-node shard cap take effect. Every partition starts in `INITIALISING` at term 1 with an empty in-sync set and
+ * a commit point of zero, because no write has reached it yet.
+ *
+ * @param nodes - The nodes that may hold a partition of this index.
+ * @param indexName - The index being allocated.
+ * @param partitionCount - How many partitions the index has.
+ * @param replicationFactor - How many replicas each partition takes, over and above its primary.
+ * @param constraints - The placement constraints, which cover zone awareness and the per-node shard cap.
+ * @param deciders - The rules a candidate node must pass before it may take a partition.
+ * @returns The allocation result, which holds the table and the decisions the allocator made.
+ * @throws A `NarsilError` with `ALLOCATION_FAILED` when no eligible node can take a partition's primary.
+ */
 export function initialAllocate(
   nodes: NodeRegistration[],
   indexName: string,
@@ -60,6 +77,7 @@ export function initialAllocate(
       primary: primaryNodeId,
       replicas,
       inSyncSet: [],
+      commitPoint: 0,
       state: 'INITIALISING',
       primaryTerm: 1,
     }
