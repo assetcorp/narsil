@@ -8,6 +8,17 @@ import {
 import { joinCluster, leaveCluster } from './join'
 import type { DataNodeHandle, DataNodeLifecycleStatus, NodeLifecycleConfig } from './types'
 
+/**
+ * Builds the handle a data node joins the cluster with, leaves it with, and shuts down through.
+ *
+ * The handle reports its own status, and it runs one lifecycle operation at a time, so a `leave` called while a
+ * `join` is still running waits for that join rather than interleaving with it. A node that has shut down cannot
+ * rejoin through the same handle.
+ *
+ * @param config - The lifecycle configuration, which names the coordinator, the transport, this node's
+ *   registration, and the retry limits every bootstrap follows.
+ * @returns The handle, whose status starts as `stopped`.
+ */
 export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHandle {
   let status: DataNodeLifecycleStatus = 'stopped'
   let watcherState: AllocationWatcherState = createAllocationWatcherState()
@@ -64,7 +75,7 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
           await joinCluster(config, watcherState, heartbeatState)
           status = 'active'
         } catch (error) {
-          stopRegistrationHeartbeat(heartbeatState)
+          await stopRegistrationHeartbeat(heartbeatState)
           status = 'stopped'
           throw error
         }
@@ -78,7 +89,7 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
         }
 
         status = 'leaving'
-        stopRegistrationHeartbeat(heartbeatState)
+        await stopRegistrationHeartbeat(heartbeatState)
         stopAllocationWatcher(watcherState)
 
         try {
@@ -96,7 +107,7 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
           return
         }
 
-        stopRegistrationHeartbeat(heartbeatState)
+        await stopRegistrationHeartbeat(heartbeatState)
         stopAllocationWatcher(watcherState)
 
         if (status === 'active' || status === 'joining') {

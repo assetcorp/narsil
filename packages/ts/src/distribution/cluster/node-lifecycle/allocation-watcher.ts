@@ -24,6 +24,12 @@ function partitionKey(indexName: string, partitionId: number): string {
   return `${indexName}:${partitionId}`
 }
 
+/**
+ * Builds the state a data node keeps while it follows the allocation table, which starts with no watcher, no
+ * tracked partition, and no bootstrap running.
+ *
+ * @returns The fresh state, ready for {@link startAllocationWatcher}.
+ */
 export function createAllocationWatcherState(): AllocationWatcherState {
   return {
     unwatchAllocation: null,
@@ -36,6 +42,16 @@ export function createAllocationWatcherState(): AllocationWatcherState {
   }
 }
 
+/**
+ * Starts following the allocation table, so that this node bootstraps every partition the controller gives it.
+ *
+ * A burst of allocation changes collapses into one pass over the table, because each event replaces the timer the
+ * previous one set.
+ *
+ * @param state - The watcher state this call registers the watcher on.
+ * @param config - The lifecycle configuration, which names the coordinator and the debounce window.
+ * @returns A promise that settles once the coordinator has registered the watcher.
+ */
 export async function startAllocationWatcher(
   state: AllocationWatcherState,
   config: NodeLifecycleConfig,
@@ -260,6 +276,14 @@ function removeUnassignedPartitions(
   }
 }
 
+/**
+ * Stops following the allocation table and abandons every bootstrap in progress.
+ *
+ * The state keeps its `stopped` flag afterwards, so a callback that was already in flight does nothing when it
+ * resumes. A node that rejoins the cluster builds fresh state rather than reusing this one.
+ *
+ * @param state - The watcher state to stop.
+ */
 export function stopAllocationWatcher(state: AllocationWatcherState): void {
   state.stopped = true
 
@@ -287,6 +311,16 @@ export function stopAllocationWatcher(state: AllocationWatcherState): void {
   state.pendingTables.clear()
 }
 
+/**
+ * Bootstraps the partitions this node already holds, from the allocation tables it read when it joined.
+ *
+ * A node calls this before it starts watching, so that it acts on the tables that stood at join time rather than
+ * waiting for the next change to any of them.
+ *
+ * @param state - The watcher state that tracks the partitions.
+ * @param config - The lifecycle configuration, which names this node and the work each bootstrap runs.
+ * @param tables - The allocation tables the node read when it joined.
+ */
 export function processInitialAllocations(
   state: AllocationWatcherState,
   config: NodeLifecycleConfig,
@@ -334,6 +368,9 @@ async function restartBootstrapWhileOutOfSync(
   } catch (error) {
     if (config.onError !== undefined) {
       config.onError(error)
+    }
+    if (!state.stopped) {
+      void restartBootstrapWhileOutOfSync(state, config, indexName, partitionId)
     }
     return
   }

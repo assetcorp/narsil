@@ -273,6 +273,70 @@ describe('bootstrapPartition reporting scope', () => {
     return { reported, result }
   }
 
+  it('treats a partition the controller already moved to ACTIVE as complete', async () => {
+    const assignments = new Map<number, PartitionAssignment>([
+      [
+        0,
+        makeAssignment({
+          primary: 'data-0',
+          replicas: ['data-1'],
+          inSyncSet: [],
+          state: 'INITIALISING',
+          primaryTerm: 1,
+        }),
+      ],
+    ])
+    await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
+    await coordinator.acquireLease('_narsil/controller', 'controller-node', 15_000)
+    await coordinator.registerNode(makeNode('controller-node'))
+
+    let reports = 0
+    await controllerTransport.listen(async (message, respond) => {
+      if (message.type === ClusterMessageTypes.BOOTSTRAP_COMPLETE) {
+        reports++
+        const activated = new Map<number, PartitionAssignment>([
+          [
+            0,
+            makeAssignment({
+              primary: 'data-0',
+              replicas: ['data-1'],
+              inSyncSet: ['data-0', 'data-1'],
+              state: 'ACTIVE',
+              primaryTerm: 1,
+            }),
+          ],
+        ])
+        const stored = await coordinator.getAllocation('products')
+        await coordinator.putAllocation(
+          'products',
+          makeAllocationTable('products', activated, (stored?.version ?? 1) + 1),
+          stored?.version ?? null,
+        )
+        await respond({
+          type: ClusterMessageTypes.BOOTSTRAP_COMPLETE,
+          sourceId: 'controller-node',
+          requestId: message.requestId,
+          payload: encode({ indexName: 'products', partitionId: 0, accepted: false }),
+        })
+      }
+    })
+
+    const bootstrapState = createBootstrapState('products', 0, 'data-0')
+    const result = await bootstrapPartition(
+      bootstrapState,
+      coordinator,
+      nodeTransport,
+      'data-1',
+      1,
+      2,
+      3,
+      async () => true,
+    )
+
+    expect(reports).toBe(1)
+    expect(result).toBe(true)
+  })
+
   it('reports completion for a partition still INITIALISING', async () => {
     const { reported, result } = await runBootstrap('INITIALISING')
     expect(reported).toBe(true)

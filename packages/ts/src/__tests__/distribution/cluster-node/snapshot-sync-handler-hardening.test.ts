@@ -178,8 +178,11 @@ describe('snapshot sync handler hardening', () => {
 
     await handleSnapshotSyncRequest(makeRequest('products'), respond, makeDeps(engine, coordinator))
 
-    expect(responses.length).toBeGreaterThan(1)
-    expect(responses[0].type).toBe(ReplicationMessageTypes.SNAPSHOT_START)
+    expect(responses.map(response => response.type)).toEqual([
+      ReplicationMessageTypes.SNAPSHOT_START,
+      ReplicationMessageTypes.SNAPSHOT_CHUNK,
+      ReplicationMessageTypes.SNAPSHOT_END,
+    ])
   })
 
   it('T3d: authorizes INITIALISING replica that is not yet in inSyncSet', async () => {
@@ -191,8 +194,11 @@ describe('snapshot sync handler hardening', () => {
 
     await handleSnapshotSyncRequest(makeRequest('products'), respond, makeDeps(engine, coordinator))
 
-    expect(responses.length).toBeGreaterThan(1)
-    expect(responses[0].type).toBe(ReplicationMessageTypes.SNAPSHOT_START)
+    expect(responses.map(response => response.type)).toEqual([
+      ReplicationMessageTypes.SNAPSHOT_START,
+      ReplicationMessageTypes.SNAPSHOT_CHUNK,
+      ReplicationMessageTypes.SNAPSHOT_END,
+    ])
   })
 
   it('T8: per-source cap rejects a second concurrent request from the same source', async () => {

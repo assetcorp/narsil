@@ -1,5 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
 import type { ClusterCoordinator, PartitionAssignment } from '../../coordinator/types'
+import { isRecord, isValidInteger } from '../../payload-guards'
 import type {
   BootstrapCompletePayload,
   BootstrapCompleteResultPayload,
@@ -8,14 +9,12 @@ import type {
 } from '../../transport/types'
 import { ClusterMessageTypes } from '../../transport/types'
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-function isValidInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value)
-}
-
+/**
+ * Reads a bootstrap completion report out of a decoded payload, and reports a malformed one as `null`.
+ *
+ * @param decoded - The decoded message payload.
+ * @returns The validated payload, or `null` when a field is missing or holds the wrong type.
+ */
 export function validateBootstrapCompletePayload(decoded: unknown): BootstrapCompletePayload | null {
   if (!isRecord(decoded)) {
     return null
@@ -61,6 +60,50 @@ async function sendRejection(
   await respond(response)
 }
 
+/**
+ * Rejects a bootstrap completion report without reading the allocation table.
+ *
+ * The controller answers this way when it no longer holds the controller lease, so that the reporting node learns
+ * the outcome at once and retries against whichever node took over.
+ *
+ * @param message - The report the node sent.
+ * @param respond - The function that returns the result to the reporting node.
+ * @param controllerNodeId - This node's own id, which names the sender of the result.
+ * @returns A promise that settles once the rejection has been sent.
+ */
+export async function rejectBootstrapComplete(
+  message: TransportMessage,
+  respond: RespondFn,
+  controllerNodeId: string,
+): Promise<void> {
+  let decoded: unknown
+  try {
+    decoded = decode(message.payload)
+  } catch (_) {
+    await sendRejection(respond, controllerNodeId, message.requestId, '', -1)
+    return
+  }
+  const payload = validateBootstrapCompletePayload(decoded)
+  if (payload === null) {
+    await sendRejection(respond, controllerNodeId, message.requestId, '', -1)
+    return
+  }
+  await sendRejection(respond, controllerNodeId, message.requestId, payload.indexName, payload.partitionId)
+}
+
+/**
+ * Moves a partition to `ACTIVE` on the report of a node that finished its bootstrap, and answers that node.
+ *
+ * The controller rejects the report unless the sender's own id matches the `nodeId` in the payload, the node is
+ * assigned to the partition, the term matches the assignment's term, and the partition is still `INITIALISING`. An
+ * accepted report adds the reporting node, and the partition's primary, to the in-sync set.
+ *
+ * @param message - The report the node sent.
+ * @param respond - The function that returns the result to the reporting node.
+ * @param coordinator - The cluster coordinator that stores the allocation table.
+ * @param controllerNodeId - The controller's own node id, which names the sender of the result.
+ * @returns A promise that settles once the result has been sent.
+ */
 export async function handleBootstrapCompleteMessage(
   message: TransportMessage,
   respond: RespondFn,

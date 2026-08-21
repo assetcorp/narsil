@@ -77,6 +77,33 @@ describe('DataNodeLifecycle registration heartbeat', () => {
     expect(events.filter(event => event.type === 'node_joined')).toHaveLength(1)
   })
 
+  it('waits for an in-flight heartbeat before it deregisters the node', async () => {
+    const handle = createLifecycle()
+    await handle.join()
+
+    let releaseHeartbeat = (): void => {}
+    const heartbeatGate = new Promise<void>(resolve => {
+      releaseHeartbeat = resolve
+    })
+    const registerNode = coordinator.registerNode.bind(coordinator)
+    let gated = false
+    coordinator.registerNode = async registration => {
+      if (!gated) {
+        gated = true
+        await heartbeatGate
+      }
+      await registerNode(registration)
+    }
+
+    vi.advanceTimersByTime(DEFAULT_NODE_LIFECYCLE_CONFIG.nodeHeartbeatIntervalMs)
+    const leaving = handle.leave()
+    releaseHeartbeat()
+    await leaving
+    await flushPromises()
+
+    expect(await coordinator.listNodes()).toEqual([])
+  })
+
   it('stops renewing once the node leaves, so the registration expires', async () => {
     const handle = createLifecycle()
     await handle.join()

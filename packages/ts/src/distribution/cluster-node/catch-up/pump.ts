@@ -82,6 +82,7 @@ async function pumpReplica(
   }
 
   const reservedBytes = batchBytes(batch)
+  const sendingEpoch = cursor.syncEpoch
   cursor.sending = true
   state.inFlightBytes += reservedBytes
   try {
@@ -92,7 +93,7 @@ async function pumpReplica(
       deps.nodeId,
       deps.resolveNodeTargets,
     )
-    if (result.acknowledged.includes(replicaNodeId)) {
+    if (result.acknowledged.includes(replicaNodeId) && cursor.syncEpoch === sendingEpoch) {
       cursor.appliedSeqNo = batch[batch.length - 1].seqNo
     }
   } finally {
@@ -135,6 +136,19 @@ async function pumpPartition(
   }
 }
 
+/**
+ * Feeds each replica outside the in-sync set one batch of the entries it lacks, and proposes the ones that have
+ * caught up.
+ *
+ * For every partition this node leads, the primary sends each such replica its next batch, proposes its admission
+ * once it holds everything the local log holds, or forgets it once it has fallen behind the retained log and needs
+ * a fresh snapshot instead. One replica's failure leaves the others in the tick untouched, and a tick that is
+ * already running returns that same tick rather than starting a second one.
+ *
+ * @param state - The catch-up state that holds the cursors and the in-flight byte total.
+ * @param deps - The write routing dependencies, which give the pump the log, the transport, and the coordinator.
+ * @returns A promise that settles once the tick has finished.
+ */
 export function runCatchUpTick(state: CatchUpState, deps: WriteRoutingDeps): Promise<void> {
   if (state.stopped || state.activeTick !== null || state.cursors.size === 0) {
     return state.activeTick ?? Promise.resolve()
@@ -159,6 +173,16 @@ export function runCatchUpTick(state: CatchUpState, deps: WriteRoutingDeps): Pro
   return tick
 }
 
+/**
+ * Starts the timer that runs {@link runCatchUpTick}, so that a lagging replica keeps receiving entries between
+ * writes.
+ *
+ * The timer is unreferenced, so it never holds a process open on its own, and starting the pump twice replaces the
+ * previous timer rather than adding a second one.
+ *
+ * @param state - The catch-up state the pump advances.
+ * @param deps - The write routing dependencies each tick passes on.
+ */
 export function startCatchUpPump(state: CatchUpState, deps: WriteRoutingDeps): void {
   void stopCatchUpPump(state)
   state.stopped = false
@@ -168,6 +192,12 @@ export function startCatchUpPump(state: CatchUpState, deps: WriteRoutingDeps): v
   state.timer.unref?.()
 }
 
+/**
+ * Stops the pump and waits for the tick already running, so that no send outlives the node that started it.
+ *
+ * @param state - The catch-up state to stop.
+ * @returns A promise that settles once no tick is running.
+ */
 export async function stopCatchUpPump(state: CatchUpState): Promise<void> {
   state.stopped = true
   if (state.timer !== null) {

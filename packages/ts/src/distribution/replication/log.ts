@@ -25,7 +25,7 @@ export function createReplicationLog(
   let nextSeqNo = config?.startSeqNo ?? 1
   let localLogEnd = nextSeqNo - 1
   let localLogEndPrimaryTerm = config?.lastPrimaryTerm ?? 0
-  let commitPoint = 0
+  let commitPoint = nextSeqNo - 1
   let entries: ReplicationLogEntry[] = []
   let headIndex = 0
   let totalSizeBytes = 0
@@ -254,7 +254,7 @@ export function createReplicationLog(
       headIndex = 0
       totalSizeBytes = 0
       localLogEnd = nextSeqNo - 1
-      commitPoint = 0
+      commitPoint = nextSeqNo - 1
     },
   }
 }

@@ -4,9 +4,17 @@ export interface EventLoopState {
   unwatchTransport: (() => void) | null
   knownIndexes: Set<string>
   debounceTimer: ReturnType<typeof setTimeout> | null
+  teardownTimers: Map<string, ReturnType<typeof setTimeout>>
   insyncQueue: Promise<void>
 }
 
+/**
+ * Builds the state an active controller's event loop keeps, which starts with no watcher registered and no timer
+ * pending.
+ *
+ * @param initialIndexNames - The indexes the controller starts with, which it allocates on its first run.
+ * @returns The fresh state, ready for {@link startEventLoop}.
+ */
 export function createEventLoopState(initialIndexNames: string[]): EventLoopState {
   return {
     unwatchNodes: null,
@@ -14,10 +22,20 @@ export function createEventLoopState(initialIndexNames: string[]): EventLoopStat
     unwatchTransport: null,
     knownIndexes: new Set(initialIndexNames),
     debounceTimer: null,
+    teardownTimers: new Map(),
     insyncQueue: Promise.resolve(),
   }
 }
 
+/**
+ * Drops every watcher and timer the event loop registered, so that a controller which stood down leaves no work
+ * running.
+ *
+ * The state stays usable afterwards, because a node that regains the controller lease starts its event loop again
+ * over the same state.
+ *
+ * @param state - The event loop state to clear.
+ */
 export function clearEventLoopWatchers(state: EventLoopState): void {
   if (state.unwatchNodes !== null) {
     state.unwatchNodes()
@@ -35,4 +53,8 @@ export function clearEventLoopWatchers(state: EventLoopState): void {
     clearTimeout(state.debounceTimer)
     state.debounceTimer = null
   }
+  for (const timer of state.teardownTimers.values()) {
+    clearTimeout(timer)
+  }
+  state.teardownTimers.clear()
 }

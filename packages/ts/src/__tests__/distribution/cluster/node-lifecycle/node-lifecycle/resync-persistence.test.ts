@@ -109,6 +109,33 @@ describe('replica resync while the assignment stands', () => {
     expect(longestGap).toBeLessThanOrEqual(LONGEST_ACCEPTABLE_RESYNC_GAP_MS)
   })
 
+  it('keeps attempting after a coordinator read fails', async () => {
+    await seedActiveReplicaOutOfSync()
+    const attempts = vi.fn().mockResolvedValue(false)
+
+    const handle = createLifecycle(attempts)
+    await handle.join()
+    await advance(DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs + 10)
+    await advance(RETRY_CYCLE_MS)
+
+    const readAllocation = coordinator.getAllocation.bind(coordinator)
+    let failedOnce = false
+    coordinator.getAllocation = async (indexName: string) => {
+      if (!failedOnce) {
+        failedOnce = true
+        throw new Error('coordinator read failed')
+      }
+      return readAllocation(indexName)
+    }
+
+    await advance(RETRY_CYCLE_MS)
+    const afterFailure = attempts.mock.calls.length
+    await advance(RETRY_CYCLE_MS * 2)
+
+    expect(failedOnce).toBe(true)
+    expect(attempts.mock.calls.length).toBeGreaterThan(afterFailure)
+  })
+
   it('stops attempting once the replica has rejoined the in-sync set', async () => {
     await seedActiveReplicaOutOfSync()
     const attempts = vi.fn().mockResolvedValue(false)
