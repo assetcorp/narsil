@@ -106,6 +106,7 @@ export interface ClusterNodeConfig {
     engine?: NarsilConfig;
     nodeId?: string;
     onError?: (error: Error) => void;
+    query?: ClusterQueryConfig;
     replication?: Partial<ReplicationConfig>;
     roles?: NodeRole[];
     transport: NodeTransport;
@@ -119,6 +120,12 @@ export interface ClusterNodeInfo {
     nodeId: string;
     roles: ReadonlyArray<NodeRole>;
     status: string;
+}
+
+// @public
+export interface ClusterQueryConfig {
+    allowPartialResults?: boolean;
+    partitionTimeout?: number;
 }
 
 // @public

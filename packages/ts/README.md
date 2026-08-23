@@ -79,7 +79,7 @@ const results = await narsil.query('products', {
 })
 ```
 
-Every hit holds the document, its id, and its BM25 score. `results.count` reports how many documents matched in total, and `results.elapsed` reports the query time in milliseconds.
+Every hit holds the document, its id, and its BM25 score. `results.count` reports how many documents matched in total, `results.elapsed` reports the query time in milliseconds, and `results.coverage` reports how many partitions the search read, which is how you spot a cluster that answered from part of its data.
 
 ## Features
 
@@ -129,7 +129,7 @@ The [specification](../spec/) defines the `.nrsl` format, the analysis pipeline,
 
 ## Distribution
 
-`@delali/narsil/distribution` holds Narsil's multi-node cluster mode: nodes and roles, replication, coordinator adapters for etcd and in-process testing, TCP and gRPC transports with mutual TLS, and distributed query routing. A cluster node creates, drops, clears, writes, updates, searches, lists, counts, and suggests across every partition, and the [cluster example](examples/cluster) runs three node processes against etcd and survives a kill. The layer is experimental and its APIs change without notice, so pin an exact version before you depend on it. The [cluster guide](../../docs/cluster.md) covers the surface, and [`packages/spec/distribution`](../spec/distribution) specifies the contract every implementation follows.
+`@delali/narsil/distribution` holds Narsil's multi-node cluster mode: nodes and roles, replication, coordinator adapters for etcd and in-process testing, TCP and gRPC transports with mutual TLS, and distributed query routing. A cluster node creates, drops, clears, writes, updates, searches, lists, counts, and suggests across every partition, and the [cluster dashboard example](examples/cluster-dashboard) runs three nodes against etcd and shows what each partition does while you cut the links between them. The layer is experimental and its APIs change without notice, so pin an exact version before you depend on it. The [cluster guide](../../docs/cluster.md) covers the surface, and [`packages/spec/distribution`](../spec/distribution) specifies the contract every implementation follows.
 
 ## Search quality
 
