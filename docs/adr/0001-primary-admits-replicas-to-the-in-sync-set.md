@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # The primary sends entries to every assigned replica and admits them to the in-sync set
