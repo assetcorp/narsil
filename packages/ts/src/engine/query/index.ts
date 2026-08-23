@@ -13,7 +13,7 @@ import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import { clampLimit, clampOffset, now } from '../validation'
 import { applyHighlights } from './highlight'
-import { broadcastStatsForWorker, type QueryContext, scoringConfigFor, searchOptionsFor } from './shared'
+import { broadcastStatsForWorker, coverageFor, type QueryContext, scoringConfigFor, searchOptionsFor } from './shared'
 import { executeSortedQueryPage, sortsWithoutScores } from './sorted'
 import { executeHybridSearch, executeVectorSearch } from './vector'
 
@@ -199,6 +199,7 @@ export async function executeQuery<T = AnyDocument>(
     cursor: nextCursor,
     facets,
     groups,
+    coverage: coverageFor(manager, context.partitionIds),
   }
 }
 

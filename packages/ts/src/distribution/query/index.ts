@@ -30,5 +30,5 @@ export {
   selectReplica,
   selectReplicasForQuery,
 } from './selection'
-export type { Coverage, DistributedQueryConfig, DistributedQueryResult } from './types'
+export type { DistributedQueryConfig, DistributedQueryResult } from './types'
 export { DEFAULT_QUERY_CONFIG } from './types'

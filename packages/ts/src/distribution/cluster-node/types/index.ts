@@ -2,6 +2,7 @@ export type {
   ClusterNamespace,
   ClusterNodeConfig,
   ClusterNodeInfo,
+  ClusterQueryConfig,
   CreateIndexOptions,
 } from './config'
 export type { ClusterNodeDeps } from './defaults'

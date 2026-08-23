@@ -56,4 +56,24 @@ export function validateClusterNodeConfig(config: ClusterNodeConfig): void {
       )
     }
   }
+
+  if (config.query !== undefined) {
+    const { allowPartialResults, partitionTimeout } = config.query
+    if (allowPartialResults !== undefined && typeof allowPartialResults !== 'boolean') {
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        'ClusterNodeConfig.query.allowPartialResults must be a boolean',
+        {
+          allowPartialResults,
+        },
+      )
+    }
+    if (partitionTimeout !== undefined && (!Number.isInteger(partitionTimeout) || partitionTimeout <= 0)) {
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        'ClusterNodeConfig.query.partitionTimeout must be a positive integer',
+        { partitionTimeout },
+      )
+    }
+  }
 }
