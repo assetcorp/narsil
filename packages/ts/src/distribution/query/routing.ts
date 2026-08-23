@@ -2,13 +2,14 @@ import { toComparableSortValue } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { decodePageCursor, encodePageCursor, requireMatchingCursor } from '../../search/cursor'
 import { requireWithinResultWindow } from '../../search/pagination'
+import type { QueryCoverage } from '../../types/results'
 import type { FacetBucket, GlobalStatistics, ScoredEntry, SortField, WireQueryParams } from '../transport/types'
 import { buildCoverage, collectDistributedStats, fanOutSearch, type NodeQueryOutcome } from './fan-out'
 import { clampAlpha, distributedLinearCombination, distributedRRF } from './fusion'
 import { mergeAndTruncateScoredEntries, mergeAndTruncateSortedEntries, mergeDistributedFacets } from './merge'
 import type { ReplicaSelector } from './selection'
 import { randomSelector, selectReplicasForQuery } from './selection'
-import type { Coverage, DistributedQueryConfig, DistributedQueryResult, QueryRoutingDeps } from './types'
+import type { DistributedQueryConfig, DistributedQueryResult, QueryRoutingDeps } from './types'
 import { DEFAULT_QUERY_CONFIG } from './types'
 
 export type { QueryRoutingDeps }
@@ -74,9 +75,11 @@ export async function distributedQuery(
   const totalPartitions = allocationTable.assignments.size
 
   if (routing.unavailablePartitions.length > 0 && !resolvedConfig.allowPartialResults) {
-    throw new NarsilError(ErrorCodes.QUERY_NO_ACTIVE_REPLICA, 'No active replica for one or more partitions', {
-      unavailablePartitions: routing.unavailablePartitions,
-    })
+    throw new NarsilError(
+      ErrorCodes.QUERY_PARTIAL_FAILURE,
+      'No active replica serves one or more partitions, and this node refuses partial results',
+      { unavailablePartitions: routing.unavailablePartitions },
+    )
   }
 
   const isHybrid = params.hybrid !== null && params.term !== null && params.vector !== null
@@ -349,7 +352,7 @@ async function executeHybridQuery(
   }
 }
 
-function worstCaseCoverage(a: Coverage, b: Coverage): Coverage {
+function worstCaseCoverage(a: QueryCoverage, b: QueryCoverage): QueryCoverage {
   const failed = Math.max(a.failedPartitions, b.failedPartitions)
   const timedOut = Math.max(a.timedOutPartitions, b.timedOutPartitions)
   const queried = Math.max(0, a.totalPartitions - failed - timedOut)

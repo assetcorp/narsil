@@ -1,6 +1,7 @@
 import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { mergePartitionStats } from '../../partitioning/distributed-scoring'
+import type { QueryCoverage } from '../../types/results'
 import type {
   GlobalStatistics,
   NodeTransport,
@@ -16,7 +17,7 @@ import {
   validateSearchResultPayload,
   validateStatsResultPayload,
 } from './codec'
-import type { Coverage, DistributedQueryConfig, QueryRoutingDeps } from './types'
+import type { DistributedQueryConfig, QueryRoutingDeps } from './types'
 
 export interface NodeQueryOutcome {
   nodeId: string
@@ -121,7 +122,7 @@ export function buildCoverage(
   totalPartitions: number,
   unavailableCount: number,
   outcomes: NodeQueryOutcome[],
-): Coverage {
+): QueryCoverage {
   let queriedPartitions = 0
   let timedOutPartitions = 0
   let failedPartitions = unavailableCount
