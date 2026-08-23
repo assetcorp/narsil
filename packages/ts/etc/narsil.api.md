@@ -650,6 +650,14 @@ export interface ProcessMemoryReport {
 }
 
 // @public
+export interface QueryCoverage {
+    failedPartitions: number;
+    queriedPartitions: number;
+    timedOutPartitions: number;
+    totalPartitions: number;
+}
+
+// @public
 export interface QueryParams {
     boost?: Record<string, number>;
     document?: DocumentProjection;
@@ -685,6 +693,7 @@ export interface QueryParams {
 export interface QueryResult<T = AnyDocument> {
     analysisStale?: boolean;
     count: number;
+    coverage: QueryCoverage;
     cursor?: string;
     elapsed: number;
     facets?: Record<string, FacetResult>;

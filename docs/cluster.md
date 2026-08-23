@@ -26,7 +26,7 @@ const node = await createClusterNode({
 await node.start()
 ```
 
-A production cluster swaps both adapters and keeps the rest of the code identical. `createEtcdCoordinator` from `@delali/narsil/distribution/coordinator/etcd` stores the shared state in etcd. The TCP transport from `@delali/narsil/distribution/transport/tcp` or the gRPC transport from `@delali/narsil/distribution/transport/grpc` carries messages between hosts, and both support mutual TLS. The [cluster example](../packages/ts/examples/cluster) runs three node processes against an etcd container this way, kills one, and shows the survivors promoting replicas.
+A production cluster swaps both adapters and keeps the rest of the code identical. `createEtcdCoordinator` from `@delali/narsil/distribution/coordinator/etcd` stores the shared state in etcd. The TCP transport from `@delali/narsil/distribution/transport/tcp` or the gRPC transport from `@delali/narsil/distribution/transport/grpc` carries messages between hosts, and both support mutual TLS. The [cluster dashboard example](../packages/ts/examples/cluster-dashboard) runs three nodes this way against an etcd container, puts a fault injector on every link between them, and shows each partition's primary, in-sync set, and commit point as they change.
 
 A node plays one or more of three roles. A `data` node holds partitions and serves searches. A `coordinator` node fans client requests out and merges the answers. A `controller` node stands for election, and the one holding the lease assigns partitions to nodes. A node carries all three roles by default, which suits a cluster of three nodes or fewer.
 
@@ -70,7 +70,18 @@ A write that fails after it was applied locally rolls back before the error reac
 
 `query` runs in two phases so that the cluster moves as few bytes as possible. The coordinator picks one copy of each partition, sends each selected node the query and the partition ids it was picked for, merges the scored ids into one ranking, and then fetches the full documents for the winning page alone. Each data node answers for exactly the named partitions, so two nodes holding overlapping copies never double-count a document.
 
-A search tolerates a missing partition rather than failing, and the coordinator then returns the results from the partitions that answered. Read the result's `count` against what you expect while nodes are joining or failing.
+A search answers from the partitions that replied, while the result's `coverage` counts the rest, giving `totalPartitions`, `queriedPartitions`, `timedOutPartitions`, and `failedPartitions`. Read those figures wherever a degraded answer would mislead a caller, because a lost partition lowers `count` and keeps its documents out of the ranking. An embedded engine fills the same field, counting every partition it holds as read, so you read the result the same way whether it came from an engine or from a cluster. While no partition is `ACTIVE` yet, which is the state an index passes through while the controller allocates it, the node answers from its own copy and counts every partition as failed, so the coverage marks that answer as one node's alone.
+
+Set `query` on a node's configuration to change how it treats a partition it cannot reach. `allowPartialResults` is true by default, whereas false fails the whole search with `QUERY_PARTIAL_FAILURE` as soon as one partition times out, errors, or has no active copy. `partitionTimeout` is how many milliseconds the coordinator waits for each node, which is 5000 where you name none.
+
+```ts
+await createClusterNode({
+  coordinator,
+  transport: createInMemoryTransport('node-b', network),
+  address: 'node-b:9200',
+  query: { allowPartialResults: false, partitionTimeout: 2_000 },
+})
+```
 
 ## Exact reads
 
