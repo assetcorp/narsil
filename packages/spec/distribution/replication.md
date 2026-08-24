@@ -234,7 +234,7 @@ A replica that is still bootstrapping holds the partition in `INITIALISING` and 
 
 ## In-Sync Replica Tracking
 
-The in-sync set records which replicas are fully caught up with the primary. Only a replica in that set is eligible for promotion during failover.
+The in-sync set records which replicas are fully caught up with the primary. Only a replica in that set is eligible for promotion during failover. The controller stores a different list in the same field while a partition is `UNASSIGNED`, which [No Eligible Replica](#no-eligible-replica) describes.
 
 A replica joins the in-sync set once it has applied every entry up to the partition's commit point. The commit point is the highest sequence number the primary has acknowledged to a client. The primary holds its own commit point, and the controller stores a floor on it in the partition assignment, raising that floor whenever it admits a replica and never lowering it.
 
@@ -344,7 +344,28 @@ When a partition's primary fails, the controller promotes a replica.
 
 An empty in-sync set at the moment the primary fails, because every replica had already been removed, moves the partition to `UNASSIGNED`. It then serves neither reads nor writes until a node holding persisted data for that partition rejoins and the controller makes it primary, or the data is rebuilt from the system of record.
 
-That is a data-loss situation. Set `replicationFactor` high enough that it stays unlikely in production.
+The controller records the partition's last holders as it moves the partition so that it can recognise a returning node as one of them:
+
+```text
+1. The controller writes the failed primary and the replicas that
+   were in the in-sync set into inSyncSet, and it moves the
+   partition to UNASSIGNED.
+2. A node named in inSyncSet registers with the cluster
+   coordinator again.
+3. The controller asks that node which partitions of the index it
+   holds, over cluster.partition_stores.
+4. The controller promotes the node when the answer names the
+   partition and carries the indexUuid the coordinator holds:
+   a. It sets primary to that node and empties inSyncSet.
+   b. It raises the primaryTerm.
+   c. It moves the partition to INITIALISING, and the node reports
+      cluster.bootstrap_complete against its own copy.
+5. The promoted primary numbers its first new entry as
+   commitPoint + 1, so the floor the controller stores never
+   falls.
+```
+
+The controller promotes only a node that inSyncSet names, because a copy the list omits can be missing acknowledged writes. The cluster keeps no copy of the partition when none of those nodes returns, so set `replicationFactor` high enough that the case stays unlikely in production.
 
 ### Fencing a Stale Primary
 

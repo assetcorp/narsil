@@ -254,7 +254,7 @@ AllocationTable {
 PartitionAssignment {
   primary:     string or absent   (nodeId of the primary)
   replicas:    List<string>       (nodeIds of the replica nodes)
-  inSyncSet:   List<string>       (nodeIds of the replicas fully caught up)
+  inSyncSet:   List<string>       (nodeIds of the replicas fully caught up, or the last holders in UNASSIGNED)
   state:       PartitionState
   primaryTerm: uint64             (the current term, raised on failover)
   commitPoint: uint64             (a floor on the seqNo acknowledged to a client)
@@ -273,7 +273,7 @@ It is set per index at creation time, and changing it on an existing index trigg
 
 ### assignments
 
-A map from partition ID to its assignment, with an entry for every partition in the index. A partition with no live primary has an absent `primary` and the state `UNASSIGNED`.
+A map from partition ID to its assignment, with an entry for every partition in the index. A partition with no live primary has an absent `primary` and the state `UNASSIGNED`. When the controller moves a partition to `UNASSIGNED`, it writes the final primary and the replicas that were in sync with that primary into `inSyncSet`, because those nodes hold every write the cluster acknowledged for the partition.
 
 ---
 
@@ -550,9 +550,10 @@ An operator deletes an orphaned copy explicitly, and every automatic path leaves
    departure, without waiting for the failed node to finish
    anything.
 4. A partition where the failed node was primary and no in-sync
-   replica remains moves to UNASSIGNED. It stays unavailable until
-   a node holding persisted data for it rejoins, or the data is
-   rebuilt from the system of record.
+   replica remains moves to UNASSIGNED, and the controller records
+   its last holders in inSyncSet. It stays unavailable until one of
+   those nodes rejoins, or an operator rebuilds the data from the
+   system of record.
 ```
 
 ---
