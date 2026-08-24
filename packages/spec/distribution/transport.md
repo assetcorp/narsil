@@ -105,6 +105,7 @@ TransportMessage {
 | `cluster.ping` | any to any | Health check |
 | `cluster.pong` | any to any | Health check response |
 | `cluster.bootstrap_complete` | data node to controller | Reports that a partition finished bootstrapping |
+| `cluster.partition_stores` | controller to data node | Asks which partitions of an index the node holds on disk |
 
 ---
 
@@ -321,6 +322,28 @@ The response is:
   accepted:    boolean
 }
 ```
+
+### cluster.partition_stores
+
+The controller sends this so that it can find a copy of a partition in `UNASSIGNED` on a node that has registered again.
+
+```text
+{
+  indexName: string
+}
+```
+
+The response is:
+
+```text
+{
+  indexName:    string
+  indexUuid:    string or absent   (the identity the node holds beside its copy)
+  partitionIds: List<uint32>       (the partitions the node holds on disk)
+}
+```
+
+The node answers from the copy it adopted when it joined, so it names a partition only where that copy holds one. A node that adopted no copy of the index answers with an absent `indexUuid` and an empty list.
 
 ### cluster.ping
 
