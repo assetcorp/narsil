@@ -113,7 +113,7 @@ describe('DataNodeLifecycle bootstrap completion reporting and validation', () =
         const assignment = table.assignments.get(0)
         if (assignment !== undefined && assignment.state === 'ACTIVE') {
           expect(assignment.state).toBe('ACTIVE')
-          expect(assignment.inSyncSet).toContain('data-1')
+          expect(assignment.inSyncSet).not.toContain('data-1')
         }
       }
     })

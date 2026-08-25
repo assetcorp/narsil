@@ -62,13 +62,31 @@ describe('handleBootstrapCompleteMessage', () => {
     return result
   }
 
-  it('moves an INITIALISING partition to ACTIVE and adds the node to the in-sync set', async () => {
+  it('moves an INITIALISING partition to ACTIVE without admitting the reporting replica', async () => {
     const result = await report(makeTable('INITIALISING'))
     expect(result.accepted).toBe(true)
 
     const stored = await coordinator.getAllocation('products')
     expect(stored?.assignments.get(0)?.state).toBe('ACTIVE')
-    expect(stored?.assignments.get(0)?.inSyncSet).toContain('node-b')
+    expect(stored?.assignments.get(0)?.inSyncSet).toEqual([])
+  })
+
+  it('leaves an in-sync set the catch-up feed already filled untouched', async () => {
+    const result = await report(makeTable('INITIALISING', { inSyncSet: ['node-b'] }))
+    expect(result.accepted).toBe(true)
+
+    const stored = await coordinator.getAllocation('products')
+    expect(stored?.assignments.get(0)?.state).toBe('ACTIVE')
+    expect(stored?.assignments.get(0)?.inSyncSet).toEqual(['node-b'])
+  })
+
+  it('keeps the primary out of the in-sync set when the primary reports its own bootstrap', async () => {
+    const result = await report(makeTable('INITIALISING'), 'node-a')
+    expect(result.accepted).toBe(true)
+
+    const stored = await coordinator.getAllocation('products')
+    expect(stored?.assignments.get(0)?.state).toBe('ACTIVE')
+    expect(stored?.assignments.get(0)?.inSyncSet).toEqual([])
   })
 
   it('refuses a report on a partition that is already ACTIVE', async () => {
