@@ -1,5 +1,6 @@
 import { cn } from '@delali/narsil-example-shared'
 import { ThemeToggle } from '@delali/narsil-example-shared/components/layout/ThemeToggle'
+import { memo } from 'react'
 import type { StreamState } from '../hooks/use-cluster-stream'
 
 interface AppHeaderProps {
@@ -21,7 +22,7 @@ const STREAM_CLASS: Record<StreamState, string> = {
   offline: 'text-destructive',
 }
 
-export function AppHeader({ stream, allocationVersion, indexName, pending }: AppHeaderProps) {
+export const AppHeader = memo(function AppHeader({ stream, allocationVersion, indexName, pending }: AppHeaderProps) {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-md">
       <div className="mx-auto flex h-16 w-full max-w-[1400px] items-center justify-between gap-6 px-4 lg:px-6">
@@ -48,4 +49,4 @@ export function AppHeader({ stream, allocationVersion, indexName, pending }: App
       </div>
     </header>
   )
-}
+})

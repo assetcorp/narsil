@@ -1,4 +1,5 @@
 import { cn } from '@delali/narsil-example-shared'
+import { memo } from 'react'
 import type { ClusterEvent, ClusterEventKind } from '../lib/cluster-events'
 
 const KIND_CLASS: Record<ClusterEventKind, string> = {
@@ -15,7 +16,7 @@ function clockOf(at: string): string {
   return Number.isNaN(parsed.getTime()) ? '--:--:--' : parsed.toLocaleTimeString()
 }
 
-export function EventLog({ events }: { events: ClusterEvent[] }) {
+export const EventLog = memo(function EventLog({ events }: { events: ClusterEvent[] }) {
   return (
     <section className="flex h-full flex-col rounded-xl border border-border bg-card p-5">
       <h2 className="text-sm font-bold tracking-tight">What the cluster did</h2>
@@ -39,4 +40,4 @@ export function EventLog({ events }: { events: ClusterEvent[] }) {
       )}
     </section>
   )
-}
+})

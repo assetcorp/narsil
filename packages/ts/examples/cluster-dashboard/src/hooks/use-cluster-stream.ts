@@ -1,36 +1,68 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { ClusterEvent } from '../lib/cluster-events'
+import { diffSnapshots } from '../lib/cluster-events'
 import type { ClusterSnapshot } from '../lib/cluster-types'
 
 export type StreamState = 'connecting' | 'live' | 'offline'
 
 const STREAM_PATH = '/api/cluster-stream'
+const EVENT_LIMIT = 100
 
-export function useClusterStream(): { snapshot: ClusterSnapshot | null; stream: StreamState } {
+export interface ClusterStream {
+  snapshot: ClusterSnapshot | null
+  stream: StreamState
+  events: ClusterEvent[]
+}
+
+export function useClusterStream(): ClusterStream {
   const [snapshot, setSnapshot] = useState<ClusterSnapshot | null>(null)
   const [stream, setStream] = useState<StreamState>('connecting')
+  const [events, setEvents] = useState<ClusterEvent[]>([])
+  const previous = useRef<ClusterSnapshot | null>(null)
 
   useEffect(() => {
     const source = new EventSource(STREAM_PATH)
 
-    source.onopen = () => {
+    function markLive(): void {
       setStream('live')
     }
 
-    source.onmessage = event => {
-      try {
-        setSnapshot(JSON.parse(event.data) as ClusterSnapshot)
-        setStream('live')
-      } catch (_) {}
-    }
-
-    source.onerror = () => {
+    function markOffline(): void {
       setStream('offline')
     }
 
+    function receive(message: MessageEvent<string>): void {
+      let next: ClusterSnapshot
+      try {
+        next = JSON.parse(message.data) as ClusterSnapshot
+      } catch (_) {
+        return
+      }
+
+      const before = previous.current
+      previous.current = next
+      setSnapshot(next)
+      setStream('live')
+
+      if (before === null) {
+        return
+      }
+      const fresh = diffSnapshots(before, next)
+      if (fresh.length === 0) {
+        return
+      }
+      setEvents(current => [...fresh.reverse(), ...current].slice(0, EVENT_LIMIT))
+    }
+
+    source.onopen = markLive
+    source.onmessage = receive
+    source.onerror = markOffline
+
     return () => {
+      previous.current = null
       source.close()
     }
   }, [])
 
-  return { snapshot, stream }
+  return { snapshot, stream, events }
 }

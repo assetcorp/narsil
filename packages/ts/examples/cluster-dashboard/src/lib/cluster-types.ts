@@ -42,12 +42,6 @@ export interface ClusterSnapshot {
   faultInjectorError: string | null
 }
 
-export interface NodeTally {
-  leads: number
-  inSync: number
-  lagging: number
-}
-
 export function partitionRoleOf(row: PartitionRow, nodeId: string): PartitionRole {
   if (row.primary === nodeId) {
     return 'primary'
@@ -62,15 +56,8 @@ export function copyCountOf(row: PartitionRow): number {
   return row.replicas.length + (row.primary === null ? 0 : 1)
 }
 
-export function tallyOf(partitions: PartitionRow[], nodeId: string): NodeTally {
-  const tally: NodeTally = { leads: 0, inSync: 0, lagging: 0 }
-  for (const partition of partitions) {
-    const role = partitionRoleOf(partition, nodeId)
-    if (role === 'primary') tally.leads += 1
-    if (role === 'in-sync-replica') tally.inSync += 1
-    if (role === 'lagging-replica') tally.lagging += 1
-  }
-  return tally
+export function partitionIdsOf(partitions: PartitionRow[], nodeId: string, role: PartitionRole): number[] {
+  return partitions.filter(partition => partitionRoleOf(partition, nodeId) === role).map(p => p.partitionId)
 }
 
 export function linkOf(snapshot: ClusterSnapshot, nodeId: string, kind: LinkKind): LinkRow | undefined {
