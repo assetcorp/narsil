@@ -1,0 +1,43 @@
+FROM node:22-trixie-slim
+
+WORKDIR /repo
+
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN corepack enable && corepack prepare pnpm@10.30.3 --activate
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml nx.json tsconfig.json .npmrc ./
+COPY packages/spec/package.json packages/spec/package.json
+COPY packages/ts/package.json packages/ts/package.json
+COPY packages/certutil/package.json packages/certutil/package.json
+COPY packages/embeddings-transformers/package.json packages/embeddings-transformers/package.json
+COPY benchmarks/in-process/package.json benchmarks/in-process/package.json
+COPY packages/ts/examples/browser/package.json packages/ts/examples/browser/package.json
+COPY packages/ts/examples/cluster-dashboard/package.json packages/ts/examples/cluster-dashboard/package.json
+COPY packages/ts/examples/server-app/package.json packages/ts/examples/server-app/package.json
+COPY packages/ts/examples/shared/package.json packages/ts/examples/shared/package.json
+
+RUN pnpm install --frozen-lockfile --filter @delali/narsil... --filter @delali/narsil-certutil... --filter @delali/narsil-example-cluster-dashboard...
+
+COPY packages/ts/tsconfig.json packages/ts/tsup.config.ts packages/ts/
+COPY packages/ts/src packages/ts/src
+COPY packages/ts/scripts packages/ts/scripts
+COPY packages/ts/etc packages/ts/etc
+COPY packages/certutil/tsconfig.json packages/certutil/tsconfig.dts.json packages/certutil/tsup.config.ts packages/certutil/
+COPY packages/certutil/src packages/certutil/src
+COPY packages/ts/examples/cluster-dashboard/tsconfig.json packages/ts/examples/cluster-dashboard/
+COPY packages/ts/examples/cluster-dashboard/src packages/ts/examples/cluster-dashboard/src
+
+RUN pnpm --filter @delali/narsil build && pnpm --filter @delali/narsil-certutil build
+
+RUN groupadd --system narsil \
+  && useradd --system --gid narsil --home-dir /home/narsil --create-home narsil \
+  && mkdir -p /certs \
+  && chown -R narsil:narsil /home/narsil /certs /repo
+
+USER narsil
+
+WORKDIR /repo/packages/ts/examples/cluster-dashboard
+
+CMD ["node", "--import", "tsx", "src/cluster-node.ts"]
