@@ -86,7 +86,7 @@ describe('distributedQuery partial results and failures', () => {
     expect((error as NarsilError).code).toBe('QUERY_PARTIAL_FAILURE')
   })
 
-  it('throws QUERY_NO_ACTIVE_REPLICA when partitions are unavailable and allowPartialResults is false', async () => {
+  it('throws QUERY_PARTIAL_FAILURE when partitions are unavailable and allowPartialResults is false', async () => {
     const table = makeAllocationTable([
       [0, makeAssignment({ state: 'ACTIVE', primary: 'node-a' })],
       [1, makeAssignment({ state: 'INITIALISING' })],
@@ -101,7 +101,7 @@ describe('distributedQuery partial results and failures', () => {
       allowPartialResults: false,
     }).catch((e: unknown) => e)
     expect(error).toBeInstanceOf(NarsilError)
-    expect((error as NarsilError).code).toBe('QUERY_NO_ACTIVE_REPLICA')
+    expect((error as NarsilError).code).toBe('QUERY_PARTIAL_FAILURE')
   })
 
   it('returns results with coverage showing unavailable partitions when allowPartialResults is true', async () => {

@@ -216,6 +216,173 @@ describe('rebalance allocation', () => {
     expect(assignment?.primary).toBe('node-b')
   })
 
+  it('moves a copy that is catching up before it moves one the primary counts on', () => {
+    const assignments = new Map<number, PartitionAssignment>([
+      [
+        0,
+        {
+          primary: 'node-a',
+          replicas: ['node-b'],
+          inSyncSet: ['node-b'],
+          state: 'ACTIVE',
+          primaryTerm: 1,
+          commitPoint: 0,
+        },
+      ],
+      [
+        1,
+        {
+          primary: 'node-a',
+          replicas: ['node-b'],
+          inSyncSet: [],
+          state: 'ACTIVE',
+          primaryTerm: 1,
+          commitPoint: 0,
+        },
+      ],
+      [
+        2,
+        {
+          primary: 'node-b',
+          replicas: ['node-a'],
+          inSyncSet: ['node-a'],
+          state: 'ACTIVE',
+          primaryTerm: 1,
+          commitPoint: 0,
+        },
+      ],
+    ])
+
+    const currentTable: AllocationTable = {
+      indexName: 'products',
+      version: 1,
+      replicationFactor: 1,
+      assignments,
+    }
+
+    const withEmptyNode = [
+      makeNode('node-a', 4_000_000_000),
+      makeNode('node-b', 4_000_000_000),
+      makeNode('node-c', 4_000_000_000),
+    ]
+    const rebalancedTable = allocate(withEmptyNode, currentTable, 'products', 3, 1, defaultConstraints).table
+
+    expect(rebalancedTable.assignments.get(1)?.replicas).toEqual(['node-c'])
+    expect(rebalancedTable.assignments.get(0)?.replicas).toEqual(['node-b'])
+    expect(rebalancedTable.assignments.get(0)?.inSyncSet).toEqual(['node-b'])
+  })
+
+  it('promotes the node with the lighter leadership load for its memory', () => {
+    const assignments = new Map<number, PartitionAssignment>([
+      [
+        0,
+        {
+          primary: 'node-a',
+          replicas: ['node-b', 'node-c'],
+          inSyncSet: ['node-b', 'node-c'],
+          state: 'ACTIVE',
+          primaryTerm: 1,
+          commitPoint: 0,
+        },
+      ],
+    ])
+
+    for (const [partitionId, primary] of [
+      [1, 'node-b'],
+      [2, 'node-b'],
+      [3, 'node-c'],
+    ] as const) {
+      assignments.set(partitionId, {
+        primary,
+        replicas: [primary === 'node-b' ? 'node-c' : 'node-b'],
+        inSyncSet: [],
+        state: 'ACTIVE',
+        primaryTerm: 1,
+        commitPoint: 0,
+      })
+    }
+
+    const currentTable: AllocationTable = {
+      indexName: 'products',
+      version: 1,
+      replicationFactor: 1,
+      assignments,
+    }
+
+    const survivingNodes = [makeNode('node-b', 8_000_000_000), makeNode('node-c', 1_000_000_000)]
+    const rebalancedTable = allocate(survivingNodes, currentTable, 'products', 4, 1, defaultConstraints).table
+
+    expect(rebalancedTable.assignments.get(0)?.primary).toBe('node-b')
+  })
+
+  it('drops a node from the in-sync set when the balancer moves its copy elsewhere', () => {
+    const assignments = new Map<number, PartitionAssignment>()
+    for (let partitionId = 0; partitionId < 4; partitionId++) {
+      assignments.set(partitionId, {
+        primary: 'node-a',
+        replicas: ['node-b'],
+        inSyncSet: ['node-b'],
+        state: 'ACTIVE',
+        primaryTerm: 1,
+        commitPoint: 0,
+      })
+    }
+
+    const currentTable: AllocationTable = {
+      indexName: 'products',
+      version: 1,
+      replicationFactor: 1,
+      assignments,
+    }
+
+    const widerCluster = [
+      makeNode('node-a', 4_000_000_000),
+      makeNode('node-b', 4_000_000_000),
+      makeNode('node-c', 4_000_000_000),
+    ]
+    const rebalancedTable = allocate(widerCluster, currentTable, 'products', 4, 1, defaultConstraints).table
+
+    for (const assignment of rebalancedTable.assignments.values()) {
+      for (const nodeId of assignment.inSyncSet) {
+        expect(assignment.replicas).toContain(nodeId)
+      }
+    }
+  })
+
+  it('spreads promotions over the survivors when one node led every partition', () => {
+    const assignments = new Map<number, PartitionAssignment>()
+    for (let partitionId = 0; partitionId < 4; partitionId++) {
+      assignments.set(partitionId, {
+        primary: 'node-a',
+        replicas: ['node-b', 'node-c'],
+        inSyncSet: ['node-b', 'node-c'],
+        state: 'ACTIVE',
+        primaryTerm: 1,
+        commitPoint: 0,
+      })
+    }
+
+    const currentTable: AllocationTable = {
+      indexName: 'products',
+      version: 1,
+      replicationFactor: 2,
+      assignments,
+    }
+
+    const survivingNodes = [makeNode('node-b', 4_000_000_000), makeNode('node-c', 4_000_000_000)]
+    const rebalancedTable = allocate(survivingNodes, currentTable, 'products', 4, 2, defaultConstraints).table
+
+    const primaryCounts = new Map<string, number>()
+    for (const assignment of rebalancedTable.assignments.values()) {
+      if (assignment.primary !== null) {
+        primaryCounts.set(assignment.primary, (primaryCounts.get(assignment.primary) ?? 0) + 1)
+      }
+    }
+
+    expect(primaryCounts.get('node-b')).toBe(2)
+    expect(primaryCounts.get('node-c')).toBe(2)
+  })
+
   it('prefers in-sync replicas over out-of-sync replicas for promotion', () => {
     const assignments = new Map<number, PartitionAssignment>([
       [

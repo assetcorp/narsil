@@ -25,6 +25,30 @@ export interface QueryResult<T = AnyDocument> {
   groups?: GroupResult[]
   /** This turns true when the index's terms came from an older analysis than its language module produces now. */
   analysisStale?: boolean
+  /** The search read this much of the index, which is how you spot a degraded answer. */
+  coverage: QueryCoverage
+}
+
+/**
+ * How much of an index one search read, which is what you check before you
+ * trust a count or a ranking.
+ *
+ * An embedded engine reads every partition it holds, so `queriedPartitions`
+ * matches `totalPartitions` there and the other two stay zero. A search across
+ * a cluster may find a node slow or unreachable, which it counts here while
+ * still returning the hits the other nodes gave it.
+ *
+ * @public
+ */
+export interface QueryCoverage {
+  /** The search should have read this many partitions. */
+  totalPartitions: number
+  /** The search read this many of them. */
+  queriedPartitions: number
+  /** The search counts a partition here when the node holding it took longer than the query allowed. */
+  timedOutPartitions: number
+  /** The search counts a partition here when the node holding it returned an error, and when no active replica served it. */
+  failedPartitions: number
 }
 
 /**

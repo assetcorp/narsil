@@ -378,5 +378,12 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   }
 }
 
-export type { ClusterNamespace, ClusterNode, ClusterNodeConfig, ClusterNodeInfo, CreateIndexOptions } from './types'
+export type {
+  ClusterNamespace,
+  ClusterNode,
+  ClusterNodeConfig,
+  ClusterNodeInfo,
+  ClusterQueryConfig,
+  CreateIndexOptions,
+} from './types'
 export { DEFAULT_CAPACITY, DEFAULT_PARTITION_COUNT, DEFAULT_REPLICATION_FACTOR } from './types'

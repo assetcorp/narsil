@@ -119,6 +119,32 @@ describe('partition-scoped reads on the cluster local engine', () => {
     expect(new Set(result.documents.map(listed => listed.id))).toEqual(expected)
   })
 
+  it('counts the named partitions alone as the query coverage', async () => {
+    const result = await engine.queryPartitions('products', { term: 'wireless', limit: DOCUMENT_TOTAL }, [0, 2])
+
+    expect(result.coverage).toEqual({
+      totalPartitions: 2,
+      queriedPartitions: 2,
+      timedOutPartitions: 0,
+      failedPartitions: 0,
+    })
+  })
+
+  it('counts a named partition the index does not hold as failed', async () => {
+    const missingPartitionId = PARTITION_COUNT + 1
+    const result = await engine.queryPartitions('products', { term: 'wireless', limit: DOCUMENT_TOTAL }, [
+      0,
+      missingPartitionId,
+    ])
+
+    expect(result.coverage).toEqual({
+      totalPartitions: 2,
+      queriedPartitions: 1,
+      timedOutPartitions: 0,
+      failedPartitions: 1,
+    })
+  })
+
   it('confines query statistics to the named partitions', async () => {
     const expected = idsInPartitions(documents, [0, 1])
     const stats = engine.collectQueryStats('products', ['wireless'], [0, 1])

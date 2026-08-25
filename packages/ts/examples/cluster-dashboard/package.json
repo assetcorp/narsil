@@ -1,0 +1,49 @@
+{
+  "name": "@delali/narsil-example-cluster-dashboard",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Narsil cluster dashboard example: three containerised nodes behind Toxiproxy links, with a live partition grid.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "cluster:up": "docker compose up --build",
+    "cluster:down": "docker compose down -v",
+    "cluster:reset": "docker compose down -v && docker compose up --build",
+    "test": "vitest run --passWithNoTests",
+    "lint": "biome check src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@delali/narsil": "workspace:*",
+    "@delali/narsil-certutil": "workspace:*",
+    "@delali/narsil-example-shared": "workspace:*",
+    "@tailwindcss/vite": "^4.2.2",
+    "@tanstack/react-router": "1.170.27",
+    "@tanstack/react-start": "1.168.44",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "etcd3": "1.1.2",
+    "lucide-react": "^1.24.0",
+    "radix-ui": "1.4.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.2.2",
+    "tw-animate-css": "^1.4.0",
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.58.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/typography": "^0.5.19",
+    "@types/node": "22.15.32",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@vitejs/plugin-react": "^5.2.0",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "vite": "^7.3.1",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "3.2.4"
+  }
+}

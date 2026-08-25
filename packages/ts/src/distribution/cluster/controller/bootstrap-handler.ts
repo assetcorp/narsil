@@ -1,5 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
-import type { ClusterCoordinator, PartitionAssignment } from '../../coordinator/types'
+import type { ClusterCoordinator } from '../../coordinator/types'
 import { isRecord, isValidInteger } from '../../payload-guards'
 import type {
   BootstrapCompletePayload,
@@ -96,7 +96,8 @@ export async function rejectBootstrapComplete(
  *
  * The controller rejects the report unless the sender's own id matches the `nodeId` in the payload, the node is
  * assigned to the partition, the term matches the assignment's term, and the partition is still `INITIALISING`. An
- * accepted report adds the reporting node, and the partition's primary, to the in-sync set.
+ * accepted report moves the state alone, and the primary admits the node to the in-sync set through the catch-up
+ * feed.
  *
  * @param message - The report the node sent.
  * @param respond - The function that returns the result to the reporting node.
@@ -152,16 +153,6 @@ export async function handleBootstrapCompleteMessage(
 
 const BOOTSTRAP_CAS_ATTEMPTS = 5
 
-function ensurePrimaryInSyncSet(assignment: PartitionAssignment, inSyncSet: string[]): string[] {
-  if (assignment.primary === null) {
-    return inSyncSet
-  }
-  if (inSyncSet.includes(assignment.primary)) {
-    return inSyncSet
-  }
-  return [assignment.primary, ...inSyncSet]
-}
-
 async function processBootstrapComplete(
   payload: BootstrapCompletePayload,
   coordinator: ClusterCoordinator,
@@ -189,16 +180,8 @@ async function processBootstrapComplete(
       return false
     }
 
-    const baseInSyncSet = assignment.inSyncSet.includes(payload.nodeId)
-      ? assignment.inSyncSet
-      : [...assignment.inSyncSet, payload.nodeId]
-
     const updatedAssignments = new Map(table.assignments)
-    updatedAssignments.set(payload.partitionId, {
-      ...assignment,
-      state: 'ACTIVE' as const,
-      inSyncSet: ensurePrimaryInSyncSet(assignment, baseInSyncSet),
-    })
+    updatedAssignments.set(payload.partitionId, { ...assignment, state: 'ACTIVE' as const })
 
     const written = await coordinator.putAllocation(
       payload.indexName,

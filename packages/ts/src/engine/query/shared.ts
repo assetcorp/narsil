@@ -5,6 +5,7 @@ import type { PartitionManager } from '../../partitioning/manager'
 import type { FulltextSearchOptions } from '../../search/fulltext'
 import type { GlobalStatistics, ScoredDocument } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
+import type { QueryCoverage } from '../../types/results'
 import type { IndexConfig } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import type { VectorIndex, VectorScoredResult } from '../../vector/vector-index'
@@ -36,6 +37,37 @@ export function partitionsFor(manager: PartitionManager, partitionIds: number[] 
     }
   }
   return partitions
+}
+
+/**
+ * Reports how much of an index one local search read.
+ *
+ * `totalPartitions` counts the partitions the search should have read, so a
+ * search confined to a few of them counts those few. Nothing times out on a
+ * single engine, and a named partition the manager does not hold is the one
+ * way a local search can fail to read one.
+ *
+ * @param manager - The partition manager holding the documents.
+ * @param partitionIds - The partitions the search was confined to, or
+ * undefined where it read the whole index.
+ * @returns The four figures a caller reads as {@link QueryResult.coverage}.
+ */
+export function coverageFor(manager: PartitionManager, partitionIds: number[] | undefined): QueryCoverage {
+  if (partitionIds === undefined) {
+    return {
+      totalPartitions: manager.partitionCount,
+      queriedPartitions: manager.partitionCount,
+      timedOutPartitions: 0,
+      failedPartitions: 0,
+    }
+  }
+  const queriedPartitions = partitionsFor(manager, partitionIds).length
+  return {
+    totalPartitions: partitionIds.length,
+    queriedPartitions,
+    timedOutPartitions: 0,
+    failedPartitions: partitionIds.length - queriedPartitions,
+  }
 }
 
 /**

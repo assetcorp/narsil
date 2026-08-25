@@ -1,3 +1,4 @@
+import { capacityShares, rebalanceLeadership } from './leadership'
 import type {
   AllocationConstraints,
   AllocationResult,
@@ -5,10 +6,11 @@ import type {
   Decider,
   DeciderContext,
   NodeRegistration,
+  NodeWeight,
   PartitionAssignment,
 } from './types'
 import { REBALANCE_THRESHOLD } from './types'
-import { computeNodeWeights, countNodeAssignments, findBestNode } from './weight'
+import { computeNodeWeights, countNodeAssignments, countPrimaryAssignments, findBestNode } from './weight'
 
 function cloneAssignments(assignments: Map<number, PartitionAssignment>): Map<number, PartitionAssignment> {
   const cloned = new Map<number, PartitionAssignment>()
@@ -32,7 +34,38 @@ function markUnassigned(assignment: PartitionAssignment): void {
   assignment.state = 'UNASSIGNED'
 }
 
-function handleLostNodes(assignments: Map<number, PartitionAssignment>, activeNodeIds: Set<string>): void {
+function primaryLoadOf(nodeId: string, primaryCounts: Map<string, number>, shares: Map<string, number>): number {
+  const share = shares.get(nodeId)
+  return (primaryCounts.get(nodeId) ?? 0) / (share === undefined || share <= 0 ? 1 : share)
+}
+
+function leastLoadedCandidate(
+  candidates: string[],
+  primaryCounts: Map<string, number>,
+  shares: Map<string, number>,
+): string | undefined {
+  let best: string | undefined
+  for (const candidate of candidates) {
+    if (best === undefined) {
+      best = candidate
+      continue
+    }
+    const bestLoad = primaryLoadOf(best, primaryCounts, shares)
+    const candidateLoad = primaryLoadOf(candidate, primaryCounts, shares)
+    if (candidateLoad < bestLoad || (candidateLoad === bestLoad && candidate < best)) {
+      best = candidate
+    }
+  }
+  return best
+}
+
+function handleLostNodes(
+  assignments: Map<number, PartitionAssignment>,
+  activeNodeIds: Set<string>,
+  shares: Map<string, number>,
+): void {
+  const primaryCounts = countPrimaryAssignments(assignments)
+
   for (const assignment of assignments.values()) {
     const primaryWasLost = assignment.primary !== null && !activeNodeIds.has(assignment.primary)
 
@@ -57,7 +90,14 @@ function handleLostNodes(assignments: Map<number, PartitionAssignment>, activeNo
       continue
     }
 
-    const promoted = inSyncCandidates[0]
+    const promoted = leastLoadedCandidate(inSyncCandidates, primaryCounts, shares)
+
+    if (promoted === undefined) {
+      markUnassigned(assignment)
+      continue
+    }
+
+    primaryCounts.set(promoted, (primaryCounts.get(promoted) ?? 0) + 1)
     assignment.primary = promoted
     assignment.replicas = assignment.replicas.filter(id => id !== promoted)
     assignment.inSyncSet = assignment.inSyncSet.filter(id => id !== promoted)
@@ -105,12 +145,24 @@ function fillReplicaSlots(
   }
 }
 
+function slotWeightOf(nodeId: string, shares: Map<string, number>): number {
+  const share = shares.get(nodeId)
+  return 1 / (share === undefined || share <= 0 ? 1 : share)
+}
+
+export function moveNarrowsGap(mostLoaded: NodeWeight, leastLoaded: NodeWeight, shares: Map<string, number>): boolean {
+  const gap = mostLoaded.weight - leastLoaded.weight
+  const afterMove = Math.abs(gap - slotWeightOf(mostLoaded.nodeId, shares) - slotWeightOf(leastLoaded.nodeId, shares))
+  return afterMove < gap
+}
+
 function rebalanceForBalance(
   assignments: Map<number, PartitionAssignment>,
   sortedNodes: NodeRegistration[],
   nodeMap: Map<string, NodeRegistration>,
   constraints: AllocationConstraints,
   deciders: Decider[],
+  shares: Map<string, number>,
 ): void {
   let totalSlots = 0
   for (const assignment of assignments.values()) {
@@ -133,39 +185,81 @@ function rebalanceForBalance(
       break
     }
 
-    let moved = false
-
-    for (const [partitionId, assignment] of assignments) {
-      if (moved) break
-
-      const replicaIndex = assignment.replicas.indexOf(mostLoaded.nodeId)
-      if (replicaIndex >= 0) {
-        const removedReplica = assignment.replicas[replicaIndex]
-        assignment.replicas.splice(replicaIndex, 1)
-
-        const nodeAssignmentCounts = countNodeAssignments(assignments)
-
-        const moveContext: Omit<DeciderContext, 'candidateNodeId'> = {
-          partitionId,
-          role: 'replica',
-          currentAssignment: assignment,
-          allAssignments: assignments,
-          nodeAssignmentCounts,
-          nodes: nodeMap,
-          constraints,
-        }
-
-        const target = findBestNode([leastLoaded.nodeId], weights, deciders, moveContext)
-        if (target !== null) {
-          assignment.replicas.push(target)
-          moved = true
-        } else {
-          assignment.replicas.splice(replicaIndex, 0, removedReplica)
-        }
-      }
+    if (!moveNarrowsGap(mostLoaded, leastLoaded, shares)) {
+      break
     }
 
+    const move: ReplicaMove = {
+      fromNodeId: mostLoaded.nodeId,
+      toNodeId: leastLoaded.nodeId,
+      weights,
+      nodeMap,
+      constraints,
+      deciders,
+    }
+
+    const laggingFirst = moveOneReplica(assignments, move, true)
+    const moved = laggingFirst || moveOneReplica(assignments, move, false)
+
     if (!moved) break
+  }
+}
+
+interface ReplicaMove {
+  fromNodeId: string
+  toNodeId: string
+  weights: NodeWeight[]
+  nodeMap: Map<string, NodeRegistration>
+  constraints: AllocationConstraints
+  deciders: Decider[]
+}
+
+function moveOneReplica(
+  assignments: Map<number, PartitionAssignment>,
+  move: ReplicaMove,
+  laggingOnly: boolean,
+): boolean {
+  for (const [partitionId, assignment] of assignments) {
+    const replicaIndex = assignment.replicas.indexOf(move.fromNodeId)
+    if (replicaIndex < 0) {
+      continue
+    }
+    if (laggingOnly && assignment.inSyncSet.includes(move.fromNodeId)) {
+      continue
+    }
+
+    const removedReplica = assignment.replicas[replicaIndex]
+    assignment.replicas.splice(replicaIndex, 1)
+
+    const moveContext: Omit<DeciderContext, 'candidateNodeId'> = {
+      partitionId,
+      role: 'replica',
+      currentAssignment: assignment,
+      allAssignments: assignments,
+      nodeAssignmentCounts: countNodeAssignments(assignments),
+      nodes: move.nodeMap,
+      constraints: move.constraints,
+    }
+
+    const target = findBestNode([move.toNodeId], move.weights, move.deciders, moveContext)
+    if (target === null) {
+      assignment.replicas.splice(replicaIndex, 0, removedReplica)
+      continue
+    }
+
+    assignment.replicas.push(target)
+    return true
+  }
+
+  return false
+}
+
+function pruneInSyncSets(assignments: Map<number, PartitionAssignment>): void {
+  for (const assignment of assignments.values()) {
+    const stale = assignment.inSyncSet.some(nodeId => !assignment.replicas.includes(nodeId))
+    if (stale) {
+      assignment.inSyncSet = assignment.inSyncSet.filter(nodeId => assignment.replicas.includes(nodeId))
+    }
   }
 }
 
@@ -189,12 +283,17 @@ export function rebalanceAllocate(
   }
 
   const assignments = cloneAssignments(currentTable.assignments)
+  const shares = capacityShares(sortedNodes)
 
-  handleLostNodes(assignments, activeNodeIds)
+  handleLostNodes(assignments, activeNodeIds, shares)
 
   fillReplicaSlots(assignments, sortedNodes, nodeMap, currentTable.replicationFactor, constraints, deciders)
 
-  rebalanceForBalance(assignments, sortedNodes, nodeMap, constraints, deciders)
+  rebalanceForBalance(assignments, sortedNodes, nodeMap, constraints, deciders, shares)
+
+  rebalanceLeadership(assignments, shares)
+
+  pruneInSyncSets(assignments)
 
   const warnings = collectReplicationWarnings(assignments, currentTable.replicationFactor)
 

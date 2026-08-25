@@ -1,0 +1,15 @@
+**/node_modules
+**/dist
+**/coverage
+**/*.log
+**/.narsil-data
+**/sample-data
+.git
+.nx
+.DS_Store
+data
+benchmarks/cloud
+benchmarks/datasets
+benchmarks/server
+benchmarks/writeup
+benchmarks/in-process/results

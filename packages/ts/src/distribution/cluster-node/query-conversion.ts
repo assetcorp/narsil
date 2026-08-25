@@ -90,6 +90,7 @@ export function distributedResultToLocal<T = AnyDocument>(
     elapsed: 0,
     cursor: result.cursor ?? undefined,
     facets: result.facets !== null ? convertWireFacetsToLocal(result.facets, result.facetErrorBounds) : undefined,
+    coverage: result.coverage,
   }
 }
 
