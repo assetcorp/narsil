@@ -15,11 +15,24 @@ export function countNodeAssignments(assignments: Map<number, PartitionAssignmen
   return counts
 }
 
+export function countPrimaryAssignments(assignments: Map<number, PartitionAssignment>): Map<string, number> {
+  const counts = new Map<string, number>()
+
+  for (const assignment of assignments.values()) {
+    if (assignment.primary !== null) {
+      counts.set(assignment.primary, (counts.get(assignment.primary) ?? 0) + 1)
+    }
+  }
+
+  return counts
+}
+
 export function computeNodeWeights(
   nodes: NodeRegistration[],
   assignments: Map<number, PartitionAssignment>,
 ): NodeWeight[] {
   const assignmentCounts = countNodeAssignments(assignments)
+  const primaryCounts = countPrimaryAssignments(assignments)
 
   let totalCapacity = 0
   for (const node of nodes) {
@@ -32,13 +45,15 @@ export function computeNodeWeights(
 
   for (const node of nodes) {
     const partitionCount = assignmentCounts.get(node.nodeId) ?? 0
+    const primaryCount = primaryCounts.get(node.nodeId) ?? 0
     const normalizedCapacity = averageCapacity > 0 ? node.capacity.memoryBytes / averageCapacity : 1
-    const weight = partitionCount / normalizedCapacity
 
     weights.push({
       nodeId: node.nodeId,
-      weight,
+      weight: partitionCount / normalizedCapacity,
       partitionCount,
+      primaryWeight: primaryCount / normalizedCapacity,
+      primaryCount,
       capacity: node.capacity.memoryBytes,
     })
   }
@@ -66,6 +81,11 @@ export function findBestNode(
   const sorted = [...candidates].sort((a, b) => {
     const wA = weightByNodeId.get(a)
     const wB = weightByNodeId.get(b)
+    if (context.role === 'primary') {
+      const primaryA = wA?.primaryWeight ?? 0
+      const primaryB = wB?.primaryWeight ?? 0
+      if (primaryA !== primaryB) return primaryA - primaryB
+    }
     const weightA = wA?.weight ?? 0
     const weightB = wB?.weight ?? 0
     if (weightA !== weightB) return weightA - weightB

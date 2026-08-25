@@ -29,8 +29,33 @@ export interface ClusterNodeConfig {
   engine?: NarsilConfig
   /** These replication settings override the engine's own, and anything you leave out keeps its value. */
   replication?: Partial<ReplicationConfig>
+  /** These settings govern how this node gathers each search from the cluster, and anything you leave out keeps its default. */
+  query?: ClusterQueryConfig
   /** This receives the failures the node reports while running on its own, away from any call you made. */
   onError?: (error: Error) => void
+}
+
+/**
+ * How this node answers a search when one of the nodes it asked runs slowly or
+ * drops out.
+ *
+ * The defaults let a search answer from the nodes that did reply, so set
+ * `allowPartialResults` to false where a caller must never act on an
+ * incomplete count. Every search reports what it read in
+ * {@link QueryResult.coverage} whichever way you set these.
+ *
+ * @public
+ */
+export interface ClusterQueryConfig {
+  /**
+   * Set this true and a search returns the hits the reachable nodes gave,
+   * counting the rest in {@link QueryResult.coverage}, which is what a node
+   * does by default. Set it false and one partition that times out, errors, or
+   * has no active copy fails the whole search with `QUERY_PARTIAL_FAILURE`.
+   */
+  allowPartialResults?: boolean
+  /** A search waits this many milliseconds for each node before it counts that node's partitions as timed out, which is 5000 milliseconds where you name none. */
+  partitionTimeout?: number
 }
 
 /**

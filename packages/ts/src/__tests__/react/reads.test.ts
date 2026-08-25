@@ -12,7 +12,8 @@ function hits(...titles: string[]): QueryResult {
     hits: titles.map((title, at) => ({ id: `m${at}`, score: 1, document: { title } })),
     count: titles.length,
     elapsed: 1,
-  } as QueryResult
+    coverage: { totalPartitions: 1, queriedPartitions: 1, timedOutPartitions: 0, failedPartitions: 0 },
+  }
 }
 
 function searchServer(answer: QueryResult): ReturnType<typeof stubServer> {

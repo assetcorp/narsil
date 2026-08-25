@@ -6,6 +6,7 @@ import type { ClusterCoordinator } from '../../../distribution/coordinator/types
 import type { InMemoryNetwork } from '../../../distribution/transport'
 import { createInMemoryNetwork, createInMemoryTransport } from '../../../distribution/transport'
 import type { NodeTransport } from '../../../distribution/transport/types'
+import { ErrorCodes, NarsilError } from '../../../errors'
 
 const POLL_INTERVAL_MS = 25
 const POLL_BUDGET_MS = 15_000
@@ -229,6 +230,23 @@ describe('cluster-node scatter-gather reads', () => {
 
     const expectedOrder = [...documents].sort((a, b) => a.price - b.price).map(doc => doc.id)
     expect(collected).toEqual(expectedOrder)
+  }, 30_000)
+
+  it('names the reason when an exact read reaches a listed holder it cannot connect to', async () => {
+    if (router === undefined) throw new Error('node missing')
+    network.unregister('holder-2')
+
+    for (const read of [
+      () => router?.countDocuments('shop'),
+      () => router?.listDocuments('shop', { limit: 5 }),
+      () => router?.preflight('shop', { term: 'portable' }),
+      () => router?.suggest('shop', { prefix: 'grind' }),
+      () => router?.getStats('shop'),
+    ]) {
+      const failure = await read()?.catch((err: unknown) => err)
+      expect(failure).toBeInstanceOf(NarsilError)
+      expect((failure as NarsilError).code).toBe(ErrorCodes.QUERY_NO_ACTIVE_REPLICA)
+    }
   }, 30_000)
 
   it('fails the exact reads instead of answering partially when a holder is gone', async () => {

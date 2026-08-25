@@ -8,6 +8,8 @@ import { createInMemoryNetwork, createInMemoryTransport } from '../../../../dist
 import type { NodeTransport } from '../../../../distribution/transport/types'
 import { makeAllocationTable, makeAssignment, makeConfig } from './fixtures'
 
+const ALLOCATION_SETTLE_MS = 1_000
+
 describe('createClusterNode (two-node, write routing, batching)', () => {
   let coordinator: ClusterCoordinator
   let network: InMemoryNetwork
@@ -66,6 +68,8 @@ describe('createClusterNode (two-node, write routing, batching)', () => {
       await nodeA.createIndex('products', {
         schema: { title: 'string', price: 'number' },
       })
+
+      await vi.advanceTimersByTimeAsync(ALLOCATION_SETTLE_MS)
 
       await nodeA.insert('products', { title: 'Distributed Widget', price: 19.99 })
       await nodeA.insert('products', { title: 'Another Widget', price: 29.99 })

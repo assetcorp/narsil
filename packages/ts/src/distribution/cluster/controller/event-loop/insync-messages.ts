@@ -11,6 +11,7 @@ import type {
   TransportMessage,
 } from '../../../transport/types'
 import { handleBootstrapCompleteMessage, rejectBootstrapComplete } from '../bootstrap-handler'
+import { scheduleDebouncedAllocation } from './allocation'
 import type { EventLoopState } from './state'
 
 const UNKNOWN_PARTITION_ID = -1
@@ -184,6 +185,7 @@ export function handleInsyncRemoveMessage(
  * @param coordinator - The cluster coordinator that stores the allocation table.
  * @param nodeId - The controller's own node id, which names the sender of the confirmation.
  * @param isActive - Reports whether this node still holds the controller lease.
+ * @param onError - Called with the index name and the error whenever the allocation that follows fails.
  */
 export function handleInsyncAddMessage(
   state: EventLoopState,
@@ -192,6 +194,7 @@ export function handleInsyncAddMessage(
   coordinator: ClusterCoordinator,
   nodeId: string,
   isActive: () => boolean,
+  onError?: (indexName: string, error: unknown) => void,
 ): void {
   const decoded = decodeMessage(message)
   const payload = validateInsyncAddPayload(decoded)
@@ -213,6 +216,10 @@ export function handleInsyncAddMessage(
     }
     const confirmPayload = await handleInsyncAdmission(payload, coordinator)
     await respond(createInsyncConfirmMessage(confirmPayload, nodeId, message.requestId))
+
+    if (confirmPayload.accepted && isActive()) {
+      scheduleDebouncedAllocation(state, coordinator, isActive, onError)
+    }
   })
 }
 

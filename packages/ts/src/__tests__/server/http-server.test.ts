@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { QueryCoverage } from '../../types/results'
 import {
   del,
   getJson,
@@ -218,13 +219,23 @@ describe('Narsil HTTP server', () => {
     await createMovies(srv.base)
     await postJson(srv.base, '/indexes/movies/documents/_batch', { action: 'insert', documents: MOVIES })
 
-    const result = await postJson<{ hits: Array<{ id: string }> }>(srv.base, '/indexes/movies/search', {
-      mode: 'fulltext',
-      term: 'matrix',
-      fields: ['title'],
-    })
+    const result = await postJson<{ hits: Array<{ id: string }>; coverage: QueryCoverage }>(
+      srv.base,
+      '/indexes/movies/search',
+      {
+        mode: 'fulltext',
+        term: 'matrix',
+        fields: ['title'],
+      },
+    )
     expect(result.status).toBe(200)
     expect(result.body.hits[0]?.id).toBe('m1')
+    expect(result.body.coverage).toEqual({
+      totalPartitions: 1,
+      queriedPartitions: 1,
+      timedOutPartitions: 0,
+      failedPartitions: 0,
+    })
   })
 
   it('searches by vector', async () => {

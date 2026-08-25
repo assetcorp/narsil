@@ -3,6 +3,7 @@ export type {
   ClusterNode,
   ClusterNodeConfig,
   ClusterNodeInfo,
+  ClusterQueryConfig,
   CreateIndexOptions,
 } from './cluster-node'
 export {
