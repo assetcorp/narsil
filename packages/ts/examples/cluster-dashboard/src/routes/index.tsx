@@ -6,13 +6,11 @@ import { NodeBoard } from '../components/NodeBoard'
 import { PartitionTable } from '../components/PartitionTable'
 import { ReadProbePanel } from '../components/ReadProbePanel'
 import { SetupPanel } from '../components/SetupPanel'
-import { useClusterEvents } from '../hooks/use-cluster-events'
 import { useDashboard } from '../hooks/use-dashboard'
 
 function Dashboard() {
   const dashboard = useDashboard()
-  const { snapshot, stream } = dashboard
-  const events = useClusterEvents(snapshot)
+  const { snapshot, stream, events } = dashboard
   const busy = dashboard.pending !== null
 
   return (
@@ -49,16 +47,7 @@ function Dashboard() {
             </div>
 
             <div className="grid gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-              <ReadProbePanel
-                nodes={snapshot.nodes}
-                probeNodeId={dashboard.probeNodeId}
-                term={dashboard.term}
-                probe={dashboard.probe}
-                busy={busy}
-                onProbeNodeChange={dashboard.onProbeNodeChange}
-                onTermChange={dashboard.onTermChange}
-                onRunProbe={dashboard.onRunProbe}
-              />
+              <ReadProbePanel nodes={snapshot.nodes} busy={busy} runAction={dashboard.runAction} />
               <SetupPanel
                 indexName={snapshot.indexName}
                 indexExists={snapshot.indexExists}

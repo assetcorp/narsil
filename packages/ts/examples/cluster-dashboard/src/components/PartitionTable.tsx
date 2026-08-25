@@ -1,4 +1,5 @@
 import { cn } from '@delali/narsil-example-shared'
+import { memo } from 'react'
 import type { ClusterSnapshot, PartitionRow } from '../lib/cluster-types'
 import { copyCountOf } from '../lib/cluster-types'
 
@@ -8,6 +9,14 @@ const STATE_CLASS: Record<string, string> = {
   MIGRATING: 'text-chart-3',
   DECOMMISSIONING: 'text-muted-foreground',
   UNASSIGNED: 'text-destructive',
+}
+
+const STATE_LABEL: Record<string, string> = {
+  ACTIVE: 'Active',
+  INITIALISING: 'Initialising',
+  MIGRATING: 'Migrating',
+  DECOMMISSIONING: 'Decommissioning',
+  UNASSIGNED: 'Unassigned',
 }
 
 interface PartitionTableProps {
@@ -22,8 +31,8 @@ function PartitionRowView({ partition, replicationFactor }: { partition: Partiti
   return (
     <tr className="border-t border-border">
       <td className="px-3 py-2 font-mono text-sm tabular-nums">p{partition.partitionId}</td>
-      <td className={cn('px-3 py-2 font-mono text-xs', STATE_CLASS[partition.state] ?? 'text-foreground')}>
-        {partition.state.toLowerCase()}
+      <td className={cn('px-3 py-2 text-xs', STATE_CLASS[partition.state] ?? 'text-foreground')}>
+        {STATE_LABEL[partition.state] ?? partition.state}
       </td>
       <td className="px-3 py-2 font-mono text-sm">{partition.primary ?? 'none'}</td>
       <td className="px-3 py-2 text-right font-mono text-sm tabular-nums">{partition.primaryTerm}</td>
@@ -45,7 +54,7 @@ function PartitionRowView({ partition, replicationFactor }: { partition: Partiti
   )
 }
 
-export function PartitionTable({ snapshot }: PartitionTableProps) {
+export const PartitionTable = memo(function PartitionTable({ snapshot }: PartitionTableProps) {
   const replicationFactor = snapshot.replicationFactor ?? 0
 
   return (
@@ -96,4 +105,4 @@ export function PartitionTable({ snapshot }: PartitionTableProps) {
       )}
     </section>
   )
-}
+})

@@ -1,21 +1,21 @@
 import { cn } from '@delali/narsil-example-shared'
 import { Button } from '@delali/narsil-example-shared/ui/button'
 import { Input } from '@delali/narsil-example-shared/ui/input'
-import { type ChangeEvent, useCallback } from 'react'
+import { type ChangeEvent, memo, useCallback, useState } from 'react'
+import type { RunAction } from '../hooks/use-dashboard'
+import { runReadProbeFn } from '../lib/actions.functions'
 import type { ClusterNodeRow } from '../lib/cluster-types'
 import type { ReadProbeResult } from '../lib/probe-types'
+import { NODES } from '../topology'
 
 export type ProbeTone = 'settled' | 'narrowed' | 'refused'
 
+const DEFAULT_TERM = 'mortgage'
+
 interface ReadProbePanelProps {
   nodes: ClusterNodeRow[]
-  probeNodeId: string
-  term: string
-  probe: ReadProbeResult | null
   busy: boolean
-  onProbeNodeChange: (nodeId: string) => void
-  onTermChange: (term: string) => void
-  onRunProbe: () => void
+  runAction: RunAction
 }
 
 interface NodeChoiceProps {
@@ -30,7 +30,7 @@ function NodeChoice({ nodeId, selected, onSelect }: NodeChoiceProps) {
   }, [nodeId, onSelect])
 
   return (
-    <Button variant={selected ? 'secondary' : 'ghost'} size="sm" className="font-mono" onClick={handleClick}>
+    <Button variant={selected ? 'default' : 'outline'} size="sm" className="font-mono" onClick={handleClick}>
       {nodeId}
     </Button>
   )
@@ -44,28 +44,30 @@ interface ProbeTileProps {
   footnote: string
 }
 
-const TONE_ACCENT: Record<ProbeTone, string> = {
-  settled: 'bg-border',
-  narrowed: 'bg-chart-3',
-  refused: 'bg-destructive',
+const TONE_LABEL: Record<ProbeTone, string> = {
+  settled: 'Complete',
+  narrowed: 'Partial',
+  refused: 'Refused',
 }
 
-const TONE_HEADLINE: Record<ProbeTone, string> = {
-  settled: 'text-foreground',
+const TONE_CLASS: Record<ProbeTone, string> = {
+  settled: 'text-muted-foreground',
   narrowed: 'text-chart-3',
   refused: 'text-destructive',
 }
 
 function ProbeTile({ title, tone, headline, detail, footnote }: ProbeTileProps) {
   return (
-    <div className="flex gap-3">
-      <span aria-hidden="true" className={cn('w-0.5 shrink-0 rounded-full', TONE_ACCENT[tone])} />
-      <div className="flex min-w-0 flex-col">
+    <div className="flex min-w-0 flex-col rounded-lg border border-border p-4">
+      <div className="flex items-baseline justify-between gap-2">
         <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{title}</span>
-        <p className={cn('mt-1 font-mono text-base tabular-nums', TONE_HEADLINE[tone])}>{headline}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
-        <p className="mt-3 text-[11px] text-muted-foreground">{footnote}</p>
+        <span className={cn('text-[10px] font-medium uppercase tracking-wider', TONE_CLASS[tone])}>
+          {TONE_LABEL[tone]}
+        </span>
       </div>
+      <p className="mt-2 font-mono text-base tabular-nums">{headline}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+      <p className="mt-3 text-[11px] text-muted-foreground">{footnote}</p>
     </div>
   )
 }
@@ -135,22 +137,20 @@ function facetTile(probe: ReadProbeResult): ProbeTileProps {
   }
 }
 
-export function ReadProbePanel({
-  nodes,
-  probeNodeId,
-  term,
-  probe,
-  busy,
-  onProbeNodeChange,
-  onTermChange,
-  onRunProbe,
-}: ReadProbePanelProps) {
-  const handleTermChange = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      onTermChange(event.target.value)
-    },
-    [onTermChange],
-  )
+export const ReadProbePanel = memo(function ReadProbePanel({ nodes, busy, runAction }: ReadProbePanelProps) {
+  const [term, setTerm] = useState(DEFAULT_TERM)
+  const [probeNodeId, setProbeNodeId] = useState(NODES[0].nodeId)
+  const [probe, setProbe] = useState<ReadProbeResult | null>(null)
+
+  const handleTermChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    setTerm(event.target.value)
+  }, [])
+
+  const handleRun = useCallback(() => {
+    runAction(`Reading through ${probeNodeId}`, async () => {
+      setProbe(await runReadProbeFn({ data: { nodeId: probeNodeId, term } }))
+    })
+  }, [probeNodeId, runAction, term])
 
   return (
     <section className="rounded-xl border border-border bg-card p-5">
@@ -167,27 +167,29 @@ export function ReadProbePanel({
               key={node.nodeId}
               nodeId={node.nodeId}
               selected={node.nodeId === probeNodeId}
-              onSelect={onProbeNodeChange}
+              onSelect={setProbeNodeId}
             />
           ))}
         </div>
         <Input value={term} onChange={handleTermChange} className="max-w-56" aria-label="Search term" />
-        <Button onClick={onRunProbe} disabled={busy}>
-          Run the three reads
+        <Button onClick={handleRun} disabled={busy}>
+          {busy ? 'Reading' : 'Run the three reads'}
         </Button>
       </div>
 
-      {probe === null ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">
-          Run the reads to compare how a search, a count, and a faceted search answer the same term.
-        </p>
-      ) : (
-        <div className="mt-5 grid gap-6 md:grid-cols-3">
-          <ProbeTile {...searchTile(probe)} />
-          <ProbeTile {...countTile(probe)} />
-          <ProbeTile {...facetTile(probe)} />
-        </div>
-      )}
+      <div className="mt-5 min-h-44">
+        {probe === null ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            Run the reads to compare how a search, a count, and a faceted search answer the same term.
+          </p>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-3">
+            <ProbeTile {...searchTile(probe)} />
+            <ProbeTile {...countTile(probe)} />
+            <ProbeTile {...facetTile(probe)} />
+          </div>
+        )}
+      </div>
     </section>
   )
-}
+})

@@ -1,4 +1,5 @@
 import { Button } from '@delali/narsil-example-shared/ui/button'
+import { memo } from 'react'
 import type { ProvisionResult } from '../lib/probe-types'
 import { PARTITION_COUNT, REPLICATION_FACTOR } from '../topology'
 
@@ -10,7 +11,13 @@ interface SetupPanelProps {
   onProvision: () => void
 }
 
-export function SetupPanel({ indexName, indexExists, provision, busy, onProvision }: SetupPanelProps) {
+export const SetupPanel = memo(function SetupPanel({
+  indexName,
+  indexExists,
+  provision,
+  busy,
+  onProvision,
+}: SetupPanelProps) {
   return (
     <section className="flex h-full flex-col rounded-xl border border-border bg-card p-5">
       <h2 className="text-sm font-bold tracking-tight">Corpus</h2>
@@ -39,4 +46,4 @@ export function SetupPanel({ indexName, indexExists, provision, busy, onProvisio
       </Button>
     </section>
   )
-}
+})
