@@ -54,7 +54,7 @@ export async function startEventLoop(
       if (message.type === ReplicationMessageTypes.INSYNC_REMOVE) {
         handleInsyncRemoveMessage(state, message, respond, coordinator, nodeId, isActive)
       } else if (message.type === ReplicationMessageTypes.INSYNC_ADD) {
-        handleInsyncAddMessage(state, message, respond, coordinator, nodeId, isActive)
+        handleInsyncAddMessage(state, message, respond, coordinator, nodeId, isActive, onError)
       } else if (message.type === ClusterMessageTypes.BOOTSTRAP_COMPLETE) {
         handleQueuedBootstrapComplete(state, message, respond, coordinator, nodeId, isActive)
       }

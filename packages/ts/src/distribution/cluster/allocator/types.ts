@@ -27,6 +27,8 @@ export interface NodeWeight {
   nodeId: string
   weight: number
   partitionCount: number
+  primaryWeight: number
+  primaryCount: number
   capacity: number
 }
 

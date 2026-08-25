@@ -111,6 +111,26 @@ describe('initial allocation', () => {
     }
   })
 
+  it('spreads leadership evenly when every node holds a copy of every partition', () => {
+    const nodes = [
+      makeNode('node-a', 4_000_000_000),
+      makeNode('node-b', 4_000_000_000),
+      makeNode('node-c', 4_000_000_000),
+    ]
+    const { table } = allocate(nodes, null, 'products', 6, 2, defaultConstraints)
+
+    const primaryCounts = new Map<string, number>()
+    for (const assignment of table.assignments.values()) {
+      if (assignment.primary !== null) {
+        primaryCounts.set(assignment.primary, (primaryCounts.get(assignment.primary) ?? 0) + 1)
+      }
+    }
+
+    expect(primaryCounts.get('node-a')).toBe(2)
+    expect(primaryCounts.get('node-b')).toBe(2)
+    expect(primaryCounts.get('node-c')).toBe(2)
+  })
+
   it('gives more partitions to a node with 2x memory', () => {
     const nodes = [makeNode('node-a', 2_000_000_000), makeNode('node-b', 1_000_000_000)]
     const { table } = allocate(nodes, null, 'products', 6, 0, defaultConstraints)
