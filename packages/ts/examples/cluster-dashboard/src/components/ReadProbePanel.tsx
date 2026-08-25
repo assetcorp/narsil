@@ -1,0 +1,193 @@
+import { cn } from '@delali/narsil-example-shared'
+import { Button } from '@delali/narsil-example-shared/ui/button'
+import { Input } from '@delali/narsil-example-shared/ui/input'
+import { type ChangeEvent, useCallback } from 'react'
+import type { ClusterNodeRow } from '../lib/cluster-types'
+import type { ReadProbeResult } from '../lib/probe-types'
+
+export type ProbeTone = 'settled' | 'narrowed' | 'refused'
+
+interface ReadProbePanelProps {
+  nodes: ClusterNodeRow[]
+  probeNodeId: string
+  term: string
+  probe: ReadProbeResult | null
+  busy: boolean
+  onProbeNodeChange: (nodeId: string) => void
+  onTermChange: (term: string) => void
+  onRunProbe: () => void
+}
+
+interface NodeChoiceProps {
+  nodeId: string
+  selected: boolean
+  onSelect: (nodeId: string) => void
+}
+
+function NodeChoice({ nodeId, selected, onSelect }: NodeChoiceProps) {
+  const handleClick = useCallback(() => {
+    onSelect(nodeId)
+  }, [nodeId, onSelect])
+
+  return (
+    <Button variant={selected ? 'secondary' : 'ghost'} size="sm" className="font-mono" onClick={handleClick}>
+      {nodeId}
+    </Button>
+  )
+}
+
+interface ProbeTileProps {
+  title: string
+  tone: ProbeTone
+  headline: string
+  detail: string
+  footnote: string
+}
+
+const TONE_ACCENT: Record<ProbeTone, string> = {
+  settled: 'bg-border',
+  narrowed: 'bg-chart-3',
+  refused: 'bg-destructive',
+}
+
+const TONE_HEADLINE: Record<ProbeTone, string> = {
+  settled: 'text-foreground',
+  narrowed: 'text-chart-3',
+  refused: 'text-destructive',
+}
+
+function ProbeTile({ title, tone, headline, detail, footnote }: ProbeTileProps) {
+  return (
+    <div className="flex gap-3">
+      <span aria-hidden="true" className={cn('w-0.5 shrink-0 rounded-full', TONE_ACCENT[tone])} />
+      <div className="flex min-w-0 flex-col">
+        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{title}</span>
+        <p className={cn('mt-1 font-mono text-base tabular-nums', TONE_HEADLINE[tone])}>{headline}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+        <p className="mt-3 text-[11px] text-muted-foreground">{footnote}</p>
+      </div>
+    </div>
+  )
+}
+
+function searchTile(probe: ReadProbeResult): ProbeTileProps {
+  const { search } = probe
+  if (!search.ok) {
+    return {
+      title: 'search',
+      tone: 'refused',
+      headline: search.errorCode ?? 'failed',
+      detail: search.errorMessage ?? 'The node refused the search',
+      footnote: 'A search drops a partition it cannot reach and answers with what is left.',
+    }
+  }
+
+  const coverage = search.coverage
+  const missing = coverage === null ? 0 : coverage.timedOutPartitions + coverage.failedPartitions
+  const detail =
+    coverage === null
+      ? `${search.returnedHits ?? 0} hits returned in ${search.elapsed ?? 0} ms`
+      : `${coverage.queriedPartitions} of ${coverage.totalPartitions} partitions answered`
+
+  return {
+    title: 'search',
+    tone: missing > 0 ? 'narrowed' : 'settled',
+    headline: `${search.matchCount ?? 0} matches`,
+    detail,
+    footnote:
+      missing > 0
+        ? `${missing} partition${missing === 1 ? '' : 's'} went unread, so this count is lower than the corpus holds.`
+        : 'Coverage reports every partition, so nothing was dropped from this answer.',
+  }
+}
+
+function countTile(probe: ReadProbeResult): ProbeTileProps {
+  const { count } = probe
+  return {
+    title: 'count',
+    tone: count.ok ? 'settled' : 'refused',
+    headline: count.ok ? `${count.documentCount ?? 0} documents` : (count.errorCode ?? 'failed'),
+    detail: count.ok
+      ? 'Every partition answered, so the figure is exact.'
+      : (count.errorMessage ?? 'The node refused the count'),
+    footnote: 'An exact read refuses outright when one partition has no reachable copy.',
+  }
+}
+
+function facetTile(probe: ReadProbeResult): ProbeTileProps {
+  const { facets } = probe
+  if (!facets.ok) {
+    return {
+      title: `facets on ${facets.field}`,
+      tone: 'refused',
+      headline: facets.errorCode ?? 'failed',
+      detail: facets.errorMessage ?? 'The node refused the faceted search',
+      footnote: 'A faceted search reports the largest undercount each field can have.',
+    }
+  }
+  const top = facets.buckets.slice(0, 3).map(bucket => `${bucket.value} ${bucket.count}`)
+  return {
+    title: `facets on ${facets.field}`,
+    tone: (facets.errorBound ?? 0) > 0 ? 'narrowed' : 'settled',
+    headline: `undercount ≤ ${facets.errorBound ?? 0}`,
+    detail: top.length > 0 ? top.join(', ') : 'No buckets matched',
+    footnote: 'A bound of zero proves the counts exact, and anything higher is the worst case.',
+  }
+}
+
+export function ReadProbePanel({
+  nodes,
+  probeNodeId,
+  term,
+  probe,
+  busy,
+  onProbeNodeChange,
+  onTermChange,
+  onRunProbe,
+}: ReadProbePanelProps) {
+  const handleTermChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      onTermChange(event.target.value)
+    },
+    [onTermChange],
+  )
+
+  return (
+    <section className="rounded-xl border border-border bg-card p-5">
+      <h2 className="text-sm font-bold tracking-tight">One fault, three answers</h2>
+      <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+        This panel sends one term three ways through a single node. Cut a link and run it again to see where the three
+        reads disagree.
+      </p>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1 rounded-md border border-border p-1">
+          {nodes.map(node => (
+            <NodeChoice
+              key={node.nodeId}
+              nodeId={node.nodeId}
+              selected={node.nodeId === probeNodeId}
+              onSelect={onProbeNodeChange}
+            />
+          ))}
+        </div>
+        <Input value={term} onChange={handleTermChange} className="max-w-56" aria-label="Search term" />
+        <Button onClick={onRunProbe} disabled={busy}>
+          Run the three reads
+        </Button>
+      </div>
+
+      {probe === null ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          Run the reads to compare how a search, a count, and a faceted search answer the same term.
+        </p>
+      ) : (
+        <div className="mt-5 grid gap-6 md:grid-cols-3">
+          <ProbeTile {...searchTile(probe)} />
+          <ProbeTile {...countTile(probe)} />
+          <ProbeTile {...facetTile(probe)} />
+        </div>
+      )}
+    </section>
+  )
+}
