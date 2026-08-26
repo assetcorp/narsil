@@ -37,6 +37,8 @@ export type IndexRegistryEntry = {
   vectorFieldPaths: Set<string>
   /** The identity the cluster gave this index, or null where no cluster owns it. */
   indexUuid: string | null
+  /** The partitions this copy holds, or null where nothing has recorded them yet. */
+  heldPartitions: number[] | null
 }
 
 export type EventHandler = (payload: unknown) => void
@@ -211,6 +213,7 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
       embeddingAdapterName: adapterName,
       vectorFieldPaths: getVectorFieldPaths(indexConfig.schema),
       indexUuid: metadata.indexUuid ?? null,
+      heldPartitions: metadata.heldPartitions ?? null,
     })
     if (metadata.analysisRevision !== language.revision) {
       analysisRebuild.markStale({

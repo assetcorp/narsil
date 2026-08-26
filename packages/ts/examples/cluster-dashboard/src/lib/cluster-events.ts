@@ -11,6 +11,23 @@ export interface ClusterEvent {
 
 type EventDraft = Omit<ClusterEvent, 'id' | 'at'>
 
+export const CLUSTER_EVENT_LIMIT = 100
+
+/**
+ * Puts a fresh batch of events at the top of the list the dashboard shows, newest first.
+ *
+ * The function leaves both arguments untouched, so React may run the same update twice and still reach the same
+ * list.
+ *
+ * @param current - The events on screen, newest first.
+ * @param fresh - The events a snapshot turned up, oldest first.
+ * @returns The list to show, newest first, cut to {@link CLUSTER_EVENT_LIMIT}.
+ */
+export function mergeClusterEvents(current: ClusterEvent[], fresh: ClusterEvent[]): ClusterEvent[] {
+  const newestFirst = [...fresh].reverse()
+  return [...newestFirst, ...current].slice(0, CLUSTER_EVENT_LIMIT)
+}
+
 function partitionsById(partitions: PartitionRow[]): Map<number, PartitionRow> {
   return new Map(partitions.map(partition => [partition.partitionId, partition]))
 }

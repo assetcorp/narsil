@@ -14,9 +14,16 @@ function loadOf(nodeId: string, counts: Map<string, number>, shares: Map<string,
   return (counts.get(nodeId) ?? 0) / (share === undefined || share <= 0 ? 1 : share)
 }
 
-function heaviestLeader(shares: Map<string, number>, counts: Map<string, number>): string | undefined {
+function heaviestLeader(
+  shares: Map<string, number>,
+  counts: Map<string, number>,
+  withoutHandover: Set<string>,
+): string | undefined {
   let heaviest: string | undefined
   for (const nodeId of shares.keys()) {
+    if (withoutHandover.has(nodeId)) {
+      continue
+    }
     if (heaviest === undefined || loadOf(nodeId, counts, shares) > loadOf(heaviest, counts, shares)) {
       heaviest = nodeId
     }
@@ -55,7 +62,10 @@ function applySwap(swap: LeadershipSwap, previousPrimary: string): void {
   const { assignment, candidateNodeId } = swap
   assignment.primary = candidateNodeId
   assignment.replicas = [...assignment.replicas.filter(nodeId => nodeId !== candidateNodeId), previousPrimary]
-  assignment.inSyncSet = assignment.inSyncSet.filter(nodeId => nodeId !== candidateNodeId)
+  assignment.inSyncSet = [
+    ...assignment.inSyncSet.filter(nodeId => nodeId !== candidateNodeId && nodeId !== previousPrimary),
+    previousPrimary,
+  ]
   assignment.primaryTerm += 1
 }
 
@@ -64,25 +74,29 @@ function applySwap(swap: LeadershipSwap, previousPrimary: string): void {
  *
  * A node that leads many partitions takes every write for them, so the allocator moves leadership until no node
  * leads {@link LEADERSHIP_IMBALANCE_THRESHOLD} partitions more than one of its own in-sync replicas does, measured
- * against each node's share of the cluster's capacity. Each handover names a replica that is already in sync, raises
- * the term, and sends the old primary back to the replica list, so that the partition keeps every acknowledged
- * write. The loop stops once it runs out of worthwhile moves, and it never runs longer than the number of
- * partitions.
+ * against each node's share of the cluster's capacity. Each handover names a replica that is already in sync and
+ * raises the term. The old primary rejoins both the replica list and the in-sync set, because it holds every write
+ * the cluster acknowledged, so a failover straight afterwards may promote it back. The loop stops once it runs out
+ * of worthwhile moves, and it never runs longer than the number of partitions. A node whose partitions offer no
+ * worthwhile handover drops out of the search, so that the allocator goes on to the next-busiest node in place of
+ * abandoning the whole pass.
  *
  * @param assignments - The assignments to rewrite, by partition id.
  * @param shares - Each node's capacity as a multiple of the cluster average, by node id.
  */
 export function rebalanceLeadership(assignments: Map<number, PartitionAssignment>, shares: Map<string, number>): void {
+  const withoutHandover = new Set<string>()
   for (let swaps = 0; swaps < assignments.size; swaps++) {
     const counts = countPrimaryAssignments(assignments)
-    const heaviest = heaviestLeader(shares, counts)
+    const heaviest = heaviestLeader(shares, counts, withoutHandover)
     if (heaviest === undefined) {
       return
     }
 
     const swap = findSwap(assignments, heaviest, counts, shares)
     if (swap === null) {
-      return
+      withoutHandover.add(heaviest)
+      continue
     }
 
     applySwap(swap, heaviest)

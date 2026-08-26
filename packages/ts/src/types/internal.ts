@@ -149,6 +149,8 @@ export interface IndexMetadata {
   indexName: string
   /** The identity a cluster gave the index at creation; absent on a single engine. */
   indexUuid?: string
+  /** The partitions this copy holds, which a cluster node answers a partition-stores request from. */
+  heldPartitions?: number[]
   schema: Record<string, string>
   language: string
   partitionCount: number

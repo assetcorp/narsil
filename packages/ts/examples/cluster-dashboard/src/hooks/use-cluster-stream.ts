@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ClusterEvent } from '../lib/cluster-events'
-import { diffSnapshots } from '../lib/cluster-events'
+import { diffSnapshots, mergeClusterEvents } from '../lib/cluster-events'
 import type { ClusterSnapshot } from '../lib/cluster-types'
 
 export type StreamState = 'connecting' | 'live' | 'offline'
 
 const STREAM_PATH = '/api/cluster-stream'
-const EVENT_LIMIT = 100
 
 export interface ClusterStream {
   snapshot: ClusterSnapshot | null
@@ -51,7 +50,7 @@ export function useClusterStream(): ClusterStream {
       if (fresh.length === 0) {
         return
       }
-      setEvents(current => [...fresh.reverse(), ...current].slice(0, EVENT_LIMIT))
+      setEvents(current => mergeClusterEvents(current, fresh))
     }
 
     source.onopen = markLive

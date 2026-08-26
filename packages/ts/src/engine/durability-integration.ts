@@ -40,6 +40,7 @@ export interface DurabilityIntegrationHooks {
   getIndexConfig: (indexName: string) =>
     | {
         indexUuid?: string
+        heldPartitions?: number[]
         schema: Record<string, string>
         language: string
         k1: number
@@ -116,6 +117,9 @@ function buildMetadata(indexName: string, hooks: DurabilityIntegrationHooks): In
   }
   if (config.indexUuid !== undefined) {
     metadata.indexUuid = config.indexUuid
+  }
+  if (config.heldPartitions !== undefined) {
+    metadata.heldPartitions = config.heldPartitions
   }
   return metadata
 }

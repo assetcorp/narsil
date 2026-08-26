@@ -49,6 +49,7 @@ export function createDurabilityFromTier(
         : undefined
       return {
         ...(entry.indexUuid !== null ? { indexUuid: entry.indexUuid } : {}),
+        ...(entry.heldPartitions !== null ? { heldPartitions: entry.heldPartitions } : {}),
         schema: flattenSchema(entry.config.schema) as Record<string, string>,
         language: entry.language.name,
         k1: entry.config.bm25?.k1 ?? 1.2,

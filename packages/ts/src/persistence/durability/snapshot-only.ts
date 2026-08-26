@@ -159,6 +159,10 @@ export function createSnapshotOnlyManager(
       startCheckpointTimer()
     },
 
+    highestAppliedSeqNo(): number {
+      return 0
+    },
+
     async recordMutation(record: MutationRecord): Promise<number> {
       const indexState = getOrCreateIndexState(record.indexName)
       const buffered = indexState.applyChain.then(() => record.apply())

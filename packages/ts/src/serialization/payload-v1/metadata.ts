@@ -29,6 +29,7 @@ interface RawMetadataPayload {
     quantization?: unknown
   }
   index_uuid?: unknown
+  held_partitions?: unknown
 }
 
 function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
@@ -109,6 +110,9 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
   }
   if (meta.indexUuid !== undefined) {
     wire.index_uuid = meta.indexUuid
+  }
+  if (meta.heldPartitions !== undefined) {
+    wire.held_partitions = meta.heldPartitions
   }
   return wire
 }
@@ -207,7 +211,14 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
   if (typeof raw.index_uuid === 'string' && raw.index_uuid.length > 0) {
     meta.indexUuid = raw.index_uuid
   }
+  if (Array.isArray(raw.held_partitions) && raw.held_partitions.every(isNonNegativeInteger)) {
+    meta.heldPartitions = raw.held_partitions
+  }
   return meta
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
 }
 
 function isPositiveInteger(value: unknown): value is number {

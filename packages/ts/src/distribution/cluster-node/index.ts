@@ -10,7 +10,6 @@ import type { NodeRegistration, NodeRole } from '../coordinator/types'
 import type { ReplicationLog } from '../replication/types'
 import type { TransportMessage } from '../transport/types'
 import { cleanupRemovedPartition } from './bootstrap-cleanup'
-import { validateRestoredSchema } from './bootstrap-restore'
 import {
   clearBootstrapSyncIndex,
   createBootstrapSyncState,
@@ -23,6 +22,7 @@ import { adoptClusterIdentity, orphanedIndexError, reconcileLocalIndexes } from 
 import { createDataNodeHandler } from './message-handler'
 import { resolveNodeTargets as resolveTargetsForNode, sendToNode as sendMessageToNode } from './node-messaging'
 import { createClusterNodeOperations } from './node-operations'
+import { type PrimaryPartitionDeps, preparePrimaryPartition } from './primary-partition'
 import type { ClusterReadDeps } from './reads'
 import {
   replicationLogKey as buildReplicationLogKey,
@@ -121,6 +121,14 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   }
 
   const orphanedIndexes = new Set<string>()
+  const heldPartitionWrites = new Set<Promise<void>>()
+
+  function trackHeldPartitionWrite(write: Promise<void>): void {
+    const settled = write.catch(forwardOnError)
+    heldPartitionWrites.add(settled)
+    void settled.finally(() => heldPartitionWrites.delete(settled))
+  }
+
   let lifecycle: DataNodeHandle | null = null
   let controller: ControllerNode | null = null
   let unregisterHandler: (() => void) | null = null
@@ -141,47 +149,26 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     onError: forwardOnError,
   }
 
+  const primaryPartitionDeps: PrimaryPartitionDeps = {
+    engine,
+    coordinator: config.coordinator,
+    nodeId,
+    seedReplicationLog,
+    replicationLogPosition: (indexName: string, partitionId: number) =>
+      getReplicationLog(indexName, partitionId).newestSeqNo ?? 0,
+    onError: forwardOnError,
+  }
+
   async function bootstrapPartition(indexName: string, partitionId: number, primaryNodeId: string): Promise<boolean> {
     const succeeded =
       primaryNodeId === nodeId
-        ? await preparePrimaryPartition(indexName)
+        ? await preparePrimaryPartition(indexName, partitionId, primaryPartitionDeps)
         : await runBootstrapSync(bootstrapSyncState, indexName, partitionId, primaryNodeId, bootstrapSyncDeps)
     if (succeeded) {
       await adoptClusterIdentity(engine, config.coordinator, indexName)
+      await engine.recordHeldPartition(indexName, partitionId)
     }
     return succeeded
-  }
-
-  async function preparePrimaryPartition(indexName: string): Promise<boolean> {
-    const schema = await config.coordinator.getSchema(indexName)
-    if (schema === null) {
-      return false
-    }
-    const allocation = await config.coordinator.getAllocation(indexName)
-    if (allocation === null || allocation.assignments.size === 0) {
-      return false
-    }
-    const existing = engine.listIndexes().find(index => index.name === indexName)
-    if (existing !== undefined) {
-      const schemaError = validateRestoredSchema(engine, indexName, nodeId, schema)
-      if (schemaError !== null) {
-        forwardOnError(schemaError)
-        return false
-      }
-      return true
-    }
-    try {
-      await engine.createIndex(indexName, {
-        schema,
-        partitions: { maxPartitions: allocation.assignments.size },
-      })
-    } catch (error) {
-      if (!(error instanceof NarsilError) || error.code !== ErrorCodes.INDEX_ALREADY_EXISTS) {
-        forwardOnError(error)
-        return false
-      }
-    }
-    return true
   }
 
   if (hasDataRole) {
@@ -196,9 +183,13 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       allocationDebounceMs: DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs,
       nodeHeartbeatIntervalMs: DEFAULT_NODE_LIFECYCLE_CONFIG.nodeHeartbeatIntervalMs,
       onBootstrapPartition: bootstrapPartition,
+      onHoldPartition: (indexName: string, partitionId: number) => {
+        trackHeldPartitionWrite(engine.recordHeldPartition(indexName, partitionId))
+      },
       onRemovePartition: (indexName: string, partitionId: number) => {
         clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
         replicationLogs.delete(replicationLogKey(indexName, partitionId))
+        trackHeldPartitionWrite(engine.forgetHeldPartition(indexName, partitionId))
         // Fire-and-forget: align engine state with allocation by dropping the
         // local index when no other partitions of the same index remain
         // assigned to this node. Errors are surfaced via forwardOnError.
@@ -353,6 +344,8 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       if (controller !== null) {
         await controller.shutdown()
       }
+
+      await Promise.all([...heldPartitionWrites])
 
       await engine.shutdown()
     },
