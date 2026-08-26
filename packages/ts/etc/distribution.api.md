@@ -193,6 +193,7 @@ export interface PartitionAssignment {
     primaryTerm: number;
     replicas: string[];
     state: PartitionState;
+    unassignedReason?: UnassignedReason;
 }
 
 // @public
@@ -229,6 +230,9 @@ export interface TransportMessage {
     sourceId: string;
     type: string;
 }
+
+// @public
+export type UnassignedReason = 'HOLDER_OFFLINE' | 'HOLDER_UNREACHABLE' | 'HOLDER_IDENTITY_MISMATCH' | 'HOLDER_WITHOUT_DATA';
 
 // (No @packageDocumentation comment for this package)
 

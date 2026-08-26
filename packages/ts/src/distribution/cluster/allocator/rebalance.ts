@@ -23,6 +23,7 @@ function cloneAssignments(assignments: Map<number, PartitionAssignment>): Map<nu
       commitPoint: assignment.commitPoint,
       state: assignment.state,
       primaryTerm: assignment.primaryTerm,
+      ...(assignment.unassignedReason !== undefined ? { unassignedReason: assignment.unassignedReason } : {}),
     })
   }
   return cloned
@@ -277,6 +278,14 @@ function moveOneReplica(
   return false
 }
 
+function clearReasonOnServedPartitions(assignments: Map<number, PartitionAssignment>): void {
+  for (const assignment of assignments.values()) {
+    if (assignment.state !== 'UNASSIGNED') {
+      delete assignment.unassignedReason
+    }
+  }
+}
+
 function pruneInSyncSets(assignments: Map<number, PartitionAssignment>): void {
   for (const assignment of assignments.values()) {
     if (assignment.state === 'UNASSIGNED') {
@@ -336,6 +345,8 @@ export function rebalanceAllocate(
   rebalanceLeadership(assignments, shares)
 
   pruneInSyncSets(assignments)
+
+  clearReasonOnServedPartitions(assignments)
 
   const warnings = collectReplicationWarnings(assignments, currentTable.replicationFactor)
 

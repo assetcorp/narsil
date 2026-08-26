@@ -6,6 +6,7 @@ import type {
   ClusterCoordinator,
   NodeRegistration,
   PartitionAssignment,
+  UnassignedReason,
 } from '../../../coordinator/types'
 import type { NodeTransport, TransportMessage } from '../../../transport/types'
 import { getIndexMetadata } from '../../index-metadata'
@@ -21,25 +22,51 @@ interface RecoveryDeps {
   isActive: () => boolean
 }
 
-function unassignedHoldersByNode(table: AllocationTable, liveNodeIds: Set<string>): Map<string, number[]> {
-  const partitionsByNode = new Map<string, number[]>()
-  for (const [partitionId, assignment] of table.assignments) {
+type StoresAnswer = { kind: 'held'; partitionIds: Set<number> } | { kind: 'unreachable' } | { kind: 'identityMismatch' }
+
+function liveHoldersOfUnassignedPartitions(table: AllocationTable, liveNodeIds: Set<string>): string[] {
+  const holders = new Set<string>()
+  for (const assignment of table.assignments.values()) {
     if (assignment.state !== 'UNASSIGNED') {
       continue
     }
     for (const nodeId of assignment.inSyncSet) {
-      if (!liveNodeIds.has(nodeId)) {
-        continue
+      if (liveNodeIds.has(nodeId)) {
+        holders.add(nodeId)
       }
-      const partitionIds = partitionsByNode.get(nodeId)
-      if (partitionIds === undefined) {
-        partitionsByNode.set(nodeId, [partitionId])
-        continue
-      }
-      partitionIds.push(partitionId)
     }
   }
-  return partitionsByNode
+  return [...holders].sort(compareCodePoints)
+}
+
+function hasRecoverablePartition(table: AllocationTable): boolean {
+  for (const assignment of table.assignments.values()) {
+    if (assignment.state === 'UNASSIGNED' && assignment.inSyncSet.length > 0) {
+      return true
+    }
+  }
+  return false
+}
+
+function reasonFor(
+  assignment: PartitionAssignment,
+  liveNodeIds: Set<string>,
+  answers: Map<string, StoresAnswer>,
+): UnassignedReason | undefined {
+  if (assignment.inSyncSet.length === 0) {
+    return undefined
+  }
+  if (assignment.inSyncSet.some(nodeId => !liveNodeIds.has(nodeId))) {
+    return 'HOLDER_OFFLINE'
+  }
+  const given = assignment.inSyncSet.map(nodeId => answers.get(nodeId))
+  if (given.some(answer => answer === undefined || answer.kind === 'unreachable')) {
+    return 'HOLDER_UNREACHABLE'
+  }
+  if (given.some(answer => answer?.kind === 'identityMismatch')) {
+    return 'HOLDER_IDENTITY_MISMATCH'
+  }
+  return 'HOLDER_WITHOUT_DATA'
 }
 
 function targetsFor(deps: RecoveryDeps, targetNodeId: string): string[] {
@@ -69,25 +96,29 @@ async function askNodeForStores(
   targetNodeId: string,
   indexName: string,
   indexUuid: string,
-): Promise<Set<number>> {
+): Promise<StoresAnswer> {
   const message = createPartitionStoresMessage({ indexName }, deps.controllerNodeId, generateId())
   const response = await sendToFirstReachableTarget(deps, targetNodeId, message)
   if (response === null) {
-    return new Set()
+    return { kind: 'unreachable' }
   }
+  let answer: ReturnType<typeof validatePartitionStoresResultPayload>
   try {
-    const answer = validatePartitionStoresResultPayload(decode(response.payload))
-    if (answer === null || answer.indexName !== indexName || answer.indexUuid !== indexUuid) {
-      return new Set()
-    }
-    return new Set(answer.partitionIds)
+    answer = validatePartitionStoresResultPayload(decode(response.payload))
   } catch (_) {
-    return new Set()
+    return { kind: 'unreachable' }
   }
+  if (answer === null || answer.indexName !== indexName) {
+    return { kind: 'unreachable' }
+  }
+  if (answer.indexUuid !== indexUuid) {
+    return { kind: 'identityMismatch' }
+  }
+  return { kind: 'held', partitionIds: new Set(answer.partitionIds) }
 }
 
 function promoteAssignment(assignment: PartitionAssignment, nodeId: string): PartitionAssignment {
-  return {
+  const promoted: PartitionAssignment = {
     ...assignment,
     primary: nodeId,
     replicas: [],
@@ -95,12 +126,50 @@ function promoteAssignment(assignment: PartitionAssignment, nodeId: string): Par
     primaryTerm: assignment.primaryTerm + 1,
     state: 'INITIALISING',
   }
+  delete promoted.unassignedReason
+  return promoted
 }
 
-async function writePromotions(
+function holderThatAnswered(
+  assignment: PartitionAssignment,
+  partitionId: number,
+  answers: Map<string, StoresAnswer>,
+): string | undefined {
+  const holders = [...assignment.inSyncSet].sort(compareCodePoints)
+  return holders.find(nodeId => {
+    const answer = answers.get(nodeId)
+    return answer?.kind === 'held' && answer.partitionIds.has(partitionId)
+  })
+}
+
+function rewriteAssignment(
+  assignment: PartitionAssignment,
+  partitionId: number,
+  liveNodeIds: Set<string>,
+  answers: Map<string, StoresAnswer>,
+): { assignment: PartitionAssignment; promoted: boolean } | null {
+  const holder = holderThatAnswered(assignment, partitionId, answers)
+  if (holder !== undefined) {
+    return { assignment: promoteAssignment(assignment, holder), promoted: true }
+  }
+
+  const reason = reasonFor(assignment, liveNodeIds, answers)
+  if (reason === assignment.unassignedReason) {
+    return null
+  }
+  if (reason === undefined) {
+    const cleared = { ...assignment }
+    delete cleared.unassignedReason
+    return { assignment: cleared, promoted: false }
+  }
+  return { assignment: { ...assignment, unassignedReason: reason }, promoted: false }
+}
+
+async function writeRecoveryOutcome(
   deps: RecoveryDeps,
   indexName: string,
-  storesByNode: Map<string, Set<number>>,
+  liveNodeIds: Set<string>,
+  answers: Map<string, StoresAnswer>,
 ): Promise<boolean> {
   for (let attempt = 0; attempt < RECOVERY_CAS_ATTEMPTS; attempt++) {
     if (!deps.isActive()) {
@@ -111,25 +180,26 @@ async function writePromotions(
       return false
     }
 
-    const promoted = new Map<number, PartitionAssignment>()
+    const rewritten = new Map<number, PartitionAssignment>()
+    let anyPromoted = false
     for (const [partitionId, assignment] of table.assignments) {
       if (assignment.state !== 'UNASSIGNED') {
         continue
       }
-      const holders = [...assignment.inSyncSet].sort(compareCodePoints)
-      const holder = holders.find(nodeId => storesByNode.get(nodeId)?.has(partitionId) === true)
-      if (holder === undefined) {
+      const outcome = rewriteAssignment(assignment, partitionId, liveNodeIds, answers)
+      if (outcome === null) {
         continue
       }
-      promoted.set(partitionId, promoteAssignment(assignment, holder))
+      rewritten.set(partitionId, outcome.assignment)
+      anyPromoted = anyPromoted || outcome.promoted
     }
 
-    if (promoted.size === 0) {
+    if (rewritten.size === 0) {
       return false
     }
 
     const assignments = new Map(table.assignments)
-    for (const [partitionId, assignment] of promoted) {
+    for (const [partitionId, assignment] of rewritten) {
       assignments.set(partitionId, assignment)
     }
 
@@ -143,7 +213,7 @@ async function writePromotions(
       table.version,
     )
     if (written) {
-      return true
+      return anyPromoted
     }
   }
   return false
@@ -158,7 +228,10 @@ async function writePromotions(
  * which partitions its local copy holds, and it promotes the node only where the answer names the partition and
  * carries the index identity the coordinator holds, because a copy that fails either test may be missing writes the
  * cluster already acknowledged. A promoted node becomes the primary of an `INITIALISING` partition at a raised term,
- * and it moves the partition to `ACTIVE` once it reports its bootstrap finished.
+ * and it moves the partition to `ACTIVE` once it reports its bootstrap finished. A partition the controller cannot
+ * give back carries the reason in `unassignedReason`, from a last holder that has yet to register through to every
+ * holder answering without the data, so an operator can tell a partition that is waiting from one that no node can
+ * restore. The controller sets no limit on the attempts, because a holder may register again at any time.
  *
  * @param coordinator - The cluster coordinator that holds the allocation table and the index identity.
  * @param transport - The node transport the controller asks the returning nodes over.
@@ -188,25 +261,24 @@ export async function recoverUnassignedPartitions(
     return false
   }
 
-  const partitionsByNode = unassignedHoldersByNode(table, liveNodeIds)
-  if (partitionsByNode.size === 0 || !isActive()) {
+  if (!hasRecoverablePartition(table) || !isActive()) {
     return false
   }
 
-  const metadata = await getIndexMetadata(coordinator, indexName)
-  if (metadata === null || !isActive()) {
-    return false
+  const answers = new Map<string, StoresAnswer>()
+  const candidateNodeIds = liveHoldersOfUnassignedPartitions(table, liveNodeIds)
+  if (candidateNodeIds.length > 0) {
+    const metadata = await getIndexMetadata(coordinator, indexName)
+    if (metadata === null || !isActive()) {
+      return false
+    }
+    const given = await Promise.all(
+      candidateNodeIds.map(nodeId => askNodeForStores(deps, nodeId, indexName, metadata.indexUuid)),
+    )
+    for (let index = 0; index < candidateNodeIds.length; index += 1) {
+      answers.set(candidateNodeIds[index], given[index])
+    }
   }
 
-  const candidateNodeIds = [...partitionsByNode.keys()].sort(compareCodePoints)
-  const answers = await Promise.all(
-    candidateNodeIds.map(nodeId => askNodeForStores(deps, nodeId, indexName, metadata.indexUuid)),
-  )
-
-  const storesByNode = new Map<string, Set<number>>()
-  for (let index = 0; index < candidateNodeIds.length; index += 1) {
-    storesByNode.set(candidateNodeIds[index], answers[index])
-  }
-
-  return writePromotions(deps, indexName, storesByNode)
+  return writeRecoveryOutcome(deps, indexName, liveNodeIds, answers)
 }

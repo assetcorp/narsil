@@ -281,6 +281,10 @@ export function createDurabilityManager(
       startCheckpointTimer()
     },
 
+    highestAppliedSeqNo(indexName: string, partitionId: number): number {
+      return indexes.get(indexName)?.partitions.get(partitionId)?.appliedSeqNo ?? 0
+    },
+
     async recordMutation(record: MutationRecord): Promise<number> {
       if (fatalError !== null) {
         throw fatalError

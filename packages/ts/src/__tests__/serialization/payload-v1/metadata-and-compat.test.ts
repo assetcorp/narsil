@@ -52,6 +52,17 @@ describe('serializeMetadata / deserializeMetadata', () => {
     expect(restored.partitionLimits).toEqual({ maxDocsPerPartition: 10 })
   })
 
+  it('roundtrips the partitions the copy holds, empty ones included', () => {
+    const original = makeMetadata({ heldPartitions: [0, 2, 3] })
+    const restored = deserializeMetadata(serializeMetadata(original))
+    expect(restored.heldPartitions).toEqual([0, 2, 3])
+  })
+
+  it('leaves the held partitions absent for a copy written before the field existed', () => {
+    const restored = deserializeMetadata(serializeMetadata(makeMetadata()))
+    expect(restored.heldPartitions).toBeUndefined()
+  })
+
   it('persists the surface-forms setting and omits it when off', () => {
     const enabled = deserializeMetadata(serializeMetadata({ ...makeMetadata(), surfaceForms: true }))
     expect(enabled.surfaceForms).toBe(true)

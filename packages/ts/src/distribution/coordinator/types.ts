@@ -23,6 +23,23 @@ export type NodeRole = 'data' | 'coordinator' | 'controller'
 export type PartitionState = 'UNASSIGNED' | 'INITIALISING' | 'ACTIVE' | 'MIGRATING' | 'DECOMMISSIONING'
 
 /**
+ * Why a partition stays `UNASSIGNED` after the controller has asked its last holders for a copy.
+ *
+ * `HOLDER_OFFLINE` means a last holder has yet to register again, so the controller is still waiting for it.
+ * `HOLDER_UNREACHABLE` means a registered holder left the request unanswered or answered with a payload the
+ * controller could not read. `HOLDER_IDENTITY_MISMATCH` means a holder answered under a different index identity,
+ * so its copy holds the documents of an earlier index of the same name. `HOLDER_WITHOUT_DATA` means every holder
+ * answered under the right identity with a list that left the partition out.
+ *
+ * @public
+ */
+export type UnassignedReason =
+  | 'HOLDER_OFFLINE'
+  | 'HOLDER_UNREACHABLE'
+  | 'HOLDER_IDENTITY_MISMATCH'
+  | 'HOLDER_WITHOUT_DATA'
+
+/**
  * What one node has to offer, which the allocator weighs when it places
  * partitions.
  *
@@ -77,6 +94,8 @@ export interface PartitionAssignment {
   primaryTerm: number
   /** The primary has acknowledged every sequence number up to here, so every in-sync replica holds them. */
   commitPoint: number
+  /** Why the partition stays `UNASSIGNED`, which the controller records each time it asks the last holders. */
+  unassignedReason?: UnassignedReason
 }
 
 /**

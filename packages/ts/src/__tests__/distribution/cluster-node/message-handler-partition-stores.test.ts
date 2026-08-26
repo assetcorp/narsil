@@ -61,6 +61,72 @@ describe('a data node answering which partitions its copy holds', () => {
     }
   })
 
+  it('names a partition it was given even where that partition holds no document', async () => {
+    const engine = await createClusterLocalEngine()
+    try {
+      await engine.createIndexWithUuid(
+        'products',
+        { schema: { title: 'string' }, partitions: { maxPartitions: 4 } },
+        INDEX_UUID,
+      )
+      await engine.recordHeldPartition('products', 2)
+
+      const answer = await answerFor(engine, askAbout('products'))
+
+      expect(answer.partitionIds).toEqual([2])
+      expect(engine.getPartitionStats('products').every(partition => partition.documentCount === 0)).toBe(true)
+    } finally {
+      await engine.shutdown()
+    }
+  })
+
+  it('leaves out a partition the node gave up', async () => {
+    const engine = await createClusterLocalEngine()
+    try {
+      await engine.createIndexWithUuid(
+        'products',
+        { schema: { title: 'string' }, partitions: { maxPartitions: 4 } },
+        INDEX_UUID,
+      )
+      await engine.recordHeldPartition('products', 1)
+      await engine.recordHeldPartition('products', 3)
+      await engine.forgetHeldPartition('products', 1)
+
+      const answer = await answerFor(engine, askAbout('products'))
+
+      expect(answer.partitionIds).toEqual([3])
+    } finally {
+      await engine.shutdown()
+    }
+  })
+
+  it('names a partition holding documents even where the record leaves it out', async () => {
+    const engine = await createClusterLocalEngine()
+    try {
+      await engine.createIndexWithUuid(
+        'products',
+        { schema: { title: 'string' }, partitions: { maxPartitions: 4 } },
+        INDEX_UUID,
+      )
+      await engine.insertBatch(
+        'products',
+        Array.from({ length: 40 }, (_, index) => ({ title: `bench plane ${index}` })),
+      )
+      const holding = engine
+        .getPartitionStats('products')
+        .filter(partition => partition.documentCount > 0)
+        .map(partition => partition.partitionId)
+      expect(holding.length).toBeGreaterThan(1)
+      await engine.recordHeldPartition('products', holding[0])
+
+      const answer = await answerFor(engine, askAbout('products'))
+
+      expect(answer.partitionIds).toEqual(holding)
+    } finally {
+      await engine.shutdown()
+    }
+  })
+
   it('answers with a null identity for an index it keeps no copy of', async () => {
     const engine = await createClusterLocalEngine()
     try {

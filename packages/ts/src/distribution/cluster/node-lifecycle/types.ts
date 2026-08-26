@@ -15,6 +15,7 @@ export interface NodeLifecycleConfig {
   nodeHeartbeatIntervalMs: number
   onBootstrapPartition: (indexName: string, partitionId: number, primaryNodeId: string) => Promise<boolean>
   onRemovePartition?: (indexName: string, partitionId: number) => void
+  onHoldPartition?: (indexName: string, partitionId: number) => void
   onPrimaryDemotion?: (indexName: string, partitionId: number, newPrimaryNodeId: string) => void
   onError?: (error: unknown) => void
 }
