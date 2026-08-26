@@ -343,7 +343,7 @@ The response is:
 }
 ```
 
-The node answers from the copy it adopted when it joined, so it names a partition only where that copy holds one. A node that adopted no copy of the index answers with an absent `indexUuid` and an empty list.
+The node answers from the `held_partitions` field of its own index metadata, which [Index Metadata Payload](../envelope.md#index-metadata-payload) defines. A partition the node holds appears in the list even where that partition holds no document. A node that adopted no copy of the index answers with an absent `indexUuid` and an empty list.
 
 ### cluster.ping
 
