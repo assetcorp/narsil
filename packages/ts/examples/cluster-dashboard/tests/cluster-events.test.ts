@@ -85,6 +85,24 @@ describe('diffSnapshots', () => {
     expect(textsOf(snapshot(), next)).toContain('node-b holds the controller lease')
   })
 
+  it('reports the lease expiring before any node takes it over', () => {
+    const unheld = snapshot({ controllerNodeId: null })
+
+    expect(textsOf(snapshot(), unheld)).toContain('node-a let the controller lease expire, so no node holds it')
+  })
+
+  it('reports the whole failover sequence, from the expiry to the node that took over', () => {
+    const unheld = snapshot({ controllerNodeId: null })
+    const takenOver = snapshot({ controllerNodeId: 'node-b' })
+
+    expect(textsOf(snapshot(), unheld)).toHaveLength(1)
+    expect(textsOf(unheld, takenOver)).toContain('node-b holds the controller lease')
+  })
+
+  it('reports nothing while the same node keeps the lease', () => {
+    expect(textsOf(snapshot(), snapshot())).toHaveLength(0)
+  })
+
   it('gives every event of one update its own identifier', () => {
     const next = snapshot({
       controllerNodeId: 'node-b',

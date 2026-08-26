@@ -118,27 +118,53 @@ export async function fanOutSearch(
   return Promise.all(promises)
 }
 
+const OUTCOME_SEVERITY: Record<NodeQueryOutcome['status'], number> = { success: 0, timeout: 1, failed: 2 }
+
+/**
+ * Reports how much of an index one search read, counting each partition once however many fan-outs covered it.
+ *
+ * A hybrid query sends a text fan-out and a vector fan-out to the same nodes, and either leg may drop a partition the
+ * other one read. This keeps the worse outcome for each partition, so that a partition one leg lost counts as lost
+ * whatever the other leg returned, and the three counts add up to the partitions the query set out to read.
+ *
+ * @param totalPartitions - How many partitions the index holds.
+ * @param unavailablePartitions - The partitions no active copy served, which count as failed.
+ * @param outcomeSets - One array of node outcomes for each fan-out the query issued.
+ * @returns The coverage to report alongside the hits.
+ */
 export function buildCoverage(
   totalPartitions: number,
-  unavailableCount: number,
-  outcomes: NodeQueryOutcome[],
+  unavailablePartitions: number[],
+  ...outcomeSets: NodeQueryOutcome[][]
 ): QueryCoverage {
+  const worstByPartition = new Map<number, NodeQueryOutcome['status']>()
+
+  for (const partitionId of unavailablePartitions) {
+    worstByPartition.set(partitionId, 'failed')
+  }
+
+  for (const outcomes of outcomeSets) {
+    for (const outcome of outcomes) {
+      for (const partitionId of outcome.partitionIds) {
+        const worstSoFar = worstByPartition.get(partitionId)
+        if (worstSoFar === undefined || OUTCOME_SEVERITY[outcome.status] > OUTCOME_SEVERITY[worstSoFar]) {
+          worstByPartition.set(partitionId, outcome.status)
+        }
+      }
+    }
+  }
+
   let queriedPartitions = 0
   let timedOutPartitions = 0
-  let failedPartitions = unavailableCount
+  let failedPartitions = 0
 
-  for (const outcome of outcomes) {
-    const partitionCount = outcome.partitionIds.length
-    switch (outcome.status) {
-      case 'success':
-        queriedPartitions += partitionCount
-        break
-      case 'timeout':
-        timedOutPartitions += partitionCount
-        break
-      case 'failed':
-        failedPartitions += partitionCount
-        break
+  for (const status of worstByPartition.values()) {
+    if (status === 'success') {
+      queriedPartitions += 1
+    } else if (status === 'timeout') {
+      timedOutPartitions += 1
+    } else {
+      failedPartitions += 1
     }
   }
 

@@ -151,7 +151,7 @@ describe('rebalance allocation', () => {
     }
   })
 
-  it('marks partition as UNASSIGNED when both primary and all replicas are lost', () => {
+  it('records the last holders when both the primary and every replica are lost', () => {
     const assignments = new Map<number, PartitionAssignment>([
       [
         0,
@@ -180,11 +180,75 @@ describe('rebalance allocation', () => {
     expect(assignment).toMatchObject({
       primary: null,
       replicas: [],
-      inSyncSet: [],
+      inSyncSet: ['node-x', 'node-y'],
       state: 'UNASSIGNED',
       primaryTerm: 1,
       commitPoint: 0,
     })
+  })
+
+  it('keeps the recorded holders across a later allocation run', () => {
+    const assignments = new Map<number, PartitionAssignment>([
+      [
+        0,
+        {
+          primary: 'node-x',
+          replicas: ['node-y'],
+          inSyncSet: ['node-y'],
+          state: 'ACTIVE',
+          primaryTerm: 1,
+          commitPoint: 4,
+        },
+      ],
+    ])
+
+    const currentTable: AllocationTable = {
+      indexName: 'products',
+      version: 1,
+      replicationFactor: 1,
+      assignments,
+    }
+
+    const survivingNodes = [makeNode('node-a', 4_000_000_000)]
+    const afterFailure = allocate(survivingNodes, currentTable, 'products', 1, 1, defaultConstraints).table
+    expect(afterFailure.assignments.get(0)?.inSyncSet).toEqual(['node-x', 'node-y'])
+
+    const afterSecondRun = allocate(survivingNodes, afterFailure, 'products', 1, 1, defaultConstraints).table
+    expect(afterSecondRun.assignments.get(0)).toMatchObject({
+      primary: null,
+      replicas: [],
+      inSyncSet: ['node-x', 'node-y'],
+      state: 'UNASSIGNED',
+      commitPoint: 4,
+    })
+  })
+
+  it('leaves a lagging replica out of the recorded holders', () => {
+    const assignments = new Map<number, PartitionAssignment>([
+      [
+        0,
+        {
+          primary: 'node-x',
+          replicas: ['node-y', 'node-z'],
+          inSyncSet: ['node-y'],
+          state: 'ACTIVE',
+          primaryTerm: 3,
+          commitPoint: 9,
+        },
+      ],
+    ])
+
+    const currentTable: AllocationTable = {
+      indexName: 'products',
+      version: 1,
+      replicationFactor: 2,
+      assignments,
+    }
+
+    const survivingNodes = [makeNode('node-a', 4_000_000_000)]
+    const rebalancedTable = allocate(survivingNodes, currentTable, 'products', 1, 2, defaultConstraints).table
+
+    expect(rebalancedTable.assignments.get(0)?.inSyncSet).toEqual(['node-x', 'node-y'])
   })
 
   it('promotes in-sync replica to primary when primary is lost', () => {
@@ -441,7 +505,7 @@ describe('rebalance allocation', () => {
     expect(assignment).toMatchObject({
       primary: null,
       replicas: [],
-      inSyncSet: [],
+      inSyncSet: ['node-a'],
       state: 'UNASSIGNED',
       primaryTerm: 1,
       commitPoint: 0,
