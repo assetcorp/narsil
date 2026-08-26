@@ -105,8 +105,14 @@ function replicationEvents(previous: Map<number, PartitionRow>, next: ClusterSna
 function clusterEvents(previous: ClusterSnapshot, next: ClusterSnapshot): EventDraft[] {
   const drafts: EventDraft[] = []
 
-  if (previous.controllerNodeId !== next.controllerNodeId && next.controllerNodeId !== null) {
-    drafts.push({ kind: 'controller', text: `${next.controllerNodeId} holds the controller lease` })
+  if (previous.controllerNodeId !== next.controllerNodeId) {
+    drafts.push({
+      kind: 'controller',
+      text:
+        next.controllerNodeId === null
+          ? `${previous.controllerNodeId ?? 'the last controller'} let the controller lease expire, so no node holds it`
+          : `${next.controllerNodeId} holds the controller lease`,
+    })
   }
 
   if (previous.indexExists !== next.indexExists) {

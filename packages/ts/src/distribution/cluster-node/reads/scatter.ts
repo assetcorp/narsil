@@ -19,6 +19,16 @@ export interface ClusterReadDeps {
   resolveNodeTargets: (targetNodeId: string) => Promise<string[]>
 }
 
+/**
+ * Reports whether the cluster serves any partition of an index right now, and narrows the table where it does.
+ *
+ * A read takes the cluster path only where at least one partition has an active copy. An index the cluster has never
+ * allocated, and one whose every partition is still bootstrapping, both fail this test, and the caller then answers
+ * from its own copy.
+ *
+ * @param allocation - The allocation table the coordinator holds, or `null` where it holds none.
+ * @returns True where at least one partition is `ACTIVE`.
+ */
 export function servesAnyPartition(allocation: AllocationTable | null): allocation is AllocationTable {
   if (allocation === null || allocation.assignments.size === 0) {
     return false
@@ -31,6 +41,15 @@ export function servesAnyPartition(allocation: AllocationTable | null): allocati
   return false
 }
 
+/**
+ * Reads the allocation table for an index and returns it only where the cluster serves at least one partition.
+ *
+ * Every cluster read starts here, because the `null` answer is what tells the caller to read its own copy.
+ *
+ * @param deps - The cluster configuration, this node's id, the local engine, and the node target resolver.
+ * @param indexName - The index to read the allocation for.
+ * @returns The allocation table, or `null` where no partition has an active copy.
+ */
 export async function activeAllocation(deps: ClusterReadDeps, indexName: string): Promise<AllocationTable | null> {
   const allocation = await deps.config.coordinator.getAllocation(indexName)
   return servesAnyPartition(allocation) ? allocation : null
@@ -41,6 +60,18 @@ export interface ScatterGroup {
   partitionIds: number[]
 }
 
+/**
+ * Groups every partition of an index under the node that will read it, and refuses outright where one partition has
+ * no active copy.
+ *
+ * An exact read, such as a count, must cover every partition or report nothing, so this throws rather than returning
+ * a group set that would leave a partition unread.
+ *
+ * @param allocation - The allocation table naming the copy of each partition.
+ * @param indexName - The index being read, which names the error.
+ * @returns One group for each node, each naming the partitions that node will read.
+ * @throws A {@link NarsilError} carrying `QUERY_NO_ACTIVE_REPLICA` where any partition has no active copy.
+ */
 export function strictScatterGroups(allocation: AllocationTable, indexName: string): ScatterGroup[] {
   const routing = selectReplicasForQuery(allocation, randomSelector)
   if (routing.unavailablePartitions.length > 0) {
@@ -75,6 +106,21 @@ function readFailure(error: unknown, targetNodeId: string, indexName: string): u
   return error
 }
 
+/**
+ * Sends one read request to another node and returns the validated answer.
+ *
+ * A transport failure becomes a coded {@link NarsilError} that names the target node, and a node answering with an
+ * error message raises the code that node sent, so that every read failure reaches the caller as one kind of error
+ * whatever went wrong underneath.
+ *
+ * @param deps - The cluster configuration, this node's id, the local engine, and the node target resolver.
+ * @param targetNodeId - The node to ask.
+ * @param message - The request to send.
+ * @param indexName - The index being read, which names the error.
+ * @param validate - Reads the answer out of the decoded payload.
+ * @returns The validated answer.
+ * @throws A {@link NarsilError} where the node could not be reached, timed out, or refused the request.
+ */
 export async function sendReadRequest<T>(
   deps: ClusterReadDeps,
   targetNodeId: string,

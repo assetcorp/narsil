@@ -2,7 +2,6 @@ import { toComparableSortValue } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { decodePageCursor, encodePageCursor, requireMatchingCursor } from '../../search/cursor'
 import { requireWithinResultWindow } from '../../search/pagination'
-import type { QueryCoverage } from '../../types/results'
 import type { FacetBucket, GlobalStatistics, ScoredEntry, SortField, WireQueryParams } from '../transport/types'
 import { buildCoverage, collectDistributedStats, fanOutSearch, type NodeQueryOutcome } from './fan-out'
 import { clampAlpha, distributedLinearCombination, distributedRRF } from './fusion'
@@ -167,7 +166,7 @@ async function executeSingleFanOut(
     failOutcomesMissingSortValues(outcomes)
   }
 
-  const coverage = buildCoverage(totalPartitions, routing.unavailablePartitions.length, outcomes)
+  const coverage = buildCoverage(totalPartitions, routing.unavailablePartitions, outcomes)
 
   if (!config.allowPartialResults) {
     const failedCount = coverage.timedOutPartitions + coverage.failedPartitions
@@ -278,9 +277,7 @@ async function executeHybridQuery(
     fanOutSearch(indexName, vectorParams, null, null, routing.nodeToPartitions, deps, config),
   ])
 
-  const textCoverage = buildCoverage(totalPartitions, routing.unavailablePartitions.length, textOutcomes)
-  const vectorCoverage = buildCoverage(totalPartitions, routing.unavailablePartitions.length, vectorOutcomes)
-  const coverage = worstCaseCoverage(textCoverage, vectorCoverage)
+  const coverage = buildCoverage(totalPartitions, routing.unavailablePartitions, textOutcomes, vectorOutcomes)
 
   if (!config.allowPartialResults) {
     const failedCount = coverage.timedOutPartitions + coverage.failedPartitions
@@ -349,17 +346,5 @@ async function executeHybridQuery(
     facetErrorBounds: mergedFacets?.errorBounds ?? null,
     cursor,
     coverage,
-  }
-}
-
-function worstCaseCoverage(a: QueryCoverage, b: QueryCoverage): QueryCoverage {
-  const failed = Math.max(a.failedPartitions, b.failedPartitions)
-  const timedOut = Math.max(a.timedOutPartitions, b.timedOutPartitions)
-  const queried = Math.max(0, a.totalPartitions - failed - timedOut)
-  return {
-    totalPartitions: a.totalPartitions,
-    queriedPartitions: queried,
-    timedOutPartitions: timedOut,
-    failedPartitions: failed,
   }
 }

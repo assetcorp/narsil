@@ -8,7 +8,7 @@ import type { ClusterNodeRow } from '../lib/cluster-types'
 import type { ReadProbeResult } from '../lib/probe-types'
 import { NODES } from '../topology'
 
-export type ProbeTone = 'settled' | 'narrowed' | 'refused'
+export type ProbeTone = 'settled' | 'narrowed' | 'unknown' | 'refused'
 
 const DEFAULT_TERM = 'mortgage'
 
@@ -47,12 +47,14 @@ interface ProbeTileProps {
 const TONE_LABEL: Record<ProbeTone, string> = {
   settled: 'Complete',
   narrowed: 'Partial',
+  unknown: 'Unreported',
   refused: 'Refused',
 }
 
 const TONE_CLASS: Record<ProbeTone, string> = {
   settled: 'text-muted-foreground',
   narrowed: 'text-chart-3',
+  unknown: 'text-chart-3',
   refused: 'text-destructive',
 }
 
@@ -85,17 +87,23 @@ function searchTile(probe: ReadProbeResult): ProbeTileProps {
   }
 
   const coverage = search.coverage
-  const missing = coverage === null ? 0 : coverage.timedOutPartitions + coverage.failedPartitions
-  const detail =
-    coverage === null
-      ? `${search.returnedHits ?? 0} hits returned in ${search.elapsed ?? 0} ms`
-      : `${coverage.queriedPartitions} of ${coverage.totalPartitions} partitions answered`
+  if (coverage === null) {
+    return {
+      title: 'search',
+      tone: 'unknown',
+      headline: `${search.matchCount ?? 0} matches`,
+      detail: `${search.returnedHits ?? 0} hits returned in ${search.elapsed ?? 0} ms`,
+      footnote: 'The node reported no coverage, so how many partitions answered is unknown.',
+    }
+  }
+
+  const missing = coverage.timedOutPartitions + coverage.failedPartitions
 
   return {
     title: 'search',
     tone: missing > 0 ? 'narrowed' : 'settled',
     headline: `${search.matchCount ?? 0} matches`,
-    detail,
+    detail: `${coverage.queriedPartitions} of ${coverage.totalPartitions} partitions answered`,
     footnote:
       missing > 0
         ? `${missing} partition${missing === 1 ? '' : 's'} went unread, so this count is lower than the corpus holds.`

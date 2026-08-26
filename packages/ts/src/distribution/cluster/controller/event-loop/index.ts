@@ -33,6 +33,8 @@ export async function startEventLoop(
   onError?: (indexName: string, error: unknown) => void,
 ): Promise<void> {
   clearEventLoopWatchers(state)
+  state.transport = transport
+  state.controllerNodeId = nodeId
 
   try {
     state.unwatchNodes = await coordinator.watchNodes((_event: NodeEvent) => {

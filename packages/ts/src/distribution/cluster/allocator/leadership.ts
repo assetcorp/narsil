@@ -59,6 +59,19 @@ function applySwap(swap: LeadershipSwap, previousPrimary: string): void {
   assignment.primaryTerm += 1
 }
 
+/**
+ * Hands leadership of some partitions from the busiest nodes to quieter ones, changing the assignments in place.
+ *
+ * A node that leads many partitions takes every write for them, so the allocator moves leadership until no node
+ * leads {@link LEADERSHIP_IMBALANCE_THRESHOLD} partitions more than one of its own in-sync replicas does, measured
+ * against each node's share of the cluster's capacity. Each handover names a replica that is already in sync, raises
+ * the term, and sends the old primary back to the replica list, so that the partition keeps every acknowledged
+ * write. The loop stops once it runs out of worthwhile moves, and it never runs longer than the number of
+ * partitions.
+ *
+ * @param assignments - The assignments to rewrite, by partition id.
+ * @param shares - Each node's capacity as a multiple of the cluster average, by node id.
+ */
 export function rebalanceLeadership(assignments: Map<number, PartitionAssignment>, shares: Map<string, number>): void {
   for (let swaps = 0; swaps < assignments.size; swaps++) {
     const counts = countPrimaryAssignments(assignments)
@@ -76,6 +89,16 @@ export function rebalanceLeadership(assignments: Map<number, PartitionAssignment
   }
 }
 
+/**
+ * Reports how much of the cluster's memory each node carries, as a multiple of what an average node carries.
+ *
+ * The allocator divides a node's partition count by this figure before it compares two nodes, so that a node with
+ * twice the memory of its neighbours may hold twice as many partitions before the allocator calls it overloaded. A
+ * node registered with no memory, and every node where the cluster reports none at all, takes a share of 1.
+ *
+ * @param nodes - The data nodes registered with the cluster coordinator.
+ * @returns Each node's share, by node id, where 1 means a node of average size.
+ */
 export function capacityShares(nodes: NodeRegistration[]): Map<string, number> {
   const shares = new Map<string, number>()
   let totalCapacity = 0

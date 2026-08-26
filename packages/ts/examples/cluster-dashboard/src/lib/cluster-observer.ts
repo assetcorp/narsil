@@ -21,6 +21,7 @@ interface ObserverState {
 
 let observer: ObserverState | null = null
 let starting: Promise<ObserverState> | null = null
+let disposedWhileStarting = false
 
 function linkRows(states: Map<string, boolean> | null): LinkRow[] {
   return NODES.flatMap(spec => [
@@ -174,13 +175,19 @@ export async function ensureObserver(): Promise<ObserverState> {
     return observer
   }
   if (starting === null) {
+    disposedWhileStarting = false
     starting = createObserver()
-      .then(state => {
+      .then(async state => {
+        if (disposedWhileStarting) {
+          await shutDown(state)
+          throw new Error('the cluster observer was disposed while it was starting')
+        }
         observer = state
         return state
       })
       .finally(() => {
         starting = null
+        disposedWhileStarting = false
       })
   }
   return starting
@@ -201,21 +208,34 @@ export async function subscribe(listener: Listener): Promise<() => void> {
   }
 }
 
-export async function disposeObserver(): Promise<void> {
-  const state = observer
-  observer = null
-  if (state === null) {
-    return
-  }
+async function shutDown(state: ObserverState): Promise<void> {
   clearInterval(state.interval)
   if (state.debounce !== null) {
     clearTimeout(state.debounce)
+    state.debounce = null
   }
   for (const unwatch of state.unwatch) {
     unwatch()
   }
+  state.unwatch.length = 0
   state.listeners.clear()
   await state.coordinator.shutdown()
+}
+
+export async function disposeObserver(): Promise<void> {
+  const state = observer
+  observer = null
+
+  const pending = starting
+  if (pending !== null) {
+    disposedWhileStarting = true
+    await pending.catch(() => {})
+  }
+
+  if (state === null) {
+    return
+  }
+  await shutDown(state)
 }
 
 if (import.meta.hot) {
