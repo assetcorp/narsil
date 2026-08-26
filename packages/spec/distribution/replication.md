@@ -360,12 +360,13 @@ The controller records the partition's last holders as it moves the partition so
    b. It raises the primaryTerm.
    c. It moves the partition to INITIALISING, and the node reports
       cluster.bootstrap_complete against its own copy.
-5. The promoted primary numbers its first new entry as
-   commitPoint + 1, so the floor the controller stores never
-   falls.
+5. The promoted primary numbers its first new entry one above
+   the greater of the highest seqNo its own log recovered and
+   the commitPoint the controller stored, so it reuses no
+   seqNo its copy already holds.
 ```
 
-The controller promotes only a node that inSyncSet names, because a copy the list omits can be missing acknowledged writes. The cluster keeps no copy of the partition when none of those nodes returns, so set `replicationFactor` high enough that the case stays unlikely in production.
+The controller promotes only a node that inSyncSet names, because a copy the list omits can be missing acknowledged writes. It records why the partition stays `UNASSIGNED` in [unassignedReason](cluster.md#unassignedreason) each time it asks, so an operator can tell whether the partition is waiting for a node to return or no node can restore it. The cluster keeps no copy of the partition when none of those nodes returns, so set `replicationFactor` high enough that the case stays unlikely in production.
 
 ### Fencing a Stale Primary
 

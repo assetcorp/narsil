@@ -252,12 +252,13 @@ AllocationTable {
 }
 
 PartitionAssignment {
-  primary:     string or absent   (nodeId of the primary)
-  replicas:    List<string>       (nodeIds of the replica nodes)
-  inSyncSet:   List<string>       (nodeIds of the replicas fully caught up, or the last holders in UNASSIGNED)
-  state:       PartitionState
-  primaryTerm: uint64             (the current term, raised on failover)
-  commitPoint: uint64             (a floor on the seqNo acknowledged to a client)
+  primary:          string or absent   (nodeId of the primary)
+  replicas:         List<string>       (nodeIds of the replica nodes)
+  inSyncSet:        List<string>       (nodeIds of the replicas fully caught up, or the last holders in UNASSIGNED)
+  state:            PartitionState
+  primaryTerm:      uint64             (the current term, raised on failover)
+  commitPoint:      uint64             (a floor on the seqNo acknowledged to a client)
+  unassignedReason: UnassignedReason or absent
 }
 ```
 
@@ -273,7 +274,27 @@ It is set per index at creation time, and changing it on an existing index trigg
 
 ### assignments
 
-A map from partition ID to its assignment, with an entry for every partition in the index. A partition with no live primary has an absent `primary` and the state `UNASSIGNED`. When the controller moves a partition to `UNASSIGNED`, it writes the final primary and the replicas that were in sync with that primary into `inSyncSet`, because those nodes hold every write the cluster acknowledged for the partition.
+A map from partition ID to its assignment, with an entry for every partition in the index. A partition with no live primary has an absent `primary` and the state `UNASSIGNED`. When the controller moves a partition to `UNASSIGNED`, it writes the final primary and the replicas that were in sync with that primary into `inSyncSet`, because those nodes hold every write the cluster acknowledged for the partition. Those nodes are the partition's last holders. [No Eligible Replica](replication.md#no-eligible-replica) governs how the controller gives the partition back to one of them.
+
+### unassignedReason
+
+The controller writes this field whenever a partition stays `UNASSIGNED` after it asks the partition's last holders for a copy. It writes one of four values:
+
+```text
+UnassignedReason = 'HOLDER_OFFLINE'
+                 | 'HOLDER_UNREACHABLE'
+                 | 'HOLDER_IDENTITY_MISMATCH'
+                 | 'HOLDER_WITHOUT_DATA'
+```
+
+| Reason | Meaning |
+|--------|---------|
+| `HOLDER_OFFLINE` | A node `inSyncSet` names is absent from the coordinator's registrations, so the controller waits for it to return. |
+| `HOLDER_UNREACHABLE` | A registered holder left [cluster.partition_stores](transport.md#clusterpartition_stores) unanswered, or it answered with a payload the controller could not read. |
+| `HOLDER_IDENTITY_MISMATCH` | A holder answered under an `indexUuid` that differs from the one the coordinator holds, so that copy holds the documents of an earlier index of the same name. |
+| `HOLDER_WITHOUT_DATA` | Every holder answered under the coordinator's `indexUuid` with a list that left the partition out. |
+
+The controller writes the first value that applies in the order above, so a partition that may still come back never reports a reason that rules recovery out. It repeats the enquiry whenever a node registers. It sets no limit on the number of attempts, because a holder may return at any time. It removes the field when it moves the partition out of `UNASSIGNED`. A partition that reaches `UNASSIGNED` at index creation leaves the field absent, because the controller asks no node about a partition that never held a document.
 
 ---
 
