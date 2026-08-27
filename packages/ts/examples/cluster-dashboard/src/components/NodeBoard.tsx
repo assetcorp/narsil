@@ -20,7 +20,8 @@ export const NodeBoard = memo(function NodeBoard({ snapshot, onToggleLink, onHea
           <h2 className="text-sm font-bold tracking-tight">Nodes</h2>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Each row names the partitions that node leads and the copies it follows, so cutting a link moves those
-            numbers to another row.
+            numbers to another row. The last column names the partitions no node serves whose data this node still
+            holds, which is what the controller gives one of them back from.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={onHealLinks} disabled={cutLinks === 0}>
@@ -37,6 +38,7 @@ export const NodeBoard = memo(function NodeBoard({ snapshot, onToggleLink, onHea
               <th className="px-3 py-2 text-left font-medium">Leads</th>
               <th className="px-3 py-2 text-left font-medium">Follows in sync</th>
               <th className="px-3 py-2 text-left font-medium">Catching up</th>
+              <th className="px-3 py-2 text-left font-medium">Holds unserved</th>
               <th className="px-3 py-2 text-right font-medium">Coordinator</th>
               <th className="px-3 py-2 text-right font-medium">Replication</th>
             </tr>

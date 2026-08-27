@@ -11,6 +11,7 @@ export type RunAction = (label: string, action: () => Promise<void>) => void
 export interface Dashboard {
   snapshot: ClusterSnapshot | null
   stream: StreamState
+  streamError: string | null
   events: ClusterEvent[]
   provision: ProvisionResult | null
   pending: string | null
@@ -27,7 +28,7 @@ function messageOf(error: unknown): string {
 }
 
 export function useDashboard(): Dashboard {
-  const { snapshot, stream, events } = useClusterStream()
+  const { snapshot, stream, streamError, events } = useClusterStream()
   const [provision, setProvision] = useState<ProvisionResult | null>(null)
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -73,6 +74,7 @@ export function useDashboard(): Dashboard {
   return {
     snapshot,
     stream,
+    streamError,
     events,
     provision,
     pending,

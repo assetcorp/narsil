@@ -1,6 +1,15 @@
 import type { ClusterSnapshot, PartitionRow } from './cluster-types'
+import { recoveryTextOf } from './cluster-types'
 
-export type ClusterEventKind = 'node' | 'controller' | 'leadership' | 'replication' | 'link' | 'index'
+export type ClusterEventKind =
+  | 'node'
+  | 'controller'
+  | 'leadership'
+  | 'replication'
+  | 'unserved'
+  | 'recovery'
+  | 'link'
+  | 'index'
 
 export interface ClusterEvent {
   id: string
@@ -30,6 +39,24 @@ export function mergeClusterEvents(current: ClusterEvent[], fresh: ClusterEvent[
 
 function partitionsById(partitions: PartitionRow[]): Map<number, PartitionRow> {
   return new Map(partitions.map(partition => [partition.partitionId, partition]))
+}
+
+function namesOf(holders: string[]): string {
+  if (holders.length === 2) {
+    return `${holders[0]} and ${holders[1]}`
+  }
+  return `${holders.slice(0, -1).join(', ')}, and ${holders[holders.length - 1]}`
+}
+
+function holdersTextOf(partition: PartitionRow): string {
+  const holders = partition.lastHolders
+  if (holders.length === 0) {
+    return 'no node holds a copy of it'
+  }
+  if (holders.length === 1) {
+    return `${holders[0]} still holds a copy`
+  }
+  return `${namesOf(holders)} still hold a copy`
 }
 
 function nodeEvents(previous: ClusterSnapshot, next: ClusterSnapshot): EventDraft[] {
@@ -72,16 +99,61 @@ function linkEvents(previous: ClusterSnapshot, next: ClusterSnapshot): EventDraf
   return drafts
 }
 
+function recoveredText(partition: PartitionRow): string {
+  if (partition.primary === null) {
+    return `p${partition.partitionId} is out of the unserved state`
+  }
+  return partition.state === 'INITIALISING'
+    ? `p${partition.partitionId} comes back on ${partition.primary}, which is filling its copy`
+    : `p${partition.partitionId} serves again from ${partition.primary}`
+}
+
+function stateDraftOf(before: PartitionRow, partition: PartitionRow): EventDraft | null {
+  if (before.state === partition.state) {
+    const reason = recoveryTextOf(partition)
+    if (reason === null || before.unassignedReason === partition.unassignedReason) {
+      return null
+    }
+    return { kind: 'unserved', text: `p${partition.partitionId} stays unserved, because ${reason}` }
+  }
+  if (partition.state === 'UNASSIGNED') {
+    return {
+      kind: 'unserved',
+      text: `p${partition.partitionId} lost every copy that served it, and ${holdersTextOf(partition)}`,
+    }
+  }
+  if (before.state === 'UNASSIGNED') {
+    return { kind: 'recovery', text: recoveredText(partition) }
+  }
+  if (before.state === 'INITIALISING' && partition.state === 'ACTIVE' && partition.primary !== null) {
+    return { kind: 'recovery', text: `p${partition.partitionId} finished filling and serves from ${partition.primary}` }
+  }
+  return null
+}
+
+function stateEvents(previous: Map<number, PartitionRow>, next: ClusterSnapshot): EventDraft[] {
+  const drafts: EventDraft[] = []
+
+  for (const partition of next.partitions) {
+    const before = previous.get(partition.partitionId)
+    if (before === undefined) {
+      continue
+    }
+    const draft = stateDraftOf(before, partition)
+    if (draft !== null) {
+      drafts.push(draft)
+    }
+  }
+
+  return drafts
+}
+
 function leadershipEvents(previous: Map<number, PartitionRow>, next: ClusterSnapshot): EventDraft[] {
   const drafts: EventDraft[] = []
 
   for (const partition of next.partitions) {
     const before = previous.get(partition.partitionId)
-    if (before === undefined || before.primary === partition.primary) {
-      continue
-    }
-    if (partition.primary === null) {
-      drafts.push({ kind: 'leadership', text: `p${partition.partitionId} has no primary and serves nothing` })
+    if (before === undefined || before.primary === partition.primary || partition.primary === null) {
       continue
     }
     drafts.push({
@@ -104,9 +176,11 @@ function replicationEvents(previous: Map<number, PartitionRow>, next: ClusterSna
     if (before === undefined) {
       continue
     }
-    for (const nodeId of before.inSyncSet) {
-      if (!partition.inSyncSet.includes(nodeId) && partition.primary !== nodeId) {
-        drafts.push({ kind: 'replication', text: `p${partition.partitionId} drops ${nodeId} from its in-sync set` })
+    if (partition.state !== 'UNASSIGNED') {
+      for (const nodeId of before.inSyncSet) {
+        if (!partition.inSyncSet.includes(nodeId) && partition.primary !== nodeId) {
+          drafts.push({ kind: 'replication', text: `p${partition.partitionId} drops ${nodeId} from its in-sync set` })
+        }
       }
     }
     for (const nodeId of partition.inSyncSet) {
@@ -148,7 +222,9 @@ function clusterEvents(previous: ClusterSnapshot, next: ClusterSnapshot): EventD
  * Reports what changed between two coordinator snapshots, as one entry for each change.
  *
  * The dashboard keeps these entries in a log, so that a failover reads as a sequence a person can follow: the lease
- * expires, the controller promotes a replica, and the in-sync set narrows and fills again.
+ * expires, the controller promotes a replica, and the in-sync set narrows and fills again. A partition that loses
+ * every copy carries its own line, which names the nodes that still hold one and then the reason the controller
+ * records while it waits for one of them.
  *
  * @param previous - The snapshot the dashboard held before this update.
  * @param next - The snapshot the dashboard has now received.
@@ -159,10 +235,15 @@ export function diffSnapshots(previous: ClusterSnapshot, next: ClusterSnapshot):
   const drafts = [
     ...nodeEvents(previous, next),
     ...linkEvents(previous, next),
+    ...stateEvents(before, next),
     ...leadershipEvents(before, next),
     ...replicationEvents(before, next),
     ...clusterEvents(previous, next),
   ]
 
-  return drafts.map((draft, index) => ({ ...draft, id: `${next.updatedAt}-${index}`, at: next.updatedAt }))
+  return drafts.map((draft, index) => ({
+    ...draft,
+    id: `${next.updatedAt}-${index}-${draft.text}`,
+    at: next.updatedAt,
+  }))
 }

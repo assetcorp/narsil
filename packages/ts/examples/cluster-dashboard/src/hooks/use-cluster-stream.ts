@@ -10,12 +10,28 @@ const STREAM_PATH = '/api/cluster-stream'
 export interface ClusterStream {
   snapshot: ClusterSnapshot | null
   stream: StreamState
+  streamError: string | null
   events: ClusterEvent[]
+}
+
+const OBSERVER_FAILURE_TEXT = 'The dashboard could not reach the cluster coordinator'
+
+function observerMessageOf(event: Event): string {
+  if (!(event instanceof MessageEvent) || typeof event.data !== 'string') {
+    return OBSERVER_FAILURE_TEXT
+  }
+  try {
+    const parsed = JSON.parse(event.data) as { message?: unknown }
+    return typeof parsed.message === 'string' ? parsed.message : OBSERVER_FAILURE_TEXT
+  } catch (_) {
+    return OBSERVER_FAILURE_TEXT
+  }
 }
 
 export function useClusterStream(): ClusterStream {
   const [snapshot, setSnapshot] = useState<ClusterSnapshot | null>(null)
   const [stream, setStream] = useState<StreamState>('connecting')
+  const [streamError, setStreamError] = useState<string | null>(null)
   const [events, setEvents] = useState<ClusterEvent[]>([])
   const previous = useRef<ClusterSnapshot | null>(null)
 
@@ -24,6 +40,12 @@ export function useClusterStream(): ClusterStream {
 
     function markLive(): void {
       setStream('live')
+      setStreamError(null)
+    }
+
+    function receiveObserverError(event: Event): void {
+      setStreamError(observerMessageOf(event))
+      setStream('offline')
     }
 
     function markOffline(): void {
@@ -42,6 +64,7 @@ export function useClusterStream(): ClusterStream {
       previous.current = next
       setSnapshot(next)
       setStream('live')
+      setStreamError(null)
 
       if (before === null) {
         return
@@ -56,12 +79,14 @@ export function useClusterStream(): ClusterStream {
     source.onopen = markLive
     source.onmessage = receive
     source.onerror = markOffline
+    source.addEventListener('observer-error', receiveObserverError)
 
     return () => {
       previous.current = null
+      source.removeEventListener('observer-error', receiveObserverError)
       source.close()
     }
   }, [])
 
-  return { snapshot, stream, events }
+  return { snapshot, stream, streamError, events }
 }

@@ -7,6 +7,8 @@ const KIND_CLASS: Record<ClusterEventKind, string> = {
   controller: 'text-chart-1',
   leadership: 'text-primary',
   replication: 'text-chart-3',
+  unserved: 'text-destructive',
+  recovery: 'text-chart-2',
   link: 'text-muted-foreground',
   index: 'text-chart-2',
 }

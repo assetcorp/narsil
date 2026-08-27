@@ -75,15 +75,17 @@ Press **Create and ingest** first. That creates `forum-answers` through `node-a`
 
 **Cut one node's replication link.** A primary that replicates to that node stops receiving acknowledgements, so it asks the controller to drop the node from the in-sync set, and the write still succeeds. That node's chips turn dashed and its in-sync column falls to 0/1. Once you restore the link, the node catches up from the commit point its primary recorded, so it rejoins without fetching a snapshot.
 
-**Run the three reads while a link is cut.** The panel sends one term three ways through a single node. The search answers and reports its coverage, so a smaller count comes with the number of partitions that went unread. The count refuses outright, because an exact read has no partial form, and the tile shows the code it came back with. The faceted search answers with the largest undercount each field can have, where a bound of zero proves the counts exact.
+**Run the three reads while a link is cut.** The panel sends one term three ways through a single node, over the same client any application would use. The search answers and reports its coverage, so a smaller count comes with the number of partitions that went unread. The count refuses outright, because an exact read has no partial form, and the tile shows the code the client raised. The faceted search answers with the largest undercount each field can have, where a bound of zero proves the counts exact.
+
+**Cut the coordinator link of two nodes at once.** Every copy of some partition then belongs to a node the coordinator no longer registers, so the controller moves that partition out of service and records the nodes that still hold its data. The partition table names the reason it cannot give the partition back, the node board names the holders under `Holds unserved`, and the log carries both. Restore one of the links and the controller asks that node what its copy holds, then promotes it back at a higher term.
 
 **Watch the write path while the controller lease moves.** A primary may narrow its in-sync set only through the controller, so a write that loses a replica while no node holds that lease fails, and the in-sync set stays as it was. The lease takes up to five seconds to move after its holder loses etcd, which is the window where you can see this.
 
 ## Reading the dashboard
 
-Each node has a column holding one chip for every partition it keeps a copy of. A filled chip marks a partition that node leads, an outlined chip marks a copy that keeps up with its primary, and a dashed chip marks a copy that is catching up. A failover moves chips from one column to another, which is the quickest way to see what happened.
+Each node row names the partitions it leads, the copies that keep up with their primary, and the copies that are catching up. The last of those columns, `Holds unserved`, names the partitions no node serves whose data this node still holds, which the controller reads from the allocation table's `lastHolders` and gives the partition back from. A failover moves partition numbers from one column to another, which is the quickest way to see what happened.
 
-The partition table below gives the same allocation row by row. `Copies` counts the primary alongside its replicas against the replication factor plus one, `In sync` counts the replicas the primary still waits for, `Term` is the primary term that rises on every promotion, and `Commit` is the highest sequence number the primary has acknowledged for that partition.
+The partition table below gives the same allocation row by row. `Copies` counts the primary alongside its replicas against the replication factor plus one, `In sync` counts the replicas the primary still waits for, `Term` is the primary term that rises on every promotion, and `Commit` is the highest sequence number the primary has acknowledged for that partition. `Recovery` stays quiet while a node serves the partition, and it otherwise carries the `unassignedReason` the controller recorded alongside the nodes that still hold a copy.
 
 The log beside it names each change the coordinator recorded, newest first, so a failover reads as a sequence: the lease expires, a replica is promoted at a higher term, and the in-sync set narrows and fills again.
 
@@ -99,3 +101,4 @@ This example publishes every port on loopback and it authenticates nothing. Each
 - [`src/routes/api/cluster-stream.ts`](src/routes/api/cluster-stream.ts) streams each snapshot to the browser.
 - [`src/lib/actions.functions.ts`](src/lib/actions.functions.ts) holds the server functions behind the buttons.
 - [`src/lib/cluster-events.ts`](src/lib/cluster-events.ts) compares one snapshot with the last one and writes the log entries the dashboard shows.
+- [`src/lib/node-client.ts`](src/lib/node-client.ts) builds one `@delali/narsil/client` client for each node, so every read and every write the dashboard makes goes through the published client and its error codes.

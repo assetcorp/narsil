@@ -8,7 +8,7 @@ import type { ClusterNodeRow } from '../lib/cluster-types'
 import type { ReadProbeResult } from '../lib/probe-types'
 import { NODES } from '../topology'
 
-export type ProbeTone = 'settled' | 'narrowed' | 'unknown' | 'refused'
+export type ProbeTone = 'settled' | 'narrowed' | 'refused'
 
 const DEFAULT_TERM = 'mortgage'
 
@@ -47,14 +47,12 @@ interface ProbeTileProps {
 const TONE_LABEL: Record<ProbeTone, string> = {
   settled: 'Complete',
   narrowed: 'Partial',
-  unknown: 'Unreported',
   refused: 'Refused',
 }
 
 const TONE_CLASS: Record<ProbeTone, string> = {
   settled: 'text-muted-foreground',
   narrowed: 'text-chart-3',
-  unknown: 'text-chart-3',
   refused: 'text-destructive',
 }
 
@@ -80,29 +78,19 @@ function searchTile(probe: ReadProbeResult): ProbeTileProps {
     return {
       title: 'search',
       tone: 'refused',
-      headline: search.errorCode ?? 'failed',
-      detail: search.errorMessage ?? 'The node refused the search',
+      headline: search.errorCode,
+      detail: search.errorMessage,
       footnote: 'A search drops a partition it cannot reach and answers with what is left.',
     }
   }
 
-  const coverage = search.coverage
-  if (coverage === null) {
-    return {
-      title: 'search',
-      tone: 'unknown',
-      headline: `${search.matchCount ?? 0} matches`,
-      detail: `${search.returnedHits ?? 0} hits returned in ${search.elapsed ?? 0} ms`,
-      footnote: 'The node reported no coverage, so how many partitions answered is unknown.',
-    }
-  }
-
+  const { coverage } = search
   const missing = coverage.timedOutPartitions + coverage.failedPartitions
 
   return {
     title: 'search',
     tone: missing > 0 ? 'narrowed' : 'settled',
-    headline: `${search.matchCount ?? 0} matches`,
+    headline: `${search.matchCount} matches`,
     detail: `${coverage.queriedPartitions} of ${coverage.totalPartitions} partitions answered`,
     footnote:
       missing > 0
@@ -116,30 +104,29 @@ function countTile(probe: ReadProbeResult): ProbeTileProps {
   return {
     title: 'count',
     tone: count.ok ? 'settled' : 'refused',
-    headline: count.ok ? `${count.documentCount ?? 0} documents` : (count.errorCode ?? 'failed'),
-    detail: count.ok
-      ? 'Every partition answered, so the figure is exact.'
-      : (count.errorMessage ?? 'The node refused the count'),
+    headline: count.ok ? `${count.documentCount} documents` : count.errorCode,
+    detail: count.ok ? 'Every partition answered, so the figure is exact.' : count.errorMessage,
     footnote: 'An exact read refuses outright when one partition has no reachable copy.',
   }
 }
 
 function facetTile(probe: ReadProbeResult): ProbeTileProps {
   const { facets } = probe
+  const title = `facets on ${probe.facetField}`
   if (!facets.ok) {
     return {
-      title: `facets on ${facets.field}`,
+      title,
       tone: 'refused',
-      headline: facets.errorCode ?? 'failed',
-      detail: facets.errorMessage ?? 'The node refused the faceted search',
+      headline: facets.errorCode,
+      detail: facets.errorMessage,
       footnote: 'A faceted search reports the largest undercount each field can have.',
     }
   }
   const top = facets.buckets.slice(0, 3).map(bucket => `${bucket.value} ${bucket.count}`)
   return {
-    title: `facets on ${facets.field}`,
-    tone: (facets.errorBound ?? 0) > 0 ? 'narrowed' : 'settled',
-    headline: `undercount ≤ ${facets.errorBound ?? 0}`,
+    title,
+    tone: facets.errorBound > 0 ? 'narrowed' : 'settled',
+    headline: `undercount ≤ ${facets.errorBound}`,
     detail: top.length > 0 ? top.join(', ') : 'No buckets matched',
     footnote: 'A bound of zero proves the counts exact, and anything higher is the worst case.',
   }
