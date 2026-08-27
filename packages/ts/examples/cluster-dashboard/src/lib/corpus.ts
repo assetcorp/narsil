@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 export interface CorpusDocument {
+  [field: string]: unknown
   id: string
   text: string
   topic: string

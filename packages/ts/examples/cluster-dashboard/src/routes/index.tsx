@@ -27,6 +27,12 @@ function Dashboard() {
           <ErrorBanner message={dashboard.error} onDismiss={dashboard.onDismissError} />
         )}
 
+        {dashboard.streamError === null ? null : (
+          <p className="rounded-lg border border-destructive/40 px-4 py-3 text-sm text-destructive">
+            The cluster stream stopped: {dashboard.streamError}
+          </p>
+        )}
+
         {snapshot === null ? (
           <p className="py-20 text-center text-sm text-muted-foreground">
             The dashboard is waiting for its first snapshot of the coordinator.

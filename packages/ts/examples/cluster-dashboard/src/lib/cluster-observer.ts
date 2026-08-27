@@ -68,6 +68,8 @@ function partitionRows(allocation: AllocationTable | null): PartitionRow[] {
       commitPoint: assignment.commitPoint,
       replicas: [...assignment.replicas],
       inSyncSet: [...assignment.inSyncSet],
+      lastHolders: [...(assignment.lastHolders ?? [])],
+      unassignedReason: assignment.unassignedReason ?? null,
     })
   }
   return rows.sort((a, b) => a.partitionId - b.partitionId)

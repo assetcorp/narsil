@@ -78,6 +78,9 @@ export const NodeRow = memo(function NodeRow({
       <td className="px-3 py-1.5">
         <PartitionIds ids={partitionIdsOf(partitions, node.nodeId, 'lagging-replica')} className="text-chart-3" />
       </td>
+      <td className="px-3 py-1.5">
+        <PartitionIds ids={partitionIdsOf(partitions, node.nodeId, 'last-holder')} className="text-destructive" />
+      </td>
       <LinkCell nodeId={node.nodeId} kind="coordinator" link={coordinatorLink} onToggleLink={onToggleLink} />
       <LinkCell nodeId={node.nodeId} kind="replication" link={replicationLink} onToggleLink={onToggleLink} />
     </tr>
