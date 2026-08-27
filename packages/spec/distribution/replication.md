@@ -348,25 +348,29 @@ The controller records the partition's last holders as it moves the partition so
 
 ```text
 1. The controller writes the failed primary and the replicas that
-   were in the in-sync set into inSyncSet, and it moves the
+   were in the in-sync set into lastHolders, and it moves the
    partition to UNASSIGNED.
-2. A node named in inSyncSet registers with the cluster
+2. A node named in lastHolders registers with the cluster
    coordinator again.
 3. The controller asks that node which partitions of the index it
    holds, over cluster.partition_stores.
 4. The controller promotes the node when the answer names the
    partition and carries the indexUuid the coordinator holds:
-   a. It sets primary to that node and empties inSyncSet.
+   a. It sets primary to that node and leaves lastHolders as it
+      stands, so a promotion that fails leaves the other holders
+      on record.
    b. It raises the primaryTerm.
    c. It moves the partition to INITIALISING, and the node reports
       cluster.bootstrap_complete against its own copy.
-5. The promoted primary numbers its first new entry one above
+5. The controller clears lastHolders as it moves the partition to
+   ACTIVE.
+6. The promoted primary numbers its first new entry one above
    the greater of the highest seqNo its own log recovered and
    the commitPoint the controller stored, so it reuses no
    seqNo its copy already holds.
 ```
 
-The controller promotes only a node that inSyncSet names, because a copy the list omits can be missing acknowledged writes. It records why the partition stays `UNASSIGNED` in [unassignedReason](cluster.md#unassignedreason) each time it asks, so an operator can tell whether the partition is waiting for a node to return or no node can restore it. The cluster keeps no copy of the partition when none of those nodes returns, so set `replicationFactor` high enough that the case stays unlikely in production.
+The controller promotes only a node that lastHolders names, because a copy the list omits can be missing acknowledged writes. It records why the partition stays `UNASSIGNED` in [unassignedReason](cluster.md#unassignedreason) each time it asks, so an operator can tell whether the partition is waiting for a node to return or no node can restore it. The cluster keeps no copy of the partition when none of those nodes returns, so set `replicationFactor` high enough that the case stays unlikely in production.
 
 ### Fencing a Stale Primary
 
