@@ -15,6 +15,7 @@ export function processAllocationChange(
 
   const nodeId = config.registration.nodeId
   const currentKeys = new Set<string>()
+  seedRetainedFromRecord(state, config, table.indexName)
 
   for (const [partitionId, assignment] of table.assignments) {
     if (!isNodeAssigned(assignment, nodeId)) {
@@ -46,6 +47,7 @@ export function processAllocationChange(
   }
 
   removeDroppedPartitions(state, config, table, currentKeys)
+  releaseSupersededCopies(state, config, table, currentKeys)
 }
 
 /**
@@ -152,12 +154,67 @@ function replicaNeedsResync(
   return !state.activeBootstraps.has(partitionKey(existing.indexName, existing.partitionId))
 }
 
-function keepsCopyForRecovery(table: AllocationTable, tracked: TrackedPartition, nodeId: string): boolean {
-  const assignment = table.assignments.get(tracked.partitionId)
+function keepsCopyForRecovery(table: AllocationTable, partitionId: number, nodeId: string): boolean {
+  const assignment = table.assignments.get(partitionId)
   if (assignment === undefined || assignment.state !== 'UNASSIGNED') {
     return false
   }
   return assignment.inSyncSet.includes(nodeId)
+}
+
+function seedRetainedFromRecord(state: AllocationWatcherState, config: NodeLifecycleConfig, indexName: string): void {
+  if (config.retainedPartitionIds === undefined || state.indexesSeededFromRecord.has(indexName)) {
+    return
+  }
+  state.indexesSeededFromRecord.add(indexName)
+  for (const partitionId of config.retainedPartitionIds(indexName)) {
+    state.retainedPartitions.add(partitionKey(indexName, partitionId))
+  }
+}
+
+function retainedPartitionIdOf(key: string, indexName: string): number | null {
+  if (!key.startsWith(`${indexName}:`)) {
+    return null
+  }
+  const partitionId = Number(key.slice(indexName.length + 1))
+  return Number.isInteger(partitionId) ? partitionId : null
+}
+
+function copyHasNoFurtherUse(table: AllocationTable, partitionId: number, nodeId: string): boolean {
+  if (table.assignments.size === 0) {
+    return true
+  }
+  const assignment = table.assignments.get(partitionId)
+  if (assignment === undefined) {
+    return false
+  }
+  return assignment.state === 'ACTIVE' && assignment.primary !== null && assignment.primary !== nodeId
+}
+
+function releaseSupersededCopies(
+  state: AllocationWatcherState,
+  config: NodeLifecycleConfig,
+  table: AllocationTable,
+  currentKeys: Set<string>,
+): void {
+  const nodeId = config.registration.nodeId
+  for (const key of [...state.retainedPartitions]) {
+    const partitionId = retainedPartitionIdOf(key, table.indexName)
+    if (partitionId === null) {
+      continue
+    }
+    if (currentKeys.has(key)) {
+      state.retainedPartitions.delete(key)
+      continue
+    }
+    if (!copyHasNoFurtherUse(table, partitionId, nodeId)) {
+      continue
+    }
+    state.retainedPartitions.delete(key)
+    if (config.onRemovePartition !== undefined) {
+      config.onRemovePartition(table.indexName, partitionId)
+    }
+  }
 }
 
 function removeDroppedPartitions(
@@ -182,10 +239,12 @@ function removeDroppedPartitions(
       state.activeBootstraps.delete(key)
     }
 
-    if (keepsCopyForRecovery(table, tracked, config.registration.nodeId)) {
+    if (keepsCopyForRecovery(table, tracked.partitionId, config.registration.nodeId)) {
+      state.retainedPartitions.add(key)
       continue
     }
 
+    state.retainedPartitions.delete(key)
     if (config.onRemovePartition !== undefined) {
       config.onRemovePartition(tracked.indexName, tracked.partitionId)
     }

@@ -9,6 +9,8 @@ export interface AllocationWatcherState {
   trackedPartitions: Map<string, TrackedPartition>
   pendingTables: Map<string, AllocationTable>
   restartWaiters: Map<ReturnType<typeof setTimeout>, () => void>
+  retainedPartitions: Set<string>
+  indexesSeededFromRecord: Set<string>
   stopped: boolean
 }
 
@@ -38,6 +40,8 @@ export function createAllocationWatcherState(): AllocationWatcherState {
     trackedPartitions: new Map(),
     pendingTables: new Map(),
     restartWaiters: new Map(),
+    retainedPartitions: new Set(),
+    indexesSeededFromRecord: new Set(),
     stopped: false,
   }
 }
@@ -74,5 +78,7 @@ export function stopAllocationWatcher(state: AllocationWatcherState): void {
   }
   state.activeBootstraps.clear()
   state.trackedPartitions.clear()
+  state.retainedPartitions.clear()
+  state.indexesSeededFromRecord.clear()
   state.pendingTables.clear()
 }

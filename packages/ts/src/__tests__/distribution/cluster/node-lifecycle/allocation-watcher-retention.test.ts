@@ -29,7 +29,11 @@ function assignmentOf(
   return { primary, replicas, inSyncSet, state, primaryTerm: 1, commitPoint: 4 }
 }
 
-function configRecording(removed: Array<[string, number]>, held: Array<[string, number]> = []): NodeLifecycleConfig {
+function configRecording(
+  removed: Array<[string, number]>,
+  held: Array<[string, number]> = [],
+  retained: number[] = [],
+): NodeLifecycleConfig {
   return {
     ...DEFAULT_NODE_LIFECYCLE_CONFIG,
     registration: {
@@ -46,6 +50,7 @@ function configRecording(removed: Array<[string, number]>, held: Array<[string, 
     onBootstrapPartition: async () => true,
     onRemovePartition: (indexName, partitionId) => removed.push([indexName, partitionId]),
     onHoldPartition: (indexName, partitionId) => held.push([indexName, partitionId]),
+    retainedPartitionIds: () => retained,
   }
 }
 
@@ -121,6 +126,114 @@ describe('a node watching a partition it holds lose every copy', () => {
 
     processInitialAllocations(state, config, [tableWith(assignmentOf(NODE_ID, [], [], 'ACTIVE'))])
     processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], ['node-b'], 'UNASSIGNED'))])
+
+    expect(removed).toEqual([[INDEX_NAME, 0]])
+  })
+
+  it('drops the copy it kept once the controller gives the partition to another node', () => {
+    const removed: Array<[string, number]> = []
+    const config = configRecording(removed, [], [0])
+    const state = createAllocationWatcherState()
+
+    processInitialAllocations(state, config, [tableWith(assignmentOf(NODE_ID, [], [], 'ACTIVE'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [NODE_ID], 'UNASSIGNED'))])
+    expect(removed).toEqual([])
+
+    processInitialAllocations(state, config, [tableWith(assignmentOf('node-b', [], [], 'ACTIVE'))])
+
+    expect(removed).toEqual([[INDEX_NAME, 0]])
+  })
+
+  it('keeps the copy it kept while the partition stays unserved', () => {
+    const removed: Array<[string, number]> = []
+    const config = configRecording(removed, [], [0])
+    const state = createAllocationWatcherState()
+
+    processInitialAllocations(state, config, [tableWith(assignmentOf(NODE_ID, [], [], 'ACTIVE'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [NODE_ID], 'UNASSIGNED'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [NODE_ID], 'UNASSIGNED'))])
+
+    expect(removed).toEqual([])
+  })
+
+  it('keeps the copy it holds while the controller still assigns it the partition', () => {
+    const removed: Array<[string, number]> = []
+    const config = configRecording(removed, [], [0])
+    const state = createAllocationWatcherState()
+
+    processInitialAllocations(state, config, [tableWith(assignmentOf(NODE_ID, [], [], 'ACTIVE'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf(NODE_ID, [], [], 'ACTIVE'))])
+
+    expect(removed).toEqual([])
+  })
+
+  it('drops the copy it kept once and only once', () => {
+    const removed: Array<[string, number]> = []
+    const config = configRecording(removed, [], [0])
+    const state = createAllocationWatcherState()
+
+    processInitialAllocations(state, config, [tableWith(assignmentOf(NODE_ID, [], [], 'ACTIVE'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf('node-b', [], [], 'ACTIVE'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf('node-b', [], [], 'ACTIVE'))])
+
+    expect(removed).toEqual([[INDEX_NAME, 0]])
+  })
+
+  it('keeps the copy it kept until the node taking over is serving the partition', () => {
+    const removed: Array<[string, number]> = []
+    const config = configRecording(removed, [], [0])
+    const state = createAllocationWatcherState()
+
+    processInitialAllocations(state, config, [tableWith(assignmentOf(NODE_ID, [], [], 'ACTIVE'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [NODE_ID], 'UNASSIGNED'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf('node-b', [], [], 'INITIALISING'))])
+
+    expect(removed).toEqual([])
+
+    processInitialAllocations(state, config, [tableWith(assignmentOf('node-b', [], [], 'ACTIVE'))])
+
+    expect(removed).toEqual([[INDEX_NAME, 0]])
+  })
+
+  it('keeps the copy it kept for a partition the table stops naming', () => {
+    const removed: Array<[string, number]> = []
+    const config = configRecording(removed, [], [0])
+    const state = createAllocationWatcherState()
+
+    processInitialAllocations(state, config, [tableWith(assignmentOf(NODE_ID, [], [], 'ACTIVE'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [NODE_ID], 'UNASSIGNED'))])
+    processInitialAllocations(state, config, [
+      {
+        indexName: INDEX_NAME,
+        version: 4,
+        replicationFactor: 0,
+        assignments: new Map([[1, assignmentOf('node-b', [], [], 'ACTIVE')]]),
+      },
+    ])
+
+    expect(removed).toEqual([])
+  })
+
+  it('drops the copy it kept once the cluster tears the index down', () => {
+    const removed: Array<[string, number]> = []
+    const config = configRecording(removed, [], [0])
+    const state = createAllocationWatcherState()
+
+    processInitialAllocations(state, config, [tableWith(assignmentOf(NODE_ID, [], [], 'ACTIVE'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [NODE_ID], 'UNASSIGNED'))])
+    processInitialAllocations(state, config, [
+      { indexName: INDEX_NAME, version: 4, replicationFactor: 0, assignments: new Map() },
+    ])
+
+    expect(removed).toEqual([[INDEX_NAME, 0]])
+  })
+
+  it('releases a copy it kept before a restart once another node serves the partition', () => {
+    const removed: Array<[string, number]> = []
+    const config = configRecording(removed, [], [0])
+    const state = createAllocationWatcherState()
+
+    processInitialAllocations(state, config, [tableWith(assignmentOf('node-b', [], [], 'ACTIVE'))])
 
     expect(removed).toEqual([[INDEX_NAME, 0]])
   })

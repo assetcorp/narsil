@@ -17,8 +17,11 @@ export interface PrimaryPartitionDeps {
  *
  * The node creates the index where it holds no copy, and it checks a copy it already holds against the schema the
  * cluster keeps. A node the controller promoted back after every copy of the partition was lost numbers its next
- * entry above everything its own copy already holds, so a replica that returns can still reach the commit point the
- * controller stored.
+ * entry above both the commit point the controller stored and everything its own write-ahead log holds, so a
+ * replica that returns can still reach that commit point. A node that took the partition on as a replica has no
+ * write-ahead log of its own for it, because a replicated write reaches the partition without passing through that
+ * log, so the commit point alone carries the floor there and the node renumbers the entries above it that the
+ * cluster never acknowledged.
  *
  * @param indexName - The index the partition belongs to.
  * @param partitionId - The partition this node leads.
@@ -76,7 +79,7 @@ function resumeNumberingAboveOwnCopy(
   if (deps.replicationLogPosition(indexName, partitionId) > 0) {
     return
   }
-  const floor = Math.max(deps.engine.highestAppliedSeqNoOf(indexName, partitionId), assignment.commitPoint)
+  const floor = Math.max(deps.engine.highestPersistedSeqNoOf(indexName, partitionId), assignment.commitPoint)
   if (floor <= 0) {
     return
   }

@@ -33,6 +33,7 @@ export function createSnapshotOnlyManager(
   const checkpointMutationThreshold = config.checkpointMutationThreshold ?? DEFAULT_CHECKPOINT_MUTATION_THRESHOLD
 
   const indexes = new Map<string, SnapshotIndexState>()
+  const metadataWrites = new Map<string, Promise<void>>()
   let checkpointTimer: ReturnType<typeof setInterval> | null = null
   let shuttingDown = false
 
@@ -121,6 +122,16 @@ export function createSnapshotOnlyManager(
     return run
   }
 
+  function queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void> {
+    const previous = metadataWrites.get(indexName) ?? Promise.resolve()
+    const queued = previous.then(write)
+    metadataWrites.set(
+      indexName,
+      queued.catch(() => undefined),
+    )
+    return queued
+  }
+
   async function recoverIndex(indexName: string): Promise<void> {
     const metaBytes = await adapter.load(metadataKey(indexName))
     if (metaBytes === null) {
@@ -159,7 +170,7 @@ export function createSnapshotOnlyManager(
       startCheckpointTimer()
     },
 
-    highestAppliedSeqNo(): number {
+    highestPersistedSeqNo(): number {
       return 0
     },
 
@@ -179,14 +190,16 @@ export function createSnapshotOnlyManager(
       return 0
     },
 
-    async persistMetadata(indexName: string): Promise<void> {
-      const metadata = hooks.buildMetadata(indexName)
-      if (metadata === undefined) {
-        return
-      }
-      const bytes = await writeMetadataEnvelope(metadata, { checksum: true })
-      await adapter.save(metadataKey(indexName), bytes)
-      getOrCreateIndexState(indexName)
+    persistMetadata(indexName: string): Promise<void> {
+      return queueMetadataWrite(indexName, async () => {
+        const metadata = hooks.buildMetadata(indexName)
+        if (metadata === undefined) {
+          return
+        }
+        const bytes = await writeMetadataEnvelope(metadata, { checksum: true })
+        await adapter.save(metadataKey(indexName), bytes)
+        getOrCreateIndexState(indexName)
+      })
     },
 
     checkpoint(indexName: string): Promise<void> {
