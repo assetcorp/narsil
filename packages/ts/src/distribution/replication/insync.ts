@@ -107,8 +107,8 @@ export async function requestInsyncRemoval(
  *
  * The controller refuses the request when it finds no allocation table, no assignment for the partition, or a
  * `primaryTerm` other than the assignment's own, because a stale primary must not shrink the set. It refuses the
- * request for a partition in `UNASSIGNED` as well, because the field then names the nodes that last held the data
- * and a request already in flight would leave one of them out of the recovery. It accepts without a write when the
+ * request for a partition in `UNASSIGNED` as well, because no node leads such a partition and so no node may speak
+ * for it. It accepts without a write when the
  * replica is already outside the set, and it otherwise writes the smaller set with a compare-and-set, retrying a
  * lost write a bounded number of times.
  *

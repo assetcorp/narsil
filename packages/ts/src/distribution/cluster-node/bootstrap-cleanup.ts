@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
+import { holdsLastCopy } from '../cluster/last-holders'
 import type { ClusterCoordinator } from '../coordinator/types'
 
 export interface BootstrapCleanupDeps {
@@ -14,8 +15,8 @@ export interface BootstrapCleanupDeps {
  * line with the coordinator's view. The engine hosts a single index per
  * indexName irrespective of partition, so the drop is only safe when this
  * node has no other partitions of the same index assigned to it. A partition
- * left UNASSIGNED that names this node among its last holders counts as
- * assigned here, because the controller is waiting for this copy to give that
+ * that names this node in lastHolders counts as assigned here, whatever state
+ * it is in, because the controller is waiting for this copy to give that
  * partition back.
  *
  * This operation runs in the background after the synchronous state update in
@@ -86,7 +87,7 @@ async function nodeHasOtherPartitions(
     if (assignment.replicas.includes(deps.nodeId)) {
       return true
     }
-    if (assignment.state === 'UNASSIGNED' && assignment.inSyncSet.includes(deps.nodeId)) {
+    if (holdsLastCopy(assignment, deps.nodeId)) {
       return true
     }
   }

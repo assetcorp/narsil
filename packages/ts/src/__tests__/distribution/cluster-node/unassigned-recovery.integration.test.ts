@@ -71,7 +71,8 @@ describe('a node that holds the controller lease recovering a partition it still
         ...assignment,
         primary: null,
         replicas: [],
-        inSyncSet: ['node-a'],
+        inSyncSet: [],
+        lastHolders: ['node-a'],
         state: 'UNASSIGNED',
       })
     }

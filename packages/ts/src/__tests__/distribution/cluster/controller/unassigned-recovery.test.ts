@@ -21,7 +21,8 @@ function unassigned(overrides: Partial<PartitionAssignment> = {}): PartitionAssi
   return {
     primary: null,
     replicas: [],
-    inSyncSet: ['node-a', 'node-b'],
+    inSyncSet: [],
+    lastHolders: ['node-a', 'node-b'],
     state: 'UNASSIGNED',
     primaryTerm: 4,
     commitPoint: 17,
@@ -158,8 +159,8 @@ describe('recovering a partition no node serves', () => {
     await coordinator.putAllocation(
       INDEX_NAME,
       tableOf([
-        [0, unassigned({ inSyncSet: ['node-a'] })],
-        [1, unassigned({ inSyncSet: ['node-b'] })],
+        [0, unassigned({ lastHolders: ['node-a'] })],
+        [1, unassigned({ lastHolders: ['node-b'] })],
       ]),
     )
     await answerAs('node-a', { indexUuid: INDEX_UUID, partitionIds: [0] })
@@ -173,7 +174,7 @@ describe('recovering a partition no node serves', () => {
   })
 
   it('leaves the partition unserved when the holder never answers', async () => {
-    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ inSyncSet: ['node-a'] })]]))
+    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ lastHolders: ['node-a'] })]]))
 
     expect(await recover(['node-a'])).toBe(false)
     expect((await coordinator.getAllocation(INDEX_NAME))?.assignments.get(0)?.state).toBe('UNASSIGNED')
@@ -191,7 +192,7 @@ describe('protecting the record of a partition no node serves', () => {
     await coordinator.shutdown()
   })
 
-  it('refuses to strip a last holder out of an unserved partition', async () => {
+  it('refuses to shrink the in-sync set of a partition no node serves', async () => {
     await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ inSyncSet: ['node-a', 'node-b'] })]]))
 
     const answer = await handleInsyncRemoval(
@@ -285,33 +286,33 @@ describe('recording why a partition stays unserved', () => {
   }
 
   it('reports that it is still waiting while every last holder is offline', async () => {
-    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ inSyncSet: ['node-a'] })]]))
+    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ lastHolders: ['node-a'] })]]))
 
     expect(await reasonAfterRecovery(['node-c'])).toBe('HOLDER_OFFLINE')
   })
 
   it('reports a live holder that left the request unanswered', async () => {
-    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ inSyncSet: ['node-a'] })]]))
+    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ lastHolders: ['node-a'] })]]))
 
     expect(await reasonAfterRecovery(['node-a'])).toBe('HOLDER_UNREACHABLE')
   })
 
   it('reports a holder answering for a different index of the same name', async () => {
-    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ inSyncSet: ['node-a'] })]]))
+    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ lastHolders: ['node-a'] })]]))
     await answerAs('node-a', { indexUuid: 'a-different-identity', partitionIds: [0] })
 
     expect(await reasonAfterRecovery(['node-a'])).toBe('HOLDER_IDENTITY_MISMATCH')
   })
 
   it('reports a holder keeping no copy of the index under the identity it answered with', async () => {
-    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ inSyncSet: ['node-a'] })]]))
+    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ lastHolders: ['node-a'] })]]))
     await answerAs('node-a', { indexUuid: null, partitionIds: [] })
 
     expect(await reasonAfterRecovery(['node-a'])).toBe('HOLDER_IDENTITY_MISMATCH')
   })
 
   it('gives up on a holder that takes the request and never answers', async () => {
-    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ inSyncSet: ['node-a'] })]]))
+    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ lastHolders: ['node-a'] })]]))
     const silent = createInMemoryTransport('node-a', network)
     holderTransports.push(silent)
     await silent.listen(async () => new Promise<void>(() => undefined))
@@ -320,14 +321,14 @@ describe('recording why a partition stays unserved', () => {
   }, 30_000)
 
   it('reports that no holder answered with the data', async () => {
-    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ inSyncSet: ['node-a'] })]]))
+    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ lastHolders: ['node-a'] })]]))
     await answerAs('node-a', { indexUuid: INDEX_UUID, partitionIds: [1] })
 
     expect(await reasonAfterRecovery(['node-a'])).toBe('HOLDER_WITHOUT_DATA')
   })
 
   it('reports waiting ahead of refusal while one of several holders is still offline', async () => {
-    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ inSyncSet: ['node-a', 'node-b'] })]]))
+    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ lastHolders: ['node-a', 'node-b'] })]]))
     await answerAs('node-a', { indexUuid: INDEX_UUID, partitionIds: [1] })
 
     expect(await reasonAfterRecovery(['node-a'])).toBe('HOLDER_OFFLINE')
@@ -336,7 +337,7 @@ describe('recording why a partition stays unserved', () => {
   it('clears the reason once it promotes a holder', async () => {
     await coordinator.putAllocation(
       INDEX_NAME,
-      tableOf([[0, unassigned({ inSyncSet: ['node-a'], unassignedReason: 'HOLDER_OFFLINE' })]]),
+      tableOf([[0, unassigned({ lastHolders: ['node-a'], unassignedReason: 'HOLDER_OFFLINE' })]]),
     )
     await answerAs('node-a', { indexUuid: INDEX_UUID, partitionIds: [0] })
 
@@ -347,7 +348,7 @@ describe('recording why a partition stays unserved', () => {
   })
 
   it('keeps asking after a run that recorded a reason', async () => {
-    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ inSyncSet: ['node-a'] })]]))
+    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ lastHolders: ['node-a'] })]]))
     expect(await reasonAfterRecovery(['node-c'])).toBe('HOLDER_OFFLINE')
 
     await answerAs('node-a', { indexUuid: INDEX_UUID, partitionIds: [0] })

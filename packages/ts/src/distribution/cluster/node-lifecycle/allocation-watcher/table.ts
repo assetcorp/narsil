@@ -1,4 +1,5 @@
 import type { AllocationTable, PartitionAssignment } from '../../../coordinator/types'
+import { holdsLastCopy } from '../../last-holders'
 import { abortBootstrapState } from '../bootstrap'
 import type { NodeLifecycleConfig } from '../types'
 import { startBootstrap } from './bootstrap-restart'
@@ -156,10 +157,10 @@ function replicaNeedsResync(
 
 function keepsCopyForRecovery(table: AllocationTable, partitionId: number, nodeId: string): boolean {
   const assignment = table.assignments.get(partitionId)
-  if (assignment === undefined || assignment.state !== 'UNASSIGNED') {
+  if (assignment === undefined) {
     return false
   }
-  return assignment.inSyncSet.includes(nodeId)
+  return holdsLastCopy(assignment, nodeId)
 }
 
 function seedRetainedFromRecord(state: AllocationWatcherState, config: NodeLifecycleConfig, indexName: string): void {

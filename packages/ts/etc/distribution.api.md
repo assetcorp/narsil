@@ -189,6 +189,7 @@ export interface NodeTransport {
 export interface PartitionAssignment {
     commitPoint: number;
     inSyncSet: string[];
+    lastHolders?: string[];
     primary: string | null;
     primaryTerm: number;
     replicas: string[];

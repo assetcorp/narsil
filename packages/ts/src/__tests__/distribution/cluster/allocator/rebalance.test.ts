@@ -180,11 +180,73 @@ describe('rebalance allocation', () => {
     expect(assignment).toMatchObject({
       primary: null,
       replicas: [],
-      inSyncSet: ['node-x', 'node-y'],
+      inSyncSet: [],
+      lastHolders: ['node-x', 'node-y'],
       state: 'UNASSIGNED',
       primaryTerm: 1,
       commitPoint: 0,
     })
+  })
+
+  it('keeps the other holders on record when a promoted holder fails before it serves the partition', () => {
+    const assignments = new Map<number, PartitionAssignment>([
+      [
+        0,
+        {
+          primary: 'node-y',
+          replicas: [],
+          inSyncSet: [],
+          lastHolders: ['node-x', 'node-y'],
+          state: 'INITIALISING',
+          primaryTerm: 6,
+          commitPoint: 11,
+        },
+      ],
+    ])
+
+    const currentTable: AllocationTable = {
+      indexName: 'products',
+      version: 1,
+      replicationFactor: 1,
+      assignments,
+    }
+
+    const survivingNodes = [makeNode('node-a', 4_000_000_000)]
+    const afterFailure = allocate(survivingNodes, currentTable, 'products', 1, 1, defaultConstraints).table
+
+    expect(afterFailure.assignments.get(0)).toMatchObject({
+      primary: null,
+      state: 'UNASSIGNED',
+      lastHolders: ['node-x', 'node-y'],
+    })
+  })
+
+  it('forgets the holders once a node serves the partition again', () => {
+    const assignments = new Map<number, PartitionAssignment>([
+      [
+        0,
+        {
+          primary: 'node-a',
+          replicas: [],
+          inSyncSet: [],
+          lastHolders: ['node-a', 'node-x'],
+          state: 'ACTIVE',
+          primaryTerm: 6,
+          commitPoint: 11,
+        },
+      ],
+    ])
+
+    const currentTable: AllocationTable = {
+      indexName: 'products',
+      version: 1,
+      replicationFactor: 0,
+      assignments,
+    }
+
+    const rebalanced = allocate([makeNode('node-a', 4_000_000_000)], currentTable, 'products', 1, 0, defaultConstraints)
+
+    expect(rebalanced.table.assignments.get(0)?.lastHolders).toBeUndefined()
   })
 
   it('keeps the recorded holders across a later allocation run', () => {
@@ -211,13 +273,14 @@ describe('rebalance allocation', () => {
 
     const survivingNodes = [makeNode('node-a', 4_000_000_000)]
     const afterFailure = allocate(survivingNodes, currentTable, 'products', 1, 1, defaultConstraints).table
-    expect(afterFailure.assignments.get(0)?.inSyncSet).toEqual(['node-x', 'node-y'])
+    expect(afterFailure.assignments.get(0)?.lastHolders).toEqual(['node-x', 'node-y'])
 
     const afterSecondRun = allocate(survivingNodes, afterFailure, 'products', 1, 1, defaultConstraints).table
     expect(afterSecondRun.assignments.get(0)).toMatchObject({
       primary: null,
       replicas: [],
-      inSyncSet: ['node-x', 'node-y'],
+      inSyncSet: [],
+      lastHolders: ['node-x', 'node-y'],
       state: 'UNASSIGNED',
       commitPoint: 4,
     })
@@ -248,7 +311,7 @@ describe('rebalance allocation', () => {
     const survivingNodes = [makeNode('node-a', 4_000_000_000)]
     const rebalancedTable = allocate(survivingNodes, currentTable, 'products', 1, 2, defaultConstraints).table
 
-    expect(rebalancedTable.assignments.get(0)?.inSyncSet).toEqual(['node-x', 'node-y'])
+    expect(rebalancedTable.assignments.get(0)?.lastHolders).toEqual(['node-x', 'node-y'])
   })
 
   it('promotes in-sync replica to primary when primary is lost', () => {
@@ -505,7 +568,8 @@ describe('rebalance allocation', () => {
     expect(assignment).toMatchObject({
       primary: null,
       replicas: [],
-      inSyncSet: ['node-a'],
+      inSyncSet: [],
+      lastHolders: ['node-a'],
       state: 'UNASSIGNED',
       primaryTerm: 1,
       commitPoint: 0,

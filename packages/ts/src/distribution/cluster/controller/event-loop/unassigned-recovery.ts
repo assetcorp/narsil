@@ -10,6 +10,7 @@ import type {
 } from '../../../coordinator/types'
 import type { NodeTransport, TransportMessage } from '../../../transport/types'
 import { getIndexMetadata } from '../../index-metadata'
+import { lastHoldersOf } from '../../last-holders'
 import { createPartitionStoresMessage, validatePartitionStoresResultPayload } from '../../partition-stores'
 
 const RECOVERY_CAS_ATTEMPTS = 5
@@ -31,7 +32,7 @@ function liveHoldersOfUnassignedPartitions(table: AllocationTable, liveNodeIds: 
     if (assignment.state !== 'UNASSIGNED') {
       continue
     }
-    for (const nodeId of assignment.inSyncSet) {
+    for (const nodeId of lastHoldersOf(assignment)) {
       if (liveNodeIds.has(nodeId)) {
         holders.add(nodeId)
       }
@@ -42,7 +43,7 @@ function liveHoldersOfUnassignedPartitions(table: AllocationTable, liveNodeIds: 
 
 function hasRecoverablePartition(table: AllocationTable): boolean {
   for (const assignment of table.assignments.values()) {
-    if (assignment.state === 'UNASSIGNED' && assignment.inSyncSet.length > 0) {
+    if (assignment.state === 'UNASSIGNED' && lastHoldersOf(assignment).length > 0) {
       return true
     }
   }
@@ -54,13 +55,14 @@ function reasonFor(
   liveNodeIds: Set<string>,
   answers: Map<string, StoresAnswer>,
 ): UnassignedReason | undefined {
-  if (assignment.inSyncSet.length === 0) {
+  const holders = lastHoldersOf(assignment)
+  if (holders.length === 0) {
     return undefined
   }
-  if (assignment.inSyncSet.some(nodeId => !liveNodeIds.has(nodeId))) {
+  if (holders.some(nodeId => !liveNodeIds.has(nodeId))) {
     return 'HOLDER_OFFLINE'
   }
-  const given = assignment.inSyncSet.map(nodeId => answers.get(nodeId))
+  const given = holders.map(nodeId => answers.get(nodeId))
   if (given.some(answer => answer === undefined || answer.kind === 'unreachable')) {
     return 'HOLDER_UNREACHABLE'
   }
@@ -153,7 +155,7 @@ function holderThatAnswered(
   partitionId: number,
   answers: Map<string, StoresAnswer>,
 ): string | undefined {
-  const holders = [...assignment.inSyncSet].sort(compareCodePoints)
+  const holders = [...lastHoldersOf(assignment)].sort(compareCodePoints)
   return holders.find(nodeId => {
     const answer = answers.get(nodeId)
     return answer?.kind === 'held' && answer.partitionIds.has(partitionId)
@@ -242,7 +244,7 @@ async function writeRecoveryOutcome(
  * allocation table changed.
  *
  * A partition reaches `UNASSIGNED` when its primary fails while no in-sync replica survives, and the allocator
- * records the nodes that last held it in `inSyncSet`. Once one of those nodes registers again, the controller asks it
+ * records the nodes that still hold it in `lastHolders`. Once one of those nodes registers again, the controller asks it
  * which partitions its local copy holds, and it promotes the node only where the answer names the partition and
  * carries the index identity the coordinator holds, because a copy that fails either test may be missing writes the
  * cluster already acknowledged. A promoted node becomes the primary of an `INITIALISING` partition at a raised term,
