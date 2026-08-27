@@ -8,7 +8,10 @@ import type { EmbeddingAdapter } from './adapters'
  *
  * @public
  */
-export type AnyDocument = Record<string, unknown> & { id?: string }
+export type AnyDocument = Record<string, unknown> & {
+  /** Identifier the engine stores this document under when you insert without passing one separately. */
+  id?: string
+}
 
 /**
  * The type a schema field declares, which sets how the engine indexes it.

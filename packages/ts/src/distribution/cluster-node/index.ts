@@ -186,6 +186,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       onHoldPartition: (indexName: string, partitionId: number) => {
         trackHeldPartitionWrite(engine.recordHeldPartition(indexName, partitionId))
       },
+      retainedPartitionIds: (indexName: string) => engine.heldPartitionsOf(indexName) ?? [],
       onRemovePartition: (indexName: string, partitionId: number) => {
         clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
         replicationLogs.delete(replicationLogKey(indexName, partitionId))

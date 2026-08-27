@@ -31,8 +31,12 @@ export interface DurabilityManager {
   isActive(): boolean
   recover(): Promise<void>
   recordMutation(record: MutationRecord): Promise<number>
-  /** The highest sequence number this node has written for a partition, counting what recovery replayed. */
-  highestAppliedSeqNo(indexName: string, partitionId: number): number
+  /** The highest sequence number this node's own write-ahead log holds for a partition, counting what recovery
+   * replayed. A replicated write reaches the partition without passing through this log, so a node that took the
+   * partition on as a replica reports 0. */
+  highestPersistedSeqNo(indexName: string, partitionId: number): number
+  /** Writes the index metadata. Each index takes its writes in turn, so a caller that built its metadata earlier
+   * never renames over a later one. */
   persistMetadata(indexName: string): Promise<void>
   checkpoint(indexName: string): Promise<void>
   /** Writes each partition as it stands in memory, so a checkpoint that

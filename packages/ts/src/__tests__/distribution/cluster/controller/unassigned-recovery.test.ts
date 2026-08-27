@@ -9,6 +9,7 @@ import type {
   ClusterCoordinator,
   PartitionAssignment,
 } from '../../../../distribution/coordinator/types'
+import { handleInsyncRemoval } from '../../../../distribution/replication/insync'
 import type { InMemoryNetwork, NodeTransport } from '../../../../distribution/transport'
 import { createInMemoryNetwork, createInMemoryTransport } from '../../../../distribution/transport'
 import { ClusterMessageTypes, type TransportMessage } from '../../../../distribution/transport/types'
@@ -179,6 +180,50 @@ describe('recovering a partition no node serves', () => {
   })
 })
 
+describe('protecting the record of a partition no node serves', () => {
+  let coordinator: ClusterCoordinator
+
+  beforeEach(async () => {
+    coordinator = createInMemoryCoordinator()
+  })
+
+  afterEach(async () => {
+    await coordinator.shutdown()
+  })
+
+  it('refuses to strip a last holder out of an unserved partition', async () => {
+    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ inSyncSet: ['node-a', 'node-b'] })]]))
+
+    const answer = await handleInsyncRemoval(
+      { indexName: INDEX_NAME, partitionId: 0, replicaNodeId: 'node-b', primaryTerm: 4 },
+      coordinator,
+    )
+
+    expect(answer.accepted).toBe(false)
+    expect((await coordinator.getAllocation(INDEX_NAME))?.assignments.get(0)?.inSyncSet).toEqual(['node-a', 'node-b'])
+  })
+
+  it('still removes a replica that has fallen behind on a partition it serves', async () => {
+    const active: PartitionAssignment = {
+      primary: 'node-a',
+      replicas: ['node-b'],
+      inSyncSet: ['node-b'],
+      state: 'ACTIVE',
+      primaryTerm: 4,
+      commitPoint: 17,
+    }
+    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, active]]))
+
+    const answer = await handleInsyncRemoval(
+      { indexName: INDEX_NAME, partitionId: 0, replicaNodeId: 'node-b', primaryTerm: 4 },
+      coordinator,
+    )
+
+    expect(answer.accepted).toBe(true)
+    expect((await coordinator.getAllocation(INDEX_NAME))?.assignments.get(0)?.inSyncSet).toEqual([])
+  })
+})
+
 describe('recording why a partition stays unserved', () => {
   let coordinator: ClusterCoordinator
   let network: InMemoryNetwork
@@ -257,6 +302,22 @@ describe('recording why a partition stays unserved', () => {
 
     expect(await reasonAfterRecovery(['node-a'])).toBe('HOLDER_IDENTITY_MISMATCH')
   })
+
+  it('reports a holder keeping no copy of the index under the identity it answered with', async () => {
+    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ inSyncSet: ['node-a'] })]]))
+    await answerAs('node-a', { indexUuid: null, partitionIds: [] })
+
+    expect(await reasonAfterRecovery(['node-a'])).toBe('HOLDER_IDENTITY_MISMATCH')
+  })
+
+  it('gives up on a holder that takes the request and never answers', async () => {
+    await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ inSyncSet: ['node-a'] })]]))
+    const silent = createInMemoryTransport('node-a', network)
+    holderTransports.push(silent)
+    await silent.listen(async () => new Promise<void>(() => undefined))
+
+    expect(await reasonAfterRecovery(['node-a'])).toBe('HOLDER_UNREACHABLE')
+  }, 30_000)
 
   it('reports that no holder answered with the data', async () => {
     await coordinator.putAllocation(INDEX_NAME, tableOf([[0, unassigned({ inSyncSet: ['node-a'] })]]))

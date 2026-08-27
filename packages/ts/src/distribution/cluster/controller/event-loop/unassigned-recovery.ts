@@ -13,6 +13,7 @@ import { getIndexMetadata } from '../../index-metadata'
 import { createPartitionStoresMessage, validatePartitionStoresResultPayload } from '../../partition-stores'
 
 const RECOVERY_CAS_ATTEMPTS = 5
+const PARTITION_STORES_TIMEOUT_MS = 5_000
 
 interface RecoveryDeps {
   coordinator: ClusterCoordinator
@@ -78,15 +79,32 @@ function targetsFor(deps: RecoveryDeps, targetNodeId: string): string[] {
   return targets
 }
 
+function withTimeout<T>(work: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  return new Promise<T>(resolve => {
+    const timer = setTimeout(() => resolve(fallback), timeoutMs)
+    timer.unref?.()
+    work
+      .then(value => {
+        clearTimeout(timer)
+        resolve(value)
+      })
+      .catch(() => {
+        clearTimeout(timer)
+        resolve(fallback)
+      })
+  })
+}
+
 async function sendToFirstReachableTarget(
   deps: RecoveryDeps,
   targetNodeId: string,
   message: TransportMessage,
 ): Promise<TransportMessage | null> {
   for (const target of targetsFor(deps, targetNodeId)) {
-    try {
-      return await deps.transport.send(target, message)
-    } catch (_) {}
+    const response = await withTimeout(deps.transport.send(target, message), PARTITION_STORES_TIMEOUT_MS, null)
+    if (response !== null) {
+      return response
+    }
   }
   return null
 }
@@ -231,7 +249,9 @@ async function writeRecoveryOutcome(
  * and it moves the partition to `ACTIVE` once it reports its bootstrap finished. A partition the controller cannot
  * give back carries the reason in `unassignedReason`, from a last holder that has yet to register through to every
  * holder answering without the data, so an operator can tell a partition that is waiting from one that no node can
- * restore. The controller sets no limit on the attempts, because a holder may register again at any time.
+ * restore. The controller sets no limit on the attempts, because a holder may register again at any time. It waits
+ * {@link PARTITION_STORES_TIMEOUT_MS} milliseconds for each answer, so a holder that accepts the request and never
+ * answers holds up neither this index's allocation nor any other index's.
  *
  * @param coordinator - The cluster coordinator that holds the allocation table and the index identity.
  * @param transport - The node transport the controller asks the returning nodes over.

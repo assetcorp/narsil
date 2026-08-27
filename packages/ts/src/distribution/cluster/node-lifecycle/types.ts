@@ -16,6 +16,7 @@ export interface NodeLifecycleConfig {
   onBootstrapPartition: (indexName: string, partitionId: number, primaryNodeId: string) => Promise<boolean>
   onRemovePartition?: (indexName: string, partitionId: number) => void
   onHoldPartition?: (indexName: string, partitionId: number) => void
+  retainedPartitionIds?: (indexName: string) => number[]
   onPrimaryDemotion?: (indexName: string, partitionId: number, newPrimaryNodeId: string) => void
   onError?: (error: unknown) => void
 }

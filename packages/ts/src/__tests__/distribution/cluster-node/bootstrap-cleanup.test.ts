@@ -45,6 +45,32 @@ describe('cleanupRemovedPartition (L-D)', () => {
     expect(drops).toEqual(['products'])
   })
 
+  it('keeps the local index while another partition of it waits for this node to give it back', async () => {
+    const { engine, drops } = makeEngine(true)
+    const assignments = new Map<number, PartitionAssignment>()
+    assignments.set(0, {
+      primary: 'other-node',
+      replicas: ['other-node'],
+      inSyncSet: ['other-node'],
+      state: 'ACTIVE',
+      primaryTerm: 1,
+      commitPoint: 0,
+    })
+    assignments.set(1, {
+      primary: null,
+      replicas: [],
+      inSyncSet: ['this-node'],
+      state: 'UNASSIGNED',
+      primaryTerm: 3,
+      commitPoint: 12,
+    })
+    const coordinator = makeCoordinator(makeAllocation(assignments))
+
+    await cleanupRemovedPartition('products', 0, { engine, coordinator, nodeId: 'this-node' })
+
+    expect(drops).toEqual([])
+  })
+
   it('does not drop the local index when another partition of the same index is still assigned to this node', async () => {
     const { engine, drops } = makeEngine(true)
     const assignments = new Map<number, PartitionAssignment>()

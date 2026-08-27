@@ -28,8 +28,9 @@ export type PartitionState = 'UNASSIGNED' | 'INITIALISING' | 'ACTIVE' | 'MIGRATI
  * `HOLDER_OFFLINE` means a last holder has yet to register again, so the controller is still waiting for it.
  * `HOLDER_UNREACHABLE` means a registered holder left the request unanswered or answered with a payload the
  * controller could not read. `HOLDER_IDENTITY_MISMATCH` means a holder answered under a different index identity,
- * so its copy holds the documents of an earlier index of the same name. `HOLDER_WITHOUT_DATA` means every holder
- * answered under the right identity with a list that left the partition out.
+ * so its copy holds the documents of an earlier index of the same name, or it keeps no copy of that name at all.
+ * `HOLDER_WITHOUT_DATA` means every holder answered under the coordinator's identity with a list that left the
+ * partition out.
  *
  * @public
  */
