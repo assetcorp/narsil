@@ -254,7 +254,8 @@ AllocationTable {
 PartitionAssignment {
   primary:          string or absent   (nodeId of the primary)
   replicas:         List<string>       (nodeIds of the replica nodes)
-  inSyncSet:        List<string>       (nodeIds of the replicas fully caught up, or the last holders in UNASSIGNED)
+  inSyncSet:        List<string>       (nodeIds of the replicas fully caught up)
+  lastHolders:      List<string>       (nodeIds that still hold a copy of an unserved partition, or absent)
   state:            PartitionState
   primaryTerm:      uint64             (the current term, raised on failover)
   commitPoint:      uint64             (a floor on the seqNo acknowledged to a client)
@@ -274,7 +275,11 @@ It is set per index at creation time, and changing it on an existing index trigg
 
 ### assignments
 
-A map from partition ID to its assignment, with an entry for every partition in the index. A partition with no live primary has an absent `primary` and the state `UNASSIGNED`. When the controller moves a partition to `UNASSIGNED`, it writes the final primary and the replicas that were in sync with that primary into `inSyncSet`, because those nodes hold every write the cluster acknowledged for the partition. Those nodes are the partition's last holders. [No Eligible Replica](replication.md#no-eligible-replica) governs how the controller gives the partition back to one of them.
+A map from partition ID to its assignment, with an entry for every partition in the index. A partition with no live primary has an absent `primary` and the state `UNASSIGNED`.
+
+### lastHolders
+
+The nodes named here still hold a copy of a partition no node serves, and a served partition leaves the field absent. The controller writes the failed primary and the replicas that were in sync with it into this field as it moves the partition to `UNASSIGNED`, because those nodes hold every write the cluster acknowledged for the partition. A promotion leaves the field as it stands, so that a promoted node that fails before the partition reaches `ACTIVE` leaves the other holders on record. The controller adds the failed primary to the field on each further failure, and it clears the field as it moves the partition to `ACTIVE`. A node this field names must keep its copy until the controller clears the field, and [No Eligible Replica](replication.md#no-eligible-replica) governs how the controller gives the partition back to one of them.
 
 ### unassignedReason
 
@@ -289,9 +294,9 @@ UnassignedReason = 'HOLDER_OFFLINE'
 
 | Reason | Meaning |
 |--------|---------|
-| `HOLDER_OFFLINE` | A node `inSyncSet` names is absent from the coordinator's registrations, so the controller waits for it to return. |
+| `HOLDER_OFFLINE` | A node `lastHolders` names is absent from the coordinator's registrations, so the controller waits for it to return. |
 | `HOLDER_UNREACHABLE` | A registered holder left [cluster.partition_stores](transport.md#clusterpartition_stores) unanswered, or it answered with a payload the controller could not read. |
-| `HOLDER_IDENTITY_MISMATCH` | A holder answered under an `indexUuid` that differs from the one the coordinator holds, so that copy holds the documents of an earlier index of the same name. |
+| `HOLDER_IDENTITY_MISMATCH` | A holder answered under an `indexUuid` that differs from the one the coordinator holds, so that copy holds the documents of an earlier index of the same name, or the holder keeps no copy of that name at all. |
 | `HOLDER_WITHOUT_DATA` | Every holder answered under the coordinator's `indexUuid` with a list that left the partition out. |
 
 The controller writes the first value that applies in the order above, so a partition that may still come back never reports a reason that rules recovery out. It repeats the enquiry whenever a node registers. It sets no limit on the number of attempts, because a holder may return at any time. It removes the field when it moves the partition out of `UNASSIGNED`. A partition that reaches `UNASSIGNED` at index creation leaves the field absent, because the controller asks no node about a partition that never held a document.
@@ -572,9 +577,9 @@ An operator deletes an orphaned copy explicitly, and every automatic path leaves
    anything.
 4. A partition where the failed node was primary and no in-sync
    replica remains moves to UNASSIGNED, and the controller records
-   its last holders in inSyncSet. It stays unavailable until one of
-   those nodes rejoins, or an operator rebuilds the data from the
-   system of record.
+   its last holders in lastHolders. It stays unavailable until one
+   of those nodes rejoins, or an operator rebuilds the data from
+   the system of record.
 ```
 
 ---
