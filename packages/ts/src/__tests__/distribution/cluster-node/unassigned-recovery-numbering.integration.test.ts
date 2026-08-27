@@ -88,7 +88,8 @@ describe('a partition recovered from unassigned taking a replica back', () => {
         ...entry,
         primary: null,
         replicas: [],
-        inSyncSet: ['node-a', 'node-b'],
+        inSyncSet: [],
+        lastHolders: ['node-a', 'node-b'],
         state: 'UNASSIGNED',
       })
     }

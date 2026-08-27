@@ -1,5 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
-import type { ClusterCoordinator } from '../../coordinator/types'
+import type { ClusterCoordinator, PartitionAssignment } from '../../coordinator/types'
 import { isRecord, isValidInteger } from '../../payload-guards'
 import type {
   BootstrapCompletePayload,
@@ -180,8 +180,10 @@ async function processBootstrapComplete(
       return false
     }
 
+    const served: PartitionAssignment = { ...assignment, state: 'ACTIVE' }
+    delete served.lastHolders
     const updatedAssignments = new Map(table.assignments)
-    updatedAssignments.set(payload.partitionId, { ...assignment, state: 'ACTIVE' as const })
+    updatedAssignments.set(payload.partitionId, served)
 
     const written = await coordinator.putAllocation(
       payload.indexName,

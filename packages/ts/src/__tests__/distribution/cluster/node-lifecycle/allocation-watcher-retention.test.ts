@@ -25,8 +25,10 @@ function assignmentOf(
   replicas: string[],
   inSyncSet: string[],
   state: PartitionState,
+  lastHolders: string[] = [],
 ): PartitionAssignment {
-  return { primary, replicas, inSyncSet, state, primaryTerm: 1, commitPoint: 4 }
+  const assignment: PartitionAssignment = { primary, replicas, inSyncSet, state, primaryTerm: 1, commitPoint: 4 }
+  return lastHolders.length > 0 ? { ...assignment, lastHolders } : assignment
 }
 
 function configRecording(
@@ -113,7 +115,7 @@ describe('a node watching a partition it holds lose every copy', () => {
     const state = createAllocationWatcherState()
 
     processInitialAllocations(state, config, [tableWith(assignmentOf(NODE_ID, [], [], 'ACTIVE'))])
-    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [NODE_ID], 'UNASSIGNED'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [], 'UNASSIGNED', [NODE_ID]))])
 
     expect(removed).toEqual([])
     expect(state.trackedPartitions.size).toBe(0)
@@ -125,7 +127,7 @@ describe('a node watching a partition it holds lose every copy', () => {
     const state = createAllocationWatcherState()
 
     processInitialAllocations(state, config, [tableWith(assignmentOf(NODE_ID, [], [], 'ACTIVE'))])
-    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], ['node-b'], 'UNASSIGNED'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [], 'UNASSIGNED', ['node-b']))])
 
     expect(removed).toEqual([[INDEX_NAME, 0]])
   })
@@ -136,7 +138,7 @@ describe('a node watching a partition it holds lose every copy', () => {
     const state = createAllocationWatcherState()
 
     processInitialAllocations(state, config, [tableWith(assignmentOf(NODE_ID, [], [], 'ACTIVE'))])
-    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [NODE_ID], 'UNASSIGNED'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [], 'UNASSIGNED', [NODE_ID]))])
     expect(removed).toEqual([])
 
     processInitialAllocations(state, config, [tableWith(assignmentOf('node-b', [], [], 'ACTIVE'))])
@@ -150,8 +152,8 @@ describe('a node watching a partition it holds lose every copy', () => {
     const state = createAllocationWatcherState()
 
     processInitialAllocations(state, config, [tableWith(assignmentOf(NODE_ID, [], [], 'ACTIVE'))])
-    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [NODE_ID], 'UNASSIGNED'))])
-    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [NODE_ID], 'UNASSIGNED'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [], 'UNASSIGNED', [NODE_ID]))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [], 'UNASSIGNED', [NODE_ID]))])
 
     expect(removed).toEqual([])
   })
@@ -185,8 +187,8 @@ describe('a node watching a partition it holds lose every copy', () => {
     const state = createAllocationWatcherState()
 
     processInitialAllocations(state, config, [tableWith(assignmentOf(NODE_ID, [], [], 'ACTIVE'))])
-    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [NODE_ID], 'UNASSIGNED'))])
-    processInitialAllocations(state, config, [tableWith(assignmentOf('node-b', [], [], 'INITIALISING'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [], 'UNASSIGNED', [NODE_ID]))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf('node-b', [], [], 'INITIALISING', [NODE_ID]))])
 
     expect(removed).toEqual([])
 
@@ -201,7 +203,7 @@ describe('a node watching a partition it holds lose every copy', () => {
     const state = createAllocationWatcherState()
 
     processInitialAllocations(state, config, [tableWith(assignmentOf(NODE_ID, [], [], 'ACTIVE'))])
-    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [NODE_ID], 'UNASSIGNED'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [], 'UNASSIGNED', [NODE_ID]))])
     processInitialAllocations(state, config, [
       {
         indexName: INDEX_NAME,
@@ -220,7 +222,7 @@ describe('a node watching a partition it holds lose every copy', () => {
     const state = createAllocationWatcherState()
 
     processInitialAllocations(state, config, [tableWith(assignmentOf(NODE_ID, [], [], 'ACTIVE'))])
-    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [NODE_ID], 'UNASSIGNED'))])
+    processInitialAllocations(state, config, [tableWith(assignmentOf(null, [], [], 'UNASSIGNED', [NODE_ID]))])
     processInitialAllocations(state, config, [
       { indexName: INDEX_NAME, version: 4, replicationFactor: 0, assignments: new Map() },
     ])

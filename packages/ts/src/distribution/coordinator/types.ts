@@ -89,6 +89,8 @@ export interface PartitionAssignment {
   replicas: string[]
   /** These replicas are current enough to be promoted, which is the set a failover picks from. */
   inSyncSet: string[]
+  /** These nodes still hold a copy of a partition no node serves, and the field stays until the partition is `ACTIVE`. */
+  lastHolders?: string[]
   /** This says where the partition stands in its move between nodes. */
   state: PartitionState
   /** This rises each time the primary changes, which is what makes a stale primary's writes detectable. */

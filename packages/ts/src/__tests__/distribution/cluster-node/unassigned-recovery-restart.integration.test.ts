@@ -82,7 +82,8 @@ describe('a node restarting to find every partition it held unassigned', () => {
         ...assignment,
         primary: null,
         replicas: [],
-        inSyncSet: [NODE_ID],
+        inSyncSet: [],
+        lastHolders: [NODE_ID],
         state: 'UNASSIGNED',
       })
     }

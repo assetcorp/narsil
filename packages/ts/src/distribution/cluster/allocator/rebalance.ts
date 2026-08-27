@@ -1,4 +1,5 @@
 import { compareCodePoints } from '../../../core/ordering'
+import { lastHoldersOf } from '../last-holders'
 import { capacityShares, rebalanceLeadership } from './leadership'
 import type {
   AllocationConstraints,
@@ -23,6 +24,7 @@ function cloneAssignments(assignments: Map<number, PartitionAssignment>): Map<nu
       commitPoint: assignment.commitPoint,
       state: assignment.state,
       primaryTerm: assignment.primaryTerm,
+      ...(assignment.lastHolders !== undefined ? { lastHolders: [...assignment.lastHolders] } : {}),
       ...(assignment.unassignedReason !== undefined ? { unassignedReason: assignment.unassignedReason } : {}),
     })
   }
@@ -30,13 +32,17 @@ function cloneAssignments(assignments: Map<number, PartitionAssignment>): Map<nu
 }
 
 function markUnassigned(assignment: PartitionAssignment, lastPrimary: string | null, lastInSyncSet: string[]): void {
-  const lastHolders = new Set<string>(lastInSyncSet)
+  const holders = new Set<string>(lastHoldersOf(assignment))
+  for (const nodeId of lastInSyncSet) {
+    holders.add(nodeId)
+  }
   if (lastPrimary !== null) {
-    lastHolders.add(lastPrimary)
+    holders.add(lastPrimary)
   }
   assignment.primary = null
   assignment.replicas = []
-  assignment.inSyncSet = [...lastHolders].sort(compareCodePoints)
+  assignment.inSyncSet = []
+  assignment.lastHolders = [...holders].sort(compareCodePoints)
   assignment.state = 'UNASSIGNED'
 }
 
@@ -278,10 +284,13 @@ function moveOneReplica(
   return false
 }
 
-function clearReasonOnServedPartitions(assignments: Map<number, PartitionAssignment>): void {
+function clearRecoveryStateOnServedPartitions(assignments: Map<number, PartitionAssignment>): void {
   for (const assignment of assignments.values()) {
     if (assignment.state !== 'UNASSIGNED') {
       delete assignment.unassignedReason
+    }
+    if (assignment.state === 'ACTIVE') {
+      delete assignment.lastHolders
     }
   }
 }
@@ -304,8 +313,9 @@ function pruneInSyncSets(assignments: Map<number, PartitionAssignment>): void {
  *
  * The allocator promotes an in-sync replica wherever it finds a lost primary, refills the empty replica slots, evens
  * the load out across the nodes, and spreads leadership away from the busiest ones. A partition whose primary fails
- * while no in-sync replica survives moves to `UNASSIGNED`, and its `inSyncSet` then records the nodes that last held
- * the data, so that the controller can recognise one of them when it registers again.
+ * while no in-sync replica survives moves to `UNASSIGNED`, and its `lastHolders` then records the nodes that still
+ * hold the data, so that the controller can recognise one of them when it registers again. A partition that reaches
+ * `ACTIVE` loses that record, because a node serves it again.
  *
  * @param nodes - The data nodes registered with the cluster coordinator.
  * @param currentTable - The allocation table the coordinator holds today.
@@ -346,7 +356,7 @@ export function rebalanceAllocate(
 
   pruneInSyncSets(assignments)
 
-  clearReasonOnServedPartitions(assignments)
+  clearRecoveryStateOnServedPartitions(assignments)
 
   const warnings = collectReplicationWarnings(assignments, currentTable.replicationFactor)
 

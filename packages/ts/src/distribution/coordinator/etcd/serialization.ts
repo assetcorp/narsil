@@ -39,6 +39,21 @@ export function deserializeAllocationTable(data: Buffer): AllocationTable {
   }
 }
 
+function stringsOf(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.filter((entry): entry is string => typeof entry === 'string')
+}
+
+function normaliseLastHolders(candidate: Partial<PartitionAssignment>): string[] {
+  const stored = stringsOf(candidate.lastHolders)
+  if (stored.length > 0 || Array.isArray(candidate.lastHolders)) {
+    return stored
+  }
+  return candidate.state === 'UNASSIGNED' ? stringsOf(candidate.inSyncSet) : []
+}
+
 function normaliseAssignments(entries: unknown[]): Map<number, PartitionAssignment> {
   const assignments = new Map<number, PartitionAssignment>()
   for (const pair of entries) {
@@ -55,7 +70,14 @@ function normaliseAssignments(entries: unknown[]): Map<number, PartitionAssignme
       typeof storedCommitPoint === 'number' && Number.isSafeInteger(storedCommitPoint) && storedCommitPoint >= 0
         ? storedCommitPoint
         : 0
-    assignments.set(partitionId, { ...(assignment as PartitionAssignment), commitPoint })
+    const lastHolders = normaliseLastHolders(candidate)
+    const normalised: PartitionAssignment = { ...(assignment as PartitionAssignment), commitPoint }
+    if (lastHolders.length > 0) {
+      normalised.lastHolders = lastHolders
+    } else {
+      delete normalised.lastHolders
+    }
+    assignments.set(partitionId, normalised)
   }
   return assignments
 }
