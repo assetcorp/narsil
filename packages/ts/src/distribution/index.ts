@@ -1,4 +1,5 @@
 export type {
+  ClusterControllerConfig,
   ClusterNamespace,
   ClusterNode,
   ClusterNodeConfig,

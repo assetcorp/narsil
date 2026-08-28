@@ -93,6 +93,18 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     config.onError(wrapped)
   }
 
+  const forwardAllocationError = (indexName: string, error: unknown): void => {
+    const code = error instanceof NarsilError ? error.code : ErrorCodes.ALLOCATION_FAILED
+    const details = error instanceof NarsilError ? error.details : {}
+    const message = error instanceof Error ? error.message : String(error)
+    forwardOnError(
+      new NarsilError(code, `The controller could not allocate index '${indexName}': ${message}`, {
+        ...details,
+        indexName,
+      }),
+    )
+  }
+
   const registration: NodeRegistration = {
     nodeId,
     address: config.address,
@@ -209,9 +221,11 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       nodeId,
       coordinator: config.coordinator,
       transport: controllerTransport?.transport ?? config.transport,
-      leaseTtlMs: DEFAULT_CONTROLLER_CONFIG.leaseTtlMs,
-      standbyRetryMs: DEFAULT_CONTROLLER_CONFIG.standbyRetryMs,
+      leaseTtlMs: config.controller?.leaseTtlMs ?? DEFAULT_CONTROLLER_CONFIG.leaseTtlMs,
+      standbyRetryMs: config.controller?.standbyRetryMs ?? DEFAULT_CONTROLLER_CONFIG.standbyRetryMs,
       knownIndexNames: [],
+      onError: forwardAllocationError,
+      onElectionError: forwardOnError,
     })
   }
 
@@ -373,6 +387,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
 }
 
 export type {
+  ClusterControllerConfig,
   ClusterNamespace,
   ClusterNode,
   ClusterNodeConfig,

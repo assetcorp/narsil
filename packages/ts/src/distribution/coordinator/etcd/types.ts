@@ -1,6 +1,6 @@
 /**
- * How {@link createEtcdCoordinator} reaches etcd, and how long the leases it
- * takes there survive.
+ * How {@link createEtcdCoordinator} reaches etcd, and how long a node's
+ * registration survives there.
  *
  * @public
  */
@@ -11,15 +11,12 @@ export interface EtcdCoordinatorConfig {
   keyPrefix: string
   /** A node's registration survives this many seconds without a heartbeat, after which peers treat the node as gone. */
   nodeHeartbeatTtlSeconds: number
-  /** The controller lease survives this many seconds without renewal, which is how long a failover takes at worst. */
-  leaseTtlSeconds: number
 }
 
 export const DEFAULT_ETCD_CONFIG: EtcdCoordinatorConfig = {
   endpoints: ['http://localhost:2379'],
   keyPrefix: '_narsil',
   nodeHeartbeatTtlSeconds: 30,
-  leaseTtlSeconds: 15,
 }
 
 export const ETCD_KEY_NODES = 'nodes'

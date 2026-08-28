@@ -31,8 +31,37 @@ export interface ClusterNodeConfig {
   replication?: Partial<ReplicationConfig>
   /** These settings govern how this node gathers each search from the cluster, and anything you leave out keeps its default. */
   query?: ClusterQueryConfig
+  /** These settings govern how this node stands for controller election, and anything you leave out keeps its default. */
+  controller?: ClusterControllerConfig
   /** This receives the failures the node reports while running on its own, away from any call you made. */
   onError?: (error: Error) => void
+}
+
+/**
+ * How long this node's turn as controller survives a fault, and how often it
+ * stands for election again.
+ *
+ * A cluster fails over no faster than the lease it grants the controller, so a
+ * demonstration lowers both figures and a busy cluster leaves them alone. Every
+ * controller-capable node in a cluster should carry the same pair.
+ *
+ * @public
+ */
+export interface ClusterControllerConfig {
+  /**
+   * The controller lease survives this many milliseconds without a renewal, so
+   * a controller that loses the coordinator keeps its claim for that long. The
+   * active controller renews the lease every third of this, and a standby takes
+   * the lease over up to {@link ClusterControllerConfig.standbyRetryMs} after it
+   * expires. It is 15000 milliseconds where you name none.
+   */
+  leaseTtlMs?: number
+  /**
+   * A node that holds no lease stands for election again after this many
+   * milliseconds, whether the lease was taken or the coordinator refused the
+   * attempt. It is 5000 milliseconds where you name none.
+   */
+  standbyRetryMs?: number
 }
 
 /**

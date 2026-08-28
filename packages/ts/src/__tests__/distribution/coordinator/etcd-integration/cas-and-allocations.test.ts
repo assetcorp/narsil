@@ -46,7 +46,6 @@ describe('EtcdCoordinator integration - CAS and allocations', () => {
       endpoints: [container.endpoint],
       keyPrefix: `_narsil_etcd_integration_${randomUUID()}`,
       nodeHeartbeatTtlSeconds: 5,
-      leaseTtlSeconds: 5,
     })
   })
 

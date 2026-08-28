@@ -3,6 +3,7 @@ import type { NodeRole } from '../coordinator/types'
 import type { ClusterNodeConfig } from './types'
 
 const MAX_WAIT_FOR_ACTIVE_REPLICAS = 255
+const MIN_CONTROLLER_LEASE_TTL_MS = 1_000
 
 export function validateClusterNodeConfig(config: ClusterNodeConfig): void {
   if (config.address.length === 0) {
@@ -73,6 +74,24 @@ export function validateClusterNodeConfig(config: ClusterNodeConfig): void {
         ErrorCodes.CONFIG_INVALID,
         'ClusterNodeConfig.query.partitionTimeout must be a positive integer',
         { partitionTimeout },
+      )
+    }
+  }
+
+  if (config.controller !== undefined) {
+    const { leaseTtlMs, standbyRetryMs } = config.controller
+    if (leaseTtlMs !== undefined && (!Number.isInteger(leaseTtlMs) || leaseTtlMs < MIN_CONTROLLER_LEASE_TTL_MS)) {
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        `ClusterNodeConfig.controller.leaseTtlMs must be an integer of at least ${MIN_CONTROLLER_LEASE_TTL_MS}`,
+        { leaseTtlMs },
+      )
+    }
+    if (standbyRetryMs !== undefined && (!Number.isInteger(standbyRetryMs) || standbyRetryMs <= 0)) {
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        'ClusterNodeConfig.controller.standbyRetryMs must be a positive integer',
+        { standbyRetryMs },
       )
     }
   }

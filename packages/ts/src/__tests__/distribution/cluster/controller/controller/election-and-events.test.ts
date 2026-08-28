@@ -34,6 +34,19 @@ describe('Controller election and event loop', () => {
     vi.useRealTimers()
   })
 
+  function refusingCoordinator(refusals: { count: number }): ClusterCoordinator {
+    return {
+      ...coordinator,
+      acquireLease: async (key: string, leaseNodeId: string, ttlMs: number): Promise<boolean> => {
+        if (refusals.count > 0) {
+          refusals.count--
+          throw new Error('the coordinator is unreachable')
+        }
+        return coordinator.acquireLease(key, leaseNodeId, ttlMs)
+      },
+    }
+  }
+
   function createDefaultController(overrides: Partial<ControllerConfig> = {}): ControllerNode {
     controller = createController({
       nodeId: 'controller-node',
@@ -125,6 +138,88 @@ describe('Controller election and event loop', () => {
       await coordinator.acquireLease(CONTROLLER_LEASE_KEY, 'usurper-node', 9_000)
 
       vi.advanceTimersByTime(3_001)
+      await flushPromises()
+      await flushPromises()
+      expect(controller.isActive).toBe(false)
+
+      await coordinator.releaseLease(CONTROLLER_LEASE_KEY)
+
+      vi.advanceTimersByTime(2_001)
+      await flushPromises()
+      await flushPromises()
+
+      expect(controller.isActive).toBe(true)
+    })
+
+    it('stands for election again after the coordinator refuses the attempt at startup', async () => {
+      const refusals = { count: 1 }
+      createDefaultController({ coordinator: refusingCoordinator(refusals), standbyRetryMs: 2_000 })
+      if (controller === undefined) throw new Error('controller not initialised')
+
+      await expect(controller.start()).rejects.toThrow('the coordinator is unreachable')
+      expect(controller.isActive).toBe(false)
+
+      vi.advanceTimersByTime(2_001)
+      await flushPromises()
+      await flushPromises()
+
+      expect(controller.isActive).toBe(true)
+    })
+
+    it('reports a refused attempt to onElectionError and stands for election again', async () => {
+      await coordinator.acquireLease(CONTROLLER_LEASE_KEY, 'other-node', 15_000)
+      const refusals = { count: 0 }
+      const reported: unknown[] = []
+      createDefaultController({
+        coordinator: refusingCoordinator(refusals),
+        standbyRetryMs: 2_000,
+        onElectionError: error => {
+          reported.push(error)
+        },
+      })
+      if (controller === undefined) throw new Error('controller not initialised')
+
+      await controller.start()
+      expect(controller.isActive).toBe(false)
+
+      refusals.count = 1
+      vi.advanceTimersByTime(2_001)
+      await flushPromises()
+      await flushPromises()
+
+      expect(reported).toHaveLength(1)
+      expect(controller.isActive).toBe(false)
+
+      await coordinator.releaseLease(CONTROLLER_LEASE_KEY)
+      vi.advanceTimersByTime(2_001)
+      await flushPromises()
+      await flushPromises()
+
+      expect(controller.isActive).toBe(true)
+    })
+
+    it('keeps standing for election after stepping down into a refused attempt', async () => {
+      const refusals = { count: 0 }
+      createDefaultController({
+        coordinator: refusingCoordinator(refusals),
+        leaseTtlMs: 9_000,
+        standbyRetryMs: 2_000,
+      })
+      if (controller === undefined) throw new Error('controller not initialised')
+
+      await controller.start()
+      expect(controller.isActive).toBe(true)
+
+      await coordinator.releaseLease(CONTROLLER_LEASE_KEY)
+      await coordinator.acquireLease(CONTROLLER_LEASE_KEY, 'usurper-node', 9_000)
+      refusals.count = 1
+
+      vi.advanceTimersByTime(3_001)
+      await flushPromises()
+      await flushPromises()
+      expect(controller.isActive).toBe(false)
+
+      vi.advanceTimersByTime(2_001)
       await flushPromises()
       await flushPromises()
       expect(controller.isActive).toBe(false)
