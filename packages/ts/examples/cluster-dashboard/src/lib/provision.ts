@@ -1,3 +1,4 @@
+import type { BatchResult } from '@delali/narsil'
 import { ErrorCodes, NarsilError } from '@delali/narsil/client'
 import { INDEX_NAME, PARTITION_COUNT } from '../topology'
 import { loadCorpus } from './corpus'
@@ -9,6 +10,22 @@ const INGEST_TIMEOUT_MS = 120_000
 
 function alreadyExists(error: unknown): boolean {
   return error instanceof NarsilError && error.code === ErrorCodes.INDEX_ALREADY_EXISTS
+}
+
+function duplicateCountOf(result: BatchResult): number {
+  return result.failed.filter(entry => entry.error.code === ErrorCodes.DOC_ALREADY_EXISTS).length
+}
+
+function ingestMessage(nodeId: string, created: boolean, result: BatchResult): string {
+  const written = result.succeeded.length
+  if (created) {
+    return `Created '${INDEX_NAME}' across ${PARTITION_COUNT} partitions and ingested ${written} documents through ${nodeId}`
+  }
+  const duplicates = duplicateCountOf(result)
+  if (written === 0 && duplicates === result.failed.length) {
+    return `'${INDEX_NAME}' already holds all ${duplicates} documents, so ${nodeId} kept every one of them as it stands`
+  }
+  return `'${INDEX_NAME}' already existed, and ${nodeId} wrote ${written} documents while it refused ${result.failed.length}`
 }
 
 async function createIndexIfMissing(nodeId: string): Promise<{ created: boolean; failure: string | null }> {
@@ -27,8 +44,8 @@ async function createIndexIfMissing(nodeId: string): Promise<{ created: boolean;
  * Creates the dashboard's index on one node and writes the sample corpus through it.
  *
  * The cluster spreads the index over its partitions as the controller allocates them, and the node answers with the
- * documents it took alongside the documents it refused. Running this a second time writes every document again under
- * the id it already carries.
+ * documents it took alongside the documents it refused. A write carries the id the corpus gives each answer, and an
+ * insert refuses an id the index already holds, so a second run leaves the documents as they are.
  *
  * @param nodeId - The node the dashboard sends the creation and the writes to.
  * @returns What the run created, how many documents it wrote, and the line the panel shows.
@@ -53,9 +70,7 @@ export async function provisionIndex(nodeId: string): Promise<ProvisionResult> {
       indexCreated: creation.created,
       documentsIngested: result.succeeded.length,
       documentsFailed: result.failed.length,
-      message: creation.created
-        ? `Created '${INDEX_NAME}' across ${PARTITION_COUNT} partitions and ingested ${result.succeeded.length} documents through ${nodeId}`
-        : `'${INDEX_NAME}' already existed, and ${result.succeeded.length} documents were written again through ${nodeId}`,
+      message: ingestMessage(nodeId, creation.created, result),
     }
   } catch (error) {
     const failure = failureOf(error)
