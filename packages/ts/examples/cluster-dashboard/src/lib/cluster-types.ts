@@ -4,6 +4,8 @@ export type PartitionRole = 'primary' | 'in-sync-replica' | 'lagging-replica' | 
 
 export type LinkKind = 'coordinator' | 'replication'
 
+export type StreamState = 'connecting' | 'live' | 'offline'
+
 export interface PartitionRow {
   partitionId: number
   state: string

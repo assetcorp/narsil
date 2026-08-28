@@ -69,7 +69,7 @@ pnpm cluster:down
 
 ## What to try
 
-Press **Create and ingest** first. That creates `forum-answers` through `node-a` and writes 2,000 answers from the FiQA forum dataset, each carrying a topic derived from the words it uses. The board fills in as the controller allocates, every node ends up leading two partitions, and every partition reaches `active` with its copy in sync.
+Press **Create and ingest** first. That creates `forum-answers` through the first node etcd still registers, which is `node-a` while all three are up, and it writes 2,000 answers from the FiQA forum dataset, each carrying a topic derived from the words it uses. The board fills in as the controller allocates, every node ends up leading two partitions, and every partition reaches `active` with its copy in sync.
 
 **Cut one node's coordinator link.** Its registration lease expires within about five seconds, and the controller then promotes the copy of each partition that node led, which raises the term on those rows and moves their chips into another column. Restore the link and the node registers again, takes back a copy of each partition it lost, and rejoins the in-sync set once it has caught up. The log on the right records each of those steps as it happens. Cut the link of the node the board names as controller and the wait runs longer, because a standby has to wait for that node's controller lease to expire before it can take over and run the promotions. One run here finished 6.1 seconds after the cut.
 
@@ -89,6 +89,8 @@ The partition table below gives the same allocation row by row. `Copies` counts 
 
 The log beside it names each change the coordinator recorded, newest first, so a failover reads as a sequence: the lease expires, a replica is promoted at a higher term, and the in-sync set narrows and fills again.
 
+The dashboard turns off any control it cannot honour, and it gives the reason beside the control. Toxiproxy decides the two link columns, so a link whose state it never reported reads `unknown` and offers no button at all. The corpus panel names the node it would ingest through, and it withholds its button while etcd registers no node. The three reads wait for the index to exist and for a term to look for. When the dashboard loses the stream from its own server, it turns every control off together, because the board then shows what it saw last.
+
 ## Security boundary
 
 This example publishes every port on loopback and it authenticates nothing. Each node binds its HTTP server to `0.0.0.0` so that Docker can publish the port. The server refuses that address unless the caller supplies an `onRequest` hook or sets `allowInsecure`, because the admin endpoints would otherwise answer anyone who can reach the container, and `src/cluster-node.ts` sets the flag. Replication between the nodes uses mutual TLS with a locally generated authority, while etcd runs over plain HTTP inside the Docker network. The dashboard reaches etcd, the three nodes, and Toxiproxy without a credential. Put authentication in front of all three before you run anything like this outside your own machine.
@@ -100,5 +102,6 @@ This example publishes every port on loopback and it authenticates nothing. Each
 - [`src/lib/cluster-observer.ts`](src/lib/cluster-observer.ts) holds one coordinator connection, watches the registry, the allocation table, and the schemas, and re-reads every two seconds, which is how a change of controller lease shows up as well.
 - [`src/routes/api/cluster-stream.ts`](src/routes/api/cluster-stream.ts) streams each snapshot to the browser.
 - [`src/lib/actions.functions.ts`](src/lib/actions.functions.ts) holds the server functions behind the buttons.
+- [`src/lib/controls.ts`](src/lib/controls.ts) decides which controls the page may offer, reading one snapshot and the state of the stream, and it writes the sentence behind every control it withholds.
 - [`src/lib/cluster-events.ts`](src/lib/cluster-events.ts) compares one snapshot with the last one and writes the log entries the dashboard shows.
 - [`src/lib/node-client.ts`](src/lib/node-client.ts) builds one `@delali/narsil/client` client for each node, so every read and every write the dashboard makes goes through the published client and its error codes.
