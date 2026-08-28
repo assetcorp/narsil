@@ -71,7 +71,7 @@ pnpm cluster:down
 
 Press **Create and ingest** first. That creates `forum-answers` through `node-a` and writes 2,000 answers from the FiQA forum dataset, each carrying a topic derived from the words it uses. The board fills in as the controller allocates, every node ends up leading two partitions, and every partition reaches `active` with its copy in sync.
 
-**Cut one node's coordinator link.** Its registration lease expires within about five seconds, and the controller then promotes the copy of each partition that node led, which raises the term on those rows and moves their chips into another column. Restore the link and the node registers again, takes back a copy of each partition it lost, and rejoins the in-sync set once it has caught up. The log on the right records each of those steps as it happens.
+**Cut one node's coordinator link.** Its registration lease expires within about five seconds, and the controller then promotes the copy of each partition that node led, which raises the term on those rows and moves their chips into another column. Restore the link and the node registers again, takes back a copy of each partition it lost, and rejoins the in-sync set once it has caught up. The log on the right records each of those steps as it happens. Cut the link of the node the board names as controller and the wait runs longer, because a standby has to wait for that node's controller lease to expire before it can take over and run the promotions. One run here finished 6.1 seconds after the cut.
 
 **Cut one node's replication link.** A primary that replicates to that node stops receiving acknowledgements, so it asks the controller to drop the node from the in-sync set, and the write still succeeds. That node's chips turn dashed and its in-sync column falls to 0/1. Once you restore the link, the node catches up from the commit point its primary recorded, so it rejoins without fetching a snapshot.
 
@@ -79,7 +79,7 @@ Press **Create and ingest** first. That creates `forum-answers` through `node-a`
 
 **Cut the coordinator link of two nodes at once.** Every copy of some partition then belongs to a node the coordinator no longer registers, so the controller moves that partition out of service and records the nodes that still hold its data. The partition table names the reason it cannot give the partition back, the node board names the holders under `Holds unserved`, and the log carries both. Restore one of the links and the controller asks that node what its copy holds, then promotes it back at a higher term.
 
-**Watch the write path while the controller lease moves.** A primary may narrow its in-sync set only through the controller, so a write that loses a replica while no node holds that lease fails, and the in-sync set stays as it was. The lease takes up to five seconds to move after its holder loses etcd, which is the window where you can see this.
+**Watch the write path while the controller lease moves.** A primary may narrow its in-sync set only through the controller, so a write that loses a replica while no node holds that lease fails, and the in-sync set stays as it was. The lease expires five seconds after its holder loses etcd, and a standby takes it at its next attempt, which falls within another five seconds, so that whole window is where you can see this.
 
 ## Reading the dashboard
 
