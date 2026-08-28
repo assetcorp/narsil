@@ -26,6 +26,12 @@ export interface AllocationTable {
 }
 
 // @public
+export interface ClusterControllerConfig {
+    leaseTtlMs?: number;
+    standbyRetryMs?: number;
+}
+
+// @public
 export interface ClusterCoordinator {
     acquireLease(key: string, nodeId: string, ttlMs: number): Promise<boolean>;
     compareAndSet(key: string, expected: Uint8Array | null, value: Uint8Array): Promise<boolean>;
@@ -102,6 +108,7 @@ export interface ClusterNode {
 export interface ClusterNodeConfig {
     address: string;
     capacity?: NodeCapacity;
+    controller?: ClusterControllerConfig;
     coordinator: ClusterCoordinator;
     engine?: NarsilConfig;
     nodeId?: string;
