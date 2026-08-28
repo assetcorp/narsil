@@ -380,7 +380,6 @@ describe('EtcdCoordinator unit tests', () => {
       expect(DEFAULT_ETCD_CONFIG.endpoints).toEqual(['http://localhost:2379'])
       expect(DEFAULT_ETCD_CONFIG.keyPrefix).toBe('_narsil')
       expect(DEFAULT_ETCD_CONFIG.nodeHeartbeatTtlSeconds).toBe(30)
-      expect(DEFAULT_ETCD_CONFIG.leaseTtlSeconds).toBe(15)
     })
   })
 

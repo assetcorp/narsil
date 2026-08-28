@@ -45,7 +45,6 @@ describe('EtcdCoordinator integration - nodes and leases', () => {
       endpoints: [container.endpoint],
       keyPrefix: `_narsil_etcd_integration_${randomUUID()}`,
       nodeHeartbeatTtlSeconds: 5,
-      leaseTtlSeconds: 5,
     })
   })
 
