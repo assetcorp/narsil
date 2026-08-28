@@ -5,7 +5,9 @@ import { type ChangeEvent, memo, useCallback, useState } from 'react'
 import type { RunAction } from '../hooks/use-dashboard'
 import { runReadProbeFn } from '../lib/actions.functions'
 import type { ClusterNodeRow } from '../lib/cluster-types'
+import { type DashboardControls, localReasonOf, probeWithTerm } from '../lib/controls'
 import type { ReadProbeResult } from '../lib/probe-types'
+import { MAX_TERM_LENGTH } from '../lib/validation'
 import { NODES } from '../topology'
 
 export type ProbeTone = 'settled' | 'narrowed' | 'refused'
@@ -14,24 +16,25 @@ const DEFAULT_TERM = 'mortgage'
 
 interface ReadProbePanelProps {
   nodes: ClusterNodeRow[]
-  busy: boolean
+  controls: DashboardControls
   runAction: RunAction
 }
 
 interface NodeChoiceProps {
-  nodeId: string
+  node: ClusterNodeRow
   selected: boolean
   onSelect: (nodeId: string) => void
 }
 
-function NodeChoice({ nodeId, selected, onSelect }: NodeChoiceProps) {
+function NodeChoice({ node, selected, onSelect }: NodeChoiceProps) {
   const handleClick = useCallback(() => {
-    onSelect(nodeId)
-  }, [nodeId, onSelect])
+    onSelect(node.nodeId)
+  }, [node.nodeId, onSelect])
 
   return (
     <Button variant={selected ? 'default' : 'outline'} size="sm" className="font-mono" onClick={handleClick}>
-      {nodeId}
+      {node.nodeId}
+      {node.registered ? null : <span className="ml-1 text-[10px] lowercase">no etcd</span>}
     </Button>
   )
 }
@@ -132,10 +135,14 @@ function facetTile(probe: ReadProbeResult): ProbeTileProps {
   }
 }
 
-export const ReadProbePanel = memo(function ReadProbePanel({ nodes, busy, runAction }: ReadProbePanelProps) {
+export const ReadProbePanel = memo(function ReadProbePanel({ nodes, controls, runAction }: ReadProbePanelProps) {
   const [term, setTerm] = useState(DEFAULT_TERM)
   const [probeNodeId, setProbeNodeId] = useState(NODES[0].nodeId)
   const [probe, setProbe] = useState<ReadProbeResult | null>(null)
+
+  const control = probeWithTerm(controls.probe, term)
+  const reason = localReasonOf(control, controls.blockedReason)
+  const chosen = nodes.find(node => node.nodeId === probeNodeId)
 
   const handleTermChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     setTerm(event.target.value)
@@ -143,7 +150,7 @@ export const ReadProbePanel = memo(function ReadProbePanel({ nodes, busy, runAct
 
   const handleRun = useCallback(() => {
     runAction(`Reading through ${probeNodeId}`, async () => {
-      setProbe(await runReadProbeFn({ data: { nodeId: probeNodeId, term } }))
+      setProbe(await runReadProbeFn({ data: { nodeId: probeNodeId, term: term.trim() } }))
     })
   }, [probeNodeId, runAction, term])
 
@@ -160,17 +167,32 @@ export const ReadProbePanel = memo(function ReadProbePanel({ nodes, busy, runAct
           {nodes.map(node => (
             <NodeChoice
               key={node.nodeId}
-              nodeId={node.nodeId}
+              node={node}
               selected={node.nodeId === probeNodeId}
               onSelect={setProbeNodeId}
             />
           ))}
         </div>
-        <Input value={term} onChange={handleTermChange} className="max-w-56" aria-label="Search term" />
-        <Button onClick={handleRun} disabled={busy}>
-          {busy ? 'Reading' : 'Run the three reads'}
+        <Input
+          value={term}
+          onChange={handleTermChange}
+          maxLength={MAX_TERM_LENGTH}
+          className="max-w-56"
+          aria-label="Search term"
+        />
+        <Button onClick={handleRun} disabled={!control.enabled}>
+          {controls.pendingLabel === null ? 'Run the three reads' : 'Reading'}
         </Button>
       </div>
+
+      {reason === null ? null : <p className="mt-3 text-xs text-destructive">{reason}</p>}
+
+      {chosen === undefined || chosen.registered ? null : (
+        <p className="mt-3 text-xs text-muted-foreground">
+          {probeNodeId} holds no registration in etcd, so the read may answer from the partitions it held before the
+          cluster lost it, or that node may refuse the read outright.
+        </p>
+      )}
 
       <div className="mt-5 min-h-44">
         {probe === null ? (

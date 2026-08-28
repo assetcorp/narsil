@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ClusterEvent } from '../lib/cluster-events'
 import { diffSnapshots, mergeClusterEvents } from '../lib/cluster-events'
-import type { ClusterSnapshot } from '../lib/cluster-types'
-
-export type StreamState = 'connecting' | 'live' | 'offline'
+import type { ClusterSnapshot, StreamState } from '../lib/cluster-types'
 
 const STREAM_PATH = '/api/cluster-stream'
 

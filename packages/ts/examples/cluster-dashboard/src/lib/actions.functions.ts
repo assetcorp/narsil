@@ -1,13 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { NODES } from '../topology'
-import type { ClusterSnapshot } from './cluster-types'
 import type { ProvisionResult, ReadProbeResult } from './probe-types'
 import { parseLinkInput, parseProbeInput, parseProvisionInput } from './validation'
-
-export const getClusterSnapshotFn = createServerFn({ method: 'GET' }).handler(async (): Promise<ClusterSnapshot> => {
-  const { currentSnapshot } = await import('./cluster-observer')
-  return currentSnapshot()
-})
 
 export const setLinkFn = createServerFn({ method: 'POST' })
   .validator(parseLinkInput)

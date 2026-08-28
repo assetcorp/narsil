@@ -1,10 +1,10 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { healLinksFn, provisionIndexFn, setLinkFn } from '../lib/actions.functions'
 import type { ClusterEvent } from '../lib/cluster-events'
-import type { ClusterSnapshot, LinkKind } from '../lib/cluster-types'
+import type { ClusterSnapshot, LinkKind, StreamState } from '../lib/cluster-types'
+import { buildControls, type DashboardControls } from '../lib/controls'
 import type { ProvisionResult } from '../lib/probe-types'
-import { NODES } from '../topology'
-import { type StreamState, useClusterStream } from './use-cluster-stream'
+import { useClusterStream } from './use-cluster-stream'
 
 export type RunAction = (label: string, action: () => Promise<void>) => void
 
@@ -13,6 +13,7 @@ export interface Dashboard {
   stream: StreamState
   streamError: string | null
   events: ClusterEvent[]
+  controls: DashboardControls | null
   provision: ProvisionResult | null
   pending: string | null
   error: string | null
@@ -33,6 +34,11 @@ export function useDashboard(): Dashboard {
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const controls = useMemo(
+    () => (snapshot === null ? null : buildControls(snapshot, stream, pending)),
+    [pending, snapshot, stream],
+  )
+
   const runAction = useCallback<RunAction>((label, action) => {
     setPending(label)
     setError(null)
@@ -45,11 +51,16 @@ export function useDashboard(): Dashboard {
       })
   }, [])
 
+  const provisionNodeId = controls?.provision.enabled === true ? controls.provision.nodeId : null
+
   const onProvision = useCallback(() => {
-    runAction('Creating the index and ingesting the corpus', async () => {
-      setProvision(await provisionIndexFn({ data: { nodeId: NODES[0].nodeId } }))
+    if (provisionNodeId === null) {
+      return
+    }
+    runAction(`Creating the index and ingesting the corpus through ${provisionNodeId}`, async () => {
+      setProvision(await provisionIndexFn({ data: { nodeId: provisionNodeId } }))
     })
-  }, [runAction])
+  }, [provisionNodeId, runAction])
 
   const onToggleLink = useCallback(
     (nodeId: string, kind: LinkKind, enabled: boolean) => {
@@ -76,6 +87,7 @@ export function useDashboard(): Dashboard {
     stream,
     streamError,
     events,
+    controls,
     provision,
     pending,
     error,
