@@ -1,5 +1,11 @@
 import type { NarsilConfig } from '../../../types/config'
-import type { AllocationTable, ClusterCoordinator, NodeCapacity, NodeRole } from '../../coordinator/types'
+import type {
+  AllocationTable,
+  ClusterCoordinator,
+  NodeCapacity,
+  NodeRegistration,
+  NodeRole,
+} from '../../coordinator/types'
 import type { ReplicationConfig } from '../../replication/types'
 import type { NodeTransport } from '../../transport/types'
 
@@ -97,7 +103,27 @@ export interface CreateIndexOptions {
   partitionCount?: number
   /** The cluster keeps this many copies of each partition, and {@link DEFAULT_REPLICATION_FACTOR} by default. */
   replicationFactor?: number
+  /**
+   * The creation returns once every partition is in service or once this many milliseconds have passed, which is
+   * 30000 where you name none. It returns either way, so a write sent after the deadline may be refused with
+   * `QUERY_ROUTING_FAILED` while the controller is still allocating. Pass 0 to return as soon as the schema is
+   * published.
+   */
+  waitForServingMs?: number
 }
+
+/**
+ * Where a node stands between starting and shutting down, which is what a
+ * readiness probe reads.
+ *
+ * A node reports `STARTING` until it holds a registration. It reports
+ * `JOINING` while it bootstraps a partition the controller gave it, and
+ * `SERVING` once it serves every one of them. It reports `LEAVING` from the
+ * moment shutdown begins.
+ *
+ * @public
+ */
+export type NodeReadiness = 'STARTING' | 'JOINING' | 'SERVING' | 'LEAVING'
 
 /**
  * The cluster-facing side of a node, which is where you look at the cluster
@@ -126,6 +152,25 @@ export interface ClusterNamespace {
    * @returns True while this node holds the controller lease.
    */
   isControllerActive(): boolean
+  /**
+   * Reports whether this node serves work, which is what a readiness probe
+   * answers with.
+   *
+   * @returns The node's readiness as it stands.
+   */
+  getReadiness(): NodeReadiness
+  /**
+   * Lists the nodes the coordinator holds a registration for.
+   *
+   * @returns One registration per node, as each node published it.
+   */
+  listNodes(): Promise<NodeRegistration[]>
+  /**
+   * Names the node holding the controller lease.
+   *
+   * @returns Its id, or `null` while no node holds the lease.
+   */
+  getControllerNodeId(): Promise<string | null>
 }
 
 /**

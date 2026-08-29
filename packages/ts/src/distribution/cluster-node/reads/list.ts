@@ -14,7 +14,8 @@ import type { AnyDocument } from '../../../types/schema'
 import type { ListParams } from '../../../types/search'
 import { createListMessage, validateListResultPayload } from '../../query/codec'
 import type { ListEntryWire, ListPayload, SortField } from '../../transport/types'
-import { activeAllocation, type ClusterReadDeps, sendReadRequest, strictScatterGroups } from './scatter'
+import { routableAllocation } from '../routable-allocation'
+import { type ClusterReadDeps, sendReadRequest, strictScatterGroups } from './scatter'
 
 function clampListLimit(limit: number | undefined): number {
   const clamped = Math.max(1, clampLimit(limit))
@@ -74,7 +75,7 @@ export async function listCluster<T = AnyDocument>(
   indexName: string,
   params: ListParams,
 ): Promise<ListResult<T>> {
-  const allocation = await activeAllocation(deps, indexName)
+  const allocation = await routableAllocation(deps.config.coordinator, indexName)
   if (allocation === null) {
     return deps.engine.listDocuments<T>(indexName, params)
   }

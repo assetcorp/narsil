@@ -7,6 +7,7 @@ import type { HandlerDeps, ResolvedBuild, ResolvedLimits } from './deps'
 import { ServerErrorCodes } from './errors'
 import { createAdminHandlers } from './handlers/admin'
 import { createCapabilitiesHandler } from './handlers/capabilities'
+import { createClusterHandlers } from './handlers/cluster'
 import { createDocumentHandlers } from './handlers/documents'
 import { createHealthHandlers } from './handlers/health'
 import { createImportHandler } from './handlers/import'
@@ -89,6 +90,7 @@ class NarsilHttpServer implements NarsilServer {
       limits,
       isReady: () => this.ready,
       build: resolveBuild(options.build),
+      cluster: options.cluster,
     }
   }
 
@@ -139,6 +141,7 @@ class NarsilHttpServer implements NarsilServer {
     const search = createSearchHandlers(this.deps)
     const admin = createAdminHandlers(this.deps)
     const health = createHealthHandlers(this.deps)
+    const cluster = createClusterHandlers(this.deps)
     const version = createVersionHandler(this.deps)
     const capabilities = createCapabilitiesHandler()
     const importNdjson = createImportHandler(this.deps)
@@ -165,6 +168,7 @@ class NarsilHttpServer implements NarsilServer {
     app.get('/health', json(health.livez, { maxBytes: 0, skipHooks: true }))
     app.get('/version', json(version.report, { maxBytes: 0, skipHooks: true }))
     app.get('/capabilities', json(capabilities.report, { maxBytes: 0, skipHooks: true }))
+    app.get('/cluster', json(cluster.topology, { maxBytes: 0 }))
     app.get('/stats/memory', json(admin.memory, { maxBytes: 0 }))
     app.get('/tasks', json(admin.listTasks, { maxBytes: 0 }))
     app.get('/tasks/:id', json(admin.getTask, { paramCount: 1, maxBytes: 0 }))
@@ -175,6 +179,7 @@ class NarsilHttpServer implements NarsilServer {
     app.del('/indexes/:name', json(idx.drop, { paramCount: 1, maxBytes: 0 }))
     app.get('/indexes/:name/stats', json(idx.stats, { paramCount: 1, maxBytes: 0 }))
     app.get('/indexes/:name/partitions', json(idx.partitions, { paramCount: 1, maxBytes: 0 }))
+    app.get('/indexes/:name/cluster', json(cluster.allocation, { paramCount: 1, maxBytes: 0 }))
     app.post('/indexes/:name/_clear', json(idx.clear, { paramCount: 1, maxBytes: 0 }))
     app.get('/indexes/:name/count', json(doc.count, { paramCount: 1, maxBytes: 0 }))
 

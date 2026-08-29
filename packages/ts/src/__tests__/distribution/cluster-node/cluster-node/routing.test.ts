@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../../distribution/cluster-node'
 import type { ClusterNode } from '../../../../distribution/cluster-node/types'
 import { createInMemoryCoordinator } from '../../../../distribution/coordinator'
@@ -7,8 +7,6 @@ import type { InMemoryNetwork } from '../../../../distribution/transport'
 import { createInMemoryNetwork, createInMemoryTransport } from '../../../../distribution/transport'
 import type { NodeTransport } from '../../../../distribution/transport/types'
 import { makeAllocationTable, makeAssignment, makeConfig } from './fixtures'
-
-const ALLOCATION_SETTLE_MS = 1_000
 
 describe('createClusterNode (two-node, write routing, batching)', () => {
   let coordinator: ClusterCoordinator
@@ -19,7 +17,6 @@ describe('createClusterNode (two-node, write routing, batching)', () => {
   let transportB: NodeTransport
 
   beforeEach(() => {
-    vi.useFakeTimers()
     coordinator = createInMemoryCoordinator()
     network = createInMemoryNetwork()
     transportA = createInMemoryTransport('node-a', network)
@@ -38,7 +35,6 @@ describe('createClusterNode (two-node, write routing, batching)', () => {
     await transportA.shutdown()
     await transportB.shutdown()
     await coordinator.shutdown()
-    vi.useRealTimers()
   })
 
   describe('two-node cluster: insert on A, query on A', () => {
@@ -68,8 +64,6 @@ describe('createClusterNode (two-node, write routing, batching)', () => {
       await nodeA.createIndex('products', {
         schema: { title: 'string', price: 'number' },
       })
-
-      await vi.advanceTimersByTimeAsync(ALLOCATION_SETTLE_MS)
 
       await nodeA.insert('products', { title: 'Distributed Widget', price: 19.99 })
       await nodeA.insert('products', { title: 'Another Widget', price: 29.99 })

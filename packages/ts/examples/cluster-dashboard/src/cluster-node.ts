@@ -60,7 +60,7 @@ const server = createServer(
   clusterNodeEngine(node, {
     createIndex: { partitionCount: PARTITION_COUNT, replicationFactor: REPLICATION_FACTOR },
   }),
-  { host: listenHost, port: spec.httpPort, allowInsecure: true },
+  { host: listenHost, port: spec.httpPort, allowInsecure: true, cluster: node.cluster },
 )
 await server.listen()
 

@@ -7,8 +7,10 @@ import type { NodeLifecycleConfig } from './types'
  * Joins this node to the cluster, and returns once it is registered and following its partitions.
  *
  * The node registers itself, starts the heartbeat that keeps the registration alive, bootstraps every partition the
- * allocation tables already assign to it, and then follows the allocation table for further changes. A failure at any step reaches the
- * caller, which stops the heartbeat before it reports the node stopped.
+ * allocation tables already assign to it, and then follows the allocation table for further changes. It reads the
+ * table of every index the coordinator holds a schema for, so a node that restarts takes up the partitions it held
+ * before its watch delivers the next change. A failure at any step reaches the caller, which stops the heartbeat
+ * before it reports the node stopped.
  *
  * @param config - The lifecycle configuration, which names the coordinator, the transport, and this node.
  * @param watcherState - The allocation watcher state this call registers the watcher on.
@@ -21,6 +23,7 @@ export async function joinCluster(
   heartbeatState: RegistrationHeartbeatState,
 ): Promise<void> {
   await config.coordinator.registerNode(config.registration)
+  config.onRegistered?.()
 
   startRegistrationHeartbeat(heartbeatState, config)
 
@@ -33,8 +36,9 @@ export async function joinCluster(
 
 async function loadInitialAllocations(config: NodeLifecycleConfig): Promise<AllocationTable[]> {
   const tables: AllocationTable[] = []
+  const indexNames = new Set([...config.knownIndexNames, ...(await config.coordinator.listSchemas())])
 
-  for (const indexName of config.knownIndexNames) {
+  for (const indexName of indexNames) {
     const table = await config.coordinator.getAllocation(indexName)
     if (table !== null) {
       tables.push(table)

@@ -65,8 +65,11 @@ export interface ClusterEngineOptions {
 // @public
 export interface ClusterNamespace {
     getAllocation(indexName: string): Promise<AllocationTable | null>;
+    getControllerNodeId(): Promise<string | null>;
     getNodeInfo(): ClusterNodeInfo;
+    getReadiness(): NodeReadiness;
     isControllerActive(): boolean;
+    listNodes(): Promise<NodeRegistration[]>;
 }
 
 // @public
@@ -142,6 +145,7 @@ export function createClusterNode(config: ClusterNodeConfig): Promise<ClusterNod
 export interface CreateIndexOptions {
     partitionCount?: number;
     replicationFactor?: number;
+    waitForServingMs?: number;
 }
 
 // @public
@@ -169,6 +173,9 @@ export interface NodeEvent {
     registration: NodeRegistration | null;
     type: 'node_joined' | 'node_left';
 }
+
+// @public
+export type NodeReadiness = 'STARTING' | 'JOINING' | 'SERVING' | 'LEAVING';
 
 // @public
 export interface NodeRegistration {

@@ -167,7 +167,7 @@ describe('createMultiplexedControllerTransport dispatch guard', () => {
       async shutdown() {},
     }
 
-    const multiplexed = createMultiplexedControllerTransport(baseTransport)
+    const multiplexed = createMultiplexedControllerTransport(baseTransport, 'node-b')
     const dataHandler = vi.fn(async () => {})
     const controllerHandler = vi.fn(async () => {})
 
@@ -220,7 +220,7 @@ describe('createMultiplexedControllerTransport dispatch guard', () => {
       async shutdown() {},
     }
 
-    const multiplexed = createMultiplexedControllerTransport(baseTransport)
+    const multiplexed = createMultiplexedControllerTransport(baseTransport, 'node-b')
 
     const controllerHandler = vi.fn(async (_msg: TransportMessage, respond: (r: TransportMessage) => void) => {
       respond({ type: 'controller.reply', sourceId: 'c', requestId: 'r', payload: new Uint8Array() })

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../../distribution/cluster-node'
 import type { ClusterNode } from '../../../../distribution/cluster-node/types'
 import { createInMemoryCoordinator } from '../../../../distribution/coordinator'
@@ -17,7 +17,6 @@ describe('createClusterNode (creation, start, controller, createIndex)', () => {
   let transportB: NodeTransport
 
   beforeEach(() => {
-    vi.useFakeTimers()
     coordinator = createInMemoryCoordinator()
     network = createInMemoryNetwork()
     transportA = createInMemoryTransport('node-a', network)
@@ -36,7 +35,6 @@ describe('createClusterNode (creation, start, controller, createIndex)', () => {
     await transportA.shutdown()
     await transportB.shutdown()
     await coordinator.shutdown()
-    vi.useRealTimers()
   })
 
   describe('node creation and configuration', () => {
@@ -147,7 +145,7 @@ describe('createClusterNode (creation, start, controller, createIndex)', () => {
       expect(found?.address).toBe('node-a:9200')
     })
 
-    it('coordinator-only node starts without lifecycle join', async () => {
+    it('registers a coordinator-only node, which holds no partition', async () => {
       nodeA = await createClusterNode(
         makeConfig({
           coordinator,
@@ -160,8 +158,8 @@ describe('createClusterNode (creation, start, controller, createIndex)', () => {
 
       await nodeA.start()
 
-      const info = nodeA.cluster.getNodeInfo()
-      expect(info.status).toBe('stopped')
+      expect(nodeA.cluster.getNodeInfo().status).toBe('active')
+      expect((await coordinator.listNodes()).map(node => node.nodeId)).toEqual(['node-a'])
     })
   })
 

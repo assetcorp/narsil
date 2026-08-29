@@ -97,6 +97,9 @@ describe('createClusterNode message handler', () => {
 
     await nodeB.start()
     await nodeB.createIndex('products', { schema: { title: 'string' } })
+    const searchAssignments = new Map<number, PartitionAssignment>()
+    searchAssignments.set(0, makeAssignment({ primary: 'node-b', state: 'ACTIVE' }))
+    await coordinator.putAllocation('products', makeAllocationTable('products', searchAssignments))
     await nodeB.insert('products', { title: 'Search Target' }, 'search-doc')
 
     const { decode } = await import('@msgpack/msgpack')

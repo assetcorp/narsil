@@ -16,7 +16,8 @@ import {
   validateSuggestResultPayload,
 } from '../../query/codec'
 import { localParamsToWire } from '../query-conversion'
-import { activeAllocation, type ClusterReadDeps, sendReadRequest, strictScatterGroups } from './scatter'
+import { routableAllocation } from '../routable-allocation'
+import { type ClusterReadDeps, sendReadRequest, strictScatterGroups } from './scatter'
 
 /**
  * Works out how many completions one node must return so that merging the
@@ -39,7 +40,7 @@ export async function suggestCluster(
   indexName: string,
   params: SuggestParams,
 ): Promise<SuggestResult> {
-  const allocation = await activeAllocation(deps, indexName)
+  const allocation = await routableAllocation(deps.config.coordinator, indexName)
   if (allocation === null) {
     return deps.engine.suggest(indexName, params)
   }
@@ -97,7 +98,7 @@ export async function preflightCluster(
   indexName: string,
   params: QueryParams,
 ): Promise<PreflightResult> {
-  const allocation = await activeAllocation(deps, indexName)
+  const allocation = await routableAllocation(deps.config.coordinator, indexName)
   if (allocation === null) {
     return deps.engine.preflight(indexName, params)
   }

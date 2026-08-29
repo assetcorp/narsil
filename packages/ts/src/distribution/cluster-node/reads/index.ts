@@ -1,27 +1,25 @@
 import { resolveProjection } from '../../../core/projection'
-import { ErrorCodes, NarsilError } from '../../../errors'
 import type { QueryResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { QueryParams } from '../../../types/search'
-import type { AllocationTable } from '../../coordinator/types'
 import { distributedQuery } from '../../query/routing'
-import { DEFAULT_QUERY_CONFIG, type DistributedQueryConfig } from '../../query/types'
+import type { DistributedQueryConfig } from '../../query/types'
 import { fetchDistributedDocuments, readDistributedDocuments } from '../node-messaging'
 import { distributedResultToLocal, localParamsToWire } from '../query-conversion'
+import { routableAllocation } from '../routable-allocation'
 import type { ClusterQueryConfig } from '../types'
-import { activeAllocation, type ClusterReadDeps, servesAnyPartition } from './scatter'
+import type { ClusterReadDeps } from './scatter'
 
 export { countCluster, partitionStatsCluster, statsCluster } from './counts'
 export { listCluster } from './list'
 export type { ClusterReadDeps } from './scatter'
-export { activeAllocation } from './scatter'
 export { preflightCluster, suggestCluster } from './terms'
 
 /**
  * Reads a set of documents by id from wherever the cluster holds them, and returns the ones it found.
  *
- * The node reads its own copy while the cluster has no active allocation for the index, which is what an index that
- * nobody has allocated yet looks like. It otherwise sends each id to the node that serves its partition.
+ * The node sends each id to the node that serves its partition, and it reads its own copy only for an index the
+ * coordinator holds no metadata for.
  *
  * @param deps - The cluster configuration, this node's id, the local engine, and the node target resolver.
  * @param indexName - The index the documents are stored in.
@@ -33,7 +31,7 @@ export async function readClusterDocuments(
   indexName: string,
   docIds: string[],
 ): Promise<Map<string, AnyDocument>> {
-  const allocation = await activeAllocation(deps, indexName)
+  const allocation = await routableAllocation(deps.config.coordinator, indexName)
   if (allocation === null) {
     return deps.engine.getMultiple(indexName, docIds)
   }
@@ -54,42 +52,12 @@ function routingConfig(query: ClusterQueryConfig | undefined): Partial<Distribut
   return config
 }
 
-function allowsPartialResults(deps: ClusterReadDeps): boolean {
-  return deps.config.query?.allowPartialResults ?? DEFAULT_QUERY_CONFIG.allowPartialResults
-}
-
-async function queryLocalCopy<T>(
-  deps: ClusterReadDeps,
-  indexName: string,
-  params: QueryParams,
-  allocation: AllocationTable | null,
-): Promise<QueryResult<T>> {
-  if (allocation === null || allocation.assignments.size === 0) {
-    return deps.engine.query<T>(indexName, params)
-  }
-
-  const totalPartitions = allocation.assignments.size
-  if (!allowsPartialResults(deps)) {
-    throw new NarsilError(
-      ErrorCodes.QUERY_PARTIAL_FAILURE,
-      `No active copy serves any partition of index '${indexName}', and this node refuses partial results`,
-      { indexName, totalPartitions },
-    )
-  }
-
-  const result = await deps.engine.query<T>(indexName, params)
-  return {
-    ...result,
-    coverage: { totalPartitions, queriedPartitions: 0, timedOutPartitions: 0, failedPartitions: totalPartitions },
-  }
-}
-
 /**
  * Runs a search across the cluster and returns the hits alongside the partition coverage behind them.
  *
- * Where no partition of the index has an active copy, the node answers from its own copy and reports every partition
- * as failed, so that a caller reading `coverage` can tell an incomplete answer from a complete one. A node configured
- * with `allowPartialResults` set to false refuses that answer with `QUERY_PARTIAL_FAILURE` instead.
+ * The search reads each partition through one copy the allocation table names. It counts a partition with no copy
+ * in service as failed, so that a caller reading `coverage` can tell an incomplete answer from a complete one. A
+ * node configured with `allowPartialResults` set to false refuses that answer with `QUERY_PARTIAL_FAILURE`.
  *
  * @param deps - The cluster configuration, this node's id, the local engine, and the node target resolver.
  * @param indexName - The index to search.
@@ -103,11 +71,10 @@ export async function queryCluster<T = AnyDocument>(
   indexName: string,
   params: QueryParams,
 ): Promise<QueryResult<T>> {
-  const table = await deps.config.coordinator.getAllocation(indexName)
-  if (!servesAnyPartition(table)) {
-    return queryLocalCopy<T>(deps, indexName, params, table)
+  const allocation = await routableAllocation(deps.config.coordinator, indexName)
+  if (allocation === null) {
+    return deps.engine.query<T>(indexName, params)
   }
-  const allocation = table
   const wireParams = localParamsToWire(params)
   const queryDeps = {
     transport: deps.config.transport,
