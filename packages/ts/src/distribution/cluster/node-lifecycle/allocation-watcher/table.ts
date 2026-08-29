@@ -42,6 +42,12 @@ export function processAllocationChange(
       primaryTerm: assignment.primaryTerm,
     })
 
+    if (servesPartition(assignment, nodeId)) {
+      state.pendingPartitions.delete(key)
+    } else {
+      state.pendingPartitions.add(key)
+    }
+
     if (config.onHoldPartition !== undefined && alreadyHoldsData(assignment, nodeId)) {
       config.onHoldPartition(table.indexName, partitionId)
     }
@@ -69,6 +75,13 @@ export function processInitialAllocations(
   for (const table of tables) {
     processAllocationChange(state, config, table)
   }
+}
+
+function servesPartition(assignment: PartitionAssignment, nodeId: string): boolean {
+  if (assignment.state === 'INITIALISING' || assignment.state === 'UNASSIGNED') {
+    return false
+  }
+  return assignment.primary === nodeId || assignment.inSyncSet.includes(nodeId)
 }
 
 function alreadyHoldsData(assignment: PartitionAssignment, nodeId: string): boolean {
@@ -129,6 +142,11 @@ function handleExistingAssignment(
     return
   }
 
+  if (promotedBackAtHigherTerm(existing, assignment, nodeId)) {
+    startBootstrap(state, config, existing.indexName, existing.partitionId, nodeId)
+    return
+  }
+
   if (assignment.primary !== null && replicaNeedsResync(state, existing, assignment, nodeId)) {
     startBootstrap(state, config, existing.indexName, existing.partitionId, assignment.primary)
   }
@@ -153,6 +171,18 @@ function replicaNeedsResync(
     return false
   }
   return !state.activeBootstraps.has(partitionKey(existing.indexName, existing.partitionId))
+}
+
+function promotedBackAtHigherTerm(
+  existing: TrackedPartition,
+  assignment: PartitionAssignment,
+  nodeId: string,
+): boolean {
+  return (
+    assignment.primary === nodeId &&
+    assignment.state === 'INITIALISING' &&
+    assignment.primaryTerm > existing.primaryTerm
+  )
 }
 
 function keepsCopyForRecovery(table: AllocationTable, partitionId: number, nodeId: string): boolean {
@@ -233,6 +263,7 @@ function removeDroppedPartitions(
     }
 
     state.trackedPartitions.delete(key)
+    state.pendingPartitions.delete(key)
 
     const activeBootstrap = state.activeBootstraps.get(key)
     if (activeBootstrap !== undefined) {

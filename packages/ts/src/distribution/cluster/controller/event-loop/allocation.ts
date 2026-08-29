@@ -5,6 +5,10 @@ import { getIndexMetadata } from '../../index-metadata'
 import type { EventLoopState } from './state'
 import { recoverUnassignedPartitions } from './unassigned-recovery'
 
+function holdsDataNode(nodes: NodeRegistration[]): boolean {
+  return nodes.some(node => node.roles.includes('data'))
+}
+
 const ALLOCATION_CAS_ATTEMPTS = 5
 const ALLOCATION_RETRY_DELAY_MS = 1_000
 const TEARDOWN_CAS_ATTEMPTS = 5
@@ -96,7 +100,7 @@ async function runAllocatorForAllIndexes(
   }
 
   const nodes = await coordinator.listNodes()
-  if (nodes.length === 0 || !isActive()) {
+  if (!holdsDataNode(nodes) || !isActive()) {
     return
   }
 
@@ -175,7 +179,7 @@ async function handleSchemaCreated(
   }
 
   const nodes = await coordinator.listNodes()
-  if (nodes.length === 0 || !isActive()) {
+  if (!holdsDataNode(nodes) || !isActive()) {
     return
   }
 

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../../distribution/cluster-node'
 import type { ClusterNode } from '../../../../distribution/cluster-node/types'
 import { createInMemoryCoordinator } from '../../../../distribution/coordinator'
@@ -17,7 +17,6 @@ describe('createClusterNode (single node insert/query/cluster namespace/shutdown
   let transportB: NodeTransport
 
   beforeEach(() => {
-    vi.useFakeTimers()
     coordinator = createInMemoryCoordinator()
     network = createInMemoryNetwork()
     transportA = createInMemoryTransport('node-a', network)
@@ -36,7 +35,6 @@ describe('createClusterNode (single node insert/query/cluster namespace/shutdown
     await transportA.shutdown()
     await transportB.shutdown()
     await coordinator.shutdown()
-    vi.useRealTimers()
   })
 
   describe('insert and query on single node', () => {

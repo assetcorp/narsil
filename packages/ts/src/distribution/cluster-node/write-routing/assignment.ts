@@ -1,6 +1,7 @@
 import { fnv1a } from '../../../core/hash'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { PartitionAssignment } from '../../coordinator/types'
+import { routableAllocation } from '../routable-allocation'
 import type { PrimaryAssignmentResolution, WriteRoutingDeps } from './types'
 
 export function resolvePartitionId(docId: string, partitionCount: number): number {
@@ -37,9 +38,9 @@ export async function resolvePrimaryAssignment(
   deps: WriteRoutingDeps,
   requireLocalPrimary: boolean,
 ): Promise<PrimaryAssignmentResolution | null> {
-  const table = await deps.coordinator.getAllocation(indexName)
+  const table = await routableAllocation(deps.coordinator, indexName)
 
-  if (table === null || table.assignments.size === 0) {
+  if (table === null) {
     if (requireLocalPrimary) {
       throw new NarsilError(
         ErrorCodes.QUERY_ROUTING_FAILED,

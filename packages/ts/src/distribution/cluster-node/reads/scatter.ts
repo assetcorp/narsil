@@ -19,42 +19,6 @@ export interface ClusterReadDeps {
   resolveNodeTargets: (targetNodeId: string) => Promise<string[]>
 }
 
-/**
- * Reports whether the cluster serves any partition of an index right now, and narrows the table where it does.
- *
- * A read takes the cluster path only where at least one partition has an active copy. An index the cluster has never
- * allocated, and one whose every partition is still bootstrapping, both fail this test, and the caller then answers
- * from its own copy.
- *
- * @param allocation - The allocation table the coordinator holds, or `null` where it holds none.
- * @returns True where at least one partition is `ACTIVE`.
- */
-export function servesAnyPartition(allocation: AllocationTable | null): allocation is AllocationTable {
-  if (allocation === null || allocation.assignments.size === 0) {
-    return false
-  }
-  for (const [, assignment] of allocation.assignments) {
-    if (assignment.state === 'ACTIVE') {
-      return true
-    }
-  }
-  return false
-}
-
-/**
- * Reads the allocation table for an index and returns it only where the cluster serves at least one partition.
- *
- * Every cluster read starts here, because the `null` answer is what tells the caller to read its own copy.
- *
- * @param deps - The cluster configuration, this node's id, the local engine, and the node target resolver.
- * @param indexName - The index to read the allocation for.
- * @returns The allocation table, or `null` where no partition has an active copy.
- */
-export async function activeAllocation(deps: ClusterReadDeps, indexName: string): Promise<AllocationTable | null> {
-  const allocation = await deps.config.coordinator.getAllocation(indexName)
-  return servesAnyPartition(allocation) ? allocation : null
-}
-
 export interface ScatterGroup {
   nodeId: string
   partitionIds: number[]

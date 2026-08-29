@@ -6,6 +6,7 @@ export type {
   ClusterNodeInfo,
   ClusterQueryConfig,
   CreateIndexOptions,
+  NodeReadiness,
 } from './cluster-node'
 export {
   createClusterNode,

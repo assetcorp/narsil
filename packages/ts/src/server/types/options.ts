@@ -1,3 +1,4 @@
+import type { ClusterNamespace } from '../../distribution/cluster-node/types'
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { TaskStore } from './tasks'
 
@@ -157,6 +158,14 @@ export interface ServerOptions {
    * is controlled elsewhere.
    */
   allowInsecure?: boolean
+  /**
+   * The cluster-facing side of the node this server fronts, which is
+   * `node.cluster` on a {@link ClusterNode}. With it set, `/readyz` answers
+   * 200 only while the node reports `SERVING`, `/cluster` reports the
+   * topology, and `/indexes/:name/cluster` reports one index's allocation.
+   * Without it, both cluster routes answer 501.
+   */
+  cluster?: ClusterNamespace
 }
 
 /**

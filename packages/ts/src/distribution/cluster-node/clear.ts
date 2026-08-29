@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { activeAllocation, type ClusterReadDeps, listCluster } from './reads'
+import { type ClusterReadDeps, listCluster } from './reads'
+import { routableAllocation } from './routable-allocation'
 import type { WriteRoutingDeps } from './write-routing'
 import { routeRemoveBatch } from './write-routing'
 
@@ -10,7 +11,7 @@ export async function clearCluster(
   writeDeps: WriteRoutingDeps,
   indexName: string,
 ): Promise<void> {
-  const allocation = await activeAllocation(readDeps, indexName)
+  const allocation = await routableAllocation(readDeps.config.coordinator, indexName)
   if (allocation === null) {
     return readDeps.engine.clear(indexName)
   }

@@ -2,7 +2,8 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { IndexStats, PartitionStatsResult } from '../../../types/results'
 import type { AllocationTable } from '../../coordinator/types'
 import { createCountMessage, validateCountResultPayload } from '../../query/codec'
-import { activeAllocation, type ClusterReadDeps, sendReadRequest, strictScatterGroups } from './scatter'
+import { routableAllocation } from '../routable-allocation'
+import { type ClusterReadDeps, sendReadRequest, strictScatterGroups } from './scatter'
 
 interface GatheredCounts {
   countsByPartition: Map<number, { documentCount: number; estimatedMemoryBytes: number }>
@@ -67,7 +68,7 @@ async function gatherPartitionCounts(
 }
 
 export async function countCluster(deps: ClusterReadDeps, indexName: string): Promise<number> {
-  const allocation = await activeAllocation(deps, indexName)
+  const allocation = await routableAllocation(deps.config.coordinator, indexName)
   if (allocation === null) {
     return deps.engine.countDocuments(indexName)
   }
@@ -80,7 +81,7 @@ export async function countCluster(deps: ClusterReadDeps, indexName: string): Pr
 }
 
 export async function statsCluster(deps: ClusterReadDeps, indexName: string): Promise<IndexStats> {
-  const allocation = await activeAllocation(deps, indexName)
+  const allocation = await routableAllocation(deps.config.coordinator, indexName)
   if (allocation === null) {
     return deps.engine.getStats(indexName)
   }
@@ -110,7 +111,7 @@ export async function statsCluster(deps: ClusterReadDeps, indexName: string): Pr
 }
 
 export async function partitionStatsCluster(deps: ClusterReadDeps, indexName: string): Promise<PartitionStatsResult[]> {
-  const allocation = await activeAllocation(deps, indexName)
+  const allocation = await routableAllocation(deps.config.coordinator, indexName)
   if (allocation === null) {
     return deps.engine.getPartitionStats(indexName)
   }
