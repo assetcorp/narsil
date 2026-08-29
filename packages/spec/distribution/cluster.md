@@ -348,6 +348,43 @@ A partition whose holders have all failed returns to `UNASSIGNED`.
 
 ---
 
+## Node Readiness
+
+A node reports one readiness state, which tells a client whether the node serves work.
+
+```text
+NodeReadiness = 'STARTING'
+              | 'JOINING'
+              | 'SERVING'
+              | 'LEAVING'
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> STARTING
+    STARTING --> JOINING : registration written
+    JOINING --> SERVING : every allocated partition ACTIVE
+    SERVING --> JOINING : partition allocated
+    STARTING --> LEAVING : shutdown
+    JOINING --> LEAVING : shutdown
+    SERVING --> LEAVING : shutdown
+```
+
+| State | Meaning |
+|-------|---------|
+| `STARTING` | The node has settled every local copy against the coordinator and holds no registration yet. |
+| `JOINING` | The node holds a registration and bootstraps the partitions the controller allocated to it. |
+| `SERVING` | The node holds a registration and serves every partition the controller allocated to it. |
+| `LEAVING` | The node has begun shutting down, so it takes no further work. |
+
+Three rules govern what a node serves:
+
+- A node must route every read and every write for an index through the allocation table the coordinator holds for it.
+- A node must refuse a read or a write with `QUERY_ROUTING_FAILED` while the coordinator holds metadata for the index and holds no allocation table for it.
+- A node may serve an index the coordinator holds no metadata for from its own copy, which is how a purely local index stays readable on a cluster node.
+
+---
+
 ## Controller Election
 
 Exactly one controller is active at a time, elected by acquiring a lease on the well-known key `_narsil/controller`.
@@ -540,6 +577,8 @@ A drop is not atomic across nodes: a query routed while the teardown runs can re
    transport.
 ```
 
+A node may open its transport listener before step 2 so that a peer receives a refusal in place of a connection failure. The node must refuse every message with `NODE_NOT_READY` until it reaches step 7.
+
 A node must persist the `indexUuid` alongside its local copy, in the `index_uuid` field of the [index metadata payload](../envelope.md#index-metadata-payload), so that the comparison survives a restart. A node must also record the identity on every index it bootstraps, whether it took the partition on as primary or as replica, because an index that carries none proves nothing at the next join.
 
 Step 3b is the only step that deletes local data, and the stored metadata is what permits it: metadata naming another index under the same name proves that the index this copy belongs to was dropped, so the copy holds documents no reader may see again.
@@ -601,3 +640,12 @@ A community adapter, whether it targets Consul, ZooKeeper, FoundationDB, or Redi
 - Provide watch or subscribe for change notification.
 - Serialise everything it stores as MessagePack.
 - Satisfy the whole `ClusterCoordinator` contract.
+
+---
+
+## Error Codes
+
+| Code | Raised when |
+|------|-------------|
+| `NODE_NOT_READY` | A message reached a node that has yet to finish joining the cluster. |
+| `NODE_NOT_CONTROLLER` | A controller message reached a node that holds no controller lease. |
