@@ -92,6 +92,12 @@ jobs:
     name: Publish to npm
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    concurrency:
+      group: publish-to-npm
+      cancel-in-progress: false
+    env:
+      RELEASE_PROJECTS: ${{ inputs.package == '@delali/narsil' && 'narsil-ts' || inputs.package == '@delali/narsil-embeddings-transformers' && 'narsil-embeddings-transformers' || inputs.package == '@delali/narsil-certutil' && 'narsil-certutil' || 'narsil-ts,narsil-embeddings-transformers,narsil-certutil' }}
+      RELEASES_NARSIL_TS: ${{ inputs.package == '@delali/narsil' || inputs.package == 'all' }}
     services:
       etcd:
         image: gcr.io/etcd-development/etcd:v3.6.0
@@ -114,6 +120,25 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
+      - name: Verify this run holds the tip of main
+        run: |
+          git fetch origin main
+          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          MAIN_TIP_SHA="$(git rev-parse FETCH_HEAD)"
+          if [ "$CHECKED_OUT_SHA" != "$MAIN_TIP_SHA" ]; then
+            echo "::error::This run holds $CHECKED_OUT_SHA and main is at $MAIN_TIP_SHA, so the release commit would be rejected as non-fast-forward. Dispatch a fresh run, because re-running replays the commit the original dispatch pinned."
+            exit 1
+          fi
+
+      - name: Validate version input
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! echo "$VERSION" | grep -qE '^(patch|minor|major|[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)$'; then
+            echo "::error::Invalid version input: '$VERSION'. Must be patch, minor, major, or a valid semver like 1.2.3"
+            exit 1
+          fi
+
       - name: Setup pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
@@ -128,47 +153,25 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: pnpm nx run narsil-ts:lint
-
-      - name: Lint (embeddings-transformers)
-        run: pnpm nx run narsil-embeddings-transformers:lint
-
-      - name: Lint (certutil)
-        run: pnpm nx run narsil-certutil:lint
+        run: pnpm nx run-many -t lint --projects="$RELEASE_PROJECTS"
 
       - name: Typecheck (incl. tests)
-        run: pnpm nx run narsil-ts:typecheck
-
-      - name: Typecheck (embeddings-transformers incl. tests)
-        run: pnpm nx run narsil-embeddings-transformers:typecheck
-
-      - name: Typecheck (certutil incl. tests)
-        run: pnpm nx run narsil-certutil:typecheck
+        run: pnpm nx run-many -t typecheck --projects="$RELEASE_PROJECTS"
 
       - name: Build
-        run: pnpm nx run narsil-ts:build
-
-      - name: Build (embeddings-transformers)
-        run: pnpm nx run narsil-embeddings-transformers:build
-
-      - name: Build (certutil)
-        run: pnpm nx run narsil-certutil:build
+        run: pnpm nx run-many -t build --projects="$RELEASE_PROJECTS"
 
       - name: Test
-        run: pnpm nx run narsil-ts:test
-
-      - name: Test (embeddings-transformers)
-        run: pnpm nx run narsil-embeddings-transformers:test
-
-      - name: Test (certutil)
-        run: pnpm nx run narsil-certutil:test
+        run: pnpm nx run-many -t test --projects="$RELEASE_PROJECTS"
 
       - name: Test (etcd integration)
+        if: env.RELEASES_NARSIL_TS == 'true'
         env:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-ts:test:etcd
 
       - name: Cache HuggingFace models
+        if: env.RELEASES_NARSIL_TS == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/huggingface
@@ -177,17 +180,9 @@ jobs:
             hf-models-${{ runner.os }}-
 
       - name: Test (embedding integration)
+        if: env.RELEASES_NARSIL_TS == 'true'
         run: pnpm nx run narsil-ts:test:embeddings
         timeout-minutes: 10
-
-      - name: Validate version input
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          if ! echo "$VERSION" | grep -qE '^(patch|minor|major|[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)$'; then
-            echo "::error::Invalid version input: '$VERSION'. Must be patch, minor, major, or a valid semver like 1.2.3"
-            exit 1
-          fi
 
       - name: Configure git
         run: |
@@ -198,13 +193,11 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
           DRY_RUN_FLAG: ${{ inputs.dry-run && '--dry-run' || '' }}
-          PROJECTS_FLAG: ${{ inputs.package == '@delali/narsil' && '--projects=narsil-ts' || inputs.package == '@delali/narsil-embeddings-transformers' && '--projects=narsil-embeddings-transformers' || inputs.package == '@delali/narsil-certutil' && '--projects=narsil-certutil' || '' }}
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
-        run: pnpm nx release "$VERSION" $DRY_RUN_FLAG $PROJECTS_FLAG --skip-publish
+        run: pnpm nx release "$VERSION" $DRY_RUN_FLAG --projects="$RELEASE_PROJECTS" --skip-publish
 
       - name: Publish
         if: ${{ !inputs.dry-run }}
         env:
           NPM_CONFIG_PROVENANCE: true
-          PROJECTS_FLAG: ${{ inputs.package == '@delali/narsil' && '--projects=narsil-ts' || inputs.package == '@delali/narsil-embeddings-transformers' && '--projects=narsil-embeddings-transformers' || inputs.package == '@delali/narsil-certutil' && '--projects=narsil-certutil' || '' }}
-        run: pnpm nx release publish $PROJECTS_FLAG --verbose
+        run: pnpm nx release publish --projects="$RELEASE_PROJECTS" --verbose
