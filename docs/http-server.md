@@ -2,7 +2,7 @@
 
 The server subpath turns an engine into a REST service, and this guide covers every route it serves.
 
-`@delali/narsil/server` wraps an engine you build in a REST API. You own the engine and its configuration (durability, embedding adapters, workers), and the server shares it across requests. The HTTP layer runs on `uWebSockets.js`, an optional peer dependency:
+`@delali/narsil/server` wraps an engine you build in a REST API. You own the engine and its configuration (durability, embedding adapters, workers), and the server shares it across requests. The HTTP layer is built on `uWebSockets.js`, an optional peer dependency:
 
 ```bash
 pnpm add -E uWebSockets.js@github:uNetworking/uWebSockets.js#v20.58.0
@@ -22,13 +22,14 @@ const server = createServer(engine, {
 await server.listen()
 ```
 
-`ServerOptions` also accepts `cors`, an `onRequest` hook for authentication, `limits` for body-size, concurrency, result-window, and fetch-count caps, `embeddingAdapters` that JSON index configs reference by name, a `taskStore` that keeps long-running task status across restarts, an `instanceId` for task recovery, and `allowInsecure` for trusted private networks. The server refuses to bind a non-loopback address without an `onRequest` hook, because the admin endpoints can destroy data.
+`ServerOptions` also accepts `cors`, an `onRequest` hook for authentication, `limits` for body-size, concurrency, result-window, and fetch-count caps, `embeddingAdapters` that JSON index configs reference by name, a `taskStore` that keeps long-running task status across restarts, an `instanceId` for task recovery, `allowInsecure` for trusted private networks, and `cluster` for a server fronting a cluster node. See [Cluster routes](#cluster-routes). The server refuses to bind a non-loopback address without an `onRequest` hook, because the admin endpoints can destroy data.
 
 The full surface:
 
 | Method and path | Purpose |
 | --- | --- |
-| `GET /livez`, `GET /readyz`, `GET /health` | The probes report liveness and readiness without authentication. |
+| `GET /livez`, `GET /readyz`, `GET /health` | The probes report liveness and readiness without authentication. On a cluster node, `/readyz` answers 503 until the node reports `SERVING`. See [Cluster routes](#cluster-routes). |
+| `GET /cluster`, `GET /indexes/{name}/cluster` | The endpoints report the cluster topology and one index's allocation, and a server fronting a single engine answers both with 501. See [Cluster routes](#cluster-routes). |
 | `GET /version` | The endpoint reports the build identity stamped at startup. |
 | `GET /capabilities` | The endpoint lists the optional routes this server serves, and it needs no key either. See [Tasks](#tasks). |
 | `GET /stats/memory` | The endpoint returns `getMemoryStats()`. |
@@ -51,7 +52,7 @@ The full surface:
 
 ## Tasks
 
-Five operations run long enough that the server answers before they finish: an import sent with `?async=true`, `restore`, `_rebalance`, `vectors/_optimize`, and `_rebuild-analysis`. Each one answers 202 with a task record and carries on in the background. Every one of them uses the same record shape, which `GET /tasks/{id}` returns again as the work runs.
+Five operations take long enough that the server answers before they finish: an import sent with `?async=true`, `restore`, `_rebalance`, `vectors/_optimize`, and `_rebuild-analysis`. Each one answers 202 with a task record and carries on in the background. Every one of them uses the same record shape, which `GET /tasks/{id}` returns again as the work proceeds.
 
 ```json
 {
@@ -76,7 +77,7 @@ Each running task holds its own working set, and an async import holds the whole
 
 `POST /tasks/{id}/_cancel` asks a running task to stop, and it answers 202 with the record. The work stops between units, so a task reaches `cancelled` only once it has stopped, and a request that comes too late leaves it `succeeded`. Cancelling a finished task answers 409 `TASK_NOT_CANCELLABLE`. A task another instance started answers 409 `TASK_OWNED_BY_ANOTHER_INSTANCE`, because only the process running the work can stop it.
 
-`options.taskStore` decides where the records are kept. The default holds 1,000 of them in this process and drops the oldest finished ones first. A restart loses them, and a second instance never sees them. Supply a store of your own, such as Redis, DynamoDB, or a database, so that any instance can answer for a task. That store receives a time to live with every write: 24 hours for a running record, and an hour for a finished one. The work itself still runs in the process that accepted it, so a shared store gives cross-instance visibility instead of distributed execution. Set `options.instanceId` to a stable value as well, because a restart then marks that instance's own running tasks failed instead of leaving them stuck.
+`options.taskStore` decides where the records are kept. The default holds 1,000 of them in this process and drops the oldest finished ones first. A restart loses them, and a second instance never sees them. Supply a store of your own, such as Redis, DynamoDB, or a database, so that any instance can answer for a task. That store receives a time to live with every write: 24 hours for a running record, and an hour for a finished one. The work itself still executes in the process that accepted it, so a shared store lets every instance read the record while the work stays where it started. Set `options.instanceId` to a stable value as well, because a restart then marks that instance's own running tasks failed, and they would otherwise stay stuck.
 
 `GET /capabilities` lists the optional routes this server answers, so a client can check before it sends a request that an older server would refuse with 404.
 
@@ -84,9 +85,47 @@ Each running task holds its own working set, and an async import holds the whole
 { "capabilities": ["documents.import.async", "tasks.cancel", "tasks.filter", "indexes.rebuildAnalysis"] }
 ```
 
+## Cluster routes
+
+A server that fronts a cluster node takes `node.cluster` as the `cluster` option, and three routes then report what that node knows. Without the option, `/readyz` reports the engine alone and the two cluster routes answer 501 `CLUSTER_OPERATION_UNSUPPORTED`.
+
+`GET /readyz` answers 200 only while the node reports `SERVING`, and 503 otherwise, so a load balancer can send traffic to a node once it serves every partition the controller gave it. The body names the node either way:
+
+```json
+{
+  "status": "ready",
+  "cluster": { "nodeId": "node-a", "roles": ["data", "coordinator", "controller"], "status": "active", "readiness": "SERVING", "isController": true }
+}
+```
+
+`readiness` is one of `STARTING`, `JOINING`, `SERVING`, and `LEAVING`, which the [cluster guide](cluster.md#what-a-node-serves) defines.
+
+`GET /cluster` reports the node itself under `node`, the id of the node holding the controller lease, and every registration the coordinator holds:
+
+```json
+{
+  "node": { "nodeId": "node-a", "roles": ["data", "coordinator", "controller"], "status": "active", "readiness": "SERVING", "isController": true },
+  "controllerNodeId": "node-a",
+  "nodes": [{ "nodeId": "node-a", "address": "node-a:9200", "roles": ["data", "coordinator", "controller"] }]
+}
+```
+
+`GET /indexes/{name}/cluster` reports one index's allocation partition by partition, in partition order. An index the controller has yet to allocate answers with `allocated` false and no partitions. A name the cluster would never accept answers 400 `INVALID_REQUEST`.
+
+```json
+{
+  "indexName": "movies",
+  "allocated": true,
+  "version": 4,
+  "partitions": [
+    { "partitionId": 0, "state": "ACTIVE", "primary": "node-a", "primaryTerm": 1, "commitPoint": 1204, "replicas": ["node-b"], "inSyncSet": ["node-b"], "lastHolders": [], "unassignedReason": null }
+  ]
+}
+```
+
 ## Listing documents
 
-`POST /indexes/{name}/documents/_list` pages through the stored documents without searching, in document-id order until the body names a `sort`. The body takes `cursor`, `limit`, `filters`, `sort`, and `document`, which are the parameters [`listDocuments`](indexes-and-documents.md#list) takes. It goes over a body rather than a query string because `filters`, `sort`, and `document` are nested objects.
+`POST /indexes/{name}/documents/_list` pages through the stored documents without searching, in document-id order until the body names a `sort`. The body takes `cursor`, `limit`, `filters`, `sort`, and `document`, which are the parameters [`listDocuments`](indexes-and-documents.md#list) takes. It takes a body because `filters`, `sort`, and `document` are nested objects.
 
 ```bash
 curl -X POST localhost:9876/indexes/movies/documents/_list \
