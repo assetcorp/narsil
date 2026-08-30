@@ -1,6 +1,7 @@
+import { cn } from '@delali/narsil-example-shared'
 import { Button } from '@delali/narsil-example-shared/ui/button'
 import { memo } from 'react'
-import { type DashboardControls, localReasonOf } from '../lib/controls'
+import { type DashboardControls, localReasonOf, reasonClassOf } from '../lib/controls'
 import type { ProvisionResult } from '../lib/probe-types'
 import { PARTITION_COUNT, REPLICATION_FACTOR } from '../topology'
 
@@ -52,7 +53,7 @@ export const SetupPanel = memo(function SetupPanel({
         {indexExists ? 'Ingest again' : 'Create and ingest'}
       </Button>
 
-      {reason === null ? null : <p className="mt-2 text-xs text-destructive">{reason}</p>}
+      {reason === null ? null : <p className={cn('mt-2 text-xs', reasonClassOf(controls.provision))}>{reason}</p>}
     </section>
   )
 })

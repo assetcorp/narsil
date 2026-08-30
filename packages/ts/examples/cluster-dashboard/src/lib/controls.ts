@@ -4,6 +4,7 @@ import { cutLinkCountOf, linkOf } from './cluster-types'
 export interface ControlState {
   readonly enabled: boolean
   readonly reason: string | null
+  readonly fault: boolean
 }
 
 export interface LinkControl extends ControlState {
@@ -17,6 +18,7 @@ export interface ProvisionControl extends ControlState {
 }
 
 export interface DashboardControls {
+  stream: StreamState
   staleReason: string | null
   blockedReason: string | null
   pendingLabel: string | null
@@ -28,10 +30,18 @@ export interface DashboardControls {
 const STALE_TEXT =
   'The dashboard has lost its live view of the cluster, so this page shows what it saw last. Every control stays off until that view comes back.'
 
-const ALLOWED: ControlState = { enabled: true, reason: null }
+const ALLOWED: ControlState = { enabled: true, reason: null, fault: false }
 
-function refused(reason: string): ControlState {
-  return { enabled: false, reason }
+function waiting(reason: string): ControlState {
+  return { enabled: false, reason, fault: false }
+}
+
+function failed(reason: string): ControlState {
+  return { enabled: false, reason, fault: true }
+}
+
+function blocked(reason: string, stream: StreamState): ControlState {
+  return stream === 'live' ? waiting(reason) : failed(reason)
 }
 
 function staleReasonOf(stream: StreamState): string | null {
@@ -56,6 +66,7 @@ function faultInjectorReasonOf(snapshot: ClusterSnapshot): string | null {
 export function linkControlOf(
   snapshot: ClusterSnapshot,
   blockedReason: string | null,
+  stream: StreamState,
   nodeId: string,
   kind: LinkKind,
 ): LinkControl {
@@ -63,53 +74,53 @@ export function linkControlOf(
 
   if (linkUp === null) {
     const missing = `The fault injector names no proxy for the ${kind} link of ${nodeId}.`
-    return { nodeId, kind, linkUp, enabled: false, reason: faultInjectorReasonOf(snapshot) ?? missing }
+    return { nodeId, kind, linkUp, ...failed(faultInjectorReasonOf(snapshot) ?? missing) }
   }
   if (blockedReason !== null) {
-    return { nodeId, kind, linkUp, enabled: false, reason: blockedReason }
+    return { nodeId, kind, linkUp, ...blocked(blockedReason, stream) }
   }
-  return { nodeId, kind, linkUp, enabled: true, reason: null }
+  return { nodeId, kind, linkUp, ...ALLOWED }
 }
 
-function healControlOf(snapshot: ClusterSnapshot, blockedReason: string | null): ControlState {
+function healControlOf(snapshot: ClusterSnapshot, blockedReason: string | null, stream: StreamState): ControlState {
   const injector = faultInjectorReasonOf(snapshot)
   if (injector !== null) {
-    return refused(injector)
+    return failed(injector)
   }
   if (blockedReason !== null) {
-    return refused(blockedReason)
+    return blocked(blockedReason, stream)
   }
   if (cutLinkCountOf(snapshot) === 0) {
-    return { enabled: false, reason: null }
+    return { enabled: false, reason: null, fault: false }
   }
   return ALLOWED
 }
 
-function provisionControlOf(snapshot: ClusterSnapshot, blockedReason: string | null): ProvisionControl {
+function provisionControlOf(
+  snapshot: ClusterSnapshot,
+  blockedReason: string | null,
+  stream: StreamState,
+): ProvisionControl {
   const nodeId = snapshot.nodes.find(node => node.registered)?.nodeId ?? null
 
   if (snapshot.coordinatorError !== null) {
-    return { nodeId, enabled: false, reason: `The coordinator answered with an error: ${snapshot.coordinatorError}` }
+    return { nodeId, ...failed(`The coordinator answered with an error: ${snapshot.coordinatorError}`) }
   }
   if (nodeId === null) {
-    return {
-      nodeId,
-      enabled: false,
-      reason: 'No node holds a registration in etcd, so none of them can take a corpus.',
-    }
+    return { nodeId, ...waiting('No node holds a registration in etcd, so none of them can take a corpus.') }
   }
   if (blockedReason !== null) {
-    return { nodeId, enabled: false, reason: blockedReason }
+    return { nodeId, ...blocked(blockedReason, stream) }
   }
-  return { nodeId, enabled: true, reason: null }
+  return { nodeId, ...ALLOWED }
 }
 
-function probeControlOf(snapshot: ClusterSnapshot, blockedReason: string | null): ControlState {
+function probeControlOf(snapshot: ClusterSnapshot, blockedReason: string | null, stream: StreamState): ControlState {
   if (!snapshot.indexExists) {
-    return refused(`No node has allocated '${snapshot.indexName}' yet, so there is nothing to read.`)
+    return waiting(`No node has allocated '${snapshot.indexName}' yet, so there is nothing to read.`)
   }
   if (blockedReason !== null) {
-    return refused(blockedReason)
+    return blocked(blockedReason, stream)
   }
   return ALLOWED
 }
@@ -122,12 +133,13 @@ export function buildControls(
   const blockedReason = blockedReasonOf(stream, pending)
 
   return {
+    stream,
     staleReason: staleReasonOf(stream),
     blockedReason,
     pendingLabel: pending,
-    heal: healControlOf(snapshot, blockedReason),
-    provision: provisionControlOf(snapshot, blockedReason),
-    probe: probeControlOf(snapshot, blockedReason),
+    heal: healControlOf(snapshot, blockedReason, stream),
+    provision: provisionControlOf(snapshot, blockedReason, stream),
+    probe: probeControlOf(snapshot, blockedReason, stream),
   }
 }
 
@@ -135,7 +147,11 @@ export function probeWithTerm(probe: ControlState, term: string): ControlState {
   if (!probe.enabled) {
     return probe
   }
-  return term.trim().length === 0 ? refused('Type a term for the three reads to look for.') : probe
+  return term.trim().length === 0 ? waiting('Type a term for the three reads to look for.') : probe
+}
+
+export function reasonClassOf(control: ControlState): string {
+  return control.fault ? 'text-destructive' : 'text-muted-foreground'
 }
 
 export function localReasonOf(control: ControlState, ...shownElsewhere: Array<string | null>): string | null {

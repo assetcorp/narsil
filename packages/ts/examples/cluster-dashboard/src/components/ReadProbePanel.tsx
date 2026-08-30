@@ -5,7 +5,7 @@ import { type ChangeEvent, memo, useCallback, useState } from 'react'
 import type { RunAction } from '../hooks/use-dashboard'
 import { runReadProbeFn } from '../lib/actions.functions'
 import type { ClusterNodeRow } from '../lib/cluster-types'
-import { type DashboardControls, localReasonOf, probeWithTerm } from '../lib/controls'
+import { type DashboardControls, localReasonOf, probeWithTerm, reasonClassOf } from '../lib/controls'
 import type { ReadProbeResult } from '../lib/probe-types'
 import { MAX_TERM_LENGTH } from '../lib/validation'
 import { NODES } from '../topology'
@@ -185,7 +185,7 @@ export const ReadProbePanel = memo(function ReadProbePanel({ nodes, controls, ru
         </Button>
       </div>
 
-      {reason === null ? null : <p className="mt-3 text-xs text-destructive">{reason}</p>}
+      {reason === null ? null : <p className={cn('mt-3 text-xs', reasonClassOf(control))}>{reason}</p>}
 
       {chosen === undefined || chosen.registered ? null : (
         <p className="mt-3 text-xs text-muted-foreground">
