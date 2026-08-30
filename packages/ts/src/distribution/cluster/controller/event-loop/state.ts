@@ -1,3 +1,5 @@
+import type { NodeTransport } from '../../../transport/types'
+
 export interface EventLoopState {
   unwatchNodes: (() => void) | null
   unwatchSchemas: (() => void) | null
@@ -6,6 +8,8 @@ export interface EventLoopState {
   debounceTimer: ReturnType<typeof setTimeout> | null
   teardownTimers: Map<string, ReturnType<typeof setTimeout>>
   insyncQueue: Promise<void>
+  transport: NodeTransport | null
+  controllerNodeId: string | null
 }
 
 /**
@@ -24,6 +28,8 @@ export function createEventLoopState(initialIndexNames: string[]): EventLoopStat
     debounceTimer: null,
     teardownTimers: new Map(),
     insyncQueue: Promise.resolve(),
+    transport: null,
+    controllerNodeId: null,
   }
 }
 

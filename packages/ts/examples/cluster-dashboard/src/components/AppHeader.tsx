@@ -1,7 +1,7 @@
 import { cn } from '@delali/narsil-example-shared'
 import { ThemeToggle } from '@delali/narsil-example-shared/components/layout/ThemeToggle'
 import { memo } from 'react'
-import type { StreamState } from '../hooks/use-cluster-stream'
+import type { StreamState } from '../lib/cluster-types'
 
 interface AppHeaderProps {
   stream: StreamState

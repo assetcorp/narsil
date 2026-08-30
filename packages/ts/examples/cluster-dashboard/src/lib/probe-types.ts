@@ -1,45 +1,42 @@
+import type { QueryCoverage } from '@delali/narsil'
+
 export interface FacetBucketRow {
   value: string
   count: number
 }
 
-export interface CoverageRow {
-  totalPartitions: number
-  queriedPartitions: number
-  timedOutPartitions: number
-  failedPartitions: number
+export interface ProbeFailure {
+  ok: false
+  errorCode: string
+  errorMessage: string
 }
 
-export interface SearchProbe {
-  ok: boolean
-  coverage: CoverageRow | null
-  matchCount: number | null
-  returnedHits: number | null
-  elapsed: number | null
-  errorCode: string | null
-  errorMessage: string | null
-}
+export type SearchProbe =
+  | {
+      ok: true
+      coverage: QueryCoverage
+      matchCount: number
+      returnedHits: number
+      elapsed: number
+    }
+  | ProbeFailure
 
-export interface CountProbe {
-  ok: boolean
-  documentCount: number | null
-  errorCode: string | null
-  errorMessage: string | null
-}
+export type CountProbe = { ok: true; documentCount: number } | ProbeFailure
 
-export interface FacetProbe {
-  ok: boolean
-  field: string
-  buckets: FacetBucketRow[]
-  errorBound: number | null
-  errorCode: string | null
-  errorMessage: string | null
-}
+export type FacetProbe =
+  | {
+      ok: true
+      field: string
+      buckets: FacetBucketRow[]
+      errorBound: number
+    }
+  | ProbeFailure
 
 export interface ReadProbeResult {
   nodeId: string
   term: string
   ranAt: string
+  facetField: string
   search: SearchProbe
   count: CountProbe
   facets: FacetProbe

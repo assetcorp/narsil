@@ -14,6 +14,8 @@ import {
   REPLICATION_FACTOR,
 } from './topology'
 
+const MILLISECONDS_PER_SECOND = 1_000
+
 function requireEnv(name: string): string {
   const value = process.env[name]
   if (value === undefined || value.length === 0) {
@@ -30,7 +32,6 @@ const coordinator = await createEtcdCoordinator({
   endpoints: [requireEnv('ETCD_ENDPOINT')],
   keyPrefix: ETCD_KEY_PREFIX,
   nodeHeartbeatTtlSeconds: NODE_HEARTBEAT_TTL_SECONDS,
-  leaseTtlSeconds: CONTROLLER_LEASE_TTL_SECONDS,
 })
 
 const transport = createTcpTransport(spec.nodeId, {
@@ -49,6 +50,7 @@ const node = await createClusterNode({
   address: advertisedAddressOf(spec),
   nodeId: spec.nodeId,
   roles: ['data', 'coordinator', 'controller'],
+  controller: { leaseTtlMs: CONTROLLER_LEASE_TTL_SECONDS * MILLISECONDS_PER_SECOND },
   onError: error => console.error(`[${spec.nodeId}] ${error.message}`),
 })
 
@@ -58,7 +60,7 @@ const server = createServer(
   clusterNodeEngine(node, {
     createIndex: { partitionCount: PARTITION_COUNT, replicationFactor: REPLICATION_FACTOR },
   }),
-  { host: listenHost, port: spec.httpPort, allowInsecure: true },
+  { host: listenHost, port: spec.httpPort, allowInsecure: true, cluster: node.cluster },
 )
 await server.listen()
 

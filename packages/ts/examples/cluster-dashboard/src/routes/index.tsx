@@ -10,8 +10,7 @@ import { useDashboard } from '../hooks/use-dashboard'
 
 function Dashboard() {
   const dashboard = useDashboard()
-  const { snapshot, stream, events } = dashboard
-  const busy = dashboard.pending !== null
+  const { snapshot, controls, stream, events } = dashboard
 
   return (
     <div className="min-h-screen bg-background">
@@ -27,19 +26,36 @@ function Dashboard() {
           <ErrorBanner message={dashboard.error} onDismiss={dashboard.onDismissError} />
         )}
 
-        {snapshot === null ? (
+        {dashboard.streamError === null ? null : (
+          <p className="rounded-lg border border-destructive/40 px-4 py-3 text-sm text-destructive">
+            The cluster stream stopped: {dashboard.streamError}
+          </p>
+        )}
+
+        {snapshot === null || controls === null ? (
           <p className="py-20 text-center text-sm text-muted-foreground">
             The dashboard is waiting for its first snapshot of the coordinator.
           </p>
         ) : (
           <>
+            {controls.staleReason === null ? null : (
+              <p className="rounded-lg border border-destructive/40 px-4 py-3 text-sm text-destructive">
+                {controls.staleReason}
+              </p>
+            )}
+
             {snapshot.coordinatorError === null ? null : (
               <p className="rounded-lg border border-destructive/40 px-4 py-3 text-sm text-destructive">
                 The coordinator answered with an error: {snapshot.coordinatorError}
               </p>
             )}
 
-            <NodeBoard snapshot={snapshot} onToggleLink={dashboard.onToggleLink} onHealLinks={dashboard.onHealLinks} />
+            <NodeBoard
+              snapshot={snapshot}
+              controls={controls}
+              onToggleLink={dashboard.onToggleLink}
+              onHealLinks={dashboard.onHealLinks}
+            />
 
             <div className="grid gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
               <PartitionTable snapshot={snapshot} />
@@ -47,12 +63,12 @@ function Dashboard() {
             </div>
 
             <div className="grid gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-              <ReadProbePanel nodes={snapshot.nodes} busy={busy} runAction={dashboard.runAction} />
+              <ReadProbePanel nodes={snapshot.nodes} controls={controls} runAction={dashboard.runAction} />
               <SetupPanel
                 indexName={snapshot.indexName}
                 indexExists={snapshot.indexExists}
                 provision={dashboard.provision}
-                busy={busy}
+                controls={controls}
                 onProvision={dashboard.onProvision}
               />
             </div>

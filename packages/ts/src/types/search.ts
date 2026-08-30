@@ -139,7 +139,14 @@ export interface QueryParams {
  *
  * @public
  */
-export type DocumentProjection = boolean | { include?: string[]; exclude?: string[] }
+export type DocumentProjection =
+  | boolean
+  | {
+      /** Names the fields to keep, so every field left out of this list is dropped. */
+      include?: string[]
+      /** Names the fields to drop, so every other field is kept. */
+      exclude?: string[]
+    }
 
 /**
  * Vector-search inputs passed under `QueryParams.vector`.

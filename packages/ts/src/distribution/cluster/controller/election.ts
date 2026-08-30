@@ -15,6 +15,13 @@ export function createElectionState(): ElectionState {
   }
 }
 
+export function clearStandbyTimer(state: ElectionState): void {
+  if (state.standbyTimer !== null) {
+    clearTimeout(state.standbyTimer)
+    state.standbyTimer = null
+  }
+}
+
 export function clearElectionTimers(state: ElectionState): void {
   if (state.renewalTimer !== null) {
     clearInterval(state.renewalTimer)
@@ -65,5 +72,9 @@ export function startRenewalInterval(
 }
 
 export function scheduleStandbyRetry(state: ElectionState, retryMs: number, onRetry: () => void): void {
-  state.standbyTimer = setTimeout(onRetry, retryMs)
+  clearStandbyTimer(state)
+  state.standbyTimer = setTimeout(() => {
+    state.standbyTimer = null
+    onRetry()
+  }, retryMs)
 }

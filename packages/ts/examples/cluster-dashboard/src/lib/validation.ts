@@ -1,7 +1,7 @@
 import { NODES } from '../topology'
 import type { LinkKind } from './cluster-types'
 
-const MAX_TERM_LENGTH = 128
+export const MAX_TERM_LENGTH = 128
 
 export interface LinkInput {
   nodeId: string

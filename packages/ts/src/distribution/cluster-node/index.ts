@@ -10,7 +10,6 @@ import type { NodeRegistration, NodeRole } from '../coordinator/types'
 import type { ReplicationLog } from '../replication/types'
 import type { TransportMessage } from '../transport/types'
 import { cleanupRemovedPartition } from './bootstrap-cleanup'
-import { validateRestoredSchema } from './bootstrap-restore'
 import {
   clearBootstrapSyncIndex,
   createBootstrapSyncState,
@@ -18,11 +17,14 @@ import {
   runBootstrapSync,
 } from './bootstrap-sync'
 import { createCatchUpState, startCatchUpPump, stopCatchUpPump } from './catch-up'
+import { createClusterNamespace } from './cluster-namespace'
+import { createAllocationErrorForwarder, createErrorForwarder } from './error-forwarding'
 import { createClusterLocalEngine } from './local-engine'
 import { adoptClusterIdentity, orphanedIndexError, reconcileLocalIndexes } from './local-index-reconcile'
 import { createDataNodeHandler } from './message-handler'
 import { resolveNodeTargets as resolveTargetsForNode, sendToNode as sendMessageToNode } from './node-messaging'
 import { createClusterNodeOperations } from './node-operations'
+import { type PrimaryPartitionDeps, preparePrimaryPartition } from './primary-partition'
 import type { ClusterReadDeps } from './reads'
 import {
   replicationLogKey as buildReplicationLogKey,
@@ -30,8 +32,8 @@ import {
   seedReplicationLog as writeSeededReplicationLog,
 } from './replication-logs'
 import { createSnapshotSyncHandlerState, defaultSnapshotHeaderMetadataProvider } from './snapshot-sync-handler'
-import { createMultiplexedControllerTransport } from './transport-listener'
-import type { ClusterNamespace, ClusterNode, ClusterNodeConfig } from './types'
+import { createMultiplexedControllerTransport, createNotReadyHandler } from './transport-listener'
+import type { ClusterNode, ClusterNodeConfig } from './types'
 import { DEFAULT_CAPACITY } from './types'
 import { validateClusterNodeConfig } from './validate-config'
 import type { WriteRoutingDeps } from './write-routing'
@@ -85,13 +87,8 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     return sendMessageToNode(config, targetNodeId, message)
   }
 
-  const forwardOnError = (error: unknown): void => {
-    if (config.onError === undefined) {
-      return
-    }
-    const wrapped = error instanceof Error ? error : new Error(String(error))
-    config.onError(wrapped)
-  }
+  const forwardOnError = createErrorForwarder(config.onError)
+  const forwardAllocationError = createAllocationErrorForwarder(forwardOnError)
 
   const registration: NodeRegistration = {
     nodeId,
@@ -104,8 +101,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
 
   const hasDataRole = roles.includes('data')
   const hasControllerRole = roles.includes('controller')
-  const controllerTransport =
-    hasDataRole && hasControllerRole ? createMultiplexedControllerTransport(config.transport) : null
+  const controllerTransport = hasDataRole ? createMultiplexedControllerTransport(config.transport, nodeId) : null
 
   const writeDeps: WriteRoutingDeps = {
     nodeId,
@@ -121,9 +117,18 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   }
 
   const orphanedIndexes = new Set<string>()
-  let lifecycle: DataNodeHandle | null = null
+  const heldPartitionWrites = new Set<Promise<void>>()
+
+  function trackHeldPartitionWrite(write: Promise<void>): void {
+    const settled = write.catch(forwardOnError)
+    heldPartitionWrites.add(settled)
+    void settled.finally(() => heldPartitionWrites.delete(settled))
+  }
+
   let controller: ControllerNode | null = null
   let unregisterHandler: (() => void) | null = null
+  let unregisterNotReadyHandler: (() => void) | null = null
+  let serving = false
   let isShutdown = false
   let activeOps = 0
   let drainResolve: (() => void) | null = null
@@ -141,85 +146,69 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     onError: forwardOnError,
   }
 
+  const primaryPartitionDeps: PrimaryPartitionDeps = {
+    engine,
+    coordinator: config.coordinator,
+    nodeId,
+    seedReplicationLog,
+    replicationLogPosition: (indexName: string, partitionId: number) =>
+      getReplicationLog(indexName, partitionId).newestSeqNo ?? 0,
+    onError: forwardOnError,
+  }
+
   async function bootstrapPartition(indexName: string, partitionId: number, primaryNodeId: string): Promise<boolean> {
     const succeeded =
       primaryNodeId === nodeId
-        ? await preparePrimaryPartition(indexName)
+        ? await preparePrimaryPartition(indexName, partitionId, primaryPartitionDeps)
         : await runBootstrapSync(bootstrapSyncState, indexName, partitionId, primaryNodeId, bootstrapSyncDeps)
     if (succeeded) {
       await adoptClusterIdentity(engine, config.coordinator, indexName)
+      await engine.recordHeldPartition(indexName, partitionId)
     }
     return succeeded
   }
 
-  async function preparePrimaryPartition(indexName: string): Promise<boolean> {
-    const schema = await config.coordinator.getSchema(indexName)
-    if (schema === null) {
-      return false
-    }
-    const allocation = await config.coordinator.getAllocation(indexName)
-    if (allocation === null || allocation.assignments.size === 0) {
-      return false
-    }
-    const existing = engine.listIndexes().find(index => index.name === indexName)
-    if (existing !== undefined) {
-      const schemaError = validateRestoredSchema(engine, indexName, nodeId, schema)
-      if (schemaError !== null) {
-        forwardOnError(schemaError)
-        return false
-      }
-      return true
-    }
-    try {
-      await engine.createIndex(indexName, {
-        schema,
-        partitions: { maxPartitions: allocation.assignments.size },
+  const lifecycle: DataNodeHandle = createDataNodeLifecycle({
+    registration,
+    coordinator: config.coordinator,
+    transport: config.transport,
+    knownIndexNames: [],
+    bootstrapRetryBaseMs: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapRetryBaseMs,
+    bootstrapRetryMaxMs: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapRetryMaxMs,
+    bootstrapMaxRetries: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapMaxRetries,
+    allocationDebounceMs: DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs,
+    nodeHeartbeatIntervalMs: DEFAULT_NODE_LIFECYCLE_CONFIG.nodeHeartbeatIntervalMs,
+    onBootstrapPartition: bootstrapPartition,
+    onHoldPartition: (indexName: string, partitionId: number) => {
+      trackHeldPartitionWrite(engine.recordHeldPartition(indexName, partitionId))
+    },
+    retainedPartitionIds: (indexName: string) => engine.heldPartitionsOf(indexName) ?? [],
+    onRemovePartition: (indexName: string, partitionId: number) => {
+      clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
+      replicationLogs.delete(replicationLogKey(indexName, partitionId))
+      trackHeldPartitionWrite(engine.forgetHeldPartition(indexName, partitionId))
+      // Fire-and-forget: align engine state with allocation by dropping the
+      // local index when no other partitions of the same index remain
+      // assigned to this node. Errors are surfaced via forwardOnError.
+      void cleanupRemovedPartition(indexName, partitionId, {
+        engine,
+        coordinator: config.coordinator,
+        nodeId,
+        onError: forwardOnError,
       })
-    } catch (error) {
-      if (!(error instanceof NarsilError) || error.code !== ErrorCodes.INDEX_ALREADY_EXISTS) {
-        forwardOnError(error)
-        return false
-      }
-    }
-    return true
-  }
-
-  if (hasDataRole) {
-    lifecycle = createDataNodeLifecycle({
-      registration,
-      coordinator: config.coordinator,
-      transport: config.transport,
-      knownIndexNames: [],
-      bootstrapRetryBaseMs: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapRetryBaseMs,
-      bootstrapRetryMaxMs: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapRetryMaxMs,
-      bootstrapMaxRetries: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapMaxRetries,
-      allocationDebounceMs: DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs,
-      nodeHeartbeatIntervalMs: DEFAULT_NODE_LIFECYCLE_CONFIG.nodeHeartbeatIntervalMs,
-      onBootstrapPartition: bootstrapPartition,
-      onRemovePartition: (indexName: string, partitionId: number) => {
-        clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
-        replicationLogs.delete(replicationLogKey(indexName, partitionId))
-        // Fire-and-forget: align engine state with allocation by dropping the
-        // local index when no other partitions of the same index remain
-        // assigned to this node. Errors are surfaced via forwardOnError.
-        void cleanupRemovedPartition(indexName, partitionId, {
-          engine,
-          coordinator: config.coordinator,
-          nodeId,
-          onError: forwardOnError,
-        })
-      },
-    })
-  }
+    },
+  })
 
   if (hasControllerRole) {
     controller = createController({
       nodeId,
       coordinator: config.coordinator,
       transport: controllerTransport?.transport ?? config.transport,
-      leaseTtlMs: DEFAULT_CONTROLLER_CONFIG.leaseTtlMs,
-      standbyRetryMs: DEFAULT_CONTROLLER_CONFIG.standbyRetryMs,
+      leaseTtlMs: config.controller?.leaseTtlMs ?? DEFAULT_CONTROLLER_CONFIG.leaseTtlMs,
+      standbyRetryMs: config.controller?.standbyRetryMs ?? DEFAULT_CONTROLLER_CONFIG.standbyRetryMs,
       knownIndexNames: [],
+      onError: forwardAllocationError,
+      onElectionError: forwardOnError,
     })
   }
 
@@ -248,21 +237,16 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
 
   const readDeps: ClusterReadDeps = { config, nodeId, engine, resolveNodeTargets }
 
-  const cluster: ClusterNamespace = {
-    async getAllocation(indexName: string) {
-      return trackOp(null, () => config.coordinator.getAllocation(indexName))
-    },
-    getNodeInfo() {
-      const status = lifecycle !== null ? lifecycle.status : isShutdown ? 'shutdown' : 'stopped'
-      return { nodeId, roles: [...roles], status }
-    },
-    isControllerActive() {
-      if (controller === null) {
-        return false
-      }
-      return controller.isActive
-    },
-  }
+  const cluster = createClusterNamespace({
+    nodeId,
+    roles,
+    coordinator: config.coordinator,
+    lifecycle: () => lifecycle,
+    controller: () => controller,
+    isShutdown: () => isShutdown,
+    isServing: () => serving,
+    trackOp,
+  })
 
   const node: ClusterNode = {
     get nodeId(): string {
@@ -303,9 +287,11 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
         }
       }
 
-      if (lifecycle !== null) {
-        await lifecycle.join()
+      if (hasDataRole) {
+        unregisterNotReadyHandler = await config.transport.listen(createNotReadyHandler(nodeId))
       }
+
+      await lifecycle.join()
 
       if (controller !== null) {
         await controller.start()
@@ -326,6 +312,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
         unregisterHandler = await config.transport.listen(listener)
         startCatchUpPump(writeDeps.catchUp, writeDeps)
       }
+      serving = true
     },
 
     async shutdown() {
@@ -334,6 +321,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
         return
       }
       isShutdown = true
+      serving = false
 
       if (activeOps > 0) {
         await new Promise<void>(resolve => {
@@ -345,14 +333,18 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
         unregisterHandler()
         unregisterHandler = null
       }
-
-      if (lifecycle !== null) {
-        await lifecycle.shutdown()
+      if (unregisterNotReadyHandler !== null) {
+        unregisterNotReadyHandler()
+        unregisterNotReadyHandler = null
       }
+
+      await lifecycle.shutdown()
 
       if (controller !== null) {
         await controller.shutdown()
       }
+
+      await Promise.all([...heldPartitionWrites])
 
       await engine.shutdown()
     },
@@ -379,11 +371,13 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
 }
 
 export type {
+  ClusterControllerConfig,
   ClusterNamespace,
   ClusterNode,
   ClusterNodeConfig,
   ClusterNodeInfo,
   ClusterQueryConfig,
   CreateIndexOptions,
+  NodeReadiness,
 } from './types'
 export { DEFAULT_CAPACITY, DEFAULT_PARTITION_COUNT, DEFAULT_REPLICATION_FACTOR } from './types'

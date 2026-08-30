@@ -21,6 +21,7 @@ import type { DataNodeHandle, DataNodeLifecycleStatus, NodeLifecycleConfig } fro
  */
 export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHandle {
   let status: DataNodeLifecycleStatus = 'stopped'
+  let registered = false
   let watcherState: AllocationWatcherState = createAllocationWatcherState()
   const heartbeatState: RegistrationHeartbeatState = createRegistrationHeartbeatState()
   let operationLock: Promise<void> = Promise.resolve()
@@ -51,6 +52,14 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
       return config.registration.nodeId
     },
 
+    get registered(): boolean {
+      return registered
+    },
+
+    get pendingPartitionCount(): number {
+      return watcherState.pendingPartitions.size
+    },
+
     join(): Promise<void> {
       return withLock(async () => {
         if (status === 'active' || status === 'joining') {
@@ -72,10 +81,21 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
         status = 'joining'
 
         try {
-          await joinCluster(config, watcherState, heartbeatState)
+          await joinCluster(
+            {
+              ...config,
+              onRegistered: () => {
+                registered = true
+                config.onRegistered?.()
+              },
+            },
+            watcherState,
+            heartbeatState,
+          )
           status = 'active'
         } catch (error) {
           await stopRegistrationHeartbeat(heartbeatState)
+          registered = false
           status = 'stopped'
           throw error
         }
@@ -95,6 +115,7 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
         try {
           await leaveCluster(config)
         } finally {
+          registered = false
           status = 'stopped'
           watcherState = createAllocationWatcherState()
         }
@@ -118,6 +139,7 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
           }
         }
 
+        registered = false
         status = 'shutdown'
         watcherState = createAllocationWatcherState()
       })

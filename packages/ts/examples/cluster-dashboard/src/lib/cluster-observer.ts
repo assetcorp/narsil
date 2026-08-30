@@ -8,6 +8,7 @@ type Listener = (snapshot: ClusterSnapshot) => void
 
 const REFRESH_DEBOUNCE_MS = 120
 const REFRESH_INTERVAL_MS = 2_000
+const READ_TIMEOUT_MS = 4_000
 
 interface ObserverState {
   coordinator: ClusterCoordinator
@@ -15,12 +16,14 @@ interface ObserverState {
   snapshot: ClusterSnapshot
   fingerprint: string
   debounce: ReturnType<typeof setTimeout> | null
+  inFlight: Promise<void> | null
   interval: ReturnType<typeof setInterval>
   unwatch: Array<() => void>
 }
 
 let observer: ObserverState | null = null
 let starting: Promise<ObserverState> | null = null
+let disposedWhileStarting = false
 
 function linkRows(states: Map<string, boolean> | null): LinkRow[] {
   return NODES.flatMap(spec => [
@@ -67,6 +70,8 @@ function partitionRows(allocation: AllocationTable | null): PartitionRow[] {
       commitPoint: assignment.commitPoint,
       replicas: [...assignment.replicas],
       inSyncSet: [...assignment.inSyncSet],
+      lastHolders: [...(assignment.lastHolders ?? [])],
+      unassignedReason: assignment.unassignedReason ?? null,
     })
   }
   return rows.sort((a, b) => a.partitionId - b.partitionId)
@@ -83,12 +88,24 @@ function settledValue<T>(result: PromiseSettledResult<T>): T | null {
   return result.status === 'fulfilled' ? result.value : null
 }
 
+function withDeadline<T>(work: Promise<T>, subject: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${subject} left the dashboard waiting longer than ${READ_TIMEOUT_MS / 1_000} seconds`))
+    }, READ_TIMEOUT_MS)
+
+    work.then(resolve, reject).finally(() => {
+      clearTimeout(timer)
+    })
+  })
+}
+
 async function buildSnapshot(coordinator: ClusterCoordinator): Promise<ClusterSnapshot> {
   const [nodes, allocation, controller, proxies] = await Promise.allSettled([
-    coordinator.listNodes(),
-    coordinator.getAllocation(INDEX_NAME),
-    coordinator.getLeaseHolder(CONTROLLER_LEASE_KEY),
-    readProxyStates(),
+    withDeadline(coordinator.listNodes(), 'The coordinator'),
+    withDeadline(coordinator.getAllocation(INDEX_NAME), 'The coordinator'),
+    withDeadline(coordinator.getLeaseHolder(CONTROLLER_LEASE_KEY), 'The coordinator'),
+    withDeadline(readProxyStates(), 'The fault injector'),
   ])
 
   const allocationTable = settledValue(allocation)
@@ -113,7 +130,18 @@ function fingerprintOf(snapshot: ClusterSnapshot): string {
   return JSON.stringify(rest)
 }
 
-async function refresh(state: ObserverState): Promise<void> {
+function refresh(state: ObserverState): Promise<void> {
+  if (state.inFlight !== null) {
+    return state.inFlight
+  }
+  const work = refreshOnce(state).finally(() => {
+    state.inFlight = null
+  })
+  state.inFlight = work
+  return work
+}
+
+async function refreshOnce(state: ObserverState): Promise<void> {
   const snapshot = await buildSnapshot(state.coordinator)
   const fingerprint = fingerprintOf(snapshot)
   if (fingerprint === state.fingerprint) {
@@ -149,6 +177,7 @@ async function createObserver(): Promise<ObserverState> {
     snapshot,
     fingerprint: fingerprintOf(snapshot),
     debounce: null,
+    inFlight: null,
     interval: setInterval(() => {
       void refresh(state).catch(() => {})
     }, REFRESH_INTERVAL_MS),
@@ -169,27 +198,27 @@ async function createObserver(): Promise<ObserverState> {
   return state
 }
 
-export async function ensureObserver(): Promise<ObserverState> {
+async function ensureObserver(): Promise<ObserverState> {
   if (observer !== null) {
     return observer
   }
   if (starting === null) {
+    disposedWhileStarting = false
     starting = createObserver()
-      .then(state => {
+      .then(async state => {
+        if (disposedWhileStarting) {
+          await shutDown(state)
+          throw new Error('the cluster observer was disposed while it was starting')
+        }
         observer = state
         return state
       })
       .finally(() => {
         starting = null
+        disposedWhileStarting = false
       })
   }
   return starting
-}
-
-export async function currentSnapshot(): Promise<ClusterSnapshot> {
-  const state = await ensureObserver()
-  await refresh(state).catch(() => {})
-  return state.snapshot
 }
 
 export async function subscribe(listener: Listener): Promise<() => void> {
@@ -201,21 +230,34 @@ export async function subscribe(listener: Listener): Promise<() => void> {
   }
 }
 
-export async function disposeObserver(): Promise<void> {
-  const state = observer
-  observer = null
-  if (state === null) {
-    return
-  }
+async function shutDown(state: ObserverState): Promise<void> {
   clearInterval(state.interval)
   if (state.debounce !== null) {
     clearTimeout(state.debounce)
+    state.debounce = null
   }
   for (const unwatch of state.unwatch) {
     unwatch()
   }
+  state.unwatch.length = 0
   state.listeners.clear()
   await state.coordinator.shutdown()
+}
+
+export async function disposeObserver(): Promise<void> {
+  const state = observer
+  observer = null
+
+  const pending = starting
+  if (pending !== null) {
+    disposedWhileStarting = true
+    await pending.catch(() => {})
+  }
+
+  if (state === null) {
+    return
+  }
+  await shutDown(state)
 }
 
 if (import.meta.hot) {

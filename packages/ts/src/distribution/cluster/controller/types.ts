@@ -9,6 +9,7 @@ export interface ControllerConfig {
   standbyRetryMs: number
   knownIndexNames: string[]
   onError?: (indexName: string, error: unknown) => void
+  onElectionError?: (error: unknown) => void
 }
 
 export const CONTROLLER_LEASE_KEY = '_narsil/controller'

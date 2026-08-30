@@ -106,9 +106,11 @@ export async function requestInsyncRemoval(
  * the controller sends back.
  *
  * The controller refuses the request when it finds no allocation table, no assignment for the partition, or a
- * `primaryTerm` other than the assignment's own, because a stale primary must not shrink the set. It accepts without
- * a write when the replica is already outside the set, and it otherwise writes the smaller set with a
- * compare-and-set, retrying a lost write a bounded number of times.
+ * `primaryTerm` other than the assignment's own, because a stale primary must not shrink the set. It refuses the
+ * request for a partition in `UNASSIGNED` as well, because no node leads such a partition and so no node may speak
+ * for it. It accepts without a write when the
+ * replica is already outside the set, and it otherwise writes the smaller set with a compare-and-set, retrying a
+ * lost write a bounded number of times.
  *
  * @param payload - The removal request the primary sent.
  * @param coordinator - The cluster coordinator that stores the allocation table.
@@ -119,6 +121,9 @@ export function handleInsyncRemoval(
   coordinator: ClusterCoordinator,
 ): Promise<InsyncConfirmPayload> {
   return updateInsyncSet(payload, coordinator, assignment => {
+    if (assignment.state === 'UNASSIGNED') {
+      return REFUSE
+    }
     if (!assignment.inSyncSet.includes(payload.replicaNodeId)) {
       return ACCEPT
     }

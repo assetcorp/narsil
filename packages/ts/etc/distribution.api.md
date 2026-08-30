@@ -26,6 +26,12 @@ export interface AllocationTable {
 }
 
 // @public
+export interface ClusterControllerConfig {
+    leaseTtlMs?: number;
+    standbyRetryMs?: number;
+}
+
+// @public
 export interface ClusterCoordinator {
     acquireLease(key: string, nodeId: string, ttlMs: number): Promise<boolean>;
     compareAndSet(key: string, expected: Uint8Array | null, value: Uint8Array): Promise<boolean>;
@@ -59,8 +65,11 @@ export interface ClusterEngineOptions {
 // @public
 export interface ClusterNamespace {
     getAllocation(indexName: string): Promise<AllocationTable | null>;
+    getControllerNodeId(): Promise<string | null>;
     getNodeInfo(): ClusterNodeInfo;
+    getReadiness(): NodeReadiness;
     isControllerActive(): boolean;
+    listNodes(): Promise<NodeRegistration[]>;
 }
 
 // @public
@@ -102,6 +111,7 @@ export interface ClusterNode {
 export interface ClusterNodeConfig {
     address: string;
     capacity?: NodeCapacity;
+    controller?: ClusterControllerConfig;
     coordinator: ClusterCoordinator;
     engine?: NarsilConfig;
     nodeId?: string;
@@ -135,6 +145,7 @@ export function createClusterNode(config: ClusterNodeConfig): Promise<ClusterNod
 export interface CreateIndexOptions {
     partitionCount?: number;
     replicationFactor?: number;
+    waitForServingMs?: number;
 }
 
 // @public
@@ -164,6 +175,9 @@ export interface NodeEvent {
 }
 
 // @public
+export type NodeReadiness = 'STARTING' | 'JOINING' | 'SERVING' | 'LEAVING';
+
+// @public
 export interface NodeRegistration {
     address: string;
     capacity: NodeCapacity;
@@ -189,10 +203,12 @@ export interface NodeTransport {
 export interface PartitionAssignment {
     commitPoint: number;
     inSyncSet: string[];
+    lastHolders?: string[];
     primary: string | null;
     primaryTerm: number;
     replicas: string[];
     state: PartitionState;
+    unassignedReason?: UnassignedReason;
 }
 
 // @public
@@ -229,6 +245,9 @@ export interface TransportMessage {
     sourceId: string;
     type: string;
 }
+
+// @public
+export type UnassignedReason = 'HOLDER_OFFLINE' | 'HOLDER_UNREACHABLE' | 'HOLDER_IDENTITY_MISMATCH' | 'HOLDER_WITHOUT_DATA';
 
 // (No @packageDocumentation comment for this package)
 

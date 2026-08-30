@@ -29,7 +29,7 @@ COPY packages/certutil/src packages/certutil/src
 COPY packages/ts/examples/cluster-dashboard/tsconfig.json packages/ts/examples/cluster-dashboard/
 COPY packages/ts/examples/cluster-dashboard/src packages/ts/examples/cluster-dashboard/src
 
-RUN pnpm --filter @delali/narsil build && pnpm --filter @delali/narsil-certutil build
+RUN NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @delali/narsil build && pnpm --filter @delali/narsil-certutil build
 
 RUN groupadd --system narsil \
   && useradd --system --gid narsil --home-dir /home/narsil --create-home narsil \

@@ -11,6 +11,7 @@ import {
   type SyncEntriesPayload,
   type TransportMessage,
 } from '../../../distribution/transport/types'
+import { ErrorCodes } from '../../../errors'
 
 function makeAssignment(overrides: Partial<PartitionAssignment> = {}): PartitionAssignment {
   return {
@@ -63,7 +64,7 @@ describe('createDataNodeHandler sync_request routing', () => {
 
     const handler = createDataNodeHandler({
       nodeId: 'primary-node',
-      engine: {} as ClusterLocalEngine,
+      engine: { listIndexes: () => [{ name: 'products' }] } as unknown as ClusterLocalEngine,
       coordinator: makeCoordinator(makeAssignment()),
       writeDeps: {
         getReplicationLog: () => log,
@@ -82,6 +83,29 @@ describe('createDataNodeHandler sync_request routing', () => {
     const payload = decode(responses[0].payload) as SyncEntriesPayload
     expect(payload.entries).toEqual([entry])
     expect(payload.isLast).toBe(true)
+  })
+
+  it('refuses a sync for an index the primary holds no copy of yet', async () => {
+    const handler = createDataNodeHandler({
+      nodeId: 'primary-node',
+      engine: { listIndexes: () => [] } as unknown as ClusterLocalEngine,
+      coordinator: makeCoordinator(makeAssignment()),
+      writeDeps: {
+        getReplicationLog: () => createReplicationLog(0),
+        catchUp: createCatchUpState(),
+      } as unknown as DataNodeHandlerDeps['writeDeps'],
+      snapshotSyncState: createSnapshotSyncHandlerState(),
+    })
+    const responses: TransportMessage[] = []
+
+    await handler(makeSyncRequest(0), async response => {
+      responses.push(response)
+    })
+
+    expect(responses).toHaveLength(1)
+    expect(responses[0].type).toBe(`${ReplicationMessageTypes.SYNC_REQUEST}.error`)
+    const payload = decode(responses[0].payload) as { code: string }
+    expect(payload.code).toBe(ErrorCodes.SNAPSHOT_SYNC_INDEX_NOT_FOUND)
   })
 
   it('streams snapshot frames when the primary log cannot cover the replica gap', async () => {

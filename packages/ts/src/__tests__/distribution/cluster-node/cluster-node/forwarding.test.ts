@@ -176,6 +176,12 @@ describe('createClusterNode (write forwarding across nodes, distributed query)',
       await nodeB.start()
       await nodeB.createIndex('products', { schema: { title: 'string' } })
 
+      const assignments = new Map<number, PartitionAssignment>()
+      for (let i = 0; i < 5; i++) {
+        assignments.set(i, makeAssignment({ primary: 'node-b', state: 'ACTIVE' }))
+      }
+      await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
+
       await nodeB.insert('products', { title: 'Remote Widget' }, 'doc-remote')
 
       nodeA = await createClusterNode(
@@ -190,17 +196,11 @@ describe('createClusterNode (write forwarding across nodes, distributed query)',
 
       await nodeA.start()
 
-      const assignments = new Map<number, PartitionAssignment>()
-      for (let i = 0; i < 5; i++) {
-        assignments.set(i, makeAssignment({ primary: 'node-b', state: 'ACTIVE' }))
-      }
-      await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
-
       const result = await nodeA.query('products', { term: 'Remote' })
       expect(result.count).toBe(1)
     })
 
-    it('falls back to local engine when no partitions are ACTIVE', async () => {
+    it('counts every partition as failed while no copy is in service', async () => {
       nodeA = await createClusterNode(
         makeConfig({
           coordinator,
@@ -213,7 +213,6 @@ describe('createClusterNode (write forwarding across nodes, distributed query)',
 
       await nodeA.start()
       await nodeA.createIndex('products', { schema: { title: 'string' } })
-      await nodeA.insert('products', { title: 'Local Widget' })
 
       const assignments = new Map<number, PartitionAssignment>()
       for (let i = 0; i < 5; i++) {
@@ -222,7 +221,8 @@ describe('createClusterNode (write forwarding across nodes, distributed query)',
       await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
 
       const result = await nodeA.query('products', { term: 'Local' })
-      expect(result.count).toBe(1)
+      expect(result.count).toBe(0)
+      expect(result.coverage.failedPartitions).toBe(5)
     })
   })
 })

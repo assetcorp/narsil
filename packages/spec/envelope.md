@@ -373,6 +373,7 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   required:              List<string>         (optional; field paths every document must supply)
   vector_promotion:      VectorPromotionMeta  (optional)
   index_uuid:            string               (optional; the cluster identity of the index)
+  held_partitions:       List<uint32>         (optional; the partitions of the index this copy holds)
 }
 
 VectorFieldMeta {
@@ -413,6 +414,8 @@ The `tokenizer` and `stop_words` fields record the names the index resolved its 
 The `partition_limits`, `default_scoring`, `track_positions`, `strict`, `required`, and `vector_promotion` fields record the rest of the index configuration: the partition limits, the scoring mode, position tracking, strict document validation, the required field paths, and the vector promotion settings. All six are additive. A writer includes each field only when the index configuration set it, and a reader treats an absent field as that option's default, so a recovered index behaves exactly as the original did.
 
 The `index_uuid` field records the identity a cluster assigned the index when it was created, as [Index Metadata](distribution/cluster.md#index-metadata) defines it. A node running in cluster mode writes the value, and a single engine leaves it absent. A rejoining node compares the recovered value with the one the coordinator holds before it adopts the index, so the node never serves a predecessor's documents from an index created again under the same name; see [Joining the Cluster](distribution/cluster.md#joining-the-cluster). The field is additive, and a reader that finds it absent treats the index as belonging to no cluster.
+
+The `held_partitions` field records the partitions of the index this copy holds, so that the node can name what it stored when the controller looks for a partition in `UNASSIGNED`. A node must add a partition to the list when it finishes bootstrapping that partition. It must remove a partition from the list when it deletes that partition's copy. A partition that holds no document must still appear in the list, because a controller reading a document count would treat an empty partition as one the node lost. A node must answer [cluster.partition_stores](distribution/transport.md#clusterpartition_stores) from this field. The field is additive, and a node that finds it absent must answer from the partitions whose document count is above zero, because an index written before the field existed records nothing about what it holds.
 
 ---
 

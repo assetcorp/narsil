@@ -10,24 +10,31 @@ function adminUrl(): string {
   return process.env.TOXIPROXY_URL ?? TOXIPROXY_ADMIN_URL
 }
 
-async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+async function withRequestTimeout<T>(
+  url: string,
+  init: RequestInit | undefined,
+  read: (response: Response) => Promise<T>,
+): Promise<T> {
   const controller = new AbortController()
   const timer = setTimeout(() => {
     controller.abort()
   }, REQUEST_TIMEOUT_MS)
   try {
-    return await fetch(url, { ...init, signal: controller.signal })
+    const response = await fetch(url, { ...init, signal: controller.signal })
+    return await read(response)
   } finally {
     clearTimeout(timer)
   }
 }
 
 export async function readProxyStates(): Promise<Map<string, boolean>> {
-  const response = await fetchWithTimeout(`${adminUrl()}/proxies`)
-  if (!response.ok) {
-    throw new Error(`Toxiproxy answered HTTP ${response.status} when listing proxies`)
-  }
-  const body = (await response.json()) as Record<string, ToxiproxyEntry>
+  const body = await withRequestTimeout(`${adminUrl()}/proxies`, undefined, async response => {
+    if (!response.ok) {
+      throw new Error(`Toxiproxy answered HTTP ${response.status} when listing proxies`)
+    }
+    return (await response.json()) as Record<string, ToxiproxyEntry>
+  })
+
   const states = new Map<string, boolean>()
   for (const [name, entry] of Object.entries(body)) {
     if (typeof entry.enabled === 'boolean') {
@@ -38,13 +45,17 @@ export async function readProxyStates(): Promise<Map<string, boolean>> {
 }
 
 export async function setProxyEnabled(proxyName: string, enabled: boolean): Promise<void> {
-  const response = await fetchWithTimeout(`${adminUrl()}/proxies/${encodeURIComponent(proxyName)}`, {
+  const init: RequestInit = {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ enabled }),
-  })
-  if (!response.ok) {
+  }
+
+  await withRequestTimeout(`${adminUrl()}/proxies/${encodeURIComponent(proxyName)}`, init, async response => {
+    if (response.ok) {
+      return
+    }
     const detail = await response.text().catch(() => '')
     throw new Error(`Toxiproxy refused to update '${proxyName}': HTTP ${response.status} ${detail}`)
-  }
+  })
 }

@@ -1,5 +1,6 @@
 import {
   clearElectionTimers,
+  clearStandbyTimer,
   createElectionState,
   type ElectionState,
   releaseLease,
@@ -11,7 +12,8 @@ import { clearEventLoopWatchers, createEventLoopState, type EventLoopState, star
 import type { ControllerConfig, ControllerNode } from './types'
 
 export function createController(config: ControllerConfig): ControllerNode {
-  const { nodeId, coordinator, transport, leaseTtlMs, standbyRetryMs, knownIndexNames, onError } = config
+  const { nodeId, coordinator, transport, leaseTtlMs, standbyRetryMs, knownIndexNames, onError, onElectionError } =
+    config
 
   let electionState: ElectionState = createElectionState()
   let eventLoopState: EventLoopState = createEventLoopState(knownIndexNames)
@@ -21,6 +23,15 @@ export function createController(config: ControllerConfig): ControllerNode {
     return electionState.active
   }
 
+  function standBy(): void {
+    if (stopped) {
+      return
+    }
+    scheduleStandbyRetry(electionState, standbyRetryMs, () => {
+      void runElection()
+    })
+  }
+
   function stepDown(): void {
     if (!electionState.active) {
       return
@@ -28,14 +39,7 @@ export function createController(config: ControllerConfig): ControllerNode {
     electionState.active = false
     clearElectionTimers(electionState)
     clearEventLoopWatchers(eventLoopState)
-
-    if (!stopped) {
-      scheduleStandbyRetry(electionState, standbyRetryMs, () => {
-        tryElection().catch(() => {
-          /* Election retry failure; next standby timer will retry */
-        })
-      })
-    }
+    standBy()
   }
 
   async function becomeActive(): Promise<void> {
@@ -68,21 +72,45 @@ export function createController(config: ControllerConfig): ControllerNode {
     }
   }
 
-  async function tryElection(): Promise<void> {
+  async function standForElection(): Promise<void> {
     if (stopped) {
       return
     }
 
     const acquired = await tryAcquireLease(coordinator, nodeId, leaseTtlMs)
 
+    if (stopped) {
+      if (acquired) {
+        await releaseLease(coordinator)
+      }
+      return
+    }
+
     if (acquired) {
       await becomeActive()
-    } else {
-      scheduleStandbyRetry(electionState, standbyRetryMs, () => {
-        tryElection().catch(() => {
-          /* Election retry failure; next standby timer will retry */
-        })
-      })
+      return
+    }
+
+    standBy()
+  }
+
+  function reportElectionFailure(error: unknown): void {
+    if (onElectionError === undefined) {
+      return
+    }
+    try {
+      onElectionError(error)
+    } catch (_) {
+      /* A reporting failure must never stop this node standing for election again */
+    }
+  }
+
+  async function runElection(): Promise<void> {
+    try {
+      await standForElection()
+    } catch (error) {
+      reportElectionFailure(error)
+      standBy()
     }
   }
 
@@ -93,7 +121,13 @@ export function createController(config: ControllerConfig): ControllerNode {
 
     async start(): Promise<void> {
       stopped = false
-      await tryElection()
+      clearStandbyTimer(electionState)
+      try {
+        await standForElection()
+      } catch (error) {
+        standBy()
+        throw error
+      }
     },
 
     async stop(): Promise<void> {

@@ -62,6 +62,14 @@ describe('handleBootstrapCompleteMessage', () => {
     return result
   }
 
+  it('clears the last holders once the partition it recovered reaches ACTIVE', async () => {
+    const result = await report(makeTable('INITIALISING', { lastHolders: ['node-a', 'node-c'] }))
+    expect(result.accepted).toBe(true)
+
+    const stored = await coordinator.getAllocation('products')
+    expect(stored?.assignments.get(0)?.lastHolders).toBeUndefined()
+  })
+
   it('moves an INITIALISING partition to ACTIVE without admitting the reporting replica', async () => {
     const result = await report(makeTable('INITIALISING'))
     expect(result.accepted).toBe(true)

@@ -3,6 +3,11 @@ import type { AllocationTable, ClusterCoordinator, NodeRegistration, SchemaEvent
 import { allocate } from '../../allocator/index'
 import { getIndexMetadata } from '../../index-metadata'
 import type { EventLoopState } from './state'
+import { recoverUnassignedPartitions } from './unassigned-recovery'
+
+function holdsDataNode(nodes: NodeRegistration[]): boolean {
+  return nodes.some(node => node.roles.includes('data'))
+}
 
 const ALLOCATION_CAS_ATTEMPTS = 5
 const ALLOCATION_RETRY_DELAY_MS = 1_000
@@ -60,6 +65,30 @@ async function runAllocatorForIndex(
   )
 }
 
+async function recoverIndexPartitions(
+  state: EventLoopState,
+  coordinator: ClusterCoordinator,
+  indexName: string,
+  nodes: NodeRegistration[],
+  isActive: () => boolean,
+): Promise<void> {
+  const { transport, controllerNodeId } = state
+  if (transport === null || controllerNodeId === null) {
+    return
+  }
+  const promoted = await recoverUnassignedPartitions(
+    coordinator,
+    transport,
+    indexName,
+    controllerNodeId,
+    nodes,
+    isActive,
+  )
+  if (promoted) {
+    await runAllocatorForIndex(coordinator, indexName, nodes, isActive)
+  }
+}
+
 async function runAllocatorForAllIndexes(
   state: EventLoopState,
   coordinator: ClusterCoordinator,
@@ -71,7 +100,7 @@ async function runAllocatorForAllIndexes(
   }
 
   const nodes = await coordinator.listNodes()
-  if (nodes.length === 0 || !isActive()) {
+  if (!holdsDataNode(nodes) || !isActive()) {
     return
   }
 
@@ -82,6 +111,7 @@ async function runAllocatorForAllIndexes(
     }
     try {
       await runAllocatorForIndex(coordinator, indexName, nodes, isActive)
+      await recoverIndexPartitions(state, coordinator, indexName, nodes, isActive)
     } catch (error) {
       anyIndexFailed = true
       if (onError !== undefined) {
@@ -149,7 +179,7 @@ async function handleSchemaCreated(
   }
 
   const nodes = await coordinator.listNodes()
-  if (nodes.length === 0 || !isActive()) {
+  if (!holdsDataNode(nodes) || !isActive()) {
     return
   }
 

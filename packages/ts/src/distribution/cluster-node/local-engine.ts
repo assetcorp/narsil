@@ -22,11 +22,16 @@ import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
 import { MAX_PARTITION_COUNT } from '../cluster/index-metadata'
 import { applyDeleteEntry, applyIndexEntry } from '../replication/replica'
 import type { ReplicationLogEntry } from '../replication/types'
+import { createHeldPartitionRecord } from './held-partitions'
 
 export interface ClusterLocalEngine extends Narsil {
   createIndexWithUuid(name: string, config: IndexConfig, indexUuid?: string): Promise<void>
   indexUuidOf(indexName: string): string | null | undefined
   stampIndexUuid(indexName: string, indexUuid: string): Promise<void>
+  highestPersistedSeqNoOf(indexName: string, partitionId: number): number
+  heldPartitionsOf(indexName: string): number[] | undefined
+  recordHeldPartition(indexName: string, partitionId: number): Promise<void>
+  forgetHeldPartition(indexName: string, partitionId: number): Promise<void>
   applyReplicationEntry(entry: ReplicationLogEntry): Promise<void>
   serializeReplicationPartition(indexName: string, partitionId: number): Promise<Uint8Array>
   restoreReplicationPartition(
@@ -58,12 +63,18 @@ export async function createClusterLocalEngine(config?: NarsilConfig): Promise<C
   }
   await core.analysisRebuild.reviewStaleIndexes()
   const engine = createNarsilFromCore(core, config)
+  const heldPartitions = createHeldPartitionRecord(core)
 
   return Object.assign(engine, {
     createIndexWithUuid: (name: string, indexConfig: IndexConfig, indexUuid?: string) =>
       createEngineIndex(core, config, name, indexConfig, indexUuid),
     indexUuidOf: (indexName: string) => core.indexRegistry.get(indexName)?.indexUuid,
     stampIndexUuid: (indexName: string, indexUuid: string) => stampIndexUuid(core, indexName, indexUuid),
+    highestPersistedSeqNoOf: (indexName: string, partitionId: number) =>
+      core.durability?.manager.highestPersistedSeqNo(indexName, partitionId) ?? 0,
+    heldPartitionsOf: (indexName: string) => heldPartitions.held(indexName),
+    recordHeldPartition: (indexName: string, partitionId: number) => heldPartitions.record(indexName, partitionId),
+    forgetHeldPartition: (indexName: string, partitionId: number) => heldPartitions.forget(indexName, partitionId),
     applyReplicationEntry: (entry: ReplicationLogEntry) => applyReplicationEntry(core, entry),
     serializeReplicationPartition: (indexName: string, partitionId: number) =>
       serializeReplicationPartition(core, indexName, partitionId),

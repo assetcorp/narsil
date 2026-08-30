@@ -13,4 +13,5 @@ export type {
   PartitionAssignment,
   PartitionState,
   SchemaEvent,
+  UnassignedReason,
 } from './types'
