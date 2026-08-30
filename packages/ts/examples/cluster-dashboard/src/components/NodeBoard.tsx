@@ -1,8 +1,9 @@
+import { cn } from '@delali/narsil-example-shared'
 import { Button } from '@delali/narsil-example-shared/ui/button'
 import { memo } from 'react'
 import type { ClusterSnapshot } from '../lib/cluster-types'
 import { cutLinkCountOf } from '../lib/cluster-types'
-import { type DashboardControls, linkControlOf, localReasonOf } from '../lib/controls'
+import { type DashboardControls, linkControlOf, localReasonOf, reasonClassOf } from '../lib/controls'
 import { NodeRow } from './NodeRow'
 
 interface NodeBoardProps {
@@ -42,7 +43,7 @@ export const NodeBoard = memo(function NodeBoard({ snapshot, controls, onToggleL
         </Button>
       </div>
 
-      {healReason === null ? null : <p className="mt-3 text-sm text-destructive">{healReason}</p>}
+      {healReason === null ? null : <p className={cn('mt-3 text-sm', reasonClassOf(controls.heal))}>{healReason}</p>}
 
       <div className="mt-4 overflow-x-auto">
         <table className="w-full border-collapse">
@@ -65,8 +66,20 @@ export const NodeBoard = memo(function NodeBoard({ snapshot, controls, onToggleL
                 node={node}
                 isController={snapshot.controllerNodeId === node.nodeId}
                 partitions={snapshot.partitions}
-                coordinatorLink={linkControlOf(snapshot, controls.blockedReason, node.nodeId, 'coordinator')}
-                replicationLink={linkControlOf(snapshot, controls.blockedReason, node.nodeId, 'replication')}
+                coordinatorLink={linkControlOf(
+                  snapshot,
+                  controls.blockedReason,
+                  controls.stream,
+                  node.nodeId,
+                  'coordinator',
+                )}
+                replicationLink={linkControlOf(
+                  snapshot,
+                  controls.blockedReason,
+                  controls.stream,
+                  node.nodeId,
+                  'replication',
+                )}
                 onToggleLink={onToggleLink}
               />
             ))}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ClusterNodeRow, ClusterSnapshot, LinkRow } from '../src/lib/cluster-types'
-import { buildControls, linkControlOf, localReasonOf, probeWithTerm } from '../src/lib/controls'
+import { buildControls, linkControlOf, localReasonOf, probeWithTerm, reasonClassOf } from '../src/lib/controls'
 import { NODES } from '../src/topology'
 
 function node(nodeId: string, registered: boolean): ClusterNodeRow {
@@ -48,13 +48,13 @@ describe('buildControls on a healthy cluster', () => {
   })
 
   it('offers the link of every node', () => {
-    const control = linkControlOf(snapshot(), controls.blockedReason, 'node-b', 'coordinator')
+    const control = linkControlOf(snapshot(), controls.blockedReason, 'live', 'node-b', 'coordinator')
 
     expect(control).toMatchObject({ linkUp: true, enabled: true, reason: null })
   })
 
   it('withholds the repair while no link is cut, and it gives no reason for that', () => {
-    expect(controls.heal).toEqual({ enabled: false, reason: null })
+    expect(controls.heal).toEqual({ enabled: false, reason: null, fault: false })
   })
 
   it('offers the repair once a link is down', () => {
@@ -76,7 +76,7 @@ describe('buildControls while the page has no live view', () => {
     expect(stale.probe.enabled).toBe(false)
     expect(stale.provision.enabled).toBe(false)
     expect(buildControls(snapshot({ links: links(false) }), 'offline', null).heal.enabled).toBe(false)
-    expect(linkControlOf(snapshot(), stale.blockedReason, 'node-a', 'replication').enabled).toBe(false)
+    expect(linkControlOf(snapshot(), stale.blockedReason, 'offline', 'node-a', 'replication').enabled).toBe(false)
   })
 
   it('withholds them while the stream is still connecting as well', () => {
@@ -96,7 +96,7 @@ describe('buildControls while an action is in flight', () => {
   it('withholds a second action until the first one finishes', () => {
     expect(busy.heal.enabled).toBe(false)
     expect(busy.provision.enabled).toBe(false)
-    expect(linkControlOf(snapshot(), busy.blockedReason, 'node-a', 'coordinator').enabled).toBe(false)
+    expect(linkControlOf(snapshot(), busy.blockedReason, 'live', 'node-a', 'coordinator').enabled).toBe(false)
   })
 })
 
@@ -105,21 +105,23 @@ describe('buildControls while the fault injector is unreachable', () => {
   const controls = buildControls(unreachable, 'live', null)
 
   it('reports no state for a link and offers no button', () => {
-    const control = linkControlOf(unreachable, controls.blockedReason, 'node-a', 'coordinator')
+    const control = linkControlOf(unreachable, controls.blockedReason, 'live', 'node-a', 'coordinator')
 
     expect(control.linkUp).toBeNull()
     expect(control.enabled).toBe(false)
     expect(control.reason).toContain('fetch failed')
+    expect(control.fault).toBe(true)
   })
 
   it('withholds the repair and says why', () => {
     expect(controls.heal.enabled).toBe(false)
     expect(controls.heal.reason).toContain('fetch failed')
+    expect(controls.heal.fault).toBe(true)
   })
 
   it('names the link whose proxy the injector left out', () => {
     const partial = snapshot({ links: links(true).filter(link => link.kind !== 'replication') })
-    const control = linkControlOf(partial, null, 'node-c', 'replication')
+    const control = linkControlOf(partial, null, 'live', 'node-c', 'replication')
 
     expect(control.enabled).toBe(false)
     expect(control.reason).toBe('The fault injector names no proxy for the replication link of node-c.')
@@ -144,7 +146,7 @@ describe('buildControls while the coordinator is unreachable', () => {
   })
 
   it('still offers the link, because restoring one is how the cluster comes back', () => {
-    expect(linkControlOf(lost, controls.blockedReason, 'node-a', 'coordinator').enabled).toBe(true)
+    expect(linkControlOf(lost, controls.blockedReason, 'live', 'node-a', 'coordinator').enabled).toBe(true)
   })
 })
 
@@ -163,6 +165,7 @@ describe('the node that takes the corpus', () => {
       nodeId: null,
       enabled: false,
       reason: 'No node holds a registration in etcd, so none of them can take a corpus.',
+      fault: false,
     })
   })
 })
@@ -172,6 +175,7 @@ describe('the three reads', () => {
     const control = buildControls(snapshot({ indexExists: false }), 'live', null).probe
 
     expect(control.enabled).toBe(false)
+    expect(control.fault).toBe(false)
     expect(control.reason).toBe("No node has allocated 'forum-answers' yet, so there is nothing to read.")
   })
 
@@ -193,7 +197,7 @@ describe('localReasonOf', () => {
   const controls = buildControls(snapshot(), 'offline', null)
 
   it('says nothing about a control the reader may press', () => {
-    expect(localReasonOf({ enabled: true, reason: null })).toBeNull()
+    expect(localReasonOf({ enabled: true, reason: null, fault: false })).toBeNull()
   })
 
   it('says nothing where a banner already carries the sentence', () => {
@@ -202,5 +206,18 @@ describe('localReasonOf', () => {
 
   it('gives the sentence no other part of the page shows', () => {
     expect(localReasonOf(controls.probe, null)).toBe(controls.staleReason)
+  })
+})
+
+describe('the colour a withheld control earns', () => {
+  it('reserves the fault colour for a failure and leaves a step still to come muted', () => {
+    const fresh = buildControls(snapshot({ indexExists: false }), 'live', null)
+    expect(reasonClassOf(fresh.probe)).toBe('text-muted-foreground')
+
+    const broken = buildControls(snapshot({ links: links(null), faultInjectorError: 'fetch failed' }), 'live', null)
+    expect(reasonClassOf(broken.heal)).toBe('text-destructive')
+
+    const lost = buildControls(snapshot(), 'offline', null)
+    expect(reasonClassOf(lost.probe)).toBe('text-destructive')
   })
 })
