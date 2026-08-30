@@ -13,8 +13,12 @@ An assigned replica is a node whose identifier appears in a partition assignment
 _Avoid_: follower, secondary
 
 **In-sync set**:
-The in-sync set holds the assigned replicas that have acknowledged every entry up to the commit point. The primary waits for every member before it acknowledges a write, and during failover the controller promotes a member alone. Even so, the primary sends entries to every assigned replica, whether or not that replica belongs to the set.
+The in-sync set holds the assigned replicas that have acknowledged every entry up to the commit point. The primary waits for every member before it acknowledges a write, and during failover the controller promotes a member alone. Even so, the primary sends entries to every assigned replica, whether or not that replica belongs to the set. The set empties as a partition reaches `UNASSIGNED`, and the `lastHolders` field then carries the nodes that still hold a copy.
 _Avoid_: ISR, replica set, active set
+
+**Last holders**:
+The last holders are the nodes that still hold a copy of a partition no node serves, which the controller writes into the assignment's `lastHolders` field as it moves the partition to `UNASSIGNED`. The controller asks each of them which partitions their copy holds once they register again, and it gives the partition back to the first that answers with the data under the index identity the coordinator holds. The record survives a promotion and clears once the partition reaches `ACTIVE`, so a promoted node that fails part way through leaves the other holders on record.
+_Avoid_: survivors, stale holders, previous owners
 
 **Catching up**:
 A catching-up replica is an assigned replica outside the in-sync set that is still receiving entries towards admission.

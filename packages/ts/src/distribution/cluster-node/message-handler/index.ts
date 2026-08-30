@@ -1,14 +1,16 @@
 import { encode } from '@msgpack/msgpack'
 import { NarsilError } from '../../../errors'
 import type { RespondFn, TransportMessage } from '../../transport/types'
-import { QueryMessageTypes, ReplicationMessageTypes } from '../../transport/types'
+import { ClusterMessageTypes, QueryMessageTypes, ReplicationMessageTypes } from '../../transport/types'
 import { handleSnapshotSyncRequest } from '../snapshot-sync-handler'
+import { handlePartitionStores } from './partition-stores'
 import { handleFetch, handleSearch, handleStats } from './queries'
 import { handleCount, handleList, handlePreflight, handleSuggest } from './read-handlers'
 import { handleSyncRequestMessage } from './sync'
 import type { DataNodeHandlerDeps, TransportHandler } from './types'
 import { handleForward, handleForwardBatch, handleReplicationEntry, handleReplicationEntryBatch } from './writes'
 
+export { handlePartitionStores } from './partition-stores'
 export type { DataNodeHandlerDeps, TransportHandler } from './types'
 export { validateForwardPayload } from './writes'
 
@@ -62,6 +64,9 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
           return
         case QueryMessageTypes.PREFLIGHT:
           await handlePreflight(message, respond, deps)
+          return
+        case ClusterMessageTypes.PARTITION_STORES:
+          await handlePartitionStores(message, respond, deps)
           return
         default:
           return

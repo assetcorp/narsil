@@ -11,6 +11,8 @@ function partition(overrides: Partial<PartitionRow> = {}): PartitionRow {
     commitPoint: 12,
     replicas: ['node-b'],
     inSyncSet: ['node-b'],
+    lastHolders: [],
+    unassignedReason: null,
     ...overrides,
   }
 }
@@ -85,6 +87,92 @@ describe('diffSnapshots', () => {
     expect(textsOf(snapshot(), next)).toContain('node-b holds the controller lease')
   })
 
+  it('reports the lease expiring before any node takes it over', () => {
+    const unheld = snapshot({ controllerNodeId: null })
+
+    expect(textsOf(snapshot(), unheld)).toContain('node-a let the controller lease expire, so no node holds it')
+  })
+
+  it('reports the whole failover sequence, from the expiry to the node that took over', () => {
+    const unheld = snapshot({ controllerNodeId: null })
+    const takenOver = snapshot({ controllerNodeId: 'node-b' })
+
+    expect(textsOf(snapshot(), unheld)).toHaveLength(1)
+    expect(textsOf(unheld, takenOver)).toContain('node-b holds the controller lease')
+  })
+
+  it('reports nothing while the same node keeps the lease', () => {
+    expect(textsOf(snapshot(), snapshot())).toHaveLength(0)
+  })
+
+  it('reports a partition losing every copy, and names the nodes that still hold one', () => {
+    const unserved = snapshot({
+      partitions: [
+        partition({
+          state: 'UNASSIGNED',
+          primary: null,
+          replicas: [],
+          inSyncSet: [],
+          lastHolders: ['node-a', 'node-b'],
+        }),
+      ],
+    })
+
+    expect(textsOf(snapshot(), unserved)).toContain(
+      'p0 lost every copy that served it, and node-a and node-b still hold a copy',
+    )
+  })
+
+  it('leaves the in-sync set alone in the log while a partition serves nothing', () => {
+    const unserved = snapshot({
+      partitions: [
+        partition({ state: 'UNASSIGNED', primary: null, replicas: [], inSyncSet: [], lastHolders: ['node-a'] }),
+      ],
+    })
+
+    expect(textsOf(snapshot(), unserved)).not.toContain('p0 drops node-b from its in-sync set')
+  })
+
+  it('reports the reason the controller records for a partition that stays unserved', () => {
+    const waiting = snapshot({
+      partitions: [
+        partition({ state: 'UNASSIGNED', primary: null, replicas: [], inSyncSet: [], lastHolders: ['node-a'] }),
+      ],
+    })
+    const refused = snapshot({
+      partitions: [
+        partition({
+          state: 'UNASSIGNED',
+          primary: null,
+          replicas: [],
+          inSyncSet: [],
+          lastHolders: ['node-a'],
+          unassignedReason: 'HOLDER_WITHOUT_DATA',
+        }),
+      ],
+    })
+
+    expect(textsOf(waiting, refused)).toContain(
+      'p0 stays unserved, because every holder answered without the partition',
+    )
+  })
+
+  it('reports the holder the controller gives an unserved partition back to', () => {
+    const unserved = snapshot({
+      partitions: [
+        partition({ state: 'UNASSIGNED', primary: null, replicas: [], inSyncSet: [], lastHolders: ['node-a'] }),
+      ],
+    })
+    const filling = snapshot({
+      partitions: [
+        partition({ state: 'INITIALISING', primary: 'node-a', primaryTerm: 2, replicas: [], inSyncSet: [] }),
+      ],
+    })
+
+    expect(textsOf(unserved, filling)).toContain('p0 comes back on node-a, which is filling its copy')
+    expect(textsOf(filling, snapshot())).toContain('p0 finished filling and serves from node-a')
+  })
+
   it('gives every event of one update its own identifier', () => {
     const next = snapshot({
       controllerNodeId: 'node-b',
@@ -92,6 +180,16 @@ describe('diffSnapshots', () => {
     })
 
     const ids = diffSnapshots(snapshot(), next).map(event => event.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+  it('gives an event its own identifier across two updates that share a timestamp', () => {
+    const withoutController = snapshot({ controllerNodeId: null })
+    const withController = snapshot({ controllerNodeId: 'node-c' })
+
+    const first = diffSnapshots(snapshot(), withoutController)
+    const second = diffSnapshots(withoutController, withController)
+
+    const ids = [...first, ...second].map(entry => entry.id)
     expect(new Set(ids).size).toBe(ids.length)
   })
 })

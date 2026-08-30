@@ -1,10 +1,12 @@
 export type {
+  ClusterControllerConfig,
   ClusterNamespace,
   ClusterNode,
   ClusterNodeConfig,
   ClusterNodeInfo,
   ClusterQueryConfig,
   CreateIndexOptions,
+  NodeReadiness,
 } from './cluster-node'
 export {
   createClusterNode,
@@ -26,6 +28,7 @@ export type {
   PartitionAssignment,
   PartitionState,
   SchemaEvent,
+  UnassignedReason,
 } from './coordinator'
 export type { ReplicationConfig } from './replication/types'
 export type { ListenHandler, NodeTransport, RespondFn, TransportConfig, TransportMessage } from './transport/types'

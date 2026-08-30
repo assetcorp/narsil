@@ -75,7 +75,7 @@ services:
           'CMD',
           'node',
           '-e',
-          "fetch('http://127.0.0.1:9701/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+          "fetch('http://127.0.0.1:9701/readyz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
         ]
       interval: 2s
       timeout: 2s
@@ -105,7 +105,7 @@ services:
           'CMD',
           'node',
           '-e',
-          "fetch('http://127.0.0.1:9702/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+          "fetch('http://127.0.0.1:9702/readyz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
         ]
       interval: 2s
       timeout: 2s
@@ -135,7 +135,7 @@ services:
           'CMD',
           'node',
           '-e',
-          "fetch('http://127.0.0.1:9703/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+          "fetch('http://127.0.0.1:9703/readyz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
         ]
       interval: 2s
       timeout: 2s

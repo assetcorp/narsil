@@ -1,3 +1,5 @@
+import { compareCodePoints } from '../../../core/ordering'
+import { lastHoldersOf } from '../last-holders'
 import { capacityShares, rebalanceLeadership } from './leadership'
 import type {
   AllocationConstraints,
@@ -22,15 +24,25 @@ function cloneAssignments(assignments: Map<number, PartitionAssignment>): Map<nu
       commitPoint: assignment.commitPoint,
       state: assignment.state,
       primaryTerm: assignment.primaryTerm,
+      ...(assignment.lastHolders !== undefined ? { lastHolders: [...assignment.lastHolders] } : {}),
+      ...(assignment.unassignedReason !== undefined ? { unassignedReason: assignment.unassignedReason } : {}),
     })
   }
   return cloned
 }
 
-function markUnassigned(assignment: PartitionAssignment): void {
+function markUnassigned(assignment: PartitionAssignment, lastPrimary: string | null, lastInSyncSet: string[]): void {
+  const holders = new Set<string>(lastHoldersOf(assignment))
+  for (const nodeId of lastInSyncSet) {
+    holders.add(nodeId)
+  }
+  if (lastPrimary !== null) {
+    holders.add(lastPrimary)
+  }
   assignment.primary = null
   assignment.replicas = []
   assignment.inSyncSet = []
+  assignment.lastHolders = [...holders].sort(compareCodePoints)
   assignment.state = 'UNASSIGNED'
 }
 
@@ -67,7 +79,13 @@ function handleLostNodes(
   const primaryCounts = countPrimaryAssignments(assignments)
 
   for (const assignment of assignments.values()) {
-    const primaryWasLost = assignment.primary !== null && !activeNodeIds.has(assignment.primary)
+    if (assignment.state === 'UNASSIGNED') {
+      continue
+    }
+
+    const lastPrimary = assignment.primary
+    const lastInSyncSet = [...assignment.inSyncSet]
+    const primaryWasLost = lastPrimary !== null && !activeNodeIds.has(lastPrimary)
 
     if (primaryWasLost) {
       assignment.primary = null
@@ -78,7 +96,7 @@ function handleLostNodes(
 
     if (!primaryWasLost) {
       if (assignment.primary === null) {
-        markUnassigned(assignment)
+        markUnassigned(assignment, lastPrimary, lastInSyncSet)
       }
       continue
     }
@@ -86,14 +104,14 @@ function handleLostNodes(
     const inSyncCandidates = assignment.replicas.filter(id => assignment.inSyncSet.includes(id))
 
     if (inSyncCandidates.length === 0) {
-      markUnassigned(assignment)
+      markUnassigned(assignment, lastPrimary, lastInSyncSet)
       continue
     }
 
     const promoted = leastLoadedCandidate(inSyncCandidates, primaryCounts, shares)
 
     if (promoted === undefined) {
-      markUnassigned(assignment)
+      markUnassigned(assignment, lastPrimary, lastInSyncSet)
       continue
     }
 
@@ -150,6 +168,18 @@ function slotWeightOf(nodeId: string, shares: Map<string, number>): number {
   return 1 / (share === undefined || share <= 0 ? 1 : share)
 }
 
+/**
+ * Reports whether moving one replica off the busiest node and onto the quietest one would leave the two closer in
+ * load than they are now.
+ *
+ * The rebalancer asks this before every move, because a move between two nodes of unequal capacity can widen the very
+ * gap it was meant to close; a run that kept making such moves would never settle.
+ *
+ * @param mostLoaded - The node carrying the heaviest weight.
+ * @param leastLoaded - The node carrying the lightest weight.
+ * @param shares - Each node's capacity as a multiple of the cluster average, by node id.
+ * @returns `true` where the move would narrow the gap, and `false` where it would leave the gap the same or wider.
+ */
 export function moveNarrowsGap(mostLoaded: NodeWeight, leastLoaded: NodeWeight, shares: Map<string, number>): boolean {
   const gap = mostLoaded.weight - leastLoaded.weight
   const afterMove = Math.abs(gap - slotWeightOf(mostLoaded.nodeId, shares) - slotWeightOf(leastLoaded.nodeId, shares))
@@ -254,8 +284,22 @@ function moveOneReplica(
   return false
 }
 
+function clearRecoveryStateOnServedPartitions(assignments: Map<number, PartitionAssignment>): void {
+  for (const assignment of assignments.values()) {
+    if (assignment.state !== 'UNASSIGNED') {
+      delete assignment.unassignedReason
+    }
+    if (assignment.state === 'ACTIVE') {
+      delete assignment.lastHolders
+    }
+  }
+}
+
 function pruneInSyncSets(assignments: Map<number, PartitionAssignment>): void {
   for (const assignment of assignments.values()) {
+    if (assignment.state === 'UNASSIGNED') {
+      continue
+    }
     const stale = assignment.inSyncSet.some(nodeId => !assignment.replicas.includes(nodeId))
     if (stale) {
       assignment.inSyncSet = assignment.inSyncSet.filter(nodeId => assignment.replicas.includes(nodeId))
@@ -263,6 +307,23 @@ function pruneInSyncSets(assignments: Map<number, PartitionAssignment>): void {
   }
 }
 
+/**
+ * Rewrites an existing allocation table for the nodes registered with the cluster today, and reports every partition
+ * it had to leave short of replicas.
+ *
+ * The allocator promotes an in-sync replica wherever it finds a lost primary, refills the empty replica slots, evens
+ * the load out across the nodes, and spreads leadership away from the busiest ones. A partition whose primary fails
+ * while no in-sync replica survives moves to `UNASSIGNED`, and its `lastHolders` then records the nodes that still
+ * hold the data, so that the controller can recognise one of them when it registers again. A partition that reaches
+ * `ACTIVE` loses that record, because a node serves it again.
+ *
+ * @param nodes - The data nodes registered with the cluster coordinator.
+ * @param currentTable - The allocation table the coordinator holds today.
+ * @param constraints - The placement rules that every assignment must satisfy.
+ * @param deciders - The chain that admits or refuses each candidate node.
+ * @returns The new table, whose version is one above the current one, alongside a warning for each partition holding
+ * fewer replicas than the index asked for.
+ */
 export function rebalanceAllocate(
   nodes: NodeRegistration[],
   currentTable: AllocationTable,
@@ -294,6 +355,8 @@ export function rebalanceAllocate(
   rebalanceLeadership(assignments, shares)
 
   pruneInSyncSets(assignments)
+
+  clearRecoveryStateOnServedPartitions(assignments)
 
   const warnings = collectReplicationWarnings(assignments, currentTable.replicationFactor)
 

@@ -37,7 +37,7 @@ export { validateNodeId } from './validation'
  * controllers from disagreeing. Install `etcd3` alongside this package,
  * because it is an optional peer dependency this call loads on demand.
  *
- * @param config - Endpoints, key prefix, and lease lifetimes to override.
+ * @param config - Endpoints, key prefix, and heartbeat lifetime to override.
  * Anything you leave out keeps its default.
  * @returns A coordinator you pass as a cluster node's `coordinator`.
  * @throws A `NarsilError` with `COORDINATOR_DEPENDENCY_MISSING` when `etcd3`
@@ -274,10 +274,10 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       assertNotShutdown()
       const etcdKey = keys.lease(key)
       const entry = leaseManager.remove(etcdKey)
-      if (entry !== undefined) {
-        await entry.lease.revoke().catch(() => {})
+      if (entry === undefined) {
+        return
       }
-      await client.delete().key(etcdKey).exec()
+      await entry.lease.revoke().catch(() => {})
     },
 
     async get(key: string): Promise<Uint8Array | null> {

@@ -1,17 +1,31 @@
+import { cn } from '@delali/narsil-example-shared'
 import { Button } from '@delali/narsil-example-shared/ui/button'
 import { memo } from 'react'
-import type { ClusterSnapshot, LinkKind } from '../lib/cluster-types'
-import { cutLinkCountOf, linkOf } from '../lib/cluster-types'
+import type { ClusterSnapshot } from '../lib/cluster-types'
+import { cutLinkCountOf } from '../lib/cluster-types'
+import { type DashboardControls, linkControlOf, localReasonOf, reasonClassOf } from '../lib/controls'
 import { NodeRow } from './NodeRow'
 
 interface NodeBoardProps {
   snapshot: ClusterSnapshot
-  onToggleLink: (nodeId: string, kind: LinkKind, enabled: boolean) => void
+  controls: DashboardControls
+  onToggleLink: (nodeId: string, kind: 'coordinator' | 'replication', enabled: boolean) => void
   onHealLinks: () => void
 }
 
-export const NodeBoard = memo(function NodeBoard({ snapshot, onToggleLink, onHealLinks }: NodeBoardProps) {
+function healLabelOf(snapshot: ClusterSnapshot, cutLinks: number): string {
+  if (snapshot.faultInjectorError !== null) {
+    return 'No link state to show'
+  }
+  if (cutLinks === 0) {
+    return 'Every link is up'
+  }
+  return `Restore ${cutLinks} cut link${cutLinks === 1 ? '' : 's'}`
+}
+
+export const NodeBoard = memo(function NodeBoard({ snapshot, controls, onToggleLink, onHealLinks }: NodeBoardProps) {
   const cutLinks = cutLinkCountOf(snapshot)
+  const healReason = localReasonOf(controls.heal, controls.blockedReason)
 
   return (
     <section className="rounded-xl border border-border bg-card p-5">
@@ -20,13 +34,16 @@ export const NodeBoard = memo(function NodeBoard({ snapshot, onToggleLink, onHea
           <h2 className="text-sm font-bold tracking-tight">Nodes</h2>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Each row names the partitions that node leads and the copies it follows, so cutting a link moves those
-            numbers to another row.
+            numbers to another row. The last column names the partitions no node serves whose data this node still
+            holds, which is what the controller gives one of them back from.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={onHealLinks} disabled={cutLinks === 0}>
-          {cutLinks === 0 ? 'Every link is up' : `Restore ${cutLinks} cut link${cutLinks === 1 ? '' : 's'}`}
+        <Button variant="outline" size="sm" onClick={onHealLinks} disabled={!controls.heal.enabled}>
+          {healLabelOf(snapshot, cutLinks)}
         </Button>
       </div>
+
+      {healReason === null ? null : <p className={cn('mt-3 text-sm', reasonClassOf(controls.heal))}>{healReason}</p>}
 
       <div className="mt-4 overflow-x-auto">
         <table className="w-full border-collapse">
@@ -37,6 +54,7 @@ export const NodeBoard = memo(function NodeBoard({ snapshot, onToggleLink, onHea
               <th className="px-3 py-2 text-left font-medium">Leads</th>
               <th className="px-3 py-2 text-left font-medium">Follows in sync</th>
               <th className="px-3 py-2 text-left font-medium">Catching up</th>
+              <th className="px-3 py-2 text-left font-medium">Holds unserved</th>
               <th className="px-3 py-2 text-right font-medium">Coordinator</th>
               <th className="px-3 py-2 text-right font-medium">Replication</th>
             </tr>
@@ -48,8 +66,20 @@ export const NodeBoard = memo(function NodeBoard({ snapshot, onToggleLink, onHea
                 node={node}
                 isController={snapshot.controllerNodeId === node.nodeId}
                 partitions={snapshot.partitions}
-                coordinatorLink={linkOf(snapshot, node.nodeId, 'coordinator')}
-                replicationLink={linkOf(snapshot, node.nodeId, 'replication')}
+                coordinatorLink={linkControlOf(
+                  snapshot,
+                  controls.blockedReason,
+                  controls.stream,
+                  node.nodeId,
+                  'coordinator',
+                )}
+                replicationLink={linkControlOf(
+                  snapshot,
+                  controls.blockedReason,
+                  controls.stream,
+                  node.nodeId,
+                  'replication',
+                )}
                 onToggleLink={onToggleLink}
               />
             ))}

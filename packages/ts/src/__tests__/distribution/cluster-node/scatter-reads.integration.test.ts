@@ -85,7 +85,9 @@ describe('cluster-node scatter-gather reads', () => {
     })
     await router.start()
 
-    const bothRegistered = await pollUntil(async () => (await coordinator.listNodes()).length === 2)
+    const bothRegistered = await pollUntil(
+      async () => (await coordinator.listNodes()).filter(node => node.roles.includes('data')).length === 2,
+    )
     expect(bothRegistered).toBe(true)
 
     await router.createIndex(

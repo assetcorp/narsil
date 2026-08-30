@@ -169,6 +169,7 @@ export const ClusterMessageTypes = {
   PING: 'cluster.ping',
   PONG: 'cluster.pong',
   BOOTSTRAP_COMPLETE: 'cluster.bootstrap_complete',
+  PARTITION_STORES: 'cluster.partition_stores',
 } as const
 
 export interface ForwardPayload {
@@ -333,4 +334,14 @@ export interface BootstrapCompleteResultPayload {
   indexName: string
   partitionId: number
   accepted: boolean
+}
+
+export interface PartitionStoresPayload {
+  indexName: string
+}
+
+export interface PartitionStoresResultPayload {
+  indexName: string
+  indexUuid: string | null
+  partitionIds: number[]
 }

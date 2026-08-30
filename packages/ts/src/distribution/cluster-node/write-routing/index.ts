@@ -10,6 +10,7 @@ import {
   validateIndexName,
 } from '../../cluster/index-metadata'
 import type { AllocationConstraints, ClusterCoordinator } from '../../coordinator/types'
+import { DEFAULT_CREATE_INDEX_WAIT_MS, waitForServingAllocation } from '../allocation-wait'
 import type { CreateIndexOptions } from '../types'
 import { DEFAULT_PARTITION_COUNT, DEFAULT_REPLICATION_FACTOR } from '../types'
 import { resolvePrimaryAssignment } from './assignment'
@@ -109,6 +110,13 @@ export async function routeCreateIndex(
 
     throw createErr
   }
+
+  await waitForServingAllocation(
+    coordinator,
+    name,
+    partitionCount,
+    options?.waitForServingMs ?? DEFAULT_CREATE_INDEX_WAIT_MS,
+  )
 }
 
 /**

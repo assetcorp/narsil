@@ -15,7 +15,10 @@ export interface NodeLifecycleConfig {
   nodeHeartbeatIntervalMs: number
   onBootstrapPartition: (indexName: string, partitionId: number, primaryNodeId: string) => Promise<boolean>
   onRemovePartition?: (indexName: string, partitionId: number) => void
+  onHoldPartition?: (indexName: string, partitionId: number) => void
+  retainedPartitionIds?: (indexName: string) => number[]
   onPrimaryDemotion?: (indexName: string, partitionId: number, newPrimaryNodeId: string) => void
+  onRegistered?: () => void
   onError?: (error: unknown) => void
 }
 
@@ -30,6 +33,8 @@ export const DEFAULT_NODE_LIFECYCLE_CONFIG = {
 export interface DataNodeHandle {
   readonly status: DataNodeLifecycleStatus
   readonly nodeId: string
+  readonly registered: boolean
+  readonly pendingPartitionCount: number
   join(): Promise<void>
   leave(): Promise<void>
   shutdown(): Promise<void>

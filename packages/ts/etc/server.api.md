@@ -162,6 +162,7 @@ export interface ServerOptions {
         gitSha?: string;
         dirty?: boolean;
     };
+    cluster?: ClusterNamespace;
     cors?: boolean | CorsOptions;
     embeddingAdapters?: Record<string, EmbeddingAdapter>;
     host?: string;

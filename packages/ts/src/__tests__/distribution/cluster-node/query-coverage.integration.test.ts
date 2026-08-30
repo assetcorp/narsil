@@ -109,7 +109,9 @@ describe('a cluster search reporting the partitions it lost', () => {
     await impatientRouter.start()
     nodes.push(impatientRouter)
 
-    const registered = await pollUntil(async () => (await coordinator.listNodes()).length === 2)
+    const registered = await pollUntil(
+      async () => (await coordinator.listNodes()).filter(node => node.roles.includes('data')).length === 2,
+    )
     expect(registered).toBe(true)
 
     await router.createIndex(

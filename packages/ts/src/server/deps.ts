@@ -1,3 +1,4 @@
+import type { ClusterNamespace } from '../distribution/cluster-node/types'
 import type { Narsil } from '../narsil'
 import type { TaskRegistry } from './tasks'
 
@@ -28,4 +29,5 @@ export interface HandlerDeps {
   limits: ResolvedLimits
   isReady: () => boolean
   build: ResolvedBuild
+  cluster: ClusterNamespace | undefined
 }

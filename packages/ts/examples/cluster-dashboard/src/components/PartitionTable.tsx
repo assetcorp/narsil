@@ -1,7 +1,7 @@
 import { cn } from '@delali/narsil-example-shared'
 import { memo } from 'react'
 import type { ClusterSnapshot, PartitionRow } from '../lib/cluster-types'
-import { copyCountOf } from '../lib/cluster-types'
+import { copyCountOf, recoveryTextOf } from '../lib/cluster-types'
 
 const STATE_CLASS: Record<string, string> = {
   ACTIVE: 'text-foreground',
@@ -21,6 +21,23 @@ const STATE_LABEL: Record<string, string> = {
 
 interface PartitionTableProps {
   snapshot: ClusterSnapshot
+}
+
+function RecoveryCell({ partition }: { partition: PartitionRow }) {
+  const recovery = recoveryTextOf(partition)
+  if (recovery === null) {
+    return (
+      <td className="px-3 py-2 text-xs text-muted-foreground/60">{partition.state === 'ACTIVE' ? 'served' : ''}</td>
+    )
+  }
+  return (
+    <td className="px-3 py-2 text-xs text-destructive">
+      {recovery}
+      {partition.lastHolders.length === 0 ? null : (
+        <span className="ml-2 font-mono text-muted-foreground">{partition.lastHolders.join(' ')}</span>
+      )}
+    </td>
+  )
 }
 
 function PartitionRowView({ partition, replicationFactor }: { partition: PartitionRow; replicationFactor: number }) {
@@ -50,6 +67,7 @@ function PartitionRowView({ partition, replicationFactor }: { partition: Partiti
       <td className="px-3 py-2 text-right font-mono text-sm tabular-nums text-muted-foreground">
         {partition.commitPoint}
       </td>
+      <RecoveryCell partition={partition} />
     </tr>
   )
 }
@@ -64,7 +82,8 @@ export const PartitionTable = memo(function PartitionTable({ snapshot }: Partiti
           <h2 className="text-sm font-bold tracking-tight">Partitions</h2>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Each partition keeps its own primary, its own in-sync set, and its own commit point, so a failover raises
-            the term on the rows it touches and leaves the rest alone.
+            the term on the rows it touches and leaves the rest alone. A partition that loses every serving copy carries
+            the reason the controller recorded and the nodes that still hold the data.
           </p>
         </div>
         <span className="font-mono text-xs tabular-nums text-muted-foreground">
@@ -89,6 +108,7 @@ export const PartitionTable = memo(function PartitionTable({ snapshot }: Partiti
                 <th className="px-3 py-2 text-right font-medium">Copies</th>
                 <th className="px-3 py-2 text-right font-medium">In sync</th>
                 <th className="px-3 py-2 text-right font-medium">Commit</th>
+                <th className="px-3 py-2 text-left font-medium">Recovery</th>
               </tr>
             </thead>
             <tbody>

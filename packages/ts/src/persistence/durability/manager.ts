@@ -50,6 +50,7 @@ export function createDurabilityManager(
   const flushIntervalMs = config.flushIntervalMs ?? DEFAULT_ASYNC_FLUSH_INTERVAL_MS
 
   const indexes = new Map<string, IndexState>()
+  const metadataWrites = new Map<string, Promise<void>>()
   let checkpointTimer: ReturnType<typeof setInterval> | null = null
   let asyncFlushTimer: ReturnType<typeof setInterval> | null = null
   let shuttingDown = false
@@ -106,6 +107,16 @@ export function createDurabilityManager(
       indexState.partitions.set(partitionId, partition)
     }
     return partition
+  }
+
+  function queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void> {
+    const previous = metadataWrites.get(indexName) ?? Promise.resolve()
+    const queued = previous.then(write)
+    metadataWrites.set(
+      indexName,
+      queued.catch(() => undefined),
+    )
+    return queued
   }
 
   function startCheckpointTimer(): void {
@@ -281,6 +292,10 @@ export function createDurabilityManager(
       startCheckpointTimer()
     },
 
+    highestPersistedSeqNo(indexName: string, partitionId: number): number {
+      return indexes.get(indexName)?.partitions.get(partitionId)?.appliedSeqNo ?? 0
+    },
+
     async recordMutation(record: MutationRecord): Promise<number> {
       if (fatalError !== null) {
         throw fatalError
@@ -332,14 +347,16 @@ export function createDurabilityManager(
       return allocatedSeqNo
     },
 
-    async persistMetadata(indexName: string): Promise<void> {
-      const metadata = hooks.buildMetadata(indexName)
-      if (metadata === undefined) {
-        return
-      }
-      const bytes = await writeMetadataEnvelope(metadata, { checksum: true })
-      await directory.atomicWrite(`${indexName}/meta`, bytes)
-      getOrCreateIndexState(indexName)
+    persistMetadata(indexName: string): Promise<void> {
+      return queueMetadataWrite(indexName, async () => {
+        const metadata = hooks.buildMetadata(indexName)
+        if (metadata === undefined) {
+          return
+        }
+        const bytes = await writeMetadataEnvelope(metadata, { checksum: true })
+        await directory.atomicWrite(`${indexName}/meta`, bytes)
+        getOrCreateIndexState(indexName)
+      })
     },
 
     checkpoint(indexName: string): Promise<void> {

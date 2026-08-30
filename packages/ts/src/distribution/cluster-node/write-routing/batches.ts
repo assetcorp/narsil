@@ -3,6 +3,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
 import type { AnyDocument, InsertOptions } from '../../../types/schema'
 import type { AllocationTable, PartitionAssignment } from '../../coordinator/types'
+import { routableAllocation } from '../routable-allocation'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
 import { type ForwardBatchItem, forwardBatchToRemote } from './forward-batch'
 import { applyPrimaryInsertBatch, applyPrimaryRemoveBatch, applyPrimaryUpdateBatch } from './primary-writes'
@@ -87,8 +88,8 @@ export async function routeInsertBatch(
   deps: WriteRoutingDeps,
   options?: InsertOptions,
 ): Promise<BatchResult> {
-  const table = await deps.coordinator.getAllocation(indexName)
-  if (table === null || table.assignments.size === 0) {
+  const table = await routableAllocation(deps.coordinator, indexName)
+  if (table === null) {
     return deps.engine.insertBatch(indexName, documents, options)
   }
 
@@ -135,8 +136,8 @@ export async function routeRemoveBatch(
   docIds: string[],
   deps: WriteRoutingDeps,
 ): Promise<BatchResult> {
-  const table = await deps.coordinator.getAllocation(indexName)
-  if (table === null || table.assignments.size === 0) {
+  const table = await routableAllocation(deps.coordinator, indexName)
+  if (table === null) {
     return deps.engine.removeBatch(indexName, docIds)
   }
 
@@ -173,8 +174,8 @@ export async function routeUpdateBatch(
   updates: Array<{ docId: string; document: AnyDocument }>,
   deps: WriteRoutingDeps,
 ): Promise<BatchResult> {
-  const table = await deps.coordinator.getAllocation(indexName)
-  if (table === null || table.assignments.size === 0) {
+  const table = await routableAllocation(deps.coordinator, indexName)
+  if (table === null) {
     return deps.engine.updateBatch(indexName, updates)
   }
 

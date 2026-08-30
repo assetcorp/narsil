@@ -80,6 +80,7 @@ export async function createEngineIndex(
     embeddingAdapterName,
     vectorFieldPaths: getVectorFieldPaths(indexConfig.schema),
     indexUuid: indexUuid ?? null,
+    heldPartitions: null,
   })
   if (core.durability) {
     await core.durability.manager.persistMetadata(name)

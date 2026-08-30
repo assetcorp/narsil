@@ -208,6 +208,81 @@ describe('EtcdCoordinator unit tests', () => {
     })
   })
 
+  describe('allocation table last holders', () => {
+    it('round-trips the last holders through serialisation', () => {
+      const table = makeAllocationTable('products')
+      const assignment = table.assignments.get(0)
+      if (assignment === undefined) throw new Error('expected partition 0')
+      assignment.lastHolders = ['node-1', 'node-2']
+
+      const restored = deserializeAllocationTable(Buffer.from(serializeAllocationTable(table)))
+      expect(restored.assignments.get(0)?.lastHolders).toEqual(['node-1', 'node-2'])
+    })
+
+    it('reads an unserved partition written without the field as its stored in-sync set', () => {
+      const legacy = {
+        indexName: 'products',
+        version: 1,
+        replicationFactor: 1,
+        assignments: [
+          [
+            0,
+            {
+              primary: null,
+              replicas: [],
+              inSyncSet: ['node-a', 'node-b'],
+              state: 'UNASSIGNED',
+              primaryTerm: 3,
+              commitPoint: 7,
+            },
+          ],
+        ],
+      }
+
+      const restored = deserializeAllocationTable(Buffer.from(new Uint8Array(encode(legacy))))
+      expect(restored.assignments.get(0)?.lastHolders).toEqual(['node-a', 'node-b'])
+    })
+
+    it('leaves a served partition written without the field with no holders on record', () => {
+      const legacy = {
+        indexName: 'products',
+        version: 1,
+        replicationFactor: 1,
+        assignments: [
+          [0, { primary: 'node-a', replicas: ['node-b'], inSyncSet: ['node-b'], state: 'ACTIVE', primaryTerm: 1 }],
+        ],
+      }
+
+      const restored = deserializeAllocationTable(Buffer.from(new Uint8Array(encode(legacy))))
+      expect(restored.assignments.get(0)?.lastHolders).toBeUndefined()
+    })
+
+    it('drops an entry that is not a node id', () => {
+      const stored = {
+        indexName: 'products',
+        version: 1,
+        replicationFactor: 1,
+        assignments: [
+          [
+            0,
+            {
+              primary: null,
+              replicas: [],
+              inSyncSet: [],
+              lastHolders: ['node-a', 7, null],
+              state: 'UNASSIGNED',
+              primaryTerm: 1,
+              commitPoint: 0,
+            },
+          ],
+        ],
+      }
+
+      const restored = deserializeAllocationTable(Buffer.from(new Uint8Array(encode(stored))))
+      expect(restored.assignments.get(0)?.lastHolders).toEqual(['node-a'])
+    })
+  })
+
   describe('allocation table deserialisation guards', () => {
     it('rejects a malformed assignment entry with CONFIG_INVALID', () => {
       const malformed = {
@@ -305,7 +380,6 @@ describe('EtcdCoordinator unit tests', () => {
       expect(DEFAULT_ETCD_CONFIG.endpoints).toEqual(['http://localhost:2379'])
       expect(DEFAULT_ETCD_CONFIG.keyPrefix).toBe('_narsil')
       expect(DEFAULT_ETCD_CONFIG.nodeHeartbeatTtlSeconds).toBe(30)
-      expect(DEFAULT_ETCD_CONFIG.leaseTtlSeconds).toBe(15)
     })
   })
 
