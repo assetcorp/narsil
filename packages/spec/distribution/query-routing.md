@@ -194,9 +194,10 @@ The cursor format defined in [searchAfter Cursor](../partitioning.md#searchafter
 
 ```json
 {
-  "v": 2,
+  "v": 3,
   "a": "doc-id-123",
-  "s": 4.523
+  "s": 4.523,
+  "q": "1b83aa27"
 }
 ```
 
