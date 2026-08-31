@@ -47,12 +47,13 @@ export function applyPagination<T extends { id: string; score?: number }>(
   results: T[],
   limit: number,
   offset: number,
+  binding: string,
   cursor?: string,
   sort?: PaginationSortContext,
 ): { paginated: T[]; nextCursor?: string } {
   const decoded = cursor ? decodePageCursor(cursor) : null
   if (decoded !== null && cursor !== undefined) {
-    requireMatchingCursor(decoded, cursor, sort?.signature ?? null, true)
+    requireMatchingCursor(decoded, cursor, sort?.signature ?? null, true, binding)
   }
 
   if (limit <= 0) {
@@ -86,12 +87,14 @@ export function applyPagination<T extends { id: string; score?: number }>(
             score: null,
             sortKey: sort.sortKeyOf(lastResult.id).map(toComparableSortValue),
             sortSignature: sort.signature,
+            binding,
           })
         : encodePageCursor({
             anchor: lastResult.id,
             score: lastResult.score ?? null,
             sortKey: null,
             sortSignature: null,
+            binding,
           })
   }
 

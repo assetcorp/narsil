@@ -116,7 +116,7 @@ if (firstPage.cursor) {
 }
 ```
 
-A cursor is only valid for the same query parameters it came from. A malformed cursor fails with `SEARCH_INVALID_CURSOR`.
+A cursor is valid only for the same query that produced it. The engine binds each cursor to the query's term, fields, filters, and match options, so a cursor sent back under a changed query fails with `SEARCH_INVALID_CURSOR`, as a malformed cursor does.
 
 `offset` and `limit` together reach the first 10,000 results, which is the result window. A request past it throws `SEARCH_RESULT_WINDOW_EXCEEDED`, and a cursor pages beyond it because each page returns the `limit` results that follow its anchor. The window bounds paging depth rather than what the engine considers: a sort, a group, a `minScore`, and a `termMatch` other than `any` each read every matching document, and `count` reports the number of matches exactly.
 

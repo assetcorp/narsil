@@ -7,6 +7,7 @@ import {
 import { applyProjection, type ResolvedProjection, resolveProjection } from '../../../core/projection'
 import { clampLimit, now } from '../../../engine/validation'
 import { decodePageCursor, encodePageCursor, requireMatchingCursor, sortSignatureOf } from '../../../search/cursor'
+import { listBindingOf } from '../../../search/cursor-binding'
 import { requireWithinResultWindow } from '../../../search/pagination'
 import { normalizeSort, readSortValues } from '../../../search/sorting'
 import type { ListedDocument, ListResult } from '../../../types/results'
@@ -83,8 +84,9 @@ export async function listCluster<T = AnyDocument>(
   const startTime = now()
   const limit = clampListLimit(params.limit)
   const signature = sortSignatureOf(params.sort)
+  const binding = listBindingOf(params.filters)
   if (params.cursor !== undefined) {
-    requireMatchingCursor(decodePageCursor(params.cursor), params.cursor, signature, false)
+    requireMatchingCursor(decodePageCursor(params.cursor), params.cursor, signature, false, binding)
   }
 
   const normalizedSort = normalizeSort(params.sort)
@@ -155,6 +157,7 @@ export async function listCluster<T = AnyDocument>(
       score: null,
       sortKey: sortFieldNames === null ? null : [...(last.key ?? [])],
       sortSignature: signature,
+      binding,
     })
   }
 

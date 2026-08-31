@@ -283,6 +283,81 @@ describe('Narsil query features', () => {
     })
   })
 
+  describe('cursor binding', () => {
+    async function indexWithChargers(): Promise<void> {
+      await narsil.createIndex('products', indexConfig)
+      await narsil.insert('products', { title: 'Fast Charger', category: 'electronics', price: 30 })
+      await narsil.insert('products', { title: 'Slow Charger', category: 'electronics', price: 10 })
+      await narsil.insert('products', { title: 'Wall Charger', category: 'electronics', price: 20 })
+    }
+
+    it('pages on with the cursor under the same query', async () => {
+      await indexWithChargers()
+      const firstPage = await narsil.query('products', { term: 'charger', limit: 2 })
+      expect(firstPage.cursor).toBeDefined()
+
+      const secondPage = await narsil.query('products', { term: 'charger', limit: 2, searchAfter: firstPage.cursor })
+      expect(secondPage.hits).toHaveLength(1)
+    })
+
+    it('rejects the cursor under a changed term', async () => {
+      await indexWithChargers()
+      const firstPage = await narsil.query('products', { term: 'charger', limit: 2 })
+
+      await expect(
+        narsil.query('products', { term: 'wall', limit: 2, searchAfter: firstPage.cursor }),
+      ).rejects.toMatchObject({ code: 'SEARCH_INVALID_CURSOR' })
+    })
+
+    it('rejects the cursor under changed filters', async () => {
+      await indexWithChargers()
+      const firstPage = await narsil.query('products', { term: 'charger', limit: 2 })
+
+      await expect(
+        narsil.query('products', {
+          term: 'charger',
+          limit: 2,
+          filters: { fields: { price: { gte: 15 } } },
+          searchAfter: firstPage.cursor,
+        }),
+      ).rejects.toMatchObject({ code: 'SEARCH_INVALID_CURSOR' })
+    })
+
+    it('rejects a listing cursor under changed filters', async () => {
+      await indexWithChargers()
+      const firstPage = await narsil.listDocuments('products', { limit: 2 })
+      expect(firstPage.cursor).not.toBeNull()
+
+      const cursor = firstPage.cursor ?? undefined
+      await expect(
+        narsil.listDocuments('products', { limit: 2, filters: { fields: { price: { gte: 15 } } }, cursor }),
+      ).rejects.toMatchObject({ code: 'SEARCH_INVALID_CURSOR' })
+    })
+
+    it('pages a sorted query on and rejects its cursor under a changed term', async () => {
+      await indexWithChargers()
+      const firstPage = await narsil.query('products', { term: 'charger', sort: { price: 'asc' }, limit: 2 })
+      expect(firstPage.cursor).toBeDefined()
+
+      const secondPage = await narsil.query('products', {
+        term: 'charger',
+        sort: { price: 'asc' },
+        limit: 2,
+        searchAfter: firstPage.cursor,
+      })
+      expect(secondPage.hits).toHaveLength(1)
+
+      await expect(
+        narsil.query('products', {
+          term: 'wall',
+          sort: { price: 'asc' },
+          limit: 2,
+          searchAfter: firstPage.cursor,
+        }),
+      ).rejects.toMatchObject({ code: 'SEARCH_INVALID_CURSOR' })
+    })
+  })
+
   describe('index-time analyzer overrides', () => {
     it('applies a stopWords override at index time so a default stop word stays searchable', async () => {
       await narsil.createIndex('articles', {
