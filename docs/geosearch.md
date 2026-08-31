@@ -47,4 +47,4 @@ const inArea = await narsil.query('stores', {
 })
 ```
 
-Radius filters measure Haversine distance by default and accept `unit: 'km' | 'mi' | 'm'`. Set `highPrecision: true` to switch to Vincenty's iterative formula for long-distance accuracy. Polygon filters test containment with ray casting. Both filter shapes accept `inside: false` to invert the match and return documents outside the area.
+Radius filters measure Haversine distance by default and accept `unit: 'km' | 'mi' | 'm'`. Set `highPrecision: true` to switch to Vincenty's iterative formula for long-distance accuracy. Polygon filters test containment with ray casting. Both filter shapes accept `inside: false` to invert the match and return documents outside the area. A document that carries no coordinates never enters the geo index, so `inside: false` leaves it out, and you would wrap the filter in `not:` to select the documents outside the area together with the ones that hold no location at all.
