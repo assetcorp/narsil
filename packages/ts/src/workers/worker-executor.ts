@@ -24,6 +24,23 @@ interface PendingRequest {
 const DEFAULT_BACKPRESSURE_LIMIT = 100
 const DEFAULT_REQUEST_TIMEOUT = 30_000
 const SHUTDOWN_TIMEOUT = 5_000
+const CONSECUTIVE_TIMEOUTS_BEFORE_DEATH = 3
+
+function errorFromEventLike(event: unknown): Error {
+  if (event instanceof Error) {
+    return event
+  }
+  if (typeof event === 'object' && event !== null) {
+    const detail = event as { error?: unknown; message?: unknown }
+    if (detail.error instanceof Error) {
+      return detail.error
+    }
+    if (typeof detail.message === 'string' && detail.message.length > 0) {
+      return new Error(detail.message)
+    }
+  }
+  return new Error('The worker reported an error event carrying no detail')
+}
 
 export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutorConfig): Executor {
   const backpressureLimit = config?.backpressureLimit ?? DEFAULT_BACKPRESSURE_LIMIT
@@ -31,12 +48,14 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
   const pending = new Map<string, PendingRequest>()
   let deathError: NarsilError | null = null
   let shutdownRequested = false
+  let consecutiveTimeouts = 0
 
   function processResponse(msg: unknown) {
     if (!isValidWorkerResponse(msg)) {
       return
     }
 
+    consecutiveTimeouts = 0
     const response = msg as WorkerResponse
     const entry = pending.get(response.requestId)
     if (!entry) {
@@ -78,6 +97,7 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
       const msg = (event as { data: unknown }).data
       processResponse(msg)
     })
+    worker.addEventListener('error', (event: unknown) => handleDeath(errorFromEventLike(event)))
   }
 
   function execute<T>(action: WorkerAction): Promise<T> {
@@ -97,6 +117,10 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
       const timeoutId = setTimeout(() => {
         pending.delete(requestId)
         reject(new NarsilError(ErrorCodes.WORKER_TIMEOUT, `Request ${requestId} timed out after ${requestTimeout}ms`))
+        consecutiveTimeouts += 1
+        if (consecutiveTimeouts >= CONSECUTIVE_TIMEOUTS_BEFORE_DEATH) {
+          handleDeath(new Error(`no answer to ${CONSECUTIVE_TIMEOUTS_BEFORE_DEATH} consecutive requests`))
+        }
       }, requestTimeout)
 
       pending.set(requestId, {
