@@ -4,7 +4,6 @@ import { createNarsilError, ErrorCodes, NarsilError } from '../../errors'
 describe('ErrorCodes', () => {
   it('has all expected schema error codes', () => {
     expect(ErrorCodes.SCHEMA_INVALID_TYPE).toBe('SCHEMA_INVALID_TYPE')
-    expect(ErrorCodes.SCHEMA_MISSING_FIELD).toBe('SCHEMA_MISSING_FIELD')
     expect(ErrorCodes.SCHEMA_DEPTH_EXCEEDED).toBe('SCHEMA_DEPTH_EXCEEDED')
     expect(ErrorCodes.SCHEMA_INVALID_VECTOR_DIMENSION).toBe('SCHEMA_INVALID_VECTOR_DIMENSION')
     expect(ErrorCodes.SCHEMA_INVALID_GEOPOINT).toBe('SCHEMA_INVALID_GEOPOINT')
@@ -43,7 +42,6 @@ describe('ErrorCodes', () => {
 
   it('has all expected search error codes', () => {
     expect(ErrorCodes.SEARCH_INVALID_FIELD).toBe('SEARCH_INVALID_FIELD')
-    expect(ErrorCodes.SEARCH_INVALID_VECTOR_SIZE).toBe('SEARCH_INVALID_VECTOR_SIZE')
     expect(ErrorCodes.VECTOR_DIMENSION_MISMATCH).toBe('VECTOR_DIMENSION_MISMATCH')
     expect(ErrorCodes.SEARCH_INVALID_FILTER).toBe('SEARCH_INVALID_FILTER')
     expect(ErrorCodes.SEARCH_INVALID_MODE).toBe('SEARCH_INVALID_MODE')
@@ -132,8 +130,8 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.INDEX_ORPHANED).toBe('INDEX_ORPHANED')
   })
 
-  it('has exactly 94 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(94)
+  it('has exactly 90 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(90)
   })
 
   it('has unique values for every code', () => {
