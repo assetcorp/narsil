@@ -2,6 +2,7 @@ import type { PartitionIndex } from '../../core/partition'
 import { pruneStatsToQueryTerms } from '../../partitioning/distributed-scoring'
 import type { FanOutConfig, FanOutResult } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
+import { partitionsIn } from '../../partitioning/partition-selection'
 import type { FulltextSearchOptions } from '../../search/fulltext'
 import type { GlobalStatistics, ScoredDocument } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
@@ -26,17 +27,7 @@ export interface QueryContext {
 }
 
 export function partitionsFor(manager: PartitionManager, partitionIds: number[] | undefined): PartitionIndex[] {
-  if (partitionIds === undefined) {
-    return manager.getAllPartitions()
-  }
-  const partitions: PartitionIndex[] = []
-  for (const partitionId of partitionIds) {
-    const partition = manager.partitionAt(partitionId)
-    if (partition !== undefined) {
-      partitions.push(partition)
-    }
-  }
-  return partitions
+  return partitionsIn(manager, partitionIds)
 }
 
 /**

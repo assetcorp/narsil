@@ -9,6 +9,7 @@ import type { SchemaDefinition, ScoringMode } from '../types/schema'
 import type { QueryParams } from '../types/search'
 import { collectQueryTermStats } from './distributed-scoring'
 import type { PartitionManager } from './manager'
+import { partitionsIn } from './partition-selection'
 
 export interface FanOutConfig {
   scoringMode: ScoringMode
@@ -46,9 +47,7 @@ export async function fanOutQuery(
   config: FanOutConfig,
   searchOptions?: FulltextSearchOptions,
 ): Promise<FanOutResult> {
-  const partitions: PartitionIndex[] = config.partitionIds
-    ? config.partitionIds.map(id => manager.partitionAt(id)).filter((p): p is PartitionIndex => p !== undefined)
-    : manager.getAllPartitions()
+  const partitions = partitionsIn(manager, config.partitionIds)
 
   if (partitions.length === 0) {
     return { scored: [], totalMatched: 0 }

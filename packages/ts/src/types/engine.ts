@@ -214,8 +214,11 @@ export interface Narsil {
    */
   query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>
   /**
-   * Counts what a query would match without building or ranking a single hit,
-   * which is how a result-count badge stays cheap.
+   * Counts what a query would match without building a single hit, which is
+   * how a result-count badge stays cheap. A full-text count also skips scoring
+   * unless the query carries `minScore`, which prunes matches by score, or a
+   * `termMatch` policy other than `any`, which prunes them by term coverage. A
+   * vector or hybrid count still runs its search.
    *
    * @param indexName - The index the query would run against.
    * @param params - The same parameters {@link Narsil.query} takes. Anything

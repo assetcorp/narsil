@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil, type Narsil } from '../../narsil'
+import type { FilterExpression } from '../../types/filters'
 import { indexConfig } from './fixtures'
 
 describe('Narsil query features', () => {
@@ -235,6 +236,50 @@ describe('Narsil query features', () => {
       const result = await narsil.preflight('products', { term: 'charger' })
       expect(result.count).toBe(2)
       expect(result.elapsed).toBeGreaterThanOrEqual(0)
+    })
+
+    it('reports the same count a query reports under filters and fuzziness', async () => {
+      await narsil.createIndex('products', indexConfig)
+      await narsil.insert('products', { title: 'Fast Charger', category: 'electronics', price: 30 })
+      await narsil.insert('products', { title: 'Slow Charger', category: 'electronics', price: 10 })
+      await narsil.insert('products', { title: 'Charging Dock', category: 'accessories', price: 20 })
+
+      const params = {
+        term: 'chargr',
+        tolerance: 1,
+        filters: { fields: { price: { gte: 15 } } } as FilterExpression,
+      }
+      const queried = await narsil.query('products', params)
+      const preflight = await narsil.preflight('products', params)
+      expect(preflight.count).toBe(queried.count)
+    })
+
+    it('reports the same count a query reports when minScore prunes matches', async () => {
+      await narsil.createIndex('products', indexConfig)
+      await narsil.insert('products', { title: 'Fast Charger', category: 'electronics', price: 30 })
+      await narsil.insert('products', { title: 'Slow Charger Charger', category: 'electronics', price: 10 })
+
+      const unfiltered = await narsil.query('products', { term: 'charger', includeScores: true })
+      const scores = unfiltered.hits.map(hit => hit.score ?? 0).sort((a, b) => b - a)
+      const betweenScores = (scores[0] + scores[1]) / 2
+
+      const params = { term: 'charger', minScore: betweenScores }
+      const queried = await narsil.query('products', params)
+      const preflight = await narsil.preflight('products', params)
+      expect(queried.count).toBe(1)
+      expect(preflight.count).toBe(queried.count)
+    })
+
+    it('reports the same count a query reports under a termMatch policy', async () => {
+      await narsil.createIndex('products', indexConfig)
+      await narsil.insert('products', { title: 'Fast Charger', category: 'electronics', price: 30 })
+      await narsil.insert('products', { title: 'Fast Cable', category: 'accessories', price: 5 })
+
+      const params = { term: 'fast charger', termMatch: 'all' as const }
+      const queried = await narsil.query('products', params)
+      const preflight = await narsil.preflight('products', params)
+      expect(queried.count).toBe(1)
+      expect(preflight.count).toBe(queried.count)
     })
   })
 

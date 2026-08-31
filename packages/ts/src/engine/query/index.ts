@@ -2,6 +2,7 @@ import type { ComparableSortValue } from '../../core/ordering'
 import { resolveProjection } from '../../core/projection'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
+import { countsWithoutScores, fanOutMatchCount } from '../../partitioning/match-count'
 import { flattenSchema } from '../../schema/validator'
 import { sortSignatureOf } from '../../search/cursor'
 import { applyGrouping } from '../../search/grouping'
@@ -234,6 +235,11 @@ export async function executePreflight(params: QueryParams, context: QueryContex
   } else if (isHybridMode && hasGlobalVectorIndex) {
     const result = await executeHybridSearch(params, context, preflightLimit, preflightOffset)
     totalMatched = result.totalMatched
+  } else if (countsWithoutScores(params)) {
+    totalMatched = fanOutMatchCount(manager, params, language, config.schema, {
+      searchOptions: searchOptionsFor(manager),
+      partitionIds: context.partitionIds,
+    })
   } else {
     const scoring = scoringConfigFor(params, context)
     const workerResult = workerSearch

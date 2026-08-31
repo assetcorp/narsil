@@ -8,6 +8,7 @@ import { sanitizeGlobalStats } from '../partitioning/distributed-scoring'
 import { fanOutQuery } from '../partitioning/fan-out'
 import { resolvePartitionInsertOptions } from '../partitioning/insert-options'
 import { createPartitionManager, type PartitionManager } from '../partitioning/manager'
+import { countsWithoutScores, fanOutMatchCount } from '../partitioning/match-count'
 import { createPartitionRouter } from '../partitioning/router'
 import { extractVectorFieldsFromSchema } from '../schema/validator'
 import type { FulltextSearchOptions } from '../search/fulltext'
@@ -216,6 +217,12 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
 
       case 'preflight': {
         const entry = requireIndex(action.indexName)
+        if (countsWithoutScores(action.params)) {
+          const count = fanOutMatchCount(entry.manager, action.params, entry.language, entry.config.schema, {
+            searchOptions: entry.searchOptions,
+          })
+          return { count } as T
+        }
         const result = await fanOutQuery(
           entry.manager,
           action.params,
