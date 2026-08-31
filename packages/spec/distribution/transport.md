@@ -387,6 +387,12 @@ QueryParams {
   threshold:     float32 or absent                (minimum score)
   includeScores: boolean or absent                (default false; a sorted query computes scores only where true)
   scoring:       'local' or 'dfs' or 'broadcast'  (default 'local')
+  termMatch:     'all' or 'any' or uint32 or absent   (absent means 'any'; a count names the minimum matching terms)
+  prefixLength:  uint32 or absent                 (leading characters exempt from tolerance; default 2)
+  prefix:        boolean or absent                (default false; completes the final token)
+  exact:         boolean or absent                (default false; turns off tolerance and prefix completion)
+  pinned:        List<PinnedEntry> or absent
+  mode:          'fulltext' or 'vector' or 'hybrid' or absent
   vector:        VectorQueryParams or absent
   hybrid:        HybridConfig or absent
 }
@@ -397,8 +403,13 @@ SortField {
 }
 
 GroupConfig {
-  field:       string
+  fields:      List<string>
   maxPerGroup: uint32   (default 1)
+}
+
+PinnedEntry {
+  docId:    string
+  position: uint32   (zero-based position in the merged results)
 }
 
 VectorQueryParams {
@@ -406,14 +417,18 @@ VectorQueryParams {
   value:      List<float32> or absent
   text:       string or absent
   similarity: float32 or absent   (score floor; absent keeps every scored hit)
+  metric:     'cosine' or 'dotProduct' or 'euclidean' or absent   (default 'cosine')
+  efSearch:   uint32 or absent    (HNSW exploration factor; absent uses the engine default)
 }
 
 HybridConfig {
-  strategy: 'rrf' or 'linear'
-  k:        uint32    (the RRF constant, default 60)
-  alpha:    float32   (the linear weight, default 0.5)
+  strategy: 'rrf' or 'linear' or absent   (default 'rrf')
+  k:        uint32 or absent              (the RRF constant, default 60)
+  alpha:    float32 or absent             (the linear weight, default 0.5)
 }
 ```
+
+A sender writes an omitted member as absent and a reader restores it as omitted, so a request and its wire round trip carry one [cursor binding](../partitioning.md#cursor-binding).
 
 The enclosing `QueryParams.limit` sets the top-k count for vector search, so `VectorQueryParams` carries no limit of its own and there is one source of truth.
 

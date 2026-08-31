@@ -78,6 +78,10 @@ Query for index 'products', partitions 0-9:
 
 A query carrying a sort makes each data node return the raw sort values of every entry in `ScoredEntry.sortValues`, and the coordinator merges by the [sort value order](../algorithms.md#sort-value-order). A sorted entry that arrives without its sort values cannot be merged, so the coordinator treats the node's response as a failure and [Partial Results](#partial-results) governs what happens next.
 
+### Pinned Documents
+
+The coordinator alone places pinned documents, after the merge and before the offset slice, so a data node serving a partition-scoped search must leave `pinned` unapplied. Each pinned document takes its zero-based position in the merged list with a score of 0, a pinned document the query also matched moves from its ranked place, and a position at or beyond a full merge window stays off the page. A request carrying a cursor takes no pinning, because the pre-anchor prefix the positions count from is not part of the merge.
+
 ---
 
 ## DFS Scoring Across the Cluster

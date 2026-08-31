@@ -295,7 +295,7 @@ A sort names at most 8 fields, because the cursor carries one value per field. M
 
 `q` is the [FNV-1a hash](algorithms.md#fnv-1a-hash) of the binding stream, written as 8 lowercase hex digits. A reader recomputes the binding from the request and rejects a mismatch, so a cursor pages only the request that produced it.
 
-A writer serialises into the binding stream, in this order, the request values that decide which documents a page holds: `term`, `fields`, `filters`, `boost`, `minScore`, `termMatch`, `tolerance`, `prefixLength`, `prefix`, `exact`, `pinned`, `mode`, `hybrid`, and `vector`. A listing's stream carries `filters` in that position and every other value absent. The sort binds through `o`, so the stream omits it. The stream omits `scoring` as well, because a coordinator may rewrite it on the request it forwards.
+A writer serialises into the binding stream, in this order, the request values that decide which documents a page holds: `term`, `fields`, `filters`, `boost`, `minScore`, `termMatch`, `tolerance`, `prefixLength`, `prefix`, `exact`, `pinned`, `mode`, `hybrid`, `vector`, and `scoring`. An absent `scoring` binds as the string `local`, its default, so an explicit default and an omission carry one binding. A listing's stream carries `filters` in that position and every other value absent. The sort binds through `o`, so the stream omits it.
 
 ```text
 write(stream, value):
