@@ -124,3 +124,21 @@ describe('pinning', () => {
     expect(hits[0].id).toBe('a')
   })
 })
+
+describe('pinning with a repeated docId', () => {
+  it('places the document once, at the first listed position', () => {
+    const hits = [makeHit('a', 10), makeHit('b', 8)]
+    const pinnedDoc = makeHit('x', 0)
+    const resolver = makeResolver([...hits, pinnedDoc])
+
+    const result = applyPinning(
+      hits,
+      [
+        { docId: 'x', position: 0 },
+        { docId: 'x', position: 2 },
+      ],
+      resolver,
+    )
+    expect(result.map(hit => hit.id)).toEqual(['x', 'a', 'b'])
+  })
+})

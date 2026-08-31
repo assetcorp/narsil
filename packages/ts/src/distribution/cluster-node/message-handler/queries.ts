@@ -4,12 +4,14 @@ import { normalizeSort, readSortValues } from '../../../search/sorting'
 import type { QueryResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import { validateFetchPayload, validateSearchPayload, validateStatsPayload } from '../../query/codec'
+import { oversampledShardSize } from '../../query/oversample'
 import type {
   FetchResultPayload,
   RespondFn,
   SearchResultPayload,
   StatsResultPayload,
   TransportMessage,
+  WireGroupEntry,
 } from '../../transport/types'
 import { QueryMessageTypes } from '../../transport/types'
 import { wireParamsToLocal } from '../query-conversion'
@@ -24,6 +26,9 @@ export async function handleSearch(
   const payload = validateSearchPayload(decoded)
 
   const queryParams = wireParamsToLocal(payload.params, payload.facetShardSize)
+  if (queryParams.group?.limit !== undefined) {
+    queryParams.group = { ...queryParams.group, limit: oversampledShardSize(queryParams.group.limit) }
+  }
   const queryResult = await deps.engine.queryPartitions(
     payload.indexName,
     queryParams,
@@ -51,6 +56,7 @@ export async function handleSearch(
     results,
     facets: convertLocalFacetsToWire(queryResult.facets),
     facetErrorBounds: convertLocalFacetBoundsToWire(queryResult.facets),
+    groups: await convertLocalGroupsToWire(queryResult.groups, sortFields, deps, payload.indexName),
   }
 
   await respond({
@@ -59,6 +65,31 @@ export async function handleSearch(
     requestId: message.requestId,
     payload: encode(resultPayload),
   })
+}
+
+async function convertLocalGroupsToWire(
+  groups: QueryResult['groups'],
+  sortFields: string[] | null,
+  deps: DataNodeHandlerDeps,
+  indexName: string,
+): Promise<WireGroupEntry[] | null> {
+  if (groups === undefined) {
+    return null
+  }
+  const wireGroups: WireGroupEntry[] = []
+  for (const group of groups) {
+    const scored = []
+    for (const hit of group.hits) {
+      let sortValues: Array<string | number | boolean | null> | null = null
+      if (sortFields !== null) {
+        const document = (hit.document as AnyDocument | undefined) ?? (await deps.engine.get(indexName, hit.id))
+        sortValues = readSortValues(document, sortFields).map(toWireSortValue)
+      }
+      scored.push({ docId: hit.id, score: hit.score ?? null, sortValues })
+    }
+    wireGroups.push({ values: group.values, scored })
+  }
+  return wireGroups
 }
 
 export async function handleFetch(

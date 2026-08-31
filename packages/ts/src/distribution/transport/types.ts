@@ -308,6 +308,7 @@ export type {
   SuggestPayload,
   SuggestResultPayload,
   WireGroupConfig,
+  WireGroupEntry,
   WireHighlightConfig,
   WireHybridConfig,
   WirePinnedEntry,

@@ -18,6 +18,44 @@ describe('pinned documents under cursor pagination', () => {
     await narsil.shutdown()
   })
 
+  it('anchors on a pinned-listed document that a cursor page returns organically', async () => {
+    await narsil.insert('products', { title: 'Headphones Delta', category: 'e', price: 5 }, 'delta')
+    const request = {
+      term: 'headphones',
+      pinned: [{ docId: 'beta', position: 0 }],
+    }
+    const firstPage = await narsil.query('products', { ...request, limit: 2 })
+    expect(firstPage.hits.map(hit => hit.id)[0]).toBe('beta')
+
+    const secondPage = await narsil.query('products', { ...request, limit: 1, searchAfter: firstPage.cursor })
+    expect(secondPage.hits.map(hit => hit.id)).toEqual(['beta'])
+    expect(secondPage.cursor).toBeDefined()
+
+    const thirdPage = await narsil.query('products', { ...request, limit: 1, searchAfter: secondPage.cursor })
+    expect(thirdPage.hits.length).toBe(1)
+    expect(thirdPage.hits[0].id).not.toBe('beta')
+  })
+
+  it('continues past a page that ends on a pinned placement', async () => {
+    const firstPage = await narsil.query('products', {
+      term: 'headphones',
+      pinned: [{ docId: 'promo', position: 1 }],
+      limit: 2,
+    })
+    expect(firstPage.hits.map(hit => hit.id)[1]).toBe('promo')
+    expect(firstPage.cursor).toBeDefined()
+
+    const secondPage = await narsil.query('products', {
+      term: 'headphones',
+      pinned: [{ docId: 'promo', position: 1 }],
+      limit: 2,
+      searchAfter: firstPage.cursor,
+    })
+    expect(secondPage.hits.length).toBe(2)
+    expect(secondPage.hits.map(hit => hit.id)).not.toContain('promo')
+    expect(secondPage.hits.map(hit => hit.id)).not.toContain(firstPage.hits[0].id)
+  })
+
   it('pins page one and leaves cursor pages to the organic ranking', async () => {
     const firstPage = await narsil.query('products', {
       term: 'headphones',

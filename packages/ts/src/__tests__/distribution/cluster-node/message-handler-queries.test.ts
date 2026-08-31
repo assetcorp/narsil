@@ -259,6 +259,41 @@ describe('handleSearch on a data node', () => {
     }
   })
 
+  it('returns its groups with per-group entries on a grouped search', async () => {
+    const engine = await createClusterLocalEngine()
+    try {
+      await engine.createIndex('products', { schema: { title: 'string', category: 'string' } })
+      await engine.insert('products', { title: 'widget spanner', category: 'tools' }, 'doc-1')
+      await engine.insert('products', { title: 'widget wrench', category: 'tools' }, 'doc-2')
+      await engine.insert('products', { title: 'widget mug', category: 'kitchen' }, 'doc-3')
+
+      const deps = { nodeId: 'node-a', engine } as DataNodeHandlerDeps
+      const responses: TransportMessage[] = []
+      await handleSearch(
+        makeSearchMessage(
+          makeWireParams({ term: 'widget', group: { fields: ['category'], maxPerGroup: 2, limit: null } }),
+        ),
+        async response => {
+          responses.push(response)
+        },
+        deps,
+      )
+
+      const payload = decode(responses[0].payload) as SearchResultPayload
+      const groups = payload.groups ?? []
+      expect(groups).toHaveLength(2)
+      const tools = groups.find(group => group.values.category === 'tools')
+      expect(tools?.scored.map(entry => entry.docId).sort()).toEqual(['doc-1', 'doc-2'])
+      for (const group of groups) {
+        for (const entry of group.scored) {
+          expect(typeof entry.docId).toBe('string')
+        }
+      }
+    } finally {
+      await engine.shutdown()
+    }
+  })
+
   it('returns null sort values when the query has no sort', async () => {
     const engine = await createClusterLocalEngine()
     try {

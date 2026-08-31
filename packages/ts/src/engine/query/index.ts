@@ -152,7 +152,19 @@ export async function executeQuery<T = AnyDocument>(
       }
     }
 
-    const paged = applyPagination(hits, limit, offset, context.cursorBinding, params.searchAfter, sortContext)
+    const pinnedIds =
+      params.pinned !== undefined && params.searchAfter === undefined
+        ? new Set(params.pinned.map(entry => entry.docId))
+        : undefined
+    const paged = applyPagination(
+      hits,
+      limit,
+      offset,
+      context.cursorBinding,
+      params.searchAfter,
+      sortContext,
+      pinnedIds,
+    )
     paginated = paged.paginated
     nextCursor = paged.nextCursor
     count = fanOutResult.totalMatched

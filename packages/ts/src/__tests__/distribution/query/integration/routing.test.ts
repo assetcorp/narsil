@@ -117,7 +117,7 @@ function createDataNodeHandler(documents: MockDocument[]) {
         }
       })
 
-      const resultPayload: SearchResultPayload = { results, facets: null, facetErrorBounds: null }
+      const resultPayload: SearchResultPayload = { results, facets: null, facetErrorBounds: null, groups: null }
 
       respond({
         type: QueryMessageTypes.SEARCH_RESULT,

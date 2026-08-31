@@ -154,6 +154,21 @@ describe('applyGrouping', () => {
     })
   })
 
+  describe('group limit', () => {
+    it('caps the groups returned, keeping the best ordered first', () => {
+      const docs: Record<string, AnyDocument> = {
+        a: { category: 'vegetable' },
+        b: { category: 'fruit' },
+        c: { category: 'grain' },
+      }
+      const hits = [makeHit('a', 10), makeHit('b', 5), makeHit('c', 3)]
+      const config: GroupConfig = { fields: ['category'], limit: 2 }
+      const groups = applyGrouping(hits, config, makeDocStore(docs))
+
+      expect(groups.map(group => group.values.category)).toEqual(['vegetable', 'fruit'])
+    })
+  })
+
   describe('group ordering', () => {
     it('orders groups by highest-scoring first hit descending', () => {
       const docs: Record<string, AnyDocument> = {

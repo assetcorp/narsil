@@ -8,6 +8,8 @@ import { fetchDistributedDocuments, readDistributedDocuments } from '../node-mes
 import { distributedResultToLocal, localParamsToWire } from '../query-conversion'
 import { routableAllocation } from '../routable-allocation'
 import type { ClusterQueryConfig } from '../types'
+import { assembleDistributedGroups } from './groups'
+import { dropUnstoredPinnedEntries } from './pinned'
 import type { ClusterReadDeps } from './scatter'
 
 export { countCluster, partitionStatsCluster, statsCluster } from './counts'
@@ -83,6 +85,7 @@ export async function queryCluster<T = AnyDocument>(
     resolveNodeTargets: deps.resolveNodeTargets,
   }
   const distributed = await distributedQuery(indexName, wireParams, queryDeps, routingConfig(deps.config.query))
+  const projection = resolveProjection(params.document)
   const documents = await fetchDistributedDocuments<T>(
     deps.config,
     deps.nodeId,
@@ -90,7 +93,21 @@ export async function queryCluster<T = AnyDocument>(
     indexName,
     distributed,
     allocation,
-    resolveProjection(params.document),
+    projection,
   )
-  return distributedResultToLocal<T>(distributed, documents)
+  const scored = await dropUnstoredPinnedEntries(
+    deps,
+    indexName,
+    params,
+    distributed,
+    allocation,
+    projection,
+    documents,
+  )
+  const result = distributedResultToLocal<T>({ ...distributed, scored }, documents)
+  const groups = await assembleDistributedGroups(deps, indexName, params, distributed, allocation, projection)
+  if (groups !== undefined) {
+    result.groups = groups
+  }
+  return result
 }

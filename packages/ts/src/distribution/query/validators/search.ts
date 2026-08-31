@@ -1,6 +1,7 @@
 import { MAX_CURSOR_LENGTH } from '../../../search/cursor'
 import { validateIndexName } from '../../cluster/index-metadata'
 import type { SearchPayload } from '../../transport/types'
+import { oversampledShardSize } from '../oversample'
 import {
   CONFIG_INVALID,
   isFiniteNumber,
@@ -36,7 +37,7 @@ import {
   validateVectorMetricParam,
 } from './search-options'
 
-export const MAX_FACET_SHARD_SIZE = Math.ceil(1_000 * 1.5) + 10
+export const MAX_FACET_SHARD_SIZE = oversampledShardSize(1_000)
 
 export const MAX_VECTOR_DIMENSION = 8192
 

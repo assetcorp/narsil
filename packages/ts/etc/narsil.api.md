@@ -281,6 +281,7 @@ export function getTokenizer(name: string): CustomTokenizer;
 // @public
 export interface GroupConfig {
     fields: string[];
+    limit?: number;
     maxPerGroup?: number;
     reduce?: GroupReducer;
 }

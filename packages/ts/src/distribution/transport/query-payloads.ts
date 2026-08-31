@@ -6,6 +6,12 @@ export interface SortField {
 export interface WireGroupConfig {
   fields: string[]
   maxPerGroup: number
+  limit: number | null
+}
+
+export interface WireGroupEntry {
+  values: Record<string, unknown>
+  scored: ScoredEntry[]
 }
 
 export interface WirePinnedEntry {
@@ -97,6 +103,7 @@ export interface SearchResultPayload {
   results: PartitionSearchResult[]
   facets: Record<string, FacetBucket[]> | null
   facetErrorBounds: Record<string, number> | null
+  groups: WireGroupEntry[] | null
 }
 
 export interface FetchDocumentId {

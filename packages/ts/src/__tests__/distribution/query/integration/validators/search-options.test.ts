@@ -155,13 +155,19 @@ describe('validateSearchPayload params.hybrid with absent members', () => {
 describe('validateSearchPayload params.group fields list', () => {
   it('accepts several fields', () => {
     expect(() =>
-      validateSearchPayload(makeSearchPayload({ group: { fields: ['category', 'brand'], maxPerGroup: 2 } })),
+      validateSearchPayload(
+        makeSearchPayload({ group: { fields: ['category', 'brand'], maxPerGroup: 2, limit: null } }),
+      ),
     ).not.toThrow()
   })
 
   it('rejects an empty list and a list beyond the cap', () => {
-    expect(() => validateSearchPayload(makeSearchPayload({ group: { fields: [], maxPerGroup: 1 } }))).toThrow(/group/)
+    expect(() =>
+      validateSearchPayload(makeSearchPayload({ group: { fields: [], maxPerGroup: 1, limit: null } })),
+    ).toThrow(/group/)
     const fields = Array.from({ length: MAX_GROUP_FIELDS + 1 }, (_, i) => `f${i}`)
-    expect(() => validateSearchPayload(makeSearchPayload({ group: { fields, maxPerGroup: 1 } }))).toThrow(/group/)
+    expect(() => validateSearchPayload(makeSearchPayload({ group: { fields, maxPerGroup: 1, limit: null } }))).toThrow(
+      /group/,
+    )
   })
 })

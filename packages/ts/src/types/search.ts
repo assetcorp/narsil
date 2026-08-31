@@ -248,6 +248,8 @@ export interface GroupConfig {
   fields: string[]
   /** Each group keeps this many hits, and one by default, which is the collapse behaviour. */
   maxPerGroup?: number
+  /** The result keeps this many groups, best first, and every group without it. */
+  limit?: number
   /** This folds each group's hits into one value, such as a sum or an average. */
   reduce?: GroupReducer
 }

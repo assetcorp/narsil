@@ -82,6 +82,7 @@ export function makeSearchResultResponse(
     })),
     facets,
     facetErrorBounds: null,
+    groups: null,
   }
 }
 
