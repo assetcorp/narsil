@@ -54,6 +54,12 @@ export function makeQueryParams(overrides: Partial<WireQueryParams> = {}): WireQ
     threshold: null,
     includeScores: null,
     scoring: 'local',
+    termMatch: null,
+    prefixLength: null,
+    prefix: null,
+    exact: null,
+    pinned: null,
+    mode: null,
     vector: null,
     hybrid: null,
     ...overrides,
@@ -76,6 +82,7 @@ export function makeSearchResultResponse(
     })),
     facets,
     facetErrorBounds: null,
+    groups: null,
   }
 }
 

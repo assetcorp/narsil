@@ -237,6 +237,16 @@ export async function executeRebalance(
       }
     })
 
+    try {
+      await ctx.pluginRegistry.runHook('onPartitionSplit', {
+        indexName,
+        oldPartitionCount: oldCount,
+        newPartitionCount: targetPartitionCount,
+      })
+    } catch (hookErr) {
+      console.warn('onPartitionSplit plugin hook failed:', hookErr instanceof Error ? hookErr.message : String(hookErr))
+    }
+
     await replayQueued(manager, indexName, waq, ctx)
 
     if (ctx.durabilityManager) {

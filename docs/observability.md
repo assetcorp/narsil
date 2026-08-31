@@ -42,7 +42,7 @@ A hook may be async, and every `before*` hook runs to completion before the oper
 | --- | --- | --- |
 | `durabilityError` | `{ error }` | A write-ahead log append or a checkpoint write failed, on either tier. |
 | `invalidationError` | `{ error }` | An invalidation adapter publish, subscribe, or reload failed. |
-| `workerCrash` | `{ workerId, indexNames, error }` | A worker died; the engine reassigns its indexes. |
+| `workerCrash` | `{ workerId, indexNames, error }` | A worker died. The pool drops it, its pending requests fail with `WORKER_CRASHED`, and the remaining workers keep answering; with none left, queries fall back to the main thread. |
 | `workerPromote` | `{ workerCount, reason }` | The engine moved search onto the worker pool. |
 | `workerPromoteFailure` | `{ reason, error, retryable }` | A promotion failed, or an index cannot promote; `retryable` reports whether the engine tries again. See [Workers](partitions-and-workers.md#workers). |
 | `partitionRebalance` | `{ indexName, oldCount, newCount }` | A partition reshape completed. |

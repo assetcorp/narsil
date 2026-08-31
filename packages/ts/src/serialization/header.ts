@@ -80,6 +80,16 @@ export function writeHeader(header: NrslHeader): Uint8Array {
   return buffer
 }
 
+export function hasNrslMagic(data: Uint8Array): boolean {
+  return (
+    data.length >= MAGIC_BYTES.length &&
+    data[0] === MAGIC_BYTES[0] &&
+    data[1] === MAGIC_BYTES[1] &&
+    data[2] === MAGIC_BYTES[2] &&
+    data[3] === MAGIC_BYTES[3]
+  )
+}
+
 export function readHeader(data: Uint8Array): NrslHeader {
   if (data.length < HEADER_SIZE) {
     throw new NarsilError(

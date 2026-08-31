@@ -2,12 +2,7 @@ import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AllocationTable } from '../../coordinator/types'
 import { randomSelector, selectReplicasForQuery } from '../../query/selection'
-import {
-  TransportError,
-  type TransportErrorCode,
-  TransportErrorCodes,
-  type TransportMessage,
-} from '../../transport/types'
+import type { TransportMessage } from '../../transport/types'
 import type { ClusterLocalEngine } from '../local-engine'
 import { sendToNode } from '../node-messaging'
 import type { ClusterNodeConfig } from '../types'
@@ -48,28 +43,6 @@ export function strictScatterGroups(allocation: AllocationTable, indexName: stri
   return Array.from(routing.nodeToPartitions.entries(), ([nodeId, partitionIds]) => ({ nodeId, partitionIds }))
 }
 
-const READ_FAILURE_BY_TRANSPORT_CODE: Record<TransportErrorCode, string> = {
-  [TransportErrorCodes.CONNECT_FAILED]: ErrorCodes.QUERY_NO_ACTIVE_REPLICA,
-  [TransportErrorCodes.PEER_UNAVAILABLE]: ErrorCodes.QUERY_NO_ACTIVE_REPLICA,
-  [TransportErrorCodes.TIMEOUT]: ErrorCodes.QUERY_NODE_TIMEOUT,
-  [TransportErrorCodes.MESSAGE_TOO_LARGE]: ErrorCodes.QUERY_ROUTING_FAILED,
-  [TransportErrorCodes.DECODE_FAILED]: ErrorCodes.QUERY_ROUTING_FAILED,
-}
-
-function readFailure(error: unknown, targetNodeId: string, indexName: string): unknown {
-  if (error instanceof NarsilError) {
-    return error
-  }
-  if (error instanceof TransportError) {
-    return new NarsilError(
-      READ_FAILURE_BY_TRANSPORT_CODE[error.code],
-      `Node '${targetNodeId}' did not answer a read request for index '${indexName}'`,
-      { indexName, targetNodeId, transportCode: error.code },
-    )
-  }
-  return error
-}
-
 /**
  * Sends one read request to another node and returns the validated answer.
  *
@@ -92,8 +65,9 @@ export async function sendReadRequest<T>(
   indexName: string,
   validate: (decoded: unknown) => T,
 ): Promise<T> {
-  const response = await sendToNode(deps.config, targetNodeId, message).catch((error: unknown) => {
-    throw readFailure(error, targetNodeId, indexName)
+  const response = await sendToNode(deps.config, targetNodeId, message, {
+    message: `Node '${targetNodeId}' did not answer a read request for index '${indexName}'`,
+    details: { indexName },
   })
   const decoded = decode(response.payload) as Record<string, unknown>
   if (response.type.endsWith('.error') || response.type === 'error' || decoded.error === true) {

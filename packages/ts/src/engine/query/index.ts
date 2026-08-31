@@ -2,6 +2,7 @@ import type { ComparableSortValue } from '../../core/ordering'
 import { resolveProjection } from '../../core/projection'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
+import { countsWithoutScores, fanOutMatchCount } from '../../partitioning/match-count'
 import { flattenSchema } from '../../schema/validator'
 import { sortSignatureOf } from '../../search/cursor'
 import { applyGrouping } from '../../search/grouping'
@@ -134,7 +135,7 @@ export async function executeQuery<T = AnyDocument>(
       groups = applyGrouping(hits, params.group, (docId: string) => manager.getRef(docId) as AnyDocument | undefined)
     }
 
-    if (params.pinned) {
+    if (params.pinned && params.searchAfter === undefined && context.partitionIds === undefined) {
       hits = applyPinning(hits, params.pinned, (docId: string) => {
         const doc = manager.getRef(docId)
         if (!doc) return undefined
@@ -151,7 +152,19 @@ export async function executeQuery<T = AnyDocument>(
       }
     }
 
-    const paged = applyPagination(hits, limit, offset, params.searchAfter, sortContext)
+    const pinnedIds =
+      params.pinned !== undefined && params.searchAfter === undefined
+        ? new Set(params.pinned.map(entry => entry.docId))
+        : undefined
+    const paged = applyPagination(
+      hits,
+      limit,
+      offset,
+      context.cursorBinding,
+      params.searchAfter,
+      sortContext,
+      pinnedIds,
+    )
     paginated = paged.paginated
     nextCursor = paged.nextCursor
     count = fanOutResult.totalMatched
@@ -234,6 +247,11 @@ export async function executePreflight(params: QueryParams, context: QueryContex
   } else if (isHybridMode && hasGlobalVectorIndex) {
     const result = await executeHybridSearch(params, context, preflightLimit, preflightOffset)
     totalMatched = result.totalMatched
+  } else if (countsWithoutScores(params)) {
+    totalMatched = fanOutMatchCount(manager, params, language, config.schema, {
+      searchOptions: searchOptionsFor(manager),
+      partitionIds: context.partitionIds,
+    })
   } else {
     const scoring = scoringConfigFor(params, context)
     const workerResult = workerSearch

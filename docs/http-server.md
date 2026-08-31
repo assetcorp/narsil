@@ -136,7 +136,7 @@ curl -X POST localhost:9876/indexes/movies/documents/_list \
 ```json
 {
   "documents": [{ "id": "m1", "document": { "title": "The Matrix" } }],
-  "cursor": "eyJ2IjoxLCJhIjoibTEifQ==",
+  "cursor": "eyJ2IjozLCJhIjoibTEiLCJxIjoiMDU1MzdhMDcifQ==",
   "total": 1204,
   "elapsed": 0.4
 }
@@ -144,7 +144,7 @@ curl -X POST localhost:9876/indexes/movies/documents/_list \
 
 Send the cursor back on the next request, and stop once it comes back null. The cursor holds no server state, so nothing expires when a client stops paging. A client that saved a cursor can resume against a server that has restarted since.
 
-The server bounds `limit` by `limits.maxFetchDocuments`, which defaults to 10,000, and answers 400 `INVALID_REQUEST` for a larger value. It answers a body naming more than eight `sort` fields the same way. A search whose `offset` plus `limit` passes the 10,000-result window answers 400 `SEARCH_RESULT_WINDOW_EXCEEDED`, which names the cursor as the way to page further. For a cursor it never issued, or one sent back under a different `sort`, it answers 400 `SEARCH_INVALID_CURSOR`.
+The server bounds `limit` by `limits.maxFetchDocuments`, which defaults to 10,000, and answers 400 `INVALID_REQUEST` for a larger value. It answers a body naming more than eight `sort` fields the same way. A search whose `offset` plus `limit` passes the 10,000-result window answers 400 `SEARCH_RESULT_WINDOW_EXCEEDED`, which names the cursor as the way to page further. For a cursor it never issued, or one sent back under a changed query or a different `sort`, it answers 400 `SEARCH_INVALID_CURSOR`.
 
 A document id crosses the wire percent-encoded, and the server decodes every path segment, so it finds the document that an id holding a slash, a space, or an accent names. An index name never needs the encoding, because the engine accepts alphanumerics, dots, hyphens, and underscores alone. A segment holding an escape the server cannot decode answers 400 `INVALID_REQUEST`.
 

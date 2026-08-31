@@ -77,7 +77,7 @@ export interface HttpIndexConfig {
   bm25?: { k1?: number; b?: number }
   /** This list replaces the language's stop words. */
   stopWords?: string[]
-  /** Setting this records term positions, which phrase queries and highlighting need. */
+  /** Setting this records term positions in each posting, which the `.nrsl` format carries for readers that match phrases. Highlighting works without it. */
   trackPositions?: boolean
   /** Setting this to false returns index stems from suggestions and prefix expansion, instead of the words users typed. */
   surfaceForms?: boolean

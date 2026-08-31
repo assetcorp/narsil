@@ -4,6 +4,7 @@ import { executePreflight, executeQuery } from '../engine/query'
 import { resolveVectorText } from '../engine/resolve-vector-text'
 import { executeSuggest } from '../engine/suggest'
 import { collectQueryTermStats } from '../partitioning/distributed-scoring'
+import { queryBindingOf } from '../search/cursor-binding'
 import type { GlobalStatistics } from '../types/internal'
 import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../types/results'
 import type { AnyDocument } from '../types/schema'
@@ -64,6 +65,7 @@ export async function runEngineQuery<T = AnyDocument>(
     indexName,
     broadcastStats: broadcastStatsFor(core, options),
     partitionIds: options?.partitionIds,
+    cursorBinding: queryBindingOf(params),
   })
 
   try {
@@ -109,6 +111,7 @@ export async function runEnginePreflight(
     indexName,
     broadcastStats: broadcastStatsFor(core, options),
     partitionIds: options?.partitionIds,
+    cursorBinding: queryBindingOf(params),
   })
   if (core.analysisRebuild.isStale(indexName)) {
     result.analysisStale = true

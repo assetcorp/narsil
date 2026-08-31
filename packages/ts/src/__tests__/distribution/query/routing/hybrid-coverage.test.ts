@@ -60,7 +60,7 @@ describe('coverage for a hybrid query whose two legs lose different partitions',
   function hybridParams() {
     return makeQueryParams({
       term: 'bench plane',
-      vector: { field: 'embedding', value: [0.1, 0.2], text: null, similarity: null },
+      vector: { field: 'embedding', value: [0.1, 0.2], text: null, similarity: null, metric: null, efSearch: null },
       hybrid: { strategy: 'rrf', k: 60, alpha: 0.5 },
     })
   }

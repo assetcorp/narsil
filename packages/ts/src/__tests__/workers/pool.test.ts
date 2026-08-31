@@ -345,6 +345,105 @@ describe('WorkerPool: getMemoryStats', () => {
     }
   })
 
+  it('evicts a crashed worker and reports its indexes through onWorkerCrash', () => {
+    const deathHandlers: Array<(error: Error) => void> = []
+    const onWorkerCrash = vi.fn()
+    const pool = createWorkerPool({
+      count: 3,
+      workerFactory: (_id: number, onDeath?: (error: Error) => void) => {
+        if (onDeath) deathHandlers.push(onDeath)
+        return createMockExecutor()
+      },
+      onWorkerCrash,
+    })
+    pool.addIndexToAll('products')
+    pool.addIndexToAll('users')
+    expect(pool.getAllExecutors()).toHaveLength(3)
+
+    deathHandlers[1](new Error('worker thread died'))
+
+    expect(pool.getAllExecutors()).toHaveLength(2)
+    expect(onWorkerCrash).toHaveBeenCalledTimes(1)
+    expect(onWorkerCrash).toHaveBeenCalledWith(1, ['products', 'users'], expect.any(Error))
+  })
+
+  it('never respawns a crashed worker slot', () => {
+    const deathHandlers: Array<(error: Error) => void> = []
+    let spawned = 0
+    const pool = createWorkerPool({
+      count: 2,
+      workerFactory: (_id: number, onDeath?: (error: Error) => void) => {
+        spawned++
+        if (onDeath) deathHandlers.push(onDeath)
+        return createMockExecutor()
+      },
+    })
+    pool.addIndexToAll('products')
+    expect(spawned).toBe(2)
+
+    deathHandlers[0](new Error('worker thread died'))
+    pool.addIndexToAll('users')
+
+    expect(spawned).toBe(2)
+    expect(pool.getAllExecutors()).toHaveLength(1)
+  })
+
+  it('reports a crash once when the death handler fires twice', () => {
+    const deathHandlers: Array<(error: Error) => void> = []
+    const onWorkerCrash = vi.fn()
+    const pool = createWorkerPool({
+      count: 2,
+      workerFactory: (_id: number, onDeath?: (error: Error) => void) => {
+        if (onDeath) deathHandlers.push(onDeath)
+        return createMockExecutor()
+      },
+      onWorkerCrash,
+    })
+    pool.addIndexToAll('products')
+
+    deathHandlers[0](new Error('first signal'))
+    deathHandlers[0](new Error('second signal'))
+
+    expect(onWorkerCrash).toHaveBeenCalledTimes(1)
+  })
+
+  it('serves getExecutor from a surviving worker and throws once every holder is dead', () => {
+    const deathHandlers: Array<(error: Error) => void> = []
+    const pool = createWorkerPool({
+      count: 2,
+      workerFactory: (_id: number, onDeath?: (error: Error) => void) => {
+        if (onDeath) deathHandlers.push(onDeath)
+        return createMockExecutor()
+      },
+    })
+    pool.addIndexToAll('products')
+
+    deathHandlers[0](new Error('worker thread died'))
+    expect(pool.getExecutor('products')).toBeDefined()
+
+    deathHandlers[1](new Error('worker thread died'))
+    expect(() => pool.getExecutor('products')).toThrow(NarsilError)
+  })
+
+  it('stays silent about deaths that arrive after shutdown', async () => {
+    const deathHandlers: Array<(error: Error) => void> = []
+    const onWorkerCrash = vi.fn()
+    const pool = createWorkerPool({
+      count: 2,
+      workerFactory: (_id: number, onDeath?: (error: Error) => void) => {
+        if (onDeath) deathHandlers.push(onDeath)
+        return createMockExecutor()
+      },
+      onWorkerCrash,
+    })
+    pool.addIndexToAll('products')
+    await pool.shutdown()
+
+    deathHandlers[0](new Error('exited during shutdown'))
+
+    expect(onWorkerCrash).not.toHaveBeenCalled()
+  })
+
   it('forwards memoryReport responses and zeros out executors that throw', async () => {
     const pool = createWorkerPool({
       count: 3,

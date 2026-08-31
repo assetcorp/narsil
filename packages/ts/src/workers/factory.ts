@@ -24,16 +24,16 @@ export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFa
   if (runtime.supportsWorkerThreads) {
     const workerThreadsModule = await import('node:worker_threads')
 
-    return function nodeFactory(_workerId: number): Executor {
+    return function nodeFactory(_workerId: number, onDeath?: (error: Error) => void): Executor {
       const instance = new workerThreadsModule.Worker(new URL(resolvedEntry))
-      return createWorkerExecutor(instance as unknown as WorkerLike)
+      return createWorkerExecutor(instance as unknown as WorkerLike, { onDeath })
     }
   }
 
   if (runtime.supportsWebWorkers) {
-    return function webFactory(_workerId: number): Executor {
+    return function webFactory(_workerId: number, onDeath?: (error: Error) => void): Executor {
       const instance = new Worker(resolvedEntry, { type: 'module' })
-      return createWorkerExecutor(instance as unknown as WorkerLike)
+      return createWorkerExecutor(instance as unknown as WorkerLike, { onDeath })
     }
   }
 

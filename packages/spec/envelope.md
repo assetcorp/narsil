@@ -95,7 +95,7 @@ Bit 4 set to 1 means the payload is encrypted. Version 1 defines no encryption s
 
 The payload starts at byte 32 and is encoded as [MessagePack](https://msgpack.org/).
 
-The `envelope_format_version` field in the header fixes the payload schema, and the storage key tells the reader which payload type to expect: a partition, a vector index, or index metadata.
+The `envelope_format_version` field in the header fixes the payload schema, and the storage key tells the reader which payload type to expect: a partition, a vector index, or index metadata. Version 3 marks the [index snapshot payload](#index-snapshot-payload), which the engine's snapshot operation returns to the caller instead of writing under a storage key.
 
 ---
 
@@ -395,7 +395,7 @@ PartitionLimits {
 
 VectorPromotionMeta {
   threshold:        uint32                                                  (optional)
-  filter_threshold: uint32                                                  (optional)
+  filter_threshold: float64                                                 (optional; a selectivity ratio between 0 and 1)
   hnsw_config:      { m: uint32, ef_construction: uint32, metric: string }  (optional; each key optional)
   quantization:     string                                                  (optional; "sq8" or "none")
 }
@@ -445,6 +445,61 @@ PartitionCheckpoint {
 ```
 
 The bundle differs from the per-partition payload above: it carries every partition in one envelope, so a checkpoint replaces the whole index atomically. `checkpoint` records where write-ahead log replay resumes for each partition. It is additive, and a reader that skips it treats every `lastSeqNo` as 0. `analysis_revision`, `tokenizer`, `stop_words`, and `stop_word_list` are additive too: they carry the same analysis as the index metadata payload, and a reader recreates the index with them, resolving each name as [Index Metadata](durability.md#index-metadata) describes and treating the revision as [Index Metadata](#index-metadata) above requires. The log format, the recovery procedure, and the checkpoint rules are in [durability.md](durability.md).
+
+---
+
+### Index Snapshot Payload
+
+The engine's snapshot operation serialises one whole index into a single `.nrsl` envelope. The restore operation rebuilds the index from those bytes. A writer must set `envelope_format_version` to 3 and must set the checksum flag. The field names are camelCase, as in the [vector index payload](#vector-index-payload).
+
+The payload is a MessagePack map:
+
+```text
+{
+  version:          uint8                        (the partition payload version: 1 or 2)
+  schema:           Map<string, string>
+  language:         string
+  analysisRevision: string                       (optional; the language module revision)
+  tokenizer:        string                       (optional; the registered tokeniser name)
+  stopWords:        string                       (optional; the registered stop word set name)
+  stopWordList:     List<string>                 (optional; the words of a literal stop word set)
+  bm25:             { k1: float32, b: float32 }  (optional; each key optional)
+  surfaceForms:     boolean                      (a reader treats an absent value as true)
+  partitionConfig:  PartitionSnapshotLimits      (optional)
+  defaultScoring:   string                       (optional; "local", "dfs", or "broadcast")
+  trackPositions:   boolean                      (optional)
+  strict:           boolean                      (optional)
+  required:         List<string>                 (optional; field paths every document must supply)
+  vectorPromotion:  VectorSnapshotPromotion      (optional)
+  embedding:        EmbeddingSnapshotConfig      (optional)
+  partitions:       List<bytes>                  (one partition payload per entry, at the named version)
+  vectorIndexes:    Map<string, VectorIndexPayload>
+}
+
+PartitionSnapshotLimits {
+  maxDocsPerPartition: uint32   (optional)
+  maxPartitions:       uint32   (optional)
+  watermark:           float64  (optional)
+}
+
+VectorSnapshotPromotion {
+  threshold:       uint32                                                 (optional)
+  filterThreshold: float64                                                (optional; a selectivity ratio between 0 and 1)
+  hnswConfig:      { m: uint32, efConstruction: uint32, metric: string }  (optional; each key optional)
+  quantization:    string                                                 (optional; "sq8" or "none")
+}
+
+EmbeddingSnapshotConfig {
+  adapter: string                                (optional; the name the adapter was registered under)
+  fields:  Map<string, string or List<string>>
+}
+```
+
+`version` names the partition payload version of every entry in `partitions`: 1 for the [version 1 partition payload](#partition-payload) and 2 for the [version 2 partition payload](#version-2-partition-payload). A writer must write version 2. `analysisRevision` follows the rules `analysis_revision` sets in the [index metadata payload](#index-metadata-payload); a writer must record it, and a reader must treat an index restored without one as holding stale terms. Each remaining optional field records one index configuration option, and a writer leaves it absent when the configuration left that option unset.
+
+A writer must reject an index whose tokeniser or stop words are code rather than a registered name, because no payload carries code.
+
+A reader must reject an index snapshot envelope whose `envelope_format_version` is not 3 with `ENVELOPE_VERSION_MISMATCH`. A reader must accept restore bytes that carry no `NRSL` magic as a legacy index snapshot, decoding the whole input as the MessagePack map above, because the TypeScript engine wrote headerless snapshots before format 3 existed.
 
 ---
 

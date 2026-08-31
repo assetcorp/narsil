@@ -78,6 +78,10 @@ Query for index 'products', partitions 0-9:
 
 A query carrying a sort makes each data node return the raw sort values of every entry in `ScoredEntry.sortValues`, and the coordinator merges by the [sort value order](../algorithms.md#sort-value-order). A sorted entry that arrives without its sort values cannot be merged, so the coordinator treats the node's response as a failure and [Partial Results](#partial-results) governs what happens next.
 
+### Pinned Documents
+
+The coordinator alone places pinned documents, after the merge and before the offset slice, so a data node serving a partition-scoped search must leave `pinned` unapplied. Each pinned document takes its zero-based position in the merged list with a score of 0, a pinned document the query also matched moves from its ranked place, and a repeated `docId` places once, at its first listed position. A position past the end clamps to the end only while every partition answered and the merge holds every match; otherwise a position at or beyond the paging depth stays off the page. The coordinator drops a pinned document no node stores, as the local engine does. A request carrying a cursor takes no pinning, because the pre-anchor prefix the positions count from is not part of the merge, and the cursor anchors on the last result that is not a pinned placement.
+
 ---
 
 ## DFS Scoring Across the Cluster
@@ -184,6 +188,16 @@ A response must carry one error bound per field it counts, and that figure is th
 
 ---
 
+## Distributed Grouping
+
+Each data node groups its own matches and returns, per group, the group's field values and its best `maxPerGroup` entries, in the order the query orders hits. The coordinator merges groups whose field values are equal in field order, merges each merged group's entries with the K-way merge, truncates them to `maxPerGroup`, orders the groups by their first entry, score then document ID, and truncates the list to `group.limit` where the query sets one.
+
+With no `group.limit`, every node returns every group and the merged groups are exact. With one, each node returns its top `ceiling(limit * 1.5) + 10` groups, oversampling the way [Distributed Facets](#distributed-facets) do, so a merged group's entries can miss members held by a node where the group fell below that bound.
+
+A group reducer is a function, so it never crosses the wire. The coordinator holds the caller's reducer in-process and folds it over each merged group's fetched documents, and the HTTP server continues to refuse `group.reduce`. A hybrid query groups its text fan-out alone, as it counts facets.
+
+---
+
 ## Distributed Cursor Pagination
 
 Cursor pagination works across the cluster by encoding the sort position of the last document returned.
@@ -194,9 +208,10 @@ The cursor format defined in [searchAfter Cursor](../partitioning.md#searchafter
 
 ```json
 {
-  "v": 2,
+  "v": 3,
   "a": "doc-id-123",
-  "s": 4.523
+  "s": 4.523,
+  "q": "1b83aa27"
 }
 ```
 
@@ -245,15 +260,17 @@ HNSW search is approximate, so each node returns its best local candidates and t
 
 ### Distributed Hybrid Search
 
+A request routes as hybrid when it carries a vector and either a term or `mode: 'hybrid'`; an absent `hybrid` config fuses with RRF and its defaults. A hybrid request carrying a cursor is rejected with `SEARCH_INVALID_CURSOR`, because fused ranks do not seek.
+
 A hybrid query runs two separate fan-outs so that the coordinator fuses two globally merged lists. Fusing on each node instead degrades as the partition count grows, because a node fuses only what its own partitions matched.
 
 ```text
 1. The coordinator sends two search requests to each data node
    in parallel:
      a text-only request carrying term, filters, sort, and
-       limit, with the vector and hybrid fields absent
-     a vector-only request carrying the vector, with the term
-       absent
+       limit, with the vector, hybrid, and mode fields absent
+     a vector-only request carrying the vector, with the term,
+       hybrid, and mode fields absent
 2. Each data node runs each request against its local
    partitions and returns one result set per request.
 3. The coordinator merges every text result into one ranked list.

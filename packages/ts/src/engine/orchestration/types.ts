@@ -37,6 +37,7 @@ export interface WorkerOrchestrator {
 export interface WorkerOrchestratorCallbacks {
   onPromotion?: (workerCount: number, reason: string) => void
   onPromotionFailure?: (reason: string, error: Error, retryable: boolean) => void
+  onWorkerCrash?: (workerId: number, indexNames: string[], error: Error) => void
   shouldDeferPromotion?: () => boolean
 }
 

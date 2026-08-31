@@ -1,4 +1,5 @@
 import { type ErrorCode, ErrorCodes, NarsilError } from '../../../errors'
+import { RESULT_WINDOW } from '../../../search/pagination'
 import { MAX_PARTITION_COUNT } from '../../cluster/index-metadata'
 
 export { MAX_PARTITION_COUNT } from '../../cluster/index-metadata'
@@ -23,6 +24,11 @@ export const MAX_LIMIT = 10_000
 export const MAX_OFFSET = 10_000
 export const MAX_HYBRID_K = 10_000
 export const MIN_HYBRID_K = 1
+export const MAX_PREFIX_LENGTH = 1024
+export const MAX_PINNED_ENTRIES = 1_000
+export const MAX_PINNED_POSITION = RESULT_WINDOW
+export const MAX_EF_SEARCH = 10_000
+export const MAX_GROUP_FIELDS = 64
 
 const NULL_BYTE = String.fromCharCode(0)
 

@@ -85,7 +85,7 @@ export function createRebalancer(): Rebalancer {
         skipClone: true,
         stopWordOverride: manager.analysis.stopWords,
         customTokenizer: manager.analysis.customTokenizer,
-        collectSurfaces: manager.config.surfaceForms === true,
+        collectSurfaces: manager.config.surfaceForms !== false,
       }
 
       for (const partition of currentPartitions) {

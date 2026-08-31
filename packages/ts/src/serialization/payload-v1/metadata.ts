@@ -195,7 +195,7 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
     if (isPositiveInteger(promotion.threshold)) {
       restored.threshold = promotion.threshold
     }
-    if (isPositiveInteger(promotion.filter_threshold)) {
+    if (isSelectivityRatio(promotion.filter_threshold)) {
       restored.filterThreshold = promotion.filter_threshold
     }
     if (Object.keys(hnswConfig).length > 0) {
@@ -223,6 +223,10 @@ function isNonNegativeInteger(value: unknown): value is number {
 
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1
+}
+
+function isSelectivityRatio(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
 }
 
 function isWatermarkFraction(value: unknown): value is number {

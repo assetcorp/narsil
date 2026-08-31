@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { wireParamsToLocal } from '../../../../distribution/cluster-node/query-conversion'
 import type { AllocationTable } from '../../../../distribution/coordinator/types'
 import { decodePayload } from '../../../../distribution/query/codec'
 import type { QueryRoutingDeps } from '../../../../distribution/query/routing'
@@ -11,6 +12,7 @@ import {
 } from '../../../../distribution/transport'
 import type { SearchPayload } from '../../../../distribution/transport/types'
 import { decodePageCursor, encodePageCursor } from '../../../../search/cursor'
+import { queryBindingOf } from '../../../../search/cursor-binding'
 import {
   createSearchResultMessage,
   makeAllocationTable,
@@ -121,7 +123,13 @@ describe('distributedQuery cursor and searchAfter', () => {
 
   it('passes searchAfter through to data nodes unchanged', async () => {
     const capturedPayloads: SearchPayload[] = []
-    const cursorValue = encodePageCursor({ anchor: 'doc-prev', score: 5.5, sortKey: null, sortSignature: null })
+    const cursorValue = encodePageCursor({
+      anchor: 'doc-prev',
+      score: 5.5,
+      sortKey: null,
+      sortSignature: null,
+      binding: queryBindingOf(wireParamsToLocal(makeQueryParams())),
+    })
 
     setupDataNode(network, transports, 'node-a', (msg, respond) => {
       capturedPayloads.push(decodePayload<SearchPayload>(msg.payload))
@@ -144,7 +152,13 @@ describe('distributedQuery cursor and searchAfter', () => {
 
   it('broadcasts the same searchAfter to all data nodes', async () => {
     const capturedPayloads: SearchPayload[] = []
-    const cursorValue = encodePageCursor({ anchor: 'doc-anchor', score: 7.0, sortKey: null, sortSignature: null })
+    const cursorValue = encodePageCursor({
+      anchor: 'doc-anchor',
+      score: 7.0,
+      sortKey: null,
+      sortSignature: null,
+      binding: queryBindingOf(wireParamsToLocal(makeQueryParams())),
+    })
 
     setupDataNode(network, transports, 'node-a', (msg, respond) => {
       capturedPayloads.push(decodePayload<SearchPayload>(msg.payload))

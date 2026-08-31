@@ -1,5 +1,6 @@
 import { encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { wireParamsToLocal } from '../../../../distribution/cluster-node/query-conversion'
 import type { AllocationTable } from '../../../../distribution/coordinator/types'
 import { decodePayload } from '../../../../distribution/query/codec'
 import { distributedQuery } from '../../../../distribution/query/routing'
@@ -13,7 +14,8 @@ import {
 } from '../../../../distribution/transport'
 import type { SearchPayload, StatsResultPayload } from '../../../../distribution/transport/types'
 import { NarsilError } from '../../../../errors'
-import { decodePageCursor, encodePageCursor } from '../../../../search/cursor'
+import { encodePageCursor } from '../../../../search/cursor'
+import { queryBindingOf } from '../../../../search/cursor-binding'
 import {
   makeAllocationTable,
   makeAssignment,
@@ -79,7 +81,7 @@ describe('distributed hybrid query - params, cursor, and DFS', () => {
     }
   })
 
-  it('produces a cursor from the last fused result', async () => {
+  it('returns no cursor, because a fused rank cannot be replayed', async () => {
     setupDataNode(network, transports, 'node-a', (msg, respond) => {
       if (msg.type !== QueryMessageTypes.SEARCH) return
       const payload = decodePayload<SearchPayload>(msg.payload)
@@ -122,11 +124,8 @@ describe('distributed hybrid query - params, cursor, and DFS', () => {
       makeDeps(table),
     )
 
-    expect(result.cursor).not.toBeNull()
-    const decoded = decodePageCursor(result.cursor as string)
-    const lastScored = result.scored[result.scored.length - 1]
-    expect(decoded.score).toBe(lastScored.score)
-    expect(decoded.anchor).toBe(lastScored.docId)
+    expect(result.scored.length).toBeGreaterThan(0)
+    expect(result.cursor).toBeNull()
   })
 
   it('returns null cursor when hybrid search produces no results', async () => {
@@ -188,7 +187,7 @@ describe('distributed hybrid query - params, cursor, and DFS', () => {
     }
   })
 
-  it('throws QUERY_ROUTING_FAILED when searchAfter is used with hybrid', async () => {
+  it('throws SEARCH_INVALID_CURSOR when searchAfter is used with hybrid', async () => {
     setupDataNode(network, transports, 'node-a', (msg, respond) => {
       if (msg.type === QueryMessageTypes.SEARCH) {
         respond({
@@ -203,7 +202,15 @@ describe('distributed hybrid query - params, cursor, and DFS', () => {
     })
 
     const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
-    const cursor = encodePageCursor({ anchor: 'doc-1', score: 5.0, sortKey: null, sortSignature: null })
+    const cursor = encodePageCursor({
+      anchor: 'doc-1',
+      score: 5.0,
+      sortKey: null,
+      sortSignature: null,
+      binding: queryBindingOf(
+        wireParamsToLocal(makeQueryParams({ term: 'laptop', vector: makeVectorParams(), hybrid: makeHybridConfig() })),
+      ),
+    })
 
     const error = await distributedQuery(
       'products',
@@ -217,7 +224,7 @@ describe('distributed hybrid query - params, cursor, and DFS', () => {
     ).catch((e: unknown) => e)
 
     expect(error).toBeInstanceOf(NarsilError)
-    expect((error as NarsilError).code).toBe('QUERY_ROUTING_FAILED')
+    expect((error as NarsilError).code).toBe('SEARCH_INVALID_CURSOR')
     expect((error as NarsilError).message).toContain('Cursor pagination is not supported for hybrid queries')
   })
 

@@ -76,11 +76,16 @@ export type VectorQuantizationMode = 'sq8' | 'none'
 export interface VectorIndexConfig {
   /** The engine promotes the field to an HNSW graph once it holds this many vectors. */
   threshold?: number
-  /** A filtered search prefers the graph over a scan once the field holds this many vectors. */
+  /**
+   * A selectivity ratio between 0 and 1, defaulting to 0.03. A filtered search
+   * whose filter matches a smaller share of the graph's vectors scans just the
+   * matches, and one matching a larger share searches the graph. The engine
+   * clamps any value outside that range to it.
+   */
   filterThreshold?: number
   /** These settings shape the graph: neighbours per node, build-time exploration, and the metric that ranks results. */
   hnswConfig?: { m?: number; efConstruction?: number; metric?: 'cosine' | 'dotProduct' | 'euclidean' }
-  /** The engine stores the promoted vectors at this precision. It keeps full precision by default. */
+  /** The engine stores the promoted vectors at this precision, and it quantises to `sq8` by default. Set `none` to keep full precision. */
   quantization?: VectorQuantizationMode
 }
 
@@ -131,7 +136,12 @@ export interface IndexConfig {
   stopWords?: StopWordOverride | string
   /** This replaces the language's tokeniser, either inline or by the name a tokeniser registered under. */
   tokenizer?: CustomTokenizer | string
-  /** Setting this records term positions, which phrase queries and highlighting need. */
+  /**
+   * Setting this records term positions in each posting, which the `.nrsl`
+   * format carries for readers that match phrases. This engine's highlighter
+   * re-analyses the stored text instead of reading them, so an index that
+   * opts out answers every query the same way and stores less.
+   */
   trackPositions?: boolean
   /** These settings control when vector fields move to an HNSW graph, and how that graph is built. */
   vectorPromotion?: VectorIndexConfig
@@ -186,8 +196,9 @@ export interface CustomTokenizer {
    * Splits one field value into the tokens the engine indexes.
    *
    * @param text - The raw field value, before any stemming or stop word removal.
-   * @returns Each token with the character offset it starts at, which
-   * highlighting and phrase matching rely on.
+   * @returns Each token with its ordinal position in the field, which the
+   * engine writes into postings when `trackPositions` is on, and which a
+   * prefix query reads to find the last typed word.
    */
   tokenize(text: string): Array<{ token: string; position: number }>
 }

@@ -3,6 +3,8 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { encodePageCursor } from '../../search/cursor'
 import { applyPagination, type PaginationSortContext } from '../../search/pagination'
 
+const binding = 'aaaaaaaa'
+
 function makeResults(count: number): Array<{ id: string; score: number }> {
   return Array.from({ length: count }, (_, i) => ({
     id: `doc${i + 1}`,
@@ -14,7 +16,7 @@ describe('pagination', () => {
   describe('applyPagination', () => {
     it('returns first page with limit and zero offset', () => {
       const results = makeResults(10)
-      const { paginated, nextCursor } = applyPagination(results, 3, 0)
+      const { paginated, nextCursor } = applyPagination(results, 3, 0, binding)
       expect(paginated).toHaveLength(3)
       expect(paginated[0].id).toBe('doc1')
       expect(paginated[1].id).toBe('doc2')
@@ -24,7 +26,7 @@ describe('pagination', () => {
 
     it('applies offset correctly', () => {
       const results = makeResults(10)
-      const { paginated } = applyPagination(results, 3, 2)
+      const { paginated } = applyPagination(results, 3, 2, binding)
       expect(paginated).toHaveLength(3)
       expect(paginated[0].id).toBe('doc3')
       expect(paginated[1].id).toBe('doc4')
@@ -33,38 +35,38 @@ describe('pagination', () => {
 
     it('returns empty when limit is 0', () => {
       const results = makeResults(5)
-      const { paginated, nextCursor } = applyPagination(results, 0, 0)
+      const { paginated, nextCursor } = applyPagination(results, 0, 0, binding)
       expect(paginated).toHaveLength(0)
       expect(nextCursor).toBeUndefined()
     })
 
     it('returns all results when limit exceeds result count', () => {
       const results = makeResults(3)
-      const { paginated, nextCursor } = applyPagination(results, 100, 0)
+      const { paginated, nextCursor } = applyPagination(results, 100, 0, binding)
       expect(paginated).toHaveLength(3)
       expect(nextCursor).toBeUndefined()
     })
 
     it('returns empty when offset exceeds result count', () => {
       const results = makeResults(3)
-      const { paginated, nextCursor } = applyPagination(results, 10, 100)
+      const { paginated, nextCursor } = applyPagination(results, 10, 100, binding)
       expect(paginated).toHaveLength(0)
       expect(nextCursor).toBeUndefined()
     })
 
     it('does not return nextCursor on the last page', () => {
       const results = makeResults(6)
-      const { paginated, nextCursor } = applyPagination(results, 3, 3)
+      const { paginated, nextCursor } = applyPagination(results, 3, 3, binding)
       expect(paginated).toHaveLength(3)
       expect(nextCursor).toBeUndefined()
     })
 
     it('uses cursor to resume from the correct position', () => {
       const results = makeResults(10)
-      const firstPage = applyPagination(results, 3, 0)
+      const firstPage = applyPagination(results, 3, 0, binding)
       expect(firstPage.nextCursor).toBeDefined()
 
-      const secondPage = applyPagination(results, 3, 0, firstPage.nextCursor)
+      const secondPage = applyPagination(results, 3, 0, binding, firstPage.nextCursor)
       expect(secondPage.paginated).toHaveLength(3)
       expect(secondPage.paginated[0].id).toBe('doc4')
       expect(secondPage.paginated[1].id).toBe('doc5')
@@ -73,7 +75,7 @@ describe('pagination', () => {
 
     it('cursor after last result returns empty', () => {
       const results = makeResults(3)
-      const firstPage = applyPagination(results, 3, 0)
+      const firstPage = applyPagination(results, 3, 0, binding)
       expect(firstPage.nextCursor).toBeUndefined()
 
       const lastItem = results[results.length - 1]
@@ -82,16 +84,17 @@ describe('pagination', () => {
         score: lastItem.score,
         sortKey: null,
         sortSignature: null,
+        binding,
       })
-      const nextPage = applyPagination(results, 3, 0, fakeCursor)
+      const nextPage = applyPagination(results, 3, 0, binding, fakeCursor)
       expect(nextPage.paginated).toHaveLength(0)
     })
 
     it('cursor with offset skips additional results', () => {
       const results = makeResults(10)
-      const firstPage = applyPagination(results, 2, 0)
+      const firstPage = applyPagination(results, 2, 0, binding)
 
-      const secondPage = applyPagination(results, 2, 1, firstPage.nextCursor)
+      const secondPage = applyPagination(results, 2, 1, binding, firstPage.nextCursor)
       expect(secondPage.paginated[0].id).toBe('doc4')
     })
 
@@ -103,12 +106,26 @@ describe('pagination', () => {
         { id: 'd', score: 3 },
         { id: 'e', score: 1 },
       ]
-      const firstPage = applyPagination(results, 2, 0)
+      const firstPage = applyPagination(results, 2, 0, binding)
       expect(firstPage.paginated.map(r => r.id)).toEqual(['a', 'b'])
       expect(firstPage.nextCursor).toBeDefined()
 
-      const secondPage = applyPagination(results, 2, 0, firstPage.nextCursor)
+      const secondPage = applyPagination(results, 2, 0, binding, firstPage.nextCursor)
       expect(secondPage.paginated.map(r => r.id)).toEqual(['c', 'd'])
+    })
+
+    it('rejects a cursor whose binding names a different query', () => {
+      const results = makeResults(10)
+      const firstPage = applyPagination(results, 3, 0, binding)
+      expect(firstPage.nextCursor).toBeDefined()
+
+      expect(() => applyPagination(results, 3, 0, 'bbbbbbbb', firstPage.nextCursor)).toThrow(NarsilError)
+      try {
+        applyPagination(results, 3, 0, 'bbbbbbbb', firstPage.nextCursor)
+      } catch (e) {
+        expect((e as NarsilError).code).toBe(ErrorCodes.SEARCH_INVALID_CURSOR)
+        expect((e as NarsilError).message).toContain('different query')
+      }
     })
 
     it('rejects a sorted cursor on an unsorted search', () => {
@@ -118,10 +135,11 @@ describe('pagination', () => {
         score: null,
         sortKey: ['Widget'],
         sortSignature: '[["title","asc"]]',
+        binding,
       })
-      expect(() => applyPagination(results, 3, 0, sortedCursor)).toThrow(NarsilError)
+      expect(() => applyPagination(results, 3, 0, binding, sortedCursor)).toThrow(NarsilError)
       try {
-        applyPagination(results, 3, 0, sortedCursor)
+        applyPagination(results, 3, 0, binding, sortedCursor)
       } catch (e) {
         expect((e as NarsilError).code).toBe(ErrorCodes.SEARCH_INVALID_CURSOR)
       }
@@ -144,14 +162,14 @@ describe('pagination', () => {
     }
 
     it('anchors on sort values and pages in sort value order', () => {
-      const firstPage = applyPagination(sortedResults, 2, 0, undefined, sortContext)
+      const firstPage = applyPagination(sortedResults, 2, 0, binding, undefined, sortContext)
       expect(firstPage.paginated.map(r => r.id)).toEqual(['doc1', 'doc2'])
       expect(firstPage.nextCursor).toBeDefined()
 
-      const secondPage = applyPagination(sortedResults, 2, 0, firstPage.nextCursor, sortContext)
+      const secondPage = applyPagination(sortedResults, 2, 0, binding, firstPage.nextCursor, sortContext)
       expect(secondPage.paginated.map(r => r.id)).toEqual(['doc3', 'doc4'])
 
-      const thirdPage = applyPagination(sortedResults, 2, 0, secondPage.nextCursor, sortContext)
+      const thirdPage = applyPagination(sortedResults, 2, 0, binding, secondPage.nextCursor, sortContext)
       expect(thirdPage.paginated.map(r => r.id)).toEqual(['doc5'])
       expect(thirdPage.nextCursor).toBeUndefined()
     })
@@ -162,33 +180,40 @@ describe('pagination', () => {
         score: null,
         sortKey: [10],
         sortSignature: '[["price","desc"]]',
+        binding,
       })
-      expect(() => applyPagination(sortedResults, 2, 0, otherSort, sortContext)).toThrow(NarsilError)
+      expect(() => applyPagination(sortedResults, 2, 0, binding, otherSort, sortContext)).toThrow(NarsilError)
     })
 
     it('rejects a score cursor on a sorted search', () => {
-      const scoreCursor = encodePageCursor({ anchor: 'doc2', score: 4.5, sortKey: null, sortSignature: null })
-      expect(() => applyPagination(sortedResults, 2, 0, scoreCursor, sortContext)).toThrow(NarsilError)
+      const scoreCursor = encodePageCursor({
+        anchor: 'doc2',
+        score: 4.5,
+        sortKey: null,
+        sortSignature: null,
+        binding,
+      })
+      expect(() => applyPagination(sortedResults, 2, 0, binding, scoreCursor, sortContext)).toThrow(NarsilError)
     })
   })
 
   describe('edge cases', () => {
     it('handles empty results array', () => {
-      const { paginated, nextCursor } = applyPagination([], 10, 0)
+      const { paginated, nextCursor } = applyPagination([], 10, 0, binding)
       expect(paginated).toEqual([])
       expect(nextCursor).toBeUndefined()
     })
 
     it('handles negative limit by treating as 0', () => {
       const results = makeResults(5)
-      const { paginated } = applyPagination(results, -1, 0)
+      const { paginated } = applyPagination(results, -1, 0, binding)
       expect(paginated).toEqual([])
     })
 
     it('handles cursor pointing past all results', () => {
       const results = makeResults(3)
-      const cursor = encodePageCursor({ anchor: 'zzz', score: -999, sortKey: null, sortSignature: null })
-      const { paginated } = applyPagination(results, 10, 0, cursor)
+      const cursor = encodePageCursor({ anchor: 'zzz', score: -999, sortKey: null, sortSignature: null, binding })
+      const { paginated } = applyPagination(results, 10, 0, binding, cursor)
       expect(paginated).toEqual([])
     })
   })
