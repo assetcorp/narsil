@@ -451,12 +451,12 @@ CRC32 covers the raw payload bytes, after compression when compression is on. Th
 
 ## FNV-1a Hash
 
-FNV-1a is the fast, non-cryptographic hash behind partition routing, where the partition is `hash(docId) modulo partitionCount`.
+FNV-1a is the fast, non-cryptographic hash behind partition routing, where the partition is `hash(docId) modulo partitionCount`, and behind [cursor binding](partitioning.md#cursor-binding).
 
 ```text
-fnv1a(input: string) -> uint32
+fnv1a(input: bytes) -> uint32
   hash = 2166136261            (the FNV offset basis)
-  for each byte of the UTF-8 encoding of input:
+  for each byte of input:
     hash = hash XOR byte
     hash = hash * 16777619     (the FNV prime)
     hash = hash AND 0xFFFFFFFF (keep 32 bits)
@@ -472,9 +472,9 @@ fnv1a(input: string) -> uint32
 
 The empty string returns the offset basis unchanged, because the loop never runs.
 
-FNV-1a is deterministic, so the same input always gives the same output, and it spreads values evenly enough for routing. It is not cryptographically secure, so it must never be used for anything but hash-based routing.
+FNV-1a is deterministic, so the same input always gives the same output, and it spreads values evenly enough for routing. It is not cryptographically secure, so it must never be used for anything but hash-based routing and cursor binding.
 
-The input must be encoded as UTF-8 bytes before hashing. Every implementation must use that same encoding, or the same document ID routes to different partitions in different languages.
+A string input hashes as its UTF-8 bytes. Every implementation must use that same encoding, or the same document ID routes to different partitions in different languages.
 
 ---
 
