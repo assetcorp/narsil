@@ -60,7 +60,7 @@ const results = await narsil.query('products', {
 
 ## Score and coverage thresholds
 
-`minScore` drops hits scoring below a floor. `termMatch` sets how many query terms a document must match: `'any'` (the default) accepts one term, `'all'` requires every term, and a number requires at least that many terms.
+`minScore` drops hits scoring below a floor. The engine ranks with BM25, which has no fixed upper bound, so a floor that suits one index and one query can reject every hit in another, and you would set it from scores you have seen on your own corpus. `termMatch` sets how many query terms a document must match: `'any'` (the default) accepts one term, `'all'` requires every term, and a number requires at least that many terms.
 
 ```ts
 const results = await narsil.query('products', {
