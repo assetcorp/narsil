@@ -15,6 +15,7 @@ const MAX_SORT_VALUES = 8
 const MAX_FACET_FIELDS = 64
 const MAX_FACET_BUCKETS = 10_000
 const MAX_FACET_VALUE_LENGTH = 1024
+const MAX_GROUPS_PER_RESPONSE = 65_536
 
 function validateScoredEntry(value: unknown, fieldLabel: string): void {
   if (!isRecord(value)) {
@@ -168,6 +169,44 @@ function validateFacetErrorBounds(value: unknown): void {
   }
 }
 
+function validateGroupEntries(value: unknown): void {
+  if (!Array.isArray(value)) {
+    throwInvalid(CONFIG_INVALID, 'Invalid SearchResultPayload: "groups" must be an array or null')
+  }
+  if (value.length > MAX_GROUPS_PER_RESPONSE) {
+    throwInvalid(
+      CONFIG_INVALID,
+      `Invalid SearchResultPayload: "groups" exceeds maximum length of ${MAX_GROUPS_PER_RESPONSE}`,
+      { length: value.length, limit: MAX_GROUPS_PER_RESPONSE },
+    )
+  }
+  for (let i = 0; i < value.length; i++) {
+    const entry = value[i]
+    if (!isRecord(entry) || !isRecord(entry.values)) {
+      throwInvalid(CONFIG_INVALID, `Invalid SearchResultPayload: "groups[${i}]" must hold a values object`)
+    }
+    if (Object.keys(entry.values).length > MAX_FACET_FIELDS) {
+      throwInvalid(
+        CONFIG_INVALID,
+        `Invalid SearchResultPayload: "groups[${i}].values" exceeds maximum field count of ${MAX_FACET_FIELDS}`,
+      )
+    }
+    if (!Array.isArray(entry.scored)) {
+      throwInvalid(CONFIG_INVALID, `Invalid SearchResultPayload: "groups[${i}].scored" must be an array`)
+    }
+    if (entry.scored.length > MAX_RESULTS_PER_PARTITION) {
+      throwInvalid(
+        CONFIG_INVALID,
+        `Invalid SearchResultPayload: "groups[${i}].scored" exceeds maximum length of ${MAX_RESULTS_PER_PARTITION}`,
+        { length: entry.scored.length, limit: MAX_RESULTS_PER_PARTITION },
+      )
+    }
+    for (let j = 0; j < entry.scored.length; j++) {
+      validateScoredEntry(entry.scored[j], `groups[${i}].scored[${j}]`)
+    }
+  }
+}
+
 export function validateSearchResultPayload(decoded: unknown): SearchResultPayload {
   if (!isRecord(decoded)) {
     throwInvalid(CONFIG_INVALID, 'Invalid SearchResultPayload: expected an object')
@@ -183,6 +222,9 @@ export function validateSearchResultPayload(decoded: unknown): SearchResultPaylo
   }
   if (decoded.facetErrorBounds !== null && decoded.facetErrorBounds !== undefined) {
     validateFacetErrorBounds(decoded.facetErrorBounds)
+  }
+  if (decoded.groups !== null && decoded.groups !== undefined) {
+    validateGroupEntries(decoded.groups)
   }
   return decoded as unknown as SearchResultPayload
 }

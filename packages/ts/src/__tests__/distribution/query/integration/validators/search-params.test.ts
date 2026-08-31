@@ -243,18 +243,20 @@ describe('validateSearchPayload params.group', () => {
   })
 
   it('rejects group with empty field', () => {
-    expect(() => validateSearchPayload(makeSearchPayload({ group: { fields: [''], maxPerGroup: 3 } }))).toThrow(/field/)
+    expect(() =>
+      validateSearchPayload(makeSearchPayload({ group: { fields: [''], maxPerGroup: 3, limit: null } })),
+    ).toThrow(/field/)
   })
 
   it('rejects group with negative maxPerGroup', () => {
     expect(() =>
-      validateSearchPayload(makeSearchPayload({ group: { fields: ['category'], maxPerGroup: -1 } })),
+      validateSearchPayload(makeSearchPayload({ group: { fields: ['category'], maxPerGroup: -1, limit: null } })),
     ).toThrow(/maxPerGroup/)
   })
 
   it('accepts a well-formed group', () => {
     expect(() =>
-      validateSearchPayload(makeSearchPayload({ group: { fields: ['category'], maxPerGroup: 5 } })),
+      validateSearchPayload(makeSearchPayload({ group: { fields: ['category'], maxPerGroup: 5, limit: null } })),
     ).not.toThrow()
   })
 })

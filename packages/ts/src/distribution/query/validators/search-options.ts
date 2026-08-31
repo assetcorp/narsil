@@ -71,6 +71,12 @@ export function validateGroupParams(value: unknown): void {
       `Invalid SearchPayload: "params.group.maxPerGroup" must be a positive integer at most ${MAX_LIMIT}`,
     )
   }
+  if (value.limit !== null && (!isInteger(value.limit) || value.limit < 0 || value.limit > MAX_LIMIT)) {
+    throwInvalid(
+      CONFIG_INVALID,
+      `Invalid SearchPayload: "params.group.limit" must be a non-negative integer at most ${MAX_LIMIT}, or null`,
+    )
+  }
 }
 
 export function validateTermMatchParam(value: unknown): void {

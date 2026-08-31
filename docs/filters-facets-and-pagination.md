@@ -75,7 +75,7 @@ const results = await narsil.query('sales', {
 
 ## Grouping
 
-`group` collapses hits that share field values. `maxPerGroup` caps how many hits each group keeps, and an optional reducer folds every grouped document into an accumulated value.
+`group` collapses hits that share field values. `maxPerGroup` caps how many hits each group keeps, `limit` caps how many groups come back, best first, and an optional reducer folds each group's kept hits into an accumulated value.
 
 ```ts
 const results = await narsil.query('products', {
@@ -122,7 +122,7 @@ A cursor is valid only for the same query that produced it. The engine binds eac
 
 ## Pinning
 
-`pinned` places specific documents at fixed positions in the ranked results, which serves sponsored or editorial placements. Positions are zero-based, and they count from the top of the whole result set, so a page reached with `searchAfter` carries no pinned placements.
+`pinned` places specific documents at fixed positions in the ranked results, which serves sponsored or editorial placements. Positions are zero-based, and they count from the top of the whole result set, so a page reached with `searchAfter` carries no pinned placements. A cursor anchors on the last result that is not a placement, and a page holding only placements returns no cursor.
 
 ```ts
 const results = await narsil.query('products', {

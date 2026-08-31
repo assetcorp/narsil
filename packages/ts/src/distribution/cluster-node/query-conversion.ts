@@ -33,11 +33,20 @@ export function wireParamsToLocal(wire: WireQueryParams, facetShardSize?: number
     offset: wire.offset,
     searchAfter: wire.searchAfter ?? undefined,
     sort: convertWireSortToLocal(wire.sort),
-    group: wire.group !== null ? { fields: [...wire.group.fields], maxPerGroup: wire.group.maxPerGroup } : undefined,
+    group: convertWireGroupToLocal(wire.group),
     facets: convertWireFacetConfigToLocal(wire.facets, facetShardSize ?? wire.facetSize),
     vector: convertWireVectorToLocal(wire.vector),
     hybrid: convertWireHybridToLocal(wire.hybrid),
   }
+}
+
+function convertWireGroupToLocal(group: WireGroupConfig | null): QueryParams['group'] {
+  if (group === null) {
+    return undefined
+  }
+  const local: NonNullable<QueryParams['group']> = { fields: [...group.fields], maxPerGroup: group.maxPerGroup }
+  if (group.limit !== null) local.limit = group.limit
+  return local
 }
 
 function convertWireVectorToLocal(vector: WireVectorQueryParams | null): QueryParams['vector'] {
@@ -143,6 +152,7 @@ function convertLocalGroupToWire(group: QueryParams['group']): WireGroupConfig |
   return {
     fields: [...group.fields],
     maxPerGroup: group.maxPerGroup ?? 1,
+    limit: group.limit ?? null,
   }
 }
 

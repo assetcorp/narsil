@@ -11,7 +11,7 @@ import {
   type NodeTransport,
 } from '../../../../distribution/transport'
 import type { SearchPayload } from '../../../../distribution/transport/types'
-import { encodePageCursor } from '../../../../search/cursor'
+import { decodePageCursor, encodePageCursor } from '../../../../search/cursor'
 import { queryBindingOf } from '../../../../search/cursor-binding'
 import {
   createSearchResultMessage,
@@ -128,6 +128,21 @@ describe('distributedQuery pinned placement', () => {
     expect(result.scored.map(entry => entry.docId)).toEqual(['organic-1', 'organic-2'])
   })
 
+  it('keeps a far pin off the page while a partition is unreachable', async () => {
+    nodeWithScored([
+      { docId: 'organic-1', score: 9 },
+      { docId: 'organic-2', score: 5 },
+    ])
+    const table = makeAllocationTable([
+      [0, makeAssignment({ primary: 'node-a' })],
+      [1, makeAssignment({ primary: 'node-b', state: 'INITIALISING' })],
+    ])
+    const params = makeQueryParams({ pinned: [{ docId: 'sponsored', position: 15 }], limit: 10 })
+    const result = await distributedQuery('products', params, makeDeps(table))
+
+    expect(result.scored.map(entry => entry.docId)).toEqual(['organic-1', 'organic-2'])
+  })
+
   it('clamps a position past the end when every hit is present', async () => {
     nodeWithScored([{ docId: 'organic-1', score: 9 }])
     const params = makeQueryParams({ pinned: [{ docId: 'sponsored', position: 10 }], limit: 5 })
@@ -150,6 +165,55 @@ describe('distributedQuery pinned placement', () => {
 
     expect(capturedPayloads[0].params.pinned).toEqual([{ docId: 'sponsored', position: 0 }])
     expect(result.scored.map(entry => entry.docId)).toEqual(['organic-1'])
+  })
+
+  it('anchors the cursor on the last organic entry when a pinned placement ends the page', async () => {
+    nodeWithScored(
+      [
+        { docId: 'organic-1', score: 9 },
+        { docId: 'organic-2', score: 5 },
+      ],
+      20,
+    )
+    const params = makeQueryParams({ pinned: [{ docId: 'sponsored', position: 1 }], limit: 2 })
+    const result = await distributedQuery('products', params, makeDeps(table()))
+
+    expect(result.scored.map(entry => entry.docId)).toEqual(['organic-1', 'sponsored'])
+    expect(result.cursor).not.toBeNull()
+    const decoded = decodePageCursor(result.cursor as string)
+    expect(decoded.anchor).toBe('organic-1')
+    expect(decoded.score).toBe(9)
+  })
+
+  it('anchors on a pinned-listed document a cursor page returns organically', async () => {
+    nodeWithScored([{ docId: 'sponsored', score: 4 }], 20)
+    const params = makeQueryParams({ pinned: [{ docId: 'sponsored', position: 0 }], limit: 1 })
+    const cursor = encodePageCursor({
+      anchor: 'organic-0',
+      score: 6,
+      sortKey: null,
+      sortSignature: null,
+      binding: queryBindingOf(wireParamsToLocal(params)),
+    })
+    const result = await distributedQuery('products', { ...params, searchAfter: cursor }, makeDeps(table()))
+
+    expect(result.cursor).not.toBeNull()
+    expect(decodePageCursor(result.cursor as string).anchor).toBe('sponsored')
+  })
+
+  it('returns no cursor for a page holding only pinned placements', async () => {
+    nodeWithScored([{ docId: 'organic-1', score: 9 }], 20)
+    const params = makeQueryParams({
+      pinned: [
+        { docId: 'sponsored-1', position: 0 },
+        { docId: 'sponsored-2', position: 1 },
+      ],
+      limit: 2,
+    })
+    const result = await distributedQuery('products', params, makeDeps(table()))
+
+    expect(result.scored.map(entry => entry.docId)).toEqual(['sponsored-1', 'sponsored-2'])
+    expect(result.cursor).toBeNull()
   })
 
   it('issues a cursor whose binding covers the pinned list', async () => {

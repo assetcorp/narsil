@@ -55,7 +55,9 @@ export function validateQuery(params: QueryParams, maxWindow: number): Validatio
   const rowBound = overWindow('limit', params.limit, maxWindow) ?? overWindow('offset', params.offset, maxWindow)
   if (rowBound) return rowBound
   if (params.group && typeof params.group === 'object') {
-    const grouped = overWindow('group.maxPerGroup', (params.group as { maxPerGroup?: unknown }).maxPerGroup, maxWindow)
+    const grouped =
+      overWindow('group.maxPerGroup', (params.group as { maxPerGroup?: unknown }).maxPerGroup, maxWindow) ??
+      overWindow('group.limit', (params.group as { limit?: unknown }).limit, maxWindow)
     if (grouped) return grouped
   }
   if (params.facets && typeof params.facets === 'object') {
