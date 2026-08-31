@@ -33,6 +33,32 @@ function createMockWorker(): MockWorker {
   }
 }
 
+interface MockWebWorker extends WorkerLike {
+  lastMessage: unknown
+  simulateResponse(response: WorkerResponse): void
+  simulateErrorEvent(event: { message?: string; error?: unknown }): void
+}
+
+function createMockWebWorker(): MockWebWorker {
+  const handlers = new Map<string, (...args: unknown[]) => void>()
+
+  return {
+    lastMessage: null as unknown,
+    postMessage(msg: unknown) {
+      this.lastMessage = msg
+    },
+    addEventListener(event: string, fn: (...args: unknown[]) => void) {
+      handlers.set(event, fn)
+    },
+    simulateResponse(response: WorkerResponse) {
+      handlers.get('message')?.({ data: response })
+    },
+    simulateErrorEvent(event: { message?: string; error?: unknown }) {
+      handlers.get('error')?.(event)
+    },
+  }
+}
+
 function swallow(promise: Promise<unknown>) {
   promise.catch(() => {})
 }
@@ -277,19 +303,108 @@ describe('WorkerExecutor', () => {
       expect(onDeath).not.toHaveBeenCalled()
     })
 
-    it('keeps a browser worker alive through an error event, because the thread survives it', async () => {
-      const onDeath = vi.fn()
-      const handlers = new Map<string, (...args: unknown[]) => void>()
-      const webWorker: WorkerLike = {
-        postMessage() {},
-        addEventListener(event: string, fn: (...args: unknown[]) => void) {
-          handlers.set(event, fn)
-        },
+    it('retires a worker that leaves three consecutive requests unanswered', async () => {
+      vi.useFakeTimers()
+      try {
+        const worker = createMockWebWorker()
+        const onDeath = vi.fn()
+        const executor = createWorkerExecutor(worker, { requestTimeout: 500, onDeath })
+
+        let last: Promise<unknown> = Promise.resolve()
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          last = executor.execute({ type: 'count', indexName: 'a', requestId: 'p1' })
+          swallow(last)
+          await vi.advanceTimersByTimeAsync(501)
+        }
+
+        await expect(last).rejects.toMatchObject({ code: ErrorCodes.WORKER_TIMEOUT })
+        expect(onDeath).toHaveBeenCalledTimes(1)
+        await expect(executor.execute({ type: 'count', indexName: 'a', requestId: 'p2' })).rejects.toMatchObject({
+          code: ErrorCodes.WORKER_CRASHED,
+        })
+      } finally {
+        vi.useRealTimers()
       }
+    })
 
-      createWorkerExecutor(webWorker, { onDeath })
+    it('keeps a slow worker when a late answer arrives between timeouts', async () => {
+      vi.useFakeTimers()
+      try {
+        const worker = createMockWebWorker()
+        const onDeath = vi.fn()
+        const executor = createWorkerExecutor(worker, { requestTimeout: 500, onDeath })
 
-      expect(handlers.has('error')).toBe(false)
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+          swallow(executor.execute({ type: 'count', indexName: 'a', requestId: 'p1' }))
+          await vi.advanceTimersByTimeAsync(501)
+          const sent = worker.lastMessage as { requestId: string }
+          worker.simulateResponse({ type: 'success', requestId: sent.requestId, data: 1 })
+        }
+
+        expect(onDeath).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('rejects every pending request with WORKER_CRASHED when a browser worker reports an error', async () => {
+      const worker = createMockWebWorker()
+      const onDeath = vi.fn()
+      const executor = createWorkerExecutor(worker, { onDeath })
+
+      const pending = executor.execute({ type: 'count', indexName: 'a', requestId: 'p1' })
+      swallow(pending)
+
+      worker.simulateErrorEvent({ message: 'Failed to load the worker entry point' })
+
+      await expect(pending).rejects.toMatchObject({ code: ErrorCodes.WORKER_CRASHED })
+      expect(onDeath).toHaveBeenCalledTimes(1)
+    })
+
+    it('carries the browser error message into the failure it raises', async () => {
+      const worker = createMockWebWorker()
+      const executor = createWorkerExecutor(worker)
+
+      const pending = executor.execute({ type: 'count', indexName: 'a', requestId: 'p1' })
+      swallow(pending)
+
+      worker.simulateErrorEvent({ message: 'Failed to load the worker entry point' })
+
+      await expect(pending).rejects.toThrow('Failed to load the worker entry point')
+    })
+
+    it('reads the error a browser event carries when it holds one', async () => {
+      const worker = createMockWebWorker()
+      const onDeath = vi.fn()
+      createWorkerExecutor(worker, { onDeath })
+
+      worker.simulateErrorEvent({ message: '', error: new Error('the module threw while loading') })
+
+      expect(onDeath).toHaveBeenCalledTimes(1)
+      expect((onDeath.mock.calls[0][0] as Error).message).toBe('the module threw while loading')
+    })
+
+    it('rejects a request sent after a browser worker error without waiting for a timeout', async () => {
+      const worker = createMockWebWorker()
+      const executor = createWorkerExecutor(worker)
+
+      worker.simulateErrorEvent({ message: 'Failed to load the worker entry point' })
+
+      await expect(executor.execute({ type: 'count', indexName: 'a', requestId: 'p1' })).rejects.toMatchObject({
+        code: ErrorCodes.WORKER_CRASHED,
+      })
+    })
+
+    it('treats a browser worker error during shutdown as a shutdown, keeping onDeath silent', async () => {
+      const worker = createMockWebWorker()
+      const onDeath = vi.fn()
+      const executor = createWorkerExecutor(worker, { onDeath })
+
+      const shutdownPromise = executor.shutdown()
+      swallow(shutdownPromise)
+      worker.simulateErrorEvent({ message: 'The page terminated the worker' })
+
+      await expect(shutdownPromise).rejects.toMatchObject({ code: ErrorCodes.WORKER_CRASHED })
       expect(onDeath).not.toHaveBeenCalled()
     })
   })
