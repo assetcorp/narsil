@@ -20,7 +20,13 @@ describe('cursor codec', () => {
 
   it('round-trips a page cursor holding such a document id with no Buffer', () => {
     vi.stubGlobal('Buffer', undefined)
-    const cursor: PageCursor = { anchor: OUTSIDE_LATIN1, score: 1.5, sortKey: null, sortSignature: null }
+    const cursor: PageCursor = {
+      anchor: OUTSIDE_LATIN1,
+      score: 1.5,
+      sortKey: null,
+      sortSignature: null,
+      binding: 'ab12cd34',
+    }
     expect(decodePageCursor(encodePageCursor(cursor))).toEqual(cursor)
   })
 })

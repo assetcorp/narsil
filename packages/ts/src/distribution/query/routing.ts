@@ -1,7 +1,9 @@
 import { toComparableSortValue } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { decodePageCursor, encodePageCursor, requireMatchingCursor } from '../../search/cursor'
+import { queryBindingOf } from '../../search/cursor-binding'
 import { requireWithinResultWindow } from '../../search/pagination'
+import { wireParamsToLocal } from '../cluster-node/query-conversion'
 import type { FacetBucket, GlobalStatistics, ScoredEntry, SortField, WireQueryParams } from '../transport/types'
 import { buildCoverage, collectDistributedStats, fanOutSearch, type NodeQueryOutcome } from './fan-out'
 import { clampAlpha, distributedLinearCombination, distributedRRF } from './fusion'
@@ -42,7 +44,13 @@ export async function distributedQuery(
 
   if (params.searchAfter !== null) {
     const decoded = decodePageCursor(params.searchAfter)
-    requireMatchingCursor(decoded, params.searchAfter, wireSortSignature(params.sort), true)
+    requireMatchingCursor(
+      decoded,
+      params.searchAfter,
+      wireSortSignature(params.sort),
+      true,
+      queryBindingOf(wireParamsToLocal(params)),
+    )
   }
 
   const limit = Math.max(params.limit, 0)
@@ -212,6 +220,7 @@ async function executeSingleFanOut(
   let cursor: string | null = null
   if (mergedScored.length > 0) {
     const lastEntry = mergedScored[mergedScored.length - 1]
+    const binding = queryBindingOf(wireParamsToLocal(params))
     cursor =
       sortFields !== null
         ? encodePageCursor({
@@ -219,8 +228,15 @@ async function executeSingleFanOut(
             score: null,
             sortKey: (lastEntry.sortValues ?? []).map(toComparableSortValue),
             sortSignature: wireSortSignature(sortFields),
+            binding,
           })
-        : encodePageCursor({ anchor: lastEntry.docId, score: lastEntry.score, sortKey: null, sortSignature: null })
+        : encodePageCursor({
+            anchor: lastEntry.docId,
+            score: lastEntry.score,
+            sortKey: null,
+            sortSignature: null,
+            binding,
+          })
   }
 
   return {
@@ -336,7 +352,13 @@ async function executeHybridQuery(
   let cursor: string | null = null
   if (truncated.length > 0) {
     const lastEntry = truncated[truncated.length - 1]
-    cursor = encodePageCursor({ anchor: lastEntry.docId, score: lastEntry.score, sortKey: null, sortSignature: null })
+    cursor = encodePageCursor({
+      anchor: lastEntry.docId,
+      score: lastEntry.score,
+      sortKey: null,
+      sortSignature: null,
+      binding: queryBindingOf(wireParamsToLocal(params)),
+    })
   }
 
   return {

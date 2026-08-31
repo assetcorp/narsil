@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { wireParamsToLocal } from '../../../../distribution/cluster-node/query-conversion'
 import type { AllocationTable } from '../../../../distribution/coordinator/types'
 import type { QueryRoutingDeps } from '../../../../distribution/query/routing'
 import { distributedQuery } from '../../../../distribution/query/routing'
@@ -10,6 +11,7 @@ import {
 } from '../../../../distribution/transport'
 import { NarsilError } from '../../../../errors'
 import { decodePageCursor, encodePageCursor } from '../../../../search/cursor'
+import { queryBindingOf } from '../../../../search/cursor-binding'
 import {
   createSearchResultMessage,
   makeAllocationTable,
@@ -154,6 +156,7 @@ describe('distributedQuery with a sort', () => {
       score: null,
       sortKey: [10],
       sortSignature: '[["price","desc"]]',
+      binding: queryBindingOf(wireParamsToLocal(makeQueryParams())),
     })
 
     let error: unknown

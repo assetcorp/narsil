@@ -152,7 +152,7 @@ export async function executeQuery<T = AnyDocument>(
       }
     }
 
-    const paged = applyPagination(hits, limit, offset, params.searchAfter, sortContext)
+    const paged = applyPagination(hits, limit, offset, context.cursorBinding, params.searchAfter, sortContext)
     paginated = paged.paginated
     nextCursor = paged.nextCursor
     count = fanOutResult.totalMatched

@@ -131,7 +131,7 @@ const page = await narsil.listDocuments('products', {
 
 The engine reads every document the listing covers to build a sorted page, so a sorted listing usually costs more than the default order on a large index. It holds one page of documents while it selects, so the memory it needs is set by the page size rather than by the size of the index.
 
-The engine ties each cursor to the sort that produced it. Sending a cursor back under a different `sort` throws `SEARCH_INVALID_CURSOR`, and so does a cursor the engine never issued.
+The engine ties each cursor to the sort and the filters that produced it. Sending a cursor back under a different `sort` or different `filters` throws `SEARCH_INVALID_CURSOR`, and so does a cursor the engine never issued.
 
 ### Update and remove
 

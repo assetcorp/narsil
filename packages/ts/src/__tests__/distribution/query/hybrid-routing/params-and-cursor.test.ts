@@ -1,5 +1,6 @@
 import { encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { wireParamsToLocal } from '../../../../distribution/cluster-node/query-conversion'
 import type { AllocationTable } from '../../../../distribution/coordinator/types'
 import { decodePayload } from '../../../../distribution/query/codec'
 import { distributedQuery } from '../../../../distribution/query/routing'
@@ -14,6 +15,7 @@ import {
 import type { SearchPayload, StatsResultPayload } from '../../../../distribution/transport/types'
 import { NarsilError } from '../../../../errors'
 import { decodePageCursor, encodePageCursor } from '../../../../search/cursor'
+import { queryBindingOf } from '../../../../search/cursor-binding'
 import {
   makeAllocationTable,
   makeAssignment,
@@ -203,7 +205,15 @@ describe('distributed hybrid query - params, cursor, and DFS', () => {
     })
 
     const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
-    const cursor = encodePageCursor({ anchor: 'doc-1', score: 5.0, sortKey: null, sortSignature: null })
+    const cursor = encodePageCursor({
+      anchor: 'doc-1',
+      score: 5.0,
+      sortKey: null,
+      sortSignature: null,
+      binding: queryBindingOf(
+        wireParamsToLocal(makeQueryParams({ term: 'laptop', vector: makeVectorParams(), hybrid: makeHybridConfig() })),
+      ),
+    })
 
     const error = await distributedQuery(
       'products',

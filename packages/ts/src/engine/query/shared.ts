@@ -24,6 +24,7 @@ export interface QueryContext {
   indexName: string
   broadcastStats?: (indexName: string) => GlobalStatistics | undefined
   partitionIds?: number[]
+  cursorBinding: string
 }
 
 export function partitionsFor(manager: PartitionManager, partitionIds: number[] | undefined): PartitionIndex[] {
