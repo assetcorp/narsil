@@ -63,7 +63,11 @@ export interface QueryParams {
   boost?: Record<string, number>
   /** The query gathers term statistics this way, and follows the index's `defaultScoring` otherwise. */
   scoring?: ScoringMode
-  /** The engine drops any hit scoring below this value. */
+  /**
+   * The engine drops any hit scoring below this value. It ranks with BM25,
+   * which has no fixed upper bound, so a floor that suits one index and one
+   * query can reject every hit in another.
+   */
   minScore?: number
   /** A document has to carry this many query terms. The engine accepts one by default. */
   termMatch?: TermMatchPolicy
