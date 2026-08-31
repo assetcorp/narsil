@@ -48,10 +48,6 @@ describe('queryBindingOf', () => {
     expect(queryBindingOf({ term: 'espresso', sort: { price: 'asc' } })).toBe(queryBindingOf({ term: 'espresso' }))
   })
 
-  it('ignores the scoring mode, which a coordinator may rewrite', () => {
-    expect(queryBindingOf({ term: 'espresso', scoring: 'broadcast' })).toBe(queryBindingOf({ term: 'espresso' }))
-  })
-
   it('binds structurally equal filters whatever their key insertion order', () => {
     const ordered: FilterExpression = { fields: { price: { gte: 10, lte: 20 } } }
     const reversed = JSON.parse('{"fields":{"price":{"lte":20,"gte":10}}}') as FilterExpression
@@ -99,6 +95,17 @@ describe('queryBindingOf', () => {
     const changed = queryBindingOf({ term: 'espresso', pinned: [{ docId: 'b', position: 0 }] })
     expect(base).not.toBe(changed)
   })
+
+  it('binds a changed scoring mode differently', () => {
+    expect(queryBindingOf({ term: 'espresso', scoring: 'dfs' })).not.toBe(queryBindingOf({ term: 'espresso' }))
+    expect(queryBindingOf({ term: 'espresso', scoring: 'broadcast' })).not.toBe(
+      queryBindingOf({ term: 'espresso', scoring: 'dfs' }),
+    )
+  })
+
+  it('binds an omitted scoring mode as local, matching the wire default', () => {
+    expect(queryBindingOf({ term: 'espresso' })).toBe(queryBindingOf({ term: 'espresso', scoring: 'local' }))
+  })
 })
 
 describe('listBindingOf', () => {
@@ -107,5 +114,9 @@ describe('listBindingOf', () => {
     expect(listBindingOf(filters)).toBe(listBindingOf({ fields: { category: { eq: 'tools' } } }))
     expect(listBindingOf(filters)).not.toBe(listBindingOf({ fields: { category: { eq: 'toys' } } }))
     expect(listBindingOf(undefined)).toMatch(/^[0-9a-f]{8}$/)
+  })
+
+  it('binds a filterless listing to the documented worked example', () => {
+    expect(listBindingOf(undefined)).toBe('05537a07')
   })
 })

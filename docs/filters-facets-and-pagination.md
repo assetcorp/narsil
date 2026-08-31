@@ -116,13 +116,13 @@ if (firstPage.cursor) {
 }
 ```
 
-A cursor is valid only for the same query that produced it. The engine binds each cursor to the query's term, fields, filters, and match options, so a cursor sent back under a changed query fails with `SEARCH_INVALID_CURSOR`, as a malformed cursor does.
+A cursor is valid only for the same query that produced it. The engine binds each cursor to the query's term, fields, filters, match options, and scoring mode, so a cursor sent back under a changed query fails with `SEARCH_INVALID_CURSOR`, as a malformed cursor does.
 
 `offset` and `limit` together reach the first 10,000 results, which is the result window. A request past it throws `SEARCH_RESULT_WINDOW_EXCEEDED`, and a cursor pages beyond it because each page returns the `limit` results that follow its anchor. The window bounds paging depth rather than what the engine considers: a sort, a group, a `minScore`, and a `termMatch` other than `any` each read every matching document, and `count` reports the number of matches exactly.
 
 ## Pinning
 
-`pinned` places specific documents at fixed positions in the ranked results, which serves sponsored or editorial placements. Positions are zero-based.
+`pinned` places specific documents at fixed positions in the ranked results, which serves sponsored or editorial placements. Positions are zero-based, and they count from the top of the whole result set, so a page reached with `searchAfter` carries no pinned placements.
 
 ```ts
 const results = await narsil.query('products', {

@@ -9,13 +9,11 @@ import {
   MAX_BOOST_FIELDS,
   MAX_FACETS,
   MAX_FIELDS_LIST,
-  MAX_HYBRID_K,
   MAX_LIMIT,
   MAX_OFFSET,
   MAX_SORT_FIELDS,
   MAX_TERM_LENGTH,
   MAX_TOLERANCE,
-  MIN_HYBRID_K,
   SEARCH_INVALID_FIELD,
   SEARCH_INVALID_MODE,
   throwInvalid,
@@ -26,6 +24,17 @@ import {
   validateStringField,
 } from './common'
 import { validateFilterExpression } from './filters'
+import {
+  validateBooleanParam,
+  validateEfSearchParam,
+  validateGroupParams,
+  validateHybridParams,
+  validateModeParam,
+  validatePinnedParam,
+  validatePrefixLengthParam,
+  validateTermMatchParam,
+  validateVectorMetricParam,
+} from './search-options'
 
 export const MAX_FACET_SHARD_SIZE = Math.ceil(1_000 * 1.5) + 10
 
@@ -35,7 +44,6 @@ export const MAX_VECTOR_TEXT_LENGTH = 16_384
 
 const ALLOWED_SCORING = ['local', 'dfs', 'broadcast'] as const
 const ALLOWED_SORT_DIRECTIONS = ['asc', 'desc'] as const
-const ALLOWED_HYBRID_STRATEGIES = ['rrf', 'linear'] as const
 
 function validateIndexNameField(value: unknown, fieldLabel: string): string {
   if (typeof value !== 'string') {
@@ -89,39 +97,11 @@ function validateVectorParams(value: unknown): void {
       throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "params.vector.similarity" must be a finite number or null')
     }
   }
-}
-
-function validateHybridParams(value: unknown): void {
-  if (!isRecord(value)) {
-    throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "params.hybrid" must be an object')
+  if (value.metric !== null) {
+    validateVectorMetricParam(value.metric)
   }
-  if (!ALLOWED_HYBRID_STRATEGIES.includes(value.strategy as (typeof ALLOWED_HYBRID_STRATEGIES)[number])) {
-    throwInvalid(
-      SEARCH_INVALID_MODE,
-      `Invalid SearchPayload: "params.hybrid.strategy" must be one of: ${ALLOWED_HYBRID_STRATEGIES.join(', ')}`,
-    )
-  }
-  if (!isInteger(value.k) || value.k < MIN_HYBRID_K || value.k > MAX_HYBRID_K) {
-    throwInvalid(
-      CONFIG_INVALID,
-      `Invalid SearchPayload: "params.hybrid.k" must be an integer between ${MIN_HYBRID_K} and ${MAX_HYBRID_K}`,
-    )
-  }
-  if (!isFiniteNumber(value.alpha) || value.alpha < 0 || value.alpha > 1) {
-    throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "params.hybrid.alpha" must be a finite number in [0, 1]')
-  }
-}
-
-function validateGroupParams(value: unknown): void {
-  if (!isRecord(value)) {
-    throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "params.group" must be an object')
-  }
-  validateFieldName(value.field, 'params.group.field', SEARCH_INVALID_FIELD)
-  if (!isInteger(value.maxPerGroup) || value.maxPerGroup <= 0 || value.maxPerGroup > MAX_LIMIT) {
-    throwInvalid(
-      CONFIG_INVALID,
-      `Invalid SearchPayload: "params.group.maxPerGroup" must be a positive integer at most ${MAX_LIMIT}`,
-    )
+  if (value.efSearch !== null) {
+    validateEfSearchParam(value.efSearch)
   }
 }
 
@@ -284,6 +264,30 @@ function validateParams(params: Record<string, unknown>): void {
       SEARCH_INVALID_MODE,
       `Invalid SearchPayload: "params.scoring" must be one of: ${ALLOWED_SCORING.join(', ')}`,
     )
+  }
+
+  if (params.termMatch !== null) {
+    validateTermMatchParam(params.termMatch)
+  }
+
+  if (params.prefixLength !== null) {
+    validatePrefixLengthParam(params.prefixLength)
+  }
+
+  if (params.prefix !== null) {
+    validateBooleanParam(params.prefix, 'prefix')
+  }
+
+  if (params.exact !== null) {
+    validateBooleanParam(params.exact, 'exact')
+  }
+
+  if (params.pinned !== null) {
+    validatePinnedParam(params.pinned)
+  }
+
+  if (params.mode !== null) {
+    validateModeParam(params.mode)
   }
 
   if (params.vector !== null) {

@@ -115,7 +115,7 @@ function boundVectorOf(vector: QueryParams['vector']): Record<string, unknown> |
 }
 
 const FILTERS_SLOT = 2
-const BOUND_SLOT_COUNT = 14
+const BOUND_SLOT_COUNT = 15
 
 function bindingOf(values: unknown[]): string {
   const stream: BindingStream = { bytes: new Uint8Array(256), length: 0 }
@@ -148,6 +148,7 @@ export function queryBindingOf(params: QueryParams): string {
     params.mode,
     params.hybrid,
     boundVectorOf(params.vector),
+    params.scoring ?? 'local',
   ])
 }
 

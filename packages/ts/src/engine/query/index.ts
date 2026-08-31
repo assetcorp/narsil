@@ -135,7 +135,7 @@ export async function executeQuery<T = AnyDocument>(
       groups = applyGrouping(hits, params.group, (docId: string) => manager.getRef(docId) as AnyDocument | undefined)
     }
 
-    if (params.pinned) {
+    if (params.pinned && params.searchAfter === undefined && context.partitionIds === undefined) {
       hits = applyPinning(hits, params.pinned, (docId: string) => {
         const doc = manager.getRef(docId)
         if (!doc) return undefined

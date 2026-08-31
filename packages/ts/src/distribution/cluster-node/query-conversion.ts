@@ -4,7 +4,13 @@ import type { FacetResult, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { FacetConfig, QueryParams } from '../../types/search'
 import type { DistributedQueryResult } from '../query/types'
-import type { SortField, WireQueryParams, WireVectorQueryParams } from '../transport/types'
+import type {
+  SortField,
+  WireGroupConfig,
+  WireHybridConfig,
+  WireQueryParams,
+  WireVectorQueryParams,
+} from '../transport/types'
 
 export function wireParamsToLocal(wire: WireQueryParams, facetShardSize?: number | null): QueryParams {
   return {
@@ -16,24 +22,46 @@ export function wireParamsToLocal(wire: WireQueryParams, facetShardSize?: number
     tolerance: wire.tolerance ?? undefined,
     minScore: wire.threshold ?? undefined,
     includeScores: wire.includeScores ?? undefined,
+    termMatch: wire.termMatch ?? undefined,
+    prefixLength: wire.prefixLength ?? undefined,
+    prefix: wire.prefix ?? undefined,
+    exact: wire.exact ?? undefined,
+    pinned:
+      wire.pinned !== null ? wire.pinned.map(entry => ({ docId: entry.docId, position: entry.position })) : undefined,
+    mode: wire.mode ?? undefined,
     limit: wire.limit,
     offset: wire.offset,
     searchAfter: wire.searchAfter ?? undefined,
     sort: convertWireSortToLocal(wire.sort),
-    group: wire.group !== null ? { fields: [wire.group.field], maxPerGroup: wire.group.maxPerGroup } : undefined,
+    group: wire.group !== null ? { fields: [...wire.group.fields], maxPerGroup: wire.group.maxPerGroup } : undefined,
     facets: convertWireFacetConfigToLocal(wire.facets, facetShardSize ?? wire.facetSize),
-    vector:
-      wire.vector !== null
-        ? {
-            field: wire.vector.field,
-            value: wire.vector.value ?? undefined,
-            text: wire.vector.text ?? undefined,
-            similarity: wire.vector.similarity ?? undefined,
-          }
-        : undefined,
-    hybrid:
-      wire.hybrid !== null ? { strategy: wire.hybrid.strategy, k: wire.hybrid.k, alpha: wire.hybrid.alpha } : undefined,
+    vector: convertWireVectorToLocal(wire.vector),
+    hybrid: convertWireHybridToLocal(wire.hybrid),
   }
+}
+
+function convertWireVectorToLocal(vector: WireVectorQueryParams | null): QueryParams['vector'] {
+  if (vector === null) {
+    return undefined
+  }
+  const local: NonNullable<QueryParams['vector']> = { field: vector.field }
+  if (vector.value !== null) local.value = vector.value
+  if (vector.text !== null) local.text = vector.text
+  if (vector.similarity !== null) local.similarity = vector.similarity
+  if (vector.metric !== null) local.metric = vector.metric
+  if (vector.efSearch !== null) local.efSearch = vector.efSearch
+  return local
+}
+
+function convertWireHybridToLocal(hybrid: WireHybridConfig | null): QueryParams['hybrid'] {
+  if (hybrid === null) {
+    return undefined
+  }
+  const local: NonNullable<QueryParams['hybrid']> = {}
+  if (hybrid.strategy !== null) local.strategy = hybrid.strategy
+  if (hybrid.k !== null) local.k = hybrid.k
+  if (hybrid.alpha !== null) local.alpha = hybrid.alpha
+  return local
 }
 
 export function convertWireSortToLocal(wireSort: SortField[] | null): SortField[] | undefined {
@@ -71,6 +99,15 @@ export function localParamsToWire(params: QueryParams): WireQueryParams {
     threshold: params.minScore ?? null,
     includeScores: params.includeScores ?? null,
     scoring: params.scoring ?? 'local',
+    termMatch: params.termMatch ?? null,
+    prefixLength: params.prefixLength ?? null,
+    prefix: params.prefix ?? null,
+    exact: params.exact ?? null,
+    pinned:
+      params.pinned !== undefined
+        ? params.pinned.map(entry => ({ docId: entry.docId, position: entry.position }))
+        : null,
+    mode: params.mode ?? null,
     vector: convertLocalVectorToWire(params.vector),
     hybrid: convertLocalHybridToWire(params.hybrid),
   }
@@ -99,12 +136,12 @@ function convertLocalSortToWire(sort: QueryParams['sort']): SortField[] | null {
   return fields.length === 0 ? null : fields
 }
 
-function convertLocalGroupToWire(group: QueryParams['group']): { field: string; maxPerGroup: number } | null {
+function convertLocalGroupToWire(group: QueryParams['group']): WireGroupConfig | null {
   if (group === undefined) {
     return null
   }
   return {
-    field: group.fields[0],
+    fields: [...group.fields],
     maxPerGroup: group.maxPerGroup ?? 1,
   }
 }
@@ -125,19 +162,19 @@ function convertLocalVectorToWire(vector: QueryParams['vector']): WireVectorQuer
     value: vector.value === undefined ? null : Array.from(vector.value),
     text: vector.text ?? null,
     similarity: vector.similarity ?? null,
+    metric: vector.metric ?? null,
+    efSearch: vector.efSearch ?? null,
   }
 }
 
-function convertLocalHybridToWire(
-  hybrid: QueryParams['hybrid'],
-): { strategy: 'rrf' | 'linear'; k: number; alpha: number } | null {
+function convertLocalHybridToWire(hybrid: QueryParams['hybrid']): WireHybridConfig | null {
   if (hybrid === undefined) {
     return null
   }
   return {
-    strategy: hybrid.strategy ?? 'rrf',
-    k: hybrid.k ?? 60,
-    alpha: hybrid.alpha ?? 0.5,
+    strategy: hybrid.strategy ?? null,
+    k: hybrid.k ?? null,
+    alpha: hybrid.alpha ?? null,
   }
 }
 

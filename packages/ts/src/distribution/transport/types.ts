@@ -310,6 +310,7 @@ export type {
   WireGroupConfig,
   WireHighlightConfig,
   WireHybridConfig,
+  WirePinnedEntry,
   WireQueryParams,
   WireVectorQueryParams,
 } from './query-payloads'
