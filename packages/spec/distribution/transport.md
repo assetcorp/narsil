@@ -404,7 +404,8 @@ SortField {
 
 GroupConfig {
   fields:      List<string>
-  maxPerGroup: uint32   (default 1)
+  maxPerGroup: uint32           (default 1)
+  limit:       uint32 or absent (caps the groups returned; absent returns every group)
 }
 
 PinnedEntry {
@@ -428,7 +429,7 @@ HybridConfig {
 }
 ```
 
-A sender writes an omitted member as absent and a reader restores it as omitted, so a request and its wire round trip carry one [cursor binding](../partitioning.md#cursor-binding).
+A sender writes every member, encoding an absent value as nil, and a reader restores nil as omitted, so a request and its wire round trip carry one [cursor binding](../partitioning.md#cursor-binding) and a reader rejects a payload whose member is missing.
 
 The enclosing `QueryParams.limit` sets the top-k count for vector search, so `VectorQueryParams` carries no limit of its own and there is one source of truth.
 
@@ -479,6 +480,7 @@ HighlightConfig {
   }>
   facets: Map<string, List<FacetBucket>> or absent
   facetErrorBounds: Map<string, uint32> or absent
+  groups: List<GroupEntry> or absent   (present when the query carries `group`)
 }
 
 ScoredEntry {
@@ -491,7 +493,14 @@ FacetBucket {
   value: string
   count: uint32
 }
+
+GroupEntry {
+  values: Map<string, value>   (one value per grouping field, keyed by field)
+  scored: List<ScoredEntry>    (the node's best hits of the group, at most maxPerGroup)
+}
 ```
+
+A response carries at most 65,536 groups, so a query whose matches group more finely than that must set `group.limit`.
 
 `sortValues` carries the raw values of the sort fields, one per field in sort order, each a string, a number, a boolean, or nil, read from the document before any folding. The coordinator merges sorted results with the [sort value order](../algorithms.md#sort-value-order), so a data node must never send pre-folded or pre-transformed values.
 
