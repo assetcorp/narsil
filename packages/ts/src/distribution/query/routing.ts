@@ -8,6 +8,7 @@ import type { FacetBucket, GlobalStatistics, ScoredEntry, SortField, WireQueryPa
 import { buildCoverage, collectDistributedStats, fanOutSearch, type NodeQueryOutcome } from './fan-out'
 import { clampAlpha, distributedLinearCombination, distributedRRF } from './fusion'
 import { mergeAndTruncateScoredEntries, mergeAndTruncateSortedEntries, mergeDistributedFacets } from './merge'
+import { placePinnedEntries } from './pinning'
 import type { ReplicaSelector } from './selection'
 import { randomSelector, selectReplicasForQuery } from './selection'
 import type { DistributedQueryConfig, DistributedQueryResult, QueryRoutingDeps } from './types'
@@ -42,15 +43,11 @@ export async function distributedQuery(
     ...config,
   }
 
+  const binding = queryBindingOf(wireParamsToLocal(params))
+
   if (params.searchAfter !== null) {
     const decoded = decodePageCursor(params.searchAfter)
-    requireMatchingCursor(
-      decoded,
-      params.searchAfter,
-      wireSortSignature(params.sort),
-      true,
-      queryBindingOf(wireParamsToLocal(params)),
-    )
+    requireMatchingCursor(decoded, params.searchAfter, wireSortSignature(params.sort), true, binding)
   }
 
   const limit = Math.max(params.limit, 0)
@@ -109,6 +106,7 @@ export async function distributedQuery(
     return executeHybridQuery(
       indexName,
       params,
+      binding,
       limit,
       offset,
       facetShardSize,
@@ -123,6 +121,7 @@ export async function distributedQuery(
   return executeSingleFanOut(
     indexName,
     params,
+    binding,
     limit,
     offset,
     facetShardSize,
@@ -142,6 +141,7 @@ interface RoutingResult {
 async function executeSingleFanOut(
   indexName: string,
   params: WireQueryParams,
+  binding: string,
   limit: number,
   offset: number,
   facetShardSize: number | null,
@@ -214,13 +214,14 @@ async function executeSingleFanOut(
           sortFields.map(field => field.direction),
         )
       : mergeAndTruncateScoredEntries(allScored, depth)
-  const mergedScored = offset > 0 ? merged.slice(offset) : merged
+  const placed =
+    params.pinned !== null && params.searchAfter === null ? placePinnedEntries(merged, params.pinned, depth) : merged
+  const mergedScored = placed.slice(offset, depth)
   const mergedFacets = allFacets.length > 0 ? mergeDistributedFacets(allFacets, allFacetBounds, facetSize) : null
 
   let cursor: string | null = null
   if (mergedScored.length > 0) {
     const lastEntry = mergedScored[mergedScored.length - 1]
-    const binding = queryBindingOf(wireParamsToLocal(params))
     cursor =
       sortFields !== null
         ? encodePageCursor({
@@ -270,6 +271,7 @@ function failOutcomesMissingSortValues(outcomes: NodeQueryOutcome[]): void {
 async function executeHybridQuery(
   indexName: string,
   params: WireQueryParams,
+  binding: string,
   limit: number,
   offset: number,
   facetShardSize: number | null,
@@ -280,8 +282,8 @@ async function executeHybridQuery(
   config: DistributedQueryConfig,
 ): Promise<DistributedQueryResult> {
   const depth = limit + offset
-  const textParams: WireQueryParams = { ...params, vector: null, hybrid: null, limit: depth, offset: 0 }
-  const vectorParams: WireQueryParams = { ...params, term: null, hybrid: null, limit: depth, offset: 0 }
+  const textParams: WireQueryParams = { ...params, vector: null, hybrid: null, mode: null, limit: depth, offset: 0 }
+  const vectorParams: WireQueryParams = { ...params, term: null, hybrid: null, mode: null, limit: depth, offset: 0 }
 
   let textGlobalStats: GlobalStatistics | null = null
   if (params.scoring === 'dfs') {
@@ -338,15 +340,16 @@ async function executeHybridQuery(
 
   const hybrid = params.hybrid
   let fused: ScoredEntry[]
-  if (hybrid !== null && hybrid.strategy === 'rrf') {
-    fused = distributedRRF([mergedText, mergedVector], { k: hybrid.k })
+  if (hybrid !== null && (hybrid.strategy ?? 'rrf') === 'rrf') {
+    fused = distributedRRF([mergedText, mergedVector], { k: hybrid.k ?? 60 })
   } else if (hybrid !== null) {
-    fused = distributedLinearCombination(mergedText, mergedVector, { alpha: clampAlpha(hybrid.alpha) })
+    fused = distributedLinearCombination(mergedText, mergedVector, { alpha: clampAlpha(hybrid.alpha ?? 0.5) })
   } else {
     fused = mergedText
   }
 
-  const truncated = fused.slice(offset, depth)
+  const fusedWithPinned = params.pinned !== null ? placePinnedEntries(fused, params.pinned, depth) : fused
+  const truncated = fusedWithPinned.slice(offset, depth)
   const mergedFacets = allFacets.length > 0 ? mergeDistributedFacets(allFacets, allFacetBounds, facetSize) : null
 
   let cursor: string | null = null
@@ -357,7 +360,7 @@ async function executeHybridQuery(
       score: lastEntry.score,
       sortKey: null,
       sortSignature: null,
-      binding: queryBindingOf(wireParamsToLocal(params)),
+      binding,
     })
   }
 

@@ -136,7 +136,7 @@ curl -X POST localhost:9876/indexes/movies/documents/_list \
 ```json
 {
   "documents": [{ "id": "m1", "document": { "title": "The Matrix" } }],
-  "cursor": "eyJ2IjozLCJhIjoibTEiLCJxIjoiMzUzOGJlM2QifQ==",
+  "cursor": "eyJ2IjozLCJhIjoibTEiLCJxIjoiMDU1MzdhMDcifQ==",
   "total": 1204,
   "elapsed": 0.4
 }

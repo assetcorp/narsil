@@ -7,6 +7,10 @@ import {
 import type { WireVectorQueryParams } from '../../../../distribution/transport/types'
 
 function makeSearchPayload(vector: WireVectorQueryParams | unknown | null): Record<string, unknown> {
+  const filled =
+    vector !== null && typeof vector === 'object' && !Array.isArray(vector)
+      ? { metric: null, efSearch: null, ...(vector as Record<string, unknown>) }
+      : vector
   return {
     indexName: 'products',
     partitionIds: [0],
@@ -25,7 +29,13 @@ function makeSearchPayload(vector: WireVectorQueryParams | unknown | null): Reco
       tolerance: null,
       threshold: null,
       scoring: 'local',
-      vector,
+      termMatch: null,
+      prefixLength: null,
+      prefix: null,
+      exact: null,
+      pinned: null,
+      mode: null,
+      vector: filled,
       hybrid: null,
     },
     globalStats: null,
