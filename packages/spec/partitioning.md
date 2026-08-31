@@ -325,7 +325,9 @@ Documents sharing a score, or sharing every sort value, order by document ID, as
 First query:
   fan out to every partition with the limit
   merge the results and take the top `limit`
-  encode a cursor from the last result
+  encode a cursor from the last result that is not a pinned
+    placement; a page holding only placements returns no
+    cursor
   return the results and the cursor
 
 Next query, carrying the cursor:
