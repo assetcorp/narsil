@@ -42,6 +42,12 @@ function wireParams(): WireQueryParams {
     threshold: null,
     includeScores: null,
     scoring: 'local',
+    termMatch: null,
+    prefixLength: null,
+    prefix: null,
+    exact: null,
+    pinned: null,
+    mode: null,
     vector: null,
     hybrid: null,
   }

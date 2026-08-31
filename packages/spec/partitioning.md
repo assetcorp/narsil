@@ -251,9 +251,10 @@ The cursor is base64-encoded JSON. One format serves search pagination and [Docu
 
 ```json
 {
-  "v": 2,
+  "v": 3,
   "a": "doc-id-123",
-  "s": 4.523
+  "s": 4.523,
+  "q": "1b83aa27"
 }
 ```
 
@@ -261,31 +262,58 @@ A sorted search or a sorted listing encodes:
 
 ```json
 {
-  "v": 2,
+  "v": 3,
   "a": "doc-id-123",
   "k": ["Widget", 42],
-  "o": "[[\"title\",\"asc\"],[\"price\",\"desc\"]]"
+  "o": "[[\"title\",\"asc\"],[\"price\",\"desc\"]]",
+  "q": "1b83aa27"
 }
 ```
 
 | Field | Description |
 |-------|-------------|
-| `v` | The cursor format version, 2. A reader rejects any other value. |
+| `v` | The cursor format version, 3. A reader rejects any other value. |
 | `a` | The document ID of the last document returned, the anchor. Always present. |
 | `s` | The score of that document. Present when the query carries no sort. |
 | `k` | The raw sort values of that document, one per sort field in sort order. Present when a sort is set. |
 | `o` | The sort's fields and directions, serialised as the JSON text `[["field","asc"],...]`. Present exactly when `k` is. |
+| `q` | The binding of the request that produced the cursor, per [Cursor Binding](#cursor-binding). Always present. |
 
 A cursor carries `s` or `k`, never both. A search without a sort anchors on `s` and `a`, a sorted search or listing anchors on `k` and `a`, and an unsorted listing anchors on `a` alone.
 
 A reader must reject a cursor, raising `SEARCH_INVALID_CURSOR`, when any rule below fails:
 
 - The encoded cursor is longer than 40,960 characters, which covers the largest payload the rules below allow.
-- `v` is not 2, or `a` is empty, missing, or longer than 512 code points.
+- `v` is not 3, or `a` is empty, missing, or longer than 512 code points.
 - `k` holds more than 8 values, or a value that is not a string of at most 512 code points, a finite number, a boolean, or null.
 - `o` and `k` do not arrive together, or `o` differs from the request's own sort.
+- `q` is missing, is not 8 lowercase hex digits, or differs from the binding of the request that carried the cursor.
 
 A sort names at most 8 fields, because the cursor carries one value per field. More raises `SEARCH_INVALID_FIELD`. A sort field name holds at most 255 characters, and a longer name raises `SEARCH_INVALID_FIELD` as well.
+
+#### Cursor Binding
+
+`q` is the [FNV-1a hash](algorithms.md#fnv-1a-hash) of the binding stream, written as 8 lowercase hex digits. A reader recomputes the binding from the request and rejects a mismatch, so a cursor pages only the request that produced it.
+
+A writer serialises into the binding stream, in this order, the request values that decide which documents a page holds: `term`, `fields`, `filters`, `boost`, `minScore`, `termMatch`, `tolerance`, `prefixLength`, `prefix`, `exact`, `pinned`, `mode`, `hybrid`, `vector`, and `scoring`. An absent `scoring` binds as the string `local`, its default, so an explicit default and an omission carry one binding. A listing's stream carries `filters` in that position and every other value absent. The sort binds through `o`, so the stream omits it.
+
+```text
+write(stream, value):
+  absent  -> byte 0
+  null    -> byte 1
+  false   -> byte 2
+  true    -> byte 3
+  number  -> byte 4, then its IEEE-754 binary64, big-endian
+  string  -> byte 5, then its UTF-8 byte count as uint32
+             big-endian, then those bytes
+  list    -> byte 6, then its length as uint32 big-endian,
+             then each member through write
+  map     -> byte 7, then its entry count as uint32 big-endian,
+             then each key in code point order, each key
+             followed by its value, both through write
+```
+
+A vector binds as the map of its present members, except that `value` binds as the list of its elements converted to binary32. That conversion makes a vector given as float64 values bind equal to the same vector given as binary32. A writer and a reader bind a vector resolved from `text` by the `text` the request carried, because an embedding adapter need not return the same vector twice.
 
 #### Tiebreaking
 
@@ -297,12 +325,15 @@ Documents sharing a score, or sharing every sort value, order by document ID, as
 First query:
   fan out to every partition with the limit
   merge the results and take the top `limit`
-  encode a cursor from the last result
+  encode a cursor from the last result that is not a pinned
+    placement; a page holding only placements returns no
+    cursor
   return the results and the cursor
 
 Next query, carrying the cursor:
   decode the cursor, rejecting it when `o` differs from
-    the request's sort
+    the request's sort or `q` differs from the request's
+    binding
   fan out to every partition with the same cursor
   each partition seeks past every document that orders at
     or before the anchor: by score then document ID for a

@@ -1,6 +1,6 @@
 import type { QueryCoverage } from '../../types/results'
 import type { AllocationTable } from '../coordinator/types'
-import type { FacetBucket, NodeTransport, ScoredEntry } from '../transport/types'
+import type { FacetBucket, NodeTransport, ScoredEntry, WireGroupEntry } from '../transport/types'
 
 export interface DistributedQueryConfig {
   allowPartialResults: boolean
@@ -24,6 +24,7 @@ export interface DistributedQueryResult {
   totalHits: number
   facets: Record<string, FacetBucket[]> | null
   facetErrorBounds: Record<string, number> | null
+  groups: WireGroupEntry[] | null
   cursor: string | null
   coverage: QueryCoverage
 }
@@ -33,4 +34,9 @@ export interface QueryRoutingDeps {
   sourceNodeId: string
   getAllocation: (indexName: string) => Promise<AllocationTable | null>
   resolveNodeTargets?: (nodeId: string) => Promise<string[]>
+}
+
+export interface RoutingResult {
+  nodeToPartitions: Map<string, number[]>
+  unavailablePartitions: number[]
 }

@@ -75,7 +75,7 @@ const results = await narsil.query('sales', {
 
 ## Grouping
 
-`group` collapses hits that share field values. `maxPerGroup` caps how many hits each group keeps, and an optional reducer folds every grouped document into an accumulated value.
+`group` collapses hits that share field values. `maxPerGroup` caps how many hits each group keeps, `limit` caps how many groups come back, best first, and an optional reducer folds each group's kept hits into an accumulated value.
 
 ```ts
 const results = await narsil.query('products', {
@@ -116,13 +116,13 @@ if (firstPage.cursor) {
 }
 ```
 
-A cursor is only valid for the same query parameters it came from. A malformed cursor fails with `SEARCH_INVALID_CURSOR`.
+A cursor is valid only for the same query that produced it. The engine binds each cursor to the query's term, fields, filters, match options, and scoring mode, so a cursor sent back under a changed query fails with `SEARCH_INVALID_CURSOR`, as a malformed cursor does.
 
 `offset` and `limit` together reach the first 10,000 results, which is the result window. A request past it throws `SEARCH_RESULT_WINDOW_EXCEEDED`, and a cursor pages beyond it because each page returns the `limit` results that follow its anchor. The window bounds paging depth rather than what the engine considers: a sort, a group, a `minScore`, and a `termMatch` other than `any` each read every matching document, and `count` reports the number of matches exactly.
 
 ## Pinning
 
-`pinned` places specific documents at fixed positions in the ranked results, which serves sponsored or editorial placements. Positions are zero-based.
+`pinned` places specific documents at fixed positions in the ranked results, which serves sponsored or editorial placements. Positions are zero-based, and they count from the top of the whole result set, so a page reached with `searchAfter` carries no pinned placements. A cursor anchors on the last result that is not a placement, and a page holding only placements returns no cursor.
 
 ```ts
 const results = await narsil.query('products', {

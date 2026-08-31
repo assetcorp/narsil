@@ -5,6 +5,8 @@ import { getLanguage } from '../../languages/registry'
 import type { PartitionManager } from '../../partitioning/manager'
 import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from '../../schema/embedding-validator'
 import { validateSchema, validateVectorPromotion } from '../../schema/validator'
+import { packIndexSnapshotEnvelope, unpackIndexSnapshotEnvelope } from '../../serialization/envelope'
+import { hasNrslMagic } from '../../serialization/header'
 import { deserializePayloadV1 } from '../../serialization/payload-v1'
 import { deserializePayloadV2 } from '../../serialization/payload-v2'
 import type { EmbeddingAdapter } from '../../types/adapters'
@@ -44,7 +46,7 @@ export async function createSnapshot(manager: PartitionManager, entry: IndexRegi
   const config = entry.config
   const bm25 = config.bm25
   const { encode } = await import('@msgpack/msgpack')
-  return encode({
+  const payload = encode({
     version: 2,
     schema: config.schema,
     language: entry.language.name,
@@ -78,6 +80,7 @@ export async function createSnapshot(manager: PartitionManager, entry: IndexRegi
     partitions: partitionBuffers,
     vectorIndexes: vectorPayloads,
   })
+  return packIndexSnapshotEnvelope(payload)
 }
 
 export interface RestoreDeps {
@@ -98,10 +101,12 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
     throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Snapshot data must be a Uint8Array')
   }
 
+  const payloadBytes = hasNrslMagic(data) ? await unpackIndexSnapshotEnvelope(data) : data
+
   const { decode } = await import('@msgpack/msgpack')
   let decoded: unknown
   try {
-    decoded = decode(data)
+    decoded = decode(payloadBytes)
   } catch (err) {
     throw new NarsilError(
       ErrorCodes.DOC_VALIDATION_FAILED,

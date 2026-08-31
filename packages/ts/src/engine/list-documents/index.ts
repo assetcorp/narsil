@@ -10,6 +10,7 @@ import {
   requireMatchingCursor,
   sortSignatureOf,
 } from '../../search/cursor'
+import { listBindingOf } from '../../search/cursor-binding'
 import { requireWithinResultWindow } from '../../search/pagination'
 import { normalizeSort, requireSortableFields } from '../../search/sorting'
 import type { FilterExpression } from '../../types/filters'
@@ -86,6 +87,7 @@ function pageInIdOrder(
   cursor: PageCursor | null,
   filtered: FilteredPartitions | null,
   limit: number,
+  binding: string,
 ): DocumentPage {
   const anchor = cursor === null ? null : cursor.anchor
   const candidates: string[] = []
@@ -103,7 +105,9 @@ function pageInIdOrder(
   const hasMore = candidates.length > limit
   const ids = hasMore ? candidates.slice(0, limit) : candidates
   const nextCursor =
-    hasMore && ids.length > 0 ? { anchor: ids[ids.length - 1], score: null, sortKey: null, sortSignature: null } : null
+    hasMore && ids.length > 0
+      ? { anchor: ids[ids.length - 1], score: null, sortKey: null, sortSignature: null, binding }
+      : null
 
   return { ids, nextCursor }
 }
@@ -116,6 +120,7 @@ function pageInSortOrder(
   sort: SortSpec,
   signature: string,
   schema: SchemaDefinition,
+  binding: string,
 ): DocumentPage {
   const normalized = normalizeSort(sort)
   const fields = normalized.map(entry => entry.field)
@@ -143,7 +148,9 @@ function pageInSortOrder(
   const page = hasMore ? merged.slice(0, limit) : merged
   const last = page[page.length - 1]
   const nextCursor =
-    hasMore && last !== undefined ? { anchor: last.id, score: null, sortKey: last.key, sortSignature: signature } : null
+    hasMore && last !== undefined
+      ? { anchor: last.id, score: null, sortKey: last.key, sortSignature: signature, binding }
+      : null
 
   return { ids: page.map(entry => entry.id), nextCursor }
 }
@@ -178,10 +185,11 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
   const signature = sortSignatureOf(params.sort)
   requireSortableFields(params.sort, schema)
 
+  const binding = listBindingOf(params.filters)
   let cursor: PageCursor | null = null
   if (params.cursor !== undefined) {
     cursor = decodePageCursor(params.cursor)
-    requireMatchingCursor(cursor, params.cursor, signature, false)
+    requireMatchingCursor(cursor, params.cursor, signature, false, binding)
   }
 
   const partitions =
@@ -195,8 +203,8 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
 
   const page =
     params.sort === undefined || signature === null
-      ? pageInIdOrder(partitions, cursor, filtered, limit)
-      : pageInSortOrder(partitions, cursor, filtered, limit, params.sort, signature, schema)
+      ? pageInIdOrder(partitions, cursor, filtered, limit, binding)
+      : pageInSortOrder(partitions, cursor, filtered, limit, params.sort, signature, schema, binding)
 
   const projection = resolveProjection(params.document)
 

@@ -26,7 +26,7 @@ Narsil comes in three parts at two levels of maturity.
 | --- | --- | --- |
 | Embedded engine (`@delali/narsil`) | Stable | You embed the engine in your process for full-text, vector, hybrid, and geosearch. It reports failures through typed error codes, and its continuous integration runs the test suite on Node 22 and 24. |
 | Single-node server (`@delali/narsil/server`) | Stable | The same engine runs behind a REST API, with a write-ahead log, bulk NDJSON import, and snapshot and restore. |
-| Multi-node cluster (`@delali/narsil/distribution`) | Experimental | The cluster provides node roles, replication, and query routing, but it runs only in-process today and its APIs change without notice. |
+| Multi-node cluster (`@delali/narsil/distribution`) | Experimental | The cluster provides node roles, replication, and query routing over an in-process transport, TCP with mTLS, or gRPC, and its APIs change without notice. |
 
 The `.nrsl` binary format is the contract that every Narsil implementation reads and writes. This TypeScript package is the reference implementation that validates the format, and a second-language port in Go or Rust is the headline item on the [roadmap](ROADMAP.md).
 
@@ -173,7 +173,7 @@ The [specification](packages/spec/) defines the `.nrsl` format, the analysis pip
 
 ## Distribution status
 
-The multi-node cluster mode under `@delali/narsil/distribution` is under active development and experimental. It runs only in process today, and its APIs change without notice, so no production deployment should depend on it yet. The design is specified in [`packages/spec/distribution`](packages/spec/distribution).
+The multi-node cluster mode under `@delali/narsil/distribution` is under active development and experimental. It runs over an in-process transport for tests, and over TCP with mTLS or gRPC between processes. Its APIs change without notice, so no production deployment should depend on it yet. The design is specified in [`packages/spec/distribution`](packages/spec/distribution).
 
 ## Runtime support
 

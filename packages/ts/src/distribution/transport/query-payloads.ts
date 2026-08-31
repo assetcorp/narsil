@@ -4,8 +4,19 @@ export interface SortField {
 }
 
 export interface WireGroupConfig {
-  field: string
+  fields: string[]
   maxPerGroup: number
+  limit: number | null
+}
+
+export interface WireGroupEntry {
+  values: Record<string, unknown>
+  scored: ScoredEntry[]
+}
+
+export interface WirePinnedEntry {
+  docId: string
+  position: number
 }
 
 export interface WireVectorQueryParams {
@@ -13,12 +24,14 @@ export interface WireVectorQueryParams {
   value: number[] | null
   text: string | null
   similarity: number | null
+  metric: 'cosine' | 'dotProduct' | 'euclidean' | null
+  efSearch: number | null
 }
 
 export interface WireHybridConfig {
-  strategy: 'rrf' | 'linear'
-  k: number
-  alpha: number
+  strategy: 'rrf' | 'linear' | null
+  k: number | null
+  alpha: number | null
 }
 
 export interface WireQueryParams {
@@ -37,6 +50,12 @@ export interface WireQueryParams {
   threshold: number | null
   includeScores: boolean | null
   scoring: 'local' | 'dfs' | 'broadcast'
+  termMatch: 'all' | 'any' | number | null
+  prefixLength: number | null
+  prefix: boolean | null
+  exact: boolean | null
+  pinned: WirePinnedEntry[] | null
+  mode: 'fulltext' | 'vector' | 'hybrid' | null
   vector: WireVectorQueryParams | null
   hybrid: WireHybridConfig | null
 }
@@ -84,6 +103,7 @@ export interface SearchResultPayload {
   results: PartitionSearchResult[]
   facets: Record<string, FacetBucket[]> | null
   facetErrorBounds: Record<string, number> | null
+  groups: WireGroupEntry[] | null
 }
 
 export interface FetchDocumentId {

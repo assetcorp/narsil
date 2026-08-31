@@ -62,18 +62,14 @@ export function applyGrouping<T = AnyDocument>(
     const result: GroupResult = { values: entry.values, hits: groupHits }
 
     if (group.reduce) {
-      try {
-        let accumulator = group.reduce.initialValue()
-        for (const hit of groupHits) {
-          const doc = getDocument(hit.id)
-          if (doc) {
-            accumulator = group.reduce.reducer(accumulator, doc, hit.score ?? 0)
-          }
-        }
-        ;(result as GroupResult & { reduced: unknown }).reduced = accumulator
-      } catch (err) {
-        ;(result as GroupResult & { reducerError: string }).reducerError =
-          err instanceof Error ? err.message : String(err)
+      const folded = foldGroupReducer(
+        group.reduce,
+        groupHits.map(hit => ({ document: getDocument(hit.id), score: hit.score ?? 0 })),
+      )
+      if (folded.reducerError !== undefined) {
+        result.reducerError = folded.reducerError
+      } else {
+        result.reduced = folded.reduced
       }
     }
 
@@ -89,5 +85,40 @@ export function applyGrouping<T = AnyDocument>(
     return compareCodePoints(aId, bId)
   })
 
+  if (group.limit !== undefined && Number.isFinite(group.limit) && group.limit >= 0) {
+    const cap = Math.floor(group.limit)
+    if (groups.length > cap) {
+      groups.length = cap
+    }
+  }
+
   return groups
+}
+
+/**
+ * Folds a group reducer over one group's kept rows, skipping a row whose
+ * document is missing, and captures a thrown reducer error as a message in
+ * place of failing the query. The engine folds its own groups through this,
+ * and the cluster coordinator folds merged groups through it too, so the two
+ * paths reduce identically.
+ *
+ * @param reduce - The caller's reducer and its initial value.
+ * @param rows - One row per kept hit: its document, or undefined where the store lacks it, and its score.
+ * @returns The accumulated value, or the error message the reducer threw.
+ */
+export function foldGroupReducer(
+  reduce: NonNullable<GroupConfig['reduce']>,
+  rows: Array<{ document: AnyDocument | undefined; score: number }>,
+): { reduced?: unknown; reducerError?: string } {
+  try {
+    let accumulator = reduce.initialValue()
+    for (const row of rows) {
+      if (row.document !== undefined) {
+        accumulator = reduce.reducer(accumulator, row.document, row.score)
+      }
+    }
+    return { reduced: accumulator }
+  } catch (err) {
+    return { reducerError: err instanceof Error ? err.message : String(err) }
+  }
 }

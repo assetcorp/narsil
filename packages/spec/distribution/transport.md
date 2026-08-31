@@ -387,6 +387,12 @@ QueryParams {
   threshold:     float32 or absent                (minimum score)
   includeScores: boolean or absent                (default false; a sorted query computes scores only where true)
   scoring:       'local' or 'dfs' or 'broadcast'  (default 'local')
+  termMatch:     'all' or 'any' or uint32 or absent   (absent means 'any'; a count names the minimum matching terms)
+  prefixLength:  uint32 or absent                 (leading characters exempt from tolerance; default 2)
+  prefix:        boolean or absent                (default false; completes the final token)
+  exact:         boolean or absent                (default false; turns off tolerance and prefix completion)
+  pinned:        List<PinnedEntry> or absent
+  mode:          'fulltext' or 'vector' or 'hybrid' or absent
   vector:        VectorQueryParams or absent
   hybrid:        HybridConfig or absent
 }
@@ -397,8 +403,14 @@ SortField {
 }
 
 GroupConfig {
-  field:       string
-  maxPerGroup: uint32   (default 1)
+  fields:      List<string>
+  maxPerGroup: uint32           (default 1)
+  limit:       uint32 or absent (caps the groups returned; absent returns every group)
+}
+
+PinnedEntry {
+  docId:    string
+  position: uint32   (zero-based position in the merged results)
 }
 
 VectorQueryParams {
@@ -406,14 +418,18 @@ VectorQueryParams {
   value:      List<float32> or absent
   text:       string or absent
   similarity: float32 or absent   (score floor; absent keeps every scored hit)
+  metric:     'cosine' or 'dotProduct' or 'euclidean' or absent   (default 'cosine')
+  efSearch:   uint32 or absent    (HNSW exploration factor; absent uses the engine default)
 }
 
 HybridConfig {
-  strategy: 'rrf' or 'linear'
-  k:        uint32    (the RRF constant, default 60)
-  alpha:    float32   (the linear weight, default 0.5)
+  strategy: 'rrf' or 'linear' or absent   (default 'rrf')
+  k:        uint32 or absent              (the RRF constant, default 60)
+  alpha:    float32 or absent             (the linear weight, default 0.5)
 }
 ```
+
+A sender writes every member, encoding an absent value as nil, and a reader restores nil as omitted, so a request and its wire round trip carry one [cursor binding](../partitioning.md#cursor-binding) and a reader rejects a payload whose member is missing.
 
 The enclosing `QueryParams.limit` sets the top-k count for vector search, so `VectorQueryParams` carries no limit of its own and there is one source of truth.
 
@@ -464,6 +480,7 @@ HighlightConfig {
   }>
   facets: Map<string, List<FacetBucket>> or absent
   facetErrorBounds: Map<string, uint32> or absent
+  groups: List<GroupEntry> or absent   (present when the query carries `group`)
 }
 
 ScoredEntry {
@@ -476,7 +493,14 @@ FacetBucket {
   value: string
   count: uint32
 }
+
+GroupEntry {
+  values: Map<string, value>   (one value per grouping field, keyed by field)
+  scored: List<ScoredEntry>    (the node's best hits of the group, at most maxPerGroup)
+}
 ```
+
+A response carries at most 65,536 groups, so a query whose matches group more finely than that must set `group.limit`.
 
 `sortValues` carries the raw values of the sort fields, one per field in sort order, each a string, a number, a boolean, or nil, read from the document before any folding. The coordinator merges sorted results with the [sort value order](../algorithms.md#sort-value-order), so a data node must never send pre-folded or pre-transformed values.
 

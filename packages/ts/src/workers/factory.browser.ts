@@ -22,9 +22,9 @@ export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFa
   const resolvedEntry = entryPoint ?? resolveEntryPoint()
 
   if (runtime.supportsWebWorkers) {
-    return function webFactory(_workerId: number): Executor {
+    return function webFactory(_workerId: number, onDeath?: (error: Error) => void): Executor {
       const instance = new Worker(resolvedEntry, { type: 'module' })
-      return createWorkerExecutor(instance as unknown as WorkerLike)
+      return createWorkerExecutor(instance as unknown as WorkerLike, { onDeath })
     }
   }
 

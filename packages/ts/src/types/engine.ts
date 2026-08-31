@@ -214,8 +214,11 @@ export interface Narsil {
    */
   query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>
   /**
-   * Counts what a query would match without building or ranking a single hit,
-   * which is how a result-count badge stays cheap.
+   * Counts what a query would match without building a single hit, which is
+   * how a result-count badge stays cheap. A full-text count also skips scoring
+   * unless the query carries `minScore`, which prunes matches by score, or a
+   * `termMatch` policy other than `any`, which prunes them by term coverage. A
+   * vector or hybrid count still runs its search.
    *
    * @param indexName - The index the query would run against.
    * @param params - The same parameters {@link Narsil.query} takes. Anything
@@ -259,13 +262,17 @@ export interface Narsil {
    */
   snapshot(indexName: string): Promise<Uint8Array>
   /**
-   * Loads an index from `.nrsl` bytes, replacing whatever the name held.
+   * Loads an index from snapshot bytes, replacing whatever the name held.
+   *
+   * The engine reads the `.nrsl` envelope {@link Narsil.snapshot} writes, and
+   * it also reads the headerless MessagePack form earlier releases wrote.
    *
    * @param indexName - The name the restored index takes.
    * @param data - Bytes a {@link Narsil.snapshot} produced.
-   * @throws A `NarsilError` with `ENVELOPE_INVALID_MAGIC` or
-   * `ENVELOPE_VERSION_MISMATCH` when the bytes are not a file this engine
-   * reads.
+   * @throws A `NarsilError` with `ENVELOPE_VERSION_MISMATCH` when the envelope
+   * carries a different format version, `PERSISTENCE_CRC_MISMATCH` when the
+   * payload fails its checksum, or `DOC_VALIDATION_FAILED` when the bytes hold
+   * no snapshot.
    */
   restore(indexName: string, data: Uint8Array): Promise<void>
   /**

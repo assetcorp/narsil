@@ -308,8 +308,10 @@ export type {
   SuggestPayload,
   SuggestResultPayload,
   WireGroupConfig,
+  WireGroupEntry,
   WireHighlightConfig,
   WireHybridConfig,
+  WirePinnedEntry,
   WireQueryParams,
   WireVectorQueryParams,
 } from './query-payloads'

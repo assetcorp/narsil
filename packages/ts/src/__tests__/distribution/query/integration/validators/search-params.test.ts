@@ -216,7 +216,7 @@ describe('validateSearchPayload params.sort', () => {
         makeSearchPayload({
           sort: [{ field: 'title', direction: 'asc' }],
           term: 'wireless',
-          vector: { field: 'embedding', value: [0.1, 0.2], text: null, similarity: null },
+          vector: { field: 'embedding', value: [0.1, 0.2], text: null, similarity: null, metric: null, efSearch: null },
         }),
       ),
     ).toThrow(/hybrid query cannot carry a sort/)
@@ -243,18 +243,20 @@ describe('validateSearchPayload params.group', () => {
   })
 
   it('rejects group with empty field', () => {
-    expect(() => validateSearchPayload(makeSearchPayload({ group: { field: '', maxPerGroup: 3 } }))).toThrow(/field/)
+    expect(() =>
+      validateSearchPayload(makeSearchPayload({ group: { fields: [''], maxPerGroup: 3, limit: null } })),
+    ).toThrow(/field/)
   })
 
   it('rejects group with negative maxPerGroup', () => {
-    expect(() => validateSearchPayload(makeSearchPayload({ group: { field: 'category', maxPerGroup: -1 } }))).toThrow(
-      /maxPerGroup/,
-    )
+    expect(() =>
+      validateSearchPayload(makeSearchPayload({ group: { fields: ['category'], maxPerGroup: -1, limit: null } })),
+    ).toThrow(/maxPerGroup/)
   })
 
   it('accepts a well-formed group', () => {
     expect(() =>
-      validateSearchPayload(makeSearchPayload({ group: { field: 'category', maxPerGroup: 5 } })),
+      validateSearchPayload(makeSearchPayload({ group: { fields: ['category'], maxPerGroup: 5, limit: null } })),
     ).not.toThrow()
   })
 })
