@@ -298,6 +298,8 @@ export type GroupReducer = {
 // @public
 export interface GroupResult {
     hits: Array<Hit>;
+    reduced?: unknown;
+    reducerError?: string;
     values: Record<string, unknown>;
 }
 
@@ -528,12 +530,6 @@ export type NarsilErrorCode = ErrorCode | ServerErrorCode | ClientErrorCode | (s
 
 // @public
 export type NarsilEventMap = {
-    persistenceError: {
-        indexName: string;
-        partitionId: number;
-        error: Error;
-        retriesExhausted: boolean;
-    };
     workerCrash: {
         workerId: number;
         indexNames: string[];
@@ -759,6 +755,7 @@ export const ServerErrorCodes: {
     readonly TASK_NOT_FOUND: "TASK_NOT_FOUND";
     readonly TASK_NOT_CANCELLABLE: "TASK_NOT_CANCELLABLE";
     readonly TASK_OWNED_BY_ANOTHER_INSTANCE: "TASK_OWNED_BY_ANOTHER_INSTANCE";
+    readonly TASK_INTERRUPTED: "TASK_INTERRUPTED";
     readonly TOO_MANY_REQUESTS: "TOO_MANY_REQUESTS";
     readonly HOOK_ERROR: "HOOK_ERROR";
     readonly INTERNAL_ERROR: "INTERNAL_ERROR";

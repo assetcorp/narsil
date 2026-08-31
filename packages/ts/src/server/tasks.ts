@@ -179,7 +179,7 @@ export class TaskRegistry {
         ...record,
         status: 'failed',
         completedAt: Date.now(),
-        error: { code: 'TASK_INTERRUPTED', message: 'The server restarted while this task was running' },
+        error: { code: ServerErrorCodes.TASK_INTERRUPTED, message: 'The server restarted while this task was running' },
       }
       try {
         await this.store.set(failed, TERMINAL_TTL_MS)

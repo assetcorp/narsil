@@ -6,6 +6,7 @@ import { createRequestId, isValidWorkerResponse } from './protocol'
 export interface WorkerExecutorConfig {
   backpressureLimit?: number
   requestTimeout?: number
+  onDeath?: (error: Error) => void
 }
 
 export interface WorkerLike {
@@ -28,6 +29,8 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
   const backpressureLimit = config?.backpressureLimit ?? DEFAULT_BACKPRESSURE_LIMIT
   const requestTimeout = config?.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT
   const pending = new Map<string, PendingRequest>()
+  let deathError: NarsilError | null = null
+  let shutdownRequested = false
 
   function processResponse(msg: unknown) {
     if (!isValidWorkerResponse(msg)) {
@@ -50,8 +53,26 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     }
   }
 
+  function handleDeath(cause: unknown): void {
+    if (deathError !== null) {
+      return
+    }
+    const message = cause instanceof Error ? cause.message : String(cause)
+    deathError = new NarsilError(ErrorCodes.WORKER_CRASHED, `Worker died: ${message}`)
+    for (const [id, entry] of pending) {
+      clearTimeout(entry.timeoutId)
+      entry.reject(deathError)
+      pending.delete(id)
+    }
+    if (!shutdownRequested) {
+      config?.onDeath?.(cause instanceof Error ? cause : new Error(message))
+    }
+  }
+
   if (typeof worker.on === 'function') {
     worker.on('message', (msg: unknown) => processResponse(msg))
+    worker.on('error', (cause: unknown) => handleDeath(cause))
+    worker.on('exit', (code: unknown) => handleDeath(new Error(`Worker exited with code ${String(code)}`)))
   } else if (typeof worker.addEventListener === 'function') {
     worker.addEventListener('message', (event: unknown) => {
       const msg = (event as { data: unknown }).data
@@ -60,6 +81,9 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
   }
 
   function execute<T>(action: WorkerAction): Promise<T> {
+    if (deathError !== null) {
+      return Promise.reject(deathError)
+    }
     if (pending.size >= backpressureLimit) {
       return Promise.reject(
         new NarsilError(ErrorCodes.WORKER_BUSY, `Backpressure limit of ${backpressureLimit} pending requests reached`),
@@ -86,6 +110,10 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
   }
 
   async function shutdown(): Promise<void> {
+    shutdownRequested = true
+    if (deathError !== null) {
+      return
+    }
     const requestId = createRequestId()
     const shutdownAction: WorkerAction = { type: 'shutdown', requestId }
 

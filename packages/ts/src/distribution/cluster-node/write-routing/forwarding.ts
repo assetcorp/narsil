@@ -3,6 +3,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
 import { createForwardMessage } from '../../replication/codec'
 import type { ForwardPayload, NodeTransport, TransportMessage } from '../../transport/types'
+import { sendThroughTargets } from '../transport-failure'
 import { resolveNodeTargets } from './assignment'
 import type { WriteRoutingDeps } from './types'
 
@@ -94,13 +95,8 @@ export async function sendToNode(
   deps: WriteRoutingDeps,
 ): Promise<Awaited<ReturnType<NodeTransport['send']>>> {
   const targets = await resolveNodeTargets(nodeId, deps)
-  let lastError: unknown
-  for (const target of targets) {
-    try {
-      return await deps.transport.send(target, message)
-    } catch (error) {
-      lastError = error
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+  return sendThroughTargets(targets, target => deps.transport.send(target, message), {
+    message: `Node '${nodeId}' did not answer a forwarded write`,
+    details: { targetNodeId: nodeId },
+  })
 }

@@ -253,6 +253,38 @@ describe('Rebalancer', () => {
     expect(positionCount).toBeGreaterThan(0)
   })
 
+  it('keeps collecting surface forms after a rebalance by default', async () => {
+    const stemming: LanguageModule = { ...english, stemmer: token => token.replace(/ing$/, '') }
+    const router = createPartitionRouter()
+    const manager = createPartitionManager('test-index', { schema }, stemming, router, 2)
+    manager.insert('doc-running', { title: 'running machines', score: 1 })
+    manager.insert('doc-jumping', { title: 'jumping engines', score: 2 })
+
+    const rebalancer = createRebalancer()
+    await rebalancer.rebalance(manager, 4, router)
+
+    const surfaces: string[] = []
+    for (let partitionId = 0; partitionId < manager.partitionCount; partitionId++) {
+      surfaces.push(...Object.keys(manager.serializePartition(partitionId).surfaceForms ?? {}))
+    }
+    expect(surfaces).toContain('running')
+    expect(surfaces).toContain('jumping')
+  })
+
+  it('keeps surface forms off after a rebalance when the index opted out', async () => {
+    const stemming: LanguageModule = { ...english, stemmer: token => token.replace(/ing$/, '') }
+    const router = createPartitionRouter()
+    const manager = createPartitionManager('test-index', { schema, surfaceForms: false }, stemming, router, 2)
+    manager.insert('doc-running', { title: 'running machines', score: 1 })
+
+    const rebalancer = createRebalancer()
+    await rebalancer.rebalance(manager, 4, router)
+
+    for (let partitionId = 0; partitionId < manager.partitionCount; partitionId++) {
+      expect(Object.keys(manager.serializePartition(partitionId).surfaceForms ?? {})).toHaveLength(0)
+    }
+  })
+
   it('handles large document sets across chunk boundaries', async () => {
     const router = createPartitionRouter()
     const manager = createPartitionManager('test-index', { schema }, english, router, 1)

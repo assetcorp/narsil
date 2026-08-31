@@ -113,6 +113,9 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
       if (handlers) {
         for (const handler of handlers) handler({ workerCount, reason })
       }
+      void Promise.resolve(pluginRegistry.runHook('onWorkerPromote', { workerCount, reason })).catch((err: unknown) => {
+        console.warn('onWorkerPromote plugin hook failed:', err instanceof Error ? err.message : String(err))
+      })
     },
     onPromotionFailure(reason, error, retryable) {
       const handlers = eventHandlers.get('workerPromoteFailure')
@@ -121,6 +124,14 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
         return
       }
       for (const handler of handlers) handler({ reason, error, retryable })
+    },
+    onWorkerCrash(workerId, indexNames, error) {
+      const handlers = eventHandlers.get('workerCrash')
+      if (!handlers || handlers.size === 0) {
+        console.warn(`Worker ${workerId} crashed:`, error)
+        return
+      }
+      for (const handler of handlers) handler({ workerId, indexNames, error })
     },
   })
 

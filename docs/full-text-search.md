@@ -72,7 +72,7 @@ const results = await narsil.query('products', {
 
 ## Highlighting
 
-`highlight` returns snippets with tags marking where query terms appear. Highlighting needs `trackPositions` left at its default of `true`.
+`highlight` returns snippets with tags marking where query terms appear. The highlighter re-analyses each returned field's text, so it works whatever the index's `trackPositions` setting says.
 
 ```ts
 const results = await narsil.query('products', {

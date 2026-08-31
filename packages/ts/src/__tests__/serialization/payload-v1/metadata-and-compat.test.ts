@@ -52,6 +52,20 @@ describe('serializeMetadata / deserializeMetadata', () => {
     expect(restored.partitionLimits).toEqual({ maxDocsPerPartition: 10 })
   })
 
+  it('roundtrips a vector promotion filter threshold ratio', () => {
+    const original = makeMetadata()
+    original.vectorPromotion = { threshold: 2048, filterThreshold: 0.05 }
+    const restored = deserializeMetadata(serializeMetadata(original))
+    expect(restored.vectorPromotion).toEqual({ threshold: 2048, filterThreshold: 0.05 })
+  })
+
+  it('drops an out-of-range filter threshold on read', () => {
+    const original = makeMetadata()
+    original.vectorPromotion = { filterThreshold: 40 }
+    const restored = deserializeMetadata(serializeMetadata(original))
+    expect(restored.vectorPromotion).toBeUndefined()
+  })
+
   it('roundtrips the partitions the copy holds, empty ones included', () => {
     const original = makeMetadata({ heldPartitions: [0, 2, 3] })
     const restored = deserializeMetadata(serializeMetadata(original))

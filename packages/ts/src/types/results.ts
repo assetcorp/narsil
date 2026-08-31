@@ -131,6 +131,10 @@ export interface GroupResult {
   values: Record<string, unknown>
   /** These hits fall in the group, cut to the query's `maxPerGroup`. */
   hits: Array<Hit>
+  /** The query's reducer produced this value for the group, and only a query that set `group.reduce` carries it. */
+  reduced?: unknown
+  /** The reducer threw, and this holds its message, so the group carries its hits and no `reduced` value. */
+  reducerError?: string
 }
 
 /**

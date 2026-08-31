@@ -3,10 +3,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { registerStopWords, registerTokenizer } from '../../analysis/registry'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
+import { unpackIndexSnapshotEnvelope } from '../../serialization/envelope'
 import type { CustomTokenizer } from '../../types/schema'
 import { createMockAdapter } from '../embedding/fixtures'
 
 const schema = { title: 'string' as const }
+
+async function decodeSnapshot(data: Uint8Array): Promise<Record<string, unknown>> {
+  return decode(await unpackIndexSnapshotEnvelope(data)) as Record<string, unknown>
+}
 
 const perLetter: CustomTokenizer = {
   tokenize(text: string) {
@@ -75,7 +80,7 @@ describe('snapshot and restore of index analysis', () => {
     await narsil.insert('prose', { title: 'survivor' })
     const data = await narsil.snapshot('prose')
 
-    const envelope = decode(data) as Record<string, unknown>
+    const envelope = await decodeSnapshot(data)
     const renamed = encode({ ...envelope, tokenizer: 'nobody-registered-this-snapshot' })
 
     await expect(narsil.restore('prose', renamed)).rejects.toMatchObject({
@@ -88,7 +93,7 @@ describe('snapshot and restore of index analysis', () => {
   it('rejects a snapshot whose analysis name is not a string', async () => {
     await narsil.createIndex('prose', { schema })
     const data = await narsil.snapshot('prose')
-    const envelope = decode(data) as Record<string, unknown>
+    const envelope = await decodeSnapshot(data)
 
     await expect(narsil.restore('prose', encode({ ...envelope, tokenizer: 42 }))).rejects.toBeInstanceOf(NarsilError)
     await expect(narsil.restore('prose', encode({ ...envelope, stopWords: ['a'] }))).rejects.toBeInstanceOf(NarsilError)
@@ -111,7 +116,7 @@ describe('snapshot and restore of index analysis', () => {
   it('rejects a snapshot carrying both a stop word name and a stop word list', async () => {
     await narsil.createIndex('prose', { schema })
     const data = await narsil.snapshot('prose')
-    const envelope = decode(data) as Record<string, unknown>
+    const envelope = await decodeSnapshot(data)
 
     await expect(
       narsil.restore('prose', encode({ ...envelope, stopWords: 'a-name', stopWordList: ['the'] })),
@@ -130,7 +135,7 @@ describe('snapshot and restore of index analysis', () => {
     const suggestions = await narsil.suggest('prose', { prefix: 'jump' })
     expect(suggestions.terms.map(t => t.term)).toContain('jumping')
 
-    const again = decode(await narsil.snapshot('prose')) as Record<string, unknown>
+    const again = await decodeSnapshot(await narsil.snapshot('prose'))
     expect(again.bm25).toEqual({ k1: 2, b: 0.3 })
     expect(again.surfaceForms).toBe(true)
   })
@@ -138,7 +143,7 @@ describe('snapshot and restore of index analysis', () => {
   it('rejects a snapshot whose bm25 block is malformed', async () => {
     await narsil.createIndex('prose', { schema })
     const data = await narsil.snapshot('prose')
-    const envelope = decode(data) as Record<string, unknown>
+    const envelope = await decodeSnapshot(data)
 
     await expect(narsil.restore('prose', encode({ ...envelope, bm25: 'strong' }))).rejects.toBeInstanceOf(NarsilError)
     await expect(narsil.restore('prose', encode({ ...envelope, bm25: { k1: 'high' } }))).rejects.toBeInstanceOf(
@@ -167,7 +172,7 @@ describe('snapshot and restore of index analysis', () => {
 
     await expect(narsil.insert('prose', { untitled: 'no title field' })).rejects.toBeInstanceOf(NarsilError)
 
-    const again = decode(await narsil.snapshot('prose')) as Record<string, unknown>
+    const again = await decodeSnapshot(await narsil.snapshot('prose'))
     expect(again.partitionConfig).toEqual({ maxDocsPerPartition: 3, maxPartitions: 3 })
     expect(again.defaultScoring).toBe('dfs')
     expect(again.trackPositions).toBe(false)
@@ -193,7 +198,7 @@ describe('snapshot and restore of index analysis', () => {
     await narsil.insert('prose', { title: 'engine' })
     expect(adapter.calls.length).toBeGreaterThan(callsBefore)
 
-    const again = decode(await narsil.snapshot('prose')) as Record<string, unknown>
+    const again = await decodeSnapshot(await narsil.snapshot('prose'))
     expect(again.embedding).toEqual({ adapter: 'snapshot-embedder', fields: { embedding: 'title' } })
   })
 
@@ -221,7 +226,7 @@ describe('snapshot and restore of index analysis', () => {
   it('rejects a snapshot whose defaultScoring is not a known mode', async () => {
     await narsil.createIndex('prose', { schema })
     const data = await narsil.snapshot('prose')
-    const envelope = decode(data) as Record<string, unknown>
+    const envelope = await decodeSnapshot(data)
 
     await expect(narsil.restore('prose', encode({ ...envelope, defaultScoring: 'fastest' }))).rejects.toBeInstanceOf(
       NarsilError,
@@ -232,7 +237,7 @@ describe('snapshot and restore of index analysis', () => {
     await narsil.createIndex('prose', { schema })
     await narsil.insert('prose', { title: 'machine learning' })
     const data = await narsil.snapshot('prose')
-    const envelope = decode(data) as Record<string, unknown>
+    const envelope = await decodeSnapshot(data)
     expect(envelope.tokenizer).toBeUndefined()
     expect(envelope.stopWords).toBeUndefined()
     await narsil.dropIndex('prose')

@@ -36,6 +36,7 @@ describe('httpStatusForNarsilError', () => {
       TASK_NOT_FOUND: 404,
       TASK_NOT_CANCELLABLE: 409,
       TASK_OWNED_BY_ANOTHER_INSTANCE: 409,
+      TASK_INTERRUPTED: 503,
       TOO_MANY_REQUESTS: 429,
       HOOK_ERROR: 500,
       INTERNAL_ERROR: 500,

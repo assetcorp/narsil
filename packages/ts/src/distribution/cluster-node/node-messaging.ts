@@ -8,6 +8,7 @@ import { selectReplica } from '../query/selection'
 import type { DistributedQueryResult } from '../query/types'
 import type { FetchDocumentId, TransportMessage } from '../transport/types'
 import type { ClusterLocalEngine } from './local-engine'
+import { type SendFailureContext, sendThroughTargets } from './transport-failure'
 import type { ClusterNodeConfig } from './types'
 import { resolvePartitionId } from './write-routing'
 
@@ -25,17 +26,13 @@ export async function sendToNode(
   config: ClusterNodeConfig,
   targetNodeId: string,
   message: TransportMessage,
+  failure?: SendFailureContext,
 ): Promise<TransportMessage> {
   const targets = await resolveNodeTargets(config, targetNodeId)
-  let lastError: unknown
-  for (const target of targets) {
-    try {
-      return await config.transport.send(target, message)
-    } catch (error) {
-      lastError = error
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+  return sendThroughTargets(targets, target => config.transport.send(target, message), {
+    message: failure?.message ?? `Node '${targetNodeId}' did not answer a cluster request`,
+    details: { targetNodeId, ...failure?.details },
+  })
 }
 
 function fetchFieldsFor(projection: ResolvedProjection): string[] | null {
@@ -97,7 +94,10 @@ export async function fetchDistributedDocuments<T>(
       },
       nodeId,
     )
-    const response = await sendToNode(config, targetNodeId, fetchMessage)
+    const response = await sendToNode(config, targetNodeId, fetchMessage, {
+      message: `Node '${targetNodeId}' did not answer a document fetch for index '${indexName}'`,
+      details: { indexName },
+    })
     const decoded = decode(response.payload)
     const payload = validateFetchResultPayload(decoded)
     for (const fetched of payload.documents) {
@@ -158,7 +158,10 @@ export async function readDistributedDocuments(
     }
 
     const fetchMessage = createFetchMessage({ indexName, documentIds, fields: null, highlight: null }, nodeId)
-    const response = await sendToNode(config, targetNodeId, fetchMessage)
+    const response = await sendToNode(config, targetNodeId, fetchMessage, {
+      message: `Node '${targetNodeId}' did not answer a document fetch for index '${indexName}'`,
+      details: { indexName },
+    })
     const payload = validateFetchResultPayload(decode(response.payload))
     for (const fetched of payload.documents) {
       documents.set(fetched.docId, fetched.document as AnyDocument)

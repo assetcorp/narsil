@@ -80,7 +80,12 @@ export interface QueryParams {
    * Off by default.
    */
   prefix?: boolean
-  /** Setting this matches the term as written, skipping stemming and fuzzy matching. */
+  /**
+   * Setting this requires every query term to equal an indexed term outright,
+   * which turns off fuzzy matching and prefix completion. The engine still
+   * stems the query, because the index stores stemmed terms, so `running`
+   * matches a document that said `running` through their shared stem.
+   */
   exact?: boolean
   /** These settings name the fields the query counts values for, and control how each count is cut and sorted. */
   facets?: FacetConfig
@@ -271,8 +276,9 @@ export type GroupReducer = {
  * Which fields a query returns highlighted snippets for, and how those
  * snippets are marked up.
  *
- * The index has to have been created with `trackPositions`, because
- * highlighting reads the positions that setting records.
+ * The highlighter re-analyses each returned field's text and marks the spans
+ * whose stems match the query, so it works whatever the index's
+ * `trackPositions` setting says.
  *
  * @public
  */
