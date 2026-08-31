@@ -9,18 +9,12 @@
  * @public
  */
 export type NarsilEventMap = {
-  /** A partition failed to reach the persistence adapter. */
-  persistenceError: {
-    /** The partition belongs to this index. */
-    indexName: string
-    /** This partition failed to save. */
-    partitionId: number
-    /** The adapter threw this. */
-    error: Error
-    /** This turns true once the engine has given up retrying, which means the partition stays unsaved. */
-    retriesExhausted: boolean
-  }
-  /** A worker thread died, and the engine has rebuilt the indexes it held. */
+  /**
+   * A worker thread died. The pool drops it and fails its outstanding requests
+   * with `WORKER_CRASHED`, while the remaining workers keep answering because
+   * each holds a full worker copy of every promoted index. Once no worker is
+   * left, queries fall back to the main thread, which holds every document.
+   */
   workerCrash: {
     /** This worker died. */
     workerId: number

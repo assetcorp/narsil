@@ -8,6 +8,7 @@ import { requestInsyncRemoval } from '../../replication/insync'
 import { replicateBatchToReplicas, replicateToReplicas } from '../../replication/primary'
 import type { ReplicationLogEntry } from '../../replication/types'
 import { clearPendingAdmission, getPendingAdmissions } from '../catch-up/state'
+import { sendThroughTargets } from '../transport-failure'
 import { getInSyncReplicaTargets, resolveNodeTargets } from './assignment'
 import type { WriteRoutingDeps } from './types'
 
@@ -119,26 +120,16 @@ export async function requestInsyncRemovalWithTargets(
   deps: WriteRoutingDeps,
 ): Promise<boolean> {
   const targets = await resolveNodeTargets(controllerNodeId, deps)
-  let lastError: unknown
-
-  for (const target of targets) {
-    try {
-      const result = await requestInsyncRemoval(
-        indexName,
-        partitionId,
-        replicaNodeId,
-        primaryTerm,
-        target,
-        deps.transport,
-        deps.nodeId,
-      )
-      return result.accepted
-    } catch (error) {
-      lastError = error
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+  const result = await sendThroughTargets(
+    targets,
+    target =>
+      requestInsyncRemoval(indexName, partitionId, replicaNodeId, primaryTerm, target, deps.transport, deps.nodeId),
+    {
+      message: `Controller '${controllerNodeId}' did not answer an in-sync removal request for index '${indexName}' partition ${partitionId}`,
+      details: { indexName, partitionId, replicaNodeId, controllerNodeId },
+    },
+  )
+  return result.accepted
 }
 
 export async function replicateEntry(

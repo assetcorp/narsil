@@ -14,6 +14,7 @@ export interface EnvelopeParts {
 
 const CURRENT_ENVELOPE_VERSION = 1
 const SNAPSHOT_ENVELOPE_VERSION = 2
+const INDEX_SNAPSHOT_ENVELOPE_VERSION = 3
 
 export interface EnvelopeOptions {
   compression?: 'none' | 'gzip'
@@ -210,6 +211,21 @@ export async function unpackEnvelopeBytes(data: Uint8Array): Promise<{ header: N
   return unpackEnvelope(data, SNAPSHOT_ENVELOPE_VERSION)
 }
 
+export async function packIndexSnapshotEnvelope(payloadBytes: Uint8Array): Promise<Uint8Array> {
+  return packEnvelope(payloadBytes, { checksum: true, envelopeFormatVersion: INDEX_SNAPSHOT_ENVELOPE_VERSION })
+}
+
+export async function unpackIndexSnapshotEnvelope(data: Uint8Array): Promise<Uint8Array> {
+  const { header, payloadBytes } = await unpackEnvelope(data, INDEX_SNAPSHOT_ENVELOPE_VERSION)
+  if (header.envelopeFormatVersion !== INDEX_SNAPSHOT_ENVELOPE_VERSION) {
+    throw new NarsilError(
+      ErrorCodes.ENVELOPE_VERSION_MISMATCH,
+      `Expected an index snapshot envelope of format v${INDEX_SNAPSHOT_ENVELOPE_VERSION}, received format v${header.envelopeFormatVersion}`,
+    )
+  }
+  return payloadBytes
+}
+
 export async function writePartitionEnvelope(
   partition: SerializablePartition,
   options: EnvelopeOptions = {},
@@ -237,4 +253,4 @@ export async function readMetadataEnvelope(data: Uint8Array): Promise<{ header: 
   return { header, metadata }
 }
 
-export { CURRENT_ENVELOPE_VERSION, SNAPSHOT_ENVELOPE_VERSION }
+export { CURRENT_ENVELOPE_VERSION, INDEX_SNAPSHOT_ENVELOPE_VERSION, SNAPSHOT_ENVELOPE_VERSION }

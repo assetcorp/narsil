@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { applyGrouping } from '../../search/grouping'
-import type { GroupResult, Hit } from '../../types/results'
+import type { Hit } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { GroupConfig } from '../../types/search'
 
@@ -90,7 +90,7 @@ describe('applyGrouping', () => {
       const groups = applyGrouping(hits, config, makeDocStore(docs))
 
       expect(groups.length).toBe(1)
-      expect((groups[0] as GroupResult & { reduced: unknown }).reduced).toBe(30)
+      expect(groups[0].reduced).toBe(30)
     })
   })
 
@@ -112,7 +112,7 @@ describe('applyGrouping', () => {
       const groups = applyGrouping(hits, config, makeDocStore(docs))
 
       expect(groups.length).toBe(1)
-      expect((groups[0] as GroupResult & { reducerError: string }).reducerError).toBe('reducer failed')
+      expect(groups[0].reducerError).toBe('reducer failed')
     })
   })
 

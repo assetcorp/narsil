@@ -81,7 +81,22 @@ describe('worker resynchronisation after a rebalance', () => {
   })
 
   it('promotes an index that was rebalanced before promotion', { timeout: 60_000 }, async () => {
-    narsil = await createNarsil({ workers: { enabled: true, promotionThreshold: 30 } })
+    const partitionSplits: Array<{ oldPartitionCount: number; newPartitionCount: number }> = []
+    const workerPromotions: Array<{ workerCount: number }> = []
+    narsil = await createNarsil({
+      workers: { enabled: true, promotionThreshold: 30 },
+      plugins: [
+        {
+          name: 'lifecycle-recorder',
+          onPartitionSplit(ctx) {
+            partitionSplits.push({ oldPartitionCount: ctx.oldPartitionCount, newPartitionCount: ctx.newPartitionCount })
+          },
+          onWorkerPromote(ctx) {
+            workerPromotions.push({ workerCount: ctx.workerCount })
+          },
+        },
+      ],
+    })
     const engine = narsil
     let promoted = false
     const failures: string[] = []
@@ -107,6 +122,10 @@ describe('worker resynchronisation after a rebalance', () => {
     await waitFor(() => promoted || failures.length > 0)
     expect(failures).toEqual([])
     expect(promoted).toBe(true)
+
+    expect(partitionSplits).toEqual([{ oldPartitionCount: 1, newPartitionCount: 3 }])
+    await waitFor(() => workerPromotions.length > 0)
+    expect(workerPromotions[0].workerCount).toBeGreaterThan(0)
 
     const result = await engine.query('products', { term: 'wireless' })
     expect(result.count).toBe(35)

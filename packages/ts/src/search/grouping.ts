@@ -70,10 +70,9 @@ export function applyGrouping<T = AnyDocument>(
             accumulator = group.reduce.reducer(accumulator, doc, hit.score ?? 0)
           }
         }
-        ;(result as GroupResult & { reduced: unknown }).reduced = accumulator
+        result.reduced = accumulator
       } catch (err) {
-        ;(result as GroupResult & { reducerError: string }).reducerError =
-          err instanceof Error ? err.message : String(err)
+        result.reducerError = err instanceof Error ? err.message : String(err)
       }
     }
 

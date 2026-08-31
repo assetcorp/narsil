@@ -141,7 +141,7 @@ describe('createClusterNode message handler', () => {
     expect(result.results[0].totalHits).toBe(1)
   })
 
-  it('write forwarding timeout produces a transport error', async () => {
+  it('maps a write forwarding timeout to QUERY_NODE_TIMEOUT', async () => {
     vi.useRealTimers()
 
     const fastNetwork = createInMemoryNetwork()
@@ -167,9 +167,10 @@ describe('createClusterNode message handler', () => {
     }
     await coordinator.putAllocation('timeout-idx', makeAllocationTable('timeout-idx', assignments))
 
-    await expect(fastNodeA.insert('timeout-idx', { title: 'Will Timeout' }, 'timeout-doc')).rejects.toThrow(
-      /timed out/i,
-    )
+    await expect(fastNodeA.insert('timeout-idx', { title: 'Will Timeout' }, 'timeout-doc')).rejects.toMatchObject({
+      code: 'QUERY_NODE_TIMEOUT',
+      details: { transportCode: 'TRANSPORT_TIMEOUT' },
+    })
 
     await fastNodeA.shutdown()
     await fastTransportA.shutdown()

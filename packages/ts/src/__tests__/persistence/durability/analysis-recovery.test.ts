@@ -188,7 +188,11 @@ describe('durability recovery of index analysis', () => {
     await expect(engine.insert('prose', { untitled: 'no title field' })).rejects.toThrow()
 
     const { decode } = await import('@msgpack/msgpack')
-    const snapshot = decode(await engine.snapshot('prose')) as Record<string, unknown>
+    const { unpackIndexSnapshotEnvelope } = await import('../../../serialization/envelope')
+    const snapshot = decode(await unpackIndexSnapshotEnvelope(await engine.snapshot('prose'))) as Record<
+      string,
+      unknown
+    >
     expect(snapshot.partitionConfig).toEqual({ maxDocsPerPartition: 3, maxPartitions: 3 })
     expect(snapshot.defaultScoring).toBe('dfs')
     expect(snapshot.trackPositions).toBe(false)

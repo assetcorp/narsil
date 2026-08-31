@@ -58,7 +58,13 @@ async function runPromotion(state: OrchestratorState, reason: string): Promise<v
     }
 
     const factory = await createWorkerFactory()
-    const pool = createWorkerPool({ count: state.config?.workers?.count, workerFactory: factory })
+    const pool = createWorkerPool({
+      count: state.config?.workers?.count,
+      workerFactory: factory,
+      onWorkerCrash(workerId, indexNames, error) {
+        state.callbacks?.onWorkerCrash?.(workerId, indexNames, error)
+      },
+    })
 
     for (const name of promotable) {
       pool.addIndexToAll(name)

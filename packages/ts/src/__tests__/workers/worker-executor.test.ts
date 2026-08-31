@@ -6,10 +6,12 @@ import { createWorkerExecutor, type WorkerLike } from '../../workers/worker-exec
 interface MockWorker extends WorkerLike {
   lastMessage: unknown
   simulateResponse(response: WorkerResponse): void
+  simulateError(error: Error): void
+  simulateExit(code: number): void
 }
 
 function createMockWorker(): MockWorker {
-  let handler: ((msg: unknown) => void) | null = null
+  const handlers = new Map<string, (...args: unknown[]) => void>()
 
   return {
     lastMessage: null as unknown,
@@ -17,12 +19,16 @@ function createMockWorker(): MockWorker {
       this.lastMessage = msg
     },
     on(event: string, fn: (...args: unknown[]) => void) {
-      if (event === 'message') {
-        handler = fn as (msg: unknown) => void
-      }
+      handlers.set(event, fn)
     },
     simulateResponse(response: WorkerResponse) {
-      handler?.(response)
+      handlers.get('message')?.(response)
+    },
+    simulateError(error: Error) {
+      handlers.get('error')?.(error)
+    },
+    simulateExit(code: number) {
+      handlers.get('exit')?.(code)
     },
   }
 }
@@ -203,6 +209,88 @@ describe('WorkerExecutor', () => {
       handlerRef.value({ data: { type: 'success', requestId: sentAction.requestId, data: 7 } })
 
       expect(await promise).toBe(7)
+    })
+  })
+
+  describe('worker death', () => {
+    it('rejects every pending request with WORKER_CRASHED when the worker errors', async () => {
+      const worker = createMockWorker()
+      const onDeath = vi.fn()
+      const executor = createWorkerExecutor(worker, { onDeath })
+
+      const pending = executor.execute({ type: 'count', indexName: 'a', requestId: 'p1' })
+      swallow(pending)
+
+      worker.simulateError(new Error('segfault'))
+
+      await expect(pending).rejects.toMatchObject({ code: ErrorCodes.WORKER_CRASHED })
+      expect(onDeath).toHaveBeenCalledTimes(1)
+    })
+
+    it('rejects every pending request with WORKER_CRASHED when the worker exits', async () => {
+      const worker = createMockWorker()
+      const onDeath = vi.fn()
+      const executor = createWorkerExecutor(worker, { onDeath })
+
+      const pending = executor.execute({ type: 'count', indexName: 'a', requestId: 'p1' })
+      swallow(pending)
+
+      worker.simulateExit(1)
+
+      await expect(pending).rejects.toMatchObject({ code: ErrorCodes.WORKER_CRASHED })
+      expect(onDeath).toHaveBeenCalledTimes(1)
+    })
+
+    it('reports the death once when error and exit both fire', async () => {
+      const worker = createMockWorker()
+      const onDeath = vi.fn()
+      const executor = createWorkerExecutor(worker, { onDeath })
+      swallow(executor.execute({ type: 'count', indexName: 'a', requestId: 'p1' }))
+
+      worker.simulateError(new Error('segfault'))
+      worker.simulateExit(1)
+
+      expect(onDeath).toHaveBeenCalledTimes(1)
+    })
+
+    it('rejects a request sent after the worker died without waiting for a timeout', async () => {
+      const worker = createMockWorker()
+      const executor = createWorkerExecutor(worker)
+
+      worker.simulateExit(1)
+
+      await expect(executor.execute({ type: 'count', indexName: 'a', requestId: 'p1' })).rejects.toMatchObject({
+        code: ErrorCodes.WORKER_CRASHED,
+      })
+    })
+
+    it('treats an exit during shutdown as a shutdown, keeping onDeath silent', async () => {
+      const worker = createMockWorker()
+      const onDeath = vi.fn()
+      const executor = createWorkerExecutor(worker, { onDeath })
+
+      const shutdownPromise = executor.shutdown()
+      swallow(shutdownPromise)
+      worker.simulateExit(0)
+
+      await expect(shutdownPromise).rejects.toMatchObject({ code: ErrorCodes.WORKER_CRASHED })
+      expect(onDeath).not.toHaveBeenCalled()
+    })
+
+    it('keeps a browser worker alive through an error event, because the thread survives it', async () => {
+      const onDeath = vi.fn()
+      const handlers = new Map<string, (...args: unknown[]) => void>()
+      const webWorker: WorkerLike = {
+        postMessage() {},
+        addEventListener(event: string, fn: (...args: unknown[]) => void) {
+          handlers.set(event, fn)
+        },
+      }
+
+      createWorkerExecutor(webWorker, { onDeath })
+
+      expect(handlers.has('error')).toBe(false)
+      expect(onDeath).not.toHaveBeenCalled()
     })
   })
 
