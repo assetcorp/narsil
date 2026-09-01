@@ -65,7 +65,7 @@ In `sync` mode the engine acknowledges a write only once the log holds it on dis
 
 ## Index lifecycle
 
-An engine that holds many indexes can keep only the busy ones in memory. Lifecycle settings close an idle index while its durable files stay on disk, until the next request that names the index loads it back. The settings require durability, because a close writes a checkpoint and a reopen recovers from one.
+An engine that holds many indexes can keep only the ones in use in memory. When you configure lifecycle settings, the engine closes an index that nobody is using and keeps its files on disk. The engine loads the index back the next time a caller uses it. Configure durability alongside these settings, because the engine saves a checkpoint before it releases an index and reads that checkpoint back when it loads the index again.
 
 ```ts
 const narsil = await createNarsil({
@@ -78,41 +78,41 @@ const narsil = await createNarsil({
 })
 ```
 
-With lifecycle settings present, `createNarsil` reads each persisted index's metadata alone, registers the index as closed, and defers snapshot and log recovery until an operation names it, so an engine holding thousands of tenant indexes starts without loading any of them.
+With lifecycle settings present, `createNarsil` reads only the metadata of each persisted index and registers the index as closed. The engine recovers an index's documents when the first operation on that index runs, which means an engine holding thousands of tenant indexes starts without loading any of them.
 
 ### IndexLifecycleConfig
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `idleTimeoutMs` | `number` | none | Closes an index after this long without a read or a write. |
-| `maxOpenIndexes` | `number` | none | Caps how many indexes stay open, closing the least recently used above the cap. |
-| `maxOpenBytes` | `number` | none | Caps the estimated bytes the open indexes may hold in total, closing the least recently used first. |
-| `maxReopenWaiters` | `number` | `64` | Caps how many callers may queue behind one index's reopen. |
+| `idleTimeoutMs` | `number` | none | The engine closes an index after this many milliseconds without a read or a write. |
+| `maxOpenIndexes` | `number` | none | The engine keeps at most this many indexes open, and it closes the least recently used one when the count goes over. |
+| `maxOpenBytes` | `number` | none | The engine closes the least recently used indexes when the open ones use more than this many estimated bytes. |
+| `maxReopenWaiters` | `number` | `64` | At most this many callers may wait while one index reopens. |
 
-An empty object, `lifecycle: {}`, enables the closed startup state without any automatic trigger. An automatic close skips an index while a request, a rebalance, an analysis rebuild, or worker activity is in flight on it.
+Pass an empty object, `lifecycle: {}`, when you want the closed startup state without any automatic close. The engine skips an automatic close while a request, a rebalance, an analysis rebuild, or worker activity is running on the index.
 
 ### Open and close
 
-`close(indexName)` waits for the index's active operations to finish, writes a fresh checkpoint, and releases the index's worker copies and heap, while its files stay on disk. `open(indexName)` loads a closed index ahead of traffic, and it resets a parked recovery failure. `dropIndex` stays the deletion path, and it removes a closed index without reopening it.
+`close(indexName)` waits for the index's active operations to finish, and then it writes a checkpoint and releases the index's memory and worker copies. The engine keeps the index's files on disk. `open(indexName)` loads a closed index before any caller needs it, and it clears a parked recovery failure. `dropIndex` is the only way to delete an index, and it deletes a closed one without loading it.
 
 ```ts
 await narsil.close('archive-2024')
 await narsil.open('archive-2024')
 ```
 
-Both methods need durability, and each one fails with `CONFIG_INVALID` without it.
+Both methods fail with `CONFIG_INVALID` unless you configure durability.
 
 ### What reopens a closed index
 
-Reads and writes reopen the index they name, so a caller pays only the first request's recovery time. `listIndexes`, `getStats`, and `getMemoryStats` answer from registered metadata without loading anything. Concurrent requests arriving during a reopen share the one recovery. Past `maxReopenWaiters` of them, the engine rejects the excess with `INDEX_REOPEN_CAPACITY_EXHAUSTED`, which the HTTP server answers with status 503, so a client should retry once the load settles.
+The engine reopens a closed index when a caller reads from it or writes to it, and only that first caller waits for the recovery. `listIndexes`, `getStats`, and `getMemoryStats` answer from the registered metadata and load nothing. While an index reopens, the engine runs a single recovery, however many callers wait for it. When more than `maxReopenWaiters` callers are waiting, the engine rejects the rest with `INDEX_REOPEN_CAPACITY_EXHAUSTED`. The HTTP server answers that code with status 503, and a client may retry.
 
-When recovery itself fails, the engine keeps the index closed, retries on a later request after a backoff that starts at 100 ms and doubles per failure, and parks the index as `reopen-failed` after the fifth failure. The engine answers every request for a parked index with the cached recovery error and performs no disk read for it. `open()` resets the parked state and tries the recovery again.
+When the recovery fails, the engine keeps the index closed and tries again on a later request. The engine waits 100 ms after the first failure and twice as long after each failure that follows. After the fifth failure the engine parks the index in the `reopen-failed` state. The engine then answers every request for that index with the stored recovery error and reads nothing from disk. `open()` clears the parked state and tries the recovery again.
 
 ### Observing lifecycle state
 
-`listIndexes` reports each index's `state`, which is `open`, `closed`, or `reopen-failed`, and a `reopenCount` of successful loads since the engine started. A closed index reports the `documentCount` its last checkpoint recorded, or `null` where its metadata predates checkpoint counts. `getMemoryStats` adds `openIndexCount`, `closedIndexCount`, and a whole-engine `reopenCount`; see [Memory reporting](observability.md#memory-reporting).
+`listIndexes` reports each index's `state` as `open`, `closed`, or `reopen-failed`. It also reports a `reopenCount` of successful loads since the engine started. For a closed index, the engine reports the `documentCount` from its last checkpoint, or `null` when an older engine wrote the metadata without a count. `getMemoryStats` adds `openIndexCount`, `closedIndexCount`, and an engine-wide `reopenCount`; see [Memory reporting](observability.md#memory-reporting).
 
-In a cluster, `close` acts on the node you call it on: the allocation table, the replica sets, and the routing stay as they are, and a routed read or write that reaches the node reopens its local copy. See [Node-local operations](cluster.md#node-local-operations).
+In a cluster, `close` closes the copy on the node you call. The controller leaves the allocation table, the replica sets, and the routing unchanged, and the node reopens its copy when it receives a routed read or write. See [Node-local operations](cluster.md#node-local-operations).
 
 ## Snapshots and restore
 

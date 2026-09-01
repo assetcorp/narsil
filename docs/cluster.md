@@ -108,7 +108,7 @@ A node opens its replication listener before it registers, so a peer that reache
 
 ## Node-local operations
 
-`checkpoint`, `open`, `close`, `getMemoryStats`, `on`, and `off` reach the local engine of the node you call them on, because durability, index memory, process memory, and engine events are per-node facts. Ask each node for its own. `close` releases only that node's copy of the index, and a routed read or write that reaches the node loads the copy back; see [Index lifecycle](persistence-and-durability.md#index-lifecycle).
+`checkpoint`, `open`, `close`, `getMemoryStats`, `on`, and `off` reach the local engine of the node you call them on, because durability, index memory, process memory, and engine events are per-node facts. Ask each node for its own. When you call `close`, the node releases only its own copy of the index, and it loads the copy back when it receives a routed read or write; see [Index lifecycle](persistence-and-durability.md#index-lifecycle).
 
 ## What a cluster node refuses
 
