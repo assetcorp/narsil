@@ -65,7 +65,7 @@ In `sync` mode the engine acknowledges a write only once the log holds it on dis
 
 ## Index lifecycle
 
-An engine that holds many indexes can keep only the ones in use in memory. When you configure lifecycle settings, the engine closes an index that nobody is using and keeps its files on disk. The engine loads the index back the next time a caller uses it. Configure durability alongside these settings, because the engine saves a checkpoint before it releases an index and reads that checkpoint back when it loads the index again.
+An engine that holds many indexes can keep only the ones in use in memory. When you configure lifecycle settings, the engine closes an index that nobody is using and keeps its files on disk. The engine reopens the index the next time a caller uses it. Configure durability alongside these settings, because the engine saves a checkpoint before it releases an index and reads that checkpoint back when it reopens the index.
 
 ```ts
 const narsil = await createNarsil({
@@ -104,7 +104,7 @@ Both methods fail with `CONFIG_INVALID` unless you configure durability.
 
 ### What reopens a closed index
 
-The engine reopens a closed index when a caller reads from it or writes to it, and only that first caller waits for the recovery. `listIndexes`, `getStats`, and `getMemoryStats` answer from the registered metadata and load nothing. While an index reopens, the engine runs a single recovery, however many callers wait for it. When more than `maxReopenWaiters` callers are waiting, the engine rejects the rest with `INDEX_REOPEN_CAPACITY_EXHAUSTED`. The HTTP server answers that code with status 503, and a client may retry.
+The engine reopens a closed index when a caller reads from it or writes to it. The first caller starts the recovery, and each caller that arrives while it runs waits on that same recovery. `listIndexes`, `getStats`, and `getMemoryStats` answer from the registered metadata and load nothing. When more than `maxReopenWaiters` callers are waiting behind the first, the engine rejects the rest with `INDEX_REOPEN_CAPACITY_EXHAUSTED`. The HTTP server answers that code with status 503, and a client may retry.
 
 When the recovery fails, the engine keeps the index closed and tries again on a later request. The engine waits 100 ms after the first failure and twice as long after each failure that follows. After the fifth failure the engine parks the index in the `reopen-failed` state. The engine then answers every request for that index with the stored recovery error and reads nothing from disk. `open()` clears the parked state and tries the recovery again.
 
