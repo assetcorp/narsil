@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createIndexStateCoordinator } from '../../engine/index-state'
-import { ErrorCodes } from '../../errors'
+import { createIndexStateCoordinator } from '../../../engine/index-state'
+import { ErrorCodes } from '../../../errors'
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let settle = (): void => undefined
