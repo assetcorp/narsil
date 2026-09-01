@@ -1,8 +1,10 @@
 import { decode, encode } from '@msgpack/msgpack'
 import type { AnyDocument } from '../../../types/schema'
+import { documentValueBytes } from '../../document-store'
 
 export interface FrozenDocumentSource {
   readonly count: number
+  readonly byteLength: number
   docAt(ordinal: number): AnyDocument
 }
 
@@ -39,6 +41,7 @@ export function wrapEncodedDocumentTable(data: EncodedDocumentTableData): Frozen
 
   return {
     count,
+    byteLength: blob.byteLength + offsets.byteLength,
     docAt(ordinal: number): AnyDocument {
       let document = decoded[ordinal]
       if (document === undefined) {
@@ -51,8 +54,13 @@ export function wrapEncodedDocumentTable(data: EncodedDocumentTableData): Frozen
 }
 
 export function wrapDocumentArray(documents: ReadonlyArray<AnyDocument>): FrozenDocumentSource {
+  let residentBytes = 0
+  for (const document of documents) {
+    residentBytes += documentValueBytes(document)
+  }
   return {
     count: documents.length,
+    byteLength: residentBytes,
     docAt(ordinal: number): AnyDocument {
       return documents[ordinal]
     },
