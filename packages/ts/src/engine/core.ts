@@ -7,12 +7,11 @@ import { createPartitionRouter, type PartitionRouter } from '../partitioning/rou
 import type { createWriteAheadQueue, WAQEntry } from '../partitioning/write-ahead-queue'
 import { createPluginRegistry, type PluginRegistry } from '../plugins/registry'
 import { validateEmbeddingConfig, validateRegisteredAdapter } from '../schema/embedding-validator'
-import { extractVectorFieldsFromSchema } from '../schema/validator'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
 import type { LanguageModule } from '../types/language'
-import type { IndexConfig, SchemaDefinition } from '../types/schema'
+import type { IndexConfig } from '../types/schema'
 import { createDirectExecutor, type DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
 import { createExecutionPromoter, type ExecutionPromoter } from '../workers/promoter'
@@ -20,11 +19,14 @@ import { type AnalysisRebuildCoordinator, wireAnalysisRebuild } from './analysis
 import { resolveDurabilityTier } from './durability-config'
 import type { DurabilityIntegration } from './durability-integration'
 import { createDurabilityFromTier } from './durability-wiring'
+import type { IndexStateCoordinator } from './index-state'
+import { type EngineCoreHooks, wireIndexState } from './index-state-wiring'
 import { createInvalidationFromConfig, type InvalidationIntegration } from './invalidation'
 import type { MutationContext } from './mutations'
 import { createWorkerOrchestrator, type WorkerOrchestrator } from './orchestration'
 import type { RebalanceContext } from './rebalance-executor'
 import { reconstructSchemaFromMetadata } from './recovery-schema'
+import { getVectorFieldPaths } from './vector-fields'
 import { createWatermarkNotifier, type WatermarkNotifier } from './watermark'
 
 export type IndexRegistryEntry = {
@@ -39,13 +41,11 @@ export type IndexRegistryEntry = {
   indexUuid: string | null
   /** The partitions this copy holds, or null where nothing has recorded them yet. */
   heldPartitions: number[] | null
+  documentCount: number
+  partitionCount: number
 }
 
 export type EventHandler = (payload: unknown) => void
-
-export interface ShutdownState {
-  isShutdown: boolean
-}
 
 export interface EngineCore {
   readonly executor: Executor & DirectExecutorExtensions
@@ -57,7 +57,7 @@ export interface EngineCore {
   readonly indexRegistry: Map<string, IndexRegistryEntry>
   readonly embeddingAdapters: Map<string, EmbeddingAdapter>
   readonly eventHandlers: Map<string, Set<EventHandler>>
-  readonly shutdownState: ShutdownState
+  readonly shutdownState: { isShutdown: boolean }
   readonly abortController: AbortController
   readonly orchestrator: WorkerOrchestrator
   readonly rebalancer: Rebalancer
@@ -70,15 +70,19 @@ export interface EngineCore {
   readonly bufferIfRebalancing: (indexName: string, entry: Omit<WAQEntry, 'sequenceNumber'>) => boolean
   readonly watermarkNotifier: WatermarkNotifier
   readonly analysisRebuild: AnalysisRebuildCoordinator
+  readonly indexState: IndexStateCoordinator
   readonly mutationCtx: MutationContext
   readonly rebalanceCtx: RebalanceContext
 }
 
-export function getVectorFieldPaths(schema: SchemaDefinition): Set<string> {
-  return new Set(extractVectorFieldsFromSchema(schema).keys())
-}
-
-export function createEngineCore(config?: NarsilConfig): EngineCore {
+/**
+ * Builds the internal engine services shared by standalone and cluster engines.
+ *
+ * @param config - Public engine settings.
+ * @param hooks - Node-local callbacks the engine runs after an index reopens and after it closes.
+ * @returns The connected engine core.
+ */
+export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks): EngineCore {
   const executor: Executor & DirectExecutorExtensions = createDirectExecutor()
   const promoter = createExecutionPromoter({
     perIndexThreshold: config?.workers?.promotionThreshold,
@@ -100,7 +104,7 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     }
   }
   const eventHandlers = new Map<string, Set<EventHandler>>()
-  const shutdownState: ShutdownState = { isShutdown: false }
+  const shutdownState = { isShutdown: false }
   const abortController = new AbortController()
   const rebalancingIndexes = new Set<string>()
 
@@ -171,8 +175,12 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     return manager
   }
 
-  async function createIndexFromMetadata(metadata: IndexMetadata): Promise<void> {
-    if (indexRegistry.has(metadata.indexName)) {
+  async function createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void> {
+    const existing = indexRegistry.get(metadata.indexName)
+    if (existing !== undefined) {
+      if (loadData && executor.getManager(metadata.indexName) === undefined) {
+        executor.createIndex(metadata.indexName, existing.config, existing.language)
+      }
       return
     }
     const indexConfig = reconstructSchemaFromMetadata(metadata)
@@ -206,7 +214,7 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     }
 
     try {
-      executor.createIndex(metadata.indexName, indexConfig, language)
+      if (loadData) executor.createIndex(metadata.indexName, indexConfig, language)
     } catch (err) {
       if (err instanceof NarsilError && err.code === ErrorCodes.CONFIG_INVALID) {
         throw new NarsilError(err.code, `Recovery of index "${metadata.indexName}" failed: ${err.message}`, {
@@ -225,7 +233,11 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
       vectorFieldPaths: getVectorFieldPaths(indexConfig.schema),
       indexUuid: metadata.indexUuid ?? null,
       heldPartitions: metadata.heldPartitions ?? null,
+      documentCount: metadata.documentCount ?? 0,
+      partitionCount: metadata.partitionCount,
     })
+    if (loadData) await indexState.registerOpen(metadata.indexName)
+    else indexState.registerClosed(metadata.indexName)
     if (metadata.analysisRevision !== language.revision) {
       analysisRebuild.markStale({
         indexName: metadata.indexName,
@@ -237,10 +249,13 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
   }
 
   const durabilityTier = config !== undefined ? resolveDurabilityTier(config) : null
+  if (config?.lifecycle !== undefined && durabilityTier === null) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Index lifecycle settings require durability')
+  }
   let invalidation: InvalidationIntegration | null = null
 
   const durability = createDurabilityFromTier(durabilityTier, {
-    requireManager,
+    getManager: indexName => executor.getManager(indexName),
     indexRegistry,
     createIndexFromMetadata,
     emitFatalError(error: Error) {
@@ -251,6 +266,12 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     },
     publishCheckpointedPartitions: (indexName, partitions) =>
       invalidation?.publishPartitions(indexName, partitions) ?? Promise.resolve(),
+    recordCheckpoint(indexName, documentCount, partitionCount) {
+      const entry = indexRegistry.get(indexName)
+      if (entry === undefined) return
+      entry.documentCount = documentCount
+      entry.partitionCount = partitionCount
+    },
   })
 
   invalidation = createInvalidationFromConfig(config, durabilityTier?.kind ?? null, {
@@ -298,6 +319,19 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     desyncIndex: indexName => orchestrator.desyncIndex(indexName),
     resyncIndex: (indexName, wasPromoted) => orchestrator.resyncIndex(indexName, wasPromoted),
     durabilityManager: durability?.manager ?? null,
+  })
+
+  const indexState = wireIndexState({
+    config: config?.lifecycle,
+    durability,
+    executor,
+    orchestrator,
+    analysisRebuild,
+    indexRegistry,
+    rebalancingIndexes,
+    requireManager,
+    onClose: hooks?.onIndexClose,
+    onOpen: hooks?.onIndexOpen,
   })
 
   const mutationCtx: MutationContext = {
@@ -355,6 +389,7 @@ export function createEngineCore(config?: NarsilConfig): EngineCore {
     bufferIfRebalancing,
     watermarkNotifier,
     analysisRebuild,
+    indexState,
     mutationCtx,
     rebalanceCtx,
   }

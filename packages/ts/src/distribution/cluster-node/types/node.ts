@@ -31,6 +31,21 @@ export interface ClusterNode {
   readonly roles: ReadonlyArray<NodeRole>
 
   /**
+   * Loads this node's local copy of an index from durable storage.
+   *
+   * @param indexName - The index to load on this node.
+   * @returns A promise that settles when the local copy is ready for operations.
+   */
+  open(indexName: string): Promise<void>
+  /**
+   * Checkpoints and releases this node's local copy of an index.
+   *
+   * @param indexName - The index to close on this node.
+   * @returns A promise that settles after the local copy releases its memory.
+   */
+  close(indexName: string): Promise<void>
+
+  /**
    * Creates an index across the cluster, publishing its schema and allocating
    * its partitions to nodes.
    *

@@ -46,7 +46,7 @@ await narsil.createIndex('articles', {
 
 ```ts
 const indexes = narsil.listIndexes()
-// [{ name: 'articles', documentCount: 1204, partitionCount: 1, language: 'english' }]
+// [{ name: 'articles', documentCount: 1204, partitionCount: 1, language: 'english', state: 'open', reopenCount: 0 }]
 
 const stats = narsil.getStats('articles')
 // { documentCount, partitionCount, estimatedMemoryBytes, language, schema }
@@ -57,6 +57,8 @@ await narsil.dropIndex('articles')
 ```
 
 `clear` removes every document but keeps the index and its schema. `dropIndex` removes the index entirely, including its persisted data. Call `shutdown()` when the process is done with the engine; it stops workers, flushes durability state, and rejects further calls.
+
+With durability configured, `close(indexName)` releases an index's memory and keeps its files on disk, and `open(indexName)` reopens the index. This is how one engine can hold more indexes than fit in memory. Read each entry's `state` and `reopenCount` to see whether the engine has the index in memory and how many times it has reopened it. For a closed index, the engine reports the `documentCount` from its last checkpoint. See [Index lifecycle](persistence-and-durability.md#index-lifecycle).
 
 ## Documents
 

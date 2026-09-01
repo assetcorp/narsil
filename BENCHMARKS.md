@@ -271,7 +271,11 @@ MiniSearch ███████████                    0.2506
 ### Indexing and query speed
 
 The suite records indexing throughput, query latency, and resident memory at each
-corpus scale, and it measures filtered search where the engine supports it.
+corpus scale, and it measures filtered search where the engine supports it. Narsil
+runs this track with `trackPositions: false`, because the suite measures no feature
+that reads term positions, so the memory figures describe an index storing only
+what these measurements exercise. The server comparison above runs Narsil with its
+defaults, which keep positions on.
 
 <!-- BENCH:inprocess-speed START -->
 Insert throughput at 50,000 documents, documents per second, higher is better:

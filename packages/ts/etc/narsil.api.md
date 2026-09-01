@@ -125,6 +125,7 @@ export const ErrorCodes: {
     readonly INDEX_NOT_FOUND: "INDEX_NOT_FOUND";
     readonly INDEX_ALREADY_EXISTS: "INDEX_ALREADY_EXISTS";
     readonly INDEX_ORPHANED: "INDEX_ORPHANED";
+    readonly INDEX_REOPEN_CAPACITY_EXHAUSTED: "INDEX_REOPEN_CAPACITY_EXHAUSTED";
     readonly PARTITION_CORRUPTED: "PARTITION_CORRUPTED";
     readonly PARTITION_REBALANCING_BACKPRESSURE: "PARTITION_REBALANCING_BACKPRESSURE";
     readonly WORKER_CRASHED: "WORKER_CRASHED";
@@ -369,6 +370,22 @@ export interface IndexInfo {
     language: string;
     name: string;
     partitionCount: number;
+    reopenCount: number;
+    state: 'open' | 'closed' | 'reopen-failed';
+}
+
+// @public
+export interface IndexLifecycleConfig {
+    idleTimeoutMs?: number;
+    maxOpenBytes?: number;
+    maxOpenIndexes?: number;
+    maxReopenWaiters?: number;
+}
+
+// @public
+export interface IndexLifecycleOperations {
+    close(indexName: string): Promise<void>;
+    open(indexName: string): Promise<void>;
 }
 
 // @public
@@ -451,8 +468,11 @@ export interface ListResult<T = AnyDocument> {
 
 // @public
 export interface MemoryStats {
+    closedIndexCount: number;
     estimatedIndexBytes: number;
+    openIndexCount: number;
     process: ProcessMemoryReport | null;
+    reopenCount: number;
     workers: Array<{
         workerId: number;
         heapUsed: number;
@@ -462,7 +482,7 @@ export interface MemoryStats {
 }
 
 // @public
-export interface Narsil {
+export interface Narsil extends IndexLifecycleOperations {
     checkpoint(indexName: string): Promise<void>;
     clear(indexName: string): Promise<void>;
     compactVectors(indexName: string, fieldName?: string): Promise<void>;
@@ -510,6 +530,7 @@ export interface NarsilConfig {
     embeddingAdapters?: Record<string, EmbeddingAdapter>;
     idGenerator?: () => string;
     invalidation?: InvalidationAdapter;
+    lifecycle?: IndexLifecycleConfig;
     persistence?: PersistenceAdapter;
     plugins?: NarsilPlugin[];
     workers?: WorkerConfig;

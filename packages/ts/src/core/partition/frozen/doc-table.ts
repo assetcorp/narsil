@@ -101,6 +101,10 @@ export function createFrozenDocTable(
       return capacity
     },
 
+    contentBytes(): number {
+      return documents.byteLength
+    },
+
     resolver(): InternalIdResolver {
       return resolver
     },

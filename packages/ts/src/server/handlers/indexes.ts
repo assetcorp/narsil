@@ -67,5 +67,23 @@ export function createIndexHandlers(deps: HandlerDeps) {
     }
   }
 
-  return { create, list, drop, stats, partitions, clear }
+  async function open(ctx: RouteContext): Promise<void> {
+    try {
+      await engine.open(ctx.params[0])
+      respondJson(ctx, { name: ctx.params[0], state: 'open' })
+    } catch (err) {
+      respondError(ctx, err)
+    }
+  }
+
+  async function close(ctx: RouteContext): Promise<void> {
+    try {
+      await engine.close(ctx.params[0])
+      respondJson(ctx, { name: ctx.params[0], state: 'closed' })
+    } catch (err) {
+      respondError(ctx, err)
+    }
+  }
+
+  return { create, list, drop, stats, partitions, clear, open, close }
 }

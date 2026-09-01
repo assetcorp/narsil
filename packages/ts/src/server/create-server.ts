@@ -181,6 +181,8 @@ class NarsilHttpServer implements NarsilServer {
     app.get('/indexes/:name/partitions', json(idx.partitions, { paramCount: 1, maxBytes: 0 }))
     app.get('/indexes/:name/cluster', json(cluster.allocation, { paramCount: 1, maxBytes: 0 }))
     app.post('/indexes/:name/_clear', json(idx.clear, { paramCount: 1, maxBytes: 0 }))
+    app.post('/indexes/:name/_open', json(idx.open, { paramCount: 1, maxBytes: 0 }))
+    app.post('/indexes/:name/_close', json(idx.close, { paramCount: 1, maxBytes: 0 }))
     app.get('/indexes/:name/count', json(doc.count, { paramCount: 1, maxBytes: 0 }))
 
     app.post('/indexes/:name/documents', json(doc.insert, { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }))

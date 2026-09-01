@@ -12,8 +12,8 @@ export { createNarsilFromCore } from './operations'
  *
  * The engine holds every index you create, so an application usually keeps one
  * instance for its lifetime. When you configure persistence, this recovers the
- * indexes already on disk before it resolves, so the engine is ready to query
- * as soon as you have it.
+ * indexes already on disk before it resolves. Lifecycle settings register
+ * those indexes as closed and load each one when its first request arrives.
  *
  * @param config - This carries the persistence, partitioning, and worker
  * invalidation settings. Omit it for an engine that keeps everything in memory.
@@ -24,11 +24,11 @@ export { createNarsilFromCore } from './operations'
 export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
   const core = createEngineCore(config)
   if (core.durability) {
-    await core.durability.manager.recover()
+    await core.durability.manager.recover(config?.lifecycle !== undefined)
   }
   if (core.invalidation) {
     await core.invalidation.start()
   }
-  await core.analysisRebuild.reviewStaleIndexes()
+  if (config?.lifecycle === undefined) await core.analysisRebuild.reviewStaleIndexes()
   return createNarsilFromCore(core, config)
 }

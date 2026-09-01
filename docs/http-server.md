@@ -36,6 +36,7 @@ The full surface:
 | `POST /indexes`, `GET /indexes`, `DELETE /indexes/{name}` | The endpoints create, list, and drop indexes. |
 | `GET /indexes/{name}/stats`, `GET /indexes/{name}/partitions`, `GET /indexes/{name}/count` | The endpoints report index, partition, and document-count statistics. |
 | `POST /indexes/{name}/_clear` | The endpoint removes every document but keeps the index. |
+| `POST /indexes/{name}/_open`, `POST /indexes/{name}/_close` | The endpoints load an index into memory and release it back to disk. See [Index lifecycle](persistence-and-durability.md#index-lifecycle). |
 | `POST /indexes/{name}/documents` | The endpoint inserts one document. |
 | `GET`, `PUT`, `PATCH`, `DELETE /indexes/{name}/documents/{id}` | The endpoints read, upsert, update, and remove one document. |
 | `GET /indexes/{name}/documents/{id}/_exists` | The endpoint reports whether the id exists. |

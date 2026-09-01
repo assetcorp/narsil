@@ -27,6 +27,7 @@ export type {
 export type {
   AnalysisConfig,
   DurabilityConfig,
+  IndexLifecycleConfig,
   NarsilConfig,
   StaleAnalysis,
   WorkerConfig,
@@ -44,6 +45,7 @@ export type {
   StringFilter,
 } from './types/filters'
 export type { LanguageModule, TokenizerConfig } from './types/language'
+export type { IndexLifecycleOperations } from './types/lifecycle'
 export type {
   IndexContext,
   InsertContext,

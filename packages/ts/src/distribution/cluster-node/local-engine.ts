@@ -16,16 +16,17 @@ import {
 import { deserializePayloadV2 } from '../../serialization/payload-v2'
 import type { NarsilConfig } from '../../types/config'
 import type { GlobalStatistics } from '../../types/internal'
-import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
+import type { ListResult, PartitionStatsResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
 import type { AnyDocument, FieldType, IndexConfig, SchemaDefinition } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
 import { MAX_PARTITION_COUNT } from '../cluster/index-metadata'
-import { applyDeleteEntry, applyIndexEntry } from '../replication/replica'
 import type { ReplicationLogEntry } from '../replication/types'
 import { createHeldPartitionRecord } from './held-partitions'
+import { applyLocalReplicationEntry } from './local-replication'
 
 export interface ClusterLocalEngine extends Narsil {
   createIndexWithUuid(name: string, config: IndexConfig, indexUuid?: string): Promise<void>
+  acquireIndexForReplication(indexName: string): Promise<() => void>
   indexUuidOf(indexName: string): string | null | undefined
   stampIndexUuid(indexName: string, indexUuid: string): Promise<void>
   highestPersistedSeqNoOf(indexName: string, partitionId: number): number
@@ -50,24 +51,39 @@ export interface ClusterLocalEngine extends Narsil {
   preflightPartitions(indexName: string, params: QueryParams, partitionIds: number[]): Promise<PreflightResult>
   suggestPartitions(indexName: string, params: SuggestParams, partitionIds: number[]): Promise<SuggestResult>
   listPartitions<T = AnyDocument>(indexName: string, params: ListParams, partitionIds: number[]): Promise<ListResult<T>>
-  collectQueryStats(indexName: string, terms: string[], partitionIds: number[]): PartitionQueryStats
+  collectQueryStats(indexName: string, terms: string[], partitionIds: number[]): Promise<PartitionQueryStats>
+  partitionStatsForRead(indexName: string): Promise<PartitionStatsResult[]>
 }
 
-export async function createClusterLocalEngine(config?: NarsilConfig): Promise<ClusterLocalEngine> {
-  const core = createEngineCore(config)
+/**
+ * Builds the engine one cluster node uses for its local partitions.
+ *
+ * @param config - Settings for this node's engine.
+ * @param hooks - Node-local callbacks the engine runs after an index reopens and after it closes.
+ * @returns The local engine, including partition-scoped cluster operations.
+ */
+export async function createClusterLocalEngine(
+  config?: NarsilConfig,
+  hooks?: {
+    onIndexOpen?(indexName: string): void | Promise<void>
+    onIndexClose?(indexName: string): void | Promise<void>
+  },
+): Promise<ClusterLocalEngine> {
+  const core = createEngineCore(config, hooks)
   if (core.durability !== null) {
-    await core.durability.manager.recover()
+    await core.durability.manager.recover(config?.lifecycle !== undefined)
   }
   if (core.invalidation !== null) {
     await core.invalidation.start()
   }
-  await core.analysisRebuild.reviewStaleIndexes()
+  if (config?.lifecycle === undefined) await core.analysisRebuild.reviewStaleIndexes()
   const engine = createNarsilFromCore(core, config)
   const heldPartitions = createHeldPartitionRecord(core)
 
   return Object.assign(engine, {
     createIndexWithUuid: (name: string, indexConfig: IndexConfig, indexUuid?: string) =>
       createEngineIndex(core, config, name, indexConfig, indexUuid),
+    acquireIndexForReplication: (indexName: string) => core.indexState.acquire(indexName, false),
     indexUuidOf: (indexName: string) => core.indexRegistry.get(indexName)?.indexUuid,
     stampIndexUuid: (indexName: string, indexUuid: string) => stampIndexUuid(core, indexName, indexUuid),
     highestPersistedSeqNoOf: (indexName: string, partitionId: number) =>
@@ -75,7 +91,7 @@ export async function createClusterLocalEngine(config?: NarsilConfig): Promise<C
     heldPartitionsOf: (indexName: string) => heldPartitions.held(indexName),
     recordHeldPartition: (indexName: string, partitionId: number) => heldPartitions.record(indexName, partitionId),
     forgetHeldPartition: (indexName: string, partitionId: number) => heldPartitions.forget(indexName, partitionId),
-    applyReplicationEntry: (entry: ReplicationLogEntry) => applyReplicationEntry(core, entry),
+    applyReplicationEntry: (entry: ReplicationLogEntry) => applyLocalReplicationEntry(core, entry),
     serializeReplicationPartition: (indexName: string, partitionId: number) =>
       serializeReplicationPartition(core, indexName, partitionId),
     restoreReplicationPartition: (
@@ -99,6 +115,14 @@ export async function createClusterLocalEngine(config?: NarsilConfig): Promise<C
       runEngineListDocuments<T>(core, indexName, params, partitionIds),
     collectQueryStats: (indexName: string, terms: string[], partitionIds: number[]) =>
       runEngineQueryStats(core, indexName, terms, partitionIds),
+    partitionStatsForRead: async (indexName: string) => {
+      const release = await core.indexState.acquire(indexName)
+      try {
+        return core.requireManager(indexName).getPartitionStats()
+      } finally {
+        release()
+      }
+    },
   })
 }
 
@@ -119,7 +143,12 @@ async function serializeReplicationPartition(
   partitionId: number,
 ): Promise<Uint8Array> {
   core.guardShutdown()
-  return core.requireManager(indexName).serializePartitionToBytes(partitionId)
+  const release = await core.indexState.acquire(indexName, false)
+  try {
+    return core.requireManager(indexName).serializePartitionToBytes(partitionId)
+  } finally {
+    release()
+  }
 }
 
 async function restoreReplicationPartition(
@@ -153,24 +182,37 @@ async function restoreReplicationPartition(
   const trackPositions = core.indexRegistry.get(indexName)?.config.trackPositions ?? true
   createPartitionIndex(partitionId, trackPositions).deserialize(partition, schema)
 
-  const restoreIndex = await ensureReplicationIndex(core, engine, indexName, schema, partition.language, partitionCount)
-  if (restoreIndex.created) {
-    await core.orchestrator.replicateToWorkers({
-      type: 'createIndex',
+  let release = core.indexRegistry.has(indexName) ? await core.indexState.acquire(indexName, false) : null
+  try {
+    const restoreIndex = await ensureReplicationIndex(
+      core,
+      engine,
       indexName,
-      config: restoreIndex.config,
-      requestId: `replicate-partition-index-${indexName}`,
+      schema,
+      partition.language,
+      partitionCount,
+    )
+    if (release === null) release = await core.indexState.acquire(indexName, false)
+    if (restoreIndex.created) {
+      await core.orchestrator.replicateToWorkers({
+        type: 'createIndex',
+        indexName,
+        config: restoreIndex.config,
+        requestId: `replicate-partition-index-${indexName}`,
+      })
+    }
+    const manager = core.requireManager(indexName)
+    manager.deserializePartition(partitionId, partition)
+    await core.orchestrator.replicateToWorkers({
+      type: 'deserialize',
+      indexName,
+      partitionId,
+      data: partition,
+      requestId: `replicate-partition-restore-${indexName}-${partitionId}`,
     })
+  } finally {
+    release?.()
   }
-  const manager = core.requireManager(indexName)
-  manager.deserializePartition(partitionId, partition)
-  await core.orchestrator.replicateToWorkers({
-    type: 'deserialize',
-    indexName,
-    partitionId,
-    data: partition,
-    requestId: `replicate-partition-restore-${indexName}-${partitionId}`,
-  })
 }
 
 function validatePartitionRestoreTarget(indexName: string, partitionId: number, partitionCount: number): void {
@@ -347,34 +389,4 @@ function flattenSchemaInto(schema: SchemaDefinition, prefix: string, flat: Recor
 
 function isNestedSchema(value: FieldType | SchemaDefinition): value is SchemaDefinition {
   return typeof value === 'object' && value !== null
-}
-
-async function applyReplicationEntry(core: EngineCore, entry: ReplicationLogEntry): Promise<void> {
-  core.guardShutdown()
-  const indexEntry = core.requireIndex(entry.indexName)
-  const manager = core.requireManager(entry.indexName)
-  const vecIndexes = manager.getVectorIndexes()
-
-  if (entry.operation === 'INDEX') {
-    applyIndexEntry(entry, manager, indexEntry.vectorFieldPaths, vecIndexes)
-    const appliedDocument = manager.get(entry.documentId)
-    if (appliedDocument !== undefined) {
-      await core.orchestrator.replicateToWorkers({
-        type: 'insert',
-        indexName: entry.indexName,
-        docId: entry.documentId,
-        document: appliedDocument,
-        requestId: `replicate-entry-insert-${entry.indexName}-${entry.partitionId}-${entry.seqNo}`,
-      })
-    }
-    return
-  }
-
-  applyDeleteEntry(entry, manager, vecIndexes)
-  await core.orchestrator.replicateToWorkers({
-    type: 'remove',
-    indexName: entry.indexName,
-    docId: entry.documentId,
-    requestId: `replicate-entry-remove-${entry.indexName}-${entry.partitionId}-${entry.seqNo}`,
-  })
 }

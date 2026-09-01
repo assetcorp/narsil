@@ -1,4 +1,6 @@
-export { DEFAULT_COMPACTION_THRESHOLD } from './layout'
+export { DEFAULT_COMPACTION_THRESHOLD, legacySnapshotKey } from './layout'
 export { loadSegmentedSnapshot, readSegmentManifest, reclaimOrphanedSegments } from './load'
 export type { SegmentManifest } from './manifest'
+export { countLiveDocuments } from './merge'
+export { readSegmentContents } from './segment-file'
 export { writeSegmentedCheckpoint } from './write'

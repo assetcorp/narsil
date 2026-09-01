@@ -272,6 +272,8 @@ Keys under `<indexName>/segments/` that the manifest does not reference are dele
 
 On index creation, and on any change that affects the schema, a node persists the index metadata at `<indexName>/meta` using the metadata payload from [envelope.md](envelope.md#index-metadata-payload). That metadata lets recovery rebuild an index with its full configuration, with no call from the application.
 
+After it makes a checkpoint durable, the node must persist the checkpoint's total document count in `document_count` before it completes the checkpoint.
+
 When the metadata carries an `embedding` block, recovery restores the field mappings and rebinds the embedding adapter by its registered name. Rebinding validates the adapter's dimensions against every mapped vector field before the index uses it.
 
 When the metadata names a tokeniser or a stop word set, recovery resolves each name against the engine's analysis registry before it creates the index. A name nothing is registered under raises `CONFIG_INVALID` and stops that index recovering, because an index whose analysis cannot be restored would answer every query against terms it never stored. An operator restores such an index by registering the missing name and starting the node again.
@@ -286,9 +288,10 @@ An interval, a mutation count since the last checkpoint, or both together trigge
 
 1. Capture each partition's current head sequence number, `N_p`.
 2. Write the [segmented checkpoint](#segmented-checkpoint), with the manifest's `checkpoint` list carrying `lastSeqNo = N_p` for each partition.
-3. Once the manifest is fully durable, meaning the directory fsync of its atomic write has returned, delete for each partition every log segment whose highest `seqNo` is at or below `N_p`. Keep the segment containing `N_p`, because it also holds records above `N_p`, and keep every newer segment. Never delete the segment the partition's commit marker names active, even when all of its current records are at or below `N_p`, because new writes will extend it.
+3. Persist the checkpoint's total document count in `document_count`.
+4. Once the manifest and metadata are fully durable, delete for each partition every log segment whose highest `seqNo` is at or below `N_p`. Keep the segment containing `N_p`, because it also holds records above `N_p`, and keep every newer segment. Never delete the segment the partition's commit marker names active, even when all of its current records are at or below `N_p`, because new writes will extend it.
 
-The ordering rule is absolute: the checkpoint must be fully durable before any log segment it covers is deleted, and that order is never reversed. A crash between steps 2 and 3 leaves extra log segments, which recovery skips by sequence number with no harm done.
+The ordering rule is absolute: the checkpoint must be fully durable before any log segment it covers is deleted, and that order is never reversed. A crash before step 4 leaves extra log segments, which recovery skips by sequence number with no harm done.
 
 The commit marker always references the active segment, which a checkpoint never deletes, so truncation leaves the marker alone.
 
@@ -296,7 +299,7 @@ The commit marker always references the active segment, which a checkpoint never
 
 ## Recovery
 
-With persistence configured, a node recovers on startup before it serves any request:
+With persistence configured and no lifecycle settings, a node must recover on startup before it serves any request:
 
 1. Enumerate the persisted indexes from their `<indexName>/meta` keys.
 2. For each index:
@@ -305,6 +308,8 @@ With persistence configured, a node recovers on startup before it serves any req
    3. Load the partitions and vector indexes, by [structural merge](#structural-merge-recovery) from a manifest or by decoding the bundle from a legacy snapshot, and read each partition's `lastSeqNo`.
    4. For each partition, read its log as described in [Reading a Segment](#reading-a-segment) and replay every record whose `seqNo` is above `lastSeqNo`.
 3. After replay the index serves reads and writes, and each partition continues from the highest replayed `seqNo` plus one.
+
+With lifecycle settings configured, a node must load each persisted index's metadata on startup, register the index closed, and defer snapshot and log recovery until the first operation names the index; it must finish recovery before the operation accesses index data.
 
 Corruption is handled by kind:
 
@@ -354,8 +359,11 @@ Configuring write-ahead log durability, by setting `durability.directory`, again
 
 ## Error Codes
 
+A node must reject an operation with `INDEX_REOPEN_CAPACITY_EXHAUSTED` when it names a closed index that already has the configured number of operations waiting for it to reopen.
+
 | Code | Raised when |
 |------|-------------|
+| `INDEX_REOPEN_CAPACITY_EXHAUSTED` | An operation names a closed index that already has the configured number of operations waiting for it to reopen. |
 | `PERSISTENCE_CRC_MISMATCH` | A snapshot envelope checksum does not match its payload. |
 | `PERSISTENCE_WAL_CORRUPT` | A record inside a segment's durable region overruns the region, fails its checksum, fails to decode, breaks sequence-number order, or leaves the highest seqNo read short of the commit marker. |
 | `PERSISTENCE_FSYNC_FAILED` | An fsync returned an error. The write is not acknowledged, and the error is fatal. |

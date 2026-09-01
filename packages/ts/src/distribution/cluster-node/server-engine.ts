@@ -29,8 +29,8 @@ function unsupported(operation: string): never {
  *
  * Writes, updates, searches, suggestions, listings, counts, index creation,
  * index removal, and document reads route through the cluster. Checkpointing,
- * memory statistics, and engine events reach this node's local engine, because
- * each covers a per-node fact. Every other operation fails with
+ * memory statistics, index opens, index closes, and engine events reach this
+ * node's local engine, because each covers a per-node fact. Every other operation fails with
  * `CLUSTER_OPERATION_UNSUPPORTED`, which the HTTP server answers with status
  * 501, so a caller learns the operation is missing rather than reading a
  * wrong answer. That covers `getStats`, `getPartitionStats`, and
@@ -47,6 +47,14 @@ function unsupported(operation: string): never {
  */
 export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOptions): Narsil {
   return {
+    open(indexName: string): Promise<void> {
+      return node.open(indexName)
+    },
+
+    close(indexName: string): Promise<void> {
+      return node.close(indexName)
+    },
+
     async createIndex(name: string, config: IndexConfig): Promise<void> {
       return node.createIndex(name, config, options?.createIndex)
     },

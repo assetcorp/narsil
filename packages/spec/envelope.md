@@ -356,6 +356,7 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   schema:                Map<string, string>
   language:              string
   partition_count:       uint32
+  document_count:        uint64               (optional; documents in the last completed checkpoint)
   bm25_params:           { k1: float32, b: float32 }
   created_at:            uint64               (milliseconds since the Unix epoch)
   engine_version:        string               (for example "0.1.0")
@@ -400,6 +401,8 @@ VectorPromotionMeta {
   quantization:     string                                                  (optional; "sq8" or "none")
 }
 ```
+
+`document_count` must equal the total number of documents in the last completed checkpoint. A reader must treat an absent `document_count` as unknown.
 
 `vector_fields` lists every vector field with its configuration, so the engine knows which vector index files to load without scanning the storage keys.
 

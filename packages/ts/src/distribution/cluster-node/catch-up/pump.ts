@@ -31,7 +31,7 @@ function batchBytes(entries: ReplicationLogEntry[]): number {
 function replicaHasFallenOutOfRetention(log: ReplicationLog, cursor: ReplicaCursor): boolean {
   const oldest = log.oldestSeqNo
   if (oldest === undefined) {
-    return false
+    return cursor.appliedSeqNo < log.localLogEnd
   }
   return cursor.appliedSeqNo + 1 < oldest
 }

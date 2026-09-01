@@ -84,6 +84,27 @@ describe('serializeMetadata / deserializeMetadata', () => {
     const disabled = deserializeMetadata(serializeMetadata(makeMetadata()))
     expect(disabled.surfaceForms).toBeUndefined()
   })
+
+  it('roundtrips the completed-checkpoint document count', () => {
+    const original = makeMetadata({ documentCount: 42 })
+    const restored = deserializeMetadata(serializeMetadata(original))
+
+    expect(restored.documentCount).toBe(42)
+  })
+
+  it('leaves the document count absent for older metadata', () => {
+    const restored = deserializeMetadata(serializeMetadata(makeMetadata()))
+
+    expect(restored.documentCount).toBeUndefined()
+  })
+
+  it('omits a document count outside the safe integer range', () => {
+    const restored = deserializeMetadata(
+      serializeMetadata(makeMetadata({ documentCount: Number.MAX_SAFE_INTEGER + 1 })),
+    )
+
+    expect(restored.documentCount).toBeUndefined()
+  })
 })
 
 describe('payload-v1 backward compat: vector_data read path', () => {

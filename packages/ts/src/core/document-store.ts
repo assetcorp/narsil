@@ -26,6 +26,7 @@ export interface DocumentStoreReader {
   getExternalId(internalId: number): string | undefined
   allInternalIds(): IterableIterator<number>
   internalIdCapacity(): number
+  contentBytes(): number
   resolver(): InternalIdResolver
 }
 
@@ -110,6 +111,58 @@ export function documentWithOwnBuffers(document: AnyDocument): AnyDocument {
   return withOwnBuffers(document) as AnyDocument
 }
 
+const STRING_HEADER_BYTES = 16
+const TWO_BYTE_SAMPLE_LIMIT = 16
+const NUMBER_BYTES = 16
+const PRIMITIVE_SLOT_BYTES = 4
+const ARRAY_HEADER_BYTES = 32
+const ARRAY_SLOT_BYTES = 8
+const OBJECT_HEADER_BYTES = 40
+const PROPERTY_SLOT_BYTES = 8
+const TYPED_ARRAY_HEADER_BYTES = 96
+
+function stringBytes(value: string): number {
+  const sampled = Math.min(value.length, TWO_BYTE_SAMPLE_LIMIT)
+  for (let i = 0; i < sampled; i += 1) {
+    if (value.charCodeAt(i) > 0xff) {
+      return STRING_HEADER_BYTES + value.length * 2
+    }
+  }
+  return STRING_HEADER_BYTES + value.length
+}
+
+/**
+ * Estimates the resident bytes one document value takes in the JS heap,
+ * counting string content, number boxes, array slots, typed-array buffers,
+ * and object properties. The live document store keeps a running total of
+ * this figure, and the partition memory estimate reads that total.
+ *
+ * @param value - The field value, or the whole fields object, to size.
+ * @returns The estimated resident bytes for the value.
+ */
+export function documentValueBytes(value: unknown): number {
+  if (typeof value === 'string') return stringBytes(value)
+  if (typeof value === 'number') return NUMBER_BYTES
+  if (value === null || value === undefined || typeof value === 'boolean') return PRIMITIVE_SLOT_BYTES
+  if (ArrayBuffer.isView(value)) return TYPED_ARRAY_HEADER_BYTES + value.byteLength
+  if (Array.isArray(value)) {
+    let bytes = ARRAY_HEADER_BYTES + value.length * ARRAY_SLOT_BYTES
+    for (let i = 0; i < value.length; i += 1) {
+      bytes += documentValueBytes(value[i])
+    }
+    return bytes
+  }
+  if (typeof value === 'object') {
+    const source = value as Record<string, unknown>
+    let bytes = OBJECT_HEADER_BYTES
+    for (const key of Object.keys(source)) {
+      bytes += PROPERTY_SLOT_BYTES + documentValueBytes(source[key])
+    }
+    return bytes
+  }
+  return PRIMITIVE_SLOT_BYTES
+}
+
 export function createDocumentStore(): DocumentStore {
   const docs = new Map<string, StoredDocument>()
   const forwardMap = new Map<string, number>()
@@ -117,6 +170,20 @@ export function createDocumentStore(): DocumentStore {
   const lengthColumns = new Map<string, Uint32Array>()
   let nextInternalId = 0
   let sortedIds: string[] | null = null
+  let storedContentBytes = 0
+
+  function replaceStored(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
+    const existing = docs.get(docId)
+    if (existing !== undefined) {
+      storedContentBytes -= documentValueBytes(existing.fields)
+    } else {
+      sortedIds = null
+    }
+    writeFieldLengths(assignInternalId(docId), fieldLengths)
+    const fields = documentWithOwnBuffers(document) as Record<string, unknown>
+    storedContentBytes += documentValueBytes(fields)
+    docs.set(docId, { fields, fieldLengths })
+  }
 
   function writeFieldLengths(internalId: number, fieldLengths: Record<string, number>): void {
     for (const fieldName of Object.keys(fieldLengths)) {
@@ -158,15 +225,11 @@ export function createDocumentStore(): DocumentStore {
 
   return {
     store(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
-      if (!docs.has(docId)) sortedIds = null
-      writeFieldLengths(assignInternalId(docId), fieldLengths)
-      docs.set(docId, { fields: documentWithOwnBuffers(document) as Record<string, unknown>, fieldLengths })
+      replaceStored(docId, document, fieldLengths)
     },
 
     storeRef(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
-      if (!docs.has(docId)) sortedIds = null
-      writeFieldLengths(assignInternalId(docId), fieldLengths)
-      docs.set(docId, { fields: documentWithOwnBuffers(document) as Record<string, unknown>, fieldLengths })
+      replaceStored(docId, document, fieldLengths)
     },
 
     get(docId: string): ReadonlyStoredDocument | undefined {
@@ -174,8 +237,12 @@ export function createDocumentStore(): DocumentStore {
     },
 
     remove(docId: string): boolean {
+      const existing = docs.get(docId)
       const removed = docs.delete(docId)
       if (removed) {
+        if (existing !== undefined) {
+          storedContentBytes -= documentValueBytes(existing.fields)
+        }
         sortedIds = null
         const internalId = forwardMap.get(docId)
         if (internalId !== undefined) {
@@ -218,6 +285,7 @@ export function createDocumentStore(): DocumentStore {
       docs.clear()
       lengthColumns.clear()
       clearMappings()
+      storedContentBytes = 0
     },
 
     serialize(): Record<string, StoredDocument> {
@@ -232,10 +300,12 @@ export function createDocumentStore(): DocumentStore {
       docs.clear()
       lengthColumns.clear()
       clearMappings()
+      storedContentBytes = 0
       for (const docId of Object.keys(data)) {
         const stored = data[docId]
         writeFieldLengths(assignInternalId(docId), stored.fieldLengths)
         const fields = documentWithOwnBuffers(stored.fields as AnyDocument) as Record<string, unknown>
+        storedContentBytes += documentValueBytes(fields)
         docs.set(docId, fields === stored.fields ? stored : { fields, fieldLengths: stored.fieldLengths })
       }
     },
@@ -264,6 +334,10 @@ export function createDocumentStore(): DocumentStore {
 
     internalIdCapacity(): number {
       return nextInternalId
+    },
+
+    contentBytes(): number {
+      return storedContentBytes
     },
 
     resolver(): InternalIdResolver {
