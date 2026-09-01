@@ -27,6 +27,7 @@ const narsil = await createNarsil({
 | `embeddingAdapters` | `Record<string, EmbeddingAdapter>` | Registers named adapters that index configs reference by name. Names persist in index metadata, so durability recovery can rebind them. |
 | `durability` | `DurabilityConfig` | Enables write-ahead logging and snapshots. See [Durability](persistence-and-durability.md#durability). |
 | `analysis` | `AnalysisConfig` | Controls what the engine does with a recovered index whose stored terms no longer match its language module. See [Analysis revisions](language-support.md#analysis-revisions). |
+| `lifecycle` | `IndexLifecycleConfig` | Closes idle indexes and caps how many stay open, keeping their durable files ready to reopen. See [Index lifecycle](persistence-and-durability.md#index-lifecycle). |
 
 ## WorkerConfig
 

@@ -25,6 +25,7 @@ The codes you handle most often:
 | `VECTOR_DIMENSION_MISMATCH` | A vector's length differs from the field's declared dimension. |
 | `EMBEDDING_FAILED` / `EMBEDDING_CONFIG_INVALID` | An adapter call failed, or the embedding configuration is contradictory. |
 | `PARTITION_CAPACITY_EXCEEDED` / `PARTITION_REBALANCING_BACKPRESSURE` | An insert passes the capacity cap, or a config change collides with a running reshape. |
+| `INDEX_REOPEN_CAPACITY_EXHAUSTED` | More callers queue behind one closed index's reopen than `lifecycle.maxReopenWaiters` allows. See [Index lifecycle](persistence-and-durability.md#index-lifecycle). |
 | `LANGUAGE_NOT_SUPPORTED` | An index config names a language module that was never imported. |
 | `CONFIG_INVALID` | A configuration value is out of range or contradictory. |
 
