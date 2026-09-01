@@ -59,7 +59,7 @@ export interface ClusterLocalEngine extends Narsil {
  * Builds the engine one cluster node uses for its local partitions.
  *
  * @param config - Settings for this node's engine.
- * @param hooks - Node-local cleanup called after an index checkpoint.
+ * @param hooks - Node-local callbacks the engine runs after an index reopens and after it closes.
  * @returns The local engine, including partition-scoped cluster operations.
  */
 export async function createClusterLocalEngine(
