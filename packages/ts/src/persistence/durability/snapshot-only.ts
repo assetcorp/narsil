@@ -1,7 +1,7 @@
 import { concatEnvelopeParts, readMetadataEnvelope, writeMetadataEnvelope } from '../../serialization/envelope'
 import type { PersistenceAdapter } from '../../types/adapters'
 import { buildSnapshotBundleBytes, snapshotStorageKey } from './checkpoint'
-import { loadSnapshotBundleBytes } from './recovery'
+import { loadSnapshotBundleBytes, snapshotCheckpointFor } from './recovery'
 import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import {
   type CheckpointPublisher,
@@ -18,6 +18,7 @@ interface SnapshotIndexState {
   checkpointInFlight: Promise<void> | null
   applyChain: Promise<void>
   unloading: boolean
+  appliedSeqNoByPartition: Map<number, number>
 }
 
 function metadataKey(indexName: string): string {
@@ -41,7 +42,13 @@ export function createSnapshotOnlyManager(
   function getOrCreateIndexState(indexName: string): SnapshotIndexState {
     let state = indexes.get(indexName)
     if (state === undefined) {
-      state = { mutationsSinceCheckpoint: 0, checkpointInFlight: null, applyChain: Promise.resolve(), unloading: false }
+      state = {
+        mutationsSinceCheckpoint: 0,
+        checkpointInFlight: null,
+        applyChain: Promise.resolve(),
+        unloading: false,
+        appliedSeqNoByPartition: new Map(),
+      }
       indexes.set(indexName, state)
     }
     return state
@@ -80,7 +87,7 @@ export function createSnapshotOnlyManager(
     const seqNoByPartition = new Map<number, number>()
     const primaryTermByPartition = new Map<number, number>()
     for (let i = 0; i < manager.partitionCount; i += 1) {
-      seqNoByPartition.set(i, 0)
+      seqNoByPartition.set(i, indexState.appliedSeqNoByPartition.get(i) ?? 0)
       primaryTermByPartition.set(i, SINGLE_NODE_PRIMARY_TERM)
     }
 
@@ -166,11 +173,18 @@ export function createSnapshotOnlyManager(
     if (snapshotBytes === null) {
       return
     }
-    await loadSnapshotBundleBytes(snapshotBytes, {
+    const checkpoint = await loadSnapshotBundleBytes(snapshotBytes, {
       manager,
       vectorFieldPaths: hooks.getVectorFieldPaths(indexName),
       vectorIndexes: hooks.getVectorIndexes(indexName),
     })
+    const indexState = getOrCreateIndexState(indexName)
+    for (let partitionId = 0; partitionId < manager.partitionCount; partitionId += 1) {
+      const persistedSeqNo = snapshotCheckpointFor(checkpoint, partitionId)
+      if (persistedSeqNo > 0) {
+        indexState.appliedSeqNoByPartition.set(partitionId, persistedSeqNo)
+      }
+    }
   }
 
   return {
@@ -192,15 +206,23 @@ export function createSnapshotOnlyManager(
       return recoverIndex(indexName)
     },
 
-    highestPersistedSeqNo(): number {
-      return 0
+    highestPersistedSeqNo(indexName: string, partitionId: number): number {
+      return indexes.get(indexName)?.appliedSeqNoByPartition.get(partitionId) ?? 0
     },
 
     async recordMutation(record: MutationRecord): Promise<number> {
       const indexState = getOrCreateIndexState(record.indexName)
-      const buffered = indexState.applyChain.then(() => record.apply())
-      indexState.applyChain = buffered.catch(() => undefined)
-      await buffered
+      const buffered = indexState.applyChain.then(async () => {
+        await record.apply()
+        const appliedSeqNo = (indexState.appliedSeqNoByPartition.get(record.partitionId) ?? 0) + 1
+        indexState.appliedSeqNoByPartition.set(record.partitionId, appliedSeqNo)
+        return appliedSeqNo
+      })
+      indexState.applyChain = buffered.then(
+        () => undefined,
+        () => undefined,
+      )
+      const appliedSeqNo = await buffered
 
       indexState.mutationsSinceCheckpoint += 1
       startCheckpointTimer()
@@ -209,7 +231,7 @@ export function createSnapshotOnlyManager(
           hooks.onFatalError(err instanceof Error ? err : new Error(String(err)))
         })
       }
-      return 0
+      return appliedSeqNo
     },
 
     persistMetadata(indexName: string): Promise<void> {
