@@ -159,6 +159,18 @@ export interface PartitionQueryStats {
   totalFieldLengths: Record<string, number>
 }
 
+/**
+ * Collects the term statistics a peer node needs to score a query against the
+ * partitions this engine holds. The engine holds the index open for the whole
+ * read.
+ *
+ * @param core - The engine services that hold the index.
+ * @param indexName - The index to read.
+ * @param terms - The query terms whose document frequencies the caller needs.
+ * @param partitionIds - The partitions to count, or every partition when omitted.
+ * @returns The document total, the document frequency of each term, and the
+ * total field lengths across the counted partitions.
+ */
 export async function runEngineQueryStats(
   core: EngineCore,
   indexName: string,

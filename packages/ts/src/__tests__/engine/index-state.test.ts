@@ -103,4 +103,29 @@ describe('index state coordinator', () => {
     expect(coordinator.stateOf('products')).toBe('open')
     coordinator.dispose()
   })
+
+  it('keeps an index closed when a close fails after the engine has dropped its worker copies and durability state', async () => {
+    const reopenCalls: string[] = []
+    const coordinator = createIndexStateCoordinator(undefined, {
+      async reopen(indexName) {
+        reopenCalls.push(indexName)
+      },
+      async close(_indexName, markIrreversible) {
+        markIrreversible()
+        throw new Error('replication log cleanup failed')
+      },
+      canCloseAutomatically: () => true,
+      estimateBytes: () => 1,
+    })
+    await coordinator.registerOpen('products')
+
+    await expect(coordinator.close('products')).rejects.toThrow('replication log cleanup failed')
+    expect(coordinator.stateOf('products')).toBe('closed')
+
+    const release = await coordinator.acquire('products')
+    release()
+    expect(reopenCalls).toEqual(['products'])
+    expect(coordinator.stateOf('products')).toBe('open')
+    coordinator.dispose()
+  })
 })

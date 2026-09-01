@@ -52,7 +52,7 @@ export function wireIndexState(wiring: IndexStateWiring): IndexStateCoordinator 
         throw error
       }
     },
-    async close(indexName: string): Promise<void> {
+    async close(indexName: string, markIrreversible: () => void): Promise<void> {
       if (durability === null) {
         throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'An index needs durability before it can close')
       }
@@ -62,12 +62,16 @@ export function wireIndexState(wiring: IndexStateWiring): IndexStateCoordinator 
       await (durability.manager.checkpointFromMemory?.(indexName) ?? durability.manager.checkpoint(indexName))
       await orchestrator.closeIndex(indexName)
       await durability.manager.unloadIndex(indexName)
-      await wiring.onClose?.(indexName)
-      executor.dropIndex(indexName)
-      const entry = indexRegistry.get(indexName)
-      if (entry !== undefined) {
-        entry.documentCount = documentCount
-        entry.partitionCount = partitionCount
+      markIrreversible()
+      try {
+        await wiring.onClose?.(indexName)
+      } finally {
+        if (executor.getManager(indexName) !== undefined) executor.dropIndex(indexName)
+        const entry = indexRegistry.get(indexName)
+        if (entry !== undefined) {
+          entry.documentCount = documentCount
+          entry.partitionCount = partitionCount
+        }
       }
     },
     canCloseAutomatically(indexName: string): boolean {

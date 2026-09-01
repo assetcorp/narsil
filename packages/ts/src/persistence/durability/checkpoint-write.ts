@@ -19,7 +19,9 @@ export interface IndexCheckpointWrite {
  * Writes one index checkpoint in a worker or in the current process.
  *
  * @param input - The checkpoint target, index state, and storage settings.
- * @returns The serialised document count, or `null` when a worker wrote the checkpoint.
+ * @returns The serialised document count when the write serialises whole partitions
+ * from memory, or `null` when a worker writes the checkpoint or the write builds
+ * incremental segments from the log.
  */
 export async function writeIndexCheckpoint(input: IndexCheckpointWrite): Promise<number | null> {
   const { directory, metadata, targets, compactionThreshold, manager } = input

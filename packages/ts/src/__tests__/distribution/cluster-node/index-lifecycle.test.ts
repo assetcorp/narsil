@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../distribution/cluster-node'
+import { createClusterLocalEngine } from '../../../distribution/cluster-node/local-engine'
 import { seedReopenedPrimaryLogs } from '../../../distribution/cluster-node/local-replication'
 import { deleteIndexReplicationLogs, getReplicationLog } from '../../../distribution/cluster-node/replication-logs'
 import type { ClusterNode } from '../../../distribution/cluster-node/types'
@@ -86,6 +87,31 @@ describe('cluster-node index lifecycle', () => {
     expect((await node.getMemoryStats()).openIndexCount).toBe(0)
     expect(await node.countDocuments('products')).toBe(1)
     expect((await node.getMemoryStats()).openIndexCount).toBe(1)
+  })
+
+  it('releases the index memory and reopens cleanly when the close hook fails', async () => {
+    const engine = await createClusterLocalEngine(
+      { durability: { directory }, lifecycle: {} },
+      {
+        onIndexClose() {
+          throw new Error('replication log cleanup failed')
+        },
+      },
+    )
+    try {
+      await engine.createIndex('products', { schema: { title: 'string' } })
+      await engine.insert('products', { title: 'Desk lamp' }, 'lamp')
+
+      await expect(engine.close('products')).rejects.toThrow('replication log cleanup failed')
+
+      const afterClose = await engine.getMemoryStats()
+      expect(afterClose.openIndexCount).toBe(0)
+      expect(afterClose.estimatedIndexBytes).toBe(0)
+      expect(await engine.countDocuments('products')).toBe(1)
+      expect((await engine.getMemoryStats()).reopenCount).toBe(1)
+    } finally {
+      await engine.shutdown()
+    }
   })
 
   it('removes only the closed index replication logs', () => {

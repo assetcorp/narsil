@@ -79,7 +79,7 @@ export interface EngineCore {
  * Builds the internal engine services shared by standalone and cluster engines.
  *
  * @param config - Public engine settings.
- * @param hooks - Node-local work called after an index opens or checkpoints for close.
+ * @param hooks - Node-local callbacks the engine runs after an index reopens and after it closes.
  * @returns The connected engine core.
  */
 export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks): EngineCore {

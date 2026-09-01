@@ -24,7 +24,7 @@ export interface LifecycleEntry {
 
 export interface IndexStateCallbacks {
   reopen(indexName: string): Promise<void>
-  close(indexName: string): Promise<void>
+  close(indexName: string, markIrreversible: () => void): Promise<void>
   canCloseAutomatically(indexName: string): boolean
   estimateBytes(indexName: string): number
 }

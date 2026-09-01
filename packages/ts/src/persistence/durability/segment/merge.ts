@@ -50,6 +50,16 @@ export function mergeTimeOrderedSegments(ordered: SegmentContents[], fallback: M
   return merged
 }
 
+/**
+ * Counts the documents a merge of these segments would keep. A later segment
+ * replaces an earlier copy of the same document, and a tombstone in a later
+ * segment removes an earlier copy. The count therefore matches the document
+ * count of the partition that {@link mergeTimeOrderedSegments} returns for
+ * the same segments.
+ *
+ * @param ordered - The segment contents, oldest first.
+ * @returns The number of documents that survive the merge.
+ */
 export function countLiveDocuments(ordered: SegmentContents[]): number {
   return resolveWinners(ordered).size
 }

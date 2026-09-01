@@ -52,6 +52,12 @@ export function createIndexStateCoordinator(
     await new Promise<void>(resolve => entry.drainResolvers.add(resolve))
   }
 
+  function markClosed(entry: LifecycleEntry): void {
+    entry.state = 'closed'
+    entry.cachedError = null
+    entry.reopenFailures = 0
+  }
+
   function releaseEntry(entry: LifecycleEntry): void {
     entry.activeOperations -= 1
     if (entry.activeOperations !== 0) return
@@ -162,15 +168,17 @@ export function createIndexStateCoordinator(
     if (automatic && (entry.activeOperations > 0 || !callbacks.canCloseAutomatically(indexName))) return false
 
     entry.state = 'closing'
+    let irreversible = false
     const run = (async () => {
       await waitForDrain(entry)
-      await callbacks.close(indexName)
-      entry.state = 'closed'
-      entry.cachedError = null
-      entry.reopenFailures = 0
+      await callbacks.close(indexName, () => {
+        irreversible = true
+      })
+      markClosed(entry)
     })()
       .catch(error => {
-        entry.state = 'open'
+        if (irreversible) markClosed(entry)
+        else entry.state = 'open'
         throw error
       })
       .finally(() => {
