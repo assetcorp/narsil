@@ -299,7 +299,7 @@ The commit marker always references the active segment, which a checkpoint never
 
 ## Recovery
 
-With persistence configured, a node recovers on startup before it serves any request:
+With persistence configured and no lifecycle settings, a node must recover on startup before it serves any request:
 
 1. Enumerate the persisted indexes from their `<indexName>/meta` keys.
 2. For each index:
@@ -308,6 +308,8 @@ With persistence configured, a node recovers on startup before it serves any req
    3. Load the partitions and vector indexes, by [structural merge](#structural-merge-recovery) from a manifest or by decoding the bundle from a legacy snapshot, and read each partition's `lastSeqNo`.
    4. For each partition, read its log as described in [Reading a Segment](#reading-a-segment) and replay every record whose `seqNo` is above `lastSeqNo`.
 3. After replay the index serves reads and writes, and each partition continues from the highest replayed `seqNo` plus one.
+
+With lifecycle settings configured, a node must load each persisted index's metadata on startup, register the index closed, and defer snapshot and log recovery until the first operation names the index; it must finish recovery before the operation accesses index data.
 
 Corruption is handled by kind:
 
