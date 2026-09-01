@@ -19,15 +19,18 @@ import {
 import { createCatchUpState, startCatchUpPump, stopCatchUpPump } from './catch-up'
 import { createClusterNamespace } from './cluster-namespace'
 import { createAllocationErrorForwarder, createErrorForwarder } from './error-forwarding'
-import { createClusterLocalEngine } from './local-engine'
+import { type ClusterLocalEngine, createClusterLocalEngine } from './local-engine'
 import { adoptClusterIdentity, orphanedIndexError, reconcileLocalIndexes } from './local-index-reconcile'
+import { seedReopenedPrimaryLogs } from './local-replication'
 import { createDataNodeHandler } from './message-handler'
 import { resolveNodeTargets as resolveTargetsForNode, sendToNode as sendMessageToNode } from './node-messaging'
 import { createClusterNodeOperations } from './node-operations'
+import { createClusterOperationTracker } from './operation-tracker'
 import { type PrimaryPartitionDeps, preparePrimaryPartition } from './primary-partition'
 import type { ClusterReadDeps } from './reads'
 import {
   replicationLogKey as buildReplicationLogKey,
+  deleteIndexReplicationLogs,
   getReplicationLog as readReplicationLog,
   seedReplicationLog as writeSeededReplicationLog,
 } from './replication-logs'
@@ -62,10 +65,25 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   const roles: ReadonlyArray<NodeRole> = config.roles ?? ['data', 'coordinator', 'controller']
   const capacity = config.capacity ?? DEFAULT_CAPACITY
 
-  const engine = await createClusterLocalEngine(config.engine)
   const bootstrapSyncState = createBootstrapSyncState()
   const snapshotSyncHandlerState = createSnapshotSyncHandlerState()
   const replicationLogs = new Map<string, ReplicationLog>()
+  let localEngine: ClusterLocalEngine | null = null
+  const engine = await createClusterLocalEngine(config.engine, {
+    async onIndexOpen(indexName) {
+      if (localEngine === null) return
+      await seedReopenedPrimaryLogs({
+        indexName,
+        nodeId,
+        engine: localEngine,
+        coordinator: config.coordinator,
+        replicationLogs,
+        replicationConfig: config.replication,
+      })
+    },
+    onIndexClose: indexName => deleteIndexReplicationLogs(replicationLogs, indexName),
+  })
+  localEngine = engine
 
   function replicationLogKey(indexName: string, partitionId: number): string {
     return buildReplicationLogKey(indexName, partitionId)
@@ -130,8 +148,6 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   let unregisterNotReadyHandler: (() => void) | null = null
   let serving = false
   let isShutdown = false
-  let activeOps = 0
-  let drainResolve: (() => void) | null = null
 
   const bootstrapSyncDeps = {
     engine,
@@ -218,22 +234,14 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     }
   }
 
-  async function trackOp<T>(indexName: string | null, fn: () => Promise<T>): Promise<T> {
-    guardShutdown()
-    if (indexName !== null && orphanedIndexes.has(indexName)) {
-      throw orphanedIndexError(nodeId, indexName)
-    }
-    activeOps++
-    try {
-      return await fn()
-    } finally {
-      activeOps--
-      if (activeOps === 0 && drainResolve !== null) {
-        drainResolve()
-        drainResolve = null
-      }
-    }
-  }
+  const operationTracker = createClusterOperationTracker({
+    guard: guardShutdown,
+    assertIndex(indexName) {
+      if (orphanedIndexes.has(indexName)) throw orphanedIndexError(nodeId, indexName)
+    },
+  })
+  const trackOp = operationTracker.track
+  const transitionIndex = operationTracker.transition
 
   const readDeps: ClusterReadDeps = { config, nodeId, engine, resolveNodeTargets }
 
@@ -257,13 +265,18 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       return roles
     },
 
+    open: (indexName: string) => trackOp(indexName, () => engine.open(indexName)),
+    close: (indexName: string) => transitionIndex(indexName, () => engine.close(indexName)),
+
     ...createClusterNodeOperations({
       trackOp,
+      transitionIndex,
       readDeps,
       writeDeps,
       engine,
       coordinator: config.coordinator,
       forgetIndex: (indexName: string) => {
+        deleteIndexReplicationLogs(replicationLogs, indexName)
         if (engine.listIndexes().every(index => index.name !== indexName)) {
           orphanedIndexes.delete(indexName)
         }
@@ -323,11 +336,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       isShutdown = true
       serving = false
 
-      if (activeOps > 0) {
-        await new Promise<void>(resolve => {
-          drainResolve = resolve
-        })
-      }
+      await operationTracker.drain()
 
       if (unregisterHandler !== null) {
         unregisterHandler()
@@ -358,14 +367,20 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       return fallback
     }
 
-    const allocation = await config.coordinator.getAllocation(indexName)
-    const assignment = allocation?.assignments.get(partitionId)
-    const log = getReplicationLog(indexName, partitionId)
+    const localIndex = engine.listIndexes().find(index => index.name === indexName)
+    const release = localIndex !== undefined ? await engine.acquireIndexForReplication(indexName) : null
+    try {
+      const allocation = await config.coordinator.getAllocation(indexName)
+      const assignment = allocation?.assignments.get(partitionId)
+      const log = getReplicationLog(indexName, partitionId)
 
-    return {
-      partitionId,
-      primaryTerm: assignment?.primaryTerm ?? fallback.primaryTerm,
-      lastSeqNo: log.newestSeqNo ?? 0,
+      return {
+        partitionId,
+        primaryTerm: assignment?.primaryTerm ?? fallback.primaryTerm,
+        lastSeqNo: log.newestSeqNo ?? 0,
+      }
+    } finally {
+      release?.()
     }
   }
 }

@@ -132,7 +132,7 @@ export async function handleStats(
   const decoded = decode(message.payload) as unknown
   const payload = validateStatsPayload(decoded)
 
-  const resultPayload: StatsResultPayload = deps.engine.collectQueryStats(
+  const resultPayload: StatsResultPayload = await deps.engine.collectQueryStats(
     payload.indexName,
     payload.terms,
     payload.partitionIds,

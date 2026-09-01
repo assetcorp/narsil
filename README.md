@@ -120,7 +120,7 @@ Each guide under [`docs/`](docs/) documents one area with working examples, and 
 
 **Geosearch.** [Geo filters](docs/geosearch.md#geosearch) match by radius (Haversine or Vincenty distance) or polygon containment, and they compose with every other query feature.
 
-**Storage.** [Persistence adapters](docs/persistence-and-durability.md#persistence) plug in filesystem, IndexedDB, memory, or custom backends. [Durability](docs/persistence-and-durability.md#durability) adds a write-ahead log with periodic checkpoints and automatic recovery, and [snapshots](docs/persistence-and-durability.md#snapshots-and-restore) capture a whole index as one portable byte array. The `.nrsl` serialization format is specified in [`packages/spec`](packages/spec) so other language implementations read and write the same files.
+**Storage.** [Persistence adapters](docs/persistence-and-durability.md#persistence) plug in filesystem, IndexedDB, memory, or custom backends. [Durability](docs/persistence-and-durability.md#durability) adds a write-ahead log with periodic checkpoints and automatic recovery, and [snapshots](docs/persistence-and-durability.md#snapshots-and-restore) capture a whole index as one portable byte array. With [lifecycle settings](docs/persistence-and-durability.md#index-lifecycle), the engine closes idle indexes and reopens one when a caller uses it, so one engine can hold more indexes than fit in memory. The `.nrsl` serialization format is specified in [`packages/spec`](packages/spec) so other language implementations read and write the same files.
 
 **Scale.** [Partitioned indexes](docs/partitions-and-workers.md#partitions-and-rebalancing) route documents by deterministic hash and reshape online through `rebalance()`, with writes buffering in a write-ahead queue during the reshape. [Worker promotion](docs/partitions-and-workers.md#workers) moves search off the main thread once document counts cross a threshold, and a promoted index [analyses a batch once](docs/partitions-and-workers.md#how-a-batch-reaches-the-worker-copies) and shares the result with every copy rather than indexing it again per copy. [Three scoring modes](docs/full-text-search.md#scoring-modes) handle BM25 statistics skew across partitions and instances.
 
@@ -159,7 +159,7 @@ Measured in one process against Orama and MiniSearch, with the same stop words a
 | [Hybrid search](docs/hybrid-search.md) | Reciprocal rank fusion and linear blending of text and vector rankings |
 | [Geosearch](docs/geosearch.md) | Radius and polygon filters, and the two distance formulas |
 | [Embedding adapters](docs/embedding-adapters.md) | Automatic embedding on insert and query, named adapters, the bundled ones, and custom ones |
-| [Persistence and durability](docs/persistence-and-durability.md) | Storage backends, the write-ahead log, checkpoints, recovery, and snapshots |
+| [Persistence and durability](docs/persistence-and-durability.md) | Storage backends, the write-ahead log, checkpoints, recovery, the index lifecycle, and snapshots |
 | [Partitions and workers](docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker promotion, and multi-instance invalidation |
 | [Language support](docs/language-support.md) | The 107 language modules, analysis revisions and rebuilds, and named tokenizers and stop words |
 | [HTTP server](docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |

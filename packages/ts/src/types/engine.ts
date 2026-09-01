@@ -1,5 +1,6 @@
 import type { EmbeddingAdapter } from './adapters'
 import type { NarsilEventMap } from './events'
+import type { IndexLifecycleOperations } from './lifecycle'
 import type {
   BatchResult,
   IndexInfo,
@@ -24,7 +25,7 @@ import type { ListParams, QueryParams, SuggestParams } from './search'
  *
  * @public
  */
-export interface Narsil {
+export interface Narsil extends IndexLifecycleOperations {
   /**
    * Creates an index you can insert documents into and query.
    *
@@ -67,7 +68,7 @@ export interface Narsil {
    * an index grows unevenly or a rebalance is worth running.
    *
    * @param indexName - The index to describe.
-   * @returns One entry per partition, in partition order.
+   * @returns One entry per open partition, in partition order, or an empty list while the index is closed.
    */
   getPartitionStats(indexName: string): PartitionStatsResult[]
   /**
@@ -346,7 +347,7 @@ export interface Narsil {
    * optimisation would cost.
    *
    * @param indexName - The index to describe.
-   * @returns One entry per vector field.
+   * @returns One entry per vector field, or an empty list while the index is closed.
    */
   vectorMaintenanceStatus(indexName: string): VectorMaintenanceResult[]
   /**

@@ -88,6 +88,7 @@ export const ErrorCodes: {
     readonly INDEX_NOT_FOUND: "INDEX_NOT_FOUND";
     readonly INDEX_ALREADY_EXISTS: "INDEX_ALREADY_EXISTS";
     readonly INDEX_ORPHANED: "INDEX_ORPHANED";
+    readonly INDEX_REOPEN_CAPACITY_EXHAUSTED: "INDEX_REOPEN_CAPACITY_EXHAUSTED";
     readonly PARTITION_CORRUPTED: "PARTITION_CORRUPTED";
     readonly PARTITION_REBALANCING_BACKPRESSURE: "PARTITION_REBALANCING_BACKPRESSURE";
     readonly WORKER_CRASHED: "WORKER_CRASHED";
@@ -225,13 +226,18 @@ export interface ImportResult {
 export type ImportSource = AnyDocument[] | string | Uint8Array;
 
 // @public
+export const INDEX_LIFECYCLE_CAPABILITY = "indexes.lifecycle";
+
+// @public
 export interface IndexOperations {
     clear(indexName: string, options?: RequestOptions): Promise<void>;
+    close(indexName: string, options?: RequestOptions): Promise<void>;
     createIndex(name: string, config: HttpIndexConfig, options?: RequestOptions): Promise<void>;
     dropIndex(name: string, options?: RequestOptions): Promise<void>;
     getPartitionStats(indexName: string, options?: RequestOptions): Promise<PartitionStatsResult[]>;
     getStats(indexName: string, options?: RequestOptions): Promise<IndexStats>;
     listIndexes(options?: RequestOptions): Promise<IndexInfo[]>;
+    open(indexName: string, options?: RequestOptions): Promise<void>;
 }
 
 // @public

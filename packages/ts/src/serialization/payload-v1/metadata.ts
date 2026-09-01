@@ -4,6 +4,7 @@ import type { VectorIndexConfig } from '../../types/schema'
 
 interface RawMetadataPayload {
   index_name: string
+  document_count?: unknown
   schema: Record<string, string>
   language: string
   partition_count: number
@@ -44,6 +45,9 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
   }
   if (meta.vectorFields) {
     wire.vector_fields = meta.vectorFields
+  }
+  if (isNonNegativeInteger(meta.documentCount) && Number.isSafeInteger(meta.documentCount)) {
+    wire.document_count = meta.documentCount
   }
   if (meta.embedding) {
     wire.embedding =
@@ -129,6 +133,9 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
   }
   if (raw.vector_fields) {
     meta.vectorFields = raw.vector_fields
+  }
+  if (isNonNegativeInteger(raw.document_count) && Number.isSafeInteger(raw.document_count)) {
+    meta.documentCount = raw.document_count
   }
   if (raw.embedding && typeof raw.embedding === 'object' && typeof raw.embedding.fields === 'object') {
     meta.embedding =

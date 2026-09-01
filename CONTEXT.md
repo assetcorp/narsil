@@ -43,3 +43,27 @@ _Avoid_: sync, recovery, initialisation
 **Primary term**:
 The primary term is a number that rises with each new tenure as primary of a partition. The controller rejects a request carrying a term below the current one, which fences a primary that another node has since replaced.
 _Avoid_: epoch, generation, leader term
+
+## Index lifecycle
+
+Use these terms when you write about opening and closing indexes.
+
+**Open index**:
+An open index holds its search structures in memory and answers reads and writes from them.
+_Avoid_: loaded, resident, warm, active
+
+**Closed index**:
+A closed index keeps its documents on disk and none of its search structures in memory. The engine reopens it before it answers the next request that names it.
+_Avoid_: frozen, unloaded, suspended, dormant
+
+**Reopen**:
+The engine reopens a closed index by loading it from disk, either when a request names it or when a caller asks for it ahead of traffic.
+_Avoid_: restore, revive, warm up
+
+**Idle**:
+An index is idle once the configured idle timeout passes with no read or write naming it.
+_Avoid_: cold, inactive, dormant
+
+**Eviction**:
+The engine evicts by closing the least recently used open index so that the configured limits hold. An evicted index is a closed index.
+_Avoid_: unload, purge, expire

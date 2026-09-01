@@ -30,6 +30,14 @@ export const TASK_FILTER_CAPABILITY = 'tasks.filter'
 export const REBUILD_ANALYSIS_CAPABILITY = 'indexes.rebuildAnalysis'
 
 /**
+ * Marks that `POST /indexes/{name}/_open` and `POST /indexes/{name}/_close`
+ * load and release an index's server memory.
+ *
+ * @public
+ */
+export const INDEX_LIFECYCLE_CAPABILITY = 'indexes.lifecycle'
+
+/**
  * Every capability this server announces at `/capabilities`.
  *
  * A client reads this list to find out whether an optional route or mode is
@@ -43,4 +51,5 @@ export const SERVER_CAPABILITIES: readonly string[] = [
   TASK_CANCEL_CAPABILITY,
   TASK_FILTER_CAPABILITY,
   REBUILD_ANALYSIS_CAPABILITY,
+  INDEX_LIFECYCLE_CAPABILITY,
 ]

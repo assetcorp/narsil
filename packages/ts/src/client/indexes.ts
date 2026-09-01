@@ -77,6 +77,29 @@ export interface IndexOperations {
    * this request.
    */
   clear(indexName: string, options?: RequestOptions): Promise<void>
+  /**
+   * Loads a closed index into server memory and marks it active, so the first
+   * query pays no recovery wait. Opening an index that failed to reopen clears
+   * its parked error and retries the recovery.
+   *
+   * @param indexName - This names the index to open.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @throws A `NarsilError` with `INDEX_NOT_FOUND` for an unknown name, and
+   * with the recovery error when the index cannot load.
+   */
+  open(indexName: string, options?: RequestOptions): Promise<void>
+  /**
+   * Checkpoints an index and releases its server memory. The data stays on
+   * disk, and the next operation that names the index reopens it.
+   *
+   * @param indexName - This names the index to close.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @throws A `NarsilError` with `INDEX_NOT_FOUND` for an unknown name, and
+   * with `CONFIG_INVALID` when the server runs without durability.
+   */
+  close(indexName: string, options?: RequestOptions): Promise<void>
 }
 
 export function createIndexOperations(transport: Transport): IndexOperations {
@@ -108,6 +131,12 @@ export function createIndexOperations(transport: Transport): IndexOperations {
     },
     async clear(indexName, options) {
       await transport.json({ method: 'POST', path: `${indexPath(indexName)}/_clear`, options })
+    },
+    async open(indexName, options) {
+      await transport.json({ method: 'POST', path: `${indexPath(indexName)}/_open`, options })
+    },
+    async close(indexName, options) {
+      await transport.json({ method: 'POST', path: `${indexPath(indexName)}/_close`, options })
     },
   }
 }

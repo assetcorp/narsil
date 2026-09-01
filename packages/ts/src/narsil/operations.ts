@@ -1,4 +1,4 @@
-import { type EngineCore, type EventHandler, getVectorFieldPaths } from '../engine/core'
+import type { EngineCore, EventHandler } from '../engine/core'
 import { createEngineIndex, dropEngineIndex, registerEngineEmbeddingAdapter } from '../engine/index-lifecycle'
 import { shutdownEngine } from '../engine/lifecycle'
 import {
@@ -12,6 +12,7 @@ import {
 import { executeRebalance } from '../engine/rebalance-executor'
 import { createSnapshot, restoreFromSnapshot } from '../engine/snapshot'
 import { validatePartitionConfig } from '../engine/validation'
+import { getVectorFieldPaths } from '../engine/vector-fields'
 import {
   compactVectors as executeCompactVectors,
   optimizeVectors as executeOptimizeVectors,
@@ -56,6 +57,17 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     rebalanceCtx,
   } = core
 
+  async function withOpenIndex<T>(indexName: string, action: () => Promise<T>): Promise<T> {
+    guardShutdown()
+    requireIndex(indexName)
+    const release = await core.indexState.acquire(indexName)
+    try {
+      return await action()
+    } finally {
+      release()
+    }
+  }
+
   const narsil: Narsil = {
     createIndex(name: string, indexConfig: IndexConfig): Promise<void> {
       return createEngineIndex(core, config, name, indexConfig)
@@ -69,15 +81,29 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       return dropEngineIndex(core, name)
     },
 
+    open(indexName: string): Promise<void> {
+      guardShutdown()
+      requireIndex(indexName)
+      return core.indexState.open(indexName)
+    },
+
+    close(indexName: string): Promise<void> {
+      guardShutdown()
+      requireIndex(indexName)
+      return core.indexState.close(indexName)
+    },
+
     listIndexes(): IndexInfo[] {
       const infos: IndexInfo[] = []
       for (const [name, entry] of indexRegistry) {
         const manager = executor.getManager(name)
         infos.push({
           name,
-          documentCount: manager?.countDocuments() ?? 0,
-          partitionCount: manager?.partitionCount ?? 0,
+          documentCount: manager?.countDocuments() ?? entry.documentCount,
+          partitionCount: manager?.partitionCount ?? entry.partitionCount,
           language: entry.language.name,
+          state: core.indexState.stateOf(name),
+          reopenCount: core.indexState.reopenCount(name),
           ...(core.analysisRebuild.isStale(name) ? { analysisStale: true } : {}),
         })
       }
@@ -89,8 +115,8 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       const entry = requireIndex(indexName)
       const manager = executor.getManager(indexName)
       return {
-        documentCount: manager?.countDocuments() ?? 0,
-        partitionCount: manager?.partitionCount ?? 0,
+        documentCount: manager?.countDocuments() ?? entry.documentCount,
+        partitionCount: manager?.partitionCount ?? entry.partitionCount,
         estimatedMemoryBytes: manager?.estimateMemoryBytes() ?? 0,
         language: entry.language.name,
         schema: entry.config.schema,
@@ -103,47 +129,48 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       return executor.getManager(indexName)?.getPartitionStats() ?? []
     },
     insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string> {
-      return insertDocument(mutationCtx, indexName, document, docId, options)
+      return withOpenIndex(indexName, () => insertDocument(mutationCtx, indexName, document, docId, options))
     },
     insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult> {
-      return insertDocumentBatch(mutationCtx, indexName, documents, options)
+      return withOpenIndex(indexName, () => insertDocumentBatch(mutationCtx, indexName, documents, options))
     },
     remove(indexName: string, docId: string): Promise<void> {
-      return removeDocument(mutationCtx, indexName, docId)
+      return withOpenIndex(indexName, () => removeDocument(mutationCtx, indexName, docId))
     },
     removeBatch(indexName: string, docIds: string[]): Promise<BatchResult> {
-      return removeDocumentBatch(mutationCtx, indexName, docIds)
+      return withOpenIndex(indexName, () => removeDocumentBatch(mutationCtx, indexName, docIds))
     },
     update(indexName: string, docId: string, document: AnyDocument): Promise<void> {
-      return updateDocument(mutationCtx, indexName, docId, document)
+      return withOpenIndex(indexName, () => updateDocument(mutationCtx, indexName, docId, document))
     },
     updateBatch(indexName: string, updates: Array<{ docId: string; document: AnyDocument }>): Promise<BatchResult> {
-      return updateDocumentBatch(mutationCtx, indexName, updates)
+      return withOpenIndex(indexName, () => updateDocumentBatch(mutationCtx, indexName, updates))
     },
     async get(indexName: string, docId: string): Promise<AnyDocument | undefined> {
-      guardShutdown()
-      requireIndex(indexName)
-      return executor.execute({ type: 'get', indexName, docId, requestId: docId })
+      return withOpenIndex(indexName, () => executor.execute({ type: 'get', indexName, docId, requestId: docId }))
     },
     async getMultiple(indexName: string, docIds: string[]): Promise<Map<string, AnyDocument>> {
       guardShutdown()
       requireIndex(indexName)
-      const result = new Map<string, AnyDocument>()
-      for (const docId of docIds) {
-        const doc = await narsil.get(indexName, docId)
-        if (doc !== undefined) result.set(docId, doc)
-      }
-      return result
+      return withOpenIndex(indexName, async () => {
+        const result = new Map<string, AnyDocument>()
+        for (const docId of docIds) {
+          const doc = await executor.execute<AnyDocument | undefined>({
+            type: 'get',
+            indexName,
+            docId,
+            requestId: docId,
+          })
+          if (doc !== undefined) result.set(docId, doc)
+        }
+        return result
+      })
     },
     async has(indexName: string, docId: string): Promise<boolean> {
-      guardShutdown()
-      requireIndex(indexName)
-      return executor.execute({ type: 'has', indexName, docId, requestId: docId })
+      return withOpenIndex(indexName, () => executor.execute({ type: 'has', indexName, docId, requestId: docId }))
     },
     async countDocuments(indexName: string): Promise<number> {
-      guardShutdown()
-      requireIndex(indexName)
-      return executor.execute({ type: 'count', indexName, requestId: indexName })
+      return withOpenIndex(indexName, () => executor.execute({ type: 'count', indexName, requestId: indexName }))
     },
     async listDocuments<T = AnyDocument>(indexName: string, params?: ListParams): Promise<ListResult<T>> {
       return runEngineListDocuments<T>(core, indexName, params ?? {})
@@ -162,17 +189,17 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     async rebuildAnalysis(indexName: string): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      await core.analysisRebuild.rebuild(indexName)
+      await withOpenIndex(indexName, () => core.analysisRebuild.rebuild(indexName))
     },
 
     async snapshot(indexName: string): Promise<Uint8Array> {
       guardShutdown()
-      return createSnapshot(requireManager(indexName), requireIndex(indexName))
+      return withOpenIndex(indexName, () => createSnapshot(requireManager(indexName), requireIndex(indexName)))
     },
 
     async restore(indexName: string, data: Uint8Array): Promise<void> {
       guardShutdown()
-      return restoreFromSnapshot(indexName, data, {
+      await restoreFromSnapshot(indexName, data, {
         executor,
         indexRegistry,
         getVectorFieldPaths,
@@ -183,69 +210,76 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         defaultEmbeddingAdapter: config?.embedding ?? null,
         markAnalysisStale: core.analysisRebuild.markStale,
         clearAnalysisStale: core.analysisRebuild.clearStale,
+        indexState: core.indexState,
       })
     },
 
     async checkpoint(indexName: string): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      if (durability) {
-        await durability.manager.checkpoint(indexName)
-      }
+      await withOpenIndex(indexName, async () => {
+        if (durability) await durability.manager.checkpoint(indexName)
+      })
     },
 
     async clear(indexName: string): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      await executor.execute({ type: 'clear', indexName, requestId: indexName })
-      await orchestrator.replicateToWorkers({ type: 'clear', indexName, requestId: `replicate-clear-${indexName}` })
-      core.watermarkNotifier.forget(indexName)
+      await withOpenIndex(indexName, async () => {
+        await executor.execute({ type: 'clear', indexName, requestId: indexName })
+        await orchestrator.replicateToWorkers({ type: 'clear', indexName, requestId: `replicate-clear-${indexName}` })
+        core.watermarkNotifier.forget(indexName)
+      })
     },
 
     async rebalance(indexName: string, targetPartitionCount: number): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      return executeRebalance(requireManager(indexName), indexName, targetPartitionCount, rebalanceCtx)
+      return withOpenIndex(indexName, () =>
+        executeRebalance(requireManager(indexName), indexName, targetPartitionCount, rebalanceCtx),
+      )
     },
 
     async updatePartitionConfig(indexName: string, partitionConfig: Partial<PartitionConfig>): Promise<void> {
       guardShutdown()
-      const entry = requireIndex(indexName)
-      const manager = requireManager(indexName)
-      if (rebalancingIndexes.has(indexName)) {
-        throw new NarsilError(
-          ErrorCodes.PARTITION_REBALANCING_BACKPRESSURE,
-          `Index "${indexName}" is currently being rebalanced`,
-        )
-      }
-      validatePartitionConfig(partitionConfig)
-      if (partitionConfig.maxPartitions !== undefined && partitionConfig.maxPartitions < manager.partitionCount) {
-        throw new NarsilError(
-          ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
-          `maxPartitions (${partitionConfig.maxPartitions}) is less than the current partition count (${manager.partitionCount})`,
-          { maxPartitions: partitionConfig.maxPartitions, partitionCount: manager.partitionCount },
-        )
-      }
-      const currentDocCount = manager.countDocuments()
-      const newMaxDocs = partitionConfig.maxDocsPerPartition ?? entry.config.partitions?.maxDocsPerPartition
-      if (newMaxDocs !== undefined) {
-        const newTotalCapacity = newMaxDocs * manager.partitionCount
-        if (newTotalCapacity < currentDocCount) {
+      return withOpenIndex(indexName, async () => {
+        const entry = requireIndex(indexName)
+        const manager = requireManager(indexName)
+        if (rebalancingIndexes.has(indexName)) {
           throw new NarsilError(
-            ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
-            `New capacity (${newTotalCapacity}) is less than current document count (${currentDocCount})`,
-            { newTotalCapacity, currentDocCount },
+            ErrorCodes.PARTITION_REBALANCING_BACKPRESSURE,
+            `Index "${indexName}" is currently being rebalanced`,
           )
         }
-      }
-      if (!entry.config.partitions) entry.config.partitions = {}
-      if (partitionConfig.maxDocsPerPartition !== undefined)
-        entry.config.partitions.maxDocsPerPartition = partitionConfig.maxDocsPerPartition
-      if (partitionConfig.maxPartitions !== undefined)
-        entry.config.partitions.maxPartitions = partitionConfig.maxPartitions
-      if (partitionConfig.watermark !== undefined) entry.config.partitions.watermark = partitionConfig.watermark
-      if (durability) await durability.manager.persistMetadata(indexName)
-      core.watermarkNotifier.check(indexName)
+        validatePartitionConfig(partitionConfig)
+        if (partitionConfig.maxPartitions !== undefined && partitionConfig.maxPartitions < manager.partitionCount) {
+          throw new NarsilError(
+            ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
+            `maxPartitions (${partitionConfig.maxPartitions}) is less than the current partition count (${manager.partitionCount})`,
+            { maxPartitions: partitionConfig.maxPartitions, partitionCount: manager.partitionCount },
+          )
+        }
+        const currentDocCount = manager.countDocuments()
+        const newMaxDocs = partitionConfig.maxDocsPerPartition ?? entry.config.partitions?.maxDocsPerPartition
+        if (newMaxDocs !== undefined) {
+          const newTotalCapacity = newMaxDocs * manager.partitionCount
+          if (newTotalCapacity < currentDocCount) {
+            throw new NarsilError(
+              ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
+              `New capacity (${newTotalCapacity}) is less than current document count (${currentDocCount})`,
+              { newTotalCapacity, currentDocCount },
+            )
+          }
+        }
+        if (!entry.config.partitions) entry.config.partitions = {}
+        if (partitionConfig.maxDocsPerPartition !== undefined)
+          entry.config.partitions.maxDocsPerPartition = partitionConfig.maxDocsPerPartition
+        if (partitionConfig.maxPartitions !== undefined)
+          entry.config.partitions.maxPartitions = partitionConfig.maxPartitions
+        if (partitionConfig.watermark !== undefined) entry.config.partitions.watermark = partitionConfig.watermark
+        if (durability) await durability.manager.persistMetadata(indexName)
+        core.watermarkNotifier.check(indexName)
+      })
     },
 
     async getMemoryStats(): Promise<MemoryStats> {
@@ -254,25 +288,36 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         estimatedIndexBytes += executor.getManager(name)?.estimateMemoryBytes() ?? 0
       }
       const workers = await orchestrator.getWorkerMemoryStats()
-      return { process: readProcessMemory(), estimatedIndexBytes, workers }
+      const lifecycleCounts = core.indexState.counts()
+      return {
+        process: readProcessMemory(),
+        estimatedIndexBytes,
+        openIndexCount: lifecycleCounts.open,
+        closedIndexCount: lifecycleCounts.closed,
+        reopenCount: lifecycleCounts.reopens,
+        workers,
+      }
     },
 
     async compactVectors(indexName: string, fieldName?: string): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      executeCompactVectors(requireManager(indexName), indexName, fieldName)
+      await withOpenIndex(indexName, async () => {
+        executeCompactVectors(requireManager(indexName), indexName, fieldName)
+      })
     },
 
     async optimizeVectors(indexName: string, fieldName?: string): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      await executeOptimizeVectors(requireManager(indexName), indexName, fieldName)
+      await withOpenIndex(indexName, () => executeOptimizeVectors(requireManager(indexName), indexName, fieldName))
     },
 
     vectorMaintenanceStatus(indexName: string): VectorMaintenanceResult[] {
       guardShutdown()
       requireIndex(indexName)
-      return getVectorMaintenanceStatus(requireManager(indexName))
+      const manager = executor.getManager(indexName)
+      return manager === undefined ? [] : getVectorMaintenanceStatus(manager)
     },
 
     on<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void {

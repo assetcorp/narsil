@@ -64,7 +64,10 @@ describe('createDataNodeHandler sync_request routing', () => {
 
     const handler = createDataNodeHandler({
       nodeId: 'primary-node',
-      engine: { listIndexes: () => [{ name: 'products' }] } as unknown as ClusterLocalEngine,
+      engine: {
+        listIndexes: () => [{ name: 'products', state: 'open' }],
+        acquireIndexForReplication: async () => () => {},
+      } as unknown as ClusterLocalEngine,
       coordinator: makeCoordinator(makeAssignment()),
       writeDeps: {
         getReplicationLog: () => log,
@@ -83,6 +86,49 @@ describe('createDataNodeHandler sync_request routing', () => {
     const payload = decode(responses[0].payload) as SyncEntriesPayload
     expect(payload.entries).toEqual([entry])
     expect(payload.isLast).toBe(true)
+  })
+
+  it('serves a closed index through a replication hold without the operator reset', async () => {
+    const log = createReplicationLog(0)
+    const entry = log.append({
+      primaryTerm: 7,
+      operation: 'INDEX',
+      partitionId: 0,
+      indexName: 'products',
+      documentId: 'prod-1',
+      document: encode({ title: 'Product 1' }),
+    })
+    const open = vi.fn()
+    let released = false
+    const acquireIndexForReplication = vi.fn(async () => () => {
+      released = true
+    })
+
+    const handler = createDataNodeHandler({
+      nodeId: 'primary-node',
+      engine: {
+        listIndexes: () => [{ name: 'products', state: 'closed' }],
+        open,
+        acquireIndexForReplication,
+      } as unknown as ClusterLocalEngine,
+      coordinator: makeCoordinator(makeAssignment()),
+      writeDeps: {
+        getReplicationLog: () => log,
+        catchUp: createCatchUpState(),
+      } as unknown as DataNodeHandlerDeps['writeDeps'],
+      snapshotSyncState: createSnapshotSyncHandlerState(),
+    })
+    const responses: TransportMessage[] = []
+
+    await handler(makeSyncRequest(0), async response => {
+      responses.push(response)
+    })
+
+    expect(open).not.toHaveBeenCalled()
+    expect(acquireIndexForReplication).toHaveBeenCalledWith('products')
+    expect(released).toBe(true)
+    expect(responses[0].type).toBe(ReplicationMessageTypes.SYNC_ENTRIES)
+    expect((decode(responses[0].payload) as SyncEntriesPayload).entries).toEqual([entry])
   })
 
   it('refuses a sync for an index the primary holds no copy of yet', async () => {
@@ -122,7 +168,8 @@ describe('createDataNodeHandler sync_request routing', () => {
     const snapshot = vi.fn()
     const serializeReplicationPartition = vi.fn().mockResolvedValue(snapshotBytes)
     const engine = {
-      listIndexes: () => [{ name: 'products' }],
+      listIndexes: () => [{ name: 'products', state: 'open' }],
+      acquireIndexForReplication: async () => () => {},
       snapshot,
       serializeReplicationPartition,
     } as unknown as ClusterLocalEngine

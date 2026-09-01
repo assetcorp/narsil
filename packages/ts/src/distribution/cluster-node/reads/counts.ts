@@ -23,8 +23,7 @@ async function gatherPartitionCounts(
     groups.map(async group => {
       if (group.nodeId === deps.nodeId) {
         const requested = new Set(group.partitionIds)
-        const partitions = deps.engine
-          .getPartitionStats(indexName)
+        const partitions = (await deps.engine.partitionStatsForRead(indexName))
           .filter(partition => requested.has(partition.partitionId))
           .map(partition => ({
             partitionId: partition.partitionId,
@@ -113,7 +112,7 @@ export async function statsCluster(deps: ClusterReadDeps, indexName: string): Pr
 export async function partitionStatsCluster(deps: ClusterReadDeps, indexName: string): Promise<PartitionStatsResult[]> {
   const allocation = await routableAllocation(deps.config.coordinator, indexName)
   if (allocation === null) {
-    return deps.engine.getPartitionStats(indexName)
+    return deps.engine.partitionStatsForRead(indexName)
   }
   const { countsByPartition } = await gatherPartitionCounts(deps, indexName, allocation)
   return Array.from(countsByPartition.entries())

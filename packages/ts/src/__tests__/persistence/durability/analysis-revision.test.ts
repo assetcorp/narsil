@@ -91,7 +91,15 @@ describe('an index survives a change to the analysis that built it', () => {
     expect(stale.analysisStale).toBe(true)
     expect(stale.hits).toHaveLength(0)
     expect(engine.listIndexes()).toEqual([
-      { name: 'prose', documentCount: 1, partitionCount: 1, language: LANGUAGE, analysisStale: true },
+      {
+        name: 'prose',
+        documentCount: 1,
+        partitionCount: 1,
+        language: LANGUAGE,
+        analysisStale: true,
+        state: 'open',
+        reopenCount: 0,
+      },
     ])
 
     await engine.rebuildAnalysis('prose')
