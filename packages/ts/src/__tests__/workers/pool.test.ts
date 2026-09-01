@@ -272,6 +272,25 @@ describe('WorkerPool: addIndexToAll', () => {
     await pool.shutdown()
     expect(() => pool.addIndexToAll('products')).toThrow(NarsilError)
   })
+
+  it('removes an index from every worker slot', () => {
+    const deathHandlers: Array<(error: Error) => void> = []
+    const onWorkerCrash = vi.fn()
+    const pool = createWorkerPool({
+      count: 3,
+      workerFactory: (_id: number, onDeath?: (error: Error) => void) => {
+        if (onDeath) deathHandlers.push(onDeath)
+        return createMockExecutor()
+      },
+      onWorkerCrash,
+    })
+    pool.addIndexToAll('products')
+
+    pool.removeIndex('products')
+    deathHandlers[1](new Error('worker thread died'))
+
+    expect(onWorkerCrash).toHaveBeenCalledWith(1, [], expect.any(Error))
+  })
 })
 
 describe('WorkerPool: getAllExecutors', () => {

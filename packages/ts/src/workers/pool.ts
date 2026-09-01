@@ -131,12 +131,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
   }
 
   function removeIndex(indexName: string): void {
-    const slotIndex = indexAssignment.get(indexName)
-    if (slotIndex === undefined) {
-      return
-    }
-
-    workers.get(slotIndex)?.indexes.delete(indexName)
+    for (const slot of workers.values()) slot.indexes.delete(indexName)
     indexAssignment.delete(indexName)
   }
 

@@ -41,48 +41,53 @@ export async function runEngineQuery<T = AnyDocument>(
   options?: ScopedReadOptions,
 ): Promise<QueryResult<T>> {
   core.guardShutdown()
-  const entry = core.requireIndex(indexName)
-  const manager = core.requireManager(indexName)
-
-  const resolvedParams = await resolveVectorText(
-    scopedParams(params, options),
-    entry.embeddingAdapter,
-    core.abortController.signal,
-    entry.embeddingAdapterName,
-  )
-
-  await core.pluginRegistry.runHook('beforeSearch', { indexName, params: resolvedParams })
-
-  const workerSearch = core.orchestrator.isPromoted()
-    ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
-    : undefined
-
-  const result = await executeQuery<T>(resolvedParams, {
-    manager,
-    language: entry.language,
-    config: entry.config,
-    workerSearch,
-    indexName,
-    broadcastStats: broadcastStatsFor(core, options),
-    partitionIds: options?.partitionIds,
-    cursorBinding: queryBindingOf(params),
-  })
-
+  const release = await core.indexState.acquire(indexName)
   try {
-    await core.pluginRegistry.runHook('afterSearch', {
+    const entry = core.requireIndex(indexName)
+    const manager = core.requireManager(indexName)
+
+    const resolvedParams = await resolveVectorText(
+      scopedParams(params, options),
+      entry.embeddingAdapter,
+      core.abortController.signal,
+      entry.embeddingAdapterName,
+    )
+
+    await core.pluginRegistry.runHook('beforeSearch', { indexName, params: resolvedParams })
+
+    const workerSearch = core.orchestrator.isPromoted()
+      ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
+      : undefined
+
+    const result = await executeQuery<T>(resolvedParams, {
+      manager,
+      language: entry.language,
+      config: entry.config,
+      workerSearch,
       indexName,
-      params: resolvedParams,
-      results: result as unknown as QueryResult,
+      broadcastStats: broadcastStatsFor(core, options),
+      partitionIds: options?.partitionIds,
+      cursorBinding: queryBindingOf(params),
     })
-  } catch (err) {
-    console.warn('afterSearch plugin hook error:', err)
-  }
 
-  if (core.analysisRebuild.isStale(indexName)) {
-    result.analysisStale = true
-  }
+    try {
+      await core.pluginRegistry.runHook('afterSearch', {
+        indexName,
+        params: resolvedParams,
+        results: result as unknown as QueryResult,
+      })
+    } catch (err) {
+      console.warn('afterSearch plugin hook error:', err)
+    }
 
-  return result
+    if (core.analysisRebuild.isStale(indexName)) {
+      result.analysisStale = true
+    }
+
+    return result
+  } finally {
+    release()
+  }
 }
 
 export async function runEnginePreflight(
@@ -92,31 +97,36 @@ export async function runEnginePreflight(
   options?: ScopedReadOptions,
 ): Promise<PreflightResult> {
   core.guardShutdown()
-  const entry = core.requireIndex(indexName)
-  const manager = core.requireManager(indexName)
-  const resolvedParams = await resolveVectorText(
-    scopedParams(params, options),
-    entry.embeddingAdapter,
-    core.abortController.signal,
-    entry.embeddingAdapterName,
-  )
-  const workerSearch = core.orchestrator.isPromoted()
-    ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
-    : undefined
-  const result = await executePreflight(resolvedParams, {
-    manager,
-    language: entry.language,
-    config: entry.config,
-    workerSearch,
-    indexName,
-    broadcastStats: broadcastStatsFor(core, options),
-    partitionIds: options?.partitionIds,
-    cursorBinding: queryBindingOf(params),
-  })
-  if (core.analysisRebuild.isStale(indexName)) {
-    result.analysisStale = true
+  const release = await core.indexState.acquire(indexName)
+  try {
+    const entry = core.requireIndex(indexName)
+    const manager = core.requireManager(indexName)
+    const resolvedParams = await resolveVectorText(
+      scopedParams(params, options),
+      entry.embeddingAdapter,
+      core.abortController.signal,
+      entry.embeddingAdapterName,
+    )
+    const workerSearch = core.orchestrator.isPromoted()
+      ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
+      : undefined
+    const result = await executePreflight(resolvedParams, {
+      manager,
+      language: entry.language,
+      config: entry.config,
+      workerSearch,
+      indexName,
+      broadcastStats: broadcastStatsFor(core, options),
+      partitionIds: options?.partitionIds,
+      cursorBinding: queryBindingOf(params),
+    })
+    if (core.analysisRebuild.isStale(indexName)) {
+      result.analysisStale = true
+    }
+    return result
+  } finally {
+    release()
   }
-  return result
 }
 
 export async function runEngineSuggest(
@@ -126,16 +136,21 @@ export async function runEngineSuggest(
   partitionIds?: number[],
 ): Promise<SuggestResult> {
   core.guardShutdown()
-  const result = executeSuggest(
-    core.requireManager(indexName),
-    core.requireIndex(indexName).language,
-    params,
-    partitionIds,
-  )
-  if (core.analysisRebuild.isStale(indexName)) {
-    result.analysisStale = true
+  const release = await core.indexState.acquire(indexName)
+  try {
+    const result = executeSuggest(
+      core.requireManager(indexName),
+      core.requireIndex(indexName).language,
+      params,
+      partitionIds,
+    )
+    if (core.analysisRebuild.isStale(indexName)) {
+      result.analysisStale = true
+    }
+    return result
+  } finally {
+    release()
   }
-  return result
 }
 
 export interface PartitionQueryStats {
@@ -144,29 +159,34 @@ export interface PartitionQueryStats {
   totalFieldLengths: Record<string, number>
 }
 
-export function runEngineQueryStats(
+export async function runEngineQueryStats(
   core: EngineCore,
   indexName: string,
   terms: string[],
   partitionIds?: number[],
-): PartitionQueryStats {
+): Promise<PartitionQueryStats> {
   core.guardShutdown()
-  const entry = core.requireIndex(indexName)
-  const manager = core.requireManager(indexName)
-  const stats = collectQueryTermStats(
-    manager,
-    terms.join(' '),
-    entry.language,
-    {
-      stopWords: manager.analysis.stopWords,
-      customTokenizer: manager.analysis.customTokenizer,
-    },
-    partitionIds,
-  )
-  return {
-    totalDocuments: stats.totalDocuments,
-    docFrequencies: stats.docFrequencies,
-    totalFieldLengths: stats.totalFieldLengths,
+  const release = await core.indexState.acquire(indexName)
+  try {
+    const entry = core.requireIndex(indexName)
+    const manager = core.requireManager(indexName)
+    const stats = collectQueryTermStats(
+      manager,
+      terms.join(' '),
+      entry.language,
+      {
+        stopWords: manager.analysis.stopWords,
+        customTokenizer: manager.analysis.customTokenizer,
+      },
+      partitionIds,
+    )
+    return {
+      totalDocuments: stats.totalDocuments,
+      docFrequencies: stats.docFrequencies,
+      totalFieldLengths: stats.totalFieldLengths,
+    }
+  } finally {
+    release()
   }
 }
 
@@ -177,10 +197,15 @@ export async function runEngineListDocuments<T = AnyDocument>(
   partitionIds?: number[],
 ): Promise<ListResult<T>> {
   core.guardShutdown()
-  const entry = core.requireIndex(indexName)
-  return executeListDocuments<T>(params, {
-    manager: core.requireManager(indexName),
-    schema: entry.config.schema,
-    partitionIds,
-  })
+  const release = await core.indexState.acquire(indexName)
+  try {
+    const entry = core.requireIndex(indexName)
+    return executeListDocuments<T>(params, {
+      manager: core.requireManager(indexName),
+      schema: entry.config.schema,
+      partitionIds,
+    })
+  } finally {
+    release()
+  }
 }

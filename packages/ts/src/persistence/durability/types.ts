@@ -8,13 +8,15 @@ export type { DurabilityConfig }
 
 export const DEFAULT_CHECKPOINT_INTERVAL_MS = 300_000
 export const DEFAULT_CHECKPOINT_MUTATION_THRESHOLD = 100_000
+export const DEFAULT_ASYNC_FLUSH_INTERVAL_MS = 1000
 
 export interface IndexDurabilityHooks {
   getManager(indexName: string): PartitionManager | undefined
   getVectorFieldPaths(indexName: string): Set<string>
   getVectorIndexes(indexName: string): Map<string, VectorIndex>
-  buildMetadata(indexName: string): IndexMetadata | undefined
-  createIndexFromMetadata(metadata: IndexMetadata): Promise<void>
+  buildMetadata(indexName: string, documentCount?: number): IndexMetadata | undefined
+  createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void>
+  recordCheckpoint?(indexName: string, documentCount: number, partitionCount: number): void
   onFatalError(error: Error): void
 }
 
@@ -29,7 +31,8 @@ export interface MutationRecord {
 
 export interface DurabilityManager {
   isActive(): boolean
-  recover(): Promise<void>
+  recover(metadataOnly?: boolean): Promise<void>
+  recoverIndex(indexName: string): Promise<void>
   recordMutation(record: MutationRecord): Promise<number>
   /** The highest sequence number this node's own write-ahead log holds for a partition, counting what recovery
    * replayed. A replicated write reaches the partition without passing through this log, so a node that took the
@@ -44,6 +47,7 @@ export interface DurabilityManager {
   checkpointFromMemory?(indexName: string): Promise<void>
   checkpointAll(): Promise<void>
   removeIndex(indexName: string): Promise<void>
+  unloadIndex(indexName: string): Promise<void>
   reloadIndex?(indexName: string): Promise<void>
   shutdown(): Promise<void>
 }

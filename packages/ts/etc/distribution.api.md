@@ -76,6 +76,7 @@ export interface ClusterNamespace {
 export interface ClusterNode {
     checkpoint(indexName: string): Promise<void>;
     clear(indexName: string): Promise<void>;
+    close(indexName: string): Promise<void>;
     cluster: ClusterNamespace;
     countDocuments(indexName: string): Promise<number>;
     createIndex(name: string, config: IndexConfig, options?: CreateIndexOptions): Promise<void>;
@@ -92,6 +93,7 @@ export interface ClusterNode {
     readonly nodeId: string;
     off<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;
     on<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;
+    open(indexName: string): Promise<void>;
     preflight(indexName: string, params: QueryParams): Promise<PreflightResult>;
     query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>;
     remove(indexName: string, docId: string): Promise<void>;

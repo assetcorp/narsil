@@ -205,6 +205,8 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
     vectorFieldPaths,
     indexUuid: null,
     heldPartitions: null,
+    documentCount: 0,
+    partitionCount: envelope.partitions.length,
   })
 
   try {
@@ -229,6 +231,11 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
           vecIndex.deserialize(payload)
         }
       }
+    }
+    const entry = deps.indexRegistry.get(indexName)
+    if (entry !== undefined) {
+      entry.documentCount = manager.countDocuments()
+      entry.partitionCount = manager.partitionCount
     }
   } catch (err) {
     try {

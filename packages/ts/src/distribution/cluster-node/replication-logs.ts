@@ -37,3 +37,16 @@ export function seedReplicationLog(
     }),
   )
 }
+
+/**
+ * Removes every in-memory replication log owned by one index.
+ *
+ * @param replicationLogs - This node's local log registry.
+ * @param indexName - The index whose logs are released.
+ */
+export function deleteIndexReplicationLogs(replicationLogs: Map<string, ReplicationLog>, indexName: string): void {
+  const prefix = `${indexName}:`
+  for (const key of replicationLogs.keys()) {
+    if (key.startsWith(prefix)) replicationLogs.delete(key)
+  }
+}

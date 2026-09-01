@@ -41,6 +41,8 @@ export interface DurabilityIntegrationHooks {
     | {
         indexUuid?: string
         heldPartitions?: number[]
+        documentCount?: number
+        partitionCount: number
         schema: Record<string, string>
         language: string
         k1: number
@@ -60,24 +62,33 @@ export interface DurabilityIntegrationHooks {
       }
     | undefined
   createIndexFromMetadata: IndexDurabilityHooks['createIndexFromMetadata']
+  recordCheckpoint: IndexDurabilityHooks['recordCheckpoint']
   onFatalError: IndexDurabilityHooks['onFatalError']
   checkpointPublisher?: CheckpointPublisher
 }
 
-function buildMetadata(indexName: string, hooks: DurabilityIntegrationHooks): IndexMetadata | undefined {
+function buildMetadata(
+  indexName: string,
+  hooks: DurabilityIntegrationHooks,
+  documentCount?: number,
+): IndexMetadata | undefined {
   const config = hooks.getIndexConfig(indexName)
   const manager = hooks.getManager(indexName)
-  if (config === undefined || manager === undefined) {
+  if (config === undefined) {
     return undefined
   }
   const metadata: IndexMetadata = {
     indexName,
     schema: config.schema,
     language: config.language,
-    partitionCount: manager.partitionCount,
+    partitionCount: manager?.partitionCount ?? config.partitionCount,
     bm25Params: { k1: config.k1, b: config.b },
     createdAt: Date.now(),
     engineVersion: VERSION,
+  }
+  const checkpointDocumentCount = documentCount ?? config.documentCount
+  if (checkpointDocumentCount !== undefined) {
+    metadata.documentCount = checkpointDocumentCount
   }
   if (config.embedding) {
     metadata.embedding = config.embedding
@@ -132,8 +143,9 @@ export function createDurabilityIntegration(
     getManager: hooks.getManager,
     getVectorFieldPaths: hooks.getVectorFieldPaths,
     getVectorIndexes: hooks.getVectorIndexes,
-    buildMetadata: indexName => buildMetadata(indexName, hooks),
+    buildMetadata: (indexName, documentCount) => buildMetadata(indexName, hooks, documentCount),
     createIndexFromMetadata: hooks.createIndexFromMetadata,
+    recordCheckpoint: hooks.recordCheckpoint,
     onFatalError: hooks.onFatalError,
   }
 

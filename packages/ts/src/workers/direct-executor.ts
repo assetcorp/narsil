@@ -79,6 +79,9 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
 
   function dropIndex(indexName: string): void {
     const entry = requireIndex(indexName)
+    for (const vectorIndex of entry.vectorIndexes.values()) {
+      vectorIndex.dispose()
+    }
     for (const partition of entry.manager.getAllPartitions()) {
       partition.clear()
     }

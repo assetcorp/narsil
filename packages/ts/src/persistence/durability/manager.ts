@@ -1,15 +1,15 @@
 import { buildEntry } from '../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
-import { reclaimWalBeyondCount, truncateCoveredSegments } from './checkpoint'
+import { runDurableCheckpoint } from './checkpoint-run'
 import { terminateCheckpointWorker } from './checkpoint-worker-dispatch'
-import { writeIndexCheckpoint } from './checkpoint-write'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
+import { drainIndexStateForUnload, type IndexState, type PartitionState } from './manager-state'
 import { listPersistedIndexes, loadMetadata, loadSnapshot, replayWal, snapshotCheckpointFor } from './recovery'
 import { DEFAULT_COMPACTION_THRESHOLD, readSegmentManifest, reclaimOrphanedSegments } from './segment'
-import { createSeqOwner, type SeqOwner, SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
-import type { PartitionCheckpoint } from './snapshot-bundle'
+import { createSeqOwner, SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import {
+  DEFAULT_ASYNC_FLUSH_INTERVAL_MS,
   DEFAULT_CHECKPOINT_INTERVAL_MS,
   DEFAULT_CHECKPOINT_MUTATION_THRESHOLD,
   type DurabilityConfig,
@@ -17,24 +17,16 @@ import {
   type IndexDurabilityHooks,
   type MutationRecord,
 } from './types'
-import { createWalWriter, DEFAULT_SEGMENT_MAX_BYTES, type WalWriter } from './wal-writer'
+import { createWalWriter, DEFAULT_SEGMENT_MAX_BYTES } from './wal-writer'
 
-const DEFAULT_ASYNC_FLUSH_INTERVAL_MS = 1000
-
-interface PartitionState {
-  walWriter: WalWriter
-  seqOwner: SeqOwner
-  appendChain: Promise<void>
-  appliedSeqNo: number
-  failed: Error | null
-}
-
-interface IndexState {
-  partitions: Map<number, PartitionState>
-  mutationsSinceCheckpoint: number
-  checkpointInFlight: Promise<void> | null
-}
-
+/**
+ * Creates durable mutation logging, recovery, and checkpoint coordination.
+ *
+ * @param config - The durability mode, paths, and checkpoint settings.
+ * @param hooks - The engine callbacks used to read and restore index state.
+ * @param directoryOverride - An optional storage directory supplied by an adapter.
+ * @returns A durability manager for the configured storage.
+ */
 export function createDurabilityManager(
   config: DurabilityConfig,
   hooks: IndexDurabilityHooks,
@@ -87,7 +79,7 @@ export function createDurabilityManager(
   function getOrCreateIndexState(indexName: string): IndexState {
     let state = indexes.get(indexName)
     if (state === undefined) {
-      state = { partitions: new Map(), mutationsSinceCheckpoint: 0, checkpointInFlight: null }
+      state = { partitions: new Map(), mutationsSinceCheckpoint: 0, checkpointInFlight: null, unloading: false }
       indexes.set(indexName, state)
     }
     return state
@@ -189,7 +181,7 @@ export function createDurabilityManager(
 
   async function checkpointIndex(indexName: string, fromMemory = false): Promise<void> {
     const indexState = indexes.get(indexName)
-    if (indexState === undefined) {
+    if (indexState === undefined || indexState.unloading) {
       return
     }
     if (indexState.checkpointInFlight !== null) {
@@ -206,54 +198,29 @@ export function createDurabilityManager(
   }
 
   async function performCheckpoint(indexName: string, indexState: IndexState, fromMemory = false): Promise<void> {
-    const manager = hooks.getManager(indexName)
-    if (manager === undefined) {
-      return
-    }
-    const metadata = hooks.buildMetadata(indexName)
-    if (metadata === undefined) {
-      return
-    }
-
-    const targets: PartitionCheckpoint[] = []
-    for (let i = 0; i < manager.partitionCount; i += 1) {
-      const partition = indexState.partitions.get(i)
-      targets.push({
-        partitionId: i,
-        lastSeqNo: partition?.appliedSeqNo ?? 0,
-        primaryTerm: partition?.seqOwner.primaryTerm ?? SINGLE_NODE_PRIMARY_TERM,
-      })
-      if (partition !== undefined) {
-        try {
-          await partition.walWriter.commit()
-        } catch (err) {
-          partition.failed = toError(err)
-          markFatal(partition.failed)
-          throw partition.failed
-        }
-      }
-    }
-
-    await writeIndexCheckpoint({
+    await runDurableCheckpoint({
       directory,
-      metadata,
-      targets,
+      hooks,
+      indexName,
+      indexState,
       compactionThreshold,
-      manager,
       canOffload: canOffloadCheckpoint,
       fromMemory,
+      queueMetadataWrite,
+      markFatal,
     })
-    await truncateCoveredSegments(directory, indexName, targets)
-    await reclaimWalBeyondCount(directory, indexName, manager.partitionCount, indexState.partitions, markFatal)
-    indexState.mutationsSinceCheckpoint = 0
   }
 
-  async function recoverIndex(indexName: string): Promise<void> {
+  async function recoverIndex(indexName: string, metadataOnly = false): Promise<void> {
     const metadata = await loadMetadata(directory, indexName)
     if (metadata === null) {
       return
     }
-    await hooks.createIndexFromMetadata(metadata)
+    await hooks.createIndexFromMetadata(metadata, !metadataOnly)
+
+    if (metadataOnly) {
+      return
+    }
 
     const manager = hooks.getManager(indexName)
     if (manager === undefined) {
@@ -284,12 +251,16 @@ export function createDurabilityManager(
       return true
     },
 
-    async recover(): Promise<void> {
+    async recover(metadataOnly = false): Promise<void> {
       const names = await listPersistedIndexes(directory)
       for (const indexName of names) {
-        await recoverIndex(indexName)
+        await recoverIndex(indexName, metadataOnly)
       }
       startCheckpointTimer()
+    },
+
+    recoverIndex(indexName: string): Promise<void> {
+      return recoverIndex(indexName)
     },
 
     highestPersistedSeqNo(indexName: string, partitionId: number): number {
@@ -376,14 +347,23 @@ export function createDurabilityManager(
     async removeIndex(indexName: string): Promise<void> {
       const indexState = indexes.get(indexName)
       if (indexState !== undefined) {
-        for (const partition of indexState.partitions.values()) {
-          await closeWriterReportingFailure(partition.walWriter.close())
-        }
+        await drainIndexStateForUnload(indexState, metadataWrites.get(indexName), closeWriterReportingFailure)
         indexes.delete(indexName)
+        metadataWrites.delete(indexName)
       }
       for (const key of await directory.list(`${indexName}/`)) {
         await directory.remove(key)
       }
+    },
+
+    async unloadIndex(indexName: string): Promise<void> {
+      const indexState = indexes.get(indexName)
+      if (indexState === undefined) {
+        return
+      }
+      await drainIndexStateForUnload(indexState, metadataWrites.get(indexName), close => close)
+      indexes.delete(indexName)
+      metadataWrites.delete(indexName)
     },
 
     async shutdown(): Promise<void> {

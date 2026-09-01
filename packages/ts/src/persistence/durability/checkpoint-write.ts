@@ -15,7 +15,13 @@ export interface IndexCheckpointWrite {
   fromMemory: boolean
 }
 
-export async function writeIndexCheckpoint(input: IndexCheckpointWrite): Promise<void> {
+/**
+ * Writes one index checkpoint in a worker or in the current process.
+ *
+ * @param input - The checkpoint target, index state, and storage settings.
+ * @returns The serialised document count, or `null` when a worker wrote the checkpoint.
+ */
+export async function writeIndexCheckpoint(input: IndexCheckpointWrite): Promise<number | null> {
   const { directory, metadata, targets, compactionThreshold, manager } = input
 
   const offloaded =
@@ -26,10 +32,10 @@ export async function writeIndexCheckpoint(input: IndexCheckpointWrite): Promise
     (await runCheckpointOnWorker({ root: directory.root, metadata, targets, compactionThreshold }))
 
   if (offloaded) {
-    return
+    return null
   }
 
-  await writeSegmentedCheckpoint({
+  return writeSegmentedCheckpoint({
     directory,
     metadata,
     targets,

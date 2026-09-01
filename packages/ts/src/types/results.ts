@@ -171,8 +171,8 @@ export interface BatchResult {
  * @public
  */
 export interface IndexStats {
-  /** The index holds this many documents. */
-  documentCount: number
+  /** The index holds this many documents, or `null` when closed metadata carries no checkpoint count. */
+  documentCount: number | null
   /** The index is spread across this many partitions. */
   partitionCount: number
   /**
@@ -199,14 +199,18 @@ export interface IndexStats {
 export interface IndexInfo {
   /** The index was created under this name. */
   name: string
-  /** The index holds this many documents. */
-  documentCount: number
+  /** The index holds this many documents, or `null` when closed metadata carries no checkpoint count. */
+  documentCount: number | null
   /** The index is spread across this many partitions. */
   partitionCount: number
   /** The index analyses text with this language module. */
   language: string
   /** This turns true when the index's terms came from an older analysis than its language module produces now. */
   analysisStale?: boolean
+  /** This is `open` in memory, `closed` after release, and `reopen-failed` after five recovery failures. */
+  state: 'open' | 'closed' | 'reopen-failed'
+  /** This counts successful loads since this engine started. */
+  reopenCount: number
 }
 
 /**
@@ -289,6 +293,12 @@ export interface MemoryStats {
    * `process.heapUsed` cannot tell engines apart.
    */
   estimatedIndexBytes: number
+  /** This many indexes currently occupy engine memory. */
+  openIndexCount: number
+  /** This many indexes remain registered without occupying engine memory, including parked recovery failures. */
+  closedIndexCount: number
+  /** This counts successful index loads since this engine started. */
+  reopenCount: number
   /**
    * Per-worker V8 heap usage when the engine has been promoted to a worker
    * pool. Empty when no workers are active.

@@ -4,6 +4,8 @@ import type { EngineCore } from './core'
 export async function shutdownEngine(core: EngineCore): Promise<void> {
   const { executor, durability, indexRegistry, eventHandlers, orchestrator } = core
 
+  core.indexState.dispose()
+
   for (const [name] of indexRegistry) {
     const manager = executor.getManager(name)
     if (manager) {
