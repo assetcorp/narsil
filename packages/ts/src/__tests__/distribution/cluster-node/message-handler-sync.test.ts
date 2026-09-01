@@ -64,7 +64,7 @@ describe('createDataNodeHandler sync_request routing', () => {
 
     const handler = createDataNodeHandler({
       nodeId: 'primary-node',
-      engine: { listIndexes: () => [{ name: 'products' }] } as unknown as ClusterLocalEngine,
+      engine: { listIndexes: () => [{ name: 'products', state: 'open' }] } as unknown as ClusterLocalEngine,
       coordinator: makeCoordinator(makeAssignment()),
       writeDeps: {
         getReplicationLog: () => log,
@@ -122,7 +122,7 @@ describe('createDataNodeHandler sync_request routing', () => {
     const snapshot = vi.fn()
     const serializeReplicationPartition = vi.fn().mockResolvedValue(snapshotBytes)
     const engine = {
-      listIndexes: () => [{ name: 'products' }],
+      listIndexes: () => [{ name: 'products', state: 'open' }],
       snapshot,
       serializeReplicationPartition,
     } as unknown as ClusterLocalEngine

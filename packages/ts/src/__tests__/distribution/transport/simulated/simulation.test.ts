@@ -331,7 +331,7 @@ describe('simulated cluster scenarios', () => {
     await oracle.assertConverged(INDEX_NAME, journal)
   }, 60_000)
 
-  it.fails('recovers replication after a close during a network partition and a reopen after healing', async () => {
+  it('recovers replication after a close during a network partition and a reopen after healing', async () => {
     const { nodeA, table } = await startPairWithIndex({ lifecycle: true })
     const partitionCount = table.assignments.size
     const primariesOnA = [...table.assignments.entries()]
