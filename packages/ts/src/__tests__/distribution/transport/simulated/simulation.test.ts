@@ -10,6 +10,7 @@ import type { SimulatedNetwork } from '../../../../distribution/transport/simula
 import { createSimulatedNetwork } from '../../../../distribution/transport/simulated/network'
 import { createSimulatedTransport } from '../../../../distribution/transport/simulated/transport'
 import type { NodeTransport, TransportConfig } from '../../../../distribution/transport/types'
+import { createMemoryPersistence } from '../../../../persistence/memory'
 
 const START_TIME = 1_000_000_000
 const INDEX_NAME = 'products'
@@ -49,6 +50,7 @@ function allInSync(table: AllocationTable): boolean {
 
 interface NodeOptions {
   logRetentionBytes?: number
+  lifecycle?: boolean
 }
 
 describe('simulated cluster scenarios', () => {
@@ -122,6 +124,15 @@ describe('simulated cluster scenarios', () => {
       ...(options.logRetentionBytes === undefined
         ? {}
         : { replication: { logRetentionBytes: options.logRetentionBytes } }),
+      ...(options.lifecycle === true
+        ? {
+            engine: {
+              persistence: createMemoryPersistence(),
+              durability: { tier: 'snapshot' as const },
+              lifecycle: {},
+            },
+          }
+        : {}),
       onError:
         process.env.SIM_DEBUG === '1'
           ? error => console.log(`onError ${nodeId} @${network.scheduler.now - START_TIME}: ${error.message}`)
@@ -288,6 +299,89 @@ describe('simulated cluster scenarios', () => {
     await waitForAllocation(allInSync)
 
     expect(acknowledged).toBeGreaterThan(0)
+    await oracle.assertConverged(INDEX_NAME, journal)
+  }, 60_000)
+
+  it('continues replication sequence numbers through a close and reopen on the snapshot tier', async () => {
+    const { nodeA, table } = await startPairWithIndex({ lifecycle: true })
+    const partitionCount = table.assignments.size
+    const primaryOnA = [...table.assignments.entries()].find(([, assignment]) => assignment.primary === 'node-a')
+    if (primaryOnA === undefined) {
+      throw new Error('No partition has node-a as its primary')
+    }
+    const [partitionId] = primaryOnA
+
+    await insertAcked(nodeA, docIdForPartition(partitionId, partitionCount, 'before-close'), 'Written before the close')
+    await network.scheduler.runUntilQuiet()
+
+    await network.scheduler.runWithDrain(() => nodeA.close(INDEX_NAME))
+    const closedStats = await network.scheduler.runWithDrain(() => nodeA.getMemoryStats())
+    expect(closedStats.openIndexCount).toBe(0)
+
+    await insertAcked(
+      nodeA,
+      docIdForPartition(partitionId, partitionCount, 'after-reopen'),
+      'Written through the transparent reopen',
+    )
+    const allocationAfterReopen = await coordinator.getAllocation(INDEX_NAME)
+    expect(allocationAfterReopen?.assignments.get(partitionId)?.inSyncSet).toContain('node-b')
+
+    await network.scheduler.runUntilQuiet()
+    await waitForAllocation(allInSync)
+    await oracle.assertConverged(INDEX_NAME, journal)
+  }, 60_000)
+
+  it.fails('recovers replication after a close during a network partition and a reopen after healing', async () => {
+    const { nodeA, table } = await startPairWithIndex({ lifecycle: true })
+    const partitionCount = table.assignments.size
+    const primariesOnA = [...table.assignments.entries()]
+      .filter(([, assignment]) => assignment.primary === 'node-a')
+      .map(([partitionId]) => partitionId)
+    if (primariesOnA.length < 2) {
+      throw new Error('The scenario needs two node-a primary partitions')
+    }
+    const [faultedPartition, steadyPartition] = primariesOnA
+
+    await insertAcked(
+      nodeA,
+      docIdForPartition(faultedPartition, partitionCount, 'faulted-baseline'),
+      'Written before the fault',
+    )
+    await insertAcked(
+      nodeA,
+      docIdForPartition(steadyPartition, partitionCount, 'steady-baseline'),
+      'Written before the fault on the partition that stays in sync',
+    )
+    await network.scheduler.runUntilQuiet()
+
+    network.faultPolicy.addPartition('node-a', 'node-b')
+    await insertAcked(
+      nodeA,
+      docIdForPartition(faultedPartition, partitionCount, 'during-fault'),
+      'Acknowledged while the replica is unreachable',
+    )
+
+    await network.scheduler.runWithDrain(() => nodeA.close(INDEX_NAME))
+    const closedStats = await network.scheduler.runWithDrain(() => nodeA.getMemoryStats())
+    expect(closedStats.openIndexCount).toBe(0)
+
+    network.faultPolicy.removePartition('node-a', 'node-b')
+    await waitForAllocation(allInSync)
+
+    await insertAcked(
+      nodeA,
+      docIdForPartition(steadyPartition, partitionCount, 'after-reopen'),
+      'Written through the transparent reopen',
+    )
+    const allocationAfterReopen = await coordinator.getAllocation(INDEX_NAME)
+    expect(allocationAfterReopen?.assignments.get(steadyPartition)?.inSyncSet).toContain('node-b')
+
+    await network.scheduler.runUntilQuiet()
+    await waitForAllocation(allInSync)
+
+    const reopenedStats = await network.scheduler.runWithDrain(() => nodeA.getMemoryStats())
+    expect(reopenedStats.openIndexCount).toBe(1)
+    expect(reopenedStats.reopenCount).toBeGreaterThan(0)
     await oracle.assertConverged(INDEX_NAME, journal)
   }, 60_000)
 

@@ -146,6 +146,17 @@ describe('catch-up pump', () => {
     expect(deps.catchUp.cursors.size).toBe(0)
   })
 
+  it('drops a replica whose cursor is below the floor of an empty reseeded log', async () => {
+    const log = createReplicationLog(0, { startSeqNo: 3, lastPrimaryTerm: 1 })
+    const { deps, received } = await setUp(makeTable(), log)
+
+    recordReplicaPosition(deps.catchUp, 'products', 0, 'node-b', 1)
+    await runCatchUpTick(deps.catchUp, deps)
+
+    expect(received).toHaveLength(0)
+    expect(deps.catchUp.cursors.size).toBe(0)
+  })
+
   it('forgets a replica once the controller has admitted it', async () => {
     const log = createReplicationLog(0)
     appendEntries(log, 1)
