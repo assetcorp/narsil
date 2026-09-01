@@ -1,68 +1,19 @@
-import { ErrorCodes, NarsilError } from '../errors'
-import type { IndexLifecycleConfig } from '../types/config'
+import { ErrorCodes, NarsilError } from '../../errors'
+import type { IndexLifecycleConfig } from '../../types/config'
+import {
+  cachedRecoveryError,
+  createLifecycleEntry,
+  DEFAULT_MAX_REOPEN_WAITERS,
+  type IndexStateCallbacks,
+  type IndexStateCoordinator,
+  type LifecycleEntry,
+  MAX_REOPEN_FAILURES,
+  MAX_SWEEP_INTERVAL_MS,
+  MIN_SWEEP_INTERVAL_MS,
+  validateLimit,
+} from './entry'
 
-const DEFAULT_MAX_REOPEN_WAITERS = 64
-const MAX_REOPEN_FAILURES = 5
-const MIN_SWEEP_INTERVAL_MS = 100
-const MAX_SWEEP_INTERVAL_MS = 60_000
-
-type LifecycleState = 'open' | 'closed' | 'closing' | 'dropping' | 'reopen-failed'
-
-interface LifecycleEntry {
-  state: LifecycleState
-  lastAccessAt: number
-  activeOperations: number
-  reopenCount: number
-  reopenFailures: number
-  nextReopenAt: number
-  cachedError: NarsilError | null
-  reopenPromise: Promise<void> | null
-  waiterCount: number
-  closePromise: Promise<void> | null
-  dropPromise: Promise<void> | null
-  drainResolvers: Set<() => void>
-}
-
-export interface IndexStateCallbacks {
-  reopen(indexName: string): Promise<void>
-  close(indexName: string): Promise<void>
-  canCloseAutomatically(indexName: string): boolean
-  estimateBytes(indexName: string): number
-}
-
-export interface IndexStateCoordinator {
-  registerOpen(indexName: string): Promise<void>
-  registerClosed(indexName: string): void
-  forget(indexName: string): void
-  acquire(indexName: string, markActive?: boolean): Promise<() => void>
-  open(indexName: string): Promise<void>
-  close(indexName: string): Promise<void>
-  drop(indexName: string, action: () => Promise<void>): Promise<void>
-  stateOf(indexName: string): 'open' | 'closed' | 'reopen-failed'
-  reopenCount(indexName: string): number
-  counts(): { open: number; closed: number; reopens: number }
-  dispose(): void
-}
-
-function validateLimit(name: string, value: number | undefined, allowZero = false): void {
-  if (value === undefined) return
-  const minimum = allowZero ? 0 : 1
-  if (!Number.isSafeInteger(value) || value < minimum) {
-    const requirement = allowZero ? 'a non-negative safe integer' : 'a positive safe integer'
-    throw new NarsilError(ErrorCodes.CONFIG_INVALID, `${name} must be ${requirement}`, {
-      field: name,
-      value,
-    })
-  }
-}
-
-function cachedRecoveryError(error: unknown, indexName: string): NarsilError {
-  if (error instanceof NarsilError) return error
-  return new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, `Index "${indexName}" could not be reopened`, {
-    indexName,
-    cause: error instanceof Error ? error.message : String(error),
-  })
-}
+export type { IndexStateCallbacks, IndexStateCoordinator } from './entry'
 
 /**
  * Builds the bounded state machine that opens and closes durable indexes.
@@ -316,37 +267,11 @@ export function createIndexStateCoordinator(
 
   return {
     async registerOpen(indexName: string): Promise<void> {
-      entries.set(indexName, {
-        state: 'open',
-        lastAccessAt: Date.now(),
-        activeOperations: 0,
-        reopenCount: 0,
-        reopenFailures: 0,
-        nextReopenAt: 0,
-        cachedError: null,
-        reopenPromise: null,
-        waiterCount: 0,
-        closePromise: null,
-        dropPromise: null,
-        drainResolvers: new Set(),
-      })
+      entries.set(indexName, createLifecycleEntry('open'))
       await enforceLimits(indexName)
     },
     registerClosed(indexName: string): void {
-      entries.set(indexName, {
-        state: 'closed',
-        lastAccessAt: Date.now(),
-        activeOperations: 0,
-        reopenCount: 0,
-        reopenFailures: 0,
-        nextReopenAt: 0,
-        cachedError: null,
-        reopenPromise: null,
-        waiterCount: 0,
-        closePromise: null,
-        dropPromise: null,
-        drainResolvers: new Set(),
-      })
+      entries.set(indexName, createLifecycleEntry('closed'))
     },
     forget(indexName: string): void {
       entries.delete(indexName)

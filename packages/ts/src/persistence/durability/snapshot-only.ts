@@ -160,16 +160,21 @@ export function createSnapshotOnlyManager(
       return
     }
     const { metadata } = await readMetadataEnvelope(metaBytes)
-    const countMissing = metadataOnly && metadata.documentCount === undefined
-    if (countMissing) {
-      metadata.documentCount = await countStoredBundleDocuments(indexName)
+    let derivedCount: number | undefined
+    if (metadataOnly && metadata.documentCount === undefined) {
+      try {
+        derivedCount = await countStoredBundleDocuments(indexName)
+        metadata.documentCount = derivedCount
+      } catch {
+        derivedCount = undefined
+      }
     }
     await hooks.createIndexFromMetadata(metadata, !metadataOnly)
 
     if (metadataOnly) {
-      if (countMissing) {
+      if (derivedCount !== undefined) {
         await queueMetadataWrite(indexName, async () => {
-          const upgraded = hooks.buildMetadata(indexName, metadata.documentCount)
+          const upgraded = hooks.buildMetadata(indexName, derivedCount)
           if (upgraded === undefined) {
             return
           }
@@ -203,15 +208,11 @@ export function createSnapshotOnlyManager(
   }
 
   async function countStoredBundleDocuments(indexName: string): Promise<number> {
-    try {
-      const snapshotBytes = await adapter.load(snapshotStorageKey(indexName))
-      if (snapshotBytes === null) {
-        return 0
-      }
-      return await countSnapshotBundleDocuments(snapshotBytes)
-    } catch {
+    const snapshotBytes = await adapter.load(snapshotStorageKey(indexName))
+    if (snapshotBytes === null) {
       return 0
     }
+    return countSnapshotBundleDocuments(snapshotBytes)
   }
 
   return {
