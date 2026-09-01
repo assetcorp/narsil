@@ -26,6 +26,7 @@ import { applyLocalReplicationEntry } from './local-replication'
 
 export interface ClusterLocalEngine extends Narsil {
   createIndexWithUuid(name: string, config: IndexConfig, indexUuid?: string): Promise<void>
+  acquireIndexForReplication(indexName: string): Promise<() => void>
   indexUuidOf(indexName: string): string | null | undefined
   stampIndexUuid(indexName: string, indexUuid: string): Promise<void>
   highestPersistedSeqNoOf(indexName: string, partitionId: number): number
@@ -82,6 +83,7 @@ export async function createClusterLocalEngine(
   return Object.assign(engine, {
     createIndexWithUuid: (name: string, indexConfig: IndexConfig, indexUuid?: string) =>
       createEngineIndex(core, config, name, indexConfig, indexUuid),
+    acquireIndexForReplication: (indexName: string) => core.indexState.acquire(indexName, false),
     indexUuidOf: (indexName: string) => core.indexRegistry.get(indexName)?.indexUuid,
     stampIndexUuid: (indexName: string, indexUuid: string) => stampIndexUuid(core, indexName, indexUuid),
     highestPersistedSeqNoOf: (indexName: string, partitionId: number) =>

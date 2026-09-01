@@ -145,7 +145,7 @@ The client reads the answer once and keeps it, because a server cannot take on a
 
 | Group | Methods |
 | --- | --- |
-| Indexes | `createIndex`, `listIndexes`, `dropIndex`, `getStats`, `getPartitionStats`, `clear` |
+| Indexes | `createIndex`, `listIndexes`, `dropIndex`, `getStats`, `getPartitionStats`, `clear`, `open`, `close` |
 | Documents | `insert`, `get`, `has`, `put`, `update`, `remove`, `countDocuments` |
 | Bulk | `insertBatch`, `updateBatch`, `removeBatch`, `getMultiple`, `listDocuments`, `importDocuments`, `startImport` |
 | Search | `query`, `preflight`, `suggest` |

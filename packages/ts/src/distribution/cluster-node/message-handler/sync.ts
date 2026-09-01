@@ -79,58 +79,59 @@ export async function handleSyncRequestMessage(
       { indexName: request.indexName, partitionId: request.partitionId, primaryNodeId: deps.nodeId },
     )
   }
-  if (localIndex.state !== 'open') {
-    await deps.engine.open(request.indexName)
-  }
+  const release = await deps.engine.acquireIndexForReplication(request.indexName)
+  try {
+    if (message.sourceId !== deps.nodeId) {
+      recordReplicaPosition(
+        deps.writeDeps.catchUp,
+        request.indexName,
+        request.partitionId,
+        message.sourceId,
+        request.lastSeqNo,
+      )
+    }
 
-  if (message.sourceId !== deps.nodeId) {
-    recordReplicaPosition(
-      deps.writeDeps.catchUp,
-      request.indexName,
-      request.partitionId,
-      message.sourceId,
-      request.lastSeqNo,
+    const log = deps.writeDeps.getReplicationLog(request.indexName, request.partitionId)
+    const tier = decideSyncTier(log, request.lastSeqNo)
+    if (tier === 'incremental') {
+      await sendSyncEntriesResponse(message, respond, deps, log.getEntriesFrom(request.lastSeqNo + 1))
+      return
+    }
+
+    const snapshotSeqNo = log.localLogEnd
+    const sink = createSingleResponseSink(respond)
+    await streamValidatedSnapshotRequest(
+      message,
+      sink,
+      { indexName: request.indexName, partitionId: request.partitionId },
+      {
+        nodeId: deps.nodeId,
+        engine: deps.engine,
+        coordinator: deps.coordinator,
+        state: deps.snapshotSyncState,
+        resolveHeaderMetadata: deps.resolveHeaderMetadata,
+      },
+      {
+        metadata: {
+          partitionId: request.partitionId,
+          lastSeqNo: snapshotSeqNo,
+          primaryTerm: assignment.primaryTerm,
+        },
+        closeOnEnd: false,
+        disableBuildCache: true,
+        buildSnapshot: async () => {
+          const bytes = await deps.engine.serializeReplicationPartition(request.indexName, request.partitionId)
+          return { bytes, checksum: crc32(bytes) }
+        },
+        afterSnapshot: async trailingSink => {
+          const entries = log.getEntriesFrom(snapshotSeqNo + 1)
+          await sendSyncEntriesResponse(message, trailingSink, deps, entries)
+        },
+      },
     )
+  } finally {
+    release()
   }
-
-  const log = deps.writeDeps.getReplicationLog(request.indexName, request.partitionId)
-  const tier = decideSyncTier(log, request.lastSeqNo)
-  if (tier === 'incremental') {
-    await sendSyncEntriesResponse(message, respond, deps, log.getEntriesFrom(request.lastSeqNo + 1))
-    return
-  }
-
-  const snapshotSeqNo = log.localLogEnd
-  const sink = createSingleResponseSink(respond)
-  await streamValidatedSnapshotRequest(
-    message,
-    sink,
-    { indexName: request.indexName, partitionId: request.partitionId },
-    {
-      nodeId: deps.nodeId,
-      engine: deps.engine,
-      coordinator: deps.coordinator,
-      state: deps.snapshotSyncState,
-      resolveHeaderMetadata: deps.resolveHeaderMetadata,
-    },
-    {
-      metadata: {
-        partitionId: request.partitionId,
-        lastSeqNo: snapshotSeqNo,
-        primaryTerm: assignment.primaryTerm,
-      },
-      closeOnEnd: false,
-      disableBuildCache: true,
-      buildSnapshot: async () => {
-        const bytes = await deps.engine.serializeReplicationPartition(request.indexName, request.partitionId)
-        return { bytes, checksum: crc32(bytes) }
-      },
-      afterSnapshot: async trailingSink => {
-        const entries = log.getEntriesFrom(snapshotSeqNo + 1)
-        await sendSyncEntriesResponse(message, trailingSink, deps, entries)
-      },
-    },
-  )
 }
 
 export async function sendSyncEntriesResponse(

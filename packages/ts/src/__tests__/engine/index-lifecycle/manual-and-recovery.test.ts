@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -74,11 +74,12 @@ describe('index lifecycle', () => {
     expect(engine.listIndexes()[0]).toEqual(expect.objectContaining({ state: 'open', reopenCount: 1 }))
   })
 
-  it('reports an unknown count for closed metadata written before checkpoint counts', async () => {
+  it('derives the closed count from the snapshot for metadata written before checkpoint counts', async () => {
     const storage = createMemoryPersistence()
     engine = await createNarsil({ persistence: storage, durability: { tier: 'snapshot' }, lifecycle: {} })
     await engine.createIndex('products', { schema: { title: 'string' } })
     await engine.insert('products', { title: 'Desk lamp' }, 'lamp')
+    await engine.insert('products', { title: 'Desk chair' }, 'chair')
     await engine.checkpoint('products')
     await engine.shutdown()
     const metadataBytes = await storage.load('products/meta')
@@ -90,9 +91,38 @@ describe('index lifecycle', () => {
 
     engine = await createNarsil({ persistence: storage, durability: { tier: 'snapshot' }, lifecycle: {} })
 
-    expect(engine.listIndexes()).toEqual([expect.objectContaining({ documentCount: null, state: 'closed' })])
-    expect(engine.getStats('products')).toEqual(expect.objectContaining({ documentCount: null }))
-    expect(await engine.countDocuments('products')).toBe(1)
+    expect(engine.listIndexes()).toEqual([expect.objectContaining({ documentCount: 2, state: 'closed' })])
+    expect(engine.getStats('products')).toEqual(expect.objectContaining({ documentCount: 2 }))
+    const upgradedBytes = await storage.load('products/meta')
+    expect(upgradedBytes).not.toBeNull()
+    if (upgradedBytes === null) return
+    expect((await readMetadataEnvelope(upgradedBytes)).metadata.documentCount).toBe(2)
+    expect(await engine.countDocuments('products')).toBe(2)
+  })
+
+  it('derives the closed count from segments for metadata written before checkpoint counts', async () => {
+    directory = await mkdtemp(join(tmpdir(), 'narsil-index-lifecycle-'))
+    engine = await createNarsil({ durability: { directory } })
+    await engine.createIndex('products', { schema: { title: 'string' } })
+    await engine.insert('products', { title: 'Desk lamp' }, 'lamp')
+    await engine.insert('products', { title: 'Desk chair' }, 'chair')
+    await engine.checkpoint('products')
+    await engine.update('products', 'lamp', { title: 'Angle lamp' })
+    await engine.insert('products', { title: 'Side table' }, 'table')
+    await engine.remove('products', 'chair')
+    await engine.checkpoint('products')
+    await engine.shutdown()
+    const metadataPath = join(directory, 'products', 'meta')
+    const { metadata } = await readMetadataEnvelope(new Uint8Array(await readFile(metadataPath)))
+    delete metadata.documentCount
+    await writeFile(metadataPath, await writeMetadataEnvelope(metadata, { checksum: true }))
+
+    engine = await createNarsil({ durability: { directory }, lifecycle: {} })
+
+    expect(engine.listIndexes()).toEqual([expect.objectContaining({ documentCount: 2, state: 'closed' })])
+    const upgraded = await readMetadataEnvelope(new Uint8Array(await readFile(metadataPath)))
+    expect(upgraded.metadata.documentCount).toBe(2)
+    expect(await engine.countDocuments('products')).toBe(2)
   })
 
   it('evicts the least recently used index when the open-index limit is reached', async () => {

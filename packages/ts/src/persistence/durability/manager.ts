@@ -1,6 +1,7 @@
 import { buildEntry } from '../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
+import { countCheckpointDocuments } from './checkpoint-count'
 import { runDurableCheckpoint } from './checkpoint-run'
 import { terminateCheckpointWorker } from './checkpoint-worker-dispatch'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
@@ -216,9 +217,23 @@ export function createDurabilityManager(
     if (metadata === null) {
       return
     }
+    const countMissing = metadataOnly && metadata.documentCount === undefined
+    if (countMissing) {
+      metadata.documentCount = await countCheckpointDocuments(directory, indexName).catch(() => 0)
+    }
     await hooks.createIndexFromMetadata(metadata, !metadataOnly)
 
     if (metadataOnly) {
+      if (countMissing) {
+        await queueMetadataWrite(indexName, async () => {
+          const upgraded = hooks.buildMetadata(indexName, metadata.documentCount)
+          if (upgraded === undefined) {
+            return
+          }
+          const bytes = await writeMetadataEnvelope(upgraded, { checksum: true })
+          await directory.atomicWrite(`${indexName}/meta`, bytes)
+        }).catch(() => undefined)
+      }
       return
     }
 

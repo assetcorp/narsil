@@ -226,13 +226,18 @@ export interface ImportResult {
 export type ImportSource = AnyDocument[] | string | Uint8Array;
 
 // @public
+export const INDEX_LIFECYCLE_CAPABILITY = "indexes.lifecycle";
+
+// @public
 export interface IndexOperations {
     clear(indexName: string, options?: RequestOptions): Promise<void>;
+    close(indexName: string, options?: RequestOptions): Promise<void>;
     createIndex(name: string, config: HttpIndexConfig, options?: RequestOptions): Promise<void>;
     dropIndex(name: string, options?: RequestOptions): Promise<void>;
     getPartitionStats(indexName: string, options?: RequestOptions): Promise<PartitionStatsResult[]>;
     getStats(indexName: string, options?: RequestOptions): Promise<IndexStats>;
     listIndexes(options?: RequestOptions): Promise<IndexInfo[]>;
+    open(indexName: string, options?: RequestOptions): Promise<void>;
 }
 
 // @public

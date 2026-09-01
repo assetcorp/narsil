@@ -41,7 +41,7 @@ export type IndexRegistryEntry = {
   indexUuid: string | null
   /** The partitions this copy holds, or null where nothing has recorded them yet. */
   heldPartitions: number[] | null
-  documentCount: number | null
+  documentCount: number
   partitionCount: number
 }
 
@@ -233,7 +233,7 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
       vectorFieldPaths: getVectorFieldPaths(indexConfig.schema),
       indexUuid: metadata.indexUuid ?? null,
       heldPartitions: metadata.heldPartitions ?? null,
-      documentCount: metadata.documentCount ?? null,
+      documentCount: metadata.documentCount ?? 0,
       partitionCount: metadata.partitionCount,
     })
     if (loadData) await indexState.registerOpen(metadata.indexName)
@@ -255,7 +255,7 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
   let invalidation: InvalidationIntegration | null = null
 
   const durability = createDurabilityFromTier(durabilityTier, {
-    requireManager,
+    getManager: indexName => executor.getManager(indexName),
     indexRegistry,
     createIndexFromMetadata,
     emitFatalError(error: Error) {

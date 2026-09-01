@@ -124,16 +124,30 @@ export function createIndexStateCoordinator(
     }
   }
 
-  async function reopen(indexName: string, explicit: boolean): Promise<void> {
+  async function awaitPendingTransitions(indexName: string): Promise<LifecycleEntry> {
     let entry = entryOf(indexName)
-    if (entry.state === 'dropping' && entry.dropPromise !== null) {
-      await entry.dropPromise
-      entry = entryOf(indexName)
+    while (true) {
+      if (entry.state === 'dropping' && entry.dropPromise !== null) {
+        await entry.dropPromise
+        entry = entryOf(indexName)
+        continue
+      }
+      if (entry.state === 'closing' && entry.closePromise !== null) {
+        await waitForTransition(
+          indexName,
+          entry,
+          entry.closePromise.catch(() => undefined),
+        )
+        entry = entryOf(indexName)
+        continue
+      }
+      return entry
     }
+  }
+
+  async function reopen(indexName: string, explicit: boolean): Promise<void> {
+    const entry = await awaitPendingTransitions(indexName)
     if (entry.state === 'open') return
-    if (entry.state === 'closing' && entry.closePromise !== null) {
-      await waitForTransition(indexName, entry, entry.closePromise)
-    }
     if (explicit) {
       entry.reopenFailures = 0
       entry.nextReopenAt = 0
@@ -174,14 +188,20 @@ export function createIndexStateCoordinator(
 
   async function closeEntry(indexName: string, automatic: boolean): Promise<boolean> {
     let entry = entryOf(indexName)
-    if (entry.state === 'dropping' && entry.dropPromise !== null) {
-      if (automatic) return false
-      await entry.dropPromise
-      entry = entryOf(indexName)
-    }
-    if (entry.reopenPromise !== null) {
-      if (automatic) return false
-      await entry.reopenPromise
+    while (true) {
+      if (entry.state === 'dropping' && entry.dropPromise !== null) {
+        if (automatic) return false
+        await entry.dropPromise
+        entry = entryOf(indexName)
+        continue
+      }
+      if (entry.reopenPromise !== null) {
+        if (automatic) return false
+        await entry.reopenPromise.catch(() => undefined)
+        entry = entryOf(indexName)
+        continue
+      }
+      break
     }
     if (entry.state === 'closed' || entry.state === 'reopen-failed') return true
     if (entry.state === 'closing' && entry.closePromise !== null) {
@@ -215,13 +235,24 @@ export function createIndexStateCoordinator(
   }
 
   async function dropEntry(indexName: string, action: () => Promise<void>): Promise<void> {
-    const entry = entryOf(indexName)
-    if (entry.dropPromise !== null) {
-      await entry.dropPromise
-      return
+    let entry = entryOf(indexName)
+    while (true) {
+      if (entry.dropPromise !== null) {
+        await entry.dropPromise
+        return
+      }
+      if (entry.reopenPromise !== null) {
+        await entry.reopenPromise.catch(() => undefined)
+        entry = entryOf(indexName)
+        continue
+      }
+      if (entry.closePromise !== null) {
+        await entry.closePromise.catch(() => undefined)
+        entry = entryOf(indexName)
+        continue
+      }
+      break
     }
-    if (entry.reopenPromise !== null) await entry.reopenPromise
-    if (entry.closePromise !== null) await entry.closePromise
     const previousState = entry.state
     entry.state = 'dropping'
     const run = (async () => {
@@ -321,10 +352,14 @@ export function createIndexStateCoordinator(
       entries.delete(indexName)
     },
     async acquire(indexName: string, markActive = true): Promise<() => void> {
-      const entry = entryOf(indexName)
+      let entry = entryOf(indexName)
       const opened = entry.state !== 'open'
       await reopen(indexName, false)
-      while (entry.state !== 'open') await reopen(indexName, false)
+      entry = entryOf(indexName)
+      while (entry.state !== 'open') {
+        await reopen(indexName, false)
+        entry = entryOf(indexName)
+      }
       if (markActive) entry.lastAccessAt = Date.now()
       entry.activeOperations += 1
       try {
@@ -342,8 +377,11 @@ export function createIndexStateCoordinator(
     },
     async open(indexName: string): Promise<void> {
       await reopen(indexName, true)
-      const entry = entryOf(indexName)
-      while (entry.state !== 'open') await reopen(indexName, true)
+      let entry = entryOf(indexName)
+      while (entry.state !== 'open') {
+        await reopen(indexName, true)
+        entry = entryOf(indexName)
+      }
       entry.lastAccessAt = Date.now()
       entry.activeOperations += 1
       try {

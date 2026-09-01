@@ -17,6 +17,7 @@ import type { Executor } from '../../workers/executor'
 import type { StaleIndex } from '../analysis-rebuild'
 import type { IndexRegistryEntry } from '../core'
 import type { DurabilityIntegration } from '../durability-integration'
+import type { IndexStateCoordinator } from '../index-state'
 import { restoredConfigFields, restoredEmbedding, type SnapshotEnvelope } from './restore-config'
 
 export async function createSnapshot(manager: PartitionManager, entry: IndexRegistryEntry): Promise<Uint8Array> {
@@ -94,6 +95,7 @@ export interface RestoreDeps {
   defaultEmbeddingAdapter: EmbeddingAdapter | null
   markAnalysisStale: (index: StaleIndex) => void
   clearAnalysisStale: (indexName: string) => void
+  indexState: Pick<IndexStateCoordinator, 'registerOpen' | 'acquire' | 'forget'>
 }
 
 export async function restoreFromSnapshot(indexName: string, data: Uint8Array, deps: RestoreDeps): Promise<void> {
@@ -208,6 +210,8 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
     documentCount: 0,
     partitionCount: envelope.partitions.length,
   })
+  await deps.indexState.registerOpen(indexName)
+  const release = await deps.indexState.acquire(indexName, false)
 
   try {
     const manager = deps.requireManager(indexName)
@@ -237,28 +241,33 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
       entry.documentCount = manager.countDocuments()
       entry.partitionCount = manager.partitionCount
     }
+
+    if (deps.durability) {
+      for (let partitionId = 0; partitionId < manager.partitionCount; partitionId++) {
+        for (const docId of manager.getPartition(partitionId).docIds()) {
+          const document = manager.get(docId)
+          if (document !== undefined) {
+            await deps.durability.recordInsertOrUpdate(indexName, docId, document, noopApply)
+          }
+        }
+      }
+      await deps.durability.manager.persistMetadata(indexName)
+      await deps.durability.manager.checkpoint(indexName)
+    }
   } catch (err) {
     try {
       deps.executor.dropIndex(indexName)
-      deps.indexRegistry.delete(indexName)
     } catch (_) {
       /* cleanup best-effort */
     }
-    throw err
-  }
-
-  if (deps.durability) {
-    const manager = deps.requireManager(indexName)
-    for (let partitionId = 0; partitionId < manager.partitionCount; partitionId++) {
-      for (const docId of manager.getPartition(partitionId).docIds()) {
-        const document = manager.get(docId)
-        if (document !== undefined) {
-          await deps.durability.recordInsertOrUpdate(indexName, docId, document, noopApply)
-        }
-      }
+    deps.indexRegistry.delete(indexName)
+    deps.indexState.forget(indexName)
+    if (deps.durability) {
+      await deps.durability.manager.removeIndex(indexName).catch(() => undefined)
     }
-    await deps.durability.manager.persistMetadata(indexName)
-    await deps.durability.manager.checkpoint(indexName)
+    throw err
+  } finally {
+    release()
   }
 }
 

@@ -110,7 +110,7 @@ When the recovery fails, the engine keeps the index closed and tries again on a 
 
 ### Observing lifecycle state
 
-`listIndexes` reports each index's `state` as `open`, `closed`, or `reopen-failed`. It also reports a `reopenCount` of successful loads since the engine started. For a closed index, the engine reports the `documentCount` from its last checkpoint, or `null` when an older engine wrote the metadata without a count. `getMemoryStats` adds `openIndexCount`, `closedIndexCount`, and an engine-wide `reopenCount`; see [Memory reporting](observability.md#memory-reporting).
+`listIndexes` reports each index's `state` as `open`, `closed`, or `reopen-failed`. It also reports a `reopenCount` of successful loads since the engine started. For a closed index, the engine reports the `documentCount` from its last checkpoint. When an older engine wrote the metadata without a count, the engine counts the checkpoint's documents once at startup and writes the count back into the metadata. `getMemoryStats` adds `openIndexCount`, `closedIndexCount`, and an engine-wide `reopenCount`; see [Memory reporting](observability.md#memory-reporting).
 
 In a cluster, `close` closes the copy on the node you call. The controller leaves the allocation table, the replica sets, and the routing unchanged, and the node reopens its copy when it receives a routed read or write. See [Node-local operations](cluster.md#node-local-operations).
 

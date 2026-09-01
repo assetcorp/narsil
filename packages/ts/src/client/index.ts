@@ -2,6 +2,7 @@ export type { ClientErrorCode, ErrorCode, NarsilErrorCode, ServerErrorCode } fro
 export { ClientErrorCodes, ErrorCodes, NarsilError, ServerErrorCodes } from '../errors'
 export {
   ASYNC_IMPORT_CAPABILITY,
+  INDEX_LIFECYCLE_CAPABILITY,
   REBUILD_ANALYSIS_CAPABILITY,
   SERVER_CAPABILITIES,
   TASK_CANCEL_CAPABILITY,

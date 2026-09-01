@@ -86,6 +86,9 @@ export interface ImportResult {
 }
 
 // @public
+export const INDEX_LIFECYCLE_CAPABILITY = "indexes.lifecycle";
+
+// @public
 export class InMemoryTaskStore implements TaskStore {
     constructor(maxRetained?: number);
     delete(id: string): Promise<void>;
