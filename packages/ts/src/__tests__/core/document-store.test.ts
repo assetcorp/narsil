@@ -317,4 +317,45 @@ describe('DocumentStore', () => {
       expect(store.get('doc1')?.fields).toBe(document)
     })
   })
+
+  describe('contentBytes', () => {
+    it('starts at zero and grows as documents are stored', () => {
+      expect(store.contentBytes()).toBe(0)
+      store.store('doc1', { title: 'Osu Night Market' }, { title: 3 })
+      const afterOne = store.contentBytes()
+      expect(afterOne).toBeGreaterThan(0)
+      store.store('doc2', { title: 'Makola Market' }, { title: 2 })
+      expect(store.contentBytes()).toBeGreaterThan(afterOne)
+    })
+
+    it('returns to the single-document figure when a replacement swaps the content', () => {
+      store.store('doc1', { title: 'Makola Market' }, { title: 2 })
+      const original = store.contentBytes()
+      store.store('doc1', { title: 'A far longer title that plainly takes more room' }, { title: 9 })
+      expect(store.contentBytes()).toBeGreaterThan(original)
+      store.store('doc1', { title: 'Makola Market' }, { title: 2 })
+      expect(store.contentBytes()).toBe(original)
+    })
+
+    it('returns to zero once every document is removed', () => {
+      store.store('doc1', { title: 'Osu Night Market', price: 12.5 }, { title: 3 })
+      store.store('doc2', { title: 'Makola Market', tags: ['food', 'crafts'] }, { title: 2 })
+      store.remove('doc1')
+      store.remove('doc2')
+      expect(store.contentBytes()).toBe(0)
+    })
+
+    it('resets on clear and recounts on deserialize', () => {
+      store.store('doc1', { title: 'Osu Night Market' }, { title: 3 })
+      store.clear()
+      expect(store.contentBytes()).toBe(0)
+      store.deserialize({ doc1: { fields: { title: 'Osu Night Market' }, fieldLengths: { title: 3 } } })
+      expect(store.contentBytes()).toBeGreaterThan(0)
+    })
+
+    it('counts typed-array fields by their buffer size', () => {
+      store.store('doc1', { embedding: new Float32Array(384) }, {})
+      expect(store.contentBytes()).toBeGreaterThanOrEqual(384 * 4)
+    })
+  })
 })
