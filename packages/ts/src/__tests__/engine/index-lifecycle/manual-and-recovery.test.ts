@@ -100,6 +100,30 @@ describe('index lifecycle', () => {
     expect(await engine.countDocuments('products')).toBe(2)
   })
 
+  it('keeps the count absent when the checkpoint cannot be read at boot', async () => {
+    const storage = createMemoryPersistence()
+    engine = await createNarsil({ persistence: storage, durability: { tier: 'snapshot' }, lifecycle: {} })
+    await engine.createIndex('products', { schema: { title: 'string' } })
+    await engine.insert('products', { title: 'Desk lamp' }, 'lamp')
+    await engine.checkpoint('products')
+    await engine.shutdown()
+    const metadataBytes = await storage.load('products/meta')
+    expect(metadataBytes).not.toBeNull()
+    if (metadataBytes === null) return
+    const { metadata } = await readMetadataEnvelope(metadataBytes)
+    delete metadata.documentCount
+    await storage.save('products/meta', await writeMetadataEnvelope(metadata, { checksum: true }))
+    await storage.save('products/snapshot', new Uint8Array([9, 9, 9]))
+
+    engine = await createNarsil({ persistence: storage, durability: { tier: 'snapshot' }, lifecycle: {} })
+
+    expect(engine.listIndexes()).toEqual([expect.objectContaining({ state: 'closed', documentCount: 0 })])
+    const rewrittenBytes = await storage.load('products/meta')
+    expect(rewrittenBytes).not.toBeNull()
+    if (rewrittenBytes === null) return
+    expect((await readMetadataEnvelope(rewrittenBytes)).metadata.documentCount).toBeUndefined()
+  })
+
   it('derives the closed count from segments for metadata written before checkpoint counts', async () => {
     directory = await mkdtemp(join(tmpdir(), 'narsil-index-lifecycle-'))
     engine = await createNarsil({ durability: { directory } })

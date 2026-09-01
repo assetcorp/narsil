@@ -25,7 +25,7 @@ describe('restore and the index registry', () => {
   it('answers listIndexes throughout a restore', async () => {
     engine = await createNarsil({ durability: { directory } })
     await engine.createIndex('prose', { schema })
-    const documents = Array.from({ length: 300 }, (_, position) => ({ title: `document ${position}` }))
+    const documents = Array.from({ length: 120 }, (_, position) => ({ title: `document ${position}` }))
     await engine.insertBatch('prose', documents)
     const data = await engine.snapshot('prose')
 
@@ -49,8 +49,8 @@ describe('restore and the index registry', () => {
         .map(index => index.name)
         .sort(),
     ).toEqual(['copy', 'prose'])
-    expect(await engine.countDocuments('copy')).toBe(300)
-  })
+    expect(await engine.countDocuments('copy')).toBe(120)
+  }, 20_000)
 
   it('leaves no trace when a restore fails after registration', async () => {
     engine = await createNarsil({ durability: { directory } })

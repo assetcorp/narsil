@@ -1,13 +1,13 @@
 import { buildEntry } from '../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
-import { countCheckpointDocuments } from './checkpoint-count'
 import { runDurableCheckpoint } from './checkpoint-run'
 import { terminateCheckpointWorker } from './checkpoint-worker-dispatch'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
 import { drainIndexStateForUnload, type IndexState, type PartitionState } from './manager-state'
-import { listPersistedIndexes, loadMetadata, loadSnapshot, replayWal, snapshotCheckpointFor } from './recovery'
-import { DEFAULT_COMPACTION_THRESHOLD, readSegmentManifest, reclaimOrphanedSegments } from './segment'
+import { recoverPersistedIndex } from './recover-index'
+import { listPersistedIndexes } from './recovery'
+import { DEFAULT_COMPACTION_THRESHOLD } from './segment'
 import { createSeqOwner, SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import {
   DEFAULT_ASYNC_FLUSH_INTERVAL_MS,
@@ -212,53 +212,19 @@ export function createDurabilityManager(
     })
   }
 
-  async function recoverIndex(indexName: string, metadataOnly = false): Promise<void> {
-    const metadata = await loadMetadata(directory, indexName)
-    if (metadata === null) {
-      return
-    }
-    const countMissing = metadataOnly && metadata.documentCount === undefined
-    if (countMissing) {
-      metadata.documentCount = await countCheckpointDocuments(directory, indexName).catch(() => 0)
-    }
-    await hooks.createIndexFromMetadata(metadata, !metadataOnly)
-
-    if (metadataOnly) {
-      if (countMissing) {
-        await queueMetadataWrite(indexName, async () => {
-          const upgraded = hooks.buildMetadata(indexName, metadata.documentCount)
-          if (upgraded === undefined) {
-            return
-          }
-          const bytes = await writeMetadataEnvelope(upgraded, { checksum: true })
-          await directory.atomicWrite(`${indexName}/meta`, bytes)
-        }).catch(() => undefined)
-      }
-      return
-    }
-
-    const manager = hooks.getManager(indexName)
-    if (manager === undefined) {
-      return
-    }
-    const deps = {
-      manager,
-      vectorFieldPaths: hooks.getVectorFieldPaths(indexName),
-      vectorIndexes: hooks.getVectorIndexes(indexName),
-    }
-
-    const checkpoint = await loadSnapshot(directory, indexName, deps)
-
-    const manifest = await readSegmentManifest(directory, indexName)
-    if (manifest !== null) {
-      await reclaimOrphanedSegments(directory, indexName, manifest)
-    }
-
-    for (let partitionId = 0; partitionId < manager.partitionCount; partitionId += 1) {
-      const fromSeqNo = snapshotCheckpointFor(checkpoint, partitionId)
-      const { highestSeqNo } = await replayWal(directory, indexName, partitionId, fromSeqNo, deps)
-      getOrCreatePartition(indexName, partitionId, highestSeqNo)
-    }
+  function recoverIndex(indexName: string, metadataOnly = false): Promise<void> {
+    return recoverPersistedIndex(
+      {
+        directory,
+        hooks,
+        registerPartition: (name, partitionId, startSeqNo) => {
+          getOrCreatePartition(name, partitionId, startSeqNo)
+        },
+        queueMetadataWrite,
+      },
+      indexName,
+      metadataOnly,
+    )
   }
 
   return {
