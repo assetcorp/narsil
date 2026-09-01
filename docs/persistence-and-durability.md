@@ -65,7 +65,7 @@ In `sync` mode the engine acknowledges a write only once the log holds it on dis
 
 ## Index lifecycle
 
-An engine that holds many indexes can keep only the ones in use in memory. When you configure lifecycle settings, the engine closes an index that nobody is using and keeps its files on disk. The engine reopens the index the next time a caller uses it. Configure durability alongside these settings, because the engine saves a checkpoint before it releases an index and reads that checkpoint back when it reopens the index.
+An engine that holds many indexes can keep only the ones in use in memory. When you set an idle timeout or a limit on open indexes, the engine closes an index that nobody is using and keeps its files on disk. The engine reopens the index the next time a caller uses it. Configure durability alongside these settings, because the engine saves a checkpoint before it releases an index and reads that checkpoint back when it reopens the index.
 
 ```ts
 const narsil = await createNarsil({
