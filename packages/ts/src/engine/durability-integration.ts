@@ -41,7 +41,7 @@ export interface DurabilityIntegrationHooks {
     | {
         indexUuid?: string
         heldPartitions?: number[]
-        documentCount?: number
+        documentCount: number
         partitionCount: number
         schema: Record<string, string>
         language: string
@@ -86,10 +86,7 @@ function buildMetadata(
     createdAt: Date.now(),
     engineVersion: VERSION,
   }
-  const checkpointDocumentCount = documentCount ?? config.documentCount
-  if (checkpointDocumentCount !== undefined) {
-    metadata.documentCount = checkpointDocumentCount
-  }
+  metadata.documentCount = documentCount ?? config.documentCount
   if (config.embedding) {
     metadata.embedding = config.embedding
   }

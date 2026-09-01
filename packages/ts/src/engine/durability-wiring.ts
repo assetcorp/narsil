@@ -6,7 +6,7 @@ import type { IndexRegistryEntry } from './core'
 import { createDurabilityIntegration, type DurabilityIntegration, type DurabilityTier } from './durability-integration'
 
 interface DurabilityWiring {
-  requireManager: (indexName: string) => PartitionManager
+  getManager: (indexName: string) => PartitionManager | undefined
   indexRegistry: Map<string, IndexRegistryEntry>
   createIndexFromMetadata: (metadata: IndexMetadata, loadData: boolean) => Promise<void>
   emitFatalError: (error: Error) => void
@@ -33,10 +33,10 @@ export function createDurabilityFromTier(
 
   return createDurabilityIntegration(tier, {
     checkpointPublisher: { publishPartitions: wiring.publishCheckpointedPartitions },
-    getManager: indexName => (wiring.indexRegistry.has(indexName) ? wiring.requireManager(indexName) : undefined),
+    getManager: indexName => (wiring.indexRegistry.has(indexName) ? wiring.getManager(indexName) : undefined),
     getVectorFieldPaths: indexName => wiring.indexRegistry.get(indexName)?.vectorFieldPaths ?? new Set<string>(),
     getVectorIndexes: indexName =>
-      wiring.indexRegistry.has(indexName) ? wiring.requireManager(indexName).getVectorIndexes() : new Map(),
+      (wiring.indexRegistry.has(indexName) ? wiring.getManager(indexName)?.getVectorIndexes() : undefined) ?? new Map(),
     getIndexConfig: indexName => {
       const entry = wiring.indexRegistry.get(indexName)
       if (entry === undefined) {
@@ -51,7 +51,7 @@ export function createDurabilityFromTier(
       return {
         ...(entry.indexUuid !== null ? { indexUuid: entry.indexUuid } : {}),
         ...(entry.heldPartitions !== null ? { heldPartitions: entry.heldPartitions } : {}),
-        ...(entry.documentCount !== null ? { documentCount: entry.documentCount } : {}),
+        documentCount: entry.documentCount,
         partitionCount: entry.partitionCount,
         schema: flattenSchema(entry.config.schema) as Record<string, string>,
         language: entry.language.name,

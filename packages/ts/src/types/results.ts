@@ -171,8 +171,8 @@ export interface BatchResult {
  * @public
  */
 export interface IndexStats {
-  /** The index holds this many documents, or `null` when closed metadata carries no checkpoint count. */
-  documentCount: number | null
+  /** The index holds this many documents. A closed index reports its count as of the last checkpoint. */
+  documentCount: number
   /** The index is spread across this many partitions. */
   partitionCount: number
   /**
@@ -199,8 +199,8 @@ export interface IndexStats {
 export interface IndexInfo {
   /** The index was created under this name. */
   name: string
-  /** The index holds this many documents, or `null` when closed metadata carries no checkpoint count. */
-  documentCount: number | null
+  /** The index holds this many documents. A closed index reports its count as of the last checkpoint. */
+  documentCount: number
   /** The index is spread across this many partitions. */
   partitionCount: number
   /** The index analyses text with this language module. */

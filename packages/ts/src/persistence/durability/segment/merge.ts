@@ -50,6 +50,10 @@ export function mergeTimeOrderedSegments(ordered: SegmentContents[], fallback: M
   return merged
 }
 
+export function countLiveDocuments(ordered: SegmentContents[]): number {
+  return resolveWinners(ordered).size
+}
+
 function resolveWinners(ordered: SegmentContents[]): Map<string, number> {
   const winner = new Map<string, number>()
   for (let segIndex = 0; segIndex < ordered.length; segIndex += 1) {

@@ -1,6 +1,7 @@
 import { concatEnvelopeParts, readMetadataEnvelope, writeMetadataEnvelope } from '../../serialization/envelope'
 import type { PersistenceAdapter } from '../../types/adapters'
 import { buildSnapshotBundleBytes, snapshotStorageKey } from './checkpoint'
+import { countSnapshotBundleDocuments } from './checkpoint-count'
 import { loadSnapshotBundleBytes, snapshotCheckpointFor } from './recovery'
 import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import {
@@ -159,9 +160,23 @@ export function createSnapshotOnlyManager(
       return
     }
     const { metadata } = await readMetadataEnvelope(metaBytes)
+    const countMissing = metadataOnly && metadata.documentCount === undefined
+    if (countMissing) {
+      metadata.documentCount = await countStoredBundleDocuments(indexName)
+    }
     await hooks.createIndexFromMetadata(metadata, !metadataOnly)
 
     if (metadataOnly) {
+      if (countMissing) {
+        await queueMetadataWrite(indexName, async () => {
+          const upgraded = hooks.buildMetadata(indexName, metadata.documentCount)
+          if (upgraded === undefined) {
+            return
+          }
+          const bytes = await writeMetadataEnvelope(upgraded, { checksum: true })
+          await adapter.save(metadataKey(indexName), bytes)
+        }).catch(() => undefined)
+      }
       return
     }
 
@@ -184,6 +199,18 @@ export function createSnapshotOnlyManager(
       if (persistedSeqNo > 0) {
         indexState.appliedSeqNoByPartition.set(partitionId, persistedSeqNo)
       }
+    }
+  }
+
+  async function countStoredBundleDocuments(indexName: string): Promise<number> {
+    try {
+      const snapshotBytes = await adapter.load(snapshotStorageKey(indexName))
+      if (snapshotBytes === null) {
+        return 0
+      }
+      return await countSnapshotBundleDocuments(snapshotBytes)
+    } catch {
+      return 0
     }
   }
 

@@ -210,8 +210,8 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         defaultEmbeddingAdapter: config?.embedding ?? null,
         markAnalysisStale: core.analysisRebuild.markStale,
         clearAnalysisStale: core.analysisRebuild.clearStale,
+        indexState: core.indexState,
       })
-      await core.indexState.registerOpen(indexName)
     },
 
     async checkpoint(indexName: string): Promise<void> {

@@ -316,7 +316,13 @@ describe('capabilities', () => {
 
     expect(announced.status).toBe(200)
     expect(announced.body.capabilities).toEqual(
-      expect.arrayContaining(['documents.import.async', 'tasks.cancel', 'tasks.filter', 'indexes.rebuildAnalysis']),
+      expect.arrayContaining([
+        'documents.import.async',
+        'tasks.cancel',
+        'tasks.filter',
+        'indexes.rebuildAnalysis',
+        'indexes.lifecycle',
+      ]),
     )
   })
 

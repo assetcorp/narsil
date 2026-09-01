@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createIndexStateCoordinator } from '../../engine/index-state'
+import { ErrorCodes } from '../../errors'
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let settle = (): void => undefined
@@ -40,6 +41,66 @@ describe('index state coordinator', () => {
     closeGate.resolve()
     const releaseFirst = await firstAcquire
     releaseFirst()
+    coordinator.dispose()
+  })
+
+  it('never runs a recovery while a drop that followed a close deletes the index', async () => {
+    const closeGate = deferred()
+    const reopenCalls: string[] = []
+    let dropRunning = false
+    let reopenDuringDrop = false
+    const coordinator = createIndexStateCoordinator(undefined, {
+      async reopen(indexName) {
+        reopenCalls.push(indexName)
+        if (dropRunning) reopenDuringDrop = true
+      },
+      async close() {
+        await closeGate.promise
+      },
+      canCloseAutomatically: () => true,
+      estimateBytes: () => 1,
+    })
+    await coordinator.registerOpen('products')
+
+    const closing = coordinator.close('products')
+    const dropping = coordinator.drop('products', async () => {
+      dropRunning = true
+      await new Promise<void>(resolve => setTimeout(resolve, 10))
+      dropRunning = false
+    })
+    const acquiring = coordinator.acquire('products')
+    acquiring.catch(() => undefined)
+
+    closeGate.resolve()
+    await closing
+    await dropping
+    await expect(acquiring).rejects.toMatchObject({ code: ErrorCodes.INDEX_NOT_FOUND })
+    expect(reopenDuringDrop).toBe(false)
+    expect(reopenCalls).toHaveLength(0)
+    coordinator.dispose()
+  })
+
+  it('lets an arrival parked behind a failing close proceed against the still-open index', async () => {
+    const closeGate = deferred()
+    const coordinator = createIndexStateCoordinator(undefined, {
+      async reopen() {},
+      async close() {
+        await closeGate.promise
+        throw new Error('checkpoint write failed')
+      },
+      canCloseAutomatically: () => true,
+      estimateBytes: () => 1,
+    })
+    await coordinator.registerOpen('products')
+
+    const closing = coordinator.close('products')
+    const acquiring = coordinator.acquire('products')
+
+    closeGate.resolve()
+    await expect(closing).rejects.toThrow('checkpoint write failed')
+    const release = await acquiring
+    release()
+    expect(coordinator.stateOf('products')).toBe('open')
     coordinator.dispose()
   })
 })

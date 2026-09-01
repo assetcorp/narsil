@@ -366,7 +366,7 @@ export interface IndexContext {
 // @public
 export interface IndexInfo {
     analysisStale?: boolean;
-    documentCount: number | null;
+    documentCount: number;
     language: string;
     name: string;
     partitionCount: number;
@@ -390,7 +390,7 @@ export interface IndexLifecycleOperations {
 
 // @public
 export interface IndexStats {
-    documentCount: number | null;
+    documentCount: number;
     estimatedMemoryBytes: number;
     language: string;
     partitionCount: number;
