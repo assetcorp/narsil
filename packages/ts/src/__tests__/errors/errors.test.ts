@@ -130,8 +130,8 @@ describe('ErrorCodes', () => {
     expect(ErrorCodes.INDEX_ORPHANED).toBe('INDEX_ORPHANED')
   })
 
-  it('has exactly 90 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(90)
+  it('has exactly 91 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(91)
   })
 
   it('has unique values for every code', () => {

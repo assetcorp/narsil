@@ -147,7 +147,7 @@ describe('partition-scoped reads on the cluster local engine', () => {
 
   it('confines query statistics to the named partitions', async () => {
     const expected = idsInPartitions(documents, [0, 1])
-    const stats = engine.collectQueryStats('products', ['wireless'], [0, 1])
+    const stats = await engine.collectQueryStats('products', ['wireless'], [0, 1])
     expect(stats.totalDocuments).toBe(expected.size)
   })
 })

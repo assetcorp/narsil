@@ -1,3 +1,4 @@
+import { ErrorCodes, NarsilError } from '../../errors'
 import type { FanOutResult } from '../../partitioning/fan-out'
 import type { NarsilConfig } from '../../types/config'
 import type { GlobalStatistics } from '../../types/internal'
@@ -89,6 +90,60 @@ export function createWorkerOrchestrator(
     }
   }
 
+  async function awaitPromotionIdle(): Promise<void> {
+    while (state.promotionInProgress) {
+      const run = state.promotionRun
+      if (run !== null) {
+        await run
+      } else {
+        await new Promise<void>(resolve => setTimeout(resolve, 0))
+      }
+    }
+  }
+
+  async function closeIndex(indexName: string): Promise<void> {
+    await awaitPromotionIdle()
+    await awaitReplicationIdle(state, indexName)
+    await awaitCompactions(state)
+    const pool = state.workerPool
+    if (pool !== null && state.promotedIndexes.has(indexName)) {
+      const outcomes = await Promise.allSettled(
+        pool
+          .getAllExecutors()
+          .map(worker => worker.execute({ type: 'dropIndex', indexName, requestId: `close-${indexName}` })),
+      )
+      const failure = outcomes.find(outcome => outcome.status === 'rejected')
+      if (failure?.status === 'rejected') {
+        const entry = indexRegistry.get(indexName)
+        const manager = executor.getManager(indexName)
+        if (entry !== undefined && manager !== undefined) {
+          try {
+            await transferIndexToPool(indexName, pool, entry.config, manager)
+          } catch (repairError) {
+            throw new NarsilError(
+              ErrorCodes.WORKER_CRASHED,
+              `Worker copies for index "${indexName}" could not be restored after close failed`,
+              {
+                indexName,
+                closeError: failure.reason instanceof Error ? failure.reason.message : String(failure.reason),
+                repairError: repairError instanceof Error ? repairError.message : String(repairError),
+              },
+            )
+          }
+        }
+        if (failure.reason instanceof NarsilError) throw failure.reason
+        throw new NarsilError(ErrorCodes.WORKER_CRASHED, `A worker could not close index "${indexName}"`, {
+          indexName,
+          cause: failure.reason instanceof Error ? failure.reason.message : String(failure.reason),
+        })
+      }
+      pool.removeIndex(indexName)
+    }
+    state.promotedIndexes.delete(indexName)
+    state.replicationQueues.delete(indexName)
+    state.segmentLedger.delete(indexName)
+  }
+
   async function replicate(action: WorkerAction): Promise<void> {
     await replicateToWorkers(state, action)
     if (action.type === 'attachSegments') {
@@ -103,6 +158,10 @@ export function createWorkerOrchestrator(
     replicateToWorkers: replicate,
     awaitReplication: (indexName?: string): Promise<void> => awaitReplicationIdle(state, indexName),
     awaitCompactions: (): Promise<void> => awaitCompactions(state),
+    openIndex: (indexName: string): Promise<void> => resyncIndex(indexName, true),
+    closeIndex,
+    isIndexBusy: (indexName: string): boolean =>
+      state.promotionInProgress || state.replicationQueues.has(indexName) || state.compactionsInFlight.has(indexName),
     buildSegments: (requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null> => buildSegments(state, requests),
     segmentBuildConcurrency: (indexName: string): number => segmentBuildConcurrency(state, indexName),
     searchViaWorker: (

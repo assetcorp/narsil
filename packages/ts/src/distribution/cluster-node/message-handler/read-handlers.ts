@@ -23,8 +23,7 @@ export async function handleCount(
 ): Promise<void> {
   const payload = validateCountPayload(decode(message.payload))
   const requested = new Set(payload.partitionIds)
-  const partitions = deps.engine
-    .getPartitionStats(payload.indexName)
+  const partitions = (await deps.engine.partitionStatsForRead(payload.indexName))
     .filter(partition => requested.has(partition.partitionId))
     .map(partition => ({
       partitionId: partition.partitionId,

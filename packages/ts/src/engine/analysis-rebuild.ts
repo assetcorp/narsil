@@ -22,6 +22,8 @@ export interface AnalysisRebuildCoordinator {
   markStale(index: StaleIndex): void
   clearStale(indexName: string): void
   isStale(indexName: string): boolean
+  isRunning(indexName: string): boolean
+  review(indexName: string): Promise<void>
   reviewStaleIndexes(): Promise<void>
   rebuild(indexName: string): Promise<void>
 }
@@ -87,7 +89,7 @@ export function createAnalysisRebuildCoordinator(
   async function rebuildNow(indexName: string, entry: StaleEntry): Promise<void> {
     const manager = deps.getManager(indexName)
     if (manager === undefined) {
-      stale.delete(indexName)
+      entry.run = null
       return
     }
 
@@ -144,6 +146,24 @@ export function createAnalysisRebuildCoordinator(
     await config?.onStaleAnalysis?.({ ...entry.index, documentCount }, () => enqueue(indexName, entry))
   }
 
+  async function review(indexName: string, entry: StaleEntry): Promise<void> {
+    if (entry.run !== null || deps.getManager(indexName) === undefined) return
+    try {
+      await announce(indexName, entry)
+    } catch (err) {
+      deps.emit({
+        indexName,
+        status: 'failed',
+        partitionsRebuilt: 0,
+        partitionCount: deps.getManager(indexName)?.partitionCount ?? 0,
+        error: toError(err),
+      })
+    }
+    if (rebuildMode === 'auto') {
+      void enqueue(indexName, entry).catch(() => undefined)
+    }
+  }
+
   return {
     markStale(index: StaleIndex): void {
       const existing = stale.get(index.indexName)
@@ -161,23 +181,18 @@ export function createAnalysisRebuildCoordinator(
       return stale.has(indexName)
     },
 
+    isRunning(indexName: string): boolean {
+      return stale.get(indexName)?.run !== null && stale.get(indexName)?.run !== undefined
+    },
+
+    review(indexName: string): Promise<void> {
+      const entry = stale.get(indexName)
+      return entry === undefined ? Promise.resolve() : review(indexName, entry)
+    },
+
     async reviewStaleIndexes(): Promise<void> {
       for (const [indexName, entry] of [...stale]) {
-        if (entry.run !== null) continue
-        try {
-          await announce(indexName, entry)
-        } catch (err) {
-          deps.emit({
-            indexName,
-            status: 'failed',
-            partitionsRebuilt: 0,
-            partitionCount: deps.getManager(indexName)?.partitionCount ?? 0,
-            error: toError(err),
-          })
-        }
-        if (rebuildMode === 'auto') {
-          void enqueue(indexName, entry).catch(() => undefined)
-        }
+        await review(indexName, entry)
       }
     },
 

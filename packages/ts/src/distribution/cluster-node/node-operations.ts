@@ -57,6 +57,7 @@ export type ClusterNodeOperations = Pick<
 
 export interface ClusterNodeOperationDeps {
   trackOp: <T>(indexName: string | null, fn: () => Promise<T>) => Promise<T>
+  transitionIndex: <T>(indexName: string, fn: () => Promise<T>) => Promise<T>
   readDeps: ClusterReadDeps
   writeDeps: WriteRoutingDeps
   engine: ClusterLocalEngine
@@ -97,7 +98,7 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
     },
 
     async dropIndex(name) {
-      return trackOp(null, async () => {
+      return deps.transitionIndex(name, async () => {
         await routeDropIndex(name, coordinator, engine)
         deps.forgetIndex(name)
       })

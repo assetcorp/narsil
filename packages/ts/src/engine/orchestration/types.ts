@@ -19,6 +19,9 @@ export interface WorkerOrchestrator {
   replicateToWorkers(action: WorkerAction): Promise<void>
   awaitReplication(indexName?: string): Promise<void>
   awaitCompactions(): Promise<void>
+  openIndex(indexName: string): Promise<void>
+  closeIndex(indexName: string): Promise<void>
+  isIndexBusy(indexName: string): boolean
   buildSegments(requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null>
   segmentBuildConcurrency(indexName: string): number
   searchViaWorker(

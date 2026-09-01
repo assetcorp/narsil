@@ -33,6 +33,24 @@ export interface NarsilConfig {
   durability?: DurabilityConfig
   /** These settings control what the engine does when an index's stored analysis differs from its language module. */
   analysis?: AnalysisConfig
+  /** These limits close indexes while keeping their durable files ready to reopen. */
+  lifecycle?: IndexLifecycleConfig
+}
+
+/**
+ * Limits on the indexes one engine keeps open in memory.
+ *
+ * @public
+ */
+export interface IndexLifecycleConfig {
+  /** An index closes after this many milliseconds without activity. */
+  idleTimeoutMs?: number
+  /** The engine keeps at most this many indexes open at once. */
+  maxOpenIndexes?: number
+  /** Open indexes may use at most this many estimated bytes in total. */
+  maxOpenBytes?: number
+  /** At most this many callers may wait behind one index reopen. */
+  maxReopenWaiters?: number
 }
 
 /**

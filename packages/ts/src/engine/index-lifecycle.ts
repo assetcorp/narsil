@@ -9,8 +9,9 @@ import { validateSchema, validateVectorPromotion } from '../schema/validator'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexConfig } from '../types/schema'
-import { type EngineCore, getVectorFieldPaths, type IndexRegistryEntry } from './core'
+import type { EngineCore, IndexRegistryEntry } from './core'
 import { validateBM25Params, validateIndexName, validatePartitionConfig } from './validation'
+import { getVectorFieldPaths } from './vector-fields'
 
 export async function createEngineIndex(
   core: EngineCore,
@@ -81,7 +82,10 @@ export async function createEngineIndex(
     vectorFieldPaths: getVectorFieldPaths(indexConfig.schema),
     indexUuid: indexUuid ?? null,
     heldPartitions: null,
+    documentCount: 0,
+    partitionCount: indexConfig.partitions?.maxPartitions ?? 1,
   })
+  await core.indexState.registerOpen(name)
   if (core.durability) {
     await core.durability.manager.persistMetadata(name)
   }
@@ -91,13 +95,21 @@ export async function createEngineIndex(
 export async function dropEngineIndex(core: EngineCore, name: string): Promise<void> {
   core.guardShutdown()
   const entry = core.requireIndex(name)
-  core.executor.dropIndex(name)
-  core.indexRegistry.delete(name)
-  core.watermarkNotifier.forget(name)
-  core.analysisRebuild.clearStale(name)
-  if (core.durability) {
-    await core.durability.manager.removeIndex(name)
-  }
+  await core.indexState.drop(name, async () => {
+    await core.orchestrator.closeIndex(name)
+    if (core.durability) {
+      try {
+        await core.durability.manager.removeIndex(name)
+      } catch (error) {
+        await core.orchestrator.openIndex(name).catch(() => undefined)
+        throw error
+      }
+    }
+    if (core.executor.getManager(name) !== undefined) core.executor.dropIndex(name)
+    core.indexRegistry.delete(name)
+    core.watermarkNotifier.forget(name)
+    core.analysisRebuild.clearStale(name)
+  })
   await core.pluginRegistry.runHook('onIndexDrop', { indexName: name, config: entry.config })
 }
 

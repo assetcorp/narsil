@@ -8,9 +8,10 @@ import { createDurabilityIntegration, type DurabilityIntegration, type Durabilit
 interface DurabilityWiring {
   requireManager: (indexName: string) => PartitionManager
   indexRegistry: Map<string, IndexRegistryEntry>
-  createIndexFromMetadata: (metadata: IndexMetadata) => Promise<void>
+  createIndexFromMetadata: (metadata: IndexMetadata, loadData: boolean) => Promise<void>
   emitFatalError: (error: Error) => void
   publishCheckpointedPartitions: (indexName: string, partitions: number[]) => Promise<void>
+  recordCheckpoint: (indexName: string, documentCount: number, partitionCount: number) => void
 }
 
 /**
@@ -50,6 +51,8 @@ export function createDurabilityFromTier(
       return {
         ...(entry.indexUuid !== null ? { indexUuid: entry.indexUuid } : {}),
         ...(entry.heldPartitions !== null ? { heldPartitions: entry.heldPartitions } : {}),
+        ...(entry.documentCount !== null ? { documentCount: entry.documentCount } : {}),
+        partitionCount: entry.partitionCount,
         schema: flattenSchema(entry.config.schema) as Record<string, string>,
         language: entry.language.name,
         k1: entry.config.bm25?.k1 ?? 1.2,
@@ -71,6 +74,7 @@ export function createDurabilityFromTier(
       }
     },
     createIndexFromMetadata: wiring.createIndexFromMetadata,
+    recordCheckpoint: wiring.recordCheckpoint,
     onFatalError: wiring.emitFatalError,
   })
 }
