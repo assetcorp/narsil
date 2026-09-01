@@ -71,12 +71,16 @@ export async function handleSyncRequestMessage(
     )
   }
 
-  if (!deps.engine.listIndexes().some(index => index.name === request.indexName)) {
+  const localIndex = deps.engine.listIndexes().find(index => index.name === request.indexName)
+  if (localIndex === undefined) {
     throw new NarsilError(
       ErrorCodes.SNAPSHOT_SYNC_INDEX_NOT_FOUND,
       `Node '${deps.nodeId}' holds no copy of index '${request.indexName}' yet, so it cannot serve a sync for partition ${request.partitionId}`,
       { indexName: request.indexName, partitionId: request.partitionId, primaryNodeId: deps.nodeId },
     )
+  }
+  if (localIndex.state !== 'open') {
+    await deps.engine.open(request.indexName)
   }
 
   if (message.sourceId !== deps.nodeId) {

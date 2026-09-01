@@ -367,6 +367,11 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       return fallback
     }
 
+    const localIndex = engine.listIndexes().find(index => index.name === indexName)
+    if (localIndex !== undefined && localIndex.state !== 'open') {
+      await engine.open(indexName)
+    }
+
     const allocation = await config.coordinator.getAllocation(indexName)
     const assignment = allocation?.assignments.get(partitionId)
     const log = getReplicationLog(indexName, partitionId)
