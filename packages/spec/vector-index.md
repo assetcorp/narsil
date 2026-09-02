@@ -89,11 +89,11 @@ Fast maintenance with bounded latency. It removes tombstoned vectors from the st
 
 `optimize` restructures the index for faster search: a segment-based implementation merges several graphs into fewer, larger ones, while a single-graph implementation folds its buffered vectors into the graph. A single-graph implementation must rebuild the graph once callers have removed more than a fifth of its vectors.
 
-Expect latency proportional to the total vector count. An implementation should avoid holding the processor for the whole run, so a single-threaded runtime yields periodically and a runtime with threads may run the work in the background.
+Expect latency proportional to the total vector count. An implementation must release the processor during the operation, so a single-threaded runtime must yield between chunks and a runtime with threads may do the work in the background.
 
 Call `optimize` in three situations: after a large batch of inserts, when the buffer or the new segments need folding into the main graph; after `compact` has removed more than a fifth of the vectors, because the remaining graph has lost connectivity; and when `maintenanceStatus` reports more than one graph and search latency has risen, which means the cost of merging across graphs is mounting.
 
-`optimize` must never corrupt a concurrent read. An implementation may block writes while it runs, or buffer them the way partition rebalancing buffers writes. Once it finishes, every later search must use the optimised structure, with no window in which a search runs against a half-optimised graph.
+`optimize` must leave every concurrent read correct. An implementation may block writes while it works, or buffer them the way partition rebalancing buffers writes. Once it finishes, every later search must use the optimised structure, and a search in flight must see either the old structure or the new one.
 
 ### maintenanceStatus()
 
