@@ -143,7 +143,7 @@ With durability configured, the engine appends a buffered write to the write-ahe
    a checkpoint covering every new partition, and remove
    the log segments of every partition past the new count.
 
-7. RESYNCHRONISE every worker replica of the index, then
+7. RESYNCHRONISE every worker copy of the index, then
    drain and replay any writes buffered while steps 5 to 7
    ran, and repeat until the queue is empty.
 
@@ -379,15 +379,17 @@ The listing behaves as follows:
 
 ---
 
-## Worker Assignment
+## Worker Copies
 
-In worker mode, partitions are assigned to workers by hash:
+An implementation with parallel execution must hold a worker copy of an index on every worker once the index holds as many documents as the copy threshold. The copy threshold defaults to 1,000 documents. A caller may override that default through the workers configuration.
 
-```text
-workerId = fnv1a(indexName) modulo workerCount
-```
+Every worker copy must answer a query with the results the main copy would return.
 
-Every partition of one index runs on one worker, so a per-index operation needs no coordination between workers while different indexes still spread across the pool.
+The implementation must send a whole query to the worker copy with the fewest queries in flight.
+
+The implementation may split a query that names several partitions across idle worker copies, each answering its own partitions, before it merges the answers as [Query Fan-Out and Merge](#query-fan-out-and-merge) describes.
+
+The implementation must drop the worker copies of an index that receives no read or write for the copy idle interval. The copy idle interval defaults to 5 minutes. The implementation must load the copies again on the next read or write that names the index, while the main copy answers that request.
 
 The default worker count is:
 

@@ -87,7 +87,7 @@ Fast maintenance with bounded latency. It removes tombstoned vectors from the st
 
 ### optimize()
 
-Expensive structural maintenance. It restructures the index for faster search: a segment-based implementation merges several graphs into fewer, larger ones, and a single-graph implementation rebuilds its graph for better connectivity.
+`optimize` restructures the index for faster search: a segment-based implementation merges several graphs into fewer, larger ones, while a single-graph implementation folds its buffered vectors into the graph. A single-graph implementation must rebuild the graph once callers have removed more than a fifth of its vectors.
 
 Expect latency proportional to the total vector count. An implementation should avoid holding the processor for the whole run, so a single-threaded runtime yields periodically and a runtime with threads may run the work in the background.
 
