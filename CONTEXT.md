@@ -67,3 +67,27 @@ _Avoid_: cold, inactive, dormant
 **Eviction**:
 The engine evicts by closing the least recently used open index so that the configured limits hold. An evicted index is a closed index.
 _Avoid_: unload, purge, expire
+
+## Worker copies
+
+Use these terms when you write about an index that answers queries in parallel.
+
+**Worker copy**:
+A worker copy is a complete copy of an index that an implementation holds apart from the main copy so that it can answer several queries at once. An implementation with one execution path holds none.
+_Avoid_: replica, worker replica, worker thread
+
+**Scaled out**:
+A scaled-out index is one whose implementation currently holds worker copies of it.
+_Avoid_: promoted, replicated, parallelised
+
+**Scaled in**:
+The implementation holds a scaled-in index as its main copy alone, whether the index never gained copies or gave them up while idle.
+_Avoid_: demoted, unpromoted
+
+**Segment**:
+A segment is a self-contained, read-only part of an index built from one batch of documents. The implementation searches every segment for a query and merges their answers. A merge combines several segments into one so that later queries search fewer of them.
+_Avoid_: chunk, shard, piece
+
+**Promotion**:
+Promotion keeps the meaning the spec gives it: the moment a vector field passes its threshold and moves from exact comparison to the graph. This glossary reserves the word for that transition alone.
+_Avoid_: promoted, promotion, for anything to do with worker copies
