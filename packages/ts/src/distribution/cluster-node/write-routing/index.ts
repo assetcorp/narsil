@@ -44,8 +44,6 @@ function validateCreateIndexOptions(partitionCount: number, replicationFactor: n
   }
 }
 
-/** The part of the local engine an index creation needs, including the drop
- * a half-finished creation takes its own copy back with. */
 interface IndexCreatingEngine {
   createIndexWithUuid(name: string, config: IndexConfig, indexUuid?: string): Promise<void>
   dropIndex(name: string): Promise<void>
@@ -119,19 +117,6 @@ export async function routeCreateIndex(
   )
 }
 
-/**
- * Takes back everything a half-finished creation left behind, so the name is
- * free again, no controller allocates partitions for an index no node holds,
- * and no node keeps a copy the cluster never claimed. The metadata goes first,
- * because an empty value there counts as absent and unblocks the next
- * creation; the schema follows, because its presence alone is what drives
- * allocation; and the local copy goes last.
- *
- * @param name - The index whose creation failed.
- * @param coordinator - The coordinator holding the published state.
- * @param engine - The local engine that may already hold the copy.
- * @returns The failure that stopped the withdrawal, or null when it finished.
- */
 async function withdrawPartialIndex(
   name: string,
   coordinator: ClusterCoordinator,
@@ -150,8 +135,6 @@ async function withdrawPartialIndex(
   }
 }
 
-/** Drops the copy a failed creation may have left on this node, treating an
- * absent one as nothing to do, because the creation may have failed before it. */
 async function dropLocalCopy(name: string, engine: IndexCreatingEngine): Promise<void> {
   try {
     await engine.dropIndex(name)

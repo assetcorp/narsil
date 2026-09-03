@@ -66,10 +66,6 @@ async function nodeHasOtherPartitions(
   try {
     allocation = await deps.coordinator.getAllocation(indexName)
   } catch (_) {
-    // If the allocation lookup fails, the safest choice is to NOT drop the
-    // index: a stale read could cause us to blow away data that another live
-    // partition assignment is still serving. The coordinator will re-drive
-    // the removal flow when the lookup recovers.
     return true
   }
 

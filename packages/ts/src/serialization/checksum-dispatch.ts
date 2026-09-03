@@ -84,9 +84,7 @@ function runWorkerChecksum(worker: WorkerHandle, payload: Uint8Array): Promise<C
       clearTimeout(timeoutId)
       try {
         void worker.terminate()
-      } catch {
-        /* termination failure is non-critical; the timeout is already cleared */
-      }
+      } catch {}
       action()
     }
 

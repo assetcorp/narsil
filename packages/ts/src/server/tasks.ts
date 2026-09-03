@@ -183,9 +183,7 @@ export class TaskRegistry {
       }
       try {
         await this.store.set(failed, TERMINAL_TTL_MS)
-      } catch {
-        // best effort; a store failure here must not block startup
-      }
+      } catch {}
     }
   }
 

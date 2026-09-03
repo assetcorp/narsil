@@ -149,9 +149,7 @@ export async function dispatchWorkerBuild(
       removeListener()
       try {
         worker?.terminate()
-      } catch {
-        /* termination failure is non-critical */
-      }
+      } catch {}
     }
 
     function handleMessage(msg: unknown) {

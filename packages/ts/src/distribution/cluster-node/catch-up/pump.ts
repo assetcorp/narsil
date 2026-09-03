@@ -130,9 +130,7 @@ async function pumpPartition(
     }
     try {
       await pumpReplica(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
-    } catch (_) {
-      /* One replica's failure leaves the others in this tick untouched. */
-    }
+    } catch (_) {}
   }
 }
 
@@ -161,9 +159,7 @@ export function runCatchUpTick(state: CatchUpState, deps: WriteRoutingDeps): Pro
       }
       try {
         await pumpPartition(state, deps, key, replicas)
-      } catch (_) {
-        /* One partition's failure leaves the others in this tick untouched. */
-      }
+      } catch (_) {}
     }
   })().finally(() => {
     state.activeTick = null

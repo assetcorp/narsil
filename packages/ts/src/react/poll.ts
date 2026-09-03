@@ -11,8 +11,6 @@ function announce(): void {
   for (const watcher of [...watchers]) watcher()
 }
 
-/** Every polling hook shares one `visibilitychange` listener, so a page holding
- * a hundred of them still registers one. */
 function watchVisibility(watcher: () => void): () => void {
   if (typeof document === 'undefined') return () => undefined
   watchers.add(watcher)

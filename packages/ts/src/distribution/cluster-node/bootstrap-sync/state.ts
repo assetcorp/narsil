@@ -29,19 +29,9 @@ export function clearBootstrapSyncIndex(state: BootstrapSyncState, indexName: st
   state.completed.delete(key)
   const inFlight = state.inFlight.get(key)
   if (inFlight === undefined) {
-    // Generations are only meaningful while an in-flight worker watches
-    // its own generation to detect eviction. With no worker to invalidate,
-    // the slot is free; clear any lingering counter so a future bootstrap
-    // starts clean.
     state.generations.delete(key)
     return
   }
-  // Bump the generation and eagerly evict the in-flight entry. Eviction
-  // allows a fresh runBootstrapSync for the same key to start immediately
-  // rather than absorbing the aborted entry and returning false. The
-  // draining worker observes the generation mismatch at its next check
-  // (see executeBootstrapSync / applyRestore) and its .finally is a no-op
-  // because state.inFlight no longer maps the key to it.
   const previous = state.generations.get(key) ?? 0
   state.generations.set(key, previous + 1)
   inFlight.aborted = true

@@ -92,7 +92,6 @@ describe('snapshot-sync-handler pass-4 findings', () => {
     const state = createSnapshotSyncHandlerState()
     const { respond, responses } = collectResponses()
 
-    // Force an oversized but structurally valid payload by padding an extra field.
     const oversized = new Uint8Array(5_000)
     oversized.fill(0)
     const msg = makeRequest('products', 'req-oversized', 'replica-node', oversized)
@@ -120,9 +119,6 @@ describe('snapshot-sync-handler pass-4 findings', () => {
     const endIndex = responses.findIndex(r => r.type === ReplicationMessageTypes.SNAPSHOT_END)
     expect(endIndex).toBe(responses.length - 1)
 
-    // Active probe: yield to both the microtask and macrotask queues so any
-    // straggling async continuation inside the handler has a chance to fire
-    // against the captured respond callback. The count must not grow.
     const beforeLength = responses.length
     await Promise.resolve()
     await new Promise<void>(resolve => setTimeout(resolve, 0))

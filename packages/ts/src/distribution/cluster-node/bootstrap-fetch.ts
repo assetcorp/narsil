@@ -16,10 +16,6 @@ import { ReplicationMessageTypes, TransportError } from '../transport/types'
 export const CAPACITY_EXHAUSTED_BACKOFF_BASE_MS = 100
 export const CAPACITY_EXHAUSTED_BACKOFF_MAX_MS = 500
 
-/**
- * Errors that can legitimately be transient on the same target: retry the same
- * or next target. These are traffic-shaping, network, or controller-state errors.
- */
 const RETRY_ANY_TARGET_CODES: ReadonlySet<NarsilErrorCode> = new Set<NarsilErrorCode>([
   ErrorCodes.SNAPSHOT_SYNC_TRANSPORT_FAILED,
   ErrorCodes.SNAPSHOT_SYNC_TIMEOUT,
@@ -27,11 +23,6 @@ const RETRY_ANY_TARGET_CODES: ReadonlySet<NarsilErrorCode> = new Set<NarsilError
   ErrorCodes.SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE,
 ])
 
-/**
- * Protocol-level errors that indicate a malformed frame from the peer. They
- * may be a transient bit-flip or a buggy peer; either way the sensible reaction
- * is to try a different target exactly once, not to cycle indefinitely.
- */
 const RETRY_DIFFERENT_TARGET_PROTOCOL_CODES: ReadonlySet<NarsilErrorCode> = new Set<NarsilErrorCode>([
   ErrorCodes.SNAPSHOT_SYNC_DECODE_FAILED,
   ErrorCodes.SNAPSHOT_SYNC_FRAME_INVALID,
@@ -204,9 +195,6 @@ export async function jitteredBackoff(
     if (remaining <= 0) {
       return false
     }
-    // Exit before the tail of the window degenerates into 1 ms spin-sleeps.
-    // A final abort check above already protected the 2 ms slice we're giving
-    // up; losing this slice is cheaper than re-entering setTimeout twice.
     if (remaining <= 2) {
       return false
     }

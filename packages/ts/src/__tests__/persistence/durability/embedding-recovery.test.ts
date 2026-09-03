@@ -16,8 +16,6 @@ interface CountingAdapter {
   counts: { document: number; query: number }
 }
 
-/** Deterministic adapter: the same text always produces the same unit vector,
- * so a query for an indexed title must rank that document first. */
 function countingAdapter(dimensions = DIMENSIONS): CountingAdapter {
   const counts = { document: 0, query: 0 }
   const adapter: EmbeddingAdapter = {
@@ -171,7 +169,6 @@ describe('durability recovery of embedding configuration', () => {
       }),
     )
 
-    // The failed registration must leave the registry untouched.
     await expect(
       engine.query('articles', { mode: 'vector', vector: { field: 'embedding', text: 'anything' }, limit: 1 }),
     ).rejects.toMatchObject({ code: ErrorCodes.EMBEDDING_CONFIG_INVALID })

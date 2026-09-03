@@ -77,10 +77,6 @@ export async function applyRestore(
 
   const generationAfterRestore = state.generations.get(key) ?? 0
   if (generationAfterRestore !== entry.generation || entry.aborted) {
-    // Our bootstrap was aborted, but another bootstrap may already be racing
-    // us for the same index (M-new-2 allows a fresh runBootstrapSync to
-    // start immediately after eviction). Dropping the index here would
-    // destroy that bootstrap's restored data. Defer to the takeover.
     if (!anotherBootstrapOwnsKey(state, key, entry)) {
       await dropRestoredIndexQuietly(deps.engine, indexName, deps)
     }

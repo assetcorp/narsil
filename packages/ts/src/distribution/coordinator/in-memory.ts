@@ -66,9 +66,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
     for (const handler of nodeWatchers) {
       try {
         handler(event)
-      } catch (_) {
-        /* watcher errors must not disrupt the caller */
-      }
+      } catch (_) {}
     }
   }
 
@@ -76,9 +74,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
     for (const handler of allocationWatchers) {
       try {
         handler(event)
-      } catch (_) {
-        /* watcher errors must not disrupt the caller */
-      }
+      } catch (_) {}
     }
   }
 
@@ -86,9 +82,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
     for (const handler of schemaWatchers) {
       try {
         handler(event)
-      } catch (_) {
-        /* watcher errors must not disrupt the caller */
-      }
+      } catch (_) {}
     }
   }
 

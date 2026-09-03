@@ -29,8 +29,8 @@ describe('tokenize', () => {
   })
 
   it('applies NFC normalization', () => {
-    const combining = 'e\u0301' // e + combining acute = é
-    const precomposed = '\u00e9' // é
+    const combining = 'e\u0301'
+    const precomposed = '\u00e9'
     const r1 = tokenize(combining, english, { stem: false, removeStopWords: false, removeDiacritics: true })
     const r2 = tokenize(precomposed, english, { stem: false, removeStopWords: false, removeDiacritics: true })
     expect(r1.tokens[0].token).toBe(r2.tokens[0].token)

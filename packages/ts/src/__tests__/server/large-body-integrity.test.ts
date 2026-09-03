@@ -13,10 +13,6 @@ interface Corpus {
   byId: Map<string, string>
 }
 
-/** Builds per-document text whose every segment is keyed to that document's own
- * id, so a cross-chunk byte overwrite (the request-body corruption this test
- * guards against) changes a value the equality assertions read instead of
- * passing on coincidentally identical bytes. */
 function buildText(id: string, charTarget: number): string {
   const segments: string[] = []
   let length = 0

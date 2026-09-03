@@ -68,9 +68,6 @@ export async function streamSnapshotToReplica(
   assertMessageWithinLimit(startBytes, 'SNAPSHOT_START')
   await respondMessage(sink, ReplicationMessageTypes.SNAPSHOT_START, nodeId, requestId, startBytes)
 
-  // Yield immediately after SNAPSHOT_START so a single-chunk snapshot still
-  // gives the event loop a breath before the chunk emission, and the first
-  // chunk is not charged against the yield budget of later chunks.
   await yieldToEventLoop()
 
   let offset = 0
@@ -97,8 +94,6 @@ export async function streamSnapshotToReplica(
     }
   }
 
-  // Yield once more before SNAPSHOT_END so a burst of chunks cannot keep the
-  // loop blocked for the entire tail of the stream on a multi-chunk snapshot.
   await yieldToEventLoop()
 
   const endPayload: SnapshotEndPayload = {

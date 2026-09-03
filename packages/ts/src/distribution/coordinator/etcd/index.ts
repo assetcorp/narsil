@@ -131,9 +131,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
         try {
           const registration = deserializeNodeRegistration(kv.value)
           handler({ type: 'node_joined', nodeId: registration.nodeId, registration })
-        } catch (_) {
-          /* malformed registration data should not crash the watcher */
-        }
+        } catch (_) {}
       })
 
       watcher.on('delete', (kv: IKeyValue) => {
@@ -199,9 +197,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
         try {
           const table = deserializeAllocationTable(kv.value)
           handler({ indexName: table.indexName, table })
-        } catch (_) {
-          /* malformed allocation data should not crash the watcher */
-        }
+        } catch (_) {}
       })
 
       return () => removeWatcher(watcher)
@@ -348,9 +344,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
           const fullKey = kv.key.toString()
           const indexName = extractSuffix(fullKey, prefix)
           handler({ type: 'schema_created', indexName, schema })
-        } catch (_) {
-          /* malformed schema data should not crash the watcher */
-        }
+        } catch (_) {}
       })
 
       watcher.on('delete', (kv: IKeyValue) => {

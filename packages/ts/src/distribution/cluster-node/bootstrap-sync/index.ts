@@ -71,10 +71,6 @@ export async function runBootstrapSync(
         state.generations.delete(key)
       }
     }
-    // Do not resolve the abort promise on successful completion; waiters
-    // that race `existing.promise` against it would otherwise see the abort
-    // win for a happy-path exit. The entry becomes unreachable once inFlight
-    // drops it, so the pending abort promise will be garbage-collected.
   })
   state.inFlight.set(key, entry)
   return entry.promise
@@ -210,10 +206,6 @@ export async function executeBootstrapSync(
     return false
   }
 
-  // Defense-in-depth: an eviction may have slipped in between applyRestore's
-  // final generation check and this point (there are no awaits in between
-  // today, but a future edit could add one). Re-check before mutating the
-  // shared completed set so a drained worker never revives a stale slot.
   if (abortCheck()) {
     if (!anotherBootstrapOwnsKey(state, key, entry)) {
       await dropRestoredIndexQuietly(deps.engine, indexName, deps)

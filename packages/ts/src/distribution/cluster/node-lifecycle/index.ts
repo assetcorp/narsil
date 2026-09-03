@@ -134,9 +134,7 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
         if (status === 'active' || status === 'joining') {
           try {
             await leaveCluster(config)
-          } catch (_) {
-            /* Deregister failure during shutdown is non-critical */
-          }
+          } catch (_) {}
         }
 
         registered = false

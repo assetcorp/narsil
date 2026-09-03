@@ -7,11 +7,6 @@ export interface SurfaceFormCandidate {
 }
 
 /**
- * Maps stem-changed surface forms to their index tokens. Surfaces equal to
- * their token are never stored; read paths derive their counts as total
- * term frequency minus `stemChangedTotalFor(token)`.
- */
-/**
  * The lookups suggestion and prefix reads perform against the surface form
  * registry.
  *

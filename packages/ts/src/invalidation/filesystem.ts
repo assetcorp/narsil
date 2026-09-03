@@ -77,9 +77,7 @@ export function createFilesystemInvalidation(config: FilesystemInvalidationConfi
     const fs = await import('node:fs/promises')
     try {
       await fs.mkdir(directory, { recursive: true })
-    } catch {
-      /* directory may already exist */
-    }
+    } catch {}
   }
 
   async function processMarkerFiles(): Promise<void> {
@@ -122,9 +120,7 @@ export function createFilesystemInvalidation(config: FilesystemInvalidationConfi
       } catch {
         try {
           await fs.unlink(filePath)
-        } catch {
-          /* file may have been deleted by another instance */
-        }
+        } catch {}
         continue
       }
 
@@ -134,9 +130,7 @@ export function createFilesystemInvalidation(config: FilesystemInvalidationConfi
         if (now - writtenAt > MARKER_MAX_AGE_MS) {
           try {
             await fs.unlink(filePath)
-          } catch {
-            /* file may have been deleted by another instance */
-          }
+          } catch {}
         }
         continue
       }
@@ -145,9 +139,7 @@ export function createFilesystemInvalidation(config: FilesystemInvalidationConfi
         if (now - writtenAt > MARKER_MAX_AGE_MS) {
           try {
             await fs.unlink(filePath)
-          } catch {
-            /* already removed */
-          }
+          } catch {}
         }
         continue
       }
@@ -163,9 +155,7 @@ export function createFilesystemInvalidation(config: FilesystemInvalidationConfi
       if (now - writtenAt > MARKER_MAX_AGE_MS) {
         try {
           await fs.unlink(filePath)
-        } catch {
-          /* already removed */
-        }
+        } catch {}
       }
     }
   }
@@ -190,9 +180,7 @@ export function createFilesystemInvalidation(config: FilesystemInvalidationConfi
       lastProcessedTimestamp = Date.now()
 
       pollTimer = setInterval(() => {
-        processMarkerFiles().catch(() => {
-          /* swallow poll errors to keep the interval alive */
-        })
+        processMarkerFiles().catch(() => {})
       }, pollInterval)
     },
 
@@ -217,9 +205,7 @@ export function createFilesystemInvalidation(config: FilesystemInvalidationConfi
       for (const file of ownFiles) {
         try {
           await fs.unlink(path.join(directory, file))
-        } catch {
-          /* already removed */
-        }
+        } catch {}
       }
     },
   }

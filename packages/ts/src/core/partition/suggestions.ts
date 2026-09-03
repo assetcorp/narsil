@@ -12,8 +12,6 @@ interface TokenGroup {
   surfaces: Array<{ surface: string; occurrences: number }>
 }
 
-// Total term frequency runs stale-high until compaction; counts only break
-// ties between display spellings, so visibility stays correct.
 function verbatimOccurrences(state: PartitionReadState, token: string): number {
   const postingList = state.invertedIdx.lookup(token)
   if (!postingList) return 0
@@ -73,8 +71,6 @@ export function suggestDisplayTerms(
   return results
 }
 
-// Expansion runs in surface space because a typed prefix can be longer than
-// the stem it maps to ("securi" never prefixes the term "secur").
 export function expandTermPrefix(
   state: PartitionReadState,
   surfacePrefix: string,

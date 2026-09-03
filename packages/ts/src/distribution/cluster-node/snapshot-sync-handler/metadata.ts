@@ -23,9 +23,7 @@ export async function defaultSnapshotHeaderMetadataProvider(
         }
       }
     }
-  } catch (_) {
-    /* fall through to sentinel values when allocation lookup fails */
-  }
+  } catch (_) {}
   return {
     partitionId: SNAPSHOT_HEADER_SENTINEL_PARTITION_ID,
     primaryTerm: 0,

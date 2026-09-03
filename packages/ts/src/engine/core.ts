@@ -192,8 +192,6 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
       const candidate =
         adapterName !== null ? (embeddingAdapters.get(adapterName) ?? null) : (config?.embedding ?? null)
       if (candidate) {
-        // A dimension change between runs can never work against the stored
-        // vectors, so recovery fails loudly instead of binding a broken pair.
         try {
           validateEmbeddingConfig(
             { fields: metadata.embedding.fields, adapter: candidate },

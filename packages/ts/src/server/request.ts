@@ -58,10 +58,6 @@ export function readBody(res: HttpResponse, maxBytes: number, abort: ResponseAbo
         reject(new Error('payload too large'))
         return
       }
-      // uWebSockets.js reuses the chunk's backing memory after this callback
-      // returns, so the bytes must be copied out before the next onData
-      // overwrites them. Buffer.from(ArrayBuffer) only creates a view, which
-      // corrupts any body that arrives in more than one chunk.
       chunks.push(Buffer.from(new Uint8Array(chunk)))
       if (isLast) {
         done = true
@@ -106,17 +102,6 @@ class ConcurrencyGate {
   }
 }
 
-/**
- * Decodes one path segment, which uWebSockets.js passes on exactly as it
- * arrived. Without this a document id such as `tt/0133093` never matches,
- * because the client encodes the slash and the lookup then runs against the
- * literal `tt%2F0133093`. Nearly every segment holds no `%` and needs no
- * decoding, so the scan for one is all the common path pays.
- *
- * @param raw - This is the segment as it arrived.
- * @returns The decoded segment comes back, and null says its escapes are
- * malformed.
- */
 function decodePathParameter(raw: string): string | null {
   if (!raw.includes('%')) return raw
   try {

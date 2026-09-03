@@ -78,8 +78,6 @@ export function createRebalancer(): Rebalancer {
       let documentsProcessed = 0
       let chunkFill = 0
 
-      // Re-insertion must tokenise exactly as the original inserts did, or
-      // the rebuilt partitions hold different tokens and surface counts.
       const insertOptions: PartitionInsertOptions = {
         validate: false,
         skipClone: true,

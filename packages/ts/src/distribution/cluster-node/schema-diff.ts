@@ -8,12 +8,6 @@ export interface SchemaDiffEntry {
   actual: string
 }
 
-/**
- * Sourced from schema/validator.ts so the diff bound always equals the
- * engine's own nesting cap. The walk below enforces the cap defensively in
- * case a custom coordinator backend delivers a pathological or cyclic object;
- * returning a sentinel beats a stack overflow.
- */
 const SCHEMA_DIFF_MAX_DEPTH = MAX_NESTING_DEPTH
 
 const DEPTH_EXCEEDED_SENTINEL = 'depth-exceeded'

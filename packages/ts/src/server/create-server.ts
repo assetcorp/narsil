@@ -50,10 +50,6 @@ function isLoopback(host: string): boolean {
   return host === '127.0.0.1' || host === '::1' || host === 'localhost' || host.startsWith('127.')
 }
 
-/** Refuses to expose destructive admin endpoints on a public interface without
- * authentication. An unauthenticated non-loopback bind turns restore/drop/clear
- * into a one-request data-wipe, so the server fails fast unless the operator
- * authenticates requests or explicitly accepts the risk on a trusted network. */
 function assertSecureBinding(host: string, options: ServerOptions): void {
   if (isLoopback(host) || options.onRequest || options.allowInsecure) return
   throw new NarsilError(
@@ -76,8 +72,6 @@ class NarsilHttpServer implements NarsilServer {
     this.host = options.host ?? '127.0.0.1'
     this.port = options.port ?? 9876
     this.options = options
-    // Engine-side registration lets index metadata persist adapter names and
-    // rebinds indexes that were recovered before the server constructed.
     for (const [name, adapter] of Object.entries(options.embeddingAdapters ?? {})) {
       engine.registerEmbeddingAdapter(name, adapter)
     }

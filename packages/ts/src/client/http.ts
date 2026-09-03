@@ -41,8 +41,6 @@ function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
   unrefable.unref?.()
 }
 
-/** Combines the caller's signal with the request deadline into the one signal
- * `fetch` accepts, and reports afterwards which of the two ended the request. */
 function startDeadline(timeoutMs: number, caller: AbortSignal | undefined) {
   const controller = new AbortController()
   let expired = false
@@ -69,17 +67,12 @@ function startDeadline(timeoutMs: number, caller: AbortSignal | undefined) {
   }
 }
 
-/** Raised while a body is still arriving, so the caller can tell a server that
- * answered too much from a connection that dropped. */
 class ResponseTooLargeError extends Error {
   constructor(readonly limitBytes: number) {
     super(`The answer passed the ${limitBytes} byte ceiling this client reads`)
   }
 }
 
-/** Reads a body a chunk at a time and gives up the moment it passes the
- * ceiling, so an answer larger than the caller agreed to read is never held
- * whole. */
 async function readStreamCapped(stream: ReadableStream<Uint8Array>, limitBytes: number): Promise<Uint8Array> {
   const reader = stream.getReader()
   const chunks: Uint8Array[] = []
@@ -106,12 +99,6 @@ async function readStreamCapped(stream: ReadableStream<Uint8Array>, limitBytes: 
   return body
 }
 
-/** Reads an answer under whatever ceiling the caller set. With no ceiling the
- * runtime reads the whole body, which is what every request did before a
- * ceiling existed. With one, a body the runtime exposes as a stream stops the
- * moment it passes the ceiling, and a `fetch` implementation that exposes no
- * stream is measured once it has arrived, which is the most such an
- * implementation allows. */
 async function readAnswer(
   response: Response,
   limitBytes: number,
@@ -138,10 +125,6 @@ function invalidResponse(message: string, details: Record<string, unknown>): Nar
   return new NarsilError(ClientErrorCodes.CLIENT_INVALID_RESPONSE, message, details)
 }
 
-/** Rebuilds the failure the server described. A body that holds no error
- * envelope came from something other than a Narsil server, such as a proxy, so
- * the client reports an unreadable answer instead of borrowing a code Narsil
- * defines for something else. */
 function errorFromBody(status: number, payload: unknown, url: string): NarsilError {
   const envelope = isRecord(payload) && isRecord(payload.error) ? payload.error : undefined
   if (envelope === undefined || typeof envelope.code !== 'string' || typeof envelope.message !== 'string') {

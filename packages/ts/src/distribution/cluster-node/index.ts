@@ -203,9 +203,6 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
       replicationLogs.delete(replicationLogKey(indexName, partitionId))
       trackHeldPartitionWrite(engine.forgetHeldPartition(indexName, partitionId))
-      // Fire-and-forget: align engine state with allocation by dropping the
-      // local index when no other partitions of the same index remain
-      // assigned to this node. Errors are surfaced via forwardOnError.
       void cleanupRemovedPartition(indexName, partitionId, {
         engine,
         coordinator: config.coordinator,

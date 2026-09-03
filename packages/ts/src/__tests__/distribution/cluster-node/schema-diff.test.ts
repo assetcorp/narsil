@@ -43,10 +43,6 @@ describe('diffSchemas', () => {
       return inner as unknown as SchemaDefinition
     }
 
-    // Five nesting levels beyond the root object: l5 -> l4 -> l3 -> l2 -> l1 -> leaf.
-    // The walk starts at depth 1 on the root and enters each nested object at
-    // depth + 1; depth reaches 5 while descending into the fourth level, which
-    // exceeds the cap of 4.
     const deep = makeDeep(5)
 
     let diffs: ReturnType<typeof diffSchemas> = []

@@ -102,9 +102,7 @@ async function assertSenderLeadsPartition(
 }
 
 function enqueue(state: EventLoopState, task: () => Promise<void>): void {
-  state.insyncQueue = state.insyncQueue.then(task).catch(() => {
-    /* The primary retries on its next tick, or rereads the allocation for the current one. */
-  })
+  state.insyncQueue = state.insyncQueue.then(task).catch(() => {})
 }
 
 async function respondRefusal(
@@ -120,9 +118,7 @@ async function respondRefusal(
   }
   try {
     await respond(createInsyncConfirmMessage(payload, nodeId, requestId))
-  } catch (_) {
-    /* The primary falls back on its transport timeout when the refusal cannot be delivered. */
-  }
+  } catch (_) {}
 }
 
 /**

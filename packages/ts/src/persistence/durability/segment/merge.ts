@@ -210,13 +210,6 @@ function collectFieldIndexes(
   }
 }
 
-/**
- * Surface occurrence counts cannot be recomputed structurally (that would
- * require re-tokenising every document), so segment counts are summed. Docs
- * re-indexed across segments overcount slightly; suggestion visibility stays
- * correct because dead tokens are filtered by document frequency at read
- * time, and counts only break ties between display spellings.
- */
 function collectSurfaceForms(merged: SerializablePartition, part: SerializablePartition): void {
   if (!part.surfaceForms) return
   let target = merged.surfaceForms

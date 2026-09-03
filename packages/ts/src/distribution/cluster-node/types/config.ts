@@ -186,14 +186,3 @@ export interface ClusterNodeInfo {
   /** This says where the node stands, from joining through to shut down. */
   status: string
 }
-
-/**
- * One node of a cluster, which routes each write to the partition's primary
- * and gathers each search from every partition.
- *
- * The write and search methods mirror {@link Narsil}, so code moving from a
- * single engine to a cluster keeps its shape. Build one with
- * {@link createClusterNode}.
- *
- * @public
- */

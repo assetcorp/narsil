@@ -186,9 +186,7 @@ export function createTransformersEmbedding(config: TransformersEmbeddingConfig)
       if (pipeline) {
         try {
           await pipeline.dispose()
-        } catch {
-          /* disposal failure during shutdown is tolerable */
-        }
+        } catch {}
       }
     },
   }

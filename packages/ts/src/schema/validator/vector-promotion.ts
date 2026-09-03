@@ -2,13 +2,6 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorIndexConfig } from '../../types/schema'
 import { MAX_M } from '../../vector/hnsw/adjacency'
 
-/**
- * Index config arrives untyped over HTTP, so these fields can hold values their
- * declared types forbid. Left unchecked they misbehave silently: a threshold at
- * or below zero rebuilds the graph on every insert, a non-numeric threshold or
- * `m` never promotes (or feeds NaN into the graph), and an unknown quantization
- * mode disables quantization instead of erroring. Reject them at the boundary.
- */
 function fail(message: string, details: Record<string, unknown>): never {
   throw new NarsilError(ErrorCodes.CONFIG_INVALID, message, details)
 }

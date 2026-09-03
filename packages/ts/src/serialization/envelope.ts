@@ -194,8 +194,6 @@ export async function packSnapshotEnvelopePartsRetrying(buildPayload: () => Uint
   try {
     return await packSnapshotEnvelopeParts(buildPayload())
   } catch {
-    // A failing checksum worker consumes the transferred payload and latches itself off; rebuilding the
-    // bytes and retrying checksums inline so a worker fault degrades the checkpoint instead of failing it.
     return packSnapshotEnvelopeParts(buildPayload())
   }
 }

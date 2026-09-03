@@ -257,9 +257,7 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
   } catch (err) {
     try {
       deps.executor.dropIndex(indexName)
-    } catch (_) {
-      /* cleanup best-effort */
-    }
+    } catch (_) {}
     deps.indexRegistry.delete(indexName)
     deps.indexState.forget(indexName)
     if (deps.durability) {
