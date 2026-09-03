@@ -1,11 +1,6 @@
-import { type BinaryHeap, createMinHeap } from '../../core/heap'
 import type { VectorMetric } from '../brute-force'
 import { layerArray, layerBase, replaceNeighbors } from './adjacency'
 import {
-  addConnection,
-  type DistancePair,
-  distanceAsc,
-  distanceDesc,
   type HNSWGraphState,
   type HNSWSearchState,
   maxConns,
@@ -14,51 +9,79 @@ import {
   nodeExists,
   queryDistanceByOrd,
 } from './shared'
+import {
+  copyList,
+  type DistanceList,
+  drainHeapNearestFirst,
+  ensureListCapacity,
+  popHeap,
+  pushHeap,
+  resetHeap,
+  sortListByDistance,
+} from './workspace'
 
+/**
+ * Walks one layer of the graph from the entry points the workspace holds and
+ * writes the nearest candidates it finds into the given list, nearest first.
+ *
+ * @param state The graph to walk.
+ * @param qVec The query vector.
+ * @param qMag The query vector's magnitude.
+ * @param ef How many candidates the walk keeps.
+ * @param layer The layer to walk.
+ * @param metric The distance metric to rank by.
+ * @param skipTombstones True to leave removed documents out of the results.
+ * @param distFn The distance function to measure with, or undefined to measure
+ * against the query vector itself.
+ * @param results The list the walk fills, nearest first.
+ *
+ * @internal
+ */
 export function searchLayer(
   state: HNSWSearchState,
   qVec: Float32Array,
   qMag: number,
-  eps: number[],
   ef: number,
   layer: number,
   metric: VectorMetric,
   skipTombstones: boolean,
-  distFn?: (ord: number) => number,
-): BinaryHeap<DistancePair> {
+  distFn: ((ord: number) => number) | undefined,
+  results: DistanceList,
+): void {
   const getDistance = distFn ?? ((ord: number) => queryDistanceByOrd(state, qVec, qMag, ord, metric))
+  const workspace = state.workspace
+  const frontier = workspace.frontier
+  const found = workspace.found
   const adjacency = state.adjacency
   const neighbors = layerArray(adjacency, layer)
   const visited = state.visited
   const stamp = nextVisitStamp(state)
-  const candidates = createMinHeap<DistancePair>(distanceAsc)
-  const results = createMinHeap<DistancePair>(distanceDesc)
+
+  resetHeap(frontier)
+  resetHeap(found)
   let furthestDist = Number.POSITIVE_INFINITY
 
-  for (const epOrd of eps) {
+  for (let i = 0; i < workspace.entryPointCount; i++) {
+    const epOrd = workspace.entryPoints[i]
     if (visited[epOrd] === stamp) continue
     visited[epOrd] = stamp
     if (!nodeExists(state, epOrd)) continue
     if (skipTombstones && state.tombstones[epOrd] === 1) continue
     const dist = getDistance(epOrd)
     if (dist === Number.POSITIVE_INFINITY) continue
-    const pair = { ord: epOrd, distance: dist }
-    candidates.push(pair)
-    results.push(pair)
-    if (results.size > ef) {
-      results.pop()
+    pushHeap(frontier, epOrd, dist)
+    pushHeap(found, epOrd, dist)
+    if (found.size > ef) {
+      popHeap(found)
     }
   }
 
-  const topResult = results.peek()
-  if (topResult) furthestDist = topResult.distance
+  if (found.size > 0) furthestDist = found.distances[0]
 
-  while (candidates.size > 0) {
-    const nearest = candidates.pop()
-    if (!nearest) break
-    if (nearest.distance > furthestDist) break
+  while (popHeap(frontier)) {
+    if (frontier.topDistance > furthestDist) break
 
-    const base = layerBase(adjacency, nearest.ord, layer)
+    const base = layerBase(adjacency, frontier.topOrd, layer)
     if (base === -1) continue
 
     const count = neighbors[base]
@@ -74,95 +97,84 @@ export function searchLayer(
       const dist = getDistance(neighborOrd)
       if (dist === Number.POSITIVE_INFINITY) continue
 
-      if (dist < furthestDist || results.size < ef) {
-        const pair = { ord: neighborOrd, distance: dist }
-        candidates.push(pair)
-        results.push(pair)
-        if (results.size > ef) {
-          results.pop()
+      if (dist < furthestDist || found.size < ef) {
+        pushHeap(frontier, neighborOrd, dist)
+        pushHeap(found, neighborOrd, dist)
+        if (found.size > ef) {
+          popHeap(found)
         }
-        const newTop = results.peek()
-        if (newTop) furthestDist = newTop.distance
+        furthestDist = found.distances[0]
       }
     }
   }
 
-  return results
+  drainHeapNearestFirst(found, results)
 }
 
-export function nearestFromHeap(heap: BinaryHeap<DistancePair>): DistancePair | undefined {
-  let nearest: DistancePair | undefined
-  while (heap.size > 0) {
-    nearest = heap.pop()
-  }
-  return nearest
-}
-
+/**
+ * Chooses which candidates a node links to, keeping a candidate only where it
+ * is nearer to that node than to every candidate already kept.
+ *
+ * The rule stops at that diverse set, as hnswlib, Lucene, and Qdrant do, so a
+ * node's list holds fewer links than its cap wherever the candidates crowd
+ * together.
+ *
+ * @param state The graph to measure in.
+ * @param candidates The candidates to choose from, each with its distance to
+ * the node taking the links, which the call leaves unchanged.
+ * @param maxConnections The most links the node may take.
+ * @param metric The distance metric to rank by.
+ * @param selected The list the chosen candidates are written to.
+ *
+ * @internal
+ */
 export function selectNeighborsHeuristic(
   state: HNSWGraphState,
-  targetOrd: number,
-  candidates: DistancePair[],
+  candidates: DistanceList,
   maxConnections: number,
-  layer: number,
   metric: VectorMetric,
-  extendCandidates: boolean,
-  keepPruned: boolean,
-): DistancePair[] {
-  const working = [...candidates]
+  selected: DistanceList,
+): void {
+  const working = state.workspace.working
+  copyList(candidates, working)
+  sortListByDistance(working)
 
-  if (extendCandidates) {
-    const adjacency = state.adjacency
-    const neighbors = layerArray(adjacency, layer)
-    const existing = new Set<number>(working.map(c => c.ord))
-    for (const cand of candidates) {
-      const base = layerBase(adjacency, cand.ord, layer)
-      if (base === -1) continue
-      const count = neighbors[base]
-      for (let i = 1; i <= count; i++) {
-        const adjOrd = neighbors[base + i]
-        if (existing.has(adjOrd)) continue
-        existing.add(adjOrd)
-        const dist = nodeDistanceByOrd(state, targetOrd, adjOrd, metric)
-        if (dist === Number.POSITIVE_INFINITY) continue
-        working.push({ ord: adjOrd, distance: dist })
-      }
-    }
-  }
+  ensureListCapacity(selected, Math.min(maxConnections, working.size))
+  selected.size = 0
 
-  working.sort((a, b) => a.distance - b.distance)
+  for (let i = 0; i < working.size; i++) {
+    if (selected.size >= maxConnections) break
 
-  const selected: DistancePair[] = []
-  const discarded: DistancePair[] = []
-
-  for (const candidate of working) {
-    if (selected.length >= maxConnections) break
+    const candidateOrd = working.ords[i]
+    const candidateDistance = working.distances[i]
 
     let accepted = true
-    for (const sel of selected) {
-      const distBetween = nodeDistanceByOrd(state, candidate.ord, sel.ord, metric)
-      if (candidate.distance >= distBetween) {
+    for (let s = 0; s < selected.size; s++) {
+      const distBetween = nodeDistanceByOrd(state, candidateOrd, selected.ords[s], metric)
+      if (candidateDistance >= distBetween) {
         accepted = false
         break
       }
     }
 
-    if (accepted) {
-      selected.push(candidate)
-    } else {
-      discarded.push(candidate)
-    }
+    if (!accepted) continue
+    selected.ords[selected.size] = candidateOrd
+    selected.distances[selected.size] = candidateDistance
+    selected.size += 1
   }
-
-  if (keepPruned) {
-    for (const disc of discarded) {
-      if (selected.length >= maxConnections) break
-      selected.push(disc)
-    }
-  }
-
-  return selected
 }
 
+/**
+ * Cuts a node's neighbour list back to its cap by applying the selection rule
+ * to the neighbours it holds.
+ *
+ * @param state The graph to change.
+ * @param ord The node whose list is over its cap.
+ * @param layer The layer the list belongs to.
+ * @param metric The distance metric to rank by.
+ *
+ * @internal
+ */
 export function pruneConnections(state: HNSWGraphState, ord: number, layer: number, metric: VectorMetric): void {
   const adjacency = state.adjacency
   const base = layerBase(adjacency, ord, layer)
@@ -172,16 +184,19 @@ export function pruneConnections(state: HNSWGraphState, ord: number, layer: numb
   const count = neighbors[base]
   if (count <= mc) return
 
-  const conns: DistancePair[] = []
+  const candidates = state.workspace.pruneCandidates
+  candidates.size = 0
+  ensureListCapacity(candidates, count)
   for (let i = 1; i <= count; i++) {
     const connOrd = neighbors[base + i]
     const dist = nodeDistanceByOrd(state, ord, connOrd, metric)
     if (dist === Number.POSITIVE_INFINITY) continue
-    conns.push({ ord: connOrd, distance: dist })
+    candidates.ords[candidates.size] = connOrd
+    candidates.distances[candidates.size] = dist
+    candidates.size += 1
   }
 
-  const pruned = selectNeighborsHeuristic(state, ord, conns, mc, layer, metric, false, true)
-  const next: number[] = []
-  for (const p of pruned) addConnection(next, p.ord)
-  replaceNeighbors(adjacency, ord, layer, next)
+  const kept = state.workspace.pruneSelection
+  selectNeighborsHeuristic(state, candidates, mc, metric, kept)
+  replaceNeighbors(adjacency, ord, layer, kept.ords, kept.size)
 }

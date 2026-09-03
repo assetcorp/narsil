@@ -11,6 +11,8 @@ export const ESTIMATED_MS_PER_TOMBSTONE = 0.05
 export const ESTIMATED_MS_PER_VECTOR_REBUILD = 0.15
 export const WORKER_BUILD_SIZE_THRESHOLD = 5000
 export const WORKER_COPY_MIN_VECTORS = 1024
+const BUILD_CHUNK_SIZE = 100
+const REBUILD_REMOVED_RATIO = 0.2
 
 export interface VectorScoredResult {
   docId: string
@@ -56,6 +58,7 @@ export interface VectorIndexState {
   readonly buffer: Set<string>
   sq8: ScalarQuantizer | null
   hnsw: HNSWIndex | null
+  compactedNodeCount: number
   building: boolean
   buildScheduled: boolean
   pendingBuild: Promise<void> | null
@@ -70,6 +73,92 @@ export interface VectorIndexState {
 
 export function liveSize(state: VectorIndexState): number {
   return state.store.size - state.tombstones.size
+}
+
+/**
+ * Makes a graph built from every live vector the one the index answers from,
+ * or clears the graph away where none is given.
+ *
+ * The new graph takes a tombstone for every document a caller removed while
+ * it was being built, and the count of nodes that compaction cut out of the
+ * graph before it starts again from zero.
+ *
+ * @param state The index to update.
+ * @param graph The graph to adopt, or null where the index keeps no graph.
+ *
+ * @internal
+ */
+export function adoptGraph(state: VectorIndexState, graph: HNSWIndex | null): void {
+  if (graph === null && state.hnsw !== null) {
+    state.hnsw.clear()
+  }
+  state.hnsw = graph
+  state.compactedNodeCount = 0
+
+  if (graph === null) return
+  for (const docId of state.tombstones) {
+    if (graph.has(docId)) {
+      graph.markTombstone(docId)
+    }
+  }
+}
+
+/**
+ * Inserts the admitted documents into a graph, yielding to the event loop
+ * after every chunk so that a query can answer between chunks.
+ *
+ * @param state The index the graph belongs to, whose disposal stops the work.
+ * @param graph The graph to insert into.
+ * @param docIds The documents to offer.
+ * @param admit Reports whether a document goes into the graph.
+ * @param inserted Runs after each document goes in, where given.
+ * @returns True where every document was offered, and false where disposal
+ * stopped the work first.
+ *
+ * @internal
+ */
+export async function insertIntoGraph(
+  state: VectorIndexState,
+  graph: HNSWIndex,
+  docIds: Iterable<string>,
+  admit: (docId: string) => boolean,
+  inserted?: (docId: string) => void,
+): Promise<boolean> {
+  let count = 0
+  for (const docId of docIds) {
+    if (state.disposed) return false
+    if (!admit(docId)) continue
+    graph.insertNode(docId)
+    inserted?.(docId)
+    count += 1
+    if (count % BUILD_CHUNK_SIZE === 0) {
+      await yieldToEventLoop()
+    }
+  }
+  return !state.disposed
+}
+
+/**
+ * Reports whether callers have removed more than a fifth of the vectors the
+ * graph has held since it was last built, which is the point at which the
+ * vector index specification requires a rebuild.
+ *
+ * The removed vectors are the nodes the graph still holds as tombstones plus
+ * the nodes compaction has cut out since the last rebuild, and the vectors
+ * held are those removed nodes plus the live ones.
+ *
+ * @param state The index to read.
+ * @returns True once the removals pass that fraction.
+ *
+ * @internal
+ */
+export function graphNeedsRebuild(state: VectorIndexState): boolean {
+  const graph = state.hnsw
+  if (graph === null) return false
+  const removed = graph.tombstoneCount + state.compactedNodeCount
+  const held = graph.size + removed
+  if (held === 0) return false
+  return removed / held > REBUILD_REMOVED_RATIO
 }
 
 export function yieldToEventLoop(): Promise<void> {

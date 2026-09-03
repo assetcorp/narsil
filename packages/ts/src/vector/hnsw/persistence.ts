@@ -102,7 +102,7 @@ export function deserializeGraph(state: HNSWGraphState, data: SerializedHNSWGrap
   for (const node of nodes) {
     createNode(state.adjacency, node.ord, node.maxLayer)
     for (const [layer, neighbors] of node.layers) {
-      replaceNeighbors(state.adjacency, node.ord, layer, neighbors)
+      replaceNeighbors(state.adjacency, node.ord, layer, neighbors, neighbors.length)
     }
     state.nodeCount++
   }

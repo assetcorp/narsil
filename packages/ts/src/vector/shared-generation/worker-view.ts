@@ -1,6 +1,7 @@
 import { importAdjacency } from '../hnsw/adjacency'
 import { ABSENT_DOCUMENT_RANK } from '../hnsw/search'
 import type { HNSWSearchState } from '../hnsw/shared'
+import { createHNSWWorkspace } from '../hnsw/workspace'
 import {
   arenaQuantizedDistance,
   deriveSq8Constants,
@@ -176,6 +177,7 @@ export function openSharedWorkerCopy(snapshot: SharedGenerationSnapshot, scratch
     visitStamp: 0,
     entryPointOrd: snapshot.graph.entryPointOrd,
     topLayer: snapshot.graph.topLayer,
+    workspace: createHNSWWorkspace(),
   }
 
   return { searchState, rankByOrdinal: snapshot.rankByOrdinal }
