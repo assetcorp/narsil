@@ -64,9 +64,6 @@ export async function buildSnapshotBundleBytes(
   try {
     parts = await encodeSnapshotBundle(bundle)
   } catch {
-    // The checksum worker consumed the first encoded payload before it failed; the bundle here is
-    // still intact, so re-encode it. The worker is now latched off, so this attempt checksums inline
-    // and the checkpoint succeeds instead of putting durability into a fatal state.
     parts = await encodeSnapshotBundle(bundle)
   }
 

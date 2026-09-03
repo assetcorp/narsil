@@ -54,9 +54,7 @@ export function createController(config: ControllerConfig): ControllerNode {
       for (const indexName of await coordinator.listSchemas()) {
         eventLoopState.knownIndexes.add(indexName)
       }
-    } catch (_) {
-      /* Listing failure is recoverable; schema events refill knownIndexes */
-    }
+    } catch (_) {}
 
     try {
       await startEventLoop(eventLoopState, coordinator, transport, nodeId, isActive, onError)
@@ -65,9 +63,7 @@ export function createController(config: ControllerConfig): ControllerNode {
       clearElectionTimers(electionState)
       try {
         await releaseLease(coordinator)
-      } catch (_) {
-        /* Lease release failure while abandoning an incomplete start is non-critical */
-      }
+      } catch (_) {}
       throw error
     }
   }
@@ -100,9 +96,7 @@ export function createController(config: ControllerConfig): ControllerNode {
     }
     try {
       onElectionError(error)
-    } catch (_) {
-      /* A reporting failure must never stop this node standing for election again */
-    }
+    } catch (_) {}
   }
 
   async function runElection(): Promise<void> {
@@ -139,9 +133,7 @@ export function createController(config: ControllerConfig): ControllerNode {
         electionState.active = false
         try {
           await releaseLease(coordinator)
-        } catch (_) {
-          /* Lease release failure during stop is non-critical */
-        }
+        } catch (_) {}
       }
     },
 

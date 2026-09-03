@@ -51,9 +51,7 @@ function discardWorker(worker: WorkerHandle): void {
   }
   try {
     void worker.terminate()
-  } catch {
-    /* termination failure is non-critical; the handle is already dropped from the pool */
-  }
+  } catch {}
 }
 
 interface WorkerRunOutcome {
@@ -175,9 +173,7 @@ export function terminateCheckpointWorker(): void {
   pooledWorker = null
   try {
     void worker.terminate()
-  } catch {
-    /* termination failure is non-critical at shutdown; the handle is already dropped */
-  }
+  } catch {}
 }
 
 export function __checkpointWorkerSpawnCountForTests(): number {

@@ -45,21 +45,10 @@ export function createRollbackFailure(
   )
 }
 
-/**
- * Answers whether the write failed because this node no longer holds the term
- * it wrote under. A new primary owns the log from the newer term onwards, so
- * this node must append nothing more to it.
- */
 function lostPrimaryAuthority(originalError: unknown): boolean {
   return originalError instanceof NarsilError && originalError.code === ErrorCodes.PARTITION_NOT_PRIMARY
 }
 
-/**
- * Appends the entry that undoes what the failed write already appended, so a
- * replica catching up from this log reaches what the primary now holds. The
- * log is append-only, which is why the undo is an entry of its own rather than
- * a removal.
- */
 function compensate(
   operation: 'insert' | 'remove' | 'update',
   scope: PrimaryWriteScope,

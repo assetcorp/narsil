@@ -116,8 +116,6 @@ export async function dropEngineIndex(core: EngineCore, name: string): Promise<v
 export function registerEngineEmbeddingAdapter(core: EngineCore, name: string, adapter: EmbeddingAdapter): void {
   core.guardShutdown()
   validateRegisteredAdapter(name, adapter)
-  // Validate every referencing index before any binding changes, so a
-  // mismatch leaves the registry and all bindings untouched.
   const affected: IndexRegistryEntry[] = []
   for (const [indexName, entry] of core.indexRegistry) {
     if (entry.embeddingAdapterName !== name || !entry.config.embedding) continue

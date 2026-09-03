@@ -57,14 +57,6 @@ function parseHead(head: string): { statusCode: number; contentType: string; con
   return { statusCode, contentType, contentLength }
 }
 
-/**
- * Issues one HTTP/1.1 request over a raw socket and drains the response at a
- * throttled rate, holding the socket in paused mode and pulling a bounded slice
- * per tick. A reader this slow leaves the server's send buffer full, which forces
- * the streamed sender through its backpressure path (tryEnd returning false, then
- * resuming from the acknowledged offset in onWritable). The full body is
- * reassembled and returned so a caller can assert it survived intact.
- */
 function slowRequest(
   host: string,
   port: number,

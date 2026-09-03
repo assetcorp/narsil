@@ -12,15 +12,6 @@ import {
   type TlsConfig,
 } from './types'
 
-/**
- * Writes one frame and settles once the socket has taken it, waiting for the
- * kernel buffer to drain where the socket reports itself full. That is what
- * lets a snapshot travel no faster than the receiver reads it.
- *
- * @param socket - The connection to the peer.
- * @param frame - The bytes to write.
- * @returns A promise that settles once the socket accepts more.
- */
 function writeAwaitingDrain(socket: Socket, frame: Uint8Array): Promise<void> {
   if (socket.write(frame)) {
     return Promise.resolve()

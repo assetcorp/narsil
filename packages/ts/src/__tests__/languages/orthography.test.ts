@@ -9,8 +9,6 @@ function analyse(text: string, module: LanguageModule): string[] {
   return tokenize(text, module, RAW_ANALYSIS).tokens.map(entry => entry.token)
 }
 
-// Distinct characters, because a split pattern either admits a character or
-// rejects it, while possessive stripping deliberately drops a repeated one.
 function indexForm(word: string, module: LanguageModule): string {
   const split = normalizeForSplitting(word)
   return module.normalizer ? module.normalizer(split) : split

@@ -361,8 +361,6 @@ describe('InvertedIndex', () => {
       for (let i = 0; i < 6; i++) {
         idx.remove('sword', i)
       }
-      // The sixth remove crosses the compaction threshold again, leaving
-      // exactly the four live occurrences counted.
       expect(idx.lookup('sword')?.totalTermFrequency).toBe(8)
     })
 

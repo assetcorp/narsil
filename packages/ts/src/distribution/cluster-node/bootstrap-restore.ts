@@ -236,10 +236,6 @@ export async function dropExistingIndex(
     await engine.dropIndex(indexName)
     return null
   } catch (err) {
-    // TOCTOU: another bootstrap path (e.g. cleanupRemovedPartition) may drop
-    // the index between listIndexes() and the awaited dropIndex(). Treat
-    // INDEX_NOT_FOUND as success; the post-condition we care about (no
-    // existing index) is already satisfied. Mirrors cleanupRemovedPartition.
     if (err instanceof NarsilError && err.code === ErrorCodes.INDEX_NOT_FOUND) {
       return null
     }

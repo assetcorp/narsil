@@ -71,11 +71,7 @@ export class LeaseManager {
   async revokeAll(): Promise<void> {
     const revokePromises: Promise<void>[] = []
     for (const [, entry] of this.leases) {
-      revokePromises.push(
-        entry.lease.revoke().catch(() => {
-          /* best-effort revocation during shutdown */
-        }),
-      )
+      revokePromises.push(entry.lease.revoke().catch(() => {}))
     }
     this.leases.clear()
     await Promise.all(revokePromises)

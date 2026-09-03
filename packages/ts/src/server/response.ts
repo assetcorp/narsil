@@ -21,25 +21,12 @@ const STATUS_TEXT: Record<number, string> = {
   503: '503 Service Unavailable',
 }
 
-/** Bodies at or above this size are streamed with backpressure handling instead
- * of handed whole to res.end. uWebSockets.js copies the untransmitted tail of a
- * res.end body into native memory until the socket drains, so a slow reader
- * pulling a large body would pin that whole payload. Below the threshold the
- * tail a slow reader can pin is bounded by this size, which is negligible. */
 const STREAM_THRESHOLD = 64 * 1024
 
 function statusLine(status: number): string {
   return STATUS_TEXT[status] ?? `${status}`
 }
 
-/**
- * Streams a fully-materialized body with backpressure handling. `tryEnd` writes
- * only what the socket accepts now and never buffers the unsent tail, so a slow
- * reader cannot force uWebSockets.js to hold the whole payload in native memory;
- * the rest is re-supplied from the acknowledged offset in `onWritable`. The
- * body stays referenced on the JS heap by the closure until the drain finishes
- * or the client aborts, at which point it is released.
- */
 function streamBody(
   res: HttpResponse,
   abort: ResponseAbort,

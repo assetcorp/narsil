@@ -176,9 +176,6 @@ async function restoreReplicationPartition(
   }
 
   validatePartitionSnapshotPayload(indexName, partitionId, partitionCount, schema, partition)
-  // Dry-run deserialisation into a throwaway partition so a malformed payload
-  // throws before any live state changes; mirror the target index's position
-  // tracking so the validation exercises the same code path as the restore.
   const trackPositions = core.indexRegistry.get(indexName)?.config.trackPositions ?? true
   createPartitionIndex(partitionId, trackPositions).deserialize(partition, schema)
 

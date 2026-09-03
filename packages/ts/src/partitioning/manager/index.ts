@@ -200,9 +200,6 @@ export function createPartitionManager(
       if (pid === undefined) {
         throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
       }
-      // Removal re-tokenises the stored document, so it must run with the
-      // same analyzer options as insertion or index and registry entries
-      // written under those options survive the remove.
       partitions[pid].remove(docId, config.schema, language, resolveInsertOptions())
       docPartitionMap.delete(docId)
     },

@@ -32,9 +32,7 @@ export async function shutdownEngine(core: EngineCore): Promise<void> {
   for (const adapter of adaptersToShutdown) {
     try {
       await adapter.shutdown?.()
-    } catch {
-      // Shutdown is best effort: one adapter's cleanup failure must not block the rest of teardown.
-    }
+    } catch {}
   }
 
   await orchestrator.shutdown()

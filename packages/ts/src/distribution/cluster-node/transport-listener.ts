@@ -21,16 +21,6 @@ const CONTROLLER_MESSAGE_TYPES = new Set<string>([
   ClusterMessageTypes.BOOTSTRAP_COMPLETE,
 ])
 
-/**
- * Answers one message with a refusal, so that the sender learns why this node took no action.
- *
- * @param nodeId - This node's id, which names the sender of the refusal.
- * @param message - The message being refused, whose type and request id the refusal echoes.
- * @param respond - The responder the listener was called with.
- * @param code - The `ErrorCodes` value naming why the node refused.
- * @param text - The sentence the sender reports.
- * @returns A promise that settles once the refusal has been sent.
- */
 function refuseMessage(
   nodeId: string,
   message: TransportMessage,

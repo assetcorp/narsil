@@ -64,12 +64,6 @@ async function promoteToGraph(state: VectorIndexState): Promise<void> {
   await buildGraphFromStore(state)
 }
 
-/**
- * Quantises one newly stored vector under the calibration the index already
- * holds, and reports whether the vector falls outside those bounds.
- *
- * @internal
- */
 function quantizeIncoming(state: VectorIndexState, docId: string): boolean {
   const sq8 = state.sq8
   if (sq8 === null) return false
