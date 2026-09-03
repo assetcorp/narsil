@@ -1,6 +1,6 @@
 # Partitions and workers
 
-A large index splits across partitions, and its search moves onto worker threads as it grows. This guide covers partition routing, online rebalancing, worker promotion, and running several instances over one store.
+A large index splits across partitions, and its search moves onto worker threads as it grows. This guide covers partition routing, online rebalancing, worker copies, and running several instances over one store.
 
 ## Partitions and rebalancing
 
@@ -29,45 +29,49 @@ Two measured costs are worth knowing before raising partition counts:
 
 **Rebalance latency spikes.** While a reshape runs, worst-tick p95 latency can climb to about 25ms compared with around 11ms in steady state. Schedule reshapes during low-traffic windows, or pre-size the index with `maxDocsPerPartition` so mid-load reshapes never become necessary.
 
-## Workers
+## Worker copies
 
-Search can move off the main thread through worker threads on Node.js and Bun, or Web Workers in browsers and Deno. With `workers.enabled: true`, the engine starts in direct mode and promotes itself to the worker pool once any index passes `promotionThreshold` documents or all indexes together pass `totalPromotionThreshold`. The API stays identical before and after promotion.
+On Node.js and Bun the engine holds a copy of each large index on every worker thread, so that keyword search uses every core without a setting. An index gains its copies once it holds `promotionThreshold` documents, which defaults to 1,000, because below that a query finishes sooner than the hop to a worker thread takes. A browser page holds no copies, and `workers.enabled: false` holds a Node.js process to one thread, which also leaves the vector search pool absent. The API stays identical whether or not an index holds copies.
 
 ```ts
 const narsil = await createNarsil({
   workers: {
-    enabled: true,
     count: 4,
-    promotionThreshold: 10_000,
-    totalPromotionThreshold: 50_000,
+    promotionThreshold: 1_000,
+    idleTimeoutMs: 300_000,
   },
 })
 ```
 
-Promotion emits the `workerPromote` event, and a crashed worker emits `workerCrash`; see [Events](observability.md#events). Worker heap usage appears in `getMemoryStats()`.
+`workers.count` is the thread budget the keyword copies and the vector search pool share between them, half each. It defaults to the host's cores minus one, between 2 and 8, so a budget of 4 runs two keyword copies and two vector search workers.
 
-A worker thread receives an index's config by copy, so three conditions gate promotion. An inline `tokenizer` instance cannot cross the thread boundary, a `stopWords` function cannot either, and a worker holds no language other than English until a module registers one inside it. Register tokenizers and stop word sets by name (see [Named tokenizers and stop words](language-support.md#named-tokenizers-and-stop-words)), and point `workers.bootstrapModule` at a module that registers the languages and named analysis your indexes use; every worker imports it at startup.
+The engine sends a whole query to the copy with the fewest queries in flight, so concurrent queries spread across the copies. A query that names several partitions may split across idle copies, each answering its own partitions, before the engine merges the answers. On SciFact, a query answers with the same hits, scores, count, and facets whether copies are on or off. At 16 concurrent clients the engine answers about three times as many queries per second with copies on as it does on one thread.
+
+The engine emits `workerPromote` when an index gains its copies and `workerCrash` when a worker dies; see [Events](observability.md#events). `getMemoryStats()` reports each worker's heap and, under `workerCopies`, whether each index holds copies now.
+
+An index that receives no read or write for `idleTimeoutMs`, five minutes by default, gives up its copies and keeps its main copy open. The next read or write on that index loads the copies again while the main copy answers it, and `getMemoryStats().workerCopies` counts each reload under `reloadCount`. Where you also set `lifecycle.idleTimeoutMs`, give the copies the shorter interval so that an index drops its copies before it closes.
+
+A worker thread receives an index's config by copy, so three conditions gate whether an index can gain copies. An inline `tokenizer` instance cannot cross the thread boundary, a `stopWords` function cannot either, and a worker holds no language other than English until a module registers one inside it. Register tokenizers and stop word sets by name (see [Named tokenizers and stop words](language-support.md#named-tokenizers-and-stop-words)), and point `workers.bootstrapModule` at a module that registers the languages and named analysis your indexes use; every worker imports it at startup.
 
 ```ts
 const narsil = await createNarsil({
   workers: {
-    enabled: true,
     bootstrapModule: new URL('./register-analysis.mjs', import.meta.url).href,
   },
 })
 ```
 
-An index that fails these checks stays on the main thread while eligible indexes promote, and the engine reports it once through the `workerPromoteFailure` event with `retryable: false`. A promotion that fails for a deterministic reason, such as a bootstrap module that does not register a needed language, blocks every later promotion and reports `retryable: false`; a transient failure reports `retryable: true` and retries on the next threshold check.
+An index that fails these checks stays on the main thread while eligible indexes gain copies, and the engine reports it once through the `workerPromoteFailure` event with `retryable: false`. A pool start that fails for a deterministic reason, such as a bootstrap module that does not register a needed language, blocks every later attempt and reports `retryable: false`; a transient failure reports `retryable: true`, and the engine tries again on the next write or read that finds an index at the threshold.
 
 ## How a batch reaches the worker copies
 
-Each worker holds a copy of the whole index rather than a slice of it, because any copy may answer any query. Every copy therefore needs the documents you insert, and the way they arrive changes what a large batch costs.
+Each worker holds a copy of the whole index, because any copy may answer any query. Every copy therefore needs the documents you insert, and the way they arrive changes what a large batch costs.
 
 A batch of 64 documents or more, on an index the pool already holds, takes the segment path. The engine analyses each document once, builds one segment per partition from the result, and sends that segment to the copies. Where the runtime offers `SharedArrayBuffer`, the engine freezes the segment into shared memory and every copy attaches the same bytes, so the engine pays for the analysis and the posting lists once, however many copies you run. Where the runtime offers none, which includes a browser page that is not cross-origin isolated, the engine sends the segment to each copy to merge instead, and that path indexes the same documents and answers the same queries.
 
 A smaller batch, and any insert on an index with no worker copies, takes the per-document path instead, which builds no segment at all.
 
-Segments accumulate as you keep inserting, so a partition holding eight of them compacts them into one in the background while queries keep answering. All of this runs without configuration, and `getMemoryStats()` reports what each worker holds.
+Segments accumulate as you keep inserting, so a partition holding eight of them compacts them into one in the background while queries keep answering. Once no write has reached the index for one second, a worker merges every remaining segment of each partition into one, on every copy and on the main copy alike, so that a copy answers a query about as fast as the main copy does alone. All of this runs without configuration, and `getMemoryStats()` reports what each worker holds.
 
 ## Multi-instance invalidation
 
