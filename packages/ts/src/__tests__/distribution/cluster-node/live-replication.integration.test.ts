@@ -8,6 +8,7 @@ import type { AllocationTable, ClusterCoordinator, PartitionAssignment } from '.
 import type { InMemoryNetwork } from '../../../distribution/transport'
 import { createInMemoryNetwork, createInMemoryTransport } from '../../../distribution/transport'
 import type { NodeTransport } from '../../../distribution/transport/types'
+import { waitForSettledReplica } from './cluster-harness'
 
 const POLL_INTERVAL_MS = 25
 const POLL_BUDGET_MS = 15_000
@@ -133,25 +134,7 @@ describe('cluster-node live replication', () => {
     })
     await nodeB.start()
 
-    const ready = await pollUntil(async () => {
-      const allocation = await coordinator.getAllocation('products')
-      if (allocation === null || allocation.assignments.size === 0) {
-        return false
-      }
-      for (const assignment of allocation.assignments.values()) {
-        if (assignment.state !== 'ACTIVE' || !assignment.inSyncSet.includes('node-b')) {
-          return false
-        }
-      }
-      return true
-    })
-
-    expect(ready).toBe(true)
-
-    const allocation = await coordinator.getAllocation('products')
-    if (allocation === null) {
-      throw new Error('products allocation is missing')
-    }
+    const allocation = await waitForSettledReplica(coordinator, 'products', 'node-b')
     const partitionId = findNodeAPrimaryPartition(allocation)
     const docId = docIdForPartition(partitionId, allocation.assignments.size)
 
@@ -245,24 +228,7 @@ describe('cluster-node live replication', () => {
       expect(metadataCheck.header.partitionId).toBe(0)
     }
 
-    const bootstrapReady = await pollUntil(async () => {
-      const allocation = await coordinator.getAllocation('products')
-      if (allocation === null || allocation.assignments.size === 0) {
-        return false
-      }
-      for (const assignment of allocation.assignments.values()) {
-        if (assignment.state !== 'ACTIVE' || !assignment.inSyncSet.includes('node-b')) {
-          return false
-        }
-      }
-      return true
-    })
-    expect(bootstrapReady).toBe(true)
-
-    const allocation = await coordinator.getAllocation('products')
-    if (allocation === null) {
-      throw new Error('products allocation is missing')
-    }
+    const allocation = await waitForSettledReplica(coordinator, 'products', 'node-b')
     const partitionId = findNodeAPrimaryPartition(allocation)
     const docId = docIdForPartition(partitionId, allocation.assignments.size, 'live-after-bootstrap')
 

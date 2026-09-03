@@ -13,6 +13,7 @@ import type { AllocationTable, ClusterCoordinator } from '../../../distribution/
 import type { InMemoryNetwork } from '../../../distribution/transport'
 import { createInMemoryNetwork, createInMemoryTransport } from '../../../distribution/transport'
 import type { NodeTransport } from '../../../distribution/transport/types'
+import { waitForSettledReplica } from './cluster-harness'
 
 const POLL_INTERVAL_MS = 25
 const POLL_BUDGET_MS = 15_000
@@ -190,24 +191,7 @@ describe('cluster-node index lifecycle', () => {
     await replica.start()
 
     try {
-      const ready = await pollUntil(async () => {
-        const allocation = await coordinator.getAllocation('products')
-        if (allocation === null || allocation.assignments.size === 0) {
-          return false
-        }
-        for (const assignment of allocation.assignments.values()) {
-          if (assignment.state !== 'ACTIVE' || !assignment.inSyncSet.includes('node-b')) {
-            return false
-          }
-        }
-        return true
-      })
-      expect(ready).toBe(true)
-
-      const allocation = await coordinator.getAllocation('products')
-      if (allocation === null) {
-        throw new Error('products allocation is missing')
-      }
+      const allocation = await waitForSettledReplica(coordinator, 'products', 'node-b')
       const partitionId = findReplicatedPrimaryPartition(allocation, 'node-a', 'node-b')
       const partitionCount = allocation.assignments.size
       const firstDocId = docIdForPartition(partitionId, partitionCount, 'before-close')

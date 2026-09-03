@@ -88,6 +88,27 @@ describe('HNSWIndex graph structure integrity', () => {
     }
   })
 
+  it('every neighbour list names distinct live nodes other than its owner', () => {
+    const largeStore = createVectorStore()
+    const largeIndex = createHNSWIndex(DIM, largeStore, { m: 4, efConstruction: 32, metric: 'cosine' })
+    for (let i = 0; i < 240; i++) {
+      insertVec(largeStore, largeIndex, `doc${i}`, seededVector(DIM, i + 1))
+    }
+
+    const serialized = largeIndex.serialize()
+    const nodeIds = new Set(serialized.nodes.map(([docId]) => docId))
+
+    for (const [docId, , layerConns] of serialized.nodes) {
+      for (const [, neighbors] of layerConns) {
+        expect(neighbors).not.toContain(docId)
+        expect(new Set(neighbors).size).toBe(neighbors.length)
+        for (const neighborId of neighbors) {
+          expect(nodeIds.has(neighborId)).toBe(true)
+        }
+      }
+    }
+  })
+
   it('higher layers have fewer nodes', () => {
     const largeStore = createVectorStore()
     const largeIndex = createHNSWIndex(DIM, largeStore, { m: 8, efConstruction: 64 })

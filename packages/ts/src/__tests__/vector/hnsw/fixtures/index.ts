@@ -1,6 +1,6 @@
-import type { HNSWIndex } from '../../../vector/hnsw'
-import { magnitude } from '../../../vector/similarity'
-import type { VectorStore } from '../../../vector/vector-store'
+import type { HNSWIndex } from '../../../../vector/hnsw'
+import { magnitude } from '../../../../vector/similarity'
+import type { VectorStore } from '../../../../vector/vector-store'
 
 export const DIM = 8
 

@@ -35,7 +35,7 @@ function captureCloneSnapshot(state: VectorIndexState): WorkerCopySnapshot | nul
 }
 
 export function scheduleWorkerCopyLoad(state: VectorIndexState): void {
-  if (state.disposed || state.workerCopyLoading) return
+  if (state.disposed || state.workerCopyLoading || state.building) return
   if (state.workerCopyHandle !== null) return
   if (!state.hnsw || state.buffer.size > 0) return
   if (liveSize(state) < WORKER_COPY_MIN_VECTORS) return
