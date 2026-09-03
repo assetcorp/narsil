@@ -10,20 +10,56 @@ import {
   workerIneligibility,
 } from './eligibility'
 import { enqueueReplication } from './replication'
-import type { OrchestratorState } from './types'
+import type { CopyTransition, OrchestratorState } from './types'
 
 export const COPY_RELOAD_REASON = 'A request arrived after an idle spell dropped the worker copies'
+export const COPY_RESTART_REASON = 'A request arrived after every worker crashed and the restart delay passed'
+export const POOL_RESTART_DELAY_MS = 1_000
+const POOL_RESTART_DELAY_MAX_MS = 60_000
+
+export function copiesAllowed(state: OrchestratorState): boolean {
+  if (!state.workersEnabled || state.scaleOutBlocked) return false
+  return state.workerPool !== null || Date.now() >= state.poolRetryAt
+}
+
+function deferPoolRestart(state: OrchestratorState): void {
+  state.poolRetryAt = Date.now() + state.poolRetryDelayMs
+  state.poolRetryDelayMs = Math.min(state.poolRetryDelayMs * 2, POOL_RESTART_DELAY_MAX_MS)
+}
+
+export function retirePool(state: OrchestratorState, pool: WorkerPool): void {
+  if (state.workerPool !== pool) return
+  state.workerPool = null
+  deferPoolRestart(state)
+  for (const indexName of state.scaledOutIndexes) state.droppedCopies.set(indexName, COPY_RESTART_REASON)
+  state.scaledOutIndexes.clear()
+  state.segmentLedger.clear()
+  void pool.shutdown().catch(() => undefined)
+}
+
+export function handleWorkerCrash(
+  state: OrchestratorState,
+  pool: WorkerPool,
+  workerId: number,
+  indexNames: string[],
+  error: Error,
+): void {
+  state.callbacks?.onWorkerCrash?.(workerId, indexNames, error)
+  if (pool.getAllExecutors().length === 0) retirePool(state, pool)
+}
 
 async function startPool(state: OrchestratorState): Promise<WorkerPool> {
   eligibleIndexNames(state)
   const factory = await createWorkerFactory()
+  let started: WorkerPool | null = null
   const pool = createWorkerPool({
     count: state.keywordWorkerCount,
     workerFactory: factory,
     onWorkerCrash(workerId, indexNames, error) {
-      state.callbacks?.onWorkerCrash?.(workerId, indexNames, error)
+      if (started !== null) handleWorkerCrash(state, started, workerId, indexNames, error)
     },
   })
+  started = pool
   try {
     pool.spawnAll()
     if (state.bootstrapModule !== undefined) {
@@ -54,6 +90,7 @@ async function ensurePool(state: OrchestratorState): Promise<WorkerPool> {
       },
       err => {
         state.poolStart = null
+        deferPoolRestart(state)
         throw err
       },
     )
@@ -70,7 +107,7 @@ export function copyThresholdReason(state: OrchestratorState, indexName: string)
 }
 
 export function indexReadyForCopies(state: OrchestratorState, indexName: string, incomingCount = 0): boolean {
-  if (!state.workersEnabled || state.scaleOutBlocked) return false
+  if (!copiesAllowed(state)) return false
   if (state.scaledOutIndexes.has(indexName) || state.desyncedIndexes.has(indexName)) return false
   if (state.copyTransitions.has(indexName)) return false
   if (state.callbacks?.shouldDeferCopies?.()) return false
@@ -97,13 +134,14 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
 
   const pool = await ensurePool(state)
   if (state.executor.getManager(indexName) === undefined) return
-  const reload = state.idleDroppedIndexes.delete(indexName)
+  const reload = state.droppedCopies.delete(indexName)
   const buffered: WorkerAction[] = []
   state.copyLoadBuffers.set(indexName, buffered)
   try {
     await transferIndexToPool(indexName, pool, entry.config, manager)
     state.scaledOutIndexes.add(indexName)
     state.lastAccessAt.set(indexName, Date.now())
+    state.poolRetryDelayMs = POOL_RESTART_DELAY_MS
     for (const action of buffered) enqueueReplication(state, indexName, action)
   } finally {
     state.copyLoadBuffers.delete(indexName)
@@ -112,27 +150,37 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
   state.callbacks?.onCopiesLoaded?.(pool.workerCount, reason)
 }
 
-export async function scaleOutIndex(state: OrchestratorState, indexName: string, reason: string): Promise<void> {
-  const previous = state.copyTransitions.get(indexName)
-  if (previous !== undefined) await previous
-  if (!state.workersEnabled || state.scaleOutBlocked) return
+async function loadAfter(
+  previous: CopyTransition | undefined,
+  state: OrchestratorState,
+  indexName: string,
+  reason: string,
+): Promise<void> {
+  if (previous !== undefined) await previous.done
+  if (!copiesAllowed(state)) return
   if (state.scaledOutIndexes.has(indexName) || state.desyncedIndexes.has(indexName)) return
+  await loadCopies(state, indexName, reason)
+}
 
-  const run = loadCopies(state, indexName, reason)
+export function scaleOutIndex(state: OrchestratorState, indexName: string, reason: string): Promise<void> {
+  const previous = state.copyTransitions.get(indexName)
+  if (previous !== undefined && previous.kind !== 'drop') return previous.done
+  const kind = state.droppedCopies.has(indexName) ? 'reload' : 'load'
+  const done = loadAfter(previous, state, indexName, reason)
     .catch(err => {
       const error = toError(err)
       state.scaleOutBlocked = isDeterministicFailure(error)
       state.callbacks?.onCopyLoadFailure?.(reason, error, !state.scaleOutBlocked)
     })
     .finally(() => {
-      if (state.copyTransitions.get(indexName) === run) state.copyTransitions.delete(indexName)
+      if (state.copyTransitions.get(indexName)?.done === done) state.copyTransitions.delete(indexName)
     })
-  state.copyTransitions.set(indexName, run)
-  await run
+  state.copyTransitions.set(indexName, { kind, done })
+  return done
 }
 
 export async function scaleOutReadyIndexes(state: OrchestratorState): Promise<void> {
-  if (!state.workersEnabled || state.scaleOutBlocked) return
+  if (!copiesAllowed(state)) return
   for (const indexName of state.indexRegistry.keys()) {
     if (!indexReadyForCopies(state, indexName)) continue
     const reason = copyThresholdReason(state, indexName)
@@ -150,7 +198,7 @@ export async function scaleOutBeforeBatch(
   if (incomingCount <= 0) return
   const pending = state.copyTransitions.get(indexName)
   if (pending !== undefined) {
-    await pending
+    if (pending.kind === 'load') await pending.done
     return
   }
   if (!indexReadyForCopies(state, indexName, incomingCount)) return

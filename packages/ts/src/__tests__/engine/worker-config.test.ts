@@ -36,4 +36,17 @@ describe('validateWorkerConfig', () => {
     expect(codeOf(() => validateWorkerConfig({ idleTimeoutMs: 0 }))).toBe(ErrorCodes.CONFIG_INVALID)
     expect(codeOf(() => validateWorkerConfig({ idleTimeoutMs: -5 }))).toBe(ErrorCodes.CONFIG_INVALID)
   })
+
+  it('rejects copies that would outlive the index under the lifecycle idle timeout', () => {
+    expect(codeOf(() => validateWorkerConfig({ idleTimeoutMs: 60_001 }, { idleTimeoutMs: 60_000 }))).toBe(
+      ErrorCodes.CONFIG_INVALID,
+    )
+  })
+
+  it('accepts copies that drop at or before the index closes', () => {
+    expect(codeOf(() => validateWorkerConfig({ idleTimeoutMs: 60_000 }, { idleTimeoutMs: 60_000 }))).toBeNull()
+    expect(codeOf(() => validateWorkerConfig({ idleTimeoutMs: 1_000 }, { idleTimeoutMs: 60_000 }))).toBeNull()
+    expect(codeOf(() => validateWorkerConfig({ idleTimeoutMs: 600_000 }, {}))).toBeNull()
+    expect(codeOf(() => validateWorkerConfig({}, { idleTimeoutMs: 1 }))).toBeNull()
+  })
 })

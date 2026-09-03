@@ -16,6 +16,7 @@ import { awaitReplicationIdle, replicateToWorkers } from './replication'
 import {
   copyThresholdReason,
   indexReadyForCopies,
+  POOL_RESTART_DELAY_MS,
   scaleOutBeforeBatch,
   scaleOutIndex,
   scaleOutReadyIndexes,
@@ -29,7 +30,13 @@ export type { WorkerOrchestrator, WorkerOrchestratorCallbacks } from './types'
 export const DEFAULT_COPY_THRESHOLD = 1_000
 
 export function workersEnabledByDefault(): boolean {
-  return detectRuntime().supportsWorkerThreads
+  return detectRuntime().runtime !== 'browser'
+}
+
+function copyIdleTimeoutBeforeClose(closeAfterMs: number | undefined): number {
+  return closeAfterMs === undefined
+    ? DEFAULT_COPY_IDLE_TIMEOUT_MS
+    : Math.min(DEFAULT_COPY_IDLE_TIMEOUT_MS, closeAfterMs)
 }
 
 export function createWorkerOrchestrator(
@@ -46,14 +53,14 @@ export function createWorkerOrchestrator(
     workersEnabled: config?.workers?.enabled ?? workersEnabledByDefault(),
     keywordWorkerCount: splitWorkerBudget(resolveWorkerCount(config?.workers?.count)).keyword,
     copyThreshold: config?.workers?.promotionThreshold ?? DEFAULT_COPY_THRESHOLD,
-    copyIdleTimeoutMs: config?.workers?.idleTimeoutMs ?? DEFAULT_COPY_IDLE_TIMEOUT_MS,
+    copyIdleTimeoutMs: config?.workers?.idleTimeoutMs ?? copyIdleTimeoutBeforeClose(config?.lifecycle?.idleTimeoutMs),
     bootstrapModule: config?.workers?.bootstrapModule,
     reportedIneligible: new Set(),
     scaledOutIndexes: new Set(),
     desyncedIndexes: new Set(),
     copyLoadBuffers: new Map(),
     copyTransitions: new Map(),
-    idleDroppedIndexes: new Set(),
+    droppedCopies: new Map(),
     lastAccessAt: new Map(),
     copyReloadCounts: new Map(),
     replicationQueues: new Map(),
@@ -62,6 +69,8 @@ export function createWorkerOrchestrator(
     idleMergeTimers: new Map(),
     workerPool: null,
     poolStart: null,
+    poolRetryAt: 0,
+    poolRetryDelayMs: POOL_RESTART_DELAY_MS,
     scaleOutBlocked: false,
     idleSweep: null,
   }
@@ -74,7 +83,7 @@ export function createWorkerOrchestrator(
   }
 
   async function openIndex(indexName: string): Promise<void> {
-    state.idleDroppedIndexes.delete(indexName)
+    state.droppedCopies.delete(indexName)
     if (!indexReadyForCopies(state, indexName)) return
     await scaleOutIndex(state, indexName, copyThresholdReason(state, indexName))
   }
@@ -105,7 +114,7 @@ export function createWorkerOrchestrator(
   async function shutdown(): Promise<void> {
     stopIdleSweep(state)
     for (const indexName of [...state.idleMergeTimers.keys()]) cancelIdleMerge(state, indexName)
-    await Promise.allSettled([...state.copyTransitions.values()])
+    await Promise.allSettled([...state.copyTransitions.values()].map(transition => transition.done))
     if (state.poolStart !== null) await state.poolStart.catch(() => undefined)
     if (state.workerPool) {
       await awaitCompactions(state)
@@ -147,7 +156,7 @@ export function createWorkerOrchestrator(
 
   async function closeIndex(indexName: string): Promise<void> {
     const transition = state.copyTransitions.get(indexName)
-    if (transition !== undefined) await transition
+    if (transition !== undefined) await transition.done
     await awaitReplicationIdle(state, indexName)
     await awaitCompactions(state)
     cancelIdleMerge(state, indexName)
@@ -163,7 +172,7 @@ export function createWorkerOrchestrator(
       if (failure?.status === 'rejected') await restoreAfterFailedClose(indexName, failure)
       pool.removeIndex(indexName)
     }
-    state.idleDroppedIndexes.delete(indexName)
+    state.droppedCopies.delete(indexName)
     state.desyncedIndexes.delete(indexName)
     state.lastAccessAt.delete(indexName)
     state.replicationQueues.delete(indexName)

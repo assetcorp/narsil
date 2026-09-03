@@ -33,10 +33,10 @@ const narsil = await createNarsil({
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `enabled` | `boolean` | `true` where the runtime has worker threads, `false` in a browser | Allows worker copies and the vector search pool. Set it to `false` to hold the process to one thread, which leaves both pools absent. |
+| `enabled` | `boolean` | `true` on Node.js, Bun, and Deno, `false` in a browser | Allows worker copies and the vector search pool. Set it to `false` to hold the process to one thread, which leaves both pools absent. |
 | `count` | `number` | CPU cores minus one, clamped between 2 and 8 | Sets the thread budget the keyword copies and the vector search pool share, half each. |
 | `promotionThreshold` | `number` | `1000` | Sets the document count at which an index gains worker copies. |
-| `idleTimeoutMs` | `number` | `300000` | Sets how long an index may go without a read or a write before the engine drops its copies. |
+| `idleTimeoutMs` | `number` | `300000`, or `lifecycle.idleTimeoutMs` where that is smaller | Sets how long an index may go without a read or a write before the engine drops its copies. A value above `lifecycle.idleTimeoutMs` fails with `CONFIG_INVALID`. |
 | `bootstrapModule` | `string` | none | Names a module every worker imports at startup so that the worker registers the languages, tokenizers, and stop word sets your indexes name. See [Worker copies](partitions-and-workers.md#worker-copies). |
 
 ## AnalysisConfig

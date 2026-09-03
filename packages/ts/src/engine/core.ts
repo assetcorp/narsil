@@ -83,7 +83,7 @@ export interface EngineCore {
  * @returns The connected engine core.
  */
 export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks): EngineCore {
-  validateWorkerConfig(config?.workers)
+  validateWorkerConfig(config?.workers, config?.lifecycle)
   const vectorWorkerCount = splitWorkerBudget(resolveWorkerCount(config?.workers?.count)).vector
   const executor: Executor & DirectExecutorExtensions = createDirectExecutor({
     vectorWorkerCopies: {

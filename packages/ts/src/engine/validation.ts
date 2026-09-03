@@ -1,7 +1,7 @@
 import { MAX_INDEX_NAME_LENGTH } from '../distribution/cluster/index-metadata'
 import { ErrorCodes, NarsilError } from '../errors'
 import { clampRowCount, DEFAULT_PAGE_SIZE } from '../search/pagination'
-import type { WorkerConfig } from '../types/config'
+import type { IndexLifecycleConfig, WorkerConfig } from '../types/config'
 import type { BM25Params } from '../types/schema'
 
 const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
@@ -98,11 +98,19 @@ function requirePositiveSafeInteger(field: string, value: number | undefined): v
   }
 }
 
-export function validateWorkerConfig(workers: WorkerConfig | undefined): void {
+export function validateWorkerConfig(workers: WorkerConfig | undefined, lifecycle?: IndexLifecycleConfig): void {
   if (workers === undefined) return
   requirePositiveSafeInteger('workers.count', workers.count)
   requirePositiveSafeInteger('workers.promotionThreshold', workers.promotionThreshold)
   requirePositiveSafeInteger('workers.idleTimeoutMs', workers.idleTimeoutMs)
+  const closeAfter = lifecycle?.idleTimeoutMs
+  if (workers.idleTimeoutMs !== undefined && closeAfter !== undefined && workers.idleTimeoutMs > closeAfter) {
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      'workers.idleTimeoutMs must be at most lifecycle.idleTimeoutMs, so that an index drops its copies before it closes',
+      { workersIdleTimeoutMs: workers.idleTimeoutMs, lifecycleIdleTimeoutMs: closeAfter },
+    )
+  }
 }
 
 export function validateBM25Params(bm25: BM25Params | undefined): void {
