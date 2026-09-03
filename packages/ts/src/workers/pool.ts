@@ -16,12 +16,23 @@ export interface WorkerLease {
   release(): void
 }
 
+export interface WorkerReplacement {
+  readonly workerId: number
+  readonly executor: Executor
+  hold(indexName: string): void
+  admit(): void
+  abandon(): void
+}
+
 export interface WorkerPool {
   getExecutor(indexName: string): Executor
   getAllExecutors(): Executor[]
+  executorsHolding(indexName: string): Executor[]
   leaseLeastBusy(): WorkerLease | null
   leaseIdle(limit: number): WorkerLease[]
   spawnAll(): void
+  deadWorkerIds(): number[]
+  spawnReplacement(workerId: number): WorkerReplacement | null
   readonly workerCount: number
   addIndex(indexName: string): void
   addIndexToAll(indexName: string): void
@@ -34,6 +45,7 @@ interface WorkerSlot {
   executor: Executor
   indexes: Set<string>
   inFlight: number
+  serving: boolean
 }
 
 interface MemoryReportPayload {
@@ -91,30 +103,64 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
   let isShutdown = false
 
   function handleWorkerDeath(slotIndex: number, error: Error): void {
-    if (isShutdown || deadSlots.has(slotIndex)) {
+    if (isShutdown) {
+      return
+    }
+    const slot = workers.get(slotIndex)
+    if (slot !== undefined && !slot.serving) {
+      workers.delete(slotIndex)
+      return
+    }
+    if (deadSlots.has(slotIndex)) {
       return
     }
     deadSlots.add(slotIndex)
-    const slot = workers.get(slotIndex)
     const indexNames = slot ? [...slot.indexes].sort() : []
     workers.delete(slotIndex)
     config.onWorkerCrash?.(slotIndex, indexNames, error)
   }
 
-  function ensureWorker(slotIndex: number): WorkerSlot | undefined {
-    if (deadSlots.has(slotIndex)) {
-      return undefined
+  function spawnSlot(slotIndex: number, serving: boolean): WorkerSlot {
+    const slot: WorkerSlot = {
+      executor: config.workerFactory(slotIndex, error => handleWorkerDeath(slotIndex, error)),
+      indexes: new Set(),
+      inFlight: 0,
+      serving,
     }
-    let slot = workers.get(slotIndex)
-    if (!slot) {
-      slot = {
-        executor: config.workerFactory(slotIndex, error => handleWorkerDeath(slotIndex, error)),
-        indexes: new Set(),
-        inFlight: 0,
-      }
-      workers.set(slotIndex, slot)
-    }
+    workers.set(slotIndex, slot)
     return slot
+  }
+
+  function ensureWorker(slotIndex: number): WorkerSlot | undefined {
+    const slot = workers.get(slotIndex)
+    if (slot !== undefined) return slot
+    if (deadSlots.has(slotIndex)) return undefined
+    return spawnSlot(slotIndex, true)
+  }
+
+  function deadWorkerIds(): number[] {
+    return [...deadSlots].filter(slotIndex => !workers.has(slotIndex)).sort((a, b) => a - b)
+  }
+
+  function spawnReplacement(slotIndex: number): WorkerReplacement | null {
+    if (isShutdown || !deadSlots.has(slotIndex) || workers.has(slotIndex)) return null
+    const slot = spawnSlot(slotIndex, false)
+    return {
+      workerId: slotIndex,
+      executor: slot.executor,
+      hold(indexName: string): void {
+        slot.indexes.add(indexName)
+      },
+      admit(): void {
+        if (workers.get(slotIndex) !== slot) return
+        deadSlots.delete(slotIndex)
+        slot.serving = true
+      },
+      abandon(): void {
+        if (workers.get(slotIndex) === slot) workers.delete(slotIndex)
+        void slot.executor.shutdown().catch(() => undefined)
+      },
+    }
   }
 
   function assignSlot(indexName: string): number {
@@ -162,11 +208,11 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     }
 
     const slot = workers.get(slotIndex)
-    if (slot) {
+    if (slot?.serving) {
       return slot.executor
     }
     for (const survivor of workers.values()) {
-      if (survivor.indexes.has(indexName)) {
+      if (survivor.serving && survivor.indexes.has(indexName)) {
         return survivor.executor
       }
     }
@@ -222,6 +268,14 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     return [...workers.values()].map(slot => slot.executor)
   }
 
+  function executorsHolding(indexName: string): Executor[] {
+    const holders: Executor[] = []
+    for (const slot of workers.values()) {
+      if (slot.indexes.has(indexName)) holders.push(slot.executor)
+    }
+    return holders
+  }
+
   function lease(workerId: number, slot: WorkerSlot): WorkerLease {
     slot.inFlight += 1
     let released = false
@@ -240,6 +294,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     let chosenId = -1
     let chosen: WorkerSlot | null = null
     for (const [workerId, slot] of workers) {
+      if (!slot.serving) continue
       if (chosen === null || slot.inFlight < chosen.inFlight) {
         chosenId = workerId
         chosen = slot
@@ -253,7 +308,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     const leases: WorkerLease[] = []
     for (const [workerId, slot] of workers) {
       if (leases.length >= limit) break
-      if (slot.inFlight === 0) leases.push(lease(workerId, slot))
+      if (slot.serving && slot.inFlight === 0) leases.push(lease(workerId, slot))
     }
     return leases
   }
@@ -278,9 +333,12 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
   return {
     getExecutor,
     getAllExecutors,
+    executorsHolding,
     leaseLeastBusy,
     leaseIdle,
     spawnAll,
+    deadWorkerIds,
+    spawnReplacement,
     get workerCount() {
       return workerCount
     },

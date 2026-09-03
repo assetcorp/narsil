@@ -82,7 +82,7 @@ export async function searchViaWorker(
 ): Promise<FanOutResult | null> {
   const pool = state.workerPool
   if (!pool) return null
-  if (!state.scaledOutIndexes.has(indexName)) return null
+  if (!state.scaledOutIndexes.has(indexName) || state.copyLoadBuffers.has(indexName)) return null
   const pendingReplication = state.replicationQueues.get(indexName)
   if (pendingReplication !== undefined && pendingReplication.pendingActions > 0) return null
 

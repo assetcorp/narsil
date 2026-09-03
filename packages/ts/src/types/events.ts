@@ -12,10 +12,12 @@ export type NarsilEventMap = {
   /**
    * A worker thread died. The pool drops it and fails its outstanding requests
    * with `WORKER_CRASHED`, while the remaining workers keep answering because
-   * each holds a full worker copy of every promoted index. Once no worker is
-   * left, queries fall back to the main thread, which holds every document,
-   * and the next request after a delay starts a new pool and loads the copies
-   * again. The delay starts at one second and doubles up to a minute.
+   * each holds a full worker copy of every promoted index. After a delay the
+   * engine spawns a replacement, loads every copy onto it, and puts it back
+   * into rotation. Once no worker is left, queries fall back to the main
+   * thread, which holds every document, and the next request after the delay
+   * starts a new pool. The delay starts at one second and doubles up to a
+   * minute while replacements keep failing.
    */
   workerCrash: {
     /** This worker died. */

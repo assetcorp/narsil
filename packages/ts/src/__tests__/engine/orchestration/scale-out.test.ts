@@ -1,16 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { dropIdleCopies, noteAccess } from '../../../engine/orchestration/idle'
-import {
-  COPY_RESTART_REASON,
-  copiesAllowed,
-  handleWorkerCrash,
-  POOL_RESTART_DELAY_MS,
-  scaleOutBeforeBatch,
-} from '../../../engine/orchestration/scale-out'
+import { COPY_RESTART_REASON, handleWorkerCrash, POOL_RESTART_DELAY_MS } from '../../../engine/orchestration/repair'
+import { replicateToWorkers } from '../../../engine/orchestration/replication'
+import { copiesAllowed, scaleOutBeforeBatch } from '../../../engine/orchestration/scale-out'
+import { searchViaWorker } from '../../../engine/orchestration/search'
 import type { CopyTransition, OrchestratorState } from '../../../engine/orchestration/types'
 import { getLanguage } from '../../../languages/registry'
+import type { PartitionManager } from '../../../partitioning/manager'
 import type { Executor } from '../../../workers/executor'
 import { createWorkerPool, type WorkerPool } from '../../../workers/pool'
+import type { WorkerAction } from '../../../workers/protocol'
 import { emptyOrchestratorState, type OrchestratorHarness, recordingHarness, settle } from './fixtures'
 
 function registryWith(indexName: string): OrchestratorState['indexRegistry'] {
@@ -184,5 +183,154 @@ describe('a pool whose every worker has crashed', () => {
     noteAccess(state, 'prose')
 
     expect(state.copyTransitions.has('prose')).toBe(false)
+  })
+})
+
+describe('a crashed worker is replaced', () => {
+  interface Sent {
+    workerId: number
+    action: WorkerAction
+    resolve: () => void
+    reject: (error: Error) => void
+  }
+
+  interface RepairablePool {
+    sent: Sent[]
+    kill: (workerId: number) => void
+  }
+
+  function poolUnderRepair(state: OrchestratorState): RepairablePool {
+    const sent: Sent[] = []
+    const deaths = new Map<number, (error: Error) => void>()
+    const pool: WorkerPool = createWorkerPool({
+      count: 2,
+      workerFactory: (workerId, onDeath) => {
+        if (onDeath) deaths.set(workerId, onDeath)
+        return {
+          execute<T>(action: WorkerAction): Promise<T> {
+            return new Promise((resolve, reject) => {
+              sent.push({ workerId, action, resolve: () => resolve(undefined as T), reject })
+            })
+          },
+          shutdown: () => Promise.resolve(),
+        }
+      },
+      onWorkerCrash: (workerId, indexNames, error) => handleWorkerCrash(state, pool, workerId, indexNames, error),
+    })
+    pool.spawnAll()
+    pool.addIndexToAll('prose')
+    state.workerPool = pool
+    return {
+      sent,
+      kill(workerId: number): void {
+        const error = new Error(`worker ${workerId} died`)
+        for (const entry of sent.filter(candidate => candidate.workerId === workerId)) {
+          sent.splice(sent.indexOf(entry), 1)
+          entry.reject(error)
+        }
+        deaths.get(workerId)?.(error)
+      },
+    }
+  }
+
+  function repairableState(): OrchestratorState {
+    return emptyOrchestratorState({
+      workersEnabled: true,
+      scaledOutIndexes: new Set(['prose']),
+      indexRegistry: registryWith('prose'),
+      poolRetryDelayMs: 1,
+      executor: {
+        ...emptyOrchestratorState().executor,
+        getManager: () =>
+          ({
+            partitionCount: 1,
+            countDocuments: () => 0,
+            getPartition: () => ({}),
+            serializePartition: (partitionId: number) => ({ partitionId }),
+          }) as unknown as PartitionManager,
+      },
+    })
+  }
+
+  function release(sent: Sent[], type: WorkerAction['type']): Sent[] {
+    const matching = sent.filter(entry => entry.action.type === type)
+    for (const entry of matching) {
+      sent.splice(sent.indexOf(entry), 1)
+      entry.resolve()
+    }
+    return matching
+  }
+
+  it('loads every copy onto the replacement, holds its writes until then, and serves from it afterwards', async () => {
+    const state = repairableState()
+    const { sent, kill } = poolUnderRepair(state)
+    const pool = state.workerPool
+    if (pool === null) throw new Error('pool missing')
+
+    kill(0)
+    const survivors = pool.leaseIdle(2)
+    expect(survivors.map(lease => lease.workerId)).toEqual([1])
+    for (const lease of survivors) lease.release()
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(state.poolRepair).not.toBeNull()
+
+    expect(release(sent, 'dropIndex').map(entry => entry.workerId)).toEqual([0])
+    await settle()
+    expect(state.copyLoadBuffers.has('prose')).toBe(true)
+    expect(await searchViaWorker(state, 'prose', { term: 'a' })).toBeNull()
+
+    await replicateToWorkers(state, {
+      type: 'insert',
+      indexName: 'prose',
+      docId: 'late',
+      document: { id: 'late' },
+      requestId: 'replicate-insert-late',
+    })
+    expect(sent.map(entry => entry.action.type)).toEqual(['createIndex'])
+
+    expect(release(sent, 'createIndex').map(entry => entry.workerId)).toEqual([0])
+    await settle()
+    expect(release(sent, 'deserialize').map(entry => entry.workerId)).toEqual([0])
+    await state.poolRepair
+    await settle()
+
+    const inserts = sent.filter(entry => entry.action.type === 'insert')
+    expect(inserts.map(entry => entry.workerId).sort()).toEqual([0, 1])
+    expect(sent).toHaveLength(2)
+    expect(
+      pool
+        .leaseIdle(2)
+        .map(lease => lease.workerId)
+        .sort(),
+    ).toEqual([0, 1])
+    expect(pool.deadWorkerIds()).toEqual([])
+    expect(state.poolRetryDelayMs).toBe(POOL_RESTART_DELAY_MS)
+  })
+
+  it('abandons a replacement that dies while it loads and schedules another attempt with a longer delay', async () => {
+    const state = repairableState()
+    const { sent, kill } = poolUnderRepair(state)
+    const pool = state.workerPool
+    if (pool === null) throw new Error('pool missing')
+
+    kill(0)
+    await new Promise(resolve => setTimeout(resolve, 5))
+    const [drop] = release(sent, 'dropIndex')
+    expect(drop.workerId).toBe(0)
+    await settle()
+    expect(sent.map(entry => entry.action.type)).toEqual(['createIndex'])
+
+    kill(0)
+    await state.poolRepair
+    await settle()
+
+    expect(state.copyLoadBuffers.has('prose')).toBe(false)
+    expect(pool.deadWorkerIds()).toEqual([0])
+    const survivors = pool.leaseIdle(2)
+    expect(survivors.map(lease => lease.workerId)).toEqual([1])
+    for (const lease of survivors) lease.release()
+    expect(state.repairTimer).not.toBeNull()
+    expect(state.poolRetryDelayMs).toBe(2)
+    if (state.repairTimer !== null) clearTimeout(state.repairTimer)
   })
 })
