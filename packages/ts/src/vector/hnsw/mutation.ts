@@ -8,10 +8,8 @@ import {
   replaceNeighbors,
   resetAdjacency,
 } from './adjacency'
-import { nearestFromHeap, pruneConnections, searchLayer, selectNeighborsHeuristic } from './graph-ops'
+import { pruneConnections, searchLayer, selectNeighborsHeuristic } from './graph-ops'
 import {
-  addConnection,
-  type DistancePair,
   ensureCapacity,
   type HNSWGraphState,
   maxConns,
@@ -20,6 +18,7 @@ import {
   nodeMaxLayer,
   randomLevel,
 } from './shared'
+import { appendToList, setEntryPointsFromList, setSingleEntryPoint } from './workspace'
 
 function clearTombstone(state: HNSWGraphState, ord: number): void {
   if (state.tombstones[ord] === 1) {
@@ -28,30 +27,24 @@ function clearTombstone(state: HNSWGraphState, ord: number): void {
   }
 }
 
-function reassignEntryPoint(state: HNSWGraphState): void {
+function highestNode(state: HNSWGraphState, includeTombstoned: boolean): number {
   let bestOrd = -1
   let bestLayer = -1
   for (let ord = 0; ord < state.adjacency.slots; ord++) {
     const level = nodeMaxLayer(state, ord)
     if (level === -1) continue
-    if (state.tombstones[ord] === 1) continue
+    if (!includeTombstoned && state.tombstones[ord] === 1) continue
     if (level > bestLayer) {
       bestLayer = level
       bestOrd = ord
     }
   }
-  if (bestOrd === -1) {
-    for (let ord = 0; ord < state.adjacency.slots; ord++) {
-      const level = nodeMaxLayer(state, ord)
-      if (level === -1) continue
-      if (level > bestLayer) {
-        bestLayer = level
-        bestOrd = ord
-      }
-    }
-  }
-  state.entryPointOrd = bestOrd
-  state.topLayer = bestOrd === -1 ? -1 : bestLayer
+  return bestOrd
+}
+
+function setEntryPoint(state: HNSWGraphState, ord: number): void {
+  state.entryPointOrd = ord
+  state.topLayer = ord === -1 ? -1 : nodeMaxLayer(state, ord)
 }
 
 export function insertNode(state: HNSWGraphState, docId: string): void {
@@ -86,43 +79,34 @@ export function insertNode(state: HNSWGraphState, docId: string): void {
   }
 
   const metric = state.buildMetric
+  const workspace = state.workspace
+  const candidates = workspace.traversal
+  const selected = workspace.insertSelection
   const insertDistFn = (candOrd: number) => nodeDistanceByOrd(state, ord, candOrd, metric)
-  let currentEPs = [state.entryPointOrd]
+  setSingleEntryPoint(workspace, state.entryPointOrd)
 
   for (let layer = state.topLayer; layer > l; layer--) {
-    const heap = searchLayer(state, entry.vector, entry.magnitude, currentEPs, 1, layer, metric, false, insertDistFn)
-    const nearest = nearestFromHeap(heap)
-    if (nearest) {
-      currentEPs = [nearest.ord]
+    searchLayer(state, entry.vector, entry.magnitude, 1, layer, metric, false, insertDistFn, candidates)
+    if (candidates.size > 0) {
+      setSingleEntryPoint(workspace, candidates.ords[0])
     }
   }
 
   for (let layer = Math.min(l, state.topLayer); layer >= 0; layer--) {
-    const heap = searchLayer(
-      state,
-      entry.vector,
-      entry.magnitude,
-      currentEPs,
-      state.efCons,
-      layer,
-      metric,
-      false,
-      insertDistFn,
-    )
-    const candidates = heap.toSortedArray().reverse()
-    const mc = maxConns(state, layer)
-    const neighbors = selectNeighborsHeuristic(state, ord, candidates, mc, layer, metric, false, true)
+    searchLayer(state, entry.vector, entry.magnitude, state.efCons, layer, metric, false, insertDistFn, candidates)
+    selectNeighborsHeuristic(state, candidates, maxConns(state, layer), metric, selected)
 
-    for (const neighbor of neighbors) {
-      addNeighbor(state.adjacency, ord, layer, neighbor.ord)
-      if (layer <= nodeMaxLayer(state, neighbor.ord)) {
-        addNeighbor(state.adjacency, neighbor.ord, layer, ord)
-        pruneConnections(state, neighbor.ord, layer, metric)
+    for (let i = 0; i < selected.size; i++) {
+      const neighborOrd = selected.ords[i]
+      addNeighbor(state.adjacency, ord, layer, neighborOrd)
+      if (layer <= nodeMaxLayer(state, neighborOrd)) {
+        addNeighbor(state.adjacency, neighborOrd, layer, ord)
+        pruneConnections(state, neighborOrd, layer, metric)
       }
     }
 
-    if (candidates.length > 0) {
-      currentEPs = candidates.map(n => n.ord)
+    if (candidates.size > 0) {
+      setEntryPointsFromList(workspace, candidates)
     }
   }
 
@@ -161,19 +145,20 @@ export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?
         }
       }
 
-      const candidates: DistancePair[] = []
+      const candidates = state.workspace.repairCandidates
+      candidates.size = 0
       for (const candOrd of candidateOrds) {
         const dist = nodeDistanceByOrd(state, neighborOrd, candOrd, metric)
         if (dist === Number.POSITIVE_INFINITY) continue
-        candidates.push({ ord: candOrd, distance: dist })
+        appendToList(candidates, candOrd, dist)
       }
 
-      const selected = selectNeighborsHeuristic(state, neighborOrd, candidates, mc, layer, metric, false, true)
-      const newConns: number[] = []
-      for (const s of selected) addConnection(newConns, s.ord)
-      replaceNeighbors(state.adjacency, neighborOrd, layer, newConns)
+      const selected = state.workspace.repairSelection
+      selectNeighborsHeuristic(state, candidates, mc, metric, selected)
+      replaceNeighbors(state.adjacency, neighborOrd, layer, selected.ords, selected.size)
 
-      for (const newConnOrd of newConns) {
+      for (let i = 0; i < selected.size; i++) {
+        const newConnOrd = selected.ords[i]
         if (layer <= nodeMaxLayer(state, newConnOrd)) {
           addNeighbor(state.adjacency, newConnOrd, layer, neighborOrd)
           pruneConnections(state, newConnOrd, layer, metric)
@@ -188,11 +173,11 @@ export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?
 
   if (state.entryPointOrd === ord) {
     if (state.nodeCount === 0) {
-      state.entryPointOrd = -1
-      state.topLayer = -1
+      setEntryPoint(state, -1)
       return
     }
-    reassignEntryPoint(state)
+    const live = highestNode(state, false)
+    setEntryPoint(state, live === -1 ? highestNode(state, true) : live)
   }
 }
 
@@ -206,24 +191,7 @@ export function markTombstone(state: HNSWGraphState, docId: string): void {
   }
 
   if (state.entryPointOrd === ord) {
-    let bestOrd = -1
-    let bestLayer = -1
-    for (let o = 0; o < state.adjacency.slots; o++) {
-      const level = nodeMaxLayer(state, o)
-      if (level === -1) continue
-      if (state.tombstones[o] === 1) continue
-      if (level > bestLayer) {
-        bestLayer = level
-        bestOrd = o
-      }
-    }
-    if (bestOrd !== -1) {
-      state.entryPointOrd = bestOrd
-      state.topLayer = bestLayer
-    } else {
-      state.entryPointOrd = -1
-      state.topLayer = -1
-    }
+    setEntryPoint(state, highestNode(state, false))
   }
 }
 

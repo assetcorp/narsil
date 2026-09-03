@@ -27,6 +27,7 @@ import {
   type HNSWGraphState,
   type SerializedHNSWGraph,
 } from './shared'
+import { createHNSWWorkspace } from './workspace'
 
 export type { HNSWConfig, SerializedHNSWGraph } from './shared'
 
@@ -135,6 +136,7 @@ export function createHNSWIndex(
     visitStamp: 0,
     entryPointOrd: -1,
     topLayer: -1,
+    workspace: createHNSWWorkspace(),
   }
 
   function clear(): void {

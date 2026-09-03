@@ -90,7 +90,7 @@ describe('flat adjacency', () => {
     const adj = newAdjacency()
     createNode(adj, 0, 0)
     for (const ord of [1, 2, 3, 4, 5]) addNeighbor(adj, 0, 0, ord)
-    replaceNeighbors(adj, 0, 0, [9, 8])
+    replaceNeighbors(adj, 0, 0, [9, 8], 2)
     expect(collectNeighbors(adj, 0, 0)).toEqual([9, 8])
   })
 

@@ -1,19 +1,23 @@
-import { createHNSWIndex } from '../hnsw'
+import { createHNSWIndex, type HNSWIndex } from '../hnsw'
+import { scheduleBuild } from './build'
 import {
-  calibrateAndQuantizeAll,
+  adoptGraph,
+  allLiveDocIds,
   ESTIMATED_MS_PER_TOMBSTONE,
   ESTIMATED_MS_PER_VECTOR_REBUILD,
+  graphNeedsRebuild,
+  insertIntoGraph,
   liveSize,
   type MaintenanceStatus,
   recalibrateFromStore,
   type VectorIndexState,
-  yieldToEventLoop,
 } from './shared'
 
 export function compact(state: VectorIndexState): void {
   if (state.tombstones.size === 0) return
 
   if (state.hnsw) {
+    state.compactedNodeCount += state.hnsw.tombstoneCount
     state.hnsw.compactTombstones()
   }
 
@@ -32,19 +36,29 @@ export function compact(state: VectorIndexState): void {
   }
 }
 
-export async function optimize(state: VectorIndexState): Promise<void> {
-  if (state.pendingBuild) {
-    await state.pendingBuild
+async function rebuildGraph(state: VectorIndexState): Promise<void> {
+  const newHnsw = createHNSWIndex(state.dimension, state.store, state.hnswConfig, state.sq8 ?? undefined)
+  const leaveBuffer = (docId: string) => state.buffer.delete(docId)
+  const completed = await insertIntoGraph(state, newHnsw, allLiveDocIds(state), () => true, leaveBuffer)
+  if (completed) {
+    adoptGraph(state, newHnsw)
   }
+}
+
+async function insertMissing(state: VectorIndexState, graph: HNSWIndex): Promise<void> {
+  const missingOrReplaced = (docId: string) => !graph.has(docId) || state.buffer.has(docId)
+  const leaveBuffer = (docId: string) => state.buffer.delete(docId)
+  await insertIntoGraph(state, graph, allLiveDocIds(state), missingOrReplaced, leaveBuffer)
+}
+
+async function foldIntoGraph(state: VectorIndexState): Promise<void> {
+  const rebuildNeeded = graphNeedsRebuild(state)
+  const compactRecalibrates = state.tombstones.size > 0 && state.sq8?.isCalibrated() === true
 
   compact(state)
 
-  const live = liveSize(state)
-  if (live === 0) {
-    if (state.hnsw) {
-      state.hnsw.clear()
-      state.hnsw = null
-    }
+  if (liveSize(state) === 0) {
+    adoptGraph(state, null)
     state.buffer.clear()
     if (state.sq8) {
       state.sq8.clear()
@@ -52,30 +66,36 @@ export async function optimize(state: VectorIndexState): Promise<void> {
     return
   }
 
-  if (state.sq8) {
-    calibrateAndQuantizeAll(state)
+  const graph = state.hnsw
+  if (graph === null || rebuildNeeded) {
+    await rebuildGraph(state)
+  } else {
+    await insertMissing(state, graph)
   }
 
-  const newHnsw = createHNSWIndex(state.dimension, state.store, state.hnswConfig, state.sq8 ?? undefined)
-  const liveDocIds: string[] = []
-  for (const [docId] of state.store.entries()) {
-    if (state.tombstones.has(docId)) continue
-    liveDocIds.push(docId)
-  }
-
-  const CHUNK_SIZE = 100
-  for (let i = 0; i < liveDocIds.length; i++) {
-    newHnsw.insertNode(liveDocIds[i])
-    if ((i + 1) % CHUNK_SIZE === 0) {
-      await yieldToEventLoop()
-    }
-  }
-
-  state.hnsw = newHnsw
-  state.buffer.clear()
-
-  if (state.sq8 && state.store.size > 0) {
+  if (state.sq8 && state.store.size > 0 && !compactRecalibrates) {
     recalibrateFromStore(state)
+  }
+}
+
+export async function optimize(state: VectorIndexState): Promise<void> {
+  while (state.pendingBuild) {
+    await state.pendingBuild
+  }
+  if (state.disposed) return
+
+  state.building = true
+  const work = foldIntoGraph(state)
+  state.pendingBuild = work
+
+  try {
+    await work
+  } finally {
+    state.building = false
+    state.pendingBuild = null
+    if (state.buffer.size > 0) {
+      scheduleBuild(state)
+    }
   }
 }
 
@@ -84,13 +104,14 @@ export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {
   const tombstoneRatio = storeSize > 0 ? state.tombstones.size / storeSize : 0
   const graphCount = state.hnsw ? 1 : 0
   const estimatedCompactMs = Math.round(state.tombstones.size * ESTIMATED_MS_PER_TOMBSTONE * state.dimensionScale)
-  const estimatedOptimizeMs = Math.round(storeSize * ESTIMATED_MS_PER_VECTOR_REBUILD * state.dimensionScale)
+  const optimizeVectorCount = state.hnsw === null || graphNeedsRebuild(state) ? storeSize : state.buffer.size
+  const estimatedOptimizeMs = Math.round(optimizeVectorCount * ESTIMATED_MS_PER_VECTOR_REBUILD * state.dimensionScale)
 
   return {
     tombstoneRatio,
     graphCount,
     bufferSize: state.buffer.size,
-    building: state.building,
+    building: state.building || state.buildScheduled,
     estimatedCompactMs,
     estimatedOptimizeMs,
   }
