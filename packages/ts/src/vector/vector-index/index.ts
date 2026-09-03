@@ -84,6 +84,7 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     buffer: new Set<string>(),
     sq8: quantizationMode === 'sq8' ? createScalarQuantizer(dimension, store) : null,
     hnsw: null,
+    compactedNodeCount: 0,
     building: false,
     buildScheduled: false,
     pendingBuild: null,

@@ -196,13 +196,31 @@ export function removeNeighbor(adj: Adjacency, ord: number, layer: number, neigh
   }
 }
 
-export function replaceNeighbors(adj: Adjacency, ord: number, layer: number, neighbors: number[]): void {
+/**
+ * Overwrites a node's neighbour list on one layer with the first entries of
+ * the given ordinals, keeping no more than the layer's cap.
+ *
+ * @param adj The adjacency to change.
+ * @param ord The node whose list is replaced.
+ * @param layer The layer the list belongs to.
+ * @param neighbors The ordinals to write, read from the start.
+ * @param count How many of those ordinals to write.
+ *
+ * @internal
+ */
+export function replaceNeighbors(
+  adj: Adjacency,
+  ord: number,
+  layer: number,
+  neighbors: ArrayLike<number>,
+  count: number,
+): void {
   const base = layerBase(adj, ord, layer)
   if (base === ABSENT) return
 
   const array = layerArray(adj, layer)
   const stride = layer === 0 ? adj.level0Stride : adj.upperStride
-  const limit = Math.min(neighbors.length, stride - 1)
+  const limit = Math.min(count, stride - 1)
   for (let i = 0; i < limit; i++) {
     array[base + i + 1] = neighbors[i]
   }

@@ -2,7 +2,7 @@
 
 A vector field stores one dense embedding per document and answers nearest-neighbour queries over it. This guide covers the distance metrics, the HNSW graph a field promotes to, and the maintenance a changing index needs.
 
-Declare a `vector[N]` field in the schema and insert documents carrying arrays of that exact length. The engine scans a small field exactly, comparing the query against every vector in it. Once a field reaches 1,024 vectors, the engine builds an HNSW graph in the background and answers from that graph approximately instead. The cutoff and graph parameters are configurable per index through `vectorPromotion`.
+Declare a `vector[N]` field in the schema and insert documents carrying arrays of that exact length. The engine scans a small field exactly, comparing the query against every vector in it. Once a field reaches 1,024 vectors, the engine builds an HNSW graph in the background and answers from that graph approximately instead. The engine adds every later batch of 1,024 vectors to that same graph one vector at a time, so an import of any size builds one graph. The cutoff and graph parameters are configurable per index through `vectorPromotion`.
 
 ```ts
 await narsil.createIndex('docs', {
@@ -52,4 +52,4 @@ await narsil.compactVectors('docs', 'embedding')
 await narsil.optimizeVectors('docs', 'embedding')
 ```
 
-`compactVectors` drops tombstones without rebuilding the graph and runs synchronously. `optimizeVectors` rebuilds the graph from live vectors, which takes longer and restores full query speed. Omit the field name to run maintenance on every vector field in the index.
+`compactVectors` drops tombstones without rebuilding the graph and runs synchronously. `optimizeVectors` adds the buffered vectors to the graph, so a run after a bulk import does only the insertions the graph is missing. It rebuilds the graph from every live vector only once you remove more than a fifth of the vectors the graph holds, because a graph that loses that many nodes loses its connectivity. Omit the field name to run maintenance on every vector field in the index.

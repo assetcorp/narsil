@@ -2,7 +2,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { createHNSWIndex, type SerializedHNSWGraph } from '../hnsw'
 import { deserializeScalarQuantizer } from '../scalar-quantization-restore'
 import type { SerializedSQ8 } from '../scalar-quantization-types'
-import type { VectorIndexPayload, VectorIndexState } from './shared'
+import { adoptGraph, type VectorIndexPayload, type VectorIndexState } from './shared'
 
 export function serialize(state: VectorIndexState): VectorIndexPayload {
   const vectors: Array<{ docId: string; vector: number[] }> = []
@@ -52,10 +52,7 @@ export function deserialize(state: VectorIndexState, payload: VectorIndexPayload
   state.store.clear()
   state.tombstones.clear()
   state.buffer.clear()
-  if (state.hnsw) {
-    state.hnsw.clear()
-    state.hnsw = null
-  }
+  adoptGraph(state, null)
   if (state.sq8) {
     state.sq8.clear()
   }
@@ -83,7 +80,7 @@ export function deserialize(state: VectorIndexState, payload: VectorIndexPayload
       state.sq8 ?? undefined,
     )
     restoredHnsw.deserialize(graphData)
-    state.hnsw = restoredHnsw
+    adoptGraph(state, restoredHnsw)
 
     for (let i = 1; i < payload.graphs.length; i++) {
       const additionalGraph = payload.graphs[i]
@@ -102,8 +99,7 @@ export function deserialize(state: VectorIndexState, payload: VectorIndexPayload
     }
 
     if (state.buffer.size > restoredHnsw.size) {
-      state.hnsw.clear()
-      state.hnsw = null
+      adoptGraph(state, null)
       state.buffer.clear()
       for (const [docId] of state.store.entries()) {
         if (state.tombstones.has(docId)) continue

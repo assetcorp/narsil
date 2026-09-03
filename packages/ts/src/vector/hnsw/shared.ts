@@ -3,16 +3,12 @@ import type { QuantizerSearchReader, ScalarQuantizer } from '../scalar-quantizat
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance } from '../similarity'
 import type { VectorSearchReader, VectorStore, VectorStoreEntry } from '../vector-store'
 import { type Adjacency, ensureAdjacencyCapacity, hasNode, MAX_LAYER_CAP, nodeLevel } from './adjacency'
+import type { HNSWWorkspace } from './workspace'
 
 export { MAX_LAYER_CAP, MAX_M } from './adjacency'
 export const COMPACTION_TOMBSTONE_RATIO = 0.1
 export const COMPACTION_ABSOLUTE_THRESHOLD = 1000
 export const SQ8_OVERSELECTION_FACTOR = 2
-
-export interface DistancePair {
-  ord: number
-  distance: number
-}
 
 /**
  * How an HNSW graph is built.
@@ -70,6 +66,7 @@ export interface HNSWSearchState {
   visitStamp: number
   entryPointOrd: number
   topLayer: number
+  readonly workspace: HNSWWorkspace
 }
 
 export interface HNSWGraphState extends HNSWSearchState {
@@ -137,9 +134,6 @@ export function toScore(distance: number, metric: VectorMetric): number {
       return 1 / (1 + distance)
   }
 }
-
-export const distanceAsc = (a: DistancePair, b: DistancePair): number => a.distance - b.distance
-export const distanceDesc = (a: DistancePair, b: DistancePair): number => b.distance - a.distance
 
 export function randomLevel(mL: number): number {
   let u = Math.random()

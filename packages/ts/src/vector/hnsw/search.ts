@@ -4,9 +4,8 @@ import type { VectorMetric } from '../brute-force'
 import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
 import { magnitude } from '../similarity'
 import type { ArenaQueryVector } from '../vector-store'
-import { nearestFromHeap, searchLayer } from './graph-ops'
+import { searchLayer } from './graph-ops'
 import {
-  type DistancePair,
   entryForOrd,
   type HNSWGraphState,
   type HNSWSearchState,
@@ -14,6 +13,7 @@ import {
   toDistance,
   toScore,
 } from './shared'
+import { type DistanceList, setSingleEntryPoint } from './workspace'
 
 /**
  * The rank value marking an ordinal that holds no document, so a worker can
@@ -89,23 +89,23 @@ function collectHits(
     distFn = (ord: number) => store.distanceFromArena(arenaQuery, ord, metric)
   }
 
-  let currentEPs = [state.entryPointOrd]
+  const workspace = state.workspace
+  const candidates = workspace.traversal
+  setSingleEntryPoint(workspace, state.entryPointOrd)
 
   for (let layer = state.topLayer; layer >= 1; layer--) {
-    const heap = searchLayer(state, query, qMag, currentEPs, 1, layer, searchMetric, true, distFn)
-    const nearest = nearestFromHeap(heap)
-    if (nearest) {
-      currentEPs = [nearest.ord]
+    searchLayer(state, query, qMag, 1, layer, searchMetric, true, distFn, candidates)
+    if (candidates.size > 0) {
+      setSingleEntryPoint(workspace, candidates.ords[0])
     }
   }
 
-  const candidateHeap = searchLayer(state, query, qMag, currentEPs, ef, 0, searchMetric, true, distFn)
-  const candidateArray = candidateHeap.toSortedArray().reverse()
+  searchLayer(state, query, qMag, ef, 0, searchMetric, true, distFn, candidates)
 
   if (useQuantized) {
     return rerankWithFullPrecision(
       state,
-      candidateArray,
+      candidates,
       query,
       qMag,
       arenaQuery,
@@ -118,19 +118,20 @@ function collectHits(
   }
 
   const hits: OrdinalHit[] = []
-  for (const cand of candidateArray) {
-    if (filter && !ordinalFilterHas(filter, cand.ord)) continue
-    const score = toScore(cand.distance, searchMetric)
+  for (let i = 0; i < candidates.size; i++) {
+    const ord = candidates.ords[i]
+    if (filter && !ordinalFilterHas(filter, ord)) continue
+    const score = toScore(candidates.distances[i], searchMetric)
     if (score < minSimilarity) continue
-    if (!hasDocument(cand.ord)) continue
-    hits.push({ ord: cand.ord, score })
+    if (!hasDocument(ord)) continue
+    hits.push({ ord, score })
   }
   return hits
 }
 
 function rerankWithFullPrecision(
   state: HNSWSearchState,
-  candidates: DistancePair[],
+  candidates: DistanceList,
   query: Float32Array,
   qMag: number,
   arenaQuery: ArenaQueryVector | null,
@@ -143,24 +144,25 @@ function rerankWithFullPrecision(
   const reranked: OrdinalHit[] = []
   const rerankLimit = Math.max(k * SQ8_OVERSELECTION_FACTOR, 10)
 
-  for (const cand of candidates) {
-    if (filter && !ordinalFilterHas(filter, cand.ord)) continue
+  for (let i = 0; i < candidates.size; i++) {
+    const ord = candidates.ords[i]
+    if (filter && !ordinalFilterHas(filter, ord)) continue
 
     let fullDistance: number
     if (arenaQuery) {
-      fullDistance = state.store.distanceFromArena(arenaQuery, cand.ord, metric)
+      fullDistance = state.store.distanceFromArena(arenaQuery, ord, metric)
       if (fullDistance === Number.POSITIVE_INFINITY) continue
     } else {
-      const entry = entryForOrd(state, cand.ord)
+      const entry = entryForOrd(state, ord)
       if (!entry) continue
       fullDistance = toDistance(query, entry.vector, qMag, entry.magnitude, metric)
     }
 
     const score = toScore(fullDistance, metric)
     if (score < minSimilarity) continue
-    if (!hasDocument(cand.ord)) continue
+    if (!hasDocument(ord)) continue
 
-    reranked.push({ ord: cand.ord, score })
+    reranked.push({ ord, score })
 
     if (reranked.length >= rerankLimit) break
   }
