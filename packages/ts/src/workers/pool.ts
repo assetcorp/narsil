@@ -10,9 +10,18 @@ export interface MemoryStats {
   external: number
 }
 
+export interface WorkerLease {
+  readonly workerId: number
+  readonly executor: Executor
+  release(): void
+}
+
 export interface WorkerPool {
   getExecutor(indexName: string): Executor
   getAllExecutors(): Executor[]
+  leaseLeastBusy(): WorkerLease | null
+  leaseIdle(limit: number): WorkerLease[]
+  spawnAll(): void
   readonly workerCount: number
   addIndex(indexName: string): void
   addIndexToAll(indexName: string): void
@@ -24,6 +33,7 @@ export interface WorkerPool {
 interface WorkerSlot {
   executor: Executor
   indexes: Set<string>
+  inFlight: number
 }
 
 interface MemoryReportPayload {
@@ -68,6 +78,11 @@ export function resolveWorkerCount(requested?: number): number {
   return Math.max(2, Math.min(8, cpuCount - 1))
 }
 
+export function splitWorkerBudget(total: number): { keyword: number; vector: number } {
+  const keyword = Math.ceil(total / 2)
+  return { keyword, vector: total - keyword }
+}
+
 export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
   const workerCount = resolveWorkerCount(config.count)
   const workers = new Map<number, WorkerSlot>()
@@ -95,6 +110,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
       slot = {
         executor: config.workerFactory(slotIndex, error => handleWorkerDeath(slotIndex, error)),
         indexes: new Set(),
+        inFlight: 0,
       }
       workers.set(slotIndex, slot)
     }
@@ -206,6 +222,42 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     return [...workers.values()].map(slot => slot.executor)
   }
 
+  function lease(workerId: number, slot: WorkerSlot): WorkerLease {
+    slot.inFlight += 1
+    let released = false
+    return {
+      workerId,
+      executor: slot.executor,
+      release() {
+        if (released) return
+        released = true
+        slot.inFlight -= 1
+      },
+    }
+  }
+
+  function leaseLeastBusy(): WorkerLease | null {
+    let chosenId = -1
+    let chosen: WorkerSlot | null = null
+    for (const [workerId, slot] of workers) {
+      if (chosen === null || slot.inFlight < chosen.inFlight) {
+        chosenId = workerId
+        chosen = slot
+      }
+      if (chosen.inFlight === 0) break
+    }
+    return chosen === null ? null : lease(chosenId, chosen)
+  }
+
+  function leaseIdle(limit: number): WorkerLease[] {
+    const leases: WorkerLease[] = []
+    for (const [workerId, slot] of workers) {
+      if (leases.length >= limit) break
+      if (slot.inFlight === 0) leases.push(lease(workerId, slot))
+    }
+    return leases
+  }
+
   function addIndexToAll(indexName: string): void {
     if (isShutdown) {
       throw new NarsilError(ErrorCodes.WORKER_CRASHED, 'Worker pool has been shut down')
@@ -216,9 +268,19 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     indexAssignment.set(indexName, assignSlot(indexName))
   }
 
+  function spawnAll(): void {
+    if (isShutdown) {
+      throw new NarsilError(ErrorCodes.WORKER_CRASHED, 'Worker pool has been shut down')
+    }
+    for (let i = 0; i < workerCount; i++) ensureWorker(i)
+  }
+
   return {
     getExecutor,
     getAllExecutors,
+    leaseLeastBusy,
+    leaseIdle,
+    spawnAll,
     get workerCount() {
       return workerCount
     },

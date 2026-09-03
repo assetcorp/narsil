@@ -6,84 +6,9 @@ import {
   replicateToWorkers,
 } from '../../../engine/orchestration/replication'
 import { searchViaWorker } from '../../../engine/orchestration/search'
-import type { OrchestratorState } from '../../../engine/orchestration/types'
-import type { PartitionManager } from '../../../partitioning/manager'
 import type { AnyDocument } from '../../../types/schema'
-import type { Executor } from '../../../workers/executor'
-import { createWorkerPool } from '../../../workers/pool'
-import { createExecutionPromoter } from '../../../workers/promoter'
 import type { WorkerAction } from '../../../workers/protocol'
-
-interface RecordedDispatch {
-  action: WorkerAction
-  resolve: (value?: unknown) => void
-  reject: (reason: Error) => void
-}
-
-interface Harness {
-  state: OrchestratorState
-  dispatched: RecordedDispatch[]
-  releaseAll: () => void
-}
-
-function makeHarness(workerCount: number, indexNames: string[]): Harness {
-  const dispatched: RecordedDispatch[] = []
-
-  const workerFactory = (): Executor => ({
-    execute<T>(action: WorkerAction): Promise<T> {
-      return new Promise((resolve, reject) => {
-        dispatched.push({ action, resolve: resolve as (value?: unknown) => void, reject })
-      }) as Promise<T>
-    },
-    shutdown: () => Promise.resolve(),
-  })
-
-  const pool = createWorkerPool({ count: workerCount, workerFactory })
-  for (const name of indexNames) {
-    pool.addIndexToAll(name)
-  }
-
-  const state: OrchestratorState = {
-    config: undefined,
-    executor: {
-      execute<T>(): Promise<T> {
-        return Promise.resolve(undefined) as Promise<T>
-      },
-      shutdown: () => Promise.resolve(),
-      getManager: () => ({ partitionCount: 1 }) as unknown as PartitionManager,
-      createIndex: () => undefined,
-      dropIndex: () => undefined,
-      listIndexes: () => indexNames,
-    },
-    promoter: createExecutionPromoter(),
-    indexRegistry: new Map(),
-    callbacks: undefined,
-    workersEnabled: true,
-    bootstrapModule: undefined,
-    promotionBuffer: [],
-    awaitingBufferedWrites: new Set(),
-    reportedIneligible: new Set(),
-    promotedIndexes: new Set(indexNames),
-    replicationQueues: new Map(),
-    segmentLedger: new Map(),
-    compactionsInFlight: new Map(),
-    workerPool: pool,
-    promotionInProgress: false,
-    promotionBlocked: false,
-    promotionRun: null,
-  }
-
-  return {
-    state,
-    dispatched,
-    releaseAll: () => {
-      while (dispatched.length > 0) {
-        const entry = dispatched.shift()
-        if (entry) entry.resolve()
-      }
-    },
-  }
-}
+import { recordingHarness as makeHarness, settle } from './fixtures'
 
 function insertAction(indexName: string, docId: string, document: AnyDocument, skipClone?: boolean): WorkerAction {
   return { type: 'insert', indexName, docId, document, requestId: `replicate-insert-${docId}`, skipClone }
@@ -122,10 +47,6 @@ function mergeAction(indexName: string, documentCount: number, skipClone?: boole
     requestId: `merge-segments-${indexName}-${documentCount}`,
     skipClone,
   }
-}
-
-async function settle(): Promise<void> {
-  await new Promise<void>(resolve => setTimeout(resolve, 0))
 }
 
 describe('replicateToWorkers', () => {
@@ -247,6 +168,27 @@ describe('replicateToWorkers', () => {
 
     expect(harness.state.replicationQueues.size).toBe(0)
     expect(harness.dispatched.length).toBe(0)
+  })
+
+  it('sends nothing for an index that holds no worker copies', async () => {
+    const harness = makeHarness(1, ['prose'])
+
+    await replicateToWorkers(harness.state, insertAction('verse', 'a', { id: 'a' }))
+
+    expect(harness.state.replicationQueues.size).toBe(0)
+    expect(harness.dispatched.length).toBe(0)
+  })
+
+  it('holds a write back while the copies of its index are loading and sends it once they are in place', async () => {
+    const harness = makeHarness(1, [])
+    const buffered: WorkerAction[] = []
+    harness.state.copyLoadBuffers.set('prose', buffered)
+
+    await replicateToWorkers(harness.state, insertAction('prose', 'a', { id: 'a' }))
+
+    expect(harness.dispatched.length).toBe(0)
+    expect(buffered).toHaveLength(1)
+    expect(buffered[0].type).toBe('insert')
   })
 })
 

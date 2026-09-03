@@ -58,7 +58,7 @@ export function workerIneligibility(
 export function reportIneligible(state: OrchestratorState, indexName: string, error: NarsilError): void {
   if (state.reportedIneligible.has(indexName)) return
   state.reportedIneligible.add(indexName)
-  state.callbacks?.onPromotionFailure?.('index-excluded', error, false)
+  state.callbacks?.onCopyLoadFailure?.('index-excluded', error, false)
 }
 
 export function eligibleIndexNames(state: OrchestratorState): string[] {

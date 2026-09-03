@@ -23,7 +23,7 @@ export interface NarsilConfig {
   plugins?: NarsilPlugin[]
   /** This supplies the id for a document inserted without one. The engine generates a UUID v7 by default. */
   idGenerator?: () => string
-  /** These settings control when the engine moves its indexes onto worker threads, and how many it uses. */
+  /** These settings control when an index gains worker copies, how many threads they share, and when an idle index gives them up. */
   workers?: WorkerConfig
   /** Every index uses this adapter unless its own config names another. */
   embedding?: EmbeddingAdapter
@@ -129,23 +129,37 @@ export interface DurabilityConfig {
 }
 
 /**
- * When the engine moves its indexes onto worker threads, and how many it uses.
+ * How the engine holds worker copies of its indexes, and how many threads
+ * they may use.
  *
- * An engine starts on the main thread, where a small index answers fastest.
- * Once an index passes a threshold the engine promotes it to a worker pool, so
- * that indexing and searching run off the calling thread.
+ * A small index answers fastest on the main thread. Once an index holds as
+ * many documents as the copy threshold, the engine loads a copy of it onto
+ * every worker thread, and each query then runs whole on the copy with the
+ * fewest queries in flight. The same switch governs the vector search pool.
  *
  * @public
  */
 export interface WorkerConfig {
-  /** Setting this allows promotion to worker threads. The engine promotes nothing while it is false. */
+  /**
+   * Whether the engine may hold worker copies and a vector search pool. It is
+   * on wherever the runtime has worker threads and off in a browser. Set it to
+   * false to hold the process to one thread, which leaves both pools absent.
+   */
   enabled?: boolean
-  /** The pool runs this many workers. The engine derives a count from the host's cores by default. */
+  /**
+   * The keyword copies and the vector search pool share this many threads
+   * between them, half each. The engine takes the host's cores minus one by
+   * default, between 2 and 8.
+   */
   count?: number
-  /** This many documents in one index trigger promotion. */
+  /** An index gains worker copies once it holds this many documents, 1,000 by default. */
   promotionThreshold?: number
-  /** This many documents across every index trigger promotion. */
-  totalPromotionThreshold?: number
+  /**
+   * The engine drops an index's copies after this many milliseconds without a
+   * read or a write, five minutes by default, and loads them again on the
+   * next request while the main copy answers it.
+   */
+  idleTimeoutMs?: number
   /** Each worker imports this module on start-up, which is how a worker reaches a custom tokeniser or language. */
   bootstrapModule?: string
 }

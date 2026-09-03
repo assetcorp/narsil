@@ -3,12 +3,18 @@ import { createPartitionIndex } from '../../../core/partition'
 import { isCompositePartition } from '../../../core/partition/composite'
 import { createFrozenSegment } from '../../../core/partition/frozen'
 import type { SegmentPayload } from '../../../core/partition/segment-payload'
-import { awaitCompactions, maybeCompactSegments } from '../../../engine/orchestration/compaction'
+import {
+  awaitCompactions,
+  IDLE_MERGE_DELAY_MS,
+  maybeCompactSegments,
+  scheduleIdleMerge,
+} from '../../../engine/orchestration/compaction'
 import type { OrchestratorState } from '../../../engine/orchestration/types'
+import type { PartitionManager } from '../../../partitioning/manager'
 import type { AnyDocument, SchemaDefinition } from '../../../types/schema'
 import { createDirectExecutor } from '../../../workers/direct-executor'
-import { createExecutionPromoter } from '../../../workers/promoter'
 import { english } from '../../core/partition-index/fixtures'
+import { emptyOrchestratorState } from './fixtures'
 
 const schema: SchemaDefinition = { title: 'string', score: 'number' }
 
@@ -25,55 +31,107 @@ function segmentFor(marker: string, count: number): { payload: SegmentPayload; d
   return { payload: scratch.encodeSegment(), documents }
 }
 
-function stateWith(executor: OrchestratorState['executor']): OrchestratorState {
-  return {
-    config: undefined,
-    executor,
-    promoter: createExecutionPromoter(),
-    indexRegistry: new Map(),
-    callbacks: undefined,
-    workersEnabled: false,
-    bootstrapModule: undefined,
-    promotionBuffer: [],
-    awaitingBufferedWrites: new Set(),
-    reportedIneligible: new Set(),
-    promotedIndexes: new Set(),
-    replicationQueues: new Map(),
-    segmentLedger: new Map(),
-    compactionsInFlight: new Map(),
-    workerPool: null,
-    promotionInProgress: false,
-    promotionBlocked: false,
-    promotionRun: null,
+async function mainThreadIndex(segmentCount: number): Promise<{ state: OrchestratorState; manager: PartitionManager }> {
+  const executor = createDirectExecutor()
+  await executor.execute({ type: 'createIndex', indexName: 'products', config: { schema }, requestId: 'create' })
+  const manager = executor.getManager('products')
+  if (!manager) throw new Error('manager missing')
+  for (let s = 0; s < segmentCount; s++) {
+    const { payload, documents } = segmentFor(`seg${s}`, 4 + s)
+    manager.attachFrozenSegment(0, createFrozenSegment(payload, documents))
   }
+  return { state: emptyOrchestratorState({ executor }), manager }
 }
 
-describe('segment compaction', () => {
+function frozenCount(manager: PartitionManager): number {
+  const partition = manager.getPartition(0)
+  return isCompositePartition(partition) ? partition.frozenSegmentCount() : 0
+}
+
+describe('segment compaction during loading', () => {
   it('folds a partition holding eight frozen segments into one on the main thread', async () => {
-    const executor = createDirectExecutor()
-    await executor.execute({ type: 'createIndex', indexName: 'products', config: { schema }, requestId: 'create' })
-    const manager = executor.getManager('products')
-    expect(manager).toBeDefined()
-    if (!manager) return
+    const { state, manager } = await mainThreadIndex(8)
+    const total = manager.countDocuments()
 
-    let total = 0
-    for (let s = 0; s < 8; s++) {
-      const { payload, documents } = segmentFor(`seg${s}`, 4 + s)
-      manager.attachFrozenSegment(0, createFrozenSegment(payload, documents))
-      total += documents.length
-    }
-
-    const state = stateWith(executor)
     maybeCompactSegments(state, 'products')
     await awaitCompactions(state)
 
-    const partition = manager.getPartition(0)
-    expect(isCompositePartition(partition)).toBe(true)
-    if (!isCompositePartition(partition)) return
-    expect(partition.frozenSegmentCount()).toBe(1)
-    expect(partition.count()).toBe(total)
+    expect(frozenCount(manager)).toBe(1)
+    expect(manager.countDocuments()).toBe(total)
     expect(manager.has('seg0-0')).toBe(true)
     expect(manager.has('seg7-10')).toBe(true)
     expect(manager.get('seg3-2')).toMatchObject({ title: 'seg3 shared entry' })
+  })
+
+  it('leaves a partition holding fewer than eight segments alone', async () => {
+    const { state, manager } = await mainThreadIndex(3)
+
+    maybeCompactSegments(state, 'products')
+    await awaitCompactions(state)
+
+    expect(frozenCount(manager)).toBe(3)
+  })
+})
+
+describe('segment merge once the index is idle', () => {
+  it('merges every frozen segment into one on a worker copy once no write has arrived for the idle delay', async () => {
+    const { state, manager } = await mainThreadIndex(3)
+    const worker = createDirectExecutor()
+    await worker.execute({ type: 'createIndex', indexName: 'products', config: { schema }, requestId: 'create' })
+    const copy = worker.getManager('products')
+    if (!copy) throw new Error('copy missing')
+    const partition = manager.getPartition(0)
+    if (!isCompositePartition(partition)) throw new Error('main copy holds no segments')
+    const segmentIds = partition.frozenSegmentSizes().map(size => size.segmentId)
+    for (const segment of partition.frozenSegmentsById(segmentIds)) {
+      copy.attachFrozenSegment(0, segment)
+    }
+    state.workerPool = {
+      getExecutor: () => worker,
+      getAllExecutors: () => [worker],
+      leaseLeastBusy: () => ({ workerId: 0, executor: worker, release: () => undefined }),
+      leaseIdle: () => [{ workerId: 0, executor: worker, release: () => undefined }],
+      spawnAll: () => undefined,
+      workerCount: 1,
+      addIndex: () => undefined,
+      addIndexToAll: () => undefined,
+      removeIndex: () => undefined,
+      getMemoryStats: async () => [],
+      shutdown: async () => undefined,
+    }
+    state.scaledOutIndexes.add('products')
+
+    scheduleIdleMerge(state, 'products')
+    await new Promise(resolve => setTimeout(resolve, IDLE_MERGE_DELAY_MS + 50))
+    await awaitCompactions(state)
+
+    expect(frozenCount(manager)).toBe(1)
+    expect(frozenCount(copy)).toBe(1)
+    expect(copy.countDocuments()).toBe(manager.countDocuments())
+    expect(copy.has('seg2-5')).toBe(true)
+  })
+
+  it('does nothing on an index whose copies have been given up', async () => {
+    const { state, manager } = await mainThreadIndex(3)
+
+    scheduleIdleMerge(state, 'products')
+    await new Promise(resolve => setTimeout(resolve, IDLE_MERGE_DELAY_MS + 50))
+    await awaitCompactions(state)
+
+    expect(frozenCount(manager)).toBe(3)
+  })
+
+  it('restarts the idle delay on every write', async () => {
+    const { state, manager } = await mainThreadIndex(3)
+    state.scaledOutIndexes.add('products')
+
+    scheduleIdleMerge(state, 'products')
+    await new Promise(resolve => setTimeout(resolve, IDLE_MERGE_DELAY_MS / 2))
+    scheduleIdleMerge(state, 'products')
+    await new Promise(resolve => setTimeout(resolve, IDLE_MERGE_DELAY_MS / 2 + 50))
+
+    expect(state.idleMergeTimers.has('products')).toBe(true)
+    expect(frozenCount(manager)).toBe(3)
+    for (const timer of state.idleMergeTimers.values()) clearTimeout(timer)
   })
 })

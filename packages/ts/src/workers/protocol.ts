@@ -51,7 +51,7 @@ export type WorkerAction =
   | {
       type: 'attachSegments'
       indexName: string
-      segments: Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }>
+      segments: Array<{ partitionId: number; snapshot: SharedSegmentSnapshot; tombstonedDocIds?: string[] }>
       requestId: string
     }
   | {

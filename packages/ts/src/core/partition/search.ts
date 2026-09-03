@@ -1,7 +1,8 @@
 import type { InternalSearchParams, InternalSearchResult, PostingListView } from '../../types/internal'
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 import type { InvertedIndexReader } from '../inverted-index'
-import { bm25PruningSound, computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
+import { computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
+import { postingColumns } from './posting-columns'
 import { addScore, beginScoring, createScoreBuffer, hasScore, topKFromBuffer } from './score-buffer'
 import {
   EMPTY_COMPONENTS,
@@ -12,45 +13,25 @@ import {
   recordComponents,
   type ScoreComponents,
 } from './scoring'
-import { singleTermTopK } from './single-term-topk'
+import { prunableSingleTermList, singleTermTopK } from './single-term-topk'
 import type { PartitionReadState } from './utils'
+
+export { prunableSingleTermList } from './single-term-topk'
 
 function globalDocFreqFor(docFreqs: Record<string, number>, term: string, fallback: number): number {
   return Object.hasOwn(docFreqs, term) ? docFreqs[term] : fallback
 }
 
-/**
- * Decides whether a query may run on the pruned single-term scan, returning
- * the term's posting list when it may and null when the query needs the full
- * term-at-a-time loop. The scan handles exactly one unexpanded term scored
- * over every searchable field with a bounded page, on an ordered list, under
- * BM25 parameters whose block bound stays a true upper bound.
- *
- * @param params - The resolved search parameters.
- * @param index - The inverted index holding the term's postings.
- * @returns The posting list to scan, or null when the query must fall back.
- */
-export function prunableSingleTermList(
-  params: InternalSearchParams,
-  index: Pick<InvertedIndexReader, 'lookup'>,
-): PostingListView | null {
-  if (params.queryTokens.length !== 1) return null
-  if (params.prefixExpansion !== undefined) return null
-  if (params.exact !== true && (params.tolerance ?? 0) !== 0) return null
-  if (params.termMatch !== undefined && params.termMatch !== 'any') return null
-  if (params.collectComponents !== false) return null
-  if (params.collectMatchedSet !== undefined) return null
-  if (params.maxResults === undefined) return null
-  if (params.fields !== undefined) return null
-  if (params.filterBitset !== undefined) return null
-  if (!bm25PruningSound(params.bm25Params)) return null
-
-  const list = index.lookup(params.queryTokens[0].token)
-
-  if (list === undefined) return null
-  if (!list.ordered) return null
-
-  return list
+function matchesFor(
+  index: InvertedIndexReader,
+  token: string,
+  exact: boolean,
+  tolerance: number,
+  prefixLength: number,
+): Array<{ token: string; postingList: PostingListView }> {
+  if (!exact) return index.fuzzyLookup(token, tolerance, prefixLength)
+  const postingList = index.lookup(token)
+  return postingList ? [{ token, postingList }] : []
 }
 
 export function searchFulltext(state: PartitionReadState, params: InternalSearchParams): InternalSearchResult {
@@ -147,19 +128,20 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
 
     for (const match of matches) {
       const perTerm = new Map<number, PrefixContribution>()
-      const list = match.postingList
-      const hasDeleted = list.deletedDocs.size > 0
+      const { docIds, termFrequencies, fieldNameIndices, deletedDocs, hasDeleted, count } = postingColumns(
+        match.postingList,
+      )
 
-      for (let pi = 0; pi < list.length; pi++) {
-        const internalId = list.docIds[pi]
-        if (hasDeleted && list.deletedDocs.has(internalId)) continue
+      for (let pi = 0; pi < count; pi++) {
+        const internalId = docIds[pi]
+        if (hasDeleted && deletedDocs.has(internalId)) continue
         if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
-        const fieldIndex = list.fieldNameIndices[pi]
+        const fieldIndex = fieldNameIndices[pi]
         loadFieldMeta(fieldIndex)
         if (fieldSearchable[fieldIndex] === 0) continue
         const fieldName = fieldNames[fieldIndex]
 
-        const termFrequency = list.termFrequencies[pi]
+        const termFrequency = termFrequencies[pi]
         const fieldBoost = fieldBoosts[fieldIndex]
         const avgLen = fieldAvgLengths[fieldIndex]
         const actualFieldLength = resolveFieldLength(internalId, fieldIndex, avgLen)
@@ -244,12 +226,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
         continue
       }
 
-      const rawMatches = exact
-        ? (() => {
-            const postingList = state.invertedIdx.lookup(qt.token)
-            return postingList ? [{ token: qt.token, postingList }] : []
-          })()
-        : state.invertedIdx.fuzzyLookup(qt.token, tolerance, prefixLength)
+      const rawMatches = matchesFor(state.invertedIdx, qt.token, exact, tolerance, prefixLength)
 
       let totalPostings = 0
       const matches: ResolvedTokenPostings['matches'] = []
@@ -278,18 +255,19 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
       }
 
       for (const match of resolved[tokenIndex].matches) {
-        const list = match.postingList
-        const hasDeleted = list.deletedDocs.size > 0
-        for (let pi = 0; pi < list.length; pi++) {
-          const internalId = list.docIds[pi]
-          if (hasDeleted && list.deletedDocs.has(internalId)) continue
+        const { docIds, termFrequencies, fieldNameIndices, deletedDocs, hasDeleted, count } = postingColumns(
+          match.postingList,
+        )
+        for (let pi = 0; pi < count; pi++) {
+          const internalId = docIds[pi]
+          if (hasDeleted && deletedDocs.has(internalId)) continue
           if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
           if (tokenIndex > 0 && !hasScore(scoreBuffer, internalId)) continue
-          const fieldIndex = list.fieldNameIndices[pi]
+          const fieldIndex = fieldNameIndices[pi]
           loadFieldMeta(fieldIndex)
           if (fieldSearchable[fieldIndex] === 0) continue
 
-          const termFrequency = list.termFrequencies[pi]
+          const termFrequency = termFrequencies[pi]
           const fieldBoost = fieldBoosts[fieldIndex]
           const avgLen = fieldAvgLengths[fieldIndex]
           const actualFieldLength = resolveFieldLength(internalId, fieldIndex, avgLen)
@@ -325,12 +303,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
         continue
       }
 
-      const matchingPostings = exact
-        ? (() => {
-            const postingList = state.invertedIdx.lookup(qt.token)
-            return postingList ? [{ token: qt.token, postingList }] : []
-          })()
-        : state.invertedIdx.fuzzyLookup(qt.token, tolerance, prefixLength)
+      const matchingPostings = matchesFor(state.invertedIdx, qt.token, exact, tolerance, prefixLength)
 
       for (const match of matchingPostings) {
         const docFreq = globalStats
@@ -338,16 +311,17 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
           : match.postingList.docIdSet.size
         const idf = computeIDF(docFreq, totalDocs)
 
-        const list = match.postingList
-        const hasDeleted = list.deletedDocs.size > 0
-        for (let pi = 0; pi < list.length; pi++) {
-          const internalId = list.docIds[pi]
-          if (hasDeleted && list.deletedDocs.has(internalId)) continue
+        const { docIds, termFrequencies, fieldNameIndices, deletedDocs, hasDeleted, count } = postingColumns(
+          match.postingList,
+        )
+        for (let pi = 0; pi < count; pi++) {
+          const internalId = docIds[pi]
+          if (hasDeleted && deletedDocs.has(internalId)) continue
           if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
-          const fieldIndex = list.fieldNameIndices[pi]
+          const fieldIndex = fieldNameIndices[pi]
           loadFieldMeta(fieldIndex)
           if (fieldSearchable[fieldIndex] === 0) continue
-          const termFrequency = list.termFrequencies[pi]
+          const termFrequency = termFrequencies[pi]
           const fieldBoost = fieldBoosts[fieldIndex]
           const avgLen = fieldAvgLengths[fieldIndex]
           const actualFieldLength = resolveFieldLength(internalId, fieldIndex, avgLen)

@@ -1,6 +1,7 @@
 import { MAX_INDEX_NAME_LENGTH } from '../distribution/cluster/index-metadata'
 import { ErrorCodes, NarsilError } from '../errors'
 import { clampRowCount, DEFAULT_PAGE_SIZE } from '../search/pagination'
+import type { WorkerConfig } from '../types/config'
 import type { BM25Params } from '../types/schema'
 
 const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
@@ -88,6 +89,20 @@ export function validatePartitionConfig(partitions: {
       watermark,
     })
   }
+}
+
+function requirePositiveSafeInteger(field: string, value: number | undefined): void {
+  if (value === undefined) return
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, `${field} must be a positive safe integer`, { field, value })
+  }
+}
+
+export function validateWorkerConfig(workers: WorkerConfig | undefined): void {
+  if (workers === undefined) return
+  requirePositiveSafeInteger('workers.count', workers.count)
+  requirePositiveSafeInteger('workers.promotionThreshold', workers.promotionThreshold)
+  requirePositiveSafeInteger('workers.idleTimeoutMs', workers.idleTimeoutMs)
 }
 
 export function validateBM25Params(bm25: BM25Params | undefined): void {

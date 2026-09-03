@@ -28,6 +28,15 @@ export interface VectorSearchOptions {
   efSearch?: number
 }
 
+export interface VectorWorkerCopyPolicy {
+  /** Whether the index may load copies of its graph onto the vector search pool. */
+  enabled: boolean
+  /** The pool runs this many workers, or the host's cores minus one where omitted. */
+  count?: number
+}
+
+export const VECTOR_WORKER_COPIES_ALLOWED: VectorWorkerCopyPolicy = { enabled: true }
+
 export interface MaintenanceStatus {
   tombstoneRatio: number
   graphCount: number
@@ -53,6 +62,7 @@ export interface VectorIndexState {
   readonly filterThreshold: number
   readonly quantizationMode: 'sq8' | 'none'
   readonly hnswConfig: HNSWConfig | undefined
+  readonly workerCopies: VectorWorkerCopyPolicy
   readonly store: VectorStore
   readonly tombstones: Set<string>
   readonly buffer: Set<string>

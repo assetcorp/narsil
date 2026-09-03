@@ -293,7 +293,10 @@ export function createIndexStateCoordinator(
         await reopen(indexName, false)
         entry = entryOf(indexName)
       }
-      if (markActive) entry.lastAccessAt = Date.now()
+      if (markActive) {
+        entry.lastAccessAt = Date.now()
+        callbacks.onAccess?.(indexName)
+      }
       entry.activeOperations += 1
       try {
         if (opened) await enforceLimits(indexName)

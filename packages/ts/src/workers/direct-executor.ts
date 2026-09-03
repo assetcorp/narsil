@@ -14,7 +14,7 @@ import { extractVectorFieldsFromSchema } from '../schema/validator'
 import type { FulltextSearchOptions } from '../search/fulltext'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
-import { createVectorIndex, type VectorIndex } from '../vector/vector-index'
+import { createVectorIndex, type VectorIndex, type VectorWorkerCopyPolicy } from '../vector/vector-index'
 import type { Executor } from './executor'
 import type { WorkerAction } from './protocol'
 
@@ -25,6 +25,10 @@ export interface DirectExecutorExtensions {
   listIndexes(): string[]
 }
 
+export interface DirectExecutorOptions {
+  vectorWorkerCopies?: VectorWorkerCopyPolicy
+}
+
 interface IndexEntry {
   manager: PartitionManager
   config: IndexConfig
@@ -33,8 +37,11 @@ interface IndexEntry {
   vectorIndexes: Map<string, VectorIndex>
 }
 
-export function createDirectExecutor(): Executor & DirectExecutorExtensions {
+const NO_VECTOR_WORKER_COPIES: VectorWorkerCopyPolicy = { enabled: false }
+
+export function createDirectExecutor(options?: DirectExecutorOptions): Executor & DirectExecutorExtensions {
   const indexes = new Map<string, IndexEntry>()
+  const vectorWorkerCopies = options?.vectorWorkerCopies ?? NO_VECTOR_WORKER_COPIES
 
   function requireIndex(indexName: string): IndexEntry {
     const entry = indexes.get(indexName)
@@ -59,7 +66,7 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
     const vectorFields = extractVectorFieldsFromSchema(config.schema)
     const vectorIndexes = new Map<string, VectorIndex>()
     for (const [fieldPath, dim] of vectorFields) {
-      vectorIndexes.set(fieldPath, createVectorIndex(fieldPath, dim, config.vectorPromotion))
+      vectorIndexes.set(fieldPath, createVectorIndex(fieldPath, dim, config.vectorPromotion, vectorWorkerCopies))
     }
 
     const manager = createPartitionManager(indexName, config, language, router, partitionCount, vectorIndexes)
@@ -155,7 +162,9 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
           while (entry.manager.partitionCount <= segment.partitionId) {
             entry.manager.addPartition()
           }
-          entry.manager.attachFrozenSegment(segment.partitionId, createSharedFrozenSegment(segment.snapshot))
+          const frozen = createSharedFrozenSegment(segment.snapshot)
+          for (const docId of segment.tombstonedDocIds ?? []) frozen.tombstoneDocument(docId)
+          entry.manager.attachFrozenSegment(segment.partitionId, frozen)
         }
         return undefined as T
       }
@@ -273,7 +282,10 @@ export function createDirectExecutor(): Executor & DirectExecutorExtensions {
         const vectorFields = extractVectorFieldsFromSchema(entry.config.schema)
         const newVectorIndexes = new Map<string, VectorIndex>()
         for (const [fieldPath, dim] of vectorFields) {
-          newVectorIndexes.set(fieldPath, createVectorIndex(fieldPath, dim, entry.config.vectorPromotion))
+          newVectorIndexes.set(
+            fieldPath,
+            createVectorIndex(fieldPath, dim, entry.config.vectorPromotion, vectorWorkerCopies),
+          )
         }
         entry.manager.resetVectorIndexes(newVectorIndexes)
         entry.vectorIndexes = entry.manager.getVectorIndexes()

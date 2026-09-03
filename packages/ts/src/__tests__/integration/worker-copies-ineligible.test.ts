@@ -15,7 +15,7 @@ const everyCharacter: CustomTokenizer = {
   },
 }
 
-async function promotionFailure(indexConfig: IndexConfig): Promise<NarsilEventMap['workerPromoteFailure'][]> {
+async function copyLoadFailure(indexConfig: IndexConfig): Promise<NarsilEventMap['workerPromoteFailure'][]> {
   const narsil = await createNarsil({ workers: { enabled: true, promotionThreshold: 1 } })
   await narsil.createIndex('prose', indexConfig)
 
@@ -35,9 +35,9 @@ async function promotionFailure(indexConfig: IndexConfig): Promise<NarsilEventMa
   return failures
 }
 
-describe('an index that cannot reach a worker says so instead of promoting quietly', () => {
+describe('an index that cannot reach a worker says so in place of loading copies quietly', () => {
   it('reports the tokenizer instance that no worker thread can receive', async () => {
-    const failures = await promotionFailure({ schema, tokenizer: everyCharacter })
+    const failures = await copyLoadFailure({ schema, tokenizer: everyCharacter })
 
     expect(failures).toHaveLength(1)
     expect(failures[0].error.message).toMatch(/tokenizer instance/)
@@ -45,7 +45,7 @@ describe('an index that cannot reach a worker says so instead of promoting quiet
   })
 
   it('reports the stop word function that no worker thread can receive', async () => {
-    const failures = await promotionFailure({
+    const failures = await copyLoadFailure({
       schema,
       stopWords: defaults => new Set([...defaults, 'machine']),
     })
@@ -59,13 +59,13 @@ describe('an index that cannot reach a worker says so instead of promoting quiet
     const { french } = await import('../../languages/french')
     registerLanguage(french)
 
-    const failures = await promotionFailure({ schema, language: 'french' })
+    const failures = await copyLoadFailure({ schema, language: 'french' })
 
     expect(failures).toHaveLength(1)
     expect(failures[0].error.message).toMatch(/bootstrapModule/)
   })
 
-  it('keeps answering queries from the local index after promotion fails', async () => {
+  it('keeps answering queries from the main copy after the copies fail to load', async () => {
     const narsil = await createNarsil({ workers: { enabled: true, promotionThreshold: 1 } })
     await narsil.createIndex('prose', { schema, tokenizer: everyCharacter })
 
@@ -93,8 +93,8 @@ describe('an index that cannot reach a worker says so instead of promoting quiet
   })
 })
 
-describe.skipIf(!built)('one ineligible index leaves the other indexes promotable', () => {
-  it('promotes the eligible index and reports the excluded one once', async () => {
+describe.skipIf(!built)('one ineligible index leaves the other indexes free to gain copies', () => {
+  it('loads copies of the eligible index and reports the excluded one once', async () => {
     const narsil = await createNarsil({ workers: { enabled: true, count: 1, promotionThreshold: 2 } })
     await narsil.createIndex('prose', { schema })
     await narsil.createIndex('letters', { schema, tokenizer: everyCharacter })

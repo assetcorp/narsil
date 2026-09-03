@@ -23,7 +23,7 @@ export async function insertDocumentBatch(
   ctx.guardShutdown()
   const entry = ctx.requireIndex(indexName)
 
-  await ctx.orchestrator.promoteBeforeBatch(indexName, documents.length)
+  await ctx.orchestrator.scaleOutBeforeBatch(indexName, documents.length)
 
   if (
     documents.length >= MIN_DOCUMENTS_FOR_SEGMENTS &&
@@ -207,7 +207,7 @@ export async function insertDocumentBatch(
   }
 
   ctx.checkWatermark(indexName)
-  await ctx.orchestrator.checkPromotion()
+  await ctx.orchestrator.scaleOutReadyIndexes()
 
   return { succeeded, failed }
 }

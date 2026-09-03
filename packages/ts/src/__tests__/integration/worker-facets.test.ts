@@ -13,7 +13,7 @@ describe.skipIf(!built)('a query spread across several workers', () => {
   it('brings back the facet counts of every partition', async () => {
     const narsil = await createNarsil({
       persistence: createMemoryPersistence(),
-      workers: { enabled: true, count: 2, promotionThreshold: 10 },
+      workers: { enabled: true, count: 4, promotionThreshold: 10 },
     })
 
     try {
