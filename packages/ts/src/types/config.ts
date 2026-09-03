@@ -142,8 +142,8 @@ export interface DurabilityConfig {
 export interface WorkerConfig {
   /**
    * Whether the engine may hold worker copies and a vector search pool. It is
-   * on wherever the runtime has worker threads and off in a browser. Set it to
-   * false to hold the process to one thread, which leaves both pools absent.
+   * on everywhere but a browser page. Set it to false to hold the process to
+   * one thread, which leaves both pools absent.
    */
   enabled?: boolean
   /**
@@ -157,7 +157,9 @@ export interface WorkerConfig {
   /**
    * The engine drops an index's copies after this many milliseconds without a
    * read or a write, five minutes by default, and loads them again on the
-   * next request while the main copy answers it.
+   * next request while the main copy answers it. It may not exceed
+   * `lifecycle.idleTimeoutMs`, and where it is unset the copies take the
+   * smaller of five minutes and that interval.
    */
   idleTimeoutMs?: number
   /** Each worker imports this module on start-up, which is how a worker reaches a custom tokeniser or language. */

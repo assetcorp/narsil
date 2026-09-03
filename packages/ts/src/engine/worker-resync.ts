@@ -79,8 +79,9 @@ async function sendPartition(indexName: string, executors: Executor[], captured:
  * Loads a copy of one index onto every worker of the pool from what the main
  * copy holds at the moment of the call.
  *
- * This reads the main copy in one synchronous span, so a write that arrives
- * while the workers load reaches them through the replication queue alone. A
+ * This reads the main copy in one synchronous span before any message reaches
+ * a worker, so a write that arrives while the workers load reaches them
+ * through the replication queue alone. A
  * frozen segment travels as shared memory where the runtime offers it, and
  * the live tail of each partition travels serialised.
  *
@@ -95,6 +96,7 @@ export async function transferIndexToPool(
   config: IndexConfig,
   manager: PartitionManager,
 ): Promise<void> {
+  const captured = capturePartitions(manager)
   const allExecutors = pool.getAllExecutors()
   await Promise.allSettled(
     allExecutors.map(workerExecutor =>
@@ -102,7 +104,6 @@ export async function transferIndexToPool(
     ),
   )
   pool.addIndexToAll(indexName)
-  const captured = capturePartitions(manager)
   await Promise.all(
     allExecutors.map(workerExecutor =>
       workerExecutor.execute({

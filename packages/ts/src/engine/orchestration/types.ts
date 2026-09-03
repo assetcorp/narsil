@@ -61,6 +61,13 @@ export interface SegmentLedgerEntry {
   documentCount: number
 }
 
+export type CopyTransitionKind = 'load' | 'reload' | 'drop'
+
+export interface CopyTransition {
+  readonly kind: CopyTransitionKind
+  readonly done: Promise<void>
+}
+
 export interface OrchestratorState {
   readonly config: NarsilConfig | undefined
   readonly executor: Executor & DirectExecutorExtensions
@@ -75,8 +82,8 @@ export interface OrchestratorState {
   readonly scaledOutIndexes: Set<string>
   readonly desyncedIndexes: Set<string>
   readonly copyLoadBuffers: Map<string, WorkerAction[]>
-  readonly copyTransitions: Map<string, Promise<void>>
-  readonly idleDroppedIndexes: Set<string>
+  readonly copyTransitions: Map<string, CopyTransition>
+  readonly droppedCopies: Map<string, string>
   readonly lastAccessAt: Map<string, number>
   readonly copyReloadCounts: Map<string, number>
   readonly replicationQueues: Map<string, ReplicationQueue>
@@ -85,6 +92,8 @@ export interface OrchestratorState {
   readonly idleMergeTimers: Map<string, ReturnType<typeof setTimeout>>
   workerPool: WorkerPool | null
   poolStart: Promise<WorkerPool> | null
+  poolRetryAt: number
+  poolRetryDelayMs: number
   scaleOutBlocked: boolean
   idleSweep: ReturnType<typeof setInterval> | null
 }

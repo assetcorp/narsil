@@ -128,3 +128,41 @@ describe.skipIf(!built)('one ineligible index leaves the other indexes free to g
     await narsil.shutdown()
   }, 30_000)
 })
+
+describe.skipIf(!built)('a worker pool that fails to start', () => {
+  it('reports the failure once and waits before it tries again', async () => {
+    const narsil = await createNarsil({
+      workers: {
+        enabled: true,
+        count: 1,
+        promotionThreshold: 1,
+        bootstrapModule: new URL('./missing-bootstrap-module.mjs', import.meta.url).href,
+      },
+    })
+    await narsil.createIndex('prose', { schema })
+
+    const failures: NarsilEventMap['workerPromoteFailure'][] = []
+    const seen = new Promise<void>(resolve => {
+      narsil.on('workerPromoteFailure', payload => {
+        failures.push(payload)
+        resolve()
+      })
+    })
+
+    await narsil.insert('prose', { title: 'machine' })
+    await narsil.insert('prose', { title: 'machine' })
+    await seen
+
+    for (let i = 0; i < 5; i++) {
+      await narsil.insert('prose', { title: 'machine' })
+      await narsil.query('prose', { term: 'machine' })
+    }
+
+    expect(failures).toHaveLength(1)
+    expect(failures[0].retryable).toBe(true)
+    expect((await narsil.query('prose', { term: 'machine' })).count).toBe(7)
+    expect((await narsil.getMemoryStats()).workers).toEqual([])
+
+    await narsil.shutdown()
+  }, 30_000)
+})

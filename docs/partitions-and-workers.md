@@ -31,7 +31,7 @@ Two measured costs are worth knowing before raising partition counts:
 
 ## Worker copies
 
-On Node.js and Bun the engine holds a copy of each large index on every worker thread, so that keyword search uses every core without a setting. An index gains its copies once it holds `promotionThreshold` documents, which defaults to 1,000, because below that a query finishes sooner than the hop to a worker thread takes. A browser page holds no copies, and `workers.enabled: false` holds a Node.js process to one thread, which also leaves the vector search pool absent. The API stays identical whether or not an index holds copies.
+On Node.js, Bun, and Deno the engine holds a copy of each large index on every worker thread, so that keyword search uses every core without a setting. An index gains its copies once it holds `promotionThreshold` documents, which defaults to 1,000, because below that a query finishes sooner than the hop to a worker thread takes. A browser page holds no copies, and `workers.enabled: false` holds a Node.js process to one thread, which also leaves the vector search pool absent. The API stays identical whether or not an index holds copies.
 
 ```ts
 const narsil = await createNarsil({
@@ -49,7 +49,9 @@ The engine sends a whole query to the copy with the fewest queries in flight, so
 
 The engine emits `workerPromote` when an index gains its copies and `workerCrash` when a worker dies; see [Events](observability.md#events). `getMemoryStats()` reports each worker's heap and, under `workerCopies`, whether each index holds copies now.
 
-An index that receives no read or write for `idleTimeoutMs`, five minutes by default, gives up its copies and keeps its main copy open. The next read or write on that index loads the copies again while the main copy answers it, and `getMemoryStats().workerCopies` counts each reload under `reloadCount`. Where you also set `lifecycle.idleTimeoutMs`, give the copies the shorter interval so that an index drops its copies before it closes.
+An index that receives no read or write for `idleTimeoutMs`, five minutes by default, gives up its copies and keeps its main copy open. The next read or write on that index loads the copies again while the main copy answers it, and `getMemoryStats().workerCopies` counts each reload under `reloadCount`. Where you also set `lifecycle.idleTimeoutMs`, the copies drop before the index closes. `createNarsil` rejects a `workers.idleTimeoutMs` above the lifecycle interval with `CONFIG_INVALID`, and where you leave `workers.idleTimeoutMs` unset the copies take the smaller of five minutes and that interval. A batch that arrives while the copies reload runs on the main copy, and the copies receive its writes once they hold the index.
+
+When every worker in the pool dies, the engine drops the pool and answers from the main copy. The next request after a delay starts a new pool and loads the copies again. The delay starts at one second and doubles on each repeat up to a minute. A pool that fails to start, because its bootstrap module fails to import for instance, waits the same way, and `workerPromoteFailure` fires once per attempt.
 
 A worker thread receives an index's config by copy, so three conditions gate whether an index can gain copies. An inline `tokenizer` instance cannot cross the thread boundary, a `stopWords` function cannot either, and a worker holds no language other than English until a module registers one inside it. Register tokenizers and stop word sets by name (see [Named tokenizers and stop words](language-support.md#named-tokenizers-and-stop-words)), and point `workers.bootstrapModule` at a module that registers the languages and named analysis your indexes use; every worker imports it at startup.
 

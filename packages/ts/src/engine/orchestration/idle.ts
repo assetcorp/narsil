@@ -1,6 +1,6 @@
 import { cancelIdleMerge } from './compaction'
 import { awaitReplicationIdle } from './replication'
-import { COPY_RELOAD_REASON, copyThresholdReason, indexReadyForCopies, scaleOutIndex } from './scale-out'
+import { COPY_RELOAD_REASON, copiesAllowed, copyThresholdReason, indexReadyForCopies, scaleOutIndex } from './scale-out'
 import type { OrchestratorState } from './types'
 
 export const DEFAULT_COPY_IDLE_TIMEOUT_MS = 300_000
@@ -17,10 +17,12 @@ export function isIndexBusy(state: OrchestratorState, indexName: string): boolea
 
 export function noteAccess(state: OrchestratorState, indexName: string): void {
   state.lastAccessAt.set(indexName, Date.now())
-  if (!state.workersEnabled || state.scaleOutBlocked) return
-  if (state.idleDroppedIndexes.has(indexName)) {
-    if (state.copyTransitions.has(indexName)) return
-    void scaleOutIndex(state, indexName, COPY_RELOAD_REASON)
+  if (!copiesAllowed(state)) return
+  const reloadReason = state.droppedCopies.get(indexName)
+  if (reloadReason !== undefined) {
+    const transition = state.copyTransitions.get(indexName)
+    if (transition !== undefined && transition.kind !== 'drop') return
+    void scaleOutIndex(state, indexName, reloadReason)
     return
   }
   if (indexReadyForCopies(state, indexName)) {
@@ -37,7 +39,7 @@ async function releaseCopies(state: OrchestratorState, indexName: string): Promi
   if (!state.scaledOutIndexes.has(indexName) || state.compactionsInFlight.has(indexName)) return
 
   state.scaledOutIndexes.delete(indexName)
-  state.idleDroppedIndexes.add(indexName)
+  state.droppedCopies.set(indexName, COPY_RELOAD_REASON)
   cancelIdleMerge(state, indexName)
   const outcomes = await Promise.allSettled(
     pool
@@ -54,15 +56,15 @@ async function releaseCopies(state: OrchestratorState, indexName: string): Promi
 export async function dropIdleCopies(state: OrchestratorState, indexName: string): Promise<void> {
   const previous = state.copyTransitions.get(indexName)
   if (previous !== undefined) return
-  const run = releaseCopies(state, indexName)
+  const done = releaseCopies(state, indexName)
     .catch(err => {
       console.warn('Dropping idle worker copies failed:', err)
     })
     .finally(() => {
-      if (state.copyTransitions.get(indexName) === run) state.copyTransitions.delete(indexName)
+      if (state.copyTransitions.get(indexName)?.done === done) state.copyTransitions.delete(indexName)
     })
-  state.copyTransitions.set(indexName, run)
-  await run
+  state.copyTransitions.set(indexName, { kind: 'drop', done })
+  await done
 }
 
 async function sweepIdleCopies(state: OrchestratorState): Promise<void> {

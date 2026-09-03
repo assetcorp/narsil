@@ -42,7 +42,7 @@ export function emptyOrchestratorState(overrides: Partial<OrchestratorState> = {
     desyncedIndexes: new Set(),
     copyLoadBuffers: new Map(),
     copyTransitions: new Map(),
-    idleDroppedIndexes: new Set(),
+    droppedCopies: new Map(),
     lastAccessAt: new Map(),
     copyReloadCounts: new Map(),
     replicationQueues: new Map(),
@@ -51,6 +51,8 @@ export function emptyOrchestratorState(overrides: Partial<OrchestratorState> = {
     idleMergeTimers: new Map(),
     workerPool: null,
     poolStart: null,
+    poolRetryAt: 0,
+    poolRetryDelayMs: 1_000,
     scaleOutBlocked: false,
     idleSweep: null,
     ...overrides,
@@ -85,7 +87,13 @@ export function recordingHarness(
         return Promise.resolve(undefined) as Promise<T>
       },
       shutdown: () => Promise.resolve(),
-      getManager: () => ({ partitionCount }) as unknown as PartitionManager,
+      getManager: () =>
+        ({
+          partitionCount,
+          countDocuments: () => 0,
+          getPartition: () => ({}),
+          serializePartition: (partitionId: number) => ({ partitionId }),
+        }) as unknown as PartitionManager,
       createIndex: () => undefined,
       dropIndex: () => undefined,
       listIndexes: () => indexNames,
