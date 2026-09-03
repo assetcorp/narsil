@@ -7,10 +7,10 @@ export const MAX_PENDING_REPLICATION_DOCUMENTS = 20_000
 export async function dispatchToWorkers(state: OrchestratorState, action: WorkerAction): Promise<void> {
   const pool = state.workerPool
   if (!pool) return
+  const executors = 'indexName' in action ? pool.executorsHolding(action.indexName) : pool.getAllExecutors()
   if ('indexName' in action && !state.scaledOutIndexes.has(action.indexName)) return
 
-  const allExecutors = pool.getAllExecutors()
-  const results = await Promise.allSettled(allExecutors.map(workerExecutor => workerExecutor.execute(action)))
+  const results = await Promise.allSettled(executors.map(workerExecutor => workerExecutor.execute(action)))
 
   for (const result of results) {
     if (result.status === 'rejected') {

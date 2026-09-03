@@ -12,11 +12,11 @@ import type { WorkerAction } from '../../workers/protocol'
 import { transferIndexToPool } from '../worker-resync'
 import { awaitCompactions, cancelIdleMerge, maybeCompactSegments, scheduleIdleMerge } from './compaction'
 import { DEFAULT_COPY_IDLE_TIMEOUT_MS, isIndexBusy, noteAccess, startIdleSweep, stopIdleSweep } from './idle'
+import { cancelRepair, POOL_RESTART_DELAY_MS } from './repair'
 import { awaitReplicationIdle, replicateToWorkers } from './replication'
 import {
   copyThresholdReason,
   indexReadyForCopies,
-  POOL_RESTART_DELAY_MS,
   scaleOutBeforeBatch,
   scaleOutIndex,
   scaleOutReadyIndexes,
@@ -71,6 +71,8 @@ export function createWorkerOrchestrator(
     poolStart: null,
     poolRetryAt: 0,
     poolRetryDelayMs: POOL_RESTART_DELAY_MS,
+    poolRepair: null,
+    repairTimer: null,
     scaleOutBlocked: false,
     idleSweep: null,
   }
@@ -113,8 +115,10 @@ export function createWorkerOrchestrator(
 
   async function shutdown(): Promise<void> {
     stopIdleSweep(state)
+    cancelRepair(state)
     for (const indexName of [...state.idleMergeTimers.keys()]) cancelIdleMerge(state, indexName)
     await Promise.allSettled([...state.copyTransitions.values()].map(transition => transition.done))
+    if (state.poolRepair !== null) await state.poolRepair
     if (state.poolStart !== null) await state.poolStart.catch(() => undefined)
     if (state.workerPool) {
       await awaitCompactions(state)
@@ -155,6 +159,7 @@ export function createWorkerOrchestrator(
   }
 
   async function closeIndex(indexName: string): Promise<void> {
+    if (state.poolRepair !== null) await state.poolRepair
     const transition = state.copyTransitions.get(indexName)
     if (transition !== undefined) await transition.done
     await awaitReplicationIdle(state, indexName)
@@ -165,7 +170,7 @@ export function createWorkerOrchestrator(
       state.scaledOutIndexes.delete(indexName)
       const outcomes = await Promise.allSettled(
         pool
-          .getAllExecutors()
+          .executorsHolding(indexName)
           .map(worker => worker.execute({ type: 'dropIndex', indexName, requestId: `close-${indexName}` })),
       )
       const failure = outcomes.find(outcome => outcome.status === 'rejected')

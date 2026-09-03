@@ -94,6 +94,8 @@ export interface OrchestratorState {
   poolStart: Promise<WorkerPool> | null
   poolRetryAt: number
   poolRetryDelayMs: number
+  poolRepair: Promise<void> | null
+  repairTimer: ReturnType<typeof setTimeout> | null
   scaleOutBlocked: boolean
   idleSweep: ReturnType<typeof setInterval> | null
 }

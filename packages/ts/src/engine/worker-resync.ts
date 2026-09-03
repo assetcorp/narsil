@@ -96,16 +96,36 @@ export async function transferIndexToPool(
   config: IndexConfig,
   manager: PartitionManager,
 ): Promise<void> {
+  await loadIndexOntoWorkers(indexName, pool.getAllExecutors(), config, manager, () => pool.addIndexToAll(indexName))
+}
+
+/**
+ * Loads a copy of one index onto the given workers from what the main copy
+ * holds at the moment of the call, reading the main copy in one synchronous
+ * span before any message reaches a worker.
+ *
+ * @param indexName - The index to copy.
+ * @param executors - The workers that receive the copy.
+ * @param config - The index configuration each worker creates the index from.
+ * @param manager - The main copy to read.
+ * @param onDropped - Runs once every worker has dropped its old copy, before the new one loads.
+ */
+export async function loadIndexOntoWorkers(
+  indexName: string,
+  executors: Executor[],
+  config: IndexConfig,
+  manager: PartitionManager,
+  onDropped?: () => void,
+): Promise<void> {
   const captured = capturePartitions(manager)
-  const allExecutors = pool.getAllExecutors()
   await Promise.allSettled(
-    allExecutors.map(workerExecutor =>
+    executors.map(workerExecutor =>
       workerExecutor.execute({ type: 'dropIndex', indexName, requestId: `resync-drop-${indexName}` }),
     ),
   )
-  pool.addIndexToAll(indexName)
+  onDropped?.()
   await Promise.all(
-    allExecutors.map(workerExecutor =>
+    executors.map(workerExecutor =>
       workerExecutor.execute({
         type: 'createIndex',
         indexName,
@@ -115,6 +135,6 @@ export async function transferIndexToPool(
     ),
   )
   for (const partition of captured) {
-    await sendPartition(indexName, allExecutors, partition)
+    await sendPartition(indexName, executors, partition)
   }
 }

@@ -9,6 +9,7 @@ const MAX_SWEEP_INTERVAL_MS = 60_000
 
 export function isIndexBusy(state: OrchestratorState, indexName: string): boolean {
   return (
+    state.poolRepair !== null ||
     state.copyTransitions.has(indexName) ||
     state.replicationQueues.has(indexName) ||
     state.compactionsInFlight.has(indexName)
@@ -43,7 +44,7 @@ async function releaseCopies(state: OrchestratorState, indexName: string): Promi
   cancelIdleMerge(state, indexName)
   const outcomes = await Promise.allSettled(
     pool
-      .getAllExecutors()
+      .executorsHolding(indexName)
       .map(worker => worker.execute({ type: 'dropIndex', indexName, requestId: `idle-drop-${indexName}` })),
   )
   for (const outcome of outcomes) {

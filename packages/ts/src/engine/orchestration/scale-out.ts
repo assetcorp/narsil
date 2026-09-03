@@ -9,43 +9,15 @@ import {
   toError,
   workerIneligibility,
 } from './eligibility'
+import { deferPoolRestart, handleWorkerCrash, POOL_RESTART_DELAY_MS } from './repair'
 import { enqueueReplication } from './replication'
 import type { CopyTransition, OrchestratorState } from './types'
 
 export const COPY_RELOAD_REASON = 'A request arrived after an idle spell dropped the worker copies'
-export const COPY_RESTART_REASON = 'A request arrived after every worker crashed and the restart delay passed'
-export const POOL_RESTART_DELAY_MS = 1_000
-const POOL_RESTART_DELAY_MAX_MS = 60_000
 
 export function copiesAllowed(state: OrchestratorState): boolean {
   if (!state.workersEnabled || state.scaleOutBlocked) return false
   return state.workerPool !== null || Date.now() >= state.poolRetryAt
-}
-
-function deferPoolRestart(state: OrchestratorState): void {
-  state.poolRetryAt = Date.now() + state.poolRetryDelayMs
-  state.poolRetryDelayMs = Math.min(state.poolRetryDelayMs * 2, POOL_RESTART_DELAY_MAX_MS)
-}
-
-export function retirePool(state: OrchestratorState, pool: WorkerPool): void {
-  if (state.workerPool !== pool) return
-  state.workerPool = null
-  deferPoolRestart(state)
-  for (const indexName of state.scaledOutIndexes) state.droppedCopies.set(indexName, COPY_RESTART_REASON)
-  state.scaledOutIndexes.clear()
-  state.segmentLedger.clear()
-  void pool.shutdown().catch(() => undefined)
-}
-
-export function handleWorkerCrash(
-  state: OrchestratorState,
-  pool: WorkerPool,
-  workerId: number,
-  indexNames: string[],
-  error: Error,
-): void {
-  state.callbacks?.onWorkerCrash?.(workerId, indexNames, error)
-  if (pool.getAllExecutors().length === 0) retirePool(state, pool)
 }
 
 async function startPool(state: OrchestratorState): Promise<WorkerPool> {
