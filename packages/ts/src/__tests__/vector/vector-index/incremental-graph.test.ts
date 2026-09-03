@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createHNSWIndex, type HNSWConfig } from '../../../vector/hnsw'
+import { dispatchWorkerBuild, type WorkerBuildOutcome } from '../../../vector/hnsw-worker-dispatch'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
+import { WORKER_BUILD_SIZE_THRESHOLD } from '../../../vector/vector-index/shared'
+import { createVectorStore } from '../../../vector/vector-store'
 import { DIM, normalizedVector } from './fixtures'
 
 vi.mock('../../../vector/hnsw-worker-dispatch', () => ({
@@ -8,6 +12,23 @@ vi.mock('../../../vector/hnsw-worker-dispatch', () => ({
 
 const FIRST_BATCH = 300
 const SECOND_BATCH = 300
+const WORKER_BATCH = WORKER_BUILD_SIZE_THRESHOLD + 1
+
+async function buildOnMockedWorker(
+  docIds: string[],
+  packed: Float32Array,
+  dimension: number,
+  config: HNSWConfig,
+): Promise<WorkerBuildOutcome> {
+  await nextTick()
+  const store = createVectorStore()
+  docIds.forEach((docId, position) => {
+    store.insert(docId, packed.subarray(position * dimension, (position + 1) * dimension))
+  })
+  const graph = createHNSWIndex(dimension, store, config)
+  for (const docId of docIds) graph.insertNode(docId)
+  return { ok: true, graph: graph.serialize() }
+}
 
 function levelsByDocId(index: VectorIndex): Map<string, number> {
   const payload = index.serialize()
@@ -48,6 +69,7 @@ describe('VectorIndex graph growth across batches', () => {
   let index: VectorIndex
 
   beforeEach(() => {
+    vi.mocked(dispatchWorkerBuild).mockClear()
     index = createVectorIndex('embedding', DIM, { threshold: FIRST_BATCH, quantization: 'none' })
   })
 
@@ -217,6 +239,46 @@ describe('VectorIndex graph growth across batches', () => {
     expect(index.has('late')).toBe(true)
     const hits = index.search(lateVector, 1, { metric: 'cosine', minSimilarity: 0 })
     expect(hits[0]?.docId).toBe('late')
+  })
+
+  it('keeps a vector replaced during promotion marked until a later build relinks it', async () => {
+    insertRange(index, 0, FIRST_BATCH)
+    index.scheduleBuild()
+    await nextTick()
+    expect(index.maintenanceStatus().building).toBe(true)
+
+    const replacement = normalizedVector(DIM, FIRST_BATCH * 13 + 1)
+    index.insert('doc0', replacement)
+    await index.awaitPendingBuild()
+
+    expect(levelsByDocId(index).size).toBe(FIRST_BATCH)
+    expect(index.maintenanceStatus().bufferSize).toBe(1)
+
+    await index.optimize()
+    expect(index.maintenanceStatus().bufferSize).toBe(0)
+    const hits = index.search(replacement, 1, { metric: 'cosine', minSimilarity: 0 })
+    expect(hits[0]?.docId).toBe('doc0')
+  })
+
+  it('keeps a vector replaced during a worker promotion marked until a later build relinks it', async () => {
+    vi.mocked(dispatchWorkerBuild).mockImplementationOnce(buildOnMockedWorker)
+    insertRange(index, 0, WORKER_BATCH)
+    index.scheduleBuild()
+    await nextTick()
+    expect(index.maintenanceStatus().building).toBe(true)
+
+    const replacement = normalizedVector(DIM, WORKER_BATCH * 13 + 1)
+    index.insert('doc0', replacement)
+    await index.awaitPendingBuild()
+
+    expect(dispatchWorkerBuild).toHaveBeenCalledTimes(1)
+    expect(levelsByDocId(index).size).toBe(WORKER_BATCH)
+    expect(index.maintenanceStatus().bufferSize).toBe(1)
+
+    await index.optimize()
+    expect(index.maintenanceStatus().bufferSize).toBe(0)
+    const hits = index.search(replacement, 1, { metric: 'cosine', minSimilarity: 0 })
+    expect(hits[0]?.docId).toBe('doc0')
   })
 
   it('counts removals again from the graph the rebuild produced', async () => {

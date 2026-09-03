@@ -1,5 +1,5 @@
 import type { VectorMetric } from '../brute-force'
-import type { HNSWConfig, HNSWIndex, SerializedHNSWGraph } from '../hnsw'
+import { createHNSWIndex, type HNSWConfig, type HNSWIndex, type SerializedHNSWGraph } from '../hnsw'
 import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter, removeFromOrdinalFilter } from '../ordinal-filter'
 import type { ScalarQuantizer, SerializedSQ8 } from '../scalar-quantization-types'
 import type { VectorSearchPool } from '../search-pool'
@@ -107,6 +107,10 @@ export function adoptGraph(state: VectorIndexState, graph: HNSWIndex | null): vo
  * Inserts the admitted documents into a graph, yielding to the event loop
  * after every chunk so that a query can answer between chunks.
  *
+ * The insertion clears each document's buffer marker the moment the graph
+ * links its stored vector, so a vector that a caller replaces during a later
+ * chunk keeps its marker and the next build relinks it.
+ *
  * @param state The index the graph belongs to, whose disposal stops the work.
  * @param graph The graph to insert into.
  * @param docIds The documents to offer.
@@ -129,6 +133,7 @@ export async function insertIntoGraph(
     if (state.disposed) return false
     if (!admit(docId)) continue
     graph.insertNode(docId)
+    state.buffer.delete(docId)
     inserted?.(docId)
     count += 1
     if (count % BUILD_CHUNK_SIZE === 0) {
@@ -136,6 +141,22 @@ export async function insertIntoGraph(
     }
   }
   return !state.disposed
+}
+
+/**
+ * Builds a graph from every live vector in the store and makes it the graph
+ * the index answers from once every vector is in.
+ *
+ * @param state The index to build for, whose disposal drops the new graph.
+ *
+ * @internal
+ */
+export async function buildGraphFromStore(state: VectorIndexState): Promise<void> {
+  const graph = createHNSWIndex(state.dimension, state.store, state.hnswConfig, state.sq8 ?? undefined)
+  const completed = await insertIntoGraph(state, graph, allLiveDocIds(state), () => true)
+  if (completed) {
+    adoptGraph(state, graph)
+  }
 }
 
 /**

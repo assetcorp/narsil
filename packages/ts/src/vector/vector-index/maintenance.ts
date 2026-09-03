@@ -1,8 +1,9 @@
-import { createHNSWIndex, type HNSWIndex } from '../hnsw'
+import type { HNSWIndex } from '../hnsw'
 import { scheduleBuild } from './build'
 import {
   adoptGraph,
   allLiveDocIds,
+  buildGraphFromStore,
   ESTIMATED_MS_PER_TOMBSTONE,
   ESTIMATED_MS_PER_VECTOR_REBUILD,
   graphNeedsRebuild,
@@ -36,19 +37,9 @@ export function compact(state: VectorIndexState): void {
   }
 }
 
-async function rebuildGraph(state: VectorIndexState): Promise<void> {
-  const newHnsw = createHNSWIndex(state.dimension, state.store, state.hnswConfig, state.sq8 ?? undefined)
-  const leaveBuffer = (docId: string) => state.buffer.delete(docId)
-  const completed = await insertIntoGraph(state, newHnsw, allLiveDocIds(state), () => true, leaveBuffer)
-  if (completed) {
-    adoptGraph(state, newHnsw)
-  }
-}
-
 async function insertMissing(state: VectorIndexState, graph: HNSWIndex): Promise<void> {
   const missingOrReplaced = (docId: string) => !graph.has(docId) || state.buffer.has(docId)
-  const leaveBuffer = (docId: string) => state.buffer.delete(docId)
-  await insertIntoGraph(state, graph, allLiveDocIds(state), missingOrReplaced, leaveBuffer)
+  await insertIntoGraph(state, graph, allLiveDocIds(state), missingOrReplaced)
 }
 
 async function foldIntoGraph(state: VectorIndexState): Promise<void> {
@@ -68,7 +59,7 @@ async function foldIntoGraph(state: VectorIndexState): Promise<void> {
 
   const graph = state.hnsw
   if (graph === null || rebuildNeeded) {
-    await rebuildGraph(state)
+    await buildGraphFromStore(state)
   } else {
     await insertMissing(state, graph)
   }
