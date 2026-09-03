@@ -6,6 +6,7 @@ import type { ClusterCoordinator } from '../../../distribution/coordinator/types
 import type { InMemoryNetwork } from '../../../distribution/transport'
 import { createInMemoryNetwork, createInMemoryTransport } from '../../../distribution/transport'
 import type { NodeTransport } from '../../../distribution/transport/types'
+import { waitForSettledReplica } from './cluster-harness'
 
 const POLL_INTERVAL_MS = 25
 const POLL_BUDGET_MS = 15_000
@@ -52,15 +53,7 @@ describe('cluster-node drop and clear', () => {
     })
     await nodeB.start()
 
-    const inSync = await pollUntil(async () => {
-      const table = await coordinator.getAllocation('products')
-      if (table === null || table.assignments.size === 0) return false
-      for (const assignment of table.assignments.values()) {
-        if (assignment.state !== 'ACTIVE' || !assignment.inSyncSet.includes('node-b')) return false
-      }
-      return true
-    })
-    expect(inSync).toBe(true)
+    await waitForSettledReplica(coordinator, 'products', 'node-b')
 
     const inserted = await nodeA.insertBatch(
       'products',
