@@ -180,6 +180,38 @@ describe('a composite of frozen segments plus a live tail matches one merged par
     )
   })
 
+  it('collects matched ordinals, filters, and facets while the live tail holds nothing', () => {
+    const documents = buildCorpus(96)
+    const baseline = createPartitionIndex(0)
+    for (const doc of documents) {
+      baseline.insert(String(doc.id), doc, simpleSchema, english, { collectSurfaces: true })
+    }
+    const composite = createCompositePartition(0)
+    for (let start = 0; start < documents.length; start += 32) {
+      const chunk = documents.slice(start, start + 32)
+      composite.appendFrozenSegment(frozenPayloadFor(chunk), chunk)
+    }
+    const filters = { fields: { price: { gte: 5 } } }
+    const params = termParams({ tokens: ['apple'], exact: true, collectMatchedSet: 'ordinals', maxResults: 10 })
+
+    const fanned = composite.searchFulltext(params)
+    const base = baseline.searchFulltext(params)
+    expect(fanned.totalMatched).toBe(base.totalMatched)
+    expect(fanned.matchedOrdinalBitset).toBeDefined()
+    expect(composite.filterMatches(filters, simpleSchema).count).toBe(
+      baseline.filterMatches(filters, simpleSchema).count,
+    )
+    expect(composite.searchFulltextMatches(params).ordinalBitset().length).toBeGreaterThan(0)
+
+    const facets = { category: {}, active: {} }
+    const matched = fanned.matchedOrdinalBitset
+    const baseMatched = base.matchedOrdinalBitset
+    if (matched === undefined || baseMatched === undefined) throw new Error('no matched ordinals')
+    expect(composite.computeFacets({ ordinalBitset: matched }, facets, simpleSchema)).toEqual(
+      baseline.computeFacets({ ordinalBitset: baseMatched }, facets, simpleSchema),
+    )
+  })
+
   it('serves the same sorted pages, including anchored paging', () => {
     const { baseline, composite } = buildPair()
     const request = {

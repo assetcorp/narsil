@@ -4,7 +4,7 @@ import { type PartitionSearchMatches, searchFulltextMatches } from '../matches'
 import type { PartitionReadState } from '../read-state'
 import { kWayMerge } from '../scored-merge'
 import { searchFulltext } from '../search'
-import { type OrdinalLayout, subBitsetView } from './filters'
+import { type OrdinalLayout, placeSubBitset, subBitsetView } from './filters'
 import { compositeQueryStats } from './stats'
 
 function subParams(
@@ -20,6 +20,29 @@ function subParams(
   }
 }
 
+function onlyPopulatedSub(subs: readonly PartitionReadState[]): number {
+  let found = -1
+  for (let i = 0; i < subs.length; i++) {
+    if (subs[i].stats.totalDocuments === 0) continue
+    if (found !== -1) return -1
+    found = i
+  }
+  return found
+}
+
+function searchSingleSub(
+  subs: readonly PartitionReadState[],
+  layout: OrdinalLayout,
+  params: InternalSearchParams,
+  index: number,
+): InternalSearchResult {
+  const result = searchFulltext(subs[index], subParams(params, layout, index, params.globalStats))
+  if (result.matchedOrdinalBitset === undefined) return result
+  const matchedOrdinalBitset = createBitSet(layout.totalCapacity)
+  placeSubBitset(matchedOrdinalBitset, layout, index, result.matchedOrdinalBitset)
+  return { ...result, matchedOrdinalBitset }
+}
+
 export function compositeSearchFulltext(
   subs: readonly PartitionReadState[],
   layout: OrdinalLayout,
@@ -27,6 +50,11 @@ export function compositeSearchFulltext(
 ): InternalSearchResult {
   if (params.queryTokens.length === 0) {
     return { scored: [], totalMatched: 0 }
+  }
+
+  const single = onlyPopulatedSub(subs)
+  if (single !== -1) {
+    return searchSingleSub(subs, layout, params, single)
   }
 
   const globalStats = compositeQueryStats(subs, params)
@@ -50,7 +78,7 @@ export function compositeSearchFulltext(
     const matchedOrdinalBitset = createBitSet(layout.totalCapacity)
     for (let i = 0; i < results.length; i++) {
       const subBitset = results[i].matchedOrdinalBitset
-      if (subBitset !== undefined) matchedOrdinalBitset.set(subBitset, layout.bases[i] >> 5)
+      if (subBitset !== undefined) placeSubBitset(matchedOrdinalBitset, layout, i, subBitset)
     }
     return { scored, totalMatched, matchedOrdinalBitset }
   }
@@ -102,7 +130,7 @@ export function compositeSearchMatches(
     ordinalBitset(): Uint32Array {
       const combined = createBitSet(layout.totalCapacity)
       for (let i = 0; i < subMatches.length; i++) {
-        combined.set(subMatches[i].ordinalBitset(), layout.bases[i] >> 5)
+        placeSubBitset(combined, layout, i, subMatches[i].ordinalBitset())
       }
       return combined
     },

@@ -3,6 +3,7 @@ export interface FrozenTombstones {
   readonly revision: number
   has(internalId: number): boolean
   add(internalId: number): boolean
+  values(): IterableIterator<number>
 }
 
 export function createFrozenTombstones(): FrozenTombstones {
@@ -24,6 +25,9 @@ export function createFrozenTombstones(): FrozenTombstones {
       removed.add(internalId)
       revision++
       return true
+    },
+    values(): IterableIterator<number> {
+      return removed.values()
     },
   }
 }

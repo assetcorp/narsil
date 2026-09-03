@@ -239,7 +239,7 @@ export async function insertBatchViaSegments(
   }
 
   ctx.checkWatermark(indexName)
-  await ctx.orchestrator.checkPromotion()
+  await ctx.orchestrator.scaleOutReadyIndexes()
 
   return { succeeded: outcome.succeeded, failed }
 }

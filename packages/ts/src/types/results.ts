@@ -272,6 +272,22 @@ export interface ProcessMemoryReport {
 }
 
 /**
+ * Whether one index holds worker copies at the moment
+ * {@link Narsil.getMemoryStats} reads it, and how many times it has loaded
+ * them again after giving them up while idle.
+ *
+ * @public
+ */
+export interface WorkerCopyReport {
+  /** This names the index. */
+  indexName: string
+  /** This is true while every worker holds a copy of the index. */
+  scaledOut: boolean
+  /** The index has loaded its copies again this many times after an idle spell dropped them. */
+  reloadCount: number
+}
+
+/**
  * What {@link Narsil.getMemoryStats} returns, which is what you size a host
  * from.
  *
@@ -299,9 +315,11 @@ export interface MemoryStats {
   closedIndexCount: number
   /** This counts successful index loads since this engine started. */
   reopenCount: number
+  /** One entry per index, saying whether it holds worker copies now and how many times it has reloaded them. */
+  workerCopies: WorkerCopyReport[]
   /**
-   * Per-worker V8 heap usage when the engine has been promoted to a worker
-   * pool. Empty when no workers are active.
+   * Per-worker V8 heap usage once the engine has started its worker pool.
+   * Empty while no worker is running.
    */
   workers: Array<{
     /** This identifies the worker within the pool. */

@@ -14,7 +14,7 @@ import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
 import { createDirectExecutor, type DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
-import { createExecutionPromoter, type ExecutionPromoter } from '../workers/promoter'
+import { resolveWorkerCount, splitWorkerBudget } from '../workers/pool'
 import { type AnalysisRebuildCoordinator, wireAnalysisRebuild } from './analysis-rebuild'
 import { resolveDurabilityTier } from './durability-config'
 import type { DurabilityIntegration } from './durability-integration'
@@ -23,9 +23,10 @@ import type { IndexStateCoordinator } from './index-state'
 import { type EngineCoreHooks, wireIndexState } from './index-state-wiring'
 import { createInvalidationFromConfig, type InvalidationIntegration } from './invalidation'
 import type { MutationContext } from './mutations'
-import { createWorkerOrchestrator, type WorkerOrchestrator } from './orchestration'
+import { createWorkerOrchestrator, type WorkerOrchestrator, workersEnabledByDefault } from './orchestration'
 import type { RebalanceContext } from './rebalance-executor'
 import { reconstructSchemaFromMetadata } from './recovery-schema'
+import { validateWorkerConfig } from './validation'
 import { getVectorFieldPaths } from './vector-fields'
 import { createWatermarkNotifier, type WatermarkNotifier } from './watermark'
 
@@ -49,7 +50,6 @@ export type EventHandler = (payload: unknown) => void
 
 export interface EngineCore {
   readonly executor: Executor & DirectExecutorExtensions
-  readonly promoter: ExecutionPromoter
   readonly pluginRegistry: PluginRegistry
   readonly durability: DurabilityIntegration | null
   readonly invalidation: InvalidationIntegration | null
@@ -83,10 +83,13 @@ export interface EngineCore {
  * @returns The connected engine core.
  */
 export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks): EngineCore {
-  const executor: Executor & DirectExecutorExtensions = createDirectExecutor()
-  const promoter = createExecutionPromoter({
-    perIndexThreshold: config?.workers?.promotionThreshold,
-    totalThreshold: config?.workers?.totalPromotionThreshold,
+  validateWorkerConfig(config?.workers)
+  const vectorWorkerCount = splitWorkerBudget(resolveWorkerCount(config?.workers?.count)).vector
+  const executor: Executor & DirectExecutorExtensions = createDirectExecutor({
+    vectorWorkerCopies: {
+      enabled: (config?.workers?.enabled ?? workersEnabledByDefault()) && vectorWorkerCount > 0,
+      count: vectorWorkerCount,
+    },
   })
 
   const pluginRegistry: PluginRegistry = createPluginRegistry()
@@ -108,11 +111,11 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
   const abortController = new AbortController()
   const rebalancingIndexes = new Set<string>()
 
-  const orchestrator = createWorkerOrchestrator(config, executor, promoter, indexRegistry, {
-    shouldDeferPromotion() {
+  const orchestrator = createWorkerOrchestrator(config, executor, indexRegistry, {
+    shouldDeferCopies() {
       return rebalancingIndexes.size > 0
     },
-    onPromotion(workerCount, reason) {
+    onCopiesLoaded(workerCount, reason) {
       const handlers = eventHandlers.get('workerPromote')
       if (handlers) {
         for (const handler of handlers) handler({ workerCount, reason })
@@ -121,10 +124,10 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
         console.warn('onWorkerPromote plugin hook failed:', err instanceof Error ? err.message : String(err))
       })
     },
-    onPromotionFailure(reason, error, retryable) {
+    onCopyLoadFailure(reason, error, retryable) {
       const handlers = eventHandlers.get('workerPromoteFailure')
       if (!handlers || handlers.size === 0) {
-        console.warn(`Worker promotion failed (${reason}):`, error)
+        console.warn(`Loading worker copies failed (${reason}):`, error)
         return
       }
       for (const handler of handlers) handler({ reason, error, retryable })
@@ -330,6 +333,7 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
     requireManager,
     onClose: hooks?.onIndexClose,
     onOpen: hooks?.onIndexOpen,
+    onAccess: indexName => orchestrator.noteAccess(indexName),
   })
 
   const mutationCtx: MutationContext = {
@@ -366,7 +370,6 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
 
   return {
     executor,
-    promoter,
     pluginRegistry,
     durability,
     invalidation,

@@ -25,6 +25,7 @@ interface IndexStateWiring {
   requireManager(indexName: string): PartitionManager
   onOpen?(indexName: string): void | Promise<void>
   onClose?(indexName: string): void | Promise<void>
+  onAccess?(indexName: string): void
 }
 
 /**
@@ -73,6 +74,9 @@ export function wireIndexState(wiring: IndexStateWiring): IndexStateCoordinator 
           entry.partitionCount = partitionCount
         }
       }
+    },
+    onAccess(indexName: string): void {
+      wiring.onAccess?.(indexName)
     },
     canCloseAutomatically(indexName: string): boolean {
       return (

@@ -8,14 +8,13 @@ import type { EmbeddingAdapter } from '../../types/adapters'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
 import { createDirectExecutor } from '../../workers/direct-executor'
-import { createExecutionPromoter } from '../../workers/promoter'
 
 const schema = { title: 'string' as const, category: 'string' as const }
 const indexConfig: IndexConfig = { schema, language: 'english' }
 
-async function waitFor(condition: () => boolean, timeoutMs = 20_000): Promise<void> {
+async function waitFor(condition: () => boolean | Promise<boolean>, timeoutMs = 20_000): Promise<void> {
   const start = Date.now()
-  while (!condition()) {
+  while (!(await condition())) {
     if (Date.now() - start > timeoutMs) {
       throw new Error('Timed out waiting for condition')
     }
@@ -51,15 +50,14 @@ describe('worker resynchronisation after a rebalance', () => {
     >([['products', { config: indexConfig, language: english, embeddingAdapter: null }]])
 
     orchestrator = createWorkerOrchestrator(
-      { workers: { enabled: true, count: 2 } },
+      { workers: { enabled: true, count: 2, promotionThreshold: 1 } },
       executor,
-      createExecutionPromoter({ perIndexThreshold: 1 }),
       registry,
     )
 
-    await orchestrator.checkPromotion()
+    await orchestrator.scaleOutReadyIndexes()
     const activeOrchestrator = orchestrator
-    await waitFor(() => activeOrchestrator.isPromoted())
+    await waitFor(() => activeOrchestrator.workerCopies().some(copy => copy.scaledOut))
 
     const before = await activeOrchestrator.searchViaWorker('products', { term: 'wireless' })
     expect(before).not.toBeNull()

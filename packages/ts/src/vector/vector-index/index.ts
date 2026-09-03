@@ -18,14 +18,22 @@ import {
   filterForOptions,
   liveSize,
   type MaintenanceStatus,
+  VECTOR_WORKER_COPIES_ALLOWED,
   type VectorIndexPayload,
   type VectorIndexState,
   type VectorScoredResult,
   type VectorSearchOptions,
+  type VectorWorkerCopyPolicy,
 } from './shared'
 import { invalidateWorkerCopies, scheduleWorkerCopyLoad, searchViaWorkerCopies } from './worker-copies'
 
-export type { MaintenanceStatus, VectorIndexPayload, VectorScoredResult, VectorSearchOptions } from './shared'
+export type {
+  MaintenanceStatus,
+  VectorIndexPayload,
+  VectorScoredResult,
+  VectorSearchOptions,
+  VectorWorkerCopyPolicy,
+} from './shared'
 
 export interface VectorIndex {
   insert(docId: string, vector: Float32Array, partitionId?: number): void
@@ -52,7 +60,12 @@ export interface VectorIndex {
   readonly fieldName: string
 }
 
-export function createVectorIndex(fieldName: string, dimension: number, config?: VectorIndexConfig): VectorIndex {
+export function createVectorIndex(
+  fieldName: string,
+  dimension: number,
+  config?: VectorIndexConfig,
+  workerCopies: VectorWorkerCopyPolicy = VECTOR_WORKER_COPIES_ALLOWED,
+): VectorIndex {
   if (!Number.isInteger(dimension) || dimension <= 0) {
     throw new NarsilError(
       ErrorCodes.VECTOR_DIMENSION_MISMATCH,
@@ -79,6 +92,7 @@ export function createVectorIndex(fieldName: string, dimension: number, config?:
     filterThreshold,
     quantizationMode,
     hnswConfig,
+    workerCopies,
     store,
     tombstones: new Set<string>(),
     buffer: new Set<string>(),

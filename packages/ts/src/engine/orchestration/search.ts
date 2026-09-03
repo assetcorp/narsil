@@ -3,14 +3,14 @@ import { mergeFacets } from '../../search/facets'
 import type { GlobalStatistics } from '../../types/internal'
 import type { FacetResult } from '../../types/results'
 import type { QueryParams } from '../../types/search'
-import type { Executor } from '../../workers/executor'
+import type { WorkerLease } from '../../workers/pool'
 import { createRequestId } from '../../workers/protocol'
 import type { OrchestratorState } from './types'
 
-function partitionsPerWorker(totalPartitions: number, workerCount: number): number[][] {
-  const assignments: number[][] = Array.from({ length: workerCount }, () => [])
-  for (let partitionId = 0; partitionId < totalPartitions; partitionId++) {
-    assignments[partitionId % workerCount].push(partitionId)
+function partitionsPerLease(scope: number[], leaseCount: number): number[][] {
+  const assignments: number[][] = Array.from({ length: leaseCount }, () => [])
+  for (let at = 0; at < scope.length; at++) {
+    assignments[at % leaseCount].push(scope[at])
   }
   return assignments
 }
@@ -30,6 +30,49 @@ function mergeWorkerResults(results: FanOutResult[]): FanOutResult {
   }
 }
 
+function scoresPerPartition(
+  state: OrchestratorState,
+  indexName: string,
+  params: QueryParams,
+  globalStats: GlobalStatistics | undefined,
+): boolean {
+  const mode = params.scoring ?? state.indexRegistry.get(indexName)?.config.defaultScoring ?? 'local'
+  if (mode === 'local') return true
+  return mode === 'broadcast' && globalStats !== undefined
+}
+
+function queryAction(
+  indexName: string,
+  params: QueryParams,
+  globalStats: GlobalStatistics | undefined,
+  partitionIds: number[] | undefined,
+) {
+  return {
+    type: 'query' as const,
+    indexName,
+    params,
+    requestId: createRequestId(),
+    ...(partitionIds !== undefined ? { partitionIds } : {}),
+    ...(globalStats !== undefined ? { globalStats } : {}),
+  }
+}
+
+async function runSplit(
+  leases: WorkerLease[],
+  scope: number[],
+  indexName: string,
+  params: QueryParams,
+  globalStats: GlobalStatistics | undefined,
+): Promise<FanOutResult> {
+  const assignments = partitionsPerLease(scope, leases.length)
+  const results = await Promise.all(
+    assignments.map((partitionIds, at) =>
+      leases[at].executor.execute<FanOutResult>(queryAction(indexName, params, globalStats, partitionIds)),
+    ),
+  )
+  return mergeWorkerResults(results)
+}
+
 export async function searchViaWorker(
   state: OrchestratorState,
   indexName: string,
@@ -39,66 +82,30 @@ export async function searchViaWorker(
 ): Promise<FanOutResult | null> {
   const pool = state.workerPool
   if (!pool) return null
-  if (!state.promotedIndexes.has(indexName)) return null
-  if (state.awaitingBufferedWrites.has(indexName)) return null
+  if (!state.scaledOutIndexes.has(indexName)) return null
   const pendingReplication = state.replicationQueues.get(indexName)
   if (pendingReplication !== undefined && pendingReplication.pendingActions > 0) return null
 
   const manager = state.executor.getManager(indexName)
   if (!manager) return null
 
-  const allExecutors = pool.getAllExecutors()
-  if (allExecutors.length === 0) return null
-
-  const stats = globalStats !== undefined ? { globalStats } : {}
-
-  if (allExecutors.length === 1) {
-    try {
-      return await allExecutors[0].execute<FanOutResult>({
-        type: 'query',
-        indexName,
-        params,
-        requestId: createRequestId(),
-        ...(partitionIds !== undefined ? { partitionIds } : {}),
-        ...stats,
-      })
-    } catch (err) {
-      console.warn('Worker search failed, falling back to local:', err)
-      return null
-    }
-  }
-
-  const assignments = partitionsPerWorker(manager.partitionCount, allExecutors.length)
-  const scopedAssignments =
-    partitionIds === undefined
-      ? assignments
-      : assignments.map(assigned => assigned.filter(partitionId => partitionIds.includes(partitionId)))
-  const activeAssignments: Array<{ executor: Executor; partitionIds: number[] }> = []
-  for (let index = 0; index < allExecutors.length; index++) {
-    if (scopedAssignments[index].length > 0) {
-      activeAssignments.push({ executor: allExecutors[index], partitionIds: scopedAssignments[index] })
-    }
-  }
-  if (activeAssignments.length === 0) {
-    return { scored: [], totalMatched: 0 }
-  }
-
+  const scope = partitionIds ?? Array.from({ length: manager.partitionCount }, (_, partitionId) => partitionId)
+  const idle = pool.leaseIdle(scope.length)
+  const leases: WorkerLease[] = []
   try {
-    const results = await Promise.all(
-      activeAssignments.map(assignment =>
-        assignment.executor.execute<FanOutResult>({
-          type: 'query',
-          indexName,
-          params,
-          requestId: createRequestId(),
-          partitionIds: assignment.partitionIds,
-          ...stats,
-        }),
-      ),
-    )
-    return mergeWorkerResults(results)
+    if (idle.length >= 2 && scoresPerPartition(state, indexName, params, globalStats)) {
+      leases.push(...idle)
+      return await runSplit(leases, scope, indexName, params, globalStats)
+    }
+    for (const lease of idle.slice(1)) lease.release()
+    const lease = idle[0] ?? pool.leaseLeastBusy()
+    if (lease === null) return null
+    leases.push(lease)
+    return await lease.executor.execute<FanOutResult>(queryAction(indexName, params, globalStats, partitionIds))
   } catch (err) {
-    console.warn('Parallel worker search failed, falling back to local:', err)
+    console.warn('Worker search failed, falling back to local:', err)
     return null
+  } finally {
+    for (const lease of leases) lease.release()
   }
 }

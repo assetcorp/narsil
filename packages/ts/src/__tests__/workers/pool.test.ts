@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NarsilError } from '../../errors'
 import type { Executor } from '../../workers/executor'
-import { createWorkerPool, type WorkerPool } from '../../workers/pool'
+import { createWorkerPool, splitWorkerBudget, type WorkerPool } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
 
 function createMockExecutor(): Executor & { shutdownCalled: boolean } {
@@ -310,6 +310,84 @@ describe('WorkerPool: getAllExecutors', () => {
       workerFactory: () => createMockExecutor(),
     })
     expect(pool.getAllExecutors()).toEqual([])
+  })
+})
+
+describe('WorkerPool: leases by queries in flight', () => {
+  function leasablePool(count: number): WorkerPool {
+    const pool = createWorkerPool({ count, workerFactory: () => createMockExecutor() })
+    pool.addIndexToAll('products')
+    return pool
+  }
+
+  it('leases the worker with the fewest queries in flight', () => {
+    const pool = leasablePool(3)
+    const first = pool.leaseLeastBusy()
+    const second = pool.leaseLeastBusy()
+    const third = pool.leaseLeastBusy()
+    expect(new Set([first?.workerId, second?.workerId, third?.workerId]).size).toBe(3)
+
+    second?.release()
+    const fourth = pool.leaseLeastBusy()
+    expect(fourth?.workerId).toBe(second?.workerId)
+  })
+
+  it('leases only idle workers up to the limit asked for', () => {
+    const pool = leasablePool(4)
+    const busy = pool.leaseLeastBusy()
+    const idle = pool.leaseIdle(10)
+    expect(idle).toHaveLength(3)
+    expect(idle.map(lease => lease.workerId)).not.toContain(busy?.workerId)
+
+    expect(pool.leaseIdle(10)).toHaveLength(0)
+    for (const lease of idle) lease.release()
+    expect(pool.leaseIdle(2)).toHaveLength(2)
+  })
+
+  it('counts a lease once however many times it is released', () => {
+    const pool = leasablePool(1)
+    const lease = pool.leaseLeastBusy()
+    lease?.release()
+    lease?.release()
+    expect(pool.leaseIdle(1)).toHaveLength(1)
+  })
+
+  it('never leases a crashed worker', () => {
+    const deathHandlers: Array<(error: Error) => void> = []
+    const pool = createWorkerPool({
+      count: 2,
+      workerFactory: (_id: number, onDeath?: (error: Error) => void) => {
+        if (onDeath) deathHandlers.push(onDeath)
+        return createMockExecutor()
+      },
+    })
+    pool.addIndexToAll('products')
+    deathHandlers[0](new Error('worker thread died'))
+
+    expect(pool.leaseIdle(2).map(lease => lease.workerId)).toEqual([1])
+    expect(pool.leaseLeastBusy()?.workerId).toBe(1)
+  })
+
+  it('returns no lease before any worker exists', () => {
+    const pool = createWorkerPool({ count: 2, workerFactory: () => createMockExecutor() })
+    expect(pool.leaseLeastBusy()).toBeNull()
+    expect(pool.leaseIdle(2)).toEqual([])
+  })
+})
+
+describe('splitWorkerBudget', () => {
+  it('gives the keyword pool the larger half of an odd budget', () => {
+    expect(splitWorkerBudget(7)).toEqual({ keyword: 4, vector: 3 })
+    expect(splitWorkerBudget(3)).toEqual({ keyword: 2, vector: 1 })
+  })
+
+  it('splits an even budget in half', () => {
+    expect(splitWorkerBudget(8)).toEqual({ keyword: 4, vector: 4 })
+    expect(splitWorkerBudget(2)).toEqual({ keyword: 1, vector: 1 })
+  })
+
+  it('leaves the vector pool empty when the budget is one thread', () => {
+    expect(splitWorkerBudget(1)).toEqual({ keyword: 1, vector: 0 })
   })
 })
 

@@ -279,11 +279,11 @@ let sharedPool: Promise<VectorSearchPool | null> | null = null
 let poolHolders = 0
 let workersUnavailable = false
 
-export function acquireVectorSearchPool(): Promise<VectorSearchPool | null> {
+export function acquireVectorSearchPool(requestedCount?: number): Promise<VectorSearchPool | null> {
   poolHolders += 1
   if (workersUnavailable) return Promise.resolve(null)
   if (sharedPool === null) {
-    sharedPool = createVectorSearchPool().then(
+    sharedPool = createVectorSearchPool(requestedCount).then(
       pool => {
         if (pool === null) workersUnavailable = true
         return pool

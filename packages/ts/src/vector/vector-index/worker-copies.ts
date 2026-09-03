@@ -35,6 +35,7 @@ function captureCloneSnapshot(state: VectorIndexState): WorkerCopySnapshot | nul
 }
 
 export function scheduleWorkerCopyLoad(state: VectorIndexState): void {
+  if (!state.workerCopies.enabled) return
   if (state.disposed || state.workerCopyLoading || state.building) return
   if (state.workerCopyHandle !== null) return
   if (!state.hnsw || state.buffer.size > 0) return
@@ -49,7 +50,7 @@ export function scheduleWorkerCopyLoad(state: VectorIndexState): void {
 async function loadWorkerCopies(state: VectorIndexState): Promise<void> {
   const revision = state.revision
 
-  const pool = await acquireVectorSearchPool()
+  const pool = await acquireVectorSearchPool(state.workerCopies.count)
   if (pool === null) {
     await releaseVectorSearchPool()
     return

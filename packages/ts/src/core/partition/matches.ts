@@ -1,6 +1,7 @@
 import type { InternalSearchParams, PostingListView } from '../../types/internal'
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 import type { PartitionFilterMatches } from './filters'
+import { postingColumns } from './posting-columns'
 import type { PartitionReadState } from './utils'
 
 /**
@@ -27,12 +28,12 @@ function markPostingList(
   fields: string[] | undefined,
   filterBitset: Uint32Array | undefined,
 ): void {
-  const hasDeleted = list.deletedDocs.size > 0
-  for (let pi = 0; pi < list.length; pi++) {
-    const internalId = list.docIds[pi]
-    if (hasDeleted && list.deletedDocs.has(internalId)) continue
+  const { docIds, fieldNameIndices, deletedDocs, hasDeleted, count } = postingColumns(list)
+  for (let pi = 0; pi < count; pi++) {
+    const internalId = docIds[pi]
+    if (hasDeleted && deletedDocs.has(internalId)) continue
     if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
-    if (fields && !fields.includes(fieldNames[list.fieldNameIndices[pi]])) continue
+    if (fields && !fields.includes(fieldNames[fieldNameIndices[pi]])) continue
     bitsetSet(matched, internalId)
   }
 }
