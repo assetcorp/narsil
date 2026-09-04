@@ -1,5 +1,6 @@
 import { MAIN_COPY_LONE_QUERY_DOCUMENTS } from '../../../engine/orchestration/search'
 import type { OrchestratorState } from '../../../engine/orchestration/types'
+import { getLanguage } from '../../../languages/registry'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { Executor } from '../../../workers/executor'
 import { createWorkerPool } from '../../../workers/pool'
@@ -17,6 +18,15 @@ export interface OrchestratorHarness {
   dispatched: RecordedDispatch[]
   setDocumentCount: (count: number) => void
   releaseAll: () => void
+}
+
+export function registryWith(indexName: string): OrchestratorState['indexRegistry'] {
+  return new Map([
+    [
+      indexName,
+      { config: { schema: { title: 'string' as const } }, language: getLanguage('english'), embeddingAdapter: null },
+    ],
+  ])
 }
 
 export function emptyOrchestratorState(overrides: Partial<OrchestratorState> = {}): OrchestratorState {
