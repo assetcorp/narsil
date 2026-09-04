@@ -269,7 +269,7 @@ describe('a crashed worker is replaced', () => {
     throw new Error(`No ${type} action reached a worker`)
   }
 
-  function fail(sent: Sent[], type: WorkerAction['type'], error: Error): void {
+  function rejectSent(sent: Sent[], type: WorkerAction['type'], error: Error): void {
     for (const entry of sent.filter(candidate => candidate.action.type === type)) {
       sent.splice(sent.indexOf(entry), 1)
       entry.reject(error)
@@ -349,7 +349,7 @@ describe('a crashed worker is replaced', () => {
     if (state.repairTimer !== null) clearTimeout(state.repairTimer)
   })
 
-  it('leaves the buffer a later load installed while the replacement was still loading', async () => {
+  it('leaves the load buffer another operation installed while the replacement was loading', async () => {
     const state = repairableState()
     const { sent, kill } = poolUnderRepair(state)
 
@@ -365,6 +365,7 @@ describe('a crashed worker is replaced', () => {
     await settle()
 
     expect(state.copyLoadBuffers.get('prose')).toBe(laterBuffer)
+    if (state.repairTimer !== null) clearTimeout(state.repairTimer)
   })
 
   it('keeps the reload reason where the load after a restart fails', async () => {
@@ -377,7 +378,7 @@ describe('a crashed worker is replaced', () => {
     await untilSent(sent, 'dropIndex')
     release(sent, 'dropIndex')
     await untilSent(sent, 'createIndex')
-    fail(sent, 'createIndex', new Error('the worker refused the index'))
+    rejectSent(sent, 'createIndex', new Error('the worker refused the index'))
     await load
 
     expect(state.droppedCopies.get('prose')).toBe(COPY_RESTART_REASON)
