@@ -548,7 +548,7 @@ describe('WorkerPool: getMemoryStats', () => {
         async execute<T>(action: WorkerAction): Promise<T> {
           if (action.type !== 'memoryReport') return undefined as T
           if (id === 0) throw new Error('worker unreachable')
-          return { heapUsed: 1000 + id, heapTotal: (1000 + id) * 2, external: id } as T
+          return { heapUsed: 1000 + id, heapTotal: (1000 + id) * 2, heapLimit: 4_000_000 * id, external: id } as T
         },
         async shutdown() {},
       }),
@@ -557,8 +557,26 @@ describe('WorkerPool: getMemoryStats', () => {
 
     const stats = await pool.getMemoryStats()
     expect(stats).toHaveLength(3)
-    expect(stats.find(s => s.workerId === 0)).toEqual({ workerId: 0, heapUsed: 0, heapTotal: 0, external: 0 })
-    expect(stats.find(s => s.workerId === 1)).toEqual({ workerId: 1, heapUsed: 1001, heapTotal: 2002, external: 1 })
-    expect(stats.find(s => s.workerId === 2)).toEqual({ workerId: 2, heapUsed: 1002, heapTotal: 2004, external: 2 })
+    expect(stats.find(s => s.workerId === 0)).toEqual({
+      workerId: 0,
+      heapUsed: 0,
+      heapTotal: 0,
+      heapLimit: null,
+      external: 0,
+    })
+    expect(stats.find(s => s.workerId === 1)).toEqual({
+      workerId: 1,
+      heapUsed: 1001,
+      heapTotal: 2002,
+      heapLimit: 4_000_000,
+      external: 1,
+    })
+    expect(stats.find(s => s.workerId === 2)).toEqual({
+      workerId: 2,
+      heapUsed: 1002,
+      heapTotal: 2004,
+      heapLimit: 8_000_000,
+      external: 2,
+    })
   })
 })

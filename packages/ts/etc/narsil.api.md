@@ -478,6 +478,7 @@ export interface MemoryStats {
         workerId: number;
         heapUsed: number;
         heapTotal: number;
+        heapLimit: number | null;
         external: number;
     }>;
 }

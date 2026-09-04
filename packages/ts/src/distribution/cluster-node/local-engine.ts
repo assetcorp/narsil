@@ -1,6 +1,7 @@
 import { createPartitionIndex } from '../../core/partition'
 import { createEngineCore, type EngineCore } from '../../engine/core'
 import { createEngineIndex } from '../../engine/index-lifecycle'
+import { checkHeapAfterRecovery } from '../../engine/notifiers'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
 import type { Narsil } from '../../narsil'
@@ -72,6 +73,7 @@ export async function createClusterLocalEngine(
   const core = createEngineCore(config, hooks)
   if (core.durability !== null) {
     await core.durability.manager.recover(config?.lifecycle !== undefined)
+    checkHeapAfterRecovery(core)
   }
   if (core.invalidation !== null) {
     await core.invalidation.start()

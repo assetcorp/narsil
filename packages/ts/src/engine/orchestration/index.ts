@@ -98,6 +98,7 @@ export function createWorkerOrchestrator(
       workerId: report.workerId,
       heapUsed: report.heapUsed,
       heapTotal: report.heapTotal,
+      heapLimit: report.heapLimit,
       external: report.external,
     }))
   }
