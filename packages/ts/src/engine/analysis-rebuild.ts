@@ -1,6 +1,7 @@
 import type { PartitionManager } from '../partitioning/manager'
 import type { DurabilityManager } from '../persistence/durability/types'
 import type { AnalysisConfig, StaleAnalysis } from '../types/config'
+import { emitEngineEvent } from './events'
 
 export interface AnalysisRebuildDeps {
   getManager(indexName: string): PartitionManager | undefined
@@ -65,15 +66,7 @@ export function wireAnalysisRebuild(wiring: AnalysisRebuildWiring): AnalysisRebu
       await (durability.checkpointFromMemory?.(indexName) ?? durability.checkpoint(indexName))
     },
     emit(payload) {
-      const handlers = wiring.eventHandlers.get('analysisRebuild')
-      if (!handlers) return
-      for (const handler of handlers) {
-        try {
-          handler(payload)
-        } catch (err) {
-          console.warn('analysisRebuild handler error:', err instanceof Error ? err.message : String(err))
-        }
-      }
+      emitEngineEvent(wiring.eventHandlers, 'analysisRebuild', payload)
     },
   })
 }

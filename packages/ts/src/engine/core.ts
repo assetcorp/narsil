@@ -19,6 +19,7 @@ import { type AnalysisRebuildCoordinator, wireAnalysisRebuild } from './analysis
 import { resolveDurabilityTier } from './durability-config'
 import type { DurabilityIntegration } from './durability-integration'
 import { createDurabilityFromTier } from './durability-wiring'
+import { emitEngineEvent } from './events'
 import type { HeapPressureNotifier } from './heap-pressure'
 import type { IndexStateCoordinator } from './index-state'
 import { type EngineCoreHooks, wireIndexState } from './index-state-wiring'
@@ -119,29 +120,20 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
       return rebalancingIndexes.size > 0
     },
     onCopiesLoaded(workerCount, reason) {
-      const handlers = eventHandlers.get('workerPromote')
-      if (handlers) {
-        for (const handler of handlers) handler({ workerCount, reason })
-      }
+      emitEngineEvent(eventHandlers, 'workerPromote', { workerCount, reason })
       void Promise.resolve(pluginRegistry.runHook('onWorkerPromote', { workerCount, reason })).catch((err: unknown) => {
         console.warn('onWorkerPromote plugin hook failed:', err instanceof Error ? err.message : String(err))
       })
     },
     onCopyLoadFailure(reason, error, retryable) {
-      const handlers = eventHandlers.get('workerPromoteFailure')
-      if (!handlers || handlers.size === 0) {
+      if (emitEngineEvent(eventHandlers, 'workerPromoteFailure', { reason, error, retryable }) === 0) {
         console.warn(`Loading worker copies failed (${reason}):`, error)
-        return
       }
-      for (const handler of handlers) handler({ reason, error, retryable })
     },
     onWorkerCrash(workerId, indexNames, error) {
-      const handlers = eventHandlers.get('workerCrash')
-      if (!handlers || handlers.size === 0) {
+      if (emitEngineEvent(eventHandlers, 'workerCrash', { workerId, indexNames, error }) === 0) {
         console.warn(`Worker ${workerId} crashed:`, error)
-        return
       }
-      for (const handler of handlers) handler({ workerId, indexNames, error })
     },
   })
 
@@ -263,10 +255,7 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
     indexRegistry,
     createIndexFromMetadata,
     emitFatalError(error: Error) {
-      const handlers = eventHandlers.get('durabilityError')
-      if (handlers) {
-        for (const handler of handlers) handler({ error })
-      }
+      emitEngineEvent(eventHandlers, 'durabilityError', { error })
     },
     publishCheckpointedPartitions: (indexName, partitions) =>
       invalidation?.publishPartitions(indexName, partitions) ?? Promise.resolve(),
@@ -291,12 +280,9 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
     },
     reloadIndex: indexName => durability?.manager.reloadIndex?.(indexName) ?? Promise.resolve(),
     onError(error: Error) {
-      const handlers = eventHandlers.get('invalidationError')
-      if (!handlers || handlers.size === 0) {
+      if (emitEngineEvent(eventHandlers, 'invalidationError', { error }) === 0) {
         console.warn('Invalidation error:', error)
-        return
       }
-      for (const handler of handlers) handler({ error })
     },
   })
 

@@ -8,6 +8,7 @@ export interface MemoryStats {
   workerId: number
   heapUsed: number
   heapTotal: number
+  heapLimit: number | null
   external: number
 }
 
@@ -53,11 +54,16 @@ interface WorkerSlot {
 interface MemoryReportPayload {
   heapUsed?: number
   heapTotal?: number
+  heapLimit?: number | null
   external?: number
 }
 
 function toFinite(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function toHeapLimit(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
 }
 
 export type WorkerFactory = (workerId: number, onDeath?: (error: Error) => void) => Executor
@@ -241,6 +247,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
         workerId: indices[n],
         heapUsed: toFinite(report?.heapUsed),
         heapTotal: toFinite(report?.heapTotal),
+        heapLimit: toHeapLimit(report?.heapLimit),
         external: toFinite(report?.external),
       })
     }

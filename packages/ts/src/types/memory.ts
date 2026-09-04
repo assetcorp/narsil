@@ -79,6 +79,8 @@ export interface MemoryStats {
     heapUsed: number
     /** V8 has reserved this much heap in that worker. */
     heapTotal: number
+    /** That worker's heap may grow to this many bytes, or `null` where its runtime cannot report it. */
+    heapLimit: number | null
     /** That worker holds this much outside its heap. */
     external: number
   }>
