@@ -121,7 +121,7 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
     if (dropReason !== undefined) state.droppedCopies.set(indexName, dropReason)
     throw err
   } finally {
-    if (state.copyLoadBuffers.get(indexName) === buffered) state.copyLoadBuffers.delete(indexName)
+    state.copyLoadBuffers.delete(indexName)
   }
   if (reload) state.copyReloadCounts.set(indexName, (state.copyReloadCounts.get(indexName) ?? 0) + 1)
   scheduleIdleMerge(state, indexName)
@@ -135,6 +135,7 @@ async function loadAfter(
   reason: string,
 ): Promise<void> {
   if (previous !== undefined) await previous.done
+  if (state.poolRepair !== null) await state.poolRepair
   if (!copiesAllowed(state)) return
   if (state.scaledOutIndexes.has(indexName) || state.desyncedIndexes.has(indexName)) return
   await loadCopies(state, indexName, reason)
