@@ -3,7 +3,7 @@ import type { PartitionManager } from '../../partitioning/manager'
 import { linearCombination, reciprocalRankFusion } from '../../search/fusion'
 import type { ScoredDocument } from '../../types/internal'
 import type { IndexConfig } from '../../types/schema'
-import type { QueryParams } from '../../types/search'
+import type { QueryParams, VectorQueryConfig } from '../../types/search'
 import {
   broadcastStatsForWorker,
   clampAlpha,
@@ -59,14 +59,51 @@ export async function executeVectorSearch(
   return { scored, totalMatched: scored.length }
 }
 
+async function textLeg(textOnlyParams: QueryParams, context: QueryContext): Promise<FanOutResult> {
+  const { manager, language, config, workerSearch, indexName } = context
+  const scoring = scoringConfigFor(textOnlyParams, context)
+  if (workerSearch) {
+    const viaWorker = await workerSearch(
+      indexName,
+      textOnlyParams,
+      broadcastStatsForWorker(textOnlyParams, context, scoring),
+      context.partitionIds,
+    )
+    if (viaWorker) return viaWorker
+  }
+  return fanOutQuery(manager, textOnlyParams, language, config.schema, scoring, searchOptionsFor(manager))
+}
+
+async function vectorLeg(
+  vectorConfig: VectorQueryConfig,
+  queryVector: Float32Array,
+  context: QueryContext,
+  filterDocIds: Set<string> | undefined,
+  k: number,
+): Promise<ScoredDocument[]> {
+  const { manager } = context
+  const vecIndex = resolveVectorIndex(manager, vectorConfig.field)
+  if (!vecIndex) return []
+  const filterPartitions =
+    filterDocIds === undefined ? partitionsForVectorSearch(manager, vecIndex, context.partitionIds) : undefined
+  const results = await vecIndex.searchParallel(queryVector, k, {
+    metric: vectorConfig.metric ?? 'cosine',
+    minSimilarity: vectorConfig.similarity ?? -Infinity,
+    ...(filterDocIds !== undefined ? { filterDocIds } : {}),
+    ...(filterPartitions !== undefined ? { filterPartitions } : {}),
+    efSearch: vectorConfig.efSearch,
+  })
+  return vectorResultsToScored(results)
+}
+
 export async function executeHybridSearch(
   params: QueryParams,
   context: QueryContext,
   limit: number,
   offset: number,
 ): Promise<FanOutResult> {
-  const { manager, language, config, workerSearch, indexName } = context
-  const { vector: _vector, mode: _mode, hybrid: _hybrid, ...textOnlyParams } = params
+  const { manager, config } = context
+  const { vector: vectorConfig, mode: _mode, hybrid: _hybrid, ...textOnlyParams } = params
 
   let filterDocIds: Set<string> | undefined
   if (params.filters) {
@@ -76,54 +113,19 @@ export async function executeHybridSearch(
     }
   }
 
-  let textFanOutResult: FanOutResult
-  const scoring = scoringConfigFor(params, context)
-  const textWorkerResult = workerSearch
-    ? await workerSearch(
-        indexName,
-        textOnlyParams,
-        broadcastStatsForWorker(textOnlyParams, context, scoring),
-        context.partitionIds,
-      )
-    : null
-  if (textWorkerResult) {
-    textFanOutResult = textWorkerResult
-  } else {
-    textFanOutResult = await fanOutQuery(
-      manager,
-      textOnlyParams,
-      language,
-      config.schema,
-      scoring,
-      searchOptionsFor(manager),
-    )
-  }
-
-  const vectorConfig = params.vector
   if (!vectorConfig || !vectorConfig.value) {
-    return {
-      scored: textFanOutResult.scored,
-      totalMatched: textFanOutResult.totalMatched,
-      facets: textFanOutResult.facets,
-    }
+    const textOnly = await textLeg(textOnlyParams, context)
+    return { scored: textOnly.scored, totalMatched: textOnly.totalMatched, facets: textOnly.facets }
   }
 
-  let vectorScored: ScoredDocument[] = []
-  const vecIndex = resolveVectorIndex(manager, vectorConfig.field)
-  if (vecIndex) {
-    const queryVec = new Float32Array(vectorConfig.value)
-    const vectorK = limit + offset + 1
-    const filterPartitions =
-      filterDocIds === undefined ? partitionsForVectorSearch(manager, vecIndex, context.partitionIds) : undefined
-    const vectorResults = await vecIndex.searchParallel(queryVec, vectorK, {
-      metric: vectorConfig.metric ?? 'cosine',
-      minSimilarity: vectorConfig.similarity ?? -Infinity,
-      ...(filterDocIds !== undefined ? { filterDocIds } : {}),
-      ...(filterPartitions !== undefined ? { filterPartitions } : {}),
-      efSearch: vectorConfig.efSearch,
-    })
-    vectorScored = vectorResultsToScored(vectorResults)
-  }
+  const vectorPending = vectorLeg(
+    vectorConfig,
+    new Float32Array(vectorConfig.value),
+    context,
+    filterDocIds,
+    limit + offset + 1,
+  )
+  const [textFanOutResult, vectorScored] = await Promise.all([textLeg(textOnlyParams, context), vectorPending])
 
   const hybridConfig = params.hybrid ?? {}
   const strategy = hybridConfig.strategy ?? 'rrf'

@@ -208,6 +208,7 @@ export async function insertDocumentBatch(
   }
 
   ctx.checkWatermark(indexName)
+  ctx.checkHeapPressure(indexName)
   await ctx.orchestrator.scaleOutReadyIndexes()
 
   return { succeeded, failed }

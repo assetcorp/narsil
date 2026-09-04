@@ -35,6 +35,8 @@ docker build -f packages/ts/examples/http-server/Dockerfile -t narsil-server .
 docker run --rm -p 7700:7700 narsil-server
 ```
 
+The image sets `NODE_OPTIONS=--max-old-space-size-percentage=75`, so the engine's heap may grow to three quarters of the memory the container is given, where Node's own default stops at half of it and at about 2 GB. Node ends the process once an index outgrows the heap limit, so pass `--memory` to `docker run` with room for your indexes. Pass `-e NODE_OPTIONS=--max-old-space-size-percentage=60` to change the share; see [The Node heap limit](../../../../docs/observability.md#the-node-heap-limit).
+
 ## Configuration
 
 Every setting reads from an environment variable, so the same image runs locally and in a container.

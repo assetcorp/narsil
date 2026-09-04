@@ -239,6 +239,7 @@ export async function insertBatchViaSegments(
   }
 
   ctx.checkWatermark(indexName)
+  ctx.checkHeapPressure(indexName)
   await ctx.orchestrator.scaleOutReadyIndexes()
 
   return { succeeded: outcome.succeeded, failed }

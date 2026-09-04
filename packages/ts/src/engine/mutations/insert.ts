@@ -107,6 +107,7 @@ export async function insertDocument(
 
   if (buffered) {
     ctx.checkWatermark(indexName)
+    ctx.checkHeapPressure(indexName)
     return resolvedDocId
   }
 
@@ -133,6 +134,7 @@ export async function insertDocument(
   }
 
   ctx.checkWatermark(indexName)
+  ctx.checkHeapPressure(indexName)
   await ctx.orchestrator.scaleOutReadyIndexes()
 
   return resolvedDocId
