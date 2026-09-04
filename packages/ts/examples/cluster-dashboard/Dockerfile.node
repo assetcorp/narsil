@@ -37,6 +37,7 @@ RUN groupadd --system narsil \
   && chown -R narsil:narsil /home/narsil /certs /repo
 
 USER narsil
+ENV NODE_OPTIONS=--max-old-space-size-percentage=75
 
 WORKDIR /repo/packages/ts/examples/cluster-dashboard
 

@@ -48,4 +48,5 @@ export interface MutationContext {
   rebalanceTargetPartitionCount: (name: string) => number | undefined
   bufferedDocState: (name: string, docId: string) => BufferedDocState | undefined
   checkWatermark: (name: string) => void
+  checkHeapPressure: (name: string) => void
 }

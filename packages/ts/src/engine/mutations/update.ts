@@ -177,6 +177,8 @@ export async function updateDocument(
       vecIndex.scheduleBuild()
     }
   }
+
+  ctx.checkHeapPressure(indexName)
 }
 
 export async function updateDocumentBatch(

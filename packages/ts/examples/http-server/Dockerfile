@@ -20,5 +20,6 @@ ENV NARSIL_PORT=7700
 # acceptable only on a trusted private network; set NARSIL_API_KEY to require
 # auth, or run behind a proxy that terminates it.
 ENV NARSIL_ALLOW_INSECURE=true
+ENV NODE_OPTIONS=--max-old-space-size-percentage=75
 EXPOSE 7700
 CMD ["node", "--experimental-strip-types", "examples/http-server/server.ts"]

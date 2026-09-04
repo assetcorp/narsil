@@ -63,6 +63,24 @@ export type NarsilEventMap = {
     /** The index holds this many partitions. */
     partitionCount: number
   }
+  /**
+   * The process heap crossed nine tenths of its limit during a write or a
+   * load, so the next large index may end the process with an out-of-memory
+   * error. The engine emits the event once per crossing and arms it again
+   * once the heap falls below eight tenths of the limit. Raise the limit with
+   * `--max-old-space-size-percentage` or `--max-old-space-size`, or close an
+   * idle index; see {@link ProcessMemoryReport.heapLimit}.
+   */
+  heapPressure: {
+    /** The heap crossed nine tenths of its limit during a write to this index or a load of it. */
+    indexName: string
+    /** The process is using this much heap, in bytes. */
+    heapUsed: number
+    /** The heap may grow to this many bytes. */
+    heapLimit: number
+    /** The engine estimates that the index holds this many bytes. */
+    estimatedMemoryBytes: number
+  }
   /** A rebuild is bringing an index's terms up to its language module's current analysis. */
   analysisRebuild: {
     /** This index is being rebuilt. */

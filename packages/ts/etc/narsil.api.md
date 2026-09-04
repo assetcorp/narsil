@@ -574,6 +574,12 @@ export type NarsilEventMap = {
         capacity: number;
         partitionCount: number;
     };
+    heapPressure: {
+        indexName: string;
+        heapUsed: number;
+        heapLimit: number;
+        estimatedMemoryBytes: number;
+    };
     analysisRebuild: {
         indexName: string;
         status: 'started' | 'completed' | 'failed';
@@ -661,6 +667,7 @@ export type PresenceFilter = {
 // @public
 export interface ProcessMemoryReport {
     external: number;
+    heapLimit: number | null;
     heapTotal: number;
     heapUsed: number;
     rss: number;
