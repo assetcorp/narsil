@@ -28,5 +28,6 @@ ARG NARSIL_VERSION=
 ENV NARSIL_BUILD_GIT_SHA=${NARSIL_GIT_SHA} \
     NARSIL_BUILD_DIRTY=${NARSIL_GIT_DIRTY} \
     NARSIL_BUILD_VERSION=${NARSIL_VERSION}
+ENV NODE_OPTIONS=--max-old-space-size-percentage=75
 EXPOSE 7700
 CMD ["node", "--experimental-strip-types", "examples/http-server/server.ts"]
