@@ -3,11 +3,13 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
+import { normaliseTokenizerSource } from './analysis-revision-tokenizer'
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const PACKAGE_DIR = resolve(scriptDirectory, '..')
 const LANGUAGES_DIR = join(PACKAGE_DIR, 'src', 'languages')
 const TOKENIZER_DIR = join(PACKAGE_DIR, 'src', 'core', 'tokenizer')
+const TOKENIZER_CONSTANTS_PATH = join(TOKENIZER_DIR, 'constants.ts')
 const LOCK_PATH = join(PACKAGE_DIR, 'languages.lock.json')
 const REVISION_PLACEHOLDER = 'revision: "recorded in languages.lock.json"'
 const REVISION_PROPERTY = /revision:\s*(['"])[^'"]*\1/
@@ -92,10 +94,14 @@ function typeScriptFiles(directory: string): string[] {
   return found
 }
 
+function tokenizerCode(path: string): string {
+  return normaliseTokenizerSource(path, readFileSync(path, 'utf-8'), TOKENIZER_CONSTANTS_PATH)
+}
+
 function tokenizerFingerprint(): string {
   const sources = new Map<string, string>()
   for (const path of typeScriptFiles(TOKENIZER_DIR)) {
-    sources.set(path, normalisedCode(parse(path), false))
+    sources.set(path, tokenizerCode(path))
   }
   return digestSources(sources)
 }
