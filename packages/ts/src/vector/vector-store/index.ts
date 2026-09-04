@@ -1,4 +1,5 @@
 import type { VectorMetric } from '../brute-force'
+import { VECTOR_STORE_INITIAL_CAPACITY, WASM_PAGE_BYTES } from '../constants'
 import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter } from '../ordinal-filter'
 import { type ArenaSimd, arenaFloat32Distance, createArenaSimd } from '../simd'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from '../similarity'
@@ -12,8 +13,6 @@ export type {
   VectorStoreSnapshot,
 } from './types'
 
-const INITIAL_CAPACITY = 16
-const PAGE_BYTES = 65536
 const UNKNOWN_PARTITION = -1
 const NO_PARTITION = -2
 
@@ -44,7 +43,7 @@ export function createVectorStore(): VectorStore {
 
   function ensureCapacity(needed: number): void {
     if (needed <= capacity) return
-    let newCap = capacity === 0 ? INITIAL_CAPACITY : capacity
+    let newCap = capacity === 0 ? VECTOR_STORE_INITIAL_CAPACITY : capacity
     while (newCap < needed) newCap *= 2
 
     const nextMags = new Float64Array(newCap)
@@ -56,7 +55,7 @@ export function createVectorStore(): VectorStore {
       const have = simd.memory.buffer.byteLength
       if (requiredBytes > have) {
         try {
-          simd.memory.grow(Math.ceil((requiredBytes - have) / PAGE_BYTES))
+          simd.memory.grow(Math.ceil((requiredBytes - have) / WASM_PAGE_BYTES))
         } catch {
           const migrated = new Float32Array(newCap * dimension)
           migrated.set(arena.subarray(scratchFloatLength, scratchFloatLength + capacity * dimension))
@@ -90,7 +89,7 @@ export function createVectorStore(): VectorStore {
 
   function ensurePartitionSlots(ord: number): void {
     if (ord < partitionOf.length) return
-    let length = partitionOf.length === 0 ? INITIAL_CAPACITY : partitionOf.length
+    let length = partitionOf.length === 0 ? VECTOR_STORE_INITIAL_CAPACITY : partitionOf.length
     while (length <= ord) length *= 2
     const grown = new Int32Array(length).fill(UNKNOWN_PARTITION)
     grown.set(partitionOf)

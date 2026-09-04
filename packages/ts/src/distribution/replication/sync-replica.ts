@@ -13,8 +13,8 @@ import type {
   TransportMessage,
 } from '../transport/types'
 import { ReplicationMessageTypes } from '../transport/types'
+import { MAX_SNAPSHOT_SIZE_BYTES } from './constants'
 import { applyDeleteEntry, applyIndexEntry, validateReplicationEntry } from './replica'
-import { MAX_SNAPSHOT_SIZE_BYTES } from './snapshot-constants'
 import {
   createSnapshotStreamState,
   finalizeSnapshotStream,

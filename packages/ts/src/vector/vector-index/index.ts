@@ -4,6 +4,7 @@ import type { HNSWConfig } from '../hnsw'
 import { createScalarQuantizer } from '../scalar-quantization'
 import { createVectorStore } from '../vector-store'
 import { scheduleBuild as scheduleBuildOp } from './build'
+import { DEFAULT_FILTER_THRESHOLD, DEFAULT_PROMOTION_THRESHOLD } from './constants'
 import {
   compact as compactOp,
   estimateMemoryBytes as estimateMemoryBytesOp,
@@ -13,8 +14,6 @@ import {
 import { deserialize as deserializeOp, serialize as serializeOp } from './persistence'
 import { search as searchOp, searchWithFilter } from './search'
 import {
-  DEFAULT_FILTER_THRESHOLD,
-  DEFAULT_PROMOTION_THRESHOLD,
   filterForOptions,
   liveSize,
   type MaintenanceStatus,

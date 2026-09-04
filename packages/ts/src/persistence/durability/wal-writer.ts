@@ -1,12 +1,11 @@
 import { compareCodePoints } from '../../core/ordering'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { DEFAULT_SEGMENT_MAX_BYTES } from './constants'
 import type { AppendHandle, DurableDirectory } from './durable-filesystem'
 import { createGroupCommitCoordinator } from './group-commit'
 import { createMarkerWriter, type MarkerWriter } from './marker-writer'
 import { frameRecord, SEGMENT_HEADER_SIZE, writeSegmentHeader } from './wal-framing'
-
-export const DEFAULT_SEGMENT_MAX_BYTES = 67_108_864
 
 const SEGMENT_TAIL_PATTERN = /^\d{16}$/
 

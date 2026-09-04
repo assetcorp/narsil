@@ -1,20 +1,24 @@
-import { MAX_CURSOR_LENGTH } from '../../../search/cursor'
+import { MAX_CURSOR_LENGTH, MAX_SORT_FIELDS } from '../../../search/constants'
 import { validateIndexName } from '../../cluster/index-metadata'
 import type { SearchPayload } from '../../transport/types'
+import {
+  MAX_BOOST_FIELDS,
+  MAX_FACET_SIZE,
+  MAX_FACETS,
+  MAX_FIELDS_LIST,
+  MAX_LIMIT,
+  MAX_OFFSET,
+  MAX_TERM_LENGTH,
+  MAX_TOLERANCE,
+  MAX_VECTOR_DIMENSION,
+  MAX_VECTOR_TEXT_LENGTH,
+} from '../constants'
 import { oversampledShardSize } from '../oversample'
 import {
   CONFIG_INVALID,
   isFiniteNumber,
   isInteger,
   isRecord,
-  MAX_BOOST_FIELDS,
-  MAX_FACETS,
-  MAX_FIELDS_LIST,
-  MAX_LIMIT,
-  MAX_OFFSET,
-  MAX_SORT_FIELDS,
-  MAX_TERM_LENGTH,
-  MAX_TOLERANCE,
   SEARCH_INVALID_FIELD,
   SEARCH_INVALID_MODE,
   throwInvalid,
@@ -37,11 +41,7 @@ import {
   validateVectorMetricParam,
 } from './search-options'
 
-export const MAX_FACET_SHARD_SIZE = oversampledShardSize(1_000)
-
-export const MAX_VECTOR_DIMENSION = 8192
-
-export const MAX_VECTOR_TEXT_LENGTH = 16_384
+export const MAX_FACET_SHARD_SIZE = oversampledShardSize(MAX_FACET_SIZE)
 
 const ALLOWED_SCORING = ['local', 'dfs', 'broadcast'] as const
 const ALLOWED_SORT_DIRECTIONS = ['asc', 'desc'] as const

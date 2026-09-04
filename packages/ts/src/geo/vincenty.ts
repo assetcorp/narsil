@@ -1,11 +1,9 @@
+import { DEG_TO_RAD, VINCENTY_CONVERGENCE_THRESHOLD, VINCENTY_MAX_ITERATIONS } from './constants'
 import { haversineDistance } from './haversine'
 
 const WGS84_A = 6_378_137.0
 const WGS84_F = 1 / 298.257223563
 const WGS84_B = WGS84_A * (1 - WGS84_F)
-const DEG_TO_RAD = Math.PI / 180
-const MAX_ITERATIONS = 200
-const CONVERGENCE_THRESHOLD = 1e-12
 
 export function vincentyDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const phi1 = lat1 * DEG_TO_RAD
@@ -28,7 +26,7 @@ export function vincentyDistance(lat1: number, lon1: number, lat2: number, lon2:
   let sinAlpha = 0
   let cos2Alpha = 0
   let cos2SigmaM = 0
-  let iterations = MAX_ITERATIONS
+  let iterations = VINCENTY_MAX_ITERATIONS
 
   do {
     const sinLambda = Math.sin(lambda)
@@ -58,7 +56,7 @@ export function vincentyDistance(lat1: number, lon1: number, lat2: number, lon2:
         WGS84_F *
         sinAlpha *
         (sigma + C * sinSigma * (cos2SigmaM + C * cosSigma * (-1 + 2 * cos2SigmaM * cos2SigmaM)))
-  } while (Math.abs(lambda - prevLambda) > CONVERGENCE_THRESHOLD && --iterations > 0)
+  } while (Math.abs(lambda - prevLambda) > VINCENTY_CONVERGENCE_THRESHOLD && --iterations > 0)
 
   if (iterations === 0) {
     return haversineDistance(lat1, lon1, lat2, lon2)

@@ -6,7 +6,7 @@ import {
   MAX_PINNED_ENTRIES,
   MAX_PINNED_POSITION,
   MAX_TERMS_COUNT,
-} from '../../../../../distribution/query/validators/common'
+} from '../../../../../distribution/query/constants'
 import { makeSearchPayload } from './fixtures'
 
 describe('validateSearchPayload params.termMatch', () => {

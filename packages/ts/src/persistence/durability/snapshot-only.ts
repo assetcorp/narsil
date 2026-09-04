@@ -2,16 +2,15 @@ import { concatEnvelopeParts, readMetadataEnvelope, writeMetadataEnvelope } from
 import type { PersistenceAdapter } from '../../types/adapters'
 import { buildSnapshotBundleBytes, snapshotStorageKey } from './checkpoint'
 import { countSnapshotBundleDocuments } from './checkpoint-count'
+import { DEFAULT_CHECKPOINT_INTERVAL_MS, DEFAULT_CHECKPOINT_MUTATION_THRESHOLD } from './constants'
 import { loadSnapshotBundleBytes, snapshotCheckpointFor } from './recovery'
 import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
-import {
-  type CheckpointPublisher,
-  DEFAULT_CHECKPOINT_INTERVAL_MS,
-  DEFAULT_CHECKPOINT_MUTATION_THRESHOLD,
-  type DurabilityConfig,
-  type DurabilityManager,
-  type IndexDurabilityHooks,
-  type MutationRecord,
+import type {
+  CheckpointPublisher,
+  DurabilityConfig,
+  DurabilityManager,
+  IndexDurabilityHooks,
+  MutationRecord,
 } from './types'
 
 interface SnapshotIndexState {

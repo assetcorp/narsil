@@ -3,7 +3,8 @@ import type { OrdinalFilter } from '../ordinal-filter'
 import { acquireVectorSearchPool, releaseVectorSearchPool } from '../search-pool'
 import { freezeSharedGeneration } from '../shared-generation/freeze'
 import type { WorkerCopySnapshot } from '../worker-copy'
-import { liveSize, type VectorIndexState, type VectorScoredResult, WORKER_COPY_MIN_VECTORS } from './shared'
+import { WORKER_COPY_MIN_VECTORS } from './constants'
+import { liveSize, type VectorIndexState, type VectorScoredResult } from './shared'
 
 let handleCounter = 0
 

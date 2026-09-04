@@ -1,8 +1,9 @@
 import type { TaskListPage, TaskListQuery, TaskRecord } from '../server/types'
+import { DEFAULT_TASK_POLL_INTERVAL_MS } from './constants'
 import type { NarsilReadOptions, NarsilReadState } from './options'
 import { usePolling } from './poll'
 import { useRead } from './read'
-import { DEFAULT_TASK_POLL_INTERVAL_MS, isTerminalTask, pollInterval } from './task-state'
+import { isTerminalTask, pollInterval } from './task-state'
 
 /**
  * These settings say how a task hook follows the work.

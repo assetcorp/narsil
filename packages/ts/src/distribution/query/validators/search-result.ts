@@ -1,21 +1,14 @@
+import { MAX_DOC_ID_LENGTH } from '../../../engine/constants'
 import type { FacetBucket, SearchResultPayload } from '../../transport/types'
 import {
-  CONFIG_INVALID,
-  isFiniteNumber,
-  isInteger,
-  isRecord,
-  MAX_DOC_ID_LENGTH,
-  throwInvalid,
-  validatePartitionId,
-} from './common'
-
-const MAX_RESULTS_PER_PARTITION = 10_000
-const MAX_SORT_VALUES = 8
-
-const MAX_FACET_FIELDS = 64
-const MAX_FACET_BUCKETS = 10_000
-const MAX_FACET_VALUE_LENGTH = 1024
-const MAX_GROUPS_PER_RESPONSE = 65_536
+  MAX_FACET_BUCKETS,
+  MAX_FACET_FIELDS,
+  MAX_FACET_VALUE_LENGTH,
+  MAX_GROUPS_PER_RESPONSE,
+  MAX_RESULTS_PER_PARTITION,
+  MAX_SORT_VALUES,
+} from '../constants'
+import { CONFIG_INVALID, isFiniteNumber, isInteger, isRecord, throwInvalid, validatePartitionId } from './common'
 
 function validateScoredEntry(value: unknown, fieldLabel: string): void {
   if (!isRecord(value)) {

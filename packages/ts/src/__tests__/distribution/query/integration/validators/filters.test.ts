@@ -5,7 +5,7 @@ import {
   MAX_FILTER_DEPTH,
   MAX_FILTER_FIELDS,
   MAX_FILTER_STRING_LENGTH,
-} from '../../../../../distribution/query/validators/common'
+} from '../../../../../distribution/query/constants'
 import { validateFilterExpression } from '../../../../../distribution/query/validators/filters'
 import { NarsilError } from '../../../../../errors'
 import { makeSearchPayload } from './fixtures'

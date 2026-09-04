@@ -1,6 +1,7 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { generateId } from '../../../../../core/id-generator'
+import { DEFAULT_NODE_LIFECYCLE_CONFIG } from '../../../../../distribution/cluster/constants'
 import { createController } from '../../../../../distribution/cluster/controller'
 import type { ControllerNode } from '../../../../../distribution/cluster/controller/types'
 import { createDataNodeLifecycle } from '../../../../../distribution/cluster/node-lifecycle'
@@ -10,7 +11,6 @@ import {
   reportBootstrapComplete,
 } from '../../../../../distribution/cluster/node-lifecycle/bootstrap'
 import type { DataNodeHandle, NodeLifecycleConfig } from '../../../../../distribution/cluster/node-lifecycle/types'
-import { DEFAULT_NODE_LIFECYCLE_CONFIG } from '../../../../../distribution/cluster/node-lifecycle/types'
 import { createInMemoryCoordinator } from '../../../../../distribution/coordinator'
 import type { ClusterCoordinator, PartitionAssignment } from '../../../../../distribution/coordinator/types'
 import type { InMemoryNetwork, NodeTransport } from '../../../../../distribution/transport'

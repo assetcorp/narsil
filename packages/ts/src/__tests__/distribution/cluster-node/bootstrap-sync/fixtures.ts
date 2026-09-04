@@ -2,7 +2,7 @@ import { encode } from '@msgpack/msgpack'
 import { vi } from 'vitest'
 import type { BootstrapSyncDeps } from '../../../../distribution/cluster-node/bootstrap-sync'
 import type { ClusterCoordinator } from '../../../../distribution/coordinator/types'
-import { SNAPSHOT_CHUNK_SIZE } from '../../../../distribution/replication/snapshot-constants'
+import { SNAPSHOT_CHUNK_SIZE } from '../../../../distribution/replication/constants'
 import {
   type NodeTransport,
   type ReplicationSnapshotHeader,

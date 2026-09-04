@@ -6,9 +6,8 @@ import {
   type SnapshotSyncHandlerState,
 } from '../../../distribution/cluster-node/snapshot-sync-handler'
 import type { AllocationTable, ClusterCoordinator, PartitionAssignment } from '../../../distribution/coordinator/types'
+import { MAX_SNAPSHOT_SIZE_BYTES, SNAPSHOT_CHUNK_SIZE } from '../../../distribution/replication/constants'
 import {
-  MAX_SNAPSHOT_SIZE_BYTES,
-  SNAPSHOT_CHUNK_SIZE,
   SNAPSHOT_HEADER_SENTINEL_PARTITION_ID,
   SNAPSHOT_HEADER_SENTINEL_SEQNO,
 } from '../../../distribution/replication/snapshot-constants'

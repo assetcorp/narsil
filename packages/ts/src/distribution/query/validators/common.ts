@@ -1,34 +1,6 @@
 import { type ErrorCode, ErrorCodes, NarsilError } from '../../../errors'
-import { RESULT_WINDOW } from '../../../search/pagination'
-import { MAX_PARTITION_COUNT } from '../../cluster/index-metadata'
-
-export { MAX_PARTITION_COUNT } from '../../cluster/index-metadata'
-
-export const MAX_PARTITION_IDS = MAX_PARTITION_COUNT
-
-export const MAX_TERM_LENGTH = 1024
-export const MAX_TERMS_COUNT = 65_536
-export const MAX_FIELD_NAME_LENGTH = 255
-export const MAX_FIELDS_LIST = 256
-export const MAX_BOOST_FIELDS = 256
-export const MAX_SORT_FIELDS = 8
-export const MAX_FACETS = 64
-export const MAX_FETCH_DOCUMENT_IDS = 10_000
-export const MAX_DOC_ID_LENGTH = 512
-export const MAX_FILTER_DEPTH = 30
-export const MAX_FILTER_FIELDS = 256
-export const MAX_FILTER_ARRAY_SIZE = 65_536
-export const MAX_FILTER_STRING_LENGTH = 1024
-export const MAX_TOLERANCE = 10
-export const MAX_LIMIT = 10_000
-export const MAX_OFFSET = 10_000
-export const MAX_HYBRID_K = 10_000
-export const MIN_HYBRID_K = 1
-export const MAX_PREFIX_LENGTH = 1024
-export const MAX_PINNED_ENTRIES = 1_000
-export const MAX_PINNED_POSITION = RESULT_WINDOW
-export const MAX_EF_SEARCH = 10_000
-export const MAX_GROUP_FIELDS = 64
+import { MAX_PARTITION_COUNT } from '../../constants'
+import { MAX_FIELD_NAME_LENGTH, MAX_PARTITION_IDS } from '../constants'
 
 const NULL_BYTE = String.fromCharCode(0)
 

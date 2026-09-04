@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { MAIN_COPY_LONE_QUERY_DOCUMENTS, searchViaWorker } from '../../../engine/orchestration/search'
+import { MAIN_COPY_LONE_QUERY_DOCUMENTS } from '../../../engine/orchestration/constants'
+import { searchViaWorker } from '../../../engine/orchestration/search'
 import type { IndexRegistry } from '../../../engine/orchestration/types'
 import { getLanguage } from '../../../languages/registry'
 import type { FanOutResult } from '../../../partitioning/fan-out'

@@ -1,10 +1,9 @@
 import { decode } from '@msgpack/msgpack'
 import { afterEach, describe, expect, it } from 'vitest'
-import { WIRE_BATCH_BUDGET } from '../../../../distribution/chunking'
 import {
-  CATCH_UP_IN_FLIGHT_BYTE_CEILING,
   createCatchUpState,
   getPendingAdmissions,
+  MAX_CATCH_UP_IN_FLIGHT_BYTES,
   markPendingAdmission,
   recordReplicaPosition,
   runCatchUpTick,
@@ -12,6 +11,7 @@ import {
 } from '../../../../distribution/cluster-node/catch-up'
 import { getInSyncReplicaTargets } from '../../../../distribution/cluster-node/write-routing/assignment'
 import type { WriteRoutingDeps } from '../../../../distribution/cluster-node/write-routing/types'
+import { WIRE_BATCH_BUDGET } from '../../../../distribution/constants'
 import { createInMemoryCoordinator } from '../../../../distribution/coordinator/in-memory'
 import type {
   AllocationTable,
@@ -25,9 +25,10 @@ import {
   validateEntryPayload,
 } from '../../../../distribution/replication/codec'
 import type { ReplicationLog } from '../../../../distribution/replication/types'
+import { MAX_MESSAGE_SIZE_BYTES } from '../../../../distribution/transport/constants'
 import { createInMemoryNetwork, createInMemoryTransport } from '../../../../distribution/transport/in-memory'
 import type { NodeTransport, TransportMessage } from '../../../../distribution/transport/types'
-import { MAX_MESSAGE_SIZE_BYTES, ReplicationMessageTypes } from '../../../../distribution/transport/types'
+import { ReplicationMessageTypes } from '../../../../distribution/transport/types'
 
 function makeTable(overrides: Partial<PartitionAssignment> = {}): AllocationTable {
   const assignment: PartitionAssignment = {
@@ -252,7 +253,7 @@ describe('catch-up pump', () => {
     appendEntries(log, 3)
     const { deps, received } = await setUp(makeTable(), log)
 
-    deps.catchUp.inFlightBytes = CATCH_UP_IN_FLIGHT_BYTE_CEILING
+    deps.catchUp.inFlightBytes = MAX_CATCH_UP_IN_FLIGHT_BYTES
     recordReplicaPosition(deps.catchUp, 'products', 0, 'node-b', 0)
     await runCatchUpTick(deps.catchUp, deps)
 

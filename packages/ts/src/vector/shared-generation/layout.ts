@@ -1,8 +1,6 @@
+import { MAX_WASM_PAGES, WASM_PAGE_BYTES } from '../constants'
 import type { SharedGenerationLayout } from './types'
 
-export const WASM_PAGE_BYTES = 65536
-
-const MAX_WASM_PAGES = 65536
 const SCRATCH_ALIGNMENT = 16
 
 function alignUp(bytes: number): number {

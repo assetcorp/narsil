@@ -1,15 +1,13 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { IndexLifecycleConfig } from '../../types/config'
+import { MAX_SWEEP_INTERVAL_MS, MIN_SWEEP_INTERVAL_MS } from '../constants'
+import { DEFAULT_MAX_REOPEN_WAITERS, MAX_REOPEN_FAILURES } from './constants'
 import {
   cachedRecoveryError,
   createLifecycleEntry,
-  DEFAULT_MAX_REOPEN_WAITERS,
   type IndexStateCallbacks,
   type IndexStateCoordinator,
   type LifecycleEntry,
-  MAX_REOPEN_FAILURES,
-  MAX_SWEEP_INTERVAL_MS,
-  MIN_SWEEP_INTERVAL_MS,
   validateLimit,
 } from './entry'
 

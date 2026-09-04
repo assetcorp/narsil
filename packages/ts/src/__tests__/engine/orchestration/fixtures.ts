@@ -1,4 +1,4 @@
-import { MAIN_COPY_LONE_QUERY_DOCUMENTS } from '../../../engine/orchestration/search'
+import { MAIN_COPY_LONE_QUERY_DOCUMENTS } from '../../../engine/orchestration/constants'
 import type { OrchestratorState } from '../../../engine/orchestration/types'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { Executor } from '../../../workers/executor'

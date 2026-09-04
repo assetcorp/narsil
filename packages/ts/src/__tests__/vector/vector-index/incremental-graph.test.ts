@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHNSWIndex, type HNSWConfig } from '../../../vector/hnsw'
 import { dispatchWorkerBuild, type WorkerBuildOutcome } from '../../../vector/hnsw-worker-dispatch'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
-import { WORKER_BUILD_SIZE_THRESHOLD } from '../../../vector/vector-index/shared'
+import { WORKER_BUILD_SIZE_THRESHOLD } from '../../../vector/vector-index/constants'
 import { createVectorStore } from '../../../vector/vector-store'
 import { DIM, normalizedVector } from './fixtures'
 

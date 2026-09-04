@@ -1,6 +1,5 @@
 import { ErrorCodes, NarsilError } from '../errors'
-
-const MAX_DEPTH = 32
+import { MAX_QUERY_KEY_DEPTH } from './constants'
 
 function refuse(reason: string): NarsilError {
   return new NarsilError(
@@ -60,7 +59,7 @@ function write(value: unknown, out: string[], depth: number, seen: object[]): vo
       break
   }
 
-  if (depth >= MAX_DEPTH) throw refuse(`nests deeper than ${MAX_DEPTH} levels`)
+  if (depth >= MAX_QUERY_KEY_DEPTH) throw refuse(`nests deeper than ${MAX_QUERY_KEY_DEPTH} levels`)
   const held = value as object
   if (seen.includes(held)) throw refuse('holds a reference back to itself')
   seen.push(held)

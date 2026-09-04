@@ -1,12 +1,11 @@
 import type { WorkerPool, WorkerReplacement } from '../../workers/pool'
 import { createRequestId, type WorkerAction } from '../../workers/protocol'
 import { loadIndexOntoWorkers } from '../worker-resync'
+import { POOL_RESTART_DELAY_MAX_MS, POOL_RESTART_DELAY_MS } from './constants'
 import { enqueueReplication } from './replication'
 import type { OrchestratorState } from './types'
 
 export const COPY_RESTART_REASON = 'A request arrived after every worker crashed and the restart delay passed'
-export const POOL_RESTART_DELAY_MS = 1_000
-const POOL_RESTART_DELAY_MAX_MS = 60_000
 
 export function nextRestartDelay(state: OrchestratorState): number {
   const delay = state.poolRetryDelayMs

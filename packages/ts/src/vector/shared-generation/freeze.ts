@@ -1,9 +1,10 @@
 import { compareCodePoints } from '../../core/ordering'
+import { WASM_PAGE_BYTES } from '../constants'
 import type { HNSWIndex } from '../hnsw'
 import { ABSENT_DOCUMENT_RANK } from '../hnsw/search'
 import type { ScalarQuantizer } from '../scalar-quantization-types'
 import type { VectorStore } from '../vector-store'
-import { computeSharedGenerationLayout, WASM_PAGE_BYTES } from './layout'
+import { computeSharedGenerationLayout } from './layout'
 import type { SharedGenerationSnapshot } from './types'
 
 /**

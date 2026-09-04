@@ -1,0 +1,2 @@
+export const DEFAULT_MAX_REOPEN_WAITERS = 64
+export const MAX_REOPEN_FAILURES = 5

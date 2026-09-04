@@ -147,6 +147,6 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
   return handle
 }
 
+export { DEFAULT_NODE_LIFECYCLE_CONFIG } from '../constants'
 export { reportBootstrapComplete } from './bootstrap'
 export type { DataNodeHandle, DataNodeLifecycleStatus, NodeLifecycleConfig, PartitionBootstrapState } from './types'
-export { DEFAULT_NODE_LIFECYCLE_CONFIG } from './types'

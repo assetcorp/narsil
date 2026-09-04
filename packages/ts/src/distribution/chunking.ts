@@ -1,17 +1,4 @@
 /**
- * The ceilings every batched write shares, so a forwarded batch and the
- * replication batch it turns into split at the same points and neither builds
- * a message the other side refuses.
- *
- * @internal
- */
-export const WIRE_BATCH_BUDGET = {
-  maxCount: 1_000,
-  maxBytes: 8_388_608,
-  overheadBytes: 256,
-} as const
-
-/**
  * The ceiling one wire batch fills before the next one starts.
  *
  * @internal

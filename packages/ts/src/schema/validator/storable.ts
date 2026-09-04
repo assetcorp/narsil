@@ -1,6 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-
-export const MAX_DOCUMENT_NESTING_DEPTH = 32
+import { MAX_DOCUMENT_NESTING_DEPTH } from '../constants'
 
 const RESERVED_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 

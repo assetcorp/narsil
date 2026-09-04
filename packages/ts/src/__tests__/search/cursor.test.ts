@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { decodePageCursor, encodePageCursor, MAX_CURSOR_LENGTH, sortSignatureOf } from '../../search/cursor'
+import { MAX_CURSOR_LENGTH } from '../../search/constants'
+import { decodePageCursor, encodePageCursor, sortSignatureOf } from '../../search/cursor'
 
 const binding = 'ab12cd34'
 

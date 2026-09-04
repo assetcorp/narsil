@@ -1,6 +1,6 @@
+import { MAX_MESSAGE_SIZE_BYTES } from '../constants'
 import {
   type ListenHandler,
-  MAX_MESSAGE_SIZE_BYTES,
   type NodeTransport,
   TransportError,
   TransportErrorCodes,

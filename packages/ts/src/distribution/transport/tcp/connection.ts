@@ -1,6 +1,7 @@
 import { connect, type Socket } from 'node:net'
 import { connect as tlsConnect } from 'node:tls'
-import { MAX_MESSAGE_SIZE_BYTES, TransportError, TransportErrorCodes, type TransportMessage } from '../types'
+import { MAX_MESSAGE_SIZE_BYTES } from '../constants'
+import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import { decodeTransportMessage, encodeFrame, encodeTransportMessage, FrameParser, type WireFrame } from './framing'
 import { parseAddress } from './parse-address'
 import {

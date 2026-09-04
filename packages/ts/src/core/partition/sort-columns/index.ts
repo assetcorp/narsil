@@ -1,13 +1,11 @@
 import type { DocumentStoreReader } from '../../document-store'
 import { type ComparableSortValue, compareComparableValues, readSortField } from '../../ordering'
+import { SORT_COLUMN_MINIMUM_REBUILD_THRESHOLD, SORT_COLUMN_REBUILD_FRACTION_SHIFT } from '../constants'
 import { buildOrder, estimateOrderBytes, MISSING_RANK, rankOfValue, type SortColumnOrder, seekPosition } from './order'
 import { createValueStore, kindForFieldType, type ValueStore } from './values'
 
 export type { SortColumnOrder } from './order'
 export { MISSING_RANK, rankIsBetweenValues, seekPosition } from './order'
-
-const MINIMUM_REBUILD_THRESHOLD = 1024
-const REBUILD_FRACTION_SHIFT = 2
 
 export interface DirtyStream {
   present: Int32Array
@@ -53,8 +51,8 @@ export function createSortColumnSet(docStore: DocumentStoreReader): SortColumnSe
 
   function rebuildThreshold(): number {
     const count = docStore.count()
-    const fraction = count >> REBUILD_FRACTION_SHIFT
-    return fraction > MINIMUM_REBUILD_THRESHOLD ? fraction : MINIMUM_REBUILD_THRESHOLD
+    const fraction = count >> SORT_COLUMN_REBUILD_FRACTION_SHIFT
+    return fraction > SORT_COLUMN_MINIMUM_REBUILD_THRESHOLD ? fraction : SORT_COLUMN_MINIMUM_REBUILD_THRESHOLD
   }
 
   function rebuild(entry: ColumnEntry): void {

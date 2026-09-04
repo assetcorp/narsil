@@ -2,12 +2,9 @@ import { isCompositePartition } from '../../core/partition/composite'
 import { createSharedFrozenSegment, freezeSegmentShared } from '../../core/partition/frozen'
 import type { PartitionManager } from '../../partitioning/manager'
 import { createRequestId } from '../../workers/protocol'
-import { MIN_DOCUMENTS_FOR_SEGMENTS } from '../mutations/segment-replication'
+import { LIVE_TAIL_FLUSH_DOCUMENTS } from './constants'
 import { queueForCopies } from './replication'
 import type { OrchestratorState } from './types'
-
-export const LIVE_TAIL_FREEZE_FLOOR = MIN_DOCUMENTS_FOR_SEGMENTS
-export const LIVE_TAIL_FLUSH_DOCUMENTS = 5_000
 
 export function liveTailCount(manager: PartitionManager, partitionId: number): number {
   if (partitionId >= manager.partitionCount) return 0

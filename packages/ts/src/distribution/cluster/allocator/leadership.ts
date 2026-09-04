@@ -1,7 +1,6 @@
+import { LEADERSHIP_IMBALANCE_THRESHOLD } from '../constants'
 import type { NodeRegistration, PartitionAssignment } from './types'
 import { countPrimaryAssignments } from './weight'
-
-export const LEADERSHIP_IMBALANCE_THRESHOLD = 2
 
 interface LeadershipSwap {
   assignment: PartitionAssignment

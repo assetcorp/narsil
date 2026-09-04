@@ -3,6 +3,7 @@ import { createWorkerPool, type WorkerPool } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
 import { transferIndexToPool } from '../worker-resync'
 import { scheduleIdleMerge } from './compaction'
+import { POOL_RESTART_DELAY_MS } from './constants'
 import {
   eligibleIndexNames,
   isDeterministicFailure,
@@ -10,7 +11,7 @@ import {
   toError,
   workerIneligibility,
 } from './eligibility'
-import { deferPoolRestart, handleWorkerCrash, POOL_RESTART_DELAY_MS } from './repair'
+import { deferPoolRestart, handleWorkerCrash } from './repair'
 import { enqueueReplication } from './replication'
 import type { CopyTransition, OrchestratorState } from './types'
 

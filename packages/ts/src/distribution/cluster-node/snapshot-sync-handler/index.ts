@@ -1,17 +1,18 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { RespondFn, SnapshotSyncRequestPayload, TransportMessage } from '../../transport/types'
-import { authorizeSnapshotRequest } from '../snapshot-auth'
 import {
-  createSnapshotCacheState,
   DEFAULT_MAX_CONCURRENT_SNAPSHOTS,
   DEFAULT_MAX_PER_SOURCE_SNAPSHOTS,
   DEFAULT_MAX_STREAMS_PER_INDEX,
-} from '../snapshot-cache'
+  MAX_SNAPSHOT_SYNC_REQUEST_BYTES,
+} from '../constants'
+import { authorizeSnapshotRequest } from '../snapshot-auth'
+import { createSnapshotCacheState } from '../snapshot-cache'
 import { createSingleResponseSink, respondError, type SingleResponseSink } from '../snapshot-stream-writer'
 
 import { acquireAndStream } from './stream'
 import type { SnapshotSyncHandlerDeps, SnapshotSyncHandlerState, SnapshotSyncStreamOptions } from './types'
-import { decodeRequest, MAX_SNAPSHOT_SYNC_REQUEST_BYTES, validateSourceId } from './validation'
+import { decodeRequest, validateSourceId } from './validation'
 
 export type { SingleResponseSink } from '../snapshot-stream-writer'
 export { defaultSnapshotHeaderMetadataProvider } from './metadata'

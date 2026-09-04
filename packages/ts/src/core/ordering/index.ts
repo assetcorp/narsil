@@ -7,7 +7,6 @@ export {
   compareComparableValues,
   compareSortValues,
   readSortField,
-  SORT_VALUE_MAX_CODE_POINTS,
   type SortDirection,
   toComparableSortValue,
   truncateSortString,

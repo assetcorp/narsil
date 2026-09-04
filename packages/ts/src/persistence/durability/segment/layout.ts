@@ -1,10 +1,6 @@
 import { fnv1a } from '../../../core/hash'
 import { ErrorCodes, NarsilError } from '../../../errors'
 
-export const DEFAULT_TARGET_SEGMENT_BYTES = 8_388_608
-
-export const DEFAULT_COMPACTION_THRESHOLD = 12
-
 export const SEGMENT_ID_WIDTH = 16
 
 export function manifestKey(indexName: string): string {

@@ -3,6 +3,7 @@ import { generateId } from '../../core/id-generator'
 import { freezeSegmentShared, type SharedSegmentSnapshot } from '../../core/partition/frozen'
 import type { SegmentPayload } from '../../core/partition/segment-payload'
 import type { AnyDocument } from '../../types/schema'
+import { MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
 import type { WorkerOrchestrator } from '../orchestration'
 import type { SegmentBuildRequest } from '../orchestration/segments'
 
@@ -10,8 +11,6 @@ export interface SegmentReplicationDeps {
   orchestrator: Pick<WorkerOrchestrator, 'segmentBuildConcurrency' | 'buildSegments' | 'replicateToWorkers'>
   requireManager: (indexName: string) => { partitionCount: number }
 }
-
-export const MIN_DOCUMENTS_FOR_SEGMENTS = 64
 
 export function shardCount(documentCount: number, workers: number): number {
   if (workers <= 1) return 1

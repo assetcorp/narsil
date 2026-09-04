@@ -43,10 +43,10 @@ export function allocate(
 }
 
 export type { AllocationConstraints, AllocationTable, NodeRegistration }
+export { DEFAULT_ESTIMATED_PARTITION_BYTES, LEADERSHIP_IMBALANCE_THRESHOLD, REBALANCE_THRESHOLD } from '../constants'
 export { createDeciderChain, runDeciders } from './deciders'
 export { initialAllocate } from './initial'
-export { capacityShares, LEADERSHIP_IMBALANCE_THRESHOLD, rebalanceLeadership } from './leadership'
+export { capacityShares, rebalanceLeadership } from './leadership'
 export { rebalanceAllocate } from './rebalance'
 export type { AllocationMove, AllocationResult, Decider, DeciderContext, DeciderVerdict, NodeWeight } from './types'
-export { DEFAULT_ESTIMATED_PARTITION_BYTES, REBALANCE_THRESHOLD } from './types'
 export { computeNodeWeights, countNodeAssignments, countPrimaryAssignments, findBestNode } from './weight'

@@ -1,17 +1,14 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { DEFAULT_LOG_RETENTION_BYTES, REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES } from './constants'
 import { computeEntryChecksum } from './entry-checksum'
-import {
-  DEFAULT_LOG_RETENTION_BYTES,
-  type ReplicationConfig,
-  type ReplicationLog,
-  type ReplicationLogEntry,
-} from './types'
-
-const ENTRY_FIXED_OVERHEAD_BYTES = 40
+import type { ReplicationConfig, ReplicationLog, ReplicationLogEntry } from './types'
 
 function estimateEntrySize(entry: ReplicationLogEntry): number {
   return (
-    ENTRY_FIXED_OVERHEAD_BYTES + entry.indexName.length + entry.documentId.length + (entry.document?.byteLength ?? 0)
+    REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES +
+    entry.indexName.length +
+    entry.documentId.length +
+    (entry.document?.byteLength ?? 0)
   )
 }
 
@@ -79,7 +76,10 @@ export function createReplicationLog(
     seqNo?: number
   }): void {
     const entrySize =
-      ENTRY_FIXED_OVERHEAD_BYTES + entry.indexName.length + entry.documentId.length + (entry.document?.byteLength ?? 0)
+      REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES +
+      entry.indexName.length +
+      entry.documentId.length +
+      (entry.document?.byteLength ?? 0)
     if (entrySize > retentionBytes) {
       throw new NarsilError(
         ErrorCodes.REPLICATION_LOG_FULL,

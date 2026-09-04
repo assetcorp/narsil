@@ -6,6 +6,7 @@ import type { FacetResult } from '../../types/results'
 import type { QueryParams } from '../../types/search'
 import type { WorkerLease, WorkerPool } from '../../workers/pool'
 import { createRequestId } from '../../workers/protocol'
+import { MAIN_COPY_LONE_QUERY_DOCUMENTS } from './constants'
 import { afterCurrentTurn } from './turn'
 import type { OrchestratorState } from './types'
 
@@ -76,8 +77,6 @@ async function runSplit(
   )
   return mergeWorkerResults(results)
 }
-
-export const MAIN_COPY_LONE_QUERY_DOCUMENTS = 50_000
 
 function takeMainCopyTurn(state: OrchestratorState): boolean {
   if (state.mainCopyTurnTaken) return false

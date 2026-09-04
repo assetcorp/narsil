@@ -1,11 +1,8 @@
+import { MAX_SWEEP_INTERVAL_MS, MIN_SWEEP_INTERVAL_MS } from '../constants'
 import { cancelIdleMerge } from './compaction'
 import { awaitReplicationIdle } from './replication'
 import { COPY_RELOAD_REASON, copiesAllowed, copyThresholdReason, indexReadyForCopies, scaleOutIndex } from './scale-out'
 import type { OrchestratorState } from './types'
-
-export const DEFAULT_COPY_IDLE_TIMEOUT_MS = 300_000
-const MIN_SWEEP_INTERVAL_MS = 100
-const MAX_SWEEP_INTERVAL_MS = 60_000
 
 export function isIndexBusy(state: OrchestratorState, indexName: string): boolean {
   return (

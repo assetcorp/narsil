@@ -1,4 +1,5 @@
 import { compareCodePoints } from '../../../core/ordering'
+import { REBALANCE_THRESHOLD } from '../constants'
 import { lastHoldersOf } from '../last-holders'
 import { capacityShares, rebalanceLeadership } from './leadership'
 import type {
@@ -11,7 +12,6 @@ import type {
   NodeWeight,
   PartitionAssignment,
 } from './types'
-import { REBALANCE_THRESHOLD } from './types'
 import { computeNodeWeights, countNodeAssignments, countPrimaryAssignments, findBestNode } from './weight'
 
 function cloneAssignments(assignments: Map<number, PartitionAssignment>): Map<number, PartitionAssignment> {

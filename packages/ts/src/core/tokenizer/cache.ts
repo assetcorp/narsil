@@ -1,15 +1,22 @@
 import { createNarsilError, ErrorCodes } from '../../errors'
 import type { LanguageModule } from '../../types/language'
+import {
+  CONSTRAINED_MEMORY_TOKEN_CACHE_FRACTION,
+  LARGE_DEVICE_TOKEN_CACHE_ENTRIES,
+  MEDIUM_DEVICE_MEMORY_GB,
+  MEDIUM_DEVICE_TOKEN_CACHE_ENTRIES,
+  NODE_TOKEN_CACHE_ENTRIES,
+  SMALL_DEVICE_MEMORY_GB,
+  SMALL_DEVICE_TOKEN_CACHE_ENTRIES,
+  TOKEN_CACHE_BYTES_PER_ENTRY,
+  TOKEN_CACHE_SIZE_CEILING,
+  TOKEN_CACHE_SIZE_FLOOR,
+  UNKNOWN_MEMORY_TOKEN_CACHE_ENTRIES,
+} from './constants'
 import { stripDiacritics } from './normalize'
 
-const CACHE_SIZE_FLOOR = 50_000
-const CACHE_SIZE_CEILING = 2_000_000
-const BYTES_PER_ENTRY = 200
-const NODE_CACHE_ENTRIES = 1_000_000
-const UNKNOWN_MEMORY_CACHE_ENTRIES = 200_000
-
 function clampCacheSize(entries: number): number {
-  return Math.max(CACHE_SIZE_FLOOR, Math.min(entries, CACHE_SIZE_CEILING))
+  return Math.max(TOKEN_CACHE_SIZE_FLOOR, Math.min(entries, TOKEN_CACHE_SIZE_CEILING))
 }
 
 function computeDefaultCacheSize(): number {
@@ -17,25 +24,26 @@ function computeDefaultCacheSize(): number {
     if (typeof process !== 'undefined' && typeof process.versions?.node === 'string' && typeof window === 'undefined') {
       const constrainedMemory = typeof process.constrainedMemory === 'function' ? process.constrainedMemory() : 0
       if (constrainedMemory > 0) {
-        return clampCacheSize(Math.floor((constrainedMemory * 0.05) / BYTES_PER_ENTRY))
+        const budget = constrainedMemory * CONSTRAINED_MEMORY_TOKEN_CACHE_FRACTION
+        return clampCacheSize(Math.floor(budget / TOKEN_CACHE_BYTES_PER_ENTRY))
       }
-      return clampCacheSize(NODE_CACHE_ENTRIES)
+      return clampCacheSize(NODE_TOKEN_CACHE_ENTRIES)
     }
 
     if (typeof navigator !== 'undefined') {
       const mem = (navigator as { deviceMemory?: number }).deviceMemory
       if (typeof mem === 'number' && mem > 0) {
         let entries: number
-        if (mem <= 1) entries = 100_000
-        else if (mem <= 4) entries = 250_000
-        else entries = 500_000
+        if (mem <= SMALL_DEVICE_MEMORY_GB) entries = SMALL_DEVICE_TOKEN_CACHE_ENTRIES
+        else if (mem <= MEDIUM_DEVICE_MEMORY_GB) entries = MEDIUM_DEVICE_TOKEN_CACHE_ENTRIES
+        else entries = LARGE_DEVICE_TOKEN_CACHE_ENTRIES
         return clampCacheSize(entries)
       }
     }
   } catch {
-    return clampCacheSize(UNKNOWN_MEMORY_CACHE_ENTRIES)
+    return clampCacheSize(UNKNOWN_MEMORY_TOKEN_CACHE_ENTRIES)
   }
-  return clampCacheSize(UNKNOWN_MEMORY_CACHE_ENTRIES)
+  return clampCacheSize(UNKNOWN_MEMORY_TOKEN_CACHE_ENTRIES)
 }
 
 const normalizationCache = new Map<string, Map<string, string>>()
@@ -80,7 +88,7 @@ export function configureNormalizationCache(maxSize: number): void {
       },
     )
   }
-  maxCacheSize = Math.max(CACHE_SIZE_FLOOR, Math.min(Math.floor(maxSize), CACHE_SIZE_CEILING))
+  maxCacheSize = Math.max(TOKEN_CACHE_SIZE_FLOOR, Math.min(Math.floor(maxSize), TOKEN_CACHE_SIZE_CEILING))
   if (normalizationCacheSize > maxCacheSize) {
     evictOldestEntries(normalizationCacheSize - maxCacheSize)
   }

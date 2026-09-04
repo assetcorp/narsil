@@ -1,3 +1,5 @@
+import { DEFAULT_MAX_EVENTS, DEFAULT_QUIET_MS, DEFAULT_TICK_MS, DRAIN_TICK_BUDGET } from './constants'
+
 export interface ScheduledEvent {
   deliverAt: number
   run: () => void | Promise<void>
@@ -28,11 +30,6 @@ export interface DeterministicScheduler {
   advanceBy(ms: number): Promise<void>
   dispose(): void
 }
-
-const DEFAULT_MAX_EVENTS = 5_000
-const DEFAULT_QUIET_MS = 1_200
-const DEFAULT_TICK_MS = 50
-const DRAIN_TICK_BUDGET = 2_000
 
 export function createDeterministicScheduler(config: DeterministicSchedulerConfig): DeterministicScheduler {
   const heap: HeapEntry[] = []

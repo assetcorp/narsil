@@ -1,3 +1,4 @@
+import { MAX_SORT_FIELDS } from '../search/constants'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
 import type {
   BatchBody,
@@ -22,8 +23,6 @@ export interface ValidationFailure {
   message: string
   details?: Record<string, unknown>
 }
-
-const MAX_LIST_SORT_FIELDS = 8
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -126,10 +125,10 @@ function validateListSort(sort: ListParams['sort']): ValidationFailure | null {
       )
     : Object.entries(sort)
 
-  if (entries.length > MAX_LIST_SORT_FIELDS) {
+  if (entries.length > MAX_SORT_FIELDS) {
     return {
-      message: `Field "sort" exceeds the maximum of ${MAX_LIST_SORT_FIELDS} fields`,
-      details: { count: entries.length, limit: MAX_LIST_SORT_FIELDS },
+      message: `Field "sort" exceeds the maximum of ${MAX_SORT_FIELDS} fields`,
+      details: { count: entries.length, limit: MAX_SORT_FIELDS },
     }
   }
   for (const [field, direction] of entries) {

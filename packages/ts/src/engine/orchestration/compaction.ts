@@ -9,12 +9,10 @@ import {
 } from '../../core/partition/frozen'
 import type { PartitionManager } from '../../partitioning/manager'
 import { createRequestId } from '../../workers/protocol'
-import { freezeLiveTail, LIVE_TAIL_FREEZE_FLOOR } from './live-tail'
+import { COMPACTION_SEGMENT_TRIGGER, IDLE_MERGE_DELAY_MS, LIVE_TAIL_FREEZE_FLOOR } from './constants'
+import { freezeLiveTail } from './live-tail'
 import { awaitReplicationIdle, replicateToWorkers } from './replication'
 import type { OrchestratorState, SegmentLedgerEntry } from './types'
-
-export const COMPACTION_SEGMENT_TRIGGER = 8
-export const IDLE_MERGE_DELAY_MS = 1_000
 
 export type CompactionPolicy = 'ingest' | 'idle'
 

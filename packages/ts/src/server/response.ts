@@ -1,5 +1,6 @@
 import type { HttpResponse } from 'uWebSockets.js'
 import { encodeJson } from '../json-encoding'
+import { RESPONSE_STREAM_THRESHOLD_BYTES } from './constants'
 import type { ResponseAbort } from './request'
 import type { ErrorEnvelope } from './types'
 
@@ -20,8 +21,6 @@ const STATUS_TEXT: Record<number, string> = {
   500: '500 Internal Server Error',
   503: '503 Service Unavailable',
 }
-
-const STREAM_THRESHOLD = 64 * 1024
 
 function statusLine(status: number): string {
   return STATUS_TEXT[status] ?? `${status}`
@@ -51,11 +50,11 @@ function streamBody(
 
 /** Writes a JSON body atomically. uWebSockets.js requires header and body
  * writes to share a single cork so the two reach the kernel as one syscall. Bodies at or
- * above {@link STREAM_THRESHOLD} are streamed so a slow reader cannot pin the
+ * above {@link RESPONSE_STREAM_THRESHOLD_BYTES} are streamed so a slow reader cannot pin the
  * whole payload in native memory; this needs the request's abort handle. */
 export function sendJson(res: HttpResponse, data: unknown, status = 200, abort?: ResponseAbort): void {
   const payload = encodeJson(data)
-  if (abort && payload !== undefined && Buffer.byteLength(payload) >= STREAM_THRESHOLD) {
+  if (abort && payload !== undefined && Buffer.byteLength(payload) >= RESPONSE_STREAM_THRESHOLD_BYTES) {
     streamBody(res, abort, Buffer.from(payload, 'utf8'), status, 'application/json')
     return
   }

@@ -9,12 +9,10 @@ import type {
   UnassignedReason,
 } from '../../../coordinator/types'
 import type { NodeTransport, TransportMessage } from '../../../transport/types'
+import { PARTITION_STORES_TIMEOUT_MS, RECOVERY_CAS_ATTEMPTS } from '../../constants'
 import { getIndexMetadata } from '../../index-metadata'
 import { lastHoldersOf } from '../../last-holders'
 import { createPartitionStoresMessage, validatePartitionStoresResultPayload } from '../../partition-stores'
-
-const RECOVERY_CAS_ATTEMPTS = 5
-const PARTITION_STORES_TIMEOUT_MS = 5_000
 
 interface RecoveryDeps {
   coordinator: ClusterCoordinator

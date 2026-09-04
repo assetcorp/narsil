@@ -12,6 +12,7 @@ import {
   importAdjacency,
   resetAdjacency,
 } from './adjacency'
+import { COMPACTION_ABSOLUTE_THRESHOLD, COMPACTION_TOMBSTONE_RATIO } from './constants'
 import {
   compactTombstones as compactTombstonesOp,
   insertNode as insertNodeOp,
@@ -20,13 +21,7 @@ import {
 } from './mutation'
 import { deserializeGraph, serializeGraph } from './persistence'
 import { search as searchOp } from './search'
-import {
-  COMPACTION_ABSOLUTE_THRESHOLD,
-  COMPACTION_TOMBSTONE_RATIO,
-  type HNSWConfig,
-  type HNSWGraphState,
-  type SerializedHNSWGraph,
-} from './shared'
+import type { HNSWConfig, HNSWGraphState, SerializedHNSWGraph } from './shared'
 import { createHNSWWorkspace } from './workspace'
 
 export type { HNSWConfig, SerializedHNSWGraph } from './shared'

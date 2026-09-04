@@ -1,4 +1,5 @@
-import { collectNeighbors, createNode, MAX_LAYER_CAP, replaceNeighbors, resetAdjacency } from './adjacency'
+import { collectNeighbors, createNode, replaceNeighbors, resetAdjacency } from './adjacency'
+import { MAX_LAYER_CAP } from './constants'
 import {
   addConnection,
   ensureCapacity,
