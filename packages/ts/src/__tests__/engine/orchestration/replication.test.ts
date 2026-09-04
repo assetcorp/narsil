@@ -3,6 +3,7 @@ import type { SegmentPayload } from '../../../core/partition/segment-payload'
 import {
   awaitReplicationIdle,
   MAX_PENDING_REPLICATION_DOCUMENTS,
+  REPLICATION_WINDOW,
   replicateToWorkers,
 } from '../../../engine/orchestration/replication'
 import { searchViaWorker } from '../../../engine/orchestration/search'
@@ -104,6 +105,29 @@ describe('replicateToWorkers', () => {
     await awaitReplicationIdle(harness.state, 'prose')
     expect(warnSpy.mock.calls.some(call => String(call[0]).includes('Worker replication failed'))).toBe(true)
     warnSpy.mockRestore()
+  })
+
+  it('sends a window of writes before the first is acknowledged, in order, and holds the rest until one completes', async () => {
+    const harness = makeHarness(1, ['prose'])
+
+    for (let i = 0; i < REPLICATION_WINDOW + 2; i++) {
+      await replicateToWorkers(harness.state, insertAction('prose', `doc-${i}`, { id: `doc-${i}` }))
+    }
+    await settle()
+    const sentIds = () =>
+      harness.dispatched.map(entry => (entry.action.type === 'insert' ? entry.action.docId : entry.action.type))
+    expect(sentIds()).toEqual(Array.from({ length: REPLICATION_WINDOW }, (_, i) => `doc-${i}`))
+
+    harness.dispatched.shift()?.resolve()
+    await settle()
+    expect(sentIds().at(-1)).toBe(`doc-${REPLICATION_WINDOW}`)
+    expect(harness.dispatched).toHaveLength(REPLICATION_WINDOW)
+
+    harness.releaseAll()
+    await settle()
+    harness.releaseAll()
+    await awaitReplicationIdle(harness.state, 'prose')
+    expect(harness.state.replicationQueues.size).toBe(0)
   })
 
   it('applies backpressure once pending documents exceed the cap', async () => {

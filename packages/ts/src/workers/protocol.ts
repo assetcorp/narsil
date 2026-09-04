@@ -69,6 +69,13 @@ export type WorkerAction =
       snapshot: SharedSegmentSnapshot
       requestId: string
     }
+  | {
+      type: 'freezeLiveTail'
+      indexName: string
+      partitionId: number
+      snapshot: SharedSegmentSnapshot
+      requestId: string
+    }
   | { type: 'memoryReport'; requestId: string }
   | { type: 'bootstrap'; moduleUrl: string; requestId: string }
   | { type: 'shutdown'; requestId: string }
@@ -97,6 +104,7 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'attachSegments',
   'compactSegments',
   'swapSegments',
+  'freezeLiveTail',
   'memoryReport',
   'bootstrap',
   'shutdown',

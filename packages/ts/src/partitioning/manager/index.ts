@@ -2,6 +2,7 @@ import { resolveIndexAnalysis } from '../../analysis/registry'
 import type { ComparableSortValue } from '../../core/ordering'
 import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../../core/partition'
 import { type CompositePartition, createCompositePartition } from '../../core/partition/composite'
+import type { LiveTailFreezer } from '../../core/partition/composite/compaction'
 import type { FrozenSegment } from '../../core/partition/frozen'
 import type { SegmentPayload } from '../../core/partition/segment-payload'
 import { projectionKeepsField, type ResolvedProjection } from '../../core/projection'
@@ -306,6 +307,16 @@ export function createPartitionManager(
         const docId = segment.docStore.getExternalId(internalId)
         if (docId !== undefined) docPartitionMap.set(docId, partitionId)
       }
+    },
+
+    freezeLiveTail(partitionId: number, freeze: LiveTailFreezer): FrozenSegment | null {
+      validatePartitionId(partitionId)
+      return asCompositePartition(partitionId).freezeLiveTail(freeze)
+    },
+
+    replaceLiveTail(partitionId: number, segment: FrozenSegment): void {
+      validatePartitionId(partitionId)
+      asCompositePartition(partitionId).replaceLiveTail(segment)
     },
 
     deserializePartition(partitionId: number, data: SerializablePartition): void {

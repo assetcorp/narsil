@@ -1,8 +1,11 @@
 import type { WorkerAction } from '../../workers/protocol'
 import { alreadyPresentOnWorker } from './eligibility'
+import { yieldToEventLoop } from './turn'
 import type { OrchestratorState, ReplicationQueue, SegmentLedgerEntry } from './types'
 
 export const MAX_PENDING_REPLICATION_DOCUMENTS = 20_000
+export const REPLICATION_WINDOW = 32
+const LOAD_BUFFER_YIELD_INTERVAL = 1_000
 
 export async function dispatchToWorkers(state: OrchestratorState, action: WorkerAction): Promise<void> {
   const pool = state.workerPool
@@ -83,6 +86,13 @@ function recordSegmentBroadcast(state: OrchestratorState, action: WorkerAction):
     }
     return
   }
+  if (action.type === 'freezeLiveTail') {
+    partitionLedger(state, action.indexName, action.partitionId).push({
+      segmentId: action.snapshot.segmentId,
+      documentCount: action.snapshot.documentCount,
+    })
+    return
+  }
   if (action.type === 'swapSegments') {
     const entries = partitionLedger(state, action.indexName, action.partitionId)
     const dropped = new Set(action.dropSegmentIds)
@@ -96,10 +106,15 @@ function recordSegmentBroadcast(state: OrchestratorState, action: WorkerAction):
 function queueFor(state: OrchestratorState, indexName: string): ReplicationQueue {
   let queue = state.replicationQueues.get(indexName)
   if (queue === undefined) {
-    queue = { tail: Promise.resolve(), pendingActions: 0, pendingDocuments: 0 }
+    queue = { tail: Promise.resolve(), inFlight: [], pendingActions: 0, pendingDocuments: 0, drainWaiters: [] }
     state.replicationQueues.set(indexName, queue)
   }
   return queue
+}
+
+function dispatchGate(queue: ReplicationQueue): Promise<void> {
+  if (queue.inFlight.length < REPLICATION_WINDOW) return Promise.resolve()
+  return queue.inFlight[queue.inFlight.length - REPLICATION_WINDOW]
 }
 
 export function enqueueReplication(state: OrchestratorState, indexName: string, action: WorkerAction): void {
@@ -108,19 +123,26 @@ export function enqueueReplication(state: OrchestratorState, indexName: string, 
   const queue = queueFor(state, indexName)
   queue.pendingActions += 1
   queue.pendingDocuments += weight
-  queue.tail = queue.tail.then(async () => {
+  const run: Promise<void> = dispatchGate(queue).then(async () => {
     try {
       await dispatchToWorkers(state, action)
     } catch (err) {
       console.warn('Worker replication failed:', err)
     } finally {
+      const at = queue.inFlight.indexOf(run)
+      if (at !== -1) queue.inFlight.splice(at, 1)
       queue.pendingActions -= 1
       queue.pendingDocuments -= weight
+      if (queue.pendingDocuments < MAX_PENDING_REPLICATION_DOCUMENTS && queue.drainWaiters.length > 0) {
+        for (const resume of queue.drainWaiters.splice(0)) resume()
+      }
       if (queue.pendingActions === 0 && state.replicationQueues.get(indexName) === queue) {
         state.replicationQueues.delete(indexName)
       }
     }
   })
+  queue.inFlight.push(run)
+  queue.tail = run
 }
 
 export async function replicateToWorkers(state: OrchestratorState, action: WorkerAction): Promise<void> {
@@ -131,20 +153,29 @@ export async function replicateToWorkers(state: OrchestratorState, action: Worke
     return
   }
 
+  const detached = detachCallerDocuments(action)
   const loading = state.copyLoadBuffers.get(action.indexName)
   if (loading !== undefined) {
-    loading.push(detachCallerDocuments(action))
+    queueForCopies(state, detached)
+    if (loading.length % LOAD_BUFFER_YIELD_INTERVAL === 0) await yieldToEventLoop()
+    return
+  }
+  const queue = state.replicationQueues.get(action.indexName)
+  if (queue !== undefined && queue.pendingDocuments + documentWeight(detached) > MAX_PENDING_REPLICATION_DOCUMENTS) {
+    await new Promise<void>(resume => queue.drainWaiters.push(resume))
+  }
+  queueForCopies(state, detached)
+}
+
+export function queueForCopies(state: OrchestratorState, action: WorkerAction): void {
+  if (!('indexName' in action)) return
+  const loading = state.copyLoadBuffers.get(action.indexName)
+  if (loading !== undefined) {
+    loading.push(action)
     return
   }
   if (state.workerPool === null || !state.scaledOutIndexes.has(action.indexName)) return
-
-  const indexName = action.indexName
-  const detached = detachCallerDocuments(action)
-  const queue = state.replicationQueues.get(indexName)
-  if (queue !== undefined && queue.pendingDocuments + documentWeight(detached) > MAX_PENDING_REPLICATION_DOCUMENTS) {
-    await queue.tail
-  }
-  enqueueReplication(state, indexName, detached)
+  enqueueReplication(state, action.indexName, action)
 }
 
 export async function awaitReplicationIdle(state: OrchestratorState, indexName?: string): Promise<void> {

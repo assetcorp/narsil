@@ -12,6 +12,7 @@ import type { WorkerAction } from '../../workers/protocol'
 import { transferIndexToPool } from '../worker-resync'
 import { awaitCompactions, cancelIdleMerge, maybeCompactSegments, scheduleIdleMerge } from './compaction'
 import { DEFAULT_COPY_IDLE_TIMEOUT_MS, isIndexBusy, noteAccess, startIdleSweep, stopIdleSweep } from './idle'
+import { flushGrownTails } from './live-tail'
 import { cancelRepair, POOL_RESTART_DELAY_MS } from './repair'
 import { awaitReplicationIdle, replicateToWorkers } from './replication'
 import {
@@ -72,6 +73,7 @@ export function createWorkerOrchestrator(
     poolRetryAt: 0,
     poolRetryDelayMs: POOL_RESTART_DELAY_MS,
     poolRepair: null,
+    mainCopyTurnTaken: false,
     repairTimer: null,
     scaleOutBlocked: false,
     idleSweep: null,
@@ -188,6 +190,7 @@ export function createWorkerOrchestrator(
     await replicateToWorkers(state, action)
     if (!('indexName' in action)) return
     if (action.type === 'attachSegments') maybeCompactSegments(state, action.indexName)
+    if (action.type === 'insert' || action.type === 'update') flushGrownTails(state, action.indexName)
     if (state.scaledOutIndexes.has(action.indexName) || state.copyLoadBuffers.has(action.indexName)) {
       scheduleIdleMerge(state, action.indexName)
     }

@@ -9,6 +9,7 @@ import {
   maybeCompactSegments,
   scheduleIdleMerge,
 } from '../../../engine/orchestration/compaction'
+import { LIVE_TAIL_FREEZE_FLOOR } from '../../../engine/orchestration/live-tail'
 import type { OrchestratorState } from '../../../engine/orchestration/types'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { AnyDocument, SchemaDefinition } from '../../../types/schema'
@@ -74,7 +75,7 @@ describe('segment compaction during loading', () => {
 })
 
 describe('segment merge once the index is idle', () => {
-  it('merges every frozen segment into one on a worker copy once no write has arrived for the idle delay', async () => {
+  it('freezes the live tail and merges every segment into one on the main copy and the worker copy once no write has arrived for the idle delay', async () => {
     const { state, manager } = await mainThreadIndex(3)
     const worker = createDirectExecutor()
     await worker.execute({ type: 'createIndex', indexName: 'products', config: { schema }, requestId: 'create' })
@@ -86,6 +87,21 @@ describe('segment merge once the index is idle', () => {
     for (const segment of partition.frozenSegmentsById(segmentIds)) {
       copy.attachFrozenSegment(0, segment)
     }
+    for (let i = 0; i < LIVE_TAIL_FREEZE_FLOOR; i++) {
+      const document = { id: `tail-${i}`, title: 'tail shared entry', score: 100 + i }
+      await state.executor.execute({
+        type: 'insert',
+        indexName: 'products',
+        docId: document.id,
+        document,
+        requestId: `m${i}`,
+      })
+      await worker.execute({ type: 'insert', indexName: 'products', docId: document.id, document, requestId: `w${i}` })
+    }
+    const copyPartition = copy.getPartition(0)
+    if (!isCompositePartition(copyPartition)) throw new Error('copy holds no segments')
+    expect(partition.live.count()).toBe(LIVE_TAIL_FREEZE_FLOOR)
+    expect(copyPartition.live.count()).toBe(LIVE_TAIL_FREEZE_FLOOR)
     state.workerPool = {
       getExecutor: () => worker,
       getAllExecutors: () => [worker],
@@ -110,8 +126,12 @@ describe('segment merge once the index is idle', () => {
 
     expect(frozenCount(manager)).toBe(1)
     expect(frozenCount(copy)).toBe(1)
+    expect(partition.live.count()).toBe(0)
+    expect(copyPartition.live.count()).toBe(0)
     expect(copy.countDocuments()).toBe(manager.countDocuments())
     expect(copy.has('seg2-5')).toBe(true)
+    expect(copy.has('tail-3')).toBe(true)
+    expect(copy.get('tail-3')).toMatchObject({ title: 'tail shared entry', score: 103 })
   })
 
   it('does nothing on an index whose copies have been given up', async () => {

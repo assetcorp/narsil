@@ -1,6 +1,7 @@
 import type { ResolvedAnalysis } from '../../analysis/registry'
 import type { ComparableSortValue } from '../../core/ordering'
 import type { PartitionIndex, PartitionInsertOptions } from '../../core/partition'
+import type { LiveTailFreezer } from '../../core/partition/composite/compaction'
 import type { FrozenSegment } from '../../core/partition/frozen'
 import type { SegmentPayload } from '../../core/partition/segment-payload'
 import type { ResolvedProjection } from '../../core/projection'
@@ -49,6 +50,8 @@ export interface PartitionManager {
   deserializePartition(partitionId: number, data: SerializablePartition): void
   mergeSegment(partitionId: number, payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
   attachFrozenSegment(partitionId: number, segment: FrozenSegment): void
+  freezeLiveTail(partitionId: number, freeze: LiveTailFreezer): FrozenSegment | null
+  replaceLiveTail(partitionId: number, segment: FrozenSegment): void
   getAggregateStats(): {
     totalDocuments: number
     docFrequencies: Record<string, number>
