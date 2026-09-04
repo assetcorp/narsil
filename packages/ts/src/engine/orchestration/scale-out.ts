@@ -107,6 +107,7 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
 
   const pool = await ensurePool(state)
   if (state.executor.getManager(indexName) === undefined) return
+  const dropReason = state.droppedCopies.get(indexName)
   const reload = state.droppedCopies.delete(indexName)
   const buffered: WorkerAction[] = []
   state.copyLoadBuffers.set(indexName, buffered)
@@ -116,8 +117,11 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
     state.lastAccessAt.set(indexName, Date.now())
     state.poolRetryDelayMs = POOL_RESTART_DELAY_MS
     for (const action of buffered) enqueueReplication(state, indexName, action)
+  } catch (err) {
+    if (dropReason !== undefined) state.droppedCopies.set(indexName, dropReason)
+    throw err
   } finally {
-    state.copyLoadBuffers.delete(indexName)
+    if (state.copyLoadBuffers.get(indexName) === buffered) state.copyLoadBuffers.delete(indexName)
   }
   if (reload) state.copyReloadCounts.set(indexName, (state.copyReloadCounts.get(indexName) ?? 0) + 1)
   scheduleIdleMerge(state, indexName)
