@@ -1,6 +1,7 @@
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
-import { BATCH_CHUNK_SIZE, validateDocId } from '../validation'
+import { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
+import { validateDocId } from '../validation'
 import { insertDocumentVectors, prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
 import type { MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
@@ -12,7 +13,7 @@ import {
   providedDocId,
 } from './insert-admission'
 import { insertBatchViaSegments } from './insert-batch-segments'
-import { MIN_DOCUMENTS_FOR_SEGMENTS, replicateAsSegments } from './segment-replication'
+import { replicateAsSegments } from './segment-replication'
 
 export async function insertDocumentBatch(
   ctx: MutationContext,
@@ -23,7 +24,7 @@ export async function insertDocumentBatch(
   ctx.guardShutdown()
   const entry = ctx.requireIndex(indexName)
 
-  await ctx.orchestrator.promoteBeforeBatch(indexName, documents.length)
+  await ctx.orchestrator.scaleOutBeforeBatch(indexName, documents.length)
 
   if (
     documents.length >= MIN_DOCUMENTS_FOR_SEGMENTS &&
@@ -207,7 +208,7 @@ export async function insertDocumentBatch(
   }
 
   ctx.checkWatermark(indexName)
-  await ctx.orchestrator.checkPromotion()
+  await ctx.orchestrator.scaleOutReadyIndexes()
 
   return { succeeded, failed }
 }

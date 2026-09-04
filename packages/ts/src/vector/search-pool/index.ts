@@ -1,13 +1,11 @@
 import { resolveWorkerCount } from '../../workers/pool'
 import type { VectorMetric } from '../brute-force'
+import { VECTOR_SEARCH_LOAD_TIMEOUT_MS, VECTOR_SEARCH_TIMEOUT_MS } from '../constants'
 import type { OrdinalFilter } from '../ordinal-filter'
 import type { SharedGenerationSnapshot } from '../shared-generation/types'
 import type { WorkerCopySnapshot } from '../worker-copy'
 import type { VectorOrdinalSearchRequest, VectorSearchRequest, VectorWorkerMessage } from './messages'
 import { listen, listenForFailure, resolveWorkerEntryPoint, spawnWorker, type WorkerHandle } from './spawn'
-
-const SEARCH_TIMEOUT_MS = 30_000
-const LOAD_TIMEOUT_MS = 300_000
 
 export interface WorkerCopySearchResult {
   docId: string
@@ -133,7 +131,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
   ): Promise<VectorWorkerMessage> {
     slot.outstanding += 1
     try {
-      return await send(slot, request.requestId, request, SEARCH_TIMEOUT_MS)
+      return await send(slot, request.requestId, request, VECTOR_SEARCH_TIMEOUT_MS)
     } finally {
       slot.outstanding -= 1
     }
@@ -153,7 +151,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
         slots.map(slot => {
           requestCounter += 1
           const requestId = `${requestCounter}`
-          return send(slot, requestId, { type: 'load', requestId, handle, snapshot }, LOAD_TIMEOUT_MS)
+          return send(slot, requestId, { type: 'load', requestId, handle, snapshot }, VECTOR_SEARCH_LOAD_TIMEOUT_MS)
         }),
       )
       return outcomes.every(
@@ -170,7 +168,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
             slot,
             requestId,
             { type: 'loadShared', requestId, handle, scratchSlot, snapshot },
-            LOAD_TIMEOUT_MS,
+            VECTOR_SEARCH_LOAD_TIMEOUT_MS,
           )
         }),
       )
@@ -184,7 +182,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
         slots.map(slot => {
           requestCounter += 1
           const requestId = `${requestCounter}`
-          return send(slot, requestId, { type: 'drop', requestId, handle }, SEARCH_TIMEOUT_MS)
+          return send(slot, requestId, { type: 'drop', requestId, handle }, VECTOR_SEARCH_TIMEOUT_MS)
         }),
       )
     },
@@ -279,11 +277,11 @@ let sharedPool: Promise<VectorSearchPool | null> | null = null
 let poolHolders = 0
 let workersUnavailable = false
 
-export function acquireVectorSearchPool(): Promise<VectorSearchPool | null> {
+export function acquireVectorSearchPool(requestedCount?: number): Promise<VectorSearchPool | null> {
   poolHolders += 1
   if (workersUnavailable) return Promise.resolve(null)
   if (sharedPool === null) {
-    sharedPool = createVectorSearchPool().then(
+    sharedPool = createVectorSearchPool(requestedCount).then(
       pool => {
         if (pool === null) workersUnavailable = true
         return pool

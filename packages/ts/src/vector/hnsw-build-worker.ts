@@ -1,5 +1,6 @@
 declare const self: unknown
 
+import { MAX_WORKER_DIMENSION, MAX_WORKER_VECTORS } from './constants'
 import { createHNSWIndex, type HNSWConfig, type SerializedHNSWGraph } from './hnsw'
 import { createVectorStore } from './vector-store'
 
@@ -75,9 +76,6 @@ export interface HNSWBuildError {
  * @internal
  */
 export type HNSWWorkerMessage = HNSWBuildResponse | HNSWBuildError
-
-const MAX_WORKER_DIMENSION = 8192
-const MAX_WORKER_VECTORS = 1_000_000
 
 function validateBuildRequest(request: HNSWBuildRequest): void {
   if (typeof request.dimension !== 'number' || request.dimension <= 0 || request.dimension > MAX_WORKER_DIMENSION) {

@@ -1,3 +1,4 @@
+import type { Narsil } from '../../../narsil'
 import type { NarsilConfig } from '../../../types/config'
 import type {
   AllocationTable,
@@ -185,4 +186,13 @@ export interface ClusterNodeInfo {
   roles: ReadonlyArray<NodeRole>
   /** This says where the node stands, from joining through to shut down. */
   status: string
+}
+
+export interface ClusterNodeDeps {
+  nodeId: string
+  roles: ReadonlyArray<NodeRole>
+  coordinator: ClusterCoordinator
+  transport: NodeTransport
+  engine: Narsil
+  address: string
 }

@@ -12,9 +12,11 @@ import {
 } from '../replication/snapshot-stream-assembler'
 import type { NodeTransport, SnapshotSyncRequestPayload, TransportMessage } from '../transport/types'
 import { ReplicationMessageTypes, TransportError } from '../transport/types'
-
-export const CAPACITY_EXHAUSTED_BACKOFF_BASE_MS = 100
-export const CAPACITY_EXHAUSTED_BACKOFF_MAX_MS = 500
+import {
+  CAPACITY_EXHAUSTED_BACKOFF_BASE_MS,
+  CAPACITY_EXHAUSTED_BACKOFF_MAX_MS,
+  JITTERED_BACKOFF_POLL_INTERVAL_MS,
+} from './constants'
 
 const RETRY_ANY_TARGET_CODES: ReadonlySet<NarsilErrorCode> = new Set<NarsilErrorCode>([
   ErrorCodes.SNAPSHOT_SYNC_TRANSPORT_FAILED,
@@ -151,8 +153,6 @@ export async function fetchSnapshotFromAnyTarget(
 
   return lastFailure
 }
-
-const JITTERED_BACKOFF_POLL_INTERVAL_MS = 20
 
 /**
  * Race a jittered sleep against both the caller's deadline and a cooperative

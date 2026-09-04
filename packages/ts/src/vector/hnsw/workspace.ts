@@ -1,3 +1,5 @@
+import { INITIAL_LIST_CAPACITY } from './constants'
+
 /**
  * A list of ordinals with the distance measured for each, held in parallel
  * typed arrays so that the builder allocates nothing per insertion.
@@ -63,8 +65,6 @@ export interface HNSWWorkspace {
   /** The neighbours that node takes instead. */
   repairSelection: DistanceList
 }
-
-const INITIAL_LIST_CAPACITY = 64
 
 function createList(capacity: number): DistanceList {
   return { ords: new Int32Array(capacity), distances: new Float64Array(capacity), size: 0 }

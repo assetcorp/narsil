@@ -75,6 +75,7 @@ export type {
   ScoreComponents,
   SuggestResult,
   VectorMaintenanceResult,
+  WorkerCopyReport,
 } from './types/results'
 export type {
   AnyDocument,

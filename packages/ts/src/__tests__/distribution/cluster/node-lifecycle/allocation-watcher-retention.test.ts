@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_NODE_LIFECYCLE_CONFIG } from '../../../../distribution/cluster/constants'
 import {
   createAllocationWatcherState,
   processInitialAllocations,
 } from '../../../../distribution/cluster/node-lifecycle/allocation-watcher'
 import type { NodeLifecycleConfig } from '../../../../distribution/cluster/node-lifecycle/types'
-import { DEFAULT_NODE_LIFECYCLE_CONFIG } from '../../../../distribution/cluster/node-lifecycle/types'
 import type {
   AllocationTable,
   ClusterCoordinator,

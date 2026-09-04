@@ -45,8 +45,6 @@ export const DEFAULT_TRANSPORT_CONFIG: TransportConfig = {
   snapshotTimeout: 300_000,
 }
 
-export const MAX_MESSAGE_SIZE_BYTES = 67_108_864
-
 /**
  * How one cluster node reaches the others.
  *

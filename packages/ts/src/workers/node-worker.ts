@@ -1,3 +1,5 @@
+import type { WorkerResourceLimits } from './resource-limits'
+
 export interface NodeWorkerHandle {
   postMessage(msg: unknown, transfer?: ArrayBuffer[]): void
   on(event: string, handler: (...args: unknown[]) => void): void
@@ -6,10 +8,13 @@ export interface NodeWorkerHandle {
   terminate(): void | Promise<void>
 }
 
-export async function spawnNodeWorker(entryPoint: URL): Promise<NodeWorkerHandle | null> {
+export async function spawnNodeWorker(
+  entryPoint: URL,
+  resourceLimits?: WorkerResourceLimits,
+): Promise<NodeWorkerHandle | null> {
   try {
     const workerThreads = await import('node:worker_threads')
-    return new workerThreads.Worker(entryPoint) as unknown as NodeWorkerHandle
+    return new workerThreads.Worker(entryPoint, { resourceLimits }) as unknown as NodeWorkerHandle
   } catch {
     return null
   }

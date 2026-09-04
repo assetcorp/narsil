@@ -8,6 +8,7 @@ import type {
   TransportMessage,
 } from '../../transport/types'
 import { ClusterMessageTypes } from '../../transport/types'
+import { BOOTSTRAP_CAS_ATTEMPTS } from '../constants'
 
 /**
  * Reads a bootstrap completion report out of a decoded payload, and reports a malformed one as `null`.
@@ -150,8 +151,6 @@ export async function handleBootstrapCompleteMessage(
     payload: encode(resultPayload),
   })
 }
-
-const BOOTSTRAP_CAS_ATTEMPTS = 5
 
 async function processBootstrapComplete(
   payload: BootstrapCompletePayload,

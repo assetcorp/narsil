@@ -20,7 +20,13 @@ import { encodeSegmentState, type SegmentPayload } from '../segment-payload'
 import type { SortedPageEntry, SortPageRequest } from '../sorting'
 import type { PartitionSuggestion } from '../suggestions'
 import type { PartitionInsertOptions } from '../utils'
-import { resolveFrozenSegments, swapFrozenSegmentList } from './compaction'
+import {
+  freezeLiveTailInto,
+  type LiveTailFreezer,
+  resolveFrozenSegments,
+  survivorDocumentsOf,
+  swapFrozenSegmentList,
+} from './compaction'
 import {
   compositeFilterMatches,
   compositeFilters,
@@ -51,22 +57,12 @@ export interface CompositePartition extends PartitionIndex {
   appendFrozenSegment(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
   attachFrozenSegment(segment: FrozenSegment): void
   swapFrozenSegments(dropSegmentIds: readonly string[], replacement: FrozenSegment): void
+  freezeLiveTail(freeze: LiveTailFreezer): FrozenSegment | null
+  replaceLiveTail(segment: FrozenSegment): void
 }
 
 export function isCompositePartition(partition: PartitionIndex): partition is CompositePartition {
   return 'attachFrozenSegment' in partition
-}
-
-function survivorDocuments(sub: PartitionReadState, payload: SegmentPayload): AnyDocument[] {
-  return payload.docIds.map(docId => {
-    const stored = sub.docStore.get(docId)
-    if (stored === undefined) {
-      throw new NarsilError(ErrorCodes.PARTITION_CORRUPTED, `Document "${docId}" vanished while composing a segment`, {
-        docId,
-      })
-    }
-    return stored.fields as AnyDocument
-  })
 }
 
 export function createCompositePartition(
@@ -99,7 +95,7 @@ export function createCompositePartition(
     for (const sub of subs()) {
       const payload = encodeSegmentState(sub)
       if (payload.documentCount === 0) continue
-      scratch.mergeSegmentPayload(payload, survivorDocuments(sub, payload))
+      scratch.mergeSegmentPayload(payload, survivorDocumentsOf(sub, payload))
     }
     return scratch
   }
@@ -141,6 +137,18 @@ export function createCompositePartition(
 
     swapFrozenSegments(dropSegmentIds: readonly string[], replacement: FrozenSegment): void {
       swapFrozenSegmentList(frozen, dropSegmentIds, replacement, partitionId)
+      invalidateDocFrequencies()
+    },
+
+    freezeLiveTail(freeze: LiveTailFreezer): FrozenSegment | null {
+      const segment = freezeLiveTailInto(live, liveState, frozen, freeze)
+      if (segment !== null) invalidateDocFrequencies()
+      return segment
+    },
+
+    replaceLiveTail(segment: FrozenSegment): void {
+      live.clear()
+      frozen.push(segment)
       invalidateDocFrequencies()
     },
 
@@ -193,7 +201,7 @@ export function createCompositePartition(
         for (const segment of frozen) {
           const payload = encodeSegmentState(segment)
           if (payload.documentCount === 0) continue
-          live.mergeSegmentPayload(payload, survivorDocuments(segment, payload))
+          live.mergeSegmentPayload(payload, survivorDocumentsOf(segment, payload))
         }
         frozen.length = 0
       }

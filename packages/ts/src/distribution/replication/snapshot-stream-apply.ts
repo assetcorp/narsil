@@ -5,7 +5,7 @@ import type {
   SnapshotEndPayload,
   SnapshotStartPayload,
 } from '../transport/types'
-import { MAX_SNAPSHOT_SIZE_BYTES, SNAPSHOT_CHUNK_SIZE } from './snapshot-constants'
+import { MAX_SNAPSHOT_SIZE_BYTES, SNAPSHOT_CHUNK_SIZE } from './constants'
 
 export interface SnapshotStreamFailure {
   ok: false

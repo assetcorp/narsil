@@ -1,5 +1,5 @@
+import { DEFAULT_ESTIMATED_PARTITION_BYTES } from '../../constants'
 import type { Decider, DeciderContext, DeciderVerdict } from '../types'
-import { DEFAULT_ESTIMATED_PARTITION_BYTES } from '../types'
 
 export function createCapacityDecider(estimatedPartitionBytes?: number): Decider {
   const bytesPerPartition = estimatedPartitionBytes ?? DEFAULT_ESTIMATED_PARTITION_BYTES

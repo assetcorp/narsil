@@ -1,9 +1,6 @@
-export const MAX_LAYER_CAP = 32
-
-export const MAX_M = 512
+import { INITIAL_UPPER_SLOTS, MAX_LAYER_CAP } from './constants'
 
 const ABSENT = -1
-const INITIAL_UPPER_SLOTS = 64
 
 export interface Adjacency {
   readonly m: number

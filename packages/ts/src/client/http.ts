@@ -1,12 +1,6 @@
 import { ClientErrorCodes, describeError, ErrorCodes, NarsilError } from '../errors'
+import { DEFAULT_REQUEST_TIMEOUT_MS } from './constants'
 import type { FetchFunction, NarsilClientOptions, RequestOptions } from './options'
-
-const DEFAULT_TIMEOUT_MS = 30_000
-
-/** This sets no deadline, so the request runs for as long as the server takes.
- * The routes that carry a corpus or a snapshot start here, because only the
- * caller knows how long one of those should run. */
-export const NO_TIMEOUT = 0
 
 /** This describes one exchange, which a client method fills in and the
  * transport turns into a request. */
@@ -189,7 +183,7 @@ export function createTransport(options: NarsilClientOptions): Transport {
     const perCall = spec.options?.timeoutMs
     if (perCall !== undefined) return perCall
     if (options.timeoutMs !== undefined) return options.timeoutMs
-    return spec.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS
+    return spec.defaultTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
   }
 
   function resolveResponseCeiling(spec: RequestSpec): number {

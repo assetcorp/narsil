@@ -32,6 +32,17 @@ export function subBitsetView(composite: Uint32Array, layout: OrdinalLayout, sub
   return composite.subarray(startWord, endWord)
 }
 
+export function placeSubBitset(
+  composite: Uint32Array,
+  layout: OrdinalLayout,
+  subIndex: number,
+  subBits: Uint32Array,
+): void {
+  const words = subBitsetView(composite, layout, subIndex).length
+  if (words === 0) return
+  composite.set(subBits.length > words ? subBits.subarray(0, words) : subBits, layout.bases[subIndex] >> 5)
+}
+
 export function compositeFiltersBitset(
   subs: readonly PartitionReadState[],
   layout: OrdinalLayout,
@@ -40,8 +51,7 @@ export function compositeFiltersBitset(
 ): Uint32Array {
   const composite = new Uint32Array(Math.ceil(layout.totalCapacity / WORD_BITS))
   for (let i = 0; i < subs.length; i++) {
-    const subBits = applyPartitionFiltersBitset(subs[i], filters, schema)
-    composite.set(subBits, layout.bases[i] >> 5)
+    placeSubBitset(composite, layout, i, applyPartitionFiltersBitset(subs[i], filters, schema))
   }
   return composite
 }

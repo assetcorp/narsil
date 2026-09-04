@@ -1,7 +1,7 @@
+import { MAX_MESSAGE_SIZE_BYTES } from './constants'
 import {
   DEFAULT_TRANSPORT_CONFIG,
   type ListenHandler,
-  MAX_MESSAGE_SIZE_BYTES,
   type NodeTransport,
   type RespondFn,
   type TransportConfig,

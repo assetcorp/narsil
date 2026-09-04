@@ -1,11 +1,10 @@
 import type { AnyDocument } from '../../types/schema'
+import { SORT_VALUE_MAX_CODE_POINTS } from './constants'
 import { compareSortStrings } from './fold-compare'
 
 export type SortDirection = 'asc' | 'desc'
 
 export type ComparableSortValue = string | number | boolean | null
-
-export const SORT_VALUE_MAX_CODE_POINTS = 512
 
 /**
  * Cuts a string sort value to the specification's comparison window of 512

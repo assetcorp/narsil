@@ -1,14 +1,14 @@
-import { MAX_INDEX_NAME_LENGTH } from '../distribution/cluster/index-metadata'
 import { ErrorCodes, NarsilError } from '../errors'
-import { clampRowCount, DEFAULT_PAGE_SIZE } from '../search/pagination'
+import { clampRowCount } from '../search/pagination'
+import type { IndexLifecycleConfig, WorkerConfig } from '../types/config'
 import type { BM25Params } from '../types/schema'
-
-const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
-const MAX_DOC_ID_LENGTH = 512
-
-export const BATCH_CHUNK_SIZE = 1000
-export const DEFAULT_LIMIT = DEFAULT_PAGE_SIZE
-export const DEFAULT_OFFSET = 0
+import {
+  DEFAULT_LIMIT,
+  DEFAULT_OFFSET,
+  INDEX_NAME_PATTERN,
+  MAX_DOC_ID_LENGTH,
+  MAX_INDEX_NAME_LENGTH,
+} from './constants'
 
 export function now(): number {
   if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
@@ -87,6 +87,28 @@ export function validatePartitionConfig(partitions: {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'partitions.watermark must be above 0 and at most 1', {
       watermark,
     })
+  }
+}
+
+function requirePositiveSafeInteger(field: string, value: number | undefined): void {
+  if (value === undefined) return
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, `${field} must be a positive safe integer`, { field, value })
+  }
+}
+
+export function validateWorkerConfig(workers: WorkerConfig | undefined, lifecycle?: IndexLifecycleConfig): void {
+  if (workers === undefined) return
+  requirePositiveSafeInteger('workers.count', workers.count)
+  requirePositiveSafeInteger('workers.promotionThreshold', workers.promotionThreshold)
+  requirePositiveSafeInteger('workers.idleTimeoutMs', workers.idleTimeoutMs)
+  const closeAfter = lifecycle?.idleTimeoutMs
+  if (workers.idleTimeoutMs !== undefined && closeAfter !== undefined && workers.idleTimeoutMs > closeAfter) {
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      'workers.idleTimeoutMs must be at most lifecycle.idleTimeoutMs, so that an index drops its copies before it closes',
+      { workersIdleTimeoutMs: workers.idleTimeoutMs, lifecycleIdleTimeoutMs: closeAfter },
+    )
   }
 }
 

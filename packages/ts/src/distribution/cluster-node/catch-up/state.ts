@@ -1,6 +1,3 @@
-export const CATCH_UP_TICK_MS = 1_000
-export const CATCH_UP_IN_FLIGHT_BYTE_CEILING = 67_108_864
-
 export interface ReplicaCursor {
   appliedSeqNo: number
   sending: boolean

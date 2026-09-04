@@ -8,7 +8,8 @@ import type { GlobalStatistics, InternalSearchResult, ScoredDocument } from '../
 import type { LanguageModule } from '../types/language'
 import type { BM25Params, CustomTokenizer, FieldType, SchemaDefinition } from '../types/schema'
 import type { QueryParams, TermMatchPolicy } from '../types/search'
-import { clampRowCount, DEFAULT_PAGE_SIZE } from './pagination'
+import { DEFAULT_PAGE_SIZE, PREFIX_MAX_EXPANSIONS } from './constants'
+import { clampRowCount } from './pagination'
 
 export interface FulltextSearchOptions {
   bm25Params?: BM25Params
@@ -16,8 +17,6 @@ export interface FulltextSearchOptions {
   customTokenizer?: CustomTokenizer
   globalStats?: GlobalStatistics
 }
-
-const PREFIX_MAX_EXPANSIONS = 50
 
 function resolvePrefixExpansion(
   partition: PartitionIndex,

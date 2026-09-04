@@ -2,15 +2,15 @@ import { generateId } from '../../core/id-generator'
 import { createFrozenSegment } from '../../core/partition/frozen'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
+import { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
 import type { BuiltSegment } from '../orchestration/segments'
-import { BATCH_CHUNK_SIZE } from '../validation'
 import { insertDocumentVectors } from '../vector-coordinator'
 import type { MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
 import { asBatchInsertError } from './insert-admission'
 import { type AdmittedInsert, admitBatchDocuments } from './insert-batch-admission'
 import { applyAdmittedDocuments } from './insert-batch-documents'
-import { broadcastBuiltSegments, buildSegmentRequests, MIN_DOCUMENTS_FOR_SEGMENTS } from './segment-replication'
+import { broadcastBuiltSegments, buildSegmentRequests } from './segment-replication'
 
 interface IngestOutcome {
   succeeded: string[]
@@ -239,7 +239,7 @@ export async function insertBatchViaSegments(
   }
 
   ctx.checkWatermark(indexName)
-  await ctx.orchestrator.checkPromotion()
+  await ctx.orchestrator.scaleOutReadyIndexes()
 
   return { succeeded: outcome.succeeded, failed }
 }

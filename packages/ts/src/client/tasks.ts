@@ -1,11 +1,10 @@
 import { ClientErrorCodes, NarsilError, ServerErrorCodes } from '../errors'
 import type { TaskListPage, TaskListQuery, TaskRecord } from '../server/types'
+import { DEFAULT_TASK_POLL_INTERVAL_MS } from './constants'
 import type { Transport } from './http'
 import type { RequestOptions } from './options'
 import { taskPath } from './paths'
 import { readBody } from './response-shape'
-
-const DEFAULT_POLL_INTERVAL_MS = 250
 
 /**
  * These settings say how {@link TaskOperations.waitForTask} follows a task.
@@ -151,7 +150,7 @@ export function createTaskOperations(transport: Transport): TaskOperations {
       return readBody<TaskRecord>(await transport.json({ method: 'POST', path, options }), path)
     },
     async waitForTask(taskId, options) {
-      const interval = options?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
+      const interval = options?.pollIntervalMs ?? DEFAULT_TASK_POLL_INTERVAL_MS
       const waitTimeoutMs = options?.waitTimeoutMs ?? 0
       const startedAt = Date.now()
       let reported: string | null = null

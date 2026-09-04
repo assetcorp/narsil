@@ -22,14 +22,6 @@ export interface NodeLifecycleConfig {
   onError?: (error: unknown) => void
 }
 
-export const DEFAULT_NODE_LIFECYCLE_CONFIG = {
-  bootstrapRetryBaseMs: 1_000,
-  bootstrapRetryMaxMs: 5_000,
-  bootstrapMaxRetries: 10,
-  allocationDebounceMs: 250,
-  nodeHeartbeatIntervalMs: 10_000,
-} as const
-
 export interface DataNodeHandle {
   readonly status: DataNodeLifecycleStatus
   readonly nodeId: string

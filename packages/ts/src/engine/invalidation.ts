@@ -5,9 +5,7 @@ import type { PartitionManager } from '../partitioning/manager'
 import type { InvalidationAdapter, InvalidationEvent, PartitionStatistics } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { GlobalStatistics } from '../types/internal'
-
-export const STATISTICS_BROADCAST_INTERVAL_MS = 5000
-const FOREIGN_STATS_TTL_MS = 60_000
+import { FOREIGN_STATS_TTL_MS, STATISTICS_BROADCAST_INTERVAL_MS } from './constants'
 
 export interface InvalidationIntegrationDeps {
   adapter: InvalidationAdapter

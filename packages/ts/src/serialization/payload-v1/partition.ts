@@ -1,5 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
 import type { SerializablePartition, SerializedSurfaceForms } from '../../types/internal'
+import { VALID_HNSW_METRICS } from '../constants'
 import { dropStoredVectorValues } from '../stored-vector-values'
 
 export function sanitizeSurfaceForms(raw: unknown): SerializedSurfaceForms | undefined {
@@ -138,8 +139,6 @@ function partitionToWire(partition: SerializablePartition): RawPartitionPayload 
     },
   }
 }
-
-const VALID_HNSW_METRICS = new Set(['cosine', 'dotProduct', 'euclidean'])
 
 function validateHnswMetric(value: unknown): 'cosine' | 'dotProduct' | 'euclidean' | undefined {
   if (value === undefined || value === null) return undefined

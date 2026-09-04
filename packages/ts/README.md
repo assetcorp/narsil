@@ -91,7 +91,7 @@ Every hit holds the document, its id, and its BM25 score. `results.count` report
 
 **Storage.** [Persistence adapters](https://github.com/assetcorp/narsil/blob/main/docs/persistence-and-durability.md) plug in filesystem, IndexedDB, memory, or custom backends. Durability adds a write-ahead log with periodic checkpoints and automatic recovery, and snapshots capture a whole index as one portable byte array.
 
-**Scale.** [Partitioned indexes](https://github.com/assetcorp/narsil/blob/main/docs/partitions-and-workers.md) route documents by deterministic hash and reshape online through `rebalance()`, with writes buffering in a write-ahead queue during the reshape. Worker promotion moves search off the main thread once document counts cross a threshold.
+**Scale.** [Partitioned indexes](https://github.com/assetcorp/narsil/blob/main/docs/partitions-and-workers.md) route documents by deterministic hash and reshape online through `rebalance()`, with writes buffering in a write-ahead queue during the reshape. Worker copies answer keyword queries on half the worker threads once an index holds 1,000 documents.
 
 **Operations.** The [HTTP server](https://github.com/assetcorp/narsil/blob/main/docs/http-server.md) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. The [client](https://github.com/assetcorp/narsil/blob/main/docs/client.md) subpath reaches every one of those routes from a browser or from Node under the engine's own method names, and the [React](https://github.com/assetcorp/narsil/blob/main/docs/react.md) subpath gives those methods to components as hooks. [Events, plugins, and memory reporting](https://github.com/assetcorp/narsil/blob/main/docs/observability.md) cover observability, and [language modules](https://github.com/assetcorp/narsil/blob/main/docs/language-support.md) cover 107 languages as separate entry points, 20 of them African.
 
@@ -108,7 +108,7 @@ Every hit holds the document, its id, and its BM25 score. `results.count` report
 | [Geosearch](../../docs/geosearch.md) | Radius and polygon filters, and the two distance formulas |
 | [Embedding adapters](../../docs/embedding-adapters.md) | Automatic embedding on insert and query, named adapters, the bundled ones, and custom ones |
 | [Persistence and durability](../../docs/persistence-and-durability.md) | Storage backends, the write-ahead log, checkpoints, recovery, and snapshots |
-| [Partitions and workers](../../docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker promotion, and multi-instance invalidation |
+| [Partitions and workers](../../docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker copies, and multi-instance invalidation |
 | [Language support](../../docs/language-support.md) | The 107 language modules, analysis revisions and rebuilds, and named tokenizers and stop words |
 | [HTTP server](../../docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |
 | [Cluster mode](../../docs/cluster.md) | Multi-node indexes: nodes and roles, replication, routed writes, distributed searches and reads, and what a cluster refuses |

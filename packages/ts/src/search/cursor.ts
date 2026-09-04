@@ -1,15 +1,17 @@
 import { type ComparableSortValue, toComparableSortValue } from '../core/ordering'
+import { SORT_VALUE_MAX_CODE_POINTS } from '../core/ordering/constants'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { SortSpec } from '../types/search'
+import {
+  MAX_CURSOR_ANCHOR_CODE_POINTS,
+  MAX_CURSOR_LENGTH,
+  MAX_SORT_FIELD_NAME_LENGTH,
+  MAX_SORT_FIELDS,
+} from './constants'
 import { decodeCursorText, encodeCursorText } from './cursor-codec'
 import { normalizeSort } from './sorting'
 
 export const CURSOR_VERSION = 3
-export const MAX_CURSOR_LENGTH = 40_960
-export const MAX_SORT_FIELDS = 8
-export const MAX_SORT_FIELD_NAME_LENGTH = 255
-const MAX_ANCHOR_CODE_POINTS = 512
-const MAX_SORT_VALUE_CODE_POINTS = 512
 
 /**
  * The decoded form of the paging cursor that search and listing share. The
@@ -116,7 +118,7 @@ function decodeSortKey(value: unknown, cursor: string): ComparableSortValue[] {
       continue
     }
     if (typeof entry === 'string') {
-      if (exceedsCodePoints(entry, MAX_SORT_VALUE_CODE_POINTS)) {
+      if (exceedsCodePoints(entry, SORT_VALUE_MAX_CODE_POINTS)) {
         throw invalidCursor(cursor, '"k" holds an oversized sort value')
       }
       key.push(entry)
@@ -161,7 +163,7 @@ export function decodePageCursor(cursor: string): PageCursor {
     throw invalidCursor(cursor, '"q" must be 8 lowercase hex digits')
   }
   if (typeof a !== 'string' || a.length === 0) throw invalidCursor(cursor, '"a" must be a non-empty string')
-  if (exceedsCodePoints(a, MAX_ANCHOR_CODE_POINTS)) {
+  if (exceedsCodePoints(a, MAX_CURSOR_ANCHOR_CODE_POINTS)) {
     throw invalidCursor(cursor, '"a" is too long to be a document id')
   }
 

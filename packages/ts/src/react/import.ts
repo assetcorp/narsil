@@ -2,11 +2,12 @@ import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } fro
 import type { ImportSource, RequestOptions } from '../client'
 import { NarsilError, ServerErrorCodes } from '../errors'
 import type { ImportResult, TaskProgress, TaskRecord } from '../server/types'
+import { DEFAULT_TASK_POLL_INTERVAL_MS } from './constants'
 import { useNarsilClient } from './context'
 import { asNarsilError } from './failure'
 import { type NarsilRequestSettings, requestOf } from './options'
 import { usePolling } from './poll'
-import { DEFAULT_TASK_POLL_INTERVAL_MS, isTerminalTask, pollInterval } from './task-state'
+import { isTerminalTask, pollInterval } from './task-state'
 
 /**
  * These settings say how {@link useImport} runs a load and follows it.

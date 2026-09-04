@@ -1,7 +1,15 @@
-import type { InternalIdResolver, InternalSearchResult, PostingListView, ScoredDocument } from '../../types/internal'
+import type {
+  InternalIdResolver,
+  InternalSearchParams,
+  InternalSearchResult,
+  PostingListView,
+  ScoredDocument,
+} from '../../types/internal'
 import type { BM25Params } from '../../types/schema'
-import { computeBM25 } from '../scorer'
+import type { InvertedIndexReader } from '../inverted-index'
+import { bm25PruningSound, computeBM25 } from '../scorer'
 import { blockBoundsFor } from './block-bounds'
+import { postingColumns } from './posting-columns'
 import { EMPTY_COMPONENTS } from './scoring'
 import { buildMinHeap, candidateWorse, siftDown, sortSelection, type TopKCandidate } from './top-k-heap'
 
@@ -45,6 +53,40 @@ function bestSearchable(searchable: Uint8Array, values: Float64Array): number {
 }
 
 /**
+ * Decides whether a query may run on the pruned single-term scan, returning
+ * the term's posting list when it may and null when the query needs the full
+ * term-at-a-time loop. The scan handles exactly one unexpanded term scored
+ * over every searchable field with a bounded page, on an ordered list, under
+ * BM25 parameters whose block bound stays a true upper bound.
+ *
+ * @param params - The resolved search parameters.
+ * @param index - The inverted index holding the term's postings.
+ * @returns The posting list to scan, or null when the query must fall back.
+ */
+export function prunableSingleTermList(
+  params: InternalSearchParams,
+  index: Pick<InvertedIndexReader, 'lookup'>,
+): PostingListView | null {
+  if (params.queryTokens.length !== 1) return null
+  if (params.prefixExpansion !== undefined) return null
+  if (params.exact !== true && (params.tolerance ?? 0) !== 0) return null
+  if (params.termMatch !== undefined && params.termMatch !== 'any') return null
+  if (params.collectComponents !== false) return null
+  if (params.collectMatchedSet !== undefined) return null
+  if (params.maxResults === undefined) return null
+  if (params.fields !== undefined) return null
+  if (params.filterBitset !== undefined) return null
+  if (!bm25PruningSound(params.bm25Params)) return null
+
+  const list = index.lookup(params.queryTokens[0].token)
+
+  if (list === undefined) return null
+  if (!list.ordered) return null
+
+  return list
+}
+
+/**
  * Answers a one-term scored query by walking the term's postings in document
  * order and ruling out whole blocks whose best possible score cannot reach the
  * page. Tombstoned documents are skipped, and every live document is still
@@ -59,8 +101,7 @@ export function singleTermTopK(request: SingleTermScanRequest): InternalSearchRe
   const { fieldSearchable, fieldBoosts, fieldAvgLengths, fieldLengthColumns } = request
 
   const wanted = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 0
-  const deleted = list.deletedDocs
-  const hasDeleted = deleted.size > 0
+  const { docIds, termFrequencies, fieldNameIndices, deletedDocs: deleted, hasDeleted } = postingColumns(list)
 
   const bounds = blockBoundsFor(list, fieldLengthColumns)
   const maxBoost = bestSearchable(fieldSearchable, fieldBoosts)
@@ -92,20 +133,20 @@ export function singleTermTopK(request: SingleTermScanRequest): InternalSearchRe
 
     let entry = start
     while (entry < end) {
-      const internalId = list.docIds[entry]
+      const internalId = docIds[entry]
       if (hasDeleted && deleted.has(internalId)) {
-        while (entry < end && list.docIds[entry] === internalId) entry++
+        while (entry < end && docIds[entry] === internalId) entry++
         continue
       }
       let score = 0
       let scored = false
-      while (entry < end && list.docIds[entry] === internalId) {
-        const fieldIndex = list.fieldNameIndices[entry]
+      while (entry < end && docIds[entry] === internalId) {
+        const fieldIndex = fieldNameIndices[entry]
         if (fieldSearchable[fieldIndex] === 1) {
           const fieldLength = fieldLengthOf(fieldLengthColumns, fieldIndex, internalId, fieldAvgLengths[fieldIndex])
           score +=
             computeBM25(
-              list.termFrequencies[entry],
+              termFrequencies[entry],
               docFrequency,
               totalDocs,
               fieldLength,

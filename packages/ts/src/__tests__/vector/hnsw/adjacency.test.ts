@@ -7,13 +7,13 @@ import {
   deleteNode,
   hasNode,
   layerBase,
-  MAX_LAYER_CAP,
   neighborCount,
   nodeLevel,
   removeNeighbor,
   replaceNeighbors,
   resetAdjacency,
 } from '../../../vector/hnsw/adjacency'
+import { MAX_LAYER_CAP } from '../../../vector/hnsw/constants'
 
 const M = 8
 const MMAX0 = 16

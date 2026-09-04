@@ -51,7 +51,7 @@ export type WorkerAction =
   | {
       type: 'attachSegments'
       indexName: string
-      segments: Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }>
+      segments: Array<{ partitionId: number; snapshot: SharedSegmentSnapshot; tombstonedDocIds?: string[] }>
       requestId: string
     }
   | {
@@ -66,6 +66,13 @@ export type WorkerAction =
       indexName: string
       partitionId: number
       dropSegmentIds: string[]
+      snapshot: SharedSegmentSnapshot
+      requestId: string
+    }
+  | {
+      type: 'freezeLiveTail'
+      indexName: string
+      partitionId: number
       snapshot: SharedSegmentSnapshot
       requestId: string
     }
@@ -97,6 +104,7 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'attachSegments',
   'compactSegments',
   'swapSegments',
+  'freezeLiveTail',
   'memoryReport',
   'bootstrap',
   'shutdown',

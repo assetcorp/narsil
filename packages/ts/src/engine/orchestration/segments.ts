@@ -16,7 +16,7 @@ export interface BuiltSegment {
 }
 
 export function segmentBuildConcurrency(state: OrchestratorState, indexName: string): number {
-  if (!state.promotedIndexes.has(indexName)) return 0
+  if (!state.scaledOutIndexes.has(indexName)) return 0
   return state.workerPool?.workerCount ?? 0
 }
 

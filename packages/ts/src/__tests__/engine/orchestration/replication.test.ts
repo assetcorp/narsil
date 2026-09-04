@@ -1,89 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SegmentPayload } from '../../../core/partition/segment-payload'
-import {
-  awaitReplicationIdle,
-  MAX_PENDING_REPLICATION_DOCUMENTS,
-  replicateToWorkers,
-} from '../../../engine/orchestration/replication'
+import { MAX_PENDING_REPLICATION_DOCUMENTS, REPLICATION_WINDOW } from '../../../engine/orchestration/constants'
+import { awaitReplicationIdle, replicateToWorkers } from '../../../engine/orchestration/replication'
 import { searchViaWorker } from '../../../engine/orchestration/search'
-import type { OrchestratorState } from '../../../engine/orchestration/types'
-import type { PartitionManager } from '../../../partitioning/manager'
 import type { AnyDocument } from '../../../types/schema'
-import type { Executor } from '../../../workers/executor'
-import { createWorkerPool } from '../../../workers/pool'
-import { createExecutionPromoter } from '../../../workers/promoter'
 import type { WorkerAction } from '../../../workers/protocol'
-
-interface RecordedDispatch {
-  action: WorkerAction
-  resolve: (value?: unknown) => void
-  reject: (reason: Error) => void
-}
-
-interface Harness {
-  state: OrchestratorState
-  dispatched: RecordedDispatch[]
-  releaseAll: () => void
-}
-
-function makeHarness(workerCount: number, indexNames: string[]): Harness {
-  const dispatched: RecordedDispatch[] = []
-
-  const workerFactory = (): Executor => ({
-    execute<T>(action: WorkerAction): Promise<T> {
-      return new Promise((resolve, reject) => {
-        dispatched.push({ action, resolve: resolve as (value?: unknown) => void, reject })
-      }) as Promise<T>
-    },
-    shutdown: () => Promise.resolve(),
-  })
-
-  const pool = createWorkerPool({ count: workerCount, workerFactory })
-  for (const name of indexNames) {
-    pool.addIndexToAll(name)
-  }
-
-  const state: OrchestratorState = {
-    config: undefined,
-    executor: {
-      execute<T>(): Promise<T> {
-        return Promise.resolve(undefined) as Promise<T>
-      },
-      shutdown: () => Promise.resolve(),
-      getManager: () => ({ partitionCount: 1 }) as unknown as PartitionManager,
-      createIndex: () => undefined,
-      dropIndex: () => undefined,
-      listIndexes: () => indexNames,
-    },
-    promoter: createExecutionPromoter(),
-    indexRegistry: new Map(),
-    callbacks: undefined,
-    workersEnabled: true,
-    bootstrapModule: undefined,
-    promotionBuffer: [],
-    awaitingBufferedWrites: new Set(),
-    reportedIneligible: new Set(),
-    promotedIndexes: new Set(indexNames),
-    replicationQueues: new Map(),
-    segmentLedger: new Map(),
-    compactionsInFlight: new Map(),
-    workerPool: pool,
-    promotionInProgress: false,
-    promotionBlocked: false,
-    promotionRun: null,
-  }
-
-  return {
-    state,
-    dispatched,
-    releaseAll: () => {
-      while (dispatched.length > 0) {
-        const entry = dispatched.shift()
-        if (entry) entry.resolve()
-      }
-    },
-  }
-}
+import { recordingHarness as makeHarness, settle } from './fixtures'
 
 function insertAction(indexName: string, docId: string, document: AnyDocument, skipClone?: boolean): WorkerAction {
   return { type: 'insert', indexName, docId, document, requestId: `replicate-insert-${docId}`, skipClone }
@@ -122,10 +44,6 @@ function mergeAction(indexName: string, documentCount: number, skipClone?: boole
     requestId: `merge-segments-${indexName}-${documentCount}`,
     skipClone,
   }
-}
-
-async function settle(): Promise<void> {
-  await new Promise<void>(resolve => setTimeout(resolve, 0))
 }
 
 describe('replicateToWorkers', () => {
@@ -183,6 +101,29 @@ describe('replicateToWorkers', () => {
     await awaitReplicationIdle(harness.state, 'prose')
     expect(warnSpy.mock.calls.some(call => String(call[0]).includes('Worker replication failed'))).toBe(true)
     warnSpy.mockRestore()
+  })
+
+  it('sends a window of writes before the first is acknowledged, in order, and holds the rest until one completes', async () => {
+    const harness = makeHarness(1, ['prose'])
+
+    for (let i = 0; i < REPLICATION_WINDOW + 2; i++) {
+      await replicateToWorkers(harness.state, insertAction('prose', `doc-${i}`, { id: `doc-${i}` }))
+    }
+    await settle()
+    const sentIds = () =>
+      harness.dispatched.map(entry => (entry.action.type === 'insert' ? entry.action.docId : entry.action.type))
+    expect(sentIds()).toEqual(Array.from({ length: REPLICATION_WINDOW }, (_, i) => `doc-${i}`))
+
+    harness.dispatched.shift()?.resolve()
+    await settle()
+    expect(sentIds().at(-1)).toBe(`doc-${REPLICATION_WINDOW}`)
+    expect(harness.dispatched).toHaveLength(REPLICATION_WINDOW)
+
+    harness.releaseAll()
+    await settle()
+    harness.releaseAll()
+    await awaitReplicationIdle(harness.state, 'prose')
+    expect(harness.state.replicationQueues.size).toBe(0)
   })
 
   it('applies backpressure once pending documents exceed the cap', async () => {
@@ -247,6 +188,27 @@ describe('replicateToWorkers', () => {
 
     expect(harness.state.replicationQueues.size).toBe(0)
     expect(harness.dispatched.length).toBe(0)
+  })
+
+  it('sends nothing for an index that holds no worker copies', async () => {
+    const harness = makeHarness(1, ['prose'])
+
+    await replicateToWorkers(harness.state, insertAction('verse', 'a', { id: 'a' }))
+
+    expect(harness.state.replicationQueues.size).toBe(0)
+    expect(harness.dispatched.length).toBe(0)
+  })
+
+  it('holds a write back while the copies of its index are loading and sends it once they are in place', async () => {
+    const harness = makeHarness(1, [])
+    const buffered: WorkerAction[] = []
+    harness.state.copyLoadBuffers.set('prose', buffered)
+
+    await replicateToWorkers(harness.state, insertAction('prose', 'a', { id: 'a' }))
+
+    expect(harness.dispatched.length).toBe(0)
+    expect(buffered).toHaveLength(1)
+    expect(buffered[0].type).toBe('insert')
   })
 })
 

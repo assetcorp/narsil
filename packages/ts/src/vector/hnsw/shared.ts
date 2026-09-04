@@ -2,13 +2,9 @@ import type { VectorMetric } from '../brute-force'
 import type { QuantizerSearchReader, ScalarQuantizer } from '../scalar-quantization-types'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance } from '../similarity'
 import type { VectorSearchReader, VectorStore, VectorStoreEntry } from '../vector-store'
-import { type Adjacency, ensureAdjacencyCapacity, hasNode, MAX_LAYER_CAP, nodeLevel } from './adjacency'
+import { type Adjacency, ensureAdjacencyCapacity, hasNode, nodeLevel } from './adjacency'
+import { MAX_LAYER_CAP } from './constants'
 import type { HNSWWorkspace } from './workspace'
-
-export { MAX_LAYER_CAP, MAX_M } from './adjacency'
-export const COMPACTION_TOMBSTONE_RATIO = 0.1
-export const COMPACTION_ABSOLUTE_THRESHOLD = 1000
-export const SQ8_OVERSELECTION_FACTOR = 2
 
 /**
  * How an HNSW graph is built.

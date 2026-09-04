@@ -1,3 +1,5 @@
+import { DEFAULT_DTYPE, DEFAULT_MODEL, DEFAULT_POOLING } from './constants'
+
 export interface TransformersEmbeddingConfig {
   model?: string
   dimensions: number
@@ -23,10 +25,6 @@ interface TransformersTensor {
   dims: number[]
   tolist(): number[][]
 }
-
-const DEFAULT_MODEL = 'Xenova/all-MiniLM-L6-v2'
-const DEFAULT_DTYPE = 'q8'
-const DEFAULT_POOLING = 'mean'
 
 export function createTransformersEmbedding(config: TransformersEmbeddingConfig): EmbeddingResult {
   const model = config.model ?? DEFAULT_MODEL

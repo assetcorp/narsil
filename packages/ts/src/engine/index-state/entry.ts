@@ -1,10 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 
-export const DEFAULT_MAX_REOPEN_WAITERS = 64
-export const MAX_REOPEN_FAILURES = 5
-export const MIN_SWEEP_INTERVAL_MS = 100
-export const MAX_SWEEP_INTERVAL_MS = 60_000
-
 export type LifecycleState = 'open' | 'closed' | 'closing' | 'dropping' | 'reopen-failed'
 
 export interface LifecycleEntry {
@@ -25,6 +20,7 @@ export interface LifecycleEntry {
 export interface IndexStateCallbacks {
   reopen(indexName: string): Promise<void>
   close(indexName: string, markIrreversible: () => void): Promise<void>
+  onAccess?(indexName: string): void
   canCloseAutomatically(indexName: string): boolean
   estimateBytes(indexName: string): number
 }

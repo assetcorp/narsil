@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MAX_PARTITION_COUNT } from '../../../../../distribution/constants'
 import {
   validateFetchPayload,
   validateFetchResultPayload,
@@ -7,13 +8,12 @@ import {
   validateStatsResultPayload,
 } from '../../../../../distribution/query/codec'
 import {
-  MAX_DOC_ID_LENGTH,
   MAX_FETCH_DOCUMENT_IDS,
   MAX_FIELDS_LIST,
-  MAX_PARTITION_COUNT,
   MAX_TERM_LENGTH,
   MAX_TERMS_COUNT,
-} from '../../../../../distribution/query/validators/common'
+} from '../../../../../distribution/query/constants'
+import { MAX_DOC_ID_LENGTH } from '../../../../../engine/constants'
 import { NarsilError } from '../../../../../errors'
 
 describe('validateStatsPayload', () => {

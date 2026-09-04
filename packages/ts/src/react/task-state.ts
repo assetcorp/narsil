@@ -1,12 +1,5 @@
 import type { TaskRecord } from '../server/types'
-
-/** The server writes an import's progress this often, so a faster poll reads
- * the same figures twice. */
-export const DEFAULT_TASK_POLL_INTERVAL_MS = 250
-
-/** A poll that failed waits at least this long before the next one, which stops
- * a server refusing every request from taking four more every second. */
-export const ERROR_RETRY_INTERVAL_MS = 5000
+import { ERROR_RETRY_INTERVAL_MS } from './constants'
 
 /**
  * Says how long a hook waits before it asks about a task again.

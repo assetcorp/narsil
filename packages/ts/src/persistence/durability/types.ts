@@ -6,10 +6,6 @@ import type { VectorIndex } from '../../vector/vector-index'
 
 export type { DurabilityConfig }
 
-export const DEFAULT_CHECKPOINT_INTERVAL_MS = 300_000
-export const DEFAULT_CHECKPOINT_MUTATION_THRESHOLD = 100_000
-export const DEFAULT_ASYNC_FLUSH_INTERVAL_MS = 1000
-
 export interface IndexDurabilityHooks {
   getManager(indexName: string): PartitionManager | undefined
   getVectorFieldPaths(indexName: string): Set<string>

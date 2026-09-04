@@ -1,11 +1,8 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { MAX_NODE_ID_LENGTH } from '../constants'
 import type { PartitionState } from '../types'
 
-const MAX_NODE_ID_LENGTH = 255
-
 const VALID_PARTITION_STATES = new Set<string>(['UNASSIGNED', 'INITIALISING', 'ACTIVE', 'MIGRATING', 'DECOMMISSIONING'])
-
-export const MAX_WATCHERS = 64
 
 /**
  * Checks that a node id is safe to use as part of an etcd key.

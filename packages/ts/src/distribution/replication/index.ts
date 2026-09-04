@@ -9,6 +9,7 @@ export {
   validateEntryPayload,
   validateInsyncConfirmPayload,
 } from './codec'
+export { DEFAULT_LOG_RETENTION_BYTES } from './constants'
 export {
   handleInsyncAdmission,
   handleInsyncRemoval,
@@ -30,4 +31,3 @@ export type {
   ReplicationLogEntry,
   ReplicationOperation,
 } from './types'
-export { DEFAULT_LOG_RETENTION_BYTES } from './types'

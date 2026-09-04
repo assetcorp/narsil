@@ -1,10 +1,9 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-
-export const DEFAULT_MAX_CONCURRENT_SNAPSHOTS = 2
-
-export const DEFAULT_MAX_PER_SOURCE_SNAPSHOTS = 1
-
-export const DEFAULT_MAX_STREAMS_PER_INDEX = 4
+import {
+  DEFAULT_MAX_CONCURRENT_SNAPSHOTS,
+  DEFAULT_MAX_PER_SOURCE_SNAPSHOTS,
+  DEFAULT_MAX_STREAMS_PER_INDEX,
+} from './constants'
 
 export interface SnapshotBuildResult {
   bytes: Uint8Array

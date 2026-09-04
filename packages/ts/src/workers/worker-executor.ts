@@ -1,4 +1,10 @@
 import { ErrorCodes, NarsilError } from '../errors'
+import {
+  CONSECUTIVE_TIMEOUTS_BEFORE_DEATH,
+  DEFAULT_BACKPRESSURE_LIMIT,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  SHUTDOWN_TIMEOUT_MS,
+} from './constants'
 import type { Executor } from './executor'
 import type { WorkerAction, WorkerResponse } from './protocol'
 import { createRequestId, isValidWorkerResponse } from './protocol'
@@ -21,11 +27,6 @@ interface PendingRequest {
   timeoutId: ReturnType<typeof setTimeout>
 }
 
-const DEFAULT_BACKPRESSURE_LIMIT = 100
-const DEFAULT_REQUEST_TIMEOUT = 30_000
-const SHUTDOWN_TIMEOUT = 5_000
-const CONSECUTIVE_TIMEOUTS_BEFORE_DEATH = 3
-
 function errorFromEventLike(event: unknown): Error {
   if (event instanceof Error) {
     return event
@@ -44,7 +45,7 @@ function errorFromEventLike(event: unknown): Error {
 
 export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutorConfig): Executor {
   const backpressureLimit = config?.backpressureLimit ?? DEFAULT_BACKPRESSURE_LIMIT
-  const requestTimeout = config?.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT
+  const requestTimeout = config?.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT_MS
   const pending = new Map<string, PendingRequest>()
   let deathError: NarsilError | null = null
   let shutdownRequested = false
@@ -145,7 +146,7 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
       const timeoutId = setTimeout(() => {
         pending.delete(requestId)
         reject(new NarsilError(ErrorCodes.WORKER_TIMEOUT, 'Shutdown timed out'))
-      }, SHUTDOWN_TIMEOUT)
+      }, SHUTDOWN_TIMEOUT_MS)
 
       pending.set(requestId, {
         resolve: () => resolve(),

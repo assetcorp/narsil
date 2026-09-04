@@ -1,6 +1,6 @@
 import type { PostingListView } from '../../types/internal'
+import { TARGET_BLOCK_ENTRIES } from './constants'
 
-const TARGET_BLOCK_ENTRIES = 128
 const ABSENT_FIELD_LENGTH_BOUND = 0
 
 /**

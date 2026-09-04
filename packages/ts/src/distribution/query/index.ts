@@ -15,13 +15,14 @@ export {
   validateStatsPayload,
   validateStatsResultPayload,
 } from './codec'
+export { MAX_FACET_SIZE } from './constants'
 export type { NodeQueryOutcome } from './fan-out'
 export { buildCoverage, collectDistributedStats, fanOutSearch } from './fan-out'
 export type { DistributedLinearOptions, DistributedRRFOptions } from './fusion'
 export { distributedLinearCombination, distributedRRF, minMaxNormalizeScoredEntries } from './fusion'
 export { mergeAndTruncateScoredEntries, mergeAndTruncateSortedEntries, mergeDistributedFacets } from './merge'
 export type { QueryRoutingDeps } from './routing'
-export { distributedQuery, MAX_FACET_SIZE } from './routing'
+export { distributedQuery } from './routing'
 export type { PartitionRouting, ReplicaSelector } from './selection'
 export {
   collectActiveCandidates,

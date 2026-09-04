@@ -1,6 +1,7 @@
 import { encode } from '@msgpack/msgpack'
 import { type ErrorCode, ErrorCodes, NarsilError } from '../../errors'
-import { SNAPSHOT_CHUNK_SIZE } from '../replication/snapshot-constants'
+import { SNAPSHOT_CHUNK_SIZE } from '../replication/constants'
+import { MAX_MESSAGE_SIZE_BYTES } from '../transport/constants'
 import type {
   ReplicationSnapshotHeader,
   RespondFn,
@@ -9,12 +10,11 @@ import type {
   SnapshotStartPayload,
   TransportMessage,
 } from '../transport/types'
-import { MAX_MESSAGE_SIZE_BYTES, ReplicationMessageTypes } from '../transport/types'
+import { ReplicationMessageTypes } from '../transport/types'
+import { SNAPSHOT_CHUNK_YIELD_INTERVAL_MS } from './constants'
 import type { SnapshotBuildResult } from './snapshot-cache'
 
 export const SNAPSHOT_SYNC_ERROR_TYPE = `${ReplicationMessageTypes.SNAPSHOT_SYNC_REQUEST}.error`
-
-const CHUNK_YIELD_INTERVAL_MS = 8
 
 export interface SnapshotHeaderMetadata {
   partitionId: number
@@ -88,7 +88,7 @@ export async function streamSnapshotToReplica(
 
     offset = end
 
-    if (offset < totalBytes && now() - lastYieldAt >= CHUNK_YIELD_INTERVAL_MS) {
+    if (offset < totalBytes && now() - lastYieldAt >= SNAPSHOT_CHUNK_YIELD_INTERVAL_MS) {
       await yieldToEventLoop()
       lastYieldAt = now()
     }

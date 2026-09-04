@@ -8,10 +8,10 @@ import {
   resetCheckpointWorkerLatch,
 } from '../../../persistence/durability/checkpoint-worker-dispatch'
 import { readCommitMarker } from '../../../persistence/durability/commit-marker'
+import { DEFAULT_COMPACTION_THRESHOLD } from '../../../persistence/durability/constants'
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
 import { rebuildSnapshotFromDurable } from '../../../persistence/durability/rebuild'
 import { loadMetadata } from '../../../persistence/durability/recovery'
-import { DEFAULT_COMPACTION_THRESHOLD } from '../../../persistence/durability/segment'
 import { SINGLE_NODE_PRIMARY_TERM } from '../../../persistence/durability/seq-owner'
 import type { IndexConfig } from '../../../types/schema'
 

@@ -2,8 +2,7 @@ import { decode } from '@msgpack/msgpack'
 import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
 import type { InsyncAddPayload, InsyncConfirmPayload, InsyncRemovePayload, NodeTransport } from '../transport/types'
 import { createInsyncAddMessage, createInsyncRemoveMessage, validateInsyncConfirmPayload } from './codec'
-
-const INSYNC_CAS_ATTEMPTS = 5
+import { INSYNC_CAS_ATTEMPTS } from './constants'
 
 type AssignmentDecision =
   | { outcome: 'refuse' }

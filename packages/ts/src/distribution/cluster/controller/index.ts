@@ -147,7 +147,8 @@ export function createController(config: ControllerConfig): ControllerNode {
   return controller
 }
 
+export { DEFAULT_CONTROLLER_CONFIG } from '../constants'
 export type { IndexMetadata } from '../index-metadata'
 export { getIndexMetadata, putIndexMetadata, validateIndexName } from '../index-metadata'
 export type { ControllerConfig, ControllerNode } from './types'
-export { CONTROLLER_LEASE_KEY, DEFAULT_CONTROLLER_CONFIG } from './types'
+export { CONTROLLER_LEASE_KEY } from './types'

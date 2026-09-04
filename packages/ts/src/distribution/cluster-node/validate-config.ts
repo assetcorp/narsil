@@ -1,9 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { NodeRole } from '../coordinator/types'
+import { MAX_WAIT_FOR_ACTIVE_REPLICAS, MIN_CONTROLLER_LEASE_TTL_MS } from './constants'
 import type { ClusterNodeConfig } from './types'
-
-const MAX_WAIT_FOR_ACTIVE_REPLICAS = 255
-const MIN_CONTROLLER_LEASE_TTL_MS = 1_000
 
 export function validateClusterNodeConfig(config: ClusterNodeConfig): void {
   if (config.address.length === 0) {

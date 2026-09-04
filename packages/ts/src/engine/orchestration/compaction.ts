@@ -9,16 +9,25 @@ import {
 } from '../../core/partition/frozen'
 import type { PartitionManager } from '../../partitioning/manager'
 import { createRequestId } from '../../workers/protocol'
+import { COMPACTION_SEGMENT_TRIGGER, IDLE_MERGE_DELAY_MS, LIVE_TAIL_FREEZE_FLOOR } from './constants'
+import { freezeLiveTail } from './live-tail'
 import { awaitReplicationIdle, replicateToWorkers } from './replication'
 import type { OrchestratorState, SegmentLedgerEntry } from './types'
 
-export const COMPACTION_SEGMENT_TRIGGER = 8
+export type CompactionPolicy = 'ingest' | 'idle'
 
 function smallestSegmentIds(entries: ReadonlyArray<SegmentLedgerEntry>): string[] {
   return [...entries]
     .sort((a, b) => a.documentCount - b.documentCount)
     .slice(0, COMPACTION_SEGMENT_TRIGGER)
     .map(entry => entry.segmentId)
+}
+
+function pickSegmentIds(entries: ReadonlyArray<SegmentLedgerEntry>, policy: CompactionPolicy): string[] | null {
+  if (policy === 'idle') {
+    return entries.length >= 2 ? entries.map(entry => entry.segmentId) : null
+  }
+  return entries.length >= COMPACTION_SEGMENT_TRIGGER ? smallestSegmentIds(entries) : null
 }
 
 function mainCompositeOf(manager: PartitionManager, partitionId: number): CompositePartition | null {
@@ -32,21 +41,19 @@ function candidateSegmentIds(
   indexName: string,
   manager: PartitionManager,
   partitionId: number,
+  policy: CompactionPolicy,
 ): string[] | null {
   const composite = mainCompositeOf(manager, partitionId)
   if (composite !== null) {
     const sizes = composite.frozenSegmentSizes()
-    if (sizes.length >= COMPACTION_SEGMENT_TRIGGER) {
-      return smallestSegmentIds(
-        sizes.map(size => ({ segmentId: size.segmentId, documentCount: size.liveDocumentCount })),
-      )
-    }
+    const picks = pickSegmentIds(
+      sizes.map(size => ({ segmentId: size.segmentId, documentCount: size.liveDocumentCount })),
+      policy,
+    )
+    if (picks !== null) return picks
   }
   const ledger = state.segmentLedger.get(indexName)?.get(partitionId)
-  if (ledger !== undefined && ledger.length >= COMPACTION_SEGMENT_TRIGGER) {
-    return smallestSegmentIds(ledger)
-  }
-  return null
+  return ledger === undefined ? null : pickSegmentIds(ledger, policy)
 }
 
 function mainHoldsAll(composite: CompositePartition | null, segmentIds: readonly string[]): boolean {
@@ -55,32 +62,44 @@ function mainHoldsAll(composite: CompositePartition | null, segmentIds: readonly
   return segmentIds.every(segmentId => held.has(segmentId))
 }
 
+async function compactOnWorker(
+  state: OrchestratorState,
+  indexName: string,
+  partitionId: number,
+  segmentIds: readonly string[],
+): Promise<SharedSegmentSnapshot | null> {
+  const pool = state.workerPool
+  if (pool === null || !state.scaledOutIndexes.has(indexName)) return null
+  const lease = pool.leaseLeastBusy()
+  if (lease === null) return null
+  try {
+    return await lease.executor.execute<SharedSegmentSnapshot | null>({
+      type: 'compactSegments',
+      indexName,
+      partitionId,
+      segmentIds: [...segmentIds],
+      requestId: createRequestId(),
+    })
+  } catch (err) {
+    console.warn('Worker segment compaction failed, compacting on the main thread:', err)
+    return null
+  } finally {
+    lease.release()
+  }
+}
+
 async function compactPartitionSegments(
   state: OrchestratorState,
   indexName: string,
   manager: PartitionManager,
   partitionId: number,
   segmentIds: string[],
+  policy: CompactionPolicy,
 ): Promise<boolean> {
   await awaitReplicationIdle(state, indexName)
+  if (policy === 'idle' && !state.scaledOutIndexes.has(indexName)) return false
 
-  let snapshot: SharedSegmentSnapshot | null = null
-  const pool = state.workerPool
-  const executors = pool !== null && state.promotedIndexes.has(indexName) ? pool.getAllExecutors() : []
-  if (executors.length > 0) {
-    try {
-      snapshot = await executors[0].execute<SharedSegmentSnapshot | null>({
-        type: 'compactSegments',
-        indexName,
-        partitionId,
-        segmentIds: [...segmentIds],
-        requestId: createRequestId(),
-      })
-    } catch (err) {
-      console.warn('Worker segment compaction failed, compacting on the main thread:', err)
-    }
-  }
-
+  let snapshot = await compactOnWorker(state, indexName, partitionId, segmentIds)
   const composite = mainCompositeOf(manager, partitionId)
   const holdsAll = mainHoldsAll(composite, segmentIds)
 
@@ -110,7 +129,11 @@ async function compactPartitionSegments(
   return true
 }
 
-async function compactIndexSegments(state: OrchestratorState, indexName: string): Promise<void> {
+async function compactIndexSegments(
+  state: OrchestratorState,
+  indexName: string,
+  policy: CompactionPolicy,
+): Promise<void> {
   const manager = state.executor.getManager(indexName)
   if (!manager) return
 
@@ -119,18 +142,29 @@ async function compactIndexSegments(state: OrchestratorState, indexName: string)
   for (const partitionId of state.segmentLedger.get(indexName)?.keys() ?? []) partitionIds.add(partitionId)
 
   for (const partitionId of partitionIds) {
-    let picks = candidateSegmentIds(state, indexName, manager, partitionId)
+    if (policy === 'idle') {
+      await awaitReplicationIdle(state, indexName)
+      freezeLiveTail(state, indexName, manager, partitionId, LIVE_TAIL_FREEZE_FLOOR)
+    }
+    let picks = candidateSegmentIds(state, indexName, manager, partitionId, policy)
     while (picks !== null) {
-      const compacted = await compactPartitionSegments(state, indexName, manager, partitionId, picks)
+      const compacted = await compactPartitionSegments(state, indexName, manager, partitionId, picks, policy)
       if (!compacted) break
-      picks = candidateSegmentIds(state, indexName, manager, partitionId)
+      picks = candidateSegmentIds(state, indexName, manager, partitionId, policy)
     }
   }
 }
 
-export function maybeCompactSegments(state: OrchestratorState, indexName: string): void {
-  if (state.compactionsInFlight.has(indexName)) return
-  const run = compactIndexSegments(state, indexName)
+export function maybeCompactSegments(
+  state: OrchestratorState,
+  indexName: string,
+  policy: CompactionPolicy = 'ingest',
+): void {
+  if (state.compactionsInFlight.has(indexName)) {
+    if (policy === 'idle') scheduleIdleMerge(state, indexName)
+    return
+  }
+  const run = compactIndexSegments(state, indexName, policy)
     .catch(err => {
       console.warn('Segment compaction failed:', err)
     })
@@ -138,6 +172,23 @@ export function maybeCompactSegments(state: OrchestratorState, indexName: string
       state.compactionsInFlight.delete(indexName)
     })
   state.compactionsInFlight.set(indexName, run)
+}
+
+export function scheduleIdleMerge(state: OrchestratorState, indexName: string): void {
+  cancelIdleMerge(state, indexName)
+  const timer = setTimeout(() => {
+    state.idleMergeTimers.delete(indexName)
+    maybeCompactSegments(state, indexName, 'idle')
+  }, IDLE_MERGE_DELAY_MS)
+  if (typeof timer.unref === 'function') timer.unref()
+  state.idleMergeTimers.set(indexName, timer)
+}
+
+export function cancelIdleMerge(state: OrchestratorState, indexName: string): void {
+  const timer = state.idleMergeTimers.get(indexName)
+  if (timer === undefined) return
+  clearTimeout(timer)
+  state.idleMergeTimers.delete(indexName)
 }
 
 export async function awaitCompactions(state: OrchestratorState): Promise<void> {

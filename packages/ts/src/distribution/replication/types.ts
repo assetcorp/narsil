@@ -47,8 +47,6 @@ export interface ReplicationLog {
   clear(): void
 }
 
-export const DEFAULT_LOG_RETENTION_BYTES = 268_435_456
-
 export interface ReplicateResult {
   acknowledged: string[]
   failed: string[]

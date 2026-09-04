@@ -1,0 +1,24 @@
+import { DEFAULT_PAGE_SIZE } from '../search/constants'
+
+export const MIN_DOCUMENTS_FOR_SEGMENTS = 64
+export const BATCH_CHUNK_SIZE = 1000
+
+export const DEFAULT_LIMIT = DEFAULT_PAGE_SIZE
+export const DEFAULT_OFFSET = 0
+
+export const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
+export const MAX_INDEX_NAME_LENGTH = 255
+export const MAX_DOC_ID_LENGTH = 512
+
+export const MIN_SWEEP_INTERVAL_MS = 100
+export const MAX_SWEEP_INTERVAL_MS = 60_000
+
+export const STATISTICS_BROADCAST_INTERVAL_MS = 5_000
+export const FOREIGN_STATS_TTL_MS = 60_000
+
+export const DEFAULT_SUGGEST_LIMIT = 10
+export const MAX_SUGGEST_LIMIT = 100
+export const SUGGEST_OVERSAMPLE_FACTOR = 1.5
+export const SUGGEST_OVERSAMPLE_PADDING = 10
+export const MAX_SUGGEST_SCATTER_LIMIT =
+  Math.ceil(MAX_SUGGEST_LIMIT * SUGGEST_OVERSAMPLE_FACTOR) + SUGGEST_OVERSAMPLE_PADDING
