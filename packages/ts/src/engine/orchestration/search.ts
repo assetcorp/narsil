@@ -1,4 +1,5 @@
 import { type FanOutResult, kWayMerge } from '../../partitioning/fan-out'
+import type { PartitionManager } from '../../partitioning/manager'
 import { mergeFacets } from '../../search/facets'
 import type { GlobalStatistics } from '../../types/internal'
 import type { FacetResult } from '../../types/results'
@@ -76,13 +77,21 @@ async function runSplit(
   return mergeWorkerResults(results)
 }
 
-function leaseUnlessMainCopyTurn(state: OrchestratorState, pool: WorkerPool): WorkerLease | null {
-  if (state.mainCopyTurnTaken) return pool.leaseLeastBusy()
+export const MAIN_COPY_LONE_QUERY_DOCUMENTS = 50_000
+
+function takeMainCopyTurn(state: OrchestratorState): boolean {
+  if (state.mainCopyTurnTaken) return false
   state.mainCopyTurnTaken = true
   afterCurrentTurn(() => {
     state.mainCopyTurnTaken = false
   })
-  return null
+  return true
+}
+
+function answersFasterOnMainCopy(state: OrchestratorState, pool: WorkerPool, manager: PartitionManager): boolean {
+  if (pool.queriesInFlight() > 0) return false
+  if (manager.countDocuments() > MAIN_COPY_LONE_QUERY_DOCUMENTS) return false
+  return takeMainCopyTurn(state)
 }
 
 export async function searchViaWorker(
@@ -101,6 +110,8 @@ export async function searchViaWorker(
   const manager = state.executor.getManager(indexName)
   if (!manager) return null
 
+  if (answersFasterOnMainCopy(state, pool, manager)) return null
+
   const scope = partitionIds ?? Array.from({ length: manager.partitionCount }, (_, partitionId) => partitionId)
   const idle = pool.leaseIdle(scope.length)
   const leases: WorkerLease[] = []
@@ -110,7 +121,7 @@ export async function searchViaWorker(
       return await runSplit(leases, scope, indexName, params, globalStats)
     }
     for (const lease of idle.slice(1)) lease.release()
-    const lease = idle[0] ?? leaseUnlessMainCopyTurn(state, pool)
+    const lease = idle[0] ?? (takeMainCopyTurn(state) ? null : pool.leaseLeastBusy())
     if (lease === null) return null
     leases.push(lease)
     return await lease.executor.execute<FanOutResult>(queryAction(indexName, params, globalStats, partitionIds))

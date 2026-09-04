@@ -1,3 +1,4 @@
+import { MAIN_COPY_LONE_QUERY_DOCUMENTS } from '../../../engine/orchestration/search'
 import type { OrchestratorState } from '../../../engine/orchestration/types'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { Executor } from '../../../workers/executor'
@@ -14,6 +15,7 @@ export interface RecordedDispatch {
 export interface OrchestratorHarness {
   state: OrchestratorState
   dispatched: RecordedDispatch[]
+  setDocumentCount: (count: number) => void
   releaseAll: () => void
 }
 
@@ -69,6 +71,7 @@ export function recordingHarness(
   overrides: Partial<OrchestratorState> = {},
 ): OrchestratorHarness {
   const dispatched: RecordedDispatch[] = []
+  let documentCount = MAIN_COPY_LONE_QUERY_DOCUMENTS + 1
 
   const workerFactory = (workerId: number): Executor => ({
     execute<T>(action: WorkerAction): Promise<T> {
@@ -93,7 +96,7 @@ export function recordingHarness(
       getManager: () =>
         ({
           partitionCount,
-          countDocuments: () => 0,
+          countDocuments: () => documentCount,
           getPartition: () => ({}),
           serializePartition: (partitionId: number) => ({ partitionId }),
         }) as unknown as PartitionManager,
@@ -111,6 +114,9 @@ export function recordingHarness(
   return {
     state,
     dispatched,
+    setDocumentCount: (count: number) => {
+      documentCount = count
+    },
     releaseAll: () => {
       while (dispatched.length > 0) {
         const entry = dispatched.shift()

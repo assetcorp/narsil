@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { searchViaWorker } from '../../../engine/orchestration/search'
+import { MAIN_COPY_LONE_QUERY_DOCUMENTS, searchViaWorker } from '../../../engine/orchestration/search'
 import type { IndexRegistry } from '../../../engine/orchestration/types'
 import { getLanguage } from '../../../languages/registry'
 import type { FanOutResult } from '../../../partitioning/fan-out'
@@ -116,6 +116,49 @@ describe('a whole query goes to the copy with the fewest queries in flight', () 
 
     harness.releaseAll()
     await Promise.all([split, next])
+  })
+})
+
+describe('a lone query on a small index skips the worker hop', () => {
+  it('answers on the main copy and sends nothing to the copies', async () => {
+    const harness = recordingHarness(3, ['prose'])
+    harness.setDocumentCount(5_000)
+
+    expect(await searchViaWorker(harness.state, 'prose', { term: 'a' })).toBeNull()
+    await settle()
+    expect(queries(harness)).toHaveLength(0)
+  })
+
+  it('sends the query to a copy once the index outgrows what the main copy answers quickly', async () => {
+    const harness = recordingHarness(3, ['prose'])
+    harness.setDocumentCount(MAIN_COPY_LONE_QUERY_DOCUMENTS + 1)
+
+    const pending = searchViaWorker(harness.state, 'prose', { term: 'a' })
+    await settle()
+    expect(queries(harness)).toHaveLength(1)
+
+    harness.releaseAll()
+    await pending
+  })
+
+  it('sends a small index query to a copy while another query is still running', async () => {
+    const harness = recordingHarness(3, ['prose'])
+
+    const large = searchViaWorker(harness.state, 'prose', { term: 'a' })
+    await settle()
+    const [first] = queries(harness)
+    expect(first).toBeDefined()
+
+    harness.setDocumentCount(5_000)
+    const small = searchViaWorker(harness.state, 'prose', { term: 'b' })
+    await settle()
+
+    const sent = queries(harness)
+    expect(sent).toHaveLength(2)
+    expect(sent[1].workerId).not.toBe(first.workerId)
+
+    harness.releaseAll()
+    await Promise.all([large, small])
   })
 })
 

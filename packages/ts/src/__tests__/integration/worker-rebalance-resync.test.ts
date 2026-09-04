@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createWorkerOrchestrator, type WorkerOrchestrator } from '../../engine/orchestration'
 import { getLanguage } from '../../languages/registry'
 import { createNarsil, type Narsil } from '../../narsil'
+import type { FanOutResult } from '../../partitioning/fan-out'
 import { createRebalancer } from '../../partitioning/rebalancer'
 import { createPartitionRouter } from '../../partitioning/router'
 import type { EmbeddingAdapter } from '../../types/adapters'
@@ -11,6 +12,16 @@ import { createDirectExecutor } from '../../workers/direct-executor'
 
 const schema = { title: 'string' as const, category: 'string' as const }
 const indexConfig: IndexConfig = { schema, language: 'english' }
+
+async function answeredByCopy(orchestrator: WorkerOrchestrator): Promise<FanOutResult | null> {
+  const answers = await Promise.all([
+    orchestrator.searchViaWorker('products', { term: 'wireless' }),
+    orchestrator.searchViaWorker('products', { term: 'wireless' }),
+  ])
+  const fromCopies = answers.filter(answer => answer !== null)
+  expect(fromCopies).toHaveLength(1)
+  return fromCopies[0]
+}
 
 async function waitFor(condition: () => boolean | Promise<boolean>, timeoutMs = 20_000): Promise<void> {
   const start = Date.now()
@@ -59,8 +70,7 @@ describe('worker resynchronisation after a rebalance', () => {
     const activeOrchestrator = orchestrator
     await waitFor(() => activeOrchestrator.workerCopies().some(copy => copy.scaledOut))
 
-    const before = await activeOrchestrator.searchViaWorker('products', { term: 'wireless' })
-    expect(before).not.toBeNull()
+    const before = await answeredByCopy(activeOrchestrator)
     expect(before?.totalMatched).toBe(40)
 
     const rebalancer = createRebalancer()
@@ -73,8 +83,7 @@ describe('worker resynchronisation after a rebalance', () => {
 
     await activeOrchestrator.resyncIndex('products', wasPromoted)
 
-    const after = await activeOrchestrator.searchViaWorker('products', { term: 'wireless' })
-    expect(after).not.toBeNull()
+    const after = await answeredByCopy(activeOrchestrator)
     expect(after?.totalMatched).toBe(40)
   })
 

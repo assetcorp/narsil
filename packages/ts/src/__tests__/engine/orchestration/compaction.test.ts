@@ -110,6 +110,7 @@ describe('segment merge once the index is idle', () => {
       spawnReplacement: () => null,
       leaseLeastBusy: () => ({ workerId: 0, executor: worker, release: () => undefined }),
       leaseIdle: () => [{ workerId: 0, executor: worker, release: () => undefined }],
+      queriesInFlight: () => 0,
       spawnAll: () => undefined,
       workerCount: 1,
       addIndex: () => undefined,
