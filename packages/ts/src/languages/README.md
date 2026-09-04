@@ -35,20 +35,19 @@ nothing.
 
 ## Changing the shared tokenizer
 
-`src/core/tokenizer/` splits, folds, and stems the text for every language, so a change there
-changes what all 107 modules produce. The check digests that whole directory alongside each
-module's own sources and reports the two cases apart:
+`src/core/tokenizer/` splits, folds, and stems the text for every language. The check digests
+the implementation alongside each module's own sources and reports the two cases apart:
 
 ```text
 src/core/tokenizer/ changed, so every language analyses text differently: 107 revisions must bump
 greek: analysis changed while revision stayed 4f02e255d00e5848
 ```
 
-`revisions:write` then bumps all 107 revisions in one go, which is a large diff and the
-correct one, because every stored index holds terms the old code produced. The digest covers
-the directory in full, so editing the cache sizing constants in `cache.ts` bumps every
-revision as well. That costs a background rebuild nobody needed, and it is the safer side of
-the trade against missing a fold that changes real tokens.
+`revisions:write` then bumps all 107 revisions in one go, which is the correct result when
+the analysis changed because every stored index holds terms the old code produced. The
+digest includes analysis constants such as `DEFAULT_MIN_TOKEN_LENGTH`, but excludes cache
+sizes and host-memory thresholds. Those values change resource use, not the terms an index
+stores, so changing them must not rebuild every stored index.
 
 ## Adding a language
 
