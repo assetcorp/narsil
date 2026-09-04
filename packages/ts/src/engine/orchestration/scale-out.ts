@@ -108,6 +108,7 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
 
   const pool = await ensurePool(state)
   if (state.executor.getManager(indexName) === undefined) return
+  const dropReason = state.droppedCopies.get(indexName)
   const reload = state.droppedCopies.delete(indexName)
   const buffered: WorkerAction[] = []
   state.copyLoadBuffers.set(indexName, buffered)
@@ -117,6 +118,9 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
     state.lastAccessAt.set(indexName, Date.now())
     state.poolRetryDelayMs = POOL_RESTART_DELAY_MS
     for (const action of buffered) enqueueReplication(state, indexName, action)
+  } catch (err) {
+    if (dropReason !== undefined) state.droppedCopies.set(indexName, dropReason)
+    throw err
   } finally {
     state.copyLoadBuffers.delete(indexName)
   }
@@ -132,6 +136,7 @@ async function loadAfter(
   reason: string,
 ): Promise<void> {
   if (previous !== undefined) await previous.done
+  if (state.poolRepair !== null) await state.poolRepair
   if (!copiesAllowed(state)) return
   if (state.scaledOutIndexes.has(indexName) || state.desyncedIndexes.has(indexName)) return
   await loadCopies(state, indexName, reason)
