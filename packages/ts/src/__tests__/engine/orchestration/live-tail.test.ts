@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { isCompositePartition } from '../../../core/partition/composite'
-import { flushGrownTails, LIVE_TAIL_FLUSH_DOCUMENTS } from '../../../engine/orchestration/live-tail'
+import { LIVE_TAIL_FLUSH_DOCUMENTS } from '../../../engine/orchestration/constants'
+import { flushGrownTails } from '../../../engine/orchestration/live-tail'
 import type { OrchestratorState } from '../../../engine/orchestration/types'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { SchemaDefinition } from '../../../types/schema'

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_NODE_LIFECYCLE_CONFIG } from '../../../../../distribution/cluster/constants'
 import { createDataNodeLifecycle } from '../../../../../distribution/cluster/node-lifecycle'
 import type { DataNodeHandle } from '../../../../../distribution/cluster/node-lifecycle/types'
-import { DEFAULT_NODE_LIFECYCLE_CONFIG } from '../../../../../distribution/cluster/node-lifecycle/types'
 import { createInMemoryCoordinator } from '../../../../../distribution/coordinator'
 import type { ClusterCoordinator, PartitionAssignment } from '../../../../../distribution/coordinator/types'
 import type { InMemoryNetwork, NodeTransport } from '../../../../../distribution/transport'

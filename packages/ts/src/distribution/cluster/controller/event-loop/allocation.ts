@@ -1,6 +1,13 @@
 import { ErrorCodes, NarsilError } from '../../../../errors'
 import type { AllocationTable, ClusterCoordinator, NodeRegistration, SchemaEvent } from '../../../coordinator/types'
 import { allocate } from '../../allocator/index'
+import {
+  ALLOCATION_CAS_ATTEMPTS,
+  ALLOCATION_RETRY_DELAY_MS,
+  TEARDOWN_CAS_ATTEMPTS,
+  TEARDOWN_RETRY_DELAY_MS,
+  TEARDOWN_RETRY_ROUNDS,
+} from '../../constants'
 import { getIndexMetadata } from '../../index-metadata'
 import type { EventLoopState } from './state'
 import { recoverUnassignedPartitions } from './unassigned-recovery'
@@ -8,12 +15,6 @@ import { recoverUnassignedPartitions } from './unassigned-recovery'
 function holdsDataNode(nodes: NodeRegistration[]): boolean {
   return nodes.some(node => node.roles.includes('data'))
 }
-
-const ALLOCATION_CAS_ATTEMPTS = 5
-const ALLOCATION_RETRY_DELAY_MS = 1_000
-const TEARDOWN_CAS_ATTEMPTS = 5
-const TEARDOWN_RETRY_ROUNDS = 3
-const TEARDOWN_RETRY_DELAY_MS = 500
 
 async function runAllocatorForIndex(
   coordinator: ClusterCoordinator,

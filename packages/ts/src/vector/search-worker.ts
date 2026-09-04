@@ -1,5 +1,6 @@
 declare const self: unknown
 
+import { MAX_WORKER_COPIES } from './constants'
 import { searchOrdinals } from './hnsw/search'
 import type {
   SharedCopyLoadRequest,
@@ -38,8 +39,6 @@ export type {
 export type { SharedGenerationLayout, SharedGenerationSnapshot } from './shared-generation/types'
 export type { VectorStoreSnapshot } from './vector-store'
 export type { WorkerCopySnapshot } from './worker-copy'
-
-const MAX_WORKER_COPIES = 64
 
 type LoadedCopy = { kind: 'clone'; copy: WorkerCopy } | { kind: 'shared'; copy: SharedWorkerCopy }
 

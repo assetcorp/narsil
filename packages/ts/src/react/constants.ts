@@ -1,0 +1,4 @@
+export const DEFAULT_KEEP_ALIVE_MS = 2_000
+export const DEFAULT_TASK_POLL_INTERVAL_MS = 250
+export const ERROR_RETRY_INTERVAL_MS = 5_000
+export const MAX_QUERY_KEY_DEPTH = 32

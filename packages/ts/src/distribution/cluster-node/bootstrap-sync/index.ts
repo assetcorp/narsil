@@ -8,24 +8,20 @@ import {
   surfaceError,
   validateArguments,
 } from '../bootstrap-restore'
+import { DEFAULT_BOOTSTRAP_SYNC_DEADLINE_MS } from '../constants'
 import { executeLiveBootstrapSync } from './live'
 import { applyRestore, fetchSchemaAndPrepare } from './snapshot-restore'
 import {
   anotherBootstrapOwnsKey,
   clearBootstrapSyncIndex,
   createEntry,
-  DEFAULT_BOOTSTRAP_SYNC_DEADLINE_MS,
   entryKey,
   hasLiveBootstrapSyncDeps,
 } from './state'
 import type { BootstrapEntry, BootstrapSyncDeps, BootstrapSyncState } from './types'
 
-export {
-  clearBootstrapSyncIndex,
-  createBootstrapSyncState,
-  DEFAULT_BOOTSTRAP_SYNC_DEADLINE_MS,
-  hasCompletedBootstrapSync,
-} from './state'
+export { DEFAULT_BOOTSTRAP_SYNC_DEADLINE_MS } from '../constants'
+export { clearBootstrapSyncIndex, createBootstrapSyncState, hasCompletedBootstrapSync } from './state'
 export type { BootstrapSyncDeps, BootstrapSyncState } from './types'
 
 export async function runBootstrapSync(

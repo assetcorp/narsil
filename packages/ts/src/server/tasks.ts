@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { NarsilError, ServerErrorCodes } from '../errors'
+import {
+  DEFAULT_TASK_PAGE_SIZE,
+  RUNNING_TASK_TTL_MS,
+  TASK_PROGRESS_WRITE_INTERVAL_MS,
+  TERMINAL_TASK_TTL_MS,
+} from './constants'
 import { serializeNarsilError } from './errors'
 import type { ImportResult, TaskListPage, TaskListQuery, TaskProgress, TaskRecord, TaskStore, TaskType } from './types'
-
-const RUNNING_TTL_MS = 24 * 60 * 60 * 1000
-const TERMINAL_TTL_MS = 60 * 60 * 1000
-const PROGRESS_WRITE_INTERVAL_MS = 250
-const DEFAULT_TASK_PAGE_SIZE = 20
 
 /**
  * What a running task reports back while it works, and how it learns that a
@@ -115,7 +116,7 @@ export class TaskRegistry {
       settled: false,
     }
     this.live.set(record.id, task)
-    await this.enqueueWrite(task, record, RUNNING_TTL_MS)
+    await this.enqueueWrite(task, record, RUNNING_TASK_TTL_MS)
     void this.drive(task, op)
     return record
   }
@@ -155,7 +156,7 @@ export class TaskRegistry {
     task.controller.abort(new Error('The task was cancelled'))
     const record: TaskRecord = { ...task.record, cancelRequestedAt: Date.now() }
     task.record = record
-    await this.enqueueWrite(task, record, RUNNING_TTL_MS)
+    await this.enqueueWrite(task, record, RUNNING_TASK_TTL_MS)
     return { outcome: 'cancelling', record }
   }
 
@@ -182,7 +183,7 @@ export class TaskRegistry {
         error: { code: ServerErrorCodes.TASK_INTERRUPTED, message: 'The server restarted while this task was running' },
       }
       try {
-        await this.store.set(failed, TERMINAL_TTL_MS)
+        await this.store.set(failed, TERMINAL_TASK_TTL_MS)
       } catch {}
     }
   }
@@ -199,9 +200,9 @@ export class TaskRegistry {
     if (task.settled) return
     task.record = { ...task.record, progress }
     const now = Date.now()
-    if (now - task.lastProgressWriteAt < PROGRESS_WRITE_INTERVAL_MS) return
+    if (now - task.lastProgressWriteAt < TASK_PROGRESS_WRITE_INTERVAL_MS) return
     task.lastProgressWriteAt = now
-    void this.enqueueWrite(task, task.record, RUNNING_TTL_MS)
+    void this.enqueueWrite(task, task.record, RUNNING_TASK_TTL_MS)
   }
 
   private async drive(task: LiveTask, op: TaskOperation): Promise<void> {
@@ -232,7 +233,7 @@ export class TaskRegistry {
 
     task.settled = true
     task.record = { ...settled, completedAt: Date.now() }
-    await this.enqueueWrite(task, task.record, TERMINAL_TTL_MS)
+    await this.enqueueWrite(task, task.record, TERMINAL_TASK_TTL_MS)
     this.live.delete(task.record.id)
   }
 }

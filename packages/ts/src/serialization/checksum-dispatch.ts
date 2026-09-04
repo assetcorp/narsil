@@ -1,10 +1,8 @@
 import { isNodeMainThread, spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime } from '../runtime/detect'
+import { CHECKSUM_TIMEOUT_MS, CHECKSUM_YIELD_CHUNK_BYTES } from './constants'
 import { crc32Final, crc32Init, crc32Update } from './crc32'
 import type { ChecksumWorkerMessage } from './crc32-worker'
-
-const CHECKSUM_TIMEOUT_MS = 120_000
-const YIELD_CHUNK_BYTES = 4 * 1024 * 1024
 
 export interface ChecksumResult {
   checksum: number
@@ -56,8 +54,8 @@ function yieldToEventLoop(): Promise<void> {
 
 async function chunkedChecksum(payload: Uint8Array): Promise<number> {
   let state = crc32Init()
-  for (let offset = 0; offset < payload.length; offset += YIELD_CHUNK_BYTES) {
-    const end = Math.min(offset + YIELD_CHUNK_BYTES, payload.length)
+  for (let offset = 0; offset < payload.length; offset += CHECKSUM_YIELD_CHUNK_BYTES) {
+    const end = Math.min(offset + CHECKSUM_YIELD_CHUNK_BYTES, payload.length)
     state = crc32Update(state, payload.subarray(offset, end))
     if (end < payload.length) {
       await yieldToEventLoop()

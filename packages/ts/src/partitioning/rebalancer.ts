@@ -1,5 +1,6 @@
 import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../core/partition'
 import { ErrorCodes, NarsilError } from '../errors'
+import { REBALANCE_CHUNK_SIZE } from './constants'
 import type { PartitionManager } from './manager'
 import type { PartitionRouter } from './router'
 
@@ -18,8 +19,6 @@ export interface Rebalancer {
   ): Promise<void>
   isRebalancing(): boolean
 }
-
-const CHUNK_SIZE = 1000
 
 export function createRebalancer(): Rebalancer {
   const activeManagers = new WeakSet<PartitionManager>()
@@ -101,7 +100,7 @@ export function createRebalancer(): Rebalancer {
           }
 
           chunkFill++
-          if (chunkFill >= CHUNK_SIZE) {
+          if (chunkFill >= REBALANCE_CHUNK_SIZE) {
             chunkFill = 0
             onProgress?.({
               phase: 'moving',

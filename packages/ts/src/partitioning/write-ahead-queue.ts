@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import type { AnyDocument } from '../types/schema'
+import { DEFAULT_WRITE_AHEAD_QUEUE_MAX_SIZE } from './constants'
 
 export interface WAQEntry {
   sequenceNumber: number
@@ -20,7 +21,7 @@ export interface WriteAheadQueue {
   readonly isFull: boolean
 }
 
-export function createWriteAheadQueue(maxSize = 10_000): WriteAheadQueue {
+export function createWriteAheadQueue(maxSize = DEFAULT_WRITE_AHEAD_QUEUE_MAX_SIZE): WriteAheadQueue {
   const entries: WAQEntry[] = []
   const docStates = new Map<string, BufferedDocState>()
   let nextSequence = 1

@@ -11,9 +11,10 @@ import { resolveWorkerCount, splitWorkerBudget } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
 import { transferIndexToPool } from '../worker-resync'
 import { awaitCompactions, cancelIdleMerge, maybeCompactSegments, scheduleIdleMerge } from './compaction'
-import { DEFAULT_COPY_IDLE_TIMEOUT_MS, isIndexBusy, noteAccess, startIdleSweep, stopIdleSweep } from './idle'
+import { DEFAULT_COPY_IDLE_TIMEOUT_MS, DEFAULT_COPY_THRESHOLD, POOL_RESTART_DELAY_MS } from './constants'
+import { isIndexBusy, noteAccess, startIdleSweep, stopIdleSweep } from './idle'
 import { flushGrownTails } from './live-tail'
-import { cancelRepair, POOL_RESTART_DELAY_MS } from './repair'
+import { cancelRepair } from './repair'
 import { awaitReplicationIdle, replicateToWorkers } from './replication'
 import {
   copyThresholdReason,
@@ -27,8 +28,6 @@ import { type BuiltSegment, buildSegments, type SegmentBuildRequest, segmentBuil
 import type { IndexRegistry, OrchestratorState, WorkerOrchestrator, WorkerOrchestratorCallbacks } from './types'
 
 export type { WorkerOrchestrator, WorkerOrchestratorCallbacks } from './types'
-
-export const DEFAULT_COPY_THRESHOLD = 1_000
 
 export function workersEnabledByDefault(): boolean {
   return detectRuntime().runtime !== 'browser'

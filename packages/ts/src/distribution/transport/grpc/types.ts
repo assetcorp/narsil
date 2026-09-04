@@ -1,5 +1,11 @@
+import {
+  GRPC_ENVELOPE_OVERHEAD_BYTES,
+  GRPC_KEEPALIVE_TIME_MS,
+  GRPC_KEEPALIVE_TIMEOUT_MS,
+  MAX_MESSAGE_SIZE_BYTES,
+} from '../constants'
 import type { TlsConfig } from '../tcp/types'
-import { MAX_MESSAGE_SIZE_BYTES, type TransportConfig } from '../types'
+import type { TransportConfig } from '../types'
 
 /**
  * How the gRPC transport listens and dials.
@@ -24,16 +30,12 @@ export const DEFAULT_GRPC_CONFIG: GrpcTransportConfig = {
   snapshotTimeout: 300_000,
 }
 
-const ENVELOPE_OVERHEAD_BYTES = 1_024
-const KEEPALIVE_TIME_MS = 30_000
-const KEEPALIVE_TIMEOUT_MS = 10_000
-
 export function channelOptions(): Record<string, number> {
   return {
-    'grpc.max_receive_message_length': MAX_MESSAGE_SIZE_BYTES + ENVELOPE_OVERHEAD_BYTES,
-    'grpc.max_send_message_length': MAX_MESSAGE_SIZE_BYTES + ENVELOPE_OVERHEAD_BYTES,
-    'grpc.keepalive_time_ms': KEEPALIVE_TIME_MS,
-    'grpc.keepalive_timeout_ms': KEEPALIVE_TIMEOUT_MS,
+    'grpc.max_receive_message_length': MAX_MESSAGE_SIZE_BYTES + GRPC_ENVELOPE_OVERHEAD_BYTES,
+    'grpc.max_send_message_length': MAX_MESSAGE_SIZE_BYTES + GRPC_ENVELOPE_OVERHEAD_BYTES,
+    'grpc.keepalive_time_ms': GRPC_KEEPALIVE_TIME_MS,
+    'grpc.keepalive_timeout_ms': GRPC_KEEPALIVE_TIMEOUT_MS,
     'grpc.keepalive_permit_without_calls': 1,
   }
 }

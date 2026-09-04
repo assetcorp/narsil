@@ -177,10 +177,14 @@ export function decodePayload<T>(payload: Uint8Array): T {
   return decode(payload) as T
 }
 
-export { validateFetchPayload, validateFetchResultPayload } from './validators/fetch'
 export {
   MAX_LIST_CURSOR_LENGTH,
   MAX_SUGGEST_WIRE_LIMIT,
+  MAX_VECTOR_DIMENSION,
+  MAX_VECTOR_TEXT_LENGTH,
+} from './constants'
+export { validateFetchPayload, validateFetchResultPayload } from './validators/fetch'
+export {
   validateCountPayload,
   validateCountResultPayload,
   validateListPayload,
@@ -190,11 +194,6 @@ export {
   validateSuggestPayload,
   validateSuggestResultPayload,
 } from './validators/reads'
-export {
-  MAX_FACET_SHARD_SIZE,
-  MAX_VECTOR_DIMENSION,
-  MAX_VECTOR_TEXT_LENGTH,
-  validateSearchPayload,
-} from './validators/search'
+export { MAX_FACET_SHARD_SIZE, validateSearchPayload } from './validators/search'
 export { validateSearchResultPayload } from './validators/search-result'
 export { validateGlobalStatistics, validateStatsPayload, validateStatsResultPayload } from './validators/stats'

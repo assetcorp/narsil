@@ -2,15 +2,11 @@ import { generateId } from '../../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { Narsil } from '../../../narsil'
 import type { AnyDocument, IndexConfig, InsertOptions } from '../../../types/schema'
-import {
-  type IndexMetadata,
-  indexConfigKey,
-  MAX_PARTITION_COUNT,
-  putIndexMetadata,
-  validateIndexName,
-} from '../../cluster/index-metadata'
+import { type IndexMetadata, indexConfigKey, putIndexMetadata, validateIndexName } from '../../cluster/index-metadata'
+import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../../coordinator/types'
-import { DEFAULT_CREATE_INDEX_WAIT_MS, waitForServingAllocation } from '../allocation-wait'
+import { waitForServingAllocation } from '../allocation-wait'
+import { DEFAULT_CREATE_INDEX_WAIT_MS } from '../constants'
 import type { CreateIndexOptions } from '../types'
 import { DEFAULT_PARTITION_COUNT, DEFAULT_REPLICATION_FACTOR } from '../types'
 import { resolvePrimaryAssignment } from './assignment'
@@ -23,8 +19,6 @@ export { routeInsertBatch, routeRemoveBatch, routeUpdateBatch } from './batches'
 export { applyForwardedBatch } from './forward-batch'
 export { applyForwardedWrite } from './primary-writes'
 export type { WriteRoutingDeps } from './types'
-
-const MAX_REPLICATION_FACTOR = 255
 
 function validateCreateIndexOptions(partitionCount: number, replicationFactor: number): void {
   if (!Number.isInteger(partitionCount) || partitionCount < 1 || partitionCount > MAX_PARTITION_COUNT) {

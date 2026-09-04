@@ -1,5 +1,6 @@
 import { fnv1a } from '../core/hash'
 import { ErrorCodes, NarsilError } from '../errors'
+import { FALLBACK_CPU_COUNT, MAX_WORKER_COUNT, MIN_WORKER_COUNT } from './constants'
 import type { Executor } from './executor'
 import { createRequestId } from './protocol'
 
@@ -74,7 +75,7 @@ export function resolveWorkerCount(requested?: number): number {
     return requested
   }
 
-  let cpuCount = 4
+  let cpuCount = FALLBACK_CPU_COUNT
   try {
     if (navigator?.hardwareConcurrency) {
       cpuCount = navigator.hardwareConcurrency
@@ -85,10 +86,10 @@ export function resolveWorkerCount(requested?: number): number {
       }
     }
   } catch {
-    cpuCount = 4
+    cpuCount = FALLBACK_CPU_COUNT
   }
 
-  return Math.max(2, Math.min(8, cpuCount - 1))
+  return Math.max(MIN_WORKER_COUNT, Math.min(MAX_WORKER_COUNT, cpuCount - 1))
 }
 
 export function splitWorkerBudget(total: number): { keyword: number; vector: number } {

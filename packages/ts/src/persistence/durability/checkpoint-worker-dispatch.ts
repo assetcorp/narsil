@@ -1,10 +1,7 @@
 import { spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime } from '../../runtime/detect'
 import type { CheckpointWorkerMessage, CheckpointWorkerRequest } from './checkpoint-worker'
-
-const CHECKPOINT_WORKER_TIMEOUT_MS = 600_000
-
-const TIMEOUT_RECOVERY_BACKOFF_MS = 50
+import { CHECKPOINT_TIMEOUT_RECOVERY_BACKOFF_MS, CHECKPOINT_WORKER_TIMEOUT_MS } from './constants'
 
 interface WorkerHandle {
   postMessage(msg: unknown, transfer?: ArrayBuffer[]): void
@@ -150,7 +147,7 @@ export async function runCheckpointOnWorker(request: CheckpointWorkerRequest): P
       return true
     }
     if (outcome.timedOut) {
-      await delay(TIMEOUT_RECOVERY_BACKOFF_MS)
+      await delay(CHECKPOINT_TIMEOUT_RECOVERY_BACKOFF_MS)
     }
     return false
   } finally {

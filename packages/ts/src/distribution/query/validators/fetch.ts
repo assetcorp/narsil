@@ -1,20 +1,21 @@
+import { MAX_DOC_ID_LENGTH } from '../../../engine/constants'
 import { validateIndexName } from '../../cluster/index-metadata'
 import type { FetchPayload, FetchResultPayload } from '../../transport/types'
 import {
-  CONFIG_INVALID,
-  isRecord,
-  MAX_DOC_ID_LENGTH,
   MAX_FETCH_DOCUMENT_IDS,
   MAX_FIELDS_LIST,
+  MAX_HIGHLIGHT_SNIPPET_LENGTH,
+  MAX_HIGHLIGHT_TAG_LENGTH,
+} from '../constants'
+import {
+  CONFIG_INVALID,
+  isRecord,
   SEARCH_INVALID_FIELD,
   throwInvalid,
   validatePartitionId,
   validateStringArray,
   validateStringField,
 } from './common'
-
-const MAX_HIGHLIGHT_TAG_LENGTH = 256
-const MAX_HIGHLIGHT_SNIPPET_LENGTH = 65_536
 
 function validateIndexNameField(value: unknown, fieldLabel: string): string {
   if (typeof value !== 'string') {

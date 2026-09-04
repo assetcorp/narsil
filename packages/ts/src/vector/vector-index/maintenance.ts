@@ -1,11 +1,10 @@
 import type { HNSWIndex } from '../hnsw'
 import { scheduleBuild } from './build'
+import { ESTIMATED_MS_PER_TOMBSTONE, ESTIMATED_MS_PER_VECTOR_REBUILD } from './constants'
 import {
   adoptGraph,
   allLiveDocIds,
   buildGraphFromStore,
-  ESTIMATED_MS_PER_TOMBSTONE,
-  ESTIMATED_MS_PER_VECTOR_REBUILD,
   graphNeedsRebuild,
   insertIntoGraph,
   liveSize,

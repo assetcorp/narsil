@@ -3,13 +3,8 @@ import { createPartitionIndex } from '../../../core/partition'
 import { isCompositePartition } from '../../../core/partition/composite'
 import { createFrozenSegment } from '../../../core/partition/frozen'
 import type { SegmentPayload } from '../../../core/partition/segment-payload'
-import {
-  awaitCompactions,
-  IDLE_MERGE_DELAY_MS,
-  maybeCompactSegments,
-  scheduleIdleMerge,
-} from '../../../engine/orchestration/compaction'
-import { LIVE_TAIL_FREEZE_FLOOR } from '../../../engine/orchestration/live-tail'
+import { awaitCompactions, maybeCompactSegments, scheduleIdleMerge } from '../../../engine/orchestration/compaction'
+import { IDLE_MERGE_DELAY_MS, LIVE_TAIL_FREEZE_FLOOR } from '../../../engine/orchestration/constants'
 import type { OrchestratorState } from '../../../engine/orchestration/types'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { AnyDocument, SchemaDefinition } from '../../../types/schema'

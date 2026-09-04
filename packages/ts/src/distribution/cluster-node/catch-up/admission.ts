@@ -2,11 +2,10 @@ import { CONTROLLER_LEASE_KEY } from '../../cluster/controller/types'
 import type { PartitionAssignment } from '../../coordinator/types'
 import { requestInsyncAdmission, requestInsyncRemoval } from '../../replication/insync'
 import type { InsyncAddPayload } from '../../transport/types'
+import { ADMISSION_TIMEOUT_MS } from '../constants'
 import { resolveNodeTargets } from '../write-routing/assignment'
 import type { WriteRoutingDeps } from '../write-routing/types'
 import { type CatchUpState, clearPendingAdmission, markPendingAdmission, type ReplicaCursor } from './state'
-
-export const ADMISSION_TIMEOUT_MS = 10_000
 
 async function sendToController(
   payload: InsyncAddPayload,

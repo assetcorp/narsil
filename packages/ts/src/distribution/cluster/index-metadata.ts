@@ -1,5 +1,7 @@
 import { decode, encode } from '@msgpack/msgpack'
+import { INDEX_NAME_PATTERN, MAX_INDEX_NAME_LENGTH } from '../../engine/constants'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../coordinator/types'
 
 export interface IndexMetadata {
@@ -12,10 +14,6 @@ export interface IndexMetadata {
 
 const INDEX_CONFIG_PREFIX = '_narsil/index/'
 const INDEX_CONFIG_SUFFIX = '/config'
-const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
-export const MAX_INDEX_NAME_LENGTH = 255
-export const MAX_PARTITION_COUNT = 65_536
-const MAX_REPLICATION_FACTOR = 255
 
 function truncateForDisplay(value: unknown): string {
   const str = String(value)

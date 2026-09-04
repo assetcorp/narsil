@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { crc32 } from '../../../serialization/crc32'
-import { MAX_SNAPSHOT_SIZE_BYTES } from '../../replication/snapshot-constants'
+import { MAX_SNAPSHOT_SIZE_BYTES } from '../../replication/constants'
 import type { SnapshotSyncRequestPayload, TransportMessage } from '../../transport/types'
 import {
   acquireSnapshotBuild,

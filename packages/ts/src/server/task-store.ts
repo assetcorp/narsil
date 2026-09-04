@@ -1,6 +1,5 @@
+import { DEFAULT_MAX_RETAINED_TASKS } from './constants'
 import type { TaskRecord, TaskStore } from './types'
-
-const DEFAULT_MAX_RETAINED = 1000
 
 /**
  * Default {@link TaskStore}: an in-process map, lost on restart and not shared
@@ -20,7 +19,7 @@ export class InMemoryTaskStore implements TaskStore {
    * @param maxRetained - Records to keep before the oldest finished ones are
    * dropped. Defaults to 1000.
    */
-  constructor(private readonly maxRetained = DEFAULT_MAX_RETAINED) {}
+  constructor(private readonly maxRetained = DEFAULT_MAX_RETAINED_TASKS) {}
 
   /**
    * Stores a record, replacing whatever its id already held.

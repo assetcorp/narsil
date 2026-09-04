@@ -1,8 +1,7 @@
-export { ADMISSION_TIMEOUT_MS, proposeAdmission } from './admission'
+export { ADMISSION_TIMEOUT_MS, CATCH_UP_TICK_MS, MAX_CATCH_UP_IN_FLIGHT_BYTES } from '../constants'
+export { proposeAdmission } from './admission'
 export { runCatchUpTick, startCatchUpPump, stopCatchUpPump } from './pump'
 export {
-  CATCH_UP_IN_FLIGHT_BYTE_CEILING,
-  CATCH_UP_TICK_MS,
   type CatchUpState,
   clearPendingAdmission,
   createCatchUpState,

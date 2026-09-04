@@ -1,15 +1,14 @@
-import { MAX_INDEX_NAME_LENGTH } from '../distribution/cluster/index-metadata'
 import { ErrorCodes, NarsilError } from '../errors'
-import { clampRowCount, DEFAULT_PAGE_SIZE } from '../search/pagination'
+import { clampRowCount } from '../search/pagination'
 import type { IndexLifecycleConfig, WorkerConfig } from '../types/config'
 import type { BM25Params } from '../types/schema'
-
-const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
-const MAX_DOC_ID_LENGTH = 512
-
-export const BATCH_CHUNK_SIZE = 1000
-export const DEFAULT_LIMIT = DEFAULT_PAGE_SIZE
-export const DEFAULT_OFFSET = 0
+import {
+  DEFAULT_LIMIT,
+  DEFAULT_OFFSET,
+  INDEX_NAME_PATTERN,
+  MAX_DOC_ID_LENGTH,
+  MAX_INDEX_NAME_LENGTH,
+} from './constants'
 
 export function now(): number {
   if (typeof performance !== 'undefined' && typeof performance.now === 'function') {

@@ -1,7 +1,3 @@
-export const SNAPSHOT_CHUNK_SIZE = 65_536
-
-export const MAX_SNAPSHOT_SIZE_BYTES = 2 * 1024 * 1024 * 1024
-
 /**
  * Sentinel lastSeqNo emitted by the cluster-node bootstrap path because that
  * path produces a whole-index engine snapshot, not a per-partition replication

@@ -6,16 +6,10 @@ import type {
   PostingList,
   PostingListView,
 } from '../types/internal'
+import { MAX_TERM_FREQUENCY, POSTING_LIST_COMPACTION_THRESHOLD } from './constants'
 import { boundedLevenshtein } from './fuzzy'
 import { compareCodePoints } from './ordering'
-import {
-  COMPACTION_THRESHOLD,
-  compactDocEntries,
-  compactList,
-  createPostingList,
-  growTypedArrays,
-  MAX_TERM_FREQUENCY,
-} from './posting-list'
+import { compactDocEntries, compactList, createPostingList, growTypedArrays } from './posting-list'
 
 export interface TermSuggestion {
   term: string
@@ -182,7 +176,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
         return
       }
 
-      if (list.deletedDocs.size / list.length > COMPACTION_THRESHOLD) {
+      if (list.deletedDocs.size / list.length > POSTING_LIST_COMPACTION_THRESHOLD) {
         compactList(list)
       }
     },
@@ -197,7 +191,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       for (const token of batchDirtyTokens) {
         const list = index.get(token)
         if (!list) continue
-        if (list.deletedDocs.size / list.length > COMPACTION_THRESHOLD) {
+        if (list.deletedDocs.size / list.length > POSTING_LIST_COMPACTION_THRESHOLD) {
           compactList(list)
         }
       }

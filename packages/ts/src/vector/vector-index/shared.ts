@@ -4,15 +4,7 @@ import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter, removeFrom
 import type { ScalarQuantizer, SerializedSQ8 } from '../scalar-quantization-types'
 import type { VectorSearchPool } from '../search-pool'
 import type { VectorStore } from '../vector-store'
-
-export const DEFAULT_PROMOTION_THRESHOLD = 1024
-export const DEFAULT_FILTER_THRESHOLD = 0.03
-export const ESTIMATED_MS_PER_TOMBSTONE = 0.05
-export const ESTIMATED_MS_PER_VECTOR_REBUILD = 0.15
-export const WORKER_BUILD_SIZE_THRESHOLD = 5000
-export const WORKER_COPY_MIN_VECTORS = 1024
-const BUILD_CHUNK_SIZE = 100
-const REBUILD_REMOVED_RATIO = 0.2
+import { BUILD_CHUNK_SIZE, REBUILD_REMOVED_RATIO } from './constants'
 
 export interface VectorScoredResult {
   docId: string

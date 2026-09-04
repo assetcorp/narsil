@@ -1,22 +1,20 @@
-import { chunkByBudget, WIRE_BATCH_BUDGET } from '../../chunking'
+import { chunkByBudget } from '../../chunking'
+import { WIRE_BATCH_BUDGET } from '../../constants'
 import type { PartitionAssignment } from '../../coordinator/types'
+import { REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES } from '../../replication/constants'
 import { replicateBatchToReplicas } from '../../replication/primary'
 import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
+import { CATCH_UP_TICK_MS, MAX_CATCH_UP_IN_FLIGHT_BYTES } from '../constants'
 import type { WriteRoutingDeps } from '../write-routing/types'
 import { proposeAdmission } from './admission'
-import {
-  CATCH_UP_IN_FLIGHT_BYTE_CEILING,
-  CATCH_UP_TICK_MS,
-  type CatchUpState,
-  forgetReplica,
-  type ReplicaCursor,
-} from './state'
-
-const ENTRY_FIXED_OVERHEAD_BYTES = 40
+import { type CatchUpState, forgetReplica, type ReplicaCursor } from './state'
 
 function entryBytes(entry: ReplicationLogEntry): number {
   return (
-    ENTRY_FIXED_OVERHEAD_BYTES + entry.indexName.length + entry.documentId.length + (entry.document?.byteLength ?? 0)
+    REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES +
+    entry.indexName.length +
+    entry.documentId.length +
+    (entry.document?.byteLength ?? 0)
   )
 }
 
@@ -47,7 +45,7 @@ function nextWireBatch(state: CatchUpState, pending: ReplicationLogEntry[]): Rep
     return []
   }
 
-  const available = CATCH_UP_IN_FLIGHT_BYTE_CEILING - state.inFlightBytes
+  const available = MAX_CATCH_UP_IN_FLIGHT_BYTES - state.inFlightBytes
   return batchBytes(batch) > available ? [] : batch
 }
 

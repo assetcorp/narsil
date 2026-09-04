@@ -1,8 +1,6 @@
 import { ABORT_SENTINEL } from '../bootstrap-restore'
 import type { BootstrapEntry, BootstrapSyncDeps, BootstrapSyncState, LiveBootstrapSyncDeps } from './types'
 
-export const DEFAULT_BOOTSTRAP_SYNC_DEADLINE_MS = 600_000
-
 export function createBootstrapSyncState(): BootstrapSyncState {
   return {
     inFlight: new Map(),

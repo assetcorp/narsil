@@ -1,12 +1,11 @@
 import { validateIndexName } from '../../cluster/index-metadata'
 import type { GlobalStatistics, StatsPayload, StatsResultPayload } from '../../transport/types'
+import { MAX_TERM_LENGTH, MAX_TERMS_COUNT } from '../constants'
 import {
   CONFIG_INVALID,
   isFiniteNumber,
   isInteger,
   isRecord,
-  MAX_TERM_LENGTH,
-  MAX_TERMS_COUNT,
   throwInvalid,
   validatePartitionIdsArray,
   validateStringArray,

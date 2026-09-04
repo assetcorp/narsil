@@ -1,11 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SegmentPayload } from '../../../core/partition/segment-payload'
-import {
-  awaitReplicationIdle,
-  MAX_PENDING_REPLICATION_DOCUMENTS,
-  REPLICATION_WINDOW,
-  replicateToWorkers,
-} from '../../../engine/orchestration/replication'
+import { MAX_PENDING_REPLICATION_DOCUMENTS, REPLICATION_WINDOW } from '../../../engine/orchestration/constants'
+import { awaitReplicationIdle, replicateToWorkers } from '../../../engine/orchestration/replication'
 import { searchViaWorker } from '../../../engine/orchestration/search'
 import type { AnyDocument } from '../../../types/schema'
 import type { WorkerAction } from '../../../workers/protocol'

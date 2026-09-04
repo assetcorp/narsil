@@ -1,3 +1,5 @@
+import { MAX_DOC_ID_LENGTH } from '../../../engine/constants'
+import { MAX_SORT_FIELDS } from '../../../search/constants'
 import type {
   CountPayload,
   CountResultPayload,
@@ -9,14 +11,19 @@ import type {
   SuggestResultPayload,
 } from '../../transport/types'
 import {
+  MAX_COUNT_VALUE,
+  MAX_FIELDS_LIST,
+  MAX_LANGUAGE_NAME_LENGTH,
+  MAX_LIMIT,
+  MAX_LIST_CURSOR_LENGTH,
+  MAX_SORT_VALUE_STRING_LENGTH,
+  MAX_SUGGEST_WIRE_LIMIT,
+  MAX_TERM_LENGTH,
+} from '../constants'
+import {
   CONFIG_INVALID,
   isInteger,
   isRecord,
-  MAX_DOC_ID_LENGTH,
-  MAX_FIELDS_LIST,
-  MAX_LIMIT,
-  MAX_SORT_FIELDS,
-  MAX_TERM_LENGTH,
   SEARCH_INVALID_FIELD,
   SEARCH_INVALID_MODE,
   throwInvalid,
@@ -29,12 +36,6 @@ import {
 } from './common'
 import { validateFilterExpression } from './filters'
 import { validateWireParams } from './search'
-
-export const MAX_LIST_CURSOR_LENGTH = 4096
-export const MAX_SUGGEST_WIRE_LIMIT = 1_000
-const MAX_COUNT_VALUE = Number.MAX_SAFE_INTEGER
-const MAX_LANGUAGE_NAME_LENGTH = 64
-const MAX_SORT_VALUE_STRING_LENGTH = 65_536
 
 function validateIndexNameField(decoded: Record<string, unknown>, payloadLabel: string): void {
   validateStringField(decoded.indexName, `${payloadLabel}.indexName`, 255, CONFIG_INVALID)

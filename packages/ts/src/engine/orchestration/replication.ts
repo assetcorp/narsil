@@ -1,11 +1,8 @@
 import type { WorkerAction } from '../../workers/protocol'
+import { LOAD_BUFFER_YIELD_INTERVAL, MAX_PENDING_REPLICATION_DOCUMENTS, REPLICATION_WINDOW } from './constants'
 import { alreadyPresentOnWorker } from './eligibility'
 import { yieldToEventLoop } from './turn'
 import type { OrchestratorState, ReplicationQueue, SegmentLedgerEntry } from './types'
-
-export const MAX_PENDING_REPLICATION_DOCUMENTS = 20_000
-export const REPLICATION_WINDOW = 32
-const LOAD_BUFFER_YIELD_INTERVAL = 1_000
 
 export async function dispatchToWorkers(state: OrchestratorState, action: WorkerAction): Promise<void> {
   const pool = state.workerPool

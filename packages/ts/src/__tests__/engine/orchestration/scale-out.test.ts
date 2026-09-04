@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { POOL_RESTART_DELAY_MS } from '../../../engine/orchestration/constants'
 import { dropIdleCopies, noteAccess } from '../../../engine/orchestration/idle'
-import { COPY_RESTART_REASON, handleWorkerCrash, POOL_RESTART_DELAY_MS } from '../../../engine/orchestration/repair'
+import { COPY_RESTART_REASON, handleWorkerCrash } from '../../../engine/orchestration/repair'
 import { replicateToWorkers } from '../../../engine/orchestration/replication'
 import { copiesAllowed, scaleOutBeforeBatch } from '../../../engine/orchestration/scale-out'
 import { searchViaWorker } from '../../../engine/orchestration/search'

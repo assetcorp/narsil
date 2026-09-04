@@ -14,11 +14,6 @@ export interface ControllerConfig {
 
 export const CONTROLLER_LEASE_KEY = '_narsil/controller'
 
-export const DEFAULT_CONTROLLER_CONFIG = {
-  leaseTtlMs: 15_000,
-  standbyRetryMs: 5_000,
-} as const
-
 export interface ControllerNode {
   readonly isActive: boolean
   start(): Promise<void>

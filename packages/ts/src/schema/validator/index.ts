@@ -1,5 +1,5 @@
 export { validateDocument, validateDocumentStrict, validateRequiredFields } from './document'
 export { extractVectorFieldsFromSchema, flattenSchema, validateSchema } from './schema'
-export { isTextFieldType, MAX_NESTING_DEPTH, SORTABLE_TEXT_FIELD_TYPE } from './shared'
-export { assertStorableDocument, MAX_DOCUMENT_NESTING_DEPTH } from './storable'
+export { isTextFieldType, SORTABLE_TEXT_FIELD_TYPE } from './shared'
+export { assertStorableDocument } from './storable'
 export { validateVectorPromotion } from './vector-promotion'

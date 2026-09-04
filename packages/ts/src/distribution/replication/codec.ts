@@ -1,6 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
-import { WIRE_BATCH_BUDGET } from '../chunking'
+import { WIRE_BATCH_BUDGET } from '../constants'
 import type {
   AckPayload,
   EntryBatchPayload,

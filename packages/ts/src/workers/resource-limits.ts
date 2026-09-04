@@ -1,4 +1,4 @@
-export const WORKER_YOUNG_GENERATION_MB = 24
+import { WORKER_YOUNG_GENERATION_MB } from './constants'
 
 export interface WorkerResourceLimits {
   maxYoungGenerationSizeMb?: number

@@ -1,0 +1,2 @@
+export const MAX_NESTING_DEPTH = 4
+export const MAX_DOCUMENT_NESTING_DEPTH = 32

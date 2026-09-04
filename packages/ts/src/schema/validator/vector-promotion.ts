@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorIndexConfig } from '../../types/schema'
-import { MAX_M } from '../../vector/hnsw/adjacency'
+import { MAX_M } from '../../vector/hnsw/constants'
 
 function fail(message: string, details: Record<string, unknown>): never {
   throw new NarsilError(ErrorCodes.CONFIG_INVALID, message, details)

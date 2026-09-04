@@ -1,9 +1,9 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FieldType, SchemaDefinition } from '../../types/schema'
+import { MAX_NESTING_DEPTH } from '../constants'
 import {
   FIELD_NAME_PATTERN,
   isPlainObject,
-  MAX_NESTING_DEPTH,
   PROTOTYPE_POLLUTION_KEYS,
   RESERVED_ROOT_FIELDS,
   SCALAR_FIELD_TYPES,

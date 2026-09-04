@@ -1,5 +1,6 @@
 import { compareCodePoints } from '../../core/ordering'
 import type { SchemaDefinition } from '../../types/schema'
+import { NODE_HEARTBEAT_TTL_MS } from './constants'
 import type {
   AllocationEvent,
   AllocationTable,
@@ -17,7 +18,6 @@ interface LeaseEntry {
 }
 
 const NODE_HEARTBEAT_PREFIX = '_narsil/node/'
-const NODE_HEARTBEAT_TTL_MS = 30_000
 
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.byteLength !== b.byteLength) {

@@ -5,7 +5,7 @@ import {
   runBootstrapSync,
 } from '../../../../distribution/cluster-node/bootstrap-sync'
 import type { ClusterCoordinator } from '../../../../distribution/coordinator/types'
-import { SNAPSHOT_CHUNK_SIZE } from '../../../../distribution/replication/snapshot-constants'
+import { SNAPSHOT_CHUNK_SIZE } from '../../../../distribution/replication/constants'
 import { ErrorCodes, type NarsilError } from '../../../../errors'
 import { crc32 } from '../../../../serialization/crc32'
 import {

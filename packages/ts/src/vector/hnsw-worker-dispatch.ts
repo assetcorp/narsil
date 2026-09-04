@@ -1,9 +1,8 @@
 import { spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime } from '../runtime/detect'
+import { HNSW_BUILD_TIMEOUT_MS } from './constants'
 import type { HNSWConfig, SerializedHNSWGraph } from './hnsw'
 import type { HNSWBuildRequestBinary, HNSWWorkerMessage } from './hnsw-build-worker'
-
-const BUILD_TIMEOUT_MS = 120_000
 
 export interface WorkerBuildResult {
   ok: true
@@ -112,7 +111,7 @@ export async function dispatchWorkerBuild(
     }
   }
 
-  const effectiveTimeout = timeoutMs ?? BUILD_TIMEOUT_MS
+  const effectiveTimeout = timeoutMs ?? HNSW_BUILD_TIMEOUT_MS
 
   let transferBuffer: Float32Array
   if (skipCopy) {

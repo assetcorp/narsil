@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createClusterLocalEngine } from '../../distribution/cluster-node/local-engine'
-import { MAX_SUGGEST_LIMIT, MAX_SUGGEST_SCATTER_LIMIT } from '../../engine/suggest'
+import { MAX_SUGGEST_LIMIT, MAX_SUGGEST_SCATTER_LIMIT } from '../../engine/constants'
 
 const PREFIX = 'run'
 const TERM_TOTAL = 200

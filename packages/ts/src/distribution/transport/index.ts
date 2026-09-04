@@ -1,3 +1,4 @@
+export { MAX_MESSAGE_SIZE_BYTES } from './constants'
 export type { InMemoryNetwork, InMemoryStreamSink, InMemoryTransportInternal } from './in-memory'
 export { createInMemoryNetwork, createInMemoryTransport } from './in-memory'
 export type { TcpTransportConfig } from './tcp'
@@ -46,7 +47,6 @@ export type {
 export {
   ClusterMessageTypes,
   DEFAULT_TRANSPORT_CONFIG,
-  MAX_MESSAGE_SIZE_BYTES,
   QueryMessageTypes,
   ReplicationMessageTypes,
   TransportError,

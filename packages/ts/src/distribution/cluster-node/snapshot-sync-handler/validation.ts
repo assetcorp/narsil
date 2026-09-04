@@ -1,14 +1,11 @@
 import { decode } from '@msgpack/msgpack'
+import { INDEX_NAME_PATTERN, MAX_INDEX_NAME_LENGTH } from '../../../engine/constants'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { MAX_INDEX_NAME_LENGTH } from '../../cluster/index-metadata'
 import type { SnapshotSyncRequestPayload, TransportMessage } from '../../transport/types'
+import { MAX_SOURCE_ID_LENGTH } from '../constants'
 import { respondError, type SingleResponseSink } from '../snapshot-stream-writer'
 
 import type { SnapshotSyncHandlerDeps } from './types'
-
-export const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
-
-export const MAX_SOURCE_ID_LENGTH = 256
 
 /**
  * Control characters in a sourceId would collide with our per-source slot key
@@ -36,8 +33,6 @@ export function containsControlCharacter(value: string): boolean {
   }
   return false
 }
-
-export const MAX_SNAPSHOT_SYNC_REQUEST_BYTES = 4_096
 
 export const REQUEST_DECODE_OPTIONS = {
   maxMapLength: 16,

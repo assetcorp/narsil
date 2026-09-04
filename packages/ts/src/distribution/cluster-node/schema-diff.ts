@@ -1,5 +1,5 @@
 import { compareCodePoints } from '../../core/ordering'
-import { MAX_NESTING_DEPTH } from '../../schema/validator'
+import { MAX_NESTING_DEPTH } from '../../schema/constants'
 import type { SchemaDefinition } from '../../types/schema'
 
 export interface SchemaDiffEntry {
