@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { dropIdleCopies, noteAccess } from '../../../engine/orchestration/idle'
 import { COPY_RESTART_REASON, handleWorkerCrash, POOL_RESTART_DELAY_MS } from '../../../engine/orchestration/repair'
 import { replicateToWorkers } from '../../../engine/orchestration/replication'
-import { copiesAllowed, scaleOutBeforeBatch } from '../../../engine/orchestration/scale-out'
+import { copiesAllowed, scaleOutBeforeBatch, scaleOutIndex } from '../../../engine/orchestration/scale-out'
 import { searchViaWorker } from '../../../engine/orchestration/search'
 import type { CopyTransition, OrchestratorState } from '../../../engine/orchestration/types'
 import { getLanguage } from '../../../languages/registry'
@@ -261,6 +261,21 @@ describe('a crashed worker is replaced', () => {
     return matching
   }
 
+  async function untilSent(sent: Sent[], type: WorkerAction['type']): Promise<void> {
+    for (let round = 0; round < 100; round++) {
+      if (sent.some(entry => entry.action.type === type)) return
+      await settle()
+    }
+    throw new Error(`No ${type} action reached a worker`)
+  }
+
+  function fail(sent: Sent[], type: WorkerAction['type'], error: Error): void {
+    for (const entry of sent.filter(candidate => candidate.action.type === type)) {
+      sent.splice(sent.indexOf(entry), 1)
+      entry.reject(error)
+    }
+  }
+
   it('loads every copy onto the replacement, holds its writes until then, and serves from it afterwards', async () => {
     const state = repairableState()
     const { sent, kill } = poolUnderRepair(state)
@@ -271,7 +286,7 @@ describe('a crashed worker is replaced', () => {
     const survivors = pool.leaseIdle(2)
     expect(survivors.map(lease => lease.workerId)).toEqual([1])
     for (const lease of survivors) lease.release()
-    await new Promise(resolve => setTimeout(resolve, 5))
+    await untilSent(sent, 'dropIndex')
     expect(state.poolRepair).not.toBeNull()
 
     expect(release(sent, 'dropIndex').map(entry => entry.workerId)).toEqual([0])
@@ -314,7 +329,7 @@ describe('a crashed worker is replaced', () => {
     if (pool === null) throw new Error('pool missing')
 
     kill(0)
-    await new Promise(resolve => setTimeout(resolve, 5))
+    await untilSent(sent, 'dropIndex')
     const [drop] = release(sent, 'dropIndex')
     expect(drop.workerId).toBe(0)
     await settle()
@@ -332,5 +347,41 @@ describe('a crashed worker is replaced', () => {
     expect(state.repairTimer).not.toBeNull()
     expect(state.poolRetryDelayMs).toBe(2)
     if (state.repairTimer !== null) clearTimeout(state.repairTimer)
+  })
+
+  it('leaves the buffer a later load installed while the replacement was still loading', async () => {
+    const state = repairableState()
+    const { sent, kill } = poolUnderRepair(state)
+
+    kill(0)
+    await untilSent(sent, 'dropIndex')
+    release(sent, 'dropIndex')
+    await untilSent(sent, 'createIndex')
+
+    const laterBuffer: WorkerAction[] = []
+    state.copyLoadBuffers.set('prose', laterBuffer)
+    kill(0)
+    await state.poolRepair
+    await settle()
+
+    expect(state.copyLoadBuffers.get('prose')).toBe(laterBuffer)
+  })
+
+  it('keeps the reload reason where the load after a restart fails', async () => {
+    const state = repairableState()
+    state.scaledOutIndexes.delete('prose')
+    state.droppedCopies.set('prose', COPY_RESTART_REASON)
+    const { sent } = poolUnderRepair(state)
+
+    const load = scaleOutIndex(state, 'prose', COPY_RESTART_REASON)
+    await untilSent(sent, 'dropIndex')
+    release(sent, 'dropIndex')
+    await untilSent(sent, 'createIndex')
+    fail(sent, 'createIndex', new Error('the worker refused the index'))
+    await load
+
+    expect(state.droppedCopies.get('prose')).toBe(COPY_RESTART_REASON)
+    expect(state.scaledOutIndexes.has('prose')).toBe(false)
+    expect(state.copyLoadBuffers.has('prose')).toBe(false)
   })
 })

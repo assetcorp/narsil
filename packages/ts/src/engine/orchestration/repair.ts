@@ -74,7 +74,7 @@ async function loadOntoReplacement(
     await loadIndexOntoWorkers(indexName, [replacement.executor], entry.config, manager)
     replacement.hold(indexName)
   } finally {
-    state.copyLoadBuffers.delete(indexName)
+    if (state.copyLoadBuffers.get(indexName) === buffered) state.copyLoadBuffers.delete(indexName)
     for (const action of buffered) enqueueReplication(state, indexName, action)
   }
 }
