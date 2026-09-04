@@ -1,15 +1,12 @@
 import type { CompactPostingList } from '../types/internal'
-
-export const INITIAL_CAPACITY = 8
-export const MAX_TERM_FREQUENCY = 65535
-export const COMPACTION_THRESHOLD = 0.3
+import { POSTING_LIST_INITIAL_CAPACITY } from './constants'
 
 export function createPostingList(): CompactPostingList {
   return {
     length: 0,
     docIds: [],
-    termFrequencies: new Uint16Array(INITIAL_CAPACITY),
-    fieldNameIndices: new Uint8Array(INITIAL_CAPACITY),
+    termFrequencies: new Uint16Array(POSTING_LIST_INITIAL_CAPACITY),
+    fieldNameIndices: new Uint8Array(POSTING_LIST_INITIAL_CAPACITY),
     positions: null,
     docIdSet: new Set(),
     deletedDocs: new Set(),

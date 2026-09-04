@@ -2,6 +2,18 @@ import type { TemplatedApp, us_listen_socket, us_socket } from 'uWebSockets.js'
 import { randomUUID } from 'node:crypto'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { Narsil } from '../narsil'
+import {
+  DEFAULT_IMPORT_BATCH_SIZE,
+  DEFAULT_MAX_BODY_BYTES,
+  DEFAULT_MAX_CONCURRENT_REQUESTS,
+  DEFAULT_MAX_CONCURRENT_TASKS,
+  DEFAULT_MAX_FETCH_DOCUMENTS,
+  DEFAULT_MAX_IMPORT_BYTES,
+  DEFAULT_MAX_IMPORT_ERRORS,
+  DEFAULT_MAX_LINE_BYTES,
+  DEFAULT_MAX_RESULT_WINDOW,
+  DEFAULT_MAX_TASK_PAGE_SIZE,
+} from './constants'
 import { corsWriter, resolveCors, writeCorsOrigin } from './cors'
 import type { HandlerDeps, ResolvedBuild, ResolvedLimits } from './deps'
 import { ServerErrorCodes } from './errors'
@@ -21,20 +33,18 @@ import { InMemoryTaskStore } from './task-store'
 import { TaskRegistry } from './tasks'
 import type { NarsilServer, ServerLimits, ServerOptions } from './types'
 
-const MB = 1024 * 1024
-
 function resolveLimits(limits: ServerLimits | undefined): ResolvedLimits {
   return {
-    maxBodyBytes: limits?.maxBodyBytes ?? 16 * MB,
-    maxImportBytes: limits?.maxImportBytes ?? 100 * MB,
-    maxLineBytes: limits?.maxLineBytes ?? 4 * MB,
-    importBatchSize: limits?.importBatchSize ?? 1000,
-    maxConcurrentRequests: limits?.maxConcurrentRequests ?? 0,
-    maxResultWindow: limits?.maxResultWindow ?? 10_000,
-    maxFetchDocuments: limits?.maxFetchDocuments ?? 10_000,
-    maxImportErrors: limits?.maxImportErrors ?? 100,
-    maxTaskPageSize: limits?.maxTaskPageSize ?? 1000,
-    maxConcurrentTasks: limits?.maxConcurrentTasks ?? 4,
+    maxBodyBytes: limits?.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES,
+    maxImportBytes: limits?.maxImportBytes ?? DEFAULT_MAX_IMPORT_BYTES,
+    maxLineBytes: limits?.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES,
+    importBatchSize: limits?.importBatchSize ?? DEFAULT_IMPORT_BATCH_SIZE,
+    maxConcurrentRequests: limits?.maxConcurrentRequests ?? DEFAULT_MAX_CONCURRENT_REQUESTS,
+    maxResultWindow: limits?.maxResultWindow ?? DEFAULT_MAX_RESULT_WINDOW,
+    maxFetchDocuments: limits?.maxFetchDocuments ?? DEFAULT_MAX_FETCH_DOCUMENTS,
+    maxImportErrors: limits?.maxImportErrors ?? DEFAULT_MAX_IMPORT_ERRORS,
+    maxTaskPageSize: limits?.maxTaskPageSize ?? DEFAULT_MAX_TASK_PAGE_SIZE,
+    maxConcurrentTasks: limits?.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS,
   }
 }
 

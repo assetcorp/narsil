@@ -1,8 +1,5 @@
 import type { AllocationTable, ClusterCoordinator } from '../coordinator/types'
 
-/** A creation waits this many milliseconds for every partition to reach `ACTIVE` where the caller names no limit. */
-export const DEFAULT_CREATE_INDEX_WAIT_MS = 30_000
-
 function everyPartitionActive(table: AllocationTable | null, partitionCount: number): boolean {
   if (table === null || table.assignments.size < partitionCount) {
     return false

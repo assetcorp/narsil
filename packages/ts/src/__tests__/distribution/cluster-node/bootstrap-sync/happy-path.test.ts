@@ -5,7 +5,7 @@ import {
   runBootstrapSync,
 } from '../../../../distribution/cluster-node/bootstrap-sync'
 import type { ClusterCoordinator } from '../../../../distribution/coordinator/types'
-import { SNAPSHOT_CHUNK_SIZE } from '../../../../distribution/replication/snapshot-constants'
+import { SNAPSHOT_CHUNK_SIZE } from '../../../../distribution/replication/constants'
 import { TransportError, TransportErrorCodes } from '../../../../distribution/transport/types'
 import {
   makeDeps,

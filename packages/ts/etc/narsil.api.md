@@ -473,6 +473,7 @@ export interface MemoryStats {
     openIndexCount: number;
     process: ProcessMemoryReport | null;
     reopenCount: number;
+    workerCopies: WorkerCopyReport[];
     workers: Array<{
         workerId: number;
         heapUsed: number;
@@ -888,14 +889,21 @@ export interface WorkerConfig {
     bootstrapModule?: string;
     count?: number;
     enabled?: boolean;
+    idleTimeoutMs?: number;
     promotionThreshold?: number;
-    totalPromotionThreshold?: number;
 }
 
 // @public
 export interface WorkerContext {
     reason: string;
     workerCount: number;
+}
+
+// @public
+export interface WorkerCopyReport {
+    indexName: string;
+    reloadCount: number;
+    scaledOut: boolean;
 }
 
 // (No @packageDocumentation comment for this package)

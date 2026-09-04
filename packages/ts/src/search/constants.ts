@@ -1,0 +1,9 @@
+export const RESULT_WINDOW = 10_000
+export const DEFAULT_PAGE_SIZE = 10
+
+export const MAX_CURSOR_LENGTH = 40_960
+export const MAX_SORT_FIELDS = 8
+export const MAX_SORT_FIELD_NAME_LENGTH = 255
+export const MAX_CURSOR_ANCHOR_CODE_POINTS = 512
+
+export const PREFIX_MAX_EXPANSIONS = 50

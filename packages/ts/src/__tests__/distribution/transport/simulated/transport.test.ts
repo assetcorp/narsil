@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MAX_MESSAGE_SIZE_BYTES } from '../../../../distribution/transport/constants'
 import type { SimulatedNetwork } from '../../../../distribution/transport/simulated/network'
 import { createSimulatedNetwork } from '../../../../distribution/transport/simulated/network'
 import { createSimulatedTransport } from '../../../../distribution/transport/simulated/transport'
 import type { NodeTransport, TransportMessage } from '../../../../distribution/transport/types'
-import { MAX_MESSAGE_SIZE_BYTES, TransportError, TransportErrorCodes } from '../../../../distribution/transport/types'
+import { TransportError, TransportErrorCodes } from '../../../../distribution/transport/types'
 
 const START_TIME = 1_000_000_000
 

@@ -1,0 +1,4 @@
+export const DEFAULT_INDEXEDDB_NAME = 'narsil'
+export const DEFAULT_INDEXEDDB_STORE_NAME = 'partitions'
+export const MAX_PERSISTENCE_KEY_LENGTH = 1024
+export const INDEXEDDB_BLOCKED_TIMEOUT_MS = 5_000

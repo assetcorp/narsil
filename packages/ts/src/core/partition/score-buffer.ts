@@ -1,9 +1,9 @@
 import type { ScoredDocument } from '../../types/internal'
+import { SCORE_BUFFER_INITIAL_TOUCHED_CAPACITY } from './constants'
 import type { ScoreComponents } from './scoring'
 import { EMPTY_COMPONENTS } from './scoring'
 import { buildMinHeap, candidateWorse, siftDown, sortSelection, type TopKCandidate } from './top-k-heap'
 
-const INITIAL_TOUCHED_CAPACITY = 1024
 const MAX_GENERATION = 0x7fffffff
 
 /**
@@ -32,7 +32,7 @@ export function createScoreBuffer(capacity: number): ScoreBuffer {
   return {
     scores: new Float64Array(capacity),
     stamps: new Int32Array(capacity),
-    touched: new Int32Array(Math.max(1, Math.min(capacity, INITIAL_TOUCHED_CAPACITY))),
+    touched: new Int32Array(Math.max(1, Math.min(capacity, SCORE_BUFFER_INITIAL_TOUCHED_CAPACITY))),
     touchedCount: 0,
     generation: 0,
   }

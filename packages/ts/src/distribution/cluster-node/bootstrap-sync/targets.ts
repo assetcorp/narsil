@@ -5,6 +5,7 @@ import type { SchemaDefinition } from '../../../types/schema'
 import type { SyncRequestPayload, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
 import { isTransientFailure, withDeadline } from '../bootstrap-fetch'
+import { SYNCED_POSITION_REPORT_TIMEOUT_MS } from '../constants'
 import { applyLiveIncrementalSync, applyLiveSnapshotSync } from './apply'
 import { createLiveSyncFrameState, handleLiveSyncFrame } from './frames'
 import type {
@@ -23,8 +24,6 @@ export function readLocalLogState(indexName: string, partitionId: number, deps: 
   const newestEntry = log.getEntry(lastSeqNo)
   return { lastSeqNo, lastPrimaryTerm: newestEntry?.primaryTerm ?? lastPrimaryTerm }
 }
-
-const SYNCED_POSITION_REPORT_TIMEOUT_MS = 5_000
 
 async function reportSyncedPosition(
   indexName: string,

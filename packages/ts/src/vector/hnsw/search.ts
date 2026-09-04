@@ -4,15 +4,9 @@ import type { VectorMetric } from '../brute-force'
 import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
 import { magnitude } from '../similarity'
 import type { ArenaQueryVector } from '../vector-store'
+import { SQ8_OVERSELECTION_FACTOR, SQ8_RERANK_FLOOR } from './constants'
 import { searchLayer } from './graph-ops'
-import {
-  entryForOrd,
-  type HNSWGraphState,
-  type HNSWSearchState,
-  SQ8_OVERSELECTION_FACTOR,
-  toDistance,
-  toScore,
-} from './shared'
+import { entryForOrd, type HNSWGraphState, type HNSWSearchState, toDistance, toScore } from './shared'
 import { type DistanceList, setSingleEntryPoint } from './workspace'
 
 /**
@@ -142,7 +136,7 @@ function rerankWithFullPrecision(
   hasDocument: (ord: number) => boolean,
 ): OrdinalHit[] {
   const reranked: OrdinalHit[] = []
-  const rerankLimit = Math.max(k * SQ8_OVERSELECTION_FACTOR, 10)
+  const rerankLimit = Math.max(k * SQ8_OVERSELECTION_FACTOR, SQ8_RERANK_FLOOR)
 
   for (let i = 0; i < candidates.size; i++) {
     const ord = candidates.ords[i]

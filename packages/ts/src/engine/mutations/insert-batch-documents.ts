@@ -1,6 +1,6 @@
 import type { BatchResult } from '../../types/results'
 import type { InsertOptions } from '../../types/schema'
-import { BATCH_CHUNK_SIZE } from '../validation'
+import { BATCH_CHUNK_SIZE } from '../constants'
 import { insertDocumentVectors } from '../vector-coordinator'
 import type { MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'

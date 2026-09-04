@@ -1,10 +1,9 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { CLEAR_PAGE_SIZE } from './constants'
 import { type ClusterReadDeps, listCluster } from './reads'
 import { routableAllocation } from './routable-allocation'
 import type { WriteRoutingDeps } from './write-routing'
 import { routeRemoveBatch } from './write-routing'
-
-const CLEAR_PAGE_SIZE = 1_000
 
 export async function clearCluster(
   readDeps: ClusterReadDeps,

@@ -1,16 +1,7 @@
 import type { ErrorCode } from '../../../errors'
 import { FIELD_FILTER_OPERATORS, FILTER_EXPRESSION_KEYS } from '../../../filters/keys'
-import {
-  isFiniteNumber,
-  isRecord,
-  MAX_FILTER_ARRAY_SIZE,
-  MAX_FILTER_DEPTH,
-  MAX_FILTER_FIELDS,
-  MAX_FILTER_STRING_LENGTH,
-  SEARCH_INVALID_FILTER,
-  throwInvalid,
-  validateFieldName,
-} from './common'
+import { MAX_FILTER_ARRAY_SIZE, MAX_FILTER_DEPTH, MAX_FILTER_FIELDS, MAX_FILTER_STRING_LENGTH } from '../constants'
+import { isFiniteNumber, isRecord, SEARCH_INVALID_FILTER, throwInvalid, validateFieldName } from './common'
 
 const GEO_UNITS = ['km', 'mi', 'm'] as const
 

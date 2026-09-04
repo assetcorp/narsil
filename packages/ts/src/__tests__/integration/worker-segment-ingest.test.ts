@@ -23,9 +23,9 @@ describe.skipIf(!built)('a large batch lands on worker copies before the per-ind
     vi.restoreAllMocks()
   })
 
-  it('promotes ahead of the batch instead of partway through it', async () => {
+  it('loads the copies ahead of the batch, not partway through it', async () => {
     const warnSpy = vi.spyOn(console, 'warn')
-    const narsil = await createNarsil({ workers: { enabled: true, count: 2, promotionThreshold: 100 } })
+    const narsil = await createNarsil({ workers: { enabled: true, count: 4, promotionThreshold: 100 } })
     await narsil.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })
 
     const result = await narsil.insertBatch('prose', proseDocuments(200, 'bulk'))
@@ -46,7 +46,7 @@ describe.skipIf(!built)('a large batch lands on worker copies before the per-ind
   }, 120000)
 
   it('snapshots a batch-ingested index whose partitions hold frozen segments and restores it whole', async () => {
-    const narsil = await createNarsil({ workers: { enabled: true, count: 2, promotionThreshold: 100 } })
+    const narsil = await createNarsil({ workers: { enabled: true, count: 4, promotionThreshold: 100 } })
     await narsil.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })
     await narsil.insertBatch('prose', proseDocuments(200, 'snap'))
     await narsil.remove('prose', 'snap-0003')
@@ -75,7 +75,7 @@ describe.skipIf(!built)('a large batch lands on worker copies before the per-ind
 
   it('keeps every batch queryable while sustained ingest triggers segment compaction', async () => {
     const warnSpy = vi.spyOn(console, 'warn')
-    const narsil = await createNarsil({ workers: { enabled: true, count: 2, promotionThreshold: 100 } })
+    const narsil = await createNarsil({ workers: { enabled: true, count: 4, promotionThreshold: 100 } })
     await narsil.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })
 
     for (let batch = 0; batch < 10; batch++) {
@@ -101,7 +101,7 @@ describe.skipIf(!built)('a large batch lands on worker copies before the per-ind
 
   it('answers a query with every document the moment the batch resolves', async () => {
     const warnSpy = vi.spyOn(console, 'warn')
-    const narsil = await createNarsil({ workers: { enabled: true, count: 2, promotionThreshold: 100 } })
+    const narsil = await createNarsil({ workers: { enabled: true, count: 4, promotionThreshold: 100 } })
     await narsil.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })
 
     const result = await narsil.insertBatch('prose', proseDocuments(300, 'fresh'))
@@ -116,8 +116,8 @@ describe.skipIf(!built)('a large batch lands on worker copies before the per-ind
     expect(replicationWarnings).toEqual([])
   }, 120000)
 
-  it('leaves promotion alone when the batch stays under the threshold', async () => {
-    const narsil = await createNarsil({ workers: { enabled: true, count: 2, promotionThreshold: 500 } })
+  it('loads no copies when the batch stays under the threshold', async () => {
+    const narsil = await createNarsil({ workers: { enabled: true, count: 4, promotionThreshold: 500 } })
     await narsil.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })
 
     await narsil.insertBatch('prose', proseDocuments(100, 'small'))
@@ -136,7 +136,7 @@ describe.skipIf(!built)('a segmented batch keeps the per-document contract', () 
   })
 
   it('fails only the documents a strict schema rejects', async () => {
-    const narsil = await createNarsil({ workers: { enabled: true, count: 2, promotionThreshold: 100 } })
+    const narsil = await createNarsil({ workers: { enabled: true, count: 4, promotionThreshold: 100 } })
     await narsil.createIndex('prose', {
       schema: { title: 'string', price: 'number' },
       language: 'english',
@@ -162,7 +162,7 @@ describe.skipIf(!built)('a segmented batch keeps the per-document contract', () 
   }, 120000)
 
   it('fails a duplicate inside the batch and keeps its first occurrence', async () => {
-    const narsil = await createNarsil({ workers: { enabled: true, count: 2, promotionThreshold: 100 } })
+    const narsil = await createNarsil({ workers: { enabled: true, count: 4, promotionThreshold: 100 } })
     await narsil.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })
 
     const documents = proseDocuments(200, 'bulk')
@@ -181,7 +181,7 @@ describe.skipIf(!built)('a segmented batch keeps the per-document contract', () 
   }, 120000)
 
   it('stops admitting documents at the partition capacity', async () => {
-    const narsil = await createNarsil({ workers: { enabled: true, count: 2, promotionThreshold: 50 } })
+    const narsil = await createNarsil({ workers: { enabled: true, count: 4, promotionThreshold: 50 } })
     await narsil.createIndex('prose', {
       schema: { title: 'string', price: 'number' },
       language: 'english',
@@ -203,7 +203,7 @@ describe.skipIf(!built)('a segmented batch keeps the per-document contract', () 
 
 describe.skipIf(!built)('a segmented batch carries the index analysis options', () => {
   it('collects surface forms for suggestions', async () => {
-    const narsil = await createNarsil({ workers: { enabled: true, count: 2, promotionThreshold: 100 } })
+    const narsil = await createNarsil({ workers: { enabled: true, count: 4, promotionThreshold: 100 } })
     await narsil.createIndex('prose', {
       schema: { title: 'string', price: 'number' },
       language: 'english',
@@ -220,7 +220,7 @@ describe.skipIf(!built)('a segmented batch carries the index analysis options', 
   }, 120000)
 
   it('applies a stop word list from the index config', async () => {
-    const narsil = await createNarsil({ workers: { enabled: true, count: 2, promotionThreshold: 100 } })
+    const narsil = await createNarsil({ workers: { enabled: true, count: 4, promotionThreshold: 100 } })
     await narsil.createIndex('prose', {
       schema: { title: 'string', price: 'number' },
       language: 'english',
@@ -244,7 +244,7 @@ describe.skipIf(!built)('a segmented batch survives recovery from the write-ahea
     const root = await mkdtemp(join(tmpdir(), 'narsil-segment-wal-'))
     try {
       const writer = await createNarsil({
-        workers: { enabled: true, count: 2, promotionThreshold: 100 },
+        workers: { enabled: true, count: 4, promotionThreshold: 100 },
         durability: { directory: root },
       })
       await writer.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })

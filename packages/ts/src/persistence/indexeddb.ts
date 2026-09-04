@@ -1,5 +1,11 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import type { PersistenceAdapter } from '../types/adapters'
+import {
+  DEFAULT_INDEXEDDB_NAME,
+  DEFAULT_INDEXEDDB_STORE_NAME,
+  INDEXEDDB_BLOCKED_TIMEOUT_MS,
+  MAX_PERSISTENCE_KEY_LENGTH,
+} from './constants'
 
 declare const indexedDB: {
   open(name: string, version?: number): IDBOpenDBRequest
@@ -64,19 +70,14 @@ export interface IndexedDBPersistenceConfig {
   storeName?: string
 }
 
-const DEFAULT_DB_NAME = 'narsil'
-const DEFAULT_STORE_NAME = 'partitions'
-const MAX_KEY_LENGTH = 1024
-const BLOCKED_TIMEOUT_MS = 5000
-
 function validateKey(key: string): void {
   if (!key || key.length === 0) {
     throw new NarsilError(ErrorCodes.PERSISTENCE_SAVE_FAILED, 'Key must be a non-empty string')
   }
-  if (key.length > MAX_KEY_LENGTH) {
+  if (key.length > MAX_PERSISTENCE_KEY_LENGTH) {
     throw new NarsilError(
       ErrorCodes.PERSISTENCE_SAVE_FAILED,
-      `Key length ${key.length} exceeds maximum of ${MAX_KEY_LENGTH}`,
+      `Key length ${key.length} exceeds maximum of ${MAX_PERSISTENCE_KEY_LENGTH}`,
     )
   }
 }
@@ -105,8 +106,8 @@ export function createIndexedDBPersistence(config?: IndexedDBPersistenceConfig):
     )
   }
 
-  const dbName = config?.dbName ?? DEFAULT_DB_NAME
-  const storeName = config?.storeName ?? DEFAULT_STORE_NAME
+  const dbName = config?.dbName ?? DEFAULT_INDEXEDDB_NAME
+  const storeName = config?.storeName ?? DEFAULT_INDEXEDDB_STORE_NAME
 
   let cachedDb: IDBDatabaseInstance | null = null
 
@@ -123,9 +124,12 @@ export function createIndexedDBPersistence(config?: IndexedDBPersistenceConfig):
       request.onblocked = () => {
         blockedTimer = setTimeout(() => {
           reject(
-            new NarsilError(ErrorCodes.PERSISTENCE_SAVE_FAILED, `IndexedDB open blocked for ${BLOCKED_TIMEOUT_MS}ms`),
+            new NarsilError(
+              ErrorCodes.PERSISTENCE_SAVE_FAILED,
+              `IndexedDB open blocked for ${INDEXEDDB_BLOCKED_TIMEOUT_MS}ms`,
+            ),
           )
-        }, BLOCKED_TIMEOUT_MS)
+        }, INDEXEDDB_BLOCKED_TIMEOUT_MS)
       }
 
       request.onupgradeneeded = () => {

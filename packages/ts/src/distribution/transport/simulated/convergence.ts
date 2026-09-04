@@ -2,6 +2,7 @@ import { resolvePartitionId } from '../../cluster-node/write-routing'
 import type { ClusterCoordinator, PartitionAssignment } from '../../coordinator/types'
 import { createListMessage, decodePayload } from '../../query/codec'
 import { type ListResultPayload, QueryMessageTypes } from '../types'
+import { MAX_REPORTED_KEYS, ORACLE_PAGE_LIMIT } from './constants'
 import type { SimulatedNetwork } from './network'
 
 export type AcknowledgedWriteState = 'present' | 'removed'
@@ -22,8 +23,6 @@ export interface ConvergenceOracleDeps {
 }
 
 const ORACLE_SOURCE_ID = 'convergence-oracle'
-const ORACLE_PAGE_LIMIT = 10_000
-const MAX_REPORTED_KEYS = 5
 
 export function createWriteJournal(): WriteJournal {
   const entries = new Map<string, Map<string, AcknowledgedWriteState>>()

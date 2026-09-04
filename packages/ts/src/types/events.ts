@@ -12,8 +12,12 @@ export type NarsilEventMap = {
   /**
    * A worker thread died. The pool drops it and fails its outstanding requests
    * with `WORKER_CRASHED`, while the remaining workers keep answering because
-   * each holds a full worker copy of every promoted index. Once no worker is
-   * left, queries fall back to the main thread, which holds every document.
+   * each holds a full worker copy of every promoted index. After a delay the
+   * engine spawns a replacement, loads every copy onto it, and puts it back
+   * into rotation. Once no worker is left, queries fall back to the main
+   * thread, which holds every document, and the next request after the delay
+   * starts a new pool. The delay starts at one second and doubles up to a
+   * minute while replacements keep failing.
    */
   workerCrash: {
     /** This worker died. */
@@ -23,16 +27,16 @@ export type NarsilEventMap = {
     /** This ended the worker. */
     error: Error
   }
-  /** The engine moved its indexes onto worker threads. */
+  /** An index gained worker copies, whether it reached the copy threshold or loaded its copies again after an idle spell. */
   workerPromote: {
-    /** The pool started with this many workers. */
+    /** The pool holds this many workers. */
     workerCount: number
-    /** The engine promoted for this reason, such as the threshold the index passed. */
+    /** The index gained its copies for this reason, such as the copy threshold it reached. */
     reason: string
   }
-  /** The engine tried to move onto worker threads and could not. Indexes keep answering on the main thread. */
+  /** An index could not gain worker copies. It keeps answering on the main thread. */
   workerPromoteFailure: {
-    /** The engine tried to promote for this reason. */
+    /** The engine tried to load the copies for this reason. */
     reason: string
     /** This stopped it. */
     error: Error

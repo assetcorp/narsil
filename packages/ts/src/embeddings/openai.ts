@@ -1,5 +1,13 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import type { EmbeddingAdapter } from '../types/adapters'
+import {
+  BASE_BACKOFF_MS,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  MAX_BACKOFF_MS,
+  MAX_INPUTS_PER_REQUEST,
+  MAX_JITTER_MS,
+  RETRYABLE_STATUS_CODES,
+} from './constants'
 
 /**
  * How {@link createOpenAIEmbedding} reaches an embeddings endpoint.
@@ -32,13 +40,6 @@ interface OpenAIErrorBody {
     message?: string
   }
 }
-
-const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503])
-const MAX_BACKOFF_MS = 30_000
-const BASE_BACKOFF_MS = 1_000
-const MAX_JITTER_MS = 1_000
-const DEFAULT_TIMEOUT_MS = 30_000
-const MAX_INPUTS_PER_REQUEST = 2048
 
 function isRetryableStatus(status: number): boolean {
   return RETRYABLE_STATUS_CODES.has(status)
@@ -268,7 +269,7 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
   const url = `${config.baseUrl.replace(/\/+$/, '')}/embeddings`
   const model = config.model
   const dimensionCount = config.dimensions
-  const timeoutMs = config.timeout ?? DEFAULT_TIMEOUT_MS
+  const timeoutMs = config.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS
   const maxRetries = config.maxRetries ?? 3
 
   return {

@@ -1,4 +1,5 @@
-import { type ComparableSortValue, SORT_VALUE_MAX_CODE_POINTS, toComparableSortValue } from '../../ordering'
+import { type ComparableSortValue, toComparableSortValue } from '../../ordering'
+import { SORT_VALUE_MAX_CODE_POINTS } from '../../ordering/constants'
 
 export type ValueStoreKind = 'number' | 'boolean' | 'mixed'
 

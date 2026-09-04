@@ -12,6 +12,7 @@ import type {
   WireGroupEntry,
   WireQueryParams,
 } from '../transport/types'
+import { MAX_FACET_SIZE } from './constants'
 import { buildCoverage, collectDistributedStats, fanOutSearch, type NodeQueryOutcome } from './fan-out'
 import { mergeGroupsFor } from './group-merge'
 import { executeHybridQuery } from './hybrid'
@@ -24,8 +25,6 @@ import type { DistributedQueryConfig, DistributedQueryResult, QueryRoutingDeps, 
 import { DEFAULT_QUERY_CONFIG } from './types'
 
 export type { QueryRoutingDeps }
-
-export const MAX_FACET_SIZE = 1_000
 
 function wireSortSignature(sort: SortField[] | null): string | null {
   if (sort === null || sort.length === 0) return null

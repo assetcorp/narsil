@@ -1,5 +1,6 @@
 import { compareCodePoints, compareSortValues, type SortDirection } from '../../core/ordering'
 import type { FacetBucket, ScoredEntry } from '../transport/types'
+import { DEFAULT_MAX_FACET_BUCKETS } from './constants'
 
 type EntryComparator = (a: ScoredEntry, b: ScoredEntry) => number
 
@@ -166,8 +167,6 @@ function popScoredHeap(
 
   return top
 }
-
-const DEFAULT_MAX_FACET_BUCKETS = 100
 
 /**
  * Merges the facet counts every node returned and adds up what each of them

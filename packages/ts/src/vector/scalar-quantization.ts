@@ -1,4 +1,5 @@
 import type { VectorMetric } from './brute-force'
+import { VECTOR_STORE_INITIAL_CAPACITY, WASM_PAGE_BYTES } from './constants'
 import { computeCalibrationBounds } from './scalar-quantization-calibration'
 import {
   arenaQuantizedDistance,
@@ -17,9 +18,6 @@ import type {
   SerializedSQ8,
 } from './scalar-quantization-types'
 import { type ArenaSimd, createArenaSimd } from './simd'
-
-const INITIAL_CAPACITY = 16
-const PAGE_BYTES = 65536
 
 export function createScalarQuantizer(dimensions: number, ordinalSource?: OrdinalSource): ScalarQuantizer {
   const docToOrd = new Map<string, number>()
@@ -41,7 +39,7 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
 
   function ensureCapacity(needed: number): void {
     if (needed <= capacity) return
-    let newCap = capacity === 0 ? INITIAL_CAPACITY : capacity
+    let newCap = capacity === 0 ? VECTOR_STORE_INITIAL_CAPACITY : capacity
     while (newCap < needed) newCap *= 2
 
     const nextSums = new Float64Array(newCap)
@@ -62,7 +60,7 @@ export function createScalarQuantizer(dimensions: number, ordinalSource?: Ordina
       const have = simd.memory.buffer.byteLength
       if (requiredBytes > have) {
         try {
-          simd.memory.grow(Math.ceil((requiredBytes - have) / PAGE_BYTES))
+          simd.memory.grow(Math.ceil((requiredBytes - have) / WASM_PAGE_BYTES))
         } catch {
           const migrated = new Uint8Array(newCap * dimensions)
           migrated.set(quantizedArena.subarray(0, capacity * dimensions))

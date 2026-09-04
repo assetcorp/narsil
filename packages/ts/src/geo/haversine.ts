@@ -1,5 +1,6 @@
+import { DEG_TO_RAD } from './constants'
+
 const EARTH_RADIUS_METERS = 6_371_008.8
-const DEG_TO_RAD = Math.PI / 180
 
 export function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const phi1 = lat1 * DEG_TO_RAD

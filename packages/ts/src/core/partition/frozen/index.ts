@@ -32,9 +32,11 @@ export { buildFrozenTokenTable } from './token-table'
 export interface FrozenSegment extends PartitionReadState {
   readonly segmentId: string
   readonly documentSource: FrozenDocumentSource
+  readonly sharedSnapshot: SharedSegmentSnapshot | null
   liveDocumentCount(): number
   hasDocument(docId: string): boolean
   tombstoneDocument(docId: string): boolean
+  tombstonedDocIds(): string[]
 }
 
 interface FrozenSegmentSource {
@@ -104,6 +106,7 @@ function assembleFrozenSegment(
   segmentId: string,
   source: FrozenSegmentSource,
   documentSource: FrozenDocumentSource,
+  sharedSnapshot: SharedSegmentSnapshot | null,
 ): FrozenSegment {
   const tombstones = createFrozenTombstones()
   const postingViews = createFrozenPostingViews(source, tombstones)
@@ -128,6 +131,7 @@ function assembleFrozenSegment(
   const segment: FrozenSegment = {
     segmentId,
     documentSource,
+    sharedSnapshot,
     invertedIdx: createFrozenInvertedReader(source.tokenTable, postingViews),
     docStore,
     stats: buildStatsView(source),
@@ -162,6 +166,12 @@ function assembleFrozenSegment(
       }
       return added
     },
+
+    tombstonedDocIds(): string[] {
+      const docIds: string[] = []
+      for (const ordinal of tombstones.values()) docIds.push(source.idTable.idAt(ordinal))
+      return docIds
+    },
   }
 
   return segment
@@ -181,6 +191,7 @@ export function createFrozenSegment(
       docFrequencies: () => payload.docFrequencies,
     },
     wrapDocumentArray(documents),
+    null,
   )
 }
 
@@ -201,5 +212,6 @@ export function createSharedFrozenSegment(snapshot: SharedSegmentSnapshot): Froz
       },
     },
     wrapEncodedDocumentTable(snapshot.documentTable),
+    snapshot,
   )
 }

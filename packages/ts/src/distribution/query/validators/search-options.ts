@@ -1,9 +1,5 @@
+import { MAX_DOC_ID_LENGTH } from '../../../engine/constants'
 import {
-  CONFIG_INVALID,
-  isFiniteNumber,
-  isInteger,
-  isRecord,
-  MAX_DOC_ID_LENGTH,
   MAX_EF_SEARCH,
   MAX_FIELD_NAME_LENGTH,
   MAX_GROUP_FIELDS,
@@ -14,6 +10,12 @@ import {
   MAX_PREFIX_LENGTH,
   MAX_TERMS_COUNT,
   MIN_HYBRID_K,
+} from '../constants'
+import {
+  CONFIG_INVALID,
+  isFiniteNumber,
+  isInteger,
+  isRecord,
   SEARCH_INVALID_FIELD,
   SEARCH_INVALID_MODE,
   throwInvalid,

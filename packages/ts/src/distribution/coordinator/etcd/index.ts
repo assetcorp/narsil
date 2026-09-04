@@ -2,6 +2,7 @@ import type { Etcd3 as Etcd3Client, IKeyValue, Watcher } from 'etcd3'
 import { compareCodePoints } from '../../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { SchemaDefinition } from '../../../types/schema'
+import { MAX_WATCHERS } from '../constants'
 import type {
   AllocationEvent,
   AllocationTable,
@@ -23,7 +24,7 @@ import {
   serializeSchema,
 } from './serialization'
 import { DEFAULT_ETCD_CONFIG, type EtcdCoordinatorConfig } from './types'
-import { MAX_WATCHERS, validateNodeId, validatePartitionState } from './validation'
+import { validateNodeId, validatePartitionState } from './validation'
 
 export type { EtcdCoordinatorConfig } from './types'
 export { validateNodeId } from './validation'

@@ -1,5 +1,6 @@
 import { createHNSWIndex, type HNSWConfig, type HNSWIndex } from '../hnsw'
 import { dispatchWorkerBuild } from '../hnsw-worker-dispatch'
+import { WORKER_BUILD_SIZE_THRESHOLD } from './constants'
 import {
   adoptGraph,
   allLiveDocIds,
@@ -9,7 +10,6 @@ import {
   liveSize,
   recalibrateFromStore,
   type VectorIndexState,
-  WORKER_BUILD_SIZE_THRESHOLD,
 } from './shared'
 import { invalidateWorkerCopies } from './worker-copies'
 

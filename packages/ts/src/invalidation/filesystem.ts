@@ -1,5 +1,6 @@
 import { compareCodePoints } from '../core/ordering'
 import type { InvalidationAdapter, InvalidationEvent } from '../types/adapters'
+import { DEFAULT_POLL_INTERVAL_MS, MARKER_MAX_AGE_MS } from './constants'
 
 /**
  * How {@link createFilesystemInvalidation} exchanges events between processes.
@@ -14,9 +15,6 @@ export interface FilesystemInvalidationConfig {
   /** This identifies the instance, so it skips the markers it wrote itself. The adapter generates a random id by default. */
   instanceId?: string
 }
-
-const MARKER_MAX_AGE_MS = 60_000
-const DEFAULT_POLL_INTERVAL = 1000
 
 function generateInstanceId(): string {
   if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
@@ -62,7 +60,7 @@ export function createFilesystemInvalidation(config: FilesystemInvalidationConfi
   }
 
   const directory = config.directory
-  const pollInterval = config.pollInterval ?? DEFAULT_POLL_INTERVAL
+  const pollInterval = config.pollInterval ?? DEFAULT_POLL_INTERVAL_MS
   const instanceId = config.instanceId ?? generateInstanceId()
 
   if (instanceId.includes('/') || instanceId.includes('\\') || instanceId.includes('..') || instanceId.includes('\0')) {

@@ -1,6 +1,7 @@
 import type { CallOptions, ChannelCredentials, Client, Metadata } from '@grpc/grpc-js'
+import { MAX_MESSAGE_SIZE_BYTES } from '../constants'
 import { decodeTransportMessage, encodeTransportMessage } from '../tcp/framing'
-import { MAX_MESSAGE_SIZE_BYTES, TransportError, TransportErrorCodes, type TransportMessage } from '../types'
+import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import type { GrpcModule } from './loader'
 import { openStreamMethod, sendMethod } from './service'
 import { channelOptions, type GrpcTransportConfig, toCredentialBuffer } from './types'

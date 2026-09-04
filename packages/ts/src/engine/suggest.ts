@@ -5,13 +5,7 @@ import { clampRowCount } from '../search/pagination'
 import type { LanguageModule } from '../types/language'
 import type { SuggestResult } from '../types/results'
 import type { SuggestParams } from '../types/search'
-
-export const DEFAULT_SUGGEST_LIMIT = 10
-export const MAX_SUGGEST_LIMIT = 100
-export const SUGGEST_OVERSAMPLE_FACTOR = 1.5
-export const SUGGEST_OVERSAMPLE_PADDING = 10
-export const MAX_SUGGEST_SCATTER_LIMIT =
-  Math.ceil(MAX_SUGGEST_LIMIT * SUGGEST_OVERSAMPLE_FACTOR) + SUGGEST_OVERSAMPLE_PADDING
+import { DEFAULT_SUGGEST_LIMIT, MAX_SUGGEST_LIMIT, MAX_SUGGEST_SCATTER_LIMIT } from './constants'
 
 interface MergedSuggestion {
   documentFrequency: number

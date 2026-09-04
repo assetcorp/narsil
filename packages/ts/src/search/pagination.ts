@@ -1,9 +1,7 @@
 import { compareCodePoints, compareSortValues, type SortDirection, toComparableSortValue } from '../core/ordering'
 import { ErrorCodes, NarsilError } from '../errors'
+import { RESULT_WINDOW } from './constants'
 import { decodePageCursor, encodePageCursor, type PageCursor, requireMatchingCursor } from './cursor'
-
-export const RESULT_WINDOW = 10_000
-export const DEFAULT_PAGE_SIZE = 10
 
 export function clampRowCount(value: number | undefined, fallback: number): number {
   if (value === undefined || !Number.isFinite(value)) return fallback

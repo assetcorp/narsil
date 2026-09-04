@@ -45,7 +45,3 @@ export interface AllocationResult {
 }
 
 export type { AllocationConstraints, AllocationTable, NodeRegistration, PartitionAssignment }
-
-export const REBALANCE_THRESHOLD = 0.1
-
-export const DEFAULT_ESTIMATED_PARTITION_BYTES = 50 * 1024 * 1024

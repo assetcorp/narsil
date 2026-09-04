@@ -1,4 +1,4 @@
-const PADDING_FACTOR = 0.01
+import { QUANTIZATION_PADDING_FACTOR } from './constants'
 
 export function computeCalibrationBounds(
   vectors: Iterable<Float32Array>,
@@ -20,7 +20,7 @@ export function computeCalibrationBounds(
   if (count === 0) return null
 
   const range = globalMax - globalMin
-  const pad = range * PADDING_FACTOR
+  const pad = range * QUANTIZATION_PADDING_FACTOR
   globalMin -= pad
   globalMax += pad
 

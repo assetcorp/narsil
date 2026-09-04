@@ -1,6 +1,7 @@
 import type { LanguageModule } from '../../types/language'
 import type { CustomTokenizer } from '../../types/schema'
 import { transformToken } from './cache'
+import { DEFAULT_MIN_TOKEN_LENGTH } from './constants'
 import { expandNgrams } from './ngrams'
 import { normalizeForSplitting } from './normalize'
 
@@ -25,7 +26,6 @@ export function producesSurfaceForms(language: LanguageModule, options?: Tokeniz
 }
 
 const DEFAULT_SPLIT_PATTERN = /[^\p{L}\p{M}\p{N}_'-]+/u
-const DEFAULT_MIN_TOKEN_LENGTH = 1
 
 function resolveStopWords(
   language: LanguageModule,

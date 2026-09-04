@@ -1,11 +1,6 @@
 import type { NarsilError } from '../errors'
+import { DEFAULT_KEEP_ALIVE_MS } from './constants'
 import { asNarsilError } from './failure'
-
-/** The store keeps an answer for this long after the last component reading it
- * has gone. The wait covers the gap between React unmounting a component and
- * mounting it again, which a development double render and a quick navigation
- * both leave. */
-export const DEFAULT_KEEP_ALIVE_MS = 2000
 
 /**
  * Where one key stands: the answer, the failure, and the two loading flags.

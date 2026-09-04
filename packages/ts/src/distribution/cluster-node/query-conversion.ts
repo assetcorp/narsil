@@ -1,4 +1,5 @@
-import { clampRowCount, DEFAULT_PAGE_SIZE } from '../../search/pagination'
+import { DEFAULT_PAGE_SIZE } from '../../search/constants'
+import { clampRowCount } from '../../search/pagination'
 import { normalizeSort } from '../../search/sorting'
 import type { FacetResult, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'

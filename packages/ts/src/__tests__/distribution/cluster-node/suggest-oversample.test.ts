@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { suggestNodeLimit } from '../../../distribution/cluster-node/reads/terms'
-import { MAX_SUGGEST_LIMIT, MAX_SUGGEST_SCATTER_LIMIT } from '../../../engine/suggest'
+import { MAX_SUGGEST_LIMIT, MAX_SUGGEST_SCATTER_LIMIT } from '../../../engine/constants'
 
 describe('suggest per-node oversample', () => {
   it('asks each node for half as many again as the caller wants, plus a margin', () => {

@@ -126,6 +126,6 @@ await narsil.createIndex('products', {
 })
 ```
 
-A named binding works where an inline one cannot: persisted metadata cannot store a function, and a worker thread cannot receive one. Durability recovery rebinds a named tokenizer or stop word set from the registry, so register the names before calling `createNarsil` on a durable engine; an inline tokenizer or stop word function cannot persist. A worker thread resolves names from its own registry, filled by `workers.bootstrapModule`, so only an index using the named forms can promote; see [Workers](partitions-and-workers.md#workers).
+A named binding works where an inline one cannot: persisted metadata cannot store a function, and a worker thread cannot receive one. Durability recovery rebinds a named tokenizer or stop word set from the registry, so register the names before calling `createNarsil` on a durable engine; an inline tokenizer or stop word function cannot persist. A worker thread resolves names from its own registry, filled by `workers.bootstrapModule`, so only an index using the named forms can gain worker copies; see [Worker copies](partitions-and-workers.md#worker-copies).
 
 Naming a tokenizer or stop word set you have not registered fails with `CONFIG_INVALID`, and the error's `details` list the registered names. `hasTokenizer(name)` and `hasStopWords(name)` report whether a name is registered, and `getTokenizer(name)` and `getStopWords(name)` return the registered implementation.

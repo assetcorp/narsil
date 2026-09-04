@@ -35,7 +35,10 @@ export async function writePartitionVectors(input: VectorWriteInput): Promise<Ve
 
   const vectorIndexes = new Map<string, VectorIndex>()
   for (const [fieldPath, dimension] of input.vectorFields) {
-    vectorIndexes.set(fieldPath, createVectorIndex(fieldPath, dimension, input.config.vectorPromotion))
+    vectorIndexes.set(
+      fieldPath,
+      createVectorIndex(fieldPath, dimension, input.config.vectorPromotion, { enabled: false }),
+    )
   }
 
   for (const ref of input.priorVectors) {

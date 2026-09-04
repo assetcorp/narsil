@@ -55,7 +55,7 @@ export async function runEngineQuery<T = AnyDocument>(
 
     await core.pluginRegistry.runHook('beforeSearch', { indexName, params: resolvedParams })
 
-    const workerSearch = core.orchestrator.isPromoted()
+    const workerSearch = core.orchestrator.hasWorkerPool()
       ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
       : undefined
 
@@ -107,7 +107,7 @@ export async function runEnginePreflight(
       core.abortController.signal,
       entry.embeddingAdapterName,
     )
-    const workerSearch = core.orchestrator.isPromoted()
+    const workerSearch = core.orchestrator.hasWorkerPool()
       ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
       : undefined
     const result = await executePreflight(resolvedParams, {

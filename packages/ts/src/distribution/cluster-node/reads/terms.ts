@@ -5,7 +5,7 @@ import {
   MAX_SUGGEST_SCATTER_LIMIT,
   SUGGEST_OVERSAMPLE_FACTOR,
   SUGGEST_OVERSAMPLE_PADDING,
-} from '../../../engine/suggest'
+} from '../../../engine/constants'
 import { clampRowCount } from '../../../search/pagination'
 import type { PreflightResult, SuggestResult } from '../../../types/results'
 import type { QueryParams, SuggestParams } from '../../../types/search'

@@ -3,7 +3,8 @@ import type { OrdinalFilter } from '../ordinal-filter'
 import { acquireVectorSearchPool, releaseVectorSearchPool } from '../search-pool'
 import { freezeSharedGeneration } from '../shared-generation/freeze'
 import type { WorkerCopySnapshot } from '../worker-copy'
-import { liveSize, type VectorIndexState, type VectorScoredResult, WORKER_COPY_MIN_VECTORS } from './shared'
+import { WORKER_COPY_MIN_VECTORS } from './constants'
+import { liveSize, type VectorIndexState, type VectorScoredResult } from './shared'
 
 let handleCounter = 0
 
@@ -35,6 +36,7 @@ function captureCloneSnapshot(state: VectorIndexState): WorkerCopySnapshot | nul
 }
 
 export function scheduleWorkerCopyLoad(state: VectorIndexState): void {
+  if (!state.workerCopies.enabled) return
   if (state.disposed || state.workerCopyLoading || state.building) return
   if (state.workerCopyHandle !== null) return
   if (!state.hnsw || state.buffer.size > 0) return
@@ -49,7 +51,7 @@ export function scheduleWorkerCopyLoad(state: VectorIndexState): void {
 async function loadWorkerCopies(state: VectorIndexState): Promise<void> {
   const revision = state.revision
 
-  const pool = await acquireVectorSearchPool()
+  const pool = await acquireVectorSearchPool(state.workerCopies.count)
   if (pool === null) {
     await releaseVectorSearchPool()
     return

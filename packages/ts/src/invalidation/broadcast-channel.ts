@@ -1,4 +1,5 @@
 import type { InvalidationAdapter, InvalidationEvent } from '../types/adapters'
+import { DEFAULT_CHANNEL_NAME } from './constants'
 
 declare const BroadcastChannel: {
   new (name: string): BroadcastChannelInstance
@@ -20,8 +21,6 @@ export interface BroadcastChannelInvalidationConfig {
   /** Every participating tab or worker must name the same channel. The adapter uses `narsil-invalidation` by default. */
   channelName?: string
 }
-
-const DEFAULT_CHANNEL_NAME = 'narsil-invalidation'
 
 function isInvalidationEvent(data: unknown): data is InvalidationEvent {
   if (typeof data !== 'object' || data === null) {

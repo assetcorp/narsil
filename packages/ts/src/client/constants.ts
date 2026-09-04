@@ -1,0 +1,3 @@
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+export const NO_TIMEOUT = 0
+export const DEFAULT_TASK_POLL_INTERVAL_MS = 250

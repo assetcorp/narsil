@@ -10,7 +10,7 @@ import { createFilesystemPersistence } from '@delali/narsil/adapters/filesystem'
 
 const narsil = await createNarsil({
   persistence: createFilesystemPersistence({ directory: './narsil-data' }),
-  workers: { enabled: true, count: 4 },
+  workers: { count: 4 },
 })
 ```
 
@@ -22,7 +22,7 @@ const narsil = await createNarsil({
 | `invalidation` | `InvalidationAdapter` | Coordinates cache eviction across processes or tabs. See [Multi-instance invalidation](partitions-and-workers.md#multi-instance-invalidation). |
 | `plugins` | `NarsilPlugin[]` | Registers lifecycle hooks for document and search operations. See [Plugins](observability.md#plugins). |
 | `idGenerator` | `() => string` | Replaces the default UUID v7 generator for document ids. |
-| `workers` | `WorkerConfig` | Controls the worker thread pool for parallel search. See [Workers](partitions-and-workers.md#workers). |
+| `workers` | `WorkerConfig` | Controls the worker copies that answer keyword queries in parallel and the vector search pool. See [Worker copies](partitions-and-workers.md#worker-copies). |
 | `embedding` | `EmbeddingAdapter` | Sets the default adapter for auto-embedding text into vectors. See [Embedding adapters](embedding-adapters.md#embedding-adapters). |
 | `embeddingAdapters` | `Record<string, EmbeddingAdapter>` | Registers named adapters that index configs reference by name. Names persist in index metadata, so durability recovery can rebind them. |
 | `durability` | `DurabilityConfig` | Enables write-ahead logging and snapshots. See [Durability](persistence-and-durability.md#durability). |
@@ -33,11 +33,11 @@ const narsil = await createNarsil({
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `enabled` | `boolean` | `false` | Turns on the worker thread pool for search. |
-| `count` | `number` | CPU cores minus one, clamped between 2 and 8 | Sets the number of worker threads to spawn. |
-| `promotionThreshold` | `number` | `10000` | Sets the per-index document count that triggers promotion to workers. |
-| `totalPromotionThreshold` | `number` | `50000` | Sets the document count across all indexes that triggers promotion. |
-| `bootstrapModule` | `string` | none | Names a module every worker imports at startup so that the worker registers the languages, tokenizers, and stop word sets your indexes name. See [Workers](partitions-and-workers.md#workers). |
+| `enabled` | `boolean` | `true` on Node.js, Bun, and Deno, `false` in a browser | Allows worker copies and the vector search pool. Set it to `false` to hold the process to one thread, which leaves both pools absent. |
+| `count` | `number` | CPU cores minus one, clamped between 2 and 8 | Sets the thread budget the keyword copies and the vector search pool share, half each. |
+| `promotionThreshold` | `number` | `1000` | Sets the document count at which an index gains worker copies. |
+| `idleTimeoutMs` | `number` | `300000`, or `lifecycle.idleTimeoutMs` where that is smaller | Sets how long an index may go without a read or a write before the engine drops its copies. A value above `lifecycle.idleTimeoutMs` fails with `CONFIG_INVALID`. |
+| `bootstrapModule` | `string` | none | Names a module every worker imports at startup so that the worker registers the languages, tokenizers, and stop word sets your indexes name. See [Worker copies](partitions-and-workers.md#worker-copies). |
 
 ## AnalysisConfig
 

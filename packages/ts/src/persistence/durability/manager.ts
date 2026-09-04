@@ -3,22 +3,20 @@ import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
 import { runDurableCheckpoint } from './checkpoint-run'
 import { terminateCheckpointWorker } from './checkpoint-worker-dispatch'
-import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
-import { drainIndexStateForUnload, type IndexState, type PartitionState } from './manager-state'
-import { recoverPersistedIndex } from './recover-index'
-import { listPersistedIndexes } from './recovery'
-import { DEFAULT_COMPACTION_THRESHOLD } from './segment'
-import { createSeqOwner, SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import {
   DEFAULT_ASYNC_FLUSH_INTERVAL_MS,
   DEFAULT_CHECKPOINT_INTERVAL_MS,
   DEFAULT_CHECKPOINT_MUTATION_THRESHOLD,
-  type DurabilityConfig,
-  type DurabilityManager,
-  type IndexDurabilityHooks,
-  type MutationRecord,
-} from './types'
-import { createWalWriter, DEFAULT_SEGMENT_MAX_BYTES } from './wal-writer'
+  DEFAULT_COMPACTION_THRESHOLD,
+  DEFAULT_SEGMENT_MAX_BYTES,
+} from './constants'
+import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
+import { drainIndexStateForUnload, type IndexState, type PartitionState } from './manager-state'
+import { recoverPersistedIndex } from './recover-index'
+import { listPersistedIndexes } from './recovery'
+import { createSeqOwner, SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
+import type { DurabilityConfig, DurabilityManager, IndexDurabilityHooks, MutationRecord } from './types'
+import { createWalWriter } from './wal-writer'
 
 /**
  * Creates durable mutation logging, recovery, and checkpoint coordination.

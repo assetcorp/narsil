@@ -1,0 +1,1 @@
+export const SORT_VALUE_MAX_CODE_POINTS = 512

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MAX_PARTITION_COUNT } from '../../../../../distribution/constants'
 import { validateSearchPayload } from '../../../../../distribution/query/codec'
 import {
   MAX_BOOST_FIELDS,
@@ -7,13 +8,11 @@ import {
   MAX_HYBRID_K,
   MAX_LIMIT,
   MAX_OFFSET,
-  MAX_PARTITION_COUNT,
-  MAX_SORT_FIELDS,
   MAX_TERM_LENGTH,
   MAX_TOLERANCE,
-} from '../../../../../distribution/query/validators/common'
+} from '../../../../../distribution/query/constants'
 import { NarsilError } from '../../../../../errors'
-import { MAX_CURSOR_LENGTH } from '../../../../../search/cursor'
+import { MAX_CURSOR_LENGTH, MAX_SORT_FIELDS } from '../../../../../search/constants'
 import { makeSearchPayload } from './fixtures'
 
 describe('validateSearchPayload top-level', () => {

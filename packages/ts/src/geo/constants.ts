@@ -1,0 +1,4 @@
+export const DEG_TO_RAD = Math.PI / 180
+
+export const VINCENTY_MAX_ITERATIONS = 200
+export const VINCENTY_CONVERGENCE_THRESHOLD = 1e-12
