@@ -3,10 +3,10 @@ export type {
   ClusterControllerConfig,
   ClusterNamespace,
   ClusterNodeConfig,
+  ClusterNodeDeps,
   ClusterNodeInfo,
   ClusterQueryConfig,
   CreateIndexOptions,
   NodeReadiness,
 } from './config'
-export type { ClusterNodeDeps } from './defaults'
 export type { ClusterNode } from './node'
