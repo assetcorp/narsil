@@ -31,7 +31,7 @@ Two measured costs are worth knowing before raising partition counts:
 
 ## Worker copies
 
-On Node.js, Bun, and Deno the engine divides `workers.count`, which defaults to the number of cores the runtime reports, between a keyword pool of `Math.ceil(count / 2)` threads and a vector search pool of the rest. Every thread of the keyword pool holds a copy of each large index, so keyword search answers on those threads without a setting. An index gains its copies once it holds `promotionThreshold` documents, which defaults to 1,000, because below that a query finishes sooner than the hop to a worker thread takes. A browser page holds no copies, and `workers.enabled: false` holds a Node.js process to one thread, which also leaves the vector search pool absent. The API stays identical whether or not an index holds copies.
+On Node.js, Bun, and Deno the engine divides `workers.count` between a keyword pool of `Math.ceil(count / 2)` threads and a vector search pool of the rest. Where you name no count, the engine takes one thread fewer than the cores the runtime reports and keeps that total between 2 and 8, which leaves the keyword pool between 1 and 4 threads. Every thread of the keyword pool holds a copy of each large index, so keyword search answers on those threads without a setting. An index gains its copies once it holds `promotionThreshold` documents, which defaults to 1,000, because below that a query finishes sooner than the hop to a worker thread takes. A browser page holds no copies, and `workers.enabled: false` holds a Node.js process to one thread, which also leaves the vector search pool absent. The API stays identical whether or not an index holds copies.
 
 ```ts
 const narsil = await createNarsil({
