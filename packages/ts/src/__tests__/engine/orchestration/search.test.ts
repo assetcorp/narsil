@@ -39,25 +39,61 @@ describe('a whole query goes to the copy with the fewest queries in flight', () 
     await Promise.all([first, second, third])
   })
 
-  it('reuses the copy that finished first once every copy is busy', async () => {
+  it('answers on the main copy once every copy is busy, then on the copy that finished first', async () => {
     const harness = recordingHarness(2, ['prose'])
 
     const first = searchViaWorker(harness.state, 'prose', { term: 'a' })
     const second = searchViaWorker(harness.state, 'prose', { term: 'b' })
     await settle()
     const [firstSent, secondSent] = queries(harness)
+
+    expect(await searchViaWorker(harness.state, 'prose', { term: 'c' })).toBeNull()
+    expect(queries(harness)).toHaveLength(2)
+
     secondSent.resolve(EMPTY)
     await second
-
-    const third = searchViaWorker(harness.state, 'prose', { term: 'c' })
+    const fourth = searchViaWorker(harness.state, 'prose', { term: 'd' })
     await settle()
-    const thirdSent = queries(harness)[2]
-    expect(thirdSent.workerId).toBe(secondSent.workerId)
-    expect(thirdSent.workerId).not.toBe(firstSent.workerId)
+    const fourthSent = queries(harness)[2]
+    expect(fourthSent.workerId).toBe(secondSent.workerId)
+    expect(fourthSent.workerId).not.toBe(firstSent.workerId)
 
     firstSent.resolve(EMPTY)
-    thirdSent.resolve(EMPTY)
-    await Promise.all([first, third])
+    fourthSent.resolve(EMPTY)
+    await Promise.all([first, fourth])
+  })
+
+  it('gives the main copy one query per turn of the event loop and queues the rest on the least busy copy', async () => {
+    const harness = recordingHarness(2, ['prose'])
+
+    const held = [
+      searchViaWorker(harness.state, 'prose', { term: 'a' }),
+      searchViaWorker(harness.state, 'prose', { term: 'b' }),
+    ]
+    await settle()
+    expect(queries(harness)).toHaveLength(2)
+
+    const overflow = [
+      searchViaWorker(harness.state, 'prose', { term: 'c' }),
+      searchViaWorker(harness.state, 'prose', { term: 'd' }),
+      searchViaWorker(harness.state, 'prose', { term: 'e' }),
+    ]
+    expect(await overflow[0]).toBeNull()
+    expect(queries(harness)).toHaveLength(4)
+    expect(
+      new Set(
+        queries(harness)
+          .slice(2)
+          .map(entry => entry.workerId),
+      ).size,
+    ).toBe(2)
+
+    await settle()
+    expect(await searchViaWorker(harness.state, 'prose', { term: 'f' })).toBeNull()
+    expect(queries(harness)).toHaveLength(4)
+
+    harness.releaseAll()
+    await Promise.all([...held, ...overflow])
   })
 
   it('keeps sending whole queries when only one copy is idle', async () => {

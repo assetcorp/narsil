@@ -39,6 +39,12 @@ interface IndexEntry {
 
 const NO_VECTOR_WORKER_COPIES: VectorWorkerCopyPolicy = { enabled: false }
 
+function growPartitionsTo(manager: PartitionManager, partitionId: number): void {
+  while (manager.partitionCount <= partitionId) {
+    manager.addPartition()
+  }
+}
+
 export function createDirectExecutor(options?: DirectExecutorOptions): Executor & DirectExecutorExtensions {
   const indexes = new Map<string, IndexEntry>()
   const vectorWorkerCopies = options?.vectorWorkerCopies ?? NO_VECTOR_WORKER_COPIES
@@ -159,9 +165,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
       case 'attachSegments': {
         const entry = requireIndex(action.indexName)
         for (const segment of action.segments) {
-          while (entry.manager.partitionCount <= segment.partitionId) {
-            entry.manager.addPartition()
-          }
+          growPartitionsTo(entry.manager, segment.partitionId)
           const frozen = createSharedFrozenSegment(segment.snapshot)
           for (const docId of segment.tombstonedDocIds ?? []) frozen.tombstoneDocument(docId)
           entry.manager.attachFrozenSegment(segment.partitionId, frozen)
@@ -195,6 +199,20 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
           )
         }
         partition.swapFrozenSegments(action.dropSegmentIds, createSharedFrozenSegment(action.snapshot))
+        return undefined as T
+      }
+
+      case 'freezeLiveTail': {
+        const entry = requireIndex(action.indexName)
+        growPartitionsTo(entry.manager, action.partitionId)
+        const tail = entry.manager.getPartition(action.partitionId)
+        const held = isCompositePartition(tail) ? tail.live.count() : tail.count()
+        if (held !== action.snapshot.documentCount) {
+          console.warn(
+            `Partition ${action.partitionId} of "${action.indexName}" held ${held} live documents where the frozen tail holds ${action.snapshot.documentCount}`,
+          )
+        }
+        entry.manager.replaceLiveTail(action.partitionId, createSharedFrozenSegment(action.snapshot))
         return undefined as T
       }
 
@@ -300,9 +318,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
 
       case 'deserialize': {
         const entry = requireIndex(action.indexName)
-        while (entry.manager.partitionCount <= action.partitionId) {
-          entry.manager.addPartition()
-        }
+        growPartitionsTo(entry.manager, action.partitionId)
         entry.manager.deserializePartition(action.partitionId, action.data)
         return undefined as T
       }

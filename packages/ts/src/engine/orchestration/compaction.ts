@@ -9,6 +9,7 @@ import {
 } from '../../core/partition/frozen'
 import type { PartitionManager } from '../../partitioning/manager'
 import { createRequestId } from '../../workers/protocol'
+import { freezeLiveTail, LIVE_TAIL_FREEZE_FLOOR } from './live-tail'
 import { awaitReplicationIdle, replicateToWorkers } from './replication'
 import type { OrchestratorState, SegmentLedgerEntry } from './types'
 
@@ -143,6 +144,10 @@ async function compactIndexSegments(
   for (const partitionId of state.segmentLedger.get(indexName)?.keys() ?? []) partitionIds.add(partitionId)
 
   for (const partitionId of partitionIds) {
+    if (policy === 'idle') {
+      await awaitReplicationIdle(state, indexName)
+      freezeLiveTail(state, indexName, manager, partitionId, LIVE_TAIL_FREEZE_FLOOR)
+    }
     let picks = candidateSegmentIds(state, indexName, manager, partitionId, policy)
     while (picks !== null) {
       const compacted = await compactPartitionSegments(state, indexName, manager, partitionId, picks, policy)

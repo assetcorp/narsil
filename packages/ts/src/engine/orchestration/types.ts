@@ -52,8 +52,10 @@ export type IndexRegistry = Map<
 
 export interface ReplicationQueue {
   tail: Promise<void>
+  inFlight: Promise<void>[]
   pendingActions: number
   pendingDocuments: number
+  drainWaiters: Array<() => void>
 }
 
 export interface SegmentLedgerEntry {
@@ -95,6 +97,7 @@ export interface OrchestratorState {
   poolRetryAt: number
   poolRetryDelayMs: number
   poolRepair: Promise<void> | null
+  mainCopyTurnTaken: boolean
   repairTimer: ReturnType<typeof setTimeout> | null
   scaleOutBlocked: boolean
   idleSweep: ReturnType<typeof setInterval> | null

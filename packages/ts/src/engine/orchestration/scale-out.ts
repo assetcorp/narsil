@@ -2,6 +2,7 @@ import { createWorkerFactory } from '#platform/worker-factory'
 import { createWorkerPool, type WorkerPool } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
 import { transferIndexToPool } from '../worker-resync'
+import { scheduleIdleMerge } from './compaction'
 import {
   eligibleIndexNames,
   isDeterministicFailure,
@@ -119,6 +120,7 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
     state.copyLoadBuffers.delete(indexName)
   }
   if (reload) state.copyReloadCounts.set(indexName, (state.copyReloadCounts.get(indexName) ?? 0) + 1)
+  scheduleIdleMerge(state, indexName)
   state.callbacks?.onCopiesLoaded?.(pool.workerCount, reason)
 }
 

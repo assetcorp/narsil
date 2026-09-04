@@ -1,9 +1,11 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
 import type { FrozenSegment } from '../frozen'
-import { createPartitionIndex } from '../index'
+import { createPartitionIndex, type PartitionIndex } from '../index'
 import type { PartitionReadState } from '../read-state'
 import { encodeSegmentState, type SegmentPayload } from '../segment-payload'
+
+export type LiveTailFreezer = (payload: SegmentPayload, documents: AnyDocument[]) => FrozenSegment | null
 
 export function resolveFrozenSegments(
   frozen: readonly FrozenSegment[],
@@ -24,7 +26,7 @@ export function resolveFrozenSegments(
   })
 }
 
-function survivorDocumentsOf(sub: PartitionReadState, payload: SegmentPayload): AnyDocument[] {
+export function survivorDocumentsOf(sub: PartitionReadState, payload: SegmentPayload): AnyDocument[] {
   return payload.docIds.map(docId => {
     const stored = sub.docStore.get(docId)
     if (stored === undefined) {
@@ -50,6 +52,21 @@ export function buildCompactedSegmentPayload(segments: readonly FrozenSegment[])
     documents.push(...segmentDocuments)
   }
   return { payload: scratch.encodeSegment(), documents }
+}
+
+export function freezeLiveTailInto(
+  live: PartitionIndex,
+  liveState: PartitionReadState,
+  frozen: FrozenSegment[],
+  freeze: LiveTailFreezer,
+): FrozenSegment | null {
+  if (live.count() === 0) return null
+  const payload = live.encodeSegment()
+  const segment = freeze(payload, survivorDocumentsOf(liveState, payload))
+  if (segment === null) return null
+  live.clear()
+  frozen.push(segment)
+  return segment
 }
 
 export function swapFrozenSegmentList(

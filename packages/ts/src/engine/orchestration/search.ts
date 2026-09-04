@@ -3,8 +3,9 @@ import { mergeFacets } from '../../search/facets'
 import type { GlobalStatistics } from '../../types/internal'
 import type { FacetResult } from '../../types/results'
 import type { QueryParams } from '../../types/search'
-import type { WorkerLease } from '../../workers/pool'
+import type { WorkerLease, WorkerPool } from '../../workers/pool'
 import { createRequestId } from '../../workers/protocol'
+import { afterCurrentTurn } from './turn'
 import type { OrchestratorState } from './types'
 
 function partitionsPerLease(scope: number[], leaseCount: number): number[][] {
@@ -67,10 +68,21 @@ async function runSplit(
   const assignments = partitionsPerLease(scope, leases.length)
   const results = await Promise.all(
     assignments.map((partitionIds, at) =>
-      leases[at].executor.execute<FanOutResult>(queryAction(indexName, params, globalStats, partitionIds)),
+      leases[at].executor
+        .execute<FanOutResult>(queryAction(indexName, params, globalStats, partitionIds))
+        .finally(() => leases[at].release()),
     ),
   )
   return mergeWorkerResults(results)
+}
+
+function leaseUnlessMainCopyTurn(state: OrchestratorState, pool: WorkerPool): WorkerLease | null {
+  if (state.mainCopyTurnTaken) return pool.leaseLeastBusy()
+  state.mainCopyTurnTaken = true
+  afterCurrentTurn(() => {
+    state.mainCopyTurnTaken = false
+  })
+  return null
 }
 
 export async function searchViaWorker(
@@ -98,7 +110,7 @@ export async function searchViaWorker(
       return await runSplit(leases, scope, indexName, params, globalStats)
     }
     for (const lease of idle.slice(1)) lease.release()
-    const lease = idle[0] ?? pool.leaseLeastBusy()
+    const lease = idle[0] ?? leaseUnlessMainCopyTurn(state, pool)
     if (lease === null) return null
     leases.push(lease)
     return await lease.executor.execute<FanOutResult>(queryAction(indexName, params, globalStats, partitionIds))
