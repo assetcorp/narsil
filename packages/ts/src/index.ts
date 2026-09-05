@@ -28,6 +28,7 @@ export type {
   AnalysisConfig,
   DurabilityConfig,
   IndexLifecycleConfig,
+  MainCopyQueries,
   NarsilConfig,
   StaleAnalysis,
   WorkerConfig,

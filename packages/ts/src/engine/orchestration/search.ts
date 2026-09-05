@@ -79,7 +79,7 @@ async function runSplit(
 }
 
 function takeMainCopyTurn(state: OrchestratorState): boolean {
-  if (state.mainCopyTurnTaken) return false
+  if (state.mainCopyQueries === 'none' || state.mainCopyTurnTaken) return false
   state.mainCopyTurnTaken = true
   afterCurrentTurn(() => {
     state.mainCopyTurnTaken = false

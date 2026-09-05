@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { fnv1aBytes } from '../../core/hash'
 import { listBindingOf, queryBindingOf } from '../../search/cursor-binding'
 import type { FilterExpression } from '../../types/filters'
 
@@ -60,6 +61,41 @@ describe('queryBindingOf', () => {
     const asNumbers = queryBindingOf({ vector: { field: 'embedding', value: [0.1, 0.2, 0.3] } })
     const asFloat32 = queryBindingOf({ vector: { field: 'embedding', value: Float32Array.from([0.1, 0.2, 0.3]) } })
     expect(asNumbers).toBe(asFloat32)
+  })
+
+  it('binds a vector query to the hash of the byte stream in the specification', () => {
+    const stream: number[] = []
+    const absent = () => stream.push(0)
+    const uint32 = (n: number) => stream.push((n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff)
+    const string = (s: string) => {
+      const bytes = new TextEncoder().encode(s)
+      stream.push(5)
+      uint32(bytes.length)
+      stream.push(...bytes)
+    }
+    const number = (n: number) => {
+      const view = new DataView(new ArrayBuffer(8))
+      view.setFloat64(0, n, false)
+      stream.push(4, ...new Uint8Array(view.buffer))
+    }
+    for (let slot = 0; slot < 13; slot++) absent()
+    stream.push(7)
+    uint32(2)
+    string('field')
+    string('embedding')
+    string('value')
+    stream.push(6)
+    uint32(3)
+    number(0.5)
+    number(-1.25)
+    number(Math.fround(0.1))
+    string('local')
+    const expected = fnv1aBytes(Uint8Array.from(stream)).toString(16).padStart(8, '0')
+
+    expect(queryBindingOf({ vector: { field: 'embedding', value: [0.5, -1.25, 0.1] } })).toBe(expected)
+    expect(queryBindingOf({ vector: { field: 'embedding', value: Float32Array.from([0.5, -1.25, 0.1]) } })).toBe(
+      expected,
+    )
   })
 
   it('binds a changed vector differently', () => {

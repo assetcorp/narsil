@@ -1,4 +1,3 @@
-import { generateId } from '../core/id-generator'
 import type { PartitionInsertOptions } from '../core/partition'
 import type { SharedSegmentSnapshot } from '../core/partition/frozen'
 import type { SegmentPayload } from '../core/partition/segment-payload'
@@ -110,8 +109,11 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'shutdown',
 ]
 
+let nextRequestSequence = 0
+
 export function createRequestId(): string {
-  return generateId()
+  nextRequestSequence += 1
+  return String(nextRequestSequence)
 }
 
 export function isValidWorkerAction(msg: unknown): msg is WorkerAction {
