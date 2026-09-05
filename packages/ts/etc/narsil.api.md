@@ -467,6 +467,9 @@ export interface ListResult<T = AnyDocument> {
 }
 
 // @public
+export type MainCopyQueries = 'lone' | 'none';
+
+// @public
 export interface MemoryStats {
     closedIndexCount: number;
     estimatedIndexBytes: number;
@@ -478,6 +481,7 @@ export interface MemoryStats {
         workerId: number;
         heapUsed: number;
         heapTotal: number;
+        heapLimit: number | null;
         external: number;
     }>;
 }
@@ -574,6 +578,12 @@ export type NarsilEventMap = {
         capacity: number;
         partitionCount: number;
     };
+    heapPressure: {
+        indexName: string;
+        heapUsed: number;
+        heapLimit: number;
+        estimatedMemoryBytes: number;
+    };
     analysisRebuild: {
         indexName: string;
         status: 'started' | 'completed' | 'failed';
@@ -661,6 +671,7 @@ export type PresenceFilter = {
 // @public
 export interface ProcessMemoryReport {
     external: number;
+    heapLimit: number | null;
     heapTotal: number;
     heapUsed: number;
     rss: number;
@@ -890,6 +901,7 @@ export interface WorkerConfig {
     count?: number;
     enabled?: boolean;
     idleTimeoutMs?: number;
+    mainCopyQueries?: MainCopyQueries;
     promotionThreshold?: number;
 }
 

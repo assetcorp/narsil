@@ -1,7 +1,7 @@
 import { readdirSync } from 'node:fs'
 import { defineConfig, type Options } from 'tsup'
 
-const NODE_BUILTINS = ['worker_threads', 'fs', 'path', 'os', 'crypto', 'net', 'tls']
+const NODE_BUILTINS = ['worker_threads', 'fs', 'path', 'os', 'crypto', 'net', 'tls', 'v8']
 const NODE_EXTERNAL = NODE_BUILTINS.flatMap(m => [m, `node:${m}`])
 const OPTIONAL_PEERS = ['etcd3', 'uWebSockets.js', '@grpc/grpc-js']
 

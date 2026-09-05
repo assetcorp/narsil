@@ -1,12 +1,12 @@
 import type { EmbeddingAdapter } from './adapters'
 import type { NarsilEventMap } from './events'
 import type { IndexLifecycleOperations } from './lifecycle'
+import type { MemoryStats } from './memory'
 import type {
   BatchResult,
   IndexInfo,
   IndexStats,
   ListResult,
-  MemoryStats,
   PartitionStatsResult,
   PreflightResult,
   QueryResult,

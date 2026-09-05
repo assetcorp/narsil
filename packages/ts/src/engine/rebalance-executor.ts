@@ -7,6 +7,7 @@ import type { DurabilityManager } from '../persistence/durability/types'
 import type { PluginRegistry } from '../plugins/registry'
 import type { AnyDocument, IndexConfig } from '../types/schema'
 import type { EventHandler } from './core'
+import { emitEngineEvent } from './events'
 import type { WorkerOrchestrator } from './orchestration'
 import {
   deleteNestedValue,
@@ -228,12 +229,11 @@ export async function executeRebalance(
     const oldCount = manager.partitionCount
     await ctx.rebalancer.rebalance(manager, targetPartitionCount, ctx.router, progress => {
       if (progress.phase === 'complete') {
-        const handlers = ctx.eventHandlers.get('partitionRebalance')
-        if (handlers) {
-          for (const handler of handlers) {
-            handler({ indexName, oldCount, newCount: targetPartitionCount })
-          }
-        }
+        emitEngineEvent(ctx.eventHandlers, 'partitionRebalance', {
+          indexName,
+          oldCount,
+          newCount: targetPartitionCount,
+        })
       }
     })
 

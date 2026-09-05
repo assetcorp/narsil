@@ -30,6 +30,10 @@
     "#platform/node-worker": {
       "browser": "./src/workers/node-worker.browser.ts",
       "default": "./src/workers/node-worker.ts"
+    },
+    "#platform/heap-statistics": {
+      "browser": "./src/runtime/heap-statistics.browser.ts",
+      "default": "./src/runtime/heap-statistics.ts"
     }
   },
   "sideEffects": false,

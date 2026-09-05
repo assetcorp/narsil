@@ -1,6 +1,7 @@
 import { encodeJson } from '../json-encoding'
 import type { TaskRecord } from '../server/types'
-import type { MemoryStats, VectorMaintenanceResult } from '../types/results'
+import type { MemoryStats } from '../types/memory'
+import type { VectorMaintenanceResult } from '../types/results'
 import type { PartitionConfig } from '../types/schema'
 import { NO_TIMEOUT } from './constants'
 import type { Transport } from './http'

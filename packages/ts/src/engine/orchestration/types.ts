@@ -1,9 +1,9 @@
 import type { FanOutResult } from '../../partitioning/fan-out'
 import type { EmbeddingAdapter } from '../../types/adapters'
-import type { NarsilConfig } from '../../types/config'
+import type { MainCopyQueries, NarsilConfig } from '../../types/config'
 import type { GlobalStatistics } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
-import type { MemoryStats, WorkerCopyReport } from '../../types/results'
+import type { MemoryStats, WorkerCopyReport } from '../../types/memory'
 import type { IndexConfig } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
@@ -30,6 +30,8 @@ export interface WorkerOrchestrator {
     partitionIds?: number[],
   ): Promise<FanOutResult | null>
   hasWorkerPool(): boolean
+  mainCopyQueries(): MainCopyQueries
+  shareMainThread(): void
   desyncIndex(indexName: string): boolean
   resyncIndex(indexName: string, wasScaledOut: boolean): Promise<void>
   noteAccess(indexName: string): void
@@ -98,6 +100,7 @@ export interface OrchestratorState {
   poolRetryDelayMs: number
   poolRepair: Promise<void> | null
   mainCopyTurnTaken: boolean
+  mainCopyQueries: MainCopyQueries | undefined
   repairTimer: ReturnType<typeof setTimeout> | null
   scaleOutBlocked: boolean
   idleSweep: ReturnType<typeof setInterval> | null

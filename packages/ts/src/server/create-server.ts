@@ -2,6 +2,7 @@ import type { TemplatedApp, us_listen_socket, us_socket } from 'uWebSockets.js'
 import { randomUUID } from 'node:crypto'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { Narsil } from '../narsil'
+import { engineCoreOf } from '../narsil/internals'
 import {
   DEFAULT_IMPORT_BATCH_SIZE,
   DEFAULT_MAX_BODY_BYTES,
@@ -85,6 +86,7 @@ class NarsilHttpServer implements NarsilServer {
     for (const [name, adapter] of Object.entries(options.embeddingAdapters ?? {})) {
       engine.registerEmbeddingAdapter(name, adapter)
     }
+    engineCoreOf(engine)?.orchestrator.shareMainThread()
     const taskStore = options.taskStore ?? new InMemoryTaskStore()
     const instanceId = options.instanceId ?? randomUUID()
     const limits = resolveLimits(options.limits)

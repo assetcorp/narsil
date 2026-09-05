@@ -1,3 +1,4 @@
+import { readHeapStatistics } from '#platform/heap-statistics'
 import { createPartitionIndex } from '../core/partition'
 import { isCompositePartition } from '../core/partition/composite'
 import { buildCompactedSegmentPayload } from '../core/partition/composite/compaction'
@@ -324,8 +325,8 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
       }
 
       case 'memoryReport': {
-        const report = typeof process !== 'undefined' && process.memoryUsage ? process.memoryUsage() : {}
-        return report as T
+        const usage = typeof process !== 'undefined' && process.memoryUsage ? process.memoryUsage() : {}
+        return { ...usage, heapLimit: readHeapStatistics()?.limitBytes ?? null } as T
       }
 
       case 'shutdown': {

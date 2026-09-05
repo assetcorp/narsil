@@ -1,9 +1,9 @@
 import type { NarsilEventMap } from '../../../types/events'
+import type { MemoryStats } from '../../../types/memory'
 import type {
   BatchResult,
   IndexStats,
   ListResult,
-  MemoryStats,
   PartitionStatsResult,
   PreflightResult,
   QueryResult,

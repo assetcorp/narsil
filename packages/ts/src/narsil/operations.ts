@@ -24,12 +24,12 @@ import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { Narsil } from '../types/engine'
 import type { NarsilEventMap } from '../types/events'
+import type { MemoryStats } from '../types/memory'
 import type {
   BatchResult,
   IndexInfo,
   IndexStats,
   ListResult,
-  MemoryStats,
   PartitionStatsResult,
   PreflightResult,
   QueryResult,
@@ -38,6 +38,7 @@ import type {
 } from '../types/results'
 import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig } from '../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
+import { bindEngineCore } from './internals'
 import { runEngineListDocuments, runEnginePreflight, runEngineQuery, runEngineSuggest } from './reads'
 
 export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): Narsil {
@@ -212,6 +213,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         clearAnalysisStale: core.analysisRebuild.clearStale,
         indexState: core.indexState,
       })
+      core.heapPressureNotifier.check(indexName)
     },
 
     async checkpoint(indexName: string): Promise<void> {
@@ -348,5 +350,6 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     },
   }
 
+  bindEngineCore(narsil, core)
   return narsil
 }

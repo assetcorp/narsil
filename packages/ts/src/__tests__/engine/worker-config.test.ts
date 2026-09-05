@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { validateWorkerConfig } from '../../engine/validation'
 import { ErrorCodes, NarsilError } from '../../errors'
+import type { WorkerConfig } from '../../types/config'
 
 function codeOf(run: () => void): string | null {
   try {
@@ -30,6 +31,13 @@ describe('validateWorkerConfig', () => {
   it('rejects a copy threshold below one', () => {
     expect(codeOf(() => validateWorkerConfig({ promotionThreshold: 0 }))).toBe(ErrorCodes.CONFIG_INVALID)
     expect(codeOf(() => validateWorkerConfig({ promotionThreshold: 2.5 }))).toBe(ErrorCodes.CONFIG_INVALID)
+  })
+
+  it('rejects a main copy setting other than lone or none', () => {
+    expect(codeOf(() => validateWorkerConfig({ mainCopyQueries: 'lone' }))).toBeNull()
+    expect(codeOf(() => validateWorkerConfig({ mainCopyQueries: 'none' }))).toBeNull()
+    const unknown = { mainCopyQueries: 'some' } as unknown as WorkerConfig
+    expect(codeOf(() => validateWorkerConfig(unknown))).toBe(ErrorCodes.CONFIG_INVALID)
   })
 
   it('rejects an idle timeout below one millisecond', () => {

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil, type Narsil } from '../../narsil'
-import type { IndexStats, MemoryStats, PartitionStatsResult } from '../../types/results'
+import type { MemoryStats } from '../../types/memory'
+import type { IndexStats, PartitionStatsResult } from '../../types/results'
 import { indexConfig, schema } from './fixtures'
 
 const SAMPLE_DOC_COUNT = 100
@@ -17,6 +18,7 @@ function expectValidProcessSnapshot(snapshot: NonNullable<MemoryStats['process']
   expect(snapshot.heapTotal).toBeGreaterThanOrEqual(snapshot.heapUsed)
   expect(snapshot.rss).toBeGreaterThan(0)
   expect(snapshot.external).toBeGreaterThanOrEqual(0)
+  expect(snapshot.heapLimit).toBeGreaterThan(snapshot.heapUsed)
 }
 
 describe('Narsil memory reporting', () => {

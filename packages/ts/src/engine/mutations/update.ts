@@ -148,6 +148,7 @@ export async function updateDocument(
   }
 
   if (buffered) {
+    ctx.checkHeapPressure(indexName)
     return
   }
 
@@ -177,6 +178,8 @@ export async function updateDocument(
       vecIndex.scheduleBuild()
     }
   }
+
+  ctx.checkHeapPressure(indexName)
 }
 
 export async function updateDocumentBatch(

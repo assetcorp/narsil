@@ -1,9 +1,9 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FanOutResult } from '../../partitioning/fan-out'
 import { detectRuntime } from '../../runtime/detect'
-import type { NarsilConfig } from '../../types/config'
+import type { MainCopyQueries, NarsilConfig } from '../../types/config'
 import type { GlobalStatistics } from '../../types/internal'
-import type { MemoryStats, WorkerCopyReport } from '../../types/results'
+import type { MemoryStats, WorkerCopyReport } from '../../types/memory'
 import type { QueryParams } from '../../types/search'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
@@ -73,6 +73,7 @@ export function createWorkerOrchestrator(
     poolRetryDelayMs: POOL_RESTART_DELAY_MS,
     poolRepair: null,
     mainCopyTurnTaken: false,
+    mainCopyQueries: config?.workers?.mainCopyQueries,
     repairTimer: null,
     scaleOutBlocked: false,
     idleSweep: null,
@@ -98,6 +99,7 @@ export function createWorkerOrchestrator(
       workerId: report.workerId,
       heapUsed: report.heapUsed,
       heapTotal: report.heapTotal,
+      heapLimit: report.heapLimit,
       external: report.external,
     }))
   }
@@ -214,6 +216,10 @@ export function createWorkerOrchestrator(
       partitionIds?: number[],
     ): Promise<FanOutResult | null> => searchViaWorker(state, indexName, params, globalStats, partitionIds),
     hasWorkerPool: (): boolean => state.workerPool !== null,
+    mainCopyQueries: (): MainCopyQueries => state.mainCopyQueries ?? 'lone',
+    shareMainThread: (): void => {
+      if (state.mainCopyQueries === undefined) state.mainCopyQueries = 'none'
+    },
     desyncIndex: (indexName: string): boolean => {
       state.desyncedIndexes.add(indexName)
       return state.scaledOutIndexes.delete(indexName)

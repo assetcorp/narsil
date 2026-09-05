@@ -67,6 +67,7 @@ export function emptyOrchestratorState(overrides: Partial<OrchestratorState> = {
     poolRetryDelayMs: 1_000,
     poolRepair: null,
     mainCopyTurnTaken: false,
+    mainCopyQueries: undefined,
     repairTimer: null,
     scaleOutBlocked: false,
     idleSweep: null,
