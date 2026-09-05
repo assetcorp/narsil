@@ -38,6 +38,7 @@ import type {
 } from '../types/results'
 import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig } from '../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
+import { bindEngineCore } from './internals'
 import { runEngineListDocuments, runEnginePreflight, runEngineQuery, runEngineSuggest } from './reads'
 
 export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): Narsil {
@@ -349,5 +350,6 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     },
   }
 
+  bindEngineCore(narsil, core)
   return narsil
 }

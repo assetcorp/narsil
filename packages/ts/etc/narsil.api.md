@@ -467,6 +467,9 @@ export interface ListResult<T = AnyDocument> {
 }
 
 // @public
+export type MainCopyQueries = 'lone' | 'none';
+
+// @public
 export interface MemoryStats {
     closedIndexCount: number;
     estimatedIndexBytes: number;
@@ -898,6 +901,7 @@ export interface WorkerConfig {
     count?: number;
     enabled?: boolean;
     idleTimeoutMs?: number;
+    mainCopyQueries?: MainCopyQueries;
     promotionThreshold?: number;
 }
 

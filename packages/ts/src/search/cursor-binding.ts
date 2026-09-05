@@ -60,7 +60,35 @@ function writeString(stream: BindingStream, value: string): void {
   stream.length += encoded.length
 }
 
+class NumberList {
+  constructor(readonly members: ArrayLike<number>) {}
+}
+
+const NUMBER_MEMBER_BYTES = 9
+const LIST_HEADER_BYTES = 5
+
+function writeNumberList(stream: BindingStream, list: NumberList): void {
+  const count = list.members.length
+  ensureCapacity(stream, LIST_HEADER_BYTES + count * NUMBER_MEMBER_BYTES)
+  const bytes = stream.bytes
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  let at = stream.length
+  bytes[at] = LIST_TAG
+  view.setUint32(at + 1, count, false)
+  at += LIST_HEADER_BYTES
+  for (let i = 0; i < count; i++) {
+    bytes[at] = NUMBER_TAG
+    view.setFloat64(at + 1, Math.fround(list.members[i]), false)
+    at += NUMBER_MEMBER_BYTES
+  }
+  stream.length = at
+}
+
 function writeValue(stream: BindingStream, value: unknown): void {
+  if (value instanceof NumberList) {
+    writeNumberList(stream, value)
+    return
+  }
   if (value === undefined) {
     writeByte(stream, ABSENT_TAG)
     return
@@ -106,7 +134,7 @@ function boundVectorOf(vector: QueryParams['vector']): Record<string, unknown> |
   if (vector === undefined) return undefined
   const bound: Record<string, unknown> = { ...vector }
   if (vector.value !== undefined) {
-    bound.value = Array.from(vector.value, Math.fround)
+    bound.value = new NumberList(vector.value)
   }
   if (vector.text !== undefined) {
     delete bound.value

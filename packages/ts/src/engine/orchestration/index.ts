@@ -73,6 +73,7 @@ export function createWorkerOrchestrator(
     poolRetryDelayMs: POOL_RESTART_DELAY_MS,
     poolRepair: null,
     mainCopyTurnTaken: false,
+    mainCopyQueries: config?.workers?.mainCopyQueries,
     repairTimer: null,
     scaleOutBlocked: false,
     idleSweep: null,
@@ -215,6 +216,9 @@ export function createWorkerOrchestrator(
       partitionIds?: number[],
     ): Promise<FanOutResult | null> => searchViaWorker(state, indexName, params, globalStats, partitionIds),
     hasWorkerPool: (): boolean => state.workerPool !== null,
+    shareMainThread: (): void => {
+      if (state.mainCopyQueries === undefined) state.mainCopyQueries = 'none'
+    },
     desyncIndex: (indexName: string): boolean => {
       state.desyncedIndexes.add(indexName)
       return state.scaledOutIndexes.delete(indexName)
