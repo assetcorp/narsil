@@ -37,6 +37,7 @@ const narsil = await createNarsil({
 | `count` | `number` | CPU cores minus one, clamped between 2 and 8 | Sets the thread budget the keyword copies and the vector search pool share, half each. |
 | `promotionThreshold` | `number` | `1000` | Sets the document count at which an index gains worker copies. |
 | `idleTimeoutMs` | `number` | `300000`, or `lifecycle.idleTimeoutMs` where that is smaller | Sets how long an index may go without a read or a write before the engine drops its copies. A value above `lifecycle.idleTimeoutMs` fails with `CONFIG_INVALID`. |
+| `mainCopyQueries` | `'lone'` or `'none'` | `'lone'`, or `'none'` once `createServer` wraps an engine that leaves it unset | Sets which queries the main copy answers once an index holds copies. Under `lone` the main copy answers a query the engine receives while no copy holds one, on an index of at most 50,000 documents. Under `none` every query on an index that holds copies goes to one of them. See [Worker copies](partitions-and-workers.md#worker-copies). |
 | `bootstrapModule` | `string` | none | Names a module every worker imports at startup so that the worker registers the languages, tokenizers, and stop word sets your indexes name. See [Worker copies](partitions-and-workers.md#worker-copies). |
 
 ## AnalysisConfig

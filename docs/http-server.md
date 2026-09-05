@@ -2,7 +2,7 @@
 
 The server subpath turns an engine into a REST service, and this guide covers every route it serves.
 
-`@delali/narsil/server` wraps an engine you build in a REST API. You own the engine and its configuration (durability, embedding adapters, workers), and the server shares it across requests. The HTTP layer is built on `uWebSockets.js`, an optional peer dependency:
+`@delali/narsil/server` wraps an engine you build in a REST API. You own the engine and its configuration (durability, embedding adapters, workers), and the server shares it across requests. Because the main thread serves every request, the server sets `workers.mainCopyQueries` to `none` on an engine that leaves it unset. Each query on an index that holds worker copies then answers on one of them, which keeps the main thread free for the other requests. See [Worker copies](partitions-and-workers.md#worker-copies). The HTTP layer is built on `uWebSockets.js`, an optional peer dependency:
 
 ```bash
 pnpm add -E uWebSockets.js@github:uNetworking/uWebSockets.js#v20.58.0
