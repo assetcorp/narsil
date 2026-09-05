@@ -148,6 +148,7 @@ export async function updateDocument(
   }
 
   if (buffered) {
+    ctx.checkHeapPressure(indexName)
     return
   }
 
