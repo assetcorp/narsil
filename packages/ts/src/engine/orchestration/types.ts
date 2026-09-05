@@ -30,6 +30,7 @@ export interface WorkerOrchestrator {
     partitionIds?: number[],
   ): Promise<FanOutResult | null>
   hasWorkerPool(): boolean
+  mainCopyQueries(): MainCopyQueries
   shareMainThread(): void
   desyncIndex(indexName: string): boolean
   resyncIndex(indexName: string, wasScaledOut: boolean): Promise<void>

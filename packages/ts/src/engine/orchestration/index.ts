@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FanOutResult } from '../../partitioning/fan-out'
 import { detectRuntime } from '../../runtime/detect'
-import type { NarsilConfig } from '../../types/config'
+import type { MainCopyQueries, NarsilConfig } from '../../types/config'
 import type { GlobalStatistics } from '../../types/internal'
 import type { MemoryStats, WorkerCopyReport } from '../../types/memory'
 import type { QueryParams } from '../../types/search'
@@ -216,6 +216,7 @@ export function createWorkerOrchestrator(
       partitionIds?: number[],
     ): Promise<FanOutResult | null> => searchViaWorker(state, indexName, params, globalStats, partitionIds),
     hasWorkerPool: (): boolean => state.workerPool !== null,
+    mainCopyQueries: (): MainCopyQueries => state.mainCopyQueries ?? 'lone',
     shareMainThread: (): void => {
       if (state.mainCopyQueries === undefined) state.mainCopyQueries = 'none'
     },
