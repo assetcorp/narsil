@@ -383,9 +383,9 @@ The listing behaves as follows:
 
 An implementation with parallel execution must hold a worker copy of an index on every worker once the index holds as many documents as the copy threshold. The copy threshold defaults to 1,000 documents. A caller may override that default through the workers configuration.
 
-Every worker copy must answer a query with the results the main copy would return.
+A write may return before it reaches every worker copy, but the copies must receive the writes in the order the writes returned. A worker copy answers from the writes it holds, so a query may answer without a write that returned before it. A write that carries `wait: true` must return only once every worker copy holding the index has applied it. Likewise, a `waitForWrites(indexName)` call must return only once those copies have applied every write that returned before the call.
 
-The implementation must send a whole query to the worker copy with the fewest queries in flight, except that it may answer on the main copy a query it receives while every copy holds a query, or while no copy holds one and the index holds at most 50,000 documents, unless the workers configuration directs every query to a copy.
+An implementation that receives a query on the main thread must send the whole query to the worker copy with the fewest queries in flight, except that it may answer on the main copy a query it receives while every copy holds a query, or while no copy holds one and the index holds at most 50,000 documents, unless the workers configuration directs every query to a copy.
 
 The implementation may split a query that names several partitions across idle worker copies, each answering its own partitions, before it merges the answers as [Query Fan-Out and Merge](#query-fan-out-and-merge) describes.
 
@@ -398,6 +398,12 @@ workerCount = max(2, cpuCount - 1)
 ```
 
 capped at 8. A caller overrides it through `NarsilConfig.workers.count`.
+
+### Request Threads
+
+A server built on the engine may receive requests on the workers that hold its copies, in which case each such worker is a request thread. A request thread must answer a query on an index whose copy it holds from that copy alone, while it must send a write, and a query on an index whose copy it lacks, to the main thread, which answers as it does for its own callers.
+
+A server must hold a worker copy of every scaled-out index on every worker, so that it can start as many request threads as the worker count, except that a machine with fewer than three cores gets one. The requests in flight on every request thread must count against one `maxConcurrentRequests` limit.
 
 ### What Crosses into a Worker
 
