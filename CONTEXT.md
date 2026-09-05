@@ -91,3 +91,7 @@ _Avoid_: chunk, shard, piece
 **Promotion**:
 Promotion keeps the meaning the spec gives it: the moment a vector field passes its threshold and moves from exact comparison to the graph. This glossary reserves the word for that transition alone.
 _Avoid_: promoted, promotion, for anything to do with worker copies
+
+**Request thread**:
+A request thread is a worker that receives requests from clients and answers a query on an index whose copy it holds, while the main thread receives every write and every query on an index that holds no copies.
+_Avoid_: door, HTTP thread, front thread, server thread
