@@ -385,7 +385,7 @@ An implementation with parallel execution must hold a worker copy of an index on
 
 Every worker copy must answer a query with the results the main copy would return.
 
-The implementation must send a whole query to the worker copy with the fewest queries in flight.
+The implementation must send a whole query to the worker copy with the fewest queries in flight, except that it may answer on the main copy a query it receives while every copy holds a query, or while no copy holds one and the index holds at most 50,000 documents, unless the workers configuration directs every query to a copy.
 
 The implementation may split a query that names several partitions across idle worker copies, each answering its own partitions, before it merges the answers as [Query Fan-Out and Merge](#query-fan-out-and-merge) describes.
 
