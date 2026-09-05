@@ -79,6 +79,7 @@ export async function createClusterLocalEngine(
     await core.invalidation.start()
   }
   if (config?.lifecycle === undefined) await core.analysisRebuild.reviewStaleIndexes()
+  core.orchestrator.shareMainThread()
   const engine = createNarsilFromCore(core, config)
   const heldPartitions = createHeldPartitionRecord(core)
 

@@ -6,6 +6,7 @@ import { createHeldPartitionRecord } from '../../../distribution/cluster-node/he
 import type { ClusterLocalEngine } from '../../../distribution/cluster-node/local-engine'
 import { createClusterLocalEngine } from '../../../distribution/cluster-node/local-engine'
 import type { EngineCore, IndexRegistryEntry } from '../../../engine/core'
+import { engineCoreOf } from '../../../narsil/internals'
 
 const INDEX_NAME = 'products'
 const INDEX_UUID = '4d1e8f02-7c3a-4b96-8e5d-1a2b3c4d5e6f'
@@ -82,6 +83,11 @@ describe('the record of which partitions a copy holds', () => {
   async function startEngine(): Promise<ClusterLocalEngine> {
     return createClusterLocalEngine({ durability: { directory } })
   }
+
+  it('sends every query to a copy, because the main thread serves the transport', async () => {
+    engine = await startEngine()
+    expect(engineCoreOf(engine)?.orchestrator.mainCopyQueries()).toBe('none')
+  })
 
   it('survives a restart holding exactly what the node last recorded', async () => {
     engine = await startEngine()
