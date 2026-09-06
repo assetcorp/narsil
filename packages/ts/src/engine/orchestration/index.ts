@@ -1,10 +1,11 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FanOutResult } from '../../partitioning/fan-out'
 import { detectRuntime } from '../../runtime/detect'
-import type { NarsilConfig } from '../../types/config'
+import type { MainCopyQueries, NarsilConfig } from '../../types/config'
 import type { GlobalStatistics } from '../../types/internal'
-import type { MemoryStats, WorkerCopyReport } from '../../types/results'
+import type { MemoryStats, WorkerCopyReport } from '../../types/memory'
 import type { QueryParams } from '../../types/search'
+import type { VectorWorkerCopyPolicy } from '../../vector/vector-index/shared'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
 import { resolveWorkerCount, splitWorkerBudget } from '../../workers/pool'
@@ -15,7 +16,8 @@ import { DEFAULT_COPY_IDLE_TIMEOUT_MS, DEFAULT_COPY_THRESHOLD, POOL_RESTART_DELA
 import { isIndexBusy, noteAccess, startIdleSweep, stopIdleSweep } from './idle'
 import { flushGrownTails } from './live-tail'
 import { cancelRepair } from './repair'
-import { awaitReplicationIdle, replicateToWorkers } from './replication'
+import { awaitReplicationIdle, awaitWritesApplied, replicateToWorkers } from './replication'
+import { requestThreadCountOf, serveRequestsOnWorkers, stopRequestThreads } from './request-threads'
 import {
   copyThresholdReason,
   indexReadyForCopies,
@@ -25,9 +27,16 @@ import {
 } from './scale-out'
 import { searchViaWorker } from './search'
 import { type BuiltSegment, buildSegments, type SegmentBuildRequest, segmentBuildConcurrency } from './segments'
-import type { IndexRegistry, OrchestratorState, WorkerOrchestrator, WorkerOrchestratorCallbacks } from './types'
+import type {
+  IndexRegistry,
+  OrchestratorState,
+  RequestThreadListener,
+  WorkerOrchestrator,
+  WorkerOrchestratorCallbacks,
+} from './types'
+import { refreshVectorCopies } from './vector-copies'
 
-export type { WorkerOrchestrator, WorkerOrchestratorCallbacks } from './types'
+export type { RequestThreadListener, WorkerOrchestrator, WorkerOrchestratorCallbacks } from './types'
 
 export function workersEnabledByDefault(): boolean {
   return detectRuntime().runtime !== 'browser'
@@ -44,14 +53,17 @@ export function createWorkerOrchestrator(
   executor: Executor & DirectExecutorExtensions,
   indexRegistry: IndexRegistry,
   callbacks?: WorkerOrchestratorCallbacks,
+  vectorCopyPolicy?: VectorWorkerCopyPolicy,
 ): WorkerOrchestrator {
   const state: OrchestratorState = {
     config,
     executor,
     indexRegistry,
     callbacks,
+    vectorCopyPolicy,
     workersEnabled: config?.workers?.enabled ?? workersEnabledByDefault(),
     keywordWorkerCount: splitWorkerBudget(resolveWorkerCount(config?.workers?.count)).keyword,
+    requestThreads: null,
     copyThreshold: config?.workers?.promotionThreshold ?? DEFAULT_COPY_THRESHOLD,
     copyIdleTimeoutMs: config?.workers?.idleTimeoutMs ?? copyIdleTimeoutBeforeClose(config?.lifecycle?.idleTimeoutMs),
     bootstrapModule: config?.workers?.bootstrapModule,
@@ -73,8 +85,10 @@ export function createWorkerOrchestrator(
     poolRetryDelayMs: POOL_RESTART_DELAY_MS,
     poolRepair: null,
     mainCopyTurnTaken: false,
+    mainCopyQueries: config?.workers?.mainCopyQueries,
     repairTimer: null,
     scaleOutBlocked: false,
+    shuttingDown: false,
     idleSweep: null,
   }
   startIdleSweep(state)
@@ -98,6 +112,7 @@ export function createWorkerOrchestrator(
       workerId: report.workerId,
       heapUsed: report.heapUsed,
       heapTotal: report.heapTotal,
+      heapLimit: report.heapLimit,
       external: report.external,
     }))
   }
@@ -115,8 +130,10 @@ export function createWorkerOrchestrator(
   }
 
   async function shutdown(): Promise<void> {
+    state.shuttingDown = true
     stopIdleSweep(state)
     cancelRepair(state)
+    stopRequestThreads(state)
     for (const indexName of [...state.idleMergeTimers.keys()]) cancelIdleMerge(state, indexName)
     await Promise.allSettled([...state.copyTransitions.values()].map(transition => transition.done))
     if (state.poolRepair !== null) await state.poolRepair
@@ -138,8 +155,9 @@ export function createWorkerOrchestrator(
     const manager = executor.getManager(indexName)
     if (pool !== null && entry !== undefined && manager !== undefined) {
       try {
-        await transferIndexToPool(indexName, pool, entry.config, manager)
+        await transferIndexToPool(indexName, pool, entry.config, manager, callbacks?.isAnalysisStale?.(indexName))
         state.scaledOutIndexes.add(indexName)
+        refreshVectorCopies(state, indexName)
       } catch (repairError) {
         throw new NarsilError(
           ErrorCodes.WORKER_CRASHED,
@@ -157,6 +175,17 @@ export function createWorkerOrchestrator(
       indexName,
       cause: failure.reason instanceof Error ? failure.reason.message : String(failure.reason),
     })
+  }
+
+  function withdrawCopies(indexName: string): void {
+    const pool = state.workerPool
+    if (pool === null) return
+    const holders = pool.executorsHolding(indexName)
+    pool.removeIndex(indexName)
+    state.segmentLedger.delete(indexName)
+    void Promise.allSettled(
+      holders.map(worker => worker.execute({ type: 'dropIndex', indexName, requestId: `desync-drop-${indexName}` })),
+    )
   }
 
   async function closeIndex(indexName: string): Promise<void> {
@@ -201,6 +230,7 @@ export function createWorkerOrchestrator(
       scaleOutBeforeBatch(state, indexName, incomingCount),
     replicateToWorkers: replicate,
     awaitReplication: (indexName?: string): Promise<void> => awaitReplicationIdle(state, indexName),
+    awaitWrites: (indexName: string): Promise<void> => awaitWritesApplied(state, indexName),
     awaitCompactions: (): Promise<void> => awaitCompactions(state),
     openIndex,
     closeIndex,
@@ -214,9 +244,20 @@ export function createWorkerOrchestrator(
       partitionIds?: number[],
     ): Promise<FanOutResult | null> => searchViaWorker(state, indexName, params, globalStats, partitionIds),
     hasWorkerPool: (): boolean => state.workerPool !== null,
+    mainCopyQueries: (): MainCopyQueries => state.mainCopyQueries ?? 'lone',
+    shareMainThread: (): void => {
+      if (state.mainCopyQueries === undefined) state.mainCopyQueries = 'none'
+    },
+    serveRequestsOnWorkers: (listener: RequestThreadListener): Promise<number> =>
+      serveRequestsOnWorkers(state, listener),
+    requestThreadCount: (): number => requestThreadCountOf(state),
+    copyIdleTimeoutMs: (): number => state.copyIdleTimeoutMs,
+    stopRequestThreads: (): void => stopRequestThreads(state),
     desyncIndex: (indexName: string): boolean => {
       state.desyncedIndexes.add(indexName)
-      return state.scaledOutIndexes.delete(indexName)
+      const wasScaledOut = state.scaledOutIndexes.delete(indexName)
+      if (wasScaledOut) withdrawCopies(indexName)
+      return wasScaledOut
     },
     resyncIndex,
     noteAccess: (indexName: string): void => noteAccess(state, indexName),

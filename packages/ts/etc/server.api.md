@@ -102,6 +102,7 @@ export interface NarsilServer {
     close(): Promise<void>;
     listen(): Promise<void>;
     readonly listeningPort: number;
+    readonly requestThreadCount: number;
 }
 
 // @public

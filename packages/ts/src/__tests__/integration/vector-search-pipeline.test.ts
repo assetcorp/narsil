@@ -202,6 +202,37 @@ describe('vector search through Narsil query API', () => {
     expect(ids).toContain('text-and-vec')
   })
 
+  it('fuses the rankings the fulltext and vector queries return on their own', async () => {
+    const words = ['engine', 'search', 'index', 'vector', 'graph', 'query']
+    for (let i = 0; i < 40; i++) {
+      const title = `${words[i % 6]} ${words[(i * 7) % 6]} ${words[(i * 11) % 6]} ${i % 3 === 0 ? 'engine' : 'other'}`
+      await narsil.insert('docs', { title, embedding: seededVector(i + 1) }, `doc-${String(i).padStart(2, '0')}`)
+    }
+    const queryVector = seededVector(202)
+    const limit = 10
+
+    const text = await narsil.query('docs', { term: 'engine', limit: limit + 1 })
+    const vector = await narsil.query('docs', { vector: { field: 'embedding', value: queryVector }, limit: limit + 1 })
+    const fused = new Map<string, number>()
+    for (const hits of [text.hits, vector.hits]) {
+      for (let rank = 0; rank < hits.length; rank++) {
+        const hit = hits[rank]
+        fused.set(hit.id, (fused.get(hit.id) ?? 0) + 1 / (60 + rank + 1))
+      }
+    }
+    const expected = [...fused.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, limit)
+
+    const hybrid = await narsil.query('docs', {
+      mode: 'hybrid',
+      term: 'engine',
+      vector: { field: 'embedding', value: queryVector },
+      hybrid: { strategy: 'rrf', k: 60 },
+      limit,
+    })
+
+    expect(hybrid.hits.map(hit => [hit.id, hit.score])).toEqual(expected)
+  })
+
   it('rejects a hybrid query carrying a sort with SEARCH_INVALID_MODE', async () => {
     await narsil.insert('docs', { title: 'wireless headphones', embedding: paddedVector(0.9, 0.1) }, 'doc-1')
 

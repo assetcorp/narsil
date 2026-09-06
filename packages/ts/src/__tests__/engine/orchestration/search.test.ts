@@ -163,6 +163,20 @@ describe('a lone query on a small index skips the worker hop', () => {
   })
 })
 
+describe('the engine sends every query to a copy where the host shares its main thread', () => {
+  it('sends a lone query on a small index to a copy', async () => {
+    const harness = recordingHarness(3, ['prose'], 1, { mainCopyQueries: 'none' })
+    harness.setDocumentCount(5_000)
+
+    const pending = searchViaWorker(harness.state, 'prose', { term: 'a' })
+    await settle()
+    expect(queries(harness)).toHaveLength(1)
+
+    harness.releaseAll()
+    await pending
+  })
+})
+
 describe('a query naming several partitions may split across idle copies', () => {
   it('gives each idle copy its own partitions and merges the answers', async () => {
     const harness = recordingHarness(2, ['prose'], 4)

@@ -14,6 +14,7 @@ import {
 import { deserialize as deserializeOp, serialize as serializeOp } from './persistence'
 import { search as searchOp, searchWithFilter } from './search'
 import {
+  assignStorePartitions,
   filterForOptions,
   liveSize,
   type MaintenanceStatus,
@@ -24,12 +25,19 @@ import {
   type VectorSearchOptions,
   type VectorWorkerCopyPolicy,
 } from './shared'
-import { invalidateWorkerCopies, scheduleWorkerCopyLoad, searchViaWorkerCopies } from './worker-copies'
+import {
+  invalidateWorkerCopies,
+  refreshWorkerCopies,
+  scheduleWorkerCopyLoad,
+  searchViaWorkerCopies,
+} from './worker-copies'
 
 export type {
   MaintenanceStatus,
+  SharedCopyHost,
   VectorIndexPayload,
   VectorScoredResult,
+  VectorSearcher,
   VectorSearchOptions,
   VectorWorkerCopyPolicy,
 } from './shared'
@@ -45,6 +53,8 @@ export interface VectorIndex {
   dispose(): void
   search(query: Float32Array, k: number, options: VectorSearchOptions): VectorScoredResult[]
   searchParallel(query: Float32Array, k: number, options: VectorSearchOptions): Promise<VectorScoredResult[]>
+  /** Withdraws the copy the worker threads hold and sends them a fresh one where the policy names a host. */
+  refreshWorkerCopies(): void
   getVector(docId: string): Float32Array | null
   has(docId: string): boolean
   compact(): void
@@ -64,6 +74,7 @@ export function createVectorIndex(
   dimension: number,
   config?: VectorIndexConfig,
   workerCopies: VectorWorkerCopyPolicy = VECTOR_WORKER_COPIES_ALLOWED,
+  indexName = '',
 ): VectorIndex {
   if (!Number.isInteger(dimension) || dimension <= 0) {
     throw new NarsilError(
@@ -84,6 +95,7 @@ export function createVectorIndex(
   const store = createVectorStore()
 
   const state: VectorIndexState = {
+    indexName,
     fieldName,
     dimension,
     dimensionScale,
@@ -126,20 +138,6 @@ export function createVectorIndex(
     state.tombstones.delete(docId)
     state.store.insert(docId, vector, partitionId)
     state.buffer.add(docId)
-  }
-
-  function assignPartitions(resolve: (docId: string) => number | undefined): void {
-    for (let ordinal = 0; ordinal < state.store.slots; ordinal += 1) {
-      if (state.store.partitionOfOrdinal(ordinal) !== undefined) continue
-      const docId = state.store.docIdForOrdinal(ordinal)
-      if (docId === undefined) continue
-      const partitionId = resolve(docId)
-      if (partitionId === undefined) {
-        state.store.forgetPartition(docId)
-        continue
-      }
-      state.store.setPartition(docId, partitionId)
-    }
   }
 
   function remove(docId: string): void {
@@ -224,12 +222,13 @@ export function createVectorIndex(
     insert,
     remove,
     partitionsKnown: () => state.store.partitionsKnown,
-    assignPartitions,
+    assignPartitions: (resolve: (docId: string) => number | undefined) => assignStorePartitions(state, resolve),
     scheduleBuild: () => scheduleBuildOp(state),
     awaitPendingBuild,
     dispose,
     search: (query: Float32Array, k: number, options: VectorSearchOptions) => searchOp(state, query, k, options),
     searchParallel,
+    refreshWorkerCopies: () => refreshWorkerCopies(state),
     getVector,
     has,
     compact: () => {

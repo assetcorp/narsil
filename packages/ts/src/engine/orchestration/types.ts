@@ -1,22 +1,36 @@
 import type { FanOutResult } from '../../partitioning/fan-out'
 import type { EmbeddingAdapter } from '../../types/adapters'
-import type { NarsilConfig } from '../../types/config'
+import type { MainCopyQueries, NarsilConfig } from '../../types/config'
 import type { GlobalStatistics } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
-import type { MemoryStats, WorkerCopyReport } from '../../types/results'
+import type { MemoryStats, WorkerCopyReport } from '../../types/memory'
 import type { IndexConfig } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
+import type { VectorWorkerCopyPolicy } from '../../vector/vector-index/shared'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
 import type { WorkerPool } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
 import type { BuiltSegment, SegmentBuildRequest } from './segments'
 
+/**
+ * What a server registers to turn the workers holding copies into request
+ * threads: it hears of every worker that can take requests, now and after each
+ * replacement, and of every one that dies.
+ *
+ * @internal
+ */
+export interface RequestThreadListener {
+  onWorkerReady(workerId: number, executor: Executor): Promise<void>
+  onWorkerGone(workerId: number): void
+}
+
 export interface WorkerOrchestrator {
   scaleOutReadyIndexes(): Promise<void>
   scaleOutBeforeBatch(indexName: string, incomingCount: number): Promise<void>
   replicateToWorkers(action: WorkerAction): Promise<void>
   awaitReplication(indexName?: string): Promise<void>
+  awaitWrites(indexName: string): Promise<void>
   awaitCompactions(): Promise<void>
   openIndex(indexName: string): Promise<void>
   closeIndex(indexName: string): Promise<void>
@@ -30,6 +44,12 @@ export interface WorkerOrchestrator {
     partitionIds?: number[],
   ): Promise<FanOutResult | null>
   hasWorkerPool(): boolean
+  mainCopyQueries(): MainCopyQueries
+  shareMainThread(): void
+  serveRequestsOnWorkers(listener: RequestThreadListener): Promise<number>
+  requestThreadCount(): number
+  copyIdleTimeoutMs(): number
+  stopRequestThreads(): void
   desyncIndex(indexName: string): boolean
   resyncIndex(indexName: string, wasScaledOut: boolean): Promise<void>
   noteAccess(indexName: string): void
@@ -43,6 +63,7 @@ export interface WorkerOrchestratorCallbacks {
   onCopyLoadFailure?: (reason: string, error: Error, retryable: boolean) => void
   onWorkerCrash?: (workerId: number, indexNames: string[], error: Error) => void
   shouldDeferCopies?: () => boolean
+  isAnalysisStale?: (indexName: string) => boolean
 }
 
 export type IndexRegistry = Map<
@@ -75,8 +96,10 @@ export interface OrchestratorState {
   readonly executor: Executor & DirectExecutorExtensions
   readonly indexRegistry: IndexRegistry
   readonly callbacks: WorkerOrchestratorCallbacks | undefined
+  readonly vectorCopyPolicy: VectorWorkerCopyPolicy | undefined
   readonly workersEnabled: boolean
-  readonly keywordWorkerCount: number
+  keywordWorkerCount: number
+  requestThreads: RequestThreadListener | null
   readonly copyThreshold: number
   readonly copyIdleTimeoutMs: number
   readonly bootstrapModule: string | undefined
@@ -98,7 +121,9 @@ export interface OrchestratorState {
   poolRetryDelayMs: number
   poolRepair: Promise<void> | null
   mainCopyTurnTaken: boolean
+  mainCopyQueries: MainCopyQueries | undefined
   repairTimer: ReturnType<typeof setTimeout> | null
   scaleOutBlocked: boolean
+  shuttingDown: boolean
   idleSweep: ReturnType<typeof setInterval> | null
 }

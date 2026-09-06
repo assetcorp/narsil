@@ -1,4 +1,4 @@
-import type { AnyDocument, InsertOptions } from '../../types/schema'
+import type { AnyDocument, InsertOptions, WriteOptions } from '../../types/schema'
 
 /** Declarative index configuration accepted over HTTP. Function-valued engine
  * options (custom tokenizer, stopWords-as-function, group reducer, embedding
@@ -36,6 +36,7 @@ export interface InsertBody {
 
 export interface DocumentBody {
   document: AnyDocument
+  options?: WriteOptions
 }
 
 export interface MultiGetBody {

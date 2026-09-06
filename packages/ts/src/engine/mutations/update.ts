@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { BatchResult } from '../../types/results'
-import type { AnyDocument } from '../../types/schema'
+import type { AnyDocument, WriteOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE } from '../constants'
 import { assertDocumentCarriesMappedVectors, embedDocumentFields } from '../embed'
 import { validateDocId } from '../validation'
@@ -12,6 +12,7 @@ import {
 } from '../vector-coordinator'
 import type { MutationContext } from './context'
 import { rollbackUpdatedDocument } from './durable-rollback'
+import { awaitWriteVisibility } from './write-visibility'
 
 function extractVectorFromDocForUpdate(document: Record<string, unknown>, fieldPath: string): Float32Array | null {
   return extractVectorFromDoc(document, fieldPath)
@@ -38,6 +39,7 @@ export async function updateDocument(
   indexName: string,
   docId: string,
   document: AnyDocument,
+  options?: WriteOptions,
 ): Promise<void> {
   ctx.guardShutdown()
   const entry = ctx.requireIndex(indexName)
@@ -148,6 +150,8 @@ export async function updateDocument(
   }
 
   if (buffered) {
+    ctx.checkHeapPressure(indexName)
+    if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
     return
   }
 
@@ -177,12 +181,16 @@ export async function updateDocument(
       vecIndex.scheduleBuild()
     }
   }
+
+  ctx.checkHeapPressure(indexName)
+  if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 }
 
 export async function updateDocumentBatch(
   ctx: MutationContext,
   indexName: string,
   updates: Array<{ docId: string; document: AnyDocument }>,
+  options?: WriteOptions,
 ): Promise<BatchResult> {
   ctx.guardShutdown()
   const entry = ctx.requireIndex(indexName)
@@ -229,6 +237,7 @@ export async function updateDocumentBatch(
       vecIndex.scheduleBuild()
     }
   }
+  if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 
   return { succeeded, failed }
 }

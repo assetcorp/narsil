@@ -14,6 +14,8 @@ const results = await narsil.query('docs', {
 })
 ```
 
+The engine starts the vector ranking first and runs the BM25 ranking while the vector ranking is still in flight, so a hybrid query takes about as long as the slower of the two. The BM25 ranking follows the dispatch rule for [worker copies](partitions-and-workers.md#worker-copies), and the vector ranking goes to the vector search pool once the field holds a graph.
+
 Fusion defines the order of hybrid results, so a hybrid query takes no `sort`. A hybrid query that also names a `sort` fails with `SEARCH_INVALID_MODE`.
 
 The `strategy` field takes one of two values:

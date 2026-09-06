@@ -100,6 +100,7 @@ describe('segment merge once the index is idle', () => {
     state.workerPool = {
       getExecutor: () => worker,
       getAllExecutors: () => [worker],
+      executorEntries: () => [{ workerId: 0, executor: worker }],
       executorsHolding: () => [worker],
       deadWorkerIds: () => [],
       spawnReplacement: () => null,

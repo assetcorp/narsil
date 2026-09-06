@@ -131,6 +131,20 @@ function slowRequest(
   })
 }
 
+const SEGMENT_MERGE_SETTLE_MS = 1_500
+const SEGMENT_MERGE_SETTLE_ROUNDS = 10
+
+async function settledSnapshot(base: string): Promise<Buffer> {
+  let previous = Buffer.from(await (await fetch(`${base}/indexes/articles/snapshot`)).arrayBuffer())
+  for (let round = 0; round < SEGMENT_MERGE_SETTLE_ROUNDS; round++) {
+    await new Promise(resolve => setTimeout(resolve, SEGMENT_MERGE_SETTLE_MS))
+    const next = Buffer.from(await (await fetch(`${base}/indexes/articles/snapshot`)).arrayBuffer())
+    if (next.equals(previous)) return next
+    previous = next
+  }
+  return previous
+}
+
 async function seedCorpus(base: string, documents: Doc[]): Promise<void> {
   const created = await postJson(base, '/indexes', { name: 'articles', config: { schema: SCHEMA } })
   expect(created.status).toBe(201)
@@ -160,7 +174,7 @@ describe('a slow reader cannot force unbounded native buffering of a large respo
   })
 
   it('streams a multi-megabyte binary snapshot to a throttled reader byte-for-byte', async () => {
-    const baseline = Buffer.from(await (await fetch(`${srv.base}/indexes/articles/snapshot`)).arrayBuffer())
+    const baseline = await settledSnapshot(srv.base)
     expect(baseline.byteLength).toBeGreaterThan(2 * 1024 * 1024)
 
     const raw = `GET /indexes/articles/snapshot HTTP/1.1\r\nHost: ${host}:${port}\r\nConnection: close\r\n\r\n`
@@ -194,7 +208,7 @@ describe('a slow reader cannot force unbounded native buffering of a large respo
   }, 45_000)
 
   it('still serves the same large snapshot correctly to a fast reader', async () => {
-    const first = Buffer.from(await (await fetch(`${srv.base}/indexes/articles/snapshot`)).arrayBuffer())
+    const first = await settledSnapshot(srv.base)
     const second = Buffer.from(await (await fetch(`${srv.base}/indexes/articles/snapshot`)).arrayBuffer())
     expect(first.equals(second)).toBe(true)
 

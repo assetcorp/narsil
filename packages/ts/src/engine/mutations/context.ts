@@ -43,9 +43,11 @@ export interface MutationContext {
   }
   requireManager: (name: string) => PartitionManager
   bufferIfRebalancing: (name: string, entry: Omit<WAQEntry, 'sequenceNumber'>) => boolean
+  awaitRebalanceReplay: (name: string) => Promise<void>
   isRebalancing: (name: string) => boolean
   pendingRebalanceWrites: (name: string) => number
   rebalanceTargetPartitionCount: (name: string) => number | undefined
   bufferedDocState: (name: string, docId: string) => BufferedDocState | undefined
   checkWatermark: (name: string) => void
+  checkHeapPressure: (name: string) => void
 }

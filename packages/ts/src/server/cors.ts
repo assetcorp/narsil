@@ -1,4 +1,5 @@
 import type { HttpRequest, HttpResponse } from 'uWebSockets.js'
+import type { ResponseSink } from './response'
 import type { CorsOptions } from './types'
 
 export interface ResolvedCors {
@@ -25,7 +26,7 @@ function matchOrigin(cors: ResolvedCors, requestOrigin: string): string | null {
   return cors.origin.includes(requestOrigin) ? requestOrigin : null
 }
 
-export function writeCorsOrigin(res: HttpResponse, cors: ResolvedCors, requestOrigin: string): void {
+export function writeCorsOrigin(res: ResponseSink, cors: ResolvedCors, requestOrigin: string): void {
   const allowed = matchOrigin(cors, requestOrigin)
   if (!allowed) return
   res.writeHeader('Access-Control-Allow-Origin', allowed)

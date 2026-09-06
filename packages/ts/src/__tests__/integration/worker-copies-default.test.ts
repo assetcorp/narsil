@@ -89,6 +89,7 @@ describe.skipIf(!built)('worker copies without any configuration', () => {
 
       const stats = await narsil.getMemoryStats()
       expect(stats.workers.length).toBeGreaterThan(0)
+      for (const worker of stats.workers) expect(worker.heapLimit).toBeGreaterThan(worker.heapUsed)
       expect(stats.workerCopies).toEqual([{ indexName: 'catalogue', scaledOut: true, reloadCount: 0 }])
       expect(promotions).toHaveLength(1)
       expect(promotions[0].reason).toContain('1000')

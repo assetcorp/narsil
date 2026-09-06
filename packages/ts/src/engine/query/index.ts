@@ -14,7 +14,14 @@ import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import { clampLimit, clampOffset, now } from '../validation'
 import { applyHighlights } from './highlight'
-import { broadcastStatsForWorker, coverageFor, type QueryContext, scoringConfigFor, searchOptionsFor } from './shared'
+import {
+  broadcastStatsForWorker,
+  coverageFor,
+  type QueryContext,
+  scoringConfigFor,
+  searchOptionsFor,
+  vectorSearchersOf,
+} from './shared'
 import { executeSortedQueryPage, sortsWithoutScores } from './sorted'
 import { executeHybridSearch, executeVectorSearch } from './vector'
 
@@ -62,12 +69,12 @@ export async function executeQuery<T = AnyDocument>(
   } else {
     const requestedVectorField = params.vector?.field
     const hasGlobalVectorIndex =
-      requestedVectorField !== undefined && manager.getVectorIndexes().has(requestedVectorField)
+      requestedVectorField !== undefined && vectorSearchersOf(context).has(requestedVectorField)
 
     let fanOutResult: FanOutResult
 
     if (isVectorOnly && hasGlobalVectorIndex) {
-      fanOutResult = await executeVectorSearch(params, manager, config, limit, offset, context.partitionIds)
+      fanOutResult = await executeVectorSearch(params, context, limit, offset)
     } else if (isHybridMode && hasGlobalVectorIndex) {
       fanOutResult = await executeHybridSearch(params, context, limit, offset)
     } else {
@@ -227,7 +234,7 @@ export async function executePreflight(params: QueryParams, context: QueryContex
 
   const requestedVectorField = params.vector?.field
   const hasGlobalVectorIndex =
-    requestedVectorField !== undefined && manager.getVectorIndexes().has(requestedVectorField)
+    requestedVectorField !== undefined && vectorSearchersOf(context).has(requestedVectorField)
 
   let totalMatched: number
 
@@ -235,14 +242,7 @@ export async function executePreflight(params: QueryParams, context: QueryContex
   const preflightOffset = 0
 
   if (isVectorOnly && hasGlobalVectorIndex) {
-    const result = await executeVectorSearch(
-      params,
-      manager,
-      config,
-      preflightLimit,
-      preflightOffset,
-      context.partitionIds,
-    )
+    const result = await executeVectorSearch(params, context, preflightLimit, preflightOffset)
     totalMatched = result.totalMatched
   } else if (isHybridMode && hasGlobalVectorIndex) {
     const result = await executeHybridSearch(params, context, preflightLimit, preflightOffset)

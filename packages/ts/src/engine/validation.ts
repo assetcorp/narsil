@@ -102,6 +102,15 @@ export function validateWorkerConfig(workers: WorkerConfig | undefined, lifecycl
   requirePositiveSafeInteger('workers.count', workers.count)
   requirePositiveSafeInteger('workers.promotionThreshold', workers.promotionThreshold)
   requirePositiveSafeInteger('workers.idleTimeoutMs', workers.idleTimeoutMs)
+  if (
+    workers.mainCopyQueries !== undefined &&
+    workers.mainCopyQueries !== 'lone' &&
+    workers.mainCopyQueries !== 'none'
+  ) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, "workers.mainCopyQueries must be 'lone' or 'none'", {
+      mainCopyQueries: workers.mainCopyQueries,
+    })
+  }
   const closeAfter = lifecycle?.idleTimeoutMs
   if (workers.idleTimeoutMs !== undefined && closeAfter !== undefined && workers.idleTimeoutMs > closeAfter) {
     throw new NarsilError(
