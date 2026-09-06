@@ -27,12 +27,12 @@ export interface BulkOperations {
     importDocuments(indexName: string, source: ImportSource, options?: RequestOptions): Promise<ImportResult>;
     insertBatch(indexName: string, documents: AnyDocument[], insertOptions?: InsertOptions, options?: RequestOptions): Promise<BatchResult>;
     listDocuments<T = AnyDocument>(indexName: string, params?: ListParams, options?: RequestOptions): Promise<ListResult<T>>;
-    removeBatch(indexName: string, docIds: string[], options?: RequestOptions): Promise<BatchResult>;
+    removeBatch(indexName: string, docIds: string[], writeOptions?: WriteOptions, options?: RequestOptions): Promise<BatchResult>;
     startImport(indexName: string, source: ImportSource, options?: RequestOptions): Promise<TaskRecord>;
     updateBatch(indexName: string, updates: Array<{
         docId: string;
         document: AnyDocument;
-    }>, options?: RequestOptions): Promise<BatchResult>;
+    }>, writeOptions?: WriteOptions, options?: RequestOptions): Promise<BatchResult>;
 }
 
 // @public
@@ -68,9 +68,10 @@ export interface DocumentOperations {
     get(indexName: string, docId: string, options?: RequestOptions): Promise<AnyDocument | undefined>;
     has(indexName: string, docId: string, options?: RequestOptions): Promise<boolean>;
     insert(indexName: string, document: AnyDocument, docId?: string, insertOptions?: InsertOptions, options?: RequestOptions): Promise<string>;
-    put(indexName: string, docId: string, document: AnyDocument, options?: RequestOptions): Promise<PutResult>;
-    remove(indexName: string, docId: string, options?: RequestOptions): Promise<void>;
-    update(indexName: string, docId: string, document: AnyDocument, options?: RequestOptions): Promise<void>;
+    put(indexName: string, docId: string, document: AnyDocument, writeOptions?: WriteOptions, options?: RequestOptions): Promise<PutResult>;
+    remove(indexName: string, docId: string, writeOptions?: WriteOptions, options?: RequestOptions): Promise<void>;
+    update(indexName: string, docId: string, document: AnyDocument, writeOptions?: WriteOptions, options?: RequestOptions): Promise<void>;
+    waitForWrites(indexName: string, options?: RequestOptions): Promise<void>;
 }
 
 // @public

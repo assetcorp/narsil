@@ -11,22 +11,30 @@ export function startWorker(): void {
 
 startWorker()
 
+function workerIdOf(workerData: unknown): number | undefined {
+  if (typeof workerData !== 'object' || workerData === null) return undefined
+  const workerId = (workerData as { workerId?: unknown }).workerId
+  return typeof workerId === 'number' ? workerId : undefined
+}
+
 async function setup(): Promise<void> {
   let parentPort: {
     on: (event: string, handler: (msg: unknown) => void) => void
     postMessage: (msg: unknown) => void
     close: () => void
   } | null = null
+  let scratchSlot: number | undefined
 
   try {
     const workerThreads = await import('node:worker_threads')
     parentPort = workerThreads.parentPort ?? null
+    scratchSlot = workerIdOf(workerThreads.workerData)
   } catch {
     parentPort = null
   }
 
   const { createDirectExecutor } = await import('./direct-executor')
-  const handleAction = createActionHandler(createDirectExecutor())
+  const handleAction = createActionHandler(createDirectExecutor({ scratchSlot }))
 
   if (parentPort) {
     const port = parentPort

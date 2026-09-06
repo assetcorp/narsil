@@ -9,7 +9,7 @@ import type { LanguageModule } from '../../types/language'
 import type { QueryCoverage } from '../../types/results'
 import type { IndexConfig } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
-import type { VectorIndex, VectorScoredResult } from '../../vector/vector-index'
+import type { VectorScoredResult, VectorSearcher } from '../../vector/vector-index'
 
 export interface QueryContext {
   manager: PartitionManager
@@ -25,6 +25,8 @@ export interface QueryContext {
   broadcastStats?: (indexName: string) => GlobalStatistics | undefined
   partitionIds?: number[]
   cursorBinding: string
+  /** The vector fields a search runs against where they are not the manager's own indexes, as on a request thread. */
+  vectorSearchers?: ReadonlyMap<string, VectorSearcher>
 }
 
 export function partitionsFor(manager: PartitionManager, partitionIds: number[] | undefined): PartitionIndex[] {
@@ -80,7 +82,7 @@ export function coverageFor(manager: PartitionManager, partitionIds: number[] | 
  */
 export function partitionsForVectorSearch(
   manager: PartitionManager,
-  vecIndex: VectorIndex,
+  vecIndex: VectorSearcher,
   partitionIds: number[] | undefined,
 ): ReadonlySet<number> | undefined {
   if (partitionIds === undefined) {
@@ -150,8 +152,12 @@ export function vectorResultsToScored(results: VectorScoredResult[]): ScoredDocu
   }))
 }
 
-export function resolveVectorIndex(manager: PartitionManager, fieldName: string): VectorIndex | undefined {
-  return manager.getVectorIndexes().get(fieldName)
+export function vectorSearchersOf(context: QueryContext): ReadonlyMap<string, VectorSearcher> {
+  return context.vectorSearchers ?? context.manager.getVectorIndexes()
+}
+
+export function resolveVectorIndex(context: QueryContext, fieldName: string): VectorSearcher | undefined {
+  return vectorSearchersOf(context).get(fieldName)
 }
 
 export function clampAlpha(alpha: number | undefined): number {

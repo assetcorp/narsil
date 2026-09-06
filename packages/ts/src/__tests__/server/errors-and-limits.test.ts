@@ -1,4 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import {
+  clearGateSlot,
+  createSharedGateBuffer,
+  createSharedRequestGate,
+  gateSlotOfWorker,
+  MAIN_THREAD_GATE_SLOT,
+} from '../../server/concurrency-gate'
 import { getJson, postJson, postRaw, startTestServer, type TestServer } from './helpers'
 
 const SCHEMA = { title: 'string', embedding: 'vector[4]' }
@@ -154,6 +161,48 @@ describe('Narsil HTTP server result-window and fetch limits', () => {
   it('accepts a multi-get at the fetch-limit boundary', async () => {
     const res = await postJson(srv.base, '/indexes/movies/documents/_multi-get', { docIds: ['a', 'b', 'c'] })
     expect(res.status).toBe(200)
+  })
+})
+
+describe('one concurrency cap counts the requests in flight on every thread', () => {
+  it('shares the count between two gates over the same memory', () => {
+    const buffer = createSharedGateBuffer(gateSlotOfWorker(1))
+    const main = createSharedRequestGate(buffer, 2, MAIN_THREAD_GATE_SLOT)
+    const thread = createSharedRequestGate(buffer, 2, gateSlotOfWorker(0))
+
+    expect(main.tryAcquire()).toBe(true)
+    expect(thread.tryAcquire()).toBe(true)
+    expect(main.tryAcquire()).toBe(false)
+    expect(thread.tryAcquire()).toBe(false)
+
+    thread.release()
+    expect(main.tryAcquire()).toBe(true)
+    main.release()
+    main.release()
+    main.release()
+    expect(thread.tryAcquire()).toBe(true)
+    expect(thread.tryAcquire()).toBe(true)
+    expect(main.tryAcquire()).toBe(false)
+  })
+
+  it('gives a dead thread its share of the cap back once its slot is cleared', () => {
+    const buffer = createSharedGateBuffer(gateSlotOfWorker(1))
+    const main = createSharedRequestGate(buffer, 2, MAIN_THREAD_GATE_SLOT)
+    const thread = createSharedRequestGate(buffer, 2, gateSlotOfWorker(0))
+
+    expect(thread.tryAcquire()).toBe(true)
+    expect(thread.tryAcquire()).toBe(true)
+    expect(main.tryAcquire()).toBe(false)
+
+    clearGateSlot(buffer, gateSlotOfWorker(0))
+    expect(main.tryAcquire()).toBe(true)
+    expect(main.tryAcquire()).toBe(true)
+    expect(main.tryAcquire()).toBe(false)
+  })
+
+  it('admits every request while the cap is zero', () => {
+    const gate = createSharedRequestGate(createSharedGateBuffer(1), 0, MAIN_THREAD_GATE_SLOT)
+    for (let i = 0; i < 5; i++) expect(gate.tryAcquire()).toBe(true)
   })
 })
 

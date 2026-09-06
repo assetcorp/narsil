@@ -90,6 +90,7 @@ export type {
   StopWordOverride,
   VectorIndexConfig,
   VectorQuantizationMode,
+  WriteOptions,
 } from './types/schema'
 export type {
   DocumentProjection,
@@ -107,6 +108,7 @@ export type {
   TermMatchPolicy,
   VectorQueryConfig,
 } from './types/search'
+export type { DocumentWriteOperations } from './types/writes'
 export { isSimdAvailable } from './vector/simd'
 /**
  * Engine version written into the engine-version bytes of every `.nrsl` file,

@@ -1,6 +1,11 @@
 import { fnv1a } from '../core/hash'
 import { ErrorCodes, NarsilError } from '../errors'
-import { FALLBACK_CPU_COUNT, MAX_WORKER_COUNT, MIN_WORKER_COUNT } from './constants'
+import {
+  FALLBACK_CPU_COUNT,
+  MAX_WORKER_COUNT,
+  MIN_CORES_FOR_SEVERAL_REQUEST_THREADS,
+  MIN_WORKER_COUNT,
+} from './constants'
 import type { Executor } from './executor'
 import { createRequestId } from './protocol'
 
@@ -29,6 +34,7 @@ export interface WorkerReplacement {
 export interface WorkerPool {
   getExecutor(indexName: string): Executor
   getAllExecutors(): Executor[]
+  executorEntries(): Array<{ workerId: number; executor: Executor }>
   executorsHolding(indexName: string): Executor[]
   leaseLeastBusy(): WorkerLease | null
   leaseIdle(limit: number): WorkerLease[]
@@ -76,26 +82,33 @@ export interface WorkerPoolConfig {
 
 declare const navigator: { hardwareConcurrency?: number } | undefined
 
+export function detectCpuCount(): number {
+  try {
+    if (navigator?.hardwareConcurrency) {
+      return navigator.hardwareConcurrency
+    }
+    if (typeof process !== 'undefined') {
+      const ap = (process as unknown as Record<string, unknown>).availableParallelism
+      if (typeof ap === 'function') {
+        return ap() as number
+      }
+    }
+  } catch {
+    return FALLBACK_CPU_COUNT
+  }
+  return FALLBACK_CPU_COUNT
+}
+
 export function resolveWorkerCount(requested?: number): number {
   if (requested !== undefined && requested > 0) {
     return requested
   }
+  return Math.max(MIN_WORKER_COUNT, Math.min(MAX_WORKER_COUNT, detectCpuCount() - 1))
+}
 
-  let cpuCount = FALLBACK_CPU_COUNT
-  try {
-    if (navigator?.hardwareConcurrency) {
-      cpuCount = navigator.hardwareConcurrency
-    } else if (typeof process !== 'undefined') {
-      const ap = (process as unknown as Record<string, unknown>).availableParallelism
-      if (typeof ap === 'function') {
-        cpuCount = ap() as number
-      }
-    }
-  } catch {
-    cpuCount = FALLBACK_CPU_COUNT
-  }
-
-  return Math.max(MIN_WORKER_COUNT, Math.min(MAX_WORKER_COUNT, cpuCount - 1))
+export function resolveRequestThreadCount(requested?: number): number {
+  if (detectCpuCount() < MIN_CORES_FOR_SEVERAL_REQUEST_THREADS) return 1
+  return resolveWorkerCount(requested)
 }
 
 export function splitWorkerBudget(total: number): { keyword: number; vector: number } {
@@ -277,6 +290,10 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     return [...workers.values()].map(slot => slot.executor)
   }
 
+  function executorEntries(): Array<{ workerId: number; executor: Executor }> {
+    return [...workers].map(([workerId, slot]) => ({ workerId, executor: slot.executor }))
+  }
+
   function executorsHolding(indexName: string): Executor[] {
     const holders: Executor[] = []
     for (const slot of workers.values()) {
@@ -350,6 +367,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
   return {
     getExecutor,
     getAllExecutors,
+    executorEntries,
     executorsHolding,
     leaseLeastBusy,
     leaseIdle,

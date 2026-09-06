@@ -148,6 +148,7 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
       return node.shutdown()
     },
 
+    waitForWrites: () => unsupported('waitForWrites'),
     registerEmbeddingAdapter: () => unsupported('registerEmbeddingAdapter'),
     listIndexes: () => unsupported('listIndexes'),
     getStats: () => unsupported('getStats'),

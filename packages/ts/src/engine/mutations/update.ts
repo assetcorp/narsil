@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { BatchResult } from '../../types/results'
-import type { AnyDocument } from '../../types/schema'
+import type { AnyDocument, WriteOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE } from '../constants'
 import { assertDocumentCarriesMappedVectors, embedDocumentFields } from '../embed'
 import { validateDocId } from '../validation'
@@ -38,6 +38,7 @@ export async function updateDocument(
   indexName: string,
   docId: string,
   document: AnyDocument,
+  options?: WriteOptions,
 ): Promise<void> {
   ctx.guardShutdown()
   const entry = ctx.requireIndex(indexName)
@@ -180,12 +181,14 @@ export async function updateDocument(
   }
 
   ctx.checkHeapPressure(indexName)
+  if (options?.wait === true) await ctx.orchestrator.awaitWrites(indexName)
 }
 
 export async function updateDocumentBatch(
   ctx: MutationContext,
   indexName: string,
   updates: Array<{ docId: string; document: AnyDocument }>,
+  options?: WriteOptions,
 ): Promise<BatchResult> {
   ctx.guardShutdown()
   const entry = ctx.requireIndex(indexName)
@@ -232,6 +235,7 @@ export async function updateDocumentBatch(
       vecIndex.scheduleBuild()
     }
   }
+  if (options?.wait === true) await ctx.orchestrator.awaitWrites(indexName)
 
   return { succeeded, failed }
 }

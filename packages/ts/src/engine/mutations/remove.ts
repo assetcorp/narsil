@@ -1,13 +1,18 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { BatchResult } from '../../types/results'
-import type { AnyDocument } from '../../types/schema'
+import type { AnyDocument, WriteOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE } from '../constants'
 import { validateDocId } from '../validation'
 import { removeDocumentVectors } from '../vector-coordinator'
 import type { MutationContext } from './context'
 import { rollbackRemovedDocument } from './durable-rollback'
 
-export async function removeDocument(ctx: MutationContext, indexName: string, docId: string): Promise<void> {
+export async function removeDocument(
+  ctx: MutationContext,
+  indexName: string,
+  docId: string,
+  options?: WriteOptions,
+): Promise<void> {
   ctx.guardShutdown()
   ctx.requireIndex(indexName)
   validateDocId(docId)
@@ -68,12 +73,14 @@ export async function removeDocument(ctx: MutationContext, indexName: string, do
     docId,
     requestId: `replicate-remove-${docId}`,
   })
+  if (options?.wait === true) await ctx.orchestrator.awaitWrites(indexName)
 }
 
 export async function removeDocumentBatch(
   ctx: MutationContext,
   indexName: string,
   docIds: string[],
+  options?: WriteOptions,
 ): Promise<BatchResult> {
   ctx.guardShutdown()
   ctx.requireIndex(indexName)
@@ -106,6 +113,7 @@ export async function removeDocumentBatch(
   } finally {
     manager.endBatchRemove()
   }
+  if (options?.wait === true) await ctx.orchestrator.awaitWrites(indexName)
 
   return { succeeded, failed }
 }

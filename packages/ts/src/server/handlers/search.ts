@@ -1,10 +1,10 @@
 import type { QueryParams, SuggestParams } from '../../types/search'
-import type { HandlerDeps } from '../deps'
 import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import type { RouteContext } from '../request'
 import { validateQuery, validateSuggest } from '../validation'
+import type { ReadHandlerDeps } from './document-reads'
 
-export function createSearchHandlers(deps: HandlerDeps) {
+export function createSearchHandlers(deps: ReadHandlerDeps) {
   const { engine, limits } = deps
 
   async function search(ctx: RouteContext): Promise<void> {

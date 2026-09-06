@@ -36,7 +36,7 @@ import type {
   SuggestResult,
   VectorMaintenanceResult,
 } from '../types/results'
-import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig } from '../types/schema'
+import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig, WriteOptions } from '../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
 import { bindEngineCore } from './internals'
 import { runEngineListDocuments, runEnginePreflight, runEngineQuery, runEngineSuggest } from './reads'
@@ -135,17 +135,26 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult> {
       return withOpenIndex(indexName, () => insertDocumentBatch(mutationCtx, indexName, documents, options))
     },
-    remove(indexName: string, docId: string): Promise<void> {
-      return withOpenIndex(indexName, () => removeDocument(mutationCtx, indexName, docId))
+    remove(indexName: string, docId: string, options?: WriteOptions): Promise<void> {
+      return withOpenIndex(indexName, () => removeDocument(mutationCtx, indexName, docId, options))
     },
-    removeBatch(indexName: string, docIds: string[]): Promise<BatchResult> {
-      return withOpenIndex(indexName, () => removeDocumentBatch(mutationCtx, indexName, docIds))
+    removeBatch(indexName: string, docIds: string[], options?: WriteOptions): Promise<BatchResult> {
+      return withOpenIndex(indexName, () => removeDocumentBatch(mutationCtx, indexName, docIds, options))
     },
-    update(indexName: string, docId: string, document: AnyDocument): Promise<void> {
-      return withOpenIndex(indexName, () => updateDocument(mutationCtx, indexName, docId, document))
+    update(indexName: string, docId: string, document: AnyDocument, options?: WriteOptions): Promise<void> {
+      return withOpenIndex(indexName, () => updateDocument(mutationCtx, indexName, docId, document, options))
     },
-    updateBatch(indexName: string, updates: Array<{ docId: string; document: AnyDocument }>): Promise<BatchResult> {
-      return withOpenIndex(indexName, () => updateDocumentBatch(mutationCtx, indexName, updates))
+    updateBatch(
+      indexName: string,
+      updates: Array<{ docId: string; document: AnyDocument }>,
+      options?: WriteOptions,
+    ): Promise<BatchResult> {
+      return withOpenIndex(indexName, () => updateDocumentBatch(mutationCtx, indexName, updates, options))
+    },
+    waitForWrites(indexName: string): Promise<void> {
+      guardShutdown()
+      requireIndex(indexName)
+      return orchestrator.awaitWrites(indexName)
     },
     async get(indexName: string, docId: string): Promise<AnyDocument | undefined> {
       return withOpenIndex(indexName, () => executor.execute({ type: 'get', indexName, docId, requestId: docId }))

@@ -46,6 +46,8 @@ Every setting reads from an environment variable, so the same image runs locally
 | `NARSIL_HOST`             | `127.0.0.1` | Sets the address the server binds to.                                |
 | `NARSIL_PORT`             | `7700`      | Sets the port the server binds to.                                   |
 | `NARSIL_DURABILITY_DIR`   | unset       | Enables filesystem durability rooted at this path.                   |
+| `NARSIL_WORKERS`          | cores minus one, between 2 and 8 | Sets how many request threads receive requests, each holding the worker copies. |
+| `NARSIL_PROMOTION_THRESHOLD` | `1000`   | Sets the document count at which an index gains worker copies.       |
 | `NARSIL_API_KEY`          | unset       | Requires this token via `Authorization: Bearer` or `x-api-key`.      |
 | `NARSIL_ALLOW_INSECURE`   | `false`     | Permits a non-loopback bind with no API key (see below).             |
 | `NARSIL_INSTANCE_ID`      | random      | Sets a stable id that lets a restart fail this instance's own tasks. |

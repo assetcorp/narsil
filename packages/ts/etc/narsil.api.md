@@ -85,6 +85,20 @@ export type DocumentProjection = boolean | {
 };
 
 // @public
+export interface DocumentWriteOperations {
+    insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string>;
+    insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult>;
+    remove(indexName: string, docId: string, options?: WriteOptions): Promise<void>;
+    removeBatch(indexName: string, docIds: string[], options?: WriteOptions): Promise<BatchResult>;
+    update(indexName: string, docId: string, document: AnyDocument, options?: WriteOptions): Promise<void>;
+    updateBatch(indexName: string, updates: Array<{
+        docId: string;
+        document: AnyDocument;
+    }>, options?: WriteOptions): Promise<BatchResult>;
+    waitForWrites(indexName: string): Promise<void>;
+}
+
+// @public
 export interface DurabilityConfig {
     checkpointIntervalMs?: number;
     checkpointMutationThreshold?: number;
@@ -405,7 +419,7 @@ export interface InsertContext {
 }
 
 // @public
-export interface InsertOptions {
+export interface InsertOptions extends WriteOptions {
     skipClone?: boolean;
 }
 
@@ -487,7 +501,7 @@ export interface MemoryStats {
 }
 
 // @public
-export interface Narsil extends IndexLifecycleOperations {
+export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations {
     checkpoint(indexName: string): Promise<void>;
     clear(indexName: string): Promise<void>;
     compactVectors(indexName: string, fieldName?: string): Promise<void>;
@@ -500,8 +514,6 @@ export interface Narsil extends IndexLifecycleOperations {
     getPartitionStats(indexName: string): PartitionStatsResult[];
     getStats(indexName: string): IndexStats;
     has(indexName: string, docId: string): Promise<boolean>;
-    insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string>;
-    insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult>;
     listDocuments<T = AnyDocument>(indexName: string, params?: ListParams): Promise<ListResult<T>>;
     listIndexes(): IndexInfo[];
     off<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;
@@ -512,17 +524,10 @@ export interface Narsil extends IndexLifecycleOperations {
     rebalance(indexName: string, targetPartitionCount: number): Promise<void>;
     rebuildAnalysis(indexName: string): Promise<void>;
     registerEmbeddingAdapter(name: string, adapter: EmbeddingAdapter): void;
-    remove(indexName: string, docId: string): Promise<void>;
-    removeBatch(indexName: string, docIds: string[]): Promise<BatchResult>;
     restore(indexName: string, data: Uint8Array): Promise<void>;
     shutdown(): Promise<void>;
     snapshot(indexName: string): Promise<Uint8Array>;
     suggest(indexName: string, params: SuggestParams): Promise<SuggestResult>;
-    update(indexName: string, docId: string, document: AnyDocument): Promise<void>;
-    updateBatch(indexName: string, updates: Array<{
-        docId: string;
-        document: AnyDocument;
-    }>): Promise<BatchResult>;
     updatePartitionConfig(indexName: string, config: Partial<PartitionConfig>): Promise<void>;
     vectorMaintenanceStatus(indexName: string): VectorMaintenanceResult[];
 }
@@ -916,6 +921,11 @@ export interface WorkerCopyReport {
     indexName: string;
     reloadCount: number;
     scaledOut: boolean;
+}
+
+// @public
+export interface WriteOptions {
+    wait?: boolean;
 }
 
 // (No @packageDocumentation comment for this package)

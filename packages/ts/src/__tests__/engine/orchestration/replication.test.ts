@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SegmentPayload } from '../../../core/partition/segment-payload'
 import { MAX_PENDING_REPLICATION_DOCUMENTS, REPLICATION_WINDOW } from '../../../engine/orchestration/constants'
-import { awaitReplicationIdle, replicateToWorkers } from '../../../engine/orchestration/replication'
+import { awaitReplicationIdle, awaitWritesApplied, replicateToWorkers } from '../../../engine/orchestration/replication'
 import { searchViaWorker } from '../../../engine/orchestration/search'
 import type { AnyDocument } from '../../../types/schema'
 import type { WorkerAction } from '../../../workers/protocol'
@@ -212,26 +212,69 @@ describe('replicateToWorkers', () => {
   })
 })
 
-describe('searchViaWorker freshness barrier', () => {
-  it('falls back to the main thread while replication is pending and serves again once drained', async () => {
+describe('a copy answers while writes are still reaching it', () => {
+  it('sends a query to a copy even while an earlier write has not been acknowledged', async () => {
     const harness = makeHarness(1, ['prose'])
 
     await replicateToWorkers(harness.state, insertAction('prose', 'a', { id: 'a' }))
-
-    const blocked = await searchViaWorker(harness.state, 'prose', { term: 'a' })
-    expect(blocked).toBeNull()
-
     await settle()
-    harness.releaseAll()
-    await awaitReplicationIdle(harness.state, 'prose')
+    const write = harness.dispatched.shift()
+    expect(write?.action.type).toBe('insert')
 
     const served = searchViaWorker(harness.state, 'prose', { term: 'a' })
     await settle()
-    const entry = harness.dispatched.shift()
-    expect(entry).toBeDefined()
-    expect(entry?.action.type).toBe('query')
-    entry?.resolve({ scored: [], totalMatched: 0 })
+    const query = harness.dispatched.shift()
+    expect(query?.action.type).toBe('query')
+    query?.resolve({ scored: [], totalMatched: 0 })
     expect(await served).toEqual({ scored: [], totalMatched: 0 })
+
+    write?.resolve()
+    await awaitReplicationIdle(harness.state, 'prose')
+  })
+})
+
+describe('awaitWritesApplied', () => {
+  it('resolves only once every write in the window is acknowledged, not just the last one', async () => {
+    const harness = makeHarness(1, ['prose'])
+
+    for (const docId of ['a', 'b', 'c']) {
+      await replicateToWorkers(harness.state, insertAction('prose', docId, { id: docId }))
+    }
+    await settle()
+    expect(harness.dispatched).toHaveLength(3)
+
+    let applied = false
+    const waiting = awaitWritesApplied(harness.state, 'prose').then(() => {
+      applied = true
+    })
+    harness.dispatched[2].resolve()
+    await settle()
+    expect(applied).toBe(false)
+
+    harness.dispatched[0].resolve()
+    harness.dispatched[1].resolve()
+    await waiting
+    expect(applied).toBe(true)
+  })
+
+  it('waits for a copy load in progress before it waits for the queue', async () => {
+    const harness = makeHarness(1, [])
+    let finishLoad: () => void = () => undefined
+    const done = new Promise<void>(resolve => {
+      finishLoad = resolve
+    })
+    harness.state.copyTransitions.set('prose', { kind: 'load', done })
+
+    let applied = false
+    const waiting = awaitWritesApplied(harness.state, 'prose').then(() => {
+      applied = true
+    })
+    await settle()
+    expect(applied).toBe(false)
+
+    finishLoad()
+    await waiting
+    expect(applied).toBe(true)
   })
 })
 

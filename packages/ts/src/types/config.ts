@@ -161,8 +161,9 @@ export interface WorkerConfig {
   enabled?: boolean
   /**
    * The keyword copies and the vector search pool share this many threads
-   * between them, half each. The engine takes the host's cores minus one by
-   * default, between 2 and 8.
+   * between them, half each, in an embedded engine. The HTTP server holds a
+   * copy on every one of them and receives requests there. The engine takes
+   * the host's cores minus one by default, between 2 and 8.
    */
   count?: number
   /** An index gains worker copies once it holds this many documents, 1,000 by default. */

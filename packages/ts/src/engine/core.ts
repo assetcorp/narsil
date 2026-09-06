@@ -12,6 +12,7 @@ import type { NarsilConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
+import type { VectorWorkerCopyPolicy } from '../vector/vector-index/shared'
 import { createDirectExecutor, type DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
 import { resolveWorkerCount, splitWorkerBudget } from '../workers/pool'
@@ -89,12 +90,11 @@ export interface EngineCore {
 export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks): EngineCore {
   validateWorkerConfig(config?.workers, config?.lifecycle)
   const vectorWorkerCount = splitWorkerBudget(resolveWorkerCount(config?.workers?.count)).vector
-  const executor: Executor & DirectExecutorExtensions = createDirectExecutor({
-    vectorWorkerCopies: {
-      enabled: (config?.workers?.enabled ?? workersEnabledByDefault()) && vectorWorkerCount > 0,
-      count: vectorWorkerCount,
-    },
-  })
+  const vectorCopyPolicy: VectorWorkerCopyPolicy = {
+    enabled: (config?.workers?.enabled ?? workersEnabledByDefault()) && vectorWorkerCount > 0,
+    count: vectorWorkerCount,
+  }
+  const executor: Executor & DirectExecutorExtensions = createDirectExecutor({ vectorWorkerCopies: vectorCopyPolicy })
 
   const pluginRegistry: PluginRegistry = createPluginRegistry()
   if (config?.plugins) {
@@ -115,27 +115,38 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
   const abortController = new AbortController()
   const rebalancingIndexes = new Set<string>()
 
-  const orchestrator = createWorkerOrchestrator(config, executor, indexRegistry, {
-    shouldDeferCopies() {
-      return rebalancingIndexes.size > 0
+  const orchestrator = createWorkerOrchestrator(
+    config,
+    executor,
+    indexRegistry,
+    {
+      shouldDeferCopies() {
+        return rebalancingIndexes.size > 0
+      },
+      isAnalysisStale(indexName) {
+        return analysisRebuild.isStale(indexName)
+      },
+      onCopiesLoaded(workerCount, reason) {
+        emitEngineEvent(eventHandlers, 'workerPromote', { workerCount, reason })
+        void Promise.resolve(pluginRegistry.runHook('onWorkerPromote', { workerCount, reason })).catch(
+          (err: unknown) => {
+            console.warn('onWorkerPromote plugin hook failed:', err instanceof Error ? err.message : String(err))
+          },
+        )
+      },
+      onCopyLoadFailure(reason, error, retryable) {
+        if (emitEngineEvent(eventHandlers, 'workerPromoteFailure', { reason, error, retryable }) === 0) {
+          console.warn(`Loading worker copies failed (${reason}):`, error)
+        }
+      },
+      onWorkerCrash(workerId, indexNames, error) {
+        if (emitEngineEvent(eventHandlers, 'workerCrash', { workerId, indexNames, error }) === 0) {
+          console.warn(`Worker ${workerId} crashed:`, error)
+        }
+      },
     },
-    onCopiesLoaded(workerCount, reason) {
-      emitEngineEvent(eventHandlers, 'workerPromote', { workerCount, reason })
-      void Promise.resolve(pluginRegistry.runHook('onWorkerPromote', { workerCount, reason })).catch((err: unknown) => {
-        console.warn('onWorkerPromote plugin hook failed:', err instanceof Error ? err.message : String(err))
-      })
-    },
-    onCopyLoadFailure(reason, error, retryable) {
-      if (emitEngineEvent(eventHandlers, 'workerPromoteFailure', { reason, error, retryable }) === 0) {
-        console.warn(`Loading worker copies failed (${reason}):`, error)
-      }
-    },
-    onWorkerCrash(workerId, indexNames, error) {
-      if (emitEngineEvent(eventHandlers, 'workerCrash', { workerId, indexNames, error }) === 0) {
-        console.warn(`Worker ${workerId} crashed:`, error)
-      }
-    },
-  })
+    vectorCopyPolicy,
+  )
 
   const rebalancer = createRebalancer()
   const rebalanceRouter = createPartitionRouter()

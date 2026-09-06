@@ -77,6 +77,7 @@ describe('SciFact Relevance Evaluation', () => {
     for (const doc of scifactDocuments) {
       await narsil.insert('scifact', { title: doc.title, text: doc.text }, String(doc.id))
     }
+    await narsil.waitForWrites('scifact')
 
     qrelLookup = buildQrelLookup()
 
