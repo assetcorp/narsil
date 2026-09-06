@@ -147,6 +147,19 @@ await narsil.remove('products', 'kb-042')
 
 Both methods throw `DOC_NOT_FOUND` for an unknown id.
 
+### Writes and worker copies
+
+Once an index holds worker copies, a write returns as soon as the main copy holds it, and the copies apply it afterwards, so a query that a copy answers can come back without a write that returned before it. Pass `wait: true` in the options of `insert`, `update`, `remove`, or a batch call to make that write return only once every copy has applied it, or call `waitForWrites(indexName)` after a run of writes.
+
+```ts
+await narsil.insert('products', { id: 'kb-044', title: 'Compact Keyboard' }, undefined, { wait: true })
+
+await narsil.removeBatch('products', ['p1', 'p2'])
+await narsil.waitForWrites('products')
+```
+
+See [Writes and the copies](partitions-and-workers.md#writes-and-the-copies) for the rule and for how the HTTP server carries the option.
+
 ## Batch operations
 
 `insertBatch`, `updateBatch`, and `removeBatch` process many documents in one call and return partial results. One bad document never aborts the batch, because the engine records every failure with its id and error, and applies every success.

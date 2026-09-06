@@ -2,7 +2,7 @@
 
 The server subpath turns an engine into a REST service, and this guide covers every route it serves.
 
-`@delali/narsil/server` wraps an engine you build in a REST API. You own the engine and its configuration (durability, embedding adapters, workers), and the server shares it across requests. Because the main thread serves every request, the server sets `workers.mainCopyQueries` to `none` on an engine that leaves it unset. Each query on an index that holds worker copies then answers on one of them, which keeps the main thread free for the other requests. See [Worker copies](partitions-and-workers.md#worker-copies). The HTTP layer is built on `uWebSockets.js`, an optional peer dependency:
+`@delali/narsil/server` wraps an engine you build in a REST API. You own the engine and its configuration (durability, embedding adapters, workers), and the server shares it across requests. On Node.js the server receives requests on the workers that hold the worker copies, which the engine calls request threads, and it starts one for every thread in `workers.count`, or one alone on a machine with fewer than three cores. A request thread answers a query on an index whose copy it holds from that copy and from the vector copy the threads share, while it sends every write, every admin request, and every query on an index without a copy to the main thread, which answers as it does for its own callers. See [Request threads](partitions-and-workers.md#request-threads). `NarsilServer.requestThreadCount` reports how many threads took requests, and it reads zero where the main thread answers everything itself, which happens with `workers.enabled: false`, on a runtime without worker threads, and on a cluster node's engine. A write returns before it reaches every copy, so pass `wait: true` on a write, or call `POST /indexes/{name}/_wait-for-writes`, before a search that has to see it; see [Writes and the copies](partitions-and-workers.md#writes-and-the-copies). The HTTP layer is built on `uWebSockets.js`, an optional peer dependency:
 
 ```bash
 pnpm add -E uWebSockets.js@github:uNetworking/uWebSockets.js#v20.58.0
@@ -22,7 +22,7 @@ const server = createServer(engine, {
 await server.listen()
 ```
 
-`ServerOptions` also accepts `cors`, an `onRequest` hook for authentication, `limits` for body-size, concurrency, result-window, and fetch-count caps, `embeddingAdapters` that JSON index configs reference by name, a `taskStore` that keeps long-running task status across restarts, an `instanceId` for task recovery, `allowInsecure` for trusted private networks, and `cluster` for a server fronting a cluster node. See [Cluster routes](#cluster-routes). The server refuses to bind a non-loopback address without an `onRequest` hook, because the admin endpoints can destroy data.
+`ServerOptions` also accepts `cors`, an `onRequest` hook for authentication, which the main thread runs once per request on behalf of every request thread, `limits` for body-size, concurrency, result-window, and fetch-count caps, where `maxConcurrentRequests` counts the requests in flight on every thread together, `embeddingAdapters` that JSON index configs reference by name, a `taskStore` that keeps long-running task status across restarts, an `instanceId` for task recovery, `allowInsecure` for trusted private networks, and `cluster` for a server fronting a cluster node. See [Cluster routes](#cluster-routes). The server refuses to bind a non-loopback address without an `onRequest` hook, because the admin endpoints can destroy data.
 
 The full surface:
 
@@ -37,10 +37,11 @@ The full surface:
 | `GET /indexes/{name}/stats`, `GET /indexes/{name}/partitions`, `GET /indexes/{name}/count` | The endpoints report index, partition, and document-count statistics. |
 | `POST /indexes/{name}/_clear` | The endpoint removes every document but keeps the index. |
 | `POST /indexes/{name}/_open`, `POST /indexes/{name}/_close` | The endpoints load an index into memory and release it back to disk. See [Index lifecycle](persistence-and-durability.md#index-lifecycle). |
-| `POST /indexes/{name}/documents` | The endpoint inserts one document. |
-| `GET`, `PUT`, `PATCH`, `DELETE /indexes/{name}/documents/{id}` | The endpoints read, upsert, update, and remove one document. |
+| `POST /indexes/{name}/documents` | The endpoint inserts one document, and `options.wait` in the body makes it return only once every worker copy has applied the write. |
+| `GET`, `PUT`, `PATCH`, `DELETE /indexes/{name}/documents/{id}` | The endpoints read, upsert, update, and remove one document. `PUT` and `PATCH` take `options.wait` in the body, and `DELETE` takes `?wait=true`. |
+| `POST /indexes/{name}/_wait-for-writes` | The endpoint answers once every worker copy of the index has applied every write that returned before the request. See [Writes and the copies](partitions-and-workers.md#writes-and-the-copies). |
 | `GET /indexes/{name}/documents/{id}/_exists` | The endpoint reports whether the id exists. |
-| `POST /indexes/{name}/documents/_batch` | The endpoint runs a batch insert, update, or delete with partial results. |
+| `POST /indexes/{name}/documents/_batch` | The endpoint runs a batch insert, update, or delete with partial results, and `options.wait` applies to the whole batch. |
 | `POST /indexes/{name}/documents/_multi-get` | The endpoint fetches many documents by id. |
 | `POST /indexes/{name}/documents/_list` | The endpoint pages through every stored document, in document-id order or in an order the body names. See [Listing documents](#listing-documents). |
 | `POST /indexes/{name}/documents/_import` | The endpoint streams an NDJSON corpus in bounded batches, and `?async=true` runs it as a task instead. See [Tasks](#tasks). |
