@@ -80,7 +80,7 @@ export interface ServerLimits {
   maxLineBytes?: number
   /** Documents handed to the engine per batch during NDJSON import; the loop yields between batches. */
   importBatchSize?: number
-  /** Maximum requests executing engine work at once; excess is shed with 429. Omit or 0 to disable. */
+  /** Maximum requests executing engine work at once, counted across every request thread; excess is shed with 429. Omit or 0 to disable. */
   maxConcurrentRequests?: number
   /** Ceiling for a search's `limit`, `offset`, and `group.maxPerGroup`, so one
    * request cannot ask for an unbounded result set. Excess → 400. Defaults to
@@ -185,6 +185,14 @@ export interface NarsilServer {
   close(): Promise<void>
   /** The server bound to this port, which is what you read after binding to port 0. */
   readonly listeningPort: number
+  /**
+   * How many request threads receive connections, which is the engine's
+   * worker count on a machine with three cores or more and one below that.
+   * It reads zero while the main thread answers every request itself, which
+   * happens on a runtime without worker threads, on an engine created with
+   * `workers.enabled: false`, and on a cluster node's engine.
+   */
+  readonly requestThreadCount: number
 }
 
 /**

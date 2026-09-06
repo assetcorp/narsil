@@ -1,8 +1,6 @@
 import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
-import type { PartitionManager } from '../../partitioning/manager'
 import { linearCombination, reciprocalRankFusion } from '../../search/fusion'
 import type { ScoredDocument } from '../../types/internal'
-import type { IndexConfig } from '../../types/schema'
 import type { QueryParams, VectorQueryConfig } from '../../types/search'
 import {
   broadcastStatsForWorker,
@@ -18,18 +16,17 @@ import {
 
 export async function executeVectorSearch(
   params: QueryParams,
-  manager: PartitionManager,
-  config: IndexConfig,
+  context: QueryContext,
   limit: number,
   offset: number,
-  partitionIds?: number[],
 ): Promise<FanOutResult> {
+  const { manager, config, partitionIds } = context
   const vectorConfig = params.vector
   if (!vectorConfig || !vectorConfig.value) {
     return { scored: [], totalMatched: 0 }
   }
 
-  const vecIndex = resolveVectorIndex(manager, vectorConfig.field)
+  const vecIndex = resolveVectorIndex(context, vectorConfig.field)
   if (!vecIndex) {
     return { scored: [], totalMatched: 0 }
   }
@@ -82,7 +79,7 @@ async function vectorLeg(
   k: number,
 ): Promise<ScoredDocument[]> {
   const { manager } = context
-  const vecIndex = resolveVectorIndex(manager, vectorConfig.field)
+  const vecIndex = resolveVectorIndex(context, vectorConfig.field)
   if (!vecIndex) return []
   const filterPartitions =
     filterDocIds === undefined ? partitionsForVectorSearch(manager, vecIndex, context.partitionIds) : undefined

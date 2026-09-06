@@ -13,12 +13,14 @@ import {
 } from './eligibility'
 import { deferPoolRestart, handleWorkerCrash } from './repair'
 import { enqueueReplication } from './replication'
+import { announceRequestThreads } from './request-threads'
 import type { CopyTransition, OrchestratorState } from './types'
+import { refreshVectorCopies } from './vector-copies'
 
 export const COPY_RELOAD_REASON = 'A request arrived after an idle spell dropped the worker copies'
 
 export function copiesAllowed(state: OrchestratorState): boolean {
-  if (!state.workersEnabled || state.scaleOutBlocked) return false
+  if (!state.workersEnabled || state.scaleOutBlocked || state.shuttingDown) return false
   return state.workerPool !== null || Date.now() >= state.poolRetryAt
 }
 
@@ -53,13 +55,14 @@ async function startPool(state: OrchestratorState): Promise<WorkerPool> {
   return pool
 }
 
-async function ensurePool(state: OrchestratorState): Promise<WorkerPool> {
+export async function ensurePool(state: OrchestratorState): Promise<WorkerPool> {
   if (state.workerPool !== null) return state.workerPool
   if (state.poolStart === null) {
     state.poolStart = startPool(state).then(
-      pool => {
+      async pool => {
         state.workerPool = pool
         state.poolStart = null
+        await announceRequestThreads(state, pool)
         return pool
       },
       err => {
@@ -113,7 +116,7 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
   const buffered: WorkerAction[] = []
   state.copyLoadBuffers.set(indexName, buffered)
   try {
-    await transferIndexToPool(indexName, pool, entry.config, manager)
+    await transferIndexToPool(indexName, pool, entry.config, manager, state.callbacks?.isAnalysisStale?.(indexName))
     state.scaledOutIndexes.add(indexName)
     state.lastAccessAt.set(indexName, Date.now())
     state.poolRetryDelayMs = POOL_RESTART_DELAY_MS
@@ -125,6 +128,7 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
     state.copyLoadBuffers.delete(indexName)
   }
   if (reload) state.copyReloadCounts.set(indexName, (state.copyReloadCounts.get(indexName) ?? 0) + 1)
+  refreshVectorCopies(state, indexName)
   scheduleIdleMerge(state, indexName)
   state.callbacks?.onCopiesLoaded?.(pool.workerCount, reason)
 }

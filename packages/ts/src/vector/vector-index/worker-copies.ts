@@ -1,10 +1,17 @@
 import type { VectorMetric } from '../brute-force'
 import type { OrdinalFilter } from '../ordinal-filter'
 import { acquireVectorSearchPool, releaseVectorSearchPool } from '../search-pool'
+import { buildSharedDocIdTable } from '../shared-generation/doc-ids'
 import { freezeSharedGeneration } from '../shared-generation/freeze'
 import type { WorkerCopySnapshot } from '../worker-copy'
 import { WORKER_COPY_MIN_VECTORS } from './constants'
-import { liveSize, type VectorIndexState, type VectorScoredResult } from './shared'
+import {
+  assignStorePartitions,
+  liveSize,
+  type SharedCopyHost,
+  type VectorIndexState,
+  type VectorScoredResult,
+} from './shared'
 
 let handleCounter = 0
 
@@ -14,13 +21,65 @@ export function invalidateWorkerCopies(state: VectorIndexState): void {
 
   const handle = state.workerCopyHandle
   const pool = state.workerCopyPool
+  const hosted = state.workerCopyMode === 'hosted'
   state.workerCopyHandle = null
   state.workerCopyPool = null
   state.workerCopyRevision = -1
   state.workerCopyMode = null
 
+  if (hosted) {
+    void state.workerCopies.host?.drop(state.indexName, state.fieldName, handle).catch(() => undefined)
+    return
+  }
   void pool?.drop(handle).catch(() => undefined)
   void releaseVectorSearchPool().catch(() => undefined)
+}
+
+export function refreshWorkerCopies(state: VectorIndexState): void {
+  invalidateWorkerCopies(state)
+  scheduleWorkerCopyLoad(state)
+}
+
+async function loadHostedCopy(state: VectorIndexState, host: SharedCopyHost): Promise<void> {
+  const revision = state.revision
+  if (!host.holdsIndex(state.indexName)) return
+  if (!state.store.partitionsKnown) {
+    assignStorePartitions(state, docId => host.resolvePartition(state.indexName, docId))
+  }
+  const shared = freezeSharedGeneration(
+    {
+      dimension: state.dimension,
+      store: state.store,
+      hnsw: state.hnsw,
+      quantizer: state.sq8,
+      quantization: state.quantizationMode,
+    },
+    host.scratchSlotCount,
+  )
+  if (shared === null) return
+  const docIds = buildSharedDocIdTable(state.store, state.store.slots)
+
+  handleCounter += 1
+  const handle = `${state.indexName}/${state.fieldName}#${handleCounter}`
+  state.workerCopyHandle = handle
+  state.workerCopyRevision = revision
+  state.workerCopyMode = 'hosted'
+
+  let loaded = false
+  try {
+    loaded = await host.loadShared(state.indexName, state.fieldName, handle, {
+      snapshot: shared,
+      docIds,
+      filterThreshold: state.filterThreshold,
+    })
+  } catch {
+    loaded = false
+  }
+  if (!loaded && state.workerCopyHandle === handle) {
+    state.workerCopyHandle = null
+    state.workerCopyRevision = -1
+    state.workerCopyMode = null
+  }
 }
 
 function captureCloneSnapshot(state: VectorIndexState): WorkerCopySnapshot | null {
@@ -40,10 +99,12 @@ export function scheduleWorkerCopyLoad(state: VectorIndexState): void {
   if (state.disposed || state.workerCopyLoading || state.building) return
   if (state.workerCopyHandle !== null) return
   if (!state.hnsw || state.buffer.size > 0) return
-  if (liveSize(state) < WORKER_COPY_MIN_VECTORS) return
+  const host = state.workerCopies.host
+  if (host === undefined && liveSize(state) < WORKER_COPY_MIN_VECTORS) return
 
   state.workerCopyLoading = true
-  void loadWorkerCopies(state).finally(() => {
+  const loading = host === undefined ? loadWorkerCopies(state) : loadHostedCopy(state, host)
+  void loading.finally(() => {
     state.workerCopyLoading = false
   })
 }
@@ -116,7 +177,7 @@ export async function searchViaWorkerCopies(
 ): Promise<VectorScoredResult[] | null> {
   const pool = state.workerCopyPool
   const handle = state.workerCopyHandle
-  if (pool === null || handle === null) return null
+  if (pool === null || handle === null || state.workerCopyMode === 'hosted') return null
   if (state.workerCopyRevision !== state.revision) return null
 
   try {

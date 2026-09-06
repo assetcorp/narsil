@@ -100,6 +100,7 @@ describe('pruned single-term scoring', () => {
     for (let index = 30; index < 90; index++) {
       await narsil.remove('skewed', `doc-${String(index).padStart(5, '0')}`)
     }
+    await narsil.waitForWrites('skewed')
     await comparePrunedWithFull(narsil, 'skewed', { term: 'alpha', limit: 10 })
     await comparePrunedWithFull(narsil, 'skewed', { term: 'beta', limit: 10 })
     await comparePrunedWithFull(narsil, 'skewed', { term: 'alpha', limit: 4000 })

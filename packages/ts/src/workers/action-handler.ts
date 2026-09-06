@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../errors'
+import type { DirectExecutorExtensions } from './direct-executor'
 import type { Executor } from './executor'
 import type { WorkerAction, WorkerResponse } from './protocol'
 
@@ -22,9 +23,23 @@ async function importBootstrapModule(moduleUrl: string): Promise<void> {
   await import(moduleUrl)
 }
 
-export function createActionHandler(executor: Executor): ActionHandler {
+async function stopServingRequests(): Promise<void> {
+  const { closeRequestThread } = await import('../server/request-threads/thread')
+  closeRequestThread()
+}
+
+function holdsCopies(
+  executor: Executor & Partial<DirectExecutorExtensions>,
+): executor is Executor & DirectExecutorExtensions {
+  return typeof executor.queryContextOf === 'function'
+}
+
+export function createActionHandler(executor: Executor & Partial<DirectExecutorExtensions>): ActionHandler {
+  let servingRequests = false
+
   return async function handleAction(action, post) {
     if (action.type === 'shutdown') {
+      if (servingRequests) await stopServingRequests()
       await executor.shutdown()
       post(buildSuccessResponse(action.requestId, undefined))
       return true
@@ -33,6 +48,24 @@ export function createActionHandler(executor: Executor): ActionHandler {
     try {
       if (action.type === 'bootstrap') {
         await importBootstrapModule(action.moduleUrl)
+        post(buildSuccessResponse(action.requestId, undefined))
+        return false
+      }
+
+      if (action.type === 'serveRequests') {
+        if (!holdsCopies(executor)) {
+          throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'This executor holds no copies to answer requests from')
+        }
+        const { serveRequests } = await import('../server/request-threads/thread')
+        const result = await serveRequests(executor, action.settings)
+        servingRequests = true
+        post(buildSuccessResponse(action.requestId, result))
+        return false
+      }
+
+      if (action.type === 'stopServing') {
+        if (servingRequests) await stopServingRequests()
+        servingRequests = false
         post(buildSuccessResponse(action.requestId, undefined))
         return false
       }

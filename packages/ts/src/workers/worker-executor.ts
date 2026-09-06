@@ -16,7 +16,7 @@ export interface WorkerExecutorConfig {
 }
 
 export interface WorkerLike {
-  postMessage(msg: unknown): void
+  postMessage(msg: unknown, transfer?: object[]): void
   on?(event: string, handler: (...args: unknown[]) => void): void
   addEventListener?(event: string, handler: (...args: unknown[]) => void): void
 }
@@ -101,7 +101,7 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     worker.addEventListener('error', (event: unknown) => handleDeath(errorFromEventLike(event)))
   }
 
-  function execute<T>(action: WorkerAction): Promise<T> {
+  function execute<T>(action: WorkerAction, transfer?: object[]): Promise<T> {
     if (deathError !== null) {
       return Promise.reject(deathError)
     }
@@ -130,7 +130,8 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
         timeoutId,
       })
 
-      worker.postMessage(taggedAction)
+      if (transfer === undefined) worker.postMessage(taggedAction)
+      else worker.postMessage(taggedAction, transfer)
     })
   }
 

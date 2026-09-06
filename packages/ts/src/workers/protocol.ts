@@ -1,9 +1,11 @@
 import type { PartitionInsertOptions } from '../core/partition'
 import type { SharedSegmentSnapshot } from '../core/partition/frozen'
 import type { SegmentPayload } from '../core/partition/segment-payload'
+import type { RequestThreadSettings } from '../server/request-threads/messages'
 import type { GlobalStatistics, SerializablePartition } from '../types/internal'
 import type { AnyDocument, IndexConfig } from '../types/schema'
 import type { QueryParams } from '../types/search'
+import type { HostedVectorCopy } from '../vector/vector-index/shared'
 
 export type WorkerAction =
   | { type: 'insert'; indexName: string; docId: string; document: AnyDocument; requestId: string; skipClone?: boolean }
@@ -21,7 +23,18 @@ export type WorkerAction =
   | { type: 'get'; indexName: string; docId: string; requestId: string }
   | { type: 'has'; indexName: string; docId: string; requestId: string }
   | { type: 'count'; indexName: string; requestId: string }
-  | { type: 'createIndex'; indexName: string; config: IndexConfig; requestId: string }
+  | { type: 'createIndex'; indexName: string; config: IndexConfig; requestId: string; analysisStale?: boolean }
+  | {
+      type: 'loadVectorCopy'
+      indexName: string
+      fieldName: string
+      handle: string
+      copy: HostedVectorCopy
+      requestId: string
+    }
+  | { type: 'dropVectorCopy'; indexName: string; fieldName: string; handle: string; requestId: string }
+  | { type: 'serveRequests'; settings: RequestThreadSettings; requestId: string }
+  | { type: 'stopServing'; requestId: string }
   | { type: 'dropIndex'; indexName: string; requestId: string }
   | { type: 'getStats'; indexName: string; requestId: string }
   | { type: 'clear'; indexName: string; requestId: string }
@@ -93,6 +106,10 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'has',
   'count',
   'createIndex',
+  'loadVectorCopy',
+  'dropVectorCopy',
+  'serveRequests',
+  'stopServing',
   'dropIndex',
   'getStats',
   'clear',

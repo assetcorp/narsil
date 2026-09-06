@@ -2,7 +2,7 @@ import { NarsilError, ServerErrorCodes } from '../errors'
 import { encodeJson } from '../json-encoding'
 import type { ImportResult, TaskRecord } from '../server/types'
 import type { BatchResult, ListResult } from '../types/results'
-import type { AnyDocument, InsertOptions } from '../types/schema'
+import type { AnyDocument, InsertOptions, WriteOptions } from '../types/schema'
 import type { ListParams } from '../types/search'
 import { NO_TIMEOUT } from './constants'
 import type { Transport } from './http'
@@ -58,6 +58,8 @@ export interface BulkOperations {
    * @param indexName - This names the index holding the documents.
    * @param updates - Each entry names the document to replace and holds its
    * replacement.
+   * @param writeOptions - These per-write settings reach the server, and apply
+   * to the whole batch.
    * @param options - This sets the signal, the deadline, and the headers for
    * this request.
    * @returns The result lists the ids replaced, and each failure with its
@@ -66,6 +68,7 @@ export interface BulkOperations {
   updateBatch(
     indexName: string,
     updates: Array<{ docId: string; document: AnyDocument }>,
+    writeOptions?: WriteOptions,
     options?: RequestOptions,
   ): Promise<BatchResult>
   /**
@@ -73,11 +76,18 @@ export interface BulkOperations {
    *
    * @param indexName - This names the index holding the documents.
    * @param docIds - These name the documents to remove.
+   * @param writeOptions - These per-write settings reach the server, and apply
+   * to the whole batch.
    * @param options - This sets the signal, the deadline, and the headers for
    * this request.
    * @returns The result lists the ids removed, and each failure with its error.
    */
-  removeBatch(indexName: string, docIds: string[], options?: RequestOptions): Promise<BatchResult>
+  removeBatch(
+    indexName: string,
+    docIds: string[],
+    writeOptions?: WriteOptions,
+    options?: RequestOptions,
+  ): Promise<BatchResult>
   /**
    * Reads many documents by id in one request.
    *
@@ -205,11 +215,19 @@ export function createBulkOperations(transport: Transport): BulkOperations {
         options,
       )
     },
-    updateBatch(indexName, updates, options) {
-      return batch(indexName, { action: 'update', updates }, options)
+    updateBatch(indexName, updates, writeOptions, options) {
+      return batch(
+        indexName,
+        { action: 'update', updates, ...(writeOptions === undefined ? {} : { options: writeOptions }) },
+        options,
+      )
     },
-    removeBatch(indexName, docIds, options) {
-      return batch(indexName, { action: 'delete', docIds }, options)
+    removeBatch(indexName, docIds, writeOptions, options) {
+      return batch(
+        indexName,
+        { action: 'delete', docIds, ...(writeOptions === undefined ? {} : { options: writeOptions }) },
+        options,
+      )
     },
     async getMultiple(indexName, docIds, options) {
       const path = `${indexPath(indexName)}/documents/_multi-get`

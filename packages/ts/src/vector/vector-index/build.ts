@@ -11,7 +11,7 @@ import {
   recalibrateFromStore,
   type VectorIndexState,
 } from './shared'
-import { invalidateWorkerCopies } from './worker-copies'
+import { invalidateWorkerCopies, scheduleWorkerCopyLoad } from './worker-copies'
 
 async function tryWorkerBuild(state: VectorIndexState, liveDocIds: string[]): Promise<boolean> {
   const vectorData = new Float32Array(liveDocIds.length * state.dimension)
@@ -127,6 +127,8 @@ export function triggerBuild(state: VectorIndexState): void {
       state.pendingBuild = null
       if (state.buffer.size > 0) {
         scheduleBuild(state)
+      } else if (state.workerCopies.host !== undefined) {
+        scheduleWorkerCopyLoad(state)
       }
     }
   })()

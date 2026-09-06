@@ -103,8 +103,6 @@ export async function searchViaWorker(
   const pool = state.workerPool
   if (!pool) return null
   if (!state.scaledOutIndexes.has(indexName) || state.copyLoadBuffers.has(indexName)) return null
-  const pendingReplication = state.replicationQueues.get(indexName)
-  if (pendingReplication !== undefined && pendingReplication.pendingActions > 0) return null
 
   const manager = state.executor.getManager(indexName)
   if (!manager) return null

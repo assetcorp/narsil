@@ -2,7 +2,7 @@ import type { WorkerAction } from '../../workers/protocol'
 import { LOAD_BUFFER_YIELD_INTERVAL, MAX_PENDING_REPLICATION_DOCUMENTS, REPLICATION_WINDOW } from './constants'
 import { alreadyPresentOnWorker } from './eligibility'
 import { yieldToEventLoop } from './turn'
-import type { OrchestratorState, ReplicationQueue, SegmentLedgerEntry } from './types'
+import type { CopyTransition, OrchestratorState, ReplicationQueue, SegmentLedgerEntry } from './types'
 
 export async function dispatchToWorkers(state: OrchestratorState, action: WorkerAction): Promise<void> {
   const pool = state.workerPool
@@ -175,14 +175,38 @@ export function queueForCopies(state: OrchestratorState, action: WorkerAction): 
   enqueueReplication(state, action.indexName, action)
 }
 
+function settled(queue: ReplicationQueue): Promise<void> {
+  return Promise.all([...queue.inFlight, queue.tail]).then(() => undefined)
+}
+
 export async function awaitReplicationIdle(state: OrchestratorState, indexName?: string): Promise<void> {
   if (indexName !== undefined) {
     const queue = state.replicationQueues.get(indexName)
-    if (queue !== undefined) await queue.tail
+    if (queue !== undefined) await settled(queue)
     return
   }
   while (state.replicationQueues.size > 0) {
-    const tails = Array.from(state.replicationQueues.values(), queue => queue.tail)
-    await Promise.all(tails)
+    await Promise.all(Array.from(state.replicationQueues.values(), settled))
+  }
+}
+
+export async function awaitWritesApplied(state: OrchestratorState, indexName: string): Promise<void> {
+  let awaitedTransition: CopyTransition | undefined
+  let awaitedRepair: Promise<void> | null = null
+  for (;;) {
+    const transition = state.copyTransitions.get(indexName)
+    if (transition !== undefined && transition !== awaitedTransition) {
+      awaitedTransition = transition
+      await transition.done
+      continue
+    }
+    const repair = state.poolRepair
+    if (repair !== null && repair !== awaitedRepair) {
+      awaitedRepair = repair
+      await repair
+      continue
+    }
+    await awaitReplicationIdle(state, indexName)
+    return
   }
 }

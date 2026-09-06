@@ -3,7 +3,6 @@ import type { NarsilEventMap } from './events'
 import type { IndexLifecycleOperations } from './lifecycle'
 import type { MemoryStats } from './memory'
 import type {
-  BatchResult,
   IndexInfo,
   IndexStats,
   ListResult,
@@ -13,19 +12,22 @@ import type {
   SuggestResult,
   VectorMaintenanceResult,
 } from './results'
-import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig } from './schema'
+import type { AnyDocument, IndexConfig, PartitionConfig } from './schema'
 import type { ListParams, QueryParams, SuggestParams } from './search'
+import type { DocumentWriteOperations } from './writes'
 
 /**
  * The search engine, and everything you do with it.
  *
  * One instance holds every index you create, so an application usually keeps a
  * single engine for its lifetime and reaches each index by name. Build one
- * with {@link createNarsil}.
+ * with {@link createNarsil}. The write methods come from
+ * {@link DocumentWriteOperations} and the open and close methods from
+ * {@link IndexLifecycleOperations}.
  *
  * @public
  */
-export interface Narsil extends IndexLifecycleOperations {
+export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations {
   /**
    * Creates an index you can insert documents into and query.
    *
@@ -71,73 +73,6 @@ export interface Narsil extends IndexLifecycleOperations {
    * @returns One entry per open partition, in partition order, or an empty list while the index is closed.
    */
   getPartitionStats(indexName: string): PartitionStatsResult[]
-  /**
-   * Adds one document to an index and returns the id it is stored under.
-   *
-   * The id comes from the `docId` argument when you pass one, otherwise from
-   * the document's own `id` field, and otherwise the engine generates it. Use
-   * {@link Narsil.insertBatch} for a large load, so that one bad document
-   * cannot abandon the rest.
-   *
-   * @param indexName - The index that receives the document.
-   * @param document - Its fields must match the types the schema declares.
-   * @param docId - Pass an id to control it yourself, or omit it and read the
-   * returned value.
-   * @param options - Per-write settings, such as skipping the defensive copy.
-   * @returns The id the document is stored under.
-   */
-  insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string>
-  /**
-   * Adds many documents in one pass and reports each one's outcome.
-   *
-   * A document the engine rejects appears in `failed` with the error that
-   * rejected it, and every other document is still written, which is what
-   * makes this the call to load a corpus with.
-   *
-   * @param indexName - The index that receives the documents.
-   * @param documents - The documents to write, each carrying its own id or
-   * leaving the engine to generate one.
-   * @param options - Per-write settings applied to every document.
-   * @returns The ids written, and each rejection with its error.
-   */
-  insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult>
-  /**
-   * Removes one document.
-   *
-   * @param indexName - The index holding the document.
-   * @param docId - The document to remove.
-   * @throws A `NarsilError` with `DOC_NOT_FOUND` when the index holds no such
-   * document.
-   */
-  remove(indexName: string, docId: string): Promise<void>
-  /**
-   * Removes many documents in one pass and reports each one's outcome.
-   *
-   * @param indexName - The index holding the documents.
-   * @param docIds - The documents to remove.
-   * @returns The ids removed, and each failure with its error.
-   */
-  removeBatch(indexName: string, docIds: string[]): Promise<BatchResult>
-  /**
-   * Replaces a stored document with the one you pass.
-   *
-   * The engine removes the old document and indexes the new one, so the
-   * document you supply has to be complete rather than a set of changed
-   * fields.
-   *
-   * @param indexName - The index holding the document.
-   * @param docId - The document to replace.
-   * @param document - The complete replacement.
-   */
-  update(indexName: string, docId: string, document: AnyDocument): Promise<void>
-  /**
-   * Replaces many documents in one pass and reports each one's outcome.
-   *
-   * @param indexName - The index holding the documents.
-   * @param updates - Each id with the complete document that replaces it.
-   * @returns The ids replaced, and each failure with its error.
-   */
-  updateBatch(indexName: string, updates: Array<{ docId: string; document: AnyDocument }>): Promise<BatchResult>
   /**
    * Fetches one stored document by id, without searching.
    *

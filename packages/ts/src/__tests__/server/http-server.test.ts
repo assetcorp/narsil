@@ -1,5 +1,7 @@
+import { existsSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { QueryCoverage } from '../../types/results'
+import { resolveRequestThreadCount } from '../../workers/pool'
 import {
   del,
   getJson,
@@ -7,9 +9,11 @@ import {
   postJson,
   postRaw,
   putJson,
+  scaledOut,
   startTestServer,
   type TestServer,
   toNdjson,
+  waitFor,
 } from './helpers'
 
 const SCHEMA = { title: 'string', overview: 'string', embedding: 'vector[4]' }
@@ -275,5 +279,153 @@ describe('Narsil HTTP server', () => {
     })
     expect(result.status).toBe(200)
     expect(result.body.terms.some(t => t.term.startsWith('inter'))).toBe(true)
+  })
+})
+
+const COPY_THRESHOLD = 1_000
+const VECTOR_DIMENSION = 8
+
+function catalogue(count: number): Array<Record<string, unknown>> {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `d${i}`,
+    title: `${i % 7 === 0 ? 'alpha' : 'beta'} item ${i}`,
+    overview: `overview ${i}`,
+    embedding: Array.from({ length: VECTOR_DIMENSION }, (_, k) => Math.sin(i * (k + 1))),
+  }))
+}
+
+const CATALOGUE_CONFIG = {
+  schema: { title: 'string' as const, overview: 'string' as const, embedding: `vector[${VECTOR_DIMENSION}]` as const },
+  vectorPromotion: { threshold: 64, quantization: 'none' as const },
+}
+
+const distEntry = new URL('../../../dist/workers/entry.mjs', import.meta.url)
+const built = existsSync(distEntry)
+
+describe.skipIf(!built)('request threads answer from the copies they hold', () => {
+  let srv: TestServer
+  let documents: Array<Record<string, unknown>>
+  let mainQueries: number
+
+  beforeEach(async () => {
+    documents = catalogue(COPY_THRESHOLD + 200)
+    srv = await startTestServer(undefined, { workers: { count: 2 } }, async engine => {
+      await engine.createIndex('catalogue', CATALOGUE_CONFIG)
+      await engine.createIndex('small', CATALOGUE_CONFIG)
+      await engine.insertBatch('catalogue', documents)
+      await engine.insertBatch('small', documents.slice(0, 5))
+      mainQueries = 0
+      const query = engine.query.bind(engine)
+      engine.query = (indexName, params) => {
+        mainQueries += 1
+        return query(indexName, params)
+      }
+    })
+    await waitFor(() => scaledOut(srv.engine, 'catalogue'))
+    await srv.engine.waitForWrites('catalogue')
+  })
+
+  afterEach(async () => {
+    await srv.stop()
+  })
+
+  it('starts one request thread per worker', () => {
+    expect(srv.server.requestThreadCount).toBe(resolveRequestThreadCount(2))
+  })
+
+  it('answers a text search on a scaled-out index without the main thread, and sends a small index to it', async () => {
+    const onCopy = await postJson<{ hits: Array<{ id: string }>; count: number }>(
+      srv.base,
+      '/indexes/catalogue/search',
+      { term: 'alpha', limit: 5 },
+    )
+    expect(onCopy.status).toBe(200)
+    expect(onCopy.body.hits.length).toBe(5)
+    expect(onCopy.body.count).toBe(documents.filter(doc => String(doc.title).startsWith('alpha')).length)
+    expect(mainQueries).toBe(0)
+
+    const onMain = await postJson<{ hits: Array<{ id: string }> }>(srv.base, '/indexes/small/search', {
+      term: 'alpha',
+      limit: 5,
+    })
+    expect(onMain.status).toBe(200)
+    expect(onMain.body.hits.map(hit => hit.id)).toEqual(['d0'])
+    expect(mainQueries).toBe(1)
+  })
+
+  it('answers hybrid and vector searches from the shared vector copy with the hits the main copy gives', async () => {
+    const vector = documents[7].embedding as number[]
+    await waitFor(async () => {
+      const before = mainQueries
+      await postJson(srv.base, '/indexes/catalogue/search', {
+        mode: 'vector',
+        vector: { field: 'embedding', value: vector },
+      })
+      return mainQueries === before
+    })
+    const expected = await srv.engine.query('catalogue', {
+      mode: 'hybrid',
+      term: 'alpha',
+      vector: { field: 'embedding', value: vector },
+      limit: 5,
+    })
+    const before = mainQueries
+    const hybrid = await postJson<{ hits: Array<{ id: string; score: number }> }>(
+      srv.base,
+      '/indexes/catalogue/search',
+      { mode: 'hybrid', term: 'alpha', vector: { field: 'embedding', value: vector }, limit: 5 },
+    )
+    expect(hybrid.status).toBe(200)
+    expect(hybrid.body.hits.map(hit => hit.id)).toEqual(expected.hits.map(hit => hit.id))
+    expect(mainQueries).toBe(before)
+  })
+
+  it('makes a write visible on every copy before it returns when the write carries wait', async () => {
+    const inserted = await postJson<{ id: string }>(srv.base, '/indexes/catalogue/documents', {
+      document: { id: 'late', title: 'omega late arrival', overview: 'late', embedding: documents[1].embedding },
+      options: { wait: true },
+    })
+    expect(inserted.status).toBe(201)
+    const found = await postJson<{ hits: Array<{ id: string }> }>(srv.base, '/indexes/catalogue/search', {
+      term: 'omega',
+      limit: 5,
+    })
+    expect(found.body.hits.map(hit => hit.id)).toEqual(['late'])
+    expect(mainQueries).toBe(0)
+  })
+
+  it('applies every earlier write to the copies before waitForWrites answers', async () => {
+    for (let i = 0; i < 20; i++) {
+      await postJson(srv.base, '/indexes/catalogue/documents', {
+        document: { id: `gamma-${i}`, title: `gamma ${i}`, overview: 'x', embedding: documents[2].embedding },
+      })
+    }
+    const waited = await postJson<{ ok: boolean }>(srv.base, '/indexes/catalogue/_wait-for-writes', {})
+    expect(waited.status).toBe(200)
+    const found = await postJson<{ count: number }>(srv.base, '/indexes/catalogue/search', { term: 'gamma', limit: 1 })
+    expect(found.body.count).toBe(20)
+    expect(mainQueries).toBe(0)
+  })
+
+  it('reads, counts, lists, and checks documents on the copy', async () => {
+    const fetched = await getJson<{ document: { title: string } }>(srv.base, '/indexes/catalogue/documents/d7')
+    expect(fetched.body.document.title).toBe('alpha item 7')
+    const exists = await getJson<{ exists: boolean }>(srv.base, '/indexes/catalogue/documents/d7/_exists')
+    expect(exists.body.exists).toBe(true)
+    const count = await getJson<{ count: number }>(srv.base, '/indexes/catalogue/count')
+    expect(count.body.count).toBe(documents.length)
+    const page = await postJson<{ documents: Array<{ id: string }>; total: number }>(
+      srv.base,
+      '/indexes/catalogue/documents/_list',
+      { limit: 3 },
+    )
+    expect(page.body.total).toBe(documents.length)
+    expect(page.body.documents).toHaveLength(3)
+    const multi = await postJson<{ documents: Record<string, unknown> }>(
+      srv.base,
+      '/indexes/catalogue/documents/_multi-get',
+      { docIds: ['d1', 'd2', 'missing'] },
+    )
+    expect(Object.keys(multi.body.documents).sort()).toEqual(['d1', 'd2'])
   })
 })

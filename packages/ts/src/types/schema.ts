@@ -233,11 +233,31 @@ export interface PartitionConfig {
 export type ScoringMode = 'local' | 'dfs' | 'broadcast'
 
 /**
- * Per-write options for {@link Narsil.insert} and {@link Narsil.insertBatch}.
+ * Per-write options every write accepts.
+ *
+ * A write returns once the main copy holds it, and it reaches the worker
+ * copies afterwards, so a query that a copy answers may come back without a
+ * write that returned before it.
  *
  * @public
  */
-export interface InsertOptions {
+export interface WriteOptions {
+  /**
+   * Setting this makes the write return only once every worker copy holding
+   * the index has applied it, so the next query sees it whichever copy
+   * answers. Leave it off for a load, and call
+   * {@link DocumentWriteOperations.waitForWrites} once at the end.
+   */
+  wait?: boolean
+}
+
+/**
+ * Per-write options for {@link DocumentWriteOperations.insert} and
+ * {@link DocumentWriteOperations.insertBatch}.
+ *
+ * @public
+ */
+export interface InsertOptions extends WriteOptions {
   /**
    * Setting this stores the document object you passed instead of a copy,
    * which saves a clone on a large load. Changing that object afterwards

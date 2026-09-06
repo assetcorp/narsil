@@ -1,20 +1,28 @@
 import { createNarsil, type Narsil } from '../../narsil'
-import type { ServerOptions } from '../../server'
+import type { NarsilServer, ServerOptions } from '../../server'
 import { createServer } from '../../server'
+import type { NarsilConfig } from '../../types/config'
 
 export interface TestServer {
   engine: Narsil
+  server: NarsilServer
   base: string
   stop(): Promise<void>
 }
 
-export async function startTestServer(options?: Omit<ServerOptions, 'host' | 'port'>): Promise<TestServer> {
-  const engine = await createNarsil()
+export async function startTestServer(
+  options?: Omit<ServerOptions, 'host' | 'port'>,
+  config?: NarsilConfig,
+  prepare?: (engine: Narsil) => Promise<void>,
+): Promise<TestServer> {
+  const engine = await createNarsil(config)
+  await prepare?.(engine)
   const server = createServer(engine, { host: '127.0.0.1', port: 0, ...options })
   await server.listen()
   const base = `http://127.0.0.1:${server.listeningPort}`
   return {
     engine,
+    server,
     base,
     async stop() {
       await server.close()
@@ -87,4 +95,17 @@ export async function postRaw<T = unknown>(
 
 export function toNdjson(docs: Array<Record<string, unknown>>): string {
   return docs.map(d => JSON.stringify(d)).join('\n')
+}
+
+export async function waitFor(condition: () => Promise<boolean>, timeoutMs = 30_000): Promise<void> {
+  const start = Date.now()
+  while (!(await condition())) {
+    if (Date.now() - start > timeoutMs) throw new Error('Timed out waiting for condition')
+    await new Promise(resolve => setTimeout(resolve, 25))
+  }
+}
+
+export async function scaledOut(engine: Narsil, indexName: string): Promise<boolean> {
+  const stats = await engine.getMemoryStats()
+  return stats.workerCopies.some(copy => copy.indexName === indexName && copy.scaledOut)
 }

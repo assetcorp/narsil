@@ -1,14 +1,13 @@
-import { ErrorCodes, NarsilError } from '../../errors'
-import type { AnyDocument } from '../../types/schema'
-import type { ListParams } from '../../types/search'
 import type { HandlerDeps } from '../deps'
 import { parseJson, rejectInvalid, respondError, respondJson, serializeBatchResult } from '../handler-utils'
 import type { RouteContext } from '../request'
-import type { BatchBody, DocumentBody, InsertBody, MultiGetBody } from '../types'
-import { validateBatch, validateDocumentBody, validateList, validateMultiGet } from '../validation'
+import type { BatchBody, DocumentBody, InsertBody } from '../types'
+import { validateBatch, validateDocumentBody } from '../validation'
+import { createDocumentReadHandlers } from './document-reads'
 
 export function createDocumentHandlers(deps: HandlerDeps) {
-  const { engine, limits } = deps
+  const { engine } = deps
+  const reads = createDocumentReadHandlers(deps)
 
   async function insert(ctx: RouteContext): Promise<void> {
     const body = parseJson<InsertBody>(ctx)
@@ -26,27 +25,6 @@ export function createDocumentHandlers(deps: HandlerDeps) {
     }
   }
 
-  async function get(ctx: RouteContext): Promise<void> {
-    try {
-      const document = await engine.get(ctx.params[0], ctx.params[1])
-      if (document === undefined) {
-        respondError(ctx, indexDocNotFound(ctx.params[1]))
-        return
-      }
-      respondJson(ctx, { document })
-    } catch (err) {
-      respondError(ctx, err)
-    }
-  }
-
-  async function exists(ctx: RouteContext): Promise<void> {
-    try {
-      respondJson(ctx, { exists: await engine.has(ctx.params[0], ctx.params[1]) })
-    } catch (err) {
-      respondError(ctx, err)
-    }
-  }
-
   async function put(ctx: RouteContext): Promise<void> {
     const body = parseJson<DocumentBody>(ctx)
     if (!body) return
@@ -58,10 +36,10 @@ export function createDocumentHandlers(deps: HandlerDeps) {
     const [name, id] = ctx.params
     try {
       if (await engine.has(name, id)) {
-        await engine.update(name, id, body.document)
+        await engine.update(name, id, body.document, body.options)
         respondJson(ctx, { id, created: false })
       } else {
-        const created = await engine.insert(name, body.document, id)
+        const created = await engine.insert(name, body.document, id, body.options)
         respondJson(ctx, { id: created, created: true }, 201)
       }
     } catch (err) {
@@ -78,7 +56,7 @@ export function createDocumentHandlers(deps: HandlerDeps) {
       return
     }
     try {
-      await engine.update(ctx.params[0], ctx.params[1], body.document)
+      await engine.update(ctx.params[0], ctx.params[1], body.document, body.options)
       respondJson(ctx, { id: ctx.params[1] })
     } catch (err) {
       respondError(ctx, err)
@@ -87,49 +65,17 @@ export function createDocumentHandlers(deps: HandlerDeps) {
 
   async function remove(ctx: RouteContext): Promise<void> {
     try {
-      await engine.remove(ctx.params[0], ctx.params[1])
+      await engine.remove(ctx.params[0], ctx.params[1], { wait: ctx.query.get('wait') === 'true' })
       respondJson(ctx, { id: ctx.params[1], removed: true })
     } catch (err) {
       respondError(ctx, err)
     }
   }
 
-  async function count(ctx: RouteContext): Promise<void> {
+  async function waitForWrites(ctx: RouteContext): Promise<void> {
     try {
-      respondJson(ctx, { count: await engine.countDocuments(ctx.params[0]) })
-    } catch (err) {
-      respondError(ctx, err)
-    }
-  }
-
-  async function multiGet(ctx: RouteContext): Promise<void> {
-    const body = parseJson<MultiGetBody>(ctx)
-    if (!body) return
-    const failure = validateMultiGet(body, limits.maxFetchDocuments)
-    if (failure) {
-      rejectInvalid(ctx, failure)
-      return
-    }
-    try {
-      const found = await engine.getMultiple(ctx.params[0], body.docIds)
-      const documents: Record<string, AnyDocument> = {}
-      for (const [id, doc] of found) documents[id] = doc
-      respondJson(ctx, { documents })
-    } catch (err) {
-      respondError(ctx, err)
-    }
-  }
-
-  async function list(ctx: RouteContext): Promise<void> {
-    const params = parseJson<ListParams>(ctx)
-    if (!params) return
-    const failure = validateList(params, limits.maxFetchDocuments)
-    if (failure) {
-      rejectInvalid(ctx, failure)
-      return
-    }
-    try {
-      respondJson(ctx, await engine.listDocuments(ctx.params[0], params))
+      await engine.waitForWrites(ctx.params[0])
+      respondJson(ctx, { ok: true })
     } catch (err) {
       respondError(ctx, err)
     }
@@ -146,9 +92,12 @@ export function createDocumentHandlers(deps: HandlerDeps) {
     const action = body.action ?? 'insert'
     try {
       if (action === 'update') {
-        respondJson(ctx, serializeBatchResult(await engine.updateBatch(ctx.params[0], body.updates ?? [])))
+        respondJson(
+          ctx,
+          serializeBatchResult(await engine.updateBatch(ctx.params[0], body.updates ?? [], body.options)),
+        )
       } else if (action === 'delete') {
-        respondJson(ctx, serializeBatchResult(await engine.removeBatch(ctx.params[0], body.docIds ?? [])))
+        respondJson(ctx, serializeBatchResult(await engine.removeBatch(ctx.params[0], body.docIds ?? [], body.options)))
       } else {
         respondJson(
           ctx,
@@ -160,9 +109,5 @@ export function createDocumentHandlers(deps: HandlerDeps) {
     }
   }
 
-  return { insert, get, exists, put, patch, remove, count, list, multiGet, batch }
-}
-
-function indexDocNotFound(docId: string): NarsilError {
-  return new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found`, { docId })
+  return { ...reads, insert, put, patch, remove, batch, waitForWrites }
 }

@@ -1,13 +1,8 @@
 import { readHeapStatistics } from '#platform/heap-statistics'
-import { createPartitionIndex } from '../core/partition'
-import { isCompositePartition } from '../core/partition/composite'
-import { buildCompactedSegmentPayload } from '../core/partition/composite/compaction'
-import { createSharedFrozenSegment, freezeSegmentShared } from '../core/partition/frozen'
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
 import { sanitizeGlobalStats } from '../partitioning/distributed-scoring'
 import { fanOutQuery } from '../partitioning/fan-out'
-import { resolvePartitionInsertOptions } from '../partitioning/insert-options'
 import { createPartitionManager, type PartitionManager } from '../partitioning/manager'
 import { countsWithoutScores, fanOutMatchCount } from '../partitioning/match-count'
 import { createPartitionRouter } from '../partitioning/router'
@@ -15,19 +10,44 @@ import { extractVectorFieldsFromSchema } from '../schema/validator'
 import type { FulltextSearchOptions } from '../search/fulltext'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
-import { createVectorIndex, type VectorIndex, type VectorWorkerCopyPolicy } from '../vector/vector-index'
+import {
+  createVectorIndex,
+  type VectorIndex,
+  type VectorSearcher,
+  type VectorWorkerCopyPolicy,
+} from '../vector/vector-index'
 import type { Executor } from './executor'
 import type { WorkerAction } from './protocol'
+import { growPartitionsTo, isSegmentAction, runSegmentAction } from './segment-actions'
+import { createHeldVectorCopies, dropHeldVectorCopy, type HeldVectorCopies, loadHeldVectorCopy } from './vector-copies'
+
+/**
+ * What a query on this thread's copy of an index runs against.
+ *
+ * @internal
+ */
+export interface IndexQueryContext {
+  manager: PartitionManager
+  config: IndexConfig
+  language: LanguageModule
+  /** The frozen vector copies this thread holds for the index, one per vector field it has received. */
+  vectorSearchers: ReadonlyMap<string, VectorSearcher>
+  /** True where the main copy reported its stored analysis stale when it sent this copy. */
+  analysisStale: boolean
+}
 
 export interface DirectExecutorExtensions {
   getManager(indexName: string): PartitionManager | undefined
-  createIndex(indexName: string, config: IndexConfig, language: LanguageModule): void
+  queryContextOf(indexName: string): IndexQueryContext | undefined
+  createIndex(indexName: string, config: IndexConfig, language: LanguageModule, analysisStale?: boolean): void
   dropIndex(indexName: string): void
   listIndexes(): string[]
 }
 
 export interface DirectExecutorOptions {
   vectorWorkerCopies?: VectorWorkerCopyPolicy
+  /** This thread's scratch slot inside every frozen vector copy it receives. */
+  scratchSlot?: number
 }
 
 interface IndexEntry {
@@ -36,19 +56,16 @@ interface IndexEntry {
   language: LanguageModule
   searchOptions: FulltextSearchOptions
   vectorIndexes: Map<string, VectorIndex>
+  vectorCopies: HeldVectorCopies
+  analysisStale: boolean
 }
 
 const NO_VECTOR_WORKER_COPIES: VectorWorkerCopyPolicy = { enabled: false }
 
-function growPartitionsTo(manager: PartitionManager, partitionId: number): void {
-  while (manager.partitionCount <= partitionId) {
-    manager.addPartition()
-  }
-}
-
 export function createDirectExecutor(options?: DirectExecutorOptions): Executor & DirectExecutorExtensions {
   const indexes = new Map<string, IndexEntry>()
   const vectorWorkerCopies = options?.vectorWorkerCopies ?? NO_VECTOR_WORKER_COPIES
+  const scratchSlot = options?.scratchSlot ?? 0
 
   function requireIndex(indexName: string): IndexEntry {
     const entry = indexes.get(indexName)
@@ -60,7 +77,18 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
     return entry
   }
 
-  function createIndex(indexName: string, config: IndexConfig, language: LanguageModule): void {
+  function vectorIndexesFor(indexName: string, config: IndexConfig): Map<string, VectorIndex> {
+    const vectorIndexes = new Map<string, VectorIndex>()
+    for (const [fieldPath, dim] of extractVectorFieldsFromSchema(config.schema)) {
+      vectorIndexes.set(
+        fieldPath,
+        createVectorIndex(fieldPath, dim, config.vectorPromotion, vectorWorkerCopies, indexName),
+      )
+    }
+    return vectorIndexes
+  }
+
+  function createIndex(indexName: string, config: IndexConfig, language: LanguageModule, analysisStale = false): void {
     if (indexes.has(indexName)) {
       throw new NarsilError(ErrorCodes.INDEX_ALREADY_EXISTS, `Index "${indexName}" already exists`, {
         indexName,
@@ -69,13 +97,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
 
     const router = createPartitionRouter()
     const partitionCount = config.partitions?.maxPartitions ?? 1
-
-    const vectorFields = extractVectorFieldsFromSchema(config.schema)
-    const vectorIndexes = new Map<string, VectorIndex>()
-    for (const [fieldPath, dim] of vectorFields) {
-      vectorIndexes.set(fieldPath, createVectorIndex(fieldPath, dim, config.vectorPromotion, vectorWorkerCopies))
-    }
-
+    const vectorIndexes = vectorIndexesFor(indexName, config)
     const manager = createPartitionManager(indexName, config, language, router, partitionCount, vectorIndexes)
 
     indexes.set(indexName, {
@@ -88,6 +110,8 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
         customTokenizer: manager.analysis.customTokenizer,
       },
       vectorIndexes,
+      vectorCopies: createHeldVectorCopies(),
+      analysisStale,
     })
   }
 
@@ -110,7 +134,22 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
     return indexes.get(indexName)?.manager
   }
 
+  function queryContextOf(indexName: string): IndexQueryContext | undefined {
+    const entry = indexes.get(indexName)
+    if (entry === undefined) return undefined
+    return {
+      manager: entry.manager,
+      config: entry.config,
+      language: entry.language,
+      vectorSearchers: entry.vectorCopies.searchers,
+      analysisStale: entry.analysisStale,
+    }
+  }
+
   async function execute<T>(action: WorkerAction): Promise<T> {
+    if (isSegmentAction(action)) {
+      return runSegmentAction(requireIndex(action.indexName), action) as T
+    }
     switch (action.type) {
       case 'bootstrap': {
         throw new NarsilError(
@@ -120,9 +159,17 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
         )
       }
 
+      case 'serveRequests':
+      case 'stopServing': {
+        throw new NarsilError(
+          ErrorCodes.CONFIG_INVALID,
+          'Only a worker thread serves requests, and the thread that owns this executor receives them itself',
+        )
+      }
+
       case 'createIndex': {
         const language = getLanguage(action.config.language ?? 'english')
-        createIndex(action.indexName, action.config, language)
+        createIndex(action.indexName, action.config, language, action.analysisStale ?? false)
         return undefined as T
       }
 
@@ -131,89 +178,21 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
         return undefined as T
       }
 
+      case 'loadVectorCopy': {
+        const entry = requireIndex(action.indexName)
+        loadHeldVectorCopy(entry.vectorCopies, entry.manager, action.fieldName, action.handle, action.copy, scratchSlot)
+        return undefined as T
+      }
+
+      case 'dropVectorCopy': {
+        const entry = indexes.get(action.indexName)
+        if (entry !== undefined) dropHeldVectorCopy(entry.vectorCopies, action.fieldName, action.handle)
+        return undefined as T
+      }
+
       case 'insert': {
         const entry = requireIndex(action.indexName)
         entry.manager.insert(action.docId, action.document, action.skipClone ? { skipClone: true } : undefined)
-        return undefined as T
-      }
-
-      case 'buildSegment': {
-        const entry = requireIndex(action.indexName)
-        const segment = createPartitionIndex(0, entry.config.trackPositions ?? true)
-        const options = resolvePartitionInsertOptions(entry.config, entry.manager.analysis, action.options)
-        segment.beginBatch()
-        for (const doc of action.documents) {
-          segment.insert(doc.docId, doc.document, entry.config.schema, entry.language, options)
-        }
-        segment.endBatch()
-        return segment.encodeSegment() as T
-      }
-
-      case 'mergeSegments': {
-        const entry = requireIndex(action.indexName)
-        for (const segment of action.segments) {
-          if (segment.payload.docIds.some(docId => entry.manager.has(docId))) {
-            console.warn(
-              `Skipping replicated segment for index "${action.indexName}": its documents already exist on this copy`,
-            )
-            continue
-          }
-          entry.manager.mergeSegment(segment.partitionId, segment.payload, segment.documents)
-        }
-        return undefined as T
-      }
-
-      case 'attachSegments': {
-        const entry = requireIndex(action.indexName)
-        for (const segment of action.segments) {
-          growPartitionsTo(entry.manager, segment.partitionId)
-          const frozen = createSharedFrozenSegment(segment.snapshot)
-          for (const docId of segment.tombstonedDocIds ?? []) frozen.tombstoneDocument(docId)
-          entry.manager.attachFrozenSegment(segment.partitionId, frozen)
-        }
-        return undefined as T
-      }
-
-      case 'compactSegments': {
-        const entry = requireIndex(action.indexName)
-        const partition = entry.manager.getPartition(action.partitionId)
-        if (!isCompositePartition(partition)) {
-          throw new NarsilError(
-            ErrorCodes.PARTITION_CORRUPTED,
-            `Partition ${action.partitionId} of "${action.indexName}" holds no frozen segments to compact`,
-            { indexName: action.indexName, partitionId: action.partitionId },
-          )
-        }
-        const segments = partition.frozenSegmentsById(action.segmentIds)
-        const { payload, documents } = buildCompactedSegmentPayload(segments)
-        return freezeSegmentShared(payload, documents) as T
-      }
-
-      case 'swapSegments': {
-        const entry = requireIndex(action.indexName)
-        const partition = entry.manager.getPartition(action.partitionId)
-        if (!isCompositePartition(partition)) {
-          throw new NarsilError(
-            ErrorCodes.PARTITION_CORRUPTED,
-            `Partition ${action.partitionId} of "${action.indexName}" holds no frozen segments to swap`,
-            { indexName: action.indexName, partitionId: action.partitionId },
-          )
-        }
-        partition.swapFrozenSegments(action.dropSegmentIds, createSharedFrozenSegment(action.snapshot))
-        return undefined as T
-      }
-
-      case 'freezeLiveTail': {
-        const entry = requireIndex(action.indexName)
-        growPartitionsTo(entry.manager, action.partitionId)
-        const tail = entry.manager.getPartition(action.partitionId)
-        const held = isCompositePartition(tail) ? tail.live.count() : tail.count()
-        if (held !== action.snapshot.documentCount) {
-          console.warn(
-            `Partition ${action.partitionId} of "${action.indexName}" held ${held} live documents where the frozen tail holds ${action.snapshot.documentCount}`,
-          )
-        }
-        entry.manager.replaceLiveTail(action.partitionId, createSharedFrozenSegment(action.snapshot))
         return undefined as T
       }
 
@@ -297,17 +276,9 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
           partition.clear()
         }
         entry.manager.setPartitions(partitions)
-
-        const vectorFields = extractVectorFieldsFromSchema(entry.config.schema)
-        const newVectorIndexes = new Map<string, VectorIndex>()
-        for (const [fieldPath, dim] of vectorFields) {
-          newVectorIndexes.set(
-            fieldPath,
-            createVectorIndex(fieldPath, dim, entry.config.vectorPromotion, vectorWorkerCopies),
-          )
-        }
-        entry.manager.resetVectorIndexes(newVectorIndexes)
+        entry.manager.resetVectorIndexes(vectorIndexesFor(action.indexName, entry.config))
         entry.vectorIndexes = entry.manager.getVectorIndexes()
+        entry.vectorCopies = createHeldVectorCopies()
 
         return undefined as T
       }
@@ -349,6 +320,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
     execute,
     shutdown,
     getManager,
+    queryContextOf,
     createIndex,
     dropIndex,
     listIndexes,

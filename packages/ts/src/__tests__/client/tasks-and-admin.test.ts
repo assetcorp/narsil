@@ -146,9 +146,10 @@ describe('client task and maintenance routes', () => {
     expect(await client.capabilities()).toContain(ASYNC_IMPORT_CAPABILITY)
   })
 
-  it('reports the memory figures the server holds', async () => {
+  it('reports the memory figures the server holds, one entry per request thread', async () => {
     const stats = await client.getMemoryStats()
     expect(stats.estimatedIndexBytes).toBeGreaterThanOrEqual(0)
-    expect(stats.workers).toEqual([])
+    expect(stats.workers).toHaveLength(server.server.requestThreadCount)
+    for (const worker of stats.workers) expect(worker.heapUsed).toBeGreaterThan(0)
   })
 })

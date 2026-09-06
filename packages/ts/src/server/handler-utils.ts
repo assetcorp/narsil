@@ -1,9 +1,8 @@
-import type { HttpResponse } from 'uWebSockets.js'
 import { NarsilError } from '../errors'
 import type { BatchResult } from '../types/results'
 import { ServerErrorCodes, serializeNarsilError, toHttpError } from './errors'
 import type { RouteContext } from './request'
-import { sendError, sendJson } from './response'
+import { type ResponseSink, sendError, sendJson } from './response'
 import type { ValidationFailure } from './validation'
 
 /** Parses a required JSON body. Sends 400 and returns undefined when the body is
@@ -47,7 +46,7 @@ export function respondJson(ctx: RouteContext, data: unknown, status = 200): voi
   sendJson(ctx.res, data, status, ctx.abort)
 }
 
-export function badRequest(res: HttpResponse, message: string, details?: Record<string, unknown>): void {
+export function badRequest(res: ResponseSink, message: string, details?: Record<string, unknown>): void {
   sendError(res, 400, ServerErrorCodes.INVALID_REQUEST, message, details)
 }
 

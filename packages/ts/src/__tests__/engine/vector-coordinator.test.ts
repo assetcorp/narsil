@@ -67,6 +67,7 @@ function createMockVectorIndex(
     search() {
       return []
     },
+    refreshWorkerCopies() {},
     compact() {},
     async optimize() {},
     maintenanceStatus() {
