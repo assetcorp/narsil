@@ -40,9 +40,9 @@ export function refreshWorkerCopies(state: VectorIndexState): void {
   scheduleWorkerCopyLoad(state)
 }
 
-async function loadHostedCopy(state: VectorIndexState, host: SharedCopyHost): Promise<void> {
+async function loadHostedCopy(state: VectorIndexState, host: SharedCopyHost): Promise<boolean> {
   const revision = state.revision
-  if (!host.holdsIndex(state.indexName)) return
+  if (!host.holdsIndex(state.indexName)) return false
   if (!state.store.partitionsKnown) {
     assignStorePartitions(state, docId => host.resolvePartition(state.indexName, docId))
   }
@@ -56,7 +56,7 @@ async function loadHostedCopy(state: VectorIndexState, host: SharedCopyHost): Pr
     },
     host.scratchSlotCount,
   )
-  if (shared === null) return
+  if (shared === null) return false
   const docIds = buildSharedDocIdTable(state.store, state.store.slots)
 
   handleCounter += 1
@@ -80,6 +80,7 @@ async function loadHostedCopy(state: VectorIndexState, host: SharedCopyHost): Pr
     state.workerCopyRevision = -1
     state.workerCopyMode = null
   }
+  return !state.disposed && state.revision !== revision
 }
 
 function captureCloneSnapshot(state: VectorIndexState): WorkerCopySnapshot | null {
@@ -103,10 +104,16 @@ export function scheduleWorkerCopyLoad(state: VectorIndexState): void {
   if (host === undefined && liveSize(state) < WORKER_COPY_MIN_VECTORS) return
 
   state.workerCopyLoading = true
-  const loading = host === undefined ? loadWorkerCopies(state) : loadHostedCopy(state, host)
-  void loading.finally(() => {
-    state.workerCopyLoading = false
-  })
+  const loading = host === undefined ? loadWorkerCopies(state).then(() => false) : loadHostedCopy(state, host)
+  void loading.then(
+    superseded => {
+      state.workerCopyLoading = false
+      if (superseded) scheduleWorkerCopyLoad(state)
+    },
+    () => {
+      state.workerCopyLoading = false
+    },
+  )
 }
 
 async function loadWorkerCopies(state: VectorIndexState): Promise<void> {

@@ -342,6 +342,7 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
     requireIndex,
     requireManager,
     bufferIfRebalancing,
+    awaitRebalanceReplay: indexName => waqMap.get(indexName)?.whenReplayed() ?? Promise.resolve(),
     isRebalancing: indexName => rebalancingIndexes.has(indexName),
     pendingRebalanceWrites: indexName => waqMap.get(indexName)?.size ?? 0,
     rebalanceTargetPartitionCount: indexName => rebalanceTargets.get(indexName),

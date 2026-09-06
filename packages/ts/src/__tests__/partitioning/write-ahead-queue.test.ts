@@ -21,6 +21,22 @@ describe('WriteAheadQueue', () => {
     expect(waq.size).toBe(0)
   })
 
+  it('settles its replay promise once the rebalance marks it replayed', async () => {
+    const waq = createWriteAheadQueue(10)
+    let replayed = false
+    void waq.whenReplayed().then(() => {
+      replayed = true
+    })
+
+    waq.push({ action: 'insert', docId: 'doc-1', indexName: 'test' })
+    await Promise.resolve()
+    expect(replayed).toBe(false)
+
+    waq.markReplayed()
+    await waq.whenReplayed()
+    expect(replayed).toBe(true)
+  })
+
   it('throws PARTITION_REBALANCING_BACKPRESSURE when full', () => {
     const waq = createWriteAheadQueue(3)
 

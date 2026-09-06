@@ -6,6 +6,7 @@ import { insertDocumentVectors, prepareDocumentVectors, validateVectorDimensions
 import type { MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
 import { admitInsert, providedDocId } from './insert-admission'
+import { awaitWriteVisibility } from './write-visibility'
 
 export async function insertDocument(
   ctx: MutationContext,
@@ -108,6 +109,7 @@ export async function insertDocument(
   if (buffered) {
     ctx.checkWatermark(indexName)
     ctx.checkHeapPressure(indexName)
+    if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
     return resolvedDocId
   }
 
@@ -136,7 +138,7 @@ export async function insertDocument(
   ctx.checkWatermark(indexName)
   ctx.checkHeapPressure(indexName)
   await ctx.orchestrator.scaleOutReadyIndexes()
-  if (options?.wait === true) await ctx.orchestrator.awaitWrites(indexName)
+  if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 
   return resolvedDocId
 }

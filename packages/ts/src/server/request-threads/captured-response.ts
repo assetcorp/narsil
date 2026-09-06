@@ -55,11 +55,11 @@ export function createCapturingResponse(remoteAddress: string): CapturingRespons
       return sink
     },
     writeStatus(line) {
-      status = statusOf(line)
+      if (!finished) status = statusOf(line)
       return sink
     },
     writeHeader(key, value) {
-      headers.push([key, value])
+      if (!finished) headers.push([key, value])
       return sink
     },
     end(body) {

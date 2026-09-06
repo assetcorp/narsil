@@ -6,6 +6,7 @@ import { validateDocId } from '../validation'
 import { removeDocumentVectors } from '../vector-coordinator'
 import type { MutationContext } from './context'
 import { rollbackRemovedDocument } from './durable-rollback'
+import { awaitWriteVisibility } from './write-visibility'
 
 export async function removeDocument(
   ctx: MutationContext,
@@ -58,6 +59,7 @@ export async function removeDocument(
   }
 
   if (buffered) {
+    if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
     return
   }
 
@@ -73,7 +75,7 @@ export async function removeDocument(
     docId,
     requestId: `replicate-remove-${docId}`,
   })
-  if (options?.wait === true) await ctx.orchestrator.awaitWrites(indexName)
+  if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 }
 
 export async function removeDocumentBatch(
@@ -113,7 +115,7 @@ export async function removeDocumentBatch(
   } finally {
     manager.endBatchRemove()
   }
-  if (options?.wait === true) await ctx.orchestrator.awaitWrites(indexName)
+  if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 
   return { succeeded, failed }
 }

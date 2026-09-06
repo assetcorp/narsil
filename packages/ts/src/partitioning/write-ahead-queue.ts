@@ -17,6 +17,8 @@ export interface WriteAheadQueue {
   drain(): WAQEntry[]
   clear(): void
   bufferedDocState(docId: string): BufferedDocState | undefined
+  whenReplayed(): Promise<void>
+  markReplayed(): void
   readonly size: number
   readonly isFull: boolean
 }
@@ -25,6 +27,10 @@ export function createWriteAheadQueue(maxSize = DEFAULT_WRITE_AHEAD_QUEUE_MAX_SI
   const entries: WAQEntry[] = []
   const docStates = new Map<string, BufferedDocState>()
   let nextSequence = 1
+  let resolveReplayed: () => void = () => undefined
+  const replayed = new Promise<void>(resolve => {
+    resolveReplayed = resolve
+  })
 
   return {
     push(entry: Omit<WAQEntry, 'sequenceNumber'>): number {
@@ -54,6 +60,14 @@ export function createWriteAheadQueue(maxSize = DEFAULT_WRITE_AHEAD_QUEUE_MAX_SI
 
     bufferedDocState(docId: string): BufferedDocState | undefined {
       return docStates.get(docId)
+    },
+
+    whenReplayed(): Promise<void> {
+      return replayed
+    },
+
+    markReplayed(): void {
+      resolveReplayed()
     },
 
     get size() {

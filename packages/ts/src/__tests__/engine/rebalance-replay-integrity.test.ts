@@ -45,6 +45,21 @@ describe('rebalance replay integrity', () => {
     expect((await narsil.query('products', { term: 'subject' })).count).toBe(2)
   })
 
+  it('returns a waiting write only once the rebalance has replayed it', async () => {
+    await narsil.createIndex('products', indexConfig)
+    await narsil.insertBatch('products', seedDocs(2500))
+
+    const rebalance = narsil.rebalance('products', 2)
+    await narsil.insert('products', { id: 'waited', title: 'waited subject', category: 'during' }, undefined, {
+      wait: true,
+    })
+
+    expect(await narsil.get('products', 'waited')).toBeDefined()
+    expect((await narsil.query('products', { term: 'waited' })).count).toBe(1)
+    await rebalance
+    expect(await narsil.countDocuments('products')).toBe(2501)
+  })
+
   it('keeps writes admitted during a rebalance that lowers the partition count', async () => {
     await narsil.createIndex('bounded', {
       schema,

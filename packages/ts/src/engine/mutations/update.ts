@@ -12,6 +12,7 @@ import {
 } from '../vector-coordinator'
 import type { MutationContext } from './context'
 import { rollbackUpdatedDocument } from './durable-rollback'
+import { awaitWriteVisibility } from './write-visibility'
 
 function extractVectorFromDocForUpdate(document: Record<string, unknown>, fieldPath: string): Float32Array | null {
   return extractVectorFromDoc(document, fieldPath)
@@ -150,6 +151,7 @@ export async function updateDocument(
 
   if (buffered) {
     ctx.checkHeapPressure(indexName)
+    if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
     return
   }
 
@@ -181,7 +183,7 @@ export async function updateDocument(
   }
 
   ctx.checkHeapPressure(indexName)
-  if (options?.wait === true) await ctx.orchestrator.awaitWrites(indexName)
+  if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 }
 
 export async function updateDocumentBatch(
@@ -235,7 +237,7 @@ export async function updateDocumentBatch(
       vecIndex.scheduleBuild()
     }
   }
-  if (options?.wait === true) await ctx.orchestrator.awaitWrites(indexName)
+  if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 
   return { succeeded, failed }
 }

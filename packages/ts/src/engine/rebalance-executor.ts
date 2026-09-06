@@ -277,6 +277,7 @@ export async function executeRebalance(
     ctx.rebalancingIndexes.delete(indexName)
     ctx.rebalanceTargets.delete(indexName)
     ctx.waqMap.delete(indexName)
+    waq.markReplayed()
   }
 
   ctx.checkWatermark(indexName)
