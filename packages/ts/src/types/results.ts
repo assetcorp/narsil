@@ -267,7 +267,7 @@ export interface VectorMaintenanceResult {
   fieldName: string
   /** Tombstones make up this share of the graph's nodes, from 0 to 1. */
   tombstoneRatio: number
-  /** The field's HNSW graph holds this many vectors. */
+  /** The field holds this many HNSW graphs: 0 before the first build and 1 once a graph exists. */
   graphCount: number
   /** This many vectors wait outside the graph, which a search scans one by one. */
   bufferSize: number
