@@ -1,6 +1,7 @@
 import type { HttpRequest, HttpResponse } from 'uWebSockets.js'
+import type { RequestGate } from './concurrency-gate'
 import { ServerErrorCodes } from './errors'
-import { sendError } from './response'
+import { type ResponseSink, sendError } from './response'
 import type { OnRequestHook, RequestContext, RequestDenial } from './types'
 
 export interface ResponseAbort {
@@ -13,7 +14,7 @@ export interface ResponseAbort {
  * the top of a handler: once the handler awaits, `res` is only safe to touch if
  * `onAborted` was already attached, otherwise uWebSockets.js throws on write.
  */
-export function initAbortHandler(res: HttpResponse): ResponseAbort {
+export function initAbortHandler(res: ResponseSink): ResponseAbort {
   const listeners: Array<() => void> = []
   let aborted = false
   res.onAborted(() => {
@@ -33,7 +34,7 @@ export function initAbortHandler(res: HttpResponse): ResponseAbort {
 
 /** Buffers the request body, enforcing a byte ceiling. Exceeding the cap sends
  * 413 and rejects, so a single oversized body cannot grow unbounded in memory. */
-export function readBody(res: HttpResponse, maxBytes: number, abort: ResponseAbort): Promise<Buffer> {
+export function readBody(res: ResponseSink, maxBytes: number, abort: ResponseAbort): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     if (abort.aborted) {
       reject(new Error('aborted'))
@@ -68,12 +69,14 @@ export function readBody(res: HttpResponse, maxBytes: number, abort: ResponseAbo
 }
 
 export interface RouteContext {
-  res: HttpResponse
+  res: ResponseSink
   params: string[]
   query: URLSearchParams
   contentType: string
   rawBody: Buffer | null
   abort: ResponseAbort
+  /** The request's method, path, headers, and peer address, captured where an admission hook runs. */
+  hookContext: RequestContext | null
 }
 
 export type RouteHandler = (ctx: RouteContext) => Promise<void> | void
@@ -87,21 +90,6 @@ export interface RouteOptions {
   skipHooks?: boolean
 }
 
-class ConcurrencyGate {
-  private inFlight = 0
-  constructor(private readonly max: number) {}
-  tryAcquire(): boolean {
-    if (this.max <= 0) return true
-    if (this.inFlight >= this.max) return false
-    this.inFlight++
-    return true
-  }
-  release(): void {
-    if (this.max <= 0) return
-    if (this.inFlight > 0) this.inFlight--
-  }
-}
-
 function decodePathParameter(raw: string): string | null {
   if (!raw.includes('%')) return raw
   try {
@@ -111,9 +99,18 @@ function decodePathParameter(raw: string): string | null {
   }
 }
 
+/**
+ * Decides whether a request may proceed, from its captured context.
+ *
+ * @internal
+ */
+export type Authorizer = (context: RequestContext) => Promise<Authorization>
+
+export type Authorization = { allowed: true } | { allowed: false; denial: RequestDenial | null }
+
 export interface RunnerDeps {
-  onRequest?: OnRequestHook
-  maxConcurrentRequests: number
+  authorize?: Authorizer
+  gate: RequestGate
   writeCors?: (res: HttpResponse, req: HttpRequest) => void
 }
 
@@ -121,18 +118,35 @@ function isDenial(value: unknown): value is RequestDenial {
   return typeof value === 'object' && value !== null && 'status' in value
 }
 
-async function runHook(res: HttpResponse, ctx: RequestContext, hook: OnRequestHook): Promise<boolean> {
-  try {
-    const result = await hook(ctx)
-    if (isDenial(result)) {
-      sendError(res, result.status, result.code, result.message)
-      return false
+/**
+ * Turns the server's admission hook into an authoriser, catching whatever
+ * the hook throws so that a broken hook denies the request and the server
+ * answers with a hook error.
+ *
+ * @param hook The hook the server was created with.
+ * @returns The authoriser the route runner consults per request.
+ *
+ * @internal
+ */
+export function authorizerFor(hook: OnRequestHook): Authorizer {
+  return async context => {
+    try {
+      const result = await hook(context)
+      if (isDenial(result)) return { allowed: false, denial: result }
+      return { allowed: true }
+    } catch {
+      return { allowed: false, denial: null }
     }
-    return true
-  } catch {
-    sendError(res, 500, ServerErrorCodes.HOOK_ERROR, 'The onRequest hook threw an error')
-    return false
   }
+}
+
+function sendDenial(res: ResponseSink, authorization: Authorization): void {
+  if (authorization.allowed) return
+  if (authorization.denial === null) {
+    sendError(res, 500, ServerErrorCodes.HOOK_ERROR, 'The onRequest hook threw an error')
+    return
+  }
+  sendError(res, authorization.denial.status, authorization.denial.code, authorization.denial.message)
 }
 
 /**
@@ -142,13 +156,12 @@ async function runHook(res: HttpResponse, ctx: RequestContext, hook: OnRequestHo
  * sheds load past the concurrency cap, and turns any thrown value into a 500.
  */
 export function createRouteRunner(deps: RunnerDeps) {
-  const gate = new ConcurrencyGate(deps.maxConcurrentRequests)
-  const { onRequest, writeCors } = deps
+  const { authorize, gate, writeCors } = deps
 
   return (handler: RouteHandler, opts: RouteOptions) => {
     const paramCount = opts.paramCount ?? 0
     const needsBody = opts.needsBody ?? false
-    const useHook = Boolean(onRequest) && !opts.skipHooks
+    const useHook = authorize !== undefined && !opts.skipHooks
     const gated = !opts.skipHooks
 
     return (res: HttpResponse, req: HttpRequest): void => {
@@ -165,13 +178,13 @@ export function createRouteRunner(deps: RunnerDeps) {
       const query = new URLSearchParams(req.getQuery() ?? '')
       const contentType = req.getHeader('content-type')
 
-      let hookCtx: RequestContext | null = null
+      let hookContext: RequestContext | null = null
       if (useHook) {
         const headers: Record<string, string> = {}
         req.forEach((key, value) => {
           headers[key] = value
         })
-        hookCtx = {
+        hookContext = {
           method: req.getMethod(),
           path: req.getUrl(),
           headers,
@@ -193,17 +206,22 @@ export function createRouteRunner(deps: RunnerDeps) {
         return
       }
       const bodyPromise = needsBody ? readBody(res, opts.maxBytes, abort) : Promise.resolve<Buffer | null>(null)
-      const hookPromise = hookCtx && onRequest ? runHook(res, hookCtx, onRequest) : Promise.resolve(true)
+      const hookPromise: Promise<Authorization> =
+        hookContext !== null && authorize !== undefined ? authorize(hookContext) : Promise.resolve({ allowed: true })
 
       Promise.all([bodyPromise, hookPromise])
-        .then(async ([rawBody, allowed]) => {
-          if (abort.aborted || !allowed) return
+        .then(async ([rawBody, authorization]) => {
+          if (abort.aborted) return
+          if (!authorization.allowed) {
+            sendDenial(res, authorization)
+            return
+          }
           if (gated && !gate.tryAcquire()) {
             sendError(res, 429, ServerErrorCodes.TOO_MANY_REQUESTS, 'The server is at capacity; retry shortly')
             return
           }
           try {
-            await handler({ res, params, query, contentType, rawBody, abort })
+            await handler({ res, params, query, contentType, rawBody, abort, hookContext })
           } catch (err) {
             if (!abort.aborted) {
               sendError(res, 500, ServerErrorCodes.INTERNAL_ERROR, 'An unexpected error occurred')

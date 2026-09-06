@@ -129,6 +129,19 @@ export interface DurabilityConfig {
 }
 
 /**
+ * Which queries the main copy of an index answers once the index holds worker
+ * copies. Under `lone`, the main copy answers a query the engine receives
+ * while no copy holds one, on an index of at most 50,000 documents. Once
+ * every copy is busy, it also answers one query per turn of the event loop.
+ * Under `none`, every query on an index that holds copies goes to one of
+ * them, while the main copy still answers a query on an index whose copies
+ * are loading.
+ *
+ * @public
+ */
+export type MainCopyQueries = 'lone' | 'none'
+
+/**
  * How the engine holds worker copies of its indexes, and how many threads
  * they may use.
  *
@@ -148,8 +161,9 @@ export interface WorkerConfig {
   enabled?: boolean
   /**
    * The keyword copies and the vector search pool share this many threads
-   * between them, half each. The engine takes the host's cores minus one by
-   * default, between 2 and 8.
+   * between them, half each, in an embedded engine. The HTTP server holds a
+   * copy on every one of them and receives requests there. The engine takes
+   * the host's cores minus one by default, between 2 and 8.
    */
   count?: number
   /** An index gains worker copies once it holds this many documents, 1,000 by default. */
@@ -162,6 +176,14 @@ export interface WorkerConfig {
    * smaller of five minutes and that interval.
    */
   idleTimeoutMs?: number
+  /**
+   * Which queries the main copy answers, `lone` by default. Set `none` where
+   * the main thread also serves the host's own work, such as HTTP requests,
+   * because a query answered on the main copy then delays every other request
+   * waiting on that thread. A server created with `createServer` sets `none` on
+   * an engine that leaves this unset.
+   */
+  mainCopyQueries?: MainCopyQueries
   /** Each worker imports this module on start-up, which is how a worker reaches a custom tokeniser or language. */
   bootstrapModule?: string
 }

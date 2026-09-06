@@ -89,14 +89,24 @@ async function sendPartition(indexName: string, executors: Executor[], captured:
  * @param pool - The worker pool that receives the copies.
  * @param config - The index configuration each worker creates the index from.
  * @param manager - The main copy to read.
+ * @param analysisStale - Whether the main copy's stored analysis is stale, so
+ * that each copy reports the same on its results.
  */
 export async function transferIndexToPool(
   indexName: string,
   pool: WorkerPool,
   config: IndexConfig,
   manager: PartitionManager,
+  analysisStale = false,
 ): Promise<void> {
-  await loadIndexOntoWorkers(indexName, pool.getAllExecutors(), config, manager, () => pool.addIndexToAll(indexName))
+  await loadIndexOntoWorkers(
+    indexName,
+    pool.getAllExecutors(),
+    config,
+    manager,
+    () => pool.addIndexToAll(indexName),
+    analysisStale,
+  )
 }
 
 /**
@@ -109,6 +119,8 @@ export async function transferIndexToPool(
  * @param config - The index configuration each worker creates the index from.
  * @param manager - The main copy to read.
  * @param onDropped - Runs once every worker has dropped its old copy, before the new one loads.
+ * @param analysisStale - Whether the main copy's stored analysis is stale, so
+ * that each copy reports the same on its results.
  */
 export async function loadIndexOntoWorkers(
   indexName: string,
@@ -116,6 +128,7 @@ export async function loadIndexOntoWorkers(
   config: IndexConfig,
   manager: PartitionManager,
   onDropped?: () => void,
+  analysisStale = false,
 ): Promise<void> {
   const captured = capturePartitions(manager)
   await Promise.allSettled(
@@ -131,6 +144,7 @@ export async function loadIndexOntoWorkers(
         indexName,
         config,
         requestId: `resync-create-${indexName}`,
+        analysisStale,
       }),
     ),
   )

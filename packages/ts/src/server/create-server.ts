@@ -2,6 +2,14 @@ import type { TemplatedApp, us_listen_socket, us_socket } from 'uWebSockets.js'
 import { randomUUID } from 'node:crypto'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { Narsil } from '../narsil'
+import { engineCoreOf } from '../narsil/internals'
+import { detectRuntime } from '../runtime/detect'
+import {
+  createSharedGateBuffer,
+  createSharedRequestGate,
+  gateSlotOfWorker,
+  MAIN_THREAD_GATE_SLOT,
+} from './concurrency-gate'
 import {
   DEFAULT_IMPORT_BATCH_SIZE,
   DEFAULT_MAX_BODY_BYTES,
@@ -14,9 +22,8 @@ import {
   DEFAULT_MAX_RESULT_WINDOW,
   DEFAULT_MAX_TASK_PAGE_SIZE,
 } from './constants'
-import { corsWriter, resolveCors, writeCorsOrigin } from './cors'
+import { corsWriter, resolveCors } from './cors'
 import type { HandlerDeps, ResolvedBuild, ResolvedLimits } from './deps'
-import { ServerErrorCodes } from './errors'
 import { createAdminHandlers } from './handlers/admin'
 import { createCapabilitiesHandler } from './handlers/capabilities'
 import { createClusterHandlers } from './handlers/cluster'
@@ -26,8 +33,9 @@ import { createImportHandler } from './handlers/import'
 import { createIndexHandlers } from './handlers/indexes'
 import { createSearchHandlers } from './handlers/search'
 import { createVersionHandler } from './handlers/version'
-import { createRouteRunner, type RouteHandler, type RouteOptions } from './request'
-import { sendError } from './response'
+import { authorizerFor, createRouteRunner } from './request'
+import { type RequestThreadHost, startRequestThreads } from './request-threads/host'
+import { registerServerRoutes, type ServerHandlers } from './routes'
 import { loadUWebSockets, type UWebSockets } from './runtime'
 import { InMemoryTaskStore } from './task-store'
 import { TaskRegistry } from './tasks'
@@ -69,22 +77,82 @@ function assertSecureBinding(host: string, options: ServerOptions): void {
   )
 }
 
+function mainThreadHandlers(deps: HandlerDeps): ServerHandlers {
+  const idx = createIndexHandlers(deps)
+  const doc = createDocumentHandlers(deps)
+  const search = createSearchHandlers(deps)
+  const admin = createAdminHandlers(deps)
+  const health = createHealthHandlers(deps)
+  const cluster = createClusterHandlers(deps)
+  const version = createVersionHandler(deps)
+  const capabilities = createCapabilitiesHandler()
+
+  return {
+    livez: health.livez,
+    readyz: health.readyz,
+    version: version.report,
+    capabilities: capabilities.report,
+    clusterTopology: cluster.topology,
+    clusterAllocation: cluster.allocation,
+    memory: admin.memory,
+    listTasks: admin.listTasks,
+    getTask: admin.getTask,
+    cancelTask: admin.cancelTask,
+    createIndex: idx.create,
+    listIndexes: idx.list,
+    dropIndex: idx.drop,
+    indexStats: idx.stats,
+    indexPartitions: idx.partitions,
+    clearIndex: idx.clear,
+    openIndex: idx.open,
+    closeIndex: idx.close,
+    insert: doc.insert,
+    batch: doc.batch,
+    importNdjson: createImportHandler(deps),
+    put: doc.put,
+    patch: doc.patch,
+    remove: doc.remove,
+    waitForWrites: doc.waitForWrites,
+    search: search.search,
+    preflight: search.preflight,
+    suggest: search.suggest,
+    get: doc.get,
+    exists: doc.exists,
+    count: doc.count,
+    list: doc.list,
+    multiGet: doc.multiGet,
+    checkpoint: admin.checkpoint,
+    rebuildAnalysis: admin.rebuildAnalysis,
+    snapshot: admin.snapshot,
+    vectorMaintenance: admin.vectorMaintenance,
+    compact: admin.compact,
+    optimize: admin.optimize,
+    rebalance: admin.rebalance,
+    partitionConfig: admin.partitionConfig,
+    restore: admin.restore,
+  }
+}
+
 class NarsilHttpServer implements NarsilServer {
   private readonly host: string
   private readonly port: number
   private readonly options: ServerOptions
+  private readonly engine: Narsil
   private readonly deps: HandlerDeps
   private uws: UWebSockets | null = null
   private listenSocket: us_listen_socket | null = null
   private ready = false
+  private threads: RequestThreadHost | null = null
 
   constructor(engine: Narsil, options: ServerOptions = {}) {
     this.host = options.host ?? '127.0.0.1'
     this.port = options.port ?? 9876
     this.options = options
+    this.engine = engine
     for (const [name, adapter] of Object.entries(options.embeddingAdapters ?? {})) {
       engine.registerEmbeddingAdapter(name, adapter)
     }
+    engineCoreOf(engine)?.orchestrator.shareMainThread()
     const taskStore = options.taskStore ?? new InMemoryTaskStore()
     const instanceId = options.instanceId ?? randomUUID()
     const limits = resolveLimits(options.limits)
@@ -103,7 +171,7 @@ class NarsilHttpServer implements NarsilServer {
     const uws = await loadUWebSockets()
     this.uws = uws
     const app = uws.App()
-    this.registerRoutes(app)
+    await this.registerRoutes(app)
     await new Promise<void>((resolve, reject) => {
       app.listen(this.host, this.port, socket => {
         if (socket) {
@@ -124,6 +192,11 @@ class NarsilHttpServer implements NarsilServer {
       this.uws.us_listen_socket_close(this.listenSocket)
       this.listenSocket = null
     }
+    if (this.threads !== null) {
+      const threads = this.threads
+      this.threads = null
+      await threads.stop()
+    }
   }
 
   get listeningPort(): number {
@@ -131,125 +204,32 @@ class NarsilHttpServer implements NarsilServer {
     return this.uws.us_socket_local_port(this.listenSocket as unknown as us_socket)
   }
 
-  private registerRoutes(app: TemplatedApp): void {
+  get requestThreadCount(): number {
+    return this.threads?.threadCount ?? 0
+  }
+
+  private async registerRoutes(app: TemplatedApp): Promise<void> {
     const cors = resolveCors(this.options.cors)
+    const authorize = this.options.onRequest ? authorizerFor(this.options.onRequest) : undefined
+    const core = engineCoreOf(this.engine)
+    const threadCount = core === undefined ? 0 : core.orchestrator.requestThreadCount()
+    const gate = createSharedGateBuffer(gateSlotOfWorker(threadCount))
+    const { limits, build } = this.deps
+    const handlers = mainThreadHandlers(this.deps)
     const run = createRouteRunner({
-      onRequest: this.options.onRequest,
-      maxConcurrentRequests: this.deps.limits.maxConcurrentRequests,
+      authorize,
+      gate: createSharedRequestGate(gate, limits.maxConcurrentRequests, MAIN_THREAD_GATE_SLOT),
       writeCors: cors ? corsWriter(cors) : undefined,
     })
-    const { maxBodyBytes, maxImportBytes } = this.deps.limits
 
-    const idx = createIndexHandlers(this.deps)
-    const doc = createDocumentHandlers(this.deps)
-    const search = createSearchHandlers(this.deps)
-    const admin = createAdminHandlers(this.deps)
-    const health = createHealthHandlers(this.deps)
-    const cluster = createClusterHandlers(this.deps)
-    const version = createVersionHandler(this.deps)
-    const capabilities = createCapabilitiesHandler()
-    const importNdjson = createImportHandler(this.deps)
+    registerServerRoutes(app, run, handlers, limits, cors)
 
-    const json = (handler: RouteHandler, opts: RouteOptions): ReturnType<typeof run> => run(handler, opts)
-
-    if (cors) {
-      app.options('/*', (res, req) => {
-        const origin = req.getHeader('origin')
-        res.cork(() => {
-          res.writeStatus('204 No Content')
-          writeCorsOrigin(res, cors, origin)
-          res
-            .writeHeader('Access-Control-Allow-Methods', cors.methods)
-            .writeHeader('Access-Control-Allow-Headers', cors.headers)
-            .writeHeader('Access-Control-Max-Age', '86400')
-            .endWithoutBody()
-        })
-      })
+    if (core === undefined || !detectRuntime().supportsWorkerThreads) return
+    try {
+      this.threads = await startRequestThreads({ core, app, handlers, authorize, gate, limits, build, cors })
+    } catch (err) {
+      console.warn('The server could not start request threads, so the main thread answers every request:', err)
     }
-
-    app.get('/livez', json(health.livez, { maxBytes: 0, skipHooks: true }))
-    app.get('/readyz', json(health.readyz, { maxBytes: 0, skipHooks: true }))
-    app.get('/health', json(health.livez, { maxBytes: 0, skipHooks: true }))
-    app.get('/version', json(version.report, { maxBytes: 0, skipHooks: true }))
-    app.get('/capabilities', json(capabilities.report, { maxBytes: 0, skipHooks: true }))
-    app.get('/cluster', json(cluster.topology, { maxBytes: 0 }))
-    app.get('/stats/memory', json(admin.memory, { maxBytes: 0 }))
-    app.get('/tasks', json(admin.listTasks, { maxBytes: 0 }))
-    app.get('/tasks/:id', json(admin.getTask, { paramCount: 1, maxBytes: 0 }))
-    app.post('/tasks/:id/_cancel', json(admin.cancelTask, { paramCount: 1, maxBytes: 0 }))
-
-    app.post('/indexes', json(idx.create, { needsBody: true, maxBytes: maxBodyBytes }))
-    app.get('/indexes', json(idx.list, { maxBytes: 0 }))
-    app.del('/indexes/:name', json(idx.drop, { paramCount: 1, maxBytes: 0 }))
-    app.get('/indexes/:name/stats', json(idx.stats, { paramCount: 1, maxBytes: 0 }))
-    app.get('/indexes/:name/partitions', json(idx.partitions, { paramCount: 1, maxBytes: 0 }))
-    app.get('/indexes/:name/cluster', json(cluster.allocation, { paramCount: 1, maxBytes: 0 }))
-    app.post('/indexes/:name/_clear', json(idx.clear, { paramCount: 1, maxBytes: 0 }))
-    app.post('/indexes/:name/_open', json(idx.open, { paramCount: 1, maxBytes: 0 }))
-    app.post('/indexes/:name/_close', json(idx.close, { paramCount: 1, maxBytes: 0 }))
-    app.get('/indexes/:name/count', json(doc.count, { paramCount: 1, maxBytes: 0 }))
-
-    app.post('/indexes/:name/documents', json(doc.insert, { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }))
-    app.post(
-      '/indexes/:name/documents/_batch',
-      json(doc.batch, { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }),
-    )
-    app.post(
-      '/indexes/:name/documents/_list',
-      json(doc.list, { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }),
-    )
-    app.post(
-      '/indexes/:name/documents/_multi-get',
-      json(doc.multiGet, { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }),
-    )
-    app.post(
-      '/indexes/:name/documents/_import',
-      json(importNdjson, { paramCount: 1, needsBody: true, maxBytes: maxImportBytes }),
-    )
-    app.get('/indexes/:name/documents/:id', json(doc.get, { paramCount: 2, maxBytes: 0 }))
-    app.get('/indexes/:name/documents/:id/_exists', json(doc.exists, { paramCount: 2, maxBytes: 0 }))
-    app.put('/indexes/:name/documents/:id', json(doc.put, { paramCount: 2, needsBody: true, maxBytes: maxBodyBytes }))
-    app.patch(
-      '/indexes/:name/documents/:id',
-      json(doc.patch, { paramCount: 2, needsBody: true, maxBytes: maxBodyBytes }),
-    )
-    app.del('/indexes/:name/documents/:id', json(doc.remove, { paramCount: 2, maxBytes: 0 }))
-
-    app.post('/indexes/:name/search', json(search.search, { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }))
-    app.post(
-      '/indexes/:name/search/preflight',
-      json(search.preflight, { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }),
-    )
-    app.post('/indexes/:name/suggest', json(search.suggest, { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }))
-
-    app.post('/indexes/:name/_checkpoint', json(admin.checkpoint, { paramCount: 1, maxBytes: 0 }))
-    app.post('/indexes/:name/_rebuild-analysis', json(admin.rebuildAnalysis, { paramCount: 1, maxBytes: 0 }))
-    app.get('/indexes/:name/snapshot', json(admin.snapshot, { paramCount: 1, maxBytes: 0 }))
-    app.get('/indexes/:name/vector-maintenance', json(admin.vectorMaintenance, { paramCount: 1, maxBytes: 0 }))
-    app.post(
-      '/indexes/:name/vectors/_compact',
-      json(admin.compact, { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }),
-    )
-    app.post(
-      '/indexes/:name/vectors/_optimize',
-      json(admin.optimize, { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }),
-    )
-    app.post(
-      '/indexes/:name/_rebalance',
-      json(admin.rebalance, { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }),
-    )
-    app.post(
-      '/indexes/:name/partition-config',
-      json(admin.partitionConfig, { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }),
-    )
-    app.post(
-      '/indexes/:name/restore',
-      json(admin.restore, { paramCount: 1, needsBody: true, maxBytes: maxImportBytes }),
-    )
-
-    app.any('/*', res => {
-      sendError(res, 404, ServerErrorCodes.NOT_FOUND, 'Route not found')
-    })
   }
 }
 
@@ -258,6 +238,11 @@ class NarsilHttpServer implements NarsilServer {
  * (durability, embedding, workers) and hands the live instance in; the server
  * shares it across requests and never constructs or shuts it down. Start with
  * `.listen()` and stop with `.close()`; the engine is shut down separately.
+ *
+ * On Node.js the server receives requests on the engine's worker threads, which
+ * hold the worker copies. A query on an index that holds copies answers on the
+ * thread that received it, and every write goes to the main thread. Read
+ * {@link NarsilServer.requestThreadCount} for how many threads took requests.
  *
  * @param engine - The live engine every request runs against.
  * @param options - Address, CORS, request limits, the authentication hook, and

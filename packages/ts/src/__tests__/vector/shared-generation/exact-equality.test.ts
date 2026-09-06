@@ -3,7 +3,9 @@ import { createHNSWIndex, type HNSWIndex } from '../../../vector/hnsw'
 import { searchOrdinals } from '../../../vector/hnsw/search'
 import { createScalarQuantizer } from '../../../vector/scalar-quantization'
 import type { ScalarQuantizer } from '../../../vector/scalar-quantization-types'
+import { buildSharedDocIdTable, docIdAt, partitionAt } from '../../../vector/shared-generation/doc-ids'
 import { freezeSharedGeneration } from '../../../vector/shared-generation/freeze'
+import { createSharedVectorSearcher } from '../../../vector/shared-generation/searcher'
 import { openSharedWorkerCopy } from '../../../vector/shared-generation/worker-view'
 import { createVectorStore, type VectorStore } from '../../../vector/vector-store'
 
@@ -109,5 +111,107 @@ describe.each(['sq8', 'none'] as const)('a shared copy under %s quantisation', q
       expect(docId).toBeDefined()
       expect(graph.isTombstoned(docId ?? '')).toBe(false)
     }
+  })
+})
+
+describe('a request thread searches a shared copy through its document id table', () => {
+  const { store, graph, quantizer } = buildField('none')
+  const snapshot = freezeSharedGeneration(
+    { dimension: DIMENSION, store, hnsw: graph, quantizer, quantization: 'none' },
+    SCRATCH_SLOTS,
+  )
+  const docIds = buildSharedDocIdTable(store, store.slots)
+
+  it('reads every document id and partition back from shared memory', () => {
+    for (let ordinal = 0; ordinal < store.slots; ordinal++) {
+      expect(docIdAt(docIds, ordinal)).toBe(store.docIdForOrdinal(ordinal))
+      expect(partitionAt(docIds, ordinal)).toBe(store.partitionOfOrdinal(ordinal))
+    }
+    expect(docIdAt(docIds, store.slots + 5)).toBeUndefined()
+  })
+
+  it('answers with the document ids and scores the owning thread produces', async () => {
+    if (snapshot === null) return
+    const searcher = createSharedVectorSearcher({
+      fieldName: 'embedding',
+      snapshot,
+      scratchSlot: 1,
+      docIds,
+      holdsDocument: () => true,
+    })
+    const queryNext = pseudoRandom(31)
+    for (let q = 0; q < QUERY_COUNT; q++) {
+      const query = nextVector(queryNext)
+      for (const metric of METRICS) {
+        const local = graph.search(query, RESULT_COUNT, metric, -Infinity)
+        const hits = await searcher.searchParallel(query, RESULT_COUNT, { metric, minSimilarity: -Infinity })
+        expect(hits.map(hit => hit.docId)).toEqual(local.map(result => result.docId))
+        for (let position = 0; position < local.length; position++) {
+          expect(Object.is(hits[position].score, local[position].score)).toBe(true)
+        }
+      }
+    }
+  })
+
+  it('confines a search to the document ids a filter names', async () => {
+    if (snapshot === null) return
+    const searcher = createSharedVectorSearcher({
+      fieldName: 'embedding',
+      snapshot,
+      scratchSlot: 0,
+      docIds,
+      holdsDocument: () => true,
+    })
+    const allowed = new Set(['doc-00010', 'doc-00020', 'doc-00030', 'doc-00040'])
+    const hits = await searcher.searchParallel(nextVector(pseudoRandom(8)), RESULT_COUNT, {
+      metric: 'cosine',
+      minSimilarity: -Infinity,
+      filterDocIds: allowed,
+    })
+    expect(hits.length).toBe(allowed.size)
+    for (const hit of hits) expect(allowed.has(hit.docId)).toBe(true)
+  })
+
+  it('confines a search to the partitions a filter names', async () => {
+    if (snapshot === null) return
+    const partitioned = createVectorStore()
+    for (let i = 0; i < 64; i++) partitioned.insert(`p-${i}`, nextVector(pseudoRandom(i + 1)), i % 2)
+    const partitionedGraph = createHNSWIndex(DIMENSION, partitioned, { m: 8, efConstruction: 50, metric: 'cosine' })
+    for (const [docId] of partitioned.entries()) partitionedGraph.insertNode(docId)
+    const partitionedSnapshot = freezeSharedGeneration(
+      { dimension: DIMENSION, store: partitioned, hnsw: partitionedGraph, quantizer: null, quantization: 'none' },
+      1,
+    )
+    if (partitionedSnapshot === null) return
+    const searcher = createSharedVectorSearcher({
+      fieldName: 'embedding',
+      snapshot: partitionedSnapshot,
+      scratchSlot: 0,
+      docIds: buildSharedDocIdTable(partitioned, partitioned.slots),
+      holdsDocument: () => true,
+    })
+    expect(searcher.partitionsKnown()).toBe(true)
+    const hits = await searcher.searchParallel(nextVector(pseudoRandom(3)), 64, {
+      metric: 'cosine',
+      minSimilarity: -Infinity,
+      filterPartitions: new Set([1]),
+    })
+    expect(hits.length).toBe(32)
+    for (const hit of hits) expect(Number(hit.docId.slice(2)) % 2).toBe(1)
+  })
+
+  it('drops a hit whose document the text copy no longer holds', async () => {
+    if (snapshot === null) return
+    const query = nextVector(pseudoRandom(77))
+    const best = graph.search(query, 1, 'cosine', -Infinity)[0].docId
+    const searcher = createSharedVectorSearcher({
+      fieldName: 'embedding',
+      snapshot,
+      scratchSlot: 2,
+      docIds,
+      holdsDocument: docId => docId !== best,
+    })
+    const hits = await searcher.searchParallel(query, RESULT_COUNT, { metric: 'cosine', minSimilarity: -Infinity })
+    expect(hits.map(hit => hit.docId)).not.toContain(best)
   })
 })

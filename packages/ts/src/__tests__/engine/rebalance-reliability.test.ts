@@ -241,6 +241,21 @@ describe('rebalance durability', () => {
     },
   )
 
+  it('returns a durable waiting write once the rebalance has replayed it', { timeout: 30_000 }, async () => {
+    engine = await createNarsil({ durability: { directory: dir, mode: 'sync' } })
+    await engine.createIndex('products', indexConfig)
+    await engine.insertBatch('products', seedDocs(300))
+
+    const rebalancePromise = engine.rebalance('products', 2)
+    await engine.insert('products', { id: 'waited-durably', title: 'waited subject', category: 'during' }, undefined, {
+      wait: true,
+    })
+
+    expect(await engine.get('products', 'waited-durably')).toBeDefined()
+    expect(narsilStatsPartitionCount(engine)).toBe(2)
+    await rebalancePromise
+  })
+
   it('recovers the buffered write and the new partition count after a crash', { timeout: 30_000 }, async () => {
     engine = await createNarsil({ durability: { directory: dir, mode: 'sync' } })
     await engine.createIndex('products', indexConfig)

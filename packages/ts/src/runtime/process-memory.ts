@@ -1,4 +1,5 @@
-import type { ProcessMemoryReport } from '../types/results'
+import { readHeapStatistics } from '#platform/heap-statistics'
+import type { ProcessMemoryReport } from '../types/memory'
 
 interface NodeLikeProcess {
   memoryUsage?: () => { heapUsed: number; heapTotal: number; external: number; rss: number }
@@ -29,6 +30,7 @@ export function readProcessMemory(): ProcessMemoryReport | null {
     return {
       heapUsed: usage.heapUsed,
       heapTotal: usage.heapTotal,
+      heapLimit: readHeapStatistics()?.limitBytes ?? null,
       external: usage.external,
       rss: usage.rss,
     }

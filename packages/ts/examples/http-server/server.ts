@@ -11,8 +11,8 @@ import { createServer, type OnRequestHook, type ServerLimits } from '@delali/nar
  *   NARSIL_HOST              listen address           (default 0.0.0.0)
  *   NARSIL_PORT              listen port              (default 7700)
  *   NARSIL_DURABILITY_DIR    enable filesystem durability rooted at this path
- *   NARSIL_WORKERS           run this many worker copies for parallel search and indexing (default off)
- *   NARSIL_PROMOTION_THRESHOLD  documents in one index that trigger the worker copies (default 10000)
+ *   NARSIL_WORKERS           run this many request threads, each holding the worker copies (default: cores minus one, between 2 and 8)
+ *   NARSIL_PROMOTION_THRESHOLD  documents in one index that trigger the worker copies (default 1000)
  *   NARSIL_API_KEY           require this bearer token / x-api-key when set
  *   NARSIL_MAX_BODY_BYTES    JSON body cap            (default 16 MiB)
  *   NARSIL_MAX_IMPORT_BYTES  NDJSON / restore cap     (default 100 MiB)

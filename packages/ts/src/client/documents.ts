@@ -1,6 +1,6 @@
 import { ErrorCodes } from '../errors'
 import { encodeJson } from '../json-encoding'
-import type { AnyDocument, InsertOptions } from '../types/schema'
+import type { AnyDocument, InsertOptions, WriteOptions } from '../types/schema'
 import type { Transport } from './http'
 import type { RequestOptions } from './options'
 import { documentPath, indexPath } from './paths'
@@ -82,12 +82,20 @@ export interface DocumentOperations {
    * @param indexName - This names the index that receives the document.
    * @param docId - This is the id to write at.
    * @param document - Its fields must match the types the schema declares.
+   * @param writeOptions - These per-write settings reach the server, such as
+   * waiting for every worker copy to apply the write.
    * @param options - This sets the signal, the deadline, and the headers for
    * this request.
    * @returns The result names the id, and says whether the write created the
    * document or replaced one.
    */
-  put(indexName: string, docId: string, document: AnyDocument, options?: RequestOptions): Promise<PutResult>
+  put(
+    indexName: string,
+    docId: string,
+    document: AnyDocument,
+    writeOptions?: WriteOptions,
+    options?: RequestOptions,
+  ): Promise<PutResult>
   /**
    * Replaces the stored document at an id.
    *
@@ -95,23 +103,47 @@ export interface DocumentOperations {
    * @param docId - This names the document to replace.
    * @param document - This replacement goes through the same schema validation
    * an insert would.
+   * @param writeOptions - These per-write settings reach the server, such as
+   * waiting for every worker copy to apply the write.
    * @param options - This sets the signal, the deadline, and the headers for
    * this request.
    * @throws A `NarsilError` with `DOC_NOT_FOUND` when the index holds no such
    * document.
    */
-  update(indexName: string, docId: string, document: AnyDocument, options?: RequestOptions): Promise<void>
+  update(
+    indexName: string,
+    docId: string,
+    document: AnyDocument,
+    writeOptions?: WriteOptions,
+    options?: RequestOptions,
+  ): Promise<void>
   /**
    * Removes one document.
    *
    * @param indexName - This names the index holding the document.
    * @param docId - This names the document to remove.
+   * @param writeOptions - These per-write settings reach the server, such as
+   * waiting for every worker copy to apply the removal.
    * @param options - This sets the signal, the deadline, and the headers for
    * this request.
    * @throws A `NarsilError` with `DOC_NOT_FOUND` when the index holds no such
    * document.
    */
-  remove(indexName: string, docId: string, options?: RequestOptions): Promise<void>
+  remove(indexName: string, docId: string, writeOptions?: WriteOptions, options?: RequestOptions): Promise<void>
+  /**
+   * Resolves once every worker copy of an index on the server has applied
+   * every write that returned before the call.
+   *
+   * A write returns once the server's main copy holds it, and the copies
+   * apply it afterwards, so a query can come back without a write that
+   * returned before it. Call this after a run of writes, or pass `wait: true`
+   * on one write, before a query that has to see them.
+   *
+   * @param indexName - This names the index whose copies have to catch up.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   */
+  waitForWrites(indexName: string, options?: RequestOptions): Promise<void>
   /**
    * Counts the documents in an index.
    *
@@ -150,28 +182,36 @@ export function createDocumentOperations(transport: Transport): DocumentOperatio
       const path = `${documentPath(indexName, docId)}/_exists`
       return readBoolean(await transport.json({ method: 'GET', path, options }), 'exists', path)
     },
-    async put(indexName, docId, document, options) {
+    async put(indexName, docId, document, writeOptions, options) {
       const path = documentPath(indexName, docId)
       const payload = await transport.json({
         method: 'PUT',
         path,
-        body: encodeJson({ document }),
+        body: encodeJson({ document, ...(writeOptions === undefined ? {} : { options: writeOptions }) }),
         contentType: 'application/json',
         options,
       })
       return { id: readString(payload, 'id', path), created: readBoolean(payload, 'created', path) }
     },
-    async update(indexName, docId, document, options) {
+    async update(indexName, docId, document, writeOptions, options) {
       await transport.json({
         method: 'PATCH',
         path: documentPath(indexName, docId),
-        body: encodeJson({ document }),
+        body: encodeJson({ document, ...(writeOptions === undefined ? {} : { options: writeOptions }) }),
         contentType: 'application/json',
         options,
       })
     },
-    async remove(indexName, docId, options) {
-      await transport.json({ method: 'DELETE', path: documentPath(indexName, docId), options })
+    async remove(indexName, docId, writeOptions, options) {
+      await transport.json({
+        method: 'DELETE',
+        path: documentPath(indexName, docId),
+        ...(writeOptions?.wait === true ? { query: { wait: 'true' } } : {}),
+        options,
+      })
+    },
+    async waitForWrites(indexName, options) {
+      await transport.json({ method: 'POST', path: `${indexPath(indexName)}/_wait-for-writes`, options })
     },
     async countDocuments(indexName, options) {
       const path = `${indexPath(indexName)}/count`

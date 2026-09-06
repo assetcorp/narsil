@@ -3,7 +3,9 @@ import { createRequestId, type WorkerAction } from '../../workers/protocol'
 import { loadIndexOntoWorkers } from '../worker-resync'
 import { POOL_RESTART_DELAY_MAX_MS, POOL_RESTART_DELAY_MS } from './constants'
 import { enqueueReplication } from './replication'
+import { scheduleRequestThreadPoolRestart } from './request-threads'
 import type { OrchestratorState } from './types'
+import { refreshVectorCopies } from './vector-copies'
 
 export const COPY_RESTART_REASON = 'A request arrived after every worker crashed and the restart delay passed'
 
@@ -25,7 +27,9 @@ export function retirePool(state: OrchestratorState, pool: WorkerPool): void {
   for (const indexName of state.scaledOutIndexes) state.droppedCopies.set(indexName, COPY_RESTART_REASON)
   state.scaledOutIndexes.clear()
   state.segmentLedger.clear()
+  for (const { workerId } of pool.executorEntries()) state.requestThreads?.onWorkerGone(workerId)
   void pool.shutdown().catch(() => undefined)
+  scheduleRequestThreadPoolRestart(state)
 }
 
 export function handleWorkerCrash(
@@ -36,6 +40,7 @@ export function handleWorkerCrash(
   error: Error,
 ): void {
   state.callbacks?.onWorkerCrash?.(workerId, indexNames, error)
+  state.requestThreads?.onWorkerGone(workerId)
   if (pool.getAllExecutors().length === 0) {
     retirePool(state, pool)
     return
@@ -70,12 +75,20 @@ async function loadOntoReplacement(
   const buffered: WorkerAction[] = []
   state.copyLoadBuffers.set(indexName, buffered)
   try {
-    await loadIndexOntoWorkers(indexName, [replacement.executor], entry.config, manager)
+    await loadIndexOntoWorkers(
+      indexName,
+      [replacement.executor],
+      entry.config,
+      manager,
+      undefined,
+      state.callbacks?.isAnalysisStale?.(indexName),
+    )
     replacement.hold(indexName)
   } finally {
     state.copyLoadBuffers.delete(indexName)
     for (const action of buffered) enqueueReplication(state, indexName, action)
   }
+  refreshVectorCopies(state, indexName)
 }
 
 async function replaceWorker(state: OrchestratorState, pool: WorkerPool, workerId: number): Promise<void> {
@@ -93,6 +106,7 @@ async function replaceWorker(state: OrchestratorState, pool: WorkerPool, workerI
       await loadOntoReplacement(state, replacement, indexName)
     }
     replacement.admit()
+    await state.requestThreads?.onWorkerReady(workerId, replacement.executor)
   } catch (err) {
     replacement.abandon()
     throw err

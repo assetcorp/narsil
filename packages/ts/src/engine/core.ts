@@ -12,6 +12,7 @@ import type { NarsilConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
+import type { VectorWorkerCopyPolicy } from '../vector/vector-index/shared'
 import { createDirectExecutor, type DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
 import { resolveWorkerCount, splitWorkerBudget } from '../workers/pool'
@@ -19,16 +20,19 @@ import { type AnalysisRebuildCoordinator, wireAnalysisRebuild } from './analysis
 import { resolveDurabilityTier } from './durability-config'
 import type { DurabilityIntegration } from './durability-integration'
 import { createDurabilityFromTier } from './durability-wiring'
+import { emitEngineEvent } from './events'
+import type { HeapPressureNotifier } from './heap-pressure'
 import type { IndexStateCoordinator } from './index-state'
 import { type EngineCoreHooks, wireIndexState } from './index-state-wiring'
 import { createInvalidationFromConfig, type InvalidationIntegration } from './invalidation'
 import type { MutationContext } from './mutations'
+import { type NotifierWiring, wireHeapPressureNotifier, wireWatermarkNotifier } from './notifiers'
 import { createWorkerOrchestrator, type WorkerOrchestrator, workersEnabledByDefault } from './orchestration'
 import type { RebalanceContext } from './rebalance-executor'
 import { reconstructSchemaFromMetadata } from './recovery-schema'
 import { validateWorkerConfig } from './validation'
 import { getVectorFieldPaths } from './vector-fields'
-import { createWatermarkNotifier, type WatermarkNotifier } from './watermark'
+import type { WatermarkNotifier } from './watermark'
 
 export type IndexRegistryEntry = {
   config: IndexConfig
@@ -69,6 +73,7 @@ export interface EngineCore {
   readonly requireManager: (indexName: string) => PartitionManager
   readonly bufferIfRebalancing: (indexName: string, entry: Omit<WAQEntry, 'sequenceNumber'>) => boolean
   readonly watermarkNotifier: WatermarkNotifier
+  readonly heapPressureNotifier: HeapPressureNotifier
   readonly analysisRebuild: AnalysisRebuildCoordinator
   readonly indexState: IndexStateCoordinator
   readonly mutationCtx: MutationContext
@@ -85,12 +90,11 @@ export interface EngineCore {
 export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks): EngineCore {
   validateWorkerConfig(config?.workers, config?.lifecycle)
   const vectorWorkerCount = splitWorkerBudget(resolveWorkerCount(config?.workers?.count)).vector
-  const executor: Executor & DirectExecutorExtensions = createDirectExecutor({
-    vectorWorkerCopies: {
-      enabled: (config?.workers?.enabled ?? workersEnabledByDefault()) && vectorWorkerCount > 0,
-      count: vectorWorkerCount,
-    },
-  })
+  const vectorCopyPolicy: VectorWorkerCopyPolicy = {
+    enabled: (config?.workers?.enabled ?? workersEnabledByDefault()) && vectorWorkerCount > 0,
+    count: vectorWorkerCount,
+  }
+  const executor: Executor & DirectExecutorExtensions = createDirectExecutor({ vectorWorkerCopies: vectorCopyPolicy })
 
   const pluginRegistry: PluginRegistry = createPluginRegistry()
   if (config?.plugins) {
@@ -111,36 +115,38 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
   const abortController = new AbortController()
   const rebalancingIndexes = new Set<string>()
 
-  const orchestrator = createWorkerOrchestrator(config, executor, indexRegistry, {
-    shouldDeferCopies() {
-      return rebalancingIndexes.size > 0
+  const orchestrator = createWorkerOrchestrator(
+    config,
+    executor,
+    indexRegistry,
+    {
+      shouldDeferCopies() {
+        return rebalancingIndexes.size > 0
+      },
+      isAnalysisStale(indexName) {
+        return analysisRebuild.isStale(indexName)
+      },
+      onCopiesLoaded(workerCount, reason) {
+        emitEngineEvent(eventHandlers, 'workerPromote', { workerCount, reason })
+        void Promise.resolve(pluginRegistry.runHook('onWorkerPromote', { workerCount, reason })).catch(
+          (err: unknown) => {
+            console.warn('onWorkerPromote plugin hook failed:', err instanceof Error ? err.message : String(err))
+          },
+        )
+      },
+      onCopyLoadFailure(reason, error, retryable) {
+        if (emitEngineEvent(eventHandlers, 'workerPromoteFailure', { reason, error, retryable }) === 0) {
+          console.warn(`Loading worker copies failed (${reason}):`, error)
+        }
+      },
+      onWorkerCrash(workerId, indexNames, error) {
+        if (emitEngineEvent(eventHandlers, 'workerCrash', { workerId, indexNames, error }) === 0) {
+          console.warn(`Worker ${workerId} crashed:`, error)
+        }
+      },
     },
-    onCopiesLoaded(workerCount, reason) {
-      const handlers = eventHandlers.get('workerPromote')
-      if (handlers) {
-        for (const handler of handlers) handler({ workerCount, reason })
-      }
-      void Promise.resolve(pluginRegistry.runHook('onWorkerPromote', { workerCount, reason })).catch((err: unknown) => {
-        console.warn('onWorkerPromote plugin hook failed:', err instanceof Error ? err.message : String(err))
-      })
-    },
-    onCopyLoadFailure(reason, error, retryable) {
-      const handlers = eventHandlers.get('workerPromoteFailure')
-      if (!handlers || handlers.size === 0) {
-        console.warn(`Loading worker copies failed (${reason}):`, error)
-        return
-      }
-      for (const handler of handlers) handler({ reason, error, retryable })
-    },
-    onWorkerCrash(workerId, indexNames, error) {
-      const handlers = eventHandlers.get('workerCrash')
-      if (!handlers || handlers.size === 0) {
-        console.warn(`Worker ${workerId} crashed:`, error)
-        return
-      }
-      for (const handler of handlers) handler({ workerId, indexNames, error })
-    },
-  })
+    vectorCopyPolicy,
+  )
 
   const rebalancer = createRebalancer()
   const rebalanceRouter = createPartitionRouter()
@@ -260,10 +266,7 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
     indexRegistry,
     createIndexFromMetadata,
     emitFatalError(error: Error) {
-      const handlers = eventHandlers.get('durabilityError')
-      if (handlers) {
-        for (const handler of handlers) handler({ error })
-      }
+      emitEngineEvent(eventHandlers, 'durabilityError', { error })
     },
     publishCheckpointedPartitions: (indexName, partitions) =>
       invalidation?.publishPartitions(indexName, partitions) ?? Promise.resolve(),
@@ -288,30 +291,19 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
     },
     reloadIndex: indexName => durability?.manager.reloadIndex?.(indexName) ?? Promise.resolve(),
     onError(error: Error) {
-      const handlers = eventHandlers.get('invalidationError')
-      if (!handlers || handlers.size === 0) {
+      if (emitEngineEvent(eventHandlers, 'invalidationError', { error }) === 0) {
         console.warn('Invalidation error:', error)
-        return
       }
-      for (const handler of handlers) handler({ error })
     },
   })
 
-  const watermarkNotifier = createWatermarkNotifier({
+  const notifierWiring: NotifierWiring = {
+    eventHandlers,
+    indexRegistry,
     getManager: indexName => executor.getManager(indexName),
-    getPartitionConfig: indexName => indexRegistry.get(indexName)?.config.partitions,
-    emit(payload) {
-      const handlers = eventHandlers.get('partitionWatermark')
-      if (!handlers) return
-      for (const handler of handlers) {
-        try {
-          handler(payload)
-        } catch (err) {
-          console.warn('partitionWatermark handler error:', err instanceof Error ? err.message : String(err))
-        }
-      }
-    },
-  })
+  }
+  const watermarkNotifier = wireWatermarkNotifier(notifierWiring)
+  const heapPressureNotifier = wireHeapPressureNotifier(notifierWiring)
 
   const analysisRebuild = wireAnalysisRebuild({
     config: config?.analysis,
@@ -332,7 +324,10 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
     rebalancingIndexes,
     requireManager,
     onClose: hooks?.onIndexClose,
-    onOpen: hooks?.onIndexOpen,
+    onOpen: indexName => {
+      heapPressureNotifier.check(indexName)
+      return hooks?.onIndexOpen?.(indexName)
+    },
     onAccess: indexName => orchestrator.noteAccess(indexName),
   })
 
@@ -347,11 +342,13 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
     requireIndex,
     requireManager,
     bufferIfRebalancing,
+    awaitRebalanceReplay: indexName => waqMap.get(indexName)?.whenReplayed() ?? Promise.resolve(),
     isRebalancing: indexName => rebalancingIndexes.has(indexName),
     pendingRebalanceWrites: indexName => waqMap.get(indexName)?.size ?? 0,
     rebalanceTargetPartitionCount: indexName => rebalanceTargets.get(indexName),
     bufferedDocState: (indexName, docId) => waqMap.get(indexName)?.bufferedDocState(docId),
     checkWatermark: watermarkNotifier.check,
+    checkHeapPressure: heapPressureNotifier.check,
   }
 
   const rebalanceCtx: RebalanceContext = {
@@ -389,6 +386,7 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
     requireManager,
     bufferIfRebalancing,
     watermarkNotifier,
+    heapPressureNotifier,
     analysisRebuild,
     indexState,
     mutationCtx,

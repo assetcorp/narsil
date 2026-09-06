@@ -28,6 +28,7 @@ export type {
   AnalysisConfig,
   DurabilityConfig,
   IndexLifecycleConfig,
+  MainCopyQueries,
   NarsilConfig,
   StaleAnalysis,
   WorkerConfig,
@@ -46,6 +47,7 @@ export type {
 } from './types/filters'
 export type { LanguageModule, TokenizerConfig } from './types/language'
 export type { IndexLifecycleOperations } from './types/lifecycle'
+export type { MemoryStats, ProcessMemoryReport, WorkerCopyReport } from './types/memory'
 export type {
   IndexContext,
   InsertContext,
@@ -66,16 +68,13 @@ export type {
   IndexStats,
   ListedDocument,
   ListResult,
-  MemoryStats,
   PartitionStatsResult,
   PreflightResult,
-  ProcessMemoryReport,
   QueryCoverage,
   QueryResult,
   ScoreComponents,
   SuggestResult,
   VectorMaintenanceResult,
-  WorkerCopyReport,
 } from './types/results'
 export type {
   AnyDocument,
@@ -91,6 +90,7 @@ export type {
   StopWordOverride,
   VectorIndexConfig,
   VectorQuantizationMode,
+  WriteOptions,
 } from './types/schema'
 export type {
   DocumentProjection,
@@ -108,6 +108,7 @@ export type {
   TermMatchPolicy,
   VectorQueryConfig,
 } from './types/search'
+export type { DocumentWriteOperations } from './types/writes'
 export { isSimdAvailable } from './vector/simd'
 /**
  * Engine version written into the engine-version bytes of every `.nrsl` file,

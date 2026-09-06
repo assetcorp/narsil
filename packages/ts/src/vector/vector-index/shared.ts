@@ -3,6 +3,8 @@ import { createHNSWIndex, type HNSWConfig, type HNSWIndex, type SerializedHNSWGr
 import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter, removeFromOrdinalFilter } from '../ordinal-filter'
 import type { ScalarQuantizer, SerializedSQ8 } from '../scalar-quantization-types'
 import type { VectorSearchPool } from '../search-pool'
+import type { SharedDocIdTable } from '../shared-generation/doc-ids'
+import type { SharedGenerationSnapshot } from '../shared-generation/types'
 import type { VectorStore } from '../vector-store'
 import { BUILD_CHUNK_SIZE, REBUILD_REMOVED_RATIO } from './constants'
 
@@ -20,11 +22,60 @@ export interface VectorSearchOptions {
   efSearch?: number
 }
 
+/**
+ * The part of a vector index a query runs against, which the index on the
+ * main thread and a request thread's view over a shared copy both satisfy.
+ *
+ * @internal
+ */
+export interface VectorSearcher {
+  readonly fieldName: string
+  readonly dimension: number
+  searchParallel(query: Float32Array, k: number, options: VectorSearchOptions): Promise<VectorScoredResult[]>
+  partitionsKnown(): boolean
+  assignPartitions(resolve: (docId: string) => number | undefined): void
+}
+
+/**
+ * A frozen copy of one vector field in the form a request thread opens.
+ *
+ * @internal
+ */
+export interface HostedVectorCopy {
+  /** The frozen vectors, codes, and graph. */
+  snapshot: SharedGenerationSnapshot
+  /** The document id and partition at each ordinal. */
+  docIds: SharedDocIdTable
+  /** A filter admitting a smaller share of the live vectors than this is answered by exact comparison. */
+  filterThreshold: number
+}
+
+/**
+ * Where a frozen shared copy goes when request threads hold it in place of
+ * the vector search pool.
+ *
+ * @internal
+ */
+export interface SharedCopyHost {
+  /** The frozen copy reserves this many per-thread scratch slots. */
+  readonly scratchSlotCount: number
+  /** Whether the host currently holds the index the copy belongs to. */
+  holdsIndex(indexName: string): boolean
+  /** Reports the partition a document of the index lives in, for a vector stored before partitions were tracked. */
+  resolvePartition(indexName: string, docId: string): number | undefined
+  /** Sends a frozen copy to every thread holding the index, resolving once each has applied it. */
+  loadShared(indexName: string, fieldName: string, handle: string, copy: HostedVectorCopy): Promise<boolean>
+  /** Withdraws a copy from every thread holding the index. */
+  drop(indexName: string, fieldName: string, handle: string): Promise<void>
+}
+
 export interface VectorWorkerCopyPolicy {
   /** Whether the index may load copies of its graph onto the vector search pool. */
   enabled: boolean
   /** The pool runs this many workers, or the host's cores minus one where omitted. */
   count?: number
+  /** Where set, the copies go to these request threads and no vector search pool starts. */
+  host?: SharedCopyHost
 }
 
 export const VECTOR_WORKER_COPIES_ALLOWED: VectorWorkerCopyPolicy = { enabled: true }
@@ -47,6 +98,7 @@ export interface VectorIndexPayload {
 }
 
 export interface VectorIndexState {
+  readonly indexName: string
   readonly fieldName: string
   readonly dimension: number
   readonly dimensionScale: number
@@ -69,12 +121,36 @@ export interface VectorIndexState {
   workerCopyPool: VectorSearchPool | null
   workerCopyHandle: string | null
   workerCopyRevision: number
-  workerCopyMode: 'shared' | 'clone' | null
+  workerCopyMode: 'shared' | 'clone' | 'hosted' | null
   workerCopyLoading: boolean
 }
 
 export function liveSize(state: VectorIndexState): number {
   return state.store.size - state.tombstones.size
+}
+
+/**
+ * Records the partition of every stored vector that has none, asking the
+ * caller for each document's partition.
+ *
+ * @param state The index whose store to fill in.
+ * @param resolve Reports a document's partition, or undefined where the
+ * document is gone.
+ *
+ * @internal
+ */
+export function assignStorePartitions(state: VectorIndexState, resolve: (docId: string) => number | undefined): void {
+  for (let ordinal = 0; ordinal < state.store.slots; ordinal += 1) {
+    if (state.store.partitionOfOrdinal(ordinal) !== undefined) continue
+    const docId = state.store.docIdForOrdinal(ordinal)
+    if (docId === undefined) continue
+    const partitionId = resolve(docId)
+    if (partitionId === undefined) {
+      state.store.forgetPartition(docId)
+      continue
+    }
+    state.store.setPartition(docId, partitionId)
+  }
 }
 
 /**

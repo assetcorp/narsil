@@ -51,6 +51,7 @@ async function mainAndCopy(): Promise<{
     workerPool: {
       getExecutor: () => recording,
       getAllExecutors: () => [recording],
+      executorEntries: () => [{ workerId: 0, executor: recording }],
       executorsHolding: () => [recording],
       deadWorkerIds: () => [],
       spawnReplacement: () => null,
