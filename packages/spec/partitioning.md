@@ -401,7 +401,7 @@ capped at 8. A caller overrides it through `NarsilConfig.workers.count`.
 
 ### Request Threads
 
-A server built on the engine may receive requests on the workers that hold its copies, in which case each such worker is a request thread. A request thread must answer a query on an index whose copy it holds from that copy alone, while it must send a write, and a query on an index whose copy it lacks, to the main thread, which answers as it does for its own callers.
+A server built on the engine may receive requests on the workers that hold its copies, in which case each such worker is a request thread. A request thread must answer a query on an index whose copy it holds from that copy, after the main thread embeds any `vector.text` in the query. It must send to the main thread, which answers as it does for its own callers, a write, a query on an index whose copy it lacks, a query naming a vector field whose graph is not yet built, and every query while a plugin hooks searches.
 
 A server must hold a worker copy of every scaled-out index on every worker, so that it can start as many request threads as the worker count, except that a machine with fewer than three cores gets one. The requests in flight on every request thread must count against one `maxConcurrentRequests` limit.
 
