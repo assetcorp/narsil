@@ -11,7 +11,7 @@ import {
   toError,
   workerIneligibility,
 } from './eligibility'
-import { deferPoolRestart, handleWorkerCrash } from './repair'
+import { deferPoolRestart, handleWorkerCrash, retirePool } from './repair'
 import { enqueueReplication } from './replication'
 import { announceRequestThreads } from './request-threads'
 import type { CopyTransition, OrchestratorState } from './types'
@@ -62,7 +62,12 @@ export async function ensurePool(state: OrchestratorState): Promise<WorkerPool> 
       async pool => {
         state.workerPool = pool
         state.poolStart = null
-        await announceRequestThreads(state, pool)
+        try {
+          await announceRequestThreads(state, pool)
+        } catch (err) {
+          retirePool(state, pool)
+          throw err
+        }
         return pool
       },
       err => {

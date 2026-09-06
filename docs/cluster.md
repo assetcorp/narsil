@@ -112,7 +112,7 @@ A node opens its replication listener before it registers, so a peer that reache
 
 ## What a cluster node refuses
 
-`snapshot`, `restore`, `rebalance`, `updatePartitionConfig`, `rebuildAnalysis`, the vector maintenance calls, `listIndexes`, and the synchronous stats calls on the `Narsil` adapter fail with `CLUSTER_OPERATION_UNSUPPORTED`, which the HTTP server answers with status 501, so a caller learns that the operation is missing. `rebalance` stays refused because the specification fixes `partitionCount` for the life of an index, and the rest still need a cluster-wide design.
+`snapshot`, `restore`, `rebalance`, `updatePartitionConfig`, `rebuildAnalysis`, the vector maintenance calls, `listIndexes`, the synchronous stats calls, `waitForWrites`, and a write carrying `wait: true` on the `Narsil` adapter fail with `CLUSTER_OPERATION_UNSUPPORTED`, which the HTTP server answers with status 501, so a caller learns that the operation is missing. `rebalance` stays refused because the specification fixes `partitionCount` for the life of an index, and the rest still need a cluster-wide design.
 
 ## Serve a cluster node over HTTP
 

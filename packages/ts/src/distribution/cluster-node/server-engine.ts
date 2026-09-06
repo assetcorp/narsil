@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../types/engine'
-import type { AnyDocument, IndexConfig, InsertOptions } from '../../types/schema'
+import type { AnyDocument, IndexConfig, InsertOptions, WriteOptions } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
 import type { ClusterNode, CreateIndexOptions } from './types'
 
@@ -20,6 +20,10 @@ function unsupported(operation: string): never {
     `A cluster node does not serve '${operation}' yet; run it against a single-node engine`,
     { operation },
   )
+}
+
+function rejectWait(options: WriteOptions | undefined): void {
+  if (options?.wait === true) unsupported('wait')
 }
 
 /**
@@ -65,26 +69,36 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
       docId?: string,
       insertOptions?: InsertOptions,
     ): Promise<string> {
+      rejectWait(insertOptions)
       return node.insert(indexName, document, docId, insertOptions)
     },
 
     async insertBatch(indexName: string, documents: AnyDocument[], insertOptions?: InsertOptions) {
+      rejectWait(insertOptions)
       return node.insertBatch(indexName, documents, insertOptions)
     },
 
-    async remove(indexName: string, docId: string): Promise<void> {
+    async remove(indexName: string, docId: string, options?: WriteOptions): Promise<void> {
+      rejectWait(options)
       return node.remove(indexName, docId)
     },
 
-    async removeBatch(indexName: string, docIds: string[]) {
+    async removeBatch(indexName: string, docIds: string[], options?: WriteOptions) {
+      rejectWait(options)
       return node.removeBatch(indexName, docIds)
     },
 
-    async update(indexName: string, docId: string, document: AnyDocument): Promise<void> {
+    async update(indexName: string, docId: string, document: AnyDocument, options?: WriteOptions): Promise<void> {
+      rejectWait(options)
       return node.update(indexName, docId, document)
     },
 
-    async updateBatch(indexName: string, updates: Array<{ docId: string; document: AnyDocument }>) {
+    async updateBatch(
+      indexName: string,
+      updates: Array<{ docId: string; document: AnyDocument }>,
+      options?: WriteOptions,
+    ) {
+      rejectWait(options)
       return node.updateBatch(indexName, updates)
     },
 

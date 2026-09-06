@@ -9,8 +9,9 @@ import { clearGateSlot, gateSlotOfWorker } from '../concurrency-gate'
 import { INDEX_TOUCH_INTERVALS_PER_IDLE_TIMEOUT, MAX_INDEX_TOUCH_INTERVAL_MS } from '../constants'
 import type { ResolvedCors } from '../cors'
 import type { ResolvedBuild, ResolvedLimits } from '../deps'
-import { serializeNarsilError } from '../errors'
+import { ServerErrorCodes, serializeNarsilError } from '../errors'
 import type { Authorizer, RouteContext } from '../request'
+import { sendError } from '../response'
 import type { ServerHandlers } from '../routes'
 import { type AcceptorApp, acceptorOf } from './acceptor'
 import { createCapturingResponse, toRelayedResponse } from './captured-response'
@@ -69,7 +70,7 @@ async function answerRequest(handlers: ServerHandlers, request: RelayedRequest):
   try {
     await handlers[request.route](ctx)
   } catch {
-    captured.finishUnanswered()
+    sendError(ctx.res, 500, ServerErrorCodes.INTERNAL_ERROR, 'An unexpected error occurred')
   }
   captured.finishUnanswered()
   return toRelayedResponse(request.requestId, await captured.done)

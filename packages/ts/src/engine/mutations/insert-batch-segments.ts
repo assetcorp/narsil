@@ -11,6 +11,7 @@ import { asBatchInsertError } from './insert-admission'
 import { type AdmittedInsert, admitBatchDocuments } from './insert-batch-admission'
 import { applyAdmittedDocuments } from './insert-batch-documents'
 import { broadcastBuiltSegments, buildSegmentRequests } from './segment-replication'
+import { awaitWriteVisibility } from './write-visibility'
 
 interface IngestOutcome {
   succeeded: string[]
@@ -241,7 +242,7 @@ export async function insertBatchViaSegments(
   ctx.checkWatermark(indexName)
   ctx.checkHeapPressure(indexName)
   await ctx.orchestrator.scaleOutReadyIndexes()
-  if (options?.wait === true) await ctx.orchestrator.awaitWrites(indexName)
+  if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 
   return { succeeded: outcome.succeeded, failed }
 }

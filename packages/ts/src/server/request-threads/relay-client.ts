@@ -38,6 +38,11 @@ function portClosedError(): NarsilError {
   return new NarsilError(ErrorCodes.WORKER_CRASHED, 'The port to the main thread closed before it answered')
 }
 
+const SHUTTING_DOWN_DENIAL: Authorization = {
+  allowed: false,
+  denial: { status: 503, code: ServerErrorCodes.INTERNAL_ERROR, message: 'The server is shutting down' },
+}
+
 function sendUnavailable(res: ResponseSink): void {
   sendError(res, 503, ServerErrorCodes.INTERNAL_ERROR, 'The server is shutting down')
 }
@@ -80,7 +85,7 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
       try {
         reply = await send(requestId => ({ type: 'authorize', requestId, context }))
       } catch {
-        return { allowed: false, denial: null }
+        return SHUTTING_DOWN_DENIAL
       }
       if (reply.type !== 'authorized') return { allowed: false, denial: null }
       if (reply.hookError) return { allowed: false, denial: null }

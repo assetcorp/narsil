@@ -14,6 +14,7 @@ import {
 } from './insert-admission'
 import { insertBatchViaSegments } from './insert-batch-segments'
 import { replicateAsSegments } from './segment-replication'
+import { awaitWriteVisibility } from './write-visibility'
 
 export async function insertDocumentBatch(
   ctx: MutationContext,
@@ -210,7 +211,7 @@ export async function insertDocumentBatch(
   ctx.checkWatermark(indexName)
   ctx.checkHeapPressure(indexName)
   await ctx.orchestrator.scaleOutReadyIndexes()
-  if (options?.wait === true) await ctx.orchestrator.awaitWrites(indexName)
+  if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 
   return { succeeded, failed }
 }

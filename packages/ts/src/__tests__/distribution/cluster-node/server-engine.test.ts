@@ -130,4 +130,28 @@ describe('clusterNodeEngine', () => {
       expect(call).toThrowError(expect.objectContaining({ code: 'CLUSTER_OPERATION_UNSUPPORTED' }) as unknown as Error)
     }
   })
+
+  it('refuses a write that asks to wait for the copies', async () => {
+    const node = stubClusterNode()
+    const engine = clusterNodeEngine(node)
+    const waiting = { wait: true }
+
+    const refused: Array<Promise<unknown>> = [
+      engine.insert('products', { title: 'a' }, 'doc-1', waiting),
+      engine.insertBatch('products', [{ title: 'a' }], waiting),
+      engine.remove('products', 'doc-1', waiting),
+      engine.removeBatch('products', ['doc-1'], waiting),
+      engine.update('products', 'doc-1', { title: 'b' }, waiting),
+      engine.updateBatch('products', [{ docId: 'doc-1', document: { title: 'b' } }], waiting),
+    ]
+
+    for (const call of refused) {
+      await expect(call).rejects.toMatchObject({ code: 'CLUSTER_OPERATION_UNSUPPORTED' })
+    }
+    expect(node.insert).not.toHaveBeenCalled()
+    expect(node.update).not.toHaveBeenCalled()
+
+    await engine.remove('products', 'doc-1', { wait: false })
+    expect(node.remove).toHaveBeenCalledWith('products', 'doc-1')
+  })
 })

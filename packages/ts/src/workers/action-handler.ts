@@ -36,10 +36,17 @@ function holdsCopies(
 
 export function createActionHandler(executor: Executor & Partial<DirectExecutorExtensions>): ActionHandler {
   let servingRequests = false
+  const serving: { start: Promise<void> | null } = { start: null }
+
+  async function stopServingOnceStarted(): Promise<void> {
+    if (serving.start !== null) await serving.start
+    if (servingRequests) await stopServingRequests()
+    servingRequests = false
+  }
 
   return async function handleAction(action, post) {
     if (action.type === 'shutdown') {
-      if (servingRequests) await stopServingRequests()
+      await stopServingOnceStarted()
       await executor.shutdown()
       post(buildSuccessResponse(action.requestId, undefined))
       return true
@@ -56,16 +63,22 @@ export function createActionHandler(executor: Executor & Partial<DirectExecutorE
         if (!holdsCopies(executor)) {
           throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'This executor holds no copies to answer requests from')
         }
-        const { serveRequests } = await import('../server/request-threads/thread')
-        const result = await serveRequests(executor, action.settings)
-        servingRequests = true
+        const starting = import('../server/request-threads/thread').then(({ serveRequests }) =>
+          serveRequests(executor, action.settings),
+        )
+        serving.start = starting.then(
+          () => {
+            servingRequests = true
+          },
+          () => undefined,
+        )
+        const result = await starting
         post(buildSuccessResponse(action.requestId, result))
         return false
       }
 
       if (action.type === 'stopServing') {
-        if (servingRequests) await stopServingRequests()
-        servingRequests = false
+        await stopServingOnceStarted()
         post(buildSuccessResponse(action.requestId, undefined))
         return false
       }
