@@ -24,6 +24,7 @@ from server_section import server_blocks
 from sources import Source, load_inprocess_source, load_server_best_config_source, load_server_source, repo_root
 
 _IMAGE_SOURCE = re.compile(r'<img src="([^"]+)"')
+CHART_LIBRARY_MODULE = "matplotlib"
 
 
 def _inject(text: str, blocks: dict[str, str]) -> str:
@@ -47,7 +48,9 @@ def _missing_figures(page_text: str, root: Path) -> list[str]:
 def _stale_figures(root: Path, server: Source, best: Source | None, inprocess: Source) -> list[str] | None:
     try:
         from charts import render
-    except ImportError:
+    except ModuleNotFoundError as error:
+        if (error.name or "").split(".")[0] != CHART_LIBRARY_MODULE:
+            raise
         return None
     stale: list[str] = []
     with tempfile.TemporaryDirectory() as scratch:
