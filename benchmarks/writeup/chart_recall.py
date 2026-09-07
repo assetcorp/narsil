@@ -5,11 +5,23 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from chart_data import EQUAL_PRECISION, dataset_rows, has_recall_curve, profile_title, recall_curve, row_label
 from chart_paths import recall_chart, server_chart_dir
-from chart_style import FIGURE_WIDTH_INCHES, LINE_WIDTH, MARKER_SIZE, caption, engine_colour, rate_label, save, style_axes
+from chart_style import (
+    BASE_FONT_POINTS,
+    FIGURE_WIDTH_INCHES,
+    LINE_WIDTH,
+    MARKER_SIZE,
+    caption,
+    engine_colour,
+    rate_label,
+    save,
+    style_axes,
+)
 from matplotlib.ticker import FuncFormatter
 from render import dataset_name
 
 LINE_STYLES = {"equal-precision": "-", "best-config": "--"}
+LEGEND_COLUMNS = 2
+LEGEND_ANCHOR_BELOW_AXES = (0.5, -0.2)
 
 
 def recall_figure(repo_root: Path, run_id: str, dataset_id: str, comparisons: dict[str, dict | None]) -> Path | None:
@@ -37,7 +49,13 @@ def recall_figure(repo_root: Path, run_id: str, dataset_id: str, comparisons: di
     axes.yaxis.set_major_formatter(FuncFormatter(rate_label))
     axes.set_ylim(bottom=0)
     axes.set_xlabel("ANN recall@10 against the exact neighbours")
-    axes.legend(loc="lower left", ncols=2, fontsize=8)
+    axes.legend(
+        loc="upper center",
+        bbox_to_anchor=LEGEND_ANCHOR_BELOW_AXES,
+        ncols=LEGEND_COLUMNS,
+        fontsize=BASE_FONT_POINTS - 1,
+        frameon=False,
+    )
     caption(
         figure,
         f"Throughput against recall on {dataset_name(dataset_id)}",
