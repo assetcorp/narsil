@@ -18,6 +18,7 @@ export type {
   ImportError,
   ImportResult,
   InsertBody,
+  MemoryStatsResponse,
   MultiGetBody,
   RebalanceBody,
 } from './requests'

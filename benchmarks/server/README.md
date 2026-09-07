@@ -211,8 +211,9 @@ BENCH_PROFILE=smoke ./run-all.sh narsil  # smoke profile, writes results/.smoke/
 `results/.smoke/` is git-ignored, and the writeup generator reads `results/runs/`
 alone, so a smoke run reaches neither the repository nor the published page. The
 script prints where it left the results and how to delete them. The profile changes
-where results go and nothing about the measurement, so name the engines you care
-about, or set `BENCH_DATASETS`, when you want a faster check.
+where results go and how many passes each concurrency level gets, three on the
+cloud profile and one on smoke, and nothing else about the measurement, so name
+the engines you care about, or set `BENCH_DATASETS`, when you want a faster check.
 
 ## What it reports
 
@@ -224,12 +225,18 @@ about, or set `BENCH_DATASETS`, when you want a faster check.
   Single-query latency times one query at a time. Throughput drives concurrent load
   and reports the queries per second an engine sustains, which still separates engines
   on the small corpora where one query's server time falls below a millisecond. Both
-  measures use the same matched-recall operating point, and the file records the
-  concurrency level. The load generator spreads that concurrency across processes,
-  because building a request and parsing its response is interpreter work and one
-  Python process saturates near a single core: a threads-only client holds every
-  engine to that core divided by its per-request cost, whatever the engine could
-  serve. `throughput.client_processes` sets how many processes drive the load
+  measures use the same matched-recall operating point. Throughput sweeps the
+  levels in `throughput.concurrency`, which defaults to 1, 2, 4, 8, 16, 32, and 64
+  concurrent clients. The harness measures each level `throughput.passes` times.
+  `run-all.sh` sets that count to three on the cloud profile and one on the smoke
+  profile unless `BENCH_THROUGHPUT_PASSES` names another. A level reports the
+  median pass with a 95% bootstrap interval around it. It pools the under-load
+  latency of every pass, so its percentiles run out to p99.9, and it carries each
+  pass whole. The load generator spreads that concurrency across processes, because building a
+  request and parsing its response is interpreter work and one Python process
+  saturates near a single core: a threads-only client holds every engine to that
+  core divided by its per-request cost, whatever the engine could serve.
+  `throughput.client_processes` sets how many processes drive the load
   (`BENCH_THROUGHPUT_CLIENT_PROCESSES` overrides it, and unset it takes half the
   host's logical cores), and every level records the value used. That CPU comes out
   of the same host the engine runs on, so raising it buys headroom to measure with
@@ -237,6 +244,22 @@ about, or set `BENCH_DATASETS`, when you want a faster check.
   engine or the client set the limit, read from the client's CPU against the cores
   its own processes can reach and from the concurrency it achieved, so you can spot
   a client-bound number before you trust it.
+- Each level also records how many cores the engine container kept busy. The
+  compose file mounts the host's cgroup tree read-only at `/host/cgroup`, and
+  `run-all.sh` passes the engine's container id in `BENCH_ENGINE_CONTAINER_ID`. The
+  harness then reads that container's `cpu.stat` before and after every measured
+  window, and it divides the CPU time by the wall time. A run that supplies no
+  container id records the field as absent and carries on.
+- The vector track measures throughput once more at every search-effort value its
+  recall sweep visited, at `throughput.recall_sweep_concurrency` clients, so the
+  operating point's `sweep` carries queries per second beside recall at each step.
+- The vector and hybrid tracks run twice for every engine that serves them: once at
+  full float, and once under the engine's own recommended production quantisation,
+  which `run-all.sh` names best config and writes to `engine-<name>-bestconfig.json`.
+  Set `BENCH_BEST_CONFIG=0` to run the equal-precision pass alone.
+- Narsil's result also records how the server held the index it measured, read from
+  its `/stats/memory` endpoint after each track: how many worker threads hold copies,
+  how many of them receive requests, and which indexes were scaled out across them.
 - Each result records what produced it: the engine's build identity (its version, and
   the git build hash where the engine exposes one), the image digest the engine ran as,
   and each dataset's content hash. With these you can tie a number back to an exact
@@ -313,16 +336,22 @@ benchmarks/server/
       runfile.py             TREC run-file writer and the strict-ordering rule
       scoring.py             pytrec_eval (nDCG@10, Recall@100, MAP, MRR)
       latency.py             serial single-query latency percentiles
-      throughput.py          sustained queries per second under concurrent load
+      throughput.py          the concurrency sweep: passes per level, medians, intervals, pooled tails
+      throughput_process.py  the load-generator processes behind one measured window
+      engine_cpu.py          the engine container's cgroup CPU counter and the cores-busy arithmetic
+      recall_sweep.py        throughput at every search-effort level of the recall sweep
+      stats.py               percentiles, medians, and the bootstrap interval
       http_client.py         pooled HTTP client shared by every driver
       environment.py         machine environment capture
       reporter.py            per-engine, per-track results (JSON and Markdown), atomic writes
       run_store.py           per-run result directory, run id, and path validation
-      comparison.py          cross-engine, per-track comparison tables
+      comparison.py          cross-engine, per-track comparison data
+      comparison_markdown.py the comparison rendered as Markdown
       track_common.py        shared per-track helpers
       harness.py             keyword track and per-engine, per-track orchestration
       vector_runner.py       vector and hybrid track runners
       config.py              datasets, BM25, vector config, per-engine tracks
+      config_throughput.py   the throughput settings: levels, passes, processes, recall-sweep level
     drivers/                 one file per engine
       narsil.py
       elasticsearch.py / opensearch.py (shared Lucene REST base: _lucene.py)
@@ -338,8 +367,9 @@ benchmarks/server/
 
 ## Tests
 
-The result-layout and aggregation logic has unit and integration tests that run on
-the host without Docker. Install the dev extra and run them:
+The result-layout, aggregation, throughput-record, and engine-CPU logic has unit
+tests that run on the host without Docker, and continuous integration runs them on
+every push. Install the dev extra and run them:
 
 ```bash
 pip install -e ".[dev]"

@@ -88,7 +88,7 @@ export async function runTextTier(
           `    search (filtered): ${r.filteredSearchMedianMs.toFixed(3)}ms median, ${r.filteredSearchP95Ms?.toFixed(3) ?? 'n/a'}ms p95`,
         )
       }
-      console.log(`    memory: ${r.memoryMb.toFixed(1)}MB`)
+      console.log(`    heap plus external memory: ${r.heapAndExternalMb.toFixed(1)}MB`)
       results[engineMeta.name][scale] = r
       store.setTextScale(config.section, engineMeta.name, scale, r)
     }
@@ -133,7 +133,7 @@ function printSummary(config: TextTierConfig, results: Record<string, Record<num
     printFilteredSearchTable(scales, results, enginesMeta)
   }
 
-  printScaleTable('Memory (MB)', scales, results, enginesMeta, r => r.memoryMb.toFixed(1))
+  printScaleTable('Heap plus external memory (MB)', scales, results, enginesMeta, r => r.heapAndExternalMb.toFixed(1))
   printScaleTable('Insert CV', scales, results, enginesMeta, r => {
     const sr = r as ScaleResult
     return sr.insertCV > 0.1 ? `${fmtPct(sr.insertCV)} [!]` : fmtPct(sr.insertCV)

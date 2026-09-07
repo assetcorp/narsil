@@ -132,12 +132,16 @@ services:
       BENCH_THROUGHPUT: "${BENCH_THROUGHPUT:-}"
       BENCH_THROUGHPUT_CONCURRENCY: "${BENCH_THROUGHPUT_CONCURRENCY:-}"
       BENCH_THROUGHPUT_CLIENT_PROCESSES: "${BENCH_THROUGHPUT_CLIENT_PROCESSES:-}"
+      BENCH_THROUGHPUT_PASSES: "${BENCH_THROUGHPUT_PASSES:-}"
+      BENCH_ENGINE_CONTAINER_ID: "${BENCH_ENGINE_CONTAINER_ID:-}"
+      BENCH_CGROUP_ROOT: "/host/cgroup"
       IR_DATASETS_DL_TRIES: "${IR_DATASETS_DL_TRIES:-10}"
       IR_DATASETS_DL_TIMEOUT: "${IR_DATASETS_DL_TIMEOUT:-60}"
     volumes:
       - ir_datasets_cache:/data/ir_datasets
       - embeddings_cache:/data/embeddings
       - ./${BENCH_HOST_RESULTS_DIR:-results}:/app/results
+      - /sys/fs/cgroup:/host/cgroup:ro
 
 volumes:
   ir_datasets_cache:

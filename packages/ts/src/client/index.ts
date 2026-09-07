@@ -15,6 +15,7 @@ export type {
   HttpIndexConfig,
   ImportError,
   ImportResult,
+  MemoryStatsResponse,
   TaskListPage,
   TaskListQuery,
   TaskProgress,

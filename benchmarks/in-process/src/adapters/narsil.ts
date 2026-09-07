@@ -2,6 +2,8 @@ import { createNarsil, type Narsil } from '@delali/narsil'
 import { STOP_WORD_SET } from '../stopwords'
 import type { BenchDocument, SearchEngine, SerializableEngine, VectorBenchDocument, VectorSearchEngine } from '../types'
 
+const SINGLE_THREAD = { workers: { enabled: false } } as const
+
 export function createNarsilTextOnlyAdapter(): SearchEngine {
   let instance: Narsil | null = null
 
@@ -9,7 +11,7 @@ export function createNarsilTextOnlyAdapter(): SearchEngine {
     name: 'narsil',
 
     async create() {
-      instance = await createNarsil()
+      instance = await createNarsil(SINGLE_THREAD)
       await instance.createIndex('bench', {
         schema: { title: 'string' as const, body: 'string' as const },
         language: 'english',
@@ -54,7 +56,7 @@ export function createNarsilFullSchemaAdapter(): SearchEngine {
     insertedIds: trackedIds,
 
     async create() {
-      instance = await createNarsil()
+      instance = await createNarsil(SINGLE_THREAD)
       trackedIds.length = 0
       await instance.createIndex('bench', {
         schema: {
@@ -145,7 +147,7 @@ export function createNarsilSerializableAdapter(): SerializableEngine {
     name: 'narsil',
 
     async create() {
-      instance = await createNarsil()
+      instance = await createNarsil(SINGLE_THREAD)
       await instance.createIndex('bench', {
         schema: {
           title: 'string' as const,
@@ -171,7 +173,7 @@ export function createNarsilSerializableAdapter(): SerializableEngine {
     },
 
     async deserializeAndSearch(serialized: Uint8Array | string, query: string) {
-      const fresh = await createNarsil()
+      const fresh = await createNarsil(SINGLE_THREAD)
       await fresh.restore('bench', serialized as Uint8Array)
       const result = await fresh.query('bench', { term: query })
       await fresh.shutdown()
@@ -194,7 +196,7 @@ export function createNarsilVectorAdapter(dimension: number): VectorSearchEngine
     name: 'narsil',
 
     async create() {
-      instance = await createNarsil()
+      instance = await createNarsil(SINGLE_THREAD)
       await instance.createIndex('bench', {
         schema: {
           title: 'string' as const,

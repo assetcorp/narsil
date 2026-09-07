@@ -12,6 +12,7 @@ TRACKS = (KEYWORD, VECTOR, HYBRID)
 EQUAL_PRECISION = "equal-precision"
 BEST_CONFIG = "best-config"
 VECTOR_PROFILES = (EQUAL_PRECISION, BEST_CONFIG)
+FULL_FLOAT = "full float"
 
 FLOATING_MS = "floating-millisecond"
 INTEGER_MS = "integer-millisecond"

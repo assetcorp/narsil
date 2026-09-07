@@ -13,6 +13,7 @@ from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
     FLOATING_MS,
+    FULL_FLOAT,
     EngineError,
     Hit,
     ImportResult,
@@ -51,6 +52,7 @@ class NarsilDriver:
         self.hybrid_setup = "BM25 (text) fused with HNSW vector search via Reciprocal Rank Fusion"
         self.hybrid_fusion = f"RRF (k={_RRF_K})"
         self.vector_knob = "efSearch"
+        self.vector_quantization = FULL_FLOAT
         self.server_time = ServerTimeSource(source="response `elapsed` field", resolution=FLOATING_MS)
         self._vector_profile = EQUAL_PRECISION
         self._k1 = bm25.k1
@@ -156,6 +158,7 @@ class NarsilDriver:
         self._vector_profile = params.profile
         if params.profile == BEST_CONFIG:
             quantization = "sq8"
+            self.vector_quantization = "SQ8"
             self.vector_setup = (
                 "HNSW over the shared precomputed vectors, SQ8 scalar quantization with "
                 "full-precision rerank, cosine"
@@ -260,6 +263,22 @@ class NarsilDriver:
                 size = int(value)
                 break
         return {"index_size_bytes": size, "raw": raw}
+
+    def server_setup(self) -> dict | None:
+        response = self._client.get("/stats/memory")
+        _raise_for_envelope(response)
+        raw = response.json()
+        workers = raw.get("workers") if isinstance(raw.get("workers"), list) else []
+        copies = raw.get("workerCopies") if isinstance(raw.get("workerCopies"), list) else []
+        request_threads = raw.get("requestThreads")
+        return {
+            "worker_threads": len(workers),
+            "request_threads": int(request_threads) if isinstance(request_threads, int) else None,
+            "scaled_out_indexes": [
+                str(entry.get("indexName")) for entry in copies if isinstance(entry, dict) and entry.get("scaledOut")
+            ],
+            "source_endpoint": "/stats/memory",
+        }
 
     def build_identity(self) -> dict | None:
         """The running server's own build, read from its `/version` endpoint: the

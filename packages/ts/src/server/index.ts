@@ -19,6 +19,7 @@ export type {
   HttpIndexConfig,
   ImportError,
   ImportResult,
+  MemoryStatsResponse,
   NarsilServer,
   OnRequestHook,
   RequestContext,

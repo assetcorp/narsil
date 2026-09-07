@@ -1,6 +1,5 @@
 import { encodeJson } from '../json-encoding'
-import type { TaskRecord } from '../server/types'
-import type { MemoryStats } from '../types/memory'
+import type { MemoryStatsResponse, TaskRecord } from '../server/types'
 import type { VectorMaintenanceResult } from '../types/results'
 import type { PartitionConfig } from '../types/schema'
 import { NO_TIMEOUT } from './constants'
@@ -137,13 +136,13 @@ export interface AdminOperations {
   rebuildAnalysis(indexName: string, options?: RequestOptions): Promise<TaskRecord>
   /**
    * Reports the server process's heap usage, its estimate of what the indexes
-   * hold, and each worker's heap.
+   * hold, each worker's heap, and how many worker threads receive requests.
    *
    * @param options - This sets the signal, the deadline, and the headers for
    * this request.
    * @returns The figures are what you size a host from.
    */
-  getMemoryStats(options?: RequestOptions): Promise<MemoryStats>
+  getMemoryStats(options?: RequestOptions): Promise<MemoryStatsResponse>
 }
 
 export function createAdminOperations(transport: Transport): AdminOperations {
@@ -214,7 +213,7 @@ export function createAdminOperations(transport: Transport): AdminOperations {
     },
     async getMemoryStats(options) {
       const path = '/stats/memory'
-      return readBody<MemoryStats>(await transport.json({ method: 'GET', path, options }), path)
+      return readBody<MemoryStatsResponse>(await transport.json({ method: 'GET', path, options }), path)
     },
   }
 }

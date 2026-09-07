@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..core.config import BM25Params, EngineConfig
-from ..core.types import BEST_CONFIG, EQUAL_PRECISION, SearchResponse, VectorIndexParams
+from ..core.types import BEST_CONFIG, EQUAL_PRECISION, FULL_FLOAT, SearchResponse, VectorIndexParams
 from ._lucene import _VECTOR_FIELD, LuceneRestDriver, _raise
 
 _RANK_CONSTANT = 60
@@ -23,6 +23,7 @@ class ElasticsearchDriver(LuceneRestDriver):
         self.hybrid_setup = "BM25 match fused with dense_vector kNN via the RRF retriever"
         self.hybrid_fusion = f"RRF retriever (rank_constant={_RANK_CONSTANT})"
         self.vector_knob = "num_candidates"
+        self.vector_quantization = FULL_FLOAT
         self._vector_profile = EQUAL_PRECISION
         self.rescore_oversample_grid = _BBQ_OVERSAMPLE_GRID
         self._rescore_oversample: float | None = None
@@ -45,6 +46,7 @@ class ElasticsearchDriver(LuceneRestDriver):
         # BBQ, Elastic's own recommended default at this dimensionality.
         if params.profile == BEST_CONFIG:
             index_type = "bbq_hnsw"
+            self.vector_quantization = "BBQ"
             self.vector_setup = (
                 "dense_vector BBQ (bbq_hnsw, binary quantization) with full-precision "
                 "rescore (oversample tuned to the recall target), similarity cosine"
