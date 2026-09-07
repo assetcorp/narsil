@@ -167,6 +167,16 @@ def run_vector_track(
     grid = vec.ef_search_grid_best_config if profile == BEST_CONFIG else vec.ef_search_grid
     print(f"[{driver.name}:{spec.dataset_id}:vector:{profile}] tuning to recall@{vec.recall_k} >= {vec.recall_target}", flush=True)
     tuning = tune_to_recall(run_at, grid, truth, vec.recall_k, vec.recall_target, vec.recall_target_secondary)
+    tuning, chosen_oversample = _tune_rescore_oversample(
+        driver, profile, tuning, index, query_vectors, list(qset.ids), truth, vec, spec.dataset_id
+    )
+    if chosen_oversample is not None:
+        print(
+            f"[{driver.name}:{spec.dataset_id}:vector:{profile}] re-tuning search effort with rescore oversample "
+            f"{chosen_oversample:g} in effect",
+            flush=True,
+        )
+        tuning = tune_to_recall(run_at, grid, truth, vec.recall_k, vec.recall_target, vec.recall_target_secondary)
 
     server_time = getattr(driver, "server_time", SERVER_TIME_UNAVAILABLE)
     workload = Workload(
@@ -178,17 +188,13 @@ def run_vector_track(
         ef=tuning.chosen_param,
         vector_profile=profile,
         vector_metric=vec.metric,
-        rescore_oversample=None,
+        rescore_oversample=chosen_oversample,
     )
     sweep_config = replace(config.throughput, concurrency=(config.throughput.recall_sweep_concurrency,))
     print(f"[{driver.name}:{spec.dataset_id}:vector:{profile}] measuring throughput at every search-effort level", flush=True)
     sweep = sweep_throughput(
         tuning.sweep,
         lambda ef: measure_throughput(replace(workload, ef=ef), query_vectors, sweep_config, server_time, engine_cpu),
-    )
-
-    tuning, chosen_oversample = _tune_rescore_oversample(
-        driver, profile, tuning, index, query_vectors, list(qset.ids), truth, vec, spec.dataset_id
     )
 
     quality_ef = max(tuning.chosen_param, config.run_depth)
@@ -204,7 +210,6 @@ def run_vector_track(
     metrics = evaluate(qrels, run_for_scoring)
 
     print(f"[{driver.name}:{spec.dataset_id}:vector] measuring latency and throughput at the operating point", flush=True)
-    workload = replace(workload, ef=tuning.chosen_param, rescore_oversample=chosen_oversample)
     vector_once = request_caller(driver, workload)
 
     latency = measure_latency(vector_once, query_vectors, config.latency, server_time)

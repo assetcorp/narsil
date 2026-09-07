@@ -265,9 +265,12 @@ class NarsilDriver:
         return {"index_size_bytes": size, "raw": raw}
 
     def server_setup(self) -> dict | None:
-        response = self._client.get("/stats/memory")
-        _raise_for_envelope(response)
-        raw = response.json()
+        try:
+            response = self._client.get("/stats/memory")
+            _raise_for_envelope(response)
+            raw = response.json()
+        except (httpx.HTTPError, ValueError) as error:
+            raise EngineError(f"memory stats unavailable from {self._client.base_url}: {error}") from error
         workers = raw.get("workers") if isinstance(raw.get("workers"), list) else []
         copies = raw.get("workerCopies") if isinstance(raw.get("workerCopies"), list) else []
         request_threads = raw.get("requestThreads")

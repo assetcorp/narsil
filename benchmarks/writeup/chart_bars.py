@@ -23,7 +23,7 @@ ROW_HEIGHT_INCHES = 0.42
 PANEL_MARGIN_INCHES = 1.9
 
 
-def _quality_entries(rows: list[dict]) -> list[tuple[str, float]]:
+def _quality_entries(rows: list[dict]) -> list[tuple[dict, float]]:
     entries = []
     for row in rows:
         value = number((row.get("metrics") or {}).get("ndcg_cut_10"))
