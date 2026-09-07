@@ -12,6 +12,7 @@ from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
     FLOATING_MS,
+    FULL_FLOAT,
     EngineError,
     Hit,
     ImportResult,
@@ -55,6 +56,7 @@ class QdrantDriver:
         self.hybrid_setup = "Dense HNSW fused with BM25 sparse vectors (fastembed Qdrant/bm25, server IDF) via RRF"
         self.hybrid_fusion = "RRF (Query API fusion)"
         self.vector_knob = "hnsw_ef"
+        self.vector_quantization = FULL_FLOAT
         self.server_time = ServerTimeSource(
             source="top-level `time` field, seconds converted to ms", resolution=FLOATING_MS
         )
@@ -116,6 +118,7 @@ class QdrantDriver:
             body["quantization_config"] = {
                 "scalar": {"type": "int8", "quantile": _SCALAR_QUANTILE, "always_ram": True}
             }
+            self.vector_quantization = "int8 scalar"
             self.vector_setup = (
                 "HNSW dense vectors with int8 scalar quantization and full-precision rescore "
                 f"(oversampling {_SCALAR_OVERSAMPLING}x), distance Cosine, over the shared precomputed vectors"

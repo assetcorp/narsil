@@ -8,11 +8,13 @@ for the embedded vector index.
 
 from __future__ import annotations
 
-from render import and_join, bar_chart, dataset_name, decimal, engine_name, integer, is_number, percent, table
+from chart_paths import embedded_scale_chart, figure, inprocess_chart_dir
+from render import and_join, dataset_name, decimal, engine_name, integer, is_number, percent, table
 from sources import Source
 
 _ENGINE_ORDER = ["narsil", "orama", "minisearch"]
 _VECTOR_ENGINE_ORDER = ["narsil", "orama"]
+_MEMORY_KEY = "heapAndExternalMb"
 
 
 def _date(source: Source) -> str:
@@ -72,6 +74,8 @@ def _setup_block(source: Source) -> str:
         f"- **Engines.** The comparison runs Narsil {engines.get('narsil') or 'n/a'} against Orama "
         f"{engines.get('orama') or 'n/a'} and MiniSearch {engines.get('minisearch') or 'n/a'}, all inside one "
         "Node.js process.",
+        "- **Threads.** Every engine answers on one thread. Narsil runs with `workers.enabled` off, so it holds "
+        "no worker copies here, and the server comparison above is where its worker threads take part.",
         f"- **Machine.** {machine}",
         f"- **Speed corpus.** The indexing and query tiers run on BEIR {dataset_name(config.get('dataSource') or '')}, "
         f"{integer(config.get('perfCorpusDocCount'))} documents, measured at {scales} documents.",
@@ -86,12 +90,6 @@ def _quality_block(source: Source) -> str:
     order = _present(results, _ENGINE_ORDER)
     name = dataset_name((results.get("relevanceDataset") or {}).get("name") or "")
 
-    entries = []
-    for engine in order:
-        value = _quality(results, engine, "meanNdcg10")
-        if value is not None:
-            entries.append((engine_name(engine), value, decimal(value, 4)))
-
     ordered = sorted(order, key=lambda engine: _quality(results, engine, "meanNdcg10") or -1.0, reverse=True)
     body = [
         [
@@ -105,8 +103,7 @@ def _quality_block(source: Source) -> str:
     ]
     headers = ["Engine", "nDCG@10", "P@10", "MAP", "MRR"]
     return "\n\n".join([
-        f"Ranking quality on BEIR {name}, nDCG@10, higher is better:",
-        bar_chart(entries),
+        f"Ranking quality on BEIR {name}, higher is better:",
         table(headers, ["left", "right", "right", "right", "right"], body),
     ])
 
@@ -140,24 +137,33 @@ def _speed_block(source: Source) -> str:
     top_scale = scale_keys[-1] if scale_keys else ""
     top_label = integer(int(top_scale)) if top_scale else "n/a"
 
-    insert_entries = []
-    for engine in order:
-        value = _tier_value(results, "textOnly", engine, top_scale, "insertDocsPerSec")
-        if value is not None:
-            insert_entries.append((engine_name(engine), value, f"{integer(value)} docs/s"))
-
-    return "\n\n".join([
-        f"Insert throughput at {top_label} documents, documents per second, higher is better:",
-        bar_chart(insert_entries),
+    chunks = [
+        figure(
+            embedded_scale_chart(inprocess_chart_dir(source.run_id)),
+            "Line panels for the embedded engines across corpus size: insert documents per second, search p50 "
+            "latency on a logarithmic scale, and, where the run recorded it, heap plus external memory.",
+        ),
         "Insert throughput at each scale, documents per second:",
         _scale_table(results, order, config, "textOnly", ("insertDocsPerSec",), 0),
         "Search latency at each scale, p50 milliseconds:",
         _scale_table(results, order, config, "textOnly", ("searchLatency", "p50Ms"), 3),
-        "Resident memory at each scale, megabytes:",
-        _scale_table(results, order, config, "textOnly", ("memoryMb",), 1),
-        f"Filtered search latency at {top_label} documents, p50 milliseconds:",
-        _filtered_table(results, order, top_scale),
-    ])
+    ]
+    if _records_memory(results, order, scale_keys):
+        chunks.append("Heap plus external memory at each scale, megabytes:")
+        chunks.append(_scale_table(results, order, config, "textOnly", (_MEMORY_KEY,), 1))
+    else:
+        chunks.append("This run recorded no memory figure under the heap plus external definition.")
+    chunks.append(f"Filtered search latency at {top_label} documents, p50 milliseconds:")
+    chunks.append(_filtered_table(results, order, top_scale))
+    return "\n\n".join(chunks)
+
+
+def _records_memory(results: dict, order: list[str], scale_keys: list[str]) -> bool:
+    return any(
+        _tier_value(results, "textOnly", engine, scale, _MEMORY_KEY) is not None
+        for engine in order
+        for scale in scale_keys
+    )
 
 
 def _vector_block(source: Source) -> str:
@@ -168,19 +174,25 @@ def _vector_block(source: Source) -> str:
 
     chunks: list[str] = []
     for dataset in config.get("vectorDatasets") or []:
+        records = {engine: (vector.get(engine) or {}).get(dataset) or {} for engine in order}
+        with_memory = any(is_number(record.get(_MEMORY_KEY)) for record in records.values())
         body = []
         for engine in order:
-            record = (vector.get(engine) or {}).get(dataset) or {}
-            body.append([
+            record = records[engine]
+            cells = [
                 engine_name(engine),
                 percent(record.get("meanRecallAt10")),
                 integer(record.get("insertDocsPerSec")),
                 decimal(_dig(record, "searchLatency", "p50Ms"), 3),
-                decimal(record.get("memoryMb"), 1),
-            ])
-        headers = ["Engine", "Recall@10", "Insert docs/s", "Search p50 ms", "Memory MB"]
+            ]
+            if with_memory:
+                cells.append(decimal(record.get(_MEMORY_KEY), 1))
+            body.append(cells)
+        headers = ["Engine", "Recall@10", "Insert docs/s", "Search p50 ms"]
+        if with_memory:
+            headers.append("Heap plus external MB")
         chunks.append(f"Embedded vector search on BEIR {dataset_name(dataset)}:")
-        chunks.append(table(headers, ["left", "right", "right", "right", "right"], body))
+        chunks.append(table(headers, ["left", *["right"] * (len(headers) - 1)], body))
     return "\n\n".join(chunks)
 
 

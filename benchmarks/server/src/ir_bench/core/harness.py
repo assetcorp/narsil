@@ -10,14 +10,28 @@ from .latency import measure_latency
 from .runfile import run_mapping, strict_ranking, write_run_file
 from .scoring import evaluate
 from .throughput import measure_throughput
+from .throughput_process import CpuCounter
 from .throughput_workload import Workload, request_caller
-from .track_common import bulk_load_begin, bulk_load_end, best_effort, index_name, index_size_bytes, verify_indexed
+from .track_common import (
+    best_effort,
+    bulk_load_begin,
+    bulk_load_end,
+    index_name,
+    index_size_bytes,
+    server_setup,
+    verify_indexed,
+)
 from .types import BEST_CONFIG, EQUAL_PRECISION, EngineError, HYBRID, KEYWORD, SERVER_TIME_UNAVAILABLE, VECTOR
 from .vector_runner import run_hybrid_track, run_vector_track
 
 
 def run_keyword_track(
-    driver, engine_cfg: EngineConfig, config: BenchmarkConfig, spec: DatasetSpec, runs_dir: Path
+    driver,
+    engine_cfg: EngineConfig,
+    config: BenchmarkConfig,
+    spec: DatasetSpec,
+    runs_dir: Path,
+    engine_cpu: CpuCounter | None = None,
 ) -> dict:
     index = index_name(spec.dataset_id)
     print(f"[{driver.name}:{spec.dataset_id}:keyword] loading queries and judgements", flush=True)
@@ -65,9 +79,10 @@ def run_keyword_track(
     search_once = request_caller(driver, workload)
 
     latency = measure_latency(search_once, query_list, config.latency, server_time)
-    throughput = measure_throughput(workload, query_list, config.throughput, server_time)
+    throughput = measure_throughput(workload, query_list, config.throughput, server_time, engine_cpu)
 
     stats = best_effort(lambda: driver.index_stats(index), "index stats")
+    setup_report = server_setup(driver)
     driver.drop_index(index)
 
     calibration = None
@@ -87,6 +102,7 @@ def run_keyword_track(
         "track": KEYWORD,
         "run_tag": driver.run_tag,
         "setup": getattr(driver, "keyword_setup", ""),
+        "server_setup": setup_report,
         "queries": len(queries),
         "judged_queries": len(qrels),
         "metrics": metrics,
@@ -115,6 +131,7 @@ def run_engine(
     runs_dir: Path,
     store: EmbeddingStore | None,
     vector_profile: str = EQUAL_PRECISION,
+    engine_cpu: CpuCounter | None = None,
 ) -> list[dict]:
     results: list[dict] = []
     driver.wait_until_ready()
@@ -126,13 +143,13 @@ def run_engine(
             if track == KEYWORD:
                 if vector_profile == BEST_CONFIG:
                     continue
-                results.append(run_keyword_track(driver, engine_cfg, config, spec, runs_dir))
+                results.append(run_keyword_track(driver, engine_cfg, config, spec, runs_dir, engine_cpu))
             elif track == VECTOR:
                 if store is None or config.vector is None:
                     raise EngineError("vector track requires an embedding store and a [vector] config section")
                 result = run_vector_track(
                     driver, engine_cfg, config, spec, runs_dir, store,
-                    f"{engine_cfg.name}_vector{suffix}", vector_profile,
+                    f"{engine_cfg.name}_vector{suffix}", vector_profile, engine_cpu,
                 )
                 point = result.get("operating_point")
                 if point and point.get("chosen_value") is not None:
@@ -145,7 +162,7 @@ def run_engine(
                 results.append(
                     run_hybrid_track(
                         driver, engine_cfg, config, spec, runs_dir, store, f"{engine_cfg.name}_hybrid{suffix}",
-                        chosen_vector_ef, vector_profile, chosen_vector_oversample,
+                        chosen_vector_ef, vector_profile, chosen_vector_oversample, engine_cpu,
                     )
                 )
     return results

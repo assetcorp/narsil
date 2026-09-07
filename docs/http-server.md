@@ -32,7 +32,7 @@ The full surface:
 | `GET /cluster`, `GET /indexes/{name}/cluster` | The endpoints report the cluster topology and one index's allocation, and a server fronting a single engine answers both with 501. See [Cluster routes](#cluster-routes). |
 | `GET /version` | The endpoint reports the build identity stamped at startup. |
 | `GET /capabilities` | The endpoint lists the optional routes this server serves, and it needs no key either. See [Tasks](#tasks). |
-| `GET /stats/memory` | The endpoint returns `getMemoryStats()`. |
+| `GET /stats/memory` | The endpoint returns `getMemoryStats()` plus `requestThreads`, the number of worker threads that receive requests. See [Request threads](partitions-and-workers.md#request-threads). |
 | `POST /indexes`, `GET /indexes`, `DELETE /indexes/{name}` | The endpoints create, list, and drop indexes. |
 | `GET /indexes/{name}/stats`, `GET /indexes/{name}/partitions`, `GET /indexes/{name}/count` | The endpoints report index, partition, and document-count statistics. |
 | `POST /indexes/{name}/_clear` | The endpoint removes every document but keeps the index. |

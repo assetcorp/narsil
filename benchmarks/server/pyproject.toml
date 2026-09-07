@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+charts = ["matplotlib==3.10.7"]
 
 [project.scripts]
 ir-bench = "ir_bench.cli:main"

@@ -119,8 +119,10 @@ Every default is an environment variable:
 Provider-specific: `GCP_PROJECT`, `GCP_ZONE`, `MIN_CPU_PLATFORM`, `USE_IAP` for
 GCP; `HCLOUD_LOCATION` for Hetzner; `DO_REGION` for DigitalOcean; `AWS_REGION`,
 `AWS_SUBNET`, `AWS_AMI`, `AWS_SG_NAME` for AWS. The server suite reads
-`BENCH_BEST_CONFIG`, `BENCH_DATASETS`, `BENCH_MEM_CAP`, and `BENCH_JVM_HEAP`, and
-this toolkit forwards them to the VM unchanged.
+`BENCH_BEST_CONFIG`, `BENCH_THROUGHPUT_PASSES`, `BENCH_DATASETS`, `BENCH_MEM_CAP`,
+and `BENCH_JVM_HEAP`, and this toolkit forwards them to the VM unchanged. The
+best-config pass runs by default, and a cloud-profile run measures every
+concurrency level three times unless `BENCH_THROUGHPUT_PASSES` says otherwise.
 
 ## What each provider sets up
 

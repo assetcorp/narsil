@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .core.config import load_config, select_datasets, select_engine
 from .core.embeddings import EmbeddingStore
+from .core.engine_cpu import engine_cpu_counter_from_env
 from .core.environment import capture_environment
 from .core.harness import run_engine
 from .core.registry import build_driver
@@ -75,8 +76,10 @@ def main(argv: list[str] | None = None) -> int:
         "build_identity": None,
         "tracks": list(engine_cfg.tracks),
         "keyword_setup": None,
+        "server_setup": None,
         "vector_profile": vector_profile,
     }
+    engine_cpu = engine_cpu_counter_from_env(os.environ)
     config_summary = {
         "k1": config.bm25.k1,
         "b": config.bm25.b,
@@ -85,9 +88,12 @@ def main(argv: list[str] | None = None) -> int:
         "throughput": {
             "enabled": config.throughput.enabled,
             "concurrency": list(config.throughput.concurrency),
+            "passes": config.throughput.passes,
+            "recall_sweep_concurrency": config.throughput.recall_sweep_concurrency,
             "client_processes": config.throughput.client_processes,
             "duration_seconds": config.throughput.duration_seconds,
             "warmup_seconds": config.throughput.warmup_seconds,
+            "engine_cpu": None if engine_cpu is None else engine_cpu.describe(),
         },
     }
     if config.vector is not None:
@@ -115,10 +121,17 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         print(f"waiting for {engine_cfg.name} at {engine_cfg.url} (vector profile: {vector_profile})", flush=True)
-        results = run_engine(driver, engine_cfg, config, specs, runfiles_dir, store, vector_profile)
+        if engine_cpu is None:
+            print("engine cores busy: not recorded (no engine container cgroup was supplied)", flush=True)
+        else:
+            print(f"engine cores busy: read from {engine_cpu.cgroup_dir}", flush=True)
+        results = run_engine(driver, engine_cfg, config, specs, runfiles_dir, store, vector_profile, engine_cpu)
         engine_info["build_identity"] = _safe_build_identity(driver)
         engine_info["version"] = (engine_info["build_identity"] or {}).get("version")
         engine_info["keyword_setup"] = getattr(driver, "keyword_setup", None)
+        engine_info["server_setup"] = next(
+            (result["server_setup"] for result in reversed(results) if result.get("server_setup")), None
+        )
     finally:
         driver.close()
 

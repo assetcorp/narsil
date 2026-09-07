@@ -72,7 +72,7 @@ export function makeScaleErrorRecord(failure: FailureRecord): ScaleResultWithErr
     searchP95Ms: -1,
     searchCV: 0,
     searchStdDevMs: 0,
-    memoryMb: -1,
+    heapAndExternalMb: -1,
     error: failure,
   }
 }
@@ -86,7 +86,7 @@ export function makeVectorErrorRecord(failure: FailureRecord, dataset: string): 
     queryCount: -1,
     insertMedianMs: -1,
     insertDocsPerSec: -1,
-    memoryMb: -1,
+    heapAndExternalMb: -1,
     searchLatency: EMPTY_LATENCY,
     meanRecallAt10: -1,
     error: failure,

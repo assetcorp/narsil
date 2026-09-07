@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..core.config import BM25Params, EngineConfig
-from ..core.types import BEST_CONFIG, EQUAL_PRECISION, SearchResponse, VectorIndexParams
+from ..core.types import BEST_CONFIG, EQUAL_PRECISION, FULL_FLOAT, SearchResponse, VectorIndexParams
 from ._lucene import _VECTOR_FIELD, LuceneRestDriver, _raise
 
 _RANK_CONSTANT = 60
@@ -22,6 +22,7 @@ class OpenSearchDriver(LuceneRestDriver):
         self.hybrid_setup = "BM25 match fused with knn via a hybrid query and an RRF search pipeline"
         self.hybrid_fusion = f"score-ranker-processor RRF (rank_constant={_RANK_CONSTANT})"
         self.vector_knob = "ef_search"
+        self.vector_quantization = FULL_FLOAT
         self._vector_profile = EQUAL_PRECISION
         self._pipeline_ready = False
 
@@ -50,6 +51,7 @@ class OpenSearchDriver(LuceneRestDriver):
         method_parameters: dict = {"m": params.m, "ef_construction": params.ef_construction}
         if params.profile == BEST_CONFIG:
             method_parameters["encoder"] = {"name": "sq", "parameters": {"bits": 16}}
+            self.vector_quantization = "SQfp16"
             self.vector_setup = (
                 "knn_vector HNSW (faiss engine, 16-bit SQ / SQfp16 scalar quantization, inner product on "
                 "L2-normalized vectors = cosine), over the shared precomputed vectors"

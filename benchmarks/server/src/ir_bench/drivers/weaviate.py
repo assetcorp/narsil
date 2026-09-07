@@ -12,6 +12,7 @@ from ..core.ingest import BatchOutcome, import_batches
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
+    FULL_FLOAT,
     SERVER_TIME_UNAVAILABLE,
     EngineError,
     Hit,
@@ -53,6 +54,7 @@ class WeaviateDriver:
         )
         self.hybrid_fusion = f"rankedFusion (alpha={_HYBRID_ALPHA})"
         self.vector_knob = "ef"
+        self.vector_quantization = FULL_FLOAT
         self.server_time = SERVER_TIME_UNAVAILABLE
         self._vector_profile = EQUAL_PRECISION
         self._client = build_client(engine.url)
@@ -96,6 +98,7 @@ class WeaviateDriver:
         }
         if params.profile == BEST_CONFIG:
             vector_index_config["rq"] = {"enabled": True, "bits": 8}
+            self.vector_quantization = "8-bit RQ"
             self.vector_setup = (
                 "HNSW dense vectors with 8-bit Rotational Quantization and full-precision "
                 "rescore, distance cosine, over the shared precomputed vectors"

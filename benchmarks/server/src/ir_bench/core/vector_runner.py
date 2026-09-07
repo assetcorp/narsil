@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from time import perf_counter
 
@@ -7,12 +8,22 @@ from . import datasets as ds
 from .config import BenchmarkConfig, DatasetSpec, EngineConfig, VectorConfig
 from .embeddings import EmbeddingStore
 from .latency import measure_latency
+from .recall_sweep import sweep_throughput
 from .recall_tuning import TuningResult, tune_to_recall
 from .runfile import run_mapping, strict_ranking, write_run_file
 from .scoring import evaluate
 from .throughput import measure_throughput
+from .throughput_process import CpuCounter
 from .throughput_workload import Workload, request_caller
-from .track_common import bulk_load_begin, bulk_load_end, best_effort, index_name, index_size_bytes, verify_indexed
+from .track_common import (
+    best_effort,
+    bulk_load_begin,
+    bulk_load_end,
+    index_name,
+    index_size_bytes,
+    server_setup,
+    verify_indexed,
+)
 from .types import BEST_CONFIG, EQUAL_PRECISION, HYBRID, SERVER_TIME_UNAVAILABLE, VECTOR, VectorDoc, VectorIndexParams
 
 
@@ -43,7 +54,9 @@ def _create_and_load(
     return index, indexed, build_seconds
 
 
-def _operating_point(driver, vec: VectorConfig, tuning: TuningResult, oversample: float | None = None) -> dict:
+def _operating_point(
+    driver, vec: VectorConfig, tuning: TuningResult, oversample: float | None, sweep: list[dict]
+) -> dict:
     return {
         "knob": getattr(driver, "vector_knob", "efSearch"),
         "recall_metric": f"ann_recall@{vec.recall_k}",
@@ -56,7 +69,7 @@ def _operating_point(driver, vec: VectorConfig, tuning: TuningResult, oversample
         "secondary_target": tuning.secondary_target,
         "secondary_value": tuning.secondary_param,
         "secondary_recall": tuning.secondary_recall,
-        "sweep": [{"value": point.param, "recall": point.recall} for point in tuning.sweep],
+        "sweep": sweep,
     }
 
 
@@ -106,6 +119,18 @@ def _tune_rescore_oversample(
     return combined, chosen
 
 
+def _operational(indexed: int, build_seconds: float, ingest_rate: float, config: BenchmarkConfig, stats) -> dict:
+    return {
+        "documents_indexed": indexed,
+        "build_seconds": build_seconds,
+        "ingest_docs_per_sec": ingest_rate,
+        "ingest_clients": config.import_clients,
+        "ingest_batch_size": config.import_batch,
+        "index_size_bytes": index_size_bytes(stats),
+        "raw_stats": stats,
+    }
+
+
 def run_vector_track(
     driver,
     engine_cfg: EngineConfig,
@@ -115,6 +140,7 @@ def run_vector_track(
     store: EmbeddingStore,
     run_tag: str,
     profile: str = EQUAL_PRECISION,
+    engine_cpu: CpuCounter | None = None,
 ) -> dict:
     vec = config.vector
     assert vec is not None
@@ -142,6 +168,25 @@ def run_vector_track(
     print(f"[{driver.name}:{spec.dataset_id}:vector:{profile}] tuning to recall@{vec.recall_k} >= {vec.recall_target}", flush=True)
     tuning = tune_to_recall(run_at, grid, truth, vec.recall_k, vec.recall_target, vec.recall_target_secondary)
 
+    server_time = getattr(driver, "server_time", SERVER_TIME_UNAVAILABLE)
+    workload = Workload(
+        engine=engine_cfg,
+        bm25=config.bm25,
+        track=VECTOR,
+        index=index,
+        top_k=config.latency.top_k,
+        ef=tuning.chosen_param,
+        vector_profile=profile,
+        vector_metric=vec.metric,
+        rescore_oversample=None,
+    )
+    sweep_config = replace(config.throughput, concurrency=(config.throughput.recall_sweep_concurrency,))
+    print(f"[{driver.name}:{spec.dataset_id}:vector:{profile}] measuring throughput at every search-effort level", flush=True)
+    sweep = sweep_throughput(
+        tuning.sweep,
+        lambda ef: measure_throughput(replace(workload, ef=ef), query_vectors, sweep_config, server_time, engine_cpu),
+    )
+
     tuning, chosen_oversample = _tune_rescore_oversample(
         driver, profile, tuning, index, query_vectors, list(qset.ids), truth, vec, spec.dataset_id
     )
@@ -159,25 +204,14 @@ def run_vector_track(
     metrics = evaluate(qrels, run_for_scoring)
 
     print(f"[{driver.name}:{spec.dataset_id}:vector] measuring latency and throughput at the operating point", flush=True)
-    server_time = getattr(driver, "server_time", SERVER_TIME_UNAVAILABLE)
-
-    workload = Workload(
-        engine=engine_cfg,
-        bm25=config.bm25,
-        track=VECTOR,
-        index=index,
-        top_k=config.latency.top_k,
-        ef=tuning.chosen_param,
-        vector_profile=profile,
-        vector_metric=vec.metric,
-        rescore_oversample=chosen_oversample,
-    )
+    workload = replace(workload, ef=tuning.chosen_param, rescore_oversample=chosen_oversample)
     vector_once = request_caller(driver, workload)
 
     latency = measure_latency(vector_once, query_vectors, config.latency, server_time)
-    throughput = measure_throughput(workload, query_vectors, config.throughput, server_time)
+    throughput = measure_throughput(workload, query_vectors, config.throughput, server_time, engine_cpu)
 
     stats = best_effort(lambda: driver.index_stats(index), "index stats")
+    setup_report = server_setup(driver)
     driver.drop_index(index)
 
     return {
@@ -187,21 +221,15 @@ def run_vector_track(
         "run_tag": run_tag,
         "vector_profile": profile,
         "setup": getattr(driver, "vector_setup", ""),
+        "server_setup": setup_report,
+        "quantization": getattr(driver, "vector_quantization", None),
         "queries": len(qset.ids),
         "judged_queries": len(qrels),
         "metrics": metrics,
         "calibration": None,
-        "operating_point": _operating_point(driver, vec, tuning, chosen_oversample),
+        "operating_point": _operating_point(driver, vec, tuning, chosen_oversample, sweep),
         "vector_oversample": chosen_oversample,
-        "operational": {
-            "documents_indexed": indexed,
-            "build_seconds": build_seconds,
-            "ingest_docs_per_sec": ingest_rate,
-            "ingest_clients": config.import_clients,
-            "ingest_batch_size": config.import_batch,
-            "index_size_bytes": index_size_bytes(stats),
-            "raw_stats": stats,
-        },
+        "operational": _operational(indexed, build_seconds, ingest_rate, config, stats),
         "latency": latency,
         "throughput": throughput,
         "run_file": str(run_path),
@@ -219,6 +247,7 @@ def run_hybrid_track(
     vector_ef: int | None,
     profile: str = EQUAL_PRECISION,
     vector_oversample: float | None = None,
+    engine_cpu: CpuCounter | None = None,
 ) -> dict:
     vec = config.vector
     assert vec is not None
@@ -268,9 +297,10 @@ def run_hybrid_track(
     hybrid_once = request_caller(driver, workload)
 
     latency = measure_latency(hybrid_once, pairs, config.latency, server_time)
-    throughput = measure_throughput(workload, pairs, config.throughput, server_time)
+    throughput = measure_throughput(workload, pairs, config.throughput, server_time, engine_cpu)
 
     stats = best_effort(lambda: driver.index_stats(index), "index stats")
+    setup_report = server_setup(driver)
     driver.drop_index(index)
 
     return {
@@ -280,6 +310,8 @@ def run_hybrid_track(
         "run_tag": run_tag,
         "vector_profile": profile,
         "setup": getattr(driver, "hybrid_setup", ""),
+        "server_setup": setup_report,
+        "quantization": getattr(driver, "vector_quantization", None),
         "queries": len(qset.ids),
         "judged_queries": len(qrels),
         "metrics": metrics,
@@ -291,15 +323,7 @@ def run_hybrid_track(
             "vector_ef_from_vector_track": vector_ef is not None,
             "rescore_oversample": vector_oversample,
         },
-        "operational": {
-            "documents_indexed": indexed,
-            "build_seconds": build_seconds,
-            "ingest_docs_per_sec": ingest_rate,
-            "ingest_clients": config.import_clients,
-            "ingest_batch_size": config.import_batch,
-            "index_size_bytes": index_size_bytes(stats),
-            "raw_stats": stats,
-        },
+        "operational": _operational(indexed, build_seconds, ingest_rate, config, stats),
         "latency": latency,
         "throughput": throughput,
         "run_file": str(run_path),

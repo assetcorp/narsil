@@ -1,9 +1,8 @@
 """Formatting primitives for the generated benchmark writeup.
 
 Everything here is deterministic so the continuous-integration drift check stays
-stable: numbers render `n/a` when absent rather than raising, tables and bar
-charts come out byte-identical for the same run, and no value depends on the
-wall clock or the host locale.
+stable: numbers render `n/a` when absent, tables come out byte-identical for the
+same run, and no value depends on the wall clock or the host locale.
 """
 
 from __future__ import annotations
@@ -23,9 +22,6 @@ _ENGINE_NAMES = {
 }
 
 _DATASET_NAMES = {"scifact": "SciFact", "nfcorpus": "NFCorpus", "fiqa": "FiQA"}
-
-_FULL_BLOCK = "█"
-_EIGHTH_BLOCKS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"]
 
 
 def is_number(value: object) -> bool:
@@ -71,24 +67,3 @@ def table(headers: Sequence[str], aligns: Sequence[str], rows: Sequence[Sequence
         return "| " + " | ".join(cells) + " |"
 
     return "\n".join([render(headers), render(divider), *(render(row) for row in rows)])
-
-
-def bar_chart(entries: Sequence[tuple[str, float, str]], width: int = 30) -> str:
-    """A ranked code-block bar chart. Each entry is (label, value, display text). Bars
-    scale to the largest value and use eighth-width block characters so that engines with
-    close values still read as visibly different lengths."""
-
-    ranked = sorted(entries, key=lambda entry: entry[1], reverse=True)
-    top = max((value for _, value, _ in ranked), default=0.0)
-    label_width = max((len(label) for label, _, _ in ranked), default=0)
-    lines = []
-    for label, value, display in ranked:
-        filled = (value / top) * width if top > 0 else 0.0
-        full = int(filled)
-        remainder = round((filled - full) * 8)
-        if remainder == 8:
-            full += 1
-            remainder = 0
-        bar = _FULL_BLOCK * full + _EIGHTH_BLOCKS[remainder]
-        lines.append(f"{label.ljust(label_width)} {bar.ljust(width)} {display}")
-    return "\n".join(["```text", *lines, "```"])

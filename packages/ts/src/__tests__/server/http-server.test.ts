@@ -333,6 +333,13 @@ describe.skipIf(!built)('request threads answer from the copies they hold', () =
     expect(srv.server.requestThreadCount).toBe(resolveRequestThreadCount(2))
   })
 
+  it('reports the request thread count in the memory stats', async () => {
+    const memory = await getJson<{ requestThreads: number; workers: unknown[] }>(srv.base, '/stats/memory')
+    expect(memory.status).toBe(200)
+    expect(memory.body.requestThreads).toBe(srv.server.requestThreadCount)
+    expect(memory.body.workers.length).toBe(memory.body.requestThreads)
+  })
+
   it('answers a text search on a scaled-out index without the main thread, and sends a small index to it', async () => {
     const onCopy = await postJson<{ hits: Array<{ id: string }>; count: number }>(
       srv.base,

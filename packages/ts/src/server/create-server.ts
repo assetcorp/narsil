@@ -163,6 +163,7 @@ class NarsilHttpServer implements NarsilServer {
       isReady: () => this.ready,
       build: resolveBuild(options.build),
       cluster: options.cluster,
+      requestThreadCount: () => this.requestThreadCount,
     }
   }
 

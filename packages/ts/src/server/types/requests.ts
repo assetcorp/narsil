@@ -1,3 +1,4 @@
+import type { MemoryStats } from '../../types/memory'
 import type { AnyDocument, InsertOptions, WriteOptions } from '../../types/schema'
 
 /** Declarative index configuration accepted over HTTP. Function-valued engine
@@ -141,4 +142,22 @@ export interface ImportResult {
 export interface CapabilitiesResponse {
   /** Each name marks one capability this server serves. */
   capabilities: string[]
+}
+
+/**
+ * What `GET /stats/memory` answers: the engine's {@link MemoryStats} plus the
+ * number of worker threads the server receives requests on. Only the server can
+ * report that count, because it starts those threads.
+ *
+ * @public
+ */
+export interface MemoryStatsResponse extends MemoryStats {
+  /**
+   * This many worker threads receive requests and answer searches from the
+   * copies they hold. The count is zero where the main thread answers everything
+   * itself, which happens under `workers.enabled: false`, on a runtime without
+   * worker threads, and on a cluster node's engine. See
+   * {@link NarsilServer.requestThreadCount}.
+   */
+  requestThreads: number
 }
