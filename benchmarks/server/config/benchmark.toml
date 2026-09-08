@@ -84,14 +84,14 @@ artifact_sha256 = "6877a010690a933eaddc8d08fd0f821309fe4e3c639e3b29152c919e0be92
 # KShivendu/dbpedia-entities-openai-1M parquet files (MIT). A seeded hold-out of
 # 5,000 rows is the query set: the entity title is the keyword query and the
 # row's vector is the vector query, with exact neighbours computed once over the
-# indexed rows. The set carries no relevance judgements, so it reports ingest,
-# recall, latency, and throughput and no ranking quality. Both sets are flagged
-# large, so a run selects one explicitly: the 100K set fits a laptop and the 1M
+# indexed rows. The set carries no relevance judgements, so the harness reports
+# ingest, recall, latency, and throughput and no ranking quality. Both sets are
+# flagged large, so select one explicitly: the 100K set fits a laptop and the 1M
 # set needs a sized machine.
 [[datasets]]
 id = "dbpedia-entities-openai-100k"
 source = "artifact"
-artifact_url = "https://github.com/assetcorp/narsil/releases/download/dataset-dbpedia-entities-openai-100k"
+artifact_url = "https://github.com/assetcorp/narsil/releases/download/dataset-dbpedia_entities_openai_100k"
 artifact_sha256 = "32136099935e72832937ae9cd40db53b5ab52f10ed59be9ca3ebd97c82bb4ce1"
 vector_model = "text-embedding-ada-002"
 vector_dims = 1536
@@ -100,14 +100,14 @@ large = true
 [[datasets]]
 id = "dbpedia-entities-openai-1m"
 source = "artifact"
-artifact_url = "https://github.com/assetcorp/narsil/releases/download/dataset-dbpedia-entities-openai-1m"
+artifact_url = "https://github.com/assetcorp/narsil/releases/download/dataset-dbpedia_entities_openai_1m"
 artifact_sha256 = "a1668e4b4a82046987c07d0282eb100cae943dd40b67e76a98fa8afb2deefe37"
 vector_model = "text-embedding-ada-002"
 vector_dims = 1536
 large = true
 
-# Large standard IR corpora for the publish phase. They are flagged large, so a
-# default run skips them and the small BEIR suite above still runs on a laptop;
+# Large standard IR corpora for the publish phase. They are flagged large, so the
+# harness skips them unless selected and the small BEIR suite above still fits a laptop;
 # select one explicitly (--datasets or BENCH_DATASETS) on a sized machine. See
 # docs/large-datasets.md for VM sizing and the exact commands. MS MARCO is the
 # BEIR in-domain set (dev split, 6,980 queries); the corpus loads from the

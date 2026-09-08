@@ -99,8 +99,8 @@ def dataset_content_id(dataset_id: str) -> dict:
     (corpus, queries, and qrels together), and the corpus fingerprint pins the
     indexed document text with the same algorithm the in-process suite uses, so
     the two suites can prove they scored identical content. The fields stay None
-    when an id cannot be resolved, so a run still records what it can rather than
-    aborting."""
+    when an id cannot be resolved, so the harness still records what it can and
+    never aborts here."""
 
     directory = _archive_dir(dataset_id)
     identity = archive.archive_identity(directory) if directory is not None else _archive_identity(dataset_id)

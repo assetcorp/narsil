@@ -259,7 +259,7 @@ def _load_latency(section: dict) -> LatencyConfig:
 
 
 def select_datasets(config: BenchmarkConfig, only: str | None) -> tuple[DatasetSpec, ...]:
-    """Resolve which datasets a run touches. A comma-separated selection matches
+    """Resolve which datasets the harness measures. A comma-separated selection matches
     configured ids exactly and may include large datasets. With no selection the
     default set is every dataset not flagged `large`, so the small BEIR suite runs
     on a laptop while million-passage corpora stay opt-in for a sized machine."""
