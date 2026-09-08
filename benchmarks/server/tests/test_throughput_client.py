@@ -7,7 +7,15 @@ import pytest
 from ir_bench.core.config import BM25Params, EngineConfig
 from ir_bench.core.config_throughput import ThroughputConfig
 from ir_bench.core.throughput import _level_record, _pass_record, measure_throughput
-from ir_bench.core.throughput_process import PhaseOutcome, ProcessResult, split_workers
+from ir_bench.core.throughput_process import (
+    PackedPairs,
+    PackedVectors,
+    PhaseOutcome,
+    ProcessResult,
+    pack_items,
+    split_workers,
+    unpack_items,
+)
 from ir_bench.core.throughput_workload import Workload, request_caller
 from ir_bench.core.types import HYBRID, KEYWORD, VECTOR
 
@@ -78,6 +86,25 @@ def test_split_workers_preserves_offered_concurrency(concurrency, processes, exp
     shares = split_workers(concurrency, processes)
     assert shares == expected
     assert sum(shares) == concurrency
+
+
+def test_query_vectors_cross_the_process_boundary_as_one_matrix_and_come_back_unchanged():
+    vectors = [[0.10000000149011612, -0.5, 0.25], [1.0, 0.0, 0.3333333432674408]]
+    packed = pack_items(vectors)
+    assert isinstance(packed, PackedVectors)
+    assert packed.vectors.dtype.name == "float32"
+    assert unpack_items(pickle.loads(pickle.dumps(packed))) == vectors
+
+    pairs = [("anatomy", vectors[0]), ("allocution", vectors[1])]
+    packed_pairs = pack_items(pairs)
+    assert isinstance(packed_pairs, PackedPairs)
+    assert unpack_items(pickle.loads(pickle.dumps(packed_pairs))) == pairs
+
+    terms = ["anatomy", "allocution"]
+    assert pack_items(terms) is terms
+    assert unpack_items(terms) == terms
+    assert pack_items([]) == []
+    assert pack_items([[1.0, 2.0], [3.0]]) == [[1.0, 2.0], [3.0]]
 
 
 def test_workload_survives_a_process_boundary():

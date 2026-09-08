@@ -66,7 +66,7 @@ def measure_latency(
     exposes no server-side query time records the server set as absent (distinct
     from a real 0 ms), never as zero.
 
-    `warmup_items` are sent once, unrecorded, before the timed trips. `prior_trips`
+    The measurement sends `warmup_items` once, unrecorded, before the timed trips. `prior_trips`
     are timed trips the caller already made over the same items at the same
     operating point, which count towards the trip budget so a confirmation pass
     is never repeated for its timings alone.

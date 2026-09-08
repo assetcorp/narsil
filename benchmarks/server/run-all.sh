@@ -127,7 +127,12 @@ docker compose run --rm --entrypoint python harness -m ir_bench.embed || exit 1
 failed=()
 for engine in "${ENGINES[@]}"; do
   echo "================ ${engine} ================"
-  docker compose --profile "$engine" up -d --build "$engine" || { failed+=("$engine"); continue; }
+  if ! docker compose --profile "$engine" up -d --build "$engine"; then
+    echo "[${engine}] FAILED to start"
+    failed+=("$engine")
+    docker compose --profile "$engine" down
+    continue
+  fi
   image_digest="$(image_digest_of "$engine")"
   container_id="$(docker compose --profile "$engine" ps -q "$engine" 2>/dev/null | head -1)"
   if docker compose run --rm \

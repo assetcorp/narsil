@@ -79,15 +79,6 @@ baseline_source = "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4"
 artifact_url = "https://github.com/assetcorp/narsil/releases/download/dataset-beir_nfcorpus_test"
 artifact_sha256 = "6877a010690a933eaddc8d08fd0f821309fe4e3c639e3b29152c919e0be92a7a"
 
-# DBpedia entities with OpenAI text-embedding-ada-002 vectors, built by
-# `python -m ir_bench.build_dataset dbpedia` from the first rows of the
-# KShivendu/dbpedia-entities-openai-1M parquet files (MIT). A seeded hold-out of
-# 5,000 rows is the query set: the entity title is the keyword query and the
-# row's vector is the vector query, with exact neighbours computed once over the
-# indexed rows. The set carries no relevance judgements, so the harness reports
-# ingest, recall, latency, and throughput and no ranking quality. Both sets are
-# flagged large, so select one explicitly: the 100K set fits a laptop and the 1M
-# set needs a sized machine.
 [[datasets]]
 id = "dbpedia-entities-openai-100k"
 source = "artifact"

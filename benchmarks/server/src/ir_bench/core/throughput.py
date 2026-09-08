@@ -6,14 +6,14 @@ from typing import Any, Callable
 
 from .config_throughput import ThroughputConfig
 from .stats import bootstrap_median_interval, median, summarize_ms
-from .throughput_process import CpuCounter, PhaseOutcome, ProcessResult, run_phase
+from .throughput_process import CpuCounter, PhaseOutcome, ProcessResult, pack_items, run_phase
 from .throughput_workload import Workload
 from .types import NOT_AVAILABLE, SERVER_TIME_UNAVAILABLE, ServerTimeSource
 
 CPU_SATURATION = 0.90
 CONCURRENCY_SHORTFALL = 0.80
 
-PhaseRunner = Callable[[Workload, list[Any], int, int, float, float, bool, CpuCounter | None], PhaseOutcome]
+PhaseRunner = Callable[[Workload, Any, int, int, float, float, bool, CpuCounter | None], PhaseOutcome]
 
 
 @dataclass(frozen=True)
@@ -128,7 +128,7 @@ def measure_throughput(
     throughput runs at the identical matched-recall operating point for keyword,
     vector, and hybrid alike.
 
-    The load runs across processes rather than threads alone. Building a request and
+    The load generator spreads its threads across processes. Building a request and
     parsing its response is interpreter work, so a single-process client saturates
     near one core and holds every engine it measures to that core divided by the
     per-request cost, whatever the engine could serve. Splitting the same offered
@@ -136,12 +136,13 @@ def measure_throughput(
     engine no longer has when the two share a machine, so the level record carries
     both the process count and the CPU the client spent.
 
-    Every concurrency level runs one pass, and the level with the highest QPS then
-    runs `passes` in total, so the interval is measured where the tables report it
-    and the other levels cost one window each. Every pass opens with a discarded
-    warmup window followed by a measured window of closed-loop workers. A level
-    reports the median wall-clock QPS across its passes with a bootstrap interval,
-    pools the per-request latency of every pass, and carries each pass whole. The
+    The measurement makes one pass at every concurrency level, then repeats the
+    level with the highest QPS until it holds `passes`, so the interval is measured
+    where the tables report it and the other levels cost one window each. Each pass
+    starts with a discarded warmup window followed by a measured window of
+    closed-loop workers. For each level the record holds the median wall-clock QPS
+    across its passes with a bootstrap interval, the pooled per-request latency of
+    every pass, and each pass whole. The
     record also carries a client-saturation read (client CPU against the cores the
     client's own processes can reach, and achieved versus target concurrency) so a
     reader can tell whether the engine or the harness limited the measured rate. Where
@@ -153,11 +154,12 @@ def measure_throughput(
 
     capture_server = server_time.resolution != NOT_AVAILABLE
     cores_allowed = os.cpu_count()
+    packed = pack_items(items)
 
     def one_pass(concurrency: int) -> PassSamples:
         outcome = run_phase(
             workload,
-            items,
+            packed,
             concurrency,
             config.client_processes,
             config.warmup_seconds,

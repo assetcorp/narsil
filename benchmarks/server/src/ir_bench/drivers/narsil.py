@@ -14,6 +14,7 @@ from ..core.types import (
     EQUAL_PRECISION,
     FLOATING_MS,
     FULL_FLOAT,
+    GRAPH_BUILD_TIMEOUT_SECONDS,
     EngineError,
     Hit,
     ImportResult,
@@ -201,7 +202,7 @@ class NarsilDriver:
             self._wait_task(str(task_id))
         self._wait_graph_ready(index)
 
-    def _wait_task(self, task_id: str, timeout_seconds: float = 600.0) -> None:
+    def _wait_task(self, task_id: str, timeout_seconds: float = GRAPH_BUILD_TIMEOUT_SECONDS) -> None:
         deadline = time.perf_counter() + timeout_seconds
         while time.perf_counter() < deadline:
             response = self._client.get(f"/tasks/{task_id}")
@@ -214,7 +215,7 @@ class NarsilDriver:
             time.sleep(0.25)
         raise EngineError(f"Narsil vector task {task_id} did not finish within {timeout_seconds}s")
 
-    def _wait_graph_ready(self, index: str, timeout_seconds: float = 600.0) -> None:
+    def _wait_graph_ready(self, index: str, timeout_seconds: float = GRAPH_BUILD_TIMEOUT_SECONDS) -> None:
         deadline = time.perf_counter() + timeout_seconds
         while time.perf_counter() < deadline:
             response = self._client.get(f"/indexes/{index}/vector-maintenance")

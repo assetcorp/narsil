@@ -19,13 +19,20 @@ def levels(obj: Any) -> list[dict]:
 
 
 def peak_level(obj: Any) -> dict | None:
-    """The highest-QPS level an engine reached. Peak is taken by measured rate, not
-    by the largest concurrency, so a level where the harness throttled the rate
-    cannot masquerade as the engine's capacity."""
+    """The level the harness repeated as the engine's peak, which is the level with
+    the highest QPS on its first pass, so the tabled peak is always the level that
+    carries the extra passes and the interval. A block recorded before the harness
+    named its peak falls back to the highest measured rate, which is taken by rate
+    and never by the largest concurrency, so a level where the harness throttled the
+    rate cannot masquerade as the engine's capacity."""
 
     found = levels(obj)
     if not found:
         return None
+    recorded = obj.get("peak_concurrency") if isinstance(obj, dict) else None
+    for level in found:
+        if recorded is not None and level.get("concurrency") == recorded:
+            return level
     return max(found, key=lambda level: level.get("qps") or 0.0)
 
 

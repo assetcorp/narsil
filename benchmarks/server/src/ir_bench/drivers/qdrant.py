@@ -13,6 +13,7 @@ from ..core.types import (
     EQUAL_PRECISION,
     FLOATING_MS,
     FULL_FLOAT,
+    GRAPH_BUILD_TIMEOUT_SECONDS,
     EngineError,
     Hit,
     ImportResult,
@@ -178,7 +179,7 @@ class QdrantDriver:
         )
         return ImportResult(submitted=total.submitted, indexed=total.indexed)
 
-    def build_vectors(self, index: str, timeout_seconds: float = 600.0) -> None:
+    def build_vectors(self, index: str, timeout_seconds: float = GRAPH_BUILD_TIMEOUT_SECONDS) -> None:
         deadline = time.perf_counter() + timeout_seconds
         while time.perf_counter() < deadline:
             response = self._client.get(f"/collections/{index}")

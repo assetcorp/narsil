@@ -254,7 +254,7 @@ def _threads_sentence(narsil: dict) -> str:
         else "no index scaled out across them, so the main copy answered every query"
     )
     return (
-        f"Narsil started at the engine defaults, and its memory stats report {integer(workers)} worker threads, "
+        f"Narsil started at the engine defaults, and the harness read {integer(workers)} worker threads, "
         f"{integer(request_threads)} request threads receiving requests, and {copies}."
     )
 
@@ -273,6 +273,35 @@ def _load_sentence(config: dict) -> str:
             "with a 95% bootstrap interval."
         )
     return f"The harness measured throughput at {level_text} concurrent clients, one pass per level."
+
+
+def _host(environment: dict) -> str:
+    return (
+        f"{environment.get('cpu_model') or 'an unspecified CPU'} and "
+        f"{environment.get('os')} {environment.get('arch')}"
+    )
+
+
+def _machine_sentence(environment: dict, engines: list[dict]) -> str:
+    """One machine sentence when every engine ran on the same host, and one clause
+    per engine when the engines ran on their own machines and the fetch step merged
+    their files into one comparison."""
+
+    groups: dict[tuple, tuple[dict, list[str]]] = {}
+    for engine in engines:
+        env = engine.get("environment") or environment
+        key = (env.get("machine_label"), env.get("cpu_model"), env.get("os"), env.get("arch"))
+        groups.setdefault(key, (env, []))[1].append(engine_name(engine.get("name") or ""))
+    if len(groups) > 1:
+        clauses = [
+            f"{and_join(names)} on {env.get('machine_label') or 'an unlabelled machine'}, which reports {_host(env)}"
+            for env, names in groups.values()
+        ]
+        return f"The engines ran on {integer(len(groups))} machines: {and_join(clauses)}."
+    machine_label = environment.get("machine_label")
+    if machine_label:
+        return f"{machine_label} hosted this run, and it reports {_host(environment)}."
+    return f"The host reports {_host(environment)}."
 
 
 def _setup_block(source: Source) -> str:
@@ -294,16 +323,7 @@ def _setup_block(source: Source) -> str:
 
     cap = decimal((config.get("memory_cap_bytes") or 0) / 1e9, 1)
     narsil_version = build.get("version") or narsil.get("version") or "n/a"
-    machine_label = environment.get("machine_label")
-    host = (
-        f"{environment.get('cpu_model') or 'an unspecified CPU'} and "
-        f"{environment.get('os')} {environment.get('arch')}"
-    )
-    machine = (
-        f"{machine_label} hosted this run, and it reports {host}."
-        if machine_label
-        else f"The host reports {host}."
-    )
+    machine = _machine_sentence(environment, engines)
 
     return "\n".join([
         f"- **Run.** These figures come from run `{source.run_id}`, recorded on {_date(source)} from commit "

@@ -12,13 +12,13 @@ quietly fall out of step with the results.
 `benchmarks/in-process/results/runs/`, and fills the regions of `BENCHMARKS.md`
 marked by `<!-- BENCH:<id> START -->` and `<!-- BENCH:<id> END -->` comments. The
 newest run wins, because each run directory is named with a UTC timestamp. Where
-the server run carries a `comparison-best-config.json`, the generator also fills
+the server run directory holds a `comparison-best-config.json`, the generator also fills
 the two blocks that show each engine under its recommended production settings.
 Everything outside those markers stays exactly as written.
 
 `charts.py` draws the figures the page embeds into a `charts/` directory inside
-each run's own directory, so every run keeps the figures drawn from its numbers,
-and each figure prints the run id it came from. It draws five kinds of chart:
+each run's own directory, so the figures drawn from a run's numbers stay beside
+them, and each figure prints the run id it came from. It draws five kinds of chart:
 
 - bar charts of ranking quality and peak throughput with confidence intervals,
 - line charts across the concurrency sweep, showing throughput, server p99 under
@@ -27,7 +27,7 @@ and each figure prints the run id it came from. It draws five kinds of chart:
 - throughput against recall across the search-effort sweep, and
 - the embedded engines across corpus size.
 
-The script leaves out a chart whose data the run did not record, and the page
+The script leaves out a chart whose data the harness did not record, and the page
 leaves out that figure with it.
 
 Rewriting the page needs only the Python standard library. Drawing the charts needs
