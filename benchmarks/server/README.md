@@ -37,7 +37,7 @@ engine's release source on 2026-09-07.
 | Qdrant | `qdrant/qdrant:v1.19.1` | 1.19.1 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
 | Weaviate | `cr.weaviate.io/semitechnologies/weaviate:1.39.3` | 1.39.3 | [GitHub releases](https://github.com/weaviate/weaviate/releases) |
 | Typesense | `typesense/typesense:30.2` | 30.2 | [GitHub releases](https://github.com/typesense/typesense/releases) |
-| Meilisearch | `getmeili/meilisearch:v1.52.0` | 1.52.0 | [GitHub releases](https://github.com/meilisearch/meilisearch/releases) |
+| Meilisearch | `getmeili/meilisearch:v1.53.2` | 1.53.2 | [GitHub releases](https://github.com/meilisearch/meilisearch/releases) |
 
 ## Tracks and which engines run them
 

@@ -101,7 +101,7 @@ services:
 
   meilisearch:
     profiles: ["meilisearch"]
-    image: getmeili/meilisearch:v1.52.0
+    image: getmeili/meilisearch:v1.53.2
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     environment:
       MEILI_MASTER_KEY: "${BENCH_API_KEY:-localdev}"
@@ -135,11 +135,13 @@ services:
       BENCH_THROUGHPUT_PASSES: "${BENCH_THROUGHPUT_PASSES:-}"
       BENCH_ENGINE_CONTAINER_ID: "${BENCH_ENGINE_CONTAINER_ID:-}"
       BENCH_CGROUP_ROOT: "/host/cgroup"
+      BENCH_ARTIFACT_DIR: "/data/artifacts"
       IR_DATASETS_DL_TRIES: "${IR_DATASETS_DL_TRIES:-10}"
       IR_DATASETS_DL_TIMEOUT: "${IR_DATASETS_DL_TIMEOUT:-60}"
     volumes:
       - ir_datasets_cache:/data/ir_datasets
       - embeddings_cache:/data/embeddings
+      - ./artifacts:/data/artifacts:ro
       - ./${BENCH_HOST_RESULTS_DIR:-results}:/app/results
       - /sys/fs/cgroup:/host/cgroup:ro
 
