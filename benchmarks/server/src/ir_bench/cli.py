@@ -5,6 +5,7 @@ import os
 import sys
 from pathlib import Path
 
+from .core import datasets as ds
 from .core.config import load_config, select_datasets, select_engine
 from .core.embeddings import EmbeddingStore
 from .core.engine_cpu import engine_cpu_counter_from_env
@@ -58,6 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
+    ds.configure(config.datasets, _embeddings_dir())
     engine_cfg = select_engine(config, args.engine)
     specs = select_datasets(config, args.datasets or os.environ.get("BENCH_DATASETS"))
     vector_profile = args.vector_profile or os.environ.get("BENCH_VECTOR_PROFILE") or EQUAL_PRECISION
@@ -85,6 +87,21 @@ def main(argv: list[str] | None = None) -> int:
         "b": config.bm25.b,
         "run_depth": config.run_depth,
         "memory_cap_bytes": config.memory_cap_bytes,
+        "latency": {
+            "warmup_queries": config.latency.warmup_queries,
+            "sample_budget": config.latency.sample_budget,
+            "min_repeats": config.latency.min_repeats,
+            "max_repeats": config.latency.max_repeats,
+            "top_k": config.latency.top_k,
+        },
+        "dataset_vectors": {
+            spec.dataset_id: {
+                "source": spec.source,
+                "model": spec.vector_model or (config.vector.model if config.vector else None),
+                "dims": spec.vector_dims or (config.vector.dims if config.vector else None),
+            }
+            for spec in specs
+        },
         "throughput": {
             "enabled": config.throughput.enabled,
             "concurrency": list(config.throughput.concurrency),
@@ -104,11 +121,14 @@ def main(argv: list[str] | None = None) -> int:
                 "vector_metric": config.vector.metric,
                 "recall_target": config.vector.recall_target,
                 "recall_k": config.vector.recall_k,
+                "tuning_sample_queries": config.vector.tuning_sample_queries,
             }
         )
 
     needs_vectors = any(track in (VECTOR, HYBRID) for track in engine_cfg.tracks)
-    store = EmbeddingStore(config.vector, _embeddings_dir()) if (needs_vectors and config.vector) else None
+    store = (
+        EmbeddingStore(config.vector, _embeddings_dir(), config.datasets) if (needs_vectors and config.vector) else None
+    )
 
     try:
         run_id = resolve_run_id_for_write(args.run_id)

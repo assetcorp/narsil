@@ -5,9 +5,17 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from .config_datasets import DatasetSpec, load_datasets
 from .config_throughput import ThroughputConfig, load_throughput
 from .http_client import POOL_CONNECTIONS
 from .types import KEYWORD, TRACKS
+
+DEFAULT_LATENCY_WARMUP_QUERIES = 1000
+DEFAULT_LATENCY_SAMPLE_BUDGET = 5000
+DEFAULT_LATENCY_MIN_REPEATS = 1
+DEFAULT_LATENCY_MAX_REPEATS = 5
+DEFAULT_LATENCY_TOP_K = 10
+DEFAULT_TUNING_SAMPLE_QUERIES = 1000
 
 
 @dataclass(frozen=True)
@@ -18,18 +26,11 @@ class BM25Params:
 
 @dataclass(frozen=True)
 class LatencyConfig:
-    warmup: int
-    repeats: int
+    warmup_queries: int
+    sample_budget: int
+    min_repeats: int
+    max_repeats: int
     top_k: int
-
-
-@dataclass(frozen=True)
-class DatasetSpec:
-    dataset_id: str
-    baseline_ndcg10: float | None
-    margin: float
-    baseline_source: str
-    large: bool = False
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,7 @@ class VectorConfig:
     recall_target: float
     recall_target_secondary: float
     recall_k: int
+    tuning_sample_queries: int
     query_prefix: str
     passage_prefix: str
 
@@ -177,6 +179,9 @@ def _load_vector(raw: dict) -> VectorConfig | None:
     recall_k = int(vec.get("recall_k", 10))
     if recall_k < 1:
         raise ValueError("[vector].recall_k must be positive")
+    tuning_sample = int(vec.get("tuning_sample_queries", DEFAULT_TUNING_SAMPLE_QUERIES))
+    if tuning_sample < 1:
+        raise ValueError("[vector].tuning_sample_queries must be positive")
     return VectorConfig(
         model=str(_require(vec, "model", "[vector]")),
         sparse_model=str(vec.get("sparse_model", "Qdrant/bm25")),
@@ -189,6 +194,7 @@ def _load_vector(raw: dict) -> VectorConfig | None:
         recall_target=float(vec.get("recall_target", 0.99)),
         recall_target_secondary=float(vec.get("recall_target_secondary", 0.95)),
         recall_k=recall_k,
+        tuning_sample_queries=tuning_sample,
         query_prefix=str(vec.get("query_prefix", "")),
         passage_prefix=str(vec.get("passage_prefix", "")),
     )
@@ -216,33 +222,8 @@ def load_config(path: Path) -> BenchmarkConfig:
     if env_cap and env_cap.strip():
         memory_cap_bytes = parse_size(env_cap)
 
-    lat_raw = raw.get("latency", {})
-    latency = LatencyConfig(
-        warmup=int(lat_raw.get("warmup", 2)),
-        repeats=int(lat_raw.get("repeats", 5)),
-        top_k=int(lat_raw.get("top_k", 10)),
-    )
-    if latency.repeats < 1:
-        raise ValueError("latency.repeats must be positive")
-
+    latency = _load_latency(raw.get("latency", {}))
     throughput = load_throughput(raw)
-
-    datasets_raw = raw.get("datasets")
-    if not datasets_raw:
-        raise ValueError("at least one [[datasets]] entry is required")
-    datasets: list[DatasetSpec] = []
-    for entry in datasets_raw:
-        dataset_id = _require(entry, "id", "[[datasets]]")
-        baseline = entry.get("baseline_ndcg10")
-        datasets.append(
-            DatasetSpec(
-                dataset_id=str(dataset_id),
-                baseline_ndcg10=None if baseline is None else float(baseline),
-                margin=float(entry.get("margin", 0.02)),
-                baseline_source=str(entry.get("baseline_source", "")),
-                large=bool(entry.get("large", False)),
-            )
-        )
 
     return BenchmarkConfig(
         bm25=bm25,
@@ -252,10 +233,29 @@ def load_config(path: Path) -> BenchmarkConfig:
         memory_cap_bytes=memory_cap_bytes,
         latency=latency,
         throughput=throughput,
-        datasets=tuple(datasets),
+        datasets=load_datasets(raw),
         engines=_load_engines(raw),
         vector=_load_vector(raw),
     )
+
+
+def _load_latency(section: dict) -> LatencyConfig:
+    latency = LatencyConfig(
+        warmup_queries=int(section.get("warmup_queries", DEFAULT_LATENCY_WARMUP_QUERIES)),
+        sample_budget=int(section.get("sample_budget", DEFAULT_LATENCY_SAMPLE_BUDGET)),
+        min_repeats=int(section.get("min_repeats", DEFAULT_LATENCY_MIN_REPEATS)),
+        max_repeats=int(section.get("max_repeats", DEFAULT_LATENCY_MAX_REPEATS)),
+        top_k=int(section.get("top_k", DEFAULT_LATENCY_TOP_K)),
+    )
+    if latency.warmup_queries < 0:
+        raise ValueError("latency.warmup_queries must not be negative")
+    if latency.sample_budget < 1:
+        raise ValueError("latency.sample_budget must be positive")
+    if latency.min_repeats < 1 or latency.max_repeats < latency.min_repeats:
+        raise ValueError("latency.min_repeats must be positive and no greater than latency.max_repeats")
+    if latency.top_k < 1:
+        raise ValueError("latency.top_k must be positive")
+    return latency
 
 
 def select_datasets(config: BenchmarkConfig, only: str | None) -> tuple[DatasetSpec, ...]:

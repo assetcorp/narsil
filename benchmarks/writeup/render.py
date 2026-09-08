@@ -21,7 +21,13 @@ _ENGINE_NAMES = {
     "minisearch": "MiniSearch",
 }
 
-_DATASET_NAMES = {"scifact": "SciFact", "nfcorpus": "NFCorpus", "fiqa": "FiQA"}
+_DATASET_NAMES = {
+    "scifact": "SciFact",
+    "nfcorpus": "NFCorpus",
+    "fiqa": "FiQA",
+    "dbpedia-entities-openai-100k": "DBpedia entities 100K",
+    "dbpedia-entities-openai-1m": "DBpedia entities 1M",
+}
 
 
 def is_number(value: object) -> bool:
@@ -45,6 +51,8 @@ def engine_name(name: str) -> str:
 
 
 def dataset_name(dataset_id: str) -> str:
+    if dataset_id in _DATASET_NAMES:
+        return _DATASET_NAMES[dataset_id]
     segment = dataset_id.split("/")[1] if "/" in dataset_id else dataset_id
     return _DATASET_NAMES.get(segment, segment[:1].upper() + segment[1:])
 

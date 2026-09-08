@@ -136,8 +136,10 @@ def measure_throughput(
     engine no longer has when the two share a machine, so the level record carries
     both the process count and the CPU the client spent.
 
-    Each concurrency level runs `passes` times, and every pass opens with a discarded
-    warmup window followed by a measured window of closed-loop workers. The level
+    Every concurrency level runs one pass, and the level with the highest QPS then
+    runs `passes` in total, so the interval is measured where the tables report it
+    and the other levels cost one window each. Every pass opens with a discarded
+    warmup window followed by a measured window of closed-loop workers. A level
     reports the median wall-clock QPS across its passes with a bootstrap interval,
     pools the per-request latency of every pass, and carries each pass whole. The
     record also carries a client-saturation read (client CPU against the cores the
@@ -151,31 +153,33 @@ def measure_throughput(
 
     capture_server = server_time.resolution != NOT_AVAILABLE
     cores_allowed = os.cpu_count()
-    levels: list[dict[str, Any]] = []
-    for concurrency in config.concurrency:
-        passes: list[PassSamples] = []
-        for _ in range(config.passes):
-            outcome = run_phase(
-                workload,
-                items,
-                concurrency,
-                config.client_processes,
-                config.warmup_seconds,
-                config.duration_seconds,
-                capture_server,
-                engine_cpu,
-            )
-            passes.append(
-                _pass_record(
-                    outcome.results, concurrency, config.client_processes, capture_server, outcome.engine_cores_busy
-                )
-            )
-        levels.append(_level_record(passes, concurrency, cores_allowed))
+
+    def one_pass(concurrency: int) -> PassSamples:
+        outcome = run_phase(
+            workload,
+            items,
+            concurrency,
+            config.client_processes,
+            config.warmup_seconds,
+            config.duration_seconds,
+            capture_server,
+            engine_cpu,
+        )
+        return _pass_record(
+            outcome.results, concurrency, config.client_processes, capture_server, outcome.engine_cores_busy
+        )
+
+    passes_by_level: dict[int, list[PassSamples]] = {level: [one_pass(level)] for level in config.concurrency}
+    peak = max(passes_by_level, key=lambda level: passes_by_level[level][0].record["qps"])
+    for _ in range(config.passes - 1):
+        passes_by_level[peak].append(one_pass(peak))
+    levels = [_level_record(passes_by_level[level], level, cores_allowed) for level in config.concurrency]
 
     return {
         "warmup_seconds": config.warmup_seconds,
         "duration_seconds": config.duration_seconds,
         "passes": config.passes,
+        "peak_concurrency": peak,
         "client_processes": config.client_processes,
         "server_time_source": server_time.source,
         "server_time_resolution": server_time.resolution if capture_server else NOT_AVAILABLE,

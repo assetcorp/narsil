@@ -32,7 +32,7 @@ versions, and the datasets all come from the recorded run.
 
 <!-- BENCH:server-setup START -->
 - **Run.** These figures come from run `20260804T184221Z`, recorded on 2026-08-04 from commit `ad93b7f4fe58`. The raw per-engine results and the full comparison are in [the run report](benchmarks/server/results/runs/20260804T184221Z/comparison.md).
-- **Datasets.** The run covers SciFact (5,183 documents) and NFCorpus (3,633 documents), each loaded and hash-verified through `ir_datasets`.
+- **Datasets.** The run covers SciFact (5,183 documents) and NFCorpus (3,633 documents).
 - **Engines.** The comparison runs Narsil 0.2.2 against Elasticsearch 9.5.0, Meilisearch 1.52.0, OpenSearch 3.7.0, Qdrant 1.18.3, Typesense 30.2, and Weaviate 1.39.0, and every engine runs from a pinned image.
 - **Equal conditions.** Every engine receives the same 8.6 GB memory cap, the same run depth of 1,000, and the same run-file ordering, and the engines run one at a time so latency never contends.
 - **Load.** The harness measured throughput at 16 concurrent clients, one pass per level.

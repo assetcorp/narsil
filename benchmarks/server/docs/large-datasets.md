@@ -7,9 +7,49 @@ reproducible. Run the large datasets on a rented Linux VM sized to the corpus,
 then copy the results back. Nothing about the stack changes; you select a large
 dataset with an environment variable and raise the memory cap.
 
-This guide covers MS MARCO passage (`beir/msmarco/dev`) and Natural Questions
-(`beir/nq`). Both are flagged `large` in `config/benchmark.toml`, so a default
-run never touches them.
+This guide covers DBpedia entities 1M (`dbpedia-entities-openai-1m`), MS MARCO
+passage (`beir/msmarco/dev`), and Natural Questions (`beir/nq`). All three are
+flagged `large` in `config/benchmark.toml`, so a default run never touches them.
+
+## DBpedia entities 1M
+
+The million-document tier is the DBpedia entities set with OpenAI
+`text-embedding-ada-002` vectors at 1,536 dimensions, published as a dataset
+artifact (see the README's dataset section), so no VM ever embeds it. The
+builder holds out 5,000 of the first 1,000,000 rows as queries and indexes the
+other 995,000. The harness holds the corpus matrix in memory while an engine
+indexes, which is 995,000 by 1,536 float32 values, about 6.1 GB, and each engine
+holds its own copy plus its index, so size the box for both.
+
+| Dataset | Documents | Vectors (float32) | Box RAM | `BENCH_MEM_CAP` | `BENCH_JVM_HEAP` |
+| ------- | --------- | ----------------- | ------- | --------------- | ---------------- |
+| `dbpedia-entities-openai-1m` | 995,000 | ~6.1 GB | 32 GiB | `20g` | `10g` |
+
+Build the artifact once on a host with the parquet reader installed, then either
+publish it to the release named in `artifact_url` or copy the `artifacts/`
+directory to the VM beside `run-all.sh`, which the compose file mounts into the
+harness:
+
+```bash
+pip install -e ".[artifacts]"
+python -m ir_bench.build_dataset dbpedia --parquet-dir /path/to/parquet \
+  --dataset-id dbpedia-entities-openai-1m --documents 995000 --queries 5000
+```
+
+The build reads about 9.6 GB of parquet, holds the 6.1 GB matrix while it
+computes the exact neighbours, and prints the digest to paste into
+`artifact_sha256`. Then run it like any large dataset:
+
+```bash
+BENCH_DATASETS=dbpedia-entities-openai-1m \
+BENCH_MEM_CAP=20g \
+BENCH_JVM_HEAP=10g \
+BENCH_MACHINE_LABEL="GCP c3-standard-8, 8 vCPU / 32 GiB" \
+./run-all.sh
+```
+
+The set carries no relevance judgements, so the run records ingest, recall,
+latency, and throughput for every track and no ranking quality.
 
 ## Which VM to rent
 
@@ -50,6 +90,8 @@ more slowly, which is the trade for the lower cost.
 Provision generous disk for the Docker volumes (the dataset cache, the embedding
 shards, and each engine's persisted index):
 
+- `dbpedia-entities-openai-1m`: at least 40 GiB. The artifact is about 6.5 GB
+  and every engine persists its own copy of the vectors and index.
 - `beir/nq`: at least 60 GiB.
 - `beir/msmarco/dev`: at least 150 GiB. The MS MARCO collection alone is about
   3 GiB, its embedding shards about 12.6 GiB, and the engines persist their own

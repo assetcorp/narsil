@@ -168,22 +168,24 @@ def test_a_level_takes_the_median_engine_cores_busy_across_passes():
     assert [p["engine_cores_busy"] for p in level["passes"]] == [3.0, None, 5.0]
 
 
-def test_a_sweep_records_every_level_and_every_pass():
+def test_a_sweep_runs_every_level_once_and_repeats_only_the_peak():
     phases: list[tuple[int, int]] = []
 
     def fake_phase(workload, items, concurrency, processes, warmup, duration, capture_server, engine_cpu):
         phases.append((concurrency, processes))
-        return PhaseOutcome(results=_process_results(processes, 0.1, completed=100 * concurrency), engine_cores_busy=2.5)
+        completed = {1: 100, 4: 1600, 16: 400}[concurrency]
+        return PhaseOutcome(results=_process_results(processes, 0.1, completed=completed), engine_cores_busy=2.5)
 
     block = measure_throughput(
         _workload(KEYWORD), ["a", "b"], _config((1, 4, 16), passes=3), run_phase=fake_phase
     )
     assert block is not None
     assert block["passes"] == 3
+    assert block["peak_concurrency"] == 4
     assert [level["concurrency"] for level in block["levels"]] == [1, 4, 16]
-    assert [level["pass_count"] for level in block["levels"]] == [3, 3, 3]
-    assert phases == [(1, 2)] * 3 + [(4, 2)] * 3 + [(16, 2)] * 3
-    assert [level["qps"] for level in block["levels"]] == pytest.approx([100.0, 400.0, 1600.0])
+    assert [level["pass_count"] for level in block["levels"]] == [1, 3, 1]
+    assert phases == [(1, 2), (4, 2), (16, 2), (4, 2), (4, 2)]
+    assert [level["qps"] for level in block["levels"]] == pytest.approx([100.0, 1600.0, 400.0])
     assert all(level["engine_cores_busy"] == pytest.approx(2.5) for level in block["levels"])
 
 

@@ -53,7 +53,7 @@ def _calibration_label(calibration: dict | None) -> str:
 def _quality_columns(rows: list[dict]) -> list[str]:
     lines = ["| Dataset | nDCG@10 | Recall@100 | MAP | MRR |", "| --- | --- | --- | --- | --- |"]
     for row in rows:
-        metrics = row.get("metrics", {})
+        metrics = row.get("metrics") or {}
         lines.append(
             f"| {row['dataset_id']} | {_fmt(metrics.get('ndcg_cut_10'))} | {_fmt(metrics.get('recall_100'))} | "
             f"{_fmt(metrics.get('map'))} | {_fmt(metrics.get('recip_rank'))} |"
@@ -132,7 +132,7 @@ def _keyword_section(rows: list[dict]) -> list[str]:
     lines.append("| Dataset | nDCG@10 | Reference | Delta | Status | Recall@100 | MAP | MRR |")
     lines.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
     for row in rows:
-        metrics = row.get("metrics", {})
+        metrics = row.get("metrics") or {}
         calibration = row.get("calibration")
         baseline = None if calibration is None else calibration.get("baseline_ndcg10")
         delta = None if calibration is None else calibration.get("delta")
