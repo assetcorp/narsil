@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .core import datasets as ds
 from .core.config import load_config, select_datasets, select_engine
+from .core.dataset_engines import DATASET_ENGINES_ENV, DatasetEnginesError, datasets_for_engine, parse_dataset_engines
 from .core.embeddings import EmbeddingStore
 from .core.engine_cpu import engine_cpu_counter_from_env
 from .core.environment import capture_environment
@@ -62,6 +63,16 @@ def main(argv: list[str] | None = None) -> int:
     ds.configure(config.datasets, _embeddings_dir())
     engine_cfg = select_engine(config, args.engine)
     specs = select_datasets(config, args.datasets or os.environ.get("BENCH_DATASETS"))
+    try:
+        dataset_engines = parse_dataset_engines(
+            os.environ.get(DATASET_ENGINES_ENV), (spec.dataset_id for spec in config.datasets), config.engines
+        )
+    except DatasetEnginesError as exc:
+        raise SystemExit(str(exc)) from exc
+    specs = datasets_for_engine(specs, engine_cfg.name, dataset_engines)
+    if not specs:
+        print(f"{DATASET_ENGINES_ENV} lists {engine_cfg.name} for none of the selected datasets; nothing to run", flush=True)
+        return 0
     vector_profile = args.vector_profile or os.environ.get("BENCH_VECTOR_PROFILE") or EQUAL_PRECISION
     if vector_profile not in VECTOR_PROFILES:
         raise SystemExit(f"unknown vector profile '{vector_profile}'; allowed: {', '.join(VECTOR_PROFILES)}")
@@ -102,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
             }
             for spec in specs
         },
+        "dataset_engines": {dataset_id: list(engines) for dataset_id, engines in dataset_engines.items()},
         "throughput": {
             "enabled": config.throughput.enabled,
             "concurrency": list(config.throughput.concurrency),

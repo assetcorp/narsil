@@ -361,6 +361,19 @@ BENCH_PROFILE=smoke BENCH_DATASETS=dbpedia-entities-openai-100k ./run-all.sh nar
 BENCH_PROFILE=smoke BENCH_DATASETS=beir/scifact/test,beir/nfcorpus/test,dbpedia-entities-openai-100k ./run-all.sh
 ```
 
+`BENCH_DATASET_ENGINES` restricts a dataset to some of the engines in one run, so
+every engine can cover the BEIR sets while only the named engines index the larger
+one, and the harness still writes every result under one run id and one
+comparison. Each entry is `<dataset id>=<engine>,<engine>`, entries are separated
+by `;`, every engine runs a dataset the value leaves out, and every result records
+the mapping:
+
+```bash
+BENCH_PROFILE=smoke BENCH_THROUGHPUT_CONCURRENCY=1,16 \
+BENCH_DATASETS=beir/scifact/test,beir/nfcorpus/test,dbpedia-entities-openai-100k \
+BENCH_DATASET_ENGINES="dbpedia-entities-openai-100k=narsil,elasticsearch,qdrant" ./run-all.sh
+```
+
 For the 1M set and the BEIR large corpora, rent a VM and follow
 [docs/large-datasets.md](docs/large-datasets.md), which gives the VM size, the
 exact command, and how to copy the results back.
@@ -377,51 +390,14 @@ mounts read-only into the harness, and otherwise downloads each file from
 `artifact_url`, a GitHub release whose assets carry the manifest's flat asset
 names. The `artifacts/` directory is git-ignored.
 
-Build the artifacts on a host with the harness installed (`pip install -e
-".[artifacts]"` adds the parquet reader):
-
-```bash
-python -m ir_bench.build_dataset dbpedia --parquet-dir /path/to/parquet \
-  --dataset-id dbpedia-entities-openai-100k --documents 100000 --queries 5000
-python -m ir_bench.build_dataset dbpedia --parquet-dir /path/to/parquet \
-  --dataset-id dbpedia-entities-openai-1m --documents 995000 --queries 5000
-python -m ir_bench.build_dataset beir-vectors --embeddings-dir /path/to/embeddings \
-  --dataset-id beir/scifact/test
-```
-
-Each command prints the manifest digest to paste into `artifact_sha256`. Each
-`artifact_url` is a GitHub release named `dataset-<slug>`, where the slug is the
-dataset id lower-cased with every run of other characters replaced by `_`, and
-each release asset takes the flat `asset` name from `artifact.json`, which is the
-path with `/` replaced by `.`. The loop below hard-links every file under its
-asset name into a staging directory and creates one release per artifact. `gh`
-creates the `dataset-<slug>` tag on the default branch where none exists, and
-`--latest=false` keeps the newest package release marked as the latest one:
-
-```bash
-for slug in beir_scifact_test beir_nfcorpus_test dbpedia_entities_openai_100k dbpedia_entities_openai_1m; do
-  stage="artifacts/.publish/$slug"
-  rm -rf "$stage" && mkdir -p "$stage"
-  ln "artifacts/$slug/artifact.json" "$stage/artifact.json"
-  jq -r '.files[] | "\(.path)\t\(.asset)"' "artifacts/$slug/artifact.json" |
-    while IFS=$'\t' read -r file asset; do ln "artifacts/$slug/$file" "$stage/$asset"; done
-  gh release create "dataset-$slug" --repo assetcorp/narsil --latest=false \
-    --title "Benchmark dataset artifact: $slug" \
-    --notes "Dataset artifact for benchmarks/server, fetched by digest from config/benchmark.toml." \
-    "$stage"/*
-done
-```
-
-Check a published release by hashing its manifest and comparing the digest with
-the config:
-
-```bash
-curl -sSL https://github.com/assetcorp/narsil/releases/download/dataset-beir_scifact_test/artifact.json | shasum -a 256
-```
-
-A machine without the local copy then fetches the artifact on its first run. For
-a BEIR set, a missing artifact is a warning and the harness computes the vectors
-itself; for a DBpedia set it is fatal, because the text is in the artifact.
+A machine without the local copy fetches the published artifact on its first
+run, and each release page lists the dataset, the counts, the model, and every
+file's digest. For a BEIR set, a missing artifact is a warning and the harness
+computes the vectors itself; for a DBpedia set it is fatal, because the text is
+in the artifact. The builder reads the first rows of the
+`KShivendu/dbpedia-entities-openai-1M` parquet files in order and holds out 5,000
+of them as queries, so `python -m ir_bench.build_dataset dbpedia --parquet-dir
+/path/to/parquet` rebuilds the same files from a copy of the source you hold.
 
 ## Layout
 

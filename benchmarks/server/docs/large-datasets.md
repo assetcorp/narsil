@@ -26,20 +26,10 @@ holds its own copy plus its index, so size the box for both.
 | ------- | --------- | ----------------- | ------- | --------------- | ---------------- |
 | `dbpedia-entities-openai-1m` | 995,000 | ~6.1 GB | 32 GiB | `20g` | `10g` |
 
-Build the artifact once on a host with the parquet reader installed, then either
-publish it to the release named in `artifact_url` or copy the `artifacts/`
-directory to the VM beside `run-all.sh`, which the compose file mounts into the
-harness:
-
-```bash
-pip install -e ".[artifacts]"
-python -m ir_bench.build_dataset dbpedia --parquet-dir /path/to/parquet \
-  --dataset-id dbpedia-entities-openai-1m --documents 995000 --queries 5000
-```
-
-The build reads about 9.6 GB of parquet, holds the 6.1 GB matrix while it
-computes the exact neighbours, and prints the digest to paste into
-`artifact_sha256`. Then run it like any large dataset:
+The VM fetches the artifact from the release named in `artifact_url` on its first
+run, about 6.1 GB, or reads a copy of the `artifacts/` directory placed beside
+`run-all.sh`, which the compose file mounts into the harness. Run it like any
+large dataset:
 
 ```bash
 BENCH_DATASETS=dbpedia-entities-openai-1m \

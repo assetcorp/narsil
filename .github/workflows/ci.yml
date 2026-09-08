@@ -105,6 +105,21 @@ jobs:
         working-directory: benchmarks/server
         run: python3 -m pytest -q
 
+  benchmarks-dataset-artifacts:
+    name: Dataset artifacts match their pinned digests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the harness
+        working-directory: benchmarks/server
+        run: python3 -m pip install -e .
+
+      - name: Fetch every pinned manifest from its release and compare the digests
+        working-directory: benchmarks/server
+        run: python3 -m ir_bench.verify_artifacts
+
   benchmarks-writeup:
     name: Benchmark writeup up to date
     runs-on: ubuntu-latest

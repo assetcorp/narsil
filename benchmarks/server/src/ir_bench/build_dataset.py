@@ -21,15 +21,20 @@ from .core.artifacts import (
 )
 from .core.config import load_config
 from .core.config_datasets import ARTIFACT_SOURCE, IR_DATASETS_SOURCE
-from .core.embedding_files import SHARD_ROWS, l2_normalize, store_manifest, write_shard, write_store_manifest, write_truth
+from .core.embedding_files import SHARD_ROWS, store_manifest, write_shard, write_store_manifest, write_truth
 from .core.embeddings import EmbeddingStore
 from .core.ground_truth import exact_top_k
+from .dbpedia_parquet import (
+    DBPEDIA_DIMS,
+    DBPEDIA_MODEL,
+    DBPEDIA_SOURCE,
+    local_parquet_files,
+    read_parquet_rows,
+    streamed_hub_parquet,
+)
 
 HOLD_OUT_SEED = 42
-DBPEDIA_SOURCE = "KShivendu/dbpedia-entities-openai-1M"
-DBPEDIA_MODEL = "text-embedding-ada-002"
-DBPEDIA_DIMS = 1536
-DBPEDIA_COLUMNS = ("_id", "title", "text", "openai")
+HUB_WORK_DIRNAME = ".source"
 
 
 def _write_jsonl_gz(path: Path, records) -> int:
@@ -50,38 +55,21 @@ def _write_store(directory: Path, model: str, dims: int, kind: str, ids: list[st
     write_store_manifest(directory, store_manifest(model, dims, kind, len(ids), len(ids), shards, True))
 
 
-def _read_parquet_rows(parquet_dir: Path, wanted: int) -> tuple[list[str], list[str], list[str], np.ndarray]:
-    import pyarrow.parquet as pq
-
-    files = sorted(Path(parquet_dir).glob("*.parquet"))
-    if not files:
-        raise SystemExit(f"no parquet files under {parquet_dir}")
-    source_ids: list[str] = []
-    titles: list[str] = []
-    texts: list[str] = []
-    vectors = np.empty((wanted, DBPEDIA_DIMS), dtype=np.float32)
-    filled = 0
-    for path in files:
-        table = pq.read_table(path, columns=list(DBPEDIA_COLUMNS))
-        block = np.asarray(table["openai"].combine_chunks().flatten(), dtype=np.float32).reshape(-1, DBPEDIA_DIMS)
-        take = min(len(block), wanted - filled)
-        vectors[filled : filled + take] = block[:take]
-        filled += take
-        source_ids.extend(table["_id"].to_pylist()[:take])
-        titles.extend(table["title"].to_pylist()[:take])
-        texts.extend(table["text"].to_pylist()[:take])
-        print(f"  read {filled} rows", flush=True)
-        if filled >= wanted:
-            break
-    if filled < wanted:
-        raise SystemExit(f"{parquet_dir} holds {filled} rows, fewer than the {wanted} requested")
-    return source_ids, titles, texts, l2_normalize(vectors)
+def _parquet_files(args: argparse.Namespace):
+    if args.parquet_dir is not None:
+        print(f"reading parquet files under {args.parquet_dir}", flush=True)
+        return local_parquet_files(args.parquet_dir)
+    work_dir = Path(args.work_dir) if args.work_dir is not None else Path(args.out).parent / HUB_WORK_DIRNAME
+    print(f"streaming parquet files from {DBPEDIA_SOURCE} through {work_dir}", flush=True)
+    return streamed_hub_parquet(work_dir)
 
 
 def build_dbpedia(args: argparse.Namespace) -> int:
+    if (args.parquet_dir is None) == (not args.from_hub):
+        raise SystemExit("pass exactly one of --parquet-dir and --from-hub")
     total = args.documents + args.queries
-    print(f"reading {total} rows from {args.parquet_dir}", flush=True)
-    source_ids, titles, texts, vectors = _read_parquet_rows(args.parquet_dir, total)
+    print(f"reading {total} rows", flush=True)
+    source_ids, titles, texts, vectors = read_parquet_rows(_parquet_files(args), total)
     held_out = set(random.Random(HOLD_OUT_SEED).sample(range(total), args.queries))
     doc_rows = [row for row in range(total) if row not in held_out]
     query_rows = sorted(held_out)
@@ -169,7 +157,9 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
 
     dbpedia = commands.add_parser("dbpedia", help="documents, held-out queries, vectors, and exact neighbours from the DBpedia entities parquet files")
-    dbpedia.add_argument("--parquet-dir", type=Path, required=True)
+    dbpedia.add_argument("--parquet-dir", type=Path, default=None)
+    dbpedia.add_argument("--from-hub", action="store_true", help=f"download each parquet file of {DBPEDIA_SOURCE} in turn and delete it once read")
+    dbpedia.add_argument("--work-dir", type=Path, default=None, help="where --from-hub keeps the file being read")
     dbpedia.add_argument("--dataset-id", required=True)
     dbpedia.add_argument("--documents", type=int, required=True)
     dbpedia.add_argument("--queries", type=int, default=5000)
