@@ -8,12 +8,17 @@ import numpy as np
 
 STORE_MANIFEST = "manifest.json"
 SHARD_ROWS = 50_000
+NORMALIZE_BLOCK_ROWS = 50_000
 
 
 def l2_normalize(matrix: np.ndarray) -> np.ndarray:
-    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-    norms[norms == 0.0] = 1.0
-    return (matrix / norms).astype(np.float32, copy=False)
+    normalized = matrix if matrix.dtype == np.float32 else matrix.astype(np.float32)
+    for start in range(0, normalized.shape[0], NORMALIZE_BLOCK_ROWS):
+        rows = normalized[start : start + NORMALIZE_BLOCK_ROWS]
+        norms = np.linalg.norm(rows, axis=1, keepdims=True)
+        norms[norms == 0.0] = 1.0
+        rows /= norms
+    return normalized
 
 
 def _fsync_path(path: Path) -> None:
