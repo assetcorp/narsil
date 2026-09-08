@@ -19,6 +19,7 @@ from .core.artifacts import (
     truth_filename,
     write_manifest,
 )
+from .core import datasets as ds
 from .core.config import load_config
 from .core.config_datasets import ARTIFACT_SOURCE, IR_DATASETS_SOURCE
 from .core.embedding_files import SHARD_ROWS, store_manifest, write_shard, write_store_manifest, write_truth
@@ -46,13 +47,27 @@ def _write_jsonl_gz(path: Path, records) -> int:
     return count
 
 
-def _write_store(directory: Path, model: str, dims: int, kind: str, ids: list[str], vectors: np.ndarray) -> None:
+def _write_store(
+    directory: Path, model: str, dims: int, kind: str, ids: list[str], vectors: np.ndarray, rows: np.ndarray
+) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     shards = 0
     for start in range(0, len(ids), SHARD_ROWS):
-        write_shard(directory, shards, ids[start : start + SHARD_ROWS], vectors[start : start + SHARD_ROWS])
+        write_shard(directory, shards, ids[start : start + SHARD_ROWS], vectors[rows[start : start + SHARD_ROWS]])
         shards += 1
     write_store_manifest(directory, store_manifest(model, dims, kind, len(ids), len(ids), shards, True))
+
+
+def _exact_neighbours_excluding_held_out(
+    query_ids: list[str], query_vectors: np.ndarray, ids: list[str], vectors: np.ndarray, query_rows: list[int], k: int
+) -> dict[str, list[str]]:
+    vectors[query_rows] = 0.0
+    truth = exact_top_k(query_ids, query_vectors, ids, vectors, k)
+    held_out = set(query_ids)
+    leaked = [query_id for query_id, neighbours in truth.items() if held_out.intersection(neighbours)]
+    if leaked:
+        raise SystemExit(f"a zeroed held-out row reached the top-{k} of {len(leaked)} queries, so the corpus is too small for this hold-out")
+    return truth
 
 
 def _parquet_files(args: argparse.Namespace):
@@ -90,12 +105,13 @@ def build_dbpedia(args: argparse.Namespace) -> int:
     )
     doc_ids = [ids[row] for row in doc_rows]
     query_ids = [ids[row] for row in query_rows]
-    doc_vectors = vectors[doc_rows]
     query_vectors = vectors[query_rows]
-    _write_store(out / DOCS_DIRNAME, DBPEDIA_MODEL, DBPEDIA_DIMS, "docs", doc_ids, doc_vectors)
-    _write_store(out / QUERIES_DIRNAME, DBPEDIA_MODEL, DBPEDIA_DIMS, "queries", query_ids, query_vectors)
+    _write_store(out / DOCS_DIRNAME, DBPEDIA_MODEL, DBPEDIA_DIMS, "docs", doc_ids, vectors, np.asarray(doc_rows))
+    _write_store(
+        out / QUERIES_DIRNAME, DBPEDIA_MODEL, DBPEDIA_DIMS, "queries", query_ids, query_vectors, np.arange(len(query_ids))
+    )
     print(f"computing exact top-{args.recall_k} neighbours for {queries} queries over {documents} documents", flush=True)
-    truth = exact_top_k(query_ids, query_vectors, doc_ids, doc_vectors, args.recall_k)
+    truth = _exact_neighbours_excluding_held_out(query_ids, query_vectors, ids, vectors, query_rows, args.recall_k)
     write_truth(out / truth_filename(args.recall_k), query_ids, truth, args.recall_k)
 
     digest = write_manifest(
@@ -124,7 +140,8 @@ def build_beir_vectors(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     if config.vector is None:
         raise SystemExit("the config has no [vector] section")
-    store = EmbeddingStore(config.vector, args.embeddings_dir)
+    ds.configure(config.datasets, args.embeddings_dir)
+    store = EmbeddingStore(config.vector, args.embeddings_dir, config.datasets)
     corpus = store.corpus(args.dataset_id)
     queries = store.queries(args.dataset_id)
     truth = store.truth(args.dataset_id, config.vector.recall_k)
@@ -132,8 +149,14 @@ def build_beir_vectors(args: argparse.Namespace) -> int:
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
-    _write_store(out / DOCS_DIRNAME, config.vector.model, config.vector.dims, "docs", corpus.ids, corpus.vectors)
-    _write_store(out / QUERIES_DIRNAME, config.vector.model, config.vector.dims, "queries", queries.ids, queries.vectors)
+    _write_store(
+        out / DOCS_DIRNAME, config.vector.model, config.vector.dims, "docs", corpus.ids, corpus.vectors,
+        np.arange(len(corpus.ids)),
+    )
+    _write_store(
+        out / QUERIES_DIRNAME, config.vector.model, config.vector.dims, "queries", queries.ids, queries.vectors,
+        np.arange(len(queries.ids)),
+    )
     write_truth(out / truth_filename(config.vector.recall_k), queries.ids, truth, config.vector.recall_k)
     digest = write_manifest(
         out,
