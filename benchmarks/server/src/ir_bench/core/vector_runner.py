@@ -5,11 +5,11 @@ from pathlib import Path
 from time import perf_counter
 
 from . import datasets as ds
-from .config import BenchmarkConfig, DatasetSpec, EngineConfig, VectorConfig
+from .config import BenchmarkConfig, EngineConfig, VectorConfig
+from .config_datasets import DatasetSpec
 from .embeddings import EmbeddingStore
-from .latency import measure_latency
+from .latency import Trip, measure_latency, timed_trip, warmup_sample
 from .recall_sweep import sweep_throughput
-from .recall_tuning import TuningResult, tune_to_recall
 from .runfile import run_mapping, strict_ranking, write_run_file
 from .scoring import evaluate
 from .throughput import measure_throughput
@@ -25,6 +25,7 @@ from .track_common import (
     verify_indexed,
 )
 from .types import BEST_CONFIG, EQUAL_PRECISION, HYBRID, SERVER_TIME_UNAVAILABLE, VECTOR, VectorDoc, VectorIndexParams
+from .vector_tuning import OperatingPoint, sample_indices, tune_operating_point
 
 
 def _create_and_load(
@@ -34,7 +35,11 @@ def _create_and_load(
     assert vec is not None
     index = index_name(spec.dataset_id)
     params = VectorIndexParams(
-        dims=vec.dims, metric=vec.metric, m=vec.hnsw_m, ef_construction=vec.hnsw_ef_construction, profile=profile
+        dims=store.dims_for(spec.dataset_id),
+        metric=vec.metric,
+        m=vec.hnsw_m,
+        ef_construction=vec.hnsw_ef_construction,
+        profile=profile,
     )
     vector_by_id = store.vector_by_id(spec.dataset_id)
 
@@ -54,69 +59,25 @@ def _create_and_load(
     return index, indexed, build_seconds
 
 
-def _operating_point(
-    driver, vec: VectorConfig, tuning: TuningResult, oversample: float | None, sweep: list[dict]
-) -> dict:
+def _operating_point(driver, vec: VectorConfig, point: OperatingPoint, sweep: list[dict]) -> dict:
+    tuning = point.tuning
     return {
         "knob": getattr(driver, "vector_knob", "efSearch"),
         "recall_metric": f"ann_recall@{vec.recall_k}",
         "recall_k": vec.recall_k,
         "target": tuning.target,
         "chosen_value": tuning.chosen_param,
-        "rescore_oversample": oversample,
+        "rescore_oversample": point.oversample,
         "achieved_recall": tuning.achieved_recall,
         "met_target": tuning.met_target,
         "secondary_target": tuning.secondary_target,
         "secondary_value": tuning.secondary_param,
         "secondary_recall": tuning.secondary_recall,
+        "tuning_sample_queries": point.sample_queries,
+        "sample_recall": point.sample_recall,
+        "confirmation_steps": point.confirmation_steps,
         "sweep": sweep,
     }
-
-
-def _tune_rescore_oversample(
-    driver, profile, tuning: TuningResult, index, query_vectors, query_ids, truth, vec: VectorConfig, dataset_id
-) -> tuple[TuningResult, float | None]:
-    """For a quantized best-config engine whose ef sweep plateaus below the recall
-    target, escalate the full-precision rescore oversample, the knob that actually
-    moves recall for rescore-based quantization. Picks the smallest oversample within
-    the engine's valid range that clears the target; if none does, keeps the highest
-    and reports the best achievable recall (met_target stays false)."""
-
-    over_grid = getattr(driver, "rescore_oversample_grid", ())
-    if profile != BEST_CONFIG or tuning.met_target or not hasattr(driver, "set_rescore_oversample") or not over_grid:
-        return tuning, None
-
-    best_ef = tuning.chosen_param
-    print(
-        f"[{driver.name}:{dataset_id}:vector:{profile}] ef plateaued at recall "
-        f"{tuning.achieved_recall:.4f}; escalating rescore oversample",
-        flush=True,
-    )
-
-    def run_at_oversample(oversample) -> dict[str, list[str]]:
-        driver.set_rescore_oversample(float(oversample))
-        approx: dict[str, list[str]] = {}
-        for i, query_id in enumerate(query_ids):
-            response = driver.vector_search(index, query_vectors[i], vec.recall_k, best_ef)
-            approx[query_id] = [hit.doc_id for hit in response.hits[: vec.recall_k]]
-        return approx
-
-    over_tuning = tune_to_recall(
-        run_at_oversample, over_grid, truth, vec.recall_k, vec.recall_target, vec.recall_target_secondary
-    )
-    chosen = float(over_tuning.chosen_param)
-    driver.set_rescore_oversample(chosen)
-    combined = TuningResult(
-        chosen_param=best_ef,
-        achieved_recall=over_tuning.achieved_recall,
-        met_target=over_tuning.met_target,
-        target=tuning.target,
-        secondary_param=tuning.secondary_param,
-        secondary_recall=tuning.secondary_recall,
-        secondary_target=tuning.secondary_target,
-        sweep=tuning.sweep,
-    )
-    return combined, chosen
 
 
 def _operational(indexed: int, build_seconds: float, ingest_rate: float, config: BenchmarkConfig, stats) -> dict:
@@ -129,6 +90,55 @@ def _operational(indexed: int, build_seconds: float, ingest_rate: float, config:
         "index_size_bytes": index_size_bytes(stats),
         "raw_stats": stats,
     }
+
+
+def _score_run(driver, search, query_ids, config: BenchmarkConfig, qrels, run_path: Path, run_tag: str):
+    if not qrels:
+        return None, None
+    run: dict[str, list[tuple[str, float]]] = {}
+    run_for_scoring: dict[str, dict[str, float]] = {}
+    for query_id in query_ids:
+        ranked = strict_ranking(search(query_id).hits)
+        run[query_id] = ranked
+        run_for_scoring[query_id] = run_mapping(ranked)
+    write_run_file(run_path, run, run_tag)
+    return evaluate(qrels, run_for_scoring), str(run_path)
+
+
+def _tune(driver, config: BenchmarkConfig, spec: DatasetSpec, profile: str, index: str, qset, query_vectors, truth, workload):
+    vec = config.vector
+    assert vec is not None
+    label = f"[{driver.name}:{spec.dataset_id}:vector:{profile}]"
+    grid = vec.ef_search_grid_best_config if profile == BEST_CONFIG else vec.ef_search_grid
+    sample = sample_indices(len(qset.ids), vec.tuning_sample_queries)
+    sample_ids = [qset.ids[i] for i in sample]
+
+    def hits_at(i: int, ef: int) -> list[str]:
+        response = driver.vector_search(index, query_vectors[i], vec.recall_k, ef)
+        return [hit.doc_id for hit in response.hits[: vec.recall_k]]
+
+    def run_at_sample(ef: int) -> dict[str, list[str]]:
+        return {qset.ids[i]: hits_at(i, ef) for i in sample}
+
+    def run_at_sample_oversample(oversample: float, ef: int) -> dict[str, list[str]]:
+        driver.set_rescore_oversample(oversample)
+        return run_at_sample(ef)
+
+    def confirm(ef: int) -> tuple[Trip, dict[str, list[str]]]:
+        approx: dict[str, list[str]] = {}
+        search = request_caller(driver, replace(workload, ef=ef, top_k=max(workload.top_k, vec.recall_k)))
+
+        def capture(i: int, response) -> None:
+            approx[qset.ids[i]] = [hit.doc_id for hit in response.hits[: vec.recall_k]]
+
+        return timed_trip(search, query_vectors, capture), approx
+
+    if hasattr(driver, "set_rescore_oversample"):
+        driver.set_rescore_oversample(None)
+    print(f"{label} tuning to recall@{vec.recall_k} >= {vec.recall_target} on {len(sample_ids)} sampled queries", flush=True)
+    return tune_operating_point(
+        driver, profile, vec, grid, truth, sample_ids, run_at_sample, run_at_sample_oversample, confirm, label
+    )
 
 
 def run_vector_track(
@@ -144,39 +154,16 @@ def run_vector_track(
 ) -> dict:
     vec = config.vector
     assert vec is not None
-    print(f"[{driver.name}:{spec.dataset_id}:vector:{profile}] loading judgements and vectors", flush=True)
+    label = f"[{driver.name}:{spec.dataset_id}:vector:{profile}]"
+    print(f"{label} loading judgements and vectors", flush=True)
     qrels = ds.load_qrels(spec.dataset_id)
     qset = store.queries(spec.dataset_id)
     query_vectors = [qset.vectors[i].tolist() for i in range(len(qset.ids))]
 
-    print(f"[{driver.name}:{spec.dataset_id}:vector:{profile}] ingesting corpus", flush=True)
+    print(f"{label} ingesting corpus", flush=True)
     index, indexed, build_seconds = _create_and_load(driver, config, spec, store, profile)
     ingest_rate = indexed / build_seconds if build_seconds > 0 else 0.0
-
     truth = store.truth(spec.dataset_id, vec.recall_k)
-
-    def run_at(ef: int) -> dict[str, list[str]]:
-        approx: dict[str, list[str]] = {}
-        for i, query_id in enumerate(qset.ids):
-            response = driver.vector_search(index, query_vectors[i], vec.recall_k, ef)
-            approx[query_id] = [hit.doc_id for hit in response.hits[: vec.recall_k]]
-        return approx
-
-    if hasattr(driver, "set_rescore_oversample"):
-        driver.set_rescore_oversample(None)
-    grid = vec.ef_search_grid_best_config if profile == BEST_CONFIG else vec.ef_search_grid
-    print(f"[{driver.name}:{spec.dataset_id}:vector:{profile}] tuning to recall@{vec.recall_k} >= {vec.recall_target}", flush=True)
-    tuning = tune_to_recall(run_at, grid, truth, vec.recall_k, vec.recall_target, vec.recall_target_secondary)
-    tuning, chosen_oversample = _tune_rescore_oversample(
-        driver, profile, tuning, index, query_vectors, list(qset.ids), truth, vec, spec.dataset_id
-    )
-    if chosen_oversample is not None:
-        print(
-            f"[{driver.name}:{spec.dataset_id}:vector:{profile}] re-tuning search effort with rescore oversample "
-            f"{chosen_oversample:g} in effect",
-            flush=True,
-        )
-        tuning = tune_to_recall(run_at, grid, truth, vec.recall_k, vec.recall_target, vec.recall_target_secondary)
 
     server_time = getattr(driver, "server_time", SERVER_TIME_UNAVAILABLE)
     workload = Workload(
@@ -185,34 +172,35 @@ def run_vector_track(
         track=VECTOR,
         index=index,
         top_k=config.latency.top_k,
-        ef=tuning.chosen_param,
         vector_profile=profile,
         vector_metric=vec.metric,
-        rescore_oversample=chosen_oversample,
     )
-    sweep_config = replace(config.throughput, concurrency=(config.throughput.recall_sweep_concurrency,))
-    print(f"[{driver.name}:{spec.dataset_id}:vector:{profile}] measuring throughput at every search-effort level", flush=True)
+    point = _tune(driver, config, spec, profile, index, qset, query_vectors, truth, workload)
+    workload = replace(workload, ef=point.tuning.chosen_param, rescore_oversample=point.oversample)
+
+    sweep_config = replace(config.throughput, concurrency=(config.throughput.recall_sweep_concurrency,), passes=1)
+    print(f"{label} measuring throughput at every search-effort level", flush=True)
     sweep = sweep_throughput(
-        tuning.sweep,
+        point.tuning.sweep,
         lambda ef: measure_throughput(replace(workload, ef=ef), query_vectors, sweep_config, server_time, engine_cpu),
     )
 
-    quality_ef = max(tuning.chosen_param, config.run_depth)
-    run: dict[str, list[tuple[str, float]]] = {}
-    run_for_scoring: dict[str, dict[str, float]] = {}
-    for i, query_id in enumerate(qset.ids):
-        response = driver.vector_search(index, query_vectors[i], config.run_depth, quality_ef)
-        ranked = strict_ranking(response.hits)
-        run[query_id] = ranked
-        run_for_scoring[query_id] = run_mapping(ranked)
-    run_path = runs_dir / f"{index}.{run_tag}.run"
-    write_run_file(run_path, run, run_tag)
-    metrics = evaluate(qrels, run_for_scoring)
+    quality_ef = max(point.tuning.chosen_param, config.run_depth)
+    position = {query_id: i for i, query_id in enumerate(qset.ids)}
+    metrics, run_file = _score_run(
+        driver,
+        lambda query_id: driver.vector_search(index, query_vectors[position[query_id]], config.run_depth, quality_ef),
+        qset.ids,
+        config,
+        qrels,
+        runs_dir / f"{index}.{run_tag}.run",
+        run_tag,
+    )
 
-    print(f"[{driver.name}:{spec.dataset_id}:vector] measuring latency and throughput at the operating point", flush=True)
+    print(f"{label} measuring latency and throughput at the operating point", flush=True)
     vector_once = request_caller(driver, workload)
-
-    latency = measure_latency(vector_once, query_vectors, config.latency, server_time)
+    prior = [point.confirm_trip] if vec.recall_k <= config.latency.top_k else []
+    latency = measure_latency(vector_once, query_vectors, config.latency, server_time, (), prior)
     throughput = measure_throughput(workload, query_vectors, config.throughput, server_time, engine_cpu)
 
     stats = best_effort(lambda: driver.index_stats(index), "index stats")
@@ -228,16 +216,18 @@ def run_vector_track(
         "setup": getattr(driver, "vector_setup", ""),
         "server_setup": setup_report,
         "quantization": getattr(driver, "vector_quantization", None),
+        "vector_model": store.model_for(spec.dataset_id),
+        "vector_dims": store.dims_for(spec.dataset_id),
         "queries": len(qset.ids),
         "judged_queries": len(qrels),
         "metrics": metrics,
         "calibration": None,
-        "operating_point": _operating_point(driver, vec, tuning, chosen_oversample, sweep),
-        "vector_oversample": chosen_oversample,
+        "operating_point": _operating_point(driver, vec, point, sweep),
+        "vector_oversample": point.oversample,
         "operational": _operational(indexed, build_seconds, ingest_rate, config, stats),
         "latency": latency,
         "throughput": throughput,
-        "run_file": str(run_path),
+        "run_file": run_file,
     }
 
 
@@ -256,14 +246,15 @@ def run_hybrid_track(
 ) -> dict:
     vec = config.vector
     assert vec is not None
-    print(f"[{driver.name}:{spec.dataset_id}:hybrid:{profile}] loading queries, judgements, vectors", flush=True)
+    label = f"[{driver.name}:{spec.dataset_id}:hybrid:{profile}]"
+    print(f"{label} loading queries, judgements, vectors", flush=True)
     terms = ds.load_queries(spec.dataset_id)
     qrels = ds.load_qrels(spec.dataset_id)
     qset = store.queries(spec.dataset_id)
     query_terms = {query_id: terms.get(query_id, "") for query_id in qset.ids}
     query_vectors = {query_id: qset.vectors[i].tolist() for i, query_id in enumerate(qset.ids)}
 
-    print(f"[{driver.name}:{spec.dataset_id}:hybrid:{profile}] ingesting corpus", flush=True)
+    print(f"{label} ingesting corpus", flush=True)
     index, indexed, build_seconds = _create_and_load(driver, config, spec, store, profile)
     ingest_rate = indexed / build_seconds if build_seconds > 0 else 0.0
     if hasattr(driver, "set_rescore_oversample"):
@@ -272,19 +263,19 @@ def run_hybrid_track(
     grid = vec.ef_search_grid_best_config if profile == BEST_CONFIG else vec.ef_search_grid
     operating_ef = vector_ef if vector_ef is not None else grid[-1]
     quality_ef = max(operating_ef, config.run_depth)
+    metrics, run_file = _score_run(
+        driver,
+        lambda query_id: driver.hybrid_search(
+            index, query_terms[query_id], query_vectors[query_id], config.run_depth, quality_ef
+        ),
+        qset.ids,
+        config,
+        qrels,
+        runs_dir / f"{index}.{run_tag}.run",
+        run_tag,
+    )
 
-    run: dict[str, list[tuple[str, float]]] = {}
-    run_for_scoring: dict[str, dict[str, float]] = {}
-    for query_id in qset.ids:
-        response = driver.hybrid_search(index, query_terms[query_id], query_vectors[query_id], config.run_depth, quality_ef)
-        ranked = strict_ranking(response.hits)
-        run[query_id] = ranked
-        run_for_scoring[query_id] = run_mapping(ranked)
-    run_path = runs_dir / f"{index}.{run_tag}.run"
-    write_run_file(run_path, run, run_tag)
-    metrics = evaluate(qrels, run_for_scoring)
-
-    print(f"[{driver.name}:{spec.dataset_id}:hybrid] measuring latency and throughput", flush=True)
+    print(f"{label} measuring latency and throughput", flush=True)
     server_time = getattr(driver, "server_time", SERVER_TIME_UNAVAILABLE)
     pairs = [(query_terms[query_id], query_vectors[query_id]) for query_id in qset.ids]
 
@@ -300,8 +291,8 @@ def run_hybrid_track(
         rescore_oversample=vector_oversample,
     )
     hybrid_once = request_caller(driver, workload)
-
-    latency = measure_latency(hybrid_once, pairs, config.latency, server_time)
+    warmup = [] if metrics is not None else warmup_sample(config.latency, pairs)
+    latency = measure_latency(hybrid_once, pairs, config.latency, server_time, warmup)
     throughput = measure_throughput(workload, pairs, config.throughput, server_time, engine_cpu)
 
     stats = best_effort(lambda: driver.index_stats(index), "index stats")
@@ -317,6 +308,8 @@ def run_hybrid_track(
         "setup": getattr(driver, "hybrid_setup", ""),
         "server_setup": setup_report,
         "quantization": getattr(driver, "vector_quantization", None),
+        "vector_model": store.model_for(spec.dataset_id),
+        "vector_dims": store.dims_for(spec.dataset_id),
         "queries": len(qset.ids),
         "judged_queries": len(qrels),
         "metrics": metrics,
@@ -331,5 +324,5 @@ def run_hybrid_track(
         "operational": _operational(indexed, build_seconds, ingest_rate, config, stats),
         "latency": latency,
         "throughput": throughput,
-        "run_file": str(run_path),
+        "run_file": run_file,
     }

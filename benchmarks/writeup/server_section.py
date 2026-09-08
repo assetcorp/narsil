@@ -61,6 +61,10 @@ def _qps_cell(row: dict) -> str:
 
 
 def _quality_table(rows: list[dict], profile: str) -> str:
+    if not _judged(rows):
+        ordered = sorted(rows, key=lambda row: peak_qps(row) or -1.0, reverse=True)
+        body = [[row_label(row, profile), _qps_cell(row)] for row in ordered]
+        return table(["Engine", "Peak QPS"], ["left", "right"], body)
     ordered = sorted(rows, key=lambda row: _metric(row, "ndcg_cut_10") or -1.0, reverse=True)
     body = [
         [
@@ -94,6 +98,12 @@ def _bars_figure(chart_dir: str, profile: str, name: str, dataset_id: str, rows:
     if not has_bars(rows):
         return None
     dataset = dataset_name(dataset_id)
+    if not _judged(rows):
+        return figure(
+            bars_chart(chart_dir, profile, name, dataset_id),
+            f"One bar panel for the {name} track on {dataset}: peak queries per second per engine with a 95% "
+            "confidence interval across passes.",
+        )
     return figure(
         bars_chart(chart_dir, profile, name, dataset_id),
         f"Two bar panels for the {name} track on {dataset}: nDCG@10 per engine, and peak queries per second per "
@@ -162,18 +172,31 @@ def _track_block(source: Source, profile: str, name: str, render_table, comparis
     return "\n\n".join(chunks)
 
 
+def _judged(rows: list[dict]) -> bool:
+    return any(_metric(row, "ndcg_cut_10") is not None for row in rows)
+
+
 def _vector_intro(comparison: dict, config: dict) -> str:
     target = decimal(config.get("recall_target"), 2)
     sentences = []
     for dataset in (track(comparison, "vector") or {"datasets": []})["datasets"]:
         rows = dataset["rows"]
         narsil = _narsil_row(rows)
+        opening = (
+            f"On {dataset_name(dataset['dataset_id'])}, every engine tunes its search effort to reach ann_recall@10 "
+            f"of at least {target} against the exact neighbours"
+        )
+        if not _judged(rows):
+            sentences.append(
+                f"{opening}. The set carries no relevance judgements, so it reports recall, latency, and "
+                "throughput and no ranking quality."
+            )
+            continue
         ndcg = decimal(_metric(narsil, "ndcg_cut_10"), 4) if narsil else "n/a"
         recall = decimal(_metric(narsil, "recall_100"), 4) if narsil else "n/a"
         sentences.append(
-            f"On {dataset_name(dataset['dataset_id'])}, every engine tunes its search effort to reach ann_recall@10 "
-            f"of at least {target} against the exact neighbours, and each returns the same ranking, so nDCG@10 is "
-            f"{ndcg} and Recall@100 is {recall} across the field."
+            f"{opening}, and each returns the same ranking, so nDCG@10 is {ndcg} and Recall@100 is {recall} "
+            "across the field."
         )
     return " ".join(sentences)
 
@@ -186,6 +209,24 @@ def _dataset_phrases(track_entry: dict) -> list[str]:
         docs = (row.get("operational") or {}).get("documents_indexed")
         phrases.append(f"{dataset_name(dataset['dataset_id'])} ({integer(docs)} documents)")
     return phrases
+
+
+def _vectors_sentence(config: dict) -> str:
+    vectors = config.get("dataset_vectors") or {}
+    if not vectors:
+        return ""
+    phrases = []
+    for dataset_id, entry in vectors.items():
+        provenance = (
+            "read from a published dataset artifact pinned by its SHA-256"
+            if entry.get("source") == "artifact"
+            else "loaded and hash-verified through `ir_datasets`"
+        )
+        phrases.append(
+            f"{dataset_name(dataset_id)} is {provenance}, with {entry.get('model')} vectors at "
+            f"{integer(entry.get('dims'))} dimensions"
+        )
+    return " " + "; ".join(phrases) + "."
 
 
 def _threads_sentence(narsil: dict) -> str:
@@ -215,8 +256,9 @@ def _load_sentence(config: dict) -> str:
     level_text = and_join([integer(level) for level in levels])
     if isinstance(passes, int) and passes > 1:
         return (
-            f"The harness measured throughput at {level_text} concurrent clients, {integer(passes)} passes per "
-            "level, and the tables report the median pass with a 95% bootstrap interval."
+            f"The harness measured throughput at {level_text} concurrent clients, one pass per level and "
+            f"{integer(passes)} passes at each engine's peak level, and the tables report the median peak pass "
+            "with a 95% bootstrap interval."
         )
     return f"The harness measured throughput at {level_text} concurrent clients, one pass per level."
 
@@ -255,8 +297,7 @@ def _setup_block(source: Source) -> str:
         f"- **Run.** These figures come from run `{source.run_id}`, recorded on {_date(source)} from commit "
         f"`{commit}`{dirty}. The raw per-engine results and the full comparison are in "
         f"[the run report]({source.report_link}).",
-        f"- **Datasets.** The run covers {and_join(_dataset_phrases(keyword))}, each loaded and hash-verified "
-        "through `ir_datasets`.",
+        f"- **Datasets.** The run covers {and_join(_dataset_phrases(keyword))}.{_vectors_sentence(config)}",
         f"- **Engines.** The comparison runs Narsil {narsil_version} against {and_join(others)}, "
         "and every engine runs from a pinned image.",
         f"- **Equal conditions.** Every engine receives the same {cap} GB memory cap, the same run depth of "

@@ -38,7 +38,10 @@ def build_comparison(reports: list[dict], profile: str = EQUAL_PRECISION) -> dic
             buckets[key].append(
                 {
                     "engine": engine_name,
-                    "metrics": result.get("metrics", {}),
+                    "metrics": result.get("metrics"),
+                    "judged_queries": result.get("judged_queries"),
+                    "vector_model": result.get("vector_model"),
+                    "vector_dims": result.get("vector_dims"),
                     "latency": latency,
                     "latency_server": server_summary(latency) or {},
                     "latency_client": client_summary(latency),

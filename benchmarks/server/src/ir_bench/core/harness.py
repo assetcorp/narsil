@@ -4,9 +4,10 @@ from pathlib import Path
 from time import perf_counter
 
 from . import datasets as ds
-from .config import BenchmarkConfig, DatasetSpec, EngineConfig
+from .config import BenchmarkConfig, EngineConfig
+from .config_datasets import DatasetSpec
 from .embeddings import EmbeddingStore
-from .latency import measure_latency
+from .latency import measure_latency, warmup_sample
 from .runfile import run_mapping, strict_ranking, write_run_file
 from .scoring import evaluate
 from .throughput import measure_throughput
@@ -52,18 +53,21 @@ def run_keyword_track(
     indexed = verify_indexed(driver, index, imported, spec.dataset_id)
     ingest_rate = indexed / build_seconds if build_seconds > 0 else 0.0
 
-    print(f"[{driver.name}:{spec.dataset_id}:keyword] running {len(queries)} queries", flush=True)
-    run: dict[str, list[tuple[str, float]]] = {}
-    run_for_scoring: dict[str, dict[str, float]] = {}
-    for query_id, term in queries.items():
-        response = driver.search(index, term, config.run_depth)
-        ranked = strict_ranking(response.hits)
-        run[query_id] = ranked
-        run_for_scoring[query_id] = run_mapping(ranked)
-
-    run_path = runs_dir / f"{index}.{driver.run_tag}.run"
-    write_run_file(run_path, run, driver.run_tag)
-    metrics = evaluate(qrels, run_for_scoring)
+    metrics = None
+    run_file = None
+    if qrels:
+        print(f"[{driver.name}:{spec.dataset_id}:keyword] running {len(queries)} queries", flush=True)
+        run: dict[str, list[tuple[str, float]]] = {}
+        run_for_scoring: dict[str, dict[str, float]] = {}
+        for query_id, term in queries.items():
+            response = driver.search(index, term, config.run_depth)
+            ranked = strict_ranking(response.hits)
+            run[query_id] = ranked
+            run_for_scoring[query_id] = run_mapping(ranked)
+        run_path = runs_dir / f"{index}.{driver.run_tag}.run"
+        write_run_file(run_path, run, driver.run_tag)
+        metrics = evaluate(qrels, run_for_scoring)
+        run_file = str(run_path)
 
     print(f"[{driver.name}:{spec.dataset_id}:keyword] measuring query latency and throughput", flush=True)
     server_time = getattr(driver, "server_time", SERVER_TIME_UNAVAILABLE)
@@ -78,7 +82,8 @@ def run_keyword_track(
     )
     search_once = request_caller(driver, workload)
 
-    latency = measure_latency(search_once, query_list, config.latency, server_time)
+    warmup = [] if metrics is not None else warmup_sample(config.latency, query_list)
+    latency = measure_latency(search_once, query_list, config.latency, server_time, warmup)
     throughput = measure_throughput(workload, query_list, config.throughput, server_time, engine_cpu)
 
     stats = best_effort(lambda: driver.index_stats(index), "index stats")
@@ -86,7 +91,7 @@ def run_keyword_track(
     driver.drop_index(index)
 
     calibration = None
-    if spec.baseline_ndcg10 is not None:
+    if spec.baseline_ndcg10 is not None and metrics is not None:
         delta = metrics["ndcg_cut_10"] - spec.baseline_ndcg10
         calibration = {
             "baseline_ndcg10": spec.baseline_ndcg10,
@@ -119,7 +124,7 @@ def run_keyword_track(
         },
         "latency": latency,
         "throughput": throughput,
-        "run_file": str(run_path),
+        "run_file": run_file,
     }
 
 

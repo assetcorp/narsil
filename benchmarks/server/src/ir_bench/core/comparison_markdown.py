@@ -12,7 +12,7 @@ _PROFILE_TITLES = {
 
 
 def _value(row: dict, group: str, key: str) -> float | None:
-    value = row.get(group, {}).get(key)
+    value = (row.get(group) or {}).get(key)
     return float(value) if isinstance(value, (int, float)) else None
 
 

@@ -3,12 +3,38 @@ from __future__ import annotations
 import hashlib
 import struct
 from functools import lru_cache
-from typing import Iterator
+from pathlib import Path
+from typing import Iterable, Iterator
 
 import ir_datasets
 from ir_datasets.util import DownloadConfig
 
+from . import dataset_archive as archive
+from .artifacts import artifact_dir
+from .config_datasets import ARTIFACT_SOURCE, DatasetSpec
+
 FINGERPRINT_ALGORITHM = "sha256/len-framed/id-byte-sorted/v1"
+
+_SPECS: dict[str, DatasetSpec] = {}
+_CACHE_DIR: Path | None = None
+
+
+def configure(specs: Iterable[DatasetSpec], cache_dir: Path) -> None:
+    global _CACHE_DIR
+    _SPECS.clear()
+    _SPECS.update({spec.dataset_id: spec for spec in specs})
+    _CACHE_DIR = Path(cache_dir)
+    corpus_fingerprint.cache_clear()
+    dataset_content_id.cache_clear()
+
+
+def _archive_dir(dataset_id: str) -> Path | None:
+    spec = _SPECS.get(dataset_id)
+    if spec is None or spec.source != ARTIFACT_SOURCE:
+        return None
+    if _CACHE_DIR is None:
+        raise ValueError(f"dataset '{dataset_id}' reads from an artifact, but no cache directory was configured")
+    return artifact_dir(_CACHE_DIR, dataset_id)
 
 
 def dataset_version() -> str:
@@ -76,18 +102,15 @@ def dataset_content_id(dataset_id: str) -> dict:
     when an id cannot be resolved, so a run still records what it can rather than
     aborting."""
 
-    identity = _archive_identity(dataset_id)
+    directory = _archive_dir(dataset_id)
+    identity = archive.archive_identity(directory) if directory is not None else _archive_identity(dataset_id)
     identity["corpus_fingerprint"] = _safe_corpus_fingerprint(dataset_id)
     identity["fingerprint_algorithm"] = FINGERPRINT_ALGORITHM
     return identity
 
 
 def document_text(doc) -> str:
-    title = (getattr(doc, "title", "") or "").strip()
-    text = (getattr(doc, "text", "") or "").strip()
-    if title and text:
-        return f"{title} {text}"
-    return title or text
+    return archive.document_text(getattr(doc, "title", "") or "", getattr(doc, "text", "") or "")
 
 
 def docs_dataset(dataset_id: str):
@@ -107,6 +130,10 @@ def docs_dataset(dataset_id: str):
 
 
 def iter_documents(dataset_id: str) -> Iterator[tuple[str, str]]:
+    directory = _archive_dir(dataset_id)
+    if directory is not None:
+        yield from archive.iter_documents(directory)
+        return
     for doc in docs_dataset(dataset_id).docs_iter():
         body = document_text(doc)
         if body:
@@ -114,10 +141,16 @@ def iter_documents(dataset_id: str) -> Iterator[tuple[str, str]]:
 
 
 def document_count(dataset_id: str) -> int:
+    directory = _archive_dir(dataset_id)
+    if directory is not None:
+        return archive.document_count(directory)
     return docs_dataset(dataset_id).docs_count()
 
 
 def load_queries(dataset_id: str) -> dict[str, str]:
+    directory = _archive_dir(dataset_id)
+    if directory is not None:
+        return archive.load_queries(directory)
     dataset = ir_datasets.load(dataset_id)
     queries: dict[str, str] = {}
     for query in dataset.queries_iter():
@@ -128,6 +161,9 @@ def load_queries(dataset_id: str) -> dict[str, str]:
 
 
 def load_qrels(dataset_id: str) -> dict[str, dict[str, int]]:
+    directory = _archive_dir(dataset_id)
+    if directory is not None:
+        return archive.load_qrels(directory)
     dataset = ir_datasets.load(dataset_id)
     qrels: dict[str, dict[str, int]] = {}
     for judgment in dataset.qrels_iter():
