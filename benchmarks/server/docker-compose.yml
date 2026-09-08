@@ -32,7 +32,7 @@ services:
 
   elasticsearch:
     profiles: ["elasticsearch"]
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.0
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.3
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     environment:
       discovery.type: "single-node"
@@ -52,7 +52,7 @@ services:
 
   opensearch:
     profiles: ["opensearch"]
-    image: opensearchproject/opensearch:3.7.0
+    image: opensearchproject/opensearch:3.8.0
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     environment:
       discovery.type: "single-node"
@@ -67,7 +67,7 @@ services:
 
   qdrant:
     profiles: ["qdrant"]
-    image: qdrant/qdrant:v1.18.3
+    image: qdrant/qdrant:v1.19.1
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     volumes:
       - qdrant_data:/qdrant/storage
@@ -76,7 +76,7 @@ services:
 
   weaviate:
     profiles: ["weaviate"]
-    image: cr.weaviate.io/semitechnologies/weaviate:1.39.0
+    image: cr.weaviate.io/semitechnologies/weaviate:1.39.3
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     environment:
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"

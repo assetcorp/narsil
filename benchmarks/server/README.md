@@ -27,15 +27,15 @@ reporting) lives in `src/ir_bench/core`, and each engine is a small driver in
 ## Engines and pinned versions
 
 Each engine runs from a pinned image. Every version was checked against the
-engine's release source on 2026-08-04.
+engine's release source on 2026-09-07.
 
 | Engine | Image (pinned) | Version | Source |
 | ------ | -------------- | ------- | ------ |
 | Narsil | built from this repo (`node:22-trixie-slim` base) | working tree | local source |
-| Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:9.5.0` | 9.5.0 | [release notes](https://www.elastic.co/docs/release-notes/elasticsearch), [GitHub releases](https://github.com/elastic/elasticsearch/releases) |
-| OpenSearch | `opensearchproject/opensearch:3.7.0` | 3.7.0 | [opensearch.org/releases](https://opensearch.org/releases/), [GitHub releases](https://github.com/opensearch-project/OpenSearch/releases) |
-| Qdrant | `qdrant/qdrant:v1.18.3` | 1.18.3 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
-| Weaviate | `cr.weaviate.io/semitechnologies/weaviate:1.39.0` | 1.39.0 | [GitHub releases](https://github.com/weaviate/weaviate/releases) |
+| Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:9.5.3` | 9.5.3 | [release notes](https://www.elastic.co/docs/release-notes/elasticsearch), [GitHub releases](https://github.com/elastic/elasticsearch/releases) |
+| OpenSearch | `opensearchproject/opensearch:3.8.0` | 3.8.0 | [opensearch.org/releases](https://opensearch.org/releases/), [GitHub releases](https://github.com/opensearch-project/OpenSearch/releases) |
+| Qdrant | `qdrant/qdrant:v1.19.1` | 1.19.1 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
+| Weaviate | `cr.weaviate.io/semitechnologies/weaviate:1.39.3` | 1.39.3 | [GitHub releases](https://github.com/weaviate/weaviate/releases) |
 | Typesense | `typesense/typesense:30.2` | 30.2 | [GitHub releases](https://github.com/typesense/typesense/releases) |
 | Meilisearch | `getmeili/meilisearch:v1.52.0` | 1.52.0 | [GitHub releases](https://github.com/meilisearch/meilisearch/releases) |
 
