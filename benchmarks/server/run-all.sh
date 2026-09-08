@@ -101,7 +101,7 @@ image_digest_of() {
 }
 
 echo "run id: ${BENCH_RUN_ID}; profile: ${PROFILE} (results under ${BENCH_HOST_RESULTS_DIR}/runs)"
-echo "datasets: ${BENCH_DATASETS:-default (small BEIR sets)}; memory cap: ${BENCH_MEM_CAP:-8g}; throughput passes per level: ${BENCH_THROUGHPUT_PASSES}"
+echo "datasets: ${BENCH_DATASETS:-default (small BEIR sets)}; dataset engines: ${BENCH_DATASET_ENGINES:-every engine on every dataset}; memory cap: ${BENCH_MEM_CAP:-8g}; throughput passes per level: ${BENCH_THROUGHPUT_PASSES}"
 
 if [ "$#" -gt 0 ]; then
   ENGINES=("$@")

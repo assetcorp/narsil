@@ -1,0 +1,102 @@
+name: Publish dataset artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: Dataset id from benchmarks/server/config/benchmark.toml
+        type: choice
+        required: true
+        options:
+          - beir/scifact/test
+          - beir/nfcorpus/test
+          - dbpedia-entities-openai-100k
+          - dbpedia-entities-openai-1m
+      notes_only:
+        description: Rewrite the release title and notes from the published manifest and upload nothing
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-dataset-${{ inputs.dataset }}
+
+jobs:
+  publish:
+    name: Publish ${{ inputs.dataset }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    defaults:
+      run:
+        working-directory: benchmarks/server
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DATASET: ${{ inputs.dataset }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the harness with the parquet reader
+        run: python3 -m pip install -e '.[artifacts]'
+
+      - name: Free the disk held by preinstalled toolchains
+        if: ${{ !inputs.notes_only }}
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup
+          df -h /
+
+      - name: Build the artifact from its source
+        if: ${{ !inputs.notes_only }}
+        run: python3 -m ir_bench.publish_dataset build --dataset-id "$DATASET"
+
+      - name: Stage the release files and write the notes
+        if: ${{ !inputs.notes_only }}
+        id: stage
+        run: python3 -m ir_bench.publish_dataset stage --dataset-id "$DATASET"
+
+      - name: Create the release or replace its files
+        if: ${{ !inputs.notes_only }}
+        env:
+          TAG: ${{ steps.stage.outputs.tag }}
+          TITLE: ${{ steps.stage.outputs.title }}
+          STAGE: ${{ steps.stage.outputs.stage }}
+          NOTES: ${{ steps.stage.outputs.notes }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > existing-assets.txt 2>/dev/null; then
+            while read -r asset; do
+              if [ -n "$asset" ] && [ ! -e "$STAGE/$asset" ]; then
+                gh release delete-asset "$TAG" "$asset" --repo "$GITHUB_REPOSITORY" --yes
+              fi
+            done < existing-assets.txt
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "$STAGE"/*
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --notes-file "$NOTES"
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --latest=false --title "$TITLE" --notes-file "$NOTES" "$STAGE"/*
+          fi
+
+      - name: Compare the digest with the config pin
+        if: ${{ !inputs.notes_only }}
+        env:
+          DIGEST: ${{ steps.stage.outputs.digest }}
+          PINNED: ${{ steps.stage.outputs.pinned }}
+        run: |
+          if [ "$DIGEST" = "$PINNED" ]; then
+            echo "::notice::artifact_sha256 for $DATASET already equals $DIGEST"
+          else
+            echo "::warning::set artifact_sha256 = \"$DIGEST\" for $DATASET in benchmarks/server/config/benchmark.toml; the config holds $PINNED"
+          fi
+
+      - name: Write the notes from the published manifest
+        if: ${{ inputs.notes_only }}
+        id: notes
+        run: python3 -m ir_bench.publish_dataset notes --dataset-id "$DATASET"
+
+      - name: Update the release title and notes
+        if: ${{ inputs.notes_only }}
+        env:
+          TAG: ${{ steps.notes.outputs.tag }}
+          TITLE: ${{ steps.notes.outputs.title }}
+          NOTES: ${{ steps.notes.outputs.notes }}
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --notes-file "$NOTES"

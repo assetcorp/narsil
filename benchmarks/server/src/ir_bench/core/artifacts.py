@@ -25,6 +25,7 @@ QUERIES_FILENAME = "queries.jsonl.gz"
 QRELS_FILENAME = "qrels.tsv"
 DOWNLOAD_CHUNK_BYTES = 1 << 20
 DOWNLOAD_TIMEOUT_SECONDS = 120.0
+REQUEST_HEADERS = {"User-Agent": "narsil-benchmark-harness"}
 
 
 class ArtifactError(RuntimeError):
@@ -125,16 +126,25 @@ def is_fetched(directory: Path, expected_sha256: str) -> bool:
     return manifest is not None and _sizes_match(directory, manifest_files(manifest))
 
 
-def _download(url: str, destination: Path) -> None:
+def download_file(url: str, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     partial = destination.with_name(destination.name + ".part")
-    headers = {"User-Agent": "narsil-benchmark-harness"}
-    with httpx.stream("GET", url, headers=headers, follow_redirects=True, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
+    with httpx.stream("GET", url, headers=REQUEST_HEADERS, follow_redirects=True, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
         response.raise_for_status()
         with open(partial, "wb") as handle:
             for chunk in response.iter_bytes(DOWNLOAD_CHUNK_BYTES):
                 handle.write(chunk)
     os.replace(partial, destination)
+
+
+def read_remote(url: str) -> bytes:
+    response = httpx.get(url, headers=REQUEST_HEADERS, follow_redirects=True, timeout=DOWNLOAD_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    return response.content
+
+
+def manifest_url(base_url: str) -> str:
+    return f"{base_url}/{ARTIFACT_MANIFEST}"
 
 
 def _copy_local(source: Path, destination: Path) -> None:
@@ -156,7 +166,7 @@ def _obtain(local: Path | None, base_url: str, relative: str, asset: str, destin
     if local is not None:
         _copy_local(local / relative, destination)
     else:
-        _download(f"{base_url}/{asset}", destination)
+        download_file(f"{base_url}/{asset}", destination)
 
 
 def fetch_artifact(spec: DatasetSpec, cache_dir: Path, environ: Mapping[str, str] = os.environ) -> Path:

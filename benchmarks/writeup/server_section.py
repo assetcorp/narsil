@@ -229,6 +229,18 @@ def _vectors_sentence(config: dict) -> str:
     return " " + "; ".join(phrases) + "."
 
 
+def _dataset_engines_sentence(config: dict) -> str:
+    mapping = config.get("dataset_engines") or {}
+    phrases = [
+        f"only {and_join([engine_name(name) for name in engines])} ran {dataset_name(dataset_id)}"
+        for dataset_id, engines in mapping.items()
+        if isinstance(engines, list) and engines
+    ]
+    if not phrases:
+        return ""
+    return " " + "; ".join(phrases) + "."
+
+
 def _threads_sentence(narsil: dict) -> str:
     setup = narsil.get("server_setup") or {}
     workers = setup.get("worker_threads")
@@ -297,7 +309,8 @@ def _setup_block(source: Source) -> str:
         f"- **Run.** These figures come from run `{source.run_id}`, recorded on {_date(source)} from commit "
         f"`{commit}`{dirty}. The raw per-engine results and the full comparison are in "
         f"[the run report]({source.report_link}).",
-        f"- **Datasets.** The harness measured {and_join(_dataset_phrases(keyword))}.{_vectors_sentence(config)}",
+        f"- **Datasets.** The harness measured {and_join(_dataset_phrases(keyword))}.{_vectors_sentence(config)}"
+        f"{_dataset_engines_sentence(config)}",
         f"- **Engines.** The comparison runs Narsil {narsil_version} against {and_join(others)}, "
         "and every engine runs from a pinned image.",
         f"- **Equal conditions.** Every engine receives the same {cap} GB memory cap, the same run depth of "
