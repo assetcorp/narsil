@@ -51,7 +51,7 @@ mkdir -p "${BENCH_HOST_RESULTS_DIR}/runs"
 # final aggregate through the compose environment. Every engine's result and the
 # comparison built from them land together under results/runs/<run id>/, so a later
 # pass writes a fresh directory instead of overwriting this one. An id supplied in the
-# environment is honored so a run can be named or resumed.
+# environment is honored so you can name or resume a run.
 export BENCH_RUN_ID="${BENCH_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
 
 # Stamp the Narsil image with the source commit it is built from. Narsil is the one

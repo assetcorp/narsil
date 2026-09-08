@@ -47,8 +47,8 @@ class EmbeddingStore:
     The corpus is streamed and embedded in batches written as durable, append-only
     shards with a manifest, so a multi-hour embed of a million-passage corpus stays
     memory-bounded and resumes from the last completed shard after a restart rather
-    than recomputing from scratch. The fastembed model is imported lazily so a run
-    that only reads the cache never loads it."""
+    than recomputing from scratch. The fastembed model is imported lazily so a
+    harness process that only reads the cache never loads it."""
 
     def __init__(self, spec: VectorConfig, cache_dir: Path, datasets: Iterable[DatasetSpec] = ()) -> None:
         self._spec = spec

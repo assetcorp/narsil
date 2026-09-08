@@ -139,8 +139,9 @@ stemming, and stop-word choices move them more.
   normalizes every vector to unit length so cosine equals inner product, caches
   it once, and gives it to every engine. Retrieval quality is therefore shared
   across engines up to approximation error, and the benchmark measures the index
-  rather than the embedder. A dataset names its own model and dimension in the
-  config, so a run mixes models across datasets and never within one.
+  rather than the embedder. The config sets a model and a dimension for each
+  dataset, so the harness may use one model on one dataset and another on the
+  next, and it always uses one model throughout a dataset.
 - **Latency is compared at matched recall.** Approximate nearest-neighbour search
   trades recall for speed, so comparing latency at each engine's defaults measures
   nothing comparable
@@ -154,7 +155,7 @@ stemming, and stop-word choices move them more.
   queries, and one timed trip over every query then confirms the chosen value. If
   the full set falls short of the target, the knob steps up the grid and the trip
   repeats, so the sample can cost an extra trip and never a wrong operating point.
-  The confirmed recall is the one the run reports, and the confirmation trip is the
+  The harness reports the confirmed recall, and the confirmation trip is the
   first latency trip. Build-time HNSW parameters (M=16, efConstruction=200,
   cosine) are held the same, and every engine uses its HNSW index rather than a
   brute-force fallback.
@@ -206,9 +207,9 @@ BENCH_MACHINE_LABEL="Apple M3 Pro, macOS 26.5.1" ./run-all.sh
 
 ## Profiles
 
-A published run comes from the disclosed cloud machine, and a local run answers a
-different question: did anything break or move since the last time. `BENCH_PROFILE`
-picks which results tree receives the run.
+The results you publish come from the disclosed cloud machine, while a local run
+shows you whether anything broke or moved since the last time. `BENCH_PROFILE`
+sets which results tree the harness writes into.
 
 ```bash
 ./run-all.sh narsil                      # cloud profile, writes results/runs/
@@ -263,8 +264,8 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   compose file mounts the host's cgroup tree read-only at `/host/cgroup`, and
   `run-all.sh` passes the engine's container id in `BENCH_ENGINE_CONTAINER_ID`. The
   harness then reads that container's `cpu.stat` before and after every measured
-  window, and it divides the CPU time by the wall time. A run that supplies no
-  container id records the field as absent and carries on.
+  window, and it divides the CPU time by the wall time. Where `run-all.sh`
+  supplies no container id, the harness records the field as absent and carries on.
 - The vector track measures throughput once more at every search-effort value its
   recall sweep visited, one pass at `throughput.recall_sweep_concurrency` clients,
   so the operating point's `sweep` carries queries per second beside the sample
@@ -304,8 +305,8 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
 - Every engine image is pinned to an exact tag, and the Narsil server is built from
   this repository's source and stamped with its commit at build time. `run-all.sh`
   records each running image's digest, and the harness reads each engine's build
-  identity from its info endpoint, so a run names the exact artifact and code under
-  test on its own.
+  identity from its info endpoint, so every results file records the exact image
+  digest and commit under test on its own.
 - The embedding model (`sentence-transformers/all-MiniLM-L6-v2`) and the BM25
   sparse model (`Qdrant/bm25`) are baked into the harness image at build time and
   read offline at run time, so every machine embeds with identical artifacts and
@@ -349,13 +350,15 @@ the exact top-10 neighbours over the indexed rows once. The sets carry no
 relevance judgements, so they report ingest, recall, latency, and throughput and
 no ranking quality.
 
-A default run uses the two BEIR sets. Both DBpedia sets, MS MARCO passage
-(`beir/msmarco/dev`, 8.84M passages), and Natural Questions (`beir/nq`, 2.68M
-passages) are flagged `large` in `config/benchmark.toml`, so a run selects them
-by name. The 100K set fits a laptop:
+With no selection, the harness measures the two BEIR sets. Both DBpedia sets, MS
+MARCO passage (`beir/msmarco/dev`, 8.84M passages), and Natural Questions
+(`beir/nq`, 2.68M passages) are flagged `large` in `config/benchmark.toml`, so
+you select one of them by name, on its own or beside the BEIR sets. The 100K set
+fits a laptop:
 
 ```bash
 BENCH_PROFILE=smoke BENCH_DATASETS=dbpedia-entities-openai-100k ./run-all.sh narsil elasticsearch
+BENCH_PROFILE=smoke BENCH_DATASETS=beir/scifact/test,beir/nfcorpus/test,dbpedia-entities-openai-100k ./run-all.sh
 ```
 
 For the 1M set and the BEIR large corpora, rent a VM and follow
@@ -386,13 +389,39 @@ python -m ir_bench.build_dataset beir-vectors --embeddings-dir /path/to/embeddin
   --dataset-id beir/scifact/test
 ```
 
-Each command prints the manifest digest to paste into `artifact_sha256`. To
-publish one, create the release named in `artifact_url` and upload every file in
-the artifact directory under its `asset` name from `artifact.json`, which is the
-path with `/` replaced by `.`. A machine without the local copy then fetches it
-on its first run. For a BEIR set, a missing artifact is a warning and the harness
-computes the vectors itself; for a DBpedia set it is fatal, because the text
-lives in the artifact.
+Each command prints the manifest digest to paste into `artifact_sha256`. Each
+`artifact_url` is a GitHub release named `dataset-<slug>`, where the slug is the
+dataset id lower-cased with every run of other characters replaced by `_`, and
+each release asset takes the flat `asset` name from `artifact.json`, which is the
+path with `/` replaced by `.`. The loop below hard-links every file under its
+asset name into a staging directory and creates one release per artifact. `gh`
+creates the `dataset-<slug>` tag on the default branch where none exists, and
+`--latest=false` keeps the newest package release marked as the latest one:
+
+```bash
+for slug in beir_scifact_test beir_nfcorpus_test dbpedia_entities_openai_100k dbpedia_entities_openai_1m; do
+  stage="artifacts/.publish/$slug"
+  rm -rf "$stage" && mkdir -p "$stage"
+  ln "artifacts/$slug/artifact.json" "$stage/artifact.json"
+  jq -r '.files[] | "\(.path)\t\(.asset)"' "artifacts/$slug/artifact.json" |
+    while IFS=$'\t' read -r file asset; do ln "artifacts/$slug/$file" "$stage/$asset"; done
+  gh release create "dataset-$slug" --repo assetcorp/narsil --latest=false \
+    --title "Benchmark dataset artifact: $slug" \
+    --notes "Dataset artifact for benchmarks/server, fetched by digest from config/benchmark.toml." \
+    "$stage"/*
+done
+```
+
+Check a published release by hashing its manifest and comparing the digest with
+the config:
+
+```bash
+curl -sSL https://github.com/assetcorp/narsil/releases/download/dataset-beir_scifact_test/artifact.json | shasum -a 256
+```
+
+A machine without the local copy then fetches the artifact on its first run. For
+a BEIR set, a missing artifact is a warning and the harness computes the vectors
+itself; for a DBpedia set it is fatal, because the text is in the artifact.
 
 ## Layout
 
@@ -479,6 +508,6 @@ pytest
 - Typesense and Meilisearch run the keyword track only. Both have vector features,
   but the dense and hybrid tracks here cover the engines built for them: Narsil,
   Elasticsearch, OpenSearch, Qdrant, and Weaviate.
-- A container cannot read the host CPU model on Docker Desktop, so the run records
-  the Docker VM's view and uses `BENCH_MACHINE_LABEL` for the real host. Set it for
-  any published run.
+- A container cannot read the host CPU model on Docker Desktop, so the harness
+  records the Docker VM's view and uses `BENCH_MACHINE_LABEL` for the real host.
+  Set it for any published run.

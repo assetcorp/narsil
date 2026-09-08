@@ -1,7 +1,7 @@
 """Build the embedded (in-process) section of the writeup from the in-process results.
 
-The in-process suite records one `results.json` per run rather than a comparison
-document, so the values here read straight from its tier objects: `tiers.textOnly`
+The in-process suite records one `results.json` per run and no comparison
+document, so the values here come straight from its tier objects: `tiers.textOnly`
 for indexing and query speed, `relevanceQuality` for ranking, and `vectorRelevance`
 for the embedded vector index.
 """
@@ -64,7 +64,7 @@ def _setup_block(source: Source) -> str:
     )
     label = environment.get("machineLabel")
     machine = (
-        f"The run executed on {label}, which reports {host}." if label else f"The run host reports {host}."
+        f"{label} hosted this run, and it reports {host}." if label else f"The host reports {host}."
     )
     scales = and_join([integer(scale) for scale in (config.get("scales") or [])])
 
@@ -141,7 +141,7 @@ def _speed_block(source: Source) -> str:
         figure(
             embedded_scale_chart(inprocess_chart_dir(source.run_id)),
             "Line panels for the embedded engines across corpus size: insert documents per second, search p50 "
-            "latency on a logarithmic scale, and, where the run recorded it, heap plus external memory.",
+            "latency on a logarithmic scale, and, where the suite recorded it, heap plus external memory.",
         ),
         "Insert throughput at each scale, documents per second:",
         _scale_table(results, order, config, "textOnly", ("insertDocsPerSec",), 0),
@@ -152,7 +152,7 @@ def _speed_block(source: Source) -> str:
         chunks.append("Heap plus external memory at each scale, megabytes:")
         chunks.append(_scale_table(results, order, config, "textOnly", (_MEMORY_KEY,), 1))
     else:
-        chunks.append("This run recorded no memory figure under the heap plus external definition.")
+        chunks.append("The suite recorded no memory figure under the heap plus external definition in this run.")
     chunks.append(f"Filtered search latency at {top_label} documents, p50 milliseconds:")
     chunks.append(_filtered_table(results, order, top_scale))
     return "\n\n".join(chunks)

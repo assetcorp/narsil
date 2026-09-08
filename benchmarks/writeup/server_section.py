@@ -119,7 +119,7 @@ def _sweep_figure(chart_dir: str, profile: str, name: str, dataset_id: str, rows
         sweep_chart(chart_dir, profile, name, dataset_id),
         f"Line panels for the {name} track on {dataset} against concurrent clients: queries per second with a "
         "confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report "
-        "their own query time, and the engine container's busy cores where the run recorded them.",
+        "their own query time, and the engine container's busy cores where the harness recorded them.",
     )
 
 
@@ -235,7 +235,7 @@ def _threads_sentence(narsil: dict) -> str:
     request_threads = setup.get("request_threads")
     scaled_out = setup.get("scaled_out_indexes")
     if not isinstance(workers, int) or not isinstance(request_threads, int) or not isinstance(scaled_out, list):
-        return "This run recorded no worker copy configuration for Narsil."
+        return "The harness recorded no worker copy configuration for Narsil in this run."
     copies = (
         "the benchmark index scaled out across them"
         if scaled_out
@@ -252,7 +252,7 @@ def _load_sentence(config: dict) -> str:
     levels = throughput.get("concurrency") or []
     passes = throughput.get("passes")
     if not levels:
-        return "The run recorded no concurrency sweep."
+        return "The harness recorded no concurrency sweep."
     level_text = and_join([integer(level) for level in levels])
     if isinstance(passes, int) and passes > 1:
         return (
@@ -288,16 +288,16 @@ def _setup_block(source: Source) -> str:
         f"{environment.get('os')} {environment.get('arch')}"
     )
     machine = (
-        f"The run executed on {machine_label}, which reports {host}."
+        f"{machine_label} hosted this run, and it reports {host}."
         if machine_label
-        else f"The run host reports {host}."
+        else f"The host reports {host}."
     )
 
     return "\n".join([
         f"- **Run.** These figures come from run `{source.run_id}`, recorded on {_date(source)} from commit "
         f"`{commit}`{dirty}. The raw per-engine results and the full comparison are in "
         f"[the run report]({source.report_link}).",
-        f"- **Datasets.** The run covers {and_join(_dataset_phrases(keyword))}.{_vectors_sentence(config)}",
+        f"- **Datasets.** The harness measured {and_join(_dataset_phrases(keyword))}.{_vectors_sentence(config)}",
         f"- **Engines.** The comparison runs Narsil {narsil_version} against {and_join(others)}, "
         "and every engine runs from a pinned image.",
         f"- **Equal conditions.** Every engine receives the same {cap} GB memory cap, the same run depth of "
@@ -325,7 +325,7 @@ def server_blocks(source: Source, best: Source | None) -> dict[str, str]:
         "server-hybrid": _track_block(source, EQUAL_PRECISION, "hybrid", _quality_table, comparisons),
     }
     if best is None:
-        absent = "This run recorded no pass under each engine's recommended production settings."
+        absent = "The harness recorded no pass under each engine's recommended production settings in this run."
         blocks["server-vector-best-config"] = absent
         blocks["server-hybrid-best-config"] = absent
     else:

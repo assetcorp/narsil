@@ -9,7 +9,8 @@ dataset with an environment variable and raise the memory cap.
 
 This guide covers DBpedia entities 1M (`dbpedia-entities-openai-1m`), MS MARCO
 passage (`beir/msmarco/dev`), and Natural Questions (`beir/nq`). All three are
-flagged `large` in `config/benchmark.toml`, so a default run never touches them.
+flagged `large` in `config/benchmark.toml`, so the harness skips them unless you
+select one by name.
 
 ## DBpedia entities 1M
 
@@ -48,7 +49,7 @@ BENCH_MACHINE_LABEL="GCP c3-standard-8, 8 vCPU / 32 GiB" \
 ./run-all.sh
 ```
 
-The set carries no relevance judgements, so the run records ingest, recall,
+The set carries no relevance judgements, so the harness records ingest, recall,
 latency, and throughput for every track and no ranking quality.
 
 ## Which VM to rent
@@ -82,7 +83,7 @@ Concrete instances that fit, with on-demand pricing at the time of writing:
 | `beir/msmarco/dev` | CCX43, 16 vCPU / 64 GiB, ~€0.13/hr | c7i.8xlarge, 32 vCPU / 64 GiB, ~$1.43/hr (or r7i.4xlarge, 128 GiB) | n2-highmem-16, 16 vCPU / 128 GiB |
 
 Hetzner dedicated-vCPU instances are far cheaper per hour; AWS or GCP make sense
-when a run must sit in a specific cloud. A Hetzner box with fewer cores embeds
+when you need the results to come from a specific cloud. A Hetzner box with fewer cores embeds
 more slowly, which is the trade for the lower cost.
 
 ## Disk
@@ -136,7 +137,7 @@ To run only the engines that support a track, or to spread a long run across
 sessions, pass engine names: `... ./run-all.sh narsil elasticsearch qdrant`.
 
 Run the whole thing inside `tmux` or `screen` so a dropped SSH session does not
-stop it. Because each large dataset takes hours, keep the run attached to a
+stop it. Because each large dataset takes hours, keep `run-all.sh` attached to a
 session that survives a disconnect.
 
 ## Resumability

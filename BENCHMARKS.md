@@ -32,12 +32,12 @@ versions, and the datasets all come from the recorded run.
 
 <!-- BENCH:server-setup START -->
 - **Run.** These figures come from run `20260804T184221Z`, recorded on 2026-08-04 from commit `ad93b7f4fe58`. The raw per-engine results and the full comparison are in [the run report](benchmarks/server/results/runs/20260804T184221Z/comparison.md).
-- **Datasets.** The run covers SciFact (5,183 documents) and NFCorpus (3,633 documents).
+- **Datasets.** The harness measured SciFact (5,183 documents) and NFCorpus (3,633 documents).
 - **Engines.** The comparison runs Narsil 0.2.2 against Elasticsearch 9.5.0, Meilisearch 1.52.0, OpenSearch 3.7.0, Qdrant 1.18.3, Typesense 30.2, and Weaviate 1.39.0, and every engine runs from a pinned image.
 - **Equal conditions.** Every engine receives the same 8.6 GB memory cap, the same run depth of 1,000, and the same run-file ordering, and the engines run one at a time so latency never contends.
 - **Load.** The harness measured throughput at 16 concurrent clients, one pass per level.
-- **Narsil threads.** This run recorded no worker copy configuration for Narsil.
-- **Machine.** The run executed on GCP c3-standard-8, us-central1-a, which reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz and Linux 6.17.0-1021-gcp x86_64.
+- **Narsil threads.** The harness recorded no worker copy configuration for Narsil in this run.
+- **Machine.** GCP c3-standard-8, us-central1-a hosted this run, and it reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz and Linux 6.17.0-1021-gcp x86_64.
 - **BM25 calibration.** Narsil indexes each corpus with BM25 k1=0.9 and b=0.4, the Anserini reference configuration.
 <!-- BENCH:server-setup END -->
 
@@ -253,7 +253,7 @@ carries both the ranking and the stemmer.
 - **Run.** These figures come from run `20260804T180208Z`, recorded on 2026-08-04 from commit `ad93b7f4fe58`. The full per-scale tables are in [the run report](benchmarks/in-process/results/runs/20260804T180208Z/comparison.md).
 - **Engines.** The comparison runs Narsil 0.2.2 against Orama 3.1.18 and MiniSearch 7.2.0, all inside one Node.js process.
 - **Threads.** Every engine answers on one thread. Narsil runs with `workers.enabled` off, so it holds no worker copies here, and the server comparison above is where its worker threads take part.
-- **Machine.** The run executed on GCP c3-standard-8, us-central1-a, which reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz, 31GB of memory, Node.js v24.19.0, and Linux x64.
+- **Machine.** GCP c3-standard-8, us-central1-a hosted this run, and it reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz, 31GB of memory, Node.js v24.19.0, and Linux x64.
 - **Speed corpus.** The indexing and query tiers run on BEIR FiQA, 50,000 documents, measured at 1,000, 10,000, and 50,000 documents.
 - **Relevance dataset.** Ranking quality is scored on BEIR SciFact, 5,183 documents and 300 judged queries, verified by archive checksum `536e14446a0b`.
 <!-- BENCH:inprocess-setup END -->
@@ -283,7 +283,7 @@ table compares one thread. The server comparison above runs Narsil with its
 defaults, which keep positions on and hold a worker copy on every thread.
 
 <!-- BENCH:inprocess-speed START -->
-<img src="benchmarks/in-process/results/runs/20260804T180208Z/charts/embedded-scale.svg" alt="Line panels for the embedded engines across corpus size: insert documents per second, search p50 latency on a logarithmic scale, and, where the run recorded it, heap plus external memory." width="820">
+<img src="benchmarks/in-process/results/runs/20260804T180208Z/charts/embedded-scale.svg" alt="Line panels for the embedded engines across corpus size: insert documents per second, search p50 latency on a logarithmic scale, and, where the suite recorded it, heap plus external memory." width="820">
 
 Insert throughput at each scale, documents per second:
 
@@ -301,7 +301,7 @@ Search latency at each scale, p50 milliseconds:
 | Orama | 0.066 | 1.391 | 16.622 |
 | MiniSearch | 0.070 | 0.603 | 5.486 |
 
-This run recorded no memory figure under the heap plus external definition.
+The suite recorded no memory figure under the heap plus external definition in this run.
 
 Filtered search latency at 50,000 documents, p50 milliseconds:
 

@@ -36,7 +36,7 @@ def open_driver(workload: Workload):
     the search-time state the parent process set on its own driver during setup.
     The profile, the metric, and the rescore oversample each change what a vector
     request asks the engine for, so a worker that skipped them would measure a
-    different operating point from the one the run reports.
+    different operating point from the one the harness reports.
 
     The caller owns the returned driver and closes it.
     """
