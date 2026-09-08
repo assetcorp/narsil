@@ -7,7 +7,7 @@ from typing import Iterable, Iterator
 import numpy as np
 
 from . import datasets as ds
-from .artifacts import DOCS_DIRNAME, QUERIES_DIRNAME, artifact_dir, dataset_slug, is_fetched, truth_filename
+from .artifacts import DOCS_DIRNAME, QUERIES_DIRNAME, artifact_location, dataset_slug, truth_filename
 from .config import VectorConfig
 from .config_datasets import ARTIFACT_SOURCE, DatasetSpec
 from .embedding_files import (
@@ -40,7 +40,7 @@ class EmbeddedSet:
 class EmbeddingStore:
     """Computes dense vectors once per dataset with the fixed model and caches them
     to disk. The same vectors are read back for every engine, so the comparison
-    measures the index rather than the embedder. Vectors are L2-normalized, which
+    measures the index alone. Vectors are L2-normalized, which
     makes cosine and inner product equivalent and lets every engine use the cosine
     metric uniformly.
 
@@ -58,7 +58,7 @@ class EmbeddingStore:
         self._model = None
         self._corpus_cache: dict[str, EmbeddedSet] = {}
         self._query_cache: dict[str, EmbeddedSet] = {}
-        self._fetched: dict[str, bool] = {}
+        self._located: dict[str, Path | None] = {}
 
     def dataset(self, dataset_id: str) -> DatasetSpec | None:
         return self._datasets.get(dataset_id)
@@ -75,10 +75,9 @@ class EmbeddingStore:
         dataset = self._datasets.get(dataset_id)
         if dataset is None or dataset.artifact is None:
             return None
-        directory = artifact_dir(self._cache_dir, dataset_id)
-        if dataset_id not in self._fetched:
-            self._fetched[dataset_id] = is_fetched(directory, dataset.artifact.sha256)
-        return directory if self._fetched[dataset_id] else None
+        if dataset_id not in self._located:
+            self._located[dataset_id] = artifact_location(dataset, self._cache_dir)
+        return self._located[dataset_id]
 
     def _requires_artifact(self, dataset_id: str) -> bool:
         dataset = self._datasets.get(dataset_id)

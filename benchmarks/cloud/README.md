@@ -115,6 +115,7 @@ Every default is an environment variable:
 | `BENCH_INPROCESS_TIERS` | unset | Restrict the in-process suite to named tiers |
 | `BENCH_SERVER_ENGINES` | unset | Restrict the server suite to named engines |
 | `BENCH_MACHINE_LABEL` | derived | Host label recorded in server results |
+| `BENCH_RUN_ID` | minted on the VM | Run id every engine file is written under; share one across VMs to merge them |
 
 Provider-specific: `GCP_PROJECT`, `GCP_ZONE`, `MIN_CPU_PLATFORM`, `USE_IAP` for
 GCP; `HCLOUD_LOCATION` for Hetzner; `DO_REGION` for DigitalOcean; `AWS_REGION`,
@@ -122,9 +123,27 @@ GCP; `HCLOUD_LOCATION` for Hetzner; `DO_REGION` for DigitalOcean; `AWS_REGION`,
 `BENCH_BEST_CONFIG`, `BENCH_THROUGHPUT_PASSES`, `BENCH_DATASETS`,
 `BENCH_DATASET_ENGINES`, `BENCH_MEM_CAP`, and `BENCH_JVM_HEAP`, and this toolkit
 forwards them to the VM unchanged. The
-best-config pass runs by default, and a cloud-profile run measures every
-concurrency level once and the peak level three times unless
+best-config pass runs by default, and on the cloud profile the harness measures
+every concurrency level once and the peak level three times unless
 `BENCH_THROUGHPUT_PASSES` says otherwise.
+
+## One engine per VM
+
+Set `BENCH_RUN_ID` once, then start one VM per engine with that id, and every
+engine file is written under the same run id on its own machine:
+
+```bash
+export BENCH_RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
+VM_NAME=bench-narsil SUITES=server BENCH_SERVER_ENGINES=narsil ./run-cloud.sh all --yes
+VM_NAME=bench-elasticsearch SUITES=server BENCH_SERVER_ENGINES=elasticsearch ./run-cloud.sh all --yes
+```
+
+`fetch` merges each VM's run directory into the one already under
+`benchmarks/server/results/runs/` and then rebuilds the comparison from every
+engine file it finds there, so the comparison holds every engine in one table and
+the page names each engine's machine. Each engine writes every finished track under
+`tracks/` inside the run directory as it goes, so a VM that dies keeps what it
+measured, and `run` again with the same id finishes the rest.
 
 ## What each provider sets up
 

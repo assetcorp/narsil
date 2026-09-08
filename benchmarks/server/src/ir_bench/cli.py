@@ -11,7 +11,7 @@ from .core.dataset_engines import DATASET_ENGINES_ENV, DatasetEnginesError, data
 from .core.embeddings import EmbeddingStore
 from .core.engine_cpu import engine_cpu_counter_from_env
 from .core.environment import capture_environment
-from .core.harness import run_engine
+from .core.harness import CHECKPOINTS_DIRNAME, run_engine
 from .core.registry import build_driver
 from .core.reporter import build_engine_report, render_engine_markdown, write_json, write_text_atomic
 from .core.run_store import resolve_run_id_for_write, run_directory, validate_engine_name, write_run_manifest
@@ -150,6 +150,8 @@ def main(argv: list[str] | None = None) -> int:
     directory = run_directory(args.results_dir, run_id)
     runfiles_dir = directory / "runfiles"
     runfiles_dir.mkdir(parents=True, exist_ok=True)
+    suffix = "-bestconfig" if vector_profile == BEST_CONFIG else ""
+    checkpoint_dir = directory / CHECKPOINTS_DIRNAME / f"{engine_name}{suffix}"
 
     try:
         print(f"waiting for {engine_cfg.name} at {engine_cfg.url} (vector profile: {vector_profile})", flush=True)
@@ -157,7 +159,10 @@ def main(argv: list[str] | None = None) -> int:
             print("engine cores busy: not recorded (no engine container cgroup was supplied)", flush=True)
         else:
             print(f"engine cores busy: read from {engine_cpu.cgroup_dir}", flush=True)
-        results = run_engine(driver, engine_cfg, config, specs, runfiles_dir, store, vector_profile, engine_cpu)
+        print(f"each finished track is written under {checkpoint_dir}; rerun with BENCH_RUN_ID={run_id} to resume", flush=True)
+        results = run_engine(
+            driver, engine_cfg, config, specs, runfiles_dir, store, vector_profile, engine_cpu, checkpoint_dir
+        )
         engine_info["build_identity"] = _safe_build_identity(driver)
         engine_info["version"] = (engine_info["build_identity"] or {}).get("version")
         engine_info["keyword_setup"] = getattr(driver, "keyword_setup", None)
@@ -173,7 +178,6 @@ def main(argv: list[str] | None = None) -> int:
 
     config_summary["vector_profile"] = vector_profile
     report = build_engine_report(environment, engine_info, config_summary, results)
-    suffix = "-bestconfig" if vector_profile == BEST_CONFIG else ""
     write_json(directory / f"engine-{engine_name}{suffix}.json", report)
     markdown = render_engine_markdown(report)
     write_text_atomic(directory / f"engine-{engine_name}{suffix}.md", markdown)

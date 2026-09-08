@@ -60,6 +60,6 @@ def test_the_newest_run_wins_for_both_files(tmp_path):
     assert best is not None and best.data["profile"] == "new-best"
 
 
-def test_a_missing_run_fails_loud(tmp_path):
+def test_loading_a_missing_run_fails_loud(tmp_path):
     with pytest.raises(SystemExit, match="no server runs"):
         load_server_source(tmp_path)

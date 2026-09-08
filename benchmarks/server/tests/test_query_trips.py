@@ -84,6 +84,7 @@ def test_the_sample_picks_the_notch_and_the_full_set_confirms_or_steps_up():
     assert point.confirmation_steps == 1
     assert point.sample_queries == 2
     assert len(point.confirm_trip.client_ms) == 100
+    assert [(step.param, step.recall) for step in point.tuning.sweep] == [(16, pytest.approx(0.9)), (32, pytest.approx(1.0))]
 
 
 def test_a_set_that_never_reaches_the_target_reports_the_top_notch_unmet():
@@ -104,3 +105,6 @@ def test_a_set_that_never_reaches_the_target_reports_the_top_notch_unmet():
     assert point.confirmation_steps == 2
     assert not point.tuning.met_target
     assert point.tuning.achieved_recall == pytest.approx(0.7)
+    assert [(step.param, step.recall) for step in point.tuning.sweep] == [
+        (16, pytest.approx(0.5)), (32, pytest.approx(0.6)), (64, pytest.approx(0.7)),
+    ]

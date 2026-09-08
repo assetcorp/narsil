@@ -14,6 +14,7 @@ def build_comparison(reports: list[dict], profile: str = EQUAL_PRECISION) -> dic
             "tracks": r["engine"].get("tracks", []),
             "keyword_setup": r["engine"].get("keyword_setup"),
             "server_setup": r["engine"].get("server_setup"),
+            "environment": r.get("environment") or {},
         }
         for r in reports
     ]

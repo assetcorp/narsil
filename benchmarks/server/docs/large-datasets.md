@@ -19,17 +19,21 @@ The million-document tier is the DBpedia entities set with OpenAI
 artifact (see the README's dataset section), so no VM ever embeds it. The
 builder holds out 5,000 of the first 1,000,000 rows as queries and indexes the
 other 995,000. The harness holds the corpus matrix in memory while an engine
-indexes, which is 995,000 by 1,536 float32 values, about 6.1 GB, and each engine
-holds its own copy plus its index, so size the box for both.
+indexes, which is 995,000 by 1,536 float32 values, about 6.1 GB, and it holds up
+to 32 import batches in flight at 16 clients, each about 66 MiB of JSON at 2,000
+documents, so its own peak is about 9 GB. Each engine holds its own copy plus its
+index under `BENCH_MEM_CAP`, so a 32 GiB box with a 20 GiB cap leaves about 3 GB
+for the operating system and the load generator.
 
 | Dataset | Documents | Vectors (float32) | Box RAM | `BENCH_MEM_CAP` | `BENCH_JVM_HEAP` |
 | ------- | --------- | ----------------- | ------- | --------------- | ---------------- |
 | `dbpedia-entities-openai-1m` | 995,000 | ~6.1 GB | 32 GiB | `20g` | `10g` |
 
 The VM fetches the artifact from the release named in `artifact_url` on its first
-run, about 6.1 GB, or reads a copy of the `artifacts/` directory placed beside
-`run-all.sh`, which the compose file mounts into the harness. Run it like any
-large dataset:
+run, about 6.3 GB, or reads a copy of the `artifacts/` directory placed beside
+`run-all.sh`, which the compose file mounts into the harness. A 2,000-document
+batch at 1,536 dimensions is about 66 MiB of JSON, so the compose file raises
+each engine's request body limit to 256 MB. Run it like any large dataset:
 
 ```bash
 BENCH_DATASETS=dbpedia-entities-openai-1m \
@@ -81,7 +85,7 @@ more slowly, which is the trade for the lower cost.
 Provision generous disk for the Docker volumes (the dataset cache, the embedding
 shards, and each engine's persisted index):
 
-- `dbpedia-entities-openai-1m`: at least 40 GiB. The artifact is about 6.5 GB
+- `dbpedia-entities-openai-1m`: at least 40 GiB. The artifact is about 6.3 GB
   and every engine persists its own copy of the vectors and index.
 - `beir/nq`: at least 60 GiB.
 - `beir/msmarco/dev`: at least 150 GiB. The MS MARCO collection alone is about
@@ -134,10 +138,13 @@ session that survives a disconnect.
 
 The embedding step writes the corpus in durable shards with a manifest into the
 `embeddings_cache` Docker volume. If the VM reboots or a container is killed
-partway through, re-run the exact same command: the embed resumes from the last
-completed shard instead of starting over. The dataset download is also cached, and
-the exact recall ground truth is computed once and cached, so a second engine
-reuses it rather than recomputing the brute-force top-k.
+partway through, re-run the exact same command with the run id the first attempt
+printed in `BENCH_RUN_ID`: the embed resumes from the last completed shard, an
+artifact download resumes from the byte it stopped at, and the harness loads every
+track it had finished under that run id from
+`results/runs/<run-id>/tracks/` and measures only the rest. The dataset download is
+also cached, and the exact recall ground truth is computed once and cached, so a
+second engine reuses it.
 
 For a long unattended download over a flaky link, raise the retry budget:
 

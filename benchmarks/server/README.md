@@ -58,7 +58,7 @@ Every engine indexes the same dense vectors, but each engine runs its own keywor
 side for hybrid. Elasticsearch, OpenSearch, and Weaviate run BM25 over the text.
 Qdrant uses BM25 sparse vectors (fastembed `Qdrant/bm25`) with server-side IDF.
 Narsil runs its own BM25. Each engine implements its own fusion, so the table
-names the method per engine rather than claiming one shared method.
+names the method per engine.
 
 ## How every engine is scored the same way
 
@@ -134,12 +134,12 @@ stemming, and stop-word choices move them more.
   sentence-transformers model
   ([model card](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)),
   computed with fastembed's ONNX export and published as a dataset artifact the
-  harness fetches by digest. The DBpedia sets arrive with OpenAI
+  harness fetches by digest. The DBpedia artifacts carry OpenAI
   `text-embedding-ada-002` vectors (1,536 dimensions) already computed. The harness
   normalizes every vector to unit length so cosine equals inner product, caches
   it once, and gives it to every engine. Retrieval quality is therefore shared
   across engines up to approximation error, and the benchmark measures the index
-  rather than the embedder. The config sets a model and a dimension for each
+  alone. The config sets a model and a dimension for each
   dataset, so the harness may use one model on one dataset and another on the
   next, and it always uses one model throughout a dataset.
 - **Latency is compared at matched recall.** Approximate nearest-neighbour search
@@ -153,12 +153,12 @@ stemming, and stop-word choices move them more.
   Weaviate) upward until the engine clears `ann_recall@10 >= 0.99` against that
   exact top-k. The sweep runs on a seeded sample of `vector.tuning_sample_queries`
   queries, and one timed trip over every query then confirms the chosen value. If
-  the full set falls short of the target, the knob steps up the grid and the trip
-  repeats, so the sample can cost an extra trip and never a wrong operating point.
-  The harness reports the confirmed recall, and the confirmation trip is the
-  first latency trip. Build-time HNSW parameters (M=16, efConstruction=200,
-  cosine) are held the same, and every engine uses its HNSW index rather than a
-  brute-force fallback.
+  the full set falls short of the target, the harness moves the knob to the next
+  grid value and repeats the trip, so a sample that misses adds a trip and never a
+  wrong operating point. The harness reports the confirmed recall, and the
+  confirmation trip is the first latency trip. Build-time HNSW parameters (M=16,
+  efConstruction=200, cosine) are held the same, and every engine uses its HNSW
+  index, with any brute-force fallback switched off.
 - **Hybrid is compared on quality and latency.** Hybrid fuses keyword and vector
   with a method that differs per engine, so there is no single exact ground truth
   to match recall against. The hybrid track reports retrieval quality against the
@@ -198,6 +198,26 @@ an earlier run. To run a subset in a chosen order:
 ```bash
 ./run-all.sh narsil qdrant weaviate
 ```
+
+The harness writes each track's result to
+`results/runs/<run-id>/tracks/<engine>[-bestconfig]/<track>.<dataset>.json` the
+moment the track finishes, and it assembles the engine file from those files at
+the end. A failure in one track therefore keeps every track finished before it,
+and a rerun under the same run id loads the finished tracks from disk and measures
+only the rest, so after a stop hours in, the harness carries on from that point:
+
+```bash
+BENCH_RUN_ID=20260908T120000Z ./run-all.sh elasticsearch
+```
+
+The engines that run on their own machines share one run id the same way. Each
+machine writes its engine file under that id, and the comparison step reads every
+engine file it finds under the id, so copying the engine files from each machine
+into one `results/runs/<run-id>/` directory and running
+`BENCH_RUN_ID=<run-id> docker compose run --rm --entrypoint python harness -m ir_bench.aggregate`
+gives one comparison with every engine in it, and the page names each engine's
+machine where they differ. The cloud runner in `../cloud` does this merge on
+`fetch`.
 
 For a published run, record the host machine:
 
@@ -278,7 +298,7 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   full float, and once under the engine's own recommended production quantisation,
   which `run-all.sh` names best config and writes to `engine-<name>-bestconfig.json`.
   Set `BENCH_BEST_CONFIG=0` to run the equal-precision pass alone.
-- Narsil's result also records how the server held the index it measured, read from
+- For Narsil the harness also records how the server held the index it measured, read from
   its `/stats/memory` endpoint after each track: how many worker threads hold copies,
   how many of them receive requests, and which indexes were scaled out across them.
 - Each result records what produced it: the engine's build identity (its version, and
@@ -305,7 +325,7 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
 - Every engine image is pinned to an exact tag, and the Narsil server is built from
   this repository's source and stamped with its commit at build time. `run-all.sh`
   records each running image's digest, and the harness reads each engine's build
-  identity from its info endpoint, so every results file records the exact image
+  identity from its info endpoint, so every results file carries the exact image
   digest and commit under test on its own.
 - The embedding model (`sentence-transformers/all-MiniLM-L6-v2`) and the BM25
   sparse model (`Qdrant/bm25`) are baked into the harness image at build time and
@@ -322,8 +342,8 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   unless its digest matches, then fetches and verifies every file it lists, so
   every machine reads byte-identical vectors and ground truth. A file that is
   already present and verified is never fetched again.
-- Each results file records the OS, architecture, CPU, memory, memory cap, and
-  library versions used for the run.
+- The harness writes the OS, architecture, CPU, memory, memory cap, and library
+  versions it ran with into each results file.
 
 ## Datasets
 
@@ -365,8 +385,8 @@ BENCH_PROFILE=smoke BENCH_DATASETS=beir/scifact/test,beir/nfcorpus/test,dbpedia-
 every engine can cover the BEIR sets while only the named engines index the larger
 one, and the harness still writes every result under one run id and one
 comparison. Each entry is `<dataset id>=<engine>,<engine>`, entries are separated
-by `;`, every engine runs a dataset the value leaves out, and every result records
-the mapping:
+by `;`, every engine runs a dataset the value leaves out, and the harness writes
+the mapping into every result:
 
 ```bash
 BENCH_PROFILE=smoke BENCH_THROUGHPUT_CONCURRENCY=1,16 \
@@ -386,9 +406,12 @@ store's own layout, the exact-neighbour file, and, for a dataset that does not
 come from `ir_datasets`, `documents.jsonl.gz` and `queries.jsonl.gz`. The config
 pins the manifest's SHA-256, and the manifest pins every file's. The harness
 looks for a local copy under `artifacts/<slug>/` first, which the compose file
-mounts read-only into the harness, and otherwise downloads each file from
-`artifact_url`, a GitHub release whose assets carry the manifest's flat asset
-names. The `artifacts/` directory is git-ignored.
+mounts read-only into the harness, hashes every file in it once against the
+manifest, and then reads it in place, so the copy costs the disk once. Otherwise
+it downloads each file from `artifact_url`, a GitHub release whose assets carry
+the manifest's flat asset names, resuming a partly downloaded file from the byte
+it stopped at and retrying a dropped connection or a transient server error up
+to ten times with a growing delay. The `artifacts/` directory is git-ignored.
 
 A machine without the local copy fetches the published artifact on its first
 run, and each release page lists the dataset, the counts, the model, and every

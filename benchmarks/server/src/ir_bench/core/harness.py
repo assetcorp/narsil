@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from pathlib import Path
 from time import perf_counter
 
 from . import datasets as ds
+from .artifacts import dataset_slug
 from .config import BenchmarkConfig, EngineConfig
 from .config_datasets import DatasetSpec
 from .embeddings import EmbeddingStore
 from .latency import measure_latency, warmup_sample
+from .reporter import write_json
 from .runfile import run_mapping, strict_ranking, write_run_file
 from .scoring import evaluate
 from .throughput import measure_throughput
@@ -24,6 +28,35 @@ from .track_common import (
 )
 from .types import BEST_CONFIG, EQUAL_PRECISION, EngineError, HYBRID, KEYWORD, SERVER_TIME_UNAVAILABLE, VECTOR
 from .vector_runner import run_hybrid_track, run_vector_track
+
+CHECKPOINTS_DIRNAME = "tracks"
+
+
+def checkpoint_path(checkpoint_dir: Path, track: str, dataset_id: str) -> Path:
+    return checkpoint_dir / f"{track}.{dataset_slug(dataset_id)}.json"
+
+
+def _load_checkpoint(path: Path) -> dict | None:
+    if not path.is_file():
+        return None
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+def _checkpointed(checkpoint_dir: Path | None, label: str, track: str, spec: DatasetSpec, run: Callable[[], dict]) -> dict:
+    if checkpoint_dir is None:
+        return run()
+    path = checkpoint_path(checkpoint_dir, track, spec.dataset_id)
+    loaded = _load_checkpoint(path)
+    if loaded is not None:
+        print(f"[{label}:{spec.dataset_id}:{track}] finished earlier under this run id; loaded {path}", flush=True)
+        return loaded
+    result = run()
+    write_json(path, result)
+    return result
 
 
 def run_keyword_track(
@@ -137,10 +170,12 @@ def run_engine(
     store: EmbeddingStore | None,
     vector_profile: str = EQUAL_PRECISION,
     engine_cpu: CpuCounter | None = None,
+    checkpoint_dir: Path | None = None,
 ) -> list[dict]:
     results: list[dict] = []
     driver.wait_until_ready()
     suffix = "_bestconfig" if vector_profile == BEST_CONFIG else ""
+    label = engine_cfg.name
     for spec in specs:
         chosen_vector_ef: int | None = None
         chosen_vector_oversample: float | None = None
@@ -148,13 +183,21 @@ def run_engine(
             if track == KEYWORD:
                 if vector_profile == BEST_CONFIG:
                     continue
-                results.append(run_keyword_track(driver, engine_cfg, config, spec, runs_dir, engine_cpu))
+                results.append(
+                    _checkpointed(
+                        checkpoint_dir, label, KEYWORD, spec,
+                        lambda: run_keyword_track(driver, engine_cfg, config, spec, runs_dir, engine_cpu),
+                    )
+                )
             elif track == VECTOR:
                 if store is None or config.vector is None:
                     raise EngineError("vector track requires an embedding store and a [vector] config section")
-                result = run_vector_track(
-                    driver, engine_cfg, config, spec, runs_dir, store,
-                    f"{engine_cfg.name}_vector{suffix}", vector_profile, engine_cpu,
+                result = _checkpointed(
+                    checkpoint_dir, label, VECTOR, spec,
+                    lambda: run_vector_track(
+                        driver, engine_cfg, config, spec, runs_dir, store,
+                        f"{engine_cfg.name}_vector{suffix}", vector_profile, engine_cpu,
+                    ),
                 )
                 point = result.get("operating_point")
                 if point and point.get("chosen_value") is not None:
@@ -165,9 +208,12 @@ def run_engine(
                 if store is None or config.vector is None:
                     raise EngineError("hybrid track requires an embedding store and a [vector] config section")
                 results.append(
-                    run_hybrid_track(
-                        driver, engine_cfg, config, spec, runs_dir, store, f"{engine_cfg.name}_hybrid{suffix}",
-                        chosen_vector_ef, vector_profile, chosen_vector_oversample, engine_cpu,
+                    _checkpointed(
+                        checkpoint_dir, label, HYBRID, spec,
+                        lambda: run_hybrid_track(
+                            driver, engine_cfg, config, spec, runs_dir, store, f"{engine_cfg.name}_hybrid{suffix}",
+                            chosen_vector_ef, vector_profile, chosen_vector_oversample, engine_cpu,
+                        ),
                     )
                 )
     return results

@@ -10,7 +10,7 @@ import ir_datasets
 from ir_datasets.util import DownloadConfig
 
 from . import dataset_archive as archive
-from .artifacts import artifact_dir
+from .artifacts import artifact_location
 from .config_datasets import ARTIFACT_SOURCE, DatasetSpec
 
 FINGERPRINT_ALGORITHM = "sha256/len-framed/id-byte-sorted/v1"
@@ -34,7 +34,10 @@ def _archive_dir(dataset_id: str) -> Path | None:
         return None
     if _CACHE_DIR is None:
         raise ValueError(f"dataset '{dataset_id}' reads from an artifact, but no cache directory was configured")
-    return artifact_dir(_CACHE_DIR, dataset_id)
+    located = artifact_location(spec, _CACHE_DIR)
+    if located is None:
+        raise ValueError(f"the artifact for '{dataset_id}' has not been fetched into {_CACHE_DIR}; run the embed step first")
+    return located
 
 
 def dataset_version() -> str:

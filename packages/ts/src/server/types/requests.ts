@@ -145,9 +145,9 @@ export interface CapabilitiesResponse {
 }
 
 /**
- * What `GET /stats/memory` answers: the engine's {@link MemoryStats} plus the
- * number of worker threads the server receives requests on. Only the server can
- * report that count, because it starts those threads.
+ * The body `GET /stats/memory` answers with, which is the engine's {@link MemoryStats}
+ * plus the number of worker threads the server receives requests on. Only the
+ * server can report that count, because it starts those threads.
  *
  * @public
  */

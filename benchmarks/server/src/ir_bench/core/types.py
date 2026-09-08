@@ -14,6 +14,8 @@ BEST_CONFIG = "best-config"
 VECTOR_PROFILES = (EQUAL_PRECISION, BEST_CONFIG)
 FULL_FLOAT = "full float"
 
+GRAPH_BUILD_TIMEOUT_SECONDS = 4 * 60 * 60
+
 FLOATING_MS = "floating-millisecond"
 INTEGER_MS = "integer-millisecond"
 NOT_AVAILABLE = "not-available"

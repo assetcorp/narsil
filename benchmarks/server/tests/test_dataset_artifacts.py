@@ -7,11 +7,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ir_bench.core import dataset_archive
+from ir_bench.core import artifacts, dataset_archive
 from ir_bench.core.artifacts import (
     ARTIFACT_MANIFEST,
+    LOCAL_MARKER,
     ArtifactError,
     artifact_dir,
+    artifact_location,
     fetch_artifact,
     is_fetched,
     manifest_files,
@@ -55,16 +57,49 @@ def test_a_manifest_lists_every_file_with_a_flat_asset_name(tmp_path):
     assert all(len(entry.sha256) == 64 and entry.bytes > 0 for entry in files)
 
 
-def test_fetch_copies_a_local_artifact_and_is_idempotent(tmp_path):
+def test_fetch_reads_a_local_artifact_in_place_after_hashing_it_once(tmp_path):
     source, digest = _write_artifact(tmp_path, "dbpedia-test")
     cache = tmp_path / "cache"
     environ = {"BENCH_ARTIFACT_DIR": str(source.parent)}
-    target = fetch_artifact(_spec("dbpedia-test", digest), cache, environ)
-    assert target == artifact_dir(cache, "dbpedia-test")
-    assert (target / "docs" / "shard_00000.npz").is_file()
-    assert is_fetched(target, digest)
+    spec = _spec("dbpedia-test", digest)
+    assert artifact_location(spec, cache, environ) is None
+
+    target = fetch_artifact(spec, cache, environ)
+
+    assert target == source
+    assert not is_fetched(artifact_dir(cache, "dbpedia-test"), digest)
+    assert json.loads((artifact_dir(cache, "dbpedia-test") / LOCAL_MARKER).read_text(encoding="utf-8"))["path"] == str(source)
+    assert artifact_location(spec, cache, environ) == source
+    assert fetch_artifact(spec, cache, environ) == source
+
     (source / "documents.jsonl.gz").unlink()
-    assert fetch_artifact(_spec("dbpedia-test", digest), cache, environ) == target
+    assert artifact_location(spec, cache, environ) is None
+    with pytest.raises(ArtifactError, match="documents.jsonl.gz"):
+        fetch_artifact(spec, cache, environ)
+
+
+def test_a_downloaded_artifact_lands_in_the_cache_and_is_fetched_once(tmp_path, monkeypatch):
+    source, digest = _write_artifact(tmp_path, "dbpedia-test")
+    served = {entry.asset: (source / entry.path).read_bytes() for entry in manifest_files(read_manifest(source))}
+    served[ARTIFACT_MANIFEST] = (source / ARTIFACT_MANIFEST).read_bytes()
+    requested: list[str] = []
+
+    def fake_download(url: str, destination: Path) -> None:
+        requested.append(url.rsplit("/", 1)[1])
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(served[url.rsplit("/", 1)[1]])
+
+    monkeypatch.setattr(artifacts, "download_file", fake_download)
+    cache = tmp_path / "cache"
+    spec = _spec("dbpedia-test", digest)
+
+    target = fetch_artifact(spec, cache, {})
+
+    assert target == artifact_dir(cache, "dbpedia-test")
+    assert is_fetched(target, digest)
+    assert requested == [ARTIFACT_MANIFEST, "docs.shard_00000.npz", "documents.jsonl.gz", "queries.jsonl.gz"]
+    assert fetch_artifact(spec, cache, {}) == target
+    assert len(requested) == 4
 
 
 def test_fetch_refuses_a_manifest_whose_digest_differs_from_the_config(tmp_path):

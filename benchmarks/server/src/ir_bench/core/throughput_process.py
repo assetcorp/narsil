@@ -8,6 +8,8 @@ from threading import BrokenBarrierError
 from time import perf_counter, process_time
 from typing import Any, Callable, Protocol
 
+import numpy as np
+
 from .engine_cpu import cores_busy
 from .throughput_workload import Workload, open_driver, request_caller
 from .types import EngineError
@@ -54,6 +56,50 @@ class PhaseOutcome:
     engine_cores_busy: float | None
 
 
+@dataclass(frozen=True)
+class PackedVectors:
+    """Query vectors as one float32 matrix, so a spawned load-generator process
+    receives a raw buffer once per pass in place of a pickled list of Python floats
+    several times its size."""
+
+    vectors: np.ndarray
+
+
+@dataclass(frozen=True)
+class PackedPairs:
+    terms: list[str]
+    vectors: np.ndarray
+
+
+def _vector_matrix(vectors: list[Any]) -> np.ndarray | None:
+    if not vectors or not all(isinstance(vector, list) for vector in vectors):
+        return None
+    try:
+        matrix = np.asarray(vectors, dtype=np.float32)
+    except (TypeError, ValueError):
+        return None
+    return matrix if matrix.ndim == 2 else None
+
+
+def pack_items(items: list[Any]) -> Any:
+    matrix = _vector_matrix(items)
+    if matrix is not None:
+        return PackedVectors(matrix)
+    if items and all(isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], str) for item in items):
+        matrix = _vector_matrix([vector for _, vector in items])
+        if matrix is not None:
+            return PackedPairs([term for term, _ in items], matrix)
+    return items
+
+
+def unpack_items(packed: Any) -> list[Any]:
+    if isinstance(packed, PackedVectors):
+        return packed.vectors.tolist()
+    if isinstance(packed, PackedPairs):
+        return list(zip(packed.terms, packed.vectors.tolist()))
+    return list(packed)
+
+
 def _drive(
     run_once: Callable[[Any], Any],
     items: list[Any],
@@ -65,10 +111,9 @@ def _drive(
     """One closed-loop worker. It sweeps the whole query set in order from an offset
     unique to its id, so workers start on different queries yet each still cycles
     through every one, issuing the next request the instant the previous returns
-    until the window closes. A request still in flight when the window closes is
-    dropped rather than counted, so a slow tail cannot inflate throughput. Every
-    call is guarded, so one failing request increments the error count instead of
-    killing the worker."""
+    until the window closes. The worker drops a request still in flight when the
+    window closes, so a slow tail cannot inflate throughput. Every call is guarded,
+    so one failing request increments the error count and the worker carries on."""
 
     result = _ThreadResult()
     count = len(items)
@@ -132,7 +177,7 @@ def _drive_window(
 
 def _worker(
     workload: Workload,
-    items: list[Any],
+    packed: Any,
     offset: int,
     threads: int,
     warmup_seconds: float,
@@ -144,10 +189,11 @@ def _worker(
     """One load-generator process. It builds its own driver, warms its connections
     and whatever the driver loads lazily on the client side, then waits at the
     barrier so every process opens its measured window together. A failure aborts the
-    barrier, which frees the parent to report it rather than wait out the timeout."""
+    barrier, which frees the parent to report it at once."""
 
     driver = None
     try:
+        items = unpack_items(packed)
         driver = open_driver(workload)
         run_once = request_caller(driver, workload)
         if warmup_seconds > 0:
@@ -190,7 +236,7 @@ def split_workers(concurrency: int, processes: int) -> list[int]:
 
 def run_phase(
     workload: Workload,
-    items: list[Any],
+    items: Any,
     concurrency: int,
     processes: int,
     warmup_seconds: float,
@@ -201,11 +247,13 @@ def run_phase(
     """Starts the load generator, releases every process into the measured window at
     once, and collects what each reports. Warmup runs inside the processes that take
     the measurement, so the measured window opens on connections the engine has
-    already accepted instead of on a fresh handshake per worker.
+    already accepted and no worker pays a handshake inside it.
 
     The setup timeout has to cover everything a worker does before it reaches the
     barrier: spawning, importing, building its driver, loading whatever that driver
-    embeds on the client side, and running the whole warmup window."""
+    embeds on the client side, and running the whole warmup window. `items` is what
+    `pack_items` returned for the query set, which is the plain list for a keyword
+    workload."""
 
     shares = split_workers(concurrency, processes)
     context = mp.get_context("spawn")

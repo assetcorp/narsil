@@ -7,7 +7,7 @@ from typing import Callable
 from .config import VectorConfig
 from .ground_truth import ann_recall_at_k
 from .latency import Trip
-from .recall_tuning import TuningResult, tune_to_recall
+from .recall_tuning import TuningPoint, TuningResult, tune_to_recall
 from .types import BEST_CONFIG
 
 TUNING_SAMPLE_SEED = 42
@@ -59,6 +59,17 @@ def _next_notch(grid: tuple[int, ...], current: int) -> int | None:
     return higher[0] if higher else None
 
 
+def _merged_sweep(sample_sweep: tuple[TuningPoint, ...], confirmed: dict[int, TuningPoint]) -> tuple[TuningPoint, ...]:
+    """Every search-effort level the tuning measured, with the recall over every
+    query replacing the sample recall wherever a confirmation trip ran, so the
+    throughput sweep and the recall chart cover each level the harness stepped
+    through."""
+
+    by_param = {point.param: point for point in sample_sweep}
+    by_param.update(confirmed)
+    return tuple(by_param[param] for param in sorted(by_param))
+
+
 def tune_operating_point(
     driver,
     profile: str,
@@ -81,10 +92,12 @@ def tune_operating_point(
 
     notch = tuning.chosen_param
     steps = 0
+    confirmed_points: dict[int, TuningPoint] = {}
     while True:
         print(f"{label} confirming {notch} on every query", flush=True)
         trip, approx = confirm(notch)
         recall = ann_recall_at_k(approx, truth, vec.recall_k)
+        confirmed_points[notch] = TuningPoint(param=notch, recall=recall)
         if recall >= vec.recall_target:
             break
         higher = _next_notch(grid, notch)
@@ -94,7 +107,13 @@ def tune_operating_point(
         notch = higher
         steps += 1
 
-    confirmed = replace(tuning, chosen_param=notch, achieved_recall=recall, met_target=recall >= vec.recall_target)
+    confirmed = replace(
+        tuning,
+        chosen_param=notch,
+        achieved_recall=recall,
+        met_target=recall >= vec.recall_target,
+        sweep=_merged_sweep(tuning.sweep, confirmed_points),
+    )
     return OperatingPoint(
         tuning=confirmed,
         oversample=oversample,

@@ -24,6 +24,10 @@ def peak_level(row: dict) -> dict | None:
     found = levels(row)
     if not found:
         return None
+    recorded = (row.get("throughput") or {}).get("peak_concurrency")
+    for level in found:
+        if recorded is not None and level.get("concurrency") == recorded:
+            return level
     return max(found, key=lambda level: level.get("qps") or 0.0)
 
 
