@@ -90,6 +90,36 @@ jobs:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-ts:test:etcd
 
+  benchmarks-harness-tests:
+    name: Benchmark harness tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the harness
+        working-directory: benchmarks/server
+        run: python3 -m pip install -e '.[dev]'
+
+      - name: Run harness tests
+        working-directory: benchmarks/server
+        run: python3 -m pytest -q
+
+  benchmarks-dataset-artifacts:
+    name: Dataset artifacts match their pinned digests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the harness
+        working-directory: benchmarks/server
+        run: python3 -m pip install -e .
+
+      - name: Fetch every pinned manifest from its release and compare the digests
+        working-directory: benchmarks/server
+        run: python3 -m ir_bench.verify_artifacts
+
   benchmarks-writeup:
     name: Benchmark writeup up to date
     runs-on: ubuntu-latest
@@ -97,5 +127,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Check BENCHMARKS.md matches the latest recorded runs
+      - name: Install the chart renderer
+        run: python3 -m pip install 'matplotlib==3.10.7'
+
+      - name: Check BENCHMARKS.md and its figures match the latest recorded runs
         run: python3 benchmarks/writeup/generate.py --check

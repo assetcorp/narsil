@@ -30,4 +30,5 @@ export interface HandlerDeps {
   isReady: () => boolean
   build: ResolvedBuild
   cluster: ClusterNamespace | undefined
+  requestThreadCount: () => number
 }

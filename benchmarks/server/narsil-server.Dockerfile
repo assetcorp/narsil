@@ -9,6 +9,7 @@ WORKDIR /repo
 RUN corepack enable
 COPY . .
 RUN pnpm install --frozen-lockfile
+ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN pnpm --filter @delali/narsil build
 
 FROM node:22-trixie-slim AS runtime

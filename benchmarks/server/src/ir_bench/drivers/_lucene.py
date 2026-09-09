@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 from typing import Iterable
 
@@ -8,8 +7,9 @@ import httpx
 
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
-from ..core.ingest import BatchOutcome, import_batches
+from ..core.ingest import NDJSON_CONTENT_TYPE, BatchOutcome, encode_json_lines, import_batches
 from ..core.types import (
+    GRAPH_BUILD_TIMEOUT_SECONDS,
     INTEGER_MS,
     EngineError,
     Hit,
@@ -21,6 +21,7 @@ from ..core.types import (
 )
 
 _VECTOR_FIELD = "embedding"
+_TASK_POLL_SECONDS = 1.0
 
 
 def _raise(response: httpx.Response) -> None:
@@ -83,15 +84,15 @@ class LuceneRestDriver:
         _raise(response)
 
     def _send_bulk(self, index: str, batch: list[tuple[str, dict]]) -> BatchOutcome:
-        lines: list[str] = []
-        for doc_id, source in batch:
-            lines.append(json.dumps({"index": {"_id": doc_id}}))
-            lines.append(json.dumps(source))
-        body = ("\n".join(lines) + "\n").encode("utf-8")
+        def actions():
+            for doc_id, source in batch:
+                yield {"index": {"_id": doc_id}}
+                yield source
+
         response = self._client.post(
             f"/{index}/_bulk",
-            content=body,
-            headers={"content-type": "application/x-ndjson"},
+            content=encode_json_lines(actions(), terminated=True),
+            headers=NDJSON_CONTENT_TYPE,
         )
         _raise(response)
         payload = response.json()
@@ -120,16 +121,36 @@ class LuceneRestDriver:
     ) -> ImportResult:
         return self._bulk(
             index,
-            ((doc.doc_id, {"text": doc.text, _VECTOR_FIELD: list(doc.vector)}) for doc in documents),
+            ((doc.doc_id, {"text": doc.text, _VECTOR_FIELD: doc.vector}) for doc in documents),
             batch_size,
             clients,
         )
 
-    def build_vectors(self, index: str) -> None:
-        merge = self._client.post(f"/{index}/_forcemerge", params={"max_num_segments": "1"})
+    def build_vectors(self, index: str, timeout_seconds: float = GRAPH_BUILD_TIMEOUT_SECONDS) -> None:
+        merge = self._client.post(
+            f"/{index}/_forcemerge", params={"max_num_segments": "1", "wait_for_completion": "false"}
+        )
         _raise(merge)
+        task_id = merge.json().get("task")
+        if task_id is not None:
+            self._wait_task(str(task_id), timeout_seconds)
         refresh = self._client.post(f"/{index}/_refresh")
         _raise(refresh)
+
+    def _wait_task(self, task_id: str, timeout_seconds: float) -> None:
+        deadline = time.perf_counter() + timeout_seconds
+        while time.perf_counter() < deadline:
+            response = self._client.get(f"/_tasks/{task_id}")
+            _raise(response)
+            payload = response.json()
+            if payload.get("completed"):
+                shards = (payload.get("response") or {}).get("_shards") or {}
+                failure = shards.get("failures") or payload.get("error")
+                if failure:
+                    raise EngineError(f"{self.name} force merge task {task_id} failed: {failure}")
+                return
+            time.sleep(_TASK_POLL_SECONDS)
+        raise EngineError(f"{self.name} force merge task {task_id} did not finish within {timeout_seconds}s")
 
     def _put_settings(self, index: str, settings: dict) -> None:
         response = self._client.put(f"/{index}/_settings", json=settings)

@@ -75,7 +75,7 @@ export interface ScaleResult {
   searchAllTermsP95Ms?: number
   filteredSearchMedianMs?: number
   filteredSearchP95Ms?: number
-  memoryMb: number
+  heapAndExternalMb: number
   insertSamples?: number[]
   searchSamples?: number[]
   searchLatency?: LatencySummary
@@ -91,7 +91,7 @@ export interface VectorRelevanceResult {
   queryCount: number
   insertMedianMs: number
   insertDocsPerSec: number
-  memoryMb: number
+  heapAndExternalMb: number
   searchLatency: LatencySummary
   meanRecallAt10: number
 }

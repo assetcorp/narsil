@@ -11,15 +11,16 @@
 # corpora (MS MARCO passage, Natural Questions) are opt-in: select one with
 # BENCH_DATASETS on a sized machine and raise the caps. See docs/large-datasets.md.
 #
-# Vector/hybrid run at full float (equal precision) by default. Set BENCH_BEST_CONFIG=1
-# to additionally run each vector engine under its own recommended production
-# quantization, producing a second, clearly-labeled best-config comparison.
+# Vector/hybrid run at full float (equal precision) first, and every vector engine
+# then runs again under its own recommended production quantisation, producing a
+# second, clearly-labeled best-config comparison. Set BENCH_BEST_CONFIG=0 to skip
+# that second pass.
 #
 # Usage:
-#   ./run-all.sh                         # all engines, small BEIR sets, equal precision
+#   ./run-all.sh                         # all engines, small BEIR sets, both passes
 #   ./run-all.sh narsil elasticsearch    # a subset of engines, in the given order
 #   BENCH_PROFILE=smoke ./run-all.sh narsil   # local check, results under results/.smoke (git-ignored)
-#   BENCH_BEST_CONFIG=1 ./run-all.sh     # also run the best-config (quantized) comparison
+#   BENCH_BEST_CONFIG=0 ./run-all.sh     # equal precision alone
 #   BENCH_MACHINE_LABEL="Apple M3 Pro" ./run-all.sh
 #   BENCH_DATASETS=beir/nq BENCH_MEM_CAP=16g BENCH_JVM_HEAP=8g ./run-all.sh
 
@@ -30,21 +31,27 @@ export BENCH_API_KEY="${BENCH_API_KEY:-localdev}"
 
 PROFILE="${BENCH_PROFILE:-cloud}"
 case "${PROFILE}" in
-  cloud) BENCH_HOST_RESULTS_DIR="results" ;;
-  smoke) BENCH_HOST_RESULTS_DIR="results/.smoke" ;;
+  cloud)
+    BENCH_HOST_RESULTS_DIR="results"
+    BENCH_THROUGHPUT_PASSES="${BENCH_THROUGHPUT_PASSES:-3}"
+    ;;
+  smoke)
+    BENCH_HOST_RESULTS_DIR="results/.smoke"
+    BENCH_THROUGHPUT_PASSES="${BENCH_THROUGHPUT_PASSES:-1}"
+    ;;
   *)
     echo "unknown profile '${PROFILE}' (expected: cloud or smoke)" >&2
     exit 2
     ;;
 esac
-export BENCH_HOST_RESULTS_DIR
+export BENCH_HOST_RESULTS_DIR BENCH_THROUGHPUT_PASSES
 mkdir -p "${BENCH_HOST_RESULTS_DIR}/runs"
 
 # Mint one run id for the whole pass and thread it to every engine container and the
 # final aggregate through the compose environment. Every engine's result and the
 # comparison built from them land together under results/runs/<run id>/, so a later
 # pass writes a fresh directory instead of overwriting this one. An id supplied in the
-# environment is honored so a run can be named or resumed.
+# environment is honored so you can name or resume a run.
 export BENCH_RUN_ID="${BENCH_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
 
 # Stamp the Narsil image with the source commit it is built from. Narsil is the one
@@ -94,7 +101,7 @@ image_digest_of() {
 }
 
 echo "run id: ${BENCH_RUN_ID}; profile: ${PROFILE} (results under ${BENCH_HOST_RESULTS_DIR}/runs)"
-echo "datasets: ${BENCH_DATASETS:-default (small BEIR sets)}; memory cap: ${BENCH_MEM_CAP:-8g}"
+echo "datasets: ${BENCH_DATASETS:-default (small BEIR sets)}; dataset engines: ${BENCH_DATASET_ENGINES:-every engine on every dataset}; memory cap: ${BENCH_MEM_CAP:-8g}; throughput passes per level: ${BENCH_THROUGHPUT_PASSES}"
 
 if [ "$#" -gt 0 ]; then
   ENGINES=("$@")
@@ -120,22 +127,30 @@ docker compose run --rm --entrypoint python harness -m ir_bench.embed || exit 1
 failed=()
 for engine in "${ENGINES[@]}"; do
   echo "================ ${engine} ================"
-  docker compose --profile "$engine" up -d --build "$engine" || { failed+=("$engine"); continue; }
+  if ! docker compose --profile "$engine" up -d --build "$engine"; then
+    echo "[${engine}] FAILED to start"
+    failed+=("$engine")
+    docker compose --profile "$engine" down
+    continue
+  fi
   image_digest="$(image_digest_of "$engine")"
+  container_id="$(docker compose --profile "$engine" ps -q "$engine" 2>/dev/null | head -1)"
   if docker compose run --rm \
       -e ENGINE="$engine" \
       -e ENGINE_IMAGE_DIGEST="$image_digest" \
+      -e BENCH_ENGINE_CONTAINER_ID="$container_id" \
       harness; then
     echo "[${engine}] done (equal precision)"
   else
     echo "[${engine}] FAILED (equal precision)"
     failed+=("$engine")
   fi
-  if [ "${BENCH_BEST_CONFIG:-}" = "1" ] && is_vector_engine "$engine"; then
+  if [ "${BENCH_BEST_CONFIG:-1}" != "0" ] && is_vector_engine "$engine"; then
     echo "---------------- ${engine} (best config) ----------------"
     if docker compose run --rm \
         -e ENGINE="$engine" \
         -e ENGINE_IMAGE_DIGEST="$image_digest" \
+        -e BENCH_ENGINE_CONTAINER_ID="$container_id" \
         -e BENCH_VECTOR_PROFILE="best-config" \
         harness; then
       echo "[${engine}] done (best config)"

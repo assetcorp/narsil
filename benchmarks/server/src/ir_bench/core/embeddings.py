@@ -1,20 +1,34 @@
 from __future__ import annotations
 
-import json
-import os
-import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Iterable, Iterator
 
 import numpy as np
 
 from . import datasets as ds
+from .artifacts import DOCS_DIRNAME, QUERIES_DIRNAME, artifact_location, dataset_slug, truth_filename
 from .config import VectorConfig
+from .config_datasets import ARTIFACT_SOURCE, DatasetSpec
+from .embedding_files import (
+    SHARD_ROWS,
+    l2_normalize,
+    read_shard,
+    read_store_manifest,
+    read_truth,
+    remove_orphans,
+    reset_dir,
+    store_manifest,
+    write_shard,
+    write_store_manifest,
+    write_truth,
+)
 from .ground_truth import exact_top_k
+from .types import EngineError
 
 _EMBED_BATCH = 256
-_SHARD_ROWS = 50_000
+DOCS_KIND = "docs"
+QUERIES_KIND = "queries"
 
 
 @dataclass(frozen=True)
@@ -23,107 +37,51 @@ class EmbeddedSet:
     vectors: np.ndarray
 
 
-def _slug(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
-
-
-def _l2_normalize(matrix: np.ndarray) -> np.ndarray:
-    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-    norms[norms == 0.0] = 1.0
-    return (matrix / norms).astype(np.float32, copy=False)
-
-
-def _fsync_path(path: Path) -> None:
-    fd = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-
-
-def _fsync_dir(path: Path) -> None:
-    fd = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    except OSError:
-        pass
-    finally:
-        os.close(fd)
-
-
-def _read_manifest(dirpath: Path) -> dict | None:
-    path = dirpath / "manifest.json"
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (ValueError, OSError):
-        return None
-
-
-def _write_manifest(dirpath: Path, data: dict) -> None:
-    tmp = dirpath / ".manifest.json.tmp"
-    tmp.write_text(json.dumps(data), encoding="utf-8")
-    _fsync_path(tmp)
-    os.replace(tmp, dirpath / "manifest.json")
-    _fsync_dir(dirpath)
-
-
-def _write_shard(dirpath: Path, index: int, ids: list[str], vectors: np.ndarray) -> None:
-    tmp = dirpath / f".shard_{index:05d}.npz.tmp"
-    with open(tmp, "wb") as handle:
-        np.savez(handle, ids=np.asarray(ids, dtype=np.str_), vectors=vectors.astype(np.float32, copy=False))
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(tmp, dirpath / f"shard_{index:05d}.npz")
-    _fsync_dir(dirpath)
-
-
-def _shard_index(path: Path) -> int:
-    return int(path.stem.split("_")[1])
-
-
-def _remove_orphans(dirpath: Path, valid_shards: int) -> None:
-    """Drop shard files and temp files the manifest does not account for, so a
-    crash between writing a shard and committing the manifest leaves a clean
-    prefix to resume from."""
-
-    for shard in dirpath.glob("shard_*.npz"):
-        if _shard_index(shard) >= valid_shards:
-            shard.unlink()
-    for stray in dirpath.glob(".shard_*"):
-        stray.unlink()
-
-
-def _reset_dir(dirpath: Path) -> None:
-    for shard in dirpath.glob("shard_*.npz"):
-        shard.unlink()
-    for stray in dirpath.glob(".shard_*"):
-        stray.unlink()
-    manifest = dirpath / "manifest.json"
-    if manifest.exists():
-        manifest.unlink()
-
-
 class EmbeddingStore:
     """Computes dense vectors once per dataset with the fixed model and caches them
     to disk. The same vectors are read back for every engine, so the comparison
-    measures the index rather than the embedder. Vectors are L2-normalized, which
+    measures the index alone. Vectors are L2-normalized, which
     makes cosine and inner product equivalent and lets every engine use the cosine
     metric uniformly.
 
     The corpus is streamed and embedded in batches written as durable, append-only
     shards with a manifest, so a multi-hour embed of a million-passage corpus stays
     memory-bounded and resumes from the last completed shard after a restart rather
-    than recomputing from scratch. The fastembed model is imported lazily so a run
-    that only reads the cache never loads it."""
+    than recomputing from scratch. The fastembed model is imported lazily so a
+    harness process that only reads the cache never loads it."""
 
-    def __init__(self, spec: VectorConfig, cache_dir: Path) -> None:
+    def __init__(self, spec: VectorConfig, cache_dir: Path, datasets: Iterable[DatasetSpec] = ()) -> None:
         self._spec = spec
-        self._root = Path(cache_dir) / _slug(spec.model)
+        self._cache_dir = Path(cache_dir)
+        self._root = self._cache_dir / dataset_slug(spec.model)
+        self._datasets = {dataset.dataset_id: dataset for dataset in datasets}
         self._model = None
         self._corpus_cache: dict[str, EmbeddedSet] = {}
         self._query_cache: dict[str, EmbeddedSet] = {}
+        self._located: dict[str, Path | None] = {}
+
+    def dataset(self, dataset_id: str) -> DatasetSpec | None:
+        return self._datasets.get(dataset_id)
+
+    def model_for(self, dataset_id: str) -> str:
+        dataset = self._datasets.get(dataset_id)
+        return dataset.vector_model if dataset is not None and dataset.vector_model else self._spec.model
+
+    def dims_for(self, dataset_id: str) -> int:
+        dataset = self._datasets.get(dataset_id)
+        return dataset.vector_dims if dataset is not None and dataset.vector_dims else self._spec.dims
+
+    def _artifact(self, dataset_id: str) -> Path | None:
+        dataset = self._datasets.get(dataset_id)
+        if dataset is None or dataset.artifact is None:
+            return None
+        if dataset_id not in self._located:
+            self._located[dataset_id] = artifact_location(dataset, self._cache_dir)
+        return self._located[dataset_id]
+
+    def _requires_artifact(self, dataset_id: str) -> bool:
+        dataset = self._datasets.get(dataset_id)
+        return dataset is not None and dataset.source == ARTIFACT_SOURCE
 
     def _embed(self, texts: list[str]) -> np.ndarray:
         if not texts:
@@ -137,10 +95,13 @@ class EmbeddingStore:
             raise ValueError(
                 f"embedding model produced shape {vectors.shape}, expected (*, {self._spec.dims})"
             )
-        return _l2_normalize(vectors)
+        return l2_normalize(vectors)
 
     def _dir(self, dataset_id: str, kind: str) -> Path:
-        return self._root / f"{_slug(dataset_id)}.{kind}"
+        artifact = self._artifact(dataset_id)
+        if artifact is not None:
+            return artifact / (DOCS_DIRNAME if kind == DOCS_KIND else QUERIES_DIRNAME)
+        return self._root / f"{dataset_slug(dataset_id)}.{kind}"
 
     def _iter_corpus(self, dataset_id: str, start: int) -> Iterator[tuple[int, str, str]]:
         docs = ds.docs_dataset(dataset_id).docs_iter()
@@ -159,27 +120,30 @@ class EmbeddingStore:
             yield index + 1, query_id, text
 
     def _build(self, dataset_id: str, kind: str) -> dict:
-        prefix = self._spec.passage_prefix if kind == "docs" else self._spec.query_prefix
+        model = self.model_for(dataset_id)
+        dims = self.dims_for(dataset_id)
         dirpath = self._dir(dataset_id, kind)
-        manifest = _read_manifest(dirpath)
-        compatible = bool(
-            manifest
-            and manifest.get("model") == self._spec.model
-            and int(manifest.get("dims", -1)) == self._spec.dims
-        )
+        manifest = read_store_manifest(dirpath)
+        compatible = bool(manifest and manifest.get("model") == model and int(manifest.get("dims", -1)) == dims)
         if manifest and compatible and manifest.get("complete"):
             return manifest
+        if self._artifact(dataset_id) is not None or self._requires_artifact(dataset_id):
+            raise EngineError(
+                f"the {kind} vectors for {dataset_id} are not in the dataset artifact cache at {dirpath}; "
+                "run the embed step so the artifact is fetched before the benchmark"
+            )
         if manifest and not compatible:
-            _reset_dir(dirpath)
+            reset_dir(dirpath)
             manifest = None
 
         dirpath.mkdir(parents=True, exist_ok=True)
         raw_consumed = int(manifest["raw_consumed"]) if manifest else 0
         shards = int(manifest["shards"]) if manifest else 0
         rows = int(manifest["rows"]) if manifest else 0
-        _remove_orphans(dirpath, shards)
+        remove_orphans(dirpath, shards)
 
-        source = self._iter_corpus(dataset_id, raw_consumed) if kind == "docs" else self._iter_queries(dataset_id, raw_consumed)
+        prefix = self._spec.passage_prefix if kind == DOCS_KIND else self._spec.query_prefix
+        source = self._iter_corpus(dataset_id, raw_consumed) if kind == DOCS_KIND else self._iter_queries(dataset_id, raw_consumed)
         buffer_ids: list[str] = []
         buffer_texts: list[str] = []
         last_position = raw_consumed
@@ -189,22 +153,10 @@ class EmbeddingStore:
             if not buffer_ids:
                 return
             prepared = [f"{prefix}{text}" if prefix else text for text in buffer_texts]
-            vectors = self._embed(prepared)
-            _write_shard(dirpath, shards, buffer_ids, vectors)
+            write_shard(dirpath, shards, buffer_ids, self._embed(prepared))
             shards += 1
             rows += len(buffer_ids)
-            _write_manifest(
-                dirpath,
-                {
-                    "model": self._spec.model,
-                    "dims": self._spec.dims,
-                    "kind": kind,
-                    "raw_consumed": last_position,
-                    "rows": rows,
-                    "shards": shards,
-                    "complete": False,
-                },
-            )
+            write_store_manifest(dirpath, store_manifest(model, dims, kind, last_position, rows, shards, False))
             buffer_ids.clear()
             buffer_texts.clear()
 
@@ -212,35 +164,26 @@ class EmbeddingStore:
             buffer_ids.append(item_id)
             buffer_texts.append(text)
             last_position = position
-            if len(buffer_ids) >= _SHARD_ROWS:
+            if len(buffer_ids) >= SHARD_ROWS:
                 commit()
         commit()
 
-        final = {
-            "model": self._spec.model,
-            "dims": self._spec.dims,
-            "kind": kind,
-            "raw_consumed": last_position,
-            "rows": rows,
-            "shards": shards,
-            "complete": True,
-        }
-        _write_manifest(dirpath, final)
+        final = store_manifest(model, dims, kind, last_position, rows, shards, True)
+        write_store_manifest(dirpath, final)
         return final
 
     def _load(self, dataset_id: str, kind: str) -> EmbeddedSet:
         manifest = self._build(dataset_id, kind)
         dirpath = self._dir(dataset_id, kind)
+        dims = self.dims_for(dataset_id)
         rows = int(manifest["rows"])
-        vectors = np.empty((rows, self._spec.dims), dtype=np.float32)
+        vectors = np.empty((rows, dims), dtype=np.float32)
         ids: list[str] = []
         offset = 0
         for index in range(int(manifest["shards"])):
-            with np.load(dirpath / f"shard_{index:05d}.npz", allow_pickle=False) as data:
-                shard_ids = [str(value) for value in data["ids"].tolist()]
-                shard_vectors = data["vectors"]
+            shard_ids, shard_vectors = read_shard(dirpath, index)
             count = len(shard_ids)
-            if shard_vectors.shape != (count, self._spec.dims):
+            if shard_vectors.shape != (count, dims):
                 raise ValueError(f"shard {index} for {dataset_id}/{kind} has shape {shard_vectors.shape}")
             vectors[offset : offset + count] = shard_vectors
             ids.extend(shard_ids)
@@ -254,23 +197,29 @@ class EmbeddingStore:
         memory. Used by the embed step so precomputing a large corpus never holds
         more than one shard at a time."""
 
-        corpus = self._build(dataset_id, "docs")
-        queries = self._build(dataset_id, "queries")
+        corpus = self._build(dataset_id, DOCS_KIND)
+        queries = self._build(dataset_id, QUERIES_KIND)
         return int(corpus["rows"]), int(queries["rows"])
 
     def corpus(self, dataset_id: str) -> EmbeddedSet:
         if dataset_id not in self._corpus_cache:
-            self._corpus_cache[dataset_id] = self._load(dataset_id, "docs")
+            self._corpus_cache[dataset_id] = self._load(dataset_id, DOCS_KIND)
         return self._corpus_cache[dataset_id]
 
     def queries(self, dataset_id: str) -> EmbeddedSet:
         if dataset_id not in self._query_cache:
-            self._query_cache[dataset_id] = self._load(dataset_id, "queries")
+            self._query_cache[dataset_id] = self._load(dataset_id, QUERIES_KIND)
         return self._query_cache[dataset_id]
 
     def vector_by_id(self, dataset_id: str) -> dict[str, np.ndarray]:
         embedded = self.corpus(dataset_id)
         return {doc_id: embedded.vectors[i] for i, doc_id in enumerate(embedded.ids)}
+
+    def truth_path(self, dataset_id: str, k: int) -> Path:
+        artifact = self._artifact(dataset_id)
+        if artifact is not None:
+            return artifact / truth_filename(k)
+        return self._root / f"{dataset_slug(dataset_id)}.{truth_filename(k)}"
 
     def truth(self, dataset_id: str, k: int) -> dict[str, list[str]]:
         """Exact top-k by cosine over the shared vectors, computed once per dataset
@@ -278,31 +227,11 @@ class EmbeddingStore:
         ground truth without paying the brute-force cost again."""
 
         query_set = self.queries(dataset_id)
-        path = self._root / f"{_slug(dataset_id)}.truth_k{k}.npz"
-        if path.exists():
-            try:
-                with np.load(path, allow_pickle=False) as data:
-                    cached_ids = [str(value) for value in data["query_ids"].tolist()]
-                    neighbors = data["neighbors"].tolist()
-                if cached_ids == query_set.ids:
-                    return {
-                        query_id: [doc_id for doc_id in row if doc_id]
-                        for query_id, row in zip(cached_ids, neighbors)
-                    }
-            except (ValueError, OSError, KeyError):
-                pass
-
+        path = self.truth_path(dataset_id, k)
+        cached = read_truth(path, query_set.ids)
+        if cached is not None:
+            return cached
         corpus = self.corpus(dataset_id)
         truth = exact_top_k(query_set.ids, query_set.vectors, corpus.ids, corpus.vectors, k)
-        neighbors = np.full((len(query_set.ids), k), "", dtype=object)
-        for row, query_id in enumerate(query_set.ids):
-            hits = truth.get(query_id, [])
-            for column in range(min(k, len(hits))):
-                neighbors[row, column] = hits[column]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        np.savez(
-            path,
-            query_ids=np.asarray(query_set.ids, dtype=np.str_),
-            neighbors=neighbors.astype(np.str_),
-        )
+        write_truth(path, query_set.ids, truth, k)
         return truth

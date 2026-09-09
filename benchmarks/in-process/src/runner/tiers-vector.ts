@@ -64,7 +64,7 @@ export async function runVectorTier(
         `    vector search: p50 ${r.searchLatency.p50Ms.toFixed(3)}ms, p95 ${r.searchLatency.p95Ms.toFixed(3)}ms`,
       )
       console.log(`    recall@10 vs exact KNN: ${(r.meanRecallAt10 * 100).toFixed(1)}%`)
-      console.log(`    memory: ${r.memoryMb.toFixed(1)}MB`)
+      console.log(`    heap plus external memory: ${r.heapAndExternalMb.toFixed(1)}MB`)
       results[engineMeta.name][dataset] = r
       store.setVectorRelevance(engineMeta.name, dataset, r)
     }

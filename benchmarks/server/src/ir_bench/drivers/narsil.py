@@ -8,11 +8,13 @@ import httpx
 
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
-from ..core.ingest import BatchOutcome, import_batches
+from ..core.ingest import NDJSON_CONTENT_TYPE, BatchOutcome, encode_json_lines, import_batches
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
     FLOATING_MS,
+    FULL_FLOAT,
+    GRAPH_BUILD_TIMEOUT_SECONDS,
     EngineError,
     Hit,
     ImportResult,
@@ -51,6 +53,7 @@ class NarsilDriver:
         self.hybrid_setup = "BM25 (text) fused with HNSW vector search via Reciprocal Rank Fusion"
         self.hybrid_fusion = f"RRF (k={_RRF_K})"
         self.vector_knob = "efSearch"
+        self.vector_quantization = FULL_FLOAT
         self.server_time = ServerTimeSource(source="response `elapsed` field", resolution=FLOATING_MS)
         self._vector_profile = EQUAL_PRECISION
         self._k1 = bm25.k1
@@ -87,11 +90,10 @@ class NarsilDriver:
         _raise_for_envelope(response)
 
     def _send_import(self, index: str, batch: list[dict]) -> BatchOutcome:
-        body = "\n".join(json.dumps(doc) for doc in batch)
         response = self._client.post(
             f"/indexes/{index}/documents/_import",
-            content=body.encode("utf-8"),
-            headers={"content-type": "application/x-ndjson"},
+            content=encode_json_lines(batch),
+            headers=NDJSON_CONTENT_TYPE,
         )
         _raise_for_envelope(response)
         payload = response.json()
@@ -156,6 +158,7 @@ class NarsilDriver:
         self._vector_profile = params.profile
         if params.profile == BEST_CONFIG:
             quantization = "sq8"
+            self.vector_quantization = "SQ8"
             self.vector_setup = (
                 "HNSW over the shared precomputed vectors, SQ8 scalar quantization with "
                 "full-precision rerank, cosine"
@@ -185,7 +188,7 @@ class NarsilDriver:
     ) -> ImportResult:
         return self._import_docs(
             index,
-            ({"id": doc.doc_id, "text": doc.text, _VECTOR_FIELD: list(doc.vector)} for doc in documents),
+            ({"id": doc.doc_id, "text": doc.text, _VECTOR_FIELD: doc.vector} for doc in documents),
             batch_size,
             clients,
         )
@@ -198,7 +201,7 @@ class NarsilDriver:
             self._wait_task(str(task_id))
         self._wait_graph_ready(index)
 
-    def _wait_task(self, task_id: str, timeout_seconds: float = 600.0) -> None:
+    def _wait_task(self, task_id: str, timeout_seconds: float = GRAPH_BUILD_TIMEOUT_SECONDS) -> None:
         deadline = time.perf_counter() + timeout_seconds
         while time.perf_counter() < deadline:
             response = self._client.get(f"/tasks/{task_id}")
@@ -211,7 +214,7 @@ class NarsilDriver:
             time.sleep(0.25)
         raise EngineError(f"Narsil vector task {task_id} did not finish within {timeout_seconds}s")
 
-    def _wait_graph_ready(self, index: str, timeout_seconds: float = 600.0) -> None:
+    def _wait_graph_ready(self, index: str, timeout_seconds: float = GRAPH_BUILD_TIMEOUT_SECONDS) -> None:
         deadline = time.perf_counter() + timeout_seconds
         while time.perf_counter() < deadline:
             response = self._client.get(f"/indexes/{index}/vector-maintenance")
@@ -260,6 +263,25 @@ class NarsilDriver:
                 size = int(value)
                 break
         return {"index_size_bytes": size, "raw": raw}
+
+    def server_setup(self) -> dict | None:
+        try:
+            response = self._client.get("/stats/memory")
+            _raise_for_envelope(response)
+            raw = response.json()
+        except (httpx.HTTPError, ValueError) as error:
+            raise EngineError(f"memory stats unavailable from {self._client.base_url}: {error}") from error
+        workers = raw.get("workers") if isinstance(raw.get("workers"), list) else []
+        copies = raw.get("workerCopies") if isinstance(raw.get("workerCopies"), list) else []
+        request_threads = raw.get("requestThreads")
+        return {
+            "worker_threads": len(workers),
+            "request_threads": int(request_threads) if isinstance(request_threads, int) else None,
+            "scaled_out_indexes": [
+                str(entry.get("indexName")) for entry in copies if isinstance(entry, dict) and entry.get("scaledOut")
+            ],
+            "source_endpoint": "/stats/memory",
+        }
 
     def build_identity(self) -> dict | None:
         """The running server's own build, read from its `/version` endpoint: the

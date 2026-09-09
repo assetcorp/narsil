@@ -48,7 +48,7 @@ async function runTextJob(spec: TextJobSpec): Promise<ScaleResult> {
   const filteredLatency = filteredTimes.length > 0 ? summarizeLatency(filteredTimes) : undefined
 
   const memoryBytes = await measureMemory(engine, docs)
-  const memoryMb = memoryBytes / (1024 * 1024)
+  const heapAndExternalMb = memoryBytes / (1024 * 1024)
 
   return {
     insertMedianMs: insertMedian,
@@ -62,7 +62,7 @@ async function runTextJob(spec: TextJobSpec): Promise<ScaleResult> {
     searchAllTermsP95Ms: allTermsLatency?.p95Ms,
     filteredSearchMedianMs: filteredLatency?.p50Ms,
     filteredSearchP95Ms: filteredLatency?.p95Ms,
-    memoryMb,
+    heapAndExternalMb,
     insertSamples: [...insertTimes],
     searchSamples: [...searchTimes],
     searchLatency,
@@ -100,7 +100,7 @@ async function runVectorJob(spec: VectorJobSpec): Promise<VectorRelevanceResult>
   const meanRecallAt10 = await measureVectorRecall(engine, buildDocs(), queryVecs, groundTruth, VECTOR_RECALL_K)
 
   const memoryBytes = await measureMemory(engine, buildDocs())
-  const memoryMb = memoryBytes / (1024 * 1024)
+  const heapAndExternalMb = memoryBytes / (1024 * 1024)
 
   return {
     dataset: spec.dataset,
@@ -110,7 +110,7 @@ async function runVectorJob(spec: VectorJobSpec): Promise<VectorRelevanceResult>
     queryCount,
     insertMedianMs: insertMedian,
     insertDocsPerSec: docsPerSec,
-    memoryMb,
+    heapAndExternalMb,
     searchLatency,
     meanRecallAt10,
   }

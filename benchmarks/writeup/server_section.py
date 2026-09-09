@@ -1,14 +1,30 @@
 """Build the search-server section of the writeup from the server suite's comparison.
 
-The blocks carry every number and ranking, so the surrounding prose in BENCHMARKS.md
-can stay qualitative and never drift. Quality metrics come from `metrics`, throughput
-from the single concurrency level the suite records, and the matched-recall operating
-point from `operating_point`.
+The blocks carry every number, ranking, and figure, so the surrounding prose in
+BENCHMARKS.md can stay qualitative and stays in step with the run. Quality metrics
+come from `metrics`, throughput from the peak concurrency level the suite records,
+the matched-recall operating point from `operating_point`, and every figure from
+the charts drawn into the run's own directory.
 """
 
 from __future__ import annotations
 
-from render import and_join, bar_chart, dataset_name, decimal, engine_name, integer, table
+from chart_data import (
+    BEST_CONFIG,
+    EQUAL_PRECISION,
+    has_bars,
+    has_recall_curve,
+    has_sweep,
+    has_tail,
+    number,
+    peak_interval,
+    peak_level,
+    peak_qps,
+    row_label,
+    track,
+)
+from chart_paths import bars_chart, figure, recall_chart, server_chart_dir, sweep_chart, tail_chart
+from render import and_join, dataset_name, decimal, engine_name, integer, table
 from sources import Source
 
 
@@ -25,117 +41,169 @@ def _narsil_row(rows: list[dict]) -> dict | None:
     return next((row for row in rows if row.get("engine") == "narsil"), None)
 
 
-def _metric(row: dict, key: str) -> float | None:
-    value = (row.get("metrics") or {}).get(key)
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
-
-
-def _qps(row: dict) -> float | None:
-    levels = (row.get("throughput") or {}).get("levels") or []
-    value = levels[0].get("qps") if levels else None
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+def _metric(row: dict | None, key: str) -> float | None:
+    return number(((row or {}).get("metrics") or {}).get(key))
 
 
 def _client_bound(row: dict) -> bool:
-    levels = (row.get("throughput") or {}).get("levels") or []
-    return bool(levels and levels[0].get("client_bound"))
+    peak = peak_level(row)
+    return bool(peak and peak.get("client_bound"))
 
 
-def _track(comparison: dict, name: str) -> dict | None:
-    return next((track for track in comparison.get("tracks", []) if track.get("track") == name), None)
+def _qps_cell(row: dict) -> str:
+    cell = integer(peak_qps(row))
+    interval = peak_interval(row)
+    if interval is not None and interval[0] != interval[1]:
+        cell += f" ({integer(interval[0])} to {integer(interval[1])})"
+    if _client_bound(row):
+        cell += " (client-limited)"
+    return cell
 
 
-def _ndcg_bars(rows: list[dict]) -> str:
-    entries = []
-    for row in rows:
-        value = _metric(row, "ndcg_cut_10")
-        if value is not None:
-            entries.append((engine_name(row["engine"]), value, decimal(value, 4)))
-    return bar_chart(entries)
-
-
-def _qps_bars(rows: list[dict]) -> str:
-    entries = []
-    for row in rows:
-        value = _qps(row)
-        if value is not None:
-            entries.append((engine_name(row["engine"]), value, f"{integer(value)} QPS"))
-    return bar_chart(entries)
-
-
-def _quality_table(rows: list[dict]) -> str:
+def _quality_table(rows: list[dict], profile: str) -> str:
+    if not _judged(rows):
+        ordered = sorted(rows, key=lambda row: peak_qps(row) or -1.0, reverse=True)
+        body = [[row_label(row, profile), _qps_cell(row)] for row in ordered]
+        return table(["Engine", "Peak QPS"], ["left", "right"], body)
     ordered = sorted(rows, key=lambda row: _metric(row, "ndcg_cut_10") or -1.0, reverse=True)
-    body = []
-    for row in ordered:
-        qps_cell = integer(_qps(row))
-        if _client_bound(row):
-            qps_cell += " (client-limited)"
-        body.append([
-            engine_name(row["engine"]),
+    body = [
+        [
+            row_label(row, profile),
             decimal(_metric(row, "ndcg_cut_10"), 4),
             decimal(_metric(row, "recall_100"), 4),
             decimal(_metric(row, "map"), 4),
             decimal(_metric(row, "recip_rank"), 4),
-            qps_cell,
-        ])
+            _qps_cell(row),
+        ]
+        for row in ordered
+    ]
     headers = ["Engine", "nDCG@10", "Recall@100", "MAP", "MRR", "Peak QPS"]
     return table(headers, ["left", "right", "right", "right", "right", "right"], body)
 
 
-def _quality_track_block(track: dict) -> str:
-    chunks: list[str] = []
-    for dataset in track["datasets"]:
-        name = dataset_name(dataset["dataset_id"])
-        rows = dataset["rows"]
-        chunks.append(f"nDCG@10 on {name}, higher is better:")
-        chunks.append(_ndcg_bars(rows))
-        chunks.append(f"Peak throughput on {name}, queries per second, higher is better:")
-        chunks.append(_qps_bars(rows))
-        chunks.append(_quality_table(rows))
-    return "\n\n".join(chunks)
-
-
-def _vector_table(rows: list[dict]) -> str:
-    ordered = sorted(rows, key=lambda row: _qps(row) or -1.0, reverse=True)
+def _vector_table(rows: list[dict], profile: str) -> str:
+    ordered = sorted(rows, key=lambda row: peak_qps(row) or -1.0, reverse=True)
     body = []
     for row in ordered:
         point = row.get("operating_point") or {}
         knob = point.get("knob")
         value = point.get("chosen_value")
         knob_cell = f"{knob} {value}" if knob is not None and value is not None else "n/a"
-        body.append([
-            engine_name(row["engine"]),
-            knob_cell,
-            decimal(point.get("achieved_recall"), 4),
-            integer(_qps(row)),
-        ])
+        body.append([row_label(row, profile), knob_cell, decimal(point.get("achieved_recall"), 4), _qps_cell(row)])
     headers = ["Engine", "Search effort", "ANN recall@10", "Peak QPS"]
     return table(headers, ["left", "left", "right", "right"], body)
 
 
-def _vector_block(track: dict, config: dict) -> str:
-    target = decimal(config.get("recall_target"), 2)
-    chunks: list[str] = []
-    for dataset in track["datasets"]:
-        name = dataset_name(dataset["dataset_id"])
-        rows = dataset["rows"]
-        narsil = _narsil_row(rows)
-        ndcg = decimal(_metric(narsil, "ndcg_cut_10"), 4) if narsil else "n/a"
-        recall = decimal(_metric(narsil, "recall_100"), 4) if narsil else "n/a"
-        chunks.append(
-            f"On {name}, every engine tunes its search effort to reach ann_recall@10 of at least "
-            f"{target} against the exact neighbours, and each returns the same ranking, so nDCG@10 is "
-            f"{ndcg} and Recall@100 is {recall} across the field."
+def _bars_figure(chart_dir: str, profile: str, name: str, dataset_id: str, rows: list[dict]) -> str | None:
+    if not has_bars(rows):
+        return None
+    dataset = dataset_name(dataset_id)
+    if not _judged(rows):
+        return figure(
+            bars_chart(chart_dir, profile, name, dataset_id),
+            f"One bar panel for the {name} track on {dataset}: peak queries per second per engine with a 95% "
+            "confidence interval across passes.",
         )
-        chunks.append(f"Peak throughput on {name} at matched recall, queries per second, higher is better:")
-        chunks.append(_qps_bars(rows))
-        chunks.append(_vector_table(rows))
+    return figure(
+        bars_chart(chart_dir, profile, name, dataset_id),
+        f"Two bar panels for the {name} track on {dataset}: nDCG@10 per engine, and peak queries per second per "
+        "engine with a 95% confidence interval across passes.",
+    )
+
+
+def _sweep_figure(chart_dir: str, profile: str, name: str, dataset_id: str, rows: list[dict]) -> str | None:
+    if not has_sweep(rows):
+        return None
+    dataset = dataset_name(dataset_id)
+    return figure(
+        sweep_chart(chart_dir, profile, name, dataset_id),
+        f"Line panels for the {name} track on {dataset} against concurrent clients: queries per second with a "
+        "confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report "
+        "their own query time, and the engine container's busy cores where the harness recorded them.",
+    )
+
+
+def _tail_figure(chart_dir: str, profile: str, name: str, datasets: list[dict]) -> str | None:
+    if not has_tail(datasets):
+        return None
+    return figure(
+        tail_chart(chart_dir, profile, name),
+        f"Server-side latency at p50, p95, p99, p99.9, and the maximum for each engine on the {name} track at its "
+        "peak concurrency level, one panel per dataset, on a logarithmic scale. An engine that reports no "
+        "server-side time is absent, and a whole-millisecond timer leaves out the points it floors to zero.",
+    )
+
+
+def _recall_figure(chart_dir: str, dataset_id: str, comparisons: dict[str, dict | None]) -> str | None:
+    if not has_recall_curve(comparisons, dataset_id):
+        return None
+    return figure(
+        recall_chart(chart_dir, dataset_id),
+        f"Queries per second against ANN recall@10 on {dataset_name(dataset_id)}, one point per search-effort "
+        "level per engine, with equal precision drawn solid and recommended production settings dashed.",
+    )
+
+
+def _track_block(source: Source, profile: str, name: str, render_table, comparisons: dict[str, dict | None]) -> str:
+    entry = track(comparisons[profile], name)
+    if entry is None:
+        return f"No {name} results were recorded."
+    chart_dir = server_chart_dir(source.run_id)
+    chunks: list[str] = []
+    for dataset in entry["datasets"]:
+        dataset_id = dataset["dataset_id"]
+        rows = dataset["rows"]
+        label = dataset_name(dataset_id)
+        chunks.append(f"**{label}.**")
+        bars = _bars_figure(chart_dir, profile, name, dataset_id, rows)
+        if bars:
+            chunks.append(bars)
+        chunks.append(render_table(rows, profile))
+        sweep = _sweep_figure(chart_dir, profile, name, dataset_id, rows)
+        if sweep:
+            chunks.append(sweep)
+        if name == "vector":
+            recall = _recall_figure(chart_dir, dataset_id, comparisons) if profile == EQUAL_PRECISION else None
+            if recall:
+                chunks.append(recall)
+    tail = _tail_figure(chart_dir, profile, name, entry["datasets"])
+    if tail:
+        chunks.append(tail)
     return "\n\n".join(chunks)
 
 
-def _dataset_phrases(track: dict) -> list[str]:
+def _judged(rows: list[dict]) -> bool:
+    return any(_metric(row, "ndcg_cut_10") is not None for row in rows)
+
+
+def _vector_intro(comparison: dict, config: dict) -> str:
+    target = decimal(config.get("recall_target"), 2)
+    sentences = []
+    for dataset in (track(comparison, "vector") or {"datasets": []})["datasets"]:
+        rows = dataset["rows"]
+        narsil = _narsil_row(rows)
+        opening = (
+            f"On {dataset_name(dataset['dataset_id'])}, every engine tunes its search effort to reach ann_recall@10 "
+            f"of at least {target} against the exact neighbours"
+        )
+        if not _judged(rows):
+            sentences.append(
+                f"{opening}. The set carries no relevance judgements, so it reports recall, latency, and "
+                "throughput and no ranking quality."
+            )
+            continue
+        ndcg = decimal(_metric(narsil, "ndcg_cut_10"), 4) if narsil else "n/a"
+        recall = decimal(_metric(narsil, "recall_100"), 4) if narsil else "n/a"
+        sentences.append(
+            f"{opening}, and each returns the same ranking, so nDCG@10 is {ndcg} and Recall@100 is {recall} "
+            "across the field."
+        )
+    return " ".join(sentences)
+
+
+def _dataset_phrases(track_entry: dict) -> list[str]:
     phrases = []
-    for dataset in track["datasets"]:
+    for dataset in track_entry["datasets"]:
         rows = dataset["rows"]
         row = _narsil_row(rows) or (rows[0] if rows else {})
         docs = (row.get("operational") or {}).get("documents_indexed")
@@ -143,12 +211,105 @@ def _dataset_phrases(track: dict) -> list[str]:
     return phrases
 
 
+def _vectors_sentence(config: dict) -> str:
+    vectors = config.get("dataset_vectors") or {}
+    if not vectors:
+        return ""
+    phrases = []
+    for dataset_id, entry in vectors.items():
+        provenance = (
+            "read from a published dataset artifact pinned by its SHA-256"
+            if entry.get("source") == "artifact"
+            else "loaded and hash-verified through `ir_datasets`"
+        )
+        phrases.append(
+            f"{dataset_name(dataset_id)} is {provenance}, with {entry.get('model')} vectors at "
+            f"{integer(entry.get('dims'))} dimensions"
+        )
+    return " " + "; ".join(phrases) + "."
+
+
+def _dataset_engines_sentence(config: dict) -> str:
+    mapping = config.get("dataset_engines") or {}
+    phrases = [
+        f"only {and_join([engine_name(name) for name in engines])} ran {dataset_name(dataset_id)}"
+        for dataset_id, engines in mapping.items()
+        if isinstance(engines, list) and engines
+    ]
+    if not phrases:
+        return ""
+    return " " + "; ".join(phrases) + "."
+
+
+def _threads_sentence(narsil: dict) -> str:
+    setup = narsil.get("server_setup") or {}
+    workers = setup.get("worker_threads")
+    request_threads = setup.get("request_threads")
+    scaled_out = setup.get("scaled_out_indexes")
+    if not isinstance(workers, int) or not isinstance(request_threads, int) or not isinstance(scaled_out, list):
+        return "The harness recorded no worker copy configuration for Narsil in this run."
+    copies = (
+        "the benchmark index scaled out across them"
+        if scaled_out
+        else "no index scaled out across them, so the main copy answered every query"
+    )
+    return (
+        f"Narsil started at the engine defaults, and the harness read {integer(workers)} worker threads, "
+        f"{integer(request_threads)} request threads receiving requests, and {copies}."
+    )
+
+
+def _load_sentence(config: dict) -> str:
+    throughput = config.get("throughput") or {}
+    levels = throughput.get("concurrency") or []
+    passes = throughput.get("passes")
+    if not levels:
+        return "The harness recorded no concurrency sweep."
+    level_text = and_join([integer(level) for level in levels])
+    if isinstance(passes, int) and passes > 1:
+        return (
+            f"The harness measured throughput at {level_text} concurrent clients, one pass per level and "
+            f"{integer(passes)} passes at each engine's peak level, and the tables report the median peak pass "
+            "with a 95% bootstrap interval."
+        )
+    return f"The harness measured throughput at {level_text} concurrent clients, one pass per level."
+
+
+def _host(environment: dict) -> str:
+    return (
+        f"{environment.get('cpu_model') or 'an unspecified CPU'} and "
+        f"{environment.get('os')} {environment.get('arch')}"
+    )
+
+
+def _machine_sentence(environment: dict, engines: list[dict]) -> str:
+    """One machine sentence when every engine ran on the same host, and one clause
+    per engine when the engines ran on their own machines and the fetch step merged
+    their files into one comparison."""
+
+    groups: dict[tuple, tuple[dict, list[str]]] = {}
+    for engine in engines:
+        env = engine.get("environment") or environment
+        key = (env.get("machine_label"), env.get("cpu_model"), env.get("os"), env.get("arch"))
+        groups.setdefault(key, (env, []))[1].append(engine_name(engine.get("name") or ""))
+    if len(groups) > 1:
+        clauses = [
+            f"{and_join(names)} on {env.get('machine_label') or 'an unlabelled machine'}, which reports {_host(env)}"
+            for env, names in groups.values()
+        ]
+        return f"The engines ran on {integer(len(groups))} machines: {and_join(clauses)}."
+    machine_label = environment.get("machine_label")
+    if machine_label:
+        return f"{machine_label} hosted this run, and it reports {_host(environment)}."
+    return f"The host reports {_host(environment)}."
+
+
 def _setup_block(source: Source) -> str:
     comparison = source.data
     config = comparison.get("config") or {}
     environment = comparison.get("environment") or {}
     engines = comparison.get("engines") or []
-    keyword = _track(comparison, "keyword") or {"datasets": []}
+    keyword = track(comparison, "keyword") or {"datasets": []}
 
     narsil = _engine(engines, "narsil") or {}
     build = narsil.get("build_identity") or {}
@@ -162,43 +323,45 @@ def _setup_block(source: Source) -> str:
 
     cap = decimal((config.get("memory_cap_bytes") or 0) / 1e9, 1)
     narsil_version = build.get("version") or narsil.get("version") or "n/a"
-    machine_label = environment.get("machine_label")
-    host = (
-        f"{environment.get('cpu_model') or 'an unspecified CPU'} and "
-        f"{environment.get('os')} {environment.get('arch')}"
-    )
-    machine = (
-        f"The run executed on {machine_label}, which reports {host}."
-        if machine_label
-        else f"The run host reports {host}."
-    )
+    machine = _machine_sentence(environment, engines)
 
     return "\n".join([
         f"- **Run.** These figures come from run `{source.run_id}`, recorded on {_date(source)} from commit "
         f"`{commit}`{dirty}. The raw per-engine results and the full comparison are in "
         f"[the run report]({source.report_link}).",
-        f"- **Datasets.** The run covers {and_join(_dataset_phrases(keyword))}, each loaded and hash-verified "
-        "through `ir_datasets`.",
+        f"- **Datasets.** The harness measured {and_join(_dataset_phrases(keyword))}.{_vectors_sentence(config)}"
+        f"{_dataset_engines_sentence(config)}",
         f"- **Engines.** The comparison runs Narsil {narsil_version} against {and_join(others)}, "
         "and every engine runs from a pinned image.",
         f"- **Equal conditions.** Every engine receives the same {cap} GB memory cap, the same run depth of "
         f"{integer(config.get('run_depth'))}, and the same run-file ordering, and the engines run one at a time so "
         "latency never contends.",
+        f"- **Load.** {_load_sentence(config)}",
+        f"- **Narsil threads.** {_threads_sentence(narsil)}",
         f"- **Machine.** {machine}",
         f"- **BM25 calibration.** Narsil indexes each corpus with BM25 k1={config.get('k1')} and b={config.get('b')}, "
         "the Anserini reference configuration.",
     ])
 
 
-def server_blocks(source: Source) -> dict[str, str]:
+def server_blocks(source: Source, best: Source | None) -> dict[str, str]:
     comparison = source.data
     config = comparison.get("config") or {}
-    keyword = _track(comparison, "keyword")
-    vector = _track(comparison, "vector")
-    hybrid = _track(comparison, "hybrid")
-    return {
+    comparisons = {EQUAL_PRECISION: comparison, BEST_CONFIG: best.data if best is not None else None}
+    blocks = {
         "server-setup": _setup_block(source),
-        "server-keyword": _quality_track_block(keyword) if keyword else "No keyword results were recorded.",
-        "server-vector": _vector_block(vector, config) if vector else "No vector results were recorded.",
-        "server-hybrid": _quality_track_block(hybrid) if hybrid else "No hybrid results were recorded.",
+        "server-keyword": _track_block(source, EQUAL_PRECISION, "keyword", _quality_table, comparisons),
+        "server-vector": "\n\n".join([
+            _vector_intro(comparison, config),
+            _track_block(source, EQUAL_PRECISION, "vector", _vector_table, comparisons),
+        ]),
+        "server-hybrid": _track_block(source, EQUAL_PRECISION, "hybrid", _quality_table, comparisons),
     }
+    if best is None:
+        absent = "The harness recorded no pass under each engine's recommended production settings in this run."
+        blocks["server-vector-best-config"] = absent
+        blocks["server-hybrid-best-config"] = absent
+    else:
+        blocks["server-vector-best-config"] = _track_block(source, BEST_CONFIG, "vector", _vector_table, comparisons)
+        blocks["server-hybrid-best-config"] = _track_block(source, BEST_CONFIG, "hybrid", _quality_table, comparisons)
+    return blocks

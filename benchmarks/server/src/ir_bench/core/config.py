@@ -5,8 +5,17 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from .config_datasets import DatasetSpec, load_datasets
+from .config_throughput import ThroughputConfig, load_throughput
 from .http_client import POOL_CONNECTIONS
 from .types import KEYWORD, TRACKS
+
+DEFAULT_LATENCY_WARMUP_QUERIES = 1000
+DEFAULT_LATENCY_SAMPLE_BUDGET = 5000
+DEFAULT_LATENCY_MIN_REPEATS = 1
+DEFAULT_LATENCY_MAX_REPEATS = 5
+DEFAULT_LATENCY_TOP_K = 10
+DEFAULT_TUNING_SAMPLE_QUERIES = 1000
 
 
 @dataclass(frozen=True)
@@ -17,40 +26,11 @@ class BM25Params:
 
 @dataclass(frozen=True)
 class LatencyConfig:
-    warmup: int
-    repeats: int
+    warmup_queries: int
+    sample_budget: int
+    min_repeats: int
+    max_repeats: int
     top_k: int
-
-
-@dataclass(frozen=True)
-class ThroughputConfig:
-    """Sustained queries-per-second under concurrent load, measured alongside the
-    serial single-query latency. `concurrency` is one or more worker counts to
-    drive in turn, so a single level gives one throughput number and a list sweeps
-    the saturation curve. The level used is recorded with every result. Throughput
-    runs at the same matched-recall operating point as the latency comparison
-    because both reuse the same per-query workload.
-
-    `client_processes` splits that offered concurrency across operating-system
-    processes. One process saturates near a single core, so a threads-only client
-    caps every engine at one core divided by its per-request cost; raising this
-    lifts the cap and costs the engine that much CPU when the two share a host.
-    Left unset it resolves to half the host's logical cores."""
-
-    enabled: bool
-    concurrency: tuple[int, ...]
-    duration_seconds: float
-    warmup_seconds: float
-    client_processes: int
-
-
-@dataclass(frozen=True)
-class DatasetSpec:
-    dataset_id: str
-    baseline_ndcg10: float | None
-    margin: float
-    baseline_source: str
-    large: bool = False
 
 
 @dataclass(frozen=True)
@@ -81,6 +61,7 @@ class VectorConfig:
     recall_target: float
     recall_target_secondary: float
     recall_k: int
+    tuning_sample_queries: int
     query_prefix: str
     passage_prefix: str
 
@@ -153,63 +134,6 @@ def _import_clients(section: dict) -> int:
     return clients
 
 
-def _throughput_levels(section: dict) -> tuple[int, ...]:
-    levels_raw = section.get("concurrency", [16])
-    env_levels = os.environ.get("BENCH_THROUGHPUT_CONCURRENCY")
-    if env_levels and env_levels.strip():
-        levels_raw = [part.strip() for part in env_levels.split(",") if part.strip()]
-    levels = tuple(sorted({int(value) for value in levels_raw}))
-    if not levels:
-        raise ValueError("throughput.concurrency must list at least one level")
-    for level in levels:
-        if level < 1:
-            raise ValueError("throughput.concurrency values must be positive")
-        if level > POOL_CONNECTIONS:
-            raise ValueError(
-                f"throughput.concurrency {level} exceeds the client connection pool of "
-                f"{POOL_CONNECTIONS}; lower the level or raise POOL_CONNECTIONS"
-            )
-    return levels
-
-
-def _throughput_client_processes(section: dict) -> int:
-    """How many processes drive the load. An explicit setting wins, the environment
-    overrides it for a one-off run, and the fallback leaves half the host's cores to
-    the engine on a run where the client and the engine share a machine."""
-
-    configured = section.get("client_processes")
-    override = os.environ.get("BENCH_THROUGHPUT_CLIENT_PROCESSES")
-    if override and override.strip():
-        configured = override.strip()
-    if configured is None:
-        return max(1, (os.cpu_count() or 2) // 2)
-    processes = int(configured)
-    if processes < 1:
-        raise ValueError("throughput.client_processes must be positive")
-    return processes
-
-
-def _load_throughput(raw: dict) -> ThroughputConfig:
-    section = raw.get("throughput", {})
-    enabled = bool(section.get("enabled", True))
-    toggle = os.environ.get("BENCH_THROUGHPUT", "").strip().lower()
-    if toggle in ("0", "off", "false", "no"):
-        enabled = False
-    duration = float(section.get("duration_seconds", 5.0))
-    warmup = float(section.get("warmup_seconds", 1.0))
-    if duration <= 0:
-        raise ValueError("throughput.duration_seconds must be positive")
-    if warmup < 0:
-        raise ValueError("throughput.warmup_seconds must not be negative")
-    return ThroughputConfig(
-        enabled=enabled,
-        concurrency=_throughput_levels(section),
-        duration_seconds=duration,
-        warmup_seconds=warmup,
-        client_processes=_throughput_client_processes(section),
-    )
-
-
 def _load_engines(raw: dict) -> dict[str, EngineConfig]:
     engines_raw = raw.get("engines")
     if not engines_raw or not isinstance(engines_raw, dict):
@@ -255,6 +179,9 @@ def _load_vector(raw: dict) -> VectorConfig | None:
     recall_k = int(vec.get("recall_k", 10))
     if recall_k < 1:
         raise ValueError("[vector].recall_k must be positive")
+    tuning_sample = int(vec.get("tuning_sample_queries", DEFAULT_TUNING_SAMPLE_QUERIES))
+    if tuning_sample < 1:
+        raise ValueError("[vector].tuning_sample_queries must be positive")
     return VectorConfig(
         model=str(_require(vec, "model", "[vector]")),
         sparse_model=str(vec.get("sparse_model", "Qdrant/bm25")),
@@ -267,6 +194,7 @@ def _load_vector(raw: dict) -> VectorConfig | None:
         recall_target=float(vec.get("recall_target", 0.99)),
         recall_target_secondary=float(vec.get("recall_target_secondary", 0.95)),
         recall_k=recall_k,
+        tuning_sample_queries=tuning_sample,
         query_prefix=str(vec.get("query_prefix", "")),
         passage_prefix=str(vec.get("passage_prefix", "")),
     )
@@ -294,33 +222,8 @@ def load_config(path: Path) -> BenchmarkConfig:
     if env_cap and env_cap.strip():
         memory_cap_bytes = parse_size(env_cap)
 
-    lat_raw = raw.get("latency", {})
-    latency = LatencyConfig(
-        warmup=int(lat_raw.get("warmup", 2)),
-        repeats=int(lat_raw.get("repeats", 5)),
-        top_k=int(lat_raw.get("top_k", 10)),
-    )
-    if latency.repeats < 1:
-        raise ValueError("latency.repeats must be positive")
-
-    throughput = _load_throughput(raw)
-
-    datasets_raw = raw.get("datasets")
-    if not datasets_raw:
-        raise ValueError("at least one [[datasets]] entry is required")
-    datasets: list[DatasetSpec] = []
-    for entry in datasets_raw:
-        dataset_id = _require(entry, "id", "[[datasets]]")
-        baseline = entry.get("baseline_ndcg10")
-        datasets.append(
-            DatasetSpec(
-                dataset_id=str(dataset_id),
-                baseline_ndcg10=None if baseline is None else float(baseline),
-                margin=float(entry.get("margin", 0.02)),
-                baseline_source=str(entry.get("baseline_source", "")),
-                large=bool(entry.get("large", False)),
-            )
-        )
+    latency = _load_latency(raw.get("latency", {}))
+    throughput = load_throughput(raw)
 
     return BenchmarkConfig(
         bm25=bm25,
@@ -330,14 +233,33 @@ def load_config(path: Path) -> BenchmarkConfig:
         memory_cap_bytes=memory_cap_bytes,
         latency=latency,
         throughput=throughput,
-        datasets=tuple(datasets),
+        datasets=load_datasets(raw),
         engines=_load_engines(raw),
         vector=_load_vector(raw),
     )
 
 
+def _load_latency(section: dict) -> LatencyConfig:
+    latency = LatencyConfig(
+        warmup_queries=int(section.get("warmup_queries", DEFAULT_LATENCY_WARMUP_QUERIES)),
+        sample_budget=int(section.get("sample_budget", DEFAULT_LATENCY_SAMPLE_BUDGET)),
+        min_repeats=int(section.get("min_repeats", DEFAULT_LATENCY_MIN_REPEATS)),
+        max_repeats=int(section.get("max_repeats", DEFAULT_LATENCY_MAX_REPEATS)),
+        top_k=int(section.get("top_k", DEFAULT_LATENCY_TOP_K)),
+    )
+    if latency.warmup_queries < 0:
+        raise ValueError("latency.warmup_queries must not be negative")
+    if latency.sample_budget < 1:
+        raise ValueError("latency.sample_budget must be positive")
+    if latency.min_repeats < 1 or latency.max_repeats < latency.min_repeats:
+        raise ValueError("latency.min_repeats must be positive and no greater than latency.max_repeats")
+    if latency.top_k < 1:
+        raise ValueError("latency.top_k must be positive")
+    return latency
+
+
 def select_datasets(config: BenchmarkConfig, only: str | None) -> tuple[DatasetSpec, ...]:
-    """Resolve which datasets a run touches. A comma-separated selection matches
+    """Resolve which datasets the harness measures. A comma-separated selection matches
     configured ids exactly and may include large datasets. With no selection the
     default set is every dataset not flagged `large`, so the small BEIR suite runs
     on a laptop while million-passage corpora stay opt-in for a sized machine."""

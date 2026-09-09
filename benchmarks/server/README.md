@@ -27,17 +27,17 @@ reporting) lives in `src/ir_bench/core`, and each engine is a small driver in
 ## Engines and pinned versions
 
 Each engine runs from a pinned image. Every version was checked against the
-engine's release source on 2026-08-04.
+engine's release source on 2026-09-07.
 
 | Engine | Image (pinned) | Version | Source |
 | ------ | -------------- | ------- | ------ |
 | Narsil | built from this repo (`node:22-trixie-slim` base) | working tree | local source |
-| Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:9.5.0` | 9.5.0 | [release notes](https://www.elastic.co/docs/release-notes/elasticsearch), [GitHub releases](https://github.com/elastic/elasticsearch/releases) |
-| OpenSearch | `opensearchproject/opensearch:3.7.0` | 3.7.0 | [opensearch.org/releases](https://opensearch.org/releases/), [GitHub releases](https://github.com/opensearch-project/OpenSearch/releases) |
-| Qdrant | `qdrant/qdrant:v1.18.3` | 1.18.3 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
-| Weaviate | `cr.weaviate.io/semitechnologies/weaviate:1.39.0` | 1.39.0 | [GitHub releases](https://github.com/weaviate/weaviate/releases) |
+| Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:9.5.3` | 9.5.3 | [release notes](https://www.elastic.co/docs/release-notes/elasticsearch), [GitHub releases](https://github.com/elastic/elasticsearch/releases) |
+| OpenSearch | `opensearchproject/opensearch:3.8.0` | 3.8.0 | [opensearch.org/releases](https://opensearch.org/releases/), [GitHub releases](https://github.com/opensearch-project/OpenSearch/releases) |
+| Qdrant | `qdrant/qdrant:v1.19.1` | 1.19.1 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
+| Weaviate | `cr.weaviate.io/semitechnologies/weaviate:1.39.3` | 1.39.3 | [GitHub releases](https://github.com/weaviate/weaviate/releases) |
 | Typesense | `typesense/typesense:30.2` | 30.2 | [GitHub releases](https://github.com/typesense/typesense/releases) |
-| Meilisearch | `getmeili/meilisearch:v1.52.0` | 1.52.0 | [GitHub releases](https://github.com/meilisearch/meilisearch/releases) |
+| Meilisearch | `getmeili/meilisearch:v1.53.2` | 1.53.2 | [GitHub releases](https://github.com/meilisearch/meilisearch/releases) |
 
 ## Tracks and which engines run them
 
@@ -58,7 +58,7 @@ Every engine indexes the same dense vectors, but each engine runs its own keywor
 side for hybrid. Elasticsearch, OpenSearch, and Weaviate run BM25 over the text.
 Qdrant uses BM25 sparse vectors (fastembed `Qdrant/bm25`) with server-side IDF.
 Narsil runs its own BM25. Each engine implements its own fusion, so the table
-names the method per engine rather than claiming one shared method.
+names the method per engine.
 
 ## How every engine is scored the same way
 
@@ -129,16 +129,19 @@ stemming, and stop-word choices move them more.
 
 ## Vector and hybrid methodology
 
-- **One model embeds everything once.** Every corpus and query is embedded with
+- **Every engine indexes the same vectors.** The BEIR sets are embedded once with
   `sentence-transformers/all-MiniLM-L6-v2` (384 dimensions), the standard small
   sentence-transformers model
-  ([model card](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)).
-  The harness computes the vectors with fastembed's ONNX export, normalizes them
-  to unit length so cosine equals inner product, caches them once, and gives them
-  to every engine. Absolute retrieval quality (nDCG@10 and Recall@100) is
-  therefore shared across engines up to approximation error, and the benchmark
-  measures the index rather than the embedder. The model's 256-token limit applies
-  to every engine equally.
+  ([model card](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)),
+  computed with fastembed's ONNX export and published as a dataset artifact the
+  harness fetches by digest. The DBpedia artifacts carry OpenAI
+  `text-embedding-ada-002` vectors (1,536 dimensions) already computed. The harness
+  normalizes every vector to unit length so cosine equals inner product, caches
+  it once, and gives it to every engine. Retrieval quality is therefore shared
+  across engines up to approximation error, and the benchmark measures the index
+  alone. The config sets a model and a dimension for each
+  dataset, so the harness may use one model on one dataset and another on the
+  next, and it always uses one model throughout a dataset.
 - **Latency is compared at matched recall.** Approximate nearest-neighbour search
   trades recall for speed, so comparing latency at each engine's defaults measures
   nothing comparable
@@ -148,10 +151,14 @@ stemming, and stop-word choices move them more.
   each engine's search-time knob (`efSearch` for Narsil, `num_candidates` for
   Elasticsearch, `ef_search` for OpenSearch, `hnsw_ef` for Qdrant, and `ef` for
   Weaviate) upward until the engine clears `ann_recall@10 >= 0.99` against that
-  exact top-k. Latency is measured only at that point, and the value that reached
-  it is recorded per engine. Build-time HNSW parameters (M=16, efConstruction=200,
-  cosine) are held the same, and every engine uses its HNSW index rather than a
-  brute-force fallback.
+  exact top-k. The sweep runs on a seeded sample of `vector.tuning_sample_queries`
+  queries, and one timed trip over every query then confirms the chosen value. If
+  the full set falls short of the target, the harness moves the knob to the next
+  grid value and repeats the trip, so a sample that misses adds a trip and never a
+  wrong operating point. The harness reports the confirmed recall, and the
+  confirmation trip is the first latency trip. Build-time HNSW parameters (M=16,
+  efConstruction=200, cosine) are held the same, and every engine uses its HNSW
+  index, with any brute-force fallback switched off.
 - **Hybrid is compared on quality and latency.** Hybrid fuses keyword and vector
   with a method that differs per engine, so there is no single exact ground truth
   to match recall against. The hybrid track reports retrieval quality against the
@@ -176,11 +183,12 @@ the 8 GiB per-engine cap fits with headroom for the harness. From this directory
 ./run-all.sh
 ```
 
-The script builds the harness image, embeds every corpus and query once into a
-shared cache, then for each engine starts a single container behind its compose
-profile, runs the harness for every dataset and every track the engine supports,
-and tears it down before the next. The dataset cache and the embeddings cache
-persist across engines, so the corpora download once and the vectors are computed
+The script builds the harness image, fetches each dataset's published artifact
+and computes any vectors no artifact provides, once, into a shared cache, then for
+each engine starts a single container behind its compose profile, runs the
+harness for every dataset and every track the engine supports, and tears it down
+before the next. The dataset cache and the embeddings cache persist across
+engines, so the corpora download once and the vectors are fetched or computed
 once. A final step aggregates that run's per-engine results into a cross-engine
 comparison. The whole pass shares one run id, and all of its files, the per-engine
 results, the comparison, and a `run.json` describing the run, sit together under
@@ -191,6 +199,26 @@ an earlier run. To run a subset in a chosen order:
 ./run-all.sh narsil qdrant weaviate
 ```
 
+The harness writes each track's result to
+`results/runs/<run-id>/tracks/<engine>[-bestconfig]/<track>.<dataset>.json` the
+moment the track finishes, and it assembles the engine file from those files at
+the end. A failure in one track therefore keeps every track finished before it,
+and a rerun under the same run id loads the finished tracks from disk and measures
+only the rest, so after a stop hours in, the harness carries on from that point:
+
+```bash
+BENCH_RUN_ID=20260908T120000Z ./run-all.sh elasticsearch
+```
+
+The engines that run on their own machines share one run id the same way. Each
+machine writes its engine file under that id, and the comparison step reads every
+engine file it finds under the id, so copying the engine files from each machine
+into one `results/runs/<run-id>/` directory and running
+`BENCH_RUN_ID=<run-id> docker compose run --rm --entrypoint python harness -m ir_bench.aggregate`
+gives one comparison with every engine in it, and the page names each engine's
+machine where they differ. The cloud runner in `../cloud` does this merge on
+`fetch`.
+
 For a published run, record the host machine:
 
 ```bash
@@ -199,9 +227,9 @@ BENCH_MACHINE_LABEL="Apple M3 Pro, macOS 26.5.1" ./run-all.sh
 
 ## Profiles
 
-A published run comes from the disclosed cloud machine, and a local run answers a
-different question: did anything break or move since the last time. `BENCH_PROFILE`
-picks which results tree receives the run.
+The results you publish come from the disclosed cloud machine, while a local run
+shows you whether anything broke or moved since the last time. `BENCH_PROFILE`
+sets which results tree the harness writes into.
 
 ```bash
 ./run-all.sh narsil                      # cloud profile, writes results/runs/
@@ -211,8 +239,10 @@ BENCH_PROFILE=smoke ./run-all.sh narsil  # smoke profile, writes results/.smoke/
 `results/.smoke/` is git-ignored, and the writeup generator reads `results/runs/`
 alone, so a smoke run reaches neither the repository nor the published page. The
 script prints where it left the results and how to delete them. The profile changes
-where results go and nothing about the measurement, so name the engines you care
-about, or set `BENCH_DATASETS`, when you want a faster check.
+where results go and how many passes the peak concurrency level gets, three on the
+cloud profile and one on smoke, and nothing else about the measurement, so name
+the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
+`BENCH_THROUGHPUT_CONCURRENCY=1,16`, when you want a faster check.
 
 ## What it reports
 
@@ -221,15 +251,28 @@ about, or set `BENCH_DATASETS`, when you want a faster check.
   recorded environment. The vector track also carries the matched-recall operating
   point: the knob value that reached `ann_recall@10 >= 0.99` and the recall it hit.
 - Each result carries two speed measures, because they answer different questions.
-  Single-query latency times one query at a time. Throughput drives concurrent load
-  and reports the queries per second an engine sustains, which still separates engines
-  on the small corpora where one query's server time falls below a millisecond. Both
-  measures use the same matched-recall operating point, and the file records the
-  concurrency level. The load generator spreads that concurrency across processes,
-  because building a request and parsing its response is interpreter work and one
-  Python process saturates near a single core: a threads-only client holds every
-  engine to that core divided by its per-request cost, whatever the engine could
-  serve. `throughput.client_processes` sets how many processes drive the load
+  Single-query latency times one query at a time. A timed trip sends every query
+  once, and the harness makes the smallest number of trips that reaches
+  `latency.sample_budget` timed answers, between `latency.min_repeats` and
+  `latency.max_repeats`, so a 300-query set is timed five times and a 5,000-query
+  set once. A track that has not yet queried its index warms it with the first
+  `latency.warmup_queries` queries, unrecorded, and a vector track skips that
+  because its recall confirmation already did the same work. Throughput drives
+  concurrent load and reports the queries per second an engine sustains, which
+  still separates engines on the small corpora where one query's server time falls
+  below a millisecond. Both measures use the same matched-recall operating point.
+  Throughput sweeps the levels in `throughput.concurrency`, which defaults to 1, 2,
+  4, 8, 16, 32, and 64 concurrent clients, once each, and then repeats the level
+  with the highest queries per second until it holds `throughput.passes` passes.
+  `run-all.sh` sets that count to three on the cloud profile and one on the smoke
+  profile unless `BENCH_THROUGHPUT_PASSES` names another. The peak level reports
+  the median pass with a 95% bootstrap interval around it, pools the under-load
+  latency of every pass, so its percentiles run out to p99.9, and carries each
+  pass whole. The load generator spreads that concurrency across processes, because building a
+  request and parsing its response is interpreter work and one Python process
+  saturates near a single core: a threads-only client holds every engine to that
+  core divided by its per-request cost, whatever the engine could serve.
+  `throughput.client_processes` sets how many processes drive the load
   (`BENCH_THROUGHPUT_CLIENT_PROCESSES` overrides it, and unset it takes half the
   host's logical cores), and every level records the value used. That CPU comes out
   of the same host the engine runs on, so raising it buys headroom to measure with
@@ -237,6 +280,27 @@ about, or set `BENCH_DATASETS`, when you want a faster check.
   engine or the client set the limit, read from the client's CPU against the cores
   its own processes can reach and from the concurrency it achieved, so you can spot
   a client-bound number before you trust it.
+- Each level also records how many cores the engine container kept busy. The
+  compose file mounts the host's cgroup tree read-only at `/host/cgroup`, and
+  `run-all.sh` passes the engine's container id in `BENCH_ENGINE_CONTAINER_ID`. The
+  harness then reads that container's `cpu.stat` before and after every measured
+  window, and it divides the CPU time by the wall time. Where `run-all.sh`
+  supplies no container id, the harness records the field as absent and carries on.
+- The vector track measures throughput once more at every search-effort value its
+  recall sweep visited, one pass at `throughput.recall_sweep_concurrency` clients,
+  so the operating point's `sweep` carries queries per second beside the sample
+  recall at each step.
+- Ranking quality (nDCG@10, Recall@100, MAP, and MRR) is scored only on a dataset
+  that carries relevance judgements. A dataset without them, such as the DBpedia
+  sets, records ingest, recall, latency, and throughput, and its quality fields
+  stay empty.
+- The vector and hybrid tracks run twice for every engine that serves them: once at
+  full float, and once under the engine's own recommended production quantisation,
+  which `run-all.sh` names best config and writes to `engine-<name>-bestconfig.json`.
+  Set `BENCH_BEST_CONFIG=0` to run the equal-precision pass alone.
+- For Narsil the harness also records how the server held the index it measured, read from
+  its `/stats/memory` endpoint after each track: how many worker threads hold copies,
+  how many of them receive requests, and which indexes were scaled out across them.
 - Each result records what produced it: the engine's build identity (its version, and
   the git build hash where the engine exposes one), the image digest the engine ran as,
   and each dataset's content hash. With these you can tie a number back to an exact
@@ -261,8 +325,8 @@ about, or set `BENCH_DATASETS`, when you want a faster check.
 - Every engine image is pinned to an exact tag, and the Narsil server is built from
   this repository's source and stamped with its commit at build time. `run-all.sh`
   records each running image's digest, and the harness reads each engine's build
-  identity from its info endpoint, so a run names the exact artifact and code under
-  test on its own.
+  identity from its info endpoint, so every results file carries the exact image
+  digest and commit under test on its own.
 - The embedding model (`sentence-transformers/all-MiniLM-L6-v2`) and the BM25
   sparse model (`Qdrant/bm25`) are baked into the harness image at build time and
   read offline at run time, so every machine embeds with identical artifacts and
@@ -271,27 +335,92 @@ about, or set `BENCH_DATASETS`, when you want a faster check.
   MD5, so the corpus, queries, and judgements are identical on any machine. The
   harness records that MD5 with every result, so each result names the exact corpus
   it scored.
-- Each results file records the OS, architecture, CPU, memory, memory cap, and
-  library versions used for the run.
+- Each dataset's vectors, and for the DBpedia sets its documents and queries as
+  well, are published as a dataset artifact: a directory of files listed in an
+  `artifact.json` manifest with a SHA-256 per file, whose own SHA-256 the config
+  pins in `artifact_sha256`. The embed step fetches the manifest, refuses it
+  unless its digest matches, then fetches and verifies every file it lists, so
+  every machine reads byte-identical vectors and ground truth. A file that is
+  already present and verified is never fetched again.
+- The harness writes the OS, architecture, CPU, memory, memory cap, and library
+  versions it ran with into each results file.
 
 ## Datasets
 
-Datasets load through `ir_datasets`
+The BEIR sets load through `ir_datasets`
 ([ir-datasets.com](https://ir-datasets.com/beir.html)), which downloads fixed,
-hash-verified corpora, queries, and relevance judgements.
+hash-verified corpora, queries, and relevance judgements, and their vectors come
+from a published artifact. The DBpedia sets come whole from a published artifact.
 
-| Dataset | ir_datasets id | Documents | Test queries | Judgements |
-| ------- | -------------- | --------- | ------------ | ---------- |
-| SciFact | `beir/scifact/test` | 5,183 | 300 | binary |
-| NFCorpus | `beir/nfcorpus/test` | 3,633 | 323 | graded (0 to 2) |
+| Dataset | Config id | Documents | Queries | Judgements | Vectors |
+| ------- | --------- | --------- | ------- | ---------- | ------- |
+| SciFact | `beir/scifact/test` | 5,183 | 300 | binary | MiniLM, 384 |
+| NFCorpus | `beir/nfcorpus/test` | 3,633 | 323 | graded (0 to 2) | MiniLM, 384 |
+| DBpedia entities 100K | `dbpedia-entities-openai-100k` | 100,000 | 5,000 | none | OpenAI ada-002, 1,536 |
+| DBpedia entities 1M | `dbpedia-entities-openai-1m` | 995,000 | 5,000 | none | OpenAI ada-002, 1,536 |
 
-A default run uses the two small sets above. Two large standard corpora are
-configured for the publish phase and run only when you select them on a sized
-machine: MS MARCO passage (`beir/msmarco/dev`, 8.84M passages, BEIR in-domain dev
-split) and Natural Questions (`beir/nq`, 2.68M passages). They are flagged `large`
-in `config/benchmark.toml`, so a laptop run skips them. To run one, rent a VM and
-follow [docs/large-datasets.md](docs/large-datasets.md), which gives the VM size,
-the exact command, and how to copy the results back.
+The DBpedia sets are built from the
+[KShivendu/dbpedia-entities-openai-1M](https://huggingface.co/datasets/KShivendu/dbpedia-entities-openai-1M)
+parquet files (MIT licence), which carry one Wikipedia entity abstract per row
+with its title, text, and OpenAI vector. The builder takes the first rows in
+parquet order, holds out 5,000 of them with a fixed seed as the query set, and
+indexes the rest. A held-out row's title is its keyword query and its vector is
+its vector query, so every track shares one query set, and the builder computes
+the exact top-10 neighbours over the indexed rows once. The sets carry no
+relevance judgements, so they report ingest, recall, latency, and throughput and
+no ranking quality.
+
+With no selection, the harness measures the two BEIR sets. Both DBpedia sets, MS
+MARCO passage (`beir/msmarco/dev`, 8.84M passages), and Natural Questions
+(`beir/nq`, 2.68M passages) are flagged `large` in `config/benchmark.toml`, so
+you select one of them by name, on its own or beside the BEIR sets. The 100K set
+fits a laptop:
+
+```bash
+BENCH_PROFILE=smoke BENCH_DATASETS=dbpedia-entities-openai-100k ./run-all.sh narsil elasticsearch
+BENCH_PROFILE=smoke BENCH_DATASETS=beir/scifact/test,beir/nfcorpus/test,dbpedia-entities-openai-100k ./run-all.sh
+```
+
+`BENCH_DATASET_ENGINES` restricts a dataset to some of the engines in one run, so
+every engine can cover the BEIR sets while only the named engines index the larger
+one, and the harness still writes every result under one run id and one
+comparison. Each entry is `<dataset id>=<engine>,<engine>`, entries are separated
+by `;`, every engine runs a dataset the value leaves out, and the harness writes
+the mapping into every result:
+
+```bash
+BENCH_PROFILE=smoke BENCH_THROUGHPUT_CONCURRENCY=1,16 \
+BENCH_DATASETS=beir/scifact/test,beir/nfcorpus/test,dbpedia-entities-openai-100k \
+BENCH_DATASET_ENGINES="dbpedia-entities-openai-100k=narsil,elasticsearch,qdrant" ./run-all.sh
+```
+
+For the 1M set and the BEIR large corpora, rent a VM and follow
+[docs/large-datasets.md](docs/large-datasets.md), which gives the VM size, the
+exact command, and how to copy the results back.
+
+### Dataset artifacts
+
+Each dataset's artifact is a directory of files with an `artifact.json` manifest:
+the vector shards and manifests for documents and queries in the embedding
+store's own layout, the exact-neighbour file, and, for a dataset that does not
+come from `ir_datasets`, `documents.jsonl.gz` and `queries.jsonl.gz`. The config
+pins the manifest's SHA-256, and the manifest pins every file's. The harness
+looks for a local copy under `artifacts/<slug>/` first, which the compose file
+mounts read-only into the harness, hashes every file in it once against the
+manifest, and then reads it in place, so the copy costs the disk once. Otherwise
+it downloads each file from `artifact_url`, a GitHub release whose assets carry
+the manifest's flat asset names, resuming a partly downloaded file from the byte
+it stopped at and retrying a dropped connection or a transient server error up
+to ten times with a growing delay. The `artifacts/` directory is git-ignored.
+
+A machine without the local copy fetches the published artifact on its first
+run, and each release page lists the dataset, the counts, the model, and every
+file's digest. For a BEIR set, a missing artifact is a warning and the harness
+computes the vectors itself; for a DBpedia set it is fatal, because the text is
+in the artifact. The builder reads the first rows of the
+`KShivendu/dbpedia-entities-openai-1M` parquet files in order and holds out 5,000
+of them as queries, so `python -m ir_bench.build_dataset dbpedia --parquet-dir
+/path/to/parquet` rebuilds the same files from a copy of the source you hold.
 
 ## Layout
 
@@ -306,23 +435,34 @@ benchmarks/server/
   src/ir_bench/
     core/                    engine-agnostic spine
       driver.py              the neutral EngineDriver and VectorDriver interfaces
-      datasets.py            ir_datasets loaders to documents, queries, and qrels
-      embeddings.py          fastembed dense vectors, normalized, cached
+      datasets.py            documents, queries, and qrels from ir_datasets or a dataset artifact
+      dataset_archive.py     the document and query readers for an artifact dataset
+      artifacts.py           dataset artifact manifests: fetch by digest, verify every file
+      embeddings.py          the vector store: fastembed for BEIR, artifact shards otherwise
+      embedding_files.py     the store's shard, manifest, and neighbour files
       ground_truth.py        exact brute-force top-k and ANN recall@k
       recall_tuning.py       sweep the search knob to a matched recall target
+      vector_tuning.py       tune on a query sample, confirm on every query, step up on a miss
       runfile.py             TREC run-file writer and the strict-ordering rule
       scoring.py             pytrec_eval (nDCG@10, Recall@100, MAP, MRR)
-      latency.py             serial single-query latency percentiles
-      throughput.py          sustained queries per second under concurrent load
+      latency.py             serial single-query latency: timed trips sized by a sample budget
+      throughput.py          the concurrency sweep: one pass per level, repeats at the peak, intervals, pooled tails
+      throughput_process.py  the load-generator processes behind one measured window
+      engine_cpu.py          the engine container's cgroup CPU counter and the cores-busy arithmetic
+      recall_sweep.py        throughput at every search-effort level of the recall sweep
+      stats.py               percentiles, medians, and the bootstrap interval
       http_client.py         pooled HTTP client shared by every driver
       environment.py         machine environment capture
       reporter.py            per-engine, per-track results (JSON and Markdown), atomic writes
       run_store.py           per-run result directory, run id, and path validation
-      comparison.py          cross-engine, per-track comparison tables
+      comparison.py          cross-engine, per-track comparison data
+      comparison_markdown.py the comparison rendered as Markdown
       track_common.py        shared per-track helpers
       harness.py             keyword track and per-engine, per-track orchestration
       vector_runner.py       vector and hybrid track runners
-      config.py              datasets, BM25, vector config, per-engine tracks
+      config.py              BM25, latency, vector config, per-engine tracks
+      config_datasets.py     the dataset entries: source, artifact digest, vector model and dimension
+      config_throughput.py   the throughput settings: levels, passes, processes, recall-sweep level
     drivers/                 one file per engine
       narsil.py
       elasticsearch.py / opensearch.py (shared Lucene REST base: _lucene.py)
@@ -330,7 +470,8 @@ benchmarks/server/
       typesense.py
       meilisearch.py
     cli.py                   run one engine and all its tracks
-    embed.py                 precompute the shared embeddings cache
+    embed.py                 fetch each dataset's artifact, and compute the vectors no artifact provides
+    build_dataset.py         build a dataset artifact from the DBpedia parquet files or the BEIR cache
     aggregate.py             merge one run's per-engine results into a comparison
   results/runs/<run-id>/     one self-contained run: engine results, comparison,
                              run.json, and runfiles/ (the raw TREC run files)
@@ -338,8 +479,10 @@ benchmarks/server/
 
 ## Tests
 
-The result-layout and aggregation logic has unit and integration tests that run on
-the host without Docker. Install the dev extra and run them:
+The result-layout, aggregation, throughput-record, engine-CPU, dataset-artifact,
+and query-trip logic has unit tests that run on the host without Docker, and
+continuous integration runs them on every push. Install the dev extra and run
+them:
 
 ```bash
 pip install -e ".[dev]"
@@ -364,6 +507,6 @@ pytest
 - Typesense and Meilisearch run the keyword track only. Both have vector features,
   but the dense and hybrid tracks here cover the engines built for them: Narsil,
   Elasticsearch, OpenSearch, Qdrant, and Weaviate.
-- A container cannot read the host CPU model on Docker Desktop, so the run records
-  the Docker VM's view and uses `BENCH_MACHINE_LABEL` for the real host. Set it for
-  any published run.
+- A container cannot read the host CPU model on Docker Desktop, so the harness
+  records the Docker VM's view and uses `BENCH_MACHINE_LABEL` for the real host.
+  Set it for any published run.

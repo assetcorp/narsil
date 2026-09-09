@@ -8,10 +8,11 @@ import httpx
 
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
-from ..core.ingest import BatchOutcome, import_batches
+from ..core.ingest import JSON_CONTENT_TYPE, BatchOutcome, encode_json, import_batches
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
+    FULL_FLOAT,
     SERVER_TIME_UNAVAILABLE,
     EngineError,
     Hit,
@@ -53,6 +54,7 @@ class WeaviateDriver:
         )
         self.hybrid_fusion = f"rankedFusion (alpha={_HYBRID_ALPHA})"
         self.vector_knob = "ef"
+        self.vector_quantization = FULL_FLOAT
         self.server_time = SERVER_TIME_UNAVAILABLE
         self._vector_profile = EQUAL_PRECISION
         self._client = build_client(engine.url)
@@ -96,6 +98,7 @@ class WeaviateDriver:
         }
         if params.profile == BEST_CONFIG:
             vector_index_config["rq"] = {"enabled": True, "bits": 8}
+            self.vector_quantization = "8-bit RQ"
             self.vector_setup = (
                 "HNSW dense vectors with 8-bit Rotational Quantization and full-precision "
                 "rescore, distance cosine, over the shared precomputed vectors"
@@ -119,10 +122,12 @@ class WeaviateDriver:
 
     def _send_batch(self, klass: str, batch: list[VectorDoc]) -> BatchOutcome:
         objects = [
-            {"class": klass, "properties": {"docId": doc.doc_id, "text": doc.text}, "vector": list(doc.vector)}
+            {"class": klass, "properties": {"docId": doc.doc_id, "text": doc.text}, "vector": doc.vector}
             for doc in batch
         ]
-        response = self._client.post("/v1/batch/objects", json={"objects": objects})
+        response = self._client.post(
+            "/v1/batch/objects", content=encode_json({"objects": objects}), headers=JSON_CONTENT_TYPE
+        )
         _raise(response)
         indexed = 0
         for item in response.json():

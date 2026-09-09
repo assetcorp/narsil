@@ -120,7 +120,7 @@ Run `pnpm --filter benchmarks bench` and read the rendered report at `results/ru
 
 **Vector search latency** (ms/query) - Top-10 nearest-neighbor search on 384-dim embeddings. Reported as median and p95, alongside recall@10 against an exact KNN baseline.
 
-**Memory usage** (MB) - Heap memory consumed by the index after inserting all documents. Measured by diffing `process.memoryUsage().heapUsed` before and after, with forced garbage collection (requires `--expose-gc`).
+**Heap plus external memory** (MB) - The memory the index holds after inserting all documents, counted as `heapUsed` plus `external` from `process.memoryUsage()`, so a vector an engine stores in a typed array or in WebAssembly memory counts the same as one it stores as JavaScript objects. The suite measures it by diffing that sum before and after the insert, with forced garbage collection (requires `--expose-gc`). Narsil runs every tier with `workers.enabled` off, so this figure describes one thread and holds no worker copies.
 
 ## Search quality methodology
 
