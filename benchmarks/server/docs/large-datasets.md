@@ -19,11 +19,12 @@ The million-document tier is the DBpedia entities set with OpenAI
 artifact (see the README's dataset section), so no VM ever embeds it. The
 builder holds out 5,000 of the first 1,000,000 rows as queries and indexes the
 other 995,000. The harness holds the corpus matrix in memory while an engine
-indexes, which is 995,000 by 1,536 float32 values, about 6.1 GB, and it holds up
-to 32 import batches in flight at 16 clients, each about 66 MiB of JSON at 2,000
-documents, so its own peak is about 9 GB. Each engine holds its own copy plus its
-index under `BENCH_MEM_CAP`, so a 32 GiB box with a 20 GiB cap leaves about 3 GB
-for the operating system and the load generator.
+indexes, which is 995,000 by 1,536 float32 values, about 6.1 GB. Each of the 16
+import clients holds one encoded batch of 2,000 documents while it sends it, about
+66 MiB of JSON at these dimensions, and a batch waiting its turn holds only views
+into the matrix, so the harness peaks at about 7.5 GB. Each engine holds its own
+copy plus its index under `BENCH_MEM_CAP`, so a 32 GiB box with a 20 GiB cap
+leaves about 4.5 GB for the operating system and the load generator.
 
 | Dataset | Documents | Vectors (float32) | Box RAM | `BENCH_MEM_CAP` | `BENCH_JVM_HEAP` |
 | ------- | --------- | ----------------- | ------- | --------------- | ---------------- |

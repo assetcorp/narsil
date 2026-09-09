@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Sequence
+
+import numpy as np
 
 KEYWORD = "keyword"
 VECTOR = "vector"
@@ -97,4 +98,4 @@ class VectorDoc:
 
     doc_id: str
     text: str
-    vector: Sequence[float]
+    vector: np.ndarray

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 from typing import Iterable
 
@@ -8,7 +7,7 @@ import httpx
 
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
-from ..core.ingest import BatchOutcome, import_batches
+from ..core.ingest import NDJSON_CONTENT_TYPE, BatchOutcome, encode_json_lines, import_batches
 from ..core.types import (
     GRAPH_BUILD_TIMEOUT_SECONDS,
     INTEGER_MS,
@@ -85,15 +84,15 @@ class LuceneRestDriver:
         _raise(response)
 
     def _send_bulk(self, index: str, batch: list[tuple[str, dict]]) -> BatchOutcome:
-        lines: list[str] = []
-        for doc_id, source in batch:
-            lines.append(json.dumps({"index": {"_id": doc_id}}))
-            lines.append(json.dumps(source))
-        body = ("\n".join(lines) + "\n").encode("utf-8")
+        def actions():
+            for doc_id, source in batch:
+                yield {"index": {"_id": doc_id}}
+                yield source
+
         response = self._client.post(
             f"/{index}/_bulk",
-            content=body,
-            headers={"content-type": "application/x-ndjson"},
+            content=encode_json_lines(actions(), terminated=True),
+            headers=NDJSON_CONTENT_TYPE,
         )
         _raise(response)
         payload = response.json()
@@ -122,7 +121,7 @@ class LuceneRestDriver:
     ) -> ImportResult:
         return self._bulk(
             index,
-            ((doc.doc_id, {"text": doc.text, _VECTOR_FIELD: list(doc.vector)}) for doc in documents),
+            ((doc.doc_id, {"text": doc.text, _VECTOR_FIELD: doc.vector}) for doc in documents),
             batch_size,
             clients,
         )

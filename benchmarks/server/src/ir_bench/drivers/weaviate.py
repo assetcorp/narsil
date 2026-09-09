@@ -8,7 +8,7 @@ import httpx
 
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
-from ..core.ingest import BatchOutcome, import_batches
+from ..core.ingest import JSON_CONTENT_TYPE, BatchOutcome, encode_json, import_batches
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
@@ -122,10 +122,12 @@ class WeaviateDriver:
 
     def _send_batch(self, klass: str, batch: list[VectorDoc]) -> BatchOutcome:
         objects = [
-            {"class": klass, "properties": {"docId": doc.doc_id, "text": doc.text}, "vector": list(doc.vector)}
+            {"class": klass, "properties": {"docId": doc.doc_id, "text": doc.text}, "vector": doc.vector}
             for doc in batch
         ]
-        response = self._client.post("/v1/batch/objects", json={"objects": objects})
+        response = self._client.post(
+            "/v1/batch/objects", content=encode_json({"objects": objects}), headers=JSON_CONTENT_TYPE
+        )
         _raise(response)
         indexed = 0
         for item in response.json():
