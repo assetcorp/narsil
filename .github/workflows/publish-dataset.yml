@@ -73,7 +73,7 @@ jobs:
             gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "$STAGE"/*
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --notes-file "$NOTES"
           else
-            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --latest=false --title "$TITLE" --notes-file "$NOTES" "$STAGE"/*
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --title "$TITLE" --notes-file "$NOTES" "$STAGE"/*
           fi
 
       - name: Compare the digest with the config pin
