@@ -7,7 +7,7 @@ import httpx
 
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
-from ..core.ingest import BatchOutcome, import_batches
+from ..core.ingest import JSON_CONTENT_TYPE, BatchOutcome, encode_json, import_batches
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
@@ -155,7 +155,7 @@ class QdrantDriver:
                 {
                     "id": point_id,
                     "vector": {
-                        _DENSE: list(doc.vector),
+                        _DENSE: doc.vector,
                         _SPARSE: {
                             "indices": [int(i) for i in sparse_vec.indices.tolist()],
                             "values": [float(v) for v in sparse_vec.values.tolist()],
@@ -165,7 +165,10 @@ class QdrantDriver:
                 }
             )
         response = self._client.put(
-            f"/collections/{index}/points", params={"wait": "true"}, json={"points": points}
+            f"/collections/{index}/points",
+            params={"wait": "true"},
+            content=encode_json({"points": points}),
+            headers=JSON_CONTENT_TYPE,
         )
         _raise(response)
         return BatchOutcome(submitted=len(batch), indexed=len(batch))

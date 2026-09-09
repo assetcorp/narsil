@@ -8,7 +8,7 @@ import httpx
 
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
-from ..core.ingest import BatchOutcome, import_batches
+from ..core.ingest import NDJSON_CONTENT_TYPE, BatchOutcome, encode_json_lines, import_batches
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
@@ -90,11 +90,10 @@ class NarsilDriver:
         _raise_for_envelope(response)
 
     def _send_import(self, index: str, batch: list[dict]) -> BatchOutcome:
-        body = "\n".join(json.dumps(doc) for doc in batch)
         response = self._client.post(
             f"/indexes/{index}/documents/_import",
-            content=body.encode("utf-8"),
-            headers={"content-type": "application/x-ndjson"},
+            content=encode_json_lines(batch),
+            headers=NDJSON_CONTENT_TYPE,
         )
         _raise_for_envelope(response)
         payload = response.json()
@@ -189,7 +188,7 @@ class NarsilDriver:
     ) -> ImportResult:
         return self._import_docs(
             index,
-            ({"id": doc.doc_id, "text": doc.text, _VECTOR_FIELD: list(doc.vector)} for doc in documents),
+            ({"id": doc.doc_id, "text": doc.text, _VECTOR_FIELD: doc.vector} for doc in documents),
             batch_size,
             clients,
         )

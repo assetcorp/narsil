@@ -45,7 +45,7 @@ def _create_and_load(
 
     def documents():
         for doc_id, text in ds.iter_documents(spec.dataset_id):
-            yield VectorDoc(doc_id=doc_id, text=text, vector=vector_by_id[doc_id].tolist())
+            yield VectorDoc(doc_id=doc_id, text=text, vector=vector_by_id[doc_id])
 
     driver.drop_index(index)
     driver.create_vector_index(index, params)
