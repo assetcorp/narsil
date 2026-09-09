@@ -5,10 +5,13 @@ import os
 import sys
 from pathlib import Path
 
+from .core import datasets as ds
 from .core.config import load_config, select_datasets, select_engine
+from .core.dataset_engines import DATASET_ENGINES_ENV, DatasetEnginesError, datasets_for_engine, parse_dataset_engines
 from .core.embeddings import EmbeddingStore
+from .core.engine_cpu import engine_cpu_counter_from_env
 from .core.environment import capture_environment
-from .core.harness import run_engine
+from .core.harness import CHECKPOINTS_DIRNAME, run_engine
 from .core.registry import build_driver
 from .core.reporter import build_engine_report, render_engine_markdown, write_json, write_text_atomic
 from .core.run_store import resolve_run_id_for_write, run_directory, validate_engine_name, write_run_manifest
@@ -57,8 +60,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
+    ds.configure(config.datasets, _embeddings_dir())
     engine_cfg = select_engine(config, args.engine)
     specs = select_datasets(config, args.datasets or os.environ.get("BENCH_DATASETS"))
+    try:
+        dataset_engines = parse_dataset_engines(
+            os.environ.get(DATASET_ENGINES_ENV), (spec.dataset_id for spec in config.datasets), config.engines
+        )
+    except DatasetEnginesError as exc:
+        raise SystemExit(str(exc)) from exc
+    specs = datasets_for_engine(specs, engine_cfg.name, dataset_engines)
+    if not specs:
+        print(f"{DATASET_ENGINES_ENV} lists {engine_cfg.name} for none of the selected datasets; nothing to run", flush=True)
+        return 0
     vector_profile = args.vector_profile or os.environ.get("BENCH_VECTOR_PROFILE") or EQUAL_PRECISION
     if vector_profile not in VECTOR_PROFILES:
         raise SystemExit(f"unknown vector profile '{vector_profile}'; allowed: {', '.join(VECTOR_PROFILES)}")
@@ -75,19 +89,40 @@ def main(argv: list[str] | None = None) -> int:
         "build_identity": None,
         "tracks": list(engine_cfg.tracks),
         "keyword_setup": None,
+        "server_setup": None,
         "vector_profile": vector_profile,
     }
+    engine_cpu = engine_cpu_counter_from_env(os.environ)
     config_summary = {
         "k1": config.bm25.k1,
         "b": config.bm25.b,
         "run_depth": config.run_depth,
         "memory_cap_bytes": config.memory_cap_bytes,
+        "latency": {
+            "warmup_queries": config.latency.warmup_queries,
+            "sample_budget": config.latency.sample_budget,
+            "min_repeats": config.latency.min_repeats,
+            "max_repeats": config.latency.max_repeats,
+            "top_k": config.latency.top_k,
+        },
+        "dataset_vectors": {
+            spec.dataset_id: {
+                "source": spec.source,
+                "model": spec.vector_model or (config.vector.model if config.vector else None),
+                "dims": spec.vector_dims or (config.vector.dims if config.vector else None),
+            }
+            for spec in specs
+        },
+        "dataset_engines": {dataset_id: list(engines) for dataset_id, engines in dataset_engines.items()},
         "throughput": {
             "enabled": config.throughput.enabled,
             "concurrency": list(config.throughput.concurrency),
+            "passes": config.throughput.passes,
+            "recall_sweep_concurrency": config.throughput.recall_sweep_concurrency,
             "client_processes": config.throughput.client_processes,
             "duration_seconds": config.throughput.duration_seconds,
             "warmup_seconds": config.throughput.warmup_seconds,
+            "engine_cpu": None if engine_cpu is None else engine_cpu.describe(),
         },
     }
     if config.vector is not None:
@@ -98,11 +133,14 @@ def main(argv: list[str] | None = None) -> int:
                 "vector_metric": config.vector.metric,
                 "recall_target": config.vector.recall_target,
                 "recall_k": config.vector.recall_k,
+                "tuning_sample_queries": config.vector.tuning_sample_queries,
             }
         )
 
     needs_vectors = any(track in (VECTOR, HYBRID) for track in engine_cfg.tracks)
-    store = EmbeddingStore(config.vector, _embeddings_dir()) if (needs_vectors and config.vector) else None
+    store = (
+        EmbeddingStore(config.vector, _embeddings_dir(), config.datasets) if (needs_vectors and config.vector) else None
+    )
 
     try:
         run_id = resolve_run_id_for_write(args.run_id)
@@ -112,13 +150,25 @@ def main(argv: list[str] | None = None) -> int:
     directory = run_directory(args.results_dir, run_id)
     runfiles_dir = directory / "runfiles"
     runfiles_dir.mkdir(parents=True, exist_ok=True)
+    suffix = "-bestconfig" if vector_profile == BEST_CONFIG else ""
+    checkpoint_dir = directory / CHECKPOINTS_DIRNAME / f"{engine_name}{suffix}"
 
     try:
         print(f"waiting for {engine_cfg.name} at {engine_cfg.url} (vector profile: {vector_profile})", flush=True)
-        results = run_engine(driver, engine_cfg, config, specs, runfiles_dir, store, vector_profile)
+        if engine_cpu is None:
+            print("engine cores busy: not recorded (no engine container cgroup was supplied)", flush=True)
+        else:
+            print(f"engine cores busy: read from {engine_cpu.cgroup_dir}", flush=True)
+        print(f"each finished track is written under {checkpoint_dir}; rerun with BENCH_RUN_ID={run_id} to resume", flush=True)
+        results = run_engine(
+            driver, engine_cfg, config, specs, runfiles_dir, store, vector_profile, engine_cpu, checkpoint_dir
+        )
         engine_info["build_identity"] = _safe_build_identity(driver)
         engine_info["version"] = (engine_info["build_identity"] or {}).get("version")
         engine_info["keyword_setup"] = getattr(driver, "keyword_setup", None)
+        engine_info["server_setup"] = next(
+            (result["server_setup"] for result in reversed(results) if result.get("server_setup")), None
+        )
     finally:
         driver.close()
 
@@ -128,7 +178,6 @@ def main(argv: list[str] | None = None) -> int:
 
     config_summary["vector_profile"] = vector_profile
     report = build_engine_report(environment, engine_info, config_summary, results)
-    suffix = "-bestconfig" if vector_profile == BEST_CONFIG else ""
     write_json(directory / f"engine-{engine_name}{suffix}.json", report)
     markdown = render_engine_markdown(report)
     write_text_atomic(directory / f"engine-{engine_name}{suffix}.md", markdown)

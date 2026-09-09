@@ -39,6 +39,13 @@ def bulk_load_end(driver, index: str, spec) -> None:
         best_effort(lambda: hook(index), "bulk-load restore")
 
 
+def server_setup(driver) -> dict | None:
+    hook = getattr(driver, "server_setup", None)
+    if hook is None:
+        return None
+    return best_effort(hook, "server setup")
+
+
 def index_size_bytes(stats: dict | None) -> int | None:
     if not stats:
         return None

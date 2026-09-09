@@ -1,12 +1,34 @@
 from __future__ import annotations
 
+import json
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from typing import Callable, Iterable, Iterator, TypeVar
 
+import numpy as np
+
 T = TypeVar("T")
 
 _IN_FLIGHT_PER_CLIENT = 2
+JSON_CONTENT_TYPE = {"content-type": "application/json"}
+NDJSON_CONTENT_TYPE = {"content-type": "application/x-ndjson"}
+
+
+def _vector_as_list(value: object) -> list[float]:
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    raise TypeError(f"{type(value).__name__} is not JSON serialisable")
+
+
+def encode_json(obj: object) -> bytes:
+    return json.dumps(obj, default=_vector_as_list).encode("utf-8")
+
+
+def encode_json_lines(objects: Iterable[object], terminated: bool = False) -> bytes:
+    parts = [encode_json(obj) for obj in objects]
+    if terminated:
+        parts.append(b"")
+    return b"\n".join(parts)
 
 
 @dataclass(frozen=True)

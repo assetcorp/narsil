@@ -8,7 +8,7 @@
 export interface AdminOperations {
     checkpoint(indexName: string, options?: RequestOptions): Promise<void>;
     compactVectors(indexName: string, fieldName?: string, options?: RequestOptions): Promise<void>;
-    getMemoryStats(options?: RequestOptions): Promise<MemoryStats>;
+    getMemoryStats(options?: RequestOptions): Promise<MemoryStatsResponse>;
     optimizeVectors(indexName: string, fieldName?: string, options?: RequestOptions): Promise<TaskRecord>;
     rebalance(indexName: string, targetPartitionCount: number, options?: RequestOptions): Promise<TaskRecord>;
     rebuildAnalysis(indexName: string, options?: RequestOptions): Promise<TaskRecord>;
@@ -239,6 +239,11 @@ export interface IndexOperations {
     getStats(indexName: string, options?: RequestOptions): Promise<IndexStats>;
     listIndexes(options?: RequestOptions): Promise<IndexInfo[]>;
     open(indexName: string, options?: RequestOptions): Promise<void>;
+}
+
+// @public
+export interface MemoryStatsResponse extends MemoryStats {
+    requestThreads: number;
 }
 
 // @public

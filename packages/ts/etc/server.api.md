@@ -98,6 +98,11 @@ export class InMemoryTaskStore implements TaskStore {
 }
 
 // @public
+export interface MemoryStatsResponse extends MemoryStats {
+    requestThreads: number;
+}
+
+// @public
 export interface NarsilServer {
     close(): Promise<void>;
     listen(): Promise<void>;

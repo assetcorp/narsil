@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import re
 
-from ir_bench.core.comparison import build_comparison, render_comparison_markdown
+from ir_bench.core.comparison import build_comparison
+from ir_bench.core.comparison_markdown import render_comparison_markdown
 
 
 def _report(name: str, *, kw_ndcg: float, vec_ndcg: float) -> dict:

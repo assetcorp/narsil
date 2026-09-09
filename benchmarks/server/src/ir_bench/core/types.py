@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Sequence
+
+import numpy as np
 
 KEYWORD = "keyword"
 VECTOR = "vector"
@@ -12,6 +13,9 @@ TRACKS = (KEYWORD, VECTOR, HYBRID)
 EQUAL_PRECISION = "equal-precision"
 BEST_CONFIG = "best-config"
 VECTOR_PROFILES = (EQUAL_PRECISION, BEST_CONFIG)
+FULL_FLOAT = "full float"
+
+GRAPH_BUILD_TIMEOUT_SECONDS = 4 * 60 * 60
 
 FLOATING_MS = "floating-millisecond"
 INTEGER_MS = "integer-millisecond"
@@ -94,4 +98,4 @@ class VectorDoc:
 
     doc_id: str
     text: str
-    vector: Sequence[float]
+    vector: np.ndarray

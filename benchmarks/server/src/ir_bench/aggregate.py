@@ -5,7 +5,8 @@ import json
 import sys
 from pathlib import Path
 
-from .core.comparison import build_comparison, render_comparison_markdown
+from .core.comparison import build_comparison
+from .core.comparison_markdown import render_comparison_markdown
 from .core.reporter import write_json, write_text_atomic
 from .core.run_store import resolve_run_id_for_read, run_directory
 from .core.types import EQUAL_PRECISION, VECTOR_PROFILES

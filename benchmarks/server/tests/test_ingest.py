@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import json
 import sys
 import threading
 import time
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from ir_bench.core.ingest import BatchOutcome, chunked, import_batches
+from ir_bench.core.ingest import BatchOutcome, chunked, encode_json, encode_json_lines, import_batches
 
 
 def _accept(batch: list[int]) -> BatchOutcome:
@@ -111,3 +113,16 @@ def test_a_corpus_larger_than_the_pool_streams_instead_of_materialising() -> Non
 
 def test_chunked_yields_a_short_final_batch() -> None:
     assert [len(batch) for batch in chunked(range(7), 3)] == [3, 3, 1]
+
+
+def test_a_vector_row_encodes_to_the_same_json_as_its_list() -> None:
+    row = np.array([0.1, -0.25, 1.0 / 3.0], dtype=np.float32)
+    document = {"id": "7", "text": "row", "vector": row}
+    listed = {"id": "7", "text": "row", "vector": row.tolist()}
+
+    assert encode_json(document) == json.dumps(listed).encode("utf-8")
+    assert encode_json_lines([document, document], terminated=True) == (
+        json.dumps(listed) + "\n" + json.dumps(listed) + "\n"
+    ).encode("utf-8")
+    with pytest.raises(TypeError):
+        encode_json({"vector": object()})

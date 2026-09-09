@@ -112,8 +112,8 @@ cmd_run() {
   local forward
   forward="$(printf '%q ' "SUITES=$SUITES" "BENCH_MACHINE_LABEL=${MACHINE_LABEL}")"
   local v
-  for v in BENCH_INPROCESS_TIERS BENCH_SERVER_ENGINES \
-    BENCH_BEST_CONFIG BENCH_DATASETS BENCH_MEM_CAP BENCH_JVM_HEAP; do
+  for v in BENCH_INPROCESS_TIERS BENCH_SERVER_ENGINES BENCH_RUN_ID \
+    BENCH_BEST_CONFIG BENCH_THROUGHPUT_PASSES BENCH_DATASETS BENCH_DATASET_ENGINES BENCH_MEM_CAP BENCH_JVM_HEAP; do
     if [ -n "${!v:-}" ]; then
       forward+="$(printf '%q ' "$v=${!v}")"
     fi
@@ -140,8 +140,9 @@ cmd_logs() {
 
 fetch_suite() {
   local remote="$1" dest="$REPO_ROOT/$1"
+  FETCHED_IDS=""
   if [ "$DRY_RUN" = "1" ]; then
-    log "(dry-run) would fetch new run directories from $remote"
+    log "(dry-run) would fetch every run directory from $remote and merge it into $dest"
     return 0
   fi
   local ids
@@ -151,18 +152,29 @@ fetch_suite() {
   local id
   for id in $ids; do
     if [ -e "$dest/$id" ]; then
-      log "have $remote/$id already, skipping"
-      continue
+      log "merge $remote/$id into the run directory already here"
+    else
+      log "fetch $remote/$id"
     fi
-    log "fetch $remote/$id"
     prov_scp_down "narsil/$remote/$id" "$dest/"
+    FETCHED_IDS="$FETCHED_IDS $id"
+  done
+}
+
+aggregate_server_runs() {
+  local id
+  for id in $FETCHED_IDS; do
+    log "aggregate benchmarks/server/results/runs/$id from every engine file it holds"
+    ( cd "$REPO_ROOT/benchmarks/server" && BENCH_RUN_ID="$id" docker compose run --rm --entrypoint python harness -m ir_bench.aggregate ) \
+      || log "aggregate for $id failed; rerun it with: cd benchmarks/server && BENCH_RUN_ID=$id docker compose run --rm --entrypoint python harness -m ir_bench.aggregate"
   done
 }
 
 cmd_fetch() {
   fetch_suite "benchmarks/in-process/results/runs"
   fetch_suite "benchmarks/server/results/runs"
-  [ "$DRY_RUN" = "1" ] || log "results copied under benchmarks/*/results/runs/ in this repo"
+  [ "$DRY_RUN" = "1" ] || aggregate_server_runs
+  [ "$DRY_RUN" = "1" ] || log "results merged under benchmarks/*/results/runs/ in this repo"
 }
 
 cmd_down() {
@@ -219,12 +231,18 @@ Flags: --yes (skip billing prompt), --teardown (delete on success),
 Common env:
   VM_NAME, MACHINE_TYPE, DISK_SIZE (GB), SUITES (both|inprocess|server),
   SSH_KEY (private key for hetzner/digitalocean/aws; the public key is <key>.pub),
-  BENCH_INPROCESS_TIERS, BENCH_SERVER_ENGINES, BENCH_MACHINE_LABEL,
-  BENCH_BEST_CONFIG, BENCH_DATASETS, BENCH_MEM_CAP, BENCH_JVM_HEAP.
+  BENCH_INPROCESS_TIERS, BENCH_SERVER_ENGINES, BENCH_MACHINE_LABEL, BENCH_RUN_ID,
+  BENCH_BEST_CONFIG, BENCH_THROUGHPUT_PASSES, BENCH_DATASETS, BENCH_DATASET_ENGINES,
+  BENCH_MEM_CAP, BENCH_JVM_HEAP.
 
 A cheap end-to-end smoke on any provider, then clean up:
   PROVIDER=hetzner SUITES=inprocess BENCH_INPROCESS_TIERS=text \
     ./run-cloud.sh all --yes --teardown
+
+One engine per VM under one run id, merged on fetch:
+  export BENCH_RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
+  VM_NAME=bench-narsil SUITES=server BENCH_SERVER_ENGINES=narsil ./run-cloud.sh all --yes
+  VM_NAME=bench-qdrant SUITES=server BENCH_SERVER_ENGINES=qdrant ./run-cloud.sh all --yes
 EOF
 }
 

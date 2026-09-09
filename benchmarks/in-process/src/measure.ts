@@ -141,17 +141,22 @@ export async function measureMemory<T>(
   tryGc()
   tryGc()
   await new Promise(r => setTimeout(r, 100))
-  const baseline = process.memoryUsage().heapUsed
+  const baseline = heapAndExternalBytes()
 
   await engine.create()
   await engine.insert(documents)
   tryGc()
   tryGc()
   await new Promise(r => setTimeout(r, 100))
-  const after = process.memoryUsage().heapUsed
+  const after = heapAndExternalBytes()
 
   await engine.teardown()
   return Math.max(0, after - baseline)
+}
+
+function heapAndExternalBytes(): number {
+  const usage = process.memoryUsage()
+  return usage.heapUsed + usage.external
 }
 
 export async function measureSerialization(

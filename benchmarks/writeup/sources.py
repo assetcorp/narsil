@@ -16,6 +16,13 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _RUN_ID = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$")
 
+SERVER_SUITE_DIR = "benchmarks/server"
+INPROCESS_SUITE_DIR = "benchmarks/in-process"
+COMPARISON_FILENAME = "comparison.json"
+BEST_CONFIG_COMPARISON_FILENAME = "comparison-best-config.json"
+INPROCESS_RESULTS_FILENAME = "results.json"
+MANIFEST_FILENAME = "run.json"
+
 
 @dataclass(frozen=True)
 class Source:
@@ -38,15 +45,18 @@ def _latest_run(runs_root: Path) -> str | None:
 
 def _read_json(path: Path) -> dict:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        parsed = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise SystemExit(f"benchmark writeup: missing {path}") from exc
     except json.JSONDecodeError as exc:
         raise SystemExit(f"benchmark writeup: {path} is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise SystemExit(f"benchmark writeup: {path} must contain a JSON object")
+    return parsed
 
 
-def _load(suite_dir: str, data_filename: str, suite_label: str) -> Source:
-    runs_root = _REPO_ROOT / suite_dir / "results" / "runs"
+def _load(root: Path, suite_dir: str, data_filename: str, suite_label: str, report_name: str) -> Source:
+    runs_root = root / suite_dir / "results" / "runs"
     run_id = _latest_run(runs_root)
     if run_id is None:
         raise SystemExit(
@@ -56,15 +66,23 @@ def _load(suite_dir: str, data_filename: str, suite_label: str) -> Source:
     directory = runs_root / run_id
     return Source(
         run_id=run_id,
-        report_link=f"{suite_dir}/results/runs/{run_id}/comparison.md",
+        report_link=f"{suite_dir}/results/runs/{run_id}/{report_name}",
         data=_read_json(directory / data_filename),
-        manifest=_read_json(directory / "run.json"),
+        manifest=_read_json(directory / MANIFEST_FILENAME),
     )
 
 
-def load_server_source() -> Source:
-    return _load("benchmarks/server", "comparison.json", "server")
+def load_server_source(root: Path = _REPO_ROOT) -> Source:
+    return _load(root, SERVER_SUITE_DIR, COMPARISON_FILENAME, "server", "comparison.md")
 
 
-def load_inprocess_source() -> Source:
-    return _load("benchmarks/in-process", "results.json", "in-process")
+def load_server_best_config_source(root: Path = _REPO_ROOT) -> Source | None:
+    runs_root = root / SERVER_SUITE_DIR / "results" / "runs"
+    run_id = _latest_run(runs_root)
+    if run_id is None or not (runs_root / run_id / BEST_CONFIG_COMPARISON_FILENAME).is_file():
+        return None
+    return _load(root, SERVER_SUITE_DIR, BEST_CONFIG_COMPARISON_FILENAME, "server", "comparison-best-config.md")
+
+
+def load_inprocess_source(root: Path = _REPO_ROOT) -> Source:
+    return _load(root, INPROCESS_SUITE_DIR, INPROCESS_RESULTS_FILENAME, "in-process", "comparison.md")

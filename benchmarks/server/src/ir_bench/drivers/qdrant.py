@@ -7,11 +7,13 @@ import httpx
 
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
-from ..core.ingest import BatchOutcome, import_batches
+from ..core.ingest import JSON_CONTENT_TYPE, BatchOutcome, encode_json, import_batches
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
     FLOATING_MS,
+    FULL_FLOAT,
+    GRAPH_BUILD_TIMEOUT_SECONDS,
     EngineError,
     Hit,
     ImportResult,
@@ -55,6 +57,7 @@ class QdrantDriver:
         self.hybrid_setup = "Dense HNSW fused with BM25 sparse vectors (fastembed Qdrant/bm25, server IDF) via RRF"
         self.hybrid_fusion = "RRF (Query API fusion)"
         self.vector_knob = "hnsw_ef"
+        self.vector_quantization = FULL_FLOAT
         self.server_time = ServerTimeSource(
             source="top-level `time` field, seconds converted to ms", resolution=FLOATING_MS
         )
@@ -116,6 +119,7 @@ class QdrantDriver:
             body["quantization_config"] = {
                 "scalar": {"type": "int8", "quantile": _SCALAR_QUANTILE, "always_ram": True}
             }
+            self.vector_quantization = "int8 scalar"
             self.vector_setup = (
                 "HNSW dense vectors with int8 scalar quantization and full-precision rescore "
                 f"(oversampling {_SCALAR_OVERSAMPLING}x), distance Cosine, over the shared precomputed vectors"
@@ -151,7 +155,7 @@ class QdrantDriver:
                 {
                     "id": point_id,
                     "vector": {
-                        _DENSE: list(doc.vector),
+                        _DENSE: doc.vector,
                         _SPARSE: {
                             "indices": [int(i) for i in sparse_vec.indices.tolist()],
                             "values": [float(v) for v in sparse_vec.values.tolist()],
@@ -161,7 +165,10 @@ class QdrantDriver:
                 }
             )
         response = self._client.put(
-            f"/collections/{index}/points", params={"wait": "true"}, json={"points": points}
+            f"/collections/{index}/points",
+            params={"wait": "true"},
+            content=encode_json({"points": points}),
+            headers=JSON_CONTENT_TYPE,
         )
         _raise(response)
         return BatchOutcome(submitted=len(batch), indexed=len(batch))
@@ -175,7 +182,7 @@ class QdrantDriver:
         )
         return ImportResult(submitted=total.submitted, indexed=total.indexed)
 
-    def build_vectors(self, index: str, timeout_seconds: float = 600.0) -> None:
+    def build_vectors(self, index: str, timeout_seconds: float = GRAPH_BUILD_TIMEOUT_SECONDS) -> None:
         deadline = time.perf_counter() + timeout_seconds
         while time.perf_counter() < deadline:
             response = self._client.get(f"/collections/{index}")

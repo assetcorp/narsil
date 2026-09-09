@@ -7,9 +7,45 @@ reproducible. Run the large datasets on a rented Linux VM sized to the corpus,
 then copy the results back. Nothing about the stack changes; you select a large
 dataset with an environment variable and raise the memory cap.
 
-This guide covers MS MARCO passage (`beir/msmarco/dev`) and Natural Questions
-(`beir/nq`). Both are flagged `large` in `config/benchmark.toml`, so a default
-run never touches them.
+This guide covers DBpedia entities 1M (`dbpedia-entities-openai-1m`), MS MARCO
+passage (`beir/msmarco/dev`), and Natural Questions (`beir/nq`). All three are
+flagged `large` in `config/benchmark.toml`, so the harness skips them unless you
+select one by name.
+
+## DBpedia entities 1M
+
+The million-document tier is the DBpedia entities set with OpenAI
+`text-embedding-ada-002` vectors at 1,536 dimensions, published as a dataset
+artifact (see the README's dataset section), so no VM ever embeds it. The
+builder holds out 5,000 of the first 1,000,000 rows as queries and indexes the
+other 995,000. The harness holds the corpus matrix in memory while an engine
+indexes, which is 995,000 by 1,536 float32 values, about 6.1 GB. Each of the 16
+import clients holds one encoded batch of 2,000 documents while it sends it, about
+66 MiB of JSON at these dimensions, and a batch waiting its turn holds only views
+into the matrix, so the harness peaks at about 7.5 GB. Each engine holds its own
+copy plus its index under `BENCH_MEM_CAP`, so a 32 GiB box with a 20 GiB cap
+leaves about 4.5 GB for the operating system and the load generator.
+
+| Dataset | Documents | Vectors (float32) | Box RAM | `BENCH_MEM_CAP` | `BENCH_JVM_HEAP` |
+| ------- | --------- | ----------------- | ------- | --------------- | ---------------- |
+| `dbpedia-entities-openai-1m` | 995,000 | ~6.1 GB | 32 GiB | `20g` | `10g` |
+
+The VM fetches the artifact from the release named in `artifact_url` on its first
+run, about 6.3 GB, or reads a copy of the `artifacts/` directory placed beside
+`run-all.sh`, which the compose file mounts into the harness. A 2,000-document
+batch at 1,536 dimensions is about 66 MiB of JSON, so the compose file raises
+each engine's request body limit to 256 MB. Run it like any large dataset:
+
+```bash
+BENCH_DATASETS=dbpedia-entities-openai-1m \
+BENCH_MEM_CAP=20g \
+BENCH_JVM_HEAP=10g \
+BENCH_MACHINE_LABEL="GCP c3-standard-8, 8 vCPU / 32 GiB" \
+./run-all.sh
+```
+
+The set carries no relevance judgements, so the harness records ingest, recall,
+latency, and throughput for every track and no ranking quality.
 
 ## Which VM to rent
 
@@ -42,7 +78,7 @@ Concrete instances that fit, with on-demand pricing at the time of writing:
 | `beir/msmarco/dev` | CCX43, 16 vCPU / 64 GiB, ~€0.13/hr | c7i.8xlarge, 32 vCPU / 64 GiB, ~$1.43/hr (or r7i.4xlarge, 128 GiB) | n2-highmem-16, 16 vCPU / 128 GiB |
 
 Hetzner dedicated-vCPU instances are far cheaper per hour; AWS or GCP make sense
-when a run must sit in a specific cloud. A Hetzner box with fewer cores embeds
+when you need the results to come from a specific cloud. A Hetzner box with fewer cores embeds
 more slowly, which is the trade for the lower cost.
 
 ## Disk
@@ -50,6 +86,8 @@ more slowly, which is the trade for the lower cost.
 Provision generous disk for the Docker volumes (the dataset cache, the embedding
 shards, and each engine's persisted index):
 
+- `dbpedia-entities-openai-1m`: at least 40 GiB. The artifact is about 6.3 GB
+  and every engine persists its own copy of the vectors and index.
 - `beir/nq`: at least 60 GiB.
 - `beir/msmarco/dev`: at least 150 GiB. The MS MARCO collection alone is about
   3 GiB, its embedding shards about 12.6 GiB, and the engines persist their own
@@ -94,17 +132,20 @@ To run only the engines that support a track, or to spread a long run across
 sessions, pass engine names: `... ./run-all.sh narsil elasticsearch qdrant`.
 
 Run the whole thing inside `tmux` or `screen` so a dropped SSH session does not
-stop it. Because each large dataset takes hours, keep the run attached to a
+stop it. Because each large dataset takes hours, keep `run-all.sh` attached to a
 session that survives a disconnect.
 
 ## Resumability
 
 The embedding step writes the corpus in durable shards with a manifest into the
 `embeddings_cache` Docker volume. If the VM reboots or a container is killed
-partway through, re-run the exact same command: the embed resumes from the last
-completed shard instead of starting over. The dataset download is also cached, and
-the exact recall ground truth is computed once and cached, so a second engine
-reuses it rather than recomputing the brute-force top-k.
+partway through, re-run the exact same command with the run id the first attempt
+printed in `BENCH_RUN_ID`: the embed resumes from the last completed shard, an
+artifact download resumes from the byte it stopped at, and the harness loads every
+track it had finished under that run id from
+`results/runs/<run-id>/tracks/` and measures only the rest. The dataset download is
+also cached, and the exact recall ground truth is computed once and cached, so a
+second engine reuses it.
 
 For a long unattended download over a flaky link, raise the retry budget:
 

@@ -4,7 +4,7 @@ import { ServerErrorCodes } from '../errors'
 import { parseJsonOptional, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import type { RouteContext } from '../request'
 import { sendBinary, sendError } from '../response'
-import type { RebalanceBody } from '../types'
+import type { MemoryStatsResponse, RebalanceBody } from '../types'
 import { parseTaskListQuery, validateRebalance } from '../validation'
 
 interface FieldBody {
@@ -65,7 +65,9 @@ export function createAdminHandlers(deps: HandlerDeps) {
 
   async function memory(ctx: RouteContext): Promise<void> {
     try {
-      respondJson(ctx, await engine.getMemoryStats())
+      const stats = await engine.getMemoryStats()
+      const response: MemoryStatsResponse = { ...stats, requestThreads: deps.requestThreadCount() }
+      respondJson(ctx, response)
     } catch (err) {
       respondError(ctx, err)
     }

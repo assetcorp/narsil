@@ -30,8 +30,10 @@ import_clients = 16
 memory_cap_bytes = 8589934592
 
 [latency]
-warmup = 2
-repeats = 5
+warmup_queries = 1000
+sample_budget = 5000
+min_repeats = 1
+max_repeats = 5
 top_k = 10
 
 # Sustained throughput under concurrent load, measured alongside the serial
@@ -55,7 +57,9 @@ top_k = 10
 # records the value used.
 [throughput]
 enabled = true
-concurrency = [16]
+concurrency = [1, 2, 4, 8, 16, 32, 64]
+passes = 1
+recall_sweep_concurrency = 16
 duration_seconds = 5.0
 warmup_seconds = 1.0
 
@@ -64,15 +68,37 @@ id = "beir/scifact/test"
 baseline_ndcg10 = 0.679
 margin = 0.02
 baseline_source = "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4"
+artifact_url = "https://github.com/assetcorp/narsil/releases/download/dataset-beir_scifact_test"
+artifact_sha256 = "cf0eb44b0e8cf9c927466019cecef3ac821db5543863abfcacdbd967aea7d8ad"
 
 [[datasets]]
 id = "beir/nfcorpus/test"
 baseline_ndcg10 = 0.322
 margin = 0.02
 baseline_source = "Pyserini 2CR BEIR, flat BM25 k1=0.9 b=0.4"
+artifact_url = "https://github.com/assetcorp/narsil/releases/download/dataset-beir_nfcorpus_test"
+artifact_sha256 = "6877a010690a933eaddc8d08fd0f821309fe4e3c639e3b29152c919e0be92a7a"
 
-# Large standard IR corpora for the publish phase. They are flagged large, so a
-# default run skips them and the small BEIR suite above still runs on a laptop;
+[[datasets]]
+id = "dbpedia-entities-openai-100k"
+source = "artifact"
+artifact_url = "https://github.com/assetcorp/narsil/releases/download/dataset-dbpedia_entities_openai_100k"
+artifact_sha256 = "32136099935e72832937ae9cd40db53b5ab52f10ed59be9ca3ebd97c82bb4ce1"
+vector_model = "text-embedding-ada-002"
+vector_dims = 1536
+large = true
+
+[[datasets]]
+id = "dbpedia-entities-openai-1m"
+source = "artifact"
+artifact_url = "https://github.com/assetcorp/narsil/releases/download/dataset-dbpedia_entities_openai_1m"
+artifact_sha256 = "a1668e4b4a82046987c07d0282eb100cae943dd40b67e76a98fa8afb2deefe37"
+vector_model = "text-embedding-ada-002"
+vector_dims = 1536
+large = true
+
+# Large standard IR corpora for the publish phase. They are flagged large, so the
+# harness skips them unless selected and the small BEIR suite above still fits a laptop;
 # select one explicitly (--datasets or BENCH_DATASETS) on a sized machine. See
 # docs/large-datasets.md for VM sizing and the exact commands. MS MARCO is the
 # BEIR in-domain set (dev split, 6,980 queries); the corpus loads from the

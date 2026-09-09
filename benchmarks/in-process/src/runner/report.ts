@@ -160,12 +160,12 @@ function scaleTierSection(
     ),
     '',
   )
-  lines.push('### Memory (MB)', '')
+  lines.push('### Heap plus external memory (MB)', '')
   lines.push(
     ...mdTable(
       headers,
       aligns,
-      scaleRows(metas, scales, results, r => (r.memoryMb >= 0 ? r.memoryMb.toFixed(1) : 'n/a')),
+      scaleRows(metas, scales, results, r => (r.heapAndExternalMb >= 0 ? r.heapAndExternalMb.toFixed(1) : 'n/a')),
     ),
     '',
   )
@@ -249,12 +249,12 @@ function vectorSection(
     ),
     '',
   )
-  lines.push('### Memory (MB)', '')
+  lines.push('### Heap plus external memory (MB)', '')
   lines.push(
     ...mdTable(
       headers,
       aligns,
-      rowsFor(r => r.memoryMb.toFixed(1)),
+      rowsFor(r => r.heapAndExternalMb.toFixed(1)),
     ),
     '',
   )

@@ -11,6 +11,7 @@ coverage/
 packages/ts/benchmarks/results/*.json
 benchmarks/datasets/
 benchmarks/*/results/.smoke/
+benchmarks/server/artifacts/
 *.heapsnapshot
 .turbo/
 .cache/

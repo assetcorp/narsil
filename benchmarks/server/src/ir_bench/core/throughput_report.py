@@ -19,13 +19,20 @@ def levels(obj: Any) -> list[dict]:
 
 
 def peak_level(obj: Any) -> dict | None:
-    """The highest-QPS level an engine reached. Peak is taken by measured rate, not
-    by the largest concurrency, so a level where the harness throttled the rate
-    cannot masquerade as the engine's capacity."""
+    """The level the harness repeated as the engine's peak, which is the level with
+    the highest QPS on its first pass, so the tabled peak is always the level that
+    carries the extra passes and the interval. A block recorded before the harness
+    named its peak falls back to the highest measured rate, which is taken by rate
+    and never by the largest concurrency, so a level where the harness throttled the
+    rate cannot masquerade as the engine's capacity."""
 
     found = levels(obj)
     if not found:
         return None
+    recorded = obj.get("peak_concurrency") if isinstance(obj, dict) else None
+    for level in found:
+        if recorded is not None and level.get("concurrency") == recorded:
+            return level
     return max(found, key=lambda level: level.get("qps") or 0.0)
 
 
@@ -50,22 +57,34 @@ def per_engine_lines(result: dict) -> list[str]:
         "Per-request latency here is measured under that load, separate from the serial latency above. "
         "Client-limited marks a level where the harness, not the engine, capped the rate:",
         "",
-        "| Concurrency | QPS | Errors | Under-load p95 ms | Achieved concurrency | Client-limited |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| Concurrency | Passes | QPS | 95% CI | Errors | Under-load p95 ms | Under-load p99.9 ms | Engine cores busy | Achieved concurrency | Client-limited |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for level in found:
         client = level.get("client_latency_ms", {})
         lines.append(
-            "| {c} | {qps} | {err} | {p95} | {ach} | {bound} |".format(
+            "| {c} | {passes} | {qps} | {ci} | {err} | {p95} | {p999} | {cores} | {ach} | {bound} |".format(
                 c=level.get("concurrency", "n/a"),
+                passes=level.get("pass_count", 1),
                 qps=_num(level.get("qps"), 0),
+                ci=_interval(level),
                 err=_errors(level),
                 p95=_num(client.get("p95_ms"), 2),
+                p999=_num(client.get("p999_ms"), 2),
+                cores=_num(level.get("engine_cores_busy"), 2),
                 ach=_num(level.get("achieved_concurrency"), 1),
                 bound="yes" if level.get("client_bound") else "no",
             )
         )
     return lines
+
+
+def _interval(level: dict) -> str:
+    low = level.get("qps_ci_low")
+    high = level.get("qps_ci_high")
+    if not isinstance(low, (int, float)) or not isinstance(high, (int, float)) or low == high:
+        return "n/a"
+    return f"{low:.0f} to {high:.0f}"
 
 
 def comparison_lines(rows: list[dict]) -> list[str]:
@@ -83,23 +102,26 @@ def comparison_lines(rows: list[dict]) -> list[str]:
         "tested concurrency levels, and 'client-limited' flags an engine whose peak the harness capped, not the "
         "engine itself. A star marks the best:",
         "",
-        "| Engine | Peak QPS | At concurrency | Under-load p95 ms | Client-limited |",
-        "| --- | --- | --- | --- | --- |",
+        "| Engine | Peak QPS | 95% CI | At concurrency | Under-load p95 ms | Under-load p99.9 ms | Engine cores busy | Client-limited |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for engine, peak in peaks:
         if not peak:
-            lines.append(f"| {engine} | n/a | n/a | n/a | n/a |")
+            lines.append(f"| {engine} | n/a | n/a | n/a | n/a | n/a | n/a | n/a |")
             continue
         qps = peak.get("qps")
         marker = "\\*" if has_distinct_best and isinstance(qps, (int, float)) and abs(qps - best_qps) < 1e-9 else ""
         client = peak.get("client_latency_ms", {})
         lines.append(
-            "| {engine} | {qps}{marker} | {c} | {p95} | {bound} |".format(
+            "| {engine} | {qps}{marker} | {ci} | {c} | {p95} | {p999} | {cores} | {bound} |".format(
                 engine=engine,
                 qps=_num(qps, 0),
                 marker=marker,
+                ci=_interval(peak),
                 c=peak.get("concurrency", "n/a"),
                 p95=_num(client.get("p95_ms"), 2),
+                p999=_num(client.get("p999_ms"), 2),
+                cores=_num(peak.get("engine_cores_busy"), 2),
                 bound="yes" if peak.get("client_bound") else "no",
             )
         )
