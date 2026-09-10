@@ -142,6 +142,14 @@ export function upperUsed(adj: Adjacency): number {
 /**
  * Grows the per-ordinal arrays so that they span the given ordinals.
  *
+ * Every array grows to the same ordinal capacity, and the levels array grows
+ * last, so a thread that finds an ordinal inside the levels finds the
+ * neighbours, the bases, the lock word, and the tombstone byte of that ordinal
+ * in place as well. Doubling each array from its own length instead would
+ * leave the arrays at different capacities, because two threads growing at
+ * once double them at different moments, and a thread would then reach past
+ * the end of an array another thread had yet to grow.
+ *
  * @param adj The thread's views over the graph.
  * @param needed The ordinals the arrays must span afterwards.
  *
@@ -149,11 +157,12 @@ export function upperUsed(adj: Adjacency): number {
  */
 export function ensureAdjacencyCapacity(adj: Adjacency, needed: number): void {
   if (needed <= adj.nodeLevels.length) return
-  growBufferTo(adj.handles.nodeLevels, needed)
-  growBufferTo(adj.handles.level0, needed * adj.level0Stride * 4)
-  growBufferTo(adj.handles.upperBase, needed * 4)
-  growBufferTo(adj.handles.locks, needed * 4)
-  growBufferTo(adj.handles.tombstones, needed)
+  const capacity = Math.max(needed, adj.handles.nodeLevels.byteLength * 2)
+  growBufferTo(adj.handles.level0, capacity * adj.level0Stride * 4)
+  growBufferTo(adj.handles.upperBase, capacity * 4)
+  growBufferTo(adj.handles.locks, capacity * 4)
+  growBufferTo(adj.handles.tombstones, capacity)
+  growBufferTo(adj.handles.nodeLevels, capacity)
   rebindNodes(adj)
 }
 

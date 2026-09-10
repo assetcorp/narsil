@@ -151,6 +151,10 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
     })
   }
 
+  function refusalOf(message: VectorWorkerMessage): string {
+    return message.type === 'error' ? message.message : `the worker answered "${message.type}"`
+  }
+
   function pickSlot(): WorkerSlot | null {
     let slot: WorkerSlot | null = null
     for (const candidate of slots) {
@@ -216,7 +220,10 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
       requestCounter += 1
       const request: VectorInsertRequest = { type: 'insertOrdinals', requestId: `${requestCounter}`, handle, ordinals }
       const message = await sendBusy(slot, request, VECTOR_INSERT_TIMEOUT_MS)
-      if (message.type !== 'inserted') return null
+      if (message.type !== 'inserted') {
+        console.warn('A vector worker placed no vectors in the shared graph:', refusalOf(message))
+        return null
+      }
       return message.outcome
     },
 
