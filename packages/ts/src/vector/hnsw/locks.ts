@@ -1,5 +1,5 @@
 import { LOCK_SPIN_ITERATIONS, LOCK_WAIT_SLICE_MS } from '../constants'
-import { fixedView, sharedMemoryAvailable } from '../shared-buffers/growable'
+import { fixedView, growBufferTo, sharedMemoryAvailable } from '../shared-buffers/growable'
 import {
   GRAPH_ENTRY_LOCK,
   GRAPH_LOCK,
@@ -54,7 +54,9 @@ export function openGraphLocks(handles: SharedGraphHandles, threadSlot: number):
     header: handles.header,
     held: handles.heldLocks,
     words(ord: number) {
-      if (ord >= words.length) words = fixedView(handles.locks, Int32Array)
+      if (ord < words.length) return words
+      if (ord * 4 >= handles.locks.byteLength) growBufferTo(handles.locks, (ord + 1) * 4)
+      words = fixedView(handles.locks, Int32Array)
       return words
     },
   }
