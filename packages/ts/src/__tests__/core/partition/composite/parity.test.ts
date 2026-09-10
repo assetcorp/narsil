@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { createPartitionIndex, type PartitionIndex } from '../../../../core/partition'
 import { type CompositePartition, createCompositePartition } from '../../../../core/partition/composite'
-import { buildCompactedSegmentPayload } from '../../../../core/partition/composite/compaction'
-import { createFrozenSegment } from '../../../../core/partition/frozen'
+import { createSharedFrozenSegment } from '../../../../core/partition/frozen'
+import { mergeFrozenSegments } from '../../../../core/partition/frozen/merge'
 import { ErrorCodes, NarsilError } from '../../../../errors'
 import type { InternalSearchParams } from '../../../../types/internal'
 import type { AnyDocument } from '../../../../types/schema'
@@ -372,12 +372,12 @@ describe('composite writes route to the owning part', () => {
 
     const segmentIds = composite.frozenSegmentSizes().map(size => size.segmentId)
     const segments = composite.frozenSegmentsById(segmentIds)
-    const { payload, documents } = buildCompactedSegmentPayload(segments)
-    expect(payload.documentCount).toBe(allDocs.length)
+    const merged = mergeFrozenSegments(segments)
+    if (merged === null) throw new Error('this runtime shares no memory')
+    expect(merged.documentCount).toBe(allDocs.length)
 
     composite.remove('seg3-doc1', simpleSchema, english)
-    const replacement = createFrozenSegment(payload, documents)
-    composite.swapFrozenSegments(segmentIds, replacement)
+    composite.swapFrozenSegments(segmentIds, createSharedFrozenSegment(merged))
 
     expect(composite.frozenSegmentCount()).toBe(1)
     expect(composite.count()).toBe(allDocs.length - 1)

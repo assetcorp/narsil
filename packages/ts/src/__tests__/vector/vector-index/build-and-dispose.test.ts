@@ -2,10 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
 import { DIM, normalizedVector, vectorFromValues } from './fixtures'
 
-vi.mock('../../../vector/hnsw-worker-dispatch', () => ({
-  dispatchWorkerBuild: vi.fn().mockResolvedValue({ ok: false, reason: 'no-workers', message: 'mocked' }),
-}))
-
 describe('VectorIndex build scheduling', () => {
   let index: VectorIndex
 
@@ -141,20 +137,17 @@ describe('VectorIndex dispose', () => {
   })
 
   it('dispose during build does not produce an HNSW graph', async () => {
+    vi.useRealTimers()
     const buildIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'none' })
-    for (let i = 0; i < 150; i++) {
+    for (let i = 0; i < 400; i++) {
       buildIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
     buildIndex.scheduleBuild()
-    await vi.advanceTimersToNextTimerAsync()
+    await new Promise(resolve => setTimeout(resolve, 0))
 
     expect(buildIndex.maintenanceStatus().building).toBe(true)
 
     buildIndex.dispose()
-
-    while (buildIndex.maintenanceStatus().building) {
-      await vi.advanceTimersToNextTimerAsync()
-    }
     await buildIndex.awaitPendingBuild()
 
     expect(buildIndex.maintenanceStatus().graphCount).toBe(0)

@@ -79,6 +79,7 @@ export function createWorkerOrchestrator(
     segmentLedger: new Map(),
     compactionsInFlight: new Map(),
     idleMergeTimers: new Map(),
+    sharedVectorFields: new Map(),
     workerPool: null,
     poolStart: null,
     poolRetryAt: 0,

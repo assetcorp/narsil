@@ -1,33 +1,32 @@
 import { type CompositePartition, isCompositePartition } from '../../core/partition/composite'
-import { buildCompactedSegmentPayload } from '../../core/partition/composite/compaction'
-import {
-  createFrozenSegment,
-  createSharedFrozenSegment,
-  type FrozenSegment,
-  freezeSegmentShared,
-  type SharedSegmentSnapshot,
-} from '../../core/partition/frozen'
+import { createSharedFrozenSegment, type SharedSegmentSnapshot } from '../../core/partition/frozen'
+import { mergeFrozenSegments } from '../../core/partition/frozen/merge'
 import type { PartitionManager } from '../../partitioning/manager'
 import { createRequestId } from '../../workers/protocol'
-import { COMPACTION_SEGMENT_TRIGGER, IDLE_MERGE_DELAY_MS, LIVE_TAIL_FREEZE_FLOOR } from './constants'
+import {
+  COMPACTION_SEGMENT_TRIGGER,
+  IDLE_MERGE_DELAY_MS,
+  LIVE_TAIL_FREEZE_FLOOR,
+  SEGMENTS_PER_MERGE,
+} from './constants'
 import { freezeLiveTail } from './live-tail'
 import { awaitReplicationIdle, replicateToWorkers } from './replication'
 import type { OrchestratorState, SegmentLedgerEntry } from './types'
 
 export type CompactionPolicy = 'ingest' | 'idle'
 
-function smallestSegmentIds(entries: ReadonlyArray<SegmentLedgerEntry>): string[] {
+function smallestSegmentIds(entries: ReadonlyArray<SegmentLedgerEntry>, limit: number): string[] {
   return [...entries]
     .sort((a, b) => a.documentCount - b.documentCount)
-    .slice(0, COMPACTION_SEGMENT_TRIGGER)
+    .slice(0, limit)
     .map(entry => entry.segmentId)
 }
 
 function pickSegmentIds(entries: ReadonlyArray<SegmentLedgerEntry>, policy: CompactionPolicy): string[] | null {
   if (policy === 'idle') {
-    return entries.length >= 2 ? entries.map(entry => entry.segmentId) : null
+    return entries.length >= 2 ? smallestSegmentIds(entries, SEGMENTS_PER_MERGE) : null
   }
-  return entries.length >= COMPACTION_SEGMENT_TRIGGER ? smallestSegmentIds(entries) : null
+  return entries.length >= COMPACTION_SEGMENT_TRIGGER ? smallestSegmentIds(entries, COMPACTION_SEGMENT_TRIGGER) : null
 }
 
 function mainCompositeOf(manager: PartitionManager, partitionId: number): CompositePartition | null {
@@ -81,7 +80,7 @@ async function compactOnWorker(
       requestId: createRequestId(),
     })
   } catch (err) {
-    console.warn('Worker segment compaction failed, compacting on the main thread:', err)
+    console.warn('Worker segment compaction failed:', err)
     return null
   } finally {
     lease.release()
@@ -99,33 +98,25 @@ async function compactPartitionSegments(
   await awaitReplicationIdle(state, indexName)
   if (policy === 'idle' && !state.scaledOutIndexes.has(indexName)) return false
 
-  let snapshot = await compactOnWorker(state, indexName, partitionId, segmentIds)
   const composite = mainCompositeOf(manager, partitionId)
-  const holdsAll = mainHoldsAll(composite, segmentIds)
+  const mainCanMerge = composite !== null && mainHoldsAll(composite, segmentIds)
+  let snapshot = await compactOnWorker(state, indexName, partitionId, segmentIds)
+  if (snapshot === null && mainCanMerge && composite !== null) {
+    snapshot = mergeFrozenSegments(composite.frozenSegmentsById(segmentIds))
+  }
+  if (snapshot === null) return false
 
-  let replacement: FrozenSegment | null = null
-  if (snapshot !== null && holdsAll) {
-    replacement = createSharedFrozenSegment(snapshot)
-  } else if (snapshot === null && holdsAll && composite !== null) {
-    const { payload, documents } = buildCompactedSegmentPayload(composite.frozenSegmentsById(segmentIds))
-    snapshot = freezeSegmentShared(payload, documents)
-    replacement = snapshot === null ? createFrozenSegment(payload, documents) : createSharedFrozenSegment(snapshot)
+  if (mainCanMerge && composite !== null) {
+    composite.swapFrozenSegments(segmentIds, createSharedFrozenSegment(snapshot))
   }
-  if (snapshot === null && replacement === null) return false
-
-  if (composite !== null && replacement !== null) {
-    composite.swapFrozenSegments(segmentIds, replacement)
-  }
-  if (snapshot !== null) {
-    await replicateToWorkers(state, {
-      type: 'swapSegments',
-      indexName,
-      partitionId,
-      dropSegmentIds: [...segmentIds],
-      snapshot,
-      requestId: createRequestId(),
-    })
-  }
+  await replicateToWorkers(state, {
+    type: 'swapSegments',
+    indexName,
+    partitionId,
+    dropSegmentIds: [...segmentIds],
+    snapshot,
+    requestId: createRequestId(),
+  })
   return true
 }
 

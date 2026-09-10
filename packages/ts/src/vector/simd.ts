@@ -116,12 +116,25 @@ export function isSimdAvailable(): boolean {
   return wasmExports !== null
 }
 
+/**
+ * The distance kernels bound to one memory, which read their operands at byte
+ * offsets inside that memory so that a caller measures against a vector where
+ * it already lies.
+ *
+ * @internal
+ */
 export interface ArenaSimd {
+  /** The kernels read every operand out of this memory. */
   memory: WebAssembly.Memory
+  /** Returns the dot product of two float32 vectors at the given byte offsets. */
   dot_product: (ptrA: number, ptrB: number, len: number) => number
+  /** Returns the length of the float32 vector at the given byte offset. */
   magnitude: (ptr: number, len: number) => number
+  /** Returns the squared euclidean distance between two float32 vectors at the given byte offsets. */
   squared_euclidean_distance: (ptrA: number, ptrB: number, len: number) => number
+  /** Returns the integer dot product of two byte code vectors at the given byte offsets. */
   dot_u8: (ptrA: number, ptrB: number, len: number) => number
+  /** Returns the integer squared distance between two byte code vectors at the given byte offsets. */
   sqdist_u8: (ptrA: number, ptrB: number, len: number) => number
 }
 

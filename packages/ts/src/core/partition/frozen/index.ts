@@ -8,7 +8,12 @@ import { createSurfaceRegistry, type SurfaceRegistryReader } from '../../surface
 import type { PartitionReadState } from '../read-state'
 import type { SegmentPayload } from '../segment-payload'
 import { createFrozenDocTable } from './doc-table'
-import { type FrozenDocumentSource, wrapDocumentArray, wrapEncodedDocumentTable } from './document-source'
+import {
+  type EncodedDocumentTableData,
+  type FrozenDocumentSource,
+  wrapDocumentArray,
+  wrapEncodedDocumentTable,
+} from './document-source'
 import { buildExternalIdTable, type ExternalIdTable, wrapExternalIdTable } from './external-ids'
 import { createFrozenBooleanReader, createFrozenEnumReader, createFrozenNumericReader } from './field-indexes'
 import { createFrozenInvertedReader } from './inverted-reader'
@@ -33,13 +38,21 @@ export interface FrozenSegment extends PartitionReadState {
   readonly segmentId: string
   readonly documentSource: FrozenDocumentSource
   readonly sharedSnapshot: SharedSegmentSnapshot | null
+  /** The segment serves from these flat arrays, which a merge reads as they stand, decoding no document. */
+  readonly arrays: FrozenSegmentArrays
   liveDocumentCount(): number
   hasDocument(docId: string): boolean
+  isTombstoned(ordinal: number): boolean
   tombstoneDocument(docId: string): boolean
   tombstonedDocIds(): string[]
 }
 
-interface FrozenSegmentSource {
+/**
+ * One frozen segment serves every read from these flat arrays.
+ *
+ * @internal
+ */
+export interface FrozenSegmentArrays {
   documentCount: number
   fieldNames: readonly string[]
   fieldLengthNames: readonly string[]
@@ -58,6 +71,11 @@ interface FrozenSegmentSource {
   surfaceForms: SerializedSurfaceForms | null
   tokenTable: FrozenTokenTable
   idTable: ExternalIdTable
+  /** This holds the documents as encoded bytes, and it reads null where the segment holds them as objects. */
+  documentTable: EncodedDocumentTableData | null
+}
+
+interface FrozenSegmentSource extends FrozenSegmentArrays {
   docFrequencies: () => Readonly<Record<string, number>>
 }
 
@@ -132,6 +150,7 @@ function assembleFrozenSegment(
     segmentId,
     documentSource,
     sharedSnapshot,
+    arrays: source,
     invertedIdx: createFrozenInvertedReader(source.tokenTable, postingViews),
     docStore,
     stats: buildStatsView(source),
@@ -153,6 +172,10 @@ function assembleFrozenSegment(
 
     hasDocument(docId: string): boolean {
       return docStore.has(docId)
+    },
+
+    isTombstoned(ordinal: number): boolean {
+      return tombstones.has(ordinal)
     },
 
     tombstoneDocument(docId: string): boolean {
@@ -188,6 +211,7 @@ export function createFrozenSegment(
       ...payload,
       tokenTable: buildFrozenTokenTable(payload.tokens, payload.docFrequencies),
       idTable: buildExternalIdTable(payload.docIds),
+      documentTable: null,
       docFrequencies: () => payload.docFrequencies,
     },
     wrapDocumentArray(documents),
@@ -203,6 +227,7 @@ export function createSharedFrozenSegment(snapshot: SharedSegmentSnapshot): Froz
       ...snapshot,
       tokenTable,
       idTable: wrapExternalIdTable(snapshot.idTable),
+      documentTable: snapshot.documentTable,
       docFrequencies: () => {
         const frequencies: Record<string, number> = Object.create(null)
         for (let at = 0; at < tokenTable.size; at++) {

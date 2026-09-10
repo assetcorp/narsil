@@ -1,4 +1,7 @@
+import { extractVectorFieldsFromSchema } from '../../schema/validator'
+import type { AnyDocument } from '../../types/schema'
 import type { WorkerAction } from '../../workers/protocol'
+import { prepareDocumentVectors } from '../vector-coordinator'
 import { LOAD_BUFFER_YIELD_INTERVAL, MAX_PENDING_REPLICATION_DOCUMENTS, REPLICATION_WINDOW } from './constants'
 import { alreadyPresentOnWorker } from './eligibility'
 import { yieldToEventLoop } from './turn'
@@ -43,17 +46,43 @@ function documentWeight(action: WorkerAction): number {
   return 1
 }
 
-function detachCallerDocuments(action: WorkerAction): WorkerAction {
-  if (action.type === 'insert' && action.skipClone !== true) {
-    return { ...action, document: structuredClone(action.document) }
+function vectorFieldPathsOf(state: OrchestratorState, indexName: string): Set<string> {
+  const entry = state.indexRegistry.get(indexName)
+  if (entry === undefined) return new Set()
+  return new Set(extractVectorFieldsFromSchema(entry.config.schema).keys())
+}
+
+function withoutVectors(document: AnyDocument, fieldPaths: Set<string>): AnyDocument {
+  return prepareDocumentVectors(document as Record<string, unknown>, fieldPaths).partitionDoc as AnyDocument
+}
+
+/**
+ * Prepares a write for the worker copies by taking the vector fields out,
+ * because those workers read every vector in place from the shared vector
+ * fields. It clones what remains where the caller may still change it.
+ *
+ * @internal
+ */
+export function detachCallerDocuments(state: OrchestratorState, action: WorkerAction): WorkerAction {
+  if (!('indexName' in action)) return action
+  const fieldPaths = vectorFieldPathsOf(state, action.indexName)
+  if (action.type === 'insert') {
+    const stripped = withoutVectors(action.document, fieldPaths)
+    const document = action.skipClone === true || stripped !== action.document ? stripped : structuredClone(stripped)
+    return { ...action, document }
   }
   if (action.type === 'update') {
-    return { ...action, document: structuredClone(action.document) }
+    const stripped = withoutVectors(action.document, fieldPaths)
+    return { ...action, document: stripped !== action.document ? stripped : structuredClone(stripped) }
   }
-  if (action.type === 'mergeSegments' && action.skipClone !== true) {
+  if (action.type === 'mergeSegments') {
     return {
       ...action,
-      segments: action.segments.map(segment => ({ ...segment, documents: structuredClone(segment.documents) })),
+      segments: action.segments.map(segment => {
+        const documents = segment.documents.map(document => withoutVectors(document, fieldPaths))
+        const cloned = action.skipClone === true || fieldPaths.size > 0 ? documents : structuredClone(documents)
+        return { ...segment, documents: cloned }
+      }),
     }
   }
   return action
@@ -150,7 +179,7 @@ export async function replicateToWorkers(state: OrchestratorState, action: Worke
     return
   }
 
-  const detached = detachCallerDocuments(action)
+  const detached = detachCallerDocuments(state, action)
   const loading = state.copyLoadBuffers.get(action.indexName)
   if (loading !== undefined) {
     queueForCopies(state, detached)

@@ -5,7 +5,7 @@ import { POOL_RESTART_DELAY_MAX_MS, POOL_RESTART_DELAY_MS } from './constants'
 import { enqueueReplication } from './replication'
 import { scheduleRequestThreadPoolRestart } from './request-threads'
 import type { OrchestratorState } from './types'
-import { refreshVectorCopies } from './vector-copies'
+import { refreshVectorCopies, releaseVectorLocksOf } from './vector-copies'
 
 export const COPY_RESTART_REASON = 'A request arrived after every worker crashed and the restart delay passed'
 
@@ -41,6 +41,7 @@ export function handleWorkerCrash(
 ): void {
   state.callbacks?.onWorkerCrash?.(workerId, indexNames, error)
   state.requestThreads?.onWorkerGone(workerId)
+  releaseVectorLocksOf(state, workerId)
   if (pool.getAllExecutors().length === 0) {
     retirePool(state, pool)
     return

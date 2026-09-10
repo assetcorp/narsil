@@ -1,39 +1,47 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import type { GraphInsertOutcome } from '../../../vector/shared-field/types'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
 import type { SharedCopyHost } from '../../../vector/vector-index/shared'
-import { DIM, normalizedVector } from './fixtures'
+import { createFakeVectorThreads, DIM, normalizedVector } from './fixtures'
 
-vi.mock('../../../vector/hnsw-worker-dispatch', () => ({
-  dispatchWorkerBuild: vi.fn().mockResolvedValue({ ok: false, reason: 'no-workers', message: 'mocked' }),
-}))
-
-interface PendingLoad {
-  handle: string
-  resolve: (loaded: boolean) => void
-}
+const HOST_THREAD_SLOT = 1
+const DOC_COUNT = 16
 
 interface FakeHost {
   host: SharedCopyHost
-  loads: PendingLoad[]
+  loads: string[]
   drops: string[]
+  placed: number[]
 }
 
 function createFakeHost(): FakeHost {
-  const loads: PendingLoad[] = []
+  const threads = createFakeVectorThreads(HOST_THREAD_SLOT)
+  const loads: string[] = []
   const drops: string[] = []
+  const placed: number[] = []
+
   const host: SharedCopyHost = {
-    scratchSlotCount: 1,
+    workerCount: 2,
     holdsIndex: () => true,
     resolvePartition: () => 0,
-    loadShared: (_indexName, _fieldName, handle) =>
-      new Promise<boolean>(resolve => {
-        loads.push({ handle, resolve })
-      }),
-    async drop(_indexName, _fieldName, handle) {
+
+    async loadShared(_indexName, _fieldName, handle, handles): Promise<boolean> {
+      loads.push(handle)
+      return threads.open(handle, handles)
+    },
+
+    async drop(_indexName, _fieldName, handle): Promise<void> {
       drops.push(handle)
+      threads.drop(handle)
+    },
+
+    async insertOrdinals(_indexName, _fieldName, handle, ordinals): Promise<GraphInsertOutcome | null> {
+      for (const ordinal of ordinals) placed.push(ordinal)
+      return threads.insertOrdinals(handle, ordinals)
     },
   }
-  return { host, loads, drops }
+
+  return { host, loads, drops, placed }
 }
 
 async function settle(): Promise<void> {
@@ -50,43 +58,37 @@ async function insertAndBuild(index: VectorIndex, count: number): Promise<void> 
   await settle()
 }
 
-describe('a hosted vector copy whose load a refresh overtakes', () => {
+describe('a vector field the request threads hold', () => {
   let index: VectorIndex
 
   afterEach(() => {
     index.dispose()
   })
 
-  it('loads the copy again under a new handle once the overtaken load settles', async () => {
+  function hostedIndex(host: SharedCopyHost): VectorIndex {
+    return createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' }, { enabled: true, host }, 'shop')
+  }
+
+  it('places every vector through the threads that hold the field', async () => {
+    const { host, drops, placed } = createFakeHost()
+    index = hostedIndex(host)
+    await insertAndBuild(index, DOC_COUNT)
+
+    expect(placed).toHaveLength(DOC_COUNT)
+    expect(drops).toEqual([])
+    expect(index.search(normalizedVector(DIM, 4), 5, { metric: 'cosine', minSimilarity: 0 })).toHaveLength(5)
+  })
+
+  it('sends the field again under a fresh handle after a refresh', async () => {
     const { host, loads, drops } = createFakeHost()
-    index = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' }, { enabled: true, host }, 'shop')
-    await insertAndBuild(index, 16)
-    expect(loads).toHaveLength(1)
+    index = hostedIndex(host)
+    await insertAndBuild(index, DOC_COUNT)
+    const held = new Set(loads)
 
     index.refreshWorkerCopies()
     await settle()
-    expect(drops).toEqual([loads[0].handle])
-    expect(loads).toHaveLength(1)
 
-    loads[0].resolve(true)
-    await settle()
-
-    expect(loads).toHaveLength(2)
-    expect(loads[1].handle).not.toBe(loads[0].handle)
-    loads[1].resolve(true)
-    await settle()
-    expect(drops).toEqual([loads[0].handle])
-  })
-
-  it('stays quiet after a load that nothing overtook', async () => {
-    const { host, loads, drops } = createFakeHost()
-    index = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' }, { enabled: true, host }, 'shop')
-    await insertAndBuild(index, 16)
-
-    loads[0].resolve(true)
-    await settle()
-
-    expect(loads).toHaveLength(1)
-    expect(drops).toEqual([])
+    expect(new Set(drops)).toEqual(held)
+    expect(held.has(loads[loads.length - 1])).toBe(false)
   })
 })

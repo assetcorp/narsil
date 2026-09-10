@@ -1,7 +1,7 @@
 import { createPartitionIndex } from '../core/partition'
 import { isCompositePartition } from '../core/partition/composite'
-import { buildCompactedSegmentPayload } from '../core/partition/composite/compaction'
-import { createSharedFrozenSegment, freezeSegmentShared } from '../core/partition/frozen'
+import { createSharedFrozenSegment } from '../core/partition/frozen'
+import { mergeFrozenSegments } from '../core/partition/frozen/merge'
 import { ErrorCodes, NarsilError } from '../errors'
 import { resolvePartitionInsertOptions } from '../partitioning/insert-options'
 import type { PartitionManager } from '../partitioning/manager'
@@ -87,9 +87,7 @@ export function runSegmentAction(entry: SegmentIndexEntry, action: SegmentAction
 
     case 'compactSegments': {
       const partition = requireComposite(entry, action.indexName, action.partitionId, 'compact')
-      const segments = partition.frozenSegmentsById(action.segmentIds)
-      const { payload, documents } = buildCompactedSegmentPayload(segments)
-      return freezeSegmentShared(payload, documents)
+      return mergeFrozenSegments(partition.frozenSegmentsById(action.segmentIds))
     }
 
     case 'swapSegments': {

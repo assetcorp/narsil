@@ -1,30 +1,47 @@
-import { collectNeighbors, createNode, replaceNeighbors, resetAdjacency } from './adjacency'
+import type { VectorStore } from '../vector-store'
+import { adjacencySlots, collectNeighbors, createNode, replaceNeighbors } from './adjacency'
 import { MAX_LAYER_CAP } from './constants'
+import { GRAPH_ENTRY_POINT, GRAPH_NODE_COUNT, GRAPH_TOP_LAYER } from './handles'
+import { resetGraph } from './mutation'
 import {
   addConnection,
   ensureCapacity,
+  entryPointOf,
   type HNSWGraphState,
+  isTombstoned,
   maxConns,
   nodeExists,
   nodeMaxLayer,
   type SerializedHNSWGraph,
+  topLayerOf,
 } from './shared'
 
-export function serializeGraph(state: HNSWGraphState): SerializedHNSWGraph {
+/**
+ * Copies a graph into the form the engine writes to disk, naming each node by
+ * its document id and leaving every tombstoned node out.
+ *
+ * @param state The graph to copy.
+ * @param store The store holding the field's vectors and ids.
+ * @returns The serialised graph.
+ *
+ * @internal
+ */
+export function serializeGraph(state: HNSWGraphState, store: VectorStore): SerializedHNSWGraph {
   const nodeArray: Array<[string, number, Array<[number, string[]]>]> = []
-  for (let ord = 0; ord < state.adjacency.slots; ord++) {
+  const slots = adjacencySlots(state.adjacency)
+  for (let ord = 0; ord < slots; ord++) {
     const maxLayer = nodeMaxLayer(state, ord)
     if (maxLayer === -1) continue
-    if (state.tombstones[ord] === 1) continue
-    const docId = state.store.docIdForOrdinal(ord)
+    if (isTombstoned(state, ord)) continue
+    const docId = store.docIdForOrdinal(ord)
     if (docId === undefined) continue
 
     const layerConns: Array<[number, string[]]> = []
     for (let layer = 0; layer <= maxLayer; layer++) {
       const liveNeighbors: string[] = []
       for (const neighborOrd of collectNeighbors(state.adjacency, ord, layer)) {
-        if (state.tombstones[neighborOrd] === 1) continue
-        const neighborDoc = state.store.docIdForOrdinal(neighborOrd)
+        if (isTombstoned(state, neighborOrd)) continue
+        const neighborDoc = store.docIdForOrdinal(neighborOrd)
         if (neighborDoc === undefined) continue
         liveNeighbors.push(neighborDoc)
       }
@@ -35,11 +52,12 @@ export function serializeGraph(state: HNSWGraphState): SerializedHNSWGraph {
     nodeArray.push([docId, maxLayer, layerConns])
   }
 
-  const entryPoint = state.entryPointOrd === -1 ? null : (state.store.docIdForOrdinal(state.entryPointOrd) ?? null)
+  const entryOrd = entryPointOf(state)
+  const entryPoint = entryOrd === -1 ? null : (store.docIdForOrdinal(entryOrd) ?? null)
 
   return {
     entryPoint,
-    maxLayer: state.topLayer,
+    maxLayer: topLayerOf(state),
     m: state.M,
     efConstruction: state.efCons,
     metric: state.buildMetric,
@@ -53,14 +71,18 @@ interface ResolvedNode {
   layers: Array<[number, number[]]>
 }
 
-function resolveNodes(state: HNSWGraphState, data: SerializedHNSWGraph): { nodes: ResolvedNode[]; maxOrd: number } {
+function resolveNodes(
+  state: HNSWGraphState,
+  store: VectorStore,
+  data: SerializedHNSWGraph,
+): { nodes: ResolvedNode[]; maxOrd: number } {
   const nodes: ResolvedNode[] = []
   let maxOrd = -1
 
   for (const [docId, maxLayer, layerConns] of data.nodes) {
-    const ord = state.store.getOrdinal(docId)
+    const ord = store.getOrdinal(docId)
     if (ord === undefined) continue
-    if (state.store.entryForOrdinal(ord) === undefined) continue
+    if (store.entryForOrdinal(ord) === undefined) continue
 
     const clampedMaxLayer = Math.min(Math.max(maxLayer, 0), MAX_LAYER_CAP)
     const layers: Array<[number, number[]]> = []
@@ -71,7 +93,7 @@ function resolveNodes(state: HNSWGraphState, data: SerializedHNSWGraph): { nodes
       const resolved: number[] = []
       for (const neighborDoc of neighbors) {
         if (resolved.length >= limit) break
-        const neighborOrd = state.store.getOrdinal(neighborDoc)
+        const neighborOrd = store.getOrdinal(neighborDoc)
         if (neighborOrd === undefined) continue
         addConnection(resolved, neighborOrd)
         if (neighborOrd > maxOrd) maxOrd = neighborOrd
@@ -86,15 +108,20 @@ function resolveNodes(state: HNSWGraphState, data: SerializedHNSWGraph): { nodes
   return { nodes, maxOrd }
 }
 
-export function deserializeGraph(state: HNSWGraphState, data: SerializedHNSWGraph): void {
-  resetAdjacency(state.adjacency)
-  state.tombstones.fill(0)
-  state.tombstoneCount = 0
-  state.nodeCount = 0
-  state.entryPointOrd = -1
-  state.topLayer = -1
+/**
+ * Restores a graph from its serialised form. The caller must hold the graph
+ * exclusively.
+ *
+ * @param state The graph to fill.
+ * @param store The store holding the field's vectors and ids.
+ * @param data The serialised graph to read.
+ *
+ * @internal
+ */
+export function deserializeGraph(state: HNSWGraphState, store: VectorStore, data: SerializedHNSWGraph): void {
+  resetGraph(state)
 
-  const { nodes, maxOrd } = resolveNodes(state, data)
+  const { nodes, maxOrd } = resolveNodes(state, store, data)
 
   if (maxOrd >= 0) {
     ensureCapacity(state, maxOrd + 1)
@@ -105,21 +132,22 @@ export function deserializeGraph(state: HNSWGraphState, data: SerializedHNSWGrap
     for (const [layer, neighbors] of node.layers) {
       replaceNeighbors(state.adjacency, node.ord, layer, neighbors, neighbors.length)
     }
-    state.nodeCount++
+    Atomics.add(state.header, GRAPH_NODE_COUNT, 1)
   }
 
   if (data.entryPoint != null && data.entryPoint !== '') {
-    const epOrd = state.store.getOrdinal(data.entryPoint)
+    const epOrd = store.getOrdinal(data.entryPoint)
     if (epOrd !== undefined && nodeExists(state, epOrd)) {
-      state.entryPointOrd = epOrd
-      state.topLayer = Math.min(Math.max(data.maxLayer, 0), MAX_LAYER_CAP)
+      Atomics.store(state.header, GRAPH_ENTRY_POINT, epOrd)
+      Atomics.store(state.header, GRAPH_TOP_LAYER, Math.min(Math.max(data.maxLayer, 0), MAX_LAYER_CAP))
     }
   }
 
-  if (state.entryPointOrd === -1 && state.nodeCount > 0) {
+  if (entryPointOf(state) === -1 && Atomics.load(state.header, GRAPH_NODE_COUNT) > 0) {
     let bestOrd = -1
     let bestLayer = -1
-    for (let ord = 0; ord < state.adjacency.slots; ord++) {
+    const slots = adjacencySlots(state.adjacency)
+    for (let ord = 0; ord < slots; ord++) {
       const level = nodeMaxLayer(state, ord)
       if (level === -1) continue
       if (level > bestLayer) {
@@ -127,7 +155,7 @@ export function deserializeGraph(state: HNSWGraphState, data: SerializedHNSWGrap
         bestOrd = ord
       }
     }
-    state.entryPointOrd = bestOrd
-    state.topLayer = bestLayer
+    Atomics.store(state.header, GRAPH_ENTRY_POINT, bestOrd)
+    Atomics.store(state.header, GRAPH_TOP_LAYER, bestLayer)
   }
 }
