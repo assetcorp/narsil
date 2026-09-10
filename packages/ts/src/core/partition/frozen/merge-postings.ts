@@ -1,4 +1,5 @@
 import { compareCodePoints } from '../../ordering'
+import type { SegmentPostingColumns } from './columns'
 import type { FrozenSegment } from './index'
 
 /**
@@ -19,15 +20,9 @@ export interface SegmentRemap {
  *
  * @internal
  */
-export interface MergedPostings {
+export interface MergedPostings extends SegmentPostingColumns {
   tokens: string[]
   docFrequencies: Record<string, number>
-  postingOffsets: Uint32Array
-  postingDocIds: Uint32Array
-  postingFrequencies: Uint16Array
-  postingFieldIndices: Uint8Array
-  positionOffsets: Uint32Array | null
-  positionValues: Uint32Array | null
 }
 
 interface TokenCursor {

@@ -5,7 +5,7 @@ import { createSharedFrozenSegment } from '../../../../core/partition/frozen'
 import { mergeFrozenSegments } from '../../../../core/partition/frozen/merge'
 import { ErrorCodes, NarsilError } from '../../../../errors'
 import type { InternalSearchParams } from '../../../../types/internal'
-import type { AnyDocument } from '../../../../types/schema'
+import type { AnyDocument, SchemaDefinition } from '../../../../types/schema'
 import { english, simpleSchema } from '../../partition-index/fixtures'
 
 const CATEGORIES = ['fruit', 'metal', 'stone'] as const
@@ -22,10 +22,13 @@ function buildCorpus(count: number): AnyDocument[] {
   }))
 }
 
-function frozenPayloadFor(documents: AnyDocument[]): ReturnType<PartitionIndex['encodeSegment']> {
+function frozenPayloadFor(
+  documents: AnyDocument[],
+  schema: SchemaDefinition = simpleSchema,
+): ReturnType<PartitionIndex['encodeSegment']> {
   const scratch = createPartitionIndex(0)
   for (const doc of documents) {
-    scratch.insert(String(doc.id), doc, simpleSchema, english, { collectSurfaces: true })
+    scratch.insert(String(doc.id), doc, schema, english, { collectSurfaces: true })
   }
   return scratch.encodeSegment()
 }
@@ -388,6 +391,56 @@ describe('composite writes route to the owning part', () => {
     const found = composite.searchFulltext(termParams({ tokens: ['shared'], exact: true }))
     expect(found.totalMatched).toBe(allDocs.length - 1)
     expect(found.scored.some(doc => doc.docId === 'seg3-doc1')).toBe(false)
+  })
+
+  it('answers the same numeric, boolean, and enum filters from the merged segment as one partition does', () => {
+    const schema: SchemaDefinition = {
+      title: 'string',
+      price: 'number',
+      active: 'boolean',
+      category: 'enum',
+      location: 'geopoint',
+    }
+    const documents: AnyDocument[] = Array.from({ length: 48 }, (_, i) => ({
+      id: `doc-${String(i).padStart(2, '0')}`,
+      title: `${WORDS[i % WORDS.length]} shared`,
+      price: i,
+      active: i % 2 === 0,
+      category: CATEGORIES[i % CATEGORIES.length],
+      location: { lat: 51 + i / 4, lon: -0.5 - i / 4 },
+    }))
+
+    const baseline = createPartitionIndex(0)
+    for (const doc of documents) baseline.insert(String(doc.id), doc, schema, english)
+
+    const composite = createCompositePartition(0)
+    for (let start = 0; start < documents.length; start += 12) {
+      const chunk = documents.slice(start, start + 12)
+      composite.appendFrozenSegment(frozenPayloadFor(chunk, schema), chunk)
+    }
+    const segmentIds = composite.frozenSegmentSizes().map(size => size.segmentId)
+    const merged = mergeFrozenSegments(composite.frozenSegmentsById(segmentIds))
+    if (merged === null) throw new Error('this runtime shares no memory')
+    composite.swapFrozenSegments(segmentIds, createSharedFrozenSegment(merged))
+
+    const fields = {
+      fields: {
+        price: { between: [10, 40] as [number, number] },
+        active: { eq: true },
+        category: { in: ['fruit', 'stone'] },
+      },
+    }
+    expect(composite.applyFilters(fields, schema)).toEqual(baseline.applyFilters(fields, schema))
+    expect(composite.applyFilters(fields, schema).size).toBeGreaterThan(0)
+
+    const nearby = { fields: { location: { radius: { lat: 51, lon: -0.5, distance: 200, unit: 'km' as const } } } }
+    expect(composite.applyFilters(nearby, schema)).toEqual(baseline.applyFilters(nearby, schema))
+    expect(composite.applyFilters(nearby, schema).size).toBeGreaterThan(0)
+
+    const allIds = new Set([...composite.docIds()])
+    expect(composite.computeFacets(allIds, { category: {}, active: {} }, schema)).toEqual(
+      baseline.computeFacets(allIds, { category: {}, active: {} }, schema),
+    )
   })
 
   it('rejects an insert whose id already lives in a frozen segment', () => {

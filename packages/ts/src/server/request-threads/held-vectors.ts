@@ -33,10 +33,7 @@ export function managerWithHeldVectors(
     return document
   }
 
-  return new Proxy(manager, {
-    get(target, property, receiver) {
-      if (property === 'get') return get
-      return Reflect.get(target, property, receiver)
-    },
-  })
+  const reader: PartitionManager = Object.create(manager)
+  reader.get = get
+  return reader
 }
