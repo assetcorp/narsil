@@ -24,7 +24,10 @@ export interface ThreadReadEngine extends ReadEngine {
   holdsCopyOf(indexName: string): boolean
   /** Reports whether the thread holds every vector field of the index, so that a document it reads comes back whole. */
   holdsDocumentsOf(indexName: string): boolean
+  /** Reports whether the thread answers a query from its own copy, which it does once it holds every vector field the response includes. */
   canAnswer(indexName: string, params: QueryParams): boolean
+  /** Reports whether the thread counts a query's matches from its own copy, which it does while it holds no vector field, since a count includes no document. */
+  canCount(indexName: string, params: QueryParams): boolean
 }
 
 export interface ThreadReadEngineOptions {
@@ -94,22 +97,31 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
     return context !== undefined && holdsEveryVectorField(indexName, context)
   }
 
-  function canAnswer(indexName: string, params: QueryParams): boolean {
-    if (searchHooks) return false
+  function searchableContext(indexName: string, params: QueryParams): IndexQueryContext | null {
+    if (searchHooks) return null
     const context = executor.queryContextOf(indexName)
-    if (context === undefined) return false
-    if (!holdsEveryVectorFieldRead(indexName, context, params)) return false
+    if (context === undefined) return null
     const field = params.vector?.field
-    if (field === undefined) return true
+    if (field === undefined) return context
     const vectorFields = extractVectorFieldsFromSchema(context.config.schema)
-    if (!vectorFields.has(field)) return true
-    return context.vectorSearchers.has(field)
+    if (!vectorFields.has(field)) return context
+    return context.vectorSearchers.has(field) ? context : null
+  }
+
+  function canAnswer(indexName: string, params: QueryParams): boolean {
+    const context = searchableContext(indexName, params)
+    return context !== null && holdsEveryVectorFieldRead(indexName, context, params)
+  }
+
+  function canCount(indexName: string, params: QueryParams): boolean {
+    return searchableContext(indexName, params) !== null
   }
 
   return {
     holdsCopyOf: indexName => executor.queryContextOf(indexName) !== undefined,
     holdsDocumentsOf,
     canAnswer,
+    canCount,
     async query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>> {
       const { context, manager } = requireWholeDocuments(indexName)
       const result = await executeQuery<T>(await resolvedParams(indexName, params), {
