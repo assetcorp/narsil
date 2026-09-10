@@ -1,17 +1,17 @@
 import type { HNSWIndex } from '../hnsw'
-import { scheduleBuild } from './build'
+import { buildGraphFromStore, scheduleBuild } from './build'
+import { insertIntoGraph } from './build-host'
 import { ESTIMATED_MS_PER_TOMBSTONE, ESTIMATED_MS_PER_VECTOR_REBUILD } from './constants'
 import {
   adoptGraph,
   allLiveDocIds,
-  buildGraphFromStore,
   graphNeedsRebuild,
-  insertIntoGraph,
   liveSize,
   type MaintenanceStatus,
   recalibrateFromStore,
   type VectorIndexState,
 } from './shared'
+import { dropSharedGraph } from './worker-copies'
 
 export function compact(state: VectorIndexState): void {
   if (state.tombstones.size === 0) return
@@ -48,7 +48,9 @@ async function foldIntoGraph(state: VectorIndexState): Promise<void> {
   compact(state)
 
   if (liveSize(state) === 0) {
+    const previous = state.hnsw
     adoptGraph(state, null)
+    if (previous !== null) dropSharedGraph(state, previous)
     state.buffer.clear()
     if (state.sq8) {
       state.sq8.clear()
@@ -127,14 +129,9 @@ export function estimateMemoryBytes(state: VectorIndexState): number {
 
   if (state.sq8?.isCalibrated()) {
     const sqCount = state.sq8.size
-    const MAP_OVERHEAD_SQ = 64
-    const MAP_ENTRY_SQ = 72
-    const UINT8_ARRAY_HEADER = 64
     const PER_VECTOR_METADATA = 8 * 3
     const GLOBAL_CALIBRATION = 8 * 5
-
-    bytes += 4 * (MAP_OVERHEAD_SQ + sqCount * MAP_ENTRY_SQ)
-    bytes += sqCount * (UINT8_ARRAY_HEADER + state.dimension + PER_VECTOR_METADATA)
+    bytes += sqCount * (state.dimension + PER_VECTOR_METADATA)
     bytes += GLOBAL_CALIBRATION
   }
 

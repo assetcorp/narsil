@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../vector/simd', async importOriginal => {
   const original = await importOriginal<typeof import('../../vector/simd')>()
-  return { ...original, createArenaSimd: () => null }
+  return { ...original, createArenaSimd: () => null, createSharedArenaSimd: () => null }
 })
 
 import { createHNSWIndex } from '../../vector/hnsw'

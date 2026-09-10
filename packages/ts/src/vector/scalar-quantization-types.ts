@@ -21,18 +21,12 @@ export interface ArenaQuery {
   magnitude: number
 }
 
-export interface OrdinalSource {
-  getOrdinal(docId: string): number | undefined
-}
-
 /**
- * The two constants a scalar quantizer turns a vector component into a byte
- * with, and turns that byte back into a distance with.
+ * A scalar quantizer turns a vector component into a byte with these two
+ * constants, and it turns that byte back into a distance with them.
  *
- * A worker holding a copy of a vector field receives these rather than deriving
- * its own, because a copy taken after a delete would otherwise measure a
- * narrower range of values and answer the same query differently from the
- * thread that built the index.
+ * Every thread reads these from the field's shared memory, so a thread that
+ * places a vector in the graph derives the same codes the main thread would.
  *
  * @internal
  */
@@ -44,11 +38,11 @@ export interface ScalarQuantizerCalibration {
 }
 
 /**
- * The reads a nearest-neighbour search performs against quantised codes.
+ * A nearest-neighbour search performs these reads against the quantised
+ * codes.
  *
- * The main thread's mutable quantizer and a worker's read-only view over
- * shared memory both satisfy this, which is what lets one search
- * implementation run on either side.
+ * The main thread's quantizer and another thread's view over the same shared
+ * codes both satisfy it, so one search implementation serves both.
  *
  * @internal
  */
@@ -62,26 +56,20 @@ export interface QuantizerSearchReader {
 }
 
 export interface ScalarQuantizer extends QuantizerSearchReader {
-  /** The constants every code is derived from, absent until calibration runs. */
+  /** The quantizer derives every code from these constants, which stay absent until it calibrates. */
   readonly calibration: ScalarQuantizerCalibration | null
+  readonly dimensions: number
   quantize(docId: string, vector: Float32Array): void
   remove(docId: string): void
+  removeOrdinal(ordinal: number): void
   getQuantized(docId: string): Uint8Array | undefined
   calibrate(vectors: Iterable<Float32Array>): void
   needsRecalibration(vector: Float32Array): boolean
   recalibrateAll(vectors: Iterable<[string, Float32Array]>): void
   distanceFromPrepared(prepared: QuantizedQuery, docId: string, metric: VectorMetric): number
   hasOrdinal(ordinal: number): boolean
-  readonly dimensions: number
   serialize(): SerializedSQ8
   restoreCalibration(alpha: number, offset: number): void
   restoreEntry(docId: string, quantized: Uint8Array, sum: number, sumSq: number): void
-  copyStateInto(
-    codes: Uint8Array,
-    sums: Float64Array,
-    sumSqs: Float64Array,
-    magnitudes: Float64Array,
-    present: Uint8Array,
-  ): void
   clear(): void
 }

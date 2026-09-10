@@ -1,12 +1,11 @@
 import type { VectorMetric } from '../brute-force'
-import { createHNSWIndex, type HNSWConfig, type HNSWIndex, type SerializedHNSWGraph } from '../hnsw'
+import type { HNSWConfig, HNSWIndex, SerializedHNSWGraph } from '../hnsw'
 import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter, removeFromOrdinalFilter } from '../ordinal-filter'
 import type { ScalarQuantizer, SerializedSQ8 } from '../scalar-quantization-types'
 import type { VectorSearchPool } from '../search-pool'
-import type { SharedDocIdTable } from '../shared-generation/doc-ids'
-import type { SharedGenerationSnapshot } from '../shared-generation/types'
+import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../shared-field/types'
 import type { VectorStore } from '../vector-store'
-import { BUILD_CHUNK_SIZE, REBUILD_REMOVED_RATIO } from './constants'
+import { REBUILD_REMOVED_RATIO } from './constants'
 
 export interface VectorScoredResult {
   docId: string
@@ -23,8 +22,8 @@ export interface VectorSearchOptions {
 }
 
 /**
- * The part of a vector index a query runs against, which the index on the
- * main thread and a request thread's view over a shared copy both satisfy.
+ * A query searches a vector index through this, and the index on the main
+ * thread and a request thread's view over the shared field both satisfy it.
  *
  * @internal
  */
@@ -37,44 +36,38 @@ export interface VectorSearcher {
 }
 
 /**
- * A frozen copy of one vector field in the form a request thread opens.
- *
- * @internal
- */
-export interface HostedVectorCopy {
-  /** The frozen vectors, codes, and graph. */
-  snapshot: SharedGenerationSnapshot
-  /** The document id and partition at each ordinal. */
-  docIds: SharedDocIdTable
-  /** A filter admitting a smaller share of the live vectors than this is answered by exact comparison. */
-  filterThreshold: number
-}
-
-/**
- * Where a frozen shared copy goes when request threads hold it in place of
- * the vector search pool.
+ * The index sends a field's shared structures to this host, which passes them
+ * to the request threads holding the index, and it sends the same host the
+ * vectors those threads place in the graph.
  *
  * @internal
  */
 export interface SharedCopyHost {
-  /** The frozen copy reserves this many per-thread scratch slots. */
-  readonly scratchSlotCount: number
-  /** Whether the host currently holds the index the copy belongs to. */
+  /** This many threads place vectors, which bounds how many batches the index keeps in flight. */
+  readonly workerCount: number
+  /** Reports whether the host holds the index the field belongs to right now. */
   holdsIndex(indexName: string): boolean
-  /** Reports the partition a document of the index lives in, for a vector stored before partitions were tracked. */
+  /** Reports the partition a document belongs to, for a vector the store took before it recorded partitions. */
   resolvePartition(indexName: string, docId: string): number | undefined
-  /** Sends a frozen copy to every thread holding the index, resolving once each has applied it. */
-  loadShared(indexName: string, fieldName: string, handle: string, copy: HostedVectorCopy): Promise<boolean>
-  /** Withdraws a copy from every thread holding the index. */
+  /** Sends the field's handles to every thread holding the index, resolving once each has opened them. */
+  loadShared(indexName: string, fieldName: string, handle: string, handles: SharedVectorFieldHandles): Promise<boolean>
+  /** Withdraws the handles from every thread holding the index. */
   drop(indexName: string, fieldName: string, handle: string): Promise<void>
+  /** Asks one thread to place the ordinals in the graph under that handle, and resolves null where no thread could. */
+  insertOrdinals(
+    indexName: string,
+    fieldName: string,
+    handle: string,
+    ordinals: Int32Array,
+  ): Promise<GraphInsertOutcome | null>
 }
 
 export interface VectorWorkerCopyPolicy {
-  /** Whether the index may load copies of its graph onto the vector search pool. */
+  /** The index may share its field with worker threads when this reads true. */
   enabled: boolean
-  /** The pool runs this many workers, or the host's cores minus one where omitted. */
+  /** The pool holds this many workers, and it takes the machine's cores minus one where the caller omits this. */
   count?: number
-  /** Where set, the copies go to these request threads and no vector search pool starts. */
+  /** The field goes to these request threads where the caller names a host, and no vector search pool starts. */
   host?: SharedCopyHost
 }
 
@@ -97,6 +90,14 @@ export interface VectorIndexPayload {
   sq8: SerializedSQ8 | null
 }
 
+/**
+ * The worker threads hold a field in place over shared memory, as a cloned
+ * copy where the runtime shares no memory, or on the request threads.
+ *
+ * @internal
+ */
+export type WorkerCopyMode = 'shared' | 'clone' | 'hosted'
+
 export interface VectorIndexState {
   readonly indexName: string
   readonly fieldName: string
@@ -112,6 +113,8 @@ export interface VectorIndexState {
   readonly buffer: Set<string>
   sq8: ScalarQuantizer | null
   hnsw: HNSWIndex | null
+  /** The graph a build is filling from the store, which a replacement retires its old ordinal in. */
+  freshGraph: HNSWIndex | null
   compactedNodeCount: number
   building: boolean
   buildScheduled: boolean
@@ -121,8 +124,14 @@ export interface VectorIndexState {
   workerCopyPool: VectorSearchPool | null
   workerCopyHandle: string | null
   workerCopyRevision: number
-  workerCopyMode: 'shared' | 'clone' | 'hosted' | null
+  workerCopyMode: WorkerCopyMode | null
   workerCopyLoading: boolean
+  /** This maps each graph the threads hold to its handle and the way they hold it, and the null key stands for the vectors alone. */
+  readonly sharedHandles: Map<HNSWIndex | null, { handle: string; searchable: boolean; mode: WorkerCopyMode }>
+  /** The threads hold this many blocks, so the index sends the handles again once the store adds one. */
+  sharedBlockCount: number
+  /** This is the share in flight, which the index chains so that two shares stay apart. */
+  sharing: Promise<void>
 }
 
 export function liveSize(state: VectorIndexState): number {
@@ -134,8 +143,8 @@ export function liveSize(state: VectorIndexState): number {
  * caller for each document's partition.
  *
  * @param state The index whose store to fill in.
- * @param resolve Reports a document's partition, or undefined where the
- * document is gone.
+ * @param resolve Reports a document's partition, or undefined where the index
+ * holds no such document.
  *
  * @internal
  */
@@ -158,8 +167,8 @@ export function assignStorePartitions(state: VectorIndexState, resolve: (docId: 
  * or clears the graph away where none is given.
  *
  * The new graph takes a tombstone for every document a caller removed while
- * it was being built, and the count of nodes that compaction cut out of the
- * graph before it starts again from zero.
+ * the threads built it, and the count of nodes compaction cut out of the
+ * previous graph starts again from zero.
  *
  * @param state The index to update.
  * @param graph The graph to adopt, or null where the index keeps no graph.
@@ -182,65 +191,9 @@ export function adoptGraph(state: VectorIndexState, graph: HNSWIndex | null): vo
 }
 
 /**
- * Inserts the admitted documents into a graph, yielding to the event loop
- * after every chunk so that a query can answer between chunks.
- *
- * The insertion clears each document's buffer marker the moment the graph
- * links its stored vector, so a vector that a caller replaces during a later
- * chunk keeps its marker and the next build relinks it.
- *
- * @param state The index the graph belongs to, whose disposal stops the work.
- * @param graph The graph to insert into.
- * @param docIds The documents to offer.
- * @param admit Reports whether a document goes into the graph.
- * @param inserted Runs after each document goes in, where given.
- * @returns True where every document was offered, and false where disposal
- * stopped the work first.
- *
- * @internal
- */
-export async function insertIntoGraph(
-  state: VectorIndexState,
-  graph: HNSWIndex,
-  docIds: Iterable<string>,
-  admit: (docId: string) => boolean,
-  inserted?: (docId: string) => void,
-): Promise<boolean> {
-  let count = 0
-  for (const docId of docIds) {
-    if (state.disposed) return false
-    if (!admit(docId)) continue
-    graph.insertNode(docId)
-    state.buffer.delete(docId)
-    inserted?.(docId)
-    count += 1
-    if (count % BUILD_CHUNK_SIZE === 0) {
-      await yieldToEventLoop()
-    }
-  }
-  return !state.disposed
-}
-
-/**
- * Builds a graph from every live vector in the store and makes it the graph
- * the index answers from once every vector is in.
- *
- * @param state The index to build for, whose disposal drops the new graph.
- *
- * @internal
- */
-export async function buildGraphFromStore(state: VectorIndexState): Promise<void> {
-  const graph = createHNSWIndex(state.dimension, state.store, state.hnswConfig, state.sq8 ?? undefined)
-  const completed = await insertIntoGraph(state, graph, allLiveDocIds(state), () => true)
-  if (completed) {
-    adoptGraph(state, graph)
-  }
-}
-
-/**
  * Reports whether callers have removed more than a fifth of the vectors the
- * graph has held since it was last built, which is the point at which the
- * vector index specification requires a rebuild.
+ * graph has held since the index last built it, which is the point at which
+ * the vector index specification requires a rebuild.
  *
  * The removed vectors are the nodes the graph still holds as tombstones plus
  * the nodes compaction has cut out since the last rebuild, and the vectors
@@ -274,8 +227,8 @@ export function* allLiveDocIds(state: VectorIndexState): Iterable<string> {
 /**
  * Builds the filter holding every live ordinal of the named partitions.
  *
- * The store keeps each vector's partition, so this walks ordinals rather than
- * document ids, and it clears the removed documents the index has yet to
+ * The store keeps each vector's partition, so this walks the ordinals
+ * themselves, and it clears the removed documents the index has yet to
  * compact away.
  *
  * @param state The index to read.
@@ -361,4 +314,29 @@ export function recalibrateFromStore(state: VectorIndexState): void {
     }
   }
   sq8.recalibrateAll(storeVectors())
+}
+
+/**
+ * Builds the handles a thread opens to hold this field in place.
+ *
+ * @param state The index to share.
+ * @param graph The graph the handles carry.
+ * @param searchable Whether the threads answer searches from that graph.
+ * @returns The handles.
+ *
+ * @internal
+ */
+export function fieldHandlesOf(
+  state: VectorIndexState,
+  graph: HNSWIndex | null,
+  searchable: boolean,
+): SharedVectorFieldHandles {
+  return {
+    dimension: state.dimension,
+    quantization: state.sq8 === null ? 'none' : 'sq8',
+    store: state.store.handles,
+    graph: graph === null ? null : graph.handles,
+    filterThreshold: state.filterThreshold,
+    searchable,
+  }
 }

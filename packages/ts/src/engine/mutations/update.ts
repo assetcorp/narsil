@@ -170,7 +170,7 @@ export async function updateDocument(
     type: 'update',
     indexName,
     docId,
-    document,
+    document: partitionDoc as AnyDocument,
     requestId: `replicate-update-${docId}`,
   })
 

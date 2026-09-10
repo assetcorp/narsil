@@ -19,7 +19,15 @@ import {
 import type { Executor } from './executor'
 import type { WorkerAction } from './protocol'
 import { growPartitionsTo, isSegmentAction, runSegmentAction } from './segment-actions'
-import { createHeldVectorCopies, dropHeldVectorCopy, type HeldVectorCopies, loadHeldVectorCopy } from './vector-copies'
+import {
+  createHeldVectorCopies,
+  dropHeldVectorCopy,
+  type HeldVectorCopies,
+  heldVectorOf,
+  holdsVectorField,
+  insertIntoHeldGraph,
+  loadHeldVectorCopy,
+} from './vector-copies'
 
 /**
  * What a query on this thread's copy of an index runs against.
@@ -30,7 +38,7 @@ export interface IndexQueryContext {
   manager: PartitionManager
   config: IndexConfig
   language: LanguageModule
-  /** The frozen vector copies this thread holds for the index, one per vector field it has received. */
+  /** This thread holds these vector fields in place for the index, one for each field it has received. */
   vectorSearchers: ReadonlyMap<string, VectorSearcher>
   /** True where the main copy reported its stored analysis stale when it sent this copy. */
   analysisStale: boolean
@@ -39,6 +47,10 @@ export interface IndexQueryContext {
 export interface DirectExecutorExtensions {
   getManager(indexName: string): PartitionManager | undefined
   queryContextOf(indexName: string): IndexQueryContext | undefined
+  /** Reports whether this thread holds a vector field of the index in place. */
+  holdsVectorField(indexName: string, fieldName: string): boolean
+  /** Reads a document's vector from a field this thread holds in place, or undefined where it holds none for the document. */
+  heldVectorOf(indexName: string, fieldName: string, docId: string): Float32Array | undefined
   createIndex(indexName: string, config: IndexConfig, language: LanguageModule, analysisStale?: boolean): void
   dropIndex(indexName: string): void
   listIndexes(): string[]
@@ -46,8 +58,8 @@ export interface DirectExecutorExtensions {
 
 export interface DirectExecutorOptions {
   vectorWorkerCopies?: VectorWorkerCopyPolicy
-  /** This thread's scratch slot inside every frozen vector copy it receives. */
-  scratchSlot?: number
+  /** The thread writes into this scratch slot inside every vector block it opens, and it takes the same slot in every graph's lock record. */
+  threadSlot?: number
 }
 
 interface IndexEntry {
@@ -65,7 +77,7 @@ const NO_VECTOR_WORKER_COPIES: VectorWorkerCopyPolicy = { enabled: false }
 export function createDirectExecutor(options?: DirectExecutorOptions): Executor & DirectExecutorExtensions {
   const indexes = new Map<string, IndexEntry>()
   const vectorWorkerCopies = options?.vectorWorkerCopies ?? NO_VECTOR_WORKER_COPIES
-  const scratchSlot = options?.scratchSlot ?? 0
+  const threadSlot = options?.threadSlot ?? 0
 
   function requireIndex(indexName: string): IndexEntry {
     const entry = indexes.get(indexName)
@@ -180,7 +192,14 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
 
       case 'loadVectorCopy': {
         const entry = requireIndex(action.indexName)
-        loadHeldVectorCopy(entry.vectorCopies, entry.manager, action.fieldName, action.handle, action.copy, scratchSlot)
+        loadHeldVectorCopy(
+          entry.vectorCopies,
+          entry.manager,
+          action.fieldName,
+          action.handle,
+          action.handles,
+          threadSlot,
+        )
         return undefined as T
       }
 
@@ -188,6 +207,11 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
         const entry = indexes.get(action.indexName)
         if (entry !== undefined) dropHeldVectorCopy(entry.vectorCopies, action.fieldName, action.handle)
         return undefined as T
+      }
+
+      case 'insertVectorOrdinals': {
+        const entry = requireIndex(action.indexName)
+        return (await insertIntoHeldGraph(entry.vectorCopies, action.fieldName, action.handle, action.ordinals)) as T
       }
 
       case 'insert': {
@@ -321,6 +345,14 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
     shutdown,
     getManager,
     queryContextOf,
+    holdsVectorField: (indexName, fieldName) => {
+      const entry = indexes.get(indexName)
+      return entry !== undefined && holdsVectorField(entry.vectorCopies, fieldName)
+    },
+    heldVectorOf: (indexName, fieldName, docId) => {
+      const entry = indexes.get(indexName)
+      return entry === undefined ? undefined : heldVectorOf(entry.vectorCopies, fieldName, docId)
+    },
     createIndex,
     dropIndex,
     listIndexes,

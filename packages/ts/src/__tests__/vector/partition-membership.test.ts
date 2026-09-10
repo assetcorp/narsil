@@ -39,14 +39,15 @@ describe('vector store partition membership', () => {
     expect(store.partitionsKnown).toBe(true)
   })
 
-  it('keeps the partition of a document that reclaims its old slot', () => {
+  it('takes the partition of a document that returns at a fresh ordinal', () => {
     const store = createVectorStore()
     store.insert('a', vectorFor(1), 1)
-    const ordinal = store.getOrdinal('a')
+    const retired = store.getOrdinal('a')
     store.remove('a')
     store.insert('a', vectorFor(9), 2)
 
-    expect(store.getOrdinal('a')).toBe(ordinal)
+    const ordinal = store.getOrdinal('a')
+    expect(ordinal).not.toBe(retired)
     expect(store.partitionOfOrdinal(ordinal ?? -1)).toBe(2)
     expect(store.partitionsKnown).toBe(true)
   })

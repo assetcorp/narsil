@@ -25,6 +25,10 @@ function onHeldIndex(local: ThreadReadEngine, handler: RouteHandler, fallback: R
   return ctx => (local.holdsCopyOf(ctx.params[0]) ? handler(ctx) : fallback(ctx))
 }
 
+function onWholeDocuments(local: ThreadReadEngine, handler: RouteHandler, fallback: RouteHandler): RouteHandler {
+  return ctx => (local.holdsDocumentsOf(ctx.params[0]) ? handler(ctx) : fallback(ctx))
+}
+
 function searchHandler(
   local: ThreadReadEngine,
   fallback: RouteHandler,
@@ -100,11 +104,11 @@ function threadHandlers(local: ThreadReadEngine, relay: RelayClient, settings: R
       local.preflight(name, params),
     ),
     suggest: suggestHandler(local, forwarded.suggest),
-    get: onHeldIndex(local, reads.get, forwarded.get),
+    get: onWholeDocuments(local, reads.get, forwarded.get),
     exists: onHeldIndex(local, reads.exists, forwarded.exists),
     count: onHeldIndex(local, reads.count, forwarded.count),
-    list: onHeldIndex(local, reads.list, forwarded.list),
-    multiGet: onHeldIndex(local, reads.multiGet, forwarded.multiGet),
+    list: onWholeDocuments(local, reads.list, forwarded.list),
+    multiGet: onWholeDocuments(local, reads.multiGet, forwarded.multiGet),
   }
 }
 

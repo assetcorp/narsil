@@ -69,10 +69,29 @@ export function freezeSegmentShared(
   segmentId?: string,
 ): SharedSegmentSnapshot | null {
   if (typeof SharedArrayBuffer !== 'function') return null
+  return freezeEncodedSegmentShared(payload, encodeDocumentTableData(documents), segmentId)
+}
+
+/**
+ * Freezes a segment whose documents are already encoded, so a merge that
+ * copied the bytes of its inputs never decodes a document.
+ *
+ * @param payload The segment's arrays.
+ * @param documentData The encoded documents in ordinal order.
+ * @param segmentId The id the segment keeps, or a fresh one where absent.
+ * @returns The snapshot, or null where the runtime offers no shared memory.
+ *
+ * @internal
+ */
+export function freezeEncodedSegmentShared(
+  payload: SegmentPayload,
+  documentData: EncodedDocumentTableData,
+  segmentId?: string,
+): SharedSegmentSnapshot | null {
+  if (typeof SharedArrayBuffer !== 'function') return null
 
   const tokenData = encodeFrozenTokenTableData(payload.tokens, payload.docFrequencies)
   const idData = encodeExternalIdTableData(payload.docIds)
-  const documentData = encodeDocumentTableData(documents)
 
   return {
     segmentId: segmentId ?? generateId(),

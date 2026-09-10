@@ -3,28 +3,35 @@ import type { VectorMetric } from '../brute-force'
 import type { OrdinalFilter } from '../ordinal-filter'
 import type { ScalarQuantizer } from '../scalar-quantization-types'
 import type { VectorStore } from '../vector-store'
-import {
-  type AdjacencySnapshot,
-  createAdjacency,
-  estimateAdjacencyBytes,
-  exportAdjacency,
-  hasNode,
-  importAdjacency,
-  resetAdjacency,
-} from './adjacency'
+import { adjacencySlots, estimateAdjacencyBytes, hasNode } from './adjacency'
 import { COMPACTION_ABSOLUTE_THRESHOLD, COMPACTION_TOMBSTONE_RATIO } from './constants'
+import { createSharedGraphHandles, type SharedGraphHandles } from './handles'
+import { lockGraphExclusive, unlockGraphExclusive } from './locks'
 import {
   compactTombstones as compactTombstonesOp,
   insertNode as insertNodeOp,
   markTombstone as markTombstoneOp,
   rebuild as rebuildOp,
+  resetGraph,
 } from './mutation'
 import { deserializeGraph, serializeGraph } from './persistence'
 import { search as searchOp } from './search'
-import type { HNSWConfig, HNSWGraphState, SerializedHNSWGraph } from './shared'
-import { createHNSWWorkspace } from './workspace'
+import {
+  entryPointOf,
+  type HNSWConfig,
+  type HNSWGraphState,
+  isTombstoned,
+  nodeCountOf,
+  type SerializedHNSWGraph,
+  tombstoneCountOf,
+  topLayerOf,
+} from './shared'
+import { exportSnapshot, type HNSWSnapshot, restoreSnapshot } from './snapshot'
+import { openGraphState } from './state'
 
+export type { SharedGraphHandles } from './handles'
 export type { HNSWConfig, SerializedHNSWGraph } from './shared'
+export type { HNSWSnapshot } from './snapshot'
 
 export interface HNSWIndex {
   readonly dimension: number
@@ -36,9 +43,13 @@ export interface HNSWIndex {
   readonly efConstruction: number
   readonly metric: VectorMetric
   readonly adjacencyBytes: number
+  /** Another thread opens these shared structures to search or extend this graph in place. */
+  readonly handles: SharedGraphHandles
 
   insertNode(docId: string): void
+  insertOrdinal(ordinal: number): boolean
   markTombstone(docId: string): void
+  markTombstoneOrdinal(ordinal: number): void
   has(docId: string): boolean
   isTombstoned(docId: string): boolean
   search(
@@ -54,41 +65,13 @@ export interface HNSWIndex {
   compactionNeeded(): boolean
   compactTombstones(): void
   rebuild(): void
+  /** Performs an operation that rewrites the graph in place while every other thread waits. */
+  exclusively<T>(operation: () => T): T
 
   serialize(): SerializedHNSWGraph
   deserialize(data: SerializedHNSWGraph): void
   exportSnapshot(): HNSWSnapshot
   restoreSnapshot(snapshot: HNSWSnapshot): void
-}
-
-/**
- * A built graph in the form the engine hands to another thread.
- *
- * @internal
- */
-export interface HNSWSnapshot {
-  /** Each vector carries this many components. */
-  dimension: number
-  /** Each node keeps this many neighbours per layer. */
-  m: number
-  /** The builder explored this many candidates while placing each node. */
-  efConstruction: number
-  /** The graph ranks by this metric. */
-  metric: VectorMetric
-  /** This holds every node's neighbours, laid out flat. */
-  adjacency: AdjacencySnapshot
-  /** A byte per ordinal, set to 1 where the document has been deleted. */
-  tombstones: Uint8Array
-  /** This many ordinals are tombstoned. */
-  tombstoneCount: number
-  /** The graph holds this many nodes, tombstoned ones included. */
-  nodeCount: number
-  /** The graph's own arrays span this many ordinals. */
-  capacity: number
-  /** Every search starts at this ordinal, and it is -1 while the graph is empty. */
-  entryPointOrd: number
-  /** The graph reaches this many layers. */
-  topLayer: number
 }
 
 export function createHNSWIndexFromSnapshot(store: VectorStore, snapshot: HNSWSnapshot): HNSWIndex {
@@ -101,86 +84,100 @@ export function createHNSWIndexFromSnapshot(store: VectorStore, snapshot: HNSWSn
   return index
 }
 
+/**
+ * Builds the graph of one vector field over the store holding its vectors, or
+ * opens the graph another thread created where the caller gives its handles.
+ *
+ * @param dimension The number of components per vector.
+ * @param store The store holding the field's vectors.
+ * @param config The graph's shape, which the handles override where given.
+ * @param quantizer The field's quantizer, or undefined where the field keeps
+ * full precision.
+ * @param handles The shared structures of a graph to open in place of a new
+ * one.
+ * @returns The graph.
+ *
+ * @internal
+ */
 export function createHNSWIndex(
   dimension: number,
   store: VectorStore,
   config?: HNSWConfig,
   quantizer?: ScalarQuantizer,
+  handles?: SharedGraphHandles,
 ): HNSWIndex {
   const M = config?.m ?? 16
-  const Mmax0 = M * 2
-  const efCons = config?.efConstruction ?? 200
-  const buildMetric = config?.metric ?? 'cosine'
-  const mL = 1 / Math.log(M)
+  const shared =
+    handles ??
+    createSharedGraphHandles({
+      m: M,
+      mMax0: M * 2,
+      efConstruction: config?.efConstruction ?? 200,
+      metric: config?.metric ?? 'cosine',
+    })
+  const state: HNSWGraphState = openGraphState(shared, dimension, store, quantizer, 0)
+  const docIdOf = (ord: number) => store.docIdForOrdinal(ord)
 
-  const state: HNSWGraphState = {
-    dimension,
-    store,
-    quantizer,
-    M,
-    Mmax0,
-    efCons,
-    buildMetric,
-    mL,
-    adjacency: createAdjacency(M, Mmax0),
-    tombstones: new Uint8Array(0),
-    tombstoneCount: 0,
-    nodeCount: 0,
-    capacity: 0,
-    visited: new Uint32Array(0),
-    visitStamp: 0,
-    entryPointOrd: -1,
-    topLayer: -1,
-    workspace: createHNSWWorkspace(),
+  function exclusively<T>(operation: () => T): T {
+    lockGraphExclusive(state.locks)
+    try {
+      return operation()
+    } finally {
+      unlockGraphExclusive(state.locks)
+    }
   }
 
-  function clear(): void {
-    resetAdjacency(state.adjacency)
-    state.tombstones = new Uint8Array(0)
-    state.tombstoneCount = 0
-    state.nodeCount = 0
-    state.capacity = 0
-    state.visited = new Uint32Array(0)
-    state.visitStamp = 0
-    state.entryPointOrd = -1
-    state.topLayer = -1
+  function insertNode(docId: string): void {
+    const ord = store.getOrdinal(docId)
+    if (ord === undefined) {
+      throw new Error(`Cannot insert HNSW node: vector for "${docId}" not found in VectorStore`)
+    }
+    const entry = store.entryForOrdinal(ord)
+    if (!entry) {
+      throw new Error(`Cannot insert HNSW node: vector for "${docId}" not found in VectorStore`)
+    }
+    if (entry.vector.length !== dimension) {
+      throw new Error(`Vector dimension mismatch: expected ${dimension}, got ${entry.vector.length}`)
+    }
+    insertNodeOp(state, ord)
   }
 
   function* entriesIterator(): IterableIterator<[string, VectorEntry]> {
-    for (let ord = 0; ord < state.adjacency.slots; ord++) {
+    const slots = adjacencySlots(state.adjacency)
+    for (let ord = 0; ord < slots; ord++) {
       if (!hasNode(state.adjacency, ord)) continue
-      if (state.tombstones[ord] === 1) continue
-      const docId = state.store.docIdForOrdinal(ord)
+      if (isTombstoned(state, ord)) continue
+      const docId = store.docIdForOrdinal(ord)
       if (docId === undefined) continue
-      const entry = state.store.entryForOrdinal(ord)
+      const entry = store.entryForOrdinal(ord)
       if (!entry) continue
       yield [docId, { docId, vector: entry.vector, magnitude: entry.magnitude }]
     }
   }
 
   function compactionNeeded(): boolean {
-    if (state.nodeCount === 0) return false
-    return (
-      state.tombstoneCount / state.nodeCount > COMPACTION_TOMBSTONE_RATIO ||
-      state.tombstoneCount > COMPACTION_ABSOLUTE_THRESHOLD
-    )
+    const nodeCount = nodeCountOf(state)
+    if (nodeCount === 0) return false
+    const tombstones = tombstoneCountOf(state)
+    return tombstones / nodeCount > COMPACTION_TOMBSTONE_RATIO || tombstones > COMPACTION_ABSOLUTE_THRESHOLD
   }
 
   return {
     get dimension() {
-      return state.dimension
+      return dimension
     },
     get size() {
-      return state.nodeCount - state.tombstoneCount
+      return nodeCountOf(state) - tombstoneCountOf(state)
     },
     get tombstoneCount() {
-      return state.tombstoneCount
+      return tombstoneCountOf(state)
     },
     get entryPointId() {
-      return state.entryPointOrd === -1 ? null : (state.store.docIdForOrdinal(state.entryPointOrd) ?? null)
+      const entryPoint = entryPointOf(state)
+      return entryPoint === -1 ? null : (store.docIdForOrdinal(entryPoint) ?? null)
     },
     get topLayer() {
-      return state.topLayer
+      return topLayerOf(state)
     },
     get m() {
       return state.M
@@ -194,15 +191,23 @@ export function createHNSWIndex(
     get adjacencyBytes() {
       return estimateAdjacencyBytes(state.adjacency)
     },
-    insertNode: (docId: string) => insertNodeOp(state, docId),
-    markTombstone: (docId: string) => markTombstoneOp(state, docId),
+    get handles() {
+      return shared
+    },
+    insertNode,
+    insertOrdinal: (ordinal: number) => insertNodeOp(state, ordinal),
+    markTombstone: (docId: string) => {
+      const ord = store.getOrdinal(docId)
+      if (ord !== undefined) markTombstoneOp(state, ord)
+    },
+    markTombstoneOrdinal: (ordinal: number) => markTombstoneOp(state, ordinal),
     has: (docId: string) => {
-      const ord = state.store.getOrdinal(docId)
-      return ord !== undefined && hasNode(state.adjacency, ord) && state.tombstones[ord] !== 1
+      const ord = store.getOrdinal(docId)
+      return ord !== undefined && hasNode(state.adjacency, ord) && !isTombstoned(state, ord)
     },
     isTombstoned: (docId: string) => {
-      const ord = state.store.getOrdinal(docId)
-      return ord !== undefined && state.tombstones[ord] === 1
+      const ord = store.getOrdinal(docId)
+      return ord !== undefined && isTombstoned(state, ord)
     },
     search: (
       query: Float32Array,
@@ -211,37 +216,16 @@ export function createHNSWIndex(
       minSimilarity: number,
       filter?: OrdinalFilter,
       efSearch?: number,
-    ) => searchOp(state, query, k, searchMetric, minSimilarity, filter, efSearch),
-    clear,
+    ) => searchOp(state, docIdOf, query, k, searchMetric, minSimilarity, filter, efSearch),
+    clear: () => exclusively(() => resetGraph(state)),
     entries: entriesIterator,
     compactionNeeded,
-    compactTombstones: () => compactTombstonesOp(state),
-    rebuild: () => rebuildOp(state),
-    serialize: () => serializeGraph(state),
-    deserialize: (data: SerializedHNSWGraph) => deserializeGraph(state, data),
-    exportSnapshot: (): HNSWSnapshot => ({
-      dimension: state.dimension,
-      m: state.M,
-      efConstruction: state.efCons,
-      metric: state.buildMetric,
-      adjacency: exportAdjacency(state.adjacency),
-      tombstones: state.tombstones.slice(),
-      tombstoneCount: state.tombstoneCount,
-      nodeCount: state.nodeCount,
-      capacity: state.capacity,
-      entryPointOrd: state.entryPointOrd,
-      topLayer: state.topLayer,
-    }),
-    restoreSnapshot: (snapshot: HNSWSnapshot): void => {
-      state.adjacency = importAdjacency(snapshot.adjacency)
-      state.tombstones = snapshot.tombstones
-      state.tombstoneCount = snapshot.tombstoneCount
-      state.nodeCount = snapshot.nodeCount
-      state.capacity = Math.max(snapshot.capacity, snapshot.adjacency.capacity)
-      state.visited = new Uint32Array(state.capacity)
-      state.visitStamp = 0
-      state.entryPointOrd = snapshot.entryPointOrd
-      state.topLayer = snapshot.topLayer
-    },
+    compactTombstones: () => exclusively(() => compactTombstonesOp(state)),
+    rebuild: () => exclusively(() => rebuildOp(state)),
+    exclusively,
+    serialize: () => serializeGraph(state, store),
+    deserialize: (data: SerializedHNSWGraph) => exclusively(() => deserializeGraph(state, store, data)),
+    exportSnapshot: () => exportSnapshot(state),
+    restoreSnapshot: (snapshot: HNSWSnapshot) => exclusively(() => restoreSnapshot(state, snapshot)),
   }
 }

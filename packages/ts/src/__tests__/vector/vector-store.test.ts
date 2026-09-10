@@ -129,7 +129,7 @@ describe('VectorStore arena query path', () => {
     expect(store.distanceFromArena(realQuery, 0, 'cosine')).toBe(1)
   })
 
-  it('scores a query against a recycled ordinal after the document returns', () => {
+  it('scores a query against the fresh ordinal a returning document takes', () => {
     const store = createVectorStore()
     populate(store, 8, 4)
     store.remove('doc1')
@@ -141,7 +141,8 @@ describe('VectorStore arena query path', () => {
     if (!prepared) return
 
     const ordinal = store.getOrdinal('doc1')
-    expect(ordinal).toBe(1)
+    expect(ordinal).toBe(4)
+    expect(store.distanceFromArena(prepared, 1, 'cosine')).toBe(Number.POSITIVE_INFINITY)
     if (ordinal === undefined) return
 
     const entry = store.entryForOrdinal(ordinal)
@@ -187,13 +188,13 @@ describe('VectorStore arena query path', () => {
     }
   })
 
-  it('serves a query at a new dimension after the store is cleared', () => {
+  it('serves a query again after the store is cleared and refilled', () => {
     const store = createVectorStore()
     populate(store, 8, 4)
     store.clear()
-    populate(store, 96, 10)
+    populate(store, 8, 10)
 
-    const query = seededVector(96, 42)
+    const query = seededVector(8, 42)
     const prepared = store.prepareQueryArena(query)
     expect(prepared).not.toBeNull()
     if (!prepared) return

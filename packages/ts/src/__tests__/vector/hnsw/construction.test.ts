@@ -39,15 +39,28 @@ describe('HNSWIndex construction and basic operations', () => {
     expect(() => index.insertNode('missing')).toThrow(/not found in VectorStore/)
   })
 
-  it('replaces existing vector on duplicate insert', () => {
+  it('answers with the replacement vector once the caller retires the old ordinal', () => {
     const v1 = vectorFromValues(1, 0, 0, 0, 0, 0, 0, 0)
     const v2 = vectorFromValues(0, 1, 0, 0, 0, 0, 0, 0)
     insertVec(store, index, 'doc1', v1)
-    store.remove('doc1')
+    const retired = store.getOrdinal('doc1')
     insertVec(store, index, 'doc1', v2)
+    if (retired !== undefined) index.markTombstoneOrdinal(retired)
 
     expect(index.size).toBe(1)
     expect(index.has('doc1')).toBe(true)
+    expect(index.search(v2, 2, 'cosine', -1).map(hit => hit.docId)).toEqual(['doc1'])
+  })
+
+  it('leaves an ordinal the store retired out of the graph', () => {
+    insertVec(store, index, 'doc1', seededVector(DIM, 11))
+    const retired = store.getOrdinal('doc1')
+    store.insert('doc1', seededVector(DIM, 12))
+
+    expect(retired).toBeDefined()
+    if (retired === undefined) return
+    expect(index.insertOrdinal(retired)).toBe(false)
+    expect(index.size).toBe(1)
   })
 
   it('reports has correctly', () => {

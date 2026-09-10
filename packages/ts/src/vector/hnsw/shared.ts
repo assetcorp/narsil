@@ -1,13 +1,16 @@
 import type { VectorMetric } from '../brute-force'
-import type { QuantizerSearchReader, ScalarQuantizer } from '../scalar-quantization-types'
+import type { QuantizerSearchReader } from '../scalar-quantization-types'
+import { fixedView } from '../shared-buffers/growable'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance } from '../similarity'
-import type { VectorSearchReader, VectorStore, VectorStoreEntry } from '../vector-store'
+import type { VectorBuildReader, VectorSearchReader, VectorStoreEntry } from '../vector-store'
 import { type Adjacency, ensureAdjacencyCapacity, hasNode, nodeLevel } from './adjacency'
 import { MAX_LAYER_CAP } from './constants'
+import { GRAPH_ENTRY_POINT, GRAPH_NODE_COUNT, GRAPH_TOMBSTONE_COUNT, GRAPH_TOP_LAYER } from './handles'
+import type { GraphLocks } from './locks'
 import type { HNSWWorkspace } from './workspace'
 
 /**
- * How an HNSW graph is built.
+ * This config decides how the engine builds an HNSW graph.
  *
  * @internal
  */
@@ -21,7 +24,7 @@ export interface HNSWConfig {
 }
 
 /**
- * An HNSW graph in the form the engine passes between threads.
+ * The engine writes an HNSW graph to disk in this form.
  *
  * @internal
  */
@@ -41,11 +44,9 @@ export interface SerializedHNSWGraph {
 }
 
 /**
- * The graph state a search reads, without the mutation-only members.
- *
- * A worker searching a shared copy builds this over read-only views, with its
- * own visited array, and the full {@link HNSWGraphState} satisfies it on the
- * main thread, so one search implementation serves both.
+ * A search on any thread reads the graph through this state, which holds the
+ * views over the shared adjacency and tombstones, the thread's own locks and
+ * visited marks, and the readers over the shared vectors and codes.
  *
  * @internal
  */
@@ -53,21 +54,24 @@ export interface HNSWSearchState {
   readonly dimension: number
   readonly store: VectorSearchReader
   readonly quantizer: QuantizerSearchReader | undefined
-  adjacency: Adjacency
+  readonly adjacency: Adjacency
+  readonly locks: GraphLocks
+  readonly header: Int32Array
   tombstones: Uint8Array
-  tombstoneCount: number
-  nodeCount: number
-  capacity: number
   visited: Uint32Array
   visitStamp: number
-  entryPointOrd: number
-  topLayer: number
   readonly workspace: HNSWWorkspace
+  readonly neighborScratch: Int32Array
 }
 
+/**
+ * A thread that places nodes holds this state, which adds the readers
+ * construction needs and the graph's shape.
+ *
+ * @internal
+ */
 export interface HNSWGraphState extends HNSWSearchState {
-  readonly store: VectorStore
-  readonly quantizer: ScalarQuantizer | undefined
+  readonly store: VectorBuildReader
   readonly M: number
   readonly Mmax0: number
   readonly efCons: number
@@ -75,17 +79,34 @@ export interface HNSWGraphState extends HNSWSearchState {
   readonly mL: number
 }
 
+export function entryPointOf(state: HNSWSearchState): number {
+  return Atomics.load(state.header, GRAPH_ENTRY_POINT)
+}
+
+export function topLayerOf(state: HNSWSearchState): number {
+  return Atomics.load(state.header, GRAPH_TOP_LAYER)
+}
+
+export function nodeCountOf(state: HNSWSearchState): number {
+  return Atomics.load(state.header, GRAPH_NODE_COUNT)
+}
+
+export function tombstoneCountOf(state: HNSWSearchState): number {
+  return Atomics.load(state.header, GRAPH_TOMBSTONE_COUNT)
+}
+
 export function ensureCapacity(state: HNSWGraphState, needed: number): void {
   ensureAdjacencyCapacity(state.adjacency, needed)
-  if (needed <= state.capacity) return
-  let newCap = state.capacity === 0 ? 16 : state.capacity
-  while (newCap < needed) newCap *= 2
-  const nextTombstones = new Uint8Array(newCap)
-  nextTombstones.set(state.tombstones)
-  state.tombstones = nextTombstones
-  state.visited = new Uint32Array(newCap)
-  state.visitStamp = 0
-  state.capacity = newCap
+  ensureVisited(state, needed)
+}
+
+export function ensureVisited(state: HNSWSearchState, needed: number): void {
+  if (needed <= state.visited.length) return
+  let capacity = state.visited.length === 0 ? 16 : state.visited.length
+  while (capacity < needed) capacity *= 2
+  const next = new Uint32Array(capacity)
+  next.set(state.visited)
+  state.visited = next
 }
 
 export function nextVisitStamp(state: HNSWSearchState): number {
@@ -97,15 +118,28 @@ export function nextVisitStamp(state: HNSWSearchState): number {
   return state.visitStamp
 }
 
+/**
+ * Reports whether the tombstone view reaches an ordinal, rebuilding the view
+ * once another thread has grown the buffer behind it.
+ *
+ * @internal
+ */
+export function reachTombstone(state: HNSWSearchState, ord: number): boolean {
+  if (ord < state.tombstones.length) return true
+  if (ord >= state.adjacency.handles.tombstones.byteLength) return false
+  state.tombstones = fixedView(state.adjacency.handles.tombstones, Uint8Array)
+  return ord < state.tombstones.length
+}
+
 export function isTombstoned(state: HNSWSearchState, ord: number): boolean {
-  return state.tombstones[ord] === 1
+  return ord >= 0 && reachTombstone(state, ord) && state.tombstones[ord] === 1
 }
 
 export function nodeExists(state: HNSWSearchState, ord: number): boolean {
   return hasNode(state.adjacency, ord)
 }
 
-export function nodeMaxLayer(state: HNSWGraphState, ord: number): number {
+export function nodeMaxLayer(state: HNSWSearchState, ord: number): number {
   return nodeLevel(state.adjacency, ord)
 }
 

@@ -323,6 +323,12 @@ describe.skipIf(!built)('request threads answer from the copies they hold', () =
     })
     await waitFor(() => scaledOut(srv.engine, 'catalogue'))
     await srv.engine.waitForWrites('catalogue')
+    await waitFor(async () => {
+      const before = mainQueries
+      await postJson(srv.base, '/indexes/catalogue/search', { term: 'beta', limit: 1 })
+      return mainQueries === before
+    })
+    mainQueries = 0
   })
 
   afterEach(async () => {

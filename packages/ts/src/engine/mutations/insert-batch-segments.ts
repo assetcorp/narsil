@@ -36,7 +36,7 @@ async function replicateDocuments(
       type: 'insert',
       indexName,
       docId: doc.docId,
-      document: doc.document,
+      document: doc.partitionDoc,
       requestId: `replicate-insert-${doc.docId}`,
       skipClone: options?.skipClone,
     })
@@ -178,11 +178,11 @@ async function ingestAdmitted(
   }
 
   const docIds = admitted.map(doc => doc.docId)
-  const rawDocuments = admitted.map(doc => doc.document)
+  const partitionDocuments = admitted.map(doc => doc.partitionDoc)
   const { requests, memberIndexes } = buildSegmentRequests(
     indexName,
     docIds,
-    rawDocuments,
+    partitionDocuments,
     manager.partitionCount,
     workers,
     options?.skipClone,
