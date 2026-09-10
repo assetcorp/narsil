@@ -3,7 +3,7 @@ import { fixedView } from '../shared-buffers/growable'
 import { arenaFloat32Distance } from '../simd'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from '../similarity'
 import { NOTHING_STAGED, type OpenVectorBlock, openVectorBlock, QUERY_STAGED, slotByteOffset } from './blocks'
-import { type SharedVectorStoreHandles, STORE_SLOTS } from './handles'
+import { type SharedVectorStoreHandles, STORE_BLOCK_COUNT, STORE_SLOTS } from './handles'
 import type { ArenaQueryVector, VectorStoreEntry } from './types'
 
 const decoder = new TextDecoder()
@@ -22,6 +22,8 @@ export interface SharedVectorStoreView {
   readonly handles: SharedVectorStoreHandles
   readonly slots: number
   readonly simdAvailable: boolean
+  /** Reports whether this thread has opened every block the field holds, which reads false until the main thread sends the handles of a block it has added. */
+  readonly holdsEveryBlock: boolean
   adoptHandles(handles: SharedVectorStoreHandles): void
   /** Rebuilds the views over the side tables once the main thread has grown them. */
   rebind(): void
@@ -130,6 +132,9 @@ export function openSharedVectorStore(initial: SharedVectorStoreHandles, threadS
     },
     get simdAvailable() {
       return handles.blocks.length > 0 && blockAt(0).simd !== null && blockAt(0).hasScratch
+    },
+    get holdsEveryBlock() {
+      return Atomics.load(handles.header, STORE_BLOCK_COUNT) <= handles.blocks.length
     },
 
     adoptHandles(next) {

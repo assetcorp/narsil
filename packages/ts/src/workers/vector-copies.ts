@@ -83,17 +83,19 @@ export function loadHeldVectorCopy(
 }
 
 /**
- * Reports whether this worker holds a field in place, even where that field
- * holds no graph yet.
+ * Reports whether this worker reads every vector of a field in place, even
+ * where that field holds no graph yet. It reads false while the main thread
+ * has added a block whose handles it has yet to send, because the worker
+ * reads no vector of that block until they arrive.
  *
  * @param held The fields this worker holds for the index.
  * @param fieldName The vector field to ask about.
- * @returns True where the worker reads that field in place.
+ * @returns True where the worker reads every vector of that field in place.
  *
  * @internal
  */
 export function holdsVectorField(held: HeldVectorCopies, fieldName: string): boolean {
-  return held.fields.has(fieldName)
+  return held.fields.get(fieldName)?.view.readsEveryVector === true
 }
 
 /**

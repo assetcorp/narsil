@@ -22,6 +22,8 @@ export interface SharedVectorFieldView {
   /** This is the graph state, and it reads null while the field holds no graph. */
   readonly graph: HNSWGraphState | null
   readonly liveSize: number
+  /** Reports whether this thread reads every vector of the field, which reads false while the main thread has added a block whose handles it has yet to send. */
+  readonly readsEveryVector: boolean
   /** Reports the document id at an ordinal, or undefined where the ordinal holds no live vector. */
   docIdOf(ordinal: number): string | undefined
   /** Reports the ordinal a document id holds, or undefined where the field holds no vector for it. */
@@ -104,6 +106,9 @@ export function openSharedVectorField(initial: SharedVectorFieldHandles, threadS
     },
     get liveSize() {
       return graph === null ? 0 : nodeCountOf(graph) - tombstoneCountOf(graph)
+    },
+    get readsEveryVector() {
+      return store.holdsEveryBlock
     },
     docIdOf,
     ordinalOf,
