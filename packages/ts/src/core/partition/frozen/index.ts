@@ -7,6 +7,7 @@ import type { PartitionStatsView } from '../../statistics'
 import { createSurfaceRegistry, type SurfaceRegistryReader } from '../../surface-registry'
 import type { PartitionReadState } from '../read-state'
 import type { SegmentPayload } from '../segment-payload'
+import type { SegmentColumns } from './columns'
 import { createFrozenDocTable } from './doc-table'
 import {
   type EncodedDocumentTableData,
@@ -52,23 +53,7 @@ export interface FrozenSegment extends PartitionReadState {
  *
  * @internal
  */
-export interface FrozenSegmentArrays {
-  documentCount: number
-  fieldNames: readonly string[]
-  fieldLengthNames: readonly string[]
-  fieldLengthColumns: readonly Uint32Array[]
-  totalFieldLengths: Readonly<Record<string, number>>
-  postingOffsets: Uint32Array
-  postingDocIds: Uint32Array
-  postingFrequencies: Uint16Array
-  postingFieldIndices: Uint8Array
-  positionOffsets: Uint32Array | null
-  positionValues: Uint32Array | null
-  numeric: SegmentPayload['numeric']
-  boolean: SegmentPayload['boolean']
-  enums: SegmentPayload['enums']
-  geo: SegmentPayload['geo']
-  surfaceForms: SerializedSurfaceForms | null
+export interface FrozenSegmentArrays extends SegmentColumns {
   tokenTable: FrozenTokenTable
   idTable: ExternalIdTable
   /** This holds the documents as encoded bytes, and it reads null where the segment holds them as objects. */

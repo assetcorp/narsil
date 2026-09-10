@@ -14,6 +14,7 @@ export const GRAPH_TOMBSTONE_COUNT = 33
 export const GRAPH_UPPER_USED = 64
 export const GRAPH_SLOTS = 65
 export const GRAPH_LOCK = 96
+export const GRAPH_WRITERS_WAITING = 97
 export const GRAPH_ENTRY_LOCK = 128
 const GRAPH_HEADER_WORDS = 160
 
@@ -21,6 +22,7 @@ export const HELD_WRITE = 0
 export const HELD_WRITE_VERSION = 1
 export const HELD_GRAPH = 2
 export const HELD_FENCE = 3
+export const HELD_GRAPH_WAITING = 4
 export const HELD_WORDS_PER_THREAD = 32
 
 const METRIC_CODES: readonly VectorMetric[] = ['cosine', 'dotProduct', 'euclidean']

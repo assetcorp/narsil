@@ -1,7 +1,7 @@
-import type { SerializedSurfaceForms } from '../../../types/internal'
 import type { AnyDocument } from '../../../types/schema'
 import { generateId } from '../../id-generator'
 import type { SegmentPayload } from '../segment-payload'
+import type { SegmentColumns } from './columns'
 import { type EncodedDocumentTableData, encodeDocumentTableData } from './document-source'
 import { type ExternalIdTableData, encodeExternalIdTableData } from './external-ids'
 import { encodeFrozenTokenTableData, type FrozenTokenTableData } from './token-table'
@@ -16,27 +16,11 @@ import { encodeFrozenTokenTableData, type FrozenTokenTableData } from './token-t
  *
  * @internal
  */
-export interface SharedSegmentSnapshot {
+export interface SharedSegmentSnapshot extends SegmentColumns {
   segmentId: string
-  documentCount: number
-  fieldNames: string[]
-  fieldLengthNames: string[]
-  fieldLengthColumns: Uint32Array[]
-  totalFieldLengths: Record<string, number>
   tokenTable: FrozenTokenTableData
   idTable: ExternalIdTableData
   documentTable: EncodedDocumentTableData
-  postingOffsets: Uint32Array
-  postingDocIds: Uint32Array
-  postingFrequencies: Uint16Array
-  postingFieldIndices: Uint8Array
-  positionOffsets: Uint32Array | null
-  positionValues: Uint32Array | null
-  numeric: SegmentPayload['numeric']
-  boolean: SegmentPayload['boolean']
-  enums: SegmentPayload['enums']
-  geo: SegmentPayload['geo']
-  surfaceForms: SerializedSurfaceForms | null
 }
 
 function sharedUint32(source: Uint32Array): Uint32Array {

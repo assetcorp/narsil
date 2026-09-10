@@ -3,8 +3,10 @@ import { fixedView, sharedMemoryAvailable } from '../shared-buffers/growable'
 import {
   GRAPH_ENTRY_LOCK,
   GRAPH_LOCK,
+  GRAPH_WRITERS_WAITING,
   HELD_FENCE,
   HELD_GRAPH,
+  HELD_GRAPH_WAITING,
   HELD_WORDS_PER_THREAD,
   HELD_WRITE,
   HELD_WRITE_VERSION,
@@ -71,30 +73,6 @@ function waitOn(words: Int32Array, index: number, seen: number): void {
 
 function heldIndex(locks: GraphLocks, kind: number): number {
   return locks.threadSlot * HELD_WORDS_PER_THREAD + kind
-}
-
-function acquireShared(locks: GraphLocks, words: Int32Array, index: number, heldKind: number): void {
-  let spins = 0
-  for (;;) {
-    const seen = Atomics.load(words, index)
-    if (seen >= FREE) {
-      if (Atomics.compareExchange(words, index, seen, seen + 1) === seen) {
-        Atomics.store(locks.held, heldIndex(locks, heldKind), 1)
-        return
-      }
-      continue
-    }
-    if (spins < LOCK_SPIN_ITERATIONS) {
-      spins += 1
-      continue
-    }
-    waitOn(words, index, seen)
-  }
-}
-
-function releaseShared(locks: GraphLocks, words: Int32Array, index: number, heldKind: number): void {
-  Atomics.store(locks.held, heldIndex(locks, heldKind), 0)
-  if (Atomics.sub(words, index, 1) === 1 && canWait(words)) Atomics.notify(words, index)
 }
 
 function acquireExclusive(words: Int32Array, index: number): void {
@@ -209,14 +187,32 @@ export function unlockNodeWrite(locks: GraphLocks, ord: number): void {
 /**
  * Takes the graph lock in shared mode, which every search and every insertion
  * holds until it finishes, so that an operation needing the whole graph to
- * itself waits for them.
+ * itself waits for them. It waits itself while another thread is queueing for
+ * the whole graph, which keeps a rebuild from waiting behind an endless run
+ * of searches.
  *
  * @param locks This thread's handle on the graph's locks.
  *
  * @internal
  */
 export function lockGraphShared(locks: GraphLocks): void {
-  acquireShared(locks, locks.header, GRAPH_LOCK, HELD_GRAPH)
+  const { header } = locks
+  let spins = 0
+  for (;;) {
+    const seen = Atomics.load(header, GRAPH_LOCK)
+    if (seen >= FREE && Atomics.load(header, GRAPH_WRITERS_WAITING) === 0) {
+      if (Atomics.compareExchange(header, GRAPH_LOCK, seen, seen + 1) === seen) {
+        Atomics.store(locks.held, heldIndex(locks, HELD_GRAPH), 1)
+        return
+      }
+      continue
+    }
+    if (spins < LOCK_SPIN_ITERATIONS) {
+      spins += 1
+      continue
+    }
+    waitOn(header, GRAPH_LOCK, seen)
+  }
 }
 
 /**
@@ -227,19 +223,30 @@ export function lockGraphShared(locks: GraphLocks): void {
  * @internal
  */
 export function unlockGraphShared(locks: GraphLocks): void {
-  releaseShared(locks, locks.header, GRAPH_LOCK, HELD_GRAPH)
+  const { header } = locks
+  Atomics.store(locks.held, heldIndex(locks, HELD_GRAPH), 0)
+  if (Atomics.sub(header, GRAPH_LOCK, 1) === 1 && canWait(header)) Atomics.notify(header, GRAPH_LOCK)
 }
 
 /**
  * Takes the graph lock exclusively, waiting for every search and insertion in
- * flight to finish, for an operation that rewrites the graph in place.
+ * flight to finish, for an operation that rewrites the graph in place. It
+ * records that it is waiting, so that the searches in flight are the only
+ * ones it waits for.
  *
  * @param locks This thread's handle on the graph's locks.
  *
  * @internal
  */
 export function lockGraphExclusive(locks: GraphLocks): void {
-  acquireExclusive(locks.header, GRAPH_LOCK)
+  Atomics.store(locks.held, heldIndex(locks, HELD_GRAPH_WAITING), 1)
+  Atomics.add(locks.header, GRAPH_WRITERS_WAITING, 1)
+  try {
+    acquireExclusive(locks.header, GRAPH_LOCK)
+  } finally {
+    Atomics.sub(locks.header, GRAPH_WRITERS_WAITING, 1)
+    Atomics.store(locks.held, heldIndex(locks, HELD_GRAPH_WAITING), 0)
+  }
 }
 
 /**
@@ -288,6 +295,9 @@ export function releaseLocksHeldBy(handles: SharedGraphHandles, threadSlot: numb
   const held = handles.heldLocks
   const words = new Int32Array(handles.locks)
   const base = threadSlot * HELD_WORDS_PER_THREAD
+  if (Atomics.exchange(held, base + HELD_GRAPH_WAITING, 0) === 1) {
+    Atomics.sub(handles.header, GRAPH_WRITERS_WAITING, 1)
+  }
   const writeOrd = Atomics.exchange(held, base + HELD_WRITE, 0) - 1
   const writeVersion = Atomics.load(held, base + HELD_WRITE_VERSION)
   if (writeOrd >= 0 && writeOrd < words.length) {

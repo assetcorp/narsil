@@ -12,6 +12,7 @@ import {
   type SharedCopyHost,
   type VectorIndexState,
   type VectorScoredResult,
+  type WorkerCopyMode,
 } from './shared'
 
 let handleCounter = 0
@@ -109,6 +110,25 @@ export function refreshWorkerCopies(state: VectorIndexState): void {
   scheduleWorkerCopyLoad(state)
 }
 
+interface SharedFieldRecord {
+  graph: HNSWIndex | null
+  handle: string
+  searchable: boolean
+  mode: WorkerCopyMode
+  revision: number
+  blockCount: number
+}
+
+function recordSharedField(state: VectorIndexState, record: SharedFieldRecord): void {
+  const { graph, handle, searchable, mode, revision, blockCount } = record
+  state.sharedHandles.set(graph, { handle, searchable, mode })
+  state.sharedBlockCount = blockCount
+  if (!searchable) return
+  state.workerCopyHandle = handle
+  state.workerCopyRevision = revision
+  state.workerCopyMode = mode
+}
+
 async function loadOnHost(
   state: VectorIndexState,
   host: SharedCopyHost,
@@ -128,13 +148,7 @@ async function loadOnHost(
     loaded = false
   }
   if (!loaded || state.disposed) return null
-  state.sharedHandles.set(graph, { handle, searchable, mode: 'hosted' })
-  state.sharedBlockCount = blockCount
-  if (searchable) {
-    state.workerCopyHandle = handle
-    state.workerCopyRevision = state.revision
-    state.workerCopyMode = 'hosted'
-  }
+  recordSharedField(state, { graph, handle, searchable, mode: 'hosted', revision: state.revision, blockCount })
   return handle
 }
 
@@ -186,13 +200,7 @@ async function loadOnPool(
     await pool.drop(handle).catch(() => undefined)
     return null
   }
-  state.sharedHandles.set(graph, { handle, searchable, mode })
-  state.sharedBlockCount = blockCount
-  if (searchable) {
-    state.workerCopyHandle = handle
-    state.workerCopyRevision = revision
-    state.workerCopyMode = mode
-  }
+  recordSharedField(state, { graph, handle, searchable, mode, revision, blockCount })
   return handle
 }
 
