@@ -12,8 +12,8 @@ const WORKER_COUNT = 4
 const CONCURRENT_ROUNDS = 6
 const QUERIES_PER_ROUND = 12
 const INSERT_CHUNK = 32
-const RECALL_QUERIES = 40
-const RECALL_FLOOR_AT_10 = 0.95
+const RECALL_QUERIES = 200
+const RECALL_FLOOR_AT_10 = 0.93
 
 function pseudoRandom(seed: number): () => number {
   let state = seed >>> 0

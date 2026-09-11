@@ -110,30 +110,5 @@ export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {
 }
 
 export function estimateMemoryBytes(state: VectorIndexState): number {
-  const count = state.store.size
-  if (count === 0 && state.tombstones.size === 0 && state.buffer.size === 0) return 0
-
-  let bytes = state.store.estimateMemory(state.dimension)
-
-  const TOMBSTONE_SET_OVERHEAD = 64
-  const TOMBSTONE_ENTRY_COST = 72
-  bytes += TOMBSTONE_SET_OVERHEAD + state.tombstones.size * TOMBSTONE_ENTRY_COST
-
-  const BUFFER_SET_OVERHEAD = 64
-  const BUFFER_ENTRY_COST = 72
-  bytes += BUFFER_SET_OVERHEAD + state.buffer.size * BUFFER_ENTRY_COST
-
-  if (state.hnsw) {
-    bytes += state.hnsw.adjacencyBytes
-  }
-
-  if (state.sq8?.isCalibrated()) {
-    const sqCount = state.sq8.size
-    const PER_VECTOR_METADATA = 8 * 3
-    const GLOBAL_CALIBRATION = 8 * 5
-    bytes += sqCount * (state.dimension + PER_VECTOR_METADATA)
-    bytes += GLOBAL_CALIBRATION
-  }
-
-  return Math.round(bytes)
+  return state.store.memoryBytes() + (state.hnsw === null ? 0 : state.hnsw.graphBytes)
 }

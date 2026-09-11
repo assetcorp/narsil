@@ -87,7 +87,12 @@ export interface VectorStore extends VectorBuildReader {
   clear(): void
   /** Gives up the shared blocks, which the memory the vectors occupy returns with, and leaves an empty store behind. */
   release(): void
-  estimateMemory(dimension: number): number
+  /**
+   * Reports the bytes this store's shared structures hold, read from each
+   * structure as it stands. The bookkeeping each thread keeps on its own heap
+   * falls outside this figure, because no runtime call measures it.
+   */
+  memoryBytes(): number
   getOrdinal(docId: string): number | undefined
   docIdForOrdinal(ordinal: number): string | undefined
   exportSnapshot(): VectorStoreSnapshot

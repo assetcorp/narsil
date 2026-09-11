@@ -283,6 +283,16 @@ export function hasNode(adj: Adjacency, ord: number): boolean {
  *
  * @internal
  */
-export function estimateAdjacencyBytes(adj: Adjacency): number {
-  return adj.nodeLevels.byteLength + adj.level0.byteLength + adj.upperBase.byteLength + adj.upper.byteLength
+export function graphBytes(adj: Adjacency): number {
+  const handles = adj.handles
+  return (
+    handles.header.byteLength +
+    handles.nodeLevels.byteLength +
+    handles.level0.byteLength +
+    handles.upperBase.byteLength +
+    handles.upper.byteLength +
+    handles.locks.byteLength +
+    handles.tombstones.byteLength +
+    handles.heldLocks.byteLength
+  )
 }
