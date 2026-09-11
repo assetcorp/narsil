@@ -61,6 +61,7 @@
     "stemmers": "tsx snowball/build.ts",
     "revisions": "tsx scripts/analysis-revisions.ts",
     "revisions:write": "tsx scripts/analysis-revisions.ts --write",
+    "revisions:record": "tsx scripts/analysis-revisions.ts --record",
     "api": "tsx scripts/api-surface.ts",
     "api:write": "tsx scripts/api-surface.ts --write",
     "lookalikes": "tsx scripts/lookalike-counts.ts",

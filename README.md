@@ -10,13 +10,13 @@
 
 Distributed search, reforged.
 
-Narsil is a distributed search engine with full-text, vector, hybrid, and geosearch. One codebase runs in two contexts: embedded in your application process, where queries answer without a network hop, and as a standalone search server with a REST API, a write-ahead log, and bulk NDJSON ingest. Both contexts run the same engine and store indexes in the same cross-language binary format (.nrsl), so an index built in one loads in the other.
+Narsil is a distributed search engine with full-text, vector, hybrid, and geosearch. You use one codebase in two contexts: embedded in your application process, where the engine answers a query without a network hop, and as a standalone search server with a REST API, a write-ahead log, and bulk NDJSON ingest. In either context you get the same engine, and it stores indexes in the same cross-language binary format (.nrsl), so an index built in one loads in the other.
 
 The engine partitions large indexes across workers and merges partition results into a single ranked answer. Its BM25 ranking matches the Anserini reference within 0.006 nDCG@10 on the BEIR datasets. On BEIR SciFact it takes the top nDCG@10 at 0.681, narrowly ahead of Elasticsearch and OpenSearch at 0.679, and answers 958 keyword queries per second against their 841 and 878 ([benchmarks](BENCHMARKS.md)). The TypeScript package is the reference implementation.
 
 Try it in your browser at [narsil.sondelali.com/demo](https://narsil.sondelali.com/demo). Read the full documentation at [narsil.sondelali.com/docs](https://narsil.sondelali.com/docs).
 
-> *narsil* is the sword of Elendil in Tolkien's Lord of the Rings, shattered into shards and later reforged. The name maps to the architecture: data shatters into partitions, the engine persists each shard on its own, and every query reforges them into one ranked answer.
+> *narsil* is the sword of Elendil in Tolkien's Lord of the Rings, shattered into shards and later reforged. The name maps to the architecture, since the engine splits your data into partitions and persists each one on its own, then reforges them into a single ranked answer for every query.
 
 ## Project status
 
@@ -25,8 +25,8 @@ Narsil comes in three parts at two levels of maturity.
 | Part | Status | Details |
 | --- | --- | --- |
 | Embedded engine (`@delali/narsil`) | Stable | You embed the engine in your process for full-text, vector, hybrid, and geosearch. It reports failures through typed error codes, and its continuous integration runs the test suite on Node 22 and 24. |
-| Single-node server (`@delali/narsil/server`) | Stable | The same engine runs behind a REST API, with a write-ahead log, bulk NDJSON import, and snapshot and restore. |
-| Multi-node cluster (`@delali/narsil/distribution`) | Experimental | The cluster provides node roles, replication, and query routing over an in-process transport, TCP with mTLS, or gRPC, and its APIs change without notice. |
+| Single-node server (`@delali/narsil/server`) | Stable | A REST API wraps the same engine, with a write-ahead log, bulk NDJSON import, and snapshot and restore. |
+| Multi-node cluster (`@delali/narsil/distribution`) | Experimental | The cluster provides node roles, replication, and query routing over an in-process transport, TCP with mTLS, or gRPC. Its APIs change without notice. |
 
 The `.nrsl` binary format is the contract that every Narsil implementation reads and writes. This TypeScript package is the reference implementation that validates the format, and a second-language port in Go or Rust is the headline item on the [roadmap](ROADMAP.md).
 
@@ -35,14 +35,14 @@ The `.nrsl` binary format is the contract that every Narsil implementation reads
 | Package | Description |
 | --- | --- |
 | [`@delali/narsil`](packages/ts) | The core search engine provides full-text, vector, hybrid, and geosearch, plus an HTTP server subpath. |
-| [`@delali/narsil-embeddings-transformers`](packages/embeddings-transformers) | The adapter runs local embedding models through Hugging Face Transformers.js. |
+| [`@delali/narsil-embeddings-transformers`](packages/embeddings-transformers) | The adapter computes embeddings from local models through Hugging Face Transformers.js. |
 | [`@delali/narsil-certutil`](packages/certutil) | The CLI generates and manages the TLS certificates Narsil clusters use, covering CA creation, node certificate signing, inspection, and format conversion. |
 
 ## Getting started
 
 ### Embedded
 
-The engine installs as a package and runs inside your process, in Node.js, Bun, Deno, or a browser.
+You install the engine as a package, and it works inside your process, in Node.js, Bun, Deno, or a browser.
 
 ```bash
 pnpm add @delali/narsil
@@ -89,7 +89,7 @@ const results = await narsil.query('products', {
 
 ### As a server
 
-The same engine runs behind a REST API. The [http-server example](packages/ts/examples/http-server) is a production launcher: it binds to localhost by default, refuses a public bind without authentication, and reads its configuration from environment variables.
+A REST API wraps the same engine. The [http-server example](packages/ts/examples/http-server) is a production launcher: it binds to localhost by default, refuses a public bind without authentication, and reads its configuration from environment variables.
 
 ```bash
 pnpm --filter @delali/narsil build
@@ -130,8 +130,8 @@ Each guide under [`docs/`](docs/) documents one area with working examples, and 
 
 | Example | What it shows |
 | --- | --- |
-| [Live demo](https://narsil.sondelali.com/demo) | The hosted demo runs Narsil in the browser, so you can try search without installing anything. |
-| [HTTP server](packages/ts/examples/http-server) | The launcher runs the engine as a REST service with durability, API-key auth, and Docker packaging, and its README documents the full API surface. |
+| [Live demo](https://narsil.sondelali.com/demo) | The hosted demo works entirely in the browser, so you can try search without installing anything. |
+| [HTTP server](packages/ts/examples/http-server) | The launcher serves the engine as a REST service with durability, API-key auth, and Docker packaging, and its README documents the full API surface. |
 | [Browser](packages/ts/examples/browser) | The app embeds the engine in a browser with IndexedDB persistence and Web Worker search. |
 | [Server app](packages/ts/examples/server-app) | The app reaches the HTTP server through the client SDK and the React hooks, loads corpora as import tasks, and answers questions from them in an Ask view. |
 
@@ -145,7 +145,7 @@ On the [BEIR](https://github.com/beir-cellar/beir) information-retrieval dataset
 
 ### In-process libraries
 
-Measured in one process against Orama and MiniSearch, with the same stop words and default BM25 parameters, and with each engine stemming English its own way, Narsil takes the top nDCG@10 on the BEIR SciFact corpus. It inserts text faster than both libraries at every scale, and it returns searches faster than both as the corpus grows. On vector search, where MiniSearch has no equivalent, Narsil answers queries faster than Orama at matched recall on SciFact and NFCorpus, while Orama inserts vectors faster and holds a smaller footprint. The full quality, throughput, latency, and memory tables are in [BENCHMARKS.md](BENCHMARKS.md), and the method and reproduction steps are in [`benchmarks/in-process`](benchmarks/in-process).
+Measured in one process against Orama and MiniSearch, with the same stop words and default BM25 parameters, and with each engine stemming English its own way, Narsil takes the top nDCG@10 on the BEIR SciFact corpus. It inserts text faster than both libraries at every scale, and it answers a search faster than both as the corpus grows. On vector search, where MiniSearch has no equivalent, Narsil answers queries faster than Orama at matched recall on SciFact and NFCorpus, while Orama inserts vectors faster and holds a smaller footprint. The full quality, throughput, latency, and memory tables are in [BENCHMARKS.md](BENCHMARKS.md), and the method and reproduction steps are in [`benchmarks/in-process`](benchmarks/in-process).
 
 ## Documentation
 
@@ -173,7 +173,7 @@ The [specification](packages/spec/) defines the `.nrsl` format, the analysis pip
 
 ## Distribution status
 
-The multi-node cluster mode under `@delali/narsil/distribution` is under active development and experimental. It runs over an in-process transport for tests, and over TCP with mTLS or gRPC between processes. Its APIs change without notice, so no production deployment should depend on it yet. The design is specified in [`packages/spec/distribution`](packages/spec/distribution).
+The multi-node cluster mode under `@delali/narsil/distribution` is under active development and experimental. It works over an in-process transport for tests, and over TCP with mTLS or gRPC between processes. Its APIs change without notice, so no production deployment should depend on it yet. The design is specified in [`packages/spec/distribution`](packages/spec/distribution).
 
 ## Runtime support
 
