@@ -115,17 +115,17 @@ describe('createWorkerFactory', () => {
       expect(mockedCreateWorkerExecutor).toHaveBeenCalledTimes(3)
     })
 
-    it('starts every worker under the heap limits the pool size earns it', async () => {
+    it('starts every worker under the heap limits the engine divides between its threads', async () => {
       mockedDetectRuntime.mockReturnValue(createNodeRuntime())
 
       const workerThreads = await import('node:worker_threads')
       const WorkerCtor = vi.mocked(workerThreads.Worker)
 
       const factory = await createWorkerFactory()
-      factory(0, undefined, 4)
+      factory(0)
 
       const options = WorkerCtor.mock.calls[0][1] as { resourceLimits?: WorkerResourceLimits }
-      expect(options.resourceLimits).toEqual(workerResourceLimits(4))
+      expect(options.resourceLimits).toEqual(workerResourceLimits())
     })
   })
 
