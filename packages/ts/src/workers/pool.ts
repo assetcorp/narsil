@@ -73,7 +73,7 @@ function toHeapLimit(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
 }
 
-export type WorkerFactory = (workerId: number, onDeath?: (error: Error) => void, workerCount?: number) => Executor
+export type WorkerFactory = (workerId: number, onDeath?: (error: Error) => void) => Executor
 
 export interface WorkerPoolConfig {
   count?: number
@@ -144,7 +144,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
 
   function spawnSlot(slotIndex: number, serving: boolean): WorkerSlot {
     const slot: WorkerSlot = {
-      executor: config.workerFactory(slotIndex, error => handleWorkerDeath(slotIndex, error), workerCount),
+      executor: config.workerFactory(slotIndex, error => handleWorkerDeath(slotIndex, error)),
       indexes: new Set(),
       inFlight: 0,
       serving,

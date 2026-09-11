@@ -19,12 +19,12 @@ export function resolveWorkerEntryPoint(): string {
   return base.replace(/\/src\/vector\/search-pool\/[^/]+$/, '/dist/vector/search-worker.mjs')
 }
 
-export async function spawnWorker(entryPoint: string, workerCount?: number): Promise<WorkerHandle | null> {
+export async function spawnWorker(entryPoint: string): Promise<WorkerHandle | null> {
   const runtime = detectRuntime()
 
   if (runtime.supportsWorkerThreads) {
     try {
-      return await spawnNodeWorker(new URL(entryPoint), workerResourceLimits(workerCount))
+      return await spawnNodeWorker(new URL(entryPoint), workerResourceLimits())
     } catch {
       return null
     }

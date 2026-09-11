@@ -1,3 +1,4 @@
+import { readHostMemoryBytes } from '#platform/heap-statistics'
 import { createNarsilError, ErrorCodes } from '../../errors'
 import type { LanguageModule } from '../../types/language'
 import {
@@ -22,8 +23,8 @@ function clampCacheSize(entries: number): number {
 function computeDefaultCacheSize(): number {
   try {
     if (typeof process !== 'undefined' && typeof process.versions?.node === 'string' && typeof window === 'undefined') {
-      const constrainedMemory = typeof process.constrainedMemory === 'function' ? process.constrainedMemory() : 0
-      if (constrainedMemory > 0) {
+      const constrainedMemory = readHostMemoryBytes()
+      if (constrainedMemory !== null) {
         const budget = constrainedMemory * CONSTRAINED_MEMORY_TOKEN_CACHE_FRACTION
         return clampCacheSize(Math.floor(budget / TOKEN_CACHE_BYTES_PER_ENTRY))
       }

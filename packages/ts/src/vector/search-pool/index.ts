@@ -90,7 +90,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
   const sharedFields = new Map<string, SharedVectorFieldHandles>()
 
   for (let i = 0; i < count; i++) {
-    const worker = await spawnWorker(entryPoint, count)
+    const worker = await spawnWorker(entryPoint)
     if (worker === null) break
     const slot: WorkerSlot = {
       worker,

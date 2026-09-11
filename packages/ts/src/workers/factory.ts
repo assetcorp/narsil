@@ -25,9 +25,9 @@ export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFa
   if (runtime.supportsWorkerThreads) {
     const workerThreadsModule = await import('node:worker_threads')
 
-    return function nodeFactory(workerId: number, onDeath?: (error: Error) => void, workerCount?: number): Executor {
+    return function nodeFactory(workerId: number, onDeath?: (error: Error) => void): Executor {
       const instance = new workerThreadsModule.Worker(new URL(resolvedEntry), {
-        resourceLimits: workerResourceLimits(workerCount),
+        resourceLimits: workerResourceLimits(),
         workerData: { workerId },
       })
       return createWorkerExecutor(instance as unknown as WorkerLike, { onDeath })
