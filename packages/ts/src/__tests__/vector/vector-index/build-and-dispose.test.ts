@@ -152,4 +152,23 @@ describe('VectorIndex dispose', () => {
 
     expect(buildIndex.maintenanceStatus().graphCount).toBe(0)
   })
+
+  it('dispose gives up the vectors so a dropped field stops occupying memory', async () => {
+    vi.useRealTimers()
+    const droppedIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'none' })
+    for (let i = 0; i < 400; i++) {
+      droppedIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
+    }
+    droppedIndex.scheduleBuild()
+    await droppedIndex.awaitPendingBuild()
+    const heldBytes = droppedIndex.estimateMemoryBytes()
+
+    droppedIndex.dispose()
+    await droppedIndex.awaitPendingBuild()
+
+    expect(heldBytes).toBeGreaterThan(0)
+    expect(droppedIndex.size).toBe(0)
+    expect(droppedIndex.has('doc0')).toBe(false)
+    expect(droppedIndex.estimateMemoryBytes()).toBeLessThan(heldBytes)
+  })
 })

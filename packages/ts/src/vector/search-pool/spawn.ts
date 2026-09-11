@@ -1,6 +1,6 @@
 import { spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime } from '../../runtime/detect'
-import { WORKER_RESOURCE_LIMITS } from '../../workers/resource-limits'
+import { workerResourceLimits } from '../../workers/resource-limits'
 
 export interface WorkerHandle {
   postMessage(msg: unknown, transfer?: ArrayBuffer[] | unknown[]): void
@@ -19,12 +19,12 @@ export function resolveWorkerEntryPoint(): string {
   return base.replace(/\/src\/vector\/search-pool\/[^/]+$/, '/dist/vector/search-worker.mjs')
 }
 
-export async function spawnWorker(entryPoint: string): Promise<WorkerHandle | null> {
+export async function spawnWorker(entryPoint: string, workerCount?: number): Promise<WorkerHandle | null> {
   const runtime = detectRuntime()
 
   if (runtime.supportsWorkerThreads) {
     try {
-      return await spawnNodeWorker(new URL(entryPoint), WORKER_RESOURCE_LIMITS)
+      return await spawnNodeWorker(new URL(entryPoint), workerResourceLimits(workerCount))
     } catch {
       return null
     }

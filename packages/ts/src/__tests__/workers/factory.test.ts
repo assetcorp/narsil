@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { RuntimeInfo } from '../../runtime/detect'
+import { MIN_WORKER_OLD_GENERATION_MB } from '../../workers/constants'
 
 vi.mock('../../runtime/detect', () => ({
   detectRuntime: vi.fn<() => RuntimeInfo>(() => ({
@@ -112,6 +113,29 @@ describe('createWorkerFactory', () => {
 
       expect(WorkerCtor).toHaveBeenCalledTimes(3)
       expect(mockedCreateWorkerExecutor).toHaveBeenCalledTimes(3)
+    })
+
+    it('caps each worker heap at a share of the host memory so a pool cannot reserve several times what the host allows', async () => {
+      mockedDetectRuntime.mockReturnValue(createNodeRuntime())
+
+      const workerThreads = await import('node:worker_threads')
+      const WorkerCtor = vi.mocked(workerThreads.Worker)
+
+      const factory = await createWorkerFactory()
+      factory(0, undefined, 2)
+      factory(1, undefined, 8)
+
+      const caps = WorkerCtor.mock.calls.map(call => {
+        const options = call[1] as { resourceLimits?: { maxOldGenerationSizeMb?: number } }
+        return options.resourceLimits?.maxOldGenerationSizeMb
+      })
+      const [smallPoolCap, largePoolCap] = caps
+      if (smallPoolCap === undefined || largePoolCap === undefined) {
+        throw new Error('every worker starts under an old generation cap')
+      }
+
+      expect(largePoolCap).toBeLessThanOrEqual(smallPoolCap)
+      expect(largePoolCap).toBeGreaterThanOrEqual(MIN_WORKER_OLD_GENERATION_MB)
     })
   })
 

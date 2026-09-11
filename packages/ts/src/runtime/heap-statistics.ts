@@ -5,6 +5,17 @@ export interface HeapStatistics {
   limitBytes: number
 }
 
+export function readHostMemoryBytes(): number | null {
+  try {
+    const constrained = (process as unknown as { constrainedMemory?: () => number }).constrainedMemory
+    const bytes = typeof constrained === 'function' ? constrained() : 0
+    if (Number.isFinite(bytes) && bytes > 0) return bytes
+    return null
+  } catch {
+    return null
+  }
+}
+
 export function readHeapStatistics(): HeapStatistics | null {
   try {
     const stats = getHeapStatistics()

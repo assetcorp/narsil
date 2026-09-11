@@ -69,6 +69,13 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     }
   }
 
+  function forgetDocuments(): void {
+    docToOrd.clear()
+    ordToDoc.length = 0
+    unknownPartitions = 0
+    liveCount = 0
+  }
+
   function requireOpen(): OpenStore {
     if (open === null) {
       throw new NarsilError(ErrorCodes.VECTOR_DIMENSION_MISMATCH, 'The vector store holds no vector yet')
@@ -260,10 +267,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     },
 
     clear(): void {
-      docToOrd.clear()
-      ordToDoc.length = 0
-      unknownPartitions = 0
-      liveCount = 0
+      forgetDocuments()
       if (open === null) return
       open.present.fill(0)
       new Uint8Array(open.handles.codePresent).fill(0)
@@ -272,6 +276,11 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       Atomics.store(open.handles.header, STORE_LIVE_COUNT, 0)
       Atomics.store(open.handles.header, STORE_CODE_COUNT, 0)
       Atomics.store(open.handles.header, STORE_CALIBRATED, 0)
+    },
+
+    release(): void {
+      forgetDocuments()
+      open = null
     },
 
     getOrdinal(docId: string): number | undefined {

@@ -85,6 +85,8 @@ export interface VectorStore extends VectorBuildReader {
   has(docId: string): boolean
   entries(): IterableIterator<[string, VectorStoreEntry]>
   clear(): void
+  /** Gives up the shared blocks, which the memory the vectors occupy returns with, and leaves an empty store behind. */
+  release(): void
   estimateMemory(dimension: number): number
   getOrdinal(docId: string): number | undefined
   docIdForOrdinal(ordinal: number): string | undefined
