@@ -179,9 +179,24 @@ export function createVectorIndex(
     }
   }
 
+  function releaseHeldMemory(): void {
+    state.hnsw = null
+    state.freshGraph = null
+    state.sq8 = null
+    state.tombstones.clear()
+    state.buffer.clear()
+    state.store.release()
+  }
+
   function dispose(): void {
     state.disposed = true
     invalidateWorkerCopies(state)
+    const pending = state.pendingBuild
+    if (pending !== null) {
+      void pending.then(releaseHeldMemory, releaseHeldMemory)
+      return
+    }
+    releaseHeldMemory()
   }
 
   async function searchParallel(

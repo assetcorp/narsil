@@ -1,4 +1,6 @@
 export const WORKER_YOUNG_GENERATION_MB = 24
+export const WORKER_HEAP_BUDGET_FRACTION = 0.5
+export const MIN_WORKER_OLD_GENERATION_MB = 512
 
 export const MIN_WORKER_COUNT = 2
 export const MAX_WORKER_COUNT = 8
