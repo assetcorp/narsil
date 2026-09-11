@@ -1,6 +1,6 @@
 import { MAX_DOC_ID_TABLE_BYTES, MAX_VECTOR_ORDINALS, VECTOR_STORE_INITIAL_CAPACITY } from '../constants'
 import { createGrowableBuffer, type GrowableBuffer } from '../shared-buffers/growable'
-import { computeVectorBlockLayout, type VectorBlockHandle, type VectorBlockLayout } from './blocks'
+import { blockBuffer, computeVectorBlockLayout, type VectorBlockHandle, type VectorBlockLayout } from './blocks'
 
 export const STORE_SLOTS = 0
 export const STORE_LIVE_COUNT = 1
@@ -102,4 +102,34 @@ export function createSharedVectorStoreHandles(dimension: number, quantized: boo
     codePresent: perOrdinal(1),
     calibration: sharedFloat64(CALIBRATION_WORDS),
   }
+}
+
+/**
+ * Reports the bytes one field's shared structures hold, read from each
+ * structure as it stands. A block grows ahead of the vectors it holds, so a
+ * figure computed from the vector count would understate what the field
+ * occupies. Node counts a WebAssembly memory in none of the figures
+ * `process.memoryUsage` returns, and a field keeps its vectors in one, so this
+ * call is the only account of them the engine has.
+ *
+ * @param handles The field's shared structures.
+ * @returns The bytes those structures hold. Every thread reads the same
+ * structures, so the process holds this figure once however many threads open
+ * the field.
+ *
+ * @internal
+ */
+export function sharedVectorStoreBytes(handles: SharedVectorStoreHandles): number {
+  let bytes = handles.header.byteLength + handles.calibration.byteLength
+  for (const block of handles.blocks) bytes += blockBuffer(block).byteLength
+  bytes += handles.magnitudes.byteLength
+  bytes += handles.present.byteLength
+  bytes += handles.partitions.byteLength
+  bytes += handles.docIdBytes.byteLength
+  bytes += handles.docIdOffsets.byteLength
+  bytes += handles.codeSums.byteLength
+  bytes += handles.codeSumSqs.byteLength
+  bytes += handles.codeMagnitudes.byteLength
+  bytes += handles.codePresent.byteLength
+  return bytes
 }

@@ -2,6 +2,8 @@ import { compareCodePoints } from '../../ordering'
 
 export interface ExternalIdTable {
   readonly count: number
+  /** The table holds this many bytes, read from its arrays where it keeps the ids encoded. */
+  readonly bytes: number
   idAt(ordinal: number): string
   ordinalOf(docId: string): number
   collectSortedIds(excluded: (ordinal: number) => boolean): string[]
@@ -68,6 +70,7 @@ export function wrapExternalIdTable(data: ExternalIdTableData): ExternalIdTable 
 
   return {
     count,
+    bytes: blob.byteLength + offsets.byteLength + sortedOrdinals.byteLength,
 
     idAt,
 
@@ -100,13 +103,16 @@ export function wrapExternalIdTable(data: ExternalIdTableData): ExternalIdTable 
 
 export function buildExternalIdTable(docIds: readonly string[]): ExternalIdTable {
   const ordinals = new Map<string, number>()
+  let characters = 0
   for (let ordinal = 0; ordinal < docIds.length; ordinal++) {
     ordinals.set(docIds[ordinal], ordinal)
+    characters += docIds[ordinal].length
   }
   let sortedIds: readonly string[] | null = null
 
   return {
     count: docIds.length,
+    bytes: characters,
 
     idAt(ordinal: number): string {
       return docIds[ordinal]

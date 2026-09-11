@@ -3,7 +3,7 @@ import type { VectorMetric } from '../brute-force'
 import type { OrdinalFilter } from '../ordinal-filter'
 import type { ScalarQuantizer } from '../scalar-quantization-types'
 import type { VectorStore } from '../vector-store'
-import { adjacencySlots, estimateAdjacencyBytes, hasNode } from './adjacency'
+import { adjacencySlots, graphBytes, hasNode } from './adjacency'
 import { COMPACTION_ABSOLUTE_THRESHOLD, COMPACTION_TOMBSTONE_RATIO } from './constants'
 import { createSharedGraphHandles, type SharedGraphHandles } from './handles'
 import { lockGraphExclusive, unlockGraphExclusive } from './locks'
@@ -42,7 +42,12 @@ export interface HNSWIndex {
   readonly m: number
   readonly efConstruction: number
   readonly metric: VectorMetric
-  readonly adjacencyBytes: number
+  /**
+   * The graph's shared structures hold this many bytes, read from each
+   * structure as it stands, covering the adjacency arrays, the node levels,
+   * the lock words, and the tombstone bytes.
+   */
+  readonly graphBytes: number
   /** Another thread opens these shared structures to search or extend this graph in place. */
   readonly handles: SharedGraphHandles
 
@@ -188,8 +193,8 @@ export function createHNSWIndex(
     get metric() {
       return state.buildMetric
     },
-    get adjacencyBytes() {
-      return estimateAdjacencyBytes(state.adjacency)
+    get graphBytes() {
+      return graphBytes(state.adjacency)
     },
     get handles() {
       return shared

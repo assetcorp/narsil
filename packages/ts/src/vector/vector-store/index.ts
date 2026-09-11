@@ -14,6 +14,7 @@ import {
   STORE_CODE_COUNT,
   STORE_LIVE_COUNT,
   STORE_SLOTS,
+  sharedVectorStoreBytes,
 } from './handles'
 import type { ArenaQueryVector, VectorStore, VectorStoreEntry, VectorStoreOptions, VectorStoreSnapshot } from './types'
 import { openSharedVectorStore, type SharedVectorStoreView } from './view'
@@ -351,18 +352,8 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       Atomics.store(store.handles.header, STORE_LIVE_COUNT, liveCount)
     },
 
-    estimateMemory(dimension: number): number {
-      const count = liveCount
-      if (count === 0) return 0
-
-      const MAP_OVERHEAD = 64
-      const MAP_ENTRY = 72
-      const AVG_DOCID_BYTES = 56
-      const MAGNITUDE_BYTES = 8
-      const ORDINAL_SLOT = 16
-
-      const perEntry = MAP_ENTRY + AVG_DOCID_BYTES + MAGNITUDE_BYTES + ORDINAL_SLOT
-      return MAP_OVERHEAD + count * (perEntry + dimension * 4)
+    memoryBytes(): number {
+      return open === null ? 0 : sharedVectorStoreBytes(open.handles)
     },
   }
 }
