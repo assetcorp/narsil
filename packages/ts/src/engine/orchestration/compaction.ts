@@ -35,6 +35,30 @@ function mainCompositeOf(manager: PartitionManager, partitionId: number): Compos
   return isCompositePartition(partition) ? partition : null
 }
 
+export function holdUnbroadcastSegments(
+  state: OrchestratorState,
+  indexName: string,
+  segmentIds: readonly string[],
+): void {
+  let held = state.unbroadcastSegments.get(indexName)
+  if (held === undefined) {
+    held = new Set()
+    state.unbroadcastSegments.set(indexName, held)
+  }
+  for (const segmentId of segmentIds) held.add(segmentId)
+}
+
+export function releaseUnbroadcastSegments(
+  state: OrchestratorState,
+  indexName: string,
+  segmentIds: readonly string[],
+): void {
+  const held = state.unbroadcastSegments.get(indexName)
+  if (held === undefined) return
+  for (const segmentId of segmentIds) held.delete(segmentId)
+  if (held.size === 0) state.unbroadcastSegments.delete(indexName)
+}
+
 function candidateSegmentIds(
   state: OrchestratorState,
   indexName: string,
@@ -42,13 +66,14 @@ function candidateSegmentIds(
   partitionId: number,
   policy: CompactionPolicy,
 ): string[] | null {
+  const unbroadcast = state.unbroadcastSegments.get(indexName)
   const composite = mainCompositeOf(manager, partitionId)
   if (composite !== null) {
-    const sizes = composite.frozenSegmentSizes()
-    const picks = pickSegmentIds(
-      sizes.map(size => ({ segmentId: size.segmentId, documentCount: size.liveDocumentCount })),
-      policy,
-    )
+    const sizes = composite
+      .frozenSegmentSizes()
+      .filter(size => unbroadcast === undefined || !unbroadcast.has(size.segmentId))
+      .map(size => ({ segmentId: size.segmentId, documentCount: size.liveDocumentCount }))
+    const picks = pickSegmentIds(sizes, policy)
     if (picks !== null) return picks
   }
   const ledger = state.segmentLedger.get(indexName)?.get(partitionId)

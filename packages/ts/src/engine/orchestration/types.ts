@@ -38,6 +38,8 @@ export interface WorkerOrchestrator {
   isIndexBusy(indexName: string): boolean
   buildSegments(requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null>
   segmentBuildConcurrency(indexName: string): number
+  holdUnbroadcastSegments(indexName: string, segmentIds: readonly string[]): void
+  releaseUnbroadcastSegments(indexName: string, segmentIds: readonly string[]): void
   searchViaWorker(
     indexName: string,
     params: QueryParams,
@@ -114,6 +116,8 @@ export interface OrchestratorState {
   readonly copyReloadCounts: Map<string, number>
   readonly replicationQueues: Map<string, ReplicationQueue>
   readonly segmentLedger: Map<string, Map<number, SegmentLedgerEntry[]>>
+  /** This holds the segments each index has attached to the main copy and has yet to send to the worker copies. */
+  readonly unbroadcastSegments: Map<string, Set<string>>
   readonly compactionsInFlight: Map<string, Promise<void>>
   readonly idleMergeTimers: Map<string, ReturnType<typeof setTimeout>>
   /** This maps the handle each vector field went to the request threads under to the handles they opened. */
