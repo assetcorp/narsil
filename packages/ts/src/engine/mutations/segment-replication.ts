@@ -12,11 +12,6 @@ export interface SegmentReplicationDeps {
   requireManager: (indexName: string) => { partitionCount: number }
 }
 
-export function shardCount(documentCount: number, workers: number): number {
-  if (workers <= 1) return 1
-  return Math.max(1, Math.min(workers, Math.ceil(documentCount / MIN_DOCUMENTS_FOR_SEGMENTS)))
-}
-
 export function groupByPartition(docIds: string[], partitionCount: number): Map<number, number[]> {
   const groups = new Map<number, number[]>()
   for (let i = 0; i < docIds.length; i++) {
@@ -36,7 +31,6 @@ export function buildSegmentRequests(
   docIds: string[],
   documents: AnyDocument[],
   partitionCount: number,
-  workers: number,
   skipClone: boolean | undefined,
 ): { requests: SegmentBuildRequest[]; memberIndexes: number[][] } {
   const groups = groupByPartition(docIds, partitionCount)
@@ -44,23 +38,18 @@ export function buildSegmentRequests(
   const memberIndexes: number[][] = []
 
   for (const [partitionId, indexes] of groups) {
-    const shards = shardCount(indexes.length, workers)
-    const perShard = Math.ceil(indexes.length / shards)
-    for (let start = 0; start < indexes.length; start += perShard) {
-      const slice = indexes.slice(start, start + perShard)
-      requests.push({
-        partitionId,
-        action: {
-          type: 'buildSegment',
-          indexName,
-          documents: slice.map(i => ({ docId: docIds[i], document: documents[i] })),
-          options: skipClone === true ? { skipClone: true } : undefined,
-          requestId: `build-segment-${indexName}-${partitionId}-${start}`,
-        },
-        documents: slice.map(i => documents[i]),
-      })
-      memberIndexes.push(slice)
-    }
+    requests.push({
+      partitionId,
+      action: {
+        type: 'buildSegment',
+        indexName,
+        documents: indexes.map(i => ({ docId: docIds[i], document: documents[i] })),
+        options: skipClone === true ? { skipClone: true } : undefined,
+        requestId: `build-segment-${indexName}-${partitionId}`,
+      },
+      documents: indexes.map(i => documents[i]),
+    })
+    memberIndexes.push(indexes)
   }
 
   return { requests, memberIndexes }
@@ -134,7 +123,7 @@ export async function replicateAsSegments(
   if (workers <= 0) return false
 
   const manager = ctx.requireManager(indexName)
-  const { requests } = buildSegmentRequests(indexName, docIds, documents, manager.partitionCount, workers, skipClone)
+  const { requests } = buildSegmentRequests(indexName, docIds, documents, manager.partitionCount, skipClone)
 
   const built = await ctx.orchestrator.buildSegments(requests)
   if (built === null || built.length === 0) return false

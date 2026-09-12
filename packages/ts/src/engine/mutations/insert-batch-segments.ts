@@ -184,7 +184,6 @@ async function ingestAdmitted(
     docIds,
     partitionDocuments,
     manager.partitionCount,
-    workers,
     options?.skipClone,
   )
 

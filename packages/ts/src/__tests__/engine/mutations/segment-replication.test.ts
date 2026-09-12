@@ -107,16 +107,14 @@ describe('replicateAsSegments', () => {
     expect(new Set(sent).size).toBe(docIds.length)
   })
 
-  it('spreads the work across the available worker copies', async () => {
+  it('builds one segment per partition however many copies could build it', async () => {
     const recorded = makeDeps(4, 1)
     const { docIds, docs } = documents(500)
 
     await replicateAsSegments(recorded.deps, 'prose', docIds, docs, undefined)
 
-    expect(recorded.buildRequests.length).toBe(4)
-    for (const request of recorded.buildRequests) {
-      expect(request.action.documents.length).toBeGreaterThan(0)
-    }
+    expect(recorded.buildRequests.length).toBe(1)
+    expect(recorded.buildRequests[0].action.documents.length).toBe(500)
   })
 
   it('keeps each segment inside one partition', async () => {
