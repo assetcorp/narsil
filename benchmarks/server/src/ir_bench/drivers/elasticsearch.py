@@ -5,6 +5,10 @@ from ..core.types import BEST_CONFIG, EQUAL_PRECISION, FULL_FLOAT, SearchRespons
 from ._lucene import _VECTOR_FIELD, LuceneRestDriver, _raise
 
 _RANK_CONSTANT = 60
+_RRF_LICENCE_DISCLOSURE = (
+    "the RRF retriever is not part of Elastic's free licence, so this run uses Elasticsearch's "
+    "self-generated trial licence"
+)
 _BBQ_OVERSAMPLE = 3.0
 # Elasticsearch caps rescore_vector.oversample below 10.0, so the recall-tuning sweep
 # starts at the recommended 3x and escalates within that bound. BBQ's recall lever is
@@ -20,7 +24,9 @@ class ElasticsearchDriver(LuceneRestDriver):
             f"Elasticsearch `{self._analyzer}` analyzer"
         )
         self.vector_setup = "dense_vector HNSW, similarity cosine, over the shared precomputed vectors"
-        self.hybrid_setup = "BM25 match fused with dense_vector kNN via the RRF retriever"
+        self.hybrid_setup = (
+            f"BM25 match fused with dense_vector kNN via the RRF retriever; {_RRF_LICENCE_DISCLOSURE}"
+        )
         self.hybrid_fusion = f"RRF retriever (rank_constant={_RANK_CONSTANT})"
         self.vector_knob = "num_candidates"
         self.vector_quantization = FULL_FLOAT
@@ -51,7 +57,10 @@ class ElasticsearchDriver(LuceneRestDriver):
                 "dense_vector BBQ (bbq_hnsw, binary quantization) with full-precision "
                 "rescore (oversample tuned to the recall target), similarity cosine"
             )
-            self.hybrid_setup = "BM25 match fused with BBQ dense_vector kNN (full-precision rescore) via the RRF retriever"
+            self.hybrid_setup = (
+                "BM25 match fused with BBQ dense_vector kNN (full-precision rescore) via the RRF retriever; "
+                f"{_RRF_LICENCE_DISCLOSURE}"
+            )
         else:
             index_type = "hnsw"
         body = {

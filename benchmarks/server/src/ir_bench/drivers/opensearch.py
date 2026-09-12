@@ -6,6 +6,8 @@ from ._lucene import _VECTOR_FIELD, LuceneRestDriver, _raise
 
 _RANK_CONSTANT = 60
 _PIPELINE = "hybrid-rrf"
+_BINARY_QUANTIZATION_MIN_DIMENSIONS = 1536
+_BINARY_RESCORE_OVERSAMPLE = 2.0
 
 
 class OpenSearchDriver(LuceneRestDriver):
@@ -25,6 +27,7 @@ class OpenSearchDriver(LuceneRestDriver):
         self.vector_quantization = FULL_FLOAT
         self._vector_profile = EQUAL_PRECISION
         self._pipeline_ready = False
+        self._binary_indexes: dict[str, bool] = {}
 
     def set_vector_profile(self, profile: str) -> None:
         """Adopts a profile the driver did not itself create the index under, so a
@@ -49,12 +52,28 @@ class OpenSearchDriver(LuceneRestDriver):
     def create_vector_index(self, index: str, params: VectorIndexParams) -> None:
         self._vector_profile = params.profile
         method_parameters: dict = {"m": params.m, "ef_construction": params.ef_construction}
-        if params.profile == BEST_CONFIG:
+        binary = params.profile == BEST_CONFIG and params.dims >= _BINARY_QUANTIZATION_MIN_DIMENSIONS
+        self._binary_indexes[index] = binary
+        if binary:
+            method_parameters["encoder"] = {"name": "binary", "parameters": {"bits": 1}}
+            self.vector_quantization = "1-bit binary"
+            self.vector_setup = (
+                "knn_vector HNSW (faiss engine, 1-bit binary quantization with full-precision rescore at "
+                f"oversample {_BINARY_RESCORE_OVERSAMPLE}, inner product on L2-normalized vectors = cosine), "
+                "over the shared precomputed vectors; 1-bit is used from "
+                f"{_BINARY_QUANTIZATION_MIN_DIMENSIONS} dimensions because it cannot reach the recall target "
+                "on 384-dimension vectors"
+            )
+            self.hybrid_setup = (
+                "BM25 match fused with 1-bit binary-quantized knn via a hybrid query and an RRF search pipeline"
+            )
+        elif params.profile == BEST_CONFIG:
             method_parameters["encoder"] = {"name": "sq", "parameters": {"bits": 16}}
             self.vector_quantization = "SQfp16"
             self.vector_setup = (
                 "knn_vector HNSW (faiss engine, 16-bit SQ / SQfp16 scalar quantization, inner product on "
-                "L2-normalized vectors = cosine), over the shared precomputed vectors"
+                "L2-normalized vectors = cosine), over the shared precomputed vectors; 1-bit binary "
+                "quantization cannot reach the recall target at this dimensionality"
             )
             self.hybrid_setup = "BM25 match fused with SQfp16-quantized knn via a hybrid query and an RRF search pipeline"
         body = {
@@ -85,12 +104,29 @@ class OpenSearchDriver(LuceneRestDriver):
         response = self._client.put(f"/{index}", json=body)
         _raise(response)
 
-    def _knn(self, vector: list[float], limit: int, ef: int | None) -> dict:
+    def _uses_binary_quantization(self, index: str) -> bool:
+        if self._vector_profile != BEST_CONFIG:
+            return False
+        known = self._binary_indexes.get(index)
+        if known is not None:
+            return known
+        response = self._client.get(f"/{index}/_mapping")
+        _raise(response)
+        mapping = response.json().get(index, {}).get("mappings", {}).get("properties", {}).get(_VECTOR_FIELD, {})
+        encoder = mapping.get("method", {}).get("parameters", {}).get("encoder", {})
+        binary = encoder.get("name") == "binary"
+        self._binary_indexes[index] = binary
+        return binary
+
+    def _knn(self, index: str, vector: list[float], limit: int, ef: int | None) -> dict:
         ef_search = max(ef if ef is not None else limit, limit)
-        return {_VECTOR_FIELD: {"vector": vector, "k": limit, "method_parameters": {"ef_search": ef_search}}}
+        clause: dict = {"vector": vector, "k": limit, "method_parameters": {"ef_search": ef_search}}
+        if self._uses_binary_quantization(index):
+            clause["rescore"] = {"oversample_factor": _BINARY_RESCORE_OVERSAMPLE}
+        return {_VECTOR_FIELD: clause}
 
     def vector_search(self, index: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
-        body = {"query": {"knn": self._knn(vector, limit, ef)}, "size": limit, "_source": False}
+        body = {"query": {"knn": self._knn(index, vector, limit, ef)}, "size": limit, "_source": False}
         return self._post_search(index, body)
 
     def hybrid_search(self, index: str, term: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
@@ -101,7 +137,7 @@ class OpenSearchDriver(LuceneRestDriver):
                     "pagination_depth": limit,
                     "queries": [
                         {"match": {"text": {"query": term}}},
-                        {"knn": self._knn(vector, limit, ef)},
+                        {"knn": self._knn(index, vector, limit, ef)},
                     ],
                 }
             },
