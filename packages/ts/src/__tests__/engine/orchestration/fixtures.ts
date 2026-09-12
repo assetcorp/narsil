@@ -64,6 +64,7 @@ export function emptyOrchestratorState(overrides: Partial<OrchestratorState> = {
     copyReloadCounts: new Map(),
     replicationQueues: new Map(),
     segmentLedger: new Map(),
+    unbroadcastSegments: new Map(),
     compactionsInFlight: new Map(),
     idleMergeTimers: new Map(),
     workerPool: null,

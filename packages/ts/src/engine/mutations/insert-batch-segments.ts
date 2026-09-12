@@ -131,7 +131,7 @@ async function broadcastSegments(
   admitted: AdmittedInsert[],
   failedDocIds: Set<string>,
   options: InsertOptions | undefined,
-): Promise<void> {
+): Promise<string[]> {
   const clean: Array<{
     partitionId: number
     segmentId: string
@@ -158,6 +158,7 @@ async function broadcastSegments(
     await broadcastBuiltSegments(ctx.orchestrator, indexName, clean, options?.skipClone)
   }
   await replicateDocuments(ctx, indexName, retryDocs, options)
+  return clean.map(segment => segment.segmentId)
 }
 
 async function ingestAdmitted(
@@ -206,6 +207,7 @@ async function ingestAdmitted(
     }
   }
   const segmentIds = built.map(() => generateId())
+  ctx.orchestrator.holdUnbroadcastSegments(indexName, segmentIds)
   for (let i = 0; i < built.length; i++) {
     manager.attachFrozenSegment(
       built[i].partitionId,
@@ -218,7 +220,17 @@ async function ingestAdmitted(
   }
 
   const recorded = await recordMergedDocuments(ctx, indexName, admitted, failed)
-  await broadcastSegments(ctx, indexName, built, segmentIds, memberIndexes, admitted, recorded.failedDocIds, options)
+  const broadcast = await broadcastSegments(
+    ctx,
+    indexName,
+    built,
+    segmentIds,
+    memberIndexes,
+    admitted,
+    recorded.failedDocIds,
+    options,
+  )
+  ctx.orchestrator.releaseUnbroadcastSegments(indexName, broadcast)
 
   return { succeeded: recorded.succeeded, touchedVectorFields: recorded.touchedVectorFields }
 }
