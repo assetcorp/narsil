@@ -1,8 +1,22 @@
+import { totalmem } from 'node:os'
 import { getHeapStatistics } from 'node:v8'
 
 export interface HeapStatistics {
   usedBytes: number
   limitBytes: number
+}
+
+export function readHostMemoryBytes(): number | null {
+  try {
+    const constrained = (process as unknown as { constrainedMemory?: () => number }).constrainedMemory
+    const bytes = typeof constrained === 'function' ? constrained() : 0
+    if (!Number.isFinite(bytes) || bytes <= 0) return null
+    const physical = totalmem()
+    if (!Number.isFinite(physical) || physical <= 0) return bytes
+    return bytes < physical ? bytes : null
+  } catch {
+    return null
+  }
 }
 
 export function readHeapStatistics(): HeapStatistics | null {

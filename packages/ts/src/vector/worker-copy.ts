@@ -4,27 +4,27 @@ import type { ScalarQuantizerCalibration } from './scalar-quantization-types'
 import { createVectorStore, type VectorStore, type VectorStoreSnapshot } from './vector-store'
 
 /**
- * One vector field's searchable state in the form the engine clones to a
- * worker, used where the runtime cannot share memory.
+ * The engine clones one vector field's searchable state to a worker in this
+ * form, which it uses where the runtime shares no memory.
  *
  * @internal
  */
 export interface WorkerCopySnapshot {
-  /** Each vector carries this many components. */
+  /** Every vector of the field has this many components. */
   dimension: number
   /** The worker rebuilds a quantizer when this reads `sq8`. */
   quantization: 'sq8' | 'none'
   /**
-   * The constants the calling thread quantizes with, carried so that the worker
-   * derives the same codes rather than recalibrating over a set that a delete
-   * has already narrowed.
+   * The calling thread quantizes with these constants, and the worker derives
+   * the same codes from them, so it skips a recalibration over a set that a
+   * delete has already narrowed.
    */
   calibration: ScalarQuantizerCalibration | null
   /** This holds every vector and the document id at each ordinal. */
   store: VectorStoreSnapshot
   /** This holds the built graph. */
   graph: HNSWSnapshot
-  /** These documents have been deleted and must not be returned. */
+  /** The worker leaves these deleted documents out of every result. */
   tombstones: string[]
 }
 
@@ -35,7 +35,7 @@ export interface WorkerCopy {
 }
 
 export function restoreWorkerCopy(snapshot: WorkerCopySnapshot): WorkerCopy {
-  const store = createVectorStore()
+  const store = createVectorStore({ dimension: snapshot.dimension, quantized: snapshot.quantization === 'sq8' })
   store.restoreSnapshot(snapshot.store)
 
   const tombstones = new Set(snapshot.tombstones)
@@ -67,6 +67,7 @@ export function restoreWorkerCopy(snapshot: WorkerCopySnapshot): WorkerCopy {
     quantizer ?? undefined,
   )
   graph.restoreSnapshot(snapshot.graph)
+  for (const docId of tombstones) graph.markTombstone(docId)
 
   return { store, graph, tombstones }
 }

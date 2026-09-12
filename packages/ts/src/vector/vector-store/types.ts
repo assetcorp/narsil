@@ -1,5 +1,7 @@
 import type { VectorMetric } from '../brute-force'
 import type { OrdinalFilter } from '../ordinal-filter'
+import type { SharedVectorStoreHandles } from './handles'
+import type { SharedVectorStoreView } from './view'
 
 export interface VectorStoreEntry {
   vector: Float32Array
@@ -11,29 +13,29 @@ export interface ArenaQueryVector {
 }
 
 /**
- * Every stored vector in the form the engine hands to another thread.
+ * The engine clones a field's vectors to another thread in this form, which
+ * it uses where the runtime shares no memory between threads.
  *
  * @internal
  */
 export interface VectorStoreSnapshot {
-  /** Each vector carries this many components. */
+  /** Every vector of the field has this many components. */
   dimension: number
   /** The store spans this many ordinals, deleted ones included. */
   slots: number
   /** This holds every vector end to end, `slots * dimension` components long. */
   vectors: Float32Array
-  /** Each ordinal's vector length, so a reader need not recompute it. */
+  /** This holds each ordinal's vector length, so a reader takes it from here. */
   magnitudes: Float64Array
-  /** The document at each ordinal, `null` where the ordinal holds none. */
+  /** This names the document at each ordinal, and it reads `null` where the ordinal holds none. */
   docIds: Array<string | null>
 }
 
 /**
- * The reads a nearest-neighbour search performs against stored vectors.
+ * A nearest-neighbour search performs these reads against the stored vectors.
  *
- * The main thread's mutable store and a worker's read-only view over shared
- * memory both satisfy this, which is what lets one search implementation run
- * on either side.
+ * The main thread's store and another thread's view over the same shared
+ * blocks both satisfy it, so one search implementation serves both.
  *
  * @internal
  */
@@ -43,12 +45,37 @@ export interface VectorSearchReader {
   distanceFromArena(prepared: ArenaQueryVector, ordinal: number, metric: VectorMetric): number
 }
 
-export interface VectorStore extends VectorSearchReader {
-  readonly size: number
+/**
+ * Graph construction performs these reads against the stored vectors, and the
+ * main thread's store and a building thread's view both satisfy them.
+ *
+ * @internal
+ */
+export interface VectorBuildReader extends VectorSearchReader {
+  readonly dimension: number
   readonly slots: number
-  /** False while any stored document is there without the partition it belongs to. */
+  holdsOrdinal(ordinal: number): boolean
+  distanceByOrdinal(ordA: number, ordB: number, metric: VectorMetric): number
+}
+
+export interface VectorStoreOptions {
+  /** Every vector has this many components, and the first vector inserted sets it where the caller gives none. */
+  dimension?: number
+  /** Each slot reserves room for the vector's byte codes when this reads true, which is the default. */
+  quantized?: boolean
+}
+
+export interface VectorStore extends VectorBuildReader {
+  readonly size: number
+  readonly quantized: boolean
+  /** This reads true once every stored vector names the partition it belongs to. */
   readonly partitionsKnown: boolean
-  insert(docId: string, vector: Float32Array, partitionId?: number): void
+  /** Another thread opens these shared structures to read this store in place. */
+  readonly handles: SharedVectorStoreHandles
+  /** This thread reads the store through this view. */
+  readonly view: SharedVectorStoreView
+  /** Appends the vector at a fresh ordinal, retiring the ordinal the document held before, and returns the new one. */
+  insert(docId: string, vector: Float32Array, partitionId?: number): number
   setPartition(docId: string, partitionId: number): void
   forgetPartition(docId: string): void
   partitionOfOrdinal(ordinal: number): number | undefined
@@ -58,14 +85,16 @@ export interface VectorStore extends VectorSearchReader {
   has(docId: string): boolean
   entries(): IterableIterator<[string, VectorStoreEntry]>
   clear(): void
-  estimateMemory(dimension: number): number
+  /** Gives up the shared blocks, which the memory the vectors occupy returns with, and leaves an empty store behind. */
+  release(): void
+  /**
+   * Reports the bytes this store's shared structures hold, read from each
+   * structure as it stands. The bookkeeping each thread keeps on its own heap
+   * falls outside this figure, because no runtime call measures it.
+   */
+  memoryBytes(): number
   getOrdinal(docId: string): number | undefined
   docIdForOrdinal(ordinal: number): string | undefined
-  entryForOrdinal(ordinal: number): VectorStoreEntry | undefined
-  distanceByOrdinal(ordA: number, ordB: number, metric: VectorMetric): number
-  prepareQueryArena(query: Float32Array): ArenaQueryVector | null
-  distanceFromArena(prepared: ArenaQueryVector, ordinal: number, metric: VectorMetric): number
   exportSnapshot(): VectorStoreSnapshot
   restoreSnapshot(snapshot: VectorStoreSnapshot): void
-  copySnapshotInto(vectors: Float32Array, magnitudes: Float64Array): void
 }

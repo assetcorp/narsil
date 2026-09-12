@@ -1,9 +1,9 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
 import type { FrozenSegment } from '../frozen'
-import { createPartitionIndex, type PartitionIndex } from '../index'
+import type { PartitionIndex } from '../index'
 import type { PartitionReadState } from '../read-state'
-import { encodeSegmentState, type SegmentPayload } from '../segment-payload'
+import type { SegmentPayload } from '../segment-payload'
 
 export type LiveTailFreezer = (payload: SegmentPayload, documents: AnyDocument[]) => FrozenSegment | null
 
@@ -36,22 +36,6 @@ export function survivorDocumentsOf(sub: PartitionReadState, payload: SegmentPay
     }
     return stored.fields as AnyDocument
   })
-}
-
-export function buildCompactedSegmentPayload(segments: readonly FrozenSegment[]): {
-  payload: SegmentPayload
-  documents: AnyDocument[]
-} {
-  const scratch = createPartitionIndex(0)
-  const documents: AnyDocument[] = []
-  for (const segment of segments) {
-    const payload = encodeSegmentState(segment)
-    if (payload.documentCount === 0) continue
-    const segmentDocuments = survivorDocumentsOf(segment, payload)
-    scratch.mergeSegmentPayload(payload, segmentDocuments)
-    documents.push(...segmentDocuments)
-  }
-  return { payload: scratch.encodeSegment(), documents }
 }
 
 export function freezeLiveTailInto(

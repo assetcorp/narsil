@@ -1,114 +1,148 @@
+import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
-import { VECTOR_STORE_INITIAL_CAPACITY, WASM_PAGE_BYTES } from '../constants'
+import { MAX_VECTOR_ORDINALS } from '../constants'
 import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter } from '../ordinal-filter'
-import { type ArenaSimd, arenaFloat32Distance, createArenaSimd } from '../simd'
-import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from '../similarity'
-import type { ArenaQueryVector, VectorStore, VectorStoreEntry, VectorStoreSnapshot } from './types'
+import { growBufferTo } from '../shared-buffers/growable'
+import { magnitude } from '../similarity'
+import { createVectorBlock, ensureBlockSlots, slotByteOffset } from './blocks'
+import { appendDocId, resetDocIds } from './doc-ids'
+import {
+  createSharedVectorStoreHandles,
+  type SharedVectorStoreHandles,
+  STORE_BLOCK_COUNT,
+  STORE_CALIBRATED,
+  STORE_CODE_COUNT,
+  STORE_LIVE_COUNT,
+  STORE_SLOTS,
+  sharedVectorStoreBytes,
+} from './handles'
+import type { ArenaQueryVector, VectorStore, VectorStoreEntry, VectorStoreOptions, VectorStoreSnapshot } from './types'
+import { openSharedVectorStore, type SharedVectorStoreView } from './view'
 
 export type {
   ArenaQueryVector,
+  VectorBuildReader,
   VectorSearchReader,
   VectorStore,
   VectorStoreEntry,
+  VectorStoreOptions,
   VectorStoreSnapshot,
 } from './types'
 
 const UNKNOWN_PARTITION = -1
 const NO_PARTITION = -2
 
-export function createVectorStore(): VectorStore {
+interface OpenStore {
+  handles: SharedVectorStoreHandles
+  view: SharedVectorStoreView
+  magnitudes: Float64Array
+  present: Uint8Array
+  partitions: Int32Array
+}
+
+/**
+ * Builds the store of one vector field, which appends every vector at a fresh
+ * ordinal in shared blocks that every thread reads in place.
+ *
+ * @param options The dimension and whether each slot keeps byte codes beside
+ * the vector, both of which the first inserted vector settles where the
+ * caller gives neither.
+ * @returns The store.
+ *
+ * @internal
+ */
+export function createVectorStore(options?: VectorStoreOptions): VectorStore {
+  const quantized = options?.quantized ?? true
   const docToOrd = new Map<string, number>()
-  const recycledOrds = new Map<string, number>()
   const ordToDoc: Array<string | undefined> = []
-  let partitionOf = new Int32Array(0)
   let unknownPartitions = 0
-  let simd: ArenaSimd | null = createArenaSimd()
-
-  let dimension = 0
-  let capacity = 0
-  let arena = new Float32Array(0)
-  let mags = new Float64Array(0)
   let liveCount = 0
-  let scratchByteLength = 0
-  let scratchFloatLength = 0
+  let open: OpenStore | null = options?.dimension === undefined ? null : openHandles(options.dimension)
 
-  function initStorage(dim: number): void {
-    dimension = dim
-    if (simd) {
-      scratchByteLength = Math.max(16, Math.ceil((dim * 4) / 16) * 16)
-      scratchFloatLength = scratchByteLength / 4
-      arena = new Float32Array(simd.memory.buffer)
+  function openHandles(dimension: number): OpenStore {
+    const handles = createSharedVectorStoreHandles(dimension, quantized)
+    return {
+      handles,
+      view: openSharedVectorStore(handles, 0),
+      magnitudes: new Float64Array(handles.magnitudes),
+      present: new Uint8Array(handles.present),
+      partitions: new Int32Array(handles.partitions),
     }
   }
 
-  function ensureCapacity(needed: number): void {
-    if (needed <= capacity) return
-    let newCap = capacity === 0 ? VECTOR_STORE_INITIAL_CAPACITY : capacity
-    while (newCap < needed) newCap *= 2
+  function forgetDocuments(): void {
+    docToOrd.clear()
+    ordToDoc.length = 0
+    unknownPartitions = 0
+    liveCount = 0
+  }
 
-    const nextMags = new Float64Array(newCap)
-    nextMags.set(mags)
-    mags = nextMags
-
-    if (simd) {
-      const requiredBytes = scratchByteLength + newCap * dimension * 4
-      const have = simd.memory.buffer.byteLength
-      if (requiredBytes > have) {
-        try {
-          simd.memory.grow(Math.ceil((requiredBytes - have) / WASM_PAGE_BYTES))
-        } catch {
-          const migrated = new Float32Array(newCap * dimension)
-          migrated.set(arena.subarray(scratchFloatLength, scratchFloatLength + capacity * dimension))
-          arena = migrated
-          simd = null
-          scratchByteLength = 0
-          scratchFloatLength = 0
-          capacity = newCap
-          return
-        }
-      }
-      arena = new Float32Array(simd.memory.buffer)
-    } else {
-      const nextArena = new Float32Array(newCap * dimension)
-      nextArena.set(arena.subarray(0, capacity * dimension))
-      arena = nextArena
+  function requireOpen(): OpenStore {
+    if (open === null) {
+      throw new NarsilError(ErrorCodes.VECTOR_DIMENSION_MISMATCH, 'The vector store holds no vector yet')
     }
-
-    capacity = newCap
+    return open
   }
 
-  function writeVector(ord: number, vector: Float32Array): void {
-    arena.set(vector, scratchFloatLength + ord * dimension)
-    mags[ord] = magnitude(vector)
-  }
-
-  function entryAt(ord: number): VectorStoreEntry {
-    const base = scratchFloatLength + ord * dimension
-    return { vector: arena.subarray(base, base + dimension), magnitude: mags[ord] }
-  }
-
-  function ensurePartitionSlots(ord: number): void {
-    if (ord < partitionOf.length) return
-    let length = partitionOf.length === 0 ? VECTOR_STORE_INITIAL_CAPACITY : partitionOf.length
-    while (length <= ord) length *= 2
-    const grown = new Int32Array(length).fill(UNKNOWN_PARTITION)
-    grown.set(partitionOf)
-    partitionOf = grown
-  }
-
-  function recordPartition(ord: number, partitionId: number | undefined, wasLive: boolean): void {
-    ensurePartitionSlots(ord)
-    const previous = partitionOf[ord]
-    const given = partitionId !== undefined && partitionId >= 0 ? partitionId : undefined
-    const next = given ?? (wasLive ? previous : UNKNOWN_PARTITION)
-    partitionOf[ord] = next
-    if (!wasLive && next === UNKNOWN_PARTITION) {
-      unknownPartitions += 1
-      return
+  function ensureOrdinal(store: OpenStore, ordinal: number): void {
+    if (ordinal >= MAX_VECTOR_ORDINALS) {
+      throw new NarsilError(
+        ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
+        `A vector field holds at most ${MAX_VECTOR_ORDINALS} vectors, deleted ones included, until it is rebuilt`,
+        { ordinal, maxOrdinals: MAX_VECTOR_ORDINALS },
+      )
     }
-    if (wasLive && previous === UNKNOWN_PARTITION && next !== UNKNOWN_PARTITION) {
-      unknownPartitions -= 1
+    const { handles } = store
+    growBufferTo(handles.magnitudes, (ordinal + 1) * 8)
+    growBufferTo(handles.present, ordinal + 1)
+    growBufferTo(handles.partitions, (ordinal + 1) * 4)
+    growBufferTo(handles.codeSums, (ordinal + 1) * 8)
+    growBufferTo(handles.codeSumSqs, (ordinal + 1) * 8)
+    growBufferTo(handles.codeMagnitudes, (ordinal + 1) * 8)
+    growBufferTo(handles.codePresent, ordinal + 1)
+    const blockIndex = Math.floor(ordinal / handles.layout.capacity)
+    while (handles.blocks.length <= blockIndex) {
+      handles.blocks.push(createVectorBlock(handles.layout))
+      Atomics.store(handles.header, STORE_BLOCK_COUNT, handles.blocks.length)
+      store.view.adoptHandles(handles)
     }
+    ensureBlockSlots(handles.blocks[blockIndex], (ordinal % handles.layout.capacity) + 1)
+  }
+
+  function writeVector(store: OpenStore, ordinal: number, vector: Float32Array): void {
+    const block = store.view.blockOf(ordinal)
+    const base = slotByteOffset(store.handles.layout, store.view.localOrdinal(ordinal)) / 4
+    block.float32(base + vector.length).set(vector, base)
+    store.magnitudes[ordinal] = magnitude(vector)
+  }
+
+  function recordPartition(store: OpenStore, ordinal: number, partitionId: number | undefined): void {
+    const given = partitionId !== undefined && partitionId >= 0 ? partitionId : UNKNOWN_PARTITION
+    store.partitions[ordinal] = given
+    if (given === UNKNOWN_PARTITION) unknownPartitions += 1
+  }
+
+  function retireOrdinal(store: OpenStore, ordinal: number): void {
+    ordToDoc[ordinal] = undefined
+    Atomics.store(store.present, ordinal, 0)
+    if (store.partitions[ordinal] === UNKNOWN_PARTITION) unknownPartitions -= 1
+  }
+
+  function appendOrdinal(store: OpenStore, docId: string, vector: Float32Array, partitionId?: number): number {
+    const ordinal = Atomics.load(store.handles.header, STORE_SLOTS)
+    ensureOrdinal(store, ordinal)
+    writeVector(store, ordinal, vector)
+    appendDocId(store.handles, ordinal, docId)
+    recordPartition(store, ordinal, partitionId)
+    ordToDoc[ordinal] = docId
+    docToOrd.set(docId, ordinal)
+    Atomics.store(store.handles.header, STORE_SLOTS, ordinal + 1)
+    Atomics.store(store.present, ordinal, 1)
+    return ordinal
+  }
+
+  function entryAt(store: OpenStore, ordinal: number): VectorStoreEntry {
+    return { vector: store.view.vectorAt(ordinal), magnitude: store.magnitudes[ordinal] }
   }
 
   return {
@@ -120,53 +154,60 @@ export function createVectorStore(): VectorStore {
       return ordToDoc.length
     },
 
-    insert(docId: string, vector: Float32Array, partitionId?: number): void {
-      if (dimension === 0) initStorage(vector.length)
+    get dimension() {
+      return open === null ? 0 : open.handles.dimension
+    },
 
-      const existing = docToOrd.get(docId)
-      if (existing !== undefined) {
-        writeVector(existing, vector)
-        recordPartition(existing, partitionId, true)
-        return
+    get quantized() {
+      return quantized
+    },
+
+    get handles() {
+      return requireOpen().handles
+    },
+
+    get view() {
+      return requireOpen().view
+    },
+
+    insert(docId: string, vector: Float32Array, partitionId?: number): number {
+      if (open === null) open = openHandles(vector.length)
+      const store = open
+      if (vector.length !== store.handles.dimension) {
+        throw new NarsilError(
+          ErrorCodes.VECTOR_DIMENSION_MISMATCH,
+          `Vector dimension mismatch: expected ${store.handles.dimension}, got ${vector.length}`,
+          { expected: store.handles.dimension, received: vector.length },
+        )
       }
-      const recycled = recycledOrds.get(docId)
-      if (recycled !== undefined) {
-        recycledOrds.delete(docId)
-        docToOrd.set(docId, recycled)
-        ordToDoc[recycled] = docId
-        ensureCapacity(recycled + 1)
-        writeVector(recycled, vector)
-        recordPartition(recycled, partitionId, false)
-        liveCount++
-        return
+      const previous = docToOrd.get(docId)
+      const ordinal = appendOrdinal(store, docId, vector, partitionId)
+      if (previous !== undefined) {
+        retireOrdinal(store, previous)
+        return ordinal
       }
-      const ord = ordToDoc.length
-      docToOrd.set(docId, ord)
-      ordToDoc.push(docId)
-      ensureCapacity(ord + 1)
-      writeVector(ord, vector)
-      recordPartition(ord, partitionId, false)
       liveCount++
+      Atomics.add(store.handles.header, STORE_LIVE_COUNT, 1)
+      return ordinal
     },
 
     setPartition(docId: string, partitionId: number): void {
-      const ord = docToOrd.get(docId)
-      if (ord === undefined) return
-      recordPartition(ord, partitionId, true)
+      const ordinal = docToOrd.get(docId)
+      if (ordinal === undefined || open === null || partitionId < 0) return
+      if (open.partitions[ordinal] === UNKNOWN_PARTITION) unknownPartitions -= 1
+      open.partitions[ordinal] = partitionId
     },
 
     forgetPartition(docId: string): void {
-      const ord = docToOrd.get(docId)
-      if (ord === undefined || ord >= partitionOf.length) return
-      if (partitionOf[ord] === UNKNOWN_PARTITION) {
-        unknownPartitions -= 1
-      }
-      partitionOf[ord] = NO_PARTITION
+      const ordinal = docToOrd.get(docId)
+      if (ordinal === undefined || open === null) return
+      if (open.partitions[ordinal] === UNKNOWN_PARTITION) unknownPartitions -= 1
+      open.partitions[ordinal] = NO_PARTITION
     },
 
     partitionOfOrdinal(ordinal: number): number | undefined {
-      if (ordinal < 0 || ordinal >= partitionOf.length) return undefined
-      const partitionId = partitionOf[ordinal]
+      if (open === null || ordinal < 0 || ordinal >= ordToDoc.length) return undefined
+      const partitionId = open.partitions[ordinal]
       return partitionId < 0 ? undefined : partitionId
     },
 
@@ -176,6 +217,7 @@ export function createVectorStore(): VectorStore {
 
     partitionFilter(partitionIds: ReadonlySet<number>): OrdinalFilter {
       const filter = createOrdinalFilter(ordToDoc.length)
+      if (open === null) return filter
       let highest = -1
       for (const partitionId of partitionIds) {
         if (partitionId > highest) highest = partitionId
@@ -185,60 +227,61 @@ export function createVectorStore(): VectorStore {
       for (const partitionId of partitionIds) {
         if (partitionId >= 0) wanted[partitionId] = 1
       }
-      const upperBound = Math.min(ordToDoc.length, partitionOf.length)
-      for (let ord = 0; ord < upperBound; ord++) {
-        if (ordToDoc[ord] === undefined) continue
-        const partitionId = partitionOf[ord]
+      for (let ordinal = 0; ordinal < ordToDoc.length; ordinal++) {
+        if (ordToDoc[ordinal] === undefined) continue
+        const partitionId = open.partitions[ordinal]
         if (partitionId < 0 || partitionId > highest || wanted[partitionId] === 0) continue
-        addToOrdinalFilter(filter, ord)
+        addToOrdinalFilter(filter, ordinal)
       }
       return filter
     },
 
     remove(docId: string): void {
-      const ord = docToOrd.get(docId)
-      if (ord === undefined) return
+      const ordinal = docToOrd.get(docId)
+      if (ordinal === undefined || open === null) return
       docToOrd.delete(docId)
-      ordToDoc[ord] = undefined
-      recycledOrds.set(docId, ord)
-      if (ord < partitionOf.length && partitionOf[ord] === UNKNOWN_PARTITION) {
-        unknownPartitions -= 1
-      }
+      retireOrdinal(open, ordinal)
       liveCount--
+      Atomics.sub(open.handles.header, STORE_LIVE_COUNT, 1)
     },
 
     get(docId: string): VectorStoreEntry | undefined {
-      const ord = docToOrd.get(docId)
-      return ord === undefined ? undefined : entryAt(ord)
+      const ordinal = docToOrd.get(docId)
+      return ordinal === undefined || open === null ? undefined : entryAt(open, ordinal)
     },
 
     has(docId: string): boolean {
       return docToOrd.has(docId)
     },
 
+    holdsOrdinal(ordinal: number): boolean {
+      return ordinal >= 0 && ordinal < ordToDoc.length && ordToDoc[ordinal] !== undefined
+    },
+
     *entries(): IterableIterator<[string, VectorStoreEntry]> {
-      for (let ord = 0; ord < ordToDoc.length; ord++) {
-        const docId = ordToDoc[ord]
+      if (open === null) return
+      for (let ordinal = 0; ordinal < ordToDoc.length; ordinal++) {
+        const docId = ordToDoc[ordinal]
         if (docId === undefined) continue
-        yield [docId, entryAt(ord)]
+        yield [docId, entryAt(open, ordinal)]
       }
     },
 
     clear(): void {
-      docToOrd.clear()
-      recycledOrds.clear()
-      ordToDoc.length = 0
-      partitionOf = new Int32Array(0)
-      unknownPartitions = 0
-      mags = new Float64Array(0)
-      if (!simd) {
-        arena = new Float32Array(0)
-      }
-      dimension = 0
-      capacity = 0
-      liveCount = 0
-      scratchByteLength = 0
-      scratchFloatLength = 0
+      forgetDocuments()
+      if (open === null) return
+      open.present.fill(0)
+      new Uint8Array(open.handles.codePresent).fill(0)
+      resetDocIds(open.handles)
+      Atomics.store(open.handles.header, STORE_SLOTS, 0)
+      Atomics.store(open.handles.header, STORE_LIVE_COUNT, 0)
+      Atomics.store(open.handles.header, STORE_CODE_COUNT, 0)
+      Atomics.store(open.handles.header, STORE_CALIBRATED, 0)
+    },
+
+    release(): void {
+      forgetDocuments()
+      open = null
     },
 
     getOrdinal(docId: string): number | undefined {
@@ -250,118 +293,67 @@ export function createVectorStore(): VectorStore {
     },
 
     entryForOrdinal(ordinal: number): VectorStoreEntry | undefined {
-      if (ordinal < 0 || ordinal >= ordToDoc.length || ordToDoc[ordinal] === undefined) return undefined
-      return entryAt(ordinal)
+      if (open === null || ordinal < 0 || ordinal >= ordToDoc.length || ordToDoc[ordinal] === undefined) {
+        return undefined
+      }
+      return entryAt(open, ordinal)
     },
 
     distanceByOrdinal(ordA: number, ordB: number, metric: VectorMetric): number {
-      if (ordToDoc[ordA] === undefined || ordToDoc[ordB] === undefined) return Number.POSITIVE_INFINITY
-
-      if (simd) {
-        const byteA = scratchByteLength + ordA * dimension * 4
-        const byteB = scratchByteLength + ordB * dimension * 4
-        return arenaFloat32Distance(simd, byteA, byteB, dimension, metric, mags[ordA], mags[ordB])
+      if (open === null || ordToDoc[ordA] === undefined || ordToDoc[ordB] === undefined) {
+        return Number.POSITIVE_INFINITY
       }
-
-      const baseA = scratchFloatLength + ordA * dimension
-      const baseB = scratchFloatLength + ordB * dimension
-      const a = arena.subarray(baseA, baseA + dimension)
-      const b = arena.subarray(baseB, baseB + dimension)
-      switch (metric) {
-        case 'cosine':
-          return 1 - cosineSimilarityWithMagnitudes(a, b, mags[ordA], mags[ordB])
-        case 'dotProduct':
-          return -dotProduct(a, b)
-        case 'euclidean':
-          return euclideanDistance(a, b)
-      }
+      return open.view.distanceByOrdinal(ordA, ordB, metric)
     },
 
     prepareQueryArena(query: Float32Array): ArenaQueryVector | null {
-      if (!simd || dimension === 0 || query.length !== dimension) return null
-      arena.set(query, 0)
-      return { magnitude: simd.magnitude(0, dimension) }
+      return open === null ? null : open.view.prepareQueryArena(query)
     },
 
     distanceFromArena(prepared: ArenaQueryVector, ordinal: number, metric: VectorMetric): number {
-      if (!simd || ordinal < 0 || ordinal >= ordToDoc.length || ordToDoc[ordinal] === undefined) {
-        return Number.POSITIVE_INFINITY
-      }
-
-      const byteOffset = scratchByteLength + ordinal * dimension * 4
-      return arenaFloat32Distance(simd, 0, byteOffset, dimension, metric, prepared.magnitude, mags[ordinal])
+      if (open === null || ordToDoc[ordinal] === undefined) return Number.POSITIVE_INFINITY
+      return open.view.distanceFromArena(prepared, ordinal, metric)
     },
 
     exportSnapshot(): VectorStoreSnapshot {
       const slots = ordToDoc.length
+      const dimension = open === null ? 0 : open.handles.dimension
       const vectors = new Float32Array(slots * dimension)
-      if (slots > 0 && dimension > 0) {
-        vectors.set(arena.subarray(scratchFloatLength, scratchFloatLength + slots * dimension))
-      }
       const magnitudes = new Float64Array(slots)
-      magnitudes.set(mags.subarray(0, Math.min(slots, mags.length)))
       const docIds: Array<string | null> = new Array(slots)
-      for (let ord = 0; ord < slots; ord++) {
-        docIds[ord] = ordToDoc[ord] ?? null
+      for (let ordinal = 0; ordinal < slots; ordinal++) {
+        const docId = ordToDoc[ordinal]
+        docIds[ordinal] = docId ?? null
+        if (docId === undefined || open === null) continue
+        vectors.set(open.view.vectorAt(ordinal), ordinal * dimension)
+        magnitudes[ordinal] = open.magnitudes[ordinal]
       }
       return { dimension, slots, vectors, magnitudes, docIds }
     },
 
-    copySnapshotInto(vectors: Float32Array, magnitudes: Float64Array): void {
-      const slots = ordToDoc.length
-      if (slots > 0 && dimension > 0) {
-        vectors.set(arena.subarray(scratchFloatLength, scratchFloatLength + slots * dimension))
-      }
-      magnitudes.set(mags.subarray(0, Math.min(slots, mags.length)))
-    },
-
     restoreSnapshot(snapshot: VectorStoreSnapshot): void {
-      docToOrd.clear()
-      recycledOrds.clear()
-      ordToDoc.length = 0
-      partitionOf = new Int32Array(0)
-      unknownPartitions = 0
-      liveCount = 0
-      capacity = 0
-      dimension = 0
-      scratchByteLength = 0
-      scratchFloatLength = 0
-      if (!simd) {
-        arena = new Float32Array(0)
-      }
-
+      this.clear()
       if (snapshot.dimension === 0 || snapshot.slots === 0) return
-
-      initStorage(snapshot.dimension)
-      ensureCapacity(snapshot.slots)
-
-      arena.set(snapshot.vectors.subarray(0, snapshot.slots * snapshot.dimension), scratchFloatLength)
-
-      mags.set(snapshot.magnitudes.subarray(0, Math.min(snapshot.slots, mags.length)))
-
-      ensurePartitionSlots(snapshot.slots)
-      for (let ord = 0; ord < snapshot.slots; ord++) {
-        const docId = snapshot.docIds[ord]
-        ordToDoc.push(docId ?? undefined)
-        if (docId === null || docId === undefined) continue
-        docToOrd.set(docId, ord)
-        unknownPartitions += 1
+      if (open === null) open = openHandles(snapshot.dimension)
+      const store = open
+      for (let ordinal = 0; ordinal < snapshot.slots; ordinal++) {
+        const docId = snapshot.docIds[ordinal]
+        const vector = snapshot.vectors.subarray(ordinal * snapshot.dimension, (ordinal + 1) * snapshot.dimension)
+        if (docId === null || docId === undefined) {
+          ensureOrdinal(store, ordinal)
+          ordToDoc[ordinal] = undefined
+          store.partitions[ordinal] = NO_PARTITION
+          Atomics.store(store.handles.header, STORE_SLOTS, ordinal + 1)
+          continue
+        }
+        appendOrdinal(store, docId, vector)
         liveCount++
       }
+      Atomics.store(store.handles.header, STORE_LIVE_COUNT, liveCount)
     },
 
-    estimateMemory(dimension: number): number {
-      const count = liveCount
-      if (count === 0) return 0
-
-      const MAP_OVERHEAD = 64
-      const MAP_ENTRY = 72
-      const AVG_DOCID_BYTES = 56
-      const MAGNITUDE_BYTES = 8
-      const ORDINAL_SLOT = 16
-
-      const perEntry = MAP_ENTRY + AVG_DOCID_BYTES + MAGNITUDE_BYTES + ORDINAL_SLOT
-      return MAP_OVERHEAD + count * (perEntry + dimension * 4)
+    memoryBytes(): number {
+      return open === null ? 0 : sharedVectorStoreBytes(open.handles)
     },
   }
 }

@@ -3,10 +3,6 @@ import { acquireVectorSearchPool, releaseVectorSearchPool } from '../../../vecto
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
 import { DIM, normalizedVector } from './fixtures'
 
-vi.mock('../../../vector/hnsw-worker-dispatch', () => ({
-  dispatchWorkerBuild: vi.fn().mockResolvedValue({ ok: false, reason: 'no-workers', message: 'mocked' }),
-}))
-
 vi.mock('../../../vector/search-pool', () => ({
   acquireVectorSearchPool: vi.fn().mockResolvedValue(null),
   releaseVectorSearchPool: vi.fn().mockResolvedValue(undefined),
@@ -22,6 +18,8 @@ async function insertAndBuild(index: VectorIndex, count: number): Promise<void> 
   await new Promise(resolve => setTimeout(resolve, 0))
   await index.awaitPendingBuild()
   expect(index.maintenanceStatus().graphCount).toBe(1)
+  vi.mocked(acquireVectorSearchPool).mockClear()
+  vi.mocked(releaseVectorSearchPool).mockClear()
 }
 
 describe('searchParallel without a worker pool', () => {

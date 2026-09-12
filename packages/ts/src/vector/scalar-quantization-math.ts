@@ -2,8 +2,8 @@ import type { VectorMetric } from './brute-force'
 import type { ArenaSimd } from './simd'
 
 /**
- * The constants every SQ8 code and distance derives from, precomputed once
- * per calibration.
+ * Every SQ8 code and distance derives from these constants, which the
+ * quantizer precomputes once per calibration.
  *
  * The main thread's quantizer and a worker's read-only view both compute
  * through these, so a distance comes out identical on either side.
@@ -116,15 +116,15 @@ export function realDotFromInt(constants: Sq8Constants, intDot: number, querySum
  * Computes a quantised distance in plain JavaScript, for runtimes without the
  * SIMD kernels.
  *
- * @param codes The code arena, `dimensions` bytes per ordinal.
- * @param documentSums The per-ordinal code sums.
- * @param documentMagnitudes The per-ordinal reconstructed magnitudes.
+ * @param codes The bytes holding the document's codes.
+ * @param codeBase Where the document's codes start inside those bytes.
  * @param dimensions The number of components per vector.
  * @param constants The calibration constants the codes were derived with.
  * @param queryQuantized The query's codes.
  * @param querySum The sum of the query's codes.
  * @param queryMagnitude The query's reconstructed magnitude.
- * @param ordinal The document ordinal to measure against.
+ * @param documentSum The sum of the document's codes.
+ * @param documentMagnitude The document's reconstructed magnitude.
  * @param metric The distance metric to compute.
  * @returns The distance under the metric.
  *
@@ -132,22 +132,20 @@ export function realDotFromInt(constants: Sq8Constants, intDot: number, querySum
  */
 export function scalarQuantizedDistance(
   codes: Uint8Array,
-  documentSums: Float64Array,
-  documentMagnitudes: Float64Array,
+  codeBase: number,
   dimensions: number,
   constants: Sq8Constants,
   queryQuantized: Uint8Array,
   querySum: number,
   queryMagnitude: number,
-  ordinal: number,
+  documentSum: number,
+  documentMagnitude: number,
   metric: VectorMetric,
 ): number {
-  const base = ordinal * dimensions
-
   if (metric === 'euclidean') {
     let intSqDist = 0
     for (let d = 0; d < dimensions; d++) {
-      const diff = queryQuantized[d] - codes[base + d]
+      const diff = queryQuantized[d] - codes[codeBase + d]
       intSqDist += diff * diff
     }
     return constants.alpha * Math.sqrt(intSqDist)
@@ -155,19 +153,18 @@ export function scalarQuantizedDistance(
 
   let intDot = 0
   for (let d = 0; d < dimensions; d++) {
-    intDot += queryQuantized[d] * codes[base + d]
+    intDot += queryQuantized[d] * codes[codeBase + d]
   }
 
-  const realDot = realDotFromInt(constants, intDot, querySum, documentSums[ordinal])
+  const realDot = realDotFromInt(constants, intDot, querySum, documentSum)
 
   if (metric === 'dotProduct') {
     return -realDot
   }
 
-  const vecMag = documentMagnitudes[ordinal]
-  if (!vecMag || vecMag === 0 || queryMagnitude === 0) return 1
+  if (!documentMagnitude || documentMagnitude === 0 || queryMagnitude === 0) return 1
 
-  return 1 - realDot / (queryMagnitude * vecMag)
+  return 1 - realDot / (queryMagnitude * documentMagnitude)
 }
 
 /**

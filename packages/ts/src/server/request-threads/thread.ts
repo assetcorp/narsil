@@ -25,12 +25,19 @@ function onHeldIndex(local: ThreadReadEngine, handler: RouteHandler, fallback: R
   return ctx => (local.holdsCopyOf(ctx.params[0]) ? handler(ctx) : fallback(ctx))
 }
 
-function searchHandler(
-  local: ThreadReadEngine,
-  fallback: RouteHandler,
-  maxResultWindow: number,
-  answer: (indexName: string, params: QueryParams) => Promise<unknown>,
-): RouteHandler {
+function onWholeDocuments(local: ThreadReadEngine, handler: RouteHandler, fallback: RouteHandler): RouteHandler {
+  return ctx => (local.holdsDocumentsOf(ctx.params[0]) ? handler(ctx) : fallback(ctx))
+}
+
+interface SearchHandlerOptions {
+  fallback: RouteHandler
+  maxResultWindow: number
+  staysOnThread: (indexName: string, params: QueryParams) => boolean
+  answer: (indexName: string, params: QueryParams) => Promise<unknown>
+}
+
+function searchHandler(options: SearchHandlerOptions): RouteHandler {
+  const { fallback, maxResultWindow, staysOnThread, answer } = options
   return async ctx => {
     const params = parseJson<QueryParams>(ctx)
     if (!params) return
@@ -39,7 +46,7 @@ function searchHandler(
       rejectInvalid(ctx, failure)
       return
     }
-    if (!local.canAnswer(ctx.params[0], params)) {
+    if (!staysOnThread(ctx.params[0], params)) {
       await fallback(ctx)
       return
     }
@@ -95,16 +102,24 @@ function threadHandlers(local: ThreadReadEngine, relay: RelayClient, settings: R
     livez: (ctx: RouteContext) => respondJson(ctx, { status: 'ok' }),
     version: (ctx: RouteContext) => respondJson(ctx, { name: 'narsil', ...settings.build }),
     capabilities: (ctx: RouteContext) => respondJson(ctx, { capabilities: [...SERVER_CAPABILITIES] }),
-    search: searchHandler(local, forwarded.search, maxResultWindow, (name, params) => local.query(name, params)),
-    preflight: searchHandler(local, forwarded.preflight, maxResultWindow, (name, params) =>
-      local.preflight(name, params),
-    ),
+    search: searchHandler({
+      fallback: forwarded.search,
+      maxResultWindow,
+      staysOnThread: (name, params) => local.canAnswer(name, params),
+      answer: (name, params) => local.query(name, params),
+    }),
+    preflight: searchHandler({
+      fallback: forwarded.preflight,
+      maxResultWindow,
+      staysOnThread: (name, params) => local.canCount(name, params),
+      answer: (name, params) => local.preflight(name, params),
+    }),
     suggest: suggestHandler(local, forwarded.suggest),
-    get: onHeldIndex(local, reads.get, forwarded.get),
+    get: onWholeDocuments(local, reads.get, forwarded.get),
     exists: onHeldIndex(local, reads.exists, forwarded.exists),
     count: onHeldIndex(local, reads.count, forwarded.count),
-    list: onHeldIndex(local, reads.list, forwarded.list),
-    multiGet: onHeldIndex(local, reads.multiGet, forwarded.multiGet),
+    list: onWholeDocuments(local, reads.list, forwarded.list),
+    multiGet: onWholeDocuments(local, reads.multiGet, forwarded.multiGet),
   }
 }
 

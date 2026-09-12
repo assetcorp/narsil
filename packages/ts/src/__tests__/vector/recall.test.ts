@@ -33,8 +33,8 @@ function computeRecallAtK(
 }
 
 function runRecallBenchmark(dim: number, vectorCount: number, queryCount: number, k: number, efSearch: number): number {
-  const store = createVectorStore()
-  const quantizer = createScalarQuantizer(dim)
+  const store = createVectorStore({ dimension: dim })
+  const quantizer = createScalarQuantizer(dim, store)
   const vectors = new Map<string, Float32Array>()
 
   for (let i = 0; i < vectorCount; i++) {

@@ -2,6 +2,7 @@ import { MAIN_COPY_LONE_QUERY_DOCUMENTS } from '../../../engine/orchestration/co
 import type { OrchestratorState } from '../../../engine/orchestration/types'
 import { getLanguage } from '../../../languages/registry'
 import type { PartitionManager } from '../../../partitioning/manager'
+import type { SchemaDefinition } from '../../../types/schema'
 import type { Executor } from '../../../workers/executor'
 import { createWorkerPool } from '../../../workers/pool'
 import type { WorkerAction } from '../../../workers/protocol'
@@ -20,13 +21,11 @@ export interface OrchestratorHarness {
   releaseAll: () => void
 }
 
-export function registryWith(indexName: string): OrchestratorState['indexRegistry'] {
-  return new Map([
-    [
-      indexName,
-      { config: { schema: { title: 'string' as const } }, language: getLanguage('english'), embeddingAdapter: null },
-    ],
-  ])
+export function registryWith(
+  indexName: string,
+  schema: SchemaDefinition = { title: 'string' },
+): OrchestratorState['indexRegistry'] {
+  return new Map([[indexName, { config: { schema }, language: getLanguage('english'), embeddingAdapter: null }]])
 }
 
 export function emptyOrchestratorState(overrides: Partial<OrchestratorState> = {}): OrchestratorState {
@@ -39,6 +38,8 @@ export function emptyOrchestratorState(overrides: Partial<OrchestratorState> = {
       shutdown: () => Promise.resolve(),
       getManager: () => undefined,
       queryContextOf: () => undefined,
+      holdsVectorField: () => false,
+      heldVectorOf: () => undefined,
       createIndex: () => undefined,
       dropIndex: () => undefined,
       listIndexes: () => [],
@@ -56,12 +57,14 @@ export function emptyOrchestratorState(overrides: Partial<OrchestratorState> = {
     scaledOutIndexes: new Set(),
     desyncedIndexes: new Set(),
     copyLoadBuffers: new Map(),
+    sharedVectorFields: new Map(),
     copyTransitions: new Map(),
     droppedCopies: new Map(),
     lastAccessAt: new Map(),
     copyReloadCounts: new Map(),
     replicationQueues: new Map(),
     segmentLedger: new Map(),
+    unbroadcastSegments: new Map(),
     compactionsInFlight: new Map(),
     idleMergeTimers: new Map(),
     workerPool: null,
@@ -116,6 +119,8 @@ export function recordingHarness(
           serializePartition: (partitionId: number) => ({ partitionId }),
         }) as unknown as PartitionManager,
       queryContextOf: () => undefined,
+      holdsVectorField: () => false,
+      heldVectorOf: () => undefined,
       createIndex: () => undefined,
       dropIndex: () => undefined,
       listIndexes: () => indexNames,

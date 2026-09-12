@@ -27,6 +27,7 @@ import {
 } from './shared'
 import {
   invalidateWorkerCopies,
+  noteWrite,
   refreshWorkerCopies,
   scheduleWorkerCopyLoad,
   searchViaWorkerCopies,
@@ -45,7 +46,7 @@ export type {
 export interface VectorIndex {
   insert(docId: string, vector: Float32Array, partitionId?: number): void
   remove(docId: string): void
-  /** False while any stored vector is there without the partition it belongs to. */
+  /** Reports whether every stored vector names the partition it belongs to. */
   partitionsKnown(): boolean
   assignPartitions(resolve: (docId: string) => number | undefined): void
   scheduleBuild(): void
@@ -53,7 +54,7 @@ export interface VectorIndex {
   dispose(): void
   search(query: Float32Array, k: number, options: VectorSearchOptions): VectorScoredResult[]
   searchParallel(query: Float32Array, k: number, options: VectorSearchOptions): Promise<VectorScoredResult[]>
-  /** Withdraws the copy the worker threads hold and sends them a fresh one where the policy names a host. */
+  /** Withdraws the field from the worker threads and sends it again where the policy names a host. */
   refreshWorkerCopies(): void
   getVector(docId: string): Float32Array | null
   has(docId: string): boolean
@@ -92,7 +93,7 @@ export function createVectorIndex(
     ? { ...config.hnswConfig, m: rawHnswM !== undefined ? Math.max(rawHnswM, 2) : undefined }
     : undefined
   const dimensionScale = dimension / 256
-  const store = createVectorStore()
+  const store = createVectorStore({ dimension, quantized: quantizationMode === 'sq8' })
 
   const state: VectorIndexState = {
     indexName,
@@ -109,6 +110,7 @@ export function createVectorIndex(
     buffer: new Set<string>(),
     sq8: quantizationMode === 'sq8' ? createScalarQuantizer(dimension, store) : null,
     hnsw: null,
+    freshGraph: null,
     compactedNodeCount: 0,
     building: false,
     buildScheduled: false,
@@ -120,6 +122,9 @@ export function createVectorIndex(
     workerCopyRevision: -1,
     workerCopyMode: null,
     workerCopyLoading: false,
+    sharedHandles: new Map(),
+    sharedBlockCount: 0,
+    sharing: Promise.resolve(),
   }
 
   function validateDimension(vector: Float32Array): void {
@@ -134,15 +139,22 @@ export function createVectorIndex(
 
   function insert(docId: string, vector: Float32Array, partitionId?: number): void {
     validateDimension(vector)
-    invalidateWorkerCopies(state)
+    noteWrite(state)
     state.tombstones.delete(docId)
+    const previous = state.store.getOrdinal(docId)
     state.store.insert(docId, vector, partitionId)
+    if (previous !== undefined) {
+      state.hnsw?.markTombstoneOrdinal(previous)
+      state.freshGraph?.markTombstoneOrdinal(previous)
+      state.sq8?.removeOrdinal(previous)
+    }
     state.buffer.add(docId)
+    if (state.sharedBlockCount !== state.store.handles.blocks.length) scheduleWorkerCopyLoad(state)
   }
 
   function remove(docId: string): void {
     if (!state.store.has(docId)) return
-    invalidateWorkerCopies(state)
+    noteWrite(state)
     state.tombstones.add(docId)
     state.buffer.delete(docId)
     if (state.hnsw) {
@@ -162,14 +174,29 @@ export function createVectorIndex(
   }
 
   async function awaitPendingBuild(): Promise<void> {
-    if (state.pendingBuild) {
+    while (state.pendingBuild) {
       await state.pendingBuild
     }
+  }
+
+  function releaseHeldMemory(): void {
+    state.hnsw = null
+    state.freshGraph = null
+    state.sq8 = null
+    state.tombstones.clear()
+    state.buffer.clear()
+    state.store.release()
   }
 
   function dispose(): void {
     state.disposed = true
     invalidateWorkerCopies(state)
+    const pending = state.pendingBuild
+    if (pending !== null) {
+      void pending.then(releaseHeldMemory, releaseHeldMemory)
+      return
+    }
+    releaseHeldMemory()
   }
 
   async function searchParallel(
@@ -232,11 +259,11 @@ export function createVectorIndex(
     getVector,
     has,
     compact: () => {
-      invalidateWorkerCopies(state)
+      noteWrite(state)
       compactOp(state)
     },
     optimize: async () => {
-      invalidateWorkerCopies(state)
+      noteWrite(state)
       await optimizeOp(state)
     },
     maintenanceStatus: () => maintenanceStatusOp(state),

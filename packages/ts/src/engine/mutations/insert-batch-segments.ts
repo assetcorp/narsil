@@ -36,7 +36,7 @@ async function replicateDocuments(
       type: 'insert',
       indexName,
       docId: doc.docId,
-      document: doc.document,
+      document: doc.partitionDoc,
       requestId: `replicate-insert-${doc.docId}`,
       skipClone: options?.skipClone,
     })
@@ -131,7 +131,7 @@ async function broadcastSegments(
   admitted: AdmittedInsert[],
   failedDocIds: Set<string>,
   options: InsertOptions | undefined,
-): Promise<void> {
+): Promise<string[]> {
   const clean: Array<{
     partitionId: number
     segmentId: string
@@ -158,6 +158,7 @@ async function broadcastSegments(
     await broadcastBuiltSegments(ctx.orchestrator, indexName, clean, options?.skipClone)
   }
   await replicateDocuments(ctx, indexName, retryDocs, options)
+  return clean.map(segment => segment.segmentId)
 }
 
 async function ingestAdmitted(
@@ -178,13 +179,12 @@ async function ingestAdmitted(
   }
 
   const docIds = admitted.map(doc => doc.docId)
-  const rawDocuments = admitted.map(doc => doc.document)
+  const partitionDocuments = admitted.map(doc => doc.partitionDoc)
   const { requests, memberIndexes } = buildSegmentRequests(
     indexName,
     docIds,
-    rawDocuments,
+    partitionDocuments,
     manager.partitionCount,
-    workers,
     options?.skipClone,
   )
 
@@ -207,6 +207,7 @@ async function ingestAdmitted(
     }
   }
   const segmentIds = built.map(() => generateId())
+  ctx.orchestrator.holdUnbroadcastSegments(indexName, segmentIds)
   for (let i = 0; i < built.length; i++) {
     manager.attachFrozenSegment(
       built[i].partitionId,
@@ -219,7 +220,17 @@ async function ingestAdmitted(
   }
 
   const recorded = await recordMergedDocuments(ctx, indexName, admitted, failed)
-  await broadcastSegments(ctx, indexName, built, segmentIds, memberIndexes, admitted, recorded.failedDocIds, options)
+  const broadcast = await broadcastSegments(
+    ctx,
+    indexName,
+    built,
+    segmentIds,
+    memberIndexes,
+    admitted,
+    recorded.failedDocIds,
+    options,
+  )
+  ctx.orchestrator.releaseUnbroadcastSegments(indexName, broadcast)
 
   return { succeeded: recorded.succeeded, touchedVectorFields: recorded.touchedVectorFields }
 }

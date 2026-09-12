@@ -3,10 +3,6 @@ import { acquireVectorSearchPool } from '../../../vector/search-pool'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
 import { DIM, normalizedVector } from './fixtures'
 
-vi.mock('../../../vector/hnsw-worker-dispatch', () => ({
-  dispatchWorkerBuild: vi.fn().mockResolvedValue({ ok: false, reason: 'no-workers', message: 'mocked' }),
-}))
-
 vi.mock('../../../vector/search-pool', () => ({
   acquireVectorSearchPool: vi.fn().mockResolvedValue(null),
   releaseVectorSearchPool: vi.fn().mockResolvedValue(undefined),

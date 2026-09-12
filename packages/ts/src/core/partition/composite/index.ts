@@ -12,9 +12,9 @@ import { cloneProjected, type ResolvedProjection } from '../../projection'
 import { computeFacets, type FacetMatchSet } from '../facets'
 import type { PartitionFilterMatches } from '../filters'
 import { createFrozenSegment, type FrozenSegment } from '../frozen'
+import { frozenSegmentBytes } from '../frozen/memory'
 import { createPartitionIndex, type PartitionIndex, partitionStateOf } from '../index'
 import type { PartitionSearchMatches } from '../matches'
-import { estimatePartitionBytes } from '../memory'
 import type { PartitionReadState } from '../read-state'
 import { encodeSegmentState, type SegmentPayload } from '../segment-payload'
 import type { SortedPageEntry, SortPageRequest } from '../sorting'
@@ -388,7 +388,7 @@ export function createCompositePartition(
     estimateMemoryBytes(): number {
       let total = live.estimateMemoryBytes()
       for (const segment of frozen) {
-        total += estimatePartitionBytes(segment)
+        total += frozenSegmentBytes(segment)
       }
       return total
     },

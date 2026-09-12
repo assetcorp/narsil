@@ -2,6 +2,19 @@ from __future__ import annotations
 
 from typing import Any
 
+MISSED_TARGET_MARKER = "†"
+MISSED_TARGET_NOTE = f"{MISSED_TARGET_MARKER} missed the recall target, so its speed is shown but not ranked."
+
+
+def ranks_on_speed(row: dict) -> bool:
+    """Reports whether a row may win a speed marker. A vector row whose operating
+    point missed the recall target answered at lower accuracy than the others, so its
+    speed is not comparable; a row with no operating point, such as a keyword row, is
+    always eligible."""
+
+    point = row.get("operating_point")
+    return not isinstance(point, dict) or point.get("met_target") is not False
+
 
 def levels(obj: Any) -> list[dict]:
     """The per-concurrency records, accepting either a per-dataset result (which
@@ -91,12 +104,13 @@ def comparison_lines(rows: list[dict]) -> list[str]:
     """One peak-throughput row per engine for a dataset, the capacity headline that
     stays meaningful where single-query latency floors out on small corpora."""
 
-    peaks = [(row["engine"], peak_level(row.get("throughput"))) for row in rows]
-    measured = [peak.get("qps") for _, peak in peaks if peak and isinstance(peak.get("qps"), (int, float))]
+    peaks = [(row["engine"], peak_level(row.get("throughput")), ranks_on_speed(row)) for row in rows]
+    measured = [peak.get("qps") for _, peak, _ in peaks if peak and isinstance(peak.get("qps"), (int, float))]
     if not measured:
         return []
-    best_qps = max(measured)
-    has_distinct_best = len(set(measured)) > 1
+    ranked = [peak.get("qps") for _, peak, eligible in peaks if eligible and peak and isinstance(peak.get("qps"), (int, float))]
+    best_qps = max(ranked) if ranked else None
+    has_distinct_best = len(set(ranked)) > 1
     lines = [
         "Throughput under concurrent load (higher is better). Peak QPS is the highest sustained rate across the "
         "tested concurrency levels, and 'client-limited' flags an engine whose peak the harness capped, not the "
@@ -105,12 +119,17 @@ def comparison_lines(rows: list[dict]) -> list[str]:
         "| Engine | Peak QPS | 95% CI | At concurrency | Under-load p95 ms | Under-load p99.9 ms | Engine cores busy | Client-limited |",
         "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
-    for engine, peak in peaks:
+    for engine, peak, eligible in peaks:
         if not peak:
             lines.append(f"| {engine} | n/a | n/a | n/a | n/a | n/a | n/a | n/a |")
             continue
         qps = peak.get("qps")
-        marker = "\\*" if has_distinct_best and isinstance(qps, (int, float)) and abs(qps - best_qps) < 1e-9 else ""
+        if not eligible:
+            marker = MISSED_TARGET_MARKER
+        elif has_distinct_best and best_qps is not None and isinstance(qps, (int, float)) and abs(qps - best_qps) < 1e-9:
+            marker = "\\*"
+        else:
+            marker = ""
         client = peak.get("client_latency_ms", {})
         lines.append(
             "| {engine} | {qps}{marker} | {ci} | {c} | {p95} | {p999} | {cores} | {bound} |".format(
@@ -125,4 +144,6 @@ def comparison_lines(rows: list[dict]) -> list[str]:
                 bound="yes" if peak.get("client_bound") else "no",
             )
         )
+    if any(not eligible for _, peak, eligible in peaks if peak):
+        lines.extend(["", MISSED_TARGET_NOTE])
     return lines

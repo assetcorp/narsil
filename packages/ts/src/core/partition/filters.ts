@@ -5,6 +5,11 @@ import type { SchemaDefinition } from '../../types/schema'
 import { bitsetFromSet, bitsetHas } from '../bitset'
 import { getAllInternalDocIds, getFieldValueByInternalId, getFlatSchema, type PartitionReadState } from './utils'
 
+const EMPTY_GEO_INDEX: GeoFieldIndex = {
+  radiusQuery: () => new Set<number>(),
+  polygonQuery: () => new Set<number>(),
+}
+
 export function buildFilterContext(state: PartitionReadState, schema: SchemaDefinition): FilterContext {
   const flat = getFlatSchema(state, schema)
   const fieldIndexes: Record<string, FieldIndex> = {}
@@ -65,11 +70,9 @@ export function buildFilterContext(state: PartitionReadState, schema: SchemaDefi
       }
     } else if (fieldType === 'geopoint') {
       const geoIdx = state.geoIndexes.get(fieldPath)
-      if (geoIdx) {
-        fieldIndexes[fieldPath] = {
-          type: 'geopoint',
-          index: geoIdx as GeoFieldIndex,
-        }
+      fieldIndexes[fieldPath] = {
+        type: 'geopoint',
+        index: geoIdx === undefined ? EMPTY_GEO_INDEX : (geoIdx as GeoFieldIndex),
       }
     }
   }

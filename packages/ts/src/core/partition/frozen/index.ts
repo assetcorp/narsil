@@ -7,8 +7,14 @@ import type { PartitionStatsView } from '../../statistics'
 import { createSurfaceRegistry, type SurfaceRegistryReader } from '../../surface-registry'
 import type { PartitionReadState } from '../read-state'
 import type { SegmentPayload } from '../segment-payload'
+import type { SegmentColumns } from './columns'
 import { createFrozenDocTable } from './doc-table'
-import { type FrozenDocumentSource, wrapDocumentArray, wrapEncodedDocumentTable } from './document-source'
+import {
+  type EncodedDocumentTableData,
+  type FrozenDocumentSource,
+  wrapDocumentArray,
+  wrapEncodedDocumentTable,
+} from './document-source'
 import { buildExternalIdTable, type ExternalIdTable, wrapExternalIdTable } from './external-ids'
 import { createFrozenBooleanReader, createFrozenEnumReader, createFrozenNumericReader } from './field-indexes'
 import { createFrozenInvertedReader } from './inverted-reader'
@@ -33,31 +39,28 @@ export interface FrozenSegment extends PartitionReadState {
   readonly segmentId: string
   readonly documentSource: FrozenDocumentSource
   readonly sharedSnapshot: SharedSegmentSnapshot | null
+  /** The segment serves from these flat arrays, which a merge reads as they stand, decoding no document. */
+  readonly arrays: FrozenSegmentArrays
   liveDocumentCount(): number
   hasDocument(docId: string): boolean
+  isTombstoned(ordinal: number): boolean
   tombstoneDocument(docId: string): boolean
   tombstonedDocIds(): string[]
 }
 
-interface FrozenSegmentSource {
-  documentCount: number
-  fieldNames: readonly string[]
-  fieldLengthNames: readonly string[]
-  fieldLengthColumns: readonly Uint32Array[]
-  totalFieldLengths: Readonly<Record<string, number>>
-  postingOffsets: Uint32Array
-  postingDocIds: Uint32Array
-  postingFrequencies: Uint16Array
-  postingFieldIndices: Uint8Array
-  positionOffsets: Uint32Array | null
-  positionValues: Uint32Array | null
-  numeric: SegmentPayload['numeric']
-  boolean: SegmentPayload['boolean']
-  enums: SegmentPayload['enums']
-  geo: SegmentPayload['geo']
-  surfaceForms: SerializedSurfaceForms | null
+/**
+ * One frozen segment serves every read from these flat arrays.
+ *
+ * @internal
+ */
+export interface FrozenSegmentArrays extends SegmentColumns {
   tokenTable: FrozenTokenTable
   idTable: ExternalIdTable
+  /** This holds the documents as encoded bytes, and it reads null where the segment holds them as objects. */
+  documentTable: EncodedDocumentTableData | null
+}
+
+interface FrozenSegmentSource extends FrozenSegmentArrays {
   docFrequencies: () => Readonly<Record<string, number>>
 }
 
@@ -132,6 +135,7 @@ function assembleFrozenSegment(
     segmentId,
     documentSource,
     sharedSnapshot,
+    arrays: source,
     invertedIdx: createFrozenInvertedReader(source.tokenTable, postingViews),
     docStore,
     stats: buildStatsView(source),
@@ -153,6 +157,10 @@ function assembleFrozenSegment(
 
     hasDocument(docId: string): boolean {
       return docStore.has(docId)
+    },
+
+    isTombstoned(ordinal: number): boolean {
+      return tombstones.has(ordinal)
     },
 
     tombstoneDocument(docId: string): boolean {
@@ -188,6 +196,7 @@ export function createFrozenSegment(
       ...payload,
       tokenTable: buildFrozenTokenTable(payload.tokens, payload.docFrequencies),
       idTable: buildExternalIdTable(payload.docIds),
+      documentTable: null,
       docFrequencies: () => payload.docFrequencies,
     },
     wrapDocumentArray(documents),
@@ -203,6 +212,7 @@ export function createSharedFrozenSegment(snapshot: SharedSegmentSnapshot): Froz
       ...snapshot,
       tokenTable,
       idTable: wrapExternalIdTable(snapshot.idTable),
+      documentTable: snapshot.documentTable,
       docFrequencies: () => {
         const frequencies: Record<string, number> = Object.create(null)
         for (let at = 0; at < tokenTable.size; at++) {
