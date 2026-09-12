@@ -49,7 +49,7 @@ class WeaviateDriver:
         self.run_tag = engine.run_tag
         self.vector_setup = "HNSW dense vectors, distance cosine, over the shared precomputed vectors"
         self.hybrid_setup = (
-            f"BM25 over text fused with dense vectors via the hybrid operator "
+            f"BM25 k1={bm25.k1} b={bm25.b} over text fused with dense vectors via the hybrid operator "
             f"(rankedFusion, alpha={_HYBRID_ALPHA})"
         )
         self.hybrid_fusion = f"rankedFusion (alpha={_HYBRID_ALPHA})"
@@ -57,6 +57,8 @@ class WeaviateDriver:
         self.vector_quantization = FULL_FLOAT
         self.server_time = SERVER_TIME_UNAVAILABLE
         self._vector_profile = EQUAL_PRECISION
+        self._k1 = bm25.k1
+        self._b = bm25.b
         self._client = build_client(engine.url)
         self._ef_cache: dict[str, int] = {}
 
@@ -112,6 +114,7 @@ class WeaviateDriver:
             "vectorizer": "none",
             "vectorIndexType": "hnsw",
             "vectorIndexConfig": vector_index_config,
+            "invertedIndexConfig": {"bm25": {"k1": self._k1, "b": self._b}},
             "properties": [
                 {"name": "docId", "dataType": ["text"], "indexSearchable": False, "indexFilterable": True},
                 {"name": "text", "dataType": ["text"]},

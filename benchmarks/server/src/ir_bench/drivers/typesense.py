@@ -19,8 +19,10 @@ from ..core.types import (
     ServerTimeSource,
     coerce_server_ms,
 )
+from ._stop_words import LUCENE_ENGLISH_STOP_WORDS
 
 _PER_PAGE = 250
+_STOP_WORDS_SET = "lucene-english"
 
 
 def _raise(response: httpx.Response) -> None:
@@ -34,8 +36,11 @@ class TypesenseDriver:
         self.name = engine.name
         self.run_tag = engine.run_tag
         self.keyword_setup = (
-            "Not BM25; the harness creates the text field with locale `en` and `stem` "
-            "enabled, sorts by `_text_match`, and leaves every other setting at its default"
+            "Not BM25; the harness creates the text field with locale `en` and `stem` enabled, "
+            "applies the Lucene English stop words the BM25 engines analyze with, sets "
+            "`drop_tokens_threshold` to the number of results requested so a long question drops "
+            "words until that many documents match, sorts by `_text_match`, and leaves every other "
+            "setting at its default"
         )
         self.server_time = ServerTimeSource(source="response `search_time_ms` field", resolution=INTEGER_MS)
         api_key = os.environ.get("BENCH_API_KEY", "localdev")
@@ -68,6 +73,11 @@ class TypesenseDriver:
         }
         response = self._client.post("/collections", json=body)
         _raise(response)
+        stop_words = self._client.put(
+            f"/stopwords/{_STOP_WORDS_SET}",
+            json={"stopwords": list(LUCENE_ENGLISH_STOP_WORDS), "locale": "en"},
+        )
+        _raise(stop_words)
 
     def _send_import(self, index: str, batch: list[tuple[str, str]]) -> BatchOutcome:
         body = "\n".join(json.dumps({"id": doc_id, "text": text}) for doc_id, text in batch)
@@ -114,6 +124,8 @@ class TypesenseDriver:
                     "page": page,
                     "sort_by": "_text_match:desc",
                     "include_fields": "id",
+                    "drop_tokens_threshold": limit,
+                    "stopwords": _STOP_WORDS_SET,
                 },
             )
             _raise(response)

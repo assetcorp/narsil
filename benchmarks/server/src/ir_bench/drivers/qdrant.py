@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from itertools import chain, islice
 from typing import Iterable
 
 import httpx
@@ -25,11 +26,8 @@ from ..core.types import (
 )
 
 _SECONDS_TO_MS = 1000.0
-_SCALAR_QUANTILE = 0.99
-_SCALAR_OVERSAMPLING = 2.0
-# Scalar int8 is near-lossless, so the recommended 2x rescore usually clears the recall
-# target on its own; the sweep escalates the rescore oversample only if it does not.
-_SCALAR_OVERSAMPLING_GRID = (2.0, 3.0, 5.0, 8.0)
+_RESCORE_OVERSAMPLING = 2.0
+_RESCORE_OVERSAMPLING_GRID = (2.0, 3.0, 5.0, 8.0)
 
 _DENSE = "dense"
 _SPARSE = "text"
@@ -54,7 +52,10 @@ class QdrantDriver:
         self.name = engine.name
         self.run_tag = engine.run_tag
         self.vector_setup = "HNSW dense vectors, distance Cosine, over the shared precomputed vectors"
-        self.hybrid_setup = "Dense HNSW fused with BM25 sparse vectors (fastembed Qdrant/bm25, server IDF) via RRF"
+        self.hybrid_setup = (
+            f"Dense HNSW fused with BM25 sparse vectors (fastembed Qdrant/bm25, k1={bm25.k1} b={bm25.b}, "
+            "average document length measured on the first import batch, server IDF) via RRF"
+        )
         self.hybrid_fusion = "RRF (Query API fusion)"
         self.vector_knob = "hnsw_ef"
         self.vector_quantization = FULL_FLOAT
@@ -62,9 +63,11 @@ class QdrantDriver:
             source="top-level `time` field, seconds converted to ms", resolution=FLOATING_MS
         )
         self._vector_profile = EQUAL_PRECISION
-        self.rescore_oversample_grid = _SCALAR_OVERSAMPLING_GRID
+        self.rescore_oversample_grid = _RESCORE_OVERSAMPLING_GRID
         self._rescore_oversample: float | None = None
         self._sparse_model_name = "Qdrant/bm25"
+        self._k1 = bm25.k1
+        self._b = bm25.b
         self._sparse = None
         self._client = build_client(engine.url)
 
@@ -116,17 +119,16 @@ class QdrantDriver:
             "optimizers_config": {"indexing_threshold": _INDEXING_THRESHOLD},
         }
         if params.profile == BEST_CONFIG:
-            body["quantization_config"] = {
-                "scalar": {"type": "int8", "quantile": _SCALAR_QUANTILE, "always_ram": True}
-            }
-            self.vector_quantization = "int8 scalar"
+            body["quantization_config"] = {"turbo": {"memory": "pinned"}}
+            self.vector_quantization = "TurboQuant 4-bit"
             self.vector_setup = (
-                "HNSW dense vectors with int8 scalar quantization and full-precision rescore "
-                f"(oversampling {_SCALAR_OVERSAMPLING}x), distance Cosine, over the shared precomputed vectors"
+                "HNSW dense vectors with 4-bit TurboQuant held in RAM and full-precision rescore "
+                f"(oversampling {_RESCORE_OVERSAMPLING}x), distance Cosine, over the shared precomputed vectors"
             )
             self.hybrid_setup = (
-                "int8-quantized dense HNSW (full-precision rescore) fused with BM25 sparse vectors "
-                "(fastembed Qdrant/bm25, server IDF) via RRF"
+                "TurboQuant 4-bit dense HNSW (full-precision rescore) fused with BM25 sparse vectors "
+                f"(fastembed Qdrant/bm25, k1={self._k1} b={self._b}, average document length measured on "
+                "the first import batch, server IDF) via RRF"
             )
         response = self._client.put(f"/collections/{index}", json=body)
         _raise(response)
@@ -136,16 +138,29 @@ class QdrantDriver:
         if ef is not None:
             params["hnsw_ef"] = ef
         if self._vector_profile == BEST_CONFIG:
-            oversampling = self._rescore_oversample if self._rescore_oversample is not None else _SCALAR_OVERSAMPLING
+            oversampling = self._rescore_oversample if self._rescore_oversample is not None else _RESCORE_OVERSAMPLING
             params["quantization"] = {"rescore": True, "oversampling": oversampling}
         return params or None
 
+    def _build_sparse_model(self, average_length: float | None):
+        from fastembed import SparseTextEmbedding
+
+        options: dict = {"k": self._k1, "b": self._b}
+        if average_length is not None:
+            options["avg_len"] = average_length
+        return SparseTextEmbedding(model_name=self._sparse_model_name, **options)
+
     def _sparse_model(self):
         if self._sparse is None:
-            from fastembed import SparseTextEmbedding
-
-            self._sparse = SparseTextEmbedding(model_name=self._sparse_model_name)
+            self._sparse = self._build_sparse_model(None)
         return self._sparse
+
+    def _average_document_length(self, texts: list[str]) -> float:
+        from fastembed.sparse.bm25 import remove_non_alphanumeric
+
+        bm25 = self._sparse_model().model
+        lengths = [len(bm25._stem(bm25.tokenizer.tokenize(remove_non_alphanumeric(text)))) for text in texts]
+        return max(1.0, sum(lengths) / len(lengths)) if lengths else 1.0
 
     def _send_points(self, index: str, model, batch: list[tuple[int, VectorDoc]]) -> BatchOutcome:
         sparse = list(model.embed([doc.text for _, doc in batch]))
@@ -176,9 +191,14 @@ class QdrantDriver:
     def import_vectors(
         self, index: str, documents: Iterable[VectorDoc], batch_size: int, clients: int
     ) -> ImportResult:
-        model = self._sparse_model()
+        remaining = iter(documents)
+        first_batch = list(islice(remaining, batch_size))
+        model = self._build_sparse_model(self._average_document_length([doc.text for doc in first_batch]))
         total = import_batches(
-            enumerate(documents), batch_size, clients, lambda batch: self._send_points(index, model, batch)
+            enumerate(chain(first_batch, remaining)),
+            batch_size,
+            clients,
+            lambda batch: self._send_points(index, model, batch),
         )
         return ImportResult(submitted=total.submitted, indexed=total.indexed)
 
