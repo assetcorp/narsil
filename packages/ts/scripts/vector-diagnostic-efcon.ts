@@ -61,7 +61,7 @@ for (const efCon of [16, 32, 64, 100, 200]) {
   const buildMs = performance.now() - t0
 
   for (const efSearch of [20, 50, 100]) {
-    const hnswResults = queries.map(q => hnsw.search(q, K, 'cosine', 0, undefined, efSearch).map(r => r.docId))
+    const hnswResults = queries.map(q => hnsw.search(q, K, 'cosine', 0, { efSearch }).map(r => r.docId))
 
     let overlap = 0
     let total = 0
@@ -77,7 +77,7 @@ for (const efCon of [16, 32, 64, 100, 200]) {
     const times: number[] = []
     for (const q of queries) {
       const t = performance.now()
-      hnsw.search(q, K, 'cosine', 0, undefined, efSearch)
+      hnsw.search(q, K, 'cosine', 0, { efSearch })
       times.push(performance.now() - t)
     }
 

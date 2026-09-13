@@ -161,7 +161,7 @@ async function main() {
         `\r    HNSW insert: ${(hnswInsertMs / 1000).toFixed(2)}s total (${perVec.toFixed(2)}ms/vec)${' '.repeat(30)}`,
       )
 
-      const hnswSearch = measureSearch(q => hnsw.search(q, K, 'cosine', 0, undefined, 50), queries)
+      const hnswSearch = measureSearch(q => hnsw.search(q, K, 'cosine', 0, { efSearch: 50 }), queries)
       const r = recall(bfSearch.resultIds, hnswSearch.resultIds)
       const speedup = bfSearch.medianMs / hnswSearch.medianMs
 

@@ -65,7 +65,7 @@ console.log(`Remaining ${SCALE - 100} inserts: ${(performance.now() - t0).toFixe
 console.log(`Total HNSW size: ${hnsw.size}`)
 
 t0 = performance.now()
-const hnswResults = hnsw.search(query, K, 'cosine', 0, undefined, 50)
+const hnswResults = hnsw.search(query, K, 'cosine', 0, { efSearch: 50 })
 console.log(`Search (ef=50): ${(performance.now() - t0).toFixed(3)}ms, returned ${hnswResults.length} results`)
 
 console.log('\nDone.')
