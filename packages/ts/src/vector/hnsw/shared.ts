@@ -178,7 +178,7 @@ export function entryForOrd(state: HNSWSearchState, ord: number): VectorStoreEnt
 
 /**
  * Reports whether the graph scores placements from the field's codes, which
- * it does once the quantiser is calibrated.
+ * it does once the quantizer is calibrated.
  *
  * @internal
  */
@@ -187,8 +187,8 @@ export function buildsFromCodes(state: HNSWSearchState): boolean {
 }
 
 /**
- * Reports the quantiser a search or a placement scores from, which is the
- * field's quantiser once it is calibrated, and undefined otherwise.
+ * Reports the quantizer a search or a placement scores from, which is the
+ * field's quantizer once it is calibrated, and undefined otherwise.
  *
  * @internal
  */

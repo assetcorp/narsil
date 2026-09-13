@@ -242,7 +242,7 @@ function vectorsIn(parts: VectorIndexPayload[]): number {
  * vectors of every sequence join one store, while the graphs of every
  * sequence join one list. The index restores the codes only where a single
  * sequence carries a complete set at the field's own bits, because two
- * sequences quantised against two centroids cannot share one, and it
+ * sequences quantized against two centroids cannot share one, and it
  * recalibrates from the vectors otherwise. A field kept on disk points each
  * ordinal at the file its part came from where the caller names one file
  * per part and the parts hold a graph or enough vectors for one, while a

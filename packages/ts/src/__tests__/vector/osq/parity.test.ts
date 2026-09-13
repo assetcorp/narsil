@@ -33,7 +33,7 @@ function levelsEqual(a: Uint8Array, b: number[]): number {
   return equal / a.length
 }
 
-describe('optimised scalar quantisation against Lucene', () => {
+describe('optimised scalar quantization against Lucene', () => {
   it('computes the centroid Lucene computes', () => {
     const centroid = osqCentroid(docs, fixture.dimension, fixture.metric)
     expect(centroid).not.toBeNull()
@@ -41,7 +41,7 @@ describe('optimised scalar quantisation against Lucene', () => {
     for (let i = 0; i < fixture.dimension; i++) expect(centroid[i]).toBeCloseTo(luceneCentroid[i], 6)
   })
 
-  it.each(WIDTHS)('quantises documents and queries to the codes Lucene writes at %i bits', bits => {
+  it.each(WIDTHS)('quantizes documents and queries to the codes Lucene writes at %i bits', bits => {
     const scratch = createOsqScratch(fixture.dimension)
     const expected = fixture.byBits[String(bits)]
     const queryBits = osqQueryBits(bits)

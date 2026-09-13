@@ -7,7 +7,7 @@ export const VECTOR_INDEX_PAYLOAD_VERSION = 2
 export const VECTOR_INDEX_PART_VECTORS = 65_536
 
 /**
- * These are the code records of one part, with the centroid the quantiser
+ * These are the code records of one part, with the centroid the quantizer
  * took them against.
  *
  * @internal

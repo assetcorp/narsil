@@ -15,7 +15,7 @@ import { createHNSWWorkspace } from './workspace'
  * @param dimension The number of components per vector.
  * @param store The thread's reader over the field's vectors.
  * @param quantizer The thread's reader over the field's codes, or undefined
- * where the field is not quantised.
+ * where the field is not quantized.
  * @param threadSlot This thread's slot in the lock record.
  * @returns The state every search and insertion on this thread reads and
  * writes.

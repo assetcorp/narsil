@@ -295,7 +295,7 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   sets, records ingest, recall, latency, and throughput, and its quality fields
   stay empty.
 - The vector and hybrid tracks run twice for every engine that serves them: once at
-  full float, and once under the engine's own recommended production quantisation,
+  full float, and once under the engine's own recommended production quantization,
   which `run-all.sh` names best config and writes to `engine-<name>-bestconfig.json`.
   Set `BENCH_BEST_CONFIG=0` to run the equal-precision pass alone.
 - For Narsil the harness also records how the server held the index it measured, read from

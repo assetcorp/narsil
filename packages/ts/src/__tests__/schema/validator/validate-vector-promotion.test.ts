@@ -32,7 +32,7 @@ describe('validateVectorPromotion', () => {
   })
 
   describe('quantization', () => {
-    it('accepts every optimised scalar quantisation width and none', () => {
+    it('accepts every optimised scalar quantization width and none', () => {
       for (const quantization of ['osq8', 'osq4', 'osq2', 'osq1', 'none'] as const) {
         expect(() => validateVectorPromotion({ quantization })).not.toThrow()
       }

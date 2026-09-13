@@ -113,7 +113,7 @@ describe('VectorIndex memory estimation', () => {
     expect(memAfter).toBeGreaterThan(memBefore)
   })
 
-  it('charges the code records a quantised field keeps for every vector', async () => {
+  it('charges the code records a quantized field keeps for every vector', async () => {
     const noSqIndex = createVectorIndex('vec', QUANTISATION_VISIBLE_DIM, { threshold: 5, quantization: 'none' })
     const sqIndex = createVectorIndex('vec', QUANTISATION_VISIBLE_DIM, { threshold: 5, quantization: 'osq8' })
     const fixedNodeLevels = vi.spyOn(Math, 'random').mockReturnValue(0.5)
@@ -143,7 +143,7 @@ describe('VectorIndex memory estimation', () => {
   })
 })
 
-describe('VectorIndex quantisation integration', () => {
+describe('VectorIndex quantization integration', () => {
   let index: VectorIndex
 
   beforeEach(() => {
@@ -188,7 +188,7 @@ describe('VectorIndex quantisation integration', () => {
     expect(part.codes).toBeNull()
   })
 
-  it('takes the quantisation the dimension calls for when the configuration names none', () => {
+  it('takes the quantization the dimension calls for when the configuration names none', () => {
     const wide = createVectorIndex('vec', 1536, { threshold: 5 })
     const middle = createVectorIndex('vec', 768, { threshold: 5 })
     const narrow = createVectorIndex('vec', 128, { threshold: 5 })
