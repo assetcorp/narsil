@@ -1,7 +1,6 @@
 import type { ScoredDocument, VectorEntry } from '../../types/internal'
 import type { VectorMetric } from '../brute-force'
-import type { OrdinalFilter } from '../ordinal-filter'
-import type { ScalarQuantizer } from '../scalar-quantization-types'
+import type { OsqQuantizer } from '../osq/types'
 import type { VectorStore } from '../vector-store'
 import { adjacencySlots, graphBytes, hasNode } from './adjacency'
 import { COMPACTION_ABSOLUTE_THRESHOLD, COMPACTION_TOMBSTONE_RATIO } from './constants'
@@ -15,7 +14,7 @@ import {
   resetGraph,
 } from './mutation'
 import { deserializeGraph, serializeGraph } from './persistence'
-import { search as searchOp } from './search'
+import { type GraphSearchOptions, search as searchOp } from './search'
 import {
   entryPointOf,
   type HNSWConfig,
@@ -30,6 +29,7 @@ import { exportSnapshot, type HNSWSnapshot, restoreSnapshot } from './snapshot'
 import { openGraphState } from './state'
 
 export type { SharedGraphHandles } from './handles'
+export type { GraphSearchOptions } from './search'
 export type { HNSWConfig, SerializedHNSWGraph } from './shared'
 export type { HNSWSnapshot } from './snapshot'
 
@@ -62,8 +62,7 @@ export interface HNSWIndex {
     k: number,
     searchMetric: VectorMetric,
     minSimilarity: number,
-    filter?: OrdinalFilter,
-    efSearch?: number,
+    options?: GraphSearchOptions,
   ): ScoredDocument[]
   clear(): void
   entries(): IterableIterator<[string, VectorEntry]>
@@ -108,7 +107,7 @@ export function createHNSWIndex(
   dimension: number,
   store: VectorStore,
   config?: HNSWConfig,
-  quantizer?: ScalarQuantizer,
+  quantizer?: OsqQuantizer,
   handles?: SharedGraphHandles,
 ): HNSWIndex {
   const M = config?.m ?? 16
@@ -219,9 +218,8 @@ export function createHNSWIndex(
       k: number,
       searchMetric: VectorMetric,
       minSimilarity: number,
-      filter?: OrdinalFilter,
-      efSearch?: number,
-    ) => searchOp(state, docIdOf, query, k, searchMetric, minSimilarity, filter, efSearch),
+      options?: GraphSearchOptions,
+    ) => searchOp(state, docIdOf, query, k, searchMetric, minSimilarity, options),
     clear: () => exclusively(() => resetGraph(state)),
     entries: entriesIterator,
     compactionNeeded,
