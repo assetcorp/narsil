@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { VectorMetric } from '../../../vector/brute-force'
 import { VECTOR_SCRATCH_SLOTS } from '../../../vector/constants'
-import type { OrdinalFilter } from '../../../vector/ordinal-filter'
+import type { GraphSearchOptions } from '../../../vector/hnsw'
 import type { OrdinalSearchResult, VectorSearchPool, WorkerCopySearchResult } from '../../../vector/search-pool'
 import { acquireVectorSearchPool } from '../../../vector/search-pool'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../../../vector/shared-field/types'
@@ -44,10 +44,9 @@ function createFakePool(): FakePool {
       k: number,
       metric: VectorMetric,
       minSimilarity: number,
-      efSearch?: number,
-      filter?: OrdinalFilter,
+      options: GraphSearchOptions = {},
     ): Promise<OrdinalSearchResult> =>
-      threads.searchOrdinals(handle, query, k, metric, minSimilarity, efSearch, filter),
+      threads.searchOrdinals(handle, query, k, metric, minSimilarity, options.efSearch, options.filter),
   )
 
   const pool: VectorSearchPool = {
@@ -71,13 +70,12 @@ function createFakePool(): FakePool {
       k: number,
       metric: VectorMetric,
       minSimilarity: number,
-      efSearch?: number,
-      filter?: OrdinalFilter,
+      options: GraphSearchOptions = {},
     ): Promise<WorkerCopySearchResult[]> {
       const copy = clones.get(handle)
       if (copy === undefined) throw new Error(`No cloned copy for handle ${handle}`)
       return copy.graph
-        .search(query, k, metric, minSimilarity, filter, efSearch)
+        .search(query, k, metric, minSimilarity, options)
         .map(result => ({ docId: result.docId, score: result.score }))
     },
 
@@ -90,7 +88,7 @@ function createFakePool(): FakePool {
 }
 
 async function buildIndex(): Promise<VectorIndex> {
-  const index = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'sq8' })
+  const index = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'osq8' })
   for (let i = 0; i < DOC_COUNT; i++) {
     index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
   }

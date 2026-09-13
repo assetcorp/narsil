@@ -121,7 +121,7 @@ describe('HNSWIndex neighbor selection heuristic (indirect verification)', () =>
     query[0] = 1
     const qMag = magnitude(query)
 
-    const hnswResults = clusterIndex.search(query, 5, 'cosine', 0, undefined, 64)
+    const hnswResults = clusterIndex.search(query, 5, 'cosine', 0, { efSearch: 64 })
 
     const bruteForce: Array<{ docId: string; score: number }> = []
     for (const [docId, v] of allVecs) {

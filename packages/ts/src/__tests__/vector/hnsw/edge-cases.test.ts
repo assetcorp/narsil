@@ -74,7 +74,7 @@ describe('HNSWIndex edge cases', () => {
       insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const results = index.search(seededVector(DIM, 108), 5, 'cosine', 0, createOrdinalFilter(store.slots))
+    const results = index.search(seededVector(DIM, 108), 5, 'cosine', 0, { filter: createOrdinalFilter(store.slots) })
     expect(results).toHaveLength(0)
   })
 })

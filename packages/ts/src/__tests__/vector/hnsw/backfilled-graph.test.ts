@@ -31,7 +31,7 @@ describe('a graph whose neighbour lists were backfilled to the cap', () => {
     for (let q = 0; q < queryCount; q++) {
       const query = seededVector(DIM, q * 7 + 3)
       const exact = new Set(bruteForce.search(query, 10, 'cosine', -1).map(result => result.docId))
-      const approximate = index.search(query, 10, 'cosine', -1, undefined, 64)
+      const approximate = index.search(query, 10, 'cosine', -1, { efSearch: 64 })
       expect(approximate).toHaveLength(10)
       for (const result of approximate) {
         if (exact.has(result.docId)) hits++

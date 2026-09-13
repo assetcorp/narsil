@@ -69,7 +69,7 @@ export function createFakeVectorThreads(threadSlot: number): FakeVectorThreads {
     searchOrdinals(handle, query, k, metric, minSimilarity, efSearch, filter) {
       const view = views.get(handle)
       if (view === undefined) throw new Error(`No thread holds a vector field under handle ${handle}`)
-      const hits = view.searchOrdinals(query, k, metric, minSimilarity, filter, efSearch)
+      const hits = view.searchOrdinals(query, k, metric, minSimilarity, { filter, efSearch })
       return {
         ordinals: Uint32Array.from(hits.map(hit => hit.ord)),
         scores: Float64Array.from(hits.map(hit => hit.score)),

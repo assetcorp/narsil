@@ -113,9 +113,9 @@ describe('VectorIndex memory estimation', () => {
     expect(memAfter).toBeGreaterThan(memBefore)
   })
 
-  it('charges the byte codes a quantised field keeps beside every vector', async () => {
+  it('charges the code records a quantised field keeps for every vector', async () => {
     const noSqIndex = createVectorIndex('vec', QUANTISATION_VISIBLE_DIM, { threshold: 5, quantization: 'none' })
-    const sqIndex = createVectorIndex('vec', QUANTISATION_VISIBLE_DIM, { threshold: 5, quantization: 'sq8' })
+    const sqIndex = createVectorIndex('vec', QUANTISATION_VISIBLE_DIM, { threshold: 5, quantization: 'osq8' })
     const fixedNodeLevels = vi.spyOn(Math, 'random').mockReturnValue(0.5)
 
     try {
@@ -143,7 +143,7 @@ describe('VectorIndex memory estimation', () => {
   })
 })
 
-describe('VectorIndex scalar quantization integration', () => {
+describe('VectorIndex quantisation integration', () => {
   let index: VectorIndex
 
   beforeEach(() => {
@@ -156,8 +156,8 @@ describe('VectorIndex scalar quantization integration', () => {
     vi.useRealTimers()
   })
 
-  it('with quantization sq8, calibration happens during build', async () => {
-    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
+  it('calibrates and writes one record per vector during the build', async () => {
+    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'osq8' })
     try {
       for (let i = 0; i < 6; i++) {
         sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
@@ -166,14 +166,17 @@ describe('VectorIndex scalar quantization integration', () => {
       await vi.advanceTimersToNextTimerAsync()
       await sqIndex.awaitPendingBuild()
 
-      const payload = sqIndex.serialize()
-      expect(payload.sq8).not.toBeNull()
+      const [part] = sqIndex.serialize()
+      expect(part.codes).not.toBeNull()
+      expect(part.codes?.bits).toBe(8)
+      expect(part.codes?.centroid).toHaveLength(DIM)
+      expect(part.codes?.records.byteLength).toBe(6 * (DIM + 16))
     } finally {
       sqIndex.dispose()
     }
   })
 
-  it('with quantization none, no SQ8 is created', async () => {
+  it('with quantization none, no codes are written', async () => {
     for (let i = 0; i < 6; i++) {
       index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
@@ -181,27 +184,22 @@ describe('VectorIndex scalar quantization integration', () => {
     await vi.advanceTimersToNextTimerAsync()
     await index.awaitPendingBuild()
 
-    const payload = index.serialize()
-    expect(payload.sq8).toBeNull()
+    const [part] = index.serialize()
+    expect(part.codes).toBeNull()
   })
 
-  it('SQ8 data included in serialization when calibrated', async () => {
-    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
+  it('takes the quantisation the dimension calls for when the configuration names none', () => {
+    const wide = createVectorIndex('vec', 1536, { threshold: 5 })
+    const middle = createVectorIndex('vec', 768, { threshold: 5 })
+    const narrow = createVectorIndex('vec', 128, { threshold: 5 })
     try {
-      for (let i = 0; i < 6; i++) {
-        sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
-      }
-      sqIndex.scheduleBuild()
-      await vi.advanceTimersToNextTimerAsync()
-      await sqIndex.awaitPendingBuild()
-
-      const payload = sqIndex.serialize()
-      expect(payload.sq8).not.toBeNull()
-      expect(typeof payload.sq8?.alpha).toBe('number')
-      expect(typeof payload.sq8?.offset).toBe('number')
-      expect(Object.keys(payload.sq8?.quantizedVectors ?? {}).length).toBe(6)
+      expect(wide.quantization).toBe('osq1')
+      expect(middle.quantization).toBe('osq4')
+      expect(narrow.quantization).toBe('osq8')
     } finally {
-      sqIndex.dispose()
+      wide.dispose()
+      middle.dispose()
+      narrow.dispose()
     }
   })
 })

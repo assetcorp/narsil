@@ -47,6 +47,8 @@ function makeDeps(workers: number, partitionCount: number): Recorded {
         buildRequests.push(...requests)
         return requests.map(request => ({
           partitionId: request.partitionId,
+          segmentId: request.action.segmentId,
+          snapshot: null,
           payload: emptyPayload(request.documents.length),
           documents: request.documents,
         }))

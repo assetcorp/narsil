@@ -8,7 +8,7 @@ const SECOND_BATCH = 300
 function levelsByDocId(index: VectorIndex): Map<string, number> {
   const payload = index.serialize()
   const levels = new Map<string, number>()
-  const graph = payload.graphs[0]
+  const graph = payload[0]?.graphs[0]
   if (graph === undefined) return levels
   for (const [docId, level] of graph.nodes) {
     levels.set(docId, level)

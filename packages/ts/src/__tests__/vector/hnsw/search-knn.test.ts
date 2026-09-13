@@ -72,7 +72,7 @@ describe('HNSWIndex search (K-NN)', () => {
       const ordinal = store.getOrdinal(docId)
       if (ordinal !== undefined) addToOrdinalFilter(filter, ordinal)
     }
-    const results = index.search(seededVector(DIM, 101), 10, 'cosine', 0, filter)
+    const results = index.search(seededVector(DIM, 101), 10, 'cosine', 0, { filter })
 
     expect(results.length).toBeGreaterThan(0)
     for (const r of results) {
@@ -96,8 +96,8 @@ describe('HNSWIndex search (K-NN)', () => {
       insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const resultsLowEf = index.search(seededVector(DIM, 103), 5, 'cosine', 0, undefined, 5)
-    const resultsHighEf = index.search(seededVector(DIM, 103), 5, 'cosine', 0, undefined, 100)
+    const resultsLowEf = index.search(seededVector(DIM, 103), 5, 'cosine', 0, { efSearch: 5 })
+    const resultsHighEf = index.search(seededVector(DIM, 103), 5, 'cosine', 0, { efSearch: 100 })
 
     expect(resultsLowEf.length).toBeLessThanOrEqual(5)
     expect(resultsHighEf.length).toBeLessThanOrEqual(5)

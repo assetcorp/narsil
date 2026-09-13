@@ -126,12 +126,12 @@ describe('a graph payload that does not match this configuration', () => {
     for (const docId of allDocIds()) graph.insertNode(docId)
 
     const query = seededVector(500)
-    const before = graph.search(query, 5, 'cosine', -1, undefined, 32)
+    const before = graph.search(query, 5, 'cosine', -1, { efSearch: 32 })
 
     const restored = createHNSWIndex(DIM, store, { m: M, efConstruction: 50, metric: 'cosine' })
     restored.deserialize(graph.serialize())
 
-    const after = restored.search(query, 5, 'cosine', -1, undefined, 32)
+    const after = restored.search(query, 5, 'cosine', -1, { efSearch: 32 })
     expect(after.map(h => h.docId)).toEqual(before.map(h => h.docId))
     expect(after.map(h => h.score)).toEqual(before.map(h => h.score))
   })

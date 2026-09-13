@@ -1,7 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { NarsilError } from '../../../errors'
+import { ErrorCodes, NarsilError } from '../../../errors'
 import { createVectorIndex, type VectorIndex, type VectorIndexPayload } from '../../../vector/vector-index'
+import { bytesToVectors, decodeVectorIndexPart, vectorsToBytes } from '../../../vector/vector-index/payload'
 import { DIM, normalizedVector, vectorFromValues } from './fixtures'
+
+function partOf(
+  docIds: string[],
+  vectors: number[][],
+  overrides: Partial<VectorIndexPayload> = {},
+): VectorIndexPayload {
+  const flat = new Float32Array(vectors.length * DIM)
+  for (let i = 0; i < vectors.length; i++) flat.set(vectors[i], i * DIM)
+  return {
+    v: 2,
+    fieldName: 'embedding',
+    dimension: DIM,
+    part: 0,
+    parts: 1,
+    docIds,
+    graphs: [],
+    codes: null,
+    vectors: vectorsToBytes(flat),
+    ...overrides,
+  }
+}
 
 describe('VectorIndex serialization', () => {
   let index: VectorIndex
@@ -16,17 +38,24 @@ describe('VectorIndex serialization', () => {
     vi.useRealTimers()
   })
 
-  it('serialize returns correct payload structure', () => {
+  it('serialize writes one versioned part with the vectors as little-endian float32 bytes', () => {
     index.insert('doc1', vectorFromValues(1, 0, 0, 0))
     index.insert('doc2', vectorFromValues(0, 1, 0, 0))
 
-    const payload = index.serialize()
+    const parts = index.serialize()
 
-    expect(payload.fieldName).toBe('embedding')
-    expect(payload.dimension).toBe(DIM)
-    expect(payload.vectors).toHaveLength(2)
-    expect(payload.graphs).toHaveLength(0)
-    expect(payload.sq8).toBeNull()
+    expect(parts).toHaveLength(1)
+    const [part] = parts
+    expect(part.v).toBe(2)
+    expect(part.fieldName).toBe('embedding')
+    expect(part.dimension).toBe(DIM)
+    expect(part.part).toBe(0)
+    expect(part.parts).toBe(1)
+    expect(part.docIds).toEqual(['doc1', 'doc2'])
+    expect(part.graphs).toHaveLength(0)
+    expect(part.codes).toBeNull()
+    expect(part.vectors.byteLength).toBe(2 * DIM * 4)
+    expect(Array.from(bytesToVectors(part.vectors))).toEqual([1, 0, 0, 0, 0, 1, 0, 0])
   })
 
   it('serialize excludes tombstoned docs', () => {
@@ -34,10 +63,10 @@ describe('VectorIndex serialization', () => {
     index.insert('doc2', vectorFromValues(0, 1, 0, 0))
     index.remove('doc1')
 
-    const payload = index.serialize()
+    const [part] = index.serialize()
 
-    expect(payload.vectors).toHaveLength(1)
-    expect(payload.vectors[0].docId).toBe('doc2')
+    expect(part.docIds).toEqual(['doc2'])
+    expect(part.vectors.byteLength).toBe(DIM * 4)
   })
 
   it('serialize includes HNSW graph when built', async () => {
@@ -48,14 +77,14 @@ describe('VectorIndex serialization', () => {
     await vi.advanceTimersToNextTimerAsync()
     await index.awaitPendingBuild()
 
-    const payload = index.serialize()
+    const [part] = index.serialize()
 
-    expect(payload.graphs).toHaveLength(1)
-    expect(payload.graphs[0].nodes.length).toBeGreaterThan(0)
+    expect(part.graphs).toHaveLength(1)
+    expect(part.graphs[0].nodes.length).toBeGreaterThan(0)
   })
 
-  it('serialize includes SQ8 data when calibrated', async () => {
-    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
+  it('serialize writes a code record per vector once the quantiser has calibrated', async () => {
+    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'osq4' })
     try {
       for (let i = 0; i < 6; i++) {
         sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
@@ -64,10 +93,11 @@ describe('VectorIndex serialization', () => {
       await vi.advanceTimersToNextTimerAsync()
       await sqIndex.awaitPendingBuild()
 
-      const payload = sqIndex.serialize()
-      expect(payload.sq8).not.toBeNull()
-      expect(payload.sq8?.alpha).toBeDefined()
-      expect(payload.sq8?.offset).toBeDefined()
+      const [part] = sqIndex.serialize()
+      expect(part.codes).not.toBeNull()
+      expect(part.codes?.bits).toBe(4)
+      expect(part.codes?.centroid).toHaveLength(DIM)
+      expect(part.codes?.records.byteLength).toBe(6 * (4 * Math.ceil(DIM / 8) + 16))
     } finally {
       sqIndex.dispose()
     }
@@ -77,10 +107,10 @@ describe('VectorIndex serialization', () => {
     index.insert('doc1', vectorFromValues(1, 0, 0, 0))
     index.insert('doc2', vectorFromValues(0, 1, 0, 0))
 
-    const payload = index.serialize()
+    const parts = index.serialize()
 
     const restored = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' })
-    restored.deserialize(payload)
+    restored.deserialize(parts)
 
     expect(restored.size).toBe(2)
     expect(restored.has('doc1')).toBe(true)
@@ -101,10 +131,10 @@ describe('VectorIndex serialization', () => {
     await vi.advanceTimersToNextTimerAsync()
     await index.awaitPendingBuild()
 
-    const payload = index.serialize()
+    const parts = index.serialize()
 
     const restored = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' })
-    restored.deserialize(payload)
+    restored.deserialize(parts)
 
     expect(restored.maintenanceStatus().graphCount).toBe(1)
     expect(restored.maintenanceStatus().bufferSize).toBe(0)
@@ -112,8 +142,8 @@ describe('VectorIndex serialization', () => {
     restored.dispose()
   })
 
-  it('deserialize restores SQ8 data', async () => {
-    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
+  it('deserialize restores the code records and the centroid without quantising again', async () => {
+    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'osq4' })
     for (let i = 0; i < 6; i++) {
       sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
@@ -121,42 +151,44 @@ describe('VectorIndex serialization', () => {
     await vi.advanceTimersToNextTimerAsync()
     await sqIndex.awaitPendingBuild()
 
-    const payload = sqIndex.serialize()
+    const [written] = sqIndex.serialize()
 
-    const restored = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
-    restored.deserialize(payload)
+    const restored = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'osq4' })
+    restored.deserialize([written])
 
-    const restoredPayload = restored.serialize()
-    expect(restoredPayload.sq8).not.toBeNull()
+    const [again] = restored.serialize()
+    expect(again.codes).not.toBeNull()
+    expect(again.codes?.centroid).toEqual(written.codes?.centroid)
+    expect(Array.from(again.codes?.records ?? [])).toEqual(Array.from(written.codes?.records ?? []))
 
     sqIndex.dispose()
     restored.dispose()
   })
 
   it('deserialize throws on dimension mismatch', () => {
-    const payload: VectorIndexPayload = {
-      fieldName: 'embedding',
-      dimension: 8,
-      vectors: [],
-      graphs: [],
-      sq8: null,
-    }
+    const payload = partOf([], [], { dimension: 8, vectors: new Uint8Array(0) })
 
-    expect(() => index.deserialize(payload)).toThrow(NarsilError)
-    expect(() => index.deserialize(payload)).toThrow(/dimension/)
+    expect(() => index.deserialize([payload])).toThrow(NarsilError)
+    expect(() => index.deserialize([payload])).toThrow(/dimension/)
   })
 
-  it('deserialize throws on vector dimension mismatch', () => {
-    const payload: VectorIndexPayload = {
-      fieldName: 'embedding',
-      dimension: DIM,
-      vectors: [{ docId: 'bad', vector: [1, 2, 3, 4, 5, 6, 7, 8] }],
-      graphs: [],
-      sq8: null,
-    }
+  it('the part reader rejects a vectors bin whose length disagrees with the document count', () => {
+    const raw = { ...partOf(['bad'], [[1, 0, 0, 0]]), vectors: new Uint8Array(3) }
 
-    expect(() => index.deserialize(payload)).toThrow(NarsilError)
-    expect(() => index.deserialize(payload)).toThrow(/dimension/)
+    expect(() => decodeVectorIndexPart(raw)).toThrow(NarsilError)
+    expect(() => decodeVectorIndexPart(raw)).toThrow(/float32/)
+  })
+
+  it('the part reader rejects the earlier unversioned layout with ENVELOPE_VERSION_MISMATCH', () => {
+    const legacy = { fieldName: 'embedding', dimension: DIM, vectors: [], graphs: [], sq8: null }
+
+    try {
+      decodeVectorIndexPart(legacy)
+      throw new Error('the reader accepted an unversioned payload')
+    } catch (error) {
+      expect(error).toBeInstanceOf(NarsilError)
+      expect((error as NarsilError).code).toBe(ErrorCodes.ENVELOPE_VERSION_MISMATCH)
+    }
   })
 
   it('serialize then deserialize round-trip preserves search results', async () => {
@@ -173,10 +205,10 @@ describe('VectorIndex serialization', () => {
     const query = normalizedVector(DIM, 45)
     const originalResults = index.search(query, 5, { metric: 'cosine', minSimilarity: 0 })
 
-    const payload = index.serialize()
+    const parts = index.serialize()
 
     const restored = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' })
-    restored.deserialize(payload)
+    restored.deserialize(parts)
 
     const restoredResults = restored.search(query, 5, { metric: 'cosine', minSimilarity: 0 })
 
@@ -190,19 +222,16 @@ describe('VectorIndex serialization', () => {
   })
 
   it('deserialize with no graphs puts all docs in buffer', () => {
-    const payload: VectorIndexPayload = {
-      fieldName: 'embedding',
-      dimension: DIM,
-      vectors: [
-        { docId: 'a', vector: [1, 0, 0, 0] },
-        { docId: 'b', vector: [0, 1, 0, 0] },
+    const payload = partOf(
+      ['a', 'b'],
+      [
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
       ],
-      graphs: [],
-      sq8: null,
-    }
+    )
 
     const restored = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' })
-    restored.deserialize(payload)
+    restored.deserialize([payload])
 
     expect(restored.maintenanceStatus().graphCount).toBe(0)
     expect(restored.maintenanceStatus().bufferSize).toBe(2)
@@ -218,15 +247,31 @@ describe('VectorIndex serialization', () => {
     await vi.advanceTimersToNextTimerAsync()
     await index.awaitPendingBuild()
 
-    const payload = index.serialize()
-
-    payload.vectors.push({ docId: 'extra', vector: Array.from(normalizedVector(DIM, 59)) })
+    const [part] = index.serialize()
+    const extra = normalizedVector(DIM, 59)
+    const joined = new Float32Array(bytesToVectors(part.vectors).length + DIM)
+    joined.set(bytesToVectors(part.vectors), 0)
+    joined.set(extra, joined.length - DIM)
+    const widened = { ...part, docIds: [...part.docIds, 'extra'], vectors: vectorsToBytes(joined) }
 
     const restored = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' })
-    restored.deserialize(payload)
+    restored.deserialize([widened])
 
     expect(restored.has('extra')).toBe(true)
     expect(restored.maintenanceStatus().bufferSize).toBe(1)
+
+    restored.dispose()
+  })
+
+  it('deserialize joins the sequences of several partition files into one store', () => {
+    const first = partOf(['a'], [[1, 0, 0, 0]])
+    const second = partOf(['b'], [[0, 1, 0, 0]])
+
+    const restored = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' })
+    restored.deserialize([first, second])
+
+    expect(restored.size).toBe(2)
+    expect(Array.from(restored.getVector('b') ?? [])).toEqual([0, 1, 0, 0])
 
     restored.dispose()
   })
