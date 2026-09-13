@@ -1,11 +1,10 @@
 import { fnv1a } from '../../core/hash'
 import { generateId } from '../../core/id-generator'
 import { freezeSegmentShared, type SharedSegmentSnapshot } from '../../core/partition/frozen'
-import type { SegmentPayload } from '../../core/partition/segment-payload'
 import type { AnyDocument } from '../../types/schema'
 import { MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
 import type { WorkerOrchestrator } from '../orchestration'
-import type { SegmentBuildRequest } from '../orchestration/segments'
+import type { BuiltSegment, SegmentBuildRequest } from '../orchestration/segments'
 
 export interface SegmentReplicationDeps {
   orchestrator: Pick<WorkerOrchestrator, 'segmentBuildConcurrency' | 'buildSegments' | 'replicateToWorkers'>
@@ -43,6 +42,7 @@ export function buildSegmentRequests(
       action: {
         type: 'buildSegment',
         indexName,
+        segmentId: generateId(),
         documents: indexes.map(i => ({ docId: docIds[i], document: documents[i] })),
         options: skipClone === true ? { skipClone: true } : undefined,
         requestId: `build-segment-${indexName}-${partitionId}`,
@@ -55,19 +55,21 @@ export function buildSegmentRequests(
   return { requests, memberIndexes }
 }
 
-export interface BroadcastSegment {
-  partitionId: number
-  segmentId: string
-  payload: SegmentPayload
-  documents: AnyDocument[]
-}
-
+/**
+ * Freezes every built segment that a worker returned as a plain payload, so
+ * that the whole batch goes to the copies as one attach. It reports null
+ * where the runtime offers no shared memory.
+ *
+ * @internal
+ */
 export function freezeSegmentsForAttach(
-  segments: ReadonlyArray<BroadcastSegment>,
+  segments: ReadonlyArray<BuiltSegment>,
 ): Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }> | null {
   const frozen: Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }> = []
   for (const segment of segments) {
-    const snapshot = freezeSegmentShared(segment.payload, segment.documents, segment.segmentId)
+    const snapshot =
+      segment.snapshot ??
+      (segment.payload === null ? null : freezeSegmentShared(segment.payload, segment.documents, segment.segmentId))
     if (snapshot === null) return null
     frozen.push({ partitionId: segment.partitionId, snapshot })
   }
@@ -75,7 +77,7 @@ export function freezeSegmentsForAttach(
 }
 
 function tryFreezeSegmentsForAttach(
-  segments: ReadonlyArray<BroadcastSegment>,
+  segments: ReadonlyArray<BuiltSegment>,
 ): Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }> | null {
   try {
     return freezeSegmentsForAttach(segments)
@@ -85,10 +87,21 @@ function tryFreezeSegmentsForAttach(
   }
 }
 
+function payloadSegments(segments: ReadonlyArray<BuiltSegment>) {
+  const plain: Array<{ partitionId: number; payload: NonNullable<BuiltSegment['payload']>; documents: AnyDocument[] }> =
+    []
+  for (const segment of segments) {
+    if (segment.payload !== null) {
+      plain.push({ partitionId: segment.partitionId, payload: segment.payload, documents: segment.documents })
+    }
+  }
+  return plain
+}
+
 export async function broadcastBuiltSegments(
   orchestrator: Pick<WorkerOrchestrator, 'replicateToWorkers'>,
   indexName: string,
-  segments: ReadonlyArray<BroadcastSegment>,
+  segments: ReadonlyArray<BuiltSegment>,
   skipClone: boolean | undefined,
 ): Promise<void> {
   const frozen = tryFreezeSegmentsForAttach(segments)
@@ -104,7 +117,7 @@ export async function broadcastBuiltSegments(
   await orchestrator.replicateToWorkers({
     type: 'mergeSegments',
     indexName,
-    segments: [...segments],
+    segments: payloadSegments(segments),
     requestId: `merge-segments-${indexName}-${segments.length}`,
     skipClone: skipClone === true ? true : undefined,
   })
@@ -128,17 +141,7 @@ export async function replicateAsSegments(
   const built = await ctx.orchestrator.buildSegments(requests)
   if (built === null || built.length === 0) return false
 
-  await broadcastBuiltSegments(
-    ctx.orchestrator,
-    indexName,
-    built.map(segment => ({
-      partitionId: segment.partitionId,
-      segmentId: generateId(),
-      payload: segment.payload,
-      documents: segment.documents,
-    })),
-    skipClone,
-  )
+  await broadcastBuiltSegments(ctx.orchestrator, indexName, built, skipClone)
 
   return true
 }

@@ -1,5 +1,4 @@
-import { generateId } from '../../core/id-generator'
-import { createFrozenSegment } from '../../core/partition/frozen'
+import { createFrozenSegment, createSharedFrozenSegment, type FrozenSegment } from '../../core/partition/frozen'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
@@ -126,18 +125,12 @@ async function broadcastSegments(
   ctx: MutationContext,
   indexName: string,
   built: BuiltSegment[],
-  segmentIds: string[],
   memberIndexes: number[][],
   admitted: AdmittedInsert[],
   failedDocIds: Set<string>,
   options: InsertOptions | undefined,
 ): Promise<string[]> {
-  const clean: Array<{
-    partitionId: number
-    segmentId: string
-    payload: BuiltSegment['payload']
-    documents: AnyDocument[]
-  }> = []
+  const clean: BuiltSegment[] = []
   const retryDocs: AdmittedInsert[] = []
 
   for (let i = 0; i < built.length; i++) {
@@ -146,12 +139,7 @@ async function broadcastSegments(
       retryDocs.push(...members.filter(doc => !failedDocIds.has(doc.docId)))
       continue
     }
-    clean.push({
-      partitionId: built[i].partitionId,
-      segmentId: segmentIds[i],
-      payload: built[i].payload,
-      documents: built[i].documents,
-    })
+    clean.push(built[i])
   }
 
   if (clean.length > 0) {
@@ -159,6 +147,20 @@ async function broadcastSegments(
   }
   await replicateDocuments(ctx, indexName, retryDocs, options)
   return clean.map(segment => segment.segmentId)
+}
+
+function frozenSegmentOf(
+  segment: BuiltSegment,
+  members: AdmittedInsert[],
+  options: InsertOptions | undefined,
+): FrozenSegment | null {
+  if (segment.snapshot !== null) return createSharedFrozenSegment(segment.snapshot)
+  if (segment.payload === null) return null
+  return createFrozenSegment(
+    segment.payload,
+    members.map(doc => mainStoreDocument(doc, options)),
+    segment.segmentId,
+  )
 }
 
 async function ingestAdmitted(
@@ -201,22 +203,23 @@ async function ingestAdmitted(
   if (ctx.isRebalancing(indexName)) {
     return applyIndividually(ctx, indexName, admitted, options, failed)
   }
-  for (const doc of admitted) {
-    if (manager.has(doc.docId)) {
-      return applyIndividually(ctx, indexName, admitted, options, failed)
-    }
+  const frozen: FrozenSegment[] = []
+  for (let i = 0; i < built.length; i++) {
+    const segment = frozenSegmentOf(
+      built[i],
+      memberIndexes[i].map(m => admitted[m]),
+      options,
+    )
+    if (segment === null) return applyIndividually(ctx, indexName, admitted, options, failed)
+    frozen.push(segment)
   }
-  const segmentIds = built.map(() => generateId())
+  for (const doc of admitted) {
+    if (manager.has(doc.docId)) return applyIndividually(ctx, indexName, admitted, options, failed)
+  }
+  const segmentIds = built.map(segment => segment.segmentId)
   ctx.orchestrator.holdUnbroadcastSegments(indexName, segmentIds)
   for (let i = 0; i < built.length; i++) {
-    manager.attachFrozenSegment(
-      built[i].partitionId,
-      createFrozenSegment(
-        built[i].payload,
-        memberIndexes[i].map(m => mainStoreDocument(admitted[m], options)),
-        segmentIds[i],
-      ),
-    )
+    manager.attachFrozenSegment(built[i].partitionId, frozen[i])
   }
 
   const recorded = await recordMergedDocuments(ctx, indexName, admitted, failed)
@@ -224,7 +227,6 @@ async function ingestAdmitted(
     ctx,
     indexName,
     built,
-    segmentIds,
     memberIndexes,
     admitted,
     recorded.failedDocIds,

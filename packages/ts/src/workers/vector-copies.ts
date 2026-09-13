@@ -109,8 +109,11 @@ export function holdsVectorField(held: HeldVectorCopies, fieldName: string): boo
  * @internal
  */
 export function dropHeldVectorCopy(held: HeldVectorCopies, fieldName: string, handle: string): void {
+  held.builds.get(handle)?.view.close()
   held.builds.delete(handle)
-  if (held.fields.get(fieldName)?.handle !== handle) return
+  const field = held.fields.get(fieldName)
+  if (field?.handle !== handle) return
+  field.view.close()
   held.fields.delete(fieldName)
   held.searchers.delete(fieldName)
 }

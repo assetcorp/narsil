@@ -4,14 +4,14 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
 import type { PartitionManager } from '../../partitioning/manager'
 import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from '../../schema/embedding-validator'
-import { validateSchema, validateVectorPromotion } from '../../schema/validator'
+import { validateSchema, validateVectorPromotion, validateVectorStorage } from '../../schema/validator'
 import { packIndexSnapshotEnvelope, unpackIndexSnapshotEnvelope } from '../../serialization/envelope'
-import { hasNrslMagic } from '../../serialization/header'
 import { deserializePayloadV1 } from '../../serialization/payload-v1'
 import { deserializePayloadV2 } from '../../serialization/payload-v2'
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { IndexConfig, SchemaDefinition } from '../../types/schema'
 import type { VectorIndexPayload } from '../../vector/vector-index'
+import { decodeVectorIndexParts } from '../../vector/vector-index/payload'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
 import type { StaleIndex } from '../analysis-rebuild'
@@ -39,7 +39,7 @@ export async function createSnapshot(manager: PartitionManager, entry: IndexRegi
   }
 
   const snapshotVecIndexes = manager.getVectorIndexes()
-  const vectorPayloads: Record<string, VectorIndexPayload> = {}
+  const vectorPayloads: Record<string, VectorIndexPayload[]> = {}
   for (const [fieldPath, vecIndex] of snapshotVecIndexes) {
     vectorPayloads[fieldPath] = vecIndex.serialize()
   }
@@ -91,6 +91,7 @@ export interface RestoreDeps {
   dropIndex: (name: string) => Promise<void>
   requireManager: (name: string) => PartitionManager
   durability: DurabilityIntegration | null
+  filesystemDurability: boolean
   embeddingAdapters: Map<string, EmbeddingAdapter>
   defaultEmbeddingAdapter: EmbeddingAdapter | null
   markAnalysisStale: (index: StaleIndex) => void
@@ -103,7 +104,7 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
     throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Snapshot data must be a Uint8Array')
   }
 
-  const payloadBytes = hasNrslMagic(data) ? await unpackIndexSnapshotEnvelope(data) : data
+  const payloadBytes = await unpackIndexSnapshotEnvelope(data)
 
   const { decode } = await import('@msgpack/msgpack')
   let decoded: unknown
@@ -152,6 +153,7 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
   const schema = envelope.schema as SchemaDefinition
   validateSchema(schema)
   validateVectorPromotion(configFields.vectorPromotion)
+  validateVectorStorage(configFields.vectorPromotion, deps.filesystemDurability)
   if (configFields.required !== undefined && configFields.required.length > 0) {
     validateRequiredFieldsInSchema(configFields.required, schema)
   }
@@ -229,10 +231,10 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
 
     if (envelope.vectorIndexes) {
       const restoreVecIndexes = manager.getVectorIndexes()
-      for (const [fieldPath, payload] of Object.entries(envelope.vectorIndexes)) {
+      for (const [fieldPath, parts] of Object.entries(envelope.vectorIndexes)) {
         const vecIndex = restoreVecIndexes.get(fieldPath)
         if (vecIndex) {
-          vecIndex.deserialize(payload)
+          vecIndex.deserialize(decodeVectorIndexParts(parts))
         }
       }
     }

@@ -1,12 +1,11 @@
 import { generateId } from '../core/id-generator'
 import { ErrorCodes, NarsilError } from '../errors'
-import { getLanguage } from '../languages/registry'
 import type { PartitionManager } from '../partitioning/manager'
 import { createRebalancer, type Rebalancer } from '../partitioning/rebalancer'
 import { createPartitionRouter, type PartitionRouter } from '../partitioning/router'
 import type { createWriteAheadQueue, WAQEntry } from '../partitioning/write-ahead-queue'
 import { createPluginRegistry, type PluginRegistry } from '../plugins/registry'
-import { validateEmbeddingConfig, validateRegisteredAdapter } from '../schema/embedding-validator'
+import { validateRegisteredAdapter } from '../schema/embedding-validator'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
@@ -22,6 +21,7 @@ import type { DurabilityIntegration } from './durability-integration'
 import { createDurabilityFromTier } from './durability-wiring'
 import { emitEngineEvent } from './events'
 import type { HeapPressureNotifier } from './heap-pressure'
+import { createIndexFromMetadata as createIndexFromMetadataOp } from './index-from-metadata'
 import type { IndexStateCoordinator } from './index-state'
 import { type EngineCoreHooks, wireIndexState } from './index-state-wiring'
 import { createInvalidationFromConfig, type InvalidationIntegration } from './invalidation'
@@ -29,9 +29,7 @@ import type { MutationContext } from './mutations'
 import { type NotifierWiring, wireHeapPressureNotifier, wireWatermarkNotifier } from './notifiers'
 import { createWorkerOrchestrator, type WorkerOrchestrator, workersEnabledByDefault } from './orchestration'
 import type { RebalanceContext } from './rebalance-executor'
-import { reconstructSchemaFromMetadata } from './recovery-schema'
 import { validateWorkerConfig } from './validation'
-import { getVectorFieldPaths } from './vector-fields'
 import type { WatermarkNotifier } from './watermark'
 
 export type IndexRegistryEntry = {
@@ -56,6 +54,8 @@ export interface EngineCore {
   readonly executor: Executor & DirectExecutorExtensions
   readonly pluginRegistry: PluginRegistry
   readonly durability: DurabilityIntegration | null
+  /** This reads true where the engine writes checkpoints to a filesystem directory, which a vector field kept on disk needs. */
+  readonly filesystemDurability: boolean
   readonly invalidation: InvalidationIntegration | null
   readonly idGenerator: () => string
   readonly indexRegistry: Map<string, IndexRegistryEntry>
@@ -94,7 +94,15 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
     enabled: (config?.workers?.enabled ?? workersEnabledByDefault()) && vectorWorkerCount > 0,
     count: vectorWorkerCount,
   }
-  const executor: Executor & DirectExecutorExtensions = createDirectExecutor({ vectorWorkerCopies: vectorCopyPolicy })
+  const durabilityTier = config !== undefined ? resolveDurabilityTier(config) : null
+  if (config?.lifecycle !== undefined && durabilityTier === null) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Index lifecycle settings require durability')
+  }
+  const filesystemDurability = durabilityTier?.kind === 'wal'
+  const executor: Executor & DirectExecutorExtensions = createDirectExecutor({
+    vectorWorkerCopies: vectorCopyPolicy,
+    vectorStorage: filesystemDurability ? 'disk' : 'memory',
+  })
 
   const pluginRegistry: PluginRegistry = createPluginRegistry()
   if (config?.plugins) {
@@ -184,81 +192,22 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
     return manager
   }
 
-  async function createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void> {
-    const existing = indexRegistry.get(metadata.indexName)
-    if (existing !== undefined) {
-      if (loadData && executor.getManager(metadata.indexName) === undefined) {
-        executor.createIndex(metadata.indexName, existing.config, existing.language)
-      }
-      return
-    }
-    const indexConfig = reconstructSchemaFromMetadata(metadata)
-    const language = getLanguage(indexConfig.language ?? 'english')
-
-    const adapterName = metadata.embedding?.adapter ?? null
-    let embeddingAdapter: EmbeddingAdapter | null = null
-    if (metadata.embedding) {
-      const candidate =
-        adapterName !== null ? (embeddingAdapters.get(adapterName) ?? null) : (config?.embedding ?? null)
-      if (candidate) {
-        try {
-          validateEmbeddingConfig(
-            { fields: metadata.embedding.fields, adapter: candidate },
-            indexConfig.schema,
-            undefined,
-          )
-        } catch (err) {
-          if (err instanceof NarsilError) {
-            throw new NarsilError(err.code, `Recovery of index "${metadata.indexName}" failed: ${err.message}`, {
-              indexName: metadata.indexName,
-              adapter: adapterName ?? undefined,
-            })
-          }
-          throw err
-        }
-        embeddingAdapter = candidate
-      }
-    }
-
-    try {
-      if (loadData) executor.createIndex(metadata.indexName, indexConfig, language)
-    } catch (err) {
-      if (err instanceof NarsilError && err.code === ErrorCodes.CONFIG_INVALID) {
-        throw new NarsilError(err.code, `Recovery of index "${metadata.indexName}" failed: ${err.message}`, {
-          indexName: metadata.indexName,
-          tokenizer: metadata.tokenizer,
-          stopWords: metadata.stopWords,
-        })
-      }
-      throw err
-    }
-    indexRegistry.set(metadata.indexName, {
-      config: indexConfig,
-      language,
-      embeddingAdapter,
-      embeddingAdapterName: adapterName,
-      vectorFieldPaths: getVectorFieldPaths(indexConfig.schema),
-      indexUuid: metadata.indexUuid ?? null,
-      heldPartitions: metadata.heldPartitions ?? null,
-      documentCount: metadata.documentCount ?? 0,
-      partitionCount: metadata.partitionCount,
-    })
-    if (loadData) await indexState.registerOpen(metadata.indexName)
-    else indexState.registerClosed(metadata.indexName)
-    if (metadata.analysisRevision !== language.revision) {
-      analysisRebuild.markStale({
-        indexName: metadata.indexName,
-        language: language.name,
-        storedRevision: metadata.analysisRevision ?? null,
-        currentRevision: language.revision,
-      })
-    }
+  function createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void> {
+    return createIndexFromMetadataOp(
+      {
+        config,
+        executor,
+        indexRegistry,
+        embeddingAdapters,
+        filesystemDurability,
+        indexState: () => indexState,
+        analysisRebuild: () => analysisRebuild,
+      },
+      metadata,
+      loadData,
+    )
   }
 
-  const durabilityTier = config !== undefined ? resolveDurabilityTier(config) : null
-  if (config?.lifecycle !== undefined && durabilityTier === null) {
-    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Index lifecycle settings require durability')
-  }
   let invalidation: InvalidationIntegration | null = null
 
   const durability = createDurabilityFromTier(durabilityTier, {
@@ -369,6 +318,7 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
     executor,
     pluginRegistry,
     durability,
+    filesystemDurability,
     invalidation,
     idGenerator,
     indexRegistry,

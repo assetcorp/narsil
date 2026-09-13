@@ -128,12 +128,10 @@ export interface SerializablePartition {
         metric?: 'cosine' | 'dotProduct' | 'euclidean'
         nodes: Array<[string, number, Array<[number, string[]]>]>
       }
-      sq8?: {
-        alpha: number
-        offset: number
-        quantizedVectors: Record<string, number[]>
-        vectorSums: Record<string, number>
-        vectorSumSqs: Record<string, number>
+      codes?: {
+        bits: number
+        centroid: number[]
+        records: Uint8Array
       } | null
     }
   >
