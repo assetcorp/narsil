@@ -1,7 +1,9 @@
+import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
 import { linearCombination, reciprocalRankFusion } from '../../search/fusion'
 import type { ScoredDocument } from '../../types/internal'
 import type { QueryParams, VectorQueryConfig } from '../../types/search'
+import { MIN_OVERSAMPLE } from '../../vector/osq/constants'
 import {
   broadcastStatsForWorker,
   clampAlpha,
@@ -13,6 +15,26 @@ import {
   searchOptionsFor,
   vectorResultsToScored,
 } from './shared'
+
+/**
+ * Reports the re-score depth multiplier a vector clause asks for, or
+ * undefined where the clause leaves the engine default. A value that is not
+ * a finite number of at least 1 fails with `CONFIG_INVALID`.
+ *
+ * @internal
+ */
+export function oversampleOf(vectorConfig: VectorQueryConfig): number | undefined {
+  const oversample: unknown = vectorConfig.oversample
+  if (oversample === undefined) return undefined
+  if (typeof oversample !== 'number' || !Number.isFinite(oversample) || oversample < MIN_OVERSAMPLE) {
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      `vector.oversample must be a finite number of at least ${MIN_OVERSAMPLE}`,
+      { oversample },
+    )
+  }
+  return oversample
+}
 
 export async function executeVectorSearch(
   params: QueryParams,
@@ -50,6 +72,7 @@ export async function executeVectorSearch(
     ...(filterDocIds !== undefined ? { filterDocIds } : {}),
     ...(filterPartitions !== undefined ? { filterPartitions } : {}),
     efSearch: vectorConfig.efSearch,
+    oversample: oversampleOf(vectorConfig),
   })
 
   const scored = vectorResultsToScored(results)
@@ -89,6 +112,7 @@ async function vectorLeg(
     ...(filterDocIds !== undefined ? { filterDocIds } : {}),
     ...(filterPartitions !== undefined ? { filterPartitions } : {}),
     efSearch: vectorConfig.efSearch,
+    oversample: oversampleOf(vectorConfig),
   })
   return vectorResultsToScored(results)
 }

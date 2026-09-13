@@ -53,12 +53,7 @@ export function createPartitionManager(
   }
 
   function locateDocument(docId: string): number | undefined {
-    const mapped = docPartitionMap.get(docId)
-    if (mapped !== undefined) return mapped
-    for (let i = 0; i < partitions.length; i++) {
-      if (partitions[i].has(docId)) return i
-    }
-    return undefined
+    return docPartitionMap.get(docId)
   }
 
   function asCompositePartition(partitionId: number): CompositePartition {
@@ -302,6 +297,15 @@ export function createPartitionManager(
 
     attachFrozenSegment(partitionId: number, segment: FrozenSegment): void {
       validatePartitionId(partitionId)
+      for (const internalId of segment.docStore.allInternalIds()) {
+        const docId = segment.docStore.getExternalId(internalId)
+        if (docId !== undefined && docPartitionMap.has(docId)) {
+          throw new NarsilError(ErrorCodes.DOC_ALREADY_EXISTS, `Document "${docId}" already exists`, {
+            docId,
+            partitionId: docPartitionMap.get(docId),
+          })
+        }
+      }
       asCompositePartition(partitionId).attachFrozenSegment(segment)
       for (const internalId of segment.docStore.allInternalIds()) {
         const docId = segment.docStore.getExternalId(internalId)

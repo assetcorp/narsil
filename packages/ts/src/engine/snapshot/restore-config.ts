@@ -1,6 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { BM25Params, IndexConfig, PartitionConfig, ScoringMode, VectorIndexConfig } from '../../types/schema'
-import type { VectorIndexPayload } from '../../vector/vector-index'
 
 export interface SnapshotEnvelope {
   version?: number
@@ -20,7 +19,7 @@ export interface SnapshotEnvelope {
   vectorPromotion?: unknown
   embedding?: unknown
   partitions?: Uint8Array[]
-  vectorIndexes?: Record<string, VectorIndexPayload>
+  vectorIndexes?: Record<string, unknown>
 }
 
 export interface RestoredEmbedding {

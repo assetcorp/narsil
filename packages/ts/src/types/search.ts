@@ -205,6 +205,15 @@ export interface VectorQueryConfig {
    * value when omitted.
    */
   efSearch?: number
+  /**
+   * How many times `limit` a quantised field re-scores against its
+   * full-precision vectors before it returns the best `limit`. A value below
+   * 1 or one that is not a finite number fails with `CONFIG_INVALID`. The
+   * engine ignores this on a field whose quantisation is `none`. When a query
+   * omits it, the engine takes 3 for `osq1` and `osq2` and 2 for `osq4` and
+   * `osq8`.
+   */
+  oversample?: number
 }
 
 /**
