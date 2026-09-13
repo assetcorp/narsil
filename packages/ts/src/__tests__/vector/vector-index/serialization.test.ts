@@ -3,10 +3,6 @@ import { NarsilError } from '../../../errors'
 import { createVectorIndex, type VectorIndex, type VectorIndexPayload } from '../../../vector/vector-index'
 import { DIM, normalizedVector, vectorFromValues } from './fixtures'
 
-vi.mock('../../../vector/hnsw-worker-dispatch', () => ({
-  dispatchWorkerBuild: vi.fn().mockResolvedValue({ ok: false, reason: 'no-workers', message: 'mocked' }),
-}))
-
 describe('VectorIndex serialization', () => {
   let index: VectorIndex
 

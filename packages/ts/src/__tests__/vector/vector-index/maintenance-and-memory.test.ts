@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { WASM_PAGE_BYTES } from '../../../vector/constants'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
 import { DIM, normalizedVector, vectorFromValues } from './fixtures'
 
-vi.mock('../../../vector/hnsw-worker-dispatch', () => ({
-  dispatchWorkerBuild: vi.fn().mockResolvedValue({ ok: false, reason: 'no-workers', message: 'mocked' }),
-}))
+const QUANTISATION_VISIBLE_DIM = 1536
 
 describe('VectorIndex maintenance status', () => {
   let index: VectorIndex
@@ -84,13 +83,19 @@ describe('VectorIndex memory estimation', () => {
     vi.useRealTimers()
   })
 
-  it('returns 0 for empty index', () => {
-    expect(index.estimateMemoryBytes()).toBe(0)
+  it('charges an empty field no block, because a field allocates one on its first vector', () => {
+    const empty = index.estimateMemoryBytes()
+    index.insert('doc1', vectorFromValues(1, 0, 0, 0))
+
+    expect(empty).toBeGreaterThan(0)
+    expect(index.estimateMemoryBytes() - empty).toBeGreaterThanOrEqual(WASM_PAGE_BYTES)
   })
 
-  it('returns non-zero for populated index', () => {
+  it('charges a field nothing once it gives up its vectors', () => {
     index.insert('doc1', vectorFromValues(1, 0, 0, 0))
-    expect(index.estimateMemoryBytes()).toBeGreaterThan(0)
+    index.dispose()
+
+    expect(index.estimateMemoryBytes()).toBe(0)
   })
 
   it('increases with HNSW present', async () => {
@@ -108,14 +113,14 @@ describe('VectorIndex memory estimation', () => {
     expect(memAfter).toBeGreaterThan(memBefore)
   })
 
-  it('includes SQ8 overhead when calibrated', async () => {
-    const noSqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'none' })
-    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
+  it('charges the byte codes a quantised field keeps beside every vector', async () => {
+    const noSqIndex = createVectorIndex('vec', QUANTISATION_VISIBLE_DIM, { threshold: 5, quantization: 'none' })
+    const sqIndex = createVectorIndex('vec', QUANTISATION_VISIBLE_DIM, { threshold: 5, quantization: 'sq8' })
     const fixedNodeLevels = vi.spyOn(Math, 'random').mockReturnValue(0.5)
 
     try {
       for (let i = 0; i < 6; i++) {
-        const v = normalizedVector(DIM, i + 1)
+        const v = normalizedVector(QUANTISATION_VISIBLE_DIM, i + 1)
         noSqIndex.insert(`doc${i}`, v)
         sqIndex.insert(`doc${i}`, new Float32Array(v))
       }
@@ -126,7 +131,10 @@ describe('VectorIndex memory estimation', () => {
       await noSqIndex.awaitPendingBuild()
       await sqIndex.awaitPendingBuild()
 
-      expect(sqIndex.estimateMemoryBytes()).toBeGreaterThan(noSqIndex.estimateMemoryBytes())
+      const codeBytesForStoredVectors = 6 * QUANTISATION_VISIBLE_DIM
+      expect(sqIndex.estimateMemoryBytes() - noSqIndex.estimateMemoryBytes()).toBeGreaterThanOrEqual(
+        codeBytesForStoredVectors,
+      )
     } finally {
       fixedNodeLevels.mockRestore()
       noSqIndex.dispose()

@@ -1,6 +1,6 @@
 import type { VectorMetric } from '../brute-force'
 import type { OrdinalFilter } from '../ordinal-filter'
-import type { SharedGenerationSnapshot } from '../shared-generation/types'
+import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../shared-field/types'
 import type { WorkerCopySnapshot } from '../worker-copy'
 
 /**
@@ -24,21 +24,21 @@ export interface VectorLoadRequest {
 }
 
 /**
- * Asks the search worker to open a frozen shared copy under a handle.
+ * Asks the search worker to open a field in place under a handle.
  *
  * @internal
  */
-export interface SharedCopyLoadRequest {
-  /** This marks the message as a shared copy load. */
+export interface SharedFieldLoadRequest {
+  /** This marks the message as a shared field load. */
   type: 'loadShared'
   /** The reply carries this back so the engine can match it to its caller. */
   requestId: string
-  /** Later messages name the copy by this handle. */
+  /** Later messages name the field by this handle. */
   handle: string
   /** The worker writes query scratch into this reserved slot alone. */
   scratchSlot: number
-  /** The frozen copy, its buffers shared rather than cloned. */
-  snapshot: SharedGenerationSnapshot
+  /** These are the field's shared structures. */
+  handles: SharedVectorFieldHandles
 }
 
 /**
@@ -53,6 +53,22 @@ export interface VectorDropRequest {
   requestId: string
   /** The worker releases the copy held under this handle. */
   handle: string
+}
+
+/**
+ * Asks the search worker to place vectors in the graph of a field it holds.
+ *
+ * @internal
+ */
+export interface VectorInsertRequest {
+  /** This marks the message as a graph insertion. */
+  type: 'insertOrdinals'
+  /** The reply carries this back so the engine can match it to its caller. */
+  requestId: string
+  /** The worker places the vectors in the field held under this handle. */
+  handle: string
+  /** The ordinals to place, whose vectors the shared store already holds. */
+  ordinals: Int32Array
 }
 
 /**
@@ -84,16 +100,16 @@ export interface VectorSearchRequest {
 
 /**
  * Asks the search worker to answer one nearest-neighbour query from a shared
- * copy, returning ordinals for the engine to map back to document ids.
+ * field, returning ordinals for the engine to map back to document ids.
  *
  * @internal
  */
 export interface VectorOrdinalSearchRequest {
-  /** This marks the message as a search over a shared copy. */
+  /** This marks the message as a search over a shared field. */
   type: 'searchOrdinals'
   /** The reply carries this back so the engine can match it to its caller. */
   requestId: string
-  /** The worker searches the copy held under this handle. */
+  /** The worker searches the field held under this handle. */
   handle: string
   /** The worker ranks against this query vector. */
   query: Float32Array
@@ -116,8 +132,9 @@ export interface VectorOrdinalSearchRequest {
  */
 export type VectorWorkerRequest =
   | VectorLoadRequest
-  | SharedCopyLoadRequest
+  | SharedFieldLoadRequest
   | VectorDropRequest
+  | VectorInsertRequest
   | VectorSearchRequest
   | VectorOrdinalSearchRequest
 
@@ -133,6 +150,20 @@ export interface VectorAckResponse {
   requestId: string
   /** This names the copy the acknowledgement belongs to. */
   handle: string
+}
+
+/**
+ * The search worker returns this once it has placed a batch of vectors.
+ *
+ * @internal
+ */
+export interface VectorInsertResponse {
+  /** This marks the message as a completed insertion. */
+  type: 'inserted'
+  /** This matches the request the engine sent. */
+  requestId: string
+  /** This is what the worker observed while placing the batch. */
+  outcome: GraphInsertOutcome
 }
 
 /**
@@ -152,7 +183,7 @@ export interface VectorSearchResponse {
 }
 
 /**
- * What the search worker returns for a completed search over a shared copy.
+ * The search worker returns this for a completed search over a shared field.
  *
  * @internal
  */
@@ -188,6 +219,7 @@ export interface VectorWorkerError {
  */
 export type VectorWorkerMessage =
   | VectorAckResponse
+  | VectorInsertResponse
   | VectorSearchResponse
   | VectorOrdinalSearchResponse
   | VectorWorkerError

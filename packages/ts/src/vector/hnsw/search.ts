@@ -6,48 +6,41 @@ import { magnitude } from '../similarity'
 import type { ArenaQueryVector } from '../vector-store'
 import { SQ8_OVERSELECTION_FACTOR, SQ8_RERANK_FLOOR } from './constants'
 import { searchLayer } from './graph-ops'
-import { entryForOrd, type HNSWGraphState, type HNSWSearchState, toDistance, toScore } from './shared'
+import { lockGraphShared, unlockGraphShared } from './locks'
+import {
+  entryForOrd,
+  entryPointOf,
+  type HNSWSearchState,
+  nodeCountOf,
+  toDistance,
+  tombstoneCountOf,
+  topLayerOf,
+  toScore,
+} from './shared'
 import { type DistanceList, setSingleEntryPoint } from './workspace'
 
 /**
- * The rank value marking an ordinal that holds no document, so a worker can
- * tell a live ordinal from a recycled one without holding any strings.
- *
- * @internal
- */
-export const ABSENT_DOCUMENT_RANK = 0xffffffff
-
-/**
- * One search result before its ordinal is mapped back to a document id.
+ * This is one search result, holding the ordinal the caller maps back to a
+ * document id itself.
  *
  * @internal
  */
 export interface OrdinalHit {
-  /** The store ordinal the hit refers to. */
+  /** The hit refers to this store ordinal. */
   ord: number
-  /** The similarity score under the search metric. */
+  /** This is the hit's similarity score under the search metric. */
   score: number
 }
 
-function collectHits(
+function traverse(
   state: HNSWSearchState,
   query: Float32Array,
   k: number,
   searchMetric: VectorMetric,
-  minSimilarity: number,
   filter: OrdinalFilter | undefined,
   efSearch: number | undefined,
-  hasDocument: (ord: number) => boolean,
-): OrdinalHit[] {
-  if (query.length !== state.dimension) {
-    throw new Error(`Query dimension mismatch: expected ${state.dimension}, got ${query.length}`)
-  }
-
-  const liveSize = state.nodeCount - state.tombstoneCount
-  if (state.entryPointOrd === -1 || liveSize === 0) {
-    return []
-  }
-
+): { candidates: DistanceList; useQuantized: boolean; arenaQuery: ArenaQueryVector | null; qMag: number } {
+  const liveSize = nodeCountOf(state) - tombstoneCountOf(state)
   const useQuantized = state.quantizer?.isCalibrated() === true && state.quantizer.size > 0
   const defaultEf = 50
   let ef = Math.max(efSearch ?? defaultEf, k)
@@ -85,16 +78,47 @@ function collectHits(
 
   const workspace = state.workspace
   const candidates = workspace.traversal
-  setSingleEntryPoint(workspace, state.entryPointOrd)
+  candidates.size = 0
+  lockGraphShared(state.locks)
+  try {
+    const entryPoint = entryPointOf(state)
+    if (entryPoint === -1) return { candidates, useQuantized, arenaQuery, qMag }
+    setSingleEntryPoint(workspace, entryPoint)
 
-  for (let layer = state.topLayer; layer >= 1; layer--) {
-    searchLayer(state, query, qMag, 1, layer, searchMetric, true, distFn, candidates)
-    if (candidates.size > 0) {
-      setSingleEntryPoint(workspace, candidates.ords[0])
+    for (let layer = topLayerOf(state); layer >= 1; layer--) {
+      searchLayer(state, query, qMag, 1, layer, searchMetric, true, distFn, candidates)
+      if (candidates.size > 0) {
+        setSingleEntryPoint(workspace, candidates.ords[0])
+      }
     }
+
+    searchLayer(state, query, qMag, ef, 0, searchMetric, true, distFn, candidates)
+  } finally {
+    unlockGraphShared(state.locks)
+  }
+  return { candidates, useQuantized, arenaQuery, qMag }
+}
+
+function collectHits(
+  state: HNSWSearchState,
+  query: Float32Array,
+  k: number,
+  searchMetric: VectorMetric,
+  minSimilarity: number,
+  filter: OrdinalFilter | undefined,
+  efSearch: number | undefined,
+  hasDocument: (ord: number) => boolean,
+): OrdinalHit[] {
+  if (query.length !== state.dimension) {
+    throw new Error(`Query dimension mismatch: expected ${state.dimension}, got ${query.length}`)
   }
 
-  searchLayer(state, query, qMag, ef, 0, searchMetric, true, distFn, candidates)
+  const liveSize = nodeCountOf(state) - tombstoneCountOf(state)
+  if (entryPointOf(state) === -1 || liveSize === 0) {
+    return []
+  }
+
+  const { candidates, useQuantized, arenaQuery, qMag } = traverse(state, query, k, searchMetric, filter, efSearch)
 
   if (useQuantized) {
     return rerankWithFullPrecision(
@@ -168,10 +192,23 @@ function rerankWithFullPrecision(
  * Searches the graph and returns scored documents, best first, tying on
  * document id in code point order.
  *
+ * @param state The graph to search.
+ * @param docIdOf Reports the document id at an ordinal, or undefined where
+ * the ordinal holds no live document.
+ * @param query The query vector.
+ * @param k The maximum number of hits to return.
+ * @param searchMetric The distance metric to rank by.
+ * @param minSimilarity The score below which a hit is dropped.
+ * @param filter The ordinals allowed in the result, or every ordinal when
+ * absent.
+ * @param efSearch The exploration factor, defaulting to 50.
+ * @returns Scored documents, best first.
+ *
  * @internal
  */
 export function search(
-  state: HNSWGraphState,
+  state: HNSWSearchState,
+  docIdOf: (ord: number) => string | undefined,
   query: Float32Array,
   k: number,
   searchMetric: VectorMetric,
@@ -179,12 +216,12 @@ export function search(
   filter?: OrdinalFilter,
   efSearch?: number,
 ): ScoredDocument[] {
-  const hasDocument = (ord: number) => state.store.docIdForOrdinal(ord) !== undefined
+  const hasDocument = (ord: number) => docIdOf(ord) !== undefined
   const hits = collectHits(state, query, k, searchMetric, minSimilarity, filter, efSearch, hasDocument)
 
   const results: ScoredDocument[] = []
   for (const hit of hits) {
-    const docId = state.store.docIdForOrdinal(hit.ord)
+    const docId = docIdOf(hit.ord)
     if (docId === undefined) continue
     results.push({
       docId,
@@ -200,21 +237,16 @@ export function search(
 }
 
 /**
- * Searches the graph and returns ordinal hits, best first, tying on the
- * supplied rank table.
+ * Searches the graph and returns ordinal hits, best first, tying on document
+ * id in code point order, for a caller that maps ordinals back to ids itself.
  *
- * A worker searching a shared copy holds no document id strings, so it ties
- * on each ordinal's precomputed code point rank instead, which reproduces the
- * exact order {@link search} produces, and the calling thread maps the
- * ordinals back to ids.
- *
- * @param state The search state over the shared copy.
+ * @param state The graph to search.
+ * @param docIdOf Reports the document id at an ordinal, or undefined where
+ * the ordinal holds no live document.
  * @param query The query vector.
  * @param k The maximum number of hits to return.
  * @param searchMetric The distance metric to rank by.
  * @param minSimilarity The score below which a hit is dropped.
- * @param rankByOrdinal Each ordinal's document id rank in code point order,
- * or {@link ABSENT_DOCUMENT_RANK} where the ordinal holds no document.
  * @param filter The ordinals allowed in the result, or every ordinal when
  * absent.
  * @param efSearch The exploration factor, defaulting as {@link search} does.
@@ -224,16 +256,22 @@ export function search(
  */
 export function searchOrdinals(
   state: HNSWSearchState,
+  docIdOf: (ord: number) => string | undefined,
   query: Float32Array,
   k: number,
   searchMetric: VectorMetric,
   minSimilarity: number,
-  rankByOrdinal: Uint32Array,
   filter?: OrdinalFilter,
   efSearch?: number,
 ): OrdinalHit[] {
-  const hasDocument = (ord: number) => ord < rankByOrdinal.length && rankByOrdinal[ord] !== ABSENT_DOCUMENT_RANK
+  const ids = new Map<number, string>()
+  const hasDocument = (ord: number): boolean => {
+    const docId = docIdOf(ord)
+    if (docId === undefined) return false
+    ids.set(ord, docId)
+    return true
+  }
   const hits = collectHits(state, query, k, searchMetric, minSimilarity, filter, efSearch, hasDocument)
-  hits.sort((a, b) => b.score - a.score || rankByOrdinal[a.ord] - rankByOrdinal[b.ord])
+  hits.sort((a, b) => b.score - a.score || compareCodePoints(ids.get(a.ord) ?? '', ids.get(b.ord) ?? ''))
   return hits.slice(0, k)
 }

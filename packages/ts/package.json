@@ -61,6 +61,7 @@
     "stemmers": "tsx snowball/build.ts",
     "revisions": "tsx scripts/analysis-revisions.ts",
     "revisions:write": "tsx scripts/analysis-revisions.ts --write",
+    "revisions:record": "tsx scripts/analysis-revisions.ts --record",
     "api": "tsx scripts/api-surface.ts",
     "api:write": "tsx scripts/api-surface.ts --write",
     "lookalikes": "tsx scripts/lookalike-counts.ts",
@@ -105,10 +106,6 @@
     "./invalidation/broadcast-channel": {
       "import": "./dist/invalidation/broadcast-channel.mjs",
       "types": "./dist/invalidation/broadcast-channel.d.ts"
-    },
-    "./vector/hnsw-build-worker": {
-      "import": "./dist/vector/hnsw-build-worker.mjs",
-      "types": "./dist/vector/hnsw-build-worker.d.ts"
     },
     "./vector/search-worker": {
       "import": "./dist/vector/search-worker.mjs",

@@ -2,10 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
 import { DIM, vectorFromValues } from './fixtures'
 
-vi.mock('../../../vector/hnsw-worker-dispatch', () => ({
-  dispatchWorkerBuild: vi.fn().mockResolvedValue({ ok: false, reason: 'no-workers', message: 'mocked' }),
-}))
-
 describe('VectorIndex search (brute-force only, no HNSW)', () => {
   let index: VectorIndex
 

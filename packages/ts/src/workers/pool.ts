@@ -1,5 +1,6 @@
 import { fnv1a } from '../core/hash'
 import { ErrorCodes, NarsilError } from '../errors'
+import { SCRATCH_SLOTS_PER_THREAD_POOL } from '../vector/constants'
 import {
   FALLBACK_CPU_COUNT,
   MAX_WORKER_COUNT,
@@ -101,7 +102,7 @@ export function detectCpuCount(): number {
 
 export function resolveWorkerCount(requested?: number): number {
   if (requested !== undefined && requested > 0) {
-    return requested
+    return Math.min(requested, SCRATCH_SLOTS_PER_THREAD_POOL)
   }
   return Math.max(MIN_WORKER_COUNT, Math.min(MAX_WORKER_COUNT, detectCpuCount() - 1))
 }

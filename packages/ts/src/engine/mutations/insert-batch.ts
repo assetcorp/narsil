@@ -144,7 +144,7 @@ export async function insertDocumentBatch(
         if (batchBuffered) {
           bufferedDocIds.add(batchDocId)
           succeeded.push(batchDocId)
-          succeededDocs.push(documents[i])
+          succeededDocs.push(partitionDoc as AnyDocument)
           continue
         }
 
@@ -161,7 +161,7 @@ export async function insertDocumentBatch(
         }
 
         succeeded.push(batchDocId)
-        succeededDocs.push(documents[i])
+        succeededDocs.push(partitionDoc as AnyDocument)
       } catch (err) {
         failed.push({ docId: batchDocId, error: asBatchInsertError(err) })
       }

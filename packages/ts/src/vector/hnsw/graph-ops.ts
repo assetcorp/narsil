@@ -1,8 +1,11 @@
 import type { VectorMetric } from '../brute-force'
-import { layerArray, layerBase, replaceNeighbors } from './adjacency'
+import { layerArray, layerBase, readNeighbors, replaceNeighbors } from './adjacency'
+import { beginNodeRead, nodeReadHeld } from './locks'
 import {
+  ensureVisited,
   type HNSWGraphState,
   type HNSWSearchState,
+  isTombstoned,
   maxConns,
   nextVisitStamp,
   nodeDistanceByOrd,
@@ -19,6 +22,23 @@ import {
   resetHeap,
   sortListByDistance,
 } from './workspace'
+
+/**
+ * Copies a node's neighbours on one layer into the thread's scratch, and
+ * takes the copy again wherever a writer on another thread changed the lists
+ * meanwhile, so the scratch holds one whole list.
+ *
+ * @returns The number of neighbours copied.
+ *
+ * @internal
+ */
+export function readNeighborsLocked(state: HNSWSearchState, ord: number, layer: number): number {
+  for (;;) {
+    const version = beginNodeRead(state.locks, ord)
+    const count = readNeighbors(state.adjacency, ord, layer, state.neighborScratch)
+    if (nodeReadHeld(state.locks, ord, version)) return count
+  }
+}
 
 /**
  * Walks one layer of the graph from the entry points the workspace holds and
@@ -52,9 +72,7 @@ export function searchLayer(
   const workspace = state.workspace
   const frontier = workspace.frontier
   const found = workspace.found
-  const adjacency = state.adjacency
-  const neighbors = layerArray(adjacency, layer)
-  const visited = state.visited
+  const scratch = state.neighborScratch
   const stamp = nextVisitStamp(state)
 
   resetHeap(frontier)
@@ -63,10 +81,11 @@ export function searchLayer(
 
   for (let i = 0; i < workspace.entryPointCount; i++) {
     const epOrd = workspace.entryPoints[i]
-    if (visited[epOrd] === stamp) continue
-    visited[epOrd] = stamp
+    ensureVisited(state, epOrd + 1)
+    if (state.visited[epOrd] === stamp) continue
+    state.visited[epOrd] = stamp
     if (!nodeExists(state, epOrd)) continue
-    if (skipTombstones && state.tombstones[epOrd] === 1) continue
+    if (skipTombstones && isTombstoned(state, epOrd)) continue
     const dist = getDistance(epOrd)
     if (dist === Number.POSITIVE_INFINITY) continue
     pushHeap(frontier, epOrd, dist)
@@ -81,16 +100,14 @@ export function searchLayer(
   while (popHeap(frontier)) {
     if (frontier.topDistance > furthestDist) break
 
-    const base = layerBase(adjacency, frontier.topOrd, layer)
-    if (base === -1) continue
+    const count = readNeighborsLocked(state, frontier.topOrd, layer)
+    for (let i = 0; i < count; i++) {
+      const neighborOrd = scratch[i]
+      ensureVisited(state, neighborOrd + 1)
+      if (state.visited[neighborOrd] === stamp) continue
+      state.visited[neighborOrd] = stamp
 
-    const count = neighbors[base]
-    for (let i = 1; i <= count; i++) {
-      const neighborOrd = neighbors[base + i]
-      if (visited[neighborOrd] === stamp) continue
-      visited[neighborOrd] = stamp
-
-      if (skipTombstones && state.tombstones[neighborOrd] === 1) continue
+      if (skipTombstones && isTombstoned(state, neighborOrd)) continue
 
       if (!nodeExists(state, neighborOrd)) continue
 
@@ -166,7 +183,7 @@ export function selectNeighborsHeuristic(
 
 /**
  * Cuts a node's neighbour list back to its cap by applying the selection rule
- * to the neighbours it holds.
+ * to the neighbours it holds. The caller holds the node's write lock.
  *
  * @param state The graph to change.
  * @param ord The node whose list is over its cap.

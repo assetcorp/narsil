@@ -1,17 +1,17 @@
 import type { HNSWIndex } from '../hnsw'
-import { scheduleBuild } from './build'
+import { buildGraphFromStore, scheduleBuild } from './build'
+import { insertIntoGraph } from './build-host'
 import { ESTIMATED_MS_PER_TOMBSTONE, ESTIMATED_MS_PER_VECTOR_REBUILD } from './constants'
 import {
   adoptGraph,
   allLiveDocIds,
-  buildGraphFromStore,
   graphNeedsRebuild,
-  insertIntoGraph,
   liveSize,
   type MaintenanceStatus,
   recalibrateFromStore,
   type VectorIndexState,
 } from './shared'
+import { dropSharedGraph } from './worker-copies'
 
 export function compact(state: VectorIndexState): void {
   if (state.tombstones.size === 0) return
@@ -48,7 +48,9 @@ async function foldIntoGraph(state: VectorIndexState): Promise<void> {
   compact(state)
 
   if (liveSize(state) === 0) {
+    const previous = state.hnsw
     adoptGraph(state, null)
+    if (previous !== null) dropSharedGraph(state, previous)
     state.buffer.clear()
     if (state.sq8) {
       state.sq8.clear()
@@ -108,35 +110,5 @@ export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {
 }
 
 export function estimateMemoryBytes(state: VectorIndexState): number {
-  const count = state.store.size
-  if (count === 0 && state.tombstones.size === 0 && state.buffer.size === 0) return 0
-
-  let bytes = state.store.estimateMemory(state.dimension)
-
-  const TOMBSTONE_SET_OVERHEAD = 64
-  const TOMBSTONE_ENTRY_COST = 72
-  bytes += TOMBSTONE_SET_OVERHEAD + state.tombstones.size * TOMBSTONE_ENTRY_COST
-
-  const BUFFER_SET_OVERHEAD = 64
-  const BUFFER_ENTRY_COST = 72
-  bytes += BUFFER_SET_OVERHEAD + state.buffer.size * BUFFER_ENTRY_COST
-
-  if (state.hnsw) {
-    bytes += state.hnsw.adjacencyBytes
-  }
-
-  if (state.sq8?.isCalibrated()) {
-    const sqCount = state.sq8.size
-    const MAP_OVERHEAD_SQ = 64
-    const MAP_ENTRY_SQ = 72
-    const UINT8_ARRAY_HEADER = 64
-    const PER_VECTOR_METADATA = 8 * 3
-    const GLOBAL_CALIBRATION = 8 * 5
-
-    bytes += 4 * (MAP_OVERHEAD_SQ + sqCount * MAP_ENTRY_SQ)
-    bytes += sqCount * (UINT8_ARRAY_HEADER + state.dimension + PER_VECTOR_METADATA)
-    bytes += GLOBAL_CALIBRATION
-  }
-
-  return Math.round(bytes)
+  return state.store.memoryBytes() + (state.hnsw === null ? 0 : state.hnsw.graphBytes)
 }

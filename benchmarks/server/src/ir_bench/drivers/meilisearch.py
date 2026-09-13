@@ -19,6 +19,7 @@ from ..core.types import (
     ServerTimeSource,
     coerce_server_ms,
 )
+from ._stop_words import LUCENE_ENGLISH_STOP_WORDS
 
 
 def _raise(response: httpx.Response) -> None:
@@ -32,8 +33,10 @@ class MeilisearchDriver:
         self.name = engine.name
         self.run_tag = engine.run_tag
         self.keyword_setup = (
-            "Not BM25; the harness sets `searchableAttributes` to the text field, reads "
-            "`_rankingScore` as the score, and leaves every other setting at its default"
+            "Not BM25; the harness sets `searchableAttributes` to the text field, sets `stopWords` to "
+            "the Lucene English list the BM25 engines analyze with, searches with `matchingStrategy` "
+            "`frequency` so a long question drops its commonest words first, reads `_rankingScore` as "
+            "the score, and leaves every other setting at its default"
         )
         self.server_time = ServerTimeSource(source="response `processingTimeMs` field", resolution=INTEGER_MS)
         api_key = os.environ.get("BENCH_API_KEY", "localdev")
@@ -86,7 +89,7 @@ class MeilisearchDriver:
         self._wait_task(int(response.json()["taskUid"]))
         settings = self._client.patch(
             f"/indexes/{index}/settings",
-            json={"searchableAttributes": ["text"]},
+            json={"searchableAttributes": ["text"], "stopWords": list(LUCENE_ENGLISH_STOP_WORDS)},
         )
         _raise(settings)
         self._wait_task(int(settings.json()["taskUid"]))
@@ -120,6 +123,7 @@ class MeilisearchDriver:
             "limit": limit,
             "attributesToRetrieve": ["id"],
             "showRankingScore": True,
+            "matchingStrategy": "frequency",
         }
         response = self._client.post(f"/indexes/{index}/search", json=body)
         _raise(response)

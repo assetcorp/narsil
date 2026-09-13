@@ -32,8 +32,8 @@ describe('HNSWIndex search with scalar quantization', () => {
   }
 
   beforeEach(() => {
-    sqStore = createVectorStore()
-    sqQuantizer = createScalarQuantizer(SQ_DIM)
+    sqStore = createVectorStore({ dimension: SQ_DIM })
+    sqQuantizer = createScalarQuantizer(SQ_DIM, sqStore)
     sqIndex = createHNSWIndex(SQ_DIM, sqStore, { m: 8, efConstruction: 64, metric: 'cosine' }, sqQuantizer)
   })
 

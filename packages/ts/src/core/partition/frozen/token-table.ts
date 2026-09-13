@@ -2,6 +2,8 @@ import { compareCodePoints } from '../../ordering'
 
 export interface FrozenTokenTable {
   readonly size: number
+  /** The table's arrays hold this many bytes, read from each array as it stands. */
+  readonly bytes: number
   find(token: string): number
   tokenAt(sortedIndex: number): string
   payloadSlot(sortedIndex: number): number
@@ -108,6 +110,7 @@ export function wrapFrozenTokenTable(data: FrozenTokenTableData): FrozenTokenTab
 
   return {
     size,
+    bytes: blob.byteLength + offsets.byteLength + payloadSlots.byteLength + documentFrequencies.byteLength,
 
     find(token: string): number {
       const query = encoder.encode(token)

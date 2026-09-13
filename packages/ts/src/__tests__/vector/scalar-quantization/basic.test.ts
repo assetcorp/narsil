@@ -1,27 +1,26 @@
 import { describe, expect, it } from 'vitest'
-import { createScalarQuantizer } from '../../../vector/scalar-quantization'
-import { DIM, normalizedVector, vectorFromValues } from './fixtures'
+import { createQuantizerHarness, DIM, normalizedVector, vectorFromValues } from './fixtures'
 
 describe('ScalarQuantizer construction', () => {
   it('creates with correct dimensions', () => {
-    const sq = createScalarQuantizer(DIM)
+    const { sq } = createQuantizerHarness(DIM)
     expect(sq.dimensions).toBe(DIM)
   })
 
   it('starts uncalibrated', () => {
-    const sq = createScalarQuantizer(DIM)
+    const { sq } = createQuantizerHarness(DIM)
     expect(sq.isCalibrated()).toBe(false)
   })
 
   it('starts with size 0', () => {
-    const sq = createScalarQuantizer(DIM)
+    const { sq } = createQuantizerHarness(DIM)
     expect(sq.size).toBe(0)
   })
 })
 
 describe('ScalarQuantizer calibration', () => {
   it('sets min/max from a set of vectors', () => {
-    const sq = createScalarQuantizer(DIM)
+    const { sq } = createQuantizerHarness(DIM)
     const vectors = [normalizedVector(DIM, 1), normalizedVector(DIM, 2), normalizedVector(DIM, 3)]
 
     sq.calibrate(vectors)
@@ -29,31 +28,31 @@ describe('ScalarQuantizer calibration', () => {
   })
 
   it('calibrating with empty iterator is a no-op', () => {
-    const sq = createScalarQuantizer(DIM)
+    const { sq } = createQuantizerHarness(DIM)
     sq.calibrate([])
     expect(sq.isCalibrated()).toBe(false)
   })
 
   it('handles uniform values where all components are identical', () => {
-    const sq = createScalarQuantizer(4)
+    const harness = createQuantizerHarness(4)
     const uniform = vectorFromValues(0.5, 0.5, 0.5, 0.5)
-    sq.calibrate([uniform])
-    expect(sq.isCalibrated()).toBe(true)
+    harness.sq.calibrate([uniform])
+    expect(harness.sq.isCalibrated()).toBe(true)
 
-    sq.quantize('doc1', uniform)
-    expect(sq.size).toBe(1)
-    expect(sq.getQuantized('doc1')).toBeDefined()
+    harness.quantize('doc1', uniform)
+    expect(harness.sq.size).toBe(1)
+    expect(harness.sq.getQuantized('doc1')).toBeDefined()
   })
 })
 
 describe('ScalarQuantizer quantize', () => {
   it('stores a quantized representation', () => {
-    const sq = createScalarQuantizer(DIM)
+    const harness = createQuantizerHarness(DIM)
     const v = normalizedVector(DIM, 1)
-    sq.calibrate([v, normalizedVector(DIM, 2)])
-    sq.quantize('doc1', v)
+    harness.sq.calibrate([v, normalizedVector(DIM, 2)])
+    harness.quantize('doc1', v)
 
-    const quantized = sq.getQuantized('doc1')
+    const quantized = harness.sq.getQuantized('doc1')
     expect(quantized).toBeInstanceOf(Uint8Array)
     if (quantized) {
       expect(quantized.length).toBe(DIM)
@@ -61,23 +60,23 @@ describe('ScalarQuantizer quantize', () => {
   })
 
   it('increases size after quantize', () => {
-    const sq = createScalarQuantizer(DIM)
+    const harness = createQuantizerHarness(DIM)
     const vectors = [normalizedVector(DIM, 1), normalizedVector(DIM, 2)]
-    sq.calibrate(vectors)
+    harness.sq.calibrate(vectors)
 
-    expect(sq.size).toBe(0)
-    sq.quantize('doc1', vectors[0])
-    expect(sq.size).toBe(1)
-    sq.quantize('doc2', vectors[1])
-    expect(sq.size).toBe(2)
+    expect(harness.sq.size).toBe(0)
+    harness.quantize('doc1', vectors[0])
+    expect(harness.sq.size).toBe(1)
+    harness.quantize('doc2', vectors[1])
+    expect(harness.sq.size).toBe(2)
   })
 
   it('auto-calibrates when quantizing before explicit calibration', () => {
-    const sq = createScalarQuantizer(DIM)
+    const harness = createQuantizerHarness(DIM)
     const v = normalizedVector(DIM, 1)
 
-    sq.quantize('doc1', v)
-    expect(sq.isCalibrated()).toBe(true)
-    expect(sq.size).toBe(1)
+    harness.quantize('doc1', v)
+    expect(harness.sq.isCalibrated()).toBe(true)
+    expect(harness.sq.size).toBe(1)
   })
 })

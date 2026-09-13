@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .throughput_report import comparison_lines as throughput_lines
+from .throughput_report import ranks_on_speed
 from .types import BEST_CONFIG, EQUAL_PRECISION, HYBRID, INTEGER_MS, KEYWORD, VECTOR
 
 _INTEGER_MS_FLOOR_MS = 1.0
@@ -74,7 +75,7 @@ def _server_best_mark(rows: list[dict], key: str, places: int) -> float | None:
 
     rankable: list[float | None] = []
     for row in rows:
-        if _value(row, "latency_server", key) is None:
+        if _value(row, "latency_server", key) is None or not ranks_on_speed(row):
             continue
         eligible = _server_rankable(row, key)
         if eligible is None:
@@ -167,7 +168,8 @@ def _client_latency_table(rows: list[dict]) -> list[str]:
         ("latency_client", "p95_ms", "Client p95 ms", 2),
         ("latency_client", "p99_ms", "Client p99 ms", 2),
     ]
-    bests = {label: _distinct_best([_value(r, group, key) for r in rows], False, places) for group, key, label, places in columns}
+    ranked = [row for row in rows if ranks_on_speed(row)]
+    bests = {label: _distinct_best([_value(r, group, key) for r in ranked], False, places) for group, key, label, places in columns}
     out = _head(["Engine"] + [label for _, _, label, _ in columns])
     for row in rows:
         cells = [_cell(_value(row, group, key), bests[label], places) for group, key, label, places in columns]
@@ -230,7 +232,9 @@ def _p50_clause(info: dict) -> str:
 
 def _standing(rows: list[dict]) -> list[str]:
     ndcg = _rank_info([(row["engine"], _value(row, "metrics", "ndcg_cut_10")) for row in rows], "narsil", 4, True)
-    p50 = _rank_info([(row["engine"], _server_rankable(row, "p50_ms")) for row in rows], "narsil", 2, False)
+    p50 = _rank_info(
+        [(row["engine"], _server_rankable(row, "p50_ms")) for row in rows if ranks_on_speed(row)], "narsil", 2, False
+    )
     if not (ndcg and p50):
         return []
     return [f"Narsil {_ndcg_clause(ndcg)} and {_p50_clause(p50)}.", ""]
@@ -250,6 +254,29 @@ def _build_cell(engine: dict) -> str:
 _TRACK_TITLES = {KEYWORD: "Keyword track", VECTOR: "Vector track", HYBRID: "Hybrid track"}
 
 
+def _quantization_by_engine(comparison: dict) -> str:
+    labels: dict[str, str] = {}
+    for track in comparison.get("tracks", []):
+        for dataset in track.get("datasets", []):
+            for row in dataset.get("rows", []):
+                label = row.get("quantization")
+                engine = row.get("engine")
+                if label and engine and engine not in labels:
+                    labels[engine] = label
+    return ", ".join(f"{engine} {label}" for engine, label in labels.items())
+
+
+def _memory_cap_text(cap: object, machine_bytes: object) -> str:
+    if not isinstance(cap, (int, float)):
+        return "n/a"
+    if isinstance(machine_bytes, (int, float)) and machine_bytes < cap:
+        return (
+            f"{cap / 1e9:.1f} GB configured, above the {machine_bytes / 1e9:.1f} GB the machine held, "
+            "so the machine's memory was the real ceiling"
+        )
+    return f"{cap / 1e9:.1f} GB"
+
+
 def _run_conditions(comparison: dict) -> list[str]:
     profile = comparison.get("profile", EQUAL_PRECISION)
     env = comparison["environment"]
@@ -257,9 +284,10 @@ def _run_conditions(comparison: dict) -> list[str]:
     cap = cfg.get("memory_cap_bytes")
     lines = ["## Run conditions", ""]
     if profile == BEST_CONFIG:
+        applied = _quantization_by_engine(comparison)
         lines.append(
-            "- Vector and hybrid tracks use each engine's own recommended production quantization (Narsil SQ8, "
-            "Elasticsearch BBQ, OpenSearch SQfp16, Qdrant int8 scalar, Weaviate 8-bit RQ). Every engine meets the "
+            "- Vector and hybrid tracks use each engine's own recommended production quantization"
+            f"{f' ({applied})' if applied else ''}. Every engine meets the "
             "same recall target through its own search-effort knob, so compression differs by engine by design."
         )
     else:
@@ -267,7 +295,7 @@ def _run_conditions(comparison: dict) -> list[str]:
     if env.get("machine_label"):
         lines.append(f"- Machine: {env.get('machine_label')}")
     lines.append(f"- OS / arch: {env.get('os')} / {env.get('arch')}")
-    lines.append(f"- Equal memory cap per engine: {'n/a' if cap is None else f'{cap / 1e9:.1f} GB'}")
+    lines.append(f"- Equal memory cap per engine: {_memory_cap_text(cap, env.get('total_memory_bytes'))}")
     lines.append(f"- Run depth: {cfg.get('run_depth')}; BM25 reference k1={cfg.get('k1')}, b={cfg.get('b')}")
     if cfg.get("vector_model"):
         lines.append(
