@@ -708,7 +708,7 @@ loss(x: List<float32>, lower: float32, upper: float32, steps: uint8, norm: float
   return (1 - LAMBDA) * xe * xe / norm + LAMBDA * e
 ```
 
-A search must quantise the query with `quantize(query, c, QUERY_BITS[bits], metric)`.
+A search must quantise the query with `quantize(query, c, QUERY_BITS[bits], metric)`. An implementation may compute a code at float32 or wider precision, so two implementations may write different codes for one vector.
 
 ### Packing
 

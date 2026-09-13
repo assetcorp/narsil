@@ -271,11 +271,11 @@ A quantised index stores a compact code for every vector as well as the full-pre
 
 ```text
 VectorIndexConfig {
-  quantization: 'osq8' or 'osq4' or 'osq2' or 'osq1' or 'none'   (default 'osq8')
+  quantization: 'osq8' or 'osq4' or 'osq2' or 'osq1' or 'none'   (default by dimension)
 }
 ```
 
-An `osq8`, `osq4`, `osq2`, or `osq1` index stores eight, four, two, or one bits per dimension, as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines. An index set to `none` stores no code.
+An `osq8`, `osq4`, `osq2`, or `osq1` index stores eight, four, two, or one bits per dimension, as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines. An index set to `none` stores no code. When `quantization` is absent, an implementation must use `osq1` at 1,024 dimensions and above, `osq4` from 384 to 1,023, and `osq8` below 384.
 
 A quantised index calibrates its quantiser once its vector count reaches the HNSW promotion threshold, and it calibrates again during `compact`.
 
@@ -393,7 +393,7 @@ This specification prescribes none of those. The recall floors in [Cross-Impleme
 VectorIndexConfig {
   threshold:       uint32           (promotion threshold, default 1024)
   filterThreshold: float32          (selectivity fallback, default 0.03)
-  quantization:    'osq8' or 'osq4' or 'osq2' or 'osq1' or 'none'  (default 'osq8')
+  quantization:    'osq8' or 'osq4' or 'osq2' or 'osq1' or 'none'  (default by dimension)
   hnswConfig {
     m:              uint8    (maximum connections, default 16)
     efConstruction: uint16   (build quality, default 200)
