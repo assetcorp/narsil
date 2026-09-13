@@ -38,6 +38,31 @@ describe('VectorIndex serialization', () => {
     vi.useRealTimers()
   })
 
+  it('writes no graph once every vector is removed and reads an empty graph as none', async () => {
+    for (let i = 0; i < 6; i++) index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
+    index.scheduleBuild()
+    await vi.advanceTimersByTimeAsync(1)
+    await index.awaitPendingBuild()
+    expect(index.maintenanceStatus().graphCount).toBe(1)
+    for (let i = 0; i < 6; i++) index.remove(`doc${i}`)
+
+    const [emptied] = index.serialize()
+    expect(emptied.docIds).toHaveLength(0)
+    expect(emptied.graphs).toHaveLength(0)
+
+    const headerOnly = {
+      entryPoint: null,
+      maxLayer: 0,
+      m: 16,
+      efConstruction: 200,
+      metric: 'cosine' as const,
+      nodes: [],
+    }
+    index.deserialize([partOf([], [], { graphs: [headerOnly] })])
+    index.insert('doc7', normalizedVector(DIM, 8))
+    expect(index.maintenanceStatus().graphCount).toBe(0)
+  })
+
   it('serialize writes one versioned part with the vectors as little-endian float32 bytes', () => {
     index.insert('doc1', vectorFromValues(1, 0, 0, 0))
     index.insert('doc2', vectorFromValues(0, 1, 0, 0))

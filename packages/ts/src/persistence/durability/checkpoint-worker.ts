@@ -22,7 +22,7 @@ export interface CheckpointWorkerError {
 }
 
 /**
- * The worker posts this while a checkpoint is still in progress, so that the
+ * The worker posts this while a checkpoint is still in progress so that the
  * thread waiting on it tells a long checkpoint apart from a hung worker.
  *
  * @internal

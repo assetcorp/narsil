@@ -56,16 +56,25 @@ export function buildSegmentRequests(
 }
 
 /**
- * Freezes every built segment that a worker returned as a plain payload, so
+ * One segment frozen into shared memory, with the partition it belongs to,
+ * which the copies attach as it is.
+ *
+ * @internal
+ */
+export interface AttachableSegment {
+  partitionId: number
+  snapshot: SharedSegmentSnapshot
+}
+
+/**
+ * Freezes every built segment that a worker returned as a plain payload so
  * that the whole batch goes to the copies as one attach. It reports null
  * where the runtime offers no shared memory.
  *
  * @internal
  */
-export function freezeSegmentsForAttach(
-  segments: ReadonlyArray<BuiltSegment>,
-): Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }> | null {
-  const frozen: Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }> = []
+export function freezeSegmentsForAttach(segments: ReadonlyArray<BuiltSegment>): AttachableSegment[] | null {
+  const frozen: AttachableSegment[] = []
   for (const segment of segments) {
     const snapshot =
       segment.snapshot ??
@@ -76,9 +85,7 @@ export function freezeSegmentsForAttach(
   return frozen
 }
 
-function tryFreezeSegmentsForAttach(
-  segments: ReadonlyArray<BuiltSegment>,
-): Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }> | null {
+function tryFreezeSegmentsForAttach(segments: ReadonlyArray<BuiltSegment>): AttachableSegment[] | null {
   try {
     return freezeSegmentsForAttach(segments)
   } catch (err) {
@@ -98,10 +105,8 @@ function payloadSegments(segments: ReadonlyArray<BuiltSegment>) {
   return plain
 }
 
-function snapshotSegments(
-  segments: ReadonlyArray<BuiltSegment>,
-): Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }> {
-  const shared: Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }> = []
+function snapshotSegments(segments: ReadonlyArray<BuiltSegment>): AttachableSegment[] {
+  const shared: AttachableSegment[] = []
   for (const segment of segments) {
     if (segment.snapshot !== null) shared.push({ partitionId: segment.partitionId, snapshot: segment.snapshot })
   }
@@ -111,7 +116,7 @@ function snapshotSegments(
 function attachSegments(
   orchestrator: Pick<WorkerOrchestrator, 'replicateToWorkers'>,
   indexName: string,
-  segments: Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }>,
+  segments: AttachableSegment[],
 ): Promise<void> {
   return orchestrator.replicateToWorkers({
     type: 'attachSegments',
@@ -124,7 +129,7 @@ function attachSegments(
 /**
  * Sends every built segment to the worker copies, as one attach where every
  * segment freezes into shared memory. Where one cannot, the segments a worker
- * froze still go as an attach, and the rest go as a merge, so that no copy
+ * froze still go as an attach and the rest go as a merge so that no copy
  * misses a document.
  *
  * @internal
