@@ -870,6 +870,7 @@ export interface VectorIndexConfig {
         metric?: 'cosine' | 'dotProduct' | 'euclidean';
     };
     quantization?: VectorQuantizationMode;
+    storage?: VectorStorageMode;
     threshold?: number;
 }
 
@@ -885,17 +886,21 @@ export interface VectorMaintenanceResult {
 }
 
 // @public
-export type VectorQuantizationMode = 'sq8' | 'none';
+export type VectorQuantizationMode = 'osq8' | 'osq4' | 'osq2' | 'osq1' | 'none';
 
 // @public
 export interface VectorQueryConfig {
     efSearch?: number;
     field: string;
     metric?: 'cosine' | 'dotProduct' | 'euclidean';
+    oversample?: number;
     similarity?: number;
     text?: string;
     value?: number[] | Float32Array;
 }
+
+// @public
+export type VectorStorageMode = 'memory' | 'disk';
 
 // @public
 export const VERSION = "0.1.0";
