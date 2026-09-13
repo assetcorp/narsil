@@ -37,6 +37,8 @@ function createMockVectorIndex(
     get fieldName() {
       return fieldName
     },
+    quantization: 'none' as const,
+    storage: 'memory' as const,
     get size() {
       return vectors.size
     },
@@ -84,9 +86,10 @@ function createMockVectorIndex(
       return 0
     },
     serialize() {
-      return { fieldName, dimension: dim, vectors: [], graphs: [], sq8: null }
+      return []
     },
     deserialize() {},
+    async adoptDiskLayout() {},
     scheduleBuild() {},
     async awaitPendingBuild() {},
     dispose() {},

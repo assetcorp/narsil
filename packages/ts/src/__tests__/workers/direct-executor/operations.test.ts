@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SegmentPayload } from '../../../core/partition/segment-payload'
+import { createSharedFrozenSegment } from '../../../core/partition/frozen'
+import { encodeSegmentState, type SegmentPayload } from '../../../core/partition/segment-payload'
 import type { FanOutResult } from '../../../partitioning/fan-out'
 import type { SerializablePartition } from '../../../types/internal'
 import type { SchemaDefinition } from '../../../types/schema'
 import { createDirectExecutor, type DirectExecutorExtensions } from '../../../workers/direct-executor'
 import type { Executor } from '../../../workers/executor'
+import type { BuiltSegmentResult } from '../../../workers/protocol'
 import { config, reqId, schema } from './fixtures'
 
 describe('DirectExecutor', () => {
@@ -280,12 +282,18 @@ describe('DirectExecutor', () => {
           { docId: 'doc-1', document: { title: 'quick brown fox', score: 10 } },
           { docId: 'doc-2', document: { title: 'lazy brown dog', score: 20 } },
         ]
-        const payload = await executor.execute<SegmentPayload>({
+        const builtSegment = await executor.execute<BuiltSegmentResult>({
           type: 'buildSegment',
           indexName: 'products',
+          segmentId: 'segment-1',
           documents: built,
           requestId: reqId(),
         })
+        expect(builtSegment.kind).toBe('shared')
+        const payload: SegmentPayload =
+          builtSegment.kind === 'shared'
+            ? encodeSegmentState(createSharedFrozenSegment(builtSegment.snapshot))
+            : builtSegment.payload
         const segments = [{ partitionId: 0, payload, documents: built.map(entry => entry.document) }]
 
         await executor.execute({ type: 'mergeSegments', indexName: 'products', segments, requestId: reqId() })

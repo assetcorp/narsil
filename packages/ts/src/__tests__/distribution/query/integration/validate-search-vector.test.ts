@@ -9,7 +9,7 @@ import type { WireVectorQueryParams } from '../../../../distribution/transport/t
 function makeSearchPayload(vector: WireVectorQueryParams | unknown | null): Record<string, unknown> {
   const filled =
     vector !== null && typeof vector === 'object' && !Array.isArray(vector)
-      ? { metric: null, efSearch: null, ...(vector as Record<string, unknown>) }
+      ? { metric: null, efSearch: null, oversample: null, ...(vector as Record<string, unknown>) }
       : vector
   return {
     indexName: 'products',

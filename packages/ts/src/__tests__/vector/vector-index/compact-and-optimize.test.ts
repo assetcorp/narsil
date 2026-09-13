@@ -30,8 +30,8 @@ describe('VectorIndex compact', () => {
     expect(index.size).toBe(1)
   })
 
-  it('compact recalibrates SQ8 when calibrated', async () => {
-    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
+  it('compact recalibrates the quantiser when calibrated', async () => {
+    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'osq8' })
     try {
       for (let i = 0; i < 6; i++) {
         sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
@@ -104,8 +104,8 @@ describe('VectorIndex optimize', () => {
     expect(index.size).toBe(0)
   })
 
-  it('optimize recalibrates SQ8', async () => {
-    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
+  it('optimize recalibrates the quantiser', async () => {
+    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'osq8' })
     try {
       for (let i = 0; i < 6; i++) {
         sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))

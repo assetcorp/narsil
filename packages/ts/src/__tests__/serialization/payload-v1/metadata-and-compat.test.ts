@@ -197,7 +197,7 @@ describe('payload-v1 backward compat: vector_data read path', () => {
     expect(vectorData.embedding.hnswGraph?.metric).toBeUndefined()
   })
 
-  it('deserializes vector_data with sq8 quantization data', () => {
+  it('deserializes vector_data with code records', () => {
     const wire: RawPartitionPayload = {
       index_name: 'quantized',
       partition_id: 0,
@@ -216,12 +216,10 @@ describe('payload-v1 backward compat: vector_data read path', () => {
           dimension: 3,
           vectors: [{ doc_id: 'doc-1', vector: [0.1, 0.2, 0.3] }],
           hnsw_graph: null,
-          sq8: {
-            alpha: 0.5,
-            offset: 0.1,
-            quantized_vectors: { 'doc-1': [128, 180, 230] },
-            vector_sums: { 'doc-1': 0.6 },
-            vector_sum_sqs: { 'doc-1': 0.14 },
+          codes: {
+            bits: 8,
+            centroid: [0.1, 0.2, 0.3],
+            records: new Uint8Array([128, 180, 230, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
           },
         },
       },
@@ -237,14 +235,12 @@ describe('payload-v1 backward compat: vector_data read path', () => {
 
     const vectorData = restored.vectorData
     if (!vectorData) throw new Error('expected restored.vectorData to be defined')
-    const sq8 = vectorData.embedding.sq8
-    expect(sq8).not.toBeNull()
-    if (sq8) {
-      expect(sq8.alpha).toBeCloseTo(0.5)
-      expect(sq8.offset).toBeCloseTo(0.1)
-      expect(sq8.quantizedVectors['doc-1']).toEqual([128, 180, 230])
-      expect(sq8.vectorSums['doc-1']).toBeCloseTo(0.6)
-      expect(sq8.vectorSumSqs['doc-1']).toBeCloseTo(0.14)
+    const codes = vectorData.embedding.codes
+    expect(codes).not.toBeNull()
+    if (codes) {
+      expect(codes.bits).toBe(8)
+      expect(codes.centroid).toEqual([0.1, 0.2, 0.3])
+      expect(Array.from(codes.records.subarray(0, 3))).toEqual([128, 180, 230])
     }
   })
 })
@@ -253,7 +249,7 @@ describe('metadata with vector fields', () => {
   it('roundtrips metadata containing vectorFields', () => {
     const original = makeMetadata({
       vectorFields: {
-        embedding: { dimension: 1536, metric: 'cosine', quantization: 'sq8' },
+        embedding: { dimension: 1536, metric: 'cosine', quantization: 'osq8' },
       },
     })
     const bytes = serializeMetadata(original)
@@ -263,7 +259,7 @@ describe('metadata with vector fields', () => {
     if (restored.vectorFields) {
       expect(restored.vectorFields.embedding.dimension).toBe(1536)
       expect(restored.vectorFields.embedding.metric).toBe('cosine')
-      expect(restored.vectorFields.embedding.quantization).toBe('sq8')
+      expect(restored.vectorFields.embedding.quantization).toBe('osq8')
     }
   })
 

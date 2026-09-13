@@ -111,7 +111,7 @@ describe('client task and maintenance routes', () => {
       pollIntervalMs: 5,
     })
     expect(record.status).toBe('failed')
-    expect(record.error?.code).toBe('DOC_VALIDATION_FAILED')
+    expect(record.error?.code).toBe('ENVELOPE_INVALID_MAGIC')
   })
 
   it('checkpoints, reports vector maintenance, and reshapes partitions', async () => {

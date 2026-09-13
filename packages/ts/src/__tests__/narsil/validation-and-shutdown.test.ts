@@ -103,7 +103,7 @@ describe('Narsil index validation, shutdown, and batch operations', () => {
       await expect(
         narsil.createIndex('vectors', {
           schema: vectorSchema,
-          vectorPromotion: { quantization: 'sq16' as unknown as 'sq8' },
+          vectorPromotion: { quantization: 'sq8' as unknown as 'osq8' },
         }),
       ).rejects.toThrow(NarsilError)
     })
