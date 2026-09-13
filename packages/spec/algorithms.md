@@ -603,119 +603,9 @@ Three properties follow:
 
 ---
 
-## Scalar Quantisation (SQ8)
-
-SQ8 quantises each float32 component of a vector to one uint8 value. A search ranks candidates by their quantised distances and then re-scores the nearest of them against the full-precision vectors, which the index keeps.
-
-### Quantisation Formula
-
-`alpha` is the step size, the distance in the original value space between two consecutive uint8 values, and `offset` is the value that quantises to zero. Together they reconstruct any stored value:
-
-```text
-quantize(v[i])   = clamp(round((v[i] - offset) / alpha), 0, 255)
-dequantize(q[i]) = q[i] * alpha + offset
-```
-
-Every distance formula below is written in terms of this step size, so a writer must persist `alpha` as the step and never as the range it was derived from.
-
-### Calibration
-
-Calibration derives `alpha` and `offset` from every vector in the store:
-
-```text
-calibrate(vectors: List<List<float32>>) -> { alpha: float32, offset: float32 }
-  allValues = every dimension of every vector, flattened
-  min_val = minimum(allValues)
-  max_val = maximum(allValues)
-
-  pad     = (max_val - min_val) * 0.01
-  min_val = min_val - pad
-  max_val = max_val + pad
-
-  when min_val equals max_val:
-    min_val = min_val - 0.001
-    max_val = max_val + 0.001
-
-  alpha  = (max_val - min_val) / 255
-  offset = min_val
-  return { alpha, offset }
-```
-
-The bounds widen by one per cent at each end so that values near the extremes keep headroom. When every value in the store is identical the padding is zero, so the bounds separate by a fixed amount instead and `alpha` stays above zero.
-
-Calibration returns nothing when the store holds no vectors, and the caller leaves quantisation switched off until it does.
-
-### Quantised Dot Product
-
-The quantised dot product runs on integers:
-
-```text
-sq8DotProduct(a: List<uint8>, b: List<uint8>, dimension: uint16,
-              alpha: float32, offset: float32) -> float32
-  intSum  = 0
-  intSumA = 0
-  intSumB = 0
-  for i from 0 to dimension - 1:
-    intSum  = intSum + a[i] * b[i]
-    intSumA = intSumA + a[i]
-    intSumB = intSumB + b[i]
-
-  return alpha * alpha * intSum
-       + alpha * offset * (intSumA + intSumB)
-       + offset * offset * dimension
-```
-
-Nothing inside the loop is floating point. The three integer accumulators build in one pass, and three multiplications turn them into the final result.
-
-### Quantised Cosine Similarity
-
-Cosine similarity reads pre-computed sums and sums of squares, so it never has to dequantise a vector to find its magnitude:
-
-```text
-sq8Cosine(a: List<uint8>, b: List<uint8>, dimension: uint16,
-          alpha: float32, offset: float32,
-          sumA: float32, sumSqA: float32,
-          sumB: float32, sumSqB: float32) -> float32
-  dot  = sq8DotProduct(a, b, dimension, alpha, offset)
-  magA = sq8Magnitude(dimension, alpha, offset, sumA, sumSqA)
-  magB = sq8Magnitude(dimension, alpha, offset, sumB, sumSqB)
-  if magA is 0 or magB is 0:
-    return 0
-  return dot / (magA * magB)
-
-sq8Magnitude(dimension: uint16, alpha: float32, offset: float32,
-             sum: float32, sumSq: float32) -> float32
-  value = alpha * alpha * sumSq
-        + 2 * alpha * offset * sum
-        + dimension * offset * offset
-  when value is 0 or below, return 0
-  return squareRoot(value)
-```
-
-`sum` and `sumSq` are computed from the **quantised** uint8 values of a vector, never from the full-precision values, and a writer stores them that way in `vector_sums` and `vector_sum_sqs`:
-
-```text
-sum(q)   = SUM over i of q[i]
-sumSq(q) = SUM over i of q[i] * q[i]
-```
-
-The magnitude formula expands `dequantize` inside the sum of squares, which is why it needs both accumulators and the dimension. Storing full-precision sums here yields wrong magnitudes and wrong cosine scores.
-
-### Properties
-
-- **Memory.** The index holds a code of one byte per dimension in addition to each float32 vector.
-- **Speed.** Where SIMD is available, a quantised comparison takes less time than a float32 comparison.
-- **Accuracy.** A global `alpha` and `offset`, shared across every dimension, matches float32 HNSW recall for typical embedding distributions. Accuracy falls off when the value distribution varies sharply between dimensions.
-
-### Recalibration
-
-`compact` recalibrates the SQ8 parameters, so that the quantiser always fits the vectors the index holds. See [Quantisation](vector-index.md#quantisation).
-
----
-
 ## Optimised Scalar Quantisation (OSQ)
 
-OSQ quantises each vector against a centroid, over an interval it fits to that vector, as Lucene's optimised scalar quantisation does. A document code holds 4, 2, or 1 bits per dimension for `osq4`, `osq2`, or `osq1`, while a query code always holds 4.
+OSQ quantises each vector against a centroid, over an interval it fits to that vector, as Lucene's optimised scalar quantisation does. A document code holds 8, 4, 2, or 1 bits per dimension for `osq8`, `osq4`, `osq2`, or `osq1`, and a query code holds `QUERY_BITS[bits]` bits per dimension.
 
 ### Centroid
 
@@ -744,9 +634,10 @@ unitNormalise(v: List<float32>) -> List<float32>
 `dimension` is the number of components in every vector. `clamp(t, low, high)` returns `minimum(maximum(t, low), high)`. [Similarity Functions](#similarity-functions) defines `dot` and `magnitude`.
 
 ```text
-GRID   = { 1: 0.798, 2: 1.493, 4: 2.514 }
-STEPS  = { 1: 1, 2: 3, 4: 15 }
-LAMBDA = 0.1
+GRID       = { 1: 0.798, 2: 1.493, 4: 2.514, 8: 3.922 }
+STEPS      = { 1: 1, 2: 3, 4: 15, 8: 255 }
+QUERY_BITS = { 1: 4, 2: 4, 4: 4, 8: 8 }
+LAMBDA     = 0.1
 
 OSQCode {
   codes:      List<uint8>   (one level per dimension)
@@ -817,18 +708,18 @@ loss(x: List<float32>, lower: float32, upper: float32, steps: uint8, norm: float
   return (1 - LAMBDA) * xe * xe / norm + LAMBDA * e
 ```
 
-A search must quantise the query with `quantize(query, c, 4, metric)`, whatever `bits` the index uses.
+A search must quantise the query with `quantize(query, c, QUERY_BITS[bits], metric)`.
 
 ### Packing
 
-A packed code holds one plane of `ceiling(dimension / 8)` bytes per bit, so a document code occupies `bits * ceiling(dimension / 8)` bytes beside its `lower`, `upper`, `correction`, and `sum`. Plane `j` holds bit `j` of every level, with level `i` at bit `7 - (i mod 8)` of byte `floor(i / 8)`. Every bit after the last level holds 0.
+A code holds its packed levels beside its `lower`, `upper`, `correction`, and `sum`. An 8-bit code holds one byte per level, in dimension order. Any other code holds one plane of `ceiling(dimension / 8)` bytes per bit, so it occupies `bits * ceiling(dimension / 8)` bytes. Plane `j` holds bit `j` of every level, with level `i` at bit `7 - (i mod 8)` of byte `floor(i / 8)`. Every bit after the last level holds 0.
 
 ### Estimated Similarity
 
 ```text
 estimate(d: OSQCode, q: OSQCode, bits: uint8, c: List<float32>, metric) -> float32
   dStep   = (d.upper - d.lower) / STEPS[bits]
-  qStep   = (q.upper - q.lower) / 15
+  qStep   = (q.upper - q.lower) / STEPS[QUERY_BITS[bits]]
   centred = d.lower * q.lower * dimension
           + q.lower * dStep * d.sum
           + d.lower * qStep * q.sum
@@ -841,4 +732,4 @@ estimate(d: OSQCode, q: OSQCode, bits: uint8, c: List<float32>, metric) -> float
   return similarity
 ```
 
-`popcount` counts the set bits across a plane's bytes. The sum of level products equals `SUM over document planes j and query planes p of power(2, j + p) * popcount(document plane j AND query plane p)`, so an implementation may compute it from the packed planes. A search ranks candidates by `estimate` and then re-scores the nearest of them against their full-precision vectors, as [search](vector-index.md#searchquery-k-options) defines.
+`popcount` counts the set bits across a plane's bytes. For a plane-packed code the sum of level products equals `SUM over document planes j and query planes p of power(2, j + p) * popcount(document plane j AND query plane p)`, so an implementation may compute it from the packed planes. A search ranks candidates by `estimate` and then re-scores the nearest of them against their full-precision vectors, as [search](vector-index.md#searchquery-k-options) defines.
