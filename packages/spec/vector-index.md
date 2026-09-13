@@ -277,7 +277,19 @@ VectorIndexConfig {
 
 An `osq8`, `osq4`, `osq2`, or `osq1` index stores eight, four, two, or one bits per dimension, as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines. An index set to `none` stores no code. When `quantization` is absent, an implementation must use `osq1` at 1,024 dimensions and above, `osq4` from 384 to 1,023, and `osq8` below 384.
 
-A quantised index calibrates its quantiser once its vector count reaches the HNSW promotion threshold, and it calibrates again during `compact`.
+A quantised index calibrates its quantiser once its vector count reaches the HNSW promotion threshold, and it calibrates again during `compact`. A quantised index places a new vector in the graph by scoring it as a query against the codes of its neighbours.
+
+---
+
+## Vector Storage
+
+```text
+VectorIndexConfig {
+  storage: 'memory' or 'disk'   (default by environment)
+}
+```
+
+A `memory` index holds its full-precision vectors in memory. A `disk` index holds its codes and its graph in memory, and it reads a full-precision vector from its vector file by position, as [Vector Index Payload](envelope.md#vector-index-payload) defines, when a search re-scores a candidate or a caller fetches a document. When `storage` is absent, an implementation must use `disk` for an index with filesystem durability and `memory` otherwise. An implementation must reject `disk` on an index without filesystem durability with `CONFIG_INVALID`, and it may hold the vectors of a `disk` index in memory until promotion.
 
 ---
 
@@ -367,7 +379,7 @@ Vector index data is serialised apart from partition data. The payload layout is
 
 ### Storage
 
-A vector index payload is persisted in two places: as a value in the snapshot bundle's `vectorIndexes` map, and as the payload of a vector segment file at `<indexName>/segments/<partitionId>/vec-<fieldPath>-g<generation>`, written by the [segmented checkpoint](durability.md#segmented-checkpoint). A partition payload that must carry its vectors with it, such as one sent to another thread, embeds them as [Vector Data](envelope.md#vector-data) instead.
+A vector index payload holds one part of a field, and its parts are persisted in two places: as the list under the field in the snapshot bundle's `vectorIndexes` map, and as the payloads of the vector segment files at `<indexName>/segments/<partitionId>/vec-<fieldPath>-g<generation>-p<part>`, written by the [segmented checkpoint](durability.md#segmented-checkpoint). A partition payload that must carry its vectors with it, such as one sent to another thread, embeds them as [Vector Data](envelope.md#vector-data) instead.
 
 ### Multi-Graph Format
 
@@ -375,7 +387,7 @@ A vector index payload is persisted in two places: as a value in the snapshot bu
 
 - A single-graph implementation writes a list of length 1.
 - A segment-based implementation writes one graph per segment.
-- The `vectors` list stays flat, with one entry per document whatever the graph count, and graphs reference vectors by `docId`.
+- The vectors keep one ordinal order across the parts whatever the graph count, and graphs reference vectors by `docId`.
 
 Every implementation must read a vector index file holding any number of graphs, zero included, where zero means the file stores vectors for brute-force search alone.
 
@@ -394,6 +406,7 @@ VectorIndexConfig {
   threshold:       uint32           (promotion threshold, default 1024)
   filterThreshold: float32          (selectivity fallback, default 0.03)
   quantization:    'osq8' or 'osq4' or 'osq2' or 'osq1' or 'none'  (default by dimension)
+  storage:         'memory' or 'disk'                              (default by environment)
   hnswConfig {
     m:              uint8    (maximum connections, default 16)
     efConstruction: uint16   (build quality, default 200)
