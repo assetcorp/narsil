@@ -28,6 +28,25 @@ from ..core.types import (
 _MEMORY_KEYS = ("estimatedMemoryBytes", "memoryBytes", "memoryEstimateBytes", "memory", "bytes")
 _VECTOR_FIELD = "embedding"
 _RRF_K = 60
+_RESCORE_OVERSAMPLING_GRID = (3.0, 5.0, 8.0)
+_OSQ1_MIN_DIMENSION = 1024
+_OSQ4_MIN_DIMENSION = 384
+
+
+def best_config_quantization(dims: int) -> str:
+    """The optimised scalar quantisation width the engine itself picks for a
+    dimension when the index configuration names none: 1 bit from 1,024
+    dimensions, 4 bits from 384, and 8 bits below."""
+
+    if dims >= _OSQ1_MIN_DIMENSION:
+        return "osq1"
+    if dims >= _OSQ4_MIN_DIMENSION:
+        return "osq4"
+    return "osq8"
+
+
+def quantization_label(mode: str) -> str:
+    return f"OSQ {mode[len('osq'):]}-bit"
 
 
 def _raise_for_envelope(response: httpx.Response) -> None:
@@ -49,12 +68,14 @@ class NarsilDriver:
         self.name = engine.name
         self.run_tag = engine.run_tag
         self.keyword_setup = f"BM25 k1={bm25.k1} b={bm25.b}; language left at the server default"
-        self.vector_setup = "HNSW over the shared precomputed vectors, full precision (SQ8 quantization off), cosine"
+        self.vector_setup = "HNSW over the shared precomputed vectors, full precision (quantization off), cosine"
         self.hybrid_setup = "BM25 (text) fused with HNSW vector search via Reciprocal Rank Fusion"
         self.hybrid_fusion = f"RRF (k={_RRF_K})"
         self.vector_knob = "efSearch"
         self.vector_quantization = FULL_FLOAT
         self.server_time = ServerTimeSource(source="response `elapsed` field", resolution=FLOATING_MS)
+        self.rescore_oversample_grid = _RESCORE_OVERSAMPLING_GRID
+        self._rescore_oversample: float | None = None
         self._vector_profile = EQUAL_PRECISION
         self._k1 = bm25.k1
         self._b = bm25.b
@@ -153,19 +174,27 @@ class NarsilDriver:
 
         self._metric = metric
 
+    def set_rescore_oversample(self, value: float | None) -> None:
+        """Sets how many times the requested count a quantised search re-scores
+        against full precision, which the recall sweep raises once efSearch alone
+        plateaus below the target. None returns to the engine default."""
+
+        self._rescore_oversample = value
+
     def create_vector_index(self, index: str, params: VectorIndexParams) -> None:
         self._metric = params.metric
         self._vector_profile = params.profile
         if params.profile == BEST_CONFIG:
-            quantization = "sq8"
-            self.vector_quantization = "SQ8"
+            quantization = best_config_quantization(params.dims)
+            label = quantization_label(quantization)
+            self.vector_quantization = label
             self.vector_setup = (
-                "HNSW over the shared precomputed vectors, SQ8 scalar quantization with "
-                "full-precision rerank, cosine"
+                f"HNSW over the shared precomputed vectors, {label} optimised scalar quantisation "
+                "with the graph built from codes and a full-precision rescore, cosine"
             )
             self.hybrid_setup = (
-                "BM25 (text) fused with SQ8-quantized HNSW vector search (full-precision rerank) "
-                "via Reciprocal Rank Fusion"
+                f"BM25 (text) fused with {label} optimised-scalar-quantised HNSW vector search "
+                "(full-precision rescore) via Reciprocal Rank Fusion"
             )
         else:
             quantization = "none"
@@ -229,6 +258,8 @@ class NarsilDriver:
         clause: dict[str, object] = {"field": _VECTOR_FIELD, "value": vector, "metric": self._metric}
         if ef is not None:
             clause["efSearch"] = ef
+        if self._vector_profile == BEST_CONFIG and self._rescore_oversample is not None:
+            clause["oversample"] = self._rescore_oversample
         return clause
 
     def vector_search(self, index: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
