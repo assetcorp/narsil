@@ -250,7 +250,7 @@ EmbeddedSQ8Data {
 }
 ```
 
-[Vector Index Payload](#vector-index-payload) defines `HnswNode` and `OSQData`. The embedded form carries at most one graph per field, and a reader treats an unrecognised `metric` value as absent.
+[Vector Index Payload](#vector-index-payload) defines `HnswNode` and `OSQData`. The embedded form carries at most one graph per field, and a reader treats an unrecognised `metric` value as absent. A writer must leave `sq8` absent, and a reader must ignore it, because an earlier writer set it for an `sq8` index.
 
 ---
 
@@ -360,7 +360,7 @@ OSQVector = [
 
 An empty `graphs` list means the implementation searches by brute force, because the vector count has not reached the promotion threshold.
 
-A writer must set `osq`, with `bits` matching the mode, for a calibrated index whose quantisation is `osq4`, `osq2`, or `osq1`. It must write nil for every other index. `OSQVector` holds one document's code, packed as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines.
+A writer must set `osq`, with `bits` matching the mode, for a calibrated index whose quantisation is `osq8`, `osq4`, `osq2`, or `osq1`. It must write nil for every other index. `OSQVector` holds one document's code, packed as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines. A reader must calibrate a quantised index from `vectors` when the index holds a graph and `osq` is nil or its `bits` differs from the mode. A writer must write nil for `sq8`, and a reader must ignore it, because an earlier writer set it for an `sq8` index.
 
 ---
 
@@ -416,13 +416,13 @@ VectorPromotionMeta {
   threshold:        uint32                                                  (optional)
   filter_threshold: float64                                                 (optional; a selectivity ratio between 0 and 1)
   hnsw_config:      { m: uint32, ef_construction: uint32, metric: string }  (optional; each key optional)
-  quantization:     string                                                  (optional; "sq8", "osq4", "osq2", "osq1", or "none")
+  quantization:     string                                                  (optional; "osq8", "osq4", "osq2", "osq1", or "none")
 }
 ```
 
 `document_count` must equal the total number of documents in the last completed checkpoint. A reader must treat an absent `document_count` as unknown.
 
-`vector_fields` lists every vector field with its configuration, so the engine knows which vector index files to load without scanning the storage keys.
+`vector_fields` lists every vector field with its configuration, so the engine knows which vector index files to load without scanning the storage keys. A reader must treat a `quantization` of `"sq8"` in this payload and in the [index snapshot payload](#index-snapshot-payload) as `"osq8"`, because an earlier writer recorded that mode.
 
 The `embedding` block records the index's automatic embedding configuration: the field mappings defined in [Embedding Configuration](adapters.md#embedding-configuration), and the name the embedding adapter was registered under. The block is additive, so a reader that skips it treats the index as having no automatic embedding, which is exactly how every metadata payload written before the block existed behaves. The `adapter` name appears only when the index was created with a named adapter, because an adapter instance holds live resources and cannot be serialised. Recovery uses the name to rebind the adapter from the engine's registry; see [Index Metadata](durability.md#index-metadata).
 
@@ -507,7 +507,7 @@ VectorSnapshotPromotion {
   threshold:       uint32                                                 (optional)
   filterThreshold: float64                                                (optional; a selectivity ratio between 0 and 1)
   hnswConfig:      { m: uint32, efConstruction: uint32, metric: string }  (optional; each key optional)
-  quantization:    string                                                 (optional; "sq8", "osq4", "osq2", "osq1", or "none")
+  quantization:    string                                                 (optional; "osq8", "osq4", "osq2", "osq1", or "none")
 }
 
 EmbeddingSnapshotConfig {

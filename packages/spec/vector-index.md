@@ -85,7 +85,7 @@ rescored   = the depth nearest candidates, scored by the metric on full-precisio
 return the best k of rescored
 ```
 
-An implementation must reject an `oversample` that is not a finite number of at least 1 with `CONFIG_INVALID`. It must ignore `oversample` on an index whose quantisation is `none`. When `oversample` is absent the implementation uses its own default, recommended at 3 for `osq1` and `osq2` and at 2 for `osq4` and `sq8`.
+An implementation must reject an `oversample` that is not a finite number of at least 1 with `CONFIG_INVALID`. It must ignore `oversample` on an index whose quantisation is `none`. When `oversample` is absent the implementation uses its own default, recommended at 3 for `osq1` and `osq2` and at 2 for `osq4` and `osq8`.
 
 ### getVector(docId)
 
@@ -271,11 +271,11 @@ A quantised index stores a compact code for every vector as well as the full-pre
 
 ```text
 VectorIndexConfig {
-  quantization: 'sq8' or 'osq4' or 'osq2' or 'osq1' or 'none'   (default 'sq8')
+  quantization: 'osq8' or 'osq4' or 'osq2' or 'osq1' or 'none'   (default 'osq8')
 }
 ```
 
-An `sq8` index stores one byte per dimension, as [Scalar Quantisation (SQ8)](algorithms.md#scalar-quantisation-sq8) defines. An `osq4`, `osq2`, or `osq1` index stores four, two, or one bits per dimension, as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines. An index set to `none` stores no code.
+An `osq8`, `osq4`, `osq2`, or `osq1` index stores eight, four, two, or one bits per dimension, as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines. An index set to `none` stores no code.
 
 A quantised index calibrates its quantiser once its vector count reaches the HNSW promotion threshold, and it calibrates again during `compact`.
 
@@ -393,7 +393,7 @@ This specification prescribes none of those. The recall floors in [Cross-Impleme
 VectorIndexConfig {
   threshold:       uint32           (promotion threshold, default 1024)
   filterThreshold: float32          (selectivity fallback, default 0.03)
-  quantization:    'sq8' or 'osq4' or 'osq2' or 'osq1' or 'none'  (default 'sq8')
+  quantization:    'osq8' or 'osq4' or 'osq2' or 'osq1' or 'none'  (default 'osq8')
   hnswConfig {
     m:              uint8    (maximum connections, default 16)
     efConstruction: uint16   (build quality, default 200)
