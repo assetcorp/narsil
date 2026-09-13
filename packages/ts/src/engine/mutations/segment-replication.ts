@@ -98,6 +98,37 @@ function payloadSegments(segments: ReadonlyArray<BuiltSegment>) {
   return plain
 }
 
+function snapshotSegments(
+  segments: ReadonlyArray<BuiltSegment>,
+): Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }> {
+  const shared: Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }> = []
+  for (const segment of segments) {
+    if (segment.snapshot !== null) shared.push({ partitionId: segment.partitionId, snapshot: segment.snapshot })
+  }
+  return shared
+}
+
+function attachSegments(
+  orchestrator: Pick<WorkerOrchestrator, 'replicateToWorkers'>,
+  indexName: string,
+  segments: Array<{ partitionId: number; snapshot: SharedSegmentSnapshot }>,
+): Promise<void> {
+  return orchestrator.replicateToWorkers({
+    type: 'attachSegments',
+    indexName,
+    segments,
+    requestId: `attach-segments-${indexName}-${segments.length}`,
+  })
+}
+
+/**
+ * Sends every built segment to the worker copies, as one attach where every
+ * segment freezes into shared memory. Where one cannot, the segments a worker
+ * froze still go as an attach, and the rest go as a merge, so that no copy
+ * misses a document.
+ *
+ * @internal
+ */
 export async function broadcastBuiltSegments(
   orchestrator: Pick<WorkerOrchestrator, 'replicateToWorkers'>,
   indexName: string,
@@ -106,19 +137,18 @@ export async function broadcastBuiltSegments(
 ): Promise<void> {
   const frozen = tryFreezeSegmentsForAttach(segments)
   if (frozen !== null) {
-    await orchestrator.replicateToWorkers({
-      type: 'attachSegments',
-      indexName,
-      segments: frozen,
-      requestId: `attach-segments-${indexName}-${segments.length}`,
-    })
+    await attachSegments(orchestrator, indexName, frozen)
     return
   }
+  const shared = snapshotSegments(segments)
+  if (shared.length > 0) await attachSegments(orchestrator, indexName, shared)
+  const plain = payloadSegments(segments)
+  if (plain.length === 0) return
   await orchestrator.replicateToWorkers({
     type: 'mergeSegments',
     indexName,
-    segments: payloadSegments(segments),
-    requestId: `merge-segments-${indexName}-${segments.length}`,
+    segments: plain,
+    requestId: `merge-segments-${indexName}-${plain.length}`,
     skipClone: skipClone === true ? true : undefined,
   })
 }

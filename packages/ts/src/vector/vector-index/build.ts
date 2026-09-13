@@ -1,5 +1,6 @@
 import { createHNSWIndex, type HNSWIndex } from '../hnsw'
 import { insertIntoGraph } from './build-host'
+import { releasePendingLocations } from './disk'
 import { adoptGraph, allLiveDocIds, calibrateQuantizer, liveSize, type VectorIndexState } from './shared'
 import { dropSharedGraph, scheduleWorkerCopyLoad } from './worker-copies'
 
@@ -9,7 +10,8 @@ import { dropSharedGraph, scheduleWorkerCopyLoad } from './worker-copies'
  *
  * The threads holding the field place the vectors while the old graph, where
  * the index holds one, goes on answering searches, and those threads take the
- * new graph up once it is complete.
+ * new graph up once it is complete. A field kept on disk then points each
+ * vector a checkpoint has written at its place in the file.
  *
  * @param state The index to build for, whose disposal drops the new graph.
  *
@@ -31,6 +33,7 @@ export async function buildGraphFromStore(state: VectorIndexState): Promise<void
   const previous = state.hnsw
   adoptGraph(state, graph)
   if (previous !== null && previous !== graph) dropSharedGraph(state, previous)
+  await releasePendingLocations(state)
 }
 
 async function promoteToGraph(state: VectorIndexState): Promise<void> {
