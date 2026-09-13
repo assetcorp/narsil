@@ -54,7 +54,9 @@ export interface CompositePartition extends PartitionIndex {
   frozenSegmentCount(): number
   frozenSegmentSizes(): Array<{ segmentId: string; liveDocumentCount: number }>
   frozenSegmentsById(segmentIds: readonly string[]): FrozenSegment[]
+  /** Freezes a payload into a segment of this partition, for a caller that holds no partition manager. */
   appendFrozenSegment(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
+  /** Adds a frozen segment whose documents the partition manager has already checked against every partition. */
   attachFrozenSegment(segment: FrozenSegment): void
   swapFrozenSegments(dropSegmentIds: readonly string[], replacement: FrozenSegment): void
   freezeLiveTail(freeze: LiveTailFreezer): FrozenSegment | null
@@ -153,29 +155,11 @@ export function createCompositePartition(
     },
 
     appendFrozenSegment(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void {
-      for (const docId of payload.docIds) {
-        if (live.has(docId) || frozenOwner(docId) !== undefined) {
-          throw new NarsilError(ErrorCodes.DOC_ALREADY_EXISTS, `Document "${docId}" already exists in this partition`, {
-            docId,
-            partitionId,
-          })
-        }
-      }
       frozen.push(createFrozenSegment(payload, documents))
       invalidateDocFrequencies()
     },
 
     attachFrozenSegment(segment: FrozenSegment): void {
-      for (const ordinal of segment.docStore.allInternalIds()) {
-        const docId = segment.docStore.getExternalId(ordinal)
-        if (docId === undefined) continue
-        if (live.has(docId) || frozenOwner(docId) !== undefined) {
-          throw new NarsilError(ErrorCodes.DOC_ALREADY_EXISTS, `Document "${docId}" already exists in this partition`, {
-            docId,
-            partitionId,
-          })
-        }
-      }
       frozen.push(segment)
       invalidateDocFrequencies()
     },

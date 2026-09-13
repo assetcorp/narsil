@@ -24,14 +24,14 @@ export function compact(state: VectorIndexState): void {
   for (const docId of state.tombstones) {
     state.store.remove(docId)
     state.buffer.delete(docId)
-    if (state.sq8) {
-      state.sq8.remove(docId)
+    if (state.osq) {
+      state.osq.remove(docId)
     }
   }
 
   state.tombstones.clear()
 
-  if (state.sq8?.isCalibrated() && state.store.size > 0) {
+  if (state.osq?.isCalibrated() && state.store.size > 0) {
     recalibrateFromStore(state)
   }
 }
@@ -43,7 +43,6 @@ async function insertMissing(state: VectorIndexState, graph: HNSWIndex): Promise
 
 async function foldIntoGraph(state: VectorIndexState): Promise<void> {
   const rebuildNeeded = graphNeedsRebuild(state)
-  const compactRecalibrates = state.tombstones.size > 0 && state.sq8?.isCalibrated() === true
 
   compact(state)
 
@@ -52,8 +51,8 @@ async function foldIntoGraph(state: VectorIndexState): Promise<void> {
     adoptGraph(state, null)
     if (previous !== null) dropSharedGraph(state, previous)
     state.buffer.clear()
-    if (state.sq8) {
-      state.sq8.clear()
+    if (state.osq) {
+      state.osq.clear()
     }
     return
   }
@@ -63,10 +62,6 @@ async function foldIntoGraph(state: VectorIndexState): Promise<void> {
     await buildGraphFromStore(state)
   } else {
     await insertMissing(state, graph)
-  }
-
-  if (state.sq8 && state.store.size > 0 && !compactRecalibrates) {
-    recalibrateFromStore(state)
   }
 }
 

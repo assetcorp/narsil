@@ -1,3 +1,5 @@
+import type { VectorQuantizationMode } from '../../types/schema'
+import type { VectorMetric } from '../brute-force'
 import type { SharedGraphHandles } from '../hnsw/handles'
 import type { SharedVectorStoreHandles } from '../vector-store/handles'
 
@@ -15,8 +17,10 @@ import type { SharedVectorStoreHandles } from '../vector-store/handles'
 export interface SharedVectorFieldHandles {
   /** Every vector of the field has this many components. */
   dimension: number
-  /** The threads compute quantised distances when this reads `sq8`. */
-  quantization: 'sq8' | 'none'
+  /** The threads estimate distances from code records under any mode but `none`. */
+  quantization: VectorQuantizationMode
+  /** The quantiser takes the codes under this metric, which the graph also ranks by. */
+  metric: VectorMetric
   /** These are the store's shared structures. */
   store: SharedVectorStoreHandles
   /** These are the graph's shared structures, and they read null while the field answers by exact comparison. */
@@ -33,6 +37,6 @@ export interface SharedVectorFieldHandles {
  * @internal
  */
 export interface GraphInsertOutcome {
-  /** This reads true where a vector fell outside the quantiser's calibration, so the main thread recalibrates. */
-  outsideCalibration: boolean
+  /** The thread placed this many vectors the graph did not hold before. */
+  placed: number
 }

@@ -39,6 +39,21 @@ export function createGrowableBuffer(initialBytes: number, maxBytes: number): Gr
 }
 
 /**
+ * Allocates a buffer of a fixed size, shared between threads where the
+ * runtime allows it. A typed array over it can never track a growth, so a
+ * thread reads it without the synchronised length read that every element
+ * access on a growable buffer performs.
+ *
+ * @param bytes The bytes the buffer holds.
+ * @returns The buffer.
+ *
+ * @internal
+ */
+export function createFixedBuffer(bytes: number): GrowableBuffer {
+  return sharedMemoryAvailable() ? new SharedArrayBuffer(bytes) : new ArrayBuffer(bytes)
+}
+
+/**
  * Reports the length a structure grows to, doubling what it holds so that
  * repeated growth stays cheap, and stopping at its ceiling.
  *

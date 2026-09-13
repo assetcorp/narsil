@@ -2,7 +2,7 @@ import { encode } from '@msgpack/msgpack'
 import { type EnvelopeParts, packSnapshotEnvelopePartsRetrying } from '../../../serialization/envelope'
 import type { PartitionCheckpoint } from '../snapshot-bundle'
 
-export const SEGMENT_MANIFEST_VERSION = 3
+export const SEGMENT_MANIFEST_VERSION = 4
 
 export const MAX_SEGMENTS_PER_PARTITION = 65_536
 
@@ -18,7 +18,8 @@ export interface SegmentRef {
 export interface VectorSegmentRef {
   fieldPath: string
   generation: number
-  key: string
+  /** The field's parts at this generation lie under these keys, one per part in part order. */
+  keys: string[]
 }
 
 export interface PartitionManifestEntry {
@@ -56,7 +57,7 @@ export function encodeSegmentManifest(manifest: SegmentManifest): Promise<Envelo
           docCount: s.docCount,
           tombstoneCount: s.tombstoneCount,
         })),
-        vectors: p.vectors.map(v => ({ fieldPath: v.fieldPath, generation: v.generation, key: v.key })),
+        vectors: p.vectors.map(v => ({ fieldPath: v.fieldPath, generation: v.generation, keys: [...v.keys] })),
       })),
     }),
   )
@@ -69,7 +70,7 @@ export function manifestReferencedKeys(manifest: SegmentManifest): Set<string> {
       keys.add(segment.key)
     }
     for (const vector of partition.vectors) {
-      keys.add(vector.key)
+      for (const key of vector.keys) keys.add(key)
     }
   }
   return keys

@@ -1,5 +1,6 @@
 import type { VectorMetric } from '../brute-force'
 import type { OrdinalFilter } from '../ordinal-filter'
+import type { OsqBits } from '../osq/quantize'
 import type { SharedVectorStoreHandles } from './handles'
 import type { SharedVectorStoreView } from './view'
 
@@ -61,13 +62,28 @@ export interface VectorBuildReader extends VectorSearchReader {
 export interface VectorStoreOptions {
   /** Every vector has this many components, and the first vector inserted sets it where the caller gives none. */
   dimension?: number
-  /** Each slot reserves room for the vector's byte codes when this reads true, which is the default. */
-  quantized?: boolean
+  /** Each level of a document code holds this many bits, and the store keeps no codes where the caller gives none. */
+  codeBits?: OsqBits | null
+  /** One float block may reach this many bytes, which a field kept on disk sets low so that the store releases a block soon after a checkpoint. */
+  blockBytes?: number
+}
+
+/**
+ * This names where the store reads one released ordinal's vector: the index
+ * of its file in the store's file list and the byte offset of the vector
+ * inside that file.
+ *
+ * @internal
+ */
+export interface DiskLocation {
+  fileIndex: number
+  offset: number
 }
 
 export interface VectorStore extends VectorBuildReader {
   readonly size: number
-  readonly quantized: boolean
+  /** Each level of a document code holds this many bits, and null where the store keeps no codes. */
+  readonly codeBits: OsqBits | null
   /** This reads true once every stored vector names the partition it belongs to. */
   readonly partitionsKnown: boolean
   /** Another thread opens these shared structures to read this store in place. */
@@ -76,6 +92,16 @@ export interface VectorStore extends VectorBuildReader {
   readonly view: SharedVectorStoreView
   /** Appends the vector at a fresh ordinal, retiring the ordinal the document held before, and returns the new one. */
   insert(docId: string, vector: Float32Array, partitionId?: number): number
+  /** Appends a document whose vector a checkpoint file holds at a fresh ordinal, holding no block slot for it. */
+  insertCold(docId: string, magnitude: number, location: DiskLocation, partitionId?: number): number
+  /** Adds a checkpoint file the store reads released vectors from, and returns its index. */
+  addVectorFile(path: string): number
+  /** Reports whether a checkpoint file holds an ordinal's vector. */
+  isCold(ordinal: number): boolean
+  /** Points an ordinal at a file location and reports whether it did. A hot ordinal takes the location only once the file holds the same bytes. */
+  releaseToFile(ordinal: number, location: DiskLocation): boolean
+  /** Drops every block whose ordinals are all released or retired, and returns how many it dropped. */
+  releaseColdBlocks(): number
   setPartition(docId: string, partitionId: number): void
   forgetPartition(docId: string): void
   partitionOfOrdinal(ordinal: number): number | undefined

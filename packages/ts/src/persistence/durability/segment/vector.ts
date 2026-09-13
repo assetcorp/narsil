@@ -2,9 +2,17 @@ import { decode, encode } from '@msgpack/msgpack'
 import { restoreVectorFields } from '../../../distribution/replication/replica'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
 import { extractVectorFromDoc, insertDocumentVectors, removeDocumentVectors } from '../../../engine/vector-coordinator'
+import { ErrorCodes, NarsilError } from '../../../errors'
 import { packSnapshotEnvelopePartsRetrying, unpackEnvelopeBytes } from '../../../serialization/envelope'
+import { HEADER_SIZE } from '../../../serialization/header'
 import type { IndexConfig } from '../../../types/schema'
-import { createVectorIndex, type VectorIndex, type VectorIndexPayload } from '../../../vector/vector-index'
+import {
+  createVectorIndex,
+  type VectorIndex,
+  type VectorIndexPayload,
+  type VectorPartFile,
+} from '../../../vector/vector-index'
+import { decodeVectorIndexPart } from '../../../vector/vector-index/payload'
 import type { DurableDirectory } from '../durable-filesystem'
 import { vectorSegmentKey } from './layout'
 import type { VectorSegmentRef } from './manifest'
@@ -20,12 +28,64 @@ export interface VectorWriteInput {
   priorVectors: VectorSegmentRef[]
 }
 
-export async function writePartitionVectors(input: VectorWriteInput): Promise<VectorSegmentRef[]> {
+/**
+ * This names the vectors one written part holds and the byte its first
+ * vector starts at, so that a live field kept on disk can point its ordinals
+ * at the file once the checkpoint is complete.
+ *
+ * @internal
+ */
+export interface VectorCheckpointLayout {
+  fieldPath: string
+  key: string
+  docIds: string[]
+  vectorsOffset: number
+}
+
+export interface VectorWriteOutcome {
+  refs: VectorSegmentRef[]
+  layouts: VectorCheckpointLayout[]
+}
+
+export interface VectorPartsRead {
+  parts: VectorIndexPayload[]
+  files: VectorPartFile[]
+}
+
+function vectorsOffsetOf(payloadLength: number, part: VectorIndexPayload): number {
+  return HEADER_SIZE + payloadLength - part.docIds.length * part.dimension * 4
+}
+
+/**
+ * Reads the parts of one vector segment in part order, with the file each
+ * came from and the byte its first vector starts at. A part the manifest
+ * names but the directory lacks fails with `PERSISTENCE_LOAD_FAILED`, so no
+ * checkpoint rewrites the field without it.
+ *
+ * @internal
+ */
+export async function readVectorParts(directory: DurableDirectory, keys: readonly string[]): Promise<VectorPartsRead> {
+  const parts: VectorIndexPayload[] = []
+  const files: VectorPartFile[] = []
+  for (const key of keys) {
+    const bytes = await directory.read(key)
+    if (bytes === null) {
+      throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, `The vector part "${key}" is missing`, { key })
+    }
+    const { header, payloadBytes } = await unpackEnvelopeBytes(bytes)
+    const part = decodeVectorIndexPart(decode(payloadBytes))
+    parts.push(part)
+    files.push({ path: await directory.pathOf(key), vectorsOffset: vectorsOffsetOf(header.payloadLength, part) })
+  }
+  return { parts, files }
+}
+
+export async function writePartitionVectors(input: VectorWriteInput): Promise<VectorWriteOutcome> {
   if (input.vectorFields.size === 0) {
-    return []
+    return { refs: [], layouts: [] }
   }
   if (input.entries.length === 0) {
-    return input.priorVectors
+    return { refs: input.priorVectors, layouts: [] }
   }
 
   const priorByField = new Map<string, VectorSegmentRef>()
@@ -46,26 +106,34 @@ export async function writePartitionVectors(input: VectorWriteInput): Promise<Ve
     if (vecIndex === undefined) {
       continue
     }
-    const bytes = await input.directory.read(ref.key)
-    if (bytes !== null) {
-      const { payloadBytes } = await unpackEnvelopeBytes(bytes)
-      vecIndex.deserialize(decode(payloadBytes) as VectorIndexPayload)
-    }
+    const { parts } = await readVectorParts(input.directory, ref.keys)
+    vecIndex.deserialize(parts)
   }
 
   for (const entry of input.entries) {
     applyEntryVectors(entry, input.vectorFieldPaths, vectorIndexes)
   }
 
-  const result: VectorSegmentRef[] = []
+  const refs: VectorSegmentRef[] = []
+  const layouts: VectorCheckpointLayout[] = []
   for (const [fieldPath, vecIndex] of vectorIndexes) {
     const generation = (priorByField.get(fieldPath)?.generation ?? 0) + 1
-    const key = vectorSegmentKey(input.indexName, input.partitionId, fieldPath, generation)
-    const parts = await packSnapshotEnvelopePartsRetrying(() => encode(vecIndex.serialize()))
-    await input.directory.atomicWrite(key, [parts.header, parts.payload])
-    result.push({ fieldPath, generation, key })
+    const keys: string[] = []
+    for (const part of vecIndex.serialize()) {
+      const key = vectorSegmentKey(input.indexName, input.partitionId, fieldPath, generation, part.part)
+      const envelope = await packSnapshotEnvelopePartsRetrying(() => encode(part))
+      await input.directory.atomicWrite(key, [envelope.header, envelope.payload])
+      keys.push(key)
+      layouts.push({
+        fieldPath,
+        key,
+        docIds: part.docIds,
+        vectorsOffset: vectorsOffsetOf(envelope.payload.length, part),
+      })
+    }
+    refs.push({ fieldPath, generation, keys })
   }
-  return result
+  return { refs, layouts }
 }
 
 function applyEntryVectors(

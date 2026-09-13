@@ -4,23 +4,26 @@ import type { SegmentPayload } from '../segment-payload'
 import type { SegmentColumns } from './columns'
 import { type EncodedDocumentTableData, encodeDocumentTableData } from './document-source'
 import { type ExternalIdTableData, encodeExternalIdTableData } from './external-ids'
+import { encodeSurfaceTable, type SurfaceTableData } from './surface-table'
 import { encodeFrozenTokenTableData, type FrozenTokenTableData } from './token-table'
 
 /**
  * One keyword segment frozen into shared memory. Every typed array is a view
  * over a SharedArrayBuffer, so posting this to a worker attaches the same
  * bytes instead of copying them, and nothing writes to it after the freeze.
- * Token and document id strings live as UTF-8 blobs and decode lazily on
- * whichever thread touches them. The small plain fields, field names, enum
- * values, and surface forms, still clone per worker.
+ * The snapshot holds the token, document id, and surface form strings as
+ * UTF-8 blobs, which a thread decodes only when it reads them. Each worker
+ * still clones the small plain fields, the field names and the enum values.
  *
  * @internal
  */
-export interface SharedSegmentSnapshot extends SegmentColumns {
+export interface SharedSegmentSnapshot extends Omit<SegmentColumns, 'surfaceForms'> {
   segmentId: string
   tokenTable: FrozenTokenTableData
   idTable: ExternalIdTableData
   documentTable: EncodedDocumentTableData
+  /** The surface forms packed flat, or null where the segment holds none. */
+  surfaceTable: SurfaceTableData | null
 }
 
 function sharedUint32(source: Uint32Array): Uint32Array {
@@ -45,6 +48,13 @@ function sharedFloat64(source: Float64Array): Float64Array {
   const copy = new Float64Array(new SharedArrayBuffer(source.length * 8))
   copy.set(source)
   return copy
+}
+
+function sharedSurfaceTable(payload: SegmentPayload): SurfaceTableData | null {
+  if (payload.surfaceForms === null) return null
+  const table = encodeSurfaceTable(payload.surfaceForms)
+  if (table.counts.length === 0) return null
+  return { blob: sharedUint8(table.blob), offsets: sharedUint32(table.offsets), counts: sharedUint32(table.counts) }
 }
 
 export function freezeSegmentShared(
@@ -127,6 +137,6 @@ export function freezeEncodedSegmentShared(
       latitudes: sharedFloat64(entry.latitudes),
       longitudes: sharedFloat64(entry.longitudes),
     })),
-    surfaceForms: payload.surfaceForms,
+    surfaceTable: sharedSurfaceTable(payload),
   }
 }
