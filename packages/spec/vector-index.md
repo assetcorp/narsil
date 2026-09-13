@@ -42,6 +42,7 @@ SearchOptions {
   minSimilarity: float32 or absent
   filterDocIds:  Set<string> or absent
   efSearch:      uint16 or absent
+  oversample:    float32 or absent
 }
 
 ScoredResult {
@@ -74,6 +75,17 @@ Returns up to `k` vectors closest to `query`, ordered by similarity, with the hi
 See [Filtered Search](#filtered-search) for what `filterDocIds` does, and [algorithms.md](algorithms.md) for the metric definitions.
 
 `efSearch` sets the HNSW exploration factor. When it is absent the implementation uses its own default, recommended at 50. A higher value raises recall and costs latency.
+
+`oversample` sets how deep a [quantised](#quantisation) index re-scores against full-precision vectors:
+
+```text
+depth      = ceiling(k * oversample)
+candidates = traverse the graph by estimated distance with ef = maximum(efSearch, depth)
+rescored   = the depth nearest candidates, scored by the metric on full-precision vectors
+return the best k of rescored
+```
+
+An implementation must reject an `oversample` that is not a finite number of at least 1 with `CONFIG_INVALID`. It must ignore `oversample` on an index whose quantisation is `none`. When `oversample` is absent the implementation uses its own default, recommended at 3 for `osq1` and `osq2` and at 2 for `osq4` and `sq8`.
 
 ### getVector(docId)
 
@@ -253,19 +265,19 @@ That keeps the search exploring enough candidates to find `k` results that pass 
 
 ---
 
-## Scalar Quantisation (SQ8)
+## Quantisation
 
-SQ8 compresses a float32 vector into uint8 values, cutting memory to a quarter. The quantised vectors give fast approximate distances during graph traversal, and the full-precision vectors stay for the final rescoring.
-
-The quantisation formula, the calibration process, and the distance computation are in [Scalar Quantisation (SQ8)](algorithms.md#scalar-quantisation-sq8).
+A quantised index stores a compact code for every vector as well as the full-precision vector. A search ranks candidates by distances estimated from the codes and then re-scores the nearest of them against their full-precision vectors, as [search](#searchquery-k-options) defines.
 
 ```text
 VectorIndexConfig {
-  quantization: 'sq8' or 'none'   (default 'sq8')
+  quantization: 'sq8' or 'osq4' or 'osq2' or 'osq1' or 'none'   (default 'sq8')
 }
 ```
 
-With `sq8` selected, the index calibrates its quantiser when the HNSW promotion threshold is reached, and recalibrates during `compact`.
+An `sq8` index stores one byte per dimension, as [Scalar Quantisation (SQ8)](algorithms.md#scalar-quantisation-sq8) defines. An `osq4`, `osq2`, or `osq1` index stores four, two, or one bits per dimension, as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines. An index set to `none` stores no code.
+
+A quantised index calibrates its quantiser once its vector count reaches the HNSW promotion threshold, and it calibrates again during `compact`.
 
 ---
 
@@ -319,7 +331,7 @@ Search runs in two tiers:
 
 The default promotion threshold is 1,024 vectors, and each index can set its own through the vector index configuration.
 
-Reaching the threshold triggers three steps: calibrate the quantiser across every vector in the store, when SQ8 is on; build the HNSW graph from every vector; and switch the search backend from brute force to HNSW.
+Reaching the threshold triggers three steps: calibrate the quantiser across every vector in the store, when quantisation is on; build the HNSW graph from every vector; and switch the search backend from brute force to HNSW.
 
 ### Promotion Contract
 
@@ -381,7 +393,7 @@ This specification prescribes none of those. The recall floors in [Cross-Impleme
 VectorIndexConfig {
   threshold:       uint32           (promotion threshold, default 1024)
   filterThreshold: float32          (selectivity fallback, default 0.03)
-  quantization:    'sq8' or 'none'  (default 'sq8')
+  quantization:    'sq8' or 'osq4' or 'osq2' or 'osq1' or 'none'  (default 'sq8')
   hnswConfig {
     m:              uint8    (maximum connections, default 16)
     efConstruction: uint16   (build quality, default 200)

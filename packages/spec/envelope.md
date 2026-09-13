@@ -224,6 +224,7 @@ VectorData {
   vectors:    List<EmbeddedVectorEntry>
   hnsw_graph: EmbeddedHnswGraph or nil
   sq8:        EmbeddedSQ8Data or absent
+  osq:        OSQData or absent
 }
 
 EmbeddedVectorEntry {
@@ -249,7 +250,7 @@ EmbeddedSQ8Data {
 }
 ```
 
-`HnswNode` is defined under [Vector Index Payload](#vector-index-payload). The embedded form carries at most one graph per field, and a reader treats an unrecognised `metric` value as absent.
+[Vector Index Payload](#vector-index-payload) defines `HnswNode` and `OSQData`. The embedded form carries at most one graph per field, and a reader treats an unrecognised `metric` value as absent.
 
 ---
 
@@ -306,6 +307,7 @@ A version 1 vector index payload is a MessagePack map:
   vectors:   List<VectorEntry>
   graphs:    List<HnswGraph>
   sq8:       SQ8Data or nil
+  osq:       OSQData or nil
 }
 
 VectorEntry {
@@ -338,11 +340,27 @@ SQ8Data {
   vectorSums:       Map<string, float32>
   vectorSumSqs:     Map<string, float32>
 }
+
+OSQData {
+  bits:     uint8                    (4, 2, or 1)
+  centroid: List<float32>
+  vectors:  Map<string, OSQVector>
+}
+
+OSQVector = [
+  codes:      bytes,     (bits planes of ceiling(dimension / 8) bytes each)
+  lower:      float32,
+  upper:      float32,
+  correction: float32,
+  sum:        uint32
+]
 ```
 
 `graphs` is a list. An implementation holding one graph writes a list of length 1, and a segment-based implementation writes one graph per segment. The `vectors` list stays flat, with one entry per document whatever the graph count, and graphs reference vectors by `docId`.
 
 An empty `graphs` list means the implementation searches by brute force, because the vector count has not reached the promotion threshold.
+
+A writer must set `osq`, with `bits` matching the mode, for a calibrated index whose quantisation is `osq4`, `osq2`, or `osq1`. It must write nil for every other index. `OSQVector` holds one document's code, packed as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines.
 
 ---
 
@@ -398,7 +416,7 @@ VectorPromotionMeta {
   threshold:        uint32                                                  (optional)
   filter_threshold: float64                                                 (optional; a selectivity ratio between 0 and 1)
   hnsw_config:      { m: uint32, ef_construction: uint32, metric: string }  (optional; each key optional)
-  quantization:     string                                                  (optional; "sq8" or "none")
+  quantization:     string                                                  (optional; "sq8", "osq4", "osq2", "osq1", or "none")
 }
 ```
 
@@ -489,7 +507,7 @@ VectorSnapshotPromotion {
   threshold:       uint32                                                 (optional)
   filterThreshold: float64                                                (optional; a selectivity ratio between 0 and 1)
   hnswConfig:      { m: uint32, efConstruction: uint32, metric: string }  (optional; each key optional)
-  quantization:    string                                                 (optional; "sq8" or "none")
+  quantization:    string                                                 (optional; "sq8", "osq4", "osq2", "osq1", or "none")
 }
 
 EmbeddingSnapshotConfig {

@@ -605,7 +605,7 @@ Three properties follow:
 
 ## Scalar Quantisation (SQ8)
 
-SQ8 compresses a float32 vector into uint8 values, cutting the memory a stored vector needs to a quarter. Quantised vectors give fast approximate distances during graph traversal, and the full-precision vectors stay for the final rescoring.
+SQ8 quantises each float32 component of a vector to one uint8 value. A search ranks candidates by their quantised distances and then re-scores the nearest of them against the full-precision vectors, which the index keeps.
 
 ### Quantisation Formula
 
@@ -703,10 +703,142 @@ The magnitude formula expands `dequantize` inside the sum of squares, which is w
 
 ### Properties
 
-- **Memory.** One byte per dimension replaces four, a fourfold reduction.
-- **Speed.** The integer inner loop benefits from SIMD. Without SIMD, SQ8 buys memory rather than speed; with it, the integer loop runs considerably faster than the float32 equivalent.
+- **Memory.** The index holds a code of one byte per dimension in addition to each float32 vector.
+- **Speed.** Where SIMD is available, a quantised comparison takes less time than a float32 comparison.
 - **Accuracy.** A global `alpha` and `offset`, shared across every dimension, matches float32 HNSW recall for typical embedding distributions. Accuracy falls off when the value distribution varies sharply between dimensions.
 
 ### Recalibration
 
-`compact` recalibrates the SQ8 parameters, so that removing documents cannot leave the quantiser tuned to a distribution the index no longer holds. See [Scalar Quantisation (SQ8)](vector-index.md#scalar-quantisation-sq8).
+`compact` recalibrates the SQ8 parameters, so that the quantiser always fits the vectors the index holds. See [Quantisation](vector-index.md#quantisation).
+
+---
+
+## Optimised Scalar Quantisation (OSQ)
+
+OSQ quantises each vector against a centroid, over an interval it fits to that vector, as Lucene's optimised scalar quantisation does. A document code holds 4, 2, or 1 bits per dimension for `osq4`, `osq2`, or `osq1`, while a query code always holds 4.
+
+### Centroid
+
+Calibration computes the centroid from every vector in the store, then quantises each vector against that centroid. An index that has no vectors skips calibration.
+
+```text
+centroid(vectors: List<List<float32>>, metric) -> List<float32>
+  sums = a list of dimension zeros
+  for each v in vectors:
+    when metric is cosine:
+      v = unitNormalise(v)
+    sums = sums + v
+  c = sums divided by the number of vectors
+  when metric is cosine:
+    c = unitNormalise(c)
+  return c
+
+unitNormalise(v: List<float32>) -> List<float32>
+  when magnitude(v) is 0:
+    return v
+  return v divided by magnitude(v)
+```
+
+### Quantisation
+
+`dimension` is the number of components in every vector. `clamp(t, low, high)` returns `minimum(maximum(t, low), high)`. [Similarity Functions](#similarity-functions) defines `dot` and `magnitude`.
+
+```text
+GRID   = { 1: 0.798, 2: 1.493, 4: 2.514 }
+STEPS  = { 1: 1, 2: 3, 4: 15 }
+LAMBDA = 0.1
+
+OSQCode {
+  codes:      List<uint8>   (one level per dimension)
+  lower:      float32
+  upper:      float32
+  correction: float32
+  sum:        uint32
+}
+
+quantize(v: List<float32>, c: List<float32>, bits: uint8, metric) -> OSQCode
+  when metric is cosine:
+    v = unitNormalise(v)
+  x = v - c
+  when metric is euclidean:
+    correction = dot(x, x)
+  otherwise:
+    correction = dot(v, c)
+  mean  = (SUM over i of x[i]) / dimension
+  std   = squareRoot((SUM over i of (x[i] - mean) * (x[i] - mean)) / dimension)
+  lower = clamp(mean - GRID[bits] * std, minimum(x), maximum(x))
+  upper = clamp(mean + GRID[bits] * std, minimum(x), maximum(x))
+  lower, upper = refine(x, lower, upper, STEPS[bits])
+  for i from 0 to dimension - 1:
+    codes[i] = level(x[i], lower, upper, STEPS[bits])
+  return { codes, lower, upper, correction, sum: SUM over i of codes[i] }
+
+level(t: float32, lower: float32, upper: float32, steps: uint8) -> uint8
+  when upper equals lower:
+    return 0
+  return floor((clamp(t, lower, upper) - lower) * steps / (upper - lower) + 0.5)
+
+refine(x: List<float32>, lower: float32, upper: float32, steps: uint8) -> lower, upper
+  norm = dot(x, x)
+  when norm is 0 or upper equals lower:
+    return lower, upper
+  best = loss(x, lower, upper, steps, norm)
+  repeat 5 times:
+    daa = dab = dbb = dax = dbx = 0
+    for i from 0 to dimension - 1:
+      s   = level(x[i], lower, upper, steps) / steps
+      daa = daa + (1 - s) * (1 - s)
+      dab = dab + (1 - s) * s
+      dbb = dbb + s * s
+      dax = dax + x[i] * (1 - s)
+      dbx = dbx + x[i] * s
+    m0  = (1 - LAMBDA) * dax * dax / norm + LAMBDA * daa
+    m1  = (1 - LAMBDA) * dax * dbx / norm + LAMBDA * dab
+    m2  = (1 - LAMBDA) * dbx * dbx / norm + LAMBDA * dbb
+    det = m0 * m2 - m1 * m1
+    when det is 0:
+      return lower, upper
+    a = (m2 * dax - m1 * dbx) / det
+    b = (m0 * dbx - m1 * dax) / det
+    when absolute(a - lower) < 1e-8 and absolute(b - upper) < 1e-8:
+      return lower, upper
+    candidate = loss(x, a, b, steps, norm)
+    when candidate > best:
+      return lower, upper
+    lower, upper, best = a, b, candidate
+  return lower, upper
+
+loss(x: List<float32>, lower: float32, upper: float32, steps: uint8, norm: float32) -> float64
+  xe = e = 0
+  for i from 0 to dimension - 1:
+    q  = lower + (upper - lower) * level(x[i], lower, upper, steps) / steps
+    xe = xe + x[i] * (x[i] - q)
+    e  = e + (x[i] - q) * (x[i] - q)
+  return (1 - LAMBDA) * xe * xe / norm + LAMBDA * e
+```
+
+A search must quantise the query with `quantize(query, c, 4, metric)`, whatever `bits` the index uses.
+
+### Packing
+
+A packed code holds one plane of `ceiling(dimension / 8)` bytes per bit, so a document code occupies `bits * ceiling(dimension / 8)` bytes beside its `lower`, `upper`, `correction`, and `sum`. Plane `j` holds bit `j` of every level, with level `i` at bit `7 - (i mod 8)` of byte `floor(i / 8)`. Every bit after the last level holds 0.
+
+### Estimated Similarity
+
+```text
+estimate(d: OSQCode, q: OSQCode, bits: uint8, c: List<float32>, metric) -> float32
+  dStep   = (d.upper - d.lower) / STEPS[bits]
+  qStep   = (q.upper - q.lower) / 15
+  centred = d.lower * q.lower * dimension
+          + q.lower * dStep * d.sum
+          + d.lower * qStep * q.sum
+          + dStep * qStep * (SUM over i of d.codes[i] * q.codes[i])
+  when metric is euclidean:
+    return squareRoot(maximum(0, d.correction + q.correction - 2 * centred))
+  similarity = centred + d.correction + q.correction - dot(c, c)
+  when metric is cosine:
+    return clamp(similarity, -1, 1)
+  return similarity
+```
+
+`popcount` counts the set bits across a plane's bytes. The sum of level products equals `SUM over document planes j and query planes p of power(2, j + p) * popcount(document plane j AND query plane p)`, so an implementation may compute it from the packed planes. A search ranks candidates by `estimate` and then re-scores the nearest of them against their full-precision vectors, as [search](vector-index.md#searchquery-k-options) defines.
