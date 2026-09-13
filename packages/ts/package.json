@@ -34,6 +34,10 @@
     "#platform/heap-statistics": {
       "browser": "./src/runtime/heap-statistics.browser.ts",
       "default": "./src/runtime/heap-statistics.ts"
+    },
+    "#platform/vector-file": {
+      "browser": "./src/vector/vector-store/vector-file.browser.ts",
+      "default": "./src/vector/vector-store/vector-file.ts"
     }
   },
   "sideEffects": false,
