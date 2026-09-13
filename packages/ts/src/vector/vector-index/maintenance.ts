@@ -5,6 +5,7 @@ import { ESTIMATED_MS_PER_TOMBSTONE, ESTIMATED_MS_PER_VECTOR_REBUILD } from './c
 import {
   adoptGraph,
   allLiveDocIds,
+  calibrateQuantizer,
   graphNeedsRebuild,
   liveSize,
   type MaintenanceStatus,
@@ -83,6 +84,52 @@ export async function optimize(state: VectorIndexState): Promise<void> {
     if (state.buffer.size > 0) {
       scheduleBuild(state)
     }
+  }
+}
+
+async function fillGraph(state: VectorIndexState): Promise<void> {
+  const graph = state.hnsw
+  if (graph === null) {
+    calibrateQuantizer(state)
+    await buildGraphFromStore(state)
+    return
+  }
+  if (state.osq && !state.osq.isCalibrated()) calibrateQuantizer(state)
+  if (graphNeedsRebuild(state)) {
+    await buildGraphFromStore(state)
+    return
+  }
+  await insertMissing(state, graph)
+}
+
+/**
+ * Places every live vector in the graph and resolves once every one is in.
+ * The field builds a graph where it holds none and holds at least the
+ * promotion threshold of vectors, builds it afresh where callers have removed
+ * enough vectors to warrant that, and places the missing vectors in the graph
+ * it holds otherwise. A field holding fewer vectors than the threshold and no
+ * graph keeps searching them exactly.
+ *
+ * @param state The index to complete.
+ *
+ * @internal
+ */
+export async function completeGraph(state: VectorIndexState): Promise<void> {
+  while (state.pendingBuild) {
+    await state.pendingBuild
+  }
+  if (state.disposed || liveSize(state) === 0) return
+  if (state.hnsw === null && liveSize(state) < state.promotionThreshold) return
+
+  state.building = true
+  const work = fillGraph(state)
+  state.pendingBuild = work
+
+  try {
+    await work
+  } finally {
+    state.building = false
+    state.pendingBuild = null
   }
 }
 

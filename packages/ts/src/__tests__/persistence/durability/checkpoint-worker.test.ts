@@ -1,18 +1,22 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNarsil } from '../../../narsil'
+import type { CheckpointWorkerMessage } from '../../../persistence/durability/checkpoint-worker'
 import {
   __failNextCheckpointWorkerForTests,
   resetCheckpointWorkerLatch,
+  runWorker,
+  type WorkerHandle,
 } from '../../../persistence/durability/checkpoint-worker-dispatch'
 import { readCommitMarker } from '../../../persistence/durability/commit-marker'
-import { DEFAULT_COMPACTION_THRESHOLD } from '../../../persistence/durability/constants'
+import { CHECKPOINT_WORKER_TIMEOUT_MS, DEFAULT_COMPACTION_THRESHOLD } from '../../../persistence/durability/constants'
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
 import { rebuildSnapshotFromDurable } from '../../../persistence/durability/rebuild'
 import { loadMetadata } from '../../../persistence/durability/recovery'
 import { SINGLE_NODE_PRIMARY_TERM } from '../../../persistence/durability/seq-owner'
+import type { IndexMetadata } from '../../../types/internal'
 import type { IndexConfig } from '../../../types/schema'
 
 const SCHEMA: IndexConfig = {
@@ -154,6 +158,45 @@ describe('off-thread checkpoint worker', () => {
     const reader = await createNarsil({ durability: { directory: root } })
     expect(await reader.countDocuments('docs')).toBe(15)
     await reader.shutdown()
+  })
+
+  it('waits out a checkpoint that outlasts the timeout while the worker keeps sending heartbeats', async () => {
+    vi.useFakeTimers()
+    try {
+      const handlers = new Map<string, (...args: unknown[]) => void>()
+      const emit = (message: CheckpointWorkerMessage): void => handlers.get('message')?.(message)
+      const pause = Math.floor(CHECKPOINT_WORKER_TIMEOUT_MS * 0.9)
+      const outcome = { documentCount: 3, vectorLayouts: [], garbage: [] }
+      const worker: WorkerHandle = {
+        postMessage: () => {
+          for (let beat = 1; beat <= 3; beat += 1) setTimeout(() => emit({ type: 'heartbeat' }), beat * pause)
+          setTimeout(() => emit({ type: 'success', outcome }), 4 * pause)
+        },
+        on: (event, handler) => {
+          handlers.set(event, handler)
+        },
+        off: event => {
+          handlers.delete(event)
+        },
+        terminate: () => {},
+      }
+
+      const metadata: IndexMetadata = {
+        indexName: 'docs',
+        schema: { title: 'string' },
+        language: 'english',
+        partitionCount: 1,
+        bm25Params: { k1: 1.2, b: 0.75 },
+        createdAt: 0,
+        engineVersion: '0',
+      }
+      const run = runWorker(worker, { root, metadata, targets: [], compactionThreshold: 1 })
+      await vi.advanceTimersByTimeAsync(4 * pause + 1)
+
+      expect(await run).toEqual({ written: outcome, timedOut: false })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('checkpoints a freshly created empty index without error', async () => {
