@@ -3,7 +3,12 @@ import type { EnvelopeParts } from '../../serialization/envelope'
 import type { VectorIndex, VectorIndexPayload } from '../../vector/vector-index'
 import { readCommitMarker } from './commit-marker'
 import type { DurableDirectory } from './durable-filesystem'
-import { encodeSnapshotBundle, type PartitionCheckpoint, type SnapshotBundle } from './snapshot-bundle'
+import {
+  encodeSnapshotBundle,
+  type PartitionCheckpoint,
+  SNAPSHOT_BUNDLE_VERSION,
+  type SnapshotBundle,
+} from './snapshot-bundle'
 
 export interface CheckpointInput {
   indexName: string
@@ -42,13 +47,13 @@ export async function buildSnapshotBundleBytes(
     })
   }
 
-  const vectorPayloads: Record<string, VectorIndexPayload> = {}
+  const vectorPayloads: Record<string, VectorIndexPayload[]> = {}
   for (const [fieldPath, vecIndex] of input.vectorIndexes) {
     vectorPayloads[fieldPath] = vecIndex.serialize()
   }
 
   const bundle: SnapshotBundle = {
-    version: 1,
+    version: SNAPSHOT_BUNDLE_VERSION,
     schema: input.schema,
     language: input.language,
     ...(input.analysisRevision !== undefined ? { analysisRevision: input.analysisRevision } : {}),

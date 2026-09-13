@@ -69,7 +69,7 @@ function mergeFieldLengths(
 function mergeSurfaceForms(inputs: readonly SegmentRemap[]): SerializedSurfaceForms | null {
   const registry = createSurfaceRegistry()
   for (const input of inputs) {
-    const forms = input.segment.arrays.surfaceForms
+    const forms = input.segment.arrays.readSurfaceForms()
     if (forms === null) continue
     for (const surface of Object.keys(forms)) {
       const value = forms[surface]

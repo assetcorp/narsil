@@ -36,6 +36,8 @@ export interface DurableDirectory {
   read(key: string): Promise<Uint8Array | null>
   remove(key: string): Promise<void>
   list(prefix: string): Promise<string[]>
+  /** Reports the absolute path a key maps to, which a reader opening the file by position needs. */
+  pathOf(key: string): Promise<string>
 }
 
 function wrapFsyncError(err: unknown, key: string): never {
@@ -267,6 +269,11 @@ export function createDurableDirectory(root: string): DurableDirectory {
       const resolvedBase = pathMod.resolve(root)
       const all = await listRecursive(resolvedBase, resolvedBase, pathMod, fs)
       return all.filter(entry => entry.startsWith(prefix)).sort(compareCodePoints)
+    },
+
+    async pathOf(key: string): Promise<string> {
+      const { path: filePath } = await resolve(key)
+      return filePath
     },
   }
 }

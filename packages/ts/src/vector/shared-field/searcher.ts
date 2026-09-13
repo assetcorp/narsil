@@ -99,7 +99,7 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
   }
 
   function hitsFor(query: Float32Array, k: number, searchOptions: VectorSearchOptions, filter?: OrdinalFilter) {
-    const { metric, minSimilarity, efSearch } = searchOptions
+    const { metric, minSimilarity, efSearch, oversample } = searchOptions
     const liveSize = view.liveSize
     const graph = view.graph
     if (
@@ -110,7 +110,7 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
     ) {
       return bruteForceOrdinals(graph, view.docIdOf, query, k, metric, minSimilarity, filter)
     }
-    return view.searchOrdinals(query, k, metric, minSimilarity, filter, efSearch)
+    return view.searchOrdinals(query, k, metric, minSimilarity, { filter, efSearch, oversample })
   }
 
   return {

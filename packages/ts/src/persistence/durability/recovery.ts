@@ -56,10 +56,10 @@ export async function loadSnapshotBundleBytes(bytes: Uint8Array, deps: ReplayDep
   for (let i = 0; i < bundle.partitions.length; i += 1) {
     deps.manager.deserializePartition(i, deserializePayloadV2(bundle.partitions[i]))
   }
-  for (const [fieldPath, payload] of Object.entries(bundle.vectorIndexes)) {
+  for (const [fieldPath, parts] of Object.entries(bundle.vectorIndexes)) {
     const vecIndex = deps.vectorIndexes.get(fieldPath)
     if (vecIndex) {
-      vecIndex.deserialize(payload)
+      vecIndex.deserialize(parts)
     }
   }
   return bundle.checkpoint
@@ -71,14 +71,10 @@ export async function loadSnapshot(
   deps: ReplayDeps,
 ): Promise<PartitionCheckpoint[]> {
   const manifest = await readSegmentManifest(directory, indexName)
-  if (manifest !== null) {
-    return loadSegmentedSnapshot(directory, indexName, manifest, deps)
-  }
-  const bytes = await directory.read(`${indexName}/snapshot`)
-  if (bytes === null) {
+  if (manifest === null) {
     return []
   }
-  return loadSnapshotBundleBytes(bytes, deps)
+  return loadSegmentedSnapshot(directory, indexName, manifest, deps)
 }
 
 function segmentStartSeqNo(key: string, prefix: string): number | null {

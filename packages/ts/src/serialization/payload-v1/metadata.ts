@@ -1,4 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
+import { ErrorCodes, NarsilError } from '../../errors'
+import { isQuantizationMode, isStorageMode } from '../../schema/validator/vector-promotion'
 import type { IndexMetadata } from '../../types/internal'
 import type { VectorIndexConfig } from '../../types/schema'
 
@@ -28,6 +30,7 @@ interface RawMetadataPayload {
     filter_threshold?: unknown
     hnsw_config?: { m?: unknown; ef_construction?: unknown; metric?: unknown }
     quantization?: unknown
+    storage?: unknown
   }
   index_uuid?: unknown
   held_partitions?: unknown
@@ -110,6 +113,7 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
           }
         : {}),
       ...(promotion.quantization !== undefined ? { quantization: promotion.quantization } : {}),
+      ...(promotion.storage !== undefined ? { storage: promotion.storage } : {}),
     }
   }
   if (meta.indexUuid !== undefined) {
@@ -132,6 +136,15 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
     engineVersion: raw.engine_version ?? '0.0.0',
   }
   if (raw.vector_fields) {
+    for (const [fieldPath, field] of Object.entries(raw.vector_fields)) {
+      if (!isQuantizationMode(field.quantization)) {
+        throw new NarsilError(
+          ErrorCodes.CONFIG_INVALID,
+          `Index metadata names a vector quantization "${String(field.quantization)}" for "${fieldPath}" this engine does not read`,
+          { fieldPath, quantization: field.quantization },
+        )
+      }
+    }
     meta.vectorFields = raw.vector_fields
   }
   if (isNonNegativeInteger(raw.document_count) && Number.isSafeInteger(raw.document_count)) {
@@ -208,8 +221,25 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
     if (Object.keys(hnswConfig).length > 0) {
       restored.hnswConfig = hnswConfig
     }
-    if (promotion.quantization === 'sq8' || promotion.quantization === 'none') {
+    if (promotion.quantization !== undefined) {
+      if (!isQuantizationMode(promotion.quantization)) {
+        throw new NarsilError(
+          ErrorCodes.CONFIG_INVALID,
+          `Index metadata names a vector quantisation "${String(promotion.quantization)}" this engine does not read`,
+          { quantization: promotion.quantization },
+        )
+      }
       restored.quantization = promotion.quantization
+    }
+    if (promotion.storage !== undefined) {
+      if (!isStorageMode(promotion.storage)) {
+        throw new NarsilError(
+          ErrorCodes.CONFIG_INVALID,
+          `Index metadata names a vector storage "${String(promotion.storage)}" this engine does not read`,
+          { storage: promotion.storage },
+        )
+      }
+      restored.storage = promotion.storage
     }
     if (Object.keys(restored).length > 0) {
       meta.vectorPromotion = restored

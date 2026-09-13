@@ -2,6 +2,7 @@ import { spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime } from '../../runtime/detect'
 import type { CheckpointWorkerMessage, CheckpointWorkerRequest } from './checkpoint-worker'
 import { CHECKPOINT_TIMEOUT_RECOVERY_BACKOFF_MS, CHECKPOINT_WORKER_TIMEOUT_MS } from './constants'
+import type { SegmentedCheckpointOutcome } from './segment'
 
 interface WorkerHandle {
   postMessage(msg: unknown, transfer?: ArrayBuffer[]): void
@@ -52,7 +53,7 @@ function discardWorker(worker: WorkerHandle): void {
 }
 
 interface WorkerRunOutcome {
-  ok: boolean
+  written: SegmentedCheckpointOutcome | null
   timedOut: boolean
 }
 
@@ -63,21 +64,21 @@ function runWorker(worker: WorkerHandle, request: CheckpointWorkerRequest): Prom
     const onMessage = (msg: unknown): void => {
       const response = msg as CheckpointWorkerMessage
       if (response.type === 'success') {
-        settle({ ok: true, timedOut: false }, false)
+        settle({ written: response.outcome, timedOut: false }, false)
       } else {
-        settle({ ok: false, timedOut: false }, true)
+        settle({ written: null, timedOut: false }, true)
       }
     }
 
     const onError = (): void => {
-      settle({ ok: false, timedOut: false }, true)
+      settle({ written: null, timedOut: false }, true)
     }
 
     const onExit = (): void => {
-      settle({ ok: false, timedOut: false }, true)
+      settle({ written: null, timedOut: false }, true)
     }
 
-    const timeoutId = setTimeout(() => settle({ ok: false, timedOut: true }, true), CHECKPOINT_WORKER_TIMEOUT_MS)
+    const timeoutId = setTimeout(() => settle({ written: null, timedOut: true }, true), CHECKPOINT_WORKER_TIMEOUT_MS)
     if (typeof (timeoutId as { unref?: () => void }).unref === 'function') {
       ;(timeoutId as { unref: () => void }).unref()
     }
@@ -104,7 +105,7 @@ function runWorker(worker: WorkerHandle, request: CheckpointWorkerRequest): Prom
     try {
       worker.postMessage(request)
     } catch {
-      settle({ ok: false, timedOut: false }, true)
+      settle({ written: null, timedOut: false }, true)
     }
   })
 }
@@ -118,17 +119,26 @@ function delay(ms: number): Promise<void> {
   })
 }
 
-export async function runCheckpointOnWorker(request: CheckpointWorkerRequest): Promise<boolean> {
+/**
+ * Writes a checkpoint on the pooled worker thread and reports what it wrote.
+ * It reports null where no worker could take the write, in which case the
+ * caller writes the checkpoint in process.
+ *
+ * @internal
+ */
+export async function runCheckpointOnWorker(
+  request: CheckpointWorkerRequest,
+): Promise<SegmentedCheckpointOutcome | null> {
   if (failNextWorkerForTests) {
     failNextWorkerForTests = false
-    return false
+    return null
   }
   const runtime = detectRuntime()
   if (!runtime.supportsWorkerThreads || !runtime.supportsFileSystem || !workerUsable) {
-    return false
+    return null
   }
   if (workerBusy) {
-    return false
+    return null
   }
 
   workerBusy = true
@@ -139,17 +149,17 @@ export async function runCheckpointOnWorker(request: CheckpointWorkerRequest): P
     const worker = pooledWorker
     if (worker === null) {
       workerUsable = false
-      return false
+      return null
     }
 
     const outcome = await runWorker(worker, request)
-    if (outcome.ok) {
-      return true
+    if (outcome.written !== null) {
+      return outcome.written
     }
     if (outcome.timedOut) {
       await delay(CHECKPOINT_TIMEOUT_RECOVERY_BACKOFF_MS)
     }
-    return false
+    return null
   } finally {
     workerBusy = false
   }

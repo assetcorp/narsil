@@ -22,7 +22,7 @@ interface RawSegmentRef {
 interface RawVectorRef {
   fieldPath?: string
   generation?: number
-  key?: string
+  keys?: unknown
 }
 
 interface RawPartitionEntry {
@@ -192,13 +192,19 @@ function normalizeVectors(raw: RawVectorRef[] | undefined, partitionId: number):
   }
   const result: VectorSegmentRef[] = []
   for (const vector of raw) {
-    if (typeof vector?.fieldPath !== 'string' || !isNonNegativeInteger(vector.generation) || !isKey(vector.key)) {
+    if (
+      typeof vector?.fieldPath !== 'string' ||
+      !isNonNegativeInteger(vector.generation) ||
+      !Array.isArray(vector.keys) ||
+      vector.keys.length === 0 ||
+      !vector.keys.every(isKey)
+    ) {
       throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Segment manifest has an invalid vector reference', {
         partitionId,
         vector,
       })
     }
-    result.push({ fieldPath: vector.fieldPath, generation: vector.generation, key: vector.key })
+    result.push({ fieldPath: vector.fieldPath, generation: vector.generation, keys: [...vector.keys] })
   }
   return result
 }

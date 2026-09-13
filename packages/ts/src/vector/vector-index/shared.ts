@@ -1,11 +1,14 @@
+import type { VectorQuantizationMode, VectorStorageMode } from '../../types/schema'
 import type { VectorMetric } from '../brute-force'
-import type { HNSWConfig, HNSWIndex, SerializedHNSWGraph } from '../hnsw'
+import type { HNSWConfig, HNSWIndex } from '../hnsw'
 import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter, removeFromOrdinalFilter } from '../ordinal-filter'
-import type { ScalarQuantizer, SerializedSQ8 } from '../scalar-quantization-types'
+import type { OsqQuantizer } from '../osq'
 import type { VectorSearchPool } from '../search-pool'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../shared-field/types'
 import type { VectorStore } from '../vector-store'
 import { REBUILD_REMOVED_RATIO } from './constants'
+
+export type { VectorIndexPayload } from './payload'
 
 export interface VectorScoredResult {
   docId: string
@@ -19,6 +22,8 @@ export interface VectorSearchOptions {
   /** The partitions the search may answer from, which the index resolves to ordinals itself. */
   filterPartitions?: ReadonlySet<number>
   efSearch?: number
+  /** A quantised index re-scores this many times the requested count against full precision. */
+  oversample?: number
 }
 
 /**
@@ -82,14 +87,6 @@ export interface MaintenanceStatus {
   estimatedOptimizeMs: number
 }
 
-export interface VectorIndexPayload {
-  fieldName: string
-  dimension: number
-  vectors: Array<{ docId: string; vector: number[] }>
-  graphs: Array<SerializedHNSWGraph>
-  sq8: SerializedSQ8 | null
-}
-
 /**
  * The worker threads hold a field in place over shared memory, as a cloned
  * copy where the runtime shares no memory, or on the request threads.
@@ -105,13 +102,16 @@ export interface VectorIndexState {
   readonly dimensionScale: number
   readonly promotionThreshold: number
   readonly filterThreshold: number
-  readonly quantizationMode: 'sq8' | 'none'
+  readonly quantizationMode: VectorQuantizationMode
+  readonly storage: VectorStorageMode
+  /** The graph ranks by this metric, and the quantiser takes the codes under it. */
+  readonly metric: VectorMetric
   readonly hnswConfig: HNSWConfig | undefined
   readonly workerCopies: VectorWorkerCopyPolicy
   readonly store: VectorStore
   readonly tombstones: Set<string>
   readonly buffer: Set<string>
-  sq8: ScalarQuantizer | null
+  osq: OsqQuantizer | null
   hnsw: HNSWIndex | null
   /** The graph a build is filling from the store, which a replacement retires its old ordinal in. */
   freshGraph: HNSWIndex | null
@@ -128,14 +128,24 @@ export interface VectorIndexState {
   workerCopyLoading: boolean
   /** This maps each graph the threads hold to its handle and the way they hold it, and the null key stands for the vectors alone. */
   readonly sharedHandles: Map<HNSWIndex | null, { handle: string; searchable: boolean; mode: WorkerCopyMode }>
-  /** The threads hold this many blocks, so the index sends the handles again once the store adds one. */
-  sharedBlockCount: number
+  /** The threads opened the store at this layout revision, so the index sends the handles again once the store adds or releases a block or a file. */
+  sharedLayoutRevision: number
   /** This is the share in flight, which the index chains so that two shares stay apart. */
   sharing: Promise<void>
 }
 
 export function liveSize(state: VectorIndexState): number {
   return state.store.size - state.tombstones.size
+}
+
+/**
+ * Reports whether the threads opened the store at its current layout. Adding
+ * or releasing a block, or adding a file, changes the layout.
+ *
+ * @internal
+ */
+export function threadsHoldCurrentLayout(state: VectorIndexState): boolean {
+  return state.sharedLayoutRevision === state.store.handles.layoutRevision
 }
 
 /**
@@ -282,30 +292,34 @@ export function ordinalFilterForDocIds(state: VectorIndexState, docIds: Iterable
   return filter
 }
 
-export function calibrateAndQuantizeAll(state: VectorIndexState): void {
-  if (!state.sq8) return
-  if (state.store.size === 0) return
-
-  const sq8 = state.sq8
-
-  function* vectorIterator(): Iterable<Float32Array> {
-    for (const [docId, entry] of state.store.entries()) {
-      if (state.tombstones.has(docId)) continue
-      yield entry.vector
-    }
-  }
-
-  sq8.calibrate(vectorIterator())
-
+function* liveVectors(state: VectorIndexState): Iterable<Float32Array> {
   for (const [docId, entry] of state.store.entries()) {
     if (state.tombstones.has(docId)) continue
-    sq8.quantize(docId, entry.vector)
+    yield entry.vector
   }
 }
 
+/**
+ * Calibrates the quantiser's centroid over every live vector. The graph
+ * writes each vector's record as it places the vector, so a build after this
+ * call scores every placement from codes.
+ *
+ * @internal
+ */
+export function calibrateQuantizer(state: VectorIndexState): void {
+  if (state.osq === null || state.store.size === 0) return
+  state.osq.calibrate(liveVectors(state))
+}
+
+/**
+ * Calibrates the quantiser again over every live vector and rewrites every
+ * record, which `compact` requires once the live set has changed.
+ *
+ * @internal
+ */
 export function recalibrateFromStore(state: VectorIndexState): void {
-  if (!state.sq8) return
-  const sq8 = state.sq8
+  if (state.osq === null) return
+  const osq = state.osq
 
   function* storeVectors(): Iterable<[string, Float32Array]> {
     for (const [docId, entry] of state.store.entries()) {
@@ -313,7 +327,7 @@ export function recalibrateFromStore(state: VectorIndexState): void {
       yield [docId, entry.vector]
     }
   }
-  sq8.recalibrateAll(storeVectors())
+  osq.recalibrateAll(storeVectors())
 }
 
 /**
@@ -333,7 +347,8 @@ export function fieldHandlesOf(
 ): SharedVectorFieldHandles {
   return {
     dimension: state.dimension,
-    quantization: state.sq8 === null ? 'none' : 'sq8',
+    quantization: state.osq === null ? 'none' : state.quantizationMode,
+    metric: state.metric,
     store: state.store.handles,
     graph: graph === null ? null : graph.handles,
     filterThreshold: state.filterThreshold,

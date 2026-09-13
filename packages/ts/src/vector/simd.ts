@@ -136,6 +136,8 @@ export interface ArenaSimd {
   dot_u8: (ptrA: number, ptrB: number, len: number) => number
   /** Returns the integer squared distance between two byte code vectors at the given byte offsets. */
   sqdist_u8: (ptrA: number, ptrB: number, len: number) => number
+  /** Returns the sum of level products of two plane-packed codes at the given byte offsets, weighting the set bits of document plane j and query plane p by two to the power j plus p. */
+  osq_dot_planes: (ptrDoc: number, ptrQuery: number, planeBytes: number, docBits: number, queryBits: number) => number
 }
 
 let arenaModule: WebAssembly.Module | null | undefined
@@ -169,6 +171,7 @@ export function createArenaSimd(): ArenaSimd | null {
     if (
       typeof exports.dot_u8 !== 'function' ||
       typeof exports.sqdist_u8 !== 'function' ||
+      typeof exports.osq_dot_planes !== 'function' ||
       typeof exports.dot_product !== 'function' ||
       typeof exports.magnitude !== 'function' ||
       typeof exports.squared_euclidean_distance !== 'function' ||
@@ -226,6 +229,7 @@ export function createSharedArenaSimd(memory: WebAssembly.Memory): ArenaSimd | n
     if (
       typeof exports.dot_u8 !== 'function' ||
       typeof exports.sqdist_u8 !== 'function' ||
+      typeof exports.osq_dot_planes !== 'function' ||
       typeof exports.dot_product !== 'function' ||
       typeof exports.magnitude !== 'function' ||
       typeof exports.squared_euclidean_distance !== 'function'
@@ -239,6 +243,7 @@ export function createSharedArenaSimd(memory: WebAssembly.Memory): ArenaSimd | n
       squared_euclidean_distance: exports.squared_euclidean_distance,
       dot_u8: exports.dot_u8,
       sqdist_u8: exports.sqdist_u8,
+      osq_dot_planes: exports.osq_dot_planes,
     }
   } catch {
     return null

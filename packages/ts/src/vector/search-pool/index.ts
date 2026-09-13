@@ -7,7 +7,7 @@ import {
   VECTOR_SEARCH_TIMEOUT_MS,
 } from '../constants'
 import { releaseLocksHeldBy } from '../hnsw/locks'
-import type { OrdinalFilter } from '../ordinal-filter'
+import type { GraphSearchOptions } from '../hnsw/search'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../shared-field/types'
 import type { WorkerCopySnapshot } from '../worker-copy'
 import type {
@@ -40,8 +40,7 @@ export interface VectorSearchPool {
     k: number,
     metric: VectorMetric,
     minSimilarity: number,
-    efSearch?: number,
-    filter?: OrdinalFilter,
+    options?: GraphSearchOptions,
   ): Promise<WorkerCopySearchResult[]>
   searchOrdinals(
     handle: string,
@@ -49,8 +48,7 @@ export interface VectorSearchPool {
     k: number,
     metric: VectorMetric,
     minSimilarity: number,
-    efSearch?: number,
-    filter?: OrdinalFilter,
+    options?: GraphSearchOptions,
   ): Promise<OrdinalSearchResult>
   shutdown(): Promise<void>
 }
@@ -81,6 +79,16 @@ interface WorkerSlot {
  */
 export function searchPoolScratchSlot(index: number): number {
   return VECTOR_SCRATCH_SLOTS - 1 - index
+}
+
+function graphSearchOptionsOf(
+  options: GraphSearchOptions,
+): Pick<GraphSearchOptions, 'filter' | 'efSearch' | 'oversample'> {
+  return {
+    ...(options.filter !== undefined ? { filter: options.filter } : {}),
+    ...(options.efSearch !== undefined ? { efSearch: options.efSearch } : {}),
+    ...(options.oversample !== undefined ? { oversample: options.oversample } : {}),
+  }
 }
 
 export async function createVectorSearchPool(requestedCount?: number): Promise<VectorSearchPool | null> {
@@ -233,8 +241,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
       k: number,
       metric: VectorMetric,
       minSimilarity: number,
-      efSearch?: number,
-      filter?: OrdinalFilter,
+      options: GraphSearchOptions = {},
     ): Promise<WorkerCopySearchResult[]> {
       const slot = pickSlot()
       if (slot === null) throw new Error('No vector search worker is running')
@@ -248,8 +255,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
         k,
         metric,
         minSimilarity,
-        ...(filter !== undefined ? { filter } : {}),
-        ...(efSearch !== undefined ? { efSearch } : {}),
+        ...graphSearchOptionsOf(options),
       }
 
       const message = await sendBusy(slot, request, VECTOR_SEARCH_TIMEOUT_MS)
@@ -269,8 +275,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
       k: number,
       metric: VectorMetric,
       minSimilarity: number,
-      efSearch?: number,
-      filter?: OrdinalFilter,
+      options: GraphSearchOptions = {},
     ): Promise<OrdinalSearchResult> {
       const slot = pickSlot()
       if (slot === null) throw new Error('No vector search worker is running')
@@ -284,8 +289,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
         k,
         metric,
         minSimilarity,
-        ...(filter !== undefined ? { filter } : {}),
-        ...(efSearch !== undefined ? { efSearch } : {}),
+        ...graphSearchOptionsOf(options),
       }
 
       const message = await sendBusy(slot, request, VECTOR_SEARCH_TIMEOUT_MS)

@@ -1,5 +1,6 @@
 import type { IndexMetadata } from '../../types/internal'
 import { rebuildSnapshotFromDurable } from './rebuild'
+import type { SegmentedCheckpointOutcome } from './segment'
 import type { PartitionCheckpoint } from './snapshot-bundle'
 
 export interface CheckpointWorkerRequest {
@@ -11,6 +12,7 @@ export interface CheckpointWorkerRequest {
 
 export interface CheckpointWorkerSuccess {
   type: 'success'
+  outcome: SegmentedCheckpointOutcome
 }
 
 export interface CheckpointWorkerError {
@@ -34,8 +36,13 @@ async function handleRequest(raw: unknown): Promise<CheckpointWorkerSuccess> {
   if (!Number.isInteger(request.compactionThreshold) || request.compactionThreshold <= 0) {
     throw new Error('Checkpoint request has an invalid compaction threshold')
   }
-  await rebuildSnapshotFromDurable(request.root, request.metadata, request.targets, request.compactionThreshold)
-  return { type: 'success' }
+  const outcome = await rebuildSnapshotFromDurable(
+    request.root,
+    request.metadata,
+    request.targets,
+    request.compactionThreshold,
+  )
+  return { type: 'success', outcome }
 }
 
 async function setupAsync(): Promise<void> {

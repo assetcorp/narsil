@@ -1,6 +1,6 @@
 import type { IndexMetadata } from '../../types/internal'
 import { createDurableDirectory } from './durable-filesystem'
-import { writeSegmentedCheckpoint } from './segment'
+import { type SegmentedCheckpointOutcome, writeSegmentedCheckpoint } from './segment'
 import type { PartitionCheckpoint } from './snapshot-bundle'
 
 export async function rebuildSnapshotFromDurable(
@@ -8,7 +8,7 @@ export async function rebuildSnapshotFromDurable(
   metadata: IndexMetadata,
   targets: PartitionCheckpoint[],
   compactionThreshold: number,
-): Promise<void> {
+): Promise<SegmentedCheckpointOutcome> {
   const directory = createDurableDirectory(root)
-  await writeSegmentedCheckpoint({ directory, metadata, targets, compactionThreshold })
+  return writeSegmentedCheckpoint({ directory, metadata, targets, compactionThreshold })
 }

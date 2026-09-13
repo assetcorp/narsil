@@ -1,16 +1,24 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import type { VectorIndexConfig } from '../../types/schema'
+import type { VectorIndexConfig, VectorQuantizationMode, VectorStorageMode } from '../../types/schema'
+import { DISK_STORAGE_BLOCK_BYTES } from '../constants'
 import type { HNSWConfig } from '../hnsw'
-import { createScalarQuantizer } from '../scalar-quantization'
+import { createOsqQuantizer, osqBitsOf } from '../osq'
 import { createVectorStore } from '../vector-store'
 import { scheduleBuild as scheduleBuildOp } from './build'
-import { DEFAULT_FILTER_THRESHOLD, DEFAULT_PROMOTION_THRESHOLD } from './constants'
+import {
+  DEFAULT_FILTER_THRESHOLD,
+  DEFAULT_PROMOTION_THRESHOLD,
+  OSQ1_MIN_DIMENSION,
+  OSQ4_MIN_DIMENSION,
+} from './constants'
+import { adoptDiskLayout as adoptDiskLayoutOp, type VectorFileLayout, type VectorPartFile } from './disk'
 import {
   compact as compactOp,
   estimateMemoryBytes as estimateMemoryBytesOp,
   maintenanceStatus as maintenanceStatusOp,
   optimize as optimizeOp,
 } from './maintenance'
+import type { VectorIndexPayload } from './payload'
 import { deserialize as deserializeOp, serialize as serializeOp } from './persistence'
 import { search as searchOp, searchWithFilter } from './search'
 import {
@@ -18,8 +26,8 @@ import {
   filterForOptions,
   liveSize,
   type MaintenanceStatus,
+  threadsHoldCurrentLayout,
   VECTOR_WORKER_COPIES_ALLOWED,
-  type VectorIndexPayload,
   type VectorIndexState,
   type VectorScoredResult,
   type VectorSearchOptions,
@@ -33,10 +41,11 @@ import {
   searchViaWorkerCopies,
 } from './worker-copies'
 
+export type { VectorFileLayout, VectorPartFile } from './disk'
+export type { VectorIndexCodes, VectorIndexPayload } from './payload'
 export type {
   MaintenanceStatus,
   SharedCopyHost,
-  VectorIndexPayload,
   VectorScoredResult,
   VectorSearcher,
   VectorSearchOptions,
@@ -62,12 +71,35 @@ export interface VectorIndex {
   optimize(): Promise<void>
   maintenanceStatus(): MaintenanceStatus
   estimateMemoryBytes(): number
-  serialize(): VectorIndexPayload
-  deserialize(payload: VectorIndexPayload): void
+  /** Writes the field as the parts the envelope specification defines, in ordinal order. */
+  serialize(): VectorIndexPayload[]
+  /** Reads the field back from its parts, which may run several partitions' sequences end to end. A field kept on disk reads its vectors from the named files where the caller gives one per part. */
+  deserialize(parts: VectorIndexPayload[], files?: VectorPartFile[]): void
+  /** Points the vectors a checkpoint wrote at their places in its file and frees the blocks they emptied. It resolves once every thread holding the field has taken the new layout. */
+  adoptDiskLayout(layout: VectorFileLayout): Promise<void>
 
   readonly size: number
   readonly dimension: number
   readonly fieldName: string
+  /** The mode the field codes its vectors in. */
+  readonly quantization: VectorQuantizationMode
+  /** Where the field keeps its full-precision vectors. */
+  readonly storage: VectorStorageMode
+}
+
+/**
+ * Reports the quantisation mode a field of the given dimension takes when its
+ * configuration names none, as the vector index specification defines.
+ *
+ * @param dimension The number of components per vector.
+ * @returns The mode.
+ *
+ * @internal
+ */
+export function defaultQuantizationFor(dimension: number): VectorQuantizationMode {
+  if (dimension >= OSQ1_MIN_DIMENSION) return 'osq1'
+  if (dimension >= OSQ4_MIN_DIMENSION) return 'osq4'
+  return 'osq8'
 }
 
 export function createVectorIndex(
@@ -76,6 +108,7 @@ export function createVectorIndex(
   config?: VectorIndexConfig,
   workerCopies: VectorWorkerCopyPolicy = VECTOR_WORKER_COPIES_ALLOWED,
   indexName = '',
+  storage: VectorStorageMode = 'memory',
 ): VectorIndex {
   if (!Number.isInteger(dimension) || dimension <= 0) {
     throw new NarsilError(
@@ -87,13 +120,19 @@ export function createVectorIndex(
 
   const promotionThreshold = config?.threshold ?? DEFAULT_PROMOTION_THRESHOLD
   const filterThreshold = Math.max(0, Math.min(1, config?.filterThreshold ?? DEFAULT_FILTER_THRESHOLD))
-  const quantizationMode = config?.quantization ?? 'sq8'
+  const quantizationMode = config?.quantization ?? defaultQuantizationFor(dimension)
+  const codeBits = osqBitsOf(quantizationMode)
+  const metric = config?.hnswConfig?.metric ?? 'cosine'
   const rawHnswM = config?.hnswConfig?.m
   const hnswConfig: HNSWConfig | undefined = config?.hnswConfig
     ? { ...config.hnswConfig, m: rawHnswM !== undefined ? Math.max(rawHnswM, 2) : undefined }
     : undefined
   const dimensionScale = dimension / 256
-  const store = createVectorStore({ dimension, quantized: quantizationMode === 'sq8' })
+  const store = createVectorStore({
+    dimension,
+    codeBits,
+    ...(storage === 'disk' ? { blockBytes: DISK_STORAGE_BLOCK_BYTES } : {}),
+  })
 
   const state: VectorIndexState = {
     indexName,
@@ -103,12 +142,14 @@ export function createVectorIndex(
     promotionThreshold,
     filterThreshold,
     quantizationMode,
+    storage,
+    metric,
     hnswConfig,
     workerCopies,
     store,
     tombstones: new Set<string>(),
     buffer: new Set<string>(),
-    sq8: quantizationMode === 'sq8' ? createScalarQuantizer(dimension, store) : null,
+    osq: codeBits === null ? null : createOsqQuantizer(dimension, codeBits, metric, store),
     hnsw: null,
     freshGraph: null,
     compactedNodeCount: 0,
@@ -123,7 +164,7 @@ export function createVectorIndex(
     workerCopyMode: null,
     workerCopyLoading: false,
     sharedHandles: new Map(),
-    sharedBlockCount: 0,
+    sharedLayoutRevision: 0,
     sharing: Promise.resolve(),
   }
 
@@ -146,10 +187,10 @@ export function createVectorIndex(
     if (previous !== undefined) {
       state.hnsw?.markTombstoneOrdinal(previous)
       state.freshGraph?.markTombstoneOrdinal(previous)
-      state.sq8?.removeOrdinal(previous)
+      state.osq?.removeOrdinal(previous)
     }
     state.buffer.add(docId)
-    if (state.sharedBlockCount !== state.store.handles.blocks.length) scheduleWorkerCopyLoad(state)
+    if (!threadsHoldCurrentLayout(state)) scheduleWorkerCopyLoad(state)
   }
 
   function remove(docId: string): void {
@@ -182,7 +223,7 @@ export function createVectorIndex(
   function releaseHeldMemory(): void {
     state.hnsw = null
     state.freshGraph = null
-    state.sq8 = null
+    state.osq = null
     state.tombstones.clear()
     state.buffer.clear()
     state.store.release()
@@ -219,15 +260,11 @@ export function createVectorIndex(
 
     scheduleWorkerCopyLoad(state)
 
-    const viaWorkerCopy = await searchViaWorkerCopies(
-      state,
-      query,
-      k,
-      options.metric,
-      options.minSimilarity,
-      options.efSearch,
+    const viaWorkerCopy = await searchViaWorkerCopies(state, query, k, options.metric, options.minSimilarity, {
       filter,
-    )
+      efSearch: options.efSearch,
+      oversample: options.oversample,
+    })
     if (viaWorkerCopy !== null) return viaWorkerCopy
 
     if (confined && state.revision !== filterRevision) {
@@ -245,6 +282,12 @@ export function createVectorIndex(
     },
     get fieldName() {
       return state.fieldName
+    },
+    get quantization() {
+      return state.quantizationMode
+    },
+    get storage() {
+      return state.storage
     },
     insert,
     remove,
@@ -269,9 +312,10 @@ export function createVectorIndex(
     maintenanceStatus: () => maintenanceStatusOp(state),
     estimateMemoryBytes: () => estimateMemoryBytesOp(state),
     serialize: () => serializeOp(state),
-    deserialize: (payload: VectorIndexPayload) => {
+    deserialize: (parts: VectorIndexPayload[], files?: VectorPartFile[]) => {
       invalidateWorkerCopies(state)
-      deserializeOp(state, payload)
+      deserializeOp(state, parts, files)
     },
+    adoptDiskLayout: (layout: VectorFileLayout) => adoptDiskLayoutOp(state, layout),
   }
 }
