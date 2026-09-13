@@ -23,7 +23,7 @@ export interface VectorSearchOptions {
   /** The partitions the search may answer from, which the index resolves to ordinals itself. */
   filterPartitions?: ReadonlySet<number>
   efSearch?: number
-  /** A quantised index re-scores this many times the requested count against full precision. */
+  /** A quantized index re-scores this many times the requested count against full precision. */
   oversample?: number
 }
 
@@ -105,7 +105,7 @@ export interface VectorIndexState {
   readonly filterThreshold: number
   readonly quantizationMode: VectorQuantizationMode
   readonly storage: VectorStorageMode
-  /** The graph ranks by this metric, and the quantiser takes the codes under it. */
+  /** The graph ranks by this metric, and the quantizer takes the codes under it. */
   readonly metric: VectorMetric
   readonly hnswConfig: HNSWConfig | undefined
   readonly workerCopies: VectorWorkerCopyPolicy
@@ -303,7 +303,7 @@ function* liveVectors(state: VectorIndexState): Iterable<Float32Array> {
 }
 
 /**
- * Calibrates the quantiser's centroid over every live vector. The graph
+ * Calibrates the quantizer's centroid over every live vector. The graph
  * writes each vector's record as it places the vector, so a build after this
  * call scores every placement from codes.
  *
@@ -315,7 +315,7 @@ export function calibrateQuantizer(state: VectorIndexState): void {
 }
 
 /**
- * Calibrates the quantiser again over every live vector and rewrites every
+ * Calibrates the quantizer again over every live vector and rewrites every
  * record, which `compact` requires once the live set has changed.
  *
  * @internal

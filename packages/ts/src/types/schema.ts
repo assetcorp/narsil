@@ -56,7 +56,7 @@ export type SchemaDefinition = {
 /**
  * How the engine codes vectors once a field is promoted to an HNSW graph.
  *
- * Every `osq` mode applies optimised scalar quantisation, which centres each
+ * Every `osq` mode applies optimised scalar quantization, which centres each
  * vector on the field's centroid and then fits an interval to that vector
  * alone. The digit in the mode name gives the bits that each dimension's code
  * holds, so `osq8` stores a byte per dimension, while `osq4`, `osq2`, and

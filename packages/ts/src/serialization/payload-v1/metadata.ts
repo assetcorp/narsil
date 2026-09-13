@@ -225,7 +225,7 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
       if (!isQuantizationMode(promotion.quantization)) {
         throw new NarsilError(
           ErrorCodes.CONFIG_INVALID,
-          `Index metadata names a vector quantisation "${String(promotion.quantization)}" this engine does not read`,
+          `Index metadata names a vector quantization "${String(promotion.quantization)}" this engine does not read`,
           { quantization: promotion.quantization },
         )
       }

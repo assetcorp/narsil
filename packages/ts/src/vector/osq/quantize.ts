@@ -9,7 +9,7 @@ import { OSQ_GRID, OSQ_LAMBDA, OSQ_REFINE_ROUNDS, OSQ_REFINE_TOLERANCE, OSQ_STEP
 export type OsqBits = 1 | 2 | 4 | 8
 
 /**
- * This is one vector quantised against the centroid: a level per dimension, the
+ * This is one vector quantized against the centroid: a level per dimension, the
  * interval the levels span, the correction the estimate adds back, and the
  * sum of the levels.
  *
@@ -24,7 +24,7 @@ export interface OsqCode {
 }
 
 /**
- * Reports the bits a quantisation mode holds per dimension, or null for a
+ * Reports the bits a quantization mode holds per dimension, or null for a
  * mode that stores no code.
  *
  * @internal
@@ -160,7 +160,7 @@ function refine(x: Float64Array, lowerStart: number, upperStart: number, steps: 
 }
 
 /**
- * This is the working memory one thread reuses across quantisations, so a
+ * This is the working memory one thread reuses across quantizations, so a
  * build allocates nothing per vector.
  *
  * @internal
@@ -171,7 +171,7 @@ export interface OsqScratch {
 }
 
 /**
- * Builds the scratch a thread quantises with.
+ * Builds the scratch a thread quantizes with.
  *
  * @param dimension The components per vector.
  * @returns The scratch.
@@ -183,10 +183,10 @@ export function createOsqScratch(dimension: number): OsqScratch {
 }
 
 /**
- * Quantises one vector against the centroid, as the spec defines, at the
+ * Quantizes one vector against the centroid, as the spec defines, at the
  * given bits per dimension.
  *
- * @param vector The vector to quantise.
+ * @param vector The vector to quantize.
  * @param centroid The centroid the field calibrated.
  * @param bits The bits each level holds.
  * @param metric The metric the field ranks by.

@@ -30,7 +30,7 @@ describe('VectorIndex compact', () => {
     expect(index.size).toBe(1)
   })
 
-  it('compact recalibrates the quantiser when calibrated', async () => {
+  it('compact recalibrates the quantizer when calibrated', async () => {
     const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'osq8' })
     try {
       for (let i = 0; i < 6; i++) {
@@ -104,7 +104,7 @@ describe('VectorIndex optimize', () => {
     expect(index.size).toBe(0)
   })
 
-  it('optimize recalibrates the quantiser', async () => {
+  it('optimize recalibrates the quantizer', async () => {
     const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'osq8' })
     try {
       for (let i = 0; i < 6; i++) {

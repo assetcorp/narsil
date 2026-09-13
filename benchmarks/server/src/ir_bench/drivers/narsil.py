@@ -34,7 +34,7 @@ _OSQ4_MIN_DIMENSION = 384
 
 
 def best_config_quantization(dims: int) -> str:
-    """The optimised scalar quantisation width the engine itself picks for a
+    """The optimised scalar quantization width the engine itself picks for a
     dimension when the index configuration names none: 1 bit from 1,024
     dimensions, 4 bits from 384, and 8 bits below."""
 
@@ -175,7 +175,7 @@ class NarsilDriver:
         self._metric = metric
 
     def set_rescore_oversample(self, value: float | None) -> None:
-        """Sets how many times the requested count a quantised search re-scores
+        """Sets how many times the requested count a quantized search re-scores
         against full precision, which the recall sweep raises once efSearch alone
         plateaus below the target. None returns to the engine default."""
 
@@ -189,11 +189,11 @@ class NarsilDriver:
             label = quantization_label(quantization)
             self.vector_quantization = label
             self.vector_setup = (
-                f"HNSW over the shared precomputed vectors, {label} optimised scalar quantisation "
+                f"HNSW over the shared precomputed vectors, {label} optimised scalar quantization "
                 "with the graph built from codes and a full-precision rescore, cosine"
             )
             self.hybrid_setup = (
-                f"BM25 (text) fused with {label} optimised-scalar-quantised HNSW vector search "
+                f"BM25 (text) fused with {label} optimised-scalar-quantized HNSW vector search "
                 "(full-precision rescore) via Reciprocal Rank Fusion"
             )
         else:

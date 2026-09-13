@@ -10,14 +10,14 @@ export { osqBitsOf } from './quantize'
 export type { OsqQuantizer, OsqQuery, QuantizerBuildReader, QuantizerSearchReader } from './types'
 
 /**
- * Builds the quantiser of one vector field over the store that holds its
+ * Builds the quantizer of one vector field over the store that holds its
  * vectors, writing each vector's record into the store's shared code blocks.
  *
  * @param dimension The number of components per vector.
  * @param bits The bits each level of a document code holds.
- * @param metric The metric the quantiser takes the codes under.
+ * @param metric The metric the quantizer takes the codes under.
  * @param store The store holding the field's vectors.
- * @returns The quantiser.
+ * @returns The quantizer.
  *
  * @internal
  */
@@ -38,14 +38,14 @@ export function createOsqQuantizer(
 
   function requireShared(): SharedQuantizerView {
     const view = shared()
-    if (view === null) throw new Error('The vector store holds no vector for the quantiser to work on')
+    if (view === null) throw new Error('The vector store holds no vector for the quantizer to work on')
     return view
   }
 
   function ordinalOf(docId: string): number {
     const ordinal = store.getOrdinal(docId)
     if (ordinal === undefined) {
-      throw new Error(`Cannot quantise "${docId}": the vector store holds no vector for it`)
+      throw new Error(`Cannot quantize "${docId}": the vector store holds no vector for it`)
     }
     return ordinal
   }

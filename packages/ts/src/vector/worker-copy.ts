@@ -12,7 +12,7 @@ import { createVectorStore, type VectorStore, type VectorStoreSnapshot } from '.
  * @internal
  */
 export interface WorkerCopyCodes {
-  /** The centroid the quantiser takes every record against. */
+  /** The centroid the quantizer takes every record against. */
   centroid: Float32Array
   /** This holds one record per ordinal, end to end. */
   records: Uint8Array
@@ -31,7 +31,7 @@ export interface WorkerCopySnapshot {
   dimension: number
   /** The worker estimates from code records under any mode but `none`. */
   quantization: VectorQuantizationMode
-  /** The quantiser takes the codes under this metric. */
+  /** The quantizer takes the codes under this metric. */
   metric: VectorMetric
   /** The records the calling thread wrote, so the worker rewrites none, or null where the field holds no codes. */
   codes: WorkerCopyCodes | null

@@ -19,7 +19,7 @@ export interface SharedVectorFieldHandles {
   dimension: number
   /** The threads estimate distances from code records under any mode but `none`. */
   quantization: VectorQuantizationMode
-  /** The quantiser takes the codes under this metric, which the graph also ranks by. */
+  /** The quantizer takes the codes under this metric, which the graph also ranks by. */
   metric: VectorMetric
   /** These are the store's shared structures. */
   store: SharedVectorStoreHandles

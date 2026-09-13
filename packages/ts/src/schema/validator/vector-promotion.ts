@@ -14,7 +14,7 @@ function isPositiveInteger(value: unknown): boolean {
 }
 
 /**
- * Reports whether a value names a quantisation mode this engine accepts.
+ * Reports whether a value names a quantization mode this engine accepts.
  *
  * @internal
  */

@@ -19,10 +19,10 @@ import type { OsqQuery, QuantizerSearchReader } from './types'
 export interface SharedQuantizerView extends QuantizerSearchReader {
   readonly bits: OsqBits
   readonly metric: VectorMetric
-  /** The centroid the quantiser takes every record against, or null before calibration. */
+  /** The centroid the quantizer takes every record against, or null before calibration. */
   readonly centroid: Float32Array | null
   holdsOrdinal(ordinal: number): boolean
-  /** Quantises a vector and writes its record at the ordinal. */
+  /** Quantizes a vector and writes its record at the ordinal. */
   writeCodes(ordinal: number, vector: Float32Array): void
   /** Copies a record written elsewhere into the ordinal's slot. */
   restoreRecord(ordinal: number, record: Uint8Array): void
@@ -42,8 +42,8 @@ export interface SharedQuantizerView extends QuantizerSearchReader {
  *
  * @param store The thread's view over the field's vectors.
  * @param layout The layout every code block follows.
- * @param metric The metric the quantiser takes the codes under.
- * @returns The quantiser view.
+ * @param metric The metric the quantizer takes the codes under.
+ * @returns The quantizer view.
  *
  * @internal
  */

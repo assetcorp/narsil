@@ -3,7 +3,7 @@ import type { OsqBits } from './quantize'
 import type { OsqTrailer } from './record'
 
 /**
- * This is a query quantised for the field's codes: its packed levels, ready
+ * This is a query quantized for the field's codes: its packed levels, ready
  * to stage beside the records a kernel reads, and its trailer.
  *
  * @internal
@@ -15,7 +15,7 @@ export interface OsqQuery extends OsqTrailer {
 /**
  * A nearest-neighbour search performs these reads against the code records.
  *
- * The main thread's quantiser and another thread's view over the same shared
+ * The main thread's quantizer and another thread's view over the same shared
  * records both satisfy it, so one search implementation serves both.
  *
  * @internal
@@ -42,7 +42,7 @@ export interface QuantizerBuildReader extends QuantizerSearchReader {
 }
 
 /**
- * This is the main thread's quantiser over one field, which calibrates the
+ * This is the main thread's quantizer over one field, which calibrates the
  * centroid, writes and clears records, and serves searches like any other
  * thread's view.
  *
@@ -50,11 +50,11 @@ export interface QuantizerBuildReader extends QuantizerSearchReader {
  */
 export interface OsqQuantizer extends QuantizerBuildReader {
   readonly dimension: number
-  /** The centroid the quantiser takes every record against, or null before calibration. */
+  /** The centroid the quantizer takes every record against, or null before calibration. */
   readonly centroid: Float32Array | null
   /** Computes the centroid from the given vectors and marks the field calibrated. */
   calibrate(vectors: Iterable<Float32Array>): void
-  /** Quantises a stored vector and writes its record. */
+  /** Quantizes a stored vector and writes its record. */
   quantize(docId: string, vector: Float32Array): void
   remove(docId: string): void
   removeOrdinal(ordinal: number): void

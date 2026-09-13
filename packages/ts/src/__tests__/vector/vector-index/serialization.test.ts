@@ -83,7 +83,7 @@ describe('VectorIndex serialization', () => {
     expect(part.graphs[0].nodes.length).toBeGreaterThan(0)
   })
 
-  it('serialize writes a code record per vector once the quantiser has calibrated', async () => {
+  it('serialize writes a code record per vector once the quantizer has calibrated', async () => {
     const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'osq4' })
     try {
       for (let i = 0; i < 6; i++) {
@@ -142,7 +142,7 @@ describe('VectorIndex serialization', () => {
     restored.dispose()
   })
 
-  it('deserialize restores the code records and the centroid without quantising again', async () => {
+  it('deserialize restores the code records and the centroid without quantizing again', async () => {
     const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'osq4' })
     for (let i = 0; i < 6; i++) {
       sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))

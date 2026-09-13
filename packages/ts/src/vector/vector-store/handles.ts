@@ -71,7 +71,7 @@ export interface SharedVectorStoreHandles {
   diskFile: GrowableBuffer
   /** This holds the byte offset of each ordinal's vector inside its file. */
   diskOffset: GrowableBuffer
-  /** This holds the centroid the quantiser takes every code against. */
+  /** This holds the centroid the quantizer takes every code against. */
   centroid: Float32Array
 }
 

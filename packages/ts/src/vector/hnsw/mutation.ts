@@ -146,7 +146,7 @@ function writeRecordBeforePlacement(state: HNSWGraphState, ord: number): void {
 /**
  * Places the vector at an ordinal in the graph, sharing the graph with every
  * other thread placing or searching at the same time. Where the field is
- * quantised, the thread writes the ordinal's record first, so that every node
+ * quantized, the thread writes the ordinal's record first, so that every node
  * the graph publishes has a record a later placement scores against.
  *
  * @param state This thread's graph state.
