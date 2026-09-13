@@ -14,6 +14,7 @@ import { pruneConnections, searchLayer, selectNeighborsHeuristic } from './graph
 import { GRAPH_ENTRY_POINT, GRAPH_NODE_COUNT, GRAPH_TOMBSTONE_COUNT, GRAPH_TOP_LAYER } from './handles'
 import { lockEntry, lockGraphShared, lockNodeWrite, unlockEntry, unlockGraphShared, unlockNodeWrite } from './locks'
 import {
+  buildsFromCodes,
   ensureCapacity,
   entryPointOf,
   type HNSWGraphState,
@@ -78,6 +79,16 @@ function raiseEntry(state: HNSWGraphState, ord: number, level: number): void {
   }
 }
 
+function placementDistance(state: HNSWGraphState, ord: number, vector: Float32Array): (candOrd: number) => number {
+  const metric = state.buildMetric
+  const quantizer = state.quantizer
+  if (quantizer !== undefined && buildsFromCodes(state)) {
+    const prepared = quantizer.prepareQuery(vector)
+    if (prepared !== null) return candOrd => quantizer.distanceFromPreparedByOrdinal(prepared, candOrd)
+  }
+  return candOrd => nodeDistanceByOrd(state, ord, candOrd, metric)
+}
+
 function linkNode(state: HNSWGraphState, ord: number, level: number): void {
   const metric = state.buildMetric
   const workspace = state.workspace
@@ -85,7 +96,7 @@ function linkNode(state: HNSWGraphState, ord: number, level: number): void {
   const selected = workspace.insertSelection
   const entry = state.store.entryForOrdinal(ord)
   if (entry === undefined) return
-  const insertDistFn = (candOrd: number) => nodeDistanceByOrd(state, ord, candOrd, metric)
+  const insertDistFn = placementDistance(state, ord, entry.vector)
   const entryPoint = entryPointOf(state)
   const topLayer = topLayerOf(state)
   setSingleEntryPoint(workspace, entryPoint)
@@ -125,9 +136,18 @@ function linkNode(state: HNSWGraphState, ord: number, level: number): void {
   if (level > topLayer) raiseEntry(state, ord, level)
 }
 
+function writeRecordBeforePlacement(state: HNSWGraphState, ord: number): void {
+  const quantizer = state.quantizer
+  if (quantizer === undefined || !buildsFromCodes(state)) return
+  const entry = state.store.entryForOrdinal(ord)
+  if (entry !== undefined) quantizer.writeCodes(ord, entry.vector)
+}
+
 /**
  * Places the vector at an ordinal in the graph, sharing the graph with every
- * other thread placing or searching at the same time.
+ * other thread placing or searching at the same time. Where the field is
+ * quantised, the thread writes the ordinal's record first, so that every node
+ * the graph publishes has a record a later placement scores against.
  *
  * @param state This thread's graph state.
  * @param ord The ordinal to place.
@@ -141,6 +161,7 @@ export function insertNode(state: HNSWGraphState, ord: number, holdsGraphLock = 
   if (!state.store.holdsOrdinal(ord)) return false
   ensureCapacity(state, ord + 1)
   if (nodeExists(state, ord)) return false
+  writeRecordBeforePlacement(state, ord)
 
   if (!holdsGraphLock) lockGraphShared(state.locks)
   try {

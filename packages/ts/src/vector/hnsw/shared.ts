@@ -1,5 +1,5 @@
 import type { VectorMetric } from '../brute-force'
-import type { QuantizerSearchReader } from '../scalar-quantization-types'
+import type { QuantizerBuildReader, QuantizerSearchReader } from '../osq/types'
 import { fixedView } from '../shared-buffers/growable'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance } from '../similarity'
 import type { VectorBuildReader, VectorSearchReader, VectorStoreEntry } from '../vector-store'
@@ -72,6 +72,7 @@ export interface HNSWSearchState {
  */
 export interface HNSWGraphState extends HNSWSearchState {
   readonly store: VectorBuildReader
+  readonly quantizer: QuantizerBuildReader | undefined
   readonly M: number
   readonly Mmax0: number
   readonly efCons: number
@@ -175,7 +176,40 @@ export function entryForOrd(state: HNSWSearchState, ord: number): VectorStoreEnt
   return state.store.entryForOrdinal(ord)
 }
 
+/**
+ * Reports whether the graph scores placements from the field's codes, which
+ * it does once the quantiser is calibrated.
+ *
+ * @internal
+ */
+export function buildsFromCodes(state: HNSWSearchState): boolean {
+  return activeQuantizer(state) !== undefined
+}
+
+/**
+ * Reports the quantiser a search or a placement scores from, which is the
+ * field's quantiser once it is calibrated, and undefined otherwise.
+ *
+ * @internal
+ */
+export function activeQuantizer(state: HNSWSearchState): QuantizerSearchReader | undefined {
+  const quantizer = state.quantizer
+  if (quantizer === undefined || !quantizer.isCalibrated()) return undefined
+  return quantizer
+}
+
+/**
+ * Measures the distance between two nodes, from their code records where the
+ * graph builds from codes and both hold one, and from their vectors
+ * otherwise.
+ *
+ * @internal
+ */
 export function nodeDistanceByOrd(state: HNSWGraphState, aOrd: number, bOrd: number, metric: VectorMetric): number {
+  if (buildsFromCodes(state) && state.quantizer !== undefined) {
+    const estimated = state.quantizer.distanceBetweenOrdinals(aOrd, bOrd)
+    if (estimated !== Number.POSITIVE_INFINITY) return estimated
+  }
   return state.store.distanceByOrdinal(aOrd, bOrd, metric)
 }
 

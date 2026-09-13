@@ -1,4 +1,4 @@
-import type { QuantizerSearchReader } from '../scalar-quantization-types'
+import type { QuantizerBuildReader } from '../osq/types'
 import { fixedView } from '../shared-buffers/growable'
 import type { VectorBuildReader } from '../vector-store'
 import { openAdjacency } from './adjacency'
@@ -26,7 +26,7 @@ export function openGraphState(
   handles: SharedGraphHandles,
   dimension: number,
   store: VectorBuildReader,
-  quantizer: QuantizerSearchReader | undefined,
+  quantizer: QuantizerBuildReader | undefined,
   threadSlot: number,
 ): HNSWGraphState {
   const shape = graphShapeOf(handles.header)

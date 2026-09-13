@@ -1,6 +1,6 @@
 import type { VectorMetric } from '../brute-force'
 import { MAX_VECTOR_ORDINALS, VECTOR_SCRATCH_SLOTS, VECTOR_STORE_INITIAL_CAPACITY } from '../constants'
-import { createGrowableBuffer, type GrowableBuffer } from '../shared-buffers/growable'
+import { createFixedBuffer, createGrowableBuffer, type GrowableBuffer } from '../shared-buffers/growable'
 import { INITIAL_UPPER_SLOTS } from './constants'
 
 export const GRAPH_ENTRY_POINT = 0
@@ -85,7 +85,7 @@ function perOrdinal(bytesPerOrdinal: number, initialOrdinals: number): GrowableB
  * @internal
  */
 export function createSharedGraphHandles(shape: SharedGraphShape): SharedGraphHandles {
-  const header = new Int32Array(createGrowableBuffer(GRAPH_HEADER_WORDS * 4, GRAPH_HEADER_WORDS * 4))
+  const header = new Int32Array(createFixedBuffer(GRAPH_HEADER_WORDS * 4), 0, GRAPH_HEADER_WORDS)
   header[GRAPH_ENTRY_POINT] = -1
   header[GRAPH_TOP_LAYER] = -1
   header[GRAPH_M] = shape.m
@@ -104,7 +104,7 @@ export function createSharedGraphHandles(shape: SharedGraphShape): SharedGraphHa
     upper: perOrdinal(upperStride * 4, INITIAL_UPPER_SLOTS),
     locks: perOrdinal(4, VECTOR_STORE_INITIAL_CAPACITY),
     tombstones: perOrdinal(1, VECTOR_STORE_INITIAL_CAPACITY),
-    heldLocks: new Int32Array(createGrowableBuffer(heldWords * 4, heldWords * 4)),
+    heldLocks: new Int32Array(createFixedBuffer(heldWords * 4), 0, heldWords),
   }
 }
 
