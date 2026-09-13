@@ -36,7 +36,16 @@ export async function buildGraphFromStore(state: VectorIndexState): Promise<void
   await releasePendingLocations(state)
 }
 
-async function promoteToGraph(state: VectorIndexState): Promise<void> {
+/**
+ * Calibrates the quantizer over every live vector and builds the field's
+ * first graph from them, which the field does once it holds the promotion
+ * threshold of vectors.
+ *
+ * @param state The index to promote.
+ *
+ * @internal
+ */
+export async function promoteToGraph(state: VectorIndexState): Promise<void> {
   if (liveSize(state) === 0) return
   calibrateQuantizer(state)
   await buildGraphFromStore(state)

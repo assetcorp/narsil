@@ -1,5 +1,5 @@
 import type { HNSWIndex } from '../hnsw'
-import { buildGraphFromStore, scheduleBuild } from './build'
+import { buildGraphFromStore, promoteToGraph, scheduleBuild } from './build'
 import { insertIntoGraph } from './build-host'
 import { ESTIMATED_MS_PER_TOMBSTONE, ESTIMATED_MS_PER_VECTOR_REBUILD } from './constants'
 import {
@@ -66,18 +66,18 @@ async function foldIntoGraph(state: VectorIndexState): Promise<void> {
   }
 }
 
-export async function optimize(state: VectorIndexState): Promise<void> {
+async function buildExclusively(state: VectorIndexState, work: () => Promise<void>): Promise<void> {
   while (state.pendingBuild) {
     await state.pendingBuild
   }
   if (state.disposed) return
 
   state.building = true
-  const work = foldIntoGraph(state)
-  state.pendingBuild = work
+  const run = work()
+  state.pendingBuild = run
 
   try {
-    await work
+    await run
   } finally {
     state.building = false
     state.pendingBuild = null
@@ -87,11 +87,14 @@ export async function optimize(state: VectorIndexState): Promise<void> {
   }
 }
 
+export function optimize(state: VectorIndexState): Promise<void> {
+  return buildExclusively(state, () => foldIntoGraph(state))
+}
+
 async function fillGraph(state: VectorIndexState): Promise<void> {
   const graph = state.hnsw
   if (graph === null) {
-    calibrateQuantizer(state)
-    await buildGraphFromStore(state)
+    if (liveSize(state) >= state.promotionThreshold) await promoteToGraph(state)
     return
   }
   if (state.osq && !state.osq.isCalibrated()) calibrateQuantizer(state)
@@ -104,33 +107,17 @@ async function fillGraph(state: VectorIndexState): Promise<void> {
 
 /**
  * Places every live vector in the graph and resolves once every one is in.
- * The field builds a graph where it holds none and holds at least the
- * promotion threshold of vectors, builds it afresh where callers have removed
- * enough vectors to warrant that, and places the missing vectors in the graph
- * it holds otherwise. A field holding fewer vectors than the threshold and no
- * graph keeps searching them exactly.
+ * A field holding no graph builds one once it holds the promotion threshold
+ * of vectors, while a field holding one places the vectors the graph lacks,
+ * or builds the graph afresh once removals pass the rebuild ratio. Below the
+ * threshold a field with no graph goes on searching its vectors exactly.
  *
  * @param state The index to complete.
  *
  * @internal
  */
-export async function completeGraph(state: VectorIndexState): Promise<void> {
-  while (state.pendingBuild) {
-    await state.pendingBuild
-  }
-  if (state.disposed || liveSize(state) === 0) return
-  if (state.hnsw === null && liveSize(state) < state.promotionThreshold) return
-
-  state.building = true
-  const work = fillGraph(state)
-  state.pendingBuild = work
-
-  try {
-    await work
-  } finally {
-    state.building = false
-    state.pendingBuild = null
-  }
+export function completeGraph(state: VectorIndexState): Promise<void> {
+  return buildExclusively(state, () => fillGraph(state))
 }
 
 export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {

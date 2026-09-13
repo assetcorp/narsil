@@ -35,7 +35,7 @@ function partVectors(state: VectorIndexState, docIds: readonly string[]): Float3
 
 function graphsPerPart(state: VectorIndexState, partOf: Map<string, number>, parts: number): SerializedHNSWGraph[][] {
   const sliced: SerializedHNSWGraph[][] = Array.from({ length: parts }, () => [])
-  if (state.hnsw === null) return sliced
+  if (state.hnsw === null || partOf.size === 0) return sliced
   const graph = state.hnsw.serialize()
   const nodesPerPart: SerializedHNSWGraph['nodes'][] = Array.from({ length: parts }, () => [])
   for (const node of graph.nodes) {
@@ -72,8 +72,9 @@ function codesFor(state: VectorIndexState, docIds: readonly string[]): VectorInd
  * Writes the field as the parts the envelope specification defines: at most
  * 65,536 live vectors per part in ordinal order, the graphs sliced to each
  * part's nodes, one code record per vector where the field holds a graph and
- * codes, and the vectors last. It reads the vectors one part at a time, so a
- * field kept on disk holds one part's vectors in memory at most.
+ * codes, and the vectors last. It reads each part's vectors from the store
+ * straight into that part's bytes, and it writes no graph once the field
+ * holds no live vector.
  *
  * @internal
  */
@@ -252,11 +253,11 @@ function vectorsIn(parts: VectorIndexPayload[]): number {
  * sequence join one list. The index restores the codes only where a single
  * sequence carries a complete set at the field's own bits, because two
  * sequences quantized against two centroids cannot share one, and it
- * recalibrates from the vectors otherwise. A field kept on disk points each
- * ordinal at the file its part came from where the caller names one file
- * per part and the parts hold a graph or enough vectors for one, while a
- * smaller field holds its vectors in memory and keeps each one's place until
- * it builds a graph.
+ * recalibrates from the vectors otherwise. A graph with no node counts as no
+ * graph. A field kept on disk points each ordinal at the file its part came
+ * from where the caller names one file per part and the parts hold a graph
+ * or enough vectors for one, while a smaller field holds its vectors in
+ * memory and keeps each one's place until it builds a graph.
  *
  * @internal
  */
@@ -272,7 +273,11 @@ export function deserialize(state: VectorIndexState, parts: VectorIndexPayload[]
   }
   const sequences = splitSequences(parts)
   const graphs: SerializedHNSWGraph[] = []
-  for (const sequence of sequences) graphs.push(...sequence.graphs)
+  for (const sequence of sequences) {
+    for (const graph of sequence.graphs) {
+      if (graph.nodes.length > 0) graphs.push(graph)
+    }
+  }
   const onDisk = readsFromDisk(state) && files !== undefined && files.length === parts.length
   const cold = onDisk && (graphs.length > 0 || vectorsIn(parts) >= state.promotionThreshold)
 

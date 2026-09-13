@@ -49,16 +49,16 @@ export function readsFromDisk(state: VectorIndexState): boolean {
 }
 
 /**
- * Reports whether the field reads its vectors from checkpoint files now. A
- * field kept on disk holds every vector in memory until it holds a graph,
- * because a search below the promotion threshold scans every vector, and it
- * reads from the files once it holds one.
+ * Reports whether the field keeps its checkpointed vectors on disk now, which
+ * a field kept on disk does once it holds a graph. Until then it holds every
+ * vector in memory, because a search below the promotion threshold scans
+ * every vector.
  *
  * @param state The index to ask about.
  *
  * @internal
  */
-export function releasesToDisk(state: VectorIndexState): boolean {
+export function holdsVectorsOnDisk(state: VectorIndexState): boolean {
   return readsFromDisk(state) && state.hnsw !== null
 }
 
@@ -111,7 +111,7 @@ async function releaseLocations(
  */
 export async function adoptDiskLayout(state: VectorIndexState, layout: VectorFileLayout): Promise<void> {
   if (!readsFromDisk(state) || state.disposed || layout.docIds.length === 0) return
-  if (!releasesToDisk(state)) {
+  if (!holdsVectorsOnDisk(state)) {
     for (const [docId, location] of locationsOf(state, layout)) {
       if (state.store.has(docId)) state.pendingLocations.set(docId, location)
     }
@@ -127,7 +127,7 @@ export async function adoptDiskLayout(state: VectorIndexState, layout: VectorFil
  * @internal
  */
 export async function releasePendingLocations(state: VectorIndexState): Promise<void> {
-  if (state.pendingLocations.size === 0 || !releasesToDisk(state) || state.disposed) return
+  if (state.pendingLocations.size === 0 || !holdsVectorsOnDisk(state) || state.disposed) return
   const pending = [...state.pendingLocations]
   state.pendingLocations.clear()
   await releaseLocations(state, pending)

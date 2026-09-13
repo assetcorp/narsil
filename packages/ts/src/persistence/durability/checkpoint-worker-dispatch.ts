@@ -5,8 +5,8 @@ import { CHECKPOINT_TIMEOUT_RECOVERY_BACKOFF_MS, CHECKPOINT_WORKER_TIMEOUT_MS } 
 import type { SegmentedCheckpointOutcome } from './segment'
 
 /**
- * A checkpoint runs on a thread reached through this, which a Node worker
- * satisfies.
+ * The dispatcher reaches the thread that writes a checkpoint through this,
+ * which a Node worker satisfies.
  *
  * @internal
  */
@@ -59,8 +59,9 @@ function discardWorker(worker: WorkerHandle): void {
 }
 
 /**
- * This is what one checkpoint on the worker came to: what it wrote, or null
- * with a flag telling a worker that fell silent apart from one that failed.
+ * This is what one checkpoint on the worker came to. The written field holds
+ * what the worker wrote, or null where it failed or fell silent, and the flag
+ * reads true where it fell silent.
  *
  * @internal
  */
@@ -69,7 +70,7 @@ export interface WorkerRunOutcome {
   timedOut: boolean
 }
 
-function unreffed(timer: ReturnType<typeof setTimeout>): ReturnType<typeof setTimeout> {
+function unrefTimer(timer: ReturnType<typeof setTimeout>): ReturnType<typeof setTimeout> {
   if (typeof (timer as { unref?: () => void }).unref === 'function') {
     ;(timer as { unref: () => void }).unref()
   }
@@ -80,11 +81,12 @@ function unreffed(timer: ReturnType<typeof setTimeout>): ReturnType<typeof setTi
  * Sends one checkpoint request to a worker and waits for its answer. The
  * worker posts a heartbeat while it works, and the wait gives up only once
  * the worker has stayed silent for the timeout, so a checkpoint that places a
- * large graph runs to the end while a hung worker still gets discarded.
+ * large graph goes on to the end while the wait still discards a hung worker.
  *
- * @param worker The worker to run the checkpoint on.
+ * @param worker The worker to write the checkpoint on.
  * @param request The checkpoint to write.
- * @returns What the worker wrote, or null where it failed or fell silent.
+ * @returns The outcome, whose written field holds what the worker wrote or
+ * null where it failed or fell silent.
  *
  * @internal
  */
@@ -94,7 +96,7 @@ export function runWorker(worker: WorkerHandle, request: CheckpointWorkerRequest
     let timeoutId = armSilenceTimeout()
 
     function armSilenceTimeout(): ReturnType<typeof setTimeout> {
-      return unreffed(setTimeout(() => settle({ written: null, timedOut: true }, true), CHECKPOINT_WORKER_TIMEOUT_MS))
+      return unrefTimer(setTimeout(() => settle({ written: null, timedOut: true }, true), CHECKPOINT_WORKER_TIMEOUT_MS))
     }
 
     const onMessage = (msg: unknown): void => {
@@ -148,7 +150,7 @@ export function runWorker(worker: WorkerHandle, request: CheckpointWorkerRequest
 
 function delay(ms: number): Promise<void> {
   return new Promise<void>(resolve => {
-    unreffed(setTimeout(resolve, ms))
+    unrefTimer(setTimeout(resolve, ms))
   })
 }
 

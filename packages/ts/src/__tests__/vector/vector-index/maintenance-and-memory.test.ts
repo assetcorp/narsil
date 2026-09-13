@@ -3,7 +3,7 @@ import { WASM_PAGE_BYTES } from '../../../vector/constants'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
 import { DIM, normalizedVector, vectorFromValues } from './fixtures'
 
-const QUANTISATION_VISIBLE_DIM = 1536
+const QUANTIZATION_VISIBLE_DIM = 1536
 
 describe('VectorIndex maintenance status', () => {
   let index: VectorIndex
@@ -114,13 +114,13 @@ describe('VectorIndex memory estimation', () => {
   })
 
   it('charges the code records a quantized field keeps for every vector', async () => {
-    const noSqIndex = createVectorIndex('vec', QUANTISATION_VISIBLE_DIM, { threshold: 5, quantization: 'none' })
-    const sqIndex = createVectorIndex('vec', QUANTISATION_VISIBLE_DIM, { threshold: 5, quantization: 'osq8' })
+    const noSqIndex = createVectorIndex('vec', QUANTIZATION_VISIBLE_DIM, { threshold: 5, quantization: 'none' })
+    const sqIndex = createVectorIndex('vec', QUANTIZATION_VISIBLE_DIM, { threshold: 5, quantization: 'osq8' })
     const fixedNodeLevels = vi.spyOn(Math, 'random').mockReturnValue(0.5)
 
     try {
       for (let i = 0; i < 6; i++) {
-        const v = normalizedVector(QUANTISATION_VISIBLE_DIM, i + 1)
+        const v = normalizedVector(QUANTIZATION_VISIBLE_DIM, i + 1)
         noSqIndex.insert(`doc${i}`, v)
         sqIndex.insert(`doc${i}`, new Float32Array(v))
       }
@@ -131,7 +131,7 @@ describe('VectorIndex memory estimation', () => {
       await noSqIndex.awaitPendingBuild()
       await sqIndex.awaitPendingBuild()
 
-      const codeBytesForStoredVectors = 6 * QUANTISATION_VISIBLE_DIM
+      const codeBytesForStoredVectors = 6 * QUANTIZATION_VISIBLE_DIM
       expect(sqIndex.estimateMemoryBytes() - noSqIndex.estimateMemoryBytes()).toBeGreaterThanOrEqual(
         codeBytesForStoredVectors,
       )
