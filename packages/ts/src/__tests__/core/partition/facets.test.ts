@@ -262,7 +262,7 @@ describe('a composite partition counts facets from composite ordinals', () => {
     const composite = createCompositePartition(0)
     const frozenDocs = corpus.slice(0, 2)
     const scratch = buildLive(frozenDocs)
-    composite.appendFrozenSegment(scratch.encodeSegment(), frozenDocs)
+    composite.attachFrozenSegment(createFrozenSegment(scratch.encodeSegment(), frozenDocs))
     for (const doc of corpus.slice(2)) {
       composite.insert(String(doc.id), doc, facetSchema, english, { collectSurfaces: true })
     }

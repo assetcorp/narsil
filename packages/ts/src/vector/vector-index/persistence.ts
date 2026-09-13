@@ -204,19 +204,36 @@ function restoreGraphs(state: VectorIndexState, graphs: SerializedHNSWGraph[]): 
   }
 }
 
-function insertPart(state: VectorIndexState, part: VectorIndexPayload, file: VectorPartFile | null): void {
+function insertPart(
+  state: VectorIndexState,
+  part: VectorIndexPayload,
+  file: VectorPartFile | null,
+  cold: boolean,
+): void {
   const dimension = state.dimension
   const vectors = bytesToVectors(part.vectors)
-  const fileIndex = file === null ? null : state.store.addVectorFile(file.path)
+  const fileIndex = file !== null && cold ? state.store.addVectorFile(file.path) : null
   for (let i = 0; i < part.docIds.length; i++) {
+    const docId = part.docIds[i]
     const vector = vectors.subarray(i * dimension, (i + 1) * dimension)
-    if (file === null || fileIndex === null) {
-      state.store.insert(part.docIds[i], vector)
+    if (file === null) {
+      state.store.insert(docId, vector)
       continue
     }
     const offset = file.vectorsOffset + i * dimension * 4
-    state.store.insertCold(part.docIds[i], magnitude(vector), { fileIndex, offset })
+    if (fileIndex !== null) {
+      state.store.insertCold(docId, magnitude(vector), { fileIndex, offset })
+      continue
+    }
+    state.store.insert(docId, vector)
+    state.pendingLocations.set(docId, { path: file.path, offset })
   }
+}
+
+function vectorsIn(parts: VectorIndexPayload[]): number {
+  let count = 0
+  for (const part of parts) count += part.docIds.length
+  return count
 }
 
 /**
@@ -228,7 +245,9 @@ function insertPart(state: VectorIndexState, part: VectorIndexPayload, file: Vec
  * sequences quantised against two centroids cannot share one, and it
  * recalibrates from the vectors otherwise. A field kept on disk points each
  * ordinal at the file its part came from where the caller names one file
- * per part, and it holds the vectors in memory otherwise.
+ * per part and the parts hold a graph or enough vectors for one, while a
+ * smaller field holds its vectors in memory and keeps each one's place until
+ * it builds a graph.
  *
  * @internal
  */
@@ -246,15 +265,17 @@ export function deserialize(state: VectorIndexState, parts: VectorIndexPayload[]
   const graphs: SerializedHNSWGraph[] = []
   for (const sequence of sequences) graphs.push(...sequence.graphs)
   const onDisk = readsFromDisk(state) && files !== undefined && files.length === parts.length
+  const cold = onDisk && (graphs.length > 0 || vectorsIn(parts) >= state.promotionThreshold)
 
   state.store.clear()
   state.tombstones.clear()
   state.buffer.clear()
+  state.pendingLocations.clear()
   adoptGraph(state, null)
   state.osq?.clear()
 
   for (let index = 0; index < parts.length; index++) {
-    insertPart(state, parts[index], onDisk && files !== undefined ? files[index] : null)
+    insertPart(state, parts[index], onDisk && files !== undefined ? files[index] : null, cold)
   }
 
   if (state.osq !== null && osqBitsOf(state.quantizationMode) !== null && graphs.length > 0) {

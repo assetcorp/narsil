@@ -7,6 +7,7 @@ import type { VectorSearchPool } from '../search-pool'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../shared-field/types'
 import type { VectorStore } from '../vector-store'
 import { REBUILD_REMOVED_RATIO } from './constants'
+import type { PendingVectorLocation } from './disk'
 
 export type { VectorIndexPayload } from './payload'
 
@@ -111,6 +112,8 @@ export interface VectorIndexState {
   readonly store: VectorStore
   readonly tombstones: Set<string>
   readonly buffer: Set<string>
+  /** A checkpoint wrote these vectors to a file while the field held no graph, and the field points each at its place once it holds one. */
+  readonly pendingLocations: Map<string, PendingVectorLocation>
   osq: OsqQuantizer | null
   hnsw: HNSWIndex | null
   /** The graph a build is filling from the store, which a replacement retires its old ordinal in. */

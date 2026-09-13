@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
+import { freezeSegmentShared } from '../../../core/partition/frozen'
 import type { SegmentPayload } from '../../../core/partition/segment-payload'
 import type { SegmentReplicationDeps } from '../../../engine/mutations/segment-replication'
-import { replicateAsSegments } from '../../../engine/mutations/segment-replication'
+import { broadcastBuiltSegments, replicateAsSegments } from '../../../engine/mutations/segment-replication'
 import type { BuiltSegment, SegmentBuildRequest } from '../../../engine/orchestration/segments'
 import type { AnyDocument } from '../../../types/schema'
 import type { WorkerAction } from '../../../workers/protocol'
@@ -162,6 +163,42 @@ describe('replicateAsSegments', () => {
 
       expect(recorded.replicated).toHaveLength(1)
       expect(recorded.replicated[0].type).toBe('mergeSegments')
+      expect(warn).toHaveBeenCalledOnce()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('still attaches the segments a worker froze when another segment cannot be freeze-encoded', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const replicated: WorkerAction[] = []
+      const orchestrator = {
+        replicateToWorkers: async (action: WorkerAction): Promise<void> => {
+          replicated.push(action)
+        },
+      }
+      const frozenDocument: AnyDocument = { id: 'doc-frozen', title: 'frozen on a worker' }
+      const snapshot = freezeSegmentShared(emptyPayload(1), [frozenDocument], 'frozen-on-worker')
+      if (snapshot === null) throw new Error('shared memory unavailable')
+      const segments: BuiltSegment[] = [
+        { partitionId: 0, segmentId: 'frozen-on-worker', snapshot, payload: null, documents: [frozenDocument] },
+        {
+          partitionId: 1,
+          segmentId: 'plain',
+          snapshot: null,
+          payload: emptyPayload(1),
+          documents: [{ id: 'doc-plain', revision: BigInt(7) }],
+        },
+      ]
+
+      await broadcastBuiltSegments(orchestrator, 'prose', segments, undefined)
+
+      expect(replicated.map(action => action.type)).toEqual(['attachSegments', 'mergeSegments'])
+      const [attach, merge] = replicated
+      if (attach.type !== 'attachSegments' || merge.type !== 'mergeSegments') return
+      expect(attach.segments.map(segment => segment.snapshot.segmentId)).toEqual(['frozen-on-worker'])
+      expect(merge.segments.map(segment => segment.partitionId)).toEqual([1])
       expect(warn).toHaveBeenCalledOnce()
     } finally {
       warn.mockRestore()

@@ -73,9 +73,9 @@ export interface VectorIndex {
   estimateMemoryBytes(): number
   /** Writes the field as the parts the envelope specification defines, in ordinal order. */
   serialize(): VectorIndexPayload[]
-  /** Reads the field back from its parts, which may run several partitions' sequences end to end. A field kept on disk reads its vectors from the named files where the caller gives one per part. */
+  /** Reads the field back from its parts, which may run several partitions' sequences end to end. A field kept on disk reads its vectors from the named files where the caller gives one per part and the parts hold a graph or enough vectors for one, and it holds them in memory until it builds a graph otherwise. */
   deserialize(parts: VectorIndexPayload[], files?: VectorPartFile[]): void
-  /** Points the vectors a checkpoint wrote at their places in its file and frees the blocks they emptied. It resolves once every thread holding the field has taken the new layout. */
+  /** Points the vectors a checkpoint wrote at their places in its file and frees the blocks they emptied, or keeps those places while the field holds no graph. It resolves once every thread holding the field has taken the new layout. */
   adoptDiskLayout(layout: VectorFileLayout): Promise<void>
 
   readonly size: number
@@ -149,6 +149,7 @@ export function createVectorIndex(
     store,
     tombstones: new Set<string>(),
     buffer: new Set<string>(),
+    pendingLocations: new Map(),
     osq: codeBits === null ? null : createOsqQuantizer(dimension, codeBits, metric, store),
     hnsw: null,
     freshGraph: null,
@@ -226,6 +227,7 @@ export function createVectorIndex(
     state.osq = null
     state.tombstones.clear()
     state.buffer.clear()
+    state.pendingLocations.clear()
     state.store.release()
   }
 

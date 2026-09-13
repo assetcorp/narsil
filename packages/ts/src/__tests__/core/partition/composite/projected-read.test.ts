@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createPartitionIndex, type PartitionIndex } from '../../../../core/partition'
 import { type CompositePartition, createCompositePartition } from '../../../../core/partition/composite'
+import { createFrozenSegment } from '../../../../core/partition/frozen'
 import { resolveProjection } from '../../../../core/projection'
 import type { AnyDocument } from '../../../../types/schema'
 import { english, simpleSchema } from '../../partition-index/fixtures'
@@ -30,7 +31,7 @@ function frozenPayloadFor(documents: AnyDocument[]): ReturnType<PartitionIndex['
 function buildComposite(): CompositePartition {
   const composite = createCompositePartition(0)
   const frozen = [documentFor(FROZEN_DOC_ID)]
-  composite.appendFrozenSegment(frozenPayloadFor(frozen), frozen)
+  composite.attachFrozenSegment(createFrozenSegment(frozenPayloadFor(frozen), frozen))
   composite.insert(LIVE_DOC_ID, documentFor(LIVE_DOC_ID), simpleSchema, english, { collectSurfaces: true })
   return composite
 }

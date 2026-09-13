@@ -23,6 +23,28 @@ async function writePart(
   return { path, vectorsOffset: HEADER_SIZE + envelope.payload.length - part.docIds.length * part.dimension * 4 }
 }
 
+async function overwriteVector(
+  file: { path: string; vectorsOffset: number },
+  part: VectorIndexPayload,
+  docId: string,
+  vector: Float32Array,
+): Promise<void> {
+  const handle = await open(file.path, 'r+')
+  await handle.write(
+    new Uint8Array(vector.buffer, vector.byteOffset, vector.byteLength),
+    0,
+    vector.byteLength,
+    file.vectorsOffset + part.docIds.indexOf(docId) * DIM * 4,
+  )
+  await handle.close()
+}
+
+async function buildGraph(index: ReturnType<typeof createVectorIndex>): Promise<void> {
+  index.scheduleBuild()
+  await new Promise(resolve => setTimeout(resolve, 5))
+  await index.awaitPendingBuild()
+}
+
 describe('a vector field kept on disk', () => {
   let directory: string
 
@@ -77,9 +99,7 @@ describe('a vector field kept on disk', () => {
       'disk',
     )
     for (let i = 0; i < 12; i++) index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
-    index.scheduleBuild()
-    await new Promise(resolve => setTimeout(resolve, 5))
-    await index.awaitPendingBuild()
+    await buildGraph(index)
     const query = normalizedVector(DIM, 7)
     const [part] = index.serialize()
     const file = await writePart(directory, part)
@@ -93,16 +113,34 @@ describe('a vector field kept on disk', () => {
     expect(Array.from(index.getVector('doc5') ?? [])).toEqual(Array.from(normalizedVector(DIM, 6)))
 
     const replaced = new Float32Array([0.5, 0.25, 0.125, 0.0625])
-    const handle = await open(file.path, 'r+')
-    await handle.write(
-      new Uint8Array(replaced.buffer),
-      0,
-      replaced.byteLength,
-      file.vectorsOffset + part.docIds.indexOf('doc5') * DIM * 4,
-    )
-    await handle.close()
+    await overwriteVector(file, part, 'doc5', replaced)
     expect(Array.from(index.getVector('doc5') ?? [])).toEqual(Array.from(replaced))
     expect(Array.from(index.getVector('doc1') ?? [])).toEqual(Array.from(normalizedVector(DIM, 50)))
+    index.dispose()
+  })
+
+  it('holds a field below the promotion threshold in memory and releases it to the file once it builds a graph', async () => {
+    const config = { threshold: 8, quantization: 'none' as const }
+    const source = createVectorIndex('embedding', DIM, config, { enabled: false }, 'docs', 'memory')
+    for (let i = 0; i < 4; i++) source.insert(`doc${i}`, normalizedVector(DIM, i + 1))
+    const [part] = source.serialize()
+    const file = await writePart(directory, part)
+    source.dispose()
+
+    const index = createVectorIndex('embedding', DIM, config, { enabled: false }, 'docs', 'disk')
+    index.deserialize([part], [file])
+    await index.adoptDiskLayout({ ...file, docIds: part.docIds })
+    const replaced = new Float32Array([0.5, 0.25, 0.125, 0.0625])
+    await overwriteVector(file, part, 'doc1', replaced)
+    expect(Array.from(index.getVector('doc1') ?? [])).toEqual(Array.from(normalizedVector(DIM, 2)))
+    await overwriteVector(file, part, 'doc1', normalizedVector(DIM, 2))
+
+    for (let i = 4; i < 12; i++) index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
+    await buildGraph(index)
+
+    await overwriteVector(file, part, 'doc1', replaced)
+    expect(Array.from(index.getVector('doc1') ?? [])).toEqual(Array.from(replaced))
+    expect(Array.from(index.getVector('doc3') ?? [])).toEqual(Array.from(normalizedVector(DIM, 4)))
     index.dispose()
   })
 

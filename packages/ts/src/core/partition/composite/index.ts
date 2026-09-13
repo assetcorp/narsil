@@ -11,7 +11,7 @@ import { compareCodePoints } from '../../ordering'
 import { cloneProjected, type ResolvedProjection } from '../../projection'
 import { computeFacets, type FacetMatchSet } from '../facets'
 import type { PartitionFilterMatches } from '../filters'
-import { createFrozenSegment, type FrozenSegment } from '../frozen'
+import type { FrozenSegment } from '../frozen'
 import { frozenSegmentBytes } from '../frozen/memory'
 import { createPartitionIndex, type PartitionIndex, partitionStateOf } from '../index'
 import type { PartitionSearchMatches } from '../matches'
@@ -54,8 +54,6 @@ export interface CompositePartition extends PartitionIndex {
   frozenSegmentCount(): number
   frozenSegmentSizes(): Array<{ segmentId: string; liveDocumentCount: number }>
   frozenSegmentsById(segmentIds: readonly string[]): FrozenSegment[]
-  /** Freezes a payload into a segment of this partition, for a caller that holds no partition manager. */
-  appendFrozenSegment(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
   /** Adds a frozen segment whose documents the partition manager has already checked against every partition. */
   attachFrozenSegment(segment: FrozenSegment): void
   swapFrozenSegments(dropSegmentIds: readonly string[], replacement: FrozenSegment): void
@@ -151,11 +149,6 @@ export function createCompositePartition(
     replaceLiveTail(segment: FrozenSegment): void {
       live.clear()
       frozen.push(segment)
-      invalidateDocFrequencies()
-    },
-
-    appendFrozenSegment(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void {
-      frozen.push(createFrozenSegment(payload, documents))
       invalidateDocFrequencies()
     },
 

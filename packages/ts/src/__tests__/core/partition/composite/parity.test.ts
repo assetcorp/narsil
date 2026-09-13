@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createPartitionIndex, type PartitionIndex } from '../../../../core/partition'
 import { type CompositePartition, createCompositePartition } from '../../../../core/partition/composite'
-import { createSharedFrozenSegment } from '../../../../core/partition/frozen'
+import { createFrozenSegment, createSharedFrozenSegment } from '../../../../core/partition/frozen'
 import { mergeFrozenSegments } from '../../../../core/partition/frozen/merge'
 import { ErrorCodes, NarsilError } from '../../../../errors'
 import type { InternalSearchParams } from '../../../../types/internal'
@@ -47,7 +47,7 @@ function buildPair(
   const perSegment = Math.floor(count / (frozenSegments + 1))
   for (let s = 0; s < frozenSegments; s++) {
     const chunk = documents.slice(s * perSegment, (s + 1) * perSegment)
-    composite.appendFrozenSegment(frozenPayloadFor(chunk), chunk)
+    composite.attachFrozenSegment(createFrozenSegment(frozenPayloadFor(chunk), chunk))
   }
   for (const doc of documents.slice(frozenSegments * perSegment)) {
     composite.insert(String(doc.id), doc, simpleSchema, english, { collectSurfaces: true })
@@ -192,7 +192,7 @@ describe('a composite of frozen segments plus a live tail matches one merged par
     const composite = createCompositePartition(0)
     for (let start = 0; start < documents.length; start += 32) {
       const chunk = documents.slice(start, start + 32)
-      composite.appendFrozenSegment(frozenPayloadFor(chunk), chunk)
+      composite.attachFrozenSegment(createFrozenSegment(frozenPayloadFor(chunk), chunk))
     }
     const filters = { fields: { price: { gte: 5 } } }
     const params = termParams({ tokens: ['apple'], exact: true, collectMatchedSet: 'ordinals', maxResults: 10 })
@@ -368,7 +368,7 @@ describe('composite writes route to the owning part', () => {
         active: i % 2 === 0,
         category: CATEGORIES[i % CATEGORIES.length],
       }))
-      composite.appendFrozenSegment(frozenPayloadFor(chunk), chunk)
+      composite.attachFrozenSegment(createFrozenSegment(frozenPayloadFor(chunk), chunk))
       allDocs.push(...chunk)
     }
     expect(composite.frozenSegmentCount()).toBe(8)
@@ -416,7 +416,7 @@ describe('composite writes route to the owning part', () => {
     const composite = createCompositePartition(0)
     for (let start = 0; start < documents.length; start += 12) {
       const chunk = documents.slice(start, start + 12)
-      composite.appendFrozenSegment(frozenPayloadFor(chunk, schema), chunk)
+      composite.attachFrozenSegment(createFrozenSegment(frozenPayloadFor(chunk, schema), chunk))
     }
     const segmentIds = composite.frozenSegmentSizes().map(size => size.segmentId)
     const merged = mergeFrozenSegments(composite.frozenSegmentsById(segmentIds))
