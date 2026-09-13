@@ -27,7 +27,7 @@ import {
   reachTombstone,
   topLayerOf,
 } from './shared'
-import { appendToList, setEntryPointsFromList, setSingleEntryPoint } from './workspace'
+import { appendToList, linkSelectionsFor, setEntryPointsFromList, setSingleEntryPoint } from './workspace'
 
 function clearTombstone(state: HNSWGraphState, ord: number): void {
   if (reachTombstone(state, ord) && Atomics.compareExchange(state.tombstones, ord, 1, 0) === 1) {
@@ -89,33 +89,49 @@ function placementDistance(state: HNSWGraphState, ord: number, vector: Float32Ar
   return candOrd => nodeDistanceByOrd(state, ord, candOrd, metric)
 }
 
-function linkNode(state: HNSWGraphState, ord: number, level: number): void {
+function selectNeighborsPerLayer(state: HNSWGraphState, ord: number, level: number): number {
   const metric = state.buildMetric
   const workspace = state.workspace
   const candidates = workspace.traversal
-  const selected = workspace.insertSelection
   const entry = state.store.entryForOrdinal(ord)
-  if (entry === undefined) return
+  if (entry === undefined) return -1
   const insertDistFn = placementDistance(state, ord, entry.vector)
-  const entryPoint = entryPointOf(state)
   const topLayer = topLayerOf(state)
-  setSingleEntryPoint(workspace, entryPoint)
+  setSingleEntryPoint(workspace, entryPointOf(state))
 
   for (let layer = topLayer; layer > level; layer--) {
     searchLayer(state, entry.vector, entry.magnitude, 1, layer, metric, false, insertDistFn, candidates)
-    if (candidates.size > 0) {
-      setSingleEntryPoint(workspace, candidates.ords[0])
-    }
+    if (candidates.size > 0) setSingleEntryPoint(workspace, candidates.ords[0])
   }
 
-  for (let layer = Math.min(level, topLayer); layer >= 0; layer--) {
+  const linkTop = Math.min(level, topLayer)
+  const selections = linkSelectionsFor(workspace, linkTop + 1)
+  for (let layer = linkTop; layer >= 0; layer--) {
     searchLayer(state, entry.vector, entry.magnitude, state.efCons, layer, metric, false, insertDistFn, candidates)
-    selectNeighborsHeuristic(state, candidates, maxConns(state, layer), metric, selected)
+    selectNeighborsHeuristic(state, candidates, maxConns(state, layer), metric, selections[layer])
+    if (candidates.size > 0) setEntryPointsFromList(workspace, candidates)
+  }
+  return linkTop
+}
 
-    lockNodeWrite(state.locks, ord)
-    replaceNeighbors(state.adjacency, ord, layer, selected.ords, selected.size)
+function writeOwnLists(state: HNSWGraphState, ord: number, linkTop: number): void {
+  const selections = state.workspace.linkSelections
+  lockNodeWrite(state.locks, ord)
+  try {
+    for (let layer = linkTop; layer >= 0; layer--) {
+      const selected = selections[layer]
+      replaceNeighbors(state.adjacency, ord, layer, selected.ords, selected.size)
+    }
+  } finally {
     unlockNodeWrite(state.locks, ord)
+  }
+}
 
+function linkNeighborsBack(state: HNSWGraphState, ord: number, linkTop: number): void {
+  const metric = state.buildMetric
+  const selections = state.workspace.linkSelections
+  for (let layer = linkTop; layer >= 0; layer--) {
+    const selected = selections[layer]
     for (let i = 0; i < selected.size; i++) {
       const neighborOrd = selected.ords[i]
       if (layer > nodeMaxLayer(state, neighborOrd)) continue
@@ -127,12 +143,15 @@ function linkNode(state: HNSWGraphState, ord: number, level: number): void {
         unlockNodeWrite(state.locks, neighborOrd)
       }
     }
-
-    if (candidates.size > 0) {
-      setEntryPointsFromList(workspace, candidates)
-    }
   }
+}
 
+function linkNode(state: HNSWGraphState, ord: number, level: number): void {
+  const topLayer = topLayerOf(state)
+  const linkTop = selectNeighborsPerLayer(state, ord, level)
+  if (linkTop < 0) return
+  writeOwnLists(state, ord, linkTop)
+  linkNeighborsBack(state, ord, linkTop)
   if (level > topLayer) raiseEntry(state, ord, level)
 }
 
@@ -147,7 +166,10 @@ function writeRecordBeforePlacement(state: HNSWGraphState, ord: number): void {
  * Places the vector at an ordinal in the graph, sharing the graph with every
  * other thread placing or searching at the same time. Where the field is
  * quantized, the thread writes the ordinal's record first, so that every node
- * the graph publishes has a record a later placement scores against.
+ * the graph publishes has a record a later placement scores against. It
+ * searches every layer before it writes the node's own lists, and it writes
+ * those lists before it links any neighbour back to the node, so that a
+ * search which reaches the node through a neighbour always finds a way on.
  *
  * @param state This thread's graph state.
  * @param ord The ordinal to place.

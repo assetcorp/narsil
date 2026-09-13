@@ -393,6 +393,19 @@ describe.skipIf(!built)('request threads answer from the copies they hold', () =
     expect(mainQueries).toBe(before)
   })
 
+  it('answers 400 VECTOR_DIMENSION_MISMATCH from a copy when the query vector has the wrong length', async () => {
+    const before = mainQueries
+    const response = await postJson<{ error: { code: string; details?: { expected: number; received: number } } }>(
+      srv.base,
+      '/indexes/catalogue/search',
+      { mode: 'vector', vector: { field: 'embedding', value: [0.1, 0.2, 0.3] }, limit: 5 },
+    )
+    expect(response.status).toBe(400)
+    expect(response.body.error.code).toBe('VECTOR_DIMENSION_MISMATCH')
+    expect(response.body.error.details).toEqual({ expected: VECTOR_DIMENSION, received: 3 })
+    expect(mainQueries).toBe(before)
+  })
+
   it('makes a write visible on every copy before it returns when the write carries wait', async () => {
     const inserted = await postJson<{ id: string }>(srv.base, '/indexes/catalogue/documents', {
       document: { id: 'late', title: 'omega late arrival', overview: 'late', embedding: documents[1].embedding },

@@ -1,4 +1,5 @@
 import { compareCodePoints } from '../../core/ordering'
+import { ErrorCodes, NarsilError } from '../../errors'
 import type { ScoredDocument } from '../../types/internal'
 import type { VectorMetric } from '../brute-force'
 import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
@@ -120,7 +121,11 @@ function collectHits(
   hasDocument: (ord: number) => boolean,
 ): OrdinalHit[] {
   if (query.length !== state.dimension) {
-    throw new Error(`Query dimension mismatch: expected ${state.dimension}, got ${query.length}`)
+    throw new NarsilError(
+      ErrorCodes.VECTOR_DIMENSION_MISMATCH,
+      `Vector dimension mismatch: expected ${state.dimension}, got ${query.length}`,
+      { expected: state.dimension, received: query.length },
+    )
   }
 
   const liveSize = nodeCountOf(state) - tombstoneCountOf(state)

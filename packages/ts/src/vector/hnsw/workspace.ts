@@ -54,8 +54,8 @@ export interface HNSWWorkspace {
   traversal: DistanceList
   /** The candidates the selection rule reads, sorted in place. */
   working: DistanceList
-  /** The neighbours a new node takes. */
-  insertSelection: DistanceList
+  /** The neighbours a new node takes on each layer, indexed by layer. */
+  linkSelections: DistanceList[]
   /** The neighbours of the node whose list is over its cap. */
   pruneCandidates: DistanceList
   /** The neighbours that node keeps. */
@@ -91,12 +91,18 @@ export function createHNSWWorkspace(): HNSWWorkspace {
     entryPointCount: 0,
     traversal: createList(INITIAL_LIST_CAPACITY),
     working: createList(INITIAL_LIST_CAPACITY),
-    insertSelection: createList(INITIAL_LIST_CAPACITY),
+    linkSelections: [],
     pruneCandidates: createList(INITIAL_LIST_CAPACITY),
     pruneSelection: createList(INITIAL_LIST_CAPACITY),
     repairCandidates: createList(INITIAL_LIST_CAPACITY),
     repairSelection: createList(INITIAL_LIST_CAPACITY),
   }
+}
+
+export function linkSelectionsFor(workspace: HNSWWorkspace, layers: number): DistanceList[] {
+  const selections = workspace.linkSelections
+  while (selections.length < layers) selections.push(createList(INITIAL_LIST_CAPACITY))
+  return selections
 }
 
 /**

@@ -1,4 +1,5 @@
 import { createBoundedMaxHeap } from '../../core/heap'
+import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
 import type { OrdinalHit } from '../hnsw/search'
 import { entryForOrd, type HNSWSearchState, isTombstoned, toDistance, toScore } from '../hnsw/shared'
@@ -119,6 +120,13 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
     partitionsKnown: () => true,
     assignPartitions: () => undefined,
     searchParallel(query, k, searchOptions) {
+      if (query.length !== view.handles.dimension) {
+        throw new NarsilError(
+          ErrorCodes.VECTOR_DIMENSION_MISMATCH,
+          `Vector dimension mismatch: expected ${view.handles.dimension}, got ${query.length}`,
+          { expected: view.handles.dimension, received: query.length },
+        )
+      }
       const filter = filterFor(searchOptions)
       if (filter !== undefined && filter.count === 0) return Promise.resolve([])
       const hits = hitsFor(query, k, searchOptions, filter)
