@@ -27,16 +27,23 @@ export async function buildSegments(
   const pool = state.workerPool
   if (!pool || requests.length === 0) return null
 
-  const executors = pool.getAllExecutors()
-  if (executors.length === 0) return null
+  const leases = requests.map(() => pool.leaseLeastBusy())
+  if (leases.some(lease => lease === null)) {
+    for (const lease of leases) lease?.release()
+    return null
+  }
 
-  const results = await Promise.all(
-    requests.map((request, i) =>
-      executors[i % executors.length]
-        .execute<SegmentPayload>(request.action)
-        .then(payload => ({ partitionId: request.partitionId, payload, documents: request.documents })),
-    ),
-  )
-
-  return results
+  try {
+    return await Promise.all(
+      requests.map((request, i) => {
+        const lease = leases[i]
+        if (lease === null) throw new Error('Segment build lease missing')
+        return lease.executor
+          .execute<SegmentPayload>(request.action)
+          .then(payload => ({ partitionId: request.partitionId, payload, documents: request.documents }))
+      }),
+    )
+  } finally {
+    for (const lease of leases) lease?.release()
+  }
 }
