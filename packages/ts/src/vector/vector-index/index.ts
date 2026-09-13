@@ -14,6 +14,7 @@ import {
 import { adoptDiskLayout as adoptDiskLayoutOp, type VectorFileLayout, type VectorPartFile } from './disk'
 import {
   compact as compactOp,
+  completeGraph as completeGraphOp,
   estimateMemoryBytes as estimateMemoryBytesOp,
   maintenanceStatus as maintenanceStatusOp,
   optimize as optimizeOp,
@@ -60,6 +61,8 @@ export interface VectorIndex {
   assignPartitions(resolve: (docId: string) => number | undefined): void
   scheduleBuild(): void
   awaitPendingBuild(): Promise<void>
+  /** Places every live vector in the graph, building one where the field holds none and enough vectors for one, and resolves once every vector is in. A checkpoint calls this so that the parts it writes carry the graph. */
+  completeGraph(): Promise<void>
   dispose(): void
   search(query: Float32Array, k: number, options: VectorSearchOptions): VectorScoredResult[]
   searchParallel(query: Float32Array, k: number, options: VectorSearchOptions): Promise<VectorScoredResult[]>
@@ -297,6 +300,7 @@ export function createVectorIndex(
     assignPartitions: (resolve: (docId: string) => number | undefined) => assignStorePartitions(state, resolve),
     scheduleBuild: () => scheduleBuildOp(state),
     awaitPendingBuild,
+    completeGraph: () => completeGraphOp(state),
     dispose,
     search: (query: Float32Array, k: number, options: VectorSearchOptions) => searchOp(state, query, k, options),
     searchParallel,

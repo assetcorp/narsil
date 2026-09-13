@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createHNSWIndex, type SerializedHNSWGraph } from '../hnsw'
-import { osqBitsOf } from '../osq'
+import { type OsqQuantizer, osqBitsOf } from '../osq'
 import { magnitude } from '../similarity'
 import { readsFromDisk, type VectorPartFile } from './disk'
 import {
@@ -13,18 +13,24 @@ import {
 } from './payload'
 import { adoptGraph, recalibrateFromStore, type VectorIndexState } from './shared'
 
-interface LiveEntry {
-  docId: string
-  vector: Float32Array
+function liveDocIds(state: VectorIndexState): string[] {
+  const docIds: string[] = []
+  for (let ordinal = 0; ordinal < state.store.slots; ordinal++) {
+    const docId = state.store.docIdForOrdinal(ordinal)
+    if (docId === undefined || state.tombstones.has(docId)) continue
+    docIds.push(docId)
+  }
+  return docIds
 }
 
-function liveEntries(state: VectorIndexState): LiveEntry[] {
-  const entries: LiveEntry[] = []
-  for (const [docId, entry] of state.store.entries()) {
-    if (state.tombstones.has(docId)) continue
-    entries.push({ docId, vector: entry.vector })
+function partVectors(state: VectorIndexState, docIds: readonly string[]): Float32Array {
+  const dimension = state.dimension
+  const vectors = new Float32Array(docIds.length * dimension)
+  for (let i = 0; i < docIds.length; i++) {
+    const entry = state.store.get(docIds[i])
+    if (entry !== undefined) vectors.set(entry.vector, i * dimension)
   }
-  return entries
+  return vectors
 }
 
 function graphsPerPart(state: VectorIndexState, partOf: Map<string, number>, parts: number): SerializedHNSWGraph[][] {
@@ -40,19 +46,23 @@ function graphsPerPart(state: VectorIndexState, partOf: Map<string, number>, par
   return sliced
 }
 
-function codesFor(state: VectorIndexState, entries: LiveEntry[]): VectorIndexCodes | null {
+function recordFor(state: VectorIndexState, quantizer: OsqQuantizer, docId: string): Uint8Array | undefined {
+  const record = quantizer.recordOf(docId)
+  if (record !== undefined) return record
+  const entry = state.store.get(docId)
+  if (entry === undefined) return undefined
+  quantizer.quantize(docId, entry.vector)
+  return quantizer.recordOf(docId)
+}
+
+function codesFor(state: VectorIndexState, docIds: readonly string[]): VectorIndexCodes | null {
   const quantizer = state.osq
   const centroid = quantizer?.centroid ?? null
   const layout = state.store.handles.codeLayout
   if (quantizer === null || centroid === null || layout === null || state.hnsw === null) return null
-  const records = new Uint8Array(entries.length * layout.slotStride)
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i]
-    let record = quantizer.recordOf(entry.docId)
-    if (record === undefined) {
-      quantizer.quantize(entry.docId, entry.vector)
-      record = quantizer.recordOf(entry.docId)
-    }
+  const records = new Uint8Array(docIds.length * layout.slotStride)
+  for (let i = 0; i < docIds.length; i++) {
+    const record = recordFor(state, quantizer, docIds[i])
     if (record !== undefined) records.set(record, i * layout.slotStride)
   }
   return { bits: quantizer.bits, centroid: Array.from(centroid), records }
@@ -62,33 +72,32 @@ function codesFor(state: VectorIndexState, entries: LiveEntry[]): VectorIndexCod
  * Writes the field as the parts the envelope specification defines: at most
  * 65,536 live vectors per part in ordinal order, the graphs sliced to each
  * part's nodes, one code record per vector where the field holds a graph and
- * codes, and the vectors last.
+ * codes, and the vectors last. It reads the vectors one part at a time, so a
+ * field kept on disk holds one part's vectors in memory at most.
  *
  * @internal
  */
 export function serialize(state: VectorIndexState): VectorIndexPayload[] {
-  const entries = liveEntries(state)
-  const parts = Math.max(1, Math.ceil(entries.length / VECTOR_INDEX_PART_VECTORS))
+  const docIds = liveDocIds(state)
+  const parts = Math.max(1, Math.ceil(docIds.length / VECTOR_INDEX_PART_VECTORS))
   const partOf = new Map<string, number>()
-  for (let i = 0; i < entries.length; i++) partOf.set(entries[i].docId, Math.floor(i / VECTOR_INDEX_PART_VECTORS))
+  for (let i = 0; i < docIds.length; i++) partOf.set(docIds[i], Math.floor(i / VECTOR_INDEX_PART_VECTORS))
   const graphs = graphsPerPart(state, partOf, parts)
-  const codes = codesFor(state, entries)
+  const codes = codesFor(state, docIds)
   const dimension = state.dimension
   const recordBytes = state.store.handles.codeLayout?.slotStride ?? 0
 
   const payloads: VectorIndexPayload[] = []
   for (let part = 0; part < parts; part++) {
     const start = part * VECTOR_INDEX_PART_VECTORS
-    const slice = entries.slice(start, start + VECTOR_INDEX_PART_VECTORS)
-    const vectors = new Float32Array(slice.length * dimension)
-    for (let i = 0; i < slice.length; i++) vectors.set(slice[i].vector, i * dimension)
+    const slice = docIds.slice(start, start + VECTOR_INDEX_PART_VECTORS)
     payloads.push({
       v: VECTOR_INDEX_PAYLOAD_VERSION,
       fieldName: state.fieldName,
       dimension,
       part,
       parts,
-      docIds: slice.map(entry => entry.docId),
+      docIds: slice,
       graphs: graphs[part],
       codes:
         codes === null
@@ -98,7 +107,7 @@ export function serialize(state: VectorIndexState): VectorIndexPayload[] {
               centroid: codes.centroid,
               records: codes.records.subarray(start * recordBytes, (start + slice.length) * recordBytes),
             },
-      vectors: vectorsToBytes(vectors),
+      vectors: vectorsToBytes(partVectors(state, slice)),
     })
   }
   return payloads

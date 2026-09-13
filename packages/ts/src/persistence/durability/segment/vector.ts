@@ -97,43 +97,55 @@ export async function writePartitionVectors(input: VectorWriteInput): Promise<Ve
   for (const [fieldPath, dimension] of input.vectorFields) {
     vectorIndexes.set(
       fieldPath,
-      createVectorIndex(fieldPath, dimension, input.config.vectorPromotion, { enabled: false }),
+      createVectorIndex(
+        fieldPath,
+        dimension,
+        input.config.vectorPromotion,
+        { enabled: false },
+        input.indexName,
+        'disk',
+      ),
     )
   }
 
-  for (const ref of input.priorVectors) {
-    const vecIndex = vectorIndexes.get(ref.fieldPath)
-    if (vecIndex === undefined) {
-      continue
+  try {
+    for (const ref of input.priorVectors) {
+      const vecIndex = vectorIndexes.get(ref.fieldPath)
+      if (vecIndex === undefined) {
+        continue
+      }
+      const { parts, files } = await readVectorParts(input.directory, ref.keys)
+      vecIndex.deserialize(parts, files)
     }
-    const { parts } = await readVectorParts(input.directory, ref.keys)
-    vecIndex.deserialize(parts)
-  }
 
-  for (const entry of input.entries) {
-    applyEntryVectors(entry, input.vectorFieldPaths, vectorIndexes)
-  }
-
-  const refs: VectorSegmentRef[] = []
-  const layouts: VectorCheckpointLayout[] = []
-  for (const [fieldPath, vecIndex] of vectorIndexes) {
-    const generation = (priorByField.get(fieldPath)?.generation ?? 0) + 1
-    const keys: string[] = []
-    for (const part of vecIndex.serialize()) {
-      const key = vectorSegmentKey(input.indexName, input.partitionId, fieldPath, generation, part.part)
-      const envelope = await packSnapshotEnvelopePartsRetrying(() => encode(part))
-      await input.directory.atomicWrite(key, [envelope.header, envelope.payload])
-      keys.push(key)
-      layouts.push({
-        fieldPath,
-        key,
-        docIds: part.docIds,
-        vectorsOffset: vectorsOffsetOf(envelope.payload.length, part),
-      })
+    for (const entry of input.entries) {
+      applyEntryVectors(entry, input.vectorFieldPaths, vectorIndexes)
     }
-    refs.push({ fieldPath, generation, keys })
+
+    const refs: VectorSegmentRef[] = []
+    const layouts: VectorCheckpointLayout[] = []
+    for (const [fieldPath, vecIndex] of vectorIndexes) {
+      await vecIndex.completeGraph()
+      const generation = (priorByField.get(fieldPath)?.generation ?? 0) + 1
+      const keys: string[] = []
+      for (const part of vecIndex.serialize()) {
+        const key = vectorSegmentKey(input.indexName, input.partitionId, fieldPath, generation, part.part)
+        const envelope = await packSnapshotEnvelopePartsRetrying(() => encode(part))
+        await input.directory.atomicWrite(key, [envelope.header, envelope.payload])
+        keys.push(key)
+        layouts.push({
+          fieldPath,
+          key,
+          docIds: part.docIds,
+          vectorsOffset: vectorsOffsetOf(envelope.payload.length, part),
+        })
+      }
+      refs.push({ fieldPath, generation, keys })
+    }
+    return { refs, layouts }
+  } finally {
+    for (const vecIndex of vectorIndexes.values()) vecIndex.dispose()
   }
-  return { refs, layouts }
 }
 
 function applyEntryVectors(

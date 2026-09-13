@@ -81,8 +81,7 @@ function resolveNodes(
 
   for (const [docId, maxLayer, layerConns] of data.nodes) {
     const ord = store.getOrdinal(docId)
-    if (ord === undefined) continue
-    if (store.entryForOrdinal(ord) === undefined) continue
+    if (ord === undefined || !store.holdsOrdinal(ord)) continue
 
     const clampedMaxLayer = Math.min(Math.max(maxLayer, 0), MAX_LAYER_CAP)
     const layers: Array<[number, number[]]> = []

@@ -7,6 +7,8 @@ import { createNarsil } from '../../../narsil'
 import { createDurableDirectory, type DurableDirectory } from '../../../persistence/durability/durable-filesystem'
 import { unpackEnvelopeBytes } from '../../../serialization/envelope'
 import type { IndexConfig } from '../../../types/schema'
+import { osqRecordBytes } from '../../../vector/osq/record'
+import { decodeVectorIndexPart } from '../../../vector/vector-index/payload'
 
 const DIMENSION = 8
 
@@ -89,6 +91,39 @@ describe('vector fields in a segmented checkpoint', () => {
 
     const hits = await reader.query('papers', { vector: { field: 'embedding', value: embeddingFor(3) }, limit: 1 })
     expect(hits.hits[0]?.id).toBe('p3')
+    await reader.shutdown()
+  })
+
+  it('writes the graph and the codes with the vectors and grows them at the next checkpoint', async () => {
+    const config: IndexConfig = { ...CONFIG, vectorPromotion: { threshold: 8 } }
+    const writer = await createNarsil({ durability: { directory: root } })
+    await writer.createIndex('papers', config)
+    for (let i = 0; i < 12; i += 1) {
+      await writer.insert('papers', { title: `Paper ${i}`, embedding: embeddingFor(i) }, `p${i}`)
+    }
+    await writer.checkpoint('papers')
+    for (let i = 12; i < 16; i += 1) {
+      await writer.insert('papers', { title: `Paper ${i}`, embedding: embeddingFor(i) }, `p${i}`)
+    }
+    await writer.checkpoint('papers')
+    const query = { vector: { field: 'embedding', value: embeddingFor(14) }, limit: 3 }
+    const expected = (await writer.query('papers', query)).hits.map(hit => hit.id)
+    await writer.shutdown()
+
+    const directory = createDurableDirectory(root)
+    const vectorKeys = (await directory.list('papers/segments/0/')).filter(key => key.includes('/vec-embedding-'))
+    expect(vectorKeys).toHaveLength(1)
+    const bytes = await directory.read(vectorKeys[0])
+    if (bytes === null) throw new Error('vector part missing')
+    const { payloadBytes } = await unpackEnvelopeBytes(bytes)
+    const part = decodeVectorIndexPart(decode(payloadBytes))
+    expect(part.docIds).toHaveLength(16)
+    expect(part.graphs).toHaveLength(1)
+    expect(part.graphs[0].nodes.map(node => node[0]).sort()).toEqual([...part.docIds].sort())
+    expect(part.codes?.records.byteLength).toBe(16 * osqRecordBytes(DIMENSION, 8))
+
+    const reader = await createNarsil({ durability: { directory: root } })
+    expect((await reader.query('papers', query)).hits.map(hit => hit.id)).toEqual(expected)
     await reader.shutdown()
   })
 

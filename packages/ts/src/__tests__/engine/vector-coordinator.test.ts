@@ -90,6 +90,7 @@ function createMockVectorIndex(
     },
     deserialize() {},
     async adoptDiskLayout() {},
+    async completeGraph() {},
     scheduleBuild() {},
     async awaitPendingBuild() {},
     dispose() {},

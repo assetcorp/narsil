@@ -1,4 +1,5 @@
 import type { IndexMetadata } from '../../types/internal'
+import { CHECKPOINT_WORKER_HEARTBEAT_MS } from './constants'
 import { rebuildSnapshotFromDurable } from './rebuild'
 import type { SegmentedCheckpointOutcome } from './segment'
 import type { PartitionCheckpoint } from './snapshot-bundle'
@@ -20,7 +21,17 @@ export interface CheckpointWorkerError {
   message: string
 }
 
-export type CheckpointWorkerMessage = CheckpointWorkerSuccess | CheckpointWorkerError
+/**
+ * The worker posts this while a checkpoint is still in progress, so that the
+ * thread waiting on it tells a long checkpoint apart from a hung worker.
+ *
+ * @internal
+ */
+export interface CheckpointWorkerHeartbeat {
+  type: 'heartbeat'
+}
+
+export type CheckpointWorkerMessage = CheckpointWorkerSuccess | CheckpointWorkerError | CheckpointWorkerHeartbeat
 
 async function handleRequest(raw: unknown): Promise<CheckpointWorkerSuccess> {
   const request = raw as CheckpointWorkerRequest
@@ -60,12 +71,17 @@ async function setupAsync(): Promise<void> {
 
   const port = parentPort
   port.on('message', (raw: unknown) => {
+    const heartbeat = setInterval(
+      () => port.postMessage({ type: 'heartbeat' } satisfies CheckpointWorkerHeartbeat),
+      CHECKPOINT_WORKER_HEARTBEAT_MS,
+    )
     handleRequest(raw)
       .then(result => port.postMessage(result))
       .catch(err => {
         const message = err instanceof Error ? err.message : String(err)
         port.postMessage({ type: 'error', message } satisfies CheckpointWorkerError)
       })
+      .finally(() => clearInterval(heartbeat))
   })
 }
 
