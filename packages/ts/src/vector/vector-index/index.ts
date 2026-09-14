@@ -5,12 +5,7 @@ import type { HNSWConfig } from '../hnsw'
 import { createOsqQuantizer, osqBitsOf } from '../osq'
 import { createVectorStore } from '../vector-store'
 import { scheduleBuild as scheduleBuildOp } from './build'
-import {
-  DEFAULT_FILTER_THRESHOLD,
-  DEFAULT_PROMOTION_THRESHOLD,
-  OSQ1_MIN_DIMENSION,
-  OSQ4_MIN_DIMENSION,
-} from './constants'
+import { DEFAULT_FILTER_THRESHOLD, DEFAULT_PROMOTION_THRESHOLD, OSQ4_MIN_DIMENSION } from './constants'
 import { adoptDiskLayout as adoptDiskLayoutOp, type VectorFileLayout, type VectorPartFile } from './disk'
 import {
   compact as compactOp,
@@ -91,7 +86,6 @@ export interface VectorIndex {
 }
 
 export function defaultQuantizationFor(dimension: number): VectorQuantizationMode {
-  if (dimension >= OSQ1_MIN_DIMENSION) return 'osq1'
   if (dimension >= OSQ4_MIN_DIMENSION) return 'osq4'
   return 'osq8'
 }

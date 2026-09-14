@@ -193,7 +193,7 @@ describe('VectorIndex quantization integration', () => {
     const middle = createVectorIndex('vec', 768, { threshold: 5 })
     const narrow = createVectorIndex('vec', 128, { threshold: 5 })
     try {
-      expect(wide.quantization).toBe('osq1')
+      expect(wide.quantization).toBe('osq4')
       expect(middle.quantization).toBe('osq4')
       expect(narrow.quantization).toBe('osq8')
     } finally {
