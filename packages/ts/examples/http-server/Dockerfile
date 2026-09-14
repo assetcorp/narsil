@@ -2,7 +2,7 @@
 # Build context is the repository root:
 #   docker build -f packages/ts/examples/http-server/Dockerfile -t narsil-server .
 #   docker run --rm -p 7700:7700 narsil-server
-FROM node:22-trixie-slim AS build
+FROM node:24-trixie-slim AS build
 WORKDIR /repo
 RUN corepack enable
 COPY . .
@@ -10,7 +10,7 @@ RUN pnpm install --frozen-lockfile
 ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN pnpm --filter @delali/narsil build
 
-FROM node:22-trixie-slim AS runtime
+FROM node:24-trixie-slim AS runtime
 WORKDIR /app
 RUN corepack enable
 COPY --from=build /repo /repo
