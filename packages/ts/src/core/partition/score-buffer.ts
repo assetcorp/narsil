@@ -80,6 +80,13 @@ export function addScore(buffer: ScoreBuffer, internalId: number, termScore: num
   appendTouched(buffer, internalId)
 }
 
+export function markMatched(buffer: ScoreBuffer, internalId: number): void {
+  if (buffer.stamps[internalId] === buffer.generation) return
+  buffer.stamps[internalId] = buffer.generation
+  buffer.scores[internalId] = 0
+  appendTouched(buffer, internalId)
+}
+
 /**
  * Reports whether this query has already scored the given document, which is
  * what an intersecting query reads to drop a document that missed an earlier

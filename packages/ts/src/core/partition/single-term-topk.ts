@@ -26,7 +26,7 @@ export interface SingleTermScanRequest {
   resolver: InternalIdResolver
 }
 
-function fieldLengthOf(
+export function fieldLengthOf(
   columns: ReadonlyArray<Uint32Array | null>,
   fieldIndex: number,
   internalId: number,
@@ -38,7 +38,7 @@ function fieldLengthOf(
   return stored > 0 ? stored : averageLength
 }
 
-function bestSearchable(searchable: Uint8Array, values: Float64Array): number {
+export function bestSearchable(searchable: Uint8Array, values: Float64Array): number {
   let best = 0
   for (let index = 0; index < searchable.length; index++) {
     if (searchable[index] === 1 && values[index] > best) best = values[index]
@@ -46,20 +46,30 @@ function bestSearchable(searchable: Uint8Array, values: Float64Array): number {
   return best
 }
 
+export function fieldsCoverEvery(fields: string[] | undefined, fieldNames: readonly string[]): boolean {
+  if (fields === undefined) return true
+  for (const name of fieldNames) {
+    if (!fields.includes(name)) return false
+  }
+  return true
+}
+
 /**
  * Decides whether a query may run on the pruned single-term scan, returning
  * the term's posting list when it may and null when the query needs the full
  * term-at-a-time loop. The scan handles exactly one unexpanded term scored
- * over every searchable field with a bounded page, on an ordered list, under
- * BM25 parameters whose block bound stays a true upper bound.
+ * over every field the index holds, with a bounded page, on an ordered list,
+ * under BM25 parameters whose block bound stays a true upper bound.
  *
  * @param params - The resolved search parameters.
  * @param index - The inverted index holding the term's postings.
+ * @param fieldNames - Every field name the partition has indexed.
  * @returns The posting list to scan, or null when the query must fall back.
  */
 export function prunableSingleTermList(
   params: InternalSearchParams,
   index: Pick<InvertedIndexReader, 'lookup'>,
+  fieldNames: readonly string[],
 ): PostingListView | null {
   if (params.queryTokens.length !== 1) return null
   if (params.prefixExpansion !== undefined) return null
@@ -68,7 +78,7 @@ export function prunableSingleTermList(
   if (params.collectComponents !== false) return null
   if (params.collectMatchedSet !== undefined) return null
   if (params.maxResults === undefined) return null
-  if (params.fields !== undefined) return null
+  if (!fieldsCoverEvery(params.fields, fieldNames)) return null
   if (params.filterBitset !== undefined) return null
   if (!bm25PruningSound(params.bm25Params)) return null
 

@@ -3,8 +3,10 @@ import { createInvertedIndex } from '../../../core/inverted-index'
 import { prunableSingleTermList } from '../../../core/partition/search'
 import type { FieldNameTable, InternalSearchParams } from '../../../types/internal'
 
+const FIELD_NAMES = ['title']
+
 function buildIndex(documentCount: number) {
-  const fieldNameTable: FieldNameTable = { names: ['title'], indexMap: new Map([['title', 0]]) }
+  const fieldNameTable: FieldNameTable = { names: [...FIELD_NAMES], indexMap: new Map([['title', 0]]) }
   const index = createInvertedIndex(fieldNameTable)
   for (let internalId = 0; internalId < documentCount; internalId++) {
     index.insert('alpha', internalId, (internalId % 3) + 1, 0, null)
@@ -24,7 +26,7 @@ function paramsFor(overrides: Partial<InternalSearchParams> = {}): InternalSearc
 describe('routing to the pruned single-term scan', () => {
   it('routes the plain single-term query to the scan', () => {
     const index = buildIndex(20)
-    expect(prunableSingleTermList(paramsFor(), index)).toBe(index.lookup('alpha'))
+    expect(prunableSingleTermList(paramsFor(), index, FIELD_NAMES)).toBe(index.lookup('alpha'))
   })
 
   it('keeps routing to the scan while the list holds tombstones', () => {
@@ -33,16 +35,16 @@ describe('routing to the pruned single-term scan', () => {
     const list = index.lookup('alpha')
     expect(list).toBeDefined()
     expect(list?.deletedDocs.size).toBe(1)
-    expect(prunableSingleTermList(paramsFor(), index)).toBe(list)
+    expect(prunableSingleTermList(paramsFor(), index, FIELD_NAMES)).toBe(list)
   })
 
   it('refuses bm25 parameters outside the range the block bound is sound for', () => {
     const index = buildIndex(20)
     for (const bm25Params of [{ b: 2 }, { b: -1 }, { b: 1.001 }, { b: Number.NaN }, { k1: -1 }, { k1: Number.NaN }]) {
-      expect(prunableSingleTermList(paramsFor({ bm25Params }), index)).toBeNull()
+      expect(prunableSingleTermList(paramsFor({ bm25Params }), index, FIELD_NAMES)).toBeNull()
     }
     for (const bm25Params of [{ b: 0 }, { b: 1 }, { b: 0.75 }, { k1: 0 }, undefined]) {
-      expect(prunableSingleTermList(paramsFor({ bm25Params }), index)).not.toBeNull()
+      expect(prunableSingleTermList(paramsFor({ bm25Params }), index, FIELD_NAMES)).not.toBeNull()
     }
   })
 
@@ -62,14 +64,15 @@ describe('routing to the pruned single-term scan', () => {
       { collectComponents: undefined },
       { collectMatchedSet: 'ordinals' },
       { maxResults: undefined },
-      { fields: ['title'] },
+      { fields: ['body'] },
       { filterBitset: new Uint32Array(1) },
       { queryTokens: [{ token: 'missing', position: 0 }] },
     ]
     for (const overrides of refused) {
-      expect(prunableSingleTermList(paramsFor(overrides), index)).toBeNull()
+      expect(prunableSingleTermList(paramsFor(overrides), index, FIELD_NAMES)).toBeNull()
     }
-    expect(prunableSingleTermList(paramsFor({ exact: true, tolerance: 1 }), index)).not.toBeNull()
+    expect(prunableSingleTermList(paramsFor({ exact: true, tolerance: 1 }), index, FIELD_NAMES)).not.toBeNull()
+    expect(prunableSingleTermList(paramsFor({ fields: ['title'] }), index, FIELD_NAMES)).not.toBeNull()
   })
 
   it('refuses a list whose entries fell out of document order', () => {
@@ -77,6 +80,6 @@ describe('routing to the pruned single-term scan', () => {
     index.insert('alpha', 2, 1, 0, null)
     const list = index.lookup('alpha')
     expect(list?.ordered).toBe(false)
-    expect(prunableSingleTermList(paramsFor(), index)).toBeNull()
+    expect(prunableSingleTermList(paramsFor(), index, FIELD_NAMES)).toBeNull()
   })
 })

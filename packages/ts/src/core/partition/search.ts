@@ -2,6 +2,7 @@ import type { InternalSearchParams, InternalSearchResult, PostingListView } from
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 import type { InvertedIndexReader } from '../inverted-index'
 import { computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
+import { multiTermTopK, prunableMultiTermLists } from './multi-term-topk'
 import { postingColumns } from './posting-columns'
 import { addScore, beginScoring, createScoreBuffer, hasScore, topKFromBuffer } from './score-buffer'
 import {
@@ -193,7 +194,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     if (components !== null) mergePrefixComponents(components, internalId, contribution)
   }
 
-  const prunableList = prunableSingleTermList(params, state.invertedIdx)
+  const prunableList = prunableSingleTermList(params, state.invertedIdx, fieldNames)
   if (prunableList !== null && maxResults !== undefined) {
     for (let fieldIndex = 0; fieldIndex < fieldNames.length; fieldIndex++) loadFieldMeta(fieldIndex)
     return singleTermTopK({
@@ -209,6 +210,26 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
       fieldAvgLengths,
       fieldLengthColumns,
       resolver,
+    })
+  }
+
+  const prunableLists = prunableMultiTermLists(params, state.invertedIdx)
+  if (prunableLists !== null && maxResults !== undefined) {
+    for (let fieldIndex = 0; fieldIndex < fieldNames.length; fieldIndex++) loadFieldMeta(fieldIndex)
+    return multiTermTopK({
+      terms: prunableLists,
+      docFrequencies: prunableLists.map(term =>
+        globalStats ? globalDocFreqFor(globalDocFreqs, term.token, term.list.docIdSet.size) : term.list.docIdSet.size,
+      ),
+      totalDocs,
+      bm25Params,
+      limit: maxResults,
+      fieldSearchable,
+      fieldBoosts,
+      fieldAvgLengths,
+      fieldLengthColumns,
+      resolver,
+      buffer: scoreBuffer,
     })
   }
 
