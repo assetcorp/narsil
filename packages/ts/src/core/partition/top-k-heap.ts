@@ -1,10 +1,5 @@
 import { compareCodePoints } from '../ordering'
 
-/**
- * One document competing for a place on the page, held in the selection heap.
- *
- * @internal
- */
 export interface TopKCandidate {
   internalId: number
   externalId: string

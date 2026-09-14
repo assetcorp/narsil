@@ -7,13 +7,6 @@ import { openSharedQuantizer, type SharedQuantizerView } from '../osq/view'
 import { openSharedVectorStore, type SharedVectorStoreView } from '../vector-store/view'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from './types'
 
-/**
- * This is one thread's open view over a vector field, holding the readers
- * over its shared vectors and codes alongside the graph state the thread
- * searches and extends once the field holds a graph.
- *
- * @internal
- */
 export interface SharedVectorFieldView {
   readonly handles: SharedVectorFieldHandles
   readonly store: SharedVectorStoreView
@@ -46,16 +39,6 @@ export interface SharedVectorFieldView {
   ): OrdinalHit[]
 }
 
-/**
- * Opens a field on the current thread.
- *
- * @param initial The handles to open.
- * @param threadSlot This thread's scratch slot inside every block and its
- * slot in the graph's lock record.
- * @returns The view.
- *
- * @internal
- */
 export function openSharedVectorField(initial: SharedVectorFieldHandles, threadSlot: number): SharedVectorFieldView {
   let handles = initial
   const store = openSharedVectorStore(initial.store, threadSlot)

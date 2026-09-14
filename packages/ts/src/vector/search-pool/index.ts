@@ -67,16 +67,6 @@ interface WorkerSlot {
   outstanding: number
 }
 
-/**
- * Reports the scratch slot a search pool worker uses, counted down from the
- * top so that it stays clear of a request thread's slot, which counts up from
- * one.
- *
- * @param index The worker's index in its pool.
- * @returns The slot the worker writes its query scratch into.
- *
- * @internal
- */
 export function searchPoolScratchSlot(index: number): number {
   return VECTOR_SCRATCH_SLOTS - 1 - index
 }

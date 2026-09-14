@@ -6,28 +6,12 @@ import { osqRecordBytes } from '../osq/record'
 export const VECTOR_INDEX_PAYLOAD_VERSION = 2
 export const VECTOR_INDEX_PART_VECTORS = 65_536
 
-/**
- * These are the code records of one part, with the centroid the quantizer
- * took them against.
- *
- * @internal
- */
 export interface VectorIndexCodes {
   bits: OsqBits
   centroid: number[]
   records: Uint8Array
 }
 
-/**
- * This is one part of a vector field's persisted state, as the envelope
- * specification defines it: at most 65,536 vectors in ordinal order, the
- * graphs sliced to this part's nodes with their headers repeated, the code
- * records of these vectors, and the vectors themselves as little-endian
- * float32 written last so that a reader finds vector `i` at
- * `payload_length - (count - i) * dimension * 4`.
- *
- * @internal
- */
 export interface VectorIndexPayload {
   v: typeof VECTOR_INDEX_PAYLOAD_VERSION
   fieldName: string
@@ -42,11 +26,6 @@ export interface VectorIndexPayload {
 
 const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1
 
-/**
- * Encodes vectors as the little-endian float32 bytes the payload carries.
- *
- * @internal
- */
 export function vectorsToBytes(vectors: Float32Array): Uint8Array {
   if (LITTLE_ENDIAN) return new Uint8Array(vectors.buffer, vectors.byteOffset, vectors.byteLength)
   const bytes = new Uint8Array(vectors.byteLength)
@@ -55,11 +34,6 @@ export function vectorsToBytes(vectors: Float32Array): Uint8Array {
   return bytes
 }
 
-/**
- * Decodes the little-endian float32 bytes the payload carries.
- *
- * @internal
- */
 export function bytesToVectors(bytes: Uint8Array): Float32Array {
   if (LITTLE_ENDIAN && bytes.byteOffset % 4 === 0) {
     return new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4)
@@ -101,13 +75,6 @@ function codesOf(raw: unknown, dimension: number, count: number): VectorIndexCod
   return { bits, centroid: raw.centroid.map(Number), records: raw.records }
 }
 
-/**
- * Validates one decoded part and returns it typed. It rejects a payload
- * written in the earlier layout, which carries no version, with
- * `ENVELOPE_VERSION_MISMATCH`, as the compatibility rules require before 1.0.
- *
- * @internal
- */
 export function decodeVectorIndexPart(raw: unknown): VectorIndexPayload {
   if (!isRecord(raw)) invalid('payload must be a map')
   if (raw.v !== VECTOR_INDEX_PAYLOAD_VERSION) {
@@ -152,12 +119,6 @@ export function decodeVectorIndexPart(raw: unknown): VectorIndexPayload {
   }
 }
 
-/**
- * Validates a list of parts, which a snapshot bundle or an index snapshot
- * carries per field.
- *
- * @internal
- */
 export function decodeVectorIndexParts(raw: unknown): VectorIndexPayload[] {
   if (!Array.isArray(raw)) invalid('a field must carry a list of parts')
   return raw.map(decodeVectorIndexPart)

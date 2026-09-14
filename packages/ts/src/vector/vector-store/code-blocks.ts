@@ -26,15 +26,6 @@ export interface VectorCodeBlockLayout extends BlockGeometry {
   planeBytes: number
 }
 
-/**
- * Computes the geometry every code block of a field follows.
- *
- * @param dimension The number of components per vector.
- * @param bits The bits each level of a document code holds.
- * @returns The layout every code block of the field follows.
- *
- * @internal
- */
 export function computeCodeBlockLayout(dimension: number, bits: OsqBits): VectorCodeBlockLayout {
   const queryBits = osqQueryBits(bits)
   const codeBytes = osqCodeBytes(dimension, bits)

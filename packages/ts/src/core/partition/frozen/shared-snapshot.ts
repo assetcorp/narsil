@@ -7,16 +7,6 @@ import { type ExternalIdTableData, encodeExternalIdTableData } from './external-
 import { encodeSurfaceTable, type SurfaceTableData } from './surface-table'
 import { encodeFrozenTokenTableData, type FrozenTokenTableData } from './token-table'
 
-/**
- * One keyword segment frozen into shared memory. Every typed array is a view
- * over a SharedArrayBuffer, so posting this to a worker attaches the same
- * bytes instead of copying them, and nothing writes to it after the freeze.
- * The snapshot holds the token, document id, and surface form strings as
- * UTF-8 blobs, which a thread decodes only when it reads them. Each worker
- * still clones the small plain fields, the field names and the enum values.
- *
- * @internal
- */
 export interface SharedSegmentSnapshot extends Omit<SegmentColumns, 'surfaceForms'> {
   segmentId: string
   tokenTable: FrozenTokenTableData
@@ -66,17 +56,6 @@ export function freezeSegmentShared(
   return freezeEncodedSegmentShared(payload, encodeDocumentTableData(documents), segmentId)
 }
 
-/**
- * Freezes a segment whose documents are already encoded, so a merge that
- * copied the bytes of its inputs never decodes a document.
- *
- * @param payload The segment's arrays.
- * @param documentData The encoded documents in ordinal order.
- * @param segmentId The id the segment keeps, or a fresh one where absent.
- * @returns The snapshot, or null where the runtime offers no shared memory.
- *
- * @internal
- */
 export function freezeEncodedSegmentShared(
   payload: SegmentPayload,
   documentData: EncodedDocumentTableData,

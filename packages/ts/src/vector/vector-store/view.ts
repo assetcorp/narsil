@@ -16,14 +16,6 @@ import type { ArenaQueryVector, VectorStoreEntry } from './types'
 
 const decoder = new TextDecoder()
 
-/**
- * This is one thread's reader over a field's shared vectors, holding the
- * blocks the thread has opened, the side tables that grow in place, the
- * scratch the thread stages a query or a vector into before a kernel measures
- * against it, and the descriptors it reads released vectors through.
- *
- * @internal
- */
 export interface SharedVectorStoreView {
   readonly dimension: number
   readonly threadSlot: number
@@ -73,15 +65,6 @@ function jsDistance(a: Float32Array, b: Float32Array, magA: number, magB: number
   }
 }
 
-/**
- * Opens a field's shared vectors on the current thread.
- *
- * @param initial The handles to open.
- * @param threadSlot This thread's scratch slot inside every block.
- * @returns The reader.
- *
- * @internal
- */
 export function openSharedVectorStore(initial: SharedVectorStoreHandles, threadSlot: number): SharedVectorStoreView {
   let handles = initial
   const { dimension, layout } = initial

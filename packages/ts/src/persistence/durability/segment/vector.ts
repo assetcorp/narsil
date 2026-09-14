@@ -28,13 +28,6 @@ export interface VectorWriteInput {
   priorVectors: VectorSegmentRef[]
 }
 
-/**
- * This names the vectors one written part holds and the byte its first
- * vector starts at, so that a live field kept on disk can point its ordinals
- * at the file once the checkpoint is complete.
- *
- * @internal
- */
 export interface VectorCheckpointLayout {
   fieldPath: string
   key: string
@@ -56,14 +49,6 @@ function vectorsOffsetOf(payloadLength: number, part: VectorIndexPayload): numbe
   return HEADER_SIZE + payloadLength - part.docIds.length * part.dimension * 4
 }
 
-/**
- * Reads the parts of one vector segment in part order, with the file each
- * came from and the byte its first vector starts at. A part the manifest
- * names but the directory lacks fails with `PERSISTENCE_LOAD_FAILED`, so no
- * checkpoint rewrites the field without it.
- *
- * @internal
- */
 export async function readVectorParts(directory: DurableDirectory, keys: readonly string[]): Promise<VectorPartsRead> {
   const parts: VectorIndexPayload[] = []
   const files: VectorPartFile[] = []

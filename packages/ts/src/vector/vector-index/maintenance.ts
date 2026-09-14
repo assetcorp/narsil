@@ -105,17 +105,6 @@ async function fillGraph(state: VectorIndexState): Promise<void> {
   await insertMissing(state, graph)
 }
 
-/**
- * Places every live vector in the graph and resolves once every one is in.
- * A field holding no graph builds one once it holds the promotion threshold
- * of vectors, while a field holding one places the vectors the graph lacks,
- * or builds the graph afresh once removals pass the rebuild ratio. Below the
- * threshold a field with no graph goes on searching its vectors exactly.
- *
- * @param state The index to complete.
- *
- * @internal
- */
 export function completeGraph(state: VectorIndexState): Promise<void> {
   return buildExclusively(state, () => fillGraph(state))
 }

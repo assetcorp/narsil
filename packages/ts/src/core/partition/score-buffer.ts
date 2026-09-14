@@ -6,14 +6,6 @@ import { buildMinHeap, candidateWorse, siftDown, sortSelection, type TopKCandida
 
 const MAX_GENERATION = 0x7fffffff
 
-/**
- * The running scores of one scored query, held as a flat array indexed by
- * internal document id. A generation stamp marks the slots this query has
- * written, so a query never clears the array and never allocates a record per
- * matching document.
- *
- * @internal
- */
 export interface ScoreBuffer {
   scores: Float64Array
   stamps: Int32Array

@@ -101,14 +101,6 @@ export type WorkerAction =
   | { type: 'bootstrap'; moduleUrl: string; requestId: string }
   | { type: 'shutdown'; requestId: string }
 
-/**
- * This is what a worker returns for a `buildSegment` action. Where the
- * runtime offers shared memory, the worker freezes the segment into it, so
- * that the main thread attaches the same bytes it broadcasts. Otherwise the
- * worker returns the plain payload.
- *
- * @internal
- */
 export type BuiltSegmentResult =
   | { kind: 'shared'; snapshot: SharedSegmentSnapshot }
   | { kind: 'payload'; payload: SegmentPayload }

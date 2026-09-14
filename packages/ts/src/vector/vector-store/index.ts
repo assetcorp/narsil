@@ -47,16 +47,6 @@ export type {
 const UNKNOWN_PARTITION = -1
 const NO_PARTITION = -2
 
-/**
- * Builds the store of one vector field, which appends every vector at a fresh
- * ordinal in shared blocks that every thread reads in place.
- *
- * @param options The dimension and the bits each code holds, where the first
- * inserted vector settles the dimension when the caller gives none.
- * @returns The store.
- *
- * @internal
- */
 export function createVectorStore(options?: VectorStoreOptions): VectorStore {
   const codeBits: OsqBits | null = options?.codeBits ?? null
   const blockBytes = options?.blockBytes ?? BLOCK_MAX_BYTES

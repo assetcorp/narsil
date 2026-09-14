@@ -28,13 +28,6 @@ export { freezeSegmentShared } from './shared-snapshot'
 export type { FrozenTokenTable } from './token-table'
 export { buildFrozenTokenTable } from './token-table'
 
-/**
- * One immutable body of indexed documents served read-only from its flat
- * segment arrays. Removes tombstone an ordinal instead of rewriting the
- * arrays, and an update tombstones here and reinserts into the live tail.
- *
- * @internal
- */
 export interface FrozenSegment extends PartitionReadState {
   readonly segmentId: string
   readonly documentSource: FrozenDocumentSource
@@ -48,11 +41,6 @@ export interface FrozenSegment extends PartitionReadState {
   tombstonedDocIds(): string[]
 }
 
-/**
- * One frozen segment serves every read from these flat arrays.
- *
- * @internal
- */
 export interface FrozenSegmentArrays extends Omit<SegmentColumns, 'surfaceForms'> {
   tokenTable: FrozenTokenTable
   idTable: ExternalIdTable

@@ -56,13 +56,6 @@ function withoutVectors(document: AnyDocument, fieldPaths: Set<string>): AnyDocu
   return prepareDocumentVectors(document as Record<string, unknown>, fieldPaths).partitionDoc as AnyDocument
 }
 
-/**
- * Prepares a write for the worker copies by taking the vector fields out,
- * because those workers read every vector in place from the shared vector
- * fields. It clones what remains where the caller may still change it.
- *
- * @internal
- */
 export function detachCallerDocuments(state: OrchestratorState, action: WorkerAction): WorkerAction {
   if (!('indexName' in action)) return action
   const fieldPaths = vectorFieldPathsOf(state, action.indexName)

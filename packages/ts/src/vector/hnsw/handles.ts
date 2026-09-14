@@ -55,12 +55,6 @@ export interface SharedGraphHandles {
   heldLocks: Int32Array
 }
 
-/**
- * The graph keeps this shape from the moment a caller creates it, and every
- * thread reads it back out of the header.
- *
- * @internal
- */
 export interface SharedGraphShape {
   /** Each node keeps this many neighbours on an upper layer. */
   m: number
@@ -76,14 +70,6 @@ function perOrdinal(bytesPerOrdinal: number, initialOrdinals: number): GrowableB
   return createGrowableBuffer(initialOrdinals * bytesPerOrdinal, MAX_VECTOR_ORDINALS * bytesPerOrdinal)
 }
 
-/**
- * Allocates the handles of an empty graph.
- *
- * @param shape The graph's shape, which every thread reads back from the header.
- * @returns The handles.
- *
- * @internal
- */
 export function createSharedGraphHandles(shape: SharedGraphShape): SharedGraphHandles {
   const header = new Int32Array(createFixedBuffer(GRAPH_HEADER_WORDS * 4), 0, GRAPH_HEADER_WORDS)
   header[GRAPH_ENTRY_POINT] = -1
@@ -108,14 +94,6 @@ export function createSharedGraphHandles(shape: SharedGraphShape): SharedGraphHa
   }
 }
 
-/**
- * Reads the graph shape back from a header.
- *
- * @param header The header to read.
- * @returns The shape that header records.
- *
- * @internal
- */
 export function graphShapeOf(header: Int32Array): SharedGraphShape {
   return {
     m: header[GRAPH_M],

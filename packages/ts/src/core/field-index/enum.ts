@@ -1,10 +1,5 @@
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 
-/**
- * The reads a filter performs against an enum field index.
- *
- * @internal
- */
 export interface EnumFieldIndexReader {
   queryEq(value: string): Set<number>
   queryNe(value: string): Set<number>

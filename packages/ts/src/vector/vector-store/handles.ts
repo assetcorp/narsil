@@ -96,17 +96,6 @@ function inMemoryTable(): GrowableBuffer {
   return buffer
 }
 
-/**
- * Allocates the handles of an empty field.
- *
- * @param dimension The number of components per vector.
- * @param codeBits The bits each level of a document code holds, or null
- * where the field keeps no codes.
- * @param blockBytes The bytes one float block may reach.
- * @returns The handles, holding no block yet.
- *
- * @internal
- */
 export function createSharedVectorStoreHandles(
   dimension: number,
   codeBits: OsqBits | null,
@@ -134,21 +123,6 @@ export function createSharedVectorStoreHandles(
   }
 }
 
-/**
- * Reports the bytes one field's shared structures hold, read from each
- * structure as it stands. A block grows ahead of the records it holds, so a
- * figure computed from the vector count would understate what the field
- * occupies. Node counts a WebAssembly memory in none of the figures
- * `process.memoryUsage` returns, and a field keeps its vectors in one, so this
- * call is the only account of them the engine has.
- *
- * @param handles The field's shared structures.
- * @returns The bytes those structures hold. Every thread reads the same
- * structures, so the process holds this figure once however many threads open
- * the field.
- *
- * @internal
- */
 export function sharedVectorStoreBytes(handles: SharedVectorStoreHandles): number {
   let bytes = handles.header.byteLength + handles.centroid.byteLength
   for (const block of handles.blocks) {

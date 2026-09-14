@@ -162,23 +162,6 @@ function writeRecordBeforePlacement(state: HNSWGraphState, ord: number): void {
   if (entry !== undefined) quantizer.writeCodes(ord, entry.vector)
 }
 
-/**
- * Places the vector at an ordinal in the graph, sharing the graph with every
- * other thread placing or searching at the same time. Where the field is
- * quantized, the thread writes the ordinal's record first, so that every node
- * the graph publishes has a record a later placement scores against. It
- * searches every layer before it writes the node's own lists, and it writes
- * those lists before it links any neighbour back to the node, so that a
- * search which reaches the node through a neighbour always finds a way on.
- *
- * @param state This thread's graph state.
- * @param ord The ordinal to place.
- * @param holdsGraphLock True where the caller already holds the graph lock.
- * @returns True where the node went in, and false where the graph held it
- * already or the store retired the ordinal while the batch was in flight.
- *
- * @internal
- */
 export function insertNode(state: HNSWGraphState, ord: number, holdsGraphLock = false): boolean {
   if (!state.store.holdsOrdinal(ord)) return false
   ensureCapacity(state, ord + 1)
@@ -199,12 +182,6 @@ export function insertNode(state: HNSWGraphState, ord: number, holdsGraphLock = 
   return true
 }
 
-/**
- * Cuts a node out of the graph and repairs its neighbours' lists. The caller
- * must hold the graph exclusively.
- *
- * @internal
- */
 export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?: Set<number>): void {
   const maxLayer = nodeMaxLayer(state, ord)
   if (maxLayer === -1) return
@@ -270,12 +247,6 @@ export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?
   }
 }
 
-/**
- * Marks a node removed, keeping it in the graph as a stepping stone until
- * compaction cuts it out.
- *
- * @internal
- */
 export function markTombstone(state: HNSWGraphState, ord: number): void {
   if (!nodeExists(state, ord) || !reachTombstone(state, ord)) return
   if (Atomics.compareExchange(state.tombstones, ord, 0, 1) === 0) {
@@ -290,12 +261,6 @@ export function markTombstone(state: HNSWGraphState, ord: number): void {
   }
 }
 
-/**
- * Cuts every tombstoned node out of the graph. The caller must hold the graph
- * exclusively.
- *
- * @internal
- */
 export function compactTombstones(state: HNSWGraphState): void {
   if (Atomics.load(state.header, GRAPH_TOMBSTONE_COUNT) === 0) return
 
@@ -313,11 +278,6 @@ export function compactTombstones(state: HNSWGraphState): void {
   }
 }
 
-/**
- * Empties the graph in place. The caller must hold the graph exclusively.
- *
- * @internal
- */
 export function resetGraph(state: HNSWGraphState): void {
   resetAdjacency(state.adjacency)
   state.tombstones = fixedView(state.adjacency.handles.tombstones, Uint8Array)
@@ -328,12 +288,6 @@ export function resetGraph(state: HNSWGraphState): void {
   Atomics.store(state.header, GRAPH_TOP_LAYER, -1)
 }
 
-/**
- * Rebuilds the graph in place from its live nodes. The caller must hold the
- * graph exclusively.
- *
- * @internal
- */
 export function rebuild(state: HNSWGraphState): void {
   const nodeCount = Atomics.load(state.header, GRAPH_NODE_COUNT)
   if (Atomics.load(state.header, GRAPH_TOMBSTONE_COUNT) === 0 && nodeCount === 0) return

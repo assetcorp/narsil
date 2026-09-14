@@ -9,11 +9,6 @@ import { GRAPH_ENTRY_POINT, GRAPH_NODE_COUNT, GRAPH_TOMBSTONE_COUNT, GRAPH_TOP_L
 import type { GraphLocks } from './locks'
 import type { HNSWWorkspace } from './workspace'
 
-/**
- * This config decides how the engine builds an HNSW graph.
- *
- * @internal
- */
 export interface HNSWConfig {
   /** Each node keeps this many neighbours per layer. */
   m?: number
@@ -23,11 +18,6 @@ export interface HNSWConfig {
   metric?: VectorMetric
 }
 
-/**
- * The engine writes an HNSW graph to disk in this form.
- *
- * @internal
- */
 export interface SerializedHNSWGraph {
   /** Every search starts at this node, and it is `null` while the graph is empty. */
   entryPoint: string | null
@@ -43,13 +33,6 @@ export interface SerializedHNSWGraph {
   nodes: Array<[string, number, Array<[number, string[]]>]>
 }
 
-/**
- * A search on any thread reads the graph through this state, which holds the
- * views over the shared adjacency and tombstones, the thread's own locks and
- * visited marks, and the readers over the shared vectors and codes.
- *
- * @internal
- */
 export interface HNSWSearchState {
   readonly dimension: number
   readonly store: VectorSearchReader
@@ -64,12 +47,6 @@ export interface HNSWSearchState {
   readonly neighborScratch: Int32Array
 }
 
-/**
- * A thread that places nodes holds this state, which adds the readers
- * construction needs and the graph's shape.
- *
- * @internal
- */
 export interface HNSWGraphState extends HNSWSearchState {
   readonly store: VectorBuildReader
   readonly quantizer: QuantizerBuildReader | undefined
@@ -119,12 +96,6 @@ export function nextVisitStamp(state: HNSWSearchState): number {
   return state.visitStamp
 }
 
-/**
- * Reports whether the tombstone view reaches an ordinal, rebuilding the view
- * once another thread has grown the buffer behind it.
- *
- * @internal
- */
 export function reachTombstone(state: HNSWSearchState, ord: number): boolean {
   if (ord < state.tombstones.length) return true
   if (ord >= state.adjacency.handles.tombstones.byteLength) return false
@@ -176,35 +147,16 @@ export function entryForOrd(state: HNSWSearchState, ord: number): VectorStoreEnt
   return state.store.entryForOrdinal(ord)
 }
 
-/**
- * Reports whether the graph scores placements from the field's codes, which
- * it does once the quantizer is calibrated.
- *
- * @internal
- */
 export function buildsFromCodes(state: HNSWSearchState): boolean {
   return activeQuantizer(state) !== undefined
 }
 
-/**
- * Reports the quantizer a search or a placement scores from, which is the
- * field's quantizer once it is calibrated, and undefined otherwise.
- *
- * @internal
- */
 export function activeQuantizer(state: HNSWSearchState): QuantizerSearchReader | undefined {
   const quantizer = state.quantizer
   if (quantizer === undefined || !quantizer.isCalibrated()) return undefined
   return quantizer
 }
 
-/**
- * Measures the distance between two nodes, from their code records where the
- * graph builds from codes and both hold one, and from their vectors
- * otherwise.
- *
- * @internal
- */
 export function nodeDistanceByOrd(state: HNSWGraphState, aOrd: number, bOrd: number, metric: VectorMetric): number {
   if (buildsFromCodes(state) && state.quantizer !== undefined) {
     const estimated = state.quantizer.distanceBetweenOrdinals(aOrd, bOrd)

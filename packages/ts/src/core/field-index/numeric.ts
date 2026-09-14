@@ -39,12 +39,6 @@ function collectDocIdsBitset(entries: NumericIndexEntry[], from: number, to: num
   return bs
 }
 
-/**
- * The range and equality reads a filter performs against a numeric field
- * index.
- *
- * @internal
- */
 export interface NumericFieldIndexReader {
   queryEq(value: number): Set<number>
   queryNe(value: number): Set<number>

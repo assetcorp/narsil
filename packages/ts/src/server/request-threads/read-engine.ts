@@ -14,12 +14,6 @@ import type { ReadEngine } from '../handlers/document-reads'
 import { managerWithHeldVectors } from './held-vectors'
 import type { RelayClient } from './relay-client'
 
-/**
- * A request thread answers these reads from its own copy, and the tests here
- * say whether a request stays on the thread at all.
- *
- * @internal
- */
 export interface ThreadReadEngine extends ReadEngine {
   holdsCopyOf(indexName: string): boolean
   /** Reports whether the thread holds every vector field of the index, so that a document it reads comes back whole. */

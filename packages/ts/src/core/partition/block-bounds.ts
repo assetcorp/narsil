@@ -3,16 +3,6 @@ import { TARGET_BLOCK_ENTRIES } from './constants'
 
 const ABSENT_FIELD_LENGTH_BOUND = 0
 
-/**
- * Per-block summaries of one posting list, holding what a scan needs to rule a
- * whole block out without scoring any of its entries. Every value is the most
- * generous one among the block's live documents, so a score computed from them
- * can only overstate what a live document in that block reaches, and
- * `documentCount` excludes tombstoned documents so a ruled-out block adds the
- * exact number of matches it holds.
- *
- * @internal
- */
 export interface PostingBlockBounds {
   structureRevision: number
   blockCount: number

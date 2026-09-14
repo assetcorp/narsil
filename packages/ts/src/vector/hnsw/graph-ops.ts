@@ -23,15 +23,6 @@ import {
   sortListByDistance,
 } from './workspace'
 
-/**
- * Copies a node's neighbours on one layer into the thread's scratch, and
- * takes the copy again wherever a writer on another thread changed the lists
- * meanwhile, so the scratch holds one whole list.
- *
- * @returns The number of neighbours copied.
- *
- * @internal
- */
 export function readNeighborsLocked(state: HNSWSearchState, ord: number, layer: number): number {
   for (;;) {
     const version = beginNodeRead(state.locks, ord)
@@ -40,23 +31,6 @@ export function readNeighborsLocked(state: HNSWSearchState, ord: number, layer: 
   }
 }
 
-/**
- * Walks one layer of the graph from the entry points the workspace holds and
- * writes the nearest candidates it finds into the given list, nearest first.
- *
- * @param state The graph to walk.
- * @param qVec The query vector.
- * @param qMag The query vector's magnitude.
- * @param ef How many candidates the walk keeps.
- * @param layer The layer to walk.
- * @param metric The distance metric to rank by.
- * @param skipTombstones True to leave removed documents out of the results.
- * @param distFn The distance function to measure with, or undefined to measure
- * against the query vector itself.
- * @param results The list the walk fills, nearest first.
- *
- * @internal
- */
 export function searchLayer(
   state: HNSWSearchState,
   qVec: Float32Array,
@@ -128,23 +102,6 @@ export function searchLayer(
   drainHeapNearestFirst(found, results)
 }
 
-/**
- * Chooses which candidates a node links to, keeping a candidate only where it
- * is nearer to that node than to every candidate already kept.
- *
- * The rule stops at that diverse set, as hnswlib, Lucene, and Qdrant do, so a
- * node's list holds fewer links than its cap wherever the candidates crowd
- * together.
- *
- * @param state The graph to measure in.
- * @param candidates The candidates to choose from, each with its distance to
- * the node taking the links, which the call leaves unchanged.
- * @param maxConnections The most links the node may take.
- * @param metric The distance metric to rank by.
- * @param selected The list the chosen candidates are written to.
- *
- * @internal
- */
 export function selectNeighborsHeuristic(
   state: HNSWGraphState,
   candidates: DistanceList,
@@ -181,17 +138,6 @@ export function selectNeighborsHeuristic(
   }
 }
 
-/**
- * Cuts a node's neighbour list back to its cap by applying the selection rule
- * to the neighbours it holds. The caller holds the node's write lock.
- *
- * @param state The graph to change.
- * @param ord The node whose list is over its cap.
- * @param layer The layer the list belongs to.
- * @param metric The distance metric to rank by.
- *
- * @internal
- */
 export function pruneConnections(state: HNSWGraphState, ord: number, layer: number, metric: VectorMetric): void {
   const adjacency = state.adjacency
   const base = layerBase(adjacency, ord, layer)

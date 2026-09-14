@@ -55,24 +55,11 @@ export function buildSegmentRequests(
   return { requests, memberIndexes }
 }
 
-/**
- * One segment frozen into shared memory, with the partition it belongs to,
- * which the copies attach as it is.
- *
- * @internal
- */
 export interface AttachableSegment {
   partitionId: number
   snapshot: SharedSegmentSnapshot
 }
 
-/**
- * Freezes every built segment that a worker returned as a plain payload so
- * that the whole batch goes to the copies as one attach. It reports null
- * where the runtime offers no shared memory.
- *
- * @internal
- */
 export function freezeSegmentsForAttach(segments: ReadonlyArray<BuiltSegment>): AttachableSegment[] | null {
   const frozen: AttachableSegment[] = []
   for (const segment of segments) {
@@ -126,14 +113,6 @@ function attachSegments(
   })
 }
 
-/**
- * Sends every built segment to the worker copies, as one attach where every
- * segment freezes into shared memory. Where one cannot, the segments a worker
- * froze still go as an attach and the rest go as a merge so that no copy
- * misses a document.
- *
- * @internal
- */
 export async function broadcastBuiltSegments(
   orchestrator: Pick<WorkerOrchestrator, 'replicateToWorkers'>,
   indexName: string,

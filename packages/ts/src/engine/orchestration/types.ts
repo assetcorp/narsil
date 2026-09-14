@@ -14,13 +14,6 @@ import type { WorkerPool } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
 import type { BuiltSegment, SegmentBuildRequest } from './segments'
 
-/**
- * What a server registers to turn the workers holding copies into request
- * threads: it hears of every worker that can take requests, now and after each
- * replacement, and of every one that dies.
- *
- * @internal
- */
 export interface RequestThreadListener {
   onWorkerReady(workerId: number, executor: Executor): Promise<void>
   onWorkerGone(workerId: number): void

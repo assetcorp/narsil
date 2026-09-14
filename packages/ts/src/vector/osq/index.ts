@@ -9,18 +9,6 @@ export type { OsqBits, OsqCode } from './quantize'
 export { osqBitsOf } from './quantize'
 export type { OsqQuantizer, OsqQuery, QuantizerBuildReader, QuantizerSearchReader } from './types'
 
-/**
- * Builds the quantizer of one vector field over the store that holds its
- * vectors, writing each vector's record into the store's shared code blocks.
- *
- * @param dimension The number of components per vector.
- * @param bits The bits each level of a document code holds.
- * @param metric The metric the quantizer takes the codes under.
- * @param store The store holding the field's vectors.
- * @returns The quantizer.
- *
- * @internal
- */
 export function createOsqQuantizer(
   dimension: number,
   bits: OsqBits,

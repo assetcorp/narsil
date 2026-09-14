@@ -4,19 +4,6 @@ import { releasePendingLocations } from './disk'
 import { adoptGraph, allLiveDocIds, calibrateQuantizer, liveSize, type VectorIndexState } from './shared'
 import { dropSharedGraph, scheduleWorkerCopyLoad } from './worker-copies'
 
-/**
- * Builds a graph from every live vector in the store and makes it the graph
- * the index answers from once every vector is in.
- *
- * The threads holding the field place the vectors while the old graph, where
- * the index holds one, goes on answering searches, and those threads take the
- * new graph up once it is complete. A field kept on disk then points each
- * vector a checkpoint has written at its place in the file.
- *
- * @param state The index to build for, whose disposal drops the new graph.
- *
- * @internal
- */
 export async function buildGraphFromStore(state: VectorIndexState): Promise<void> {
   const graph = createHNSWIndex(state.dimension, state.store, state.hnswConfig, state.osq ?? undefined)
   state.freshGraph = graph
@@ -36,15 +23,6 @@ export async function buildGraphFromStore(state: VectorIndexState): Promise<void
   await releasePendingLocations(state)
 }
 
-/**
- * Calibrates the quantizer over every live vector and builds the field's
- * first graph from them, which the field does once it holds the promotion
- * threshold of vectors.
- *
- * @param state The index to promote.
- *
- * @internal
- */
 export async function promoteToGraph(state: VectorIndexState): Promise<void> {
   if (liveSize(state) === 0) return
   calibrateQuantizer(state)
@@ -95,15 +73,6 @@ export function triggerBuild(state: VectorIndexState): void {
   state.pendingBuild = buildPromise
 }
 
-/**
- * Reports whether the buffered vectors are due to go into the graph. The
- * index promotes the field once it holds enough vectors, and afterwards it
- * adds a batch once the buffer reaches that same threshold. Where worker
- * threads hold the field, every batch goes at once, so those threads see each
- * vector without a trip to the main thread.
- *
- * @internal
- */
 function buildDue(state: VectorIndexState): boolean {
   if (state.hnsw === null) return liveSize(state) >= state.promotionThreshold
   if (state.buffer.size === 0) return false

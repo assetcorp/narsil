@@ -7,24 +7,10 @@ import { getFieldValueByInternalId, getFieldValueForDoc, getFlatSchema, type Par
 
 type FacetRange = { from: number; to: number }
 
-/**
- * The matched documents of one partition as a bit per ordinal, in the ordinal
- * space of the partition that ran the search. A compaction swap renumbers
- * frozen ordinals, so the bits are valid only inside the synchronous span
- * that produced them.
- *
- * @internal
- */
 export interface FacetOrdinalSet {
   readonly ordinalBitset: Uint32Array
 }
 
-/**
- * The documents a facet count runs over: ordinals from a search in the same
- * process, or external ids from a result that crossed a thread or process.
- *
- * @internal
- */
 export type FacetMatchSet = ReadonlySet<string> | FacetOrdinalSet
 
 function ordinalBitsetOf(state: PartitionReadState, matched: FacetMatchSet): Uint32Array {

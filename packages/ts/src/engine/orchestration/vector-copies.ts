@@ -38,18 +38,6 @@ async function insertOnLease(
   }
 }
 
-/**
- * Builds the host the vector indexes send their fields to while request
- * threads hold them. The host passes the handles to every thread, and it
- * sends each batch of vectors to the least busy thread to place in the graph.
- * Where a thread dies mid-batch, the host frees the locks that thread held,
- * so another thread takes the batch over.
- *
- * @param state The orchestrator whose threads hold the copies.
- * @returns The host a vector index sends its field to.
- *
- * @internal
- */
 export function sharedCopyHostOf(state: OrchestratorState): SharedCopyHost {
   return {
     get workerCount() {
@@ -102,29 +90,12 @@ export function sharedCopyHostOf(state: OrchestratorState): SharedCopyHost {
   }
 }
 
-/**
- * Frees every graph lock a worker held once that worker has died.
- *
- * @param state The orchestrator whose threads hold the fields.
- * @param workerId The dead worker's id in its pool.
- *
- * @internal
- */
 export function releaseVectorLocksOf(state: OrchestratorState, workerId: number): void {
   for (const handles of state.sharedVectorFields.values()) {
     if (handles.graph !== null) releaseLocksHeldBy(handles.graph, threadSlotOfWorker(workerId))
   }
 }
 
-/**
- * Sends every vector field of an index to the request threads again, which a
- * fresh copy on a replaced thread needs.
- *
- * @param state The orchestrator whose threads hold the copies.
- * @param indexName The index whose fields to send again.
- *
- * @internal
- */
 export function refreshVectorCopies(state: OrchestratorState, indexName: string): void {
   if (state.vectorCopyPolicy?.host === undefined) return
   const manager = state.executor.getManager(indexName)

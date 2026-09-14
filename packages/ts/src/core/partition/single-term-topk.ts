@@ -13,12 +13,6 @@ import { postingColumns } from './posting-columns'
 import { EMPTY_COMPONENTS } from './scoring'
 import { buildMinHeap, candidateWorse, siftDown, sortSelection, type TopKCandidate } from './top-k-heap'
 
-/**
- * Everything the pruned scan reads, gathered by the caller so the scan itself
- * touches no partition state beyond the posting list.
- *
- * @internal
- */
 export interface SingleTermScanRequest {
   list: PostingListView
   docFrequency: number

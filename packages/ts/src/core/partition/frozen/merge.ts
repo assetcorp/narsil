@@ -116,19 +116,6 @@ function mergeDocuments(inputs: readonly SegmentRemap[], documentCount: number):
   return { blob, offsets }
 }
 
-/**
- * Merges frozen segments into one shared segment by copying their flat
- * arrays, so the merge holds the inputs and one output alone.
- *
- * Every surviving document keeps its postings, field lengths, field index
- * entries, and encoded bytes, so a query over the merged segment scores each
- * document as it did over the inputs.
- *
- * @param segments The segments to merge, in the order their documents take.
- * @returns The merged segment, or null where the runtime offers no shared memory.
- *
- * @internal
- */
 export function mergeFrozenSegments(segments: readonly FrozenSegment[]): SharedSegmentSnapshot | null {
   if (typeof SharedArrayBuffer !== 'function') return null
 
