@@ -29,17 +29,14 @@ _MEMORY_KEYS = ("estimatedMemoryBytes", "memoryBytes", "memoryEstimateBytes", "m
 _VECTOR_FIELD = "embedding"
 _RRF_K = 60
 _RESCORE_OVERSAMPLING_GRID = (3.0, 5.0, 8.0)
-_OSQ1_MIN_DIMENSION = 1024
 _OSQ4_MIN_DIMENSION = 384
 
 
 def best_config_quantization(dims: int) -> str:
     """The optimised scalar quantization width the engine itself picks for a
-    dimension when the index configuration names none: 1 bit from 1,024
-    dimensions, 4 bits from 384, and 8 bits below."""
+    dimension when the index configuration names none: 4 bits from 384
+    dimensions and 8 bits below."""
 
-    if dims >= _OSQ1_MIN_DIMENSION:
-        return "osq1"
     if dims >= _OSQ4_MIN_DIMENSION:
         return "osq4"
     return "osq8"

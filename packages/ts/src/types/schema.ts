@@ -64,8 +64,8 @@ export type SchemaDefinition = {
  * codes before it re-scores the nearest of them against the full-precision
  * vectors. `none` stores no code, so the engine ranks by the vectors alone.
  *
- * When the configuration leaves this unset, the engine takes `osq1` at 1,024
- * dimensions and above, `osq4` from 384 to 1,023, and `osq8` below 384.
+ * When the configuration leaves this unset, the engine takes `osq4` at 384
+ * dimensions and above and `osq8` below 384.
  *
  * @public
  */
