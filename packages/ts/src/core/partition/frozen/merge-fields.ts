@@ -155,15 +155,6 @@ function mergeEnums(inputs: readonly SegmentRemap[]): SegmentPayload['enums'] {
   return merged
 }
 
-/**
- * Merges the numeric, boolean, enum, and geo field indexes of several frozen
- * segments, remapping every document ordinal and dropping tombstoned ones.
- *
- * @param inputs The segments to merge with their ordinal remaps.
- * @returns The merged field indexes.
- *
- * @internal
- */
 export function mergeFieldIndexes(inputs: readonly SegmentRemap[]): FieldIndexes {
   return {
     numeric: mergeNumeric(inputs),

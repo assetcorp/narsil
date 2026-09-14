@@ -121,16 +121,6 @@ function touchIntervalFor(copyIdleTimeoutMs: number): number {
   return Math.min(MAX_INDEX_TOUCH_INTERVAL_MS, Math.floor(copyIdleTimeoutMs / INDEX_TOUCH_INTERVALS_PER_IDLE_TIMEOUT))
 }
 
-/**
- * Turns the workers holding worker copies into request threads: each gets
- * its own port to the main thread, registers its app with the acceptor, and
- * from then on the acceptor moves every new connection to one of them in turn.
- *
- * @param options The engine, the acceptor app, the main thread's handlers, and the settings every thread copies.
- * @returns The host, which reports how many threads took requests, or null where the runtime offers no acceptor.
- *
- * @internal
- */
 export async function startRequestThreads(options: RequestThreadHostOptions): Promise<RequestThreadHost | null> {
   const found: AcceptorApp | null = acceptorOf(options.app)
   if (found === null) return null

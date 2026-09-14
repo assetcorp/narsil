@@ -22,16 +22,6 @@ function nextHandle(state: VectorIndexState): string {
   return `${state.indexName}/${state.fieldName}#${handleCounter}`
 }
 
-/**
- * Reports the handle the threads know a graph by, or null where they hold
- * none.
- *
- * @param state The index the graph belongs to.
- * @param graph The graph to ask about, or null for the vectors alone.
- * @returns The handle, or null where no thread holds it.
- *
- * @internal
- */
 export function sharedHandleOf(state: VectorIndexState, graph: HNSWIndex | null): string | null {
   return state.sharedHandles.get(graph)?.handle ?? null
 }
@@ -49,14 +39,6 @@ async function dropHandle(state: VectorIndexState, handle: string): Promise<void
   }
 }
 
-/**
- * Withdraws a graph from every thread that holds it.
- *
- * @param state The index the graph belongs to.
- * @param graph The graph to withdraw, or null for the vectors alone.
- *
- * @internal
- */
 export function dropSharedGraph(state: VectorIndexState, graph: HNSWIndex | null): void {
   const shared = state.sharedHandles.get(graph)
   if (shared === undefined) return
@@ -69,14 +51,6 @@ export function dropSharedGraph(state: VectorIndexState, graph: HNSWIndex | null
   void dropHandle(state, shared.handle)
 }
 
-/**
- * Withdraws every copy the threads hold, which a cloned copy needs after any
- * write, and which a shared field needs once the threads holding it are gone.
- *
- * @param state The index whose copies to withdraw.
- *
- * @internal
- */
 export function invalidateWorkerCopies(state: VectorIndexState): void {
   state.revision += 1
   for (const graph of [...state.sharedHandles.keys()]) dropSharedGraph(state, graph)
@@ -92,14 +66,6 @@ export function invalidateWorkerCopies(state: VectorIndexState): void {
   }
 }
 
-/**
- * Notes a write to the field, withdrawing a cloned copy, while a shared field
- * goes on serving because the threads read the write in place.
- *
- * @param state The index the write reached.
- *
- * @internal
- */
 export function noteWrite(state: VectorIndexState): void {
   state.revision += 1
   if (state.workerCopyMode === 'clone') invalidateWorkerCopies(state)
@@ -224,18 +190,6 @@ async function loadOnPool(
   return handle
 }
 
-/**
- * Sends a graph to the threads holding the field, and sends it again where
- * the store gained a block or the graph became searchable, reporting the
- * handle those threads know it by.
- *
- * @param state The index the graph belongs to.
- * @param graph The graph to share.
- * @param searchable Whether the threads answer searches from it.
- * @returns The handle, or null where no thread could take it.
- *
- * @internal
- */
 export function shareGraph(
   state: VectorIndexState,
   graph: HNSWIndex | null,
@@ -256,15 +210,6 @@ export function shareGraph(
   return run
 }
 
-/**
- * Sends the handles of every graph the threads hold to them again, which the
- * index needs after the store released a block or took a file. It resolves
- * once each thread has taken the new layout.
- *
- * @param state The index whose handles to send.
- *
- * @internal
- */
 export function resendSharedHandles(state: VectorIndexState): Promise<void> {
   const run = state.sharing.then(async () => {
     if (!state.workerCopies.enabled || state.disposed) return
@@ -281,14 +226,6 @@ export function resendSharedHandles(state: VectorIndexState): Promise<void> {
   return run
 }
 
-/**
- * Sends the graph the index answers from to the threads holding the field,
- * once the index holds a graph and no build is in flight.
- *
- * @param state The index to share.
- *
- * @internal
- */
 export function scheduleWorkerCopyLoad(state: VectorIndexState): void {
   if (!state.workerCopies.enabled) return
   if (state.disposed || state.workerCopyLoading || state.building) return

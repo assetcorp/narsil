@@ -29,11 +29,6 @@ import {
   loadHeldVectorCopy,
 } from './vector-copies'
 
-/**
- * What a query on this thread's copy of an index runs against.
- *
- * @internal
- */
 export interface IndexQueryContext {
   manager: PartitionManager
   config: IndexConfig

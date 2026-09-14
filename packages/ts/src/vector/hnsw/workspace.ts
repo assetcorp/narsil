@@ -1,11 +1,5 @@
 import { INITIAL_LIST_CAPACITY } from './constants'
 
-/**
- * A list of ordinals with the distance measured for each, held in parallel
- * typed arrays so that the builder allocates nothing per insertion.
- *
- * @internal
- */
 export interface DistanceList {
   /** The ordinal of each entry, valid up to {@link DistanceList.size}. */
   ords: Int32Array
@@ -15,13 +9,6 @@ export interface DistanceList {
   size: number
 }
 
-/**
- * A binary heap over the same parallel arrays a {@link DistanceList} uses,
- * ordering by distance and reporting each popped entry through
- * {@link DistanceHeap.topOrd} and {@link DistanceHeap.topDistance}.
- *
- * @internal
- */
 export interface DistanceHeap extends DistanceList {
   /** True where the greatest distance leaves the heap first. */
   readonly greatestFirst: boolean
@@ -31,16 +18,6 @@ export interface DistanceHeap extends DistanceList {
   topDistance: number
 }
 
-/**
- * The working memory one thread reuses across every graph traversal and every
- * insertion it performs.
- *
- * A thread performs one traversal at a time, so one set of buffers serves
- * every traversal it makes. Each step of an insertion writes to its own
- * buffer, so that no step overwrites the working set of the step around it.
- *
- * @internal
- */
 export interface HNSWWorkspace {
   /** The frontier a layer traversal still has to expand. */
   frontier: DistanceHeap
@@ -74,15 +51,6 @@ function createHeap(greatestFirst: boolean): DistanceHeap {
   return { ...createList(INITIAL_LIST_CAPACITY), greatestFirst, topOrd: -1, topDistance: 0 }
 }
 
-/**
- * Builds the working memory one thread reuses for its traversals and
- * insertions.
- *
- * @returns Buffers sized for a first traversal, which grow as a larger one
- * needs them.
- *
- * @internal
- */
 export function createHNSWWorkspace(): HNSWWorkspace {
   return {
     frontier: createHeap(false),
@@ -105,15 +73,6 @@ export function linkSelectionsFor(workspace: HNSWWorkspace, layers: number): Dis
   return selections
 }
 
-/**
- * Grows a list to hold the requested number of entries, keeping what it
- * already holds.
- *
- * @param list The list to grow.
- * @param needed The number of entries it must hold.
- *
- * @internal
- */
 export function ensureListCapacity(list: DistanceList, needed: number): void {
   if (needed <= list.ords.length) return
 
@@ -129,15 +88,6 @@ export function ensureListCapacity(list: DistanceList, needed: number): void {
   list.distances = distances
 }
 
-/**
- * Appends one entry to a list, growing the list where it is full.
- *
- * @param list The list to append to.
- * @param ord The ordinal to record.
- * @param distance The distance measured for that ordinal.
- *
- * @internal
- */
 export function appendToList(list: DistanceList, ord: number, distance: number): void {
   ensureListCapacity(list, list.size + 1)
   list.ords[list.size] = ord
@@ -145,15 +95,6 @@ export function appendToList(list: DistanceList, ord: number, distance: number):
   list.size += 1
 }
 
-/**
- * Copies the entries of one list into another, replacing what the target
- * held.
- *
- * @param source The list to copy from.
- * @param target The list to fill.
- *
- * @internal
- */
 export function copyList(source: DistanceList, target: DistanceList): void {
   ensureListCapacity(target, source.size)
   target.ords.set(source.ords.subarray(0, source.size))
@@ -161,14 +102,6 @@ export function copyList(source: DistanceList, target: DistanceList): void {
   target.size = source.size
 }
 
-/**
- * Orders a list by distance, nearest first, keeping the order of entries that
- * share a distance.
- *
- * @param list The list to order in place.
- *
- * @internal
- */
 export function sortListByDistance(list: DistanceList): void {
   const { ords, distances } = list
   for (let i = 1; i < list.size; i++) {
@@ -198,15 +131,6 @@ function swapHeapEntries(heap: DistanceHeap, a: number, b: number): void {
   heap.distances[b] = distance
 }
 
-/**
- * Adds one entry to a heap.
- *
- * @param heap The heap to add to.
- * @param ord The ordinal to record.
- * @param distance The distance measured for that ordinal.
- *
- * @internal
- */
 export function pushHeap(heap: DistanceHeap, ord: number, distance: number): void {
   appendToList(heap, ord, distance)
 
@@ -219,15 +143,6 @@ export function pushHeap(heap: DistanceHeap, ord: number, distance: number): voi
   }
 }
 
-/**
- * Removes the entry at the top of a heap and reports it through
- * {@link DistanceHeap.topOrd} and {@link DistanceHeap.topDistance}.
- *
- * @param heap The heap to take from.
- * @returns False where the heap is empty.
- *
- * @internal
- */
 export function popHeap(heap: DistanceHeap): boolean {
   if (heap.size === 0) return false
 
@@ -255,26 +170,10 @@ export function popHeap(heap: DistanceHeap): boolean {
   return true
 }
 
-/**
- * Empties a heap without releasing the memory it holds.
- *
- * @param heap The heap to empty.
- *
- * @internal
- */
 export function resetHeap(heap: DistanceHeap): void {
   heap.size = 0
 }
 
-/**
- * Moves every entry of a heap into a list, nearest first, and leaves the heap
- * empty.
- *
- * @param heap The heap ordering by greatest distance first.
- * @param list The list to fill.
- *
- * @internal
- */
 export function drainHeapNearestFirst(heap: DistanceHeap, list: DistanceList): void {
   const count = heap.size
   ensureListCapacity(list, count)
@@ -287,27 +186,11 @@ export function drainHeapNearestFirst(heap: DistanceHeap, list: DistanceList): v
   }
 }
 
-/**
- * Points the next traversal at a single ordinal.
- *
- * @param workspace The working memory to set.
- * @param ord The ordinal the traversal starts from.
- *
- * @internal
- */
 export function setSingleEntryPoint(workspace: HNSWWorkspace, ord: number): void {
   workspace.entryPoints[0] = ord
   workspace.entryPointCount = 1
 }
 
-/**
- * Points the next traversal at every ordinal of a list.
- *
- * @param workspace The working memory to set.
- * @param list The ordinals the traversal starts from.
- *
- * @internal
- */
 export function setEntryPointsFromList(workspace: HNSWWorkspace, list: DistanceList): void {
   if (list.size > workspace.entryPoints.length) {
     let capacity = workspace.entryPoints.length

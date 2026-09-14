@@ -1,16 +1,6 @@
 import type { SerializedSurfaceForms } from '../../../types/internal'
 import { createSurfaceRegistry, type SurfaceRegistryReader } from '../../surface-registry'
 
-/**
- * This holds the surface forms of one frozen segment packed into three flat
- * arrays, so that a worker attaches them over shared memory and decodes them
- * only on its first suggestion query. Entry `i` spans `offsets[2i]` to
- * `offsets[2i + 1]` of the blob for its surface and `offsets[2i + 1]` to
- * `offsets[2i + 2]` for its index token, both UTF-8, and `counts[i]` holds
- * its occurrence count.
- *
- * @internal
- */
 export interface SurfaceTableData {
   blob: Uint8Array
   offsets: Uint32Array
@@ -20,14 +10,6 @@ export interface SurfaceTableData {
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
-/**
- * Packs surface forms into the flat table form.
- *
- * @param forms The surface forms, each holding a count and an index token.
- * @returns The table.
- *
- * @internal
- */
 export function encodeSurfaceTable(forms: SerializedSurfaceForms): SurfaceTableData {
   const entries: Array<[Uint8Array, Uint8Array, number]> = []
   let blobLength = 0
@@ -56,14 +38,6 @@ export function encodeSurfaceTable(forms: SerializedSurfaceForms): SurfaceTableD
   return { blob, offsets, counts }
 }
 
-/**
- * Reads surface forms back out of a table.
- *
- * @param table The table to read.
- * @returns The surface forms.
- *
- * @internal
- */
 export function decodeSurfaceTable(table: SurfaceTableData): SerializedSurfaceForms {
   const forms: SerializedSurfaceForms = Object.create(null)
   for (let i = 0; i < table.counts.length; i++) {
@@ -74,15 +48,6 @@ export function decodeSurfaceTable(table: SurfaceTableData): SerializedSurfaceFo
   return forms
 }
 
-/**
- * Builds a surface reader that loads its forms on the first read, so a
- * thread that never answers a suggestion query never decodes them.
- *
- * @param load Produces the forms, or null where the segment holds none.
- * @returns The reader.
- *
- * @internal
- */
 export function createLazySurfaceReader(load: () => SerializedSurfaceForms | null): SurfaceRegistryReader {
   let registry: SurfaceRegistryReader | null = null
 

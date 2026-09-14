@@ -1,12 +1,5 @@
 import { closeSync, openSync, readSync } from 'node:fs'
 
-/**
- * Reads full-precision vectors by position out of the vector files a
- * checkpoint wrote, keeping one file descriptor open per file so that a
- * re-score makes one system call.
- *
- * @internal
- */
 export interface VectorFileReader {
   /** Reads `target.byteLength` bytes at the offset into the target, and reports false where the file is gone. */
   readInto(path: string, offset: number, target: Uint8Array): boolean
@@ -16,13 +9,6 @@ export interface VectorFileReader {
   close(): void
 }
 
-/**
- * Builds a reader over the current thread's descriptors.
- *
- * @returns The reader.
- *
- * @internal
- */
 export function createVectorFileReader(): VectorFileReader {
   const descriptors = new Map<string, number>()
 

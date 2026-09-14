@@ -16,13 +16,6 @@ import {
   vectorResultsToScored,
 } from './shared'
 
-/**
- * Reports the re-score depth multiplier a vector clause asks for, or
- * undefined where the clause leaves the engine default. A value that is not
- * a finite number of at least 1 fails with `CONFIG_INVALID`.
- *
- * @internal
- */
 export function oversampleOf(vectorConfig: VectorQueryConfig): number | undefined {
   const oversample: unknown = vectorConfig.oversample
   if (oversample === undefined) return undefined

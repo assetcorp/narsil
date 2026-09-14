@@ -16,16 +16,6 @@ import {
   topLayerOf,
 } from './shared'
 
-/**
- * Copies a graph into the form the engine writes to disk, naming each node by
- * its document id and leaving every tombstoned node out.
- *
- * @param state The graph to copy.
- * @param store The store holding the field's vectors and ids.
- * @returns The serialised graph.
- *
- * @internal
- */
 export function serializeGraph(state: HNSWGraphState, store: VectorStore): SerializedHNSWGraph {
   const nodeArray: Array<[string, number, Array<[number, string[]]>]> = []
   const slots = adjacencySlots(state.adjacency)
@@ -107,16 +97,6 @@ function resolveNodes(
   return { nodes, maxOrd }
 }
 
-/**
- * Restores a graph from its serialised form. The caller must hold the graph
- * exclusively.
- *
- * @param state The graph to fill.
- * @param store The store holding the field's vectors and ids.
- * @param data The serialised graph to read.
- *
- * @internal
- */
 export function deserializeGraph(state: HNSWGraphState, store: VectorStore, data: SerializedHNSWGraph): void {
   resetGraph(state)
 

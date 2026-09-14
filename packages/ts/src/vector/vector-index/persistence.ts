@@ -68,16 +68,6 @@ function codesFor(state: VectorIndexState, docIds: readonly string[]): VectorInd
   return { bits: quantizer.bits, centroid: Array.from(centroid), records }
 }
 
-/**
- * Writes the field as the parts the envelope specification defines: at most
- * 65,536 live vectors per part in ordinal order, the graphs sliced to each
- * part's nodes, one code record per vector where the field holds a graph and
- * codes, and the vectors last. It reads each part's vectors from the store
- * straight into that part's bytes, and it writes no graph once the field
- * holds no live vector.
- *
- * @internal
- */
 export function serialize(state: VectorIndexState): VectorIndexPayload[] {
   const docIds = liveDocIds(state)
   const parts = Math.max(1, Math.ceil(docIds.length / VECTOR_INDEX_PART_VECTORS))
@@ -246,21 +236,6 @@ function vectorsIn(parts: VectorIndexPayload[]): number {
   return count
 }
 
-/**
- * Reads the field back from its parts. The parts may run several sequences
- * end to end, one per partition file, each starting at part zero. The
- * vectors of every sequence join one store, while the graphs of every
- * sequence join one list. The index restores the codes only where a single
- * sequence carries a complete set at the field's own bits, because two
- * sequences quantized against two centroids cannot share one, and it
- * recalibrates from the vectors otherwise. A graph with no node counts as no
- * graph. A field kept on disk points each ordinal at the file its part came
- * from where the caller names one file per part and the parts hold a graph
- * or enough vectors for one, while a smaller field holds its vectors in
- * memory and keeps each one's place until it builds a graph.
- *
- * @internal
- */
 export function deserialize(state: VectorIndexState, parts: VectorIndexPayload[], files?: VectorPartFile[]): void {
   for (const part of parts) {
     if (part.dimension !== state.dimension) {

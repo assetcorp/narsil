@@ -90,15 +90,6 @@ export interface VectorIndex {
   readonly storage: VectorStorageMode
 }
 
-/**
- * Reports the quantization mode a field of the given dimension takes when its
- * configuration names none, as the vector index specification defines.
- *
- * @param dimension The number of components per vector.
- * @returns The mode.
- *
- * @internal
- */
 export function defaultQuantizationFor(dimension: number): VectorQuantizationMode {
   if (dimension >= OSQ1_MIN_DIMENSION) return 'osq1'
   if (dimension >= OSQ4_MIN_DIMENSION) return 'osq4'

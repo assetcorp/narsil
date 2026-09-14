@@ -8,13 +8,6 @@ import { OSQ_GRID, OSQ_LAMBDA, OSQ_REFINE_ROUNDS, OSQ_REFINE_TOLERANCE, OSQ_STEP
  */
 export type OsqBits = 1 | 2 | 4 | 8
 
-/**
- * This is one vector quantized against the centroid: a level per dimension, the
- * interval the levels span, the correction the estimate adds back, and the
- * sum of the levels.
- *
- * @internal
- */
 export interface OsqCode {
   levels: Uint8Array
   lower: number
@@ -23,12 +16,6 @@ export interface OsqCode {
   sum: number
 }
 
-/**
- * Reports the bits a quantization mode holds per dimension, or null for a
- * mode that stores no code.
- *
- * @internal
- */
 export function osqBitsOf(mode: string): OsqBits | null {
   switch (mode) {
     case 'osq8':
@@ -59,18 +46,6 @@ function unitNormaliseInto(target: Float64Array, vector: Float32Array): void {
   for (let i = 0; i < vector.length; i++) target[i] = vector[i] / length
 }
 
-/**
- * Computes the centroid every code is taken against, as the spec defines:
- * the mean of the vectors, each unit-normalised first under cosine, with the
- * mean itself unit-normalised under cosine.
- *
- * @param vectors The vectors to average.
- * @param dimension The components per vector.
- * @param metric The metric the field ranks by.
- * @returns The centroid, or null where the iterable held no vector.
- *
- * @internal
- */
 export function osqCentroid(
   vectors: Iterable<Float32Array>,
   dimension: number,
@@ -159,42 +134,15 @@ function refine(x: Float64Array, lowerStart: number, upperStart: number, steps: 
   return [lower, upper]
 }
 
-/**
- * This is the working memory one thread reuses across quantizations, so a
- * build allocates nothing per vector.
- *
- * @internal
- */
 export interface OsqScratch {
   normalised: Float64Array
   centred: Float64Array
 }
 
-/**
- * Builds the scratch a thread quantizes with.
- *
- * @param dimension The components per vector.
- * @returns The scratch.
- *
- * @internal
- */
 export function createOsqScratch(dimension: number): OsqScratch {
   return { normalised: new Float64Array(dimension), centred: new Float64Array(dimension) }
 }
 
-/**
- * Quantizes one vector against the centroid, as the spec defines, at the
- * given bits per dimension.
- *
- * @param vector The vector to quantize.
- * @param centroid The centroid the field calibrated.
- * @param bits The bits each level holds.
- * @param metric The metric the field ranks by.
- * @param scratch The thread's working memory.
- * @returns The code, whose levels array the caller owns.
- *
- * @internal
- */
 export function osqQuantize(
   vector: Float32Array,
   centroid: Float32Array,

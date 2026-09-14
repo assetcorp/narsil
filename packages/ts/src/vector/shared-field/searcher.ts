@@ -8,12 +8,6 @@ import { magnitude } from '../similarity'
 import type { VectorScoredResult, VectorSearcher, VectorSearchOptions } from '../vector-index/shared'
 import type { SharedVectorFieldView } from './view'
 
-/**
- * A request thread needs these to answer vector searches from a field it
- * holds in place.
- *
- * @internal
- */
 export interface SharedVectorSearcherOptions {
   /** This names the vector field the view belongs to. */
   fieldName: string
@@ -56,19 +50,6 @@ function bruteForceOrdinals(
   return heap.toSortedArray().reverse()
 }
 
-/**
- * Opens a field on the current thread as something a query can search,
- * mapping each ordinal hit back to its document id through the shared table.
- *
- * The searcher drops a hit whose document the text copy has released, so
- * every hit it returns names a document that copy still holds, even where a
- * removal reached the text copy before the vector index compacted it.
- *
- * @param options The view, the field name, and the text copy check.
- * @returns The searcher a query context resolves the field to.
- *
- * @internal
- */
 export function createSharedVectorSearcher(options: SharedVectorSearcherOptions): VectorSearcher {
   const { fieldName, view, holdsDocument } = options
 

@@ -5,11 +5,6 @@ import { BUILD_CHUNK_SIZE, WORKER_COPY_MIN_VECTORS } from './constants'
 import { liveSize, threadsHoldCurrentLayout, type VectorIndexState, yieldToEventLoop } from './shared'
 import { shareGraph } from './worker-copies'
 
-/**
- * Sends a batch of ordinals to a thread that places them in a graph.
- *
- * @internal
- */
 export type OrdinalDispatcher = (ordinals: Int32Array) => Promise<GraphInsertOutcome | null>
 
 interface Dispatch {
@@ -43,25 +38,6 @@ async function dispatcherFor(state: VectorIndexState, graph: HNSWIndex): Promise
   }
 }
 
-/**
- * Inserts the admitted documents into a graph, using the worker threads that
- * hold the field where the index has any and this thread otherwise. It yields
- * to the event loop between chunks so that a query can answer between them.
- *
- * A document's buffer marker clears once the graph links the ordinal the
- * index dispatched. A vector that a caller replaces while its chunk is in
- * flight therefore keeps its marker, and the next build links the
- * replacement.
- *
- * @param state The index the graph belongs to, whose disposal stops the work.
- * @param graph The graph to insert into.
- * @param docIds The documents to offer.
- * @param admit Reports whether a document goes into the graph.
- * @returns True where the index offered every document, and false where
- * disposal stopped the work first.
- *
- * @internal
- */
 export async function insertIntoGraph(
   state: VectorIndexState,
   graph: HNSWIndex,

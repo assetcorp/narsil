@@ -2,12 +2,6 @@ import type { PostingListView } from '../../types/internal'
 
 export const EMPTY_COMPONENTS: Record<string, number> = Object.freeze({})
 
-/**
- * The per-document scoring record a query keeps only where the caller asked to
- * see score components or set a term-coverage policy.
- *
- * @internal
- */
 export interface ScoreComponents {
   termFrequencies: Record<string, number>
   fieldLengths: Record<string, number>

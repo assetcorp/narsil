@@ -7,21 +7,6 @@ import { openGraphLocks } from './locks'
 import type { HNSWGraphState } from './shared'
 import { createHNSWWorkspace } from './workspace'
 
-/**
- * Opens a graph on the current thread, over the readers the thread already
- * holds for the field's vectors and codes.
- *
- * @param handles The graph to open.
- * @param dimension The number of components per vector.
- * @param store The thread's reader over the field's vectors.
- * @param quantizer The thread's reader over the field's codes, or undefined
- * where the field is not quantized.
- * @param threadSlot This thread's slot in the lock record.
- * @returns The state every search and insertion on this thread reads and
- * writes.
- *
- * @internal
- */
 export function openGraphState(
   handles: SharedGraphHandles,
   dimension: number,

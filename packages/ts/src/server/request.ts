@@ -99,11 +99,6 @@ function decodePathParameter(raw: string): string | null {
   }
 }
 
-/**
- * Decides whether a request may proceed, from its captured context.
- *
- * @internal
- */
 export type Authorizer = (context: RequestContext) => Promise<Authorization>
 
 export type Authorization = { allowed: true } | { allowed: false; denial: RequestDenial | null }
@@ -118,16 +113,6 @@ function isDenial(value: unknown): value is RequestDenial {
   return typeof value === 'object' && value !== null && 'status' in value
 }
 
-/**
- * Turns the server's admission hook into an authoriser, catching whatever
- * the hook throws so that a broken hook denies the request and the server
- * answers with a hook error.
- *
- * @param hook The hook the server was created with.
- * @returns The authoriser the route runner consults per request.
- *
- * @internal
- */
 export function authorizerFor(hook: OnRequestHook): Authorizer {
   return async context => {
     try {

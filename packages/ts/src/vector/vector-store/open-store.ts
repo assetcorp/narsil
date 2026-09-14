@@ -28,12 +28,6 @@ export interface OpenStore {
 
 export type OrdinalDocuments = ReadonlyArray<string | undefined>
 
-/**
- * Allocates the shared structures of an empty field and opens the main
- * thread's views over them.
- *
- * @internal
- */
 export function openHandles(dimension: number, codeBits: OsqBits | null, blockBytes: number): OpenStore {
   const handles = createSharedVectorStoreHandles(dimension, codeBits, blockBytes)
   return {
@@ -47,12 +41,6 @@ export function openHandles(dimension: number, codeBits: OsqBits | null, blockBy
   }
 }
 
-/**
- * Records a structural change to the store and takes it up on the main
- * thread's own view.
- *
- * @internal
- */
 export function relayout(store: OpenStore): void {
   store.handles.layoutRevision += 1
   store.view.adoptHandles(store.handles)
@@ -90,12 +78,6 @@ function ensureFloatSlot(store: OpenStore, ordinal: number): void {
   if (block !== null) ensureBlockSlots(block, (ordinal % handles.layout.capacity) + 1)
 }
 
-/**
- * Grows every side table to hold an ordinal, and the float and code blocks
- * with them, where a cold ordinal takes no float slot.
- *
- * @internal
- */
 export function ensureOrdinal(store: OpenStore, ordinal: number, cold: boolean): void {
   if (ordinal >= MAX_VECTOR_ORDINALS) {
     throw new NarsilError(
@@ -119,11 +101,6 @@ export function ensureOrdinal(store: OpenStore, ordinal: number, cold: boolean):
   ensureCodeSlot(store, ordinal)
 }
 
-/**
- * Writes a vector into an ordinal's float slot and records its magnitude.
- *
- * @internal
- */
 export function writeVector(store: OpenStore, ordinal: number, vector: Float32Array): void {
   const block = store.view.blockOf(ordinal)
   const base = slotByteOffset(store.handles.layout, store.view.localOrdinal(ordinal)) / 4
@@ -131,12 +108,6 @@ export function writeVector(store: OpenStore, ordinal: number, vector: Float32Ar
   store.magnitudes[ordinal] = magnitude(vector)
 }
 
-/**
- * Reports whether a full block holds no live vector that a file lacks, so
- * the store may drop it.
- *
- * @internal
- */
 export function blockFullyCold(store: OpenStore, blockIndex: number, documents: OrdinalDocuments): boolean {
   const capacity = store.handles.layout.capacity
   const slots = Atomics.load(store.handles.header, STORE_SLOTS)
@@ -148,12 +119,6 @@ export function blockFullyCold(store: OpenStore, blockIndex: number, documents: 
   return true
 }
 
-/**
- * Reports whether the file holds, at the location, the same bytes as the
- * ordinal's slot.
- *
- * @internal
- */
 export function fileHoldsSameBytes(store: OpenStore, ordinal: number, location: DiskLocation): boolean {
   const fromFile = new Float32Array(store.handles.dimension)
   if (!store.view.readFromFile(location.fileIndex, location.offset, fromFile)) return false
@@ -164,12 +129,6 @@ export function fileHoldsSameBytes(store: OpenStore, ordinal: number, location: 
   return true
 }
 
-/**
- * Blanks the path of every file no live ordinal reads any more, so every
- * thread closes its descriptor on the next adoption.
- *
- * @internal
- */
 export function forgetUnreferencedFiles(store: OpenStore, documents: OrdinalDocuments): void {
   const referenced = new Set<number>()
   for (let ordinal = 0; ordinal < documents.length; ordinal++) {
@@ -182,11 +141,6 @@ export function forgetUnreferencedFiles(store: OpenStore, documents: OrdinalDocu
   }
 }
 
-/**
- * Builds the filter holding every live ordinal of the named partitions.
- *
- * @internal
- */
 export function partitionFilterOf(
   store: OpenStore | null,
   documents: OrdinalDocuments,

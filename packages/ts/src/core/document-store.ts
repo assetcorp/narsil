@@ -7,13 +7,6 @@ export type ReadonlyStoredDocument = {
   readonly fieldLengths: Readonly<Record<string, number>>
 }
 
-/**
- * The reads the query path performs against a document store. The live store
- * implements it over its maps, and a frozen segment implements it over the
- * segment's document table.
- *
- * @internal
- */
 export interface DocumentStoreReader {
   get(docId: string): ReadonlyStoredDocument | undefined
   has(docId: string): boolean

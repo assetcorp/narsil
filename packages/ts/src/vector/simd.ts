@@ -207,19 +207,6 @@ function getSharedMemoryModule(): WebAssembly.Module | null {
   return sharedMemoryModule
 }
 
-/**
- * Instantiates the distance kernels over a shared memory another thread also
- * reads, so every thread computes against one copy of the vector data.
- *
- * The kernels are compiled from the same source as {@link createArenaSimd}
- * uses, with the module's own memory swapped for the imported one.
- *
- * @param memory A shared WebAssembly memory holding the vector arenas.
- * @returns The kernel exports bound to that memory, or null when the runtime
- * cannot instantiate them.
- *
- * @internal
- */
 export function createSharedArenaSimd(memory: WebAssembly.Memory): ArenaSimd | null {
   try {
     const module = getSharedMemoryModule()
@@ -250,24 +237,6 @@ export function createSharedArenaSimd(memory: WebAssembly.Memory): ArenaSimd | n
   }
 }
 
-/**
- * Computes the distance between two float32 vectors already resident in a
- * kernel's memory, given their byte offsets and magnitudes.
- *
- * The main thread's private store and a worker's shared view both answer
- * arena distances through this one function, so the two paths cannot drift.
- *
- * @param simd The kernel instance whose memory holds both vectors.
- * @param byteA The first vector's byte offset.
- * @param byteB The second vector's byte offset.
- * @param dimension The number of components in each vector.
- * @param metric The distance metric to compute.
- * @param magnitudeA The first vector's magnitude, used by cosine alone.
- * @param magnitudeB The second vector's magnitude, used by cosine alone.
- * @returns The distance under the metric.
- *
- * @internal
- */
 export function arenaFloat32Distance(
   simd: ArenaSimd,
   byteA: number,

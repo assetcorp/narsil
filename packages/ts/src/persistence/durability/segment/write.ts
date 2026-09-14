@@ -38,15 +38,6 @@ export interface WholePartitionSegment {
   docCount: number
 }
 
-/**
- * This holds what one segmented checkpoint wrote. The document count holds a
- * number only where the checkpoint wrote whole partitions from memory. The
- * vector layouts name the files a live field on disk points its ordinals at.
- * The garbage lists the keys the new manifest no longer references, which
- * the caller deletes once every live field has taken the new files.
- *
- * @internal
- */
 export interface SegmentedCheckpointOutcome {
   documentCount: number | null
   vectorLayouts: VectorCheckpointLayout[]
@@ -287,12 +278,6 @@ async function unreferencedKeys(
   return garbage
 }
 
-/**
- * Deletes the keys a checkpoint left unreferenced. A caller runs this once
- * every live field has taken the checkpoint's files.
- *
- * @internal
- */
 export async function removeCheckpointGarbage(directory: DurableDirectory, garbage: readonly string[]): Promise<void> {
   for (const key of garbage) {
     await directory.remove(key)

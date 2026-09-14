@@ -4,12 +4,6 @@ import type { CheckpointWorkerMessage, CheckpointWorkerRequest } from './checkpo
 import { CHECKPOINT_TIMEOUT_RECOVERY_BACKOFF_MS, CHECKPOINT_WORKER_TIMEOUT_MS } from './constants'
 import type { SegmentedCheckpointOutcome } from './segment'
 
-/**
- * The dispatcher reaches the thread that writes a checkpoint through this,
- * which a Node worker satisfies.
- *
- * @internal
- */
 export interface WorkerHandle {
   postMessage(msg: unknown, transfer?: ArrayBuffer[]): void
   on(event: string, handler: (...args: unknown[]) => void): void
@@ -58,13 +52,6 @@ function discardWorker(worker: WorkerHandle): void {
   } catch {}
 }
 
-/**
- * This is what one checkpoint on the worker came to. The written field holds
- * what the worker wrote, or null where it failed or fell silent, and the flag
- * reads true where it fell silent.
- *
- * @internal
- */
 export interface WorkerRunOutcome {
   written: SegmentedCheckpointOutcome | null
   timedOut: boolean
@@ -77,19 +64,6 @@ function unrefTimer(timer: ReturnType<typeof setTimeout>): ReturnType<typeof set
   return timer
 }
 
-/**
- * Sends one checkpoint request to a worker and waits for its answer. The
- * worker posts a heartbeat while it works, and the wait gives up only once
- * the worker has stayed silent for the timeout, so a checkpoint that places a
- * large graph goes on to the end while the wait still discards a hung worker.
- *
- * @param worker The worker to write the checkpoint on.
- * @param request The checkpoint to write.
- * @returns The outcome, whose written field holds what the worker wrote or
- * null where it failed or fell silent.
- *
- * @internal
- */
 export function runWorker(worker: WorkerHandle, request: CheckpointWorkerRequest): Promise<WorkerRunOutcome> {
   return new Promise<WorkerRunOutcome>(resolve => {
     let settled = false
@@ -154,13 +128,6 @@ function delay(ms: number): Promise<void> {
   })
 }
 
-/**
- * Writes a checkpoint on the pooled worker thread and reports what it wrote.
- * It reports null where no worker could take the write, in which case the
- * caller writes the checkpoint in process.
- *
- * @internal
- */
 export async function runCheckpointOnWorker(
   request: CheckpointWorkerRequest,
 ): Promise<SegmentedCheckpointOutcome | null> {

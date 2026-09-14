@@ -47,16 +47,6 @@ function resolveEmbeddingAdapter(
   return { adapter: candidate, name }
 }
 
-/**
- * Registers an index the engine's persisted metadata describes, and creates
- * its partitions where the caller asks for its data.
- *
- * @param deps The engine pieces the index registers with.
- * @param metadata The persisted description of the index.
- * @param loadData Whether to create the index's partitions now.
- *
- * @internal
- */
 export async function createIndexFromMetadata(
   deps: MetadataIndexDeps,
   metadata: IndexMetadata,

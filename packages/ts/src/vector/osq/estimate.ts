@@ -14,24 +14,12 @@ for (let value = 0; value < 256; value++) {
   POPCOUNT[value] = count
 }
 
-/**
- * Sums the products of two level arrays.
- *
- * @internal
- */
 export function osqLevelProducts(a: Uint8Array, b: Uint8Array): number {
   let total = 0
   for (let i = 0; i < a.length; i++) total += a[i] * b[i]
   return total
 }
 
-/**
- * Sums the level products of two packed codes from their planes, as the
- * spec's popcount identity allows: `power(2, j + p)` times the set bits of
- * document plane `j` and query plane `p` together.
- *
- * @internal
- */
 export function osqPackedLevelProducts(
   document: Uint8Array,
   documentOffset: number,
@@ -54,12 +42,6 @@ export function osqPackedLevelProducts(
   return total
 }
 
-/**
- * Sums the products of an 8-bit code and an 8-bit query held as one byte
- * per level.
- *
- * @internal
- */
 export function osqByteLevelProducts(
   document: Uint8Array,
   documentOffset: number,
@@ -72,14 +54,6 @@ export function osqByteLevelProducts(
   return total
 }
 
-/**
- * Estimates the similarity between a document code and a query code from
- * their trailers and the sum of their level products, as the spec defines.
- * The result is a similarity under cosine and dot product and a distance
- * under euclidean.
- *
- * @internal
- */
 export function osqEstimate(
   products: number,
   document: OsqTrailer,
@@ -103,12 +77,6 @@ export function osqEstimate(
   return similarity
 }
 
-/**
- * Turns an estimate into the distance the graph ranks by, where a smaller
- * value is nearer under every metric.
- *
- * @internal
- */
 export function osqDistance(estimate: number, metric: VectorMetric): number {
   switch (metric) {
     case 'cosine':
@@ -120,12 +88,6 @@ export function osqDistance(estimate: number, metric: VectorMetric): number {
   }
 }
 
-/**
- * Reports the bits a query code holds against a document code of the given
- * bits.
- *
- * @internal
- */
 export function osqQueryBits(bits: OsqBits): OsqBits {
   return OSQ_QUERY_BITS[bits]
 }

@@ -5,13 +5,6 @@ import { ServerErrorCodes } from './errors'
 import type { RouteHandler, RouteOptions } from './request'
 import { sendError } from './response'
 
-/**
- * Every route handler the server registers, by name, so that the main thread
- * and a request thread register the same routes while each supplies its own
- * handler behind a name.
- *
- * @internal
- */
 export interface ServerHandlers {
   livez: RouteHandler
   readyz: RouteHandler
@@ -66,15 +59,6 @@ export interface RouteSpec {
   options: RouteOptions
 }
 
-/**
- * Lists every route with its method, path, handler name, and options, which
- * is the one table both thread kinds register from.
- *
- * @param limits The body ceilings the routes carry.
- * @returns The routes in registration order.
- *
- * @internal
- */
 export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
   const { maxBodyBytes, maxImportBytes } = limits
   const probe: RouteOptions = { maxBytes: 0, skipHooks: true }
@@ -145,18 +129,6 @@ export type RouteRunner = (
   options: RouteOptions,
 ) => (res: HttpResponse, req: HttpRequest) => void
 
-/**
- * Registers every route on an app, with the preflight route and the catch-all
- * the server answers itself.
- *
- * @param app The app to register on.
- * @param run The adapter that wraps each handler.
- * @param handlers The handler behind each route name.
- * @param limits The body ceilings the routes carry.
- * @param cors The cross-origin rules, or null where the server allows none.
- *
- * @internal
- */
 export function registerServerRoutes(
   app: TemplatedApp,
   run: RouteRunner,

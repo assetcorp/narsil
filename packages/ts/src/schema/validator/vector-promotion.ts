@@ -13,33 +13,14 @@ function isPositiveInteger(value: unknown): boolean {
   return Number.isInteger(value) && (value as number) >= 1
 }
 
-/**
- * Reports whether a value names a quantization mode this engine accepts.
- *
- * @internal
- */
 export function isQuantizationMode(value: unknown): value is NonNullable<VectorIndexConfig['quantization']> {
   return typeof value === 'string' && QUANTIZATION_MODES.has(value)
 }
 
-/**
- * Reports whether a value names a storage mode this engine accepts.
- *
- * @internal
- */
 export function isStorageMode(value: unknown): value is NonNullable<VectorIndexConfig['storage']> {
   return typeof value === 'string' && STORAGE_MODES.has(value)
 }
 
-/**
- * Refuses a field kept on disk on an engine without filesystem durability,
- * because only a durable checkpoint writes the file the field reads.
- *
- * @param config The vector promotion settings, or undefined where the index names none.
- * @param filesystemDurability Whether the engine writes checkpoints to a filesystem directory.
- *
- * @internal
- */
 export function validateVectorStorage(config: VectorIndexConfig | undefined, filesystemDurability: boolean): void {
   if (config?.storage === 'disk' && !filesystemDurability) {
     fail("vectorPromotion.storage 'disk' needs filesystem durability, because a checkpoint file holds the vectors", {

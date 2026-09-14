@@ -10,13 +10,6 @@ export interface SegmentBuildRequest {
   documents: AnyDocument[]
 }
 
-/**
- * This is one segment a worker built. Where the worker could freeze it into
- * shared memory, the main thread attaches the same bytes it broadcasts to the
- * copies; otherwise the worker returns the segment as a plain payload.
- *
- * @internal
- */
 export interface BuiltSegment {
   partitionId: number
   segmentId: string

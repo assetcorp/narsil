@@ -40,15 +40,6 @@ import { compositeSortedPage, compositeSortValues } from './sorting'
 import { buildAggregateStatsView, mergeDocFrequencies } from './stats'
 import { compositeExpandTermPrefix, compositeSuggestTerms } from './suggest'
 
-/**
- * One partition served from a mutable live tail plus a list of immutable
- * frozen segments. Reads fan over every part and merge, writes land on the
- * live tail, and a remove or update of a frozen document tombstones it in its
- * segment. Frozen segments come first in the ordinal layout so their bases
- * never move as the live tail grows.
- *
- * @internal
- */
 export interface CompositePartition extends PartitionIndex {
   readonly live: PartitionIndex
   frozenSegmentCount(): number

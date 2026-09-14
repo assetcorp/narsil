@@ -6,33 +6,14 @@ const TRAILER_UPPER = 4
 const TRAILER_CORRECTION = 8
 const TRAILER_SUM = 12
 
-/**
- * Reports the bytes a packed code takes: one byte per level at 8 bits, and
- * one plane of `ceiling(dimension / 8)` bytes per bit otherwise.
- *
- * @internal
- */
 export function osqCodeBytes(dimension: number, bits: OsqBits): number {
   return bits === 8 ? dimension : bits * Math.ceil(dimension / 8)
 }
 
-/**
- * Reports the bytes one record takes: the packed code followed by the
- * 16-byte trailer holding lower, upper, correction, and sum.
- *
- * @internal
- */
 export function osqRecordBytes(dimension: number, bits: OsqBits): number {
   return osqCodeBytes(dimension, bits) + OSQ_RECORD_TRAILER_BYTES
 }
 
-/**
- * Packs levels into the code layout the spec defines, at the given offset:
- * a byte per level at 8 bits, and otherwise plane `j` holding bit `j` of
- * every level with level `i` at bit `7 - (i mod 8)` of byte `floor(i / 8)`.
- *
- * @internal
- */
 export function packLevels(levels: Uint8Array, bits: OsqBits, target: Uint8Array, offset: number): void {
   const dimension = levels.length
   if (bits === 8) {
@@ -52,11 +33,6 @@ export function packLevels(levels: Uint8Array, bits: OsqBits, target: Uint8Array
   }
 }
 
-/**
- * Reads the levels back out of a packed code.
- *
- * @internal
- */
 export function unpackLevels(bytes: Uint8Array, offset: number, dimension: number, bits: OsqBits): Uint8Array {
   const levels = new Uint8Array(dimension)
   if (bits === 8) {
@@ -74,12 +50,6 @@ export function unpackLevels(bytes: Uint8Array, offset: number, dimension: numbe
   return levels
 }
 
-/**
- * Writes one record at the given offset: the packed code, then lower, upper,
- * and correction as little-endian float32 and sum as little-endian uint32.
- *
- * @internal
- */
 export function writeRecord(
   target: Uint8Array,
   offset: number,
@@ -95,11 +65,6 @@ export function writeRecord(
   trailer.setUint32(at + TRAILER_SUM, code.sum, true)
 }
 
-/**
- * These are the four values a record's trailer holds.
- *
- * @internal
- */
 export interface OsqTrailer {
   lower: number
   upper: number
@@ -107,11 +72,6 @@ export interface OsqTrailer {
   sum: number
 }
 
-/**
- * Reads a record's trailer, whose code starts at the given offset.
- *
- * @internal
- */
 export function readTrailer(trailer: DataView, codeOffset: number, codeBytes: number, into: OsqTrailer): OsqTrailer {
   const at = codeOffset + codeBytes
   into.lower = trailer.getFloat32(at + TRAILER_LOWER, true)
@@ -121,11 +81,6 @@ export function readTrailer(trailer: DataView, codeOffset: number, codeBytes: nu
   return into
 }
 
-/**
- * Reads a whole record back into a code, which a snapshot or a test needs.
- *
- * @internal
- */
 export function readRecord(bytes: Uint8Array, offset: number, dimension: number, bits: OsqBits): OsqCode {
   const trailer = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const values = readTrailer(trailer, offset, osqCodeBytes(dimension, bits), {

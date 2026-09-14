@@ -51,15 +51,6 @@ export interface HNSWSnapshot {
   topLayer: number
 }
 
-/**
- * Copies a graph out of its shared buffers into flat arrays the engine can
- * clone to another thread.
- *
- * @param state The graph to copy.
- * @returns The snapshot.
- *
- * @internal
- */
 export function exportSnapshot(state: HNSWGraphState): HNSWSnapshot {
   const adj = state.adjacency
   const slots = adjacencySlots(adj)
@@ -86,15 +77,6 @@ export function exportSnapshot(state: HNSWGraphState): HNSWSnapshot {
   }
 }
 
-/**
- * Copies a snapshot into the graph's buffers, which the caller must hold
- * exclusively.
- *
- * @param state The graph to fill.
- * @param snapshot The graph to copy in.
- *
- * @internal
- */
 export function restoreSnapshot(state: HNSWGraphState, snapshot: HNSWSnapshot): void {
   resetGraph(state)
   const adj = state.adjacency

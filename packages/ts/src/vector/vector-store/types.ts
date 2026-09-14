@@ -32,26 +32,12 @@ export interface VectorStoreSnapshot {
   docIds: Array<string | null>
 }
 
-/**
- * A nearest-neighbour search performs these reads against the stored vectors.
- *
- * The main thread's store and another thread's view over the same shared
- * blocks both satisfy it, so one search implementation serves both.
- *
- * @internal
- */
 export interface VectorSearchReader {
   entryForOrdinal(ordinal: number): VectorStoreEntry | undefined
   prepareQueryArena(query: Float32Array): ArenaQueryVector | null
   distanceFromArena(prepared: ArenaQueryVector, ordinal: number, metric: VectorMetric): number
 }
 
-/**
- * Graph construction performs these reads against the stored vectors, and the
- * main thread's store and a building thread's view both satisfy them.
- *
- * @internal
- */
 export interface VectorBuildReader extends VectorSearchReader {
   readonly dimension: number
   readonly slots: number
@@ -68,13 +54,6 @@ export interface VectorStoreOptions {
   blockBytes?: number
 }
 
-/**
- * This names where the store reads one released ordinal's vector: the index
- * of its file in the store's file list and the byte offset of the vector
- * inside that file.
- *
- * @internal
- */
 export interface DiskLocation {
   fileIndex: number
   offset: number

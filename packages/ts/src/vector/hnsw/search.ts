@@ -22,12 +22,6 @@ import {
 } from './shared'
 import { type DistanceList, setSingleEntryPoint } from './workspace'
 
-/**
- * This is one search result, holding the ordinal the caller maps back to a
- * document id itself.
- *
- * @internal
- */
 export interface OrdinalHit {
   /** The hit refers to this store ordinal. */
   ord: number
@@ -35,11 +29,6 @@ export interface OrdinalHit {
   score: number
 }
 
-/**
- * These are the options a search takes beyond its metric and floor.
- *
- * @internal
- */
 export interface GraphSearchOptions {
   filter?: OrdinalFilter
   efSearch?: number
@@ -202,23 +191,6 @@ function rescoreWithFullPrecision(
   return rescored
 }
 
-/**
- * Searches the graph and returns scored documents, best first, tying on
- * document id in code point order.
- *
- * @param state The graph to search.
- * @param docIdOf Reports the document id at an ordinal, or undefined where
- * the ordinal holds no live document.
- * @param query The query vector.
- * @param k The maximum number of hits to return.
- * @param searchMetric The distance metric to rank by.
- * @param minSimilarity The score below which a hit is dropped.
- * @param options The filter, the exploration factor, and the re-score depth
- * multiplier, each taking the engine default when absent.
- * @returns Scored documents, best first.
- *
- * @internal
- */
 export function search(
   state: HNSWSearchState,
   docIdOf: (ord: number) => string | undefined,
@@ -248,23 +220,6 @@ export function search(
   return results.slice(0, k)
 }
 
-/**
- * Searches the graph and returns ordinal hits, best first, tying on document
- * id in code point order, for a caller that maps ordinals back to ids itself.
- *
- * @param state The graph to search.
- * @param docIdOf Reports the document id at an ordinal, or undefined where
- * the ordinal holds no live document.
- * @param query The query vector.
- * @param k The maximum number of hits to return.
- * @param searchMetric The distance metric to rank by.
- * @param minSimilarity The score below which a hit is dropped.
- * @param options The filter, the exploration factor, and the re-score depth
- * multiplier, each taking the engine default when absent.
- * @returns Ordinal hits, best first.
- *
- * @internal
- */
 export function searchOrdinals(
   state: HNSWSearchState,
   docIdOf: (ord: number) => string | undefined,

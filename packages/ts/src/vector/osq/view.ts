@@ -9,13 +9,6 @@ import { createOsqScratch, type OsqBits, osqQuantize } from './quantize'
 import { type OsqTrailer, osqCodeBytes, packLevels, readTrailer, writeRecord } from './record'
 import type { OsqQuery, QuantizerSearchReader } from './types'
 
-/**
- * This is one thread's reader and writer over a field's shared code records.
- * The thread measures estimated distances against the records in place, and
- * it writes the record of every vector it places in the graph.
- *
- * @internal
- */
 export interface SharedQuantizerView extends QuantizerSearchReader {
   readonly bits: OsqBits
   readonly metric: VectorMetric
@@ -36,17 +29,6 @@ export interface SharedQuantizerView extends QuantizerSearchReader {
   distanceBetweenOrdinals(ordA: number, ordB: number): number
 }
 
-/**
- * Opens a field's shared code records on the current thread, over the vector
- * view the thread already holds.
- *
- * @param store The thread's view over the field's vectors.
- * @param layout The layout every code block follows.
- * @param metric The metric the quantizer takes the codes under.
- * @returns The quantizer view.
- *
- * @internal
- */
 export function openSharedQuantizer(
   store: SharedVectorStoreView,
   layout: VectorCodeBlockLayout,

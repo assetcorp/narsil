@@ -12,11 +12,6 @@ import { type ArenaSimd, createArenaSimd, createSharedArenaSimd } from '../simd'
 const SCRATCH_ALIGNMENT_BYTES = 16
 export const BLOCK_MAX_BYTES = MAX_WASM_PAGES * WASM_PAGE_BYTES
 
-/**
- * Rounds a byte count up to the alignment the kernels load at.
- *
- * @internal
- */
 export function alignUp(bytes: number): number {
   return Math.ceil(bytes / SCRATCH_ALIGNMENT_BYTES) * SCRATCH_ALIGNMENT_BYTES
 }
@@ -49,17 +44,6 @@ export interface VectorBlockLayout extends BlockGeometry {
   dimension: number
 }
 
-/**
- * Computes the geometry every float block of a field follows.
- *
- * @param dimension The number of components per vector.
- * @param blockBytes The bytes one block may reach, which a field that keeps
- * its vectors on disk sets low so that the store releases a block soon after
- * a checkpoint has written every vector it holds.
- * @returns The layout every block of the field follows.
- *
- * @internal
- */
 export function computeVectorBlockLayout(dimension: number, blockBytes: number = BLOCK_MAX_BYTES): VectorBlockLayout {
   const scratchStride = alignUp(dimension * 4)
   const slotsOffset = alignUp(VECTOR_SCRATCH_SLOTS * scratchStride)
@@ -117,15 +101,6 @@ function createSharedMemory(pages: number): WebAssembly.Memory | null {
   }
 }
 
-/**
- * Allocates one block, preferring a shared WebAssembly memory so that every
- * thread computes distances against one copy of the records.
- *
- * @param layout The layout the block follows.
- * @returns The block's handle.
- *
- * @internal
- */
 export function createVectorBlock<Layout extends BlockGeometry>(layout: Layout): VectorBlockHandle<Layout> {
   const initialBytes = initialBlockBytes(layout)
   const shared = createSharedMemory(pagesFor(initialBytes))
@@ -151,14 +126,6 @@ function growMemoryTo(memory: WebAssembly.Memory, bytes: number, layout: BlockGe
   memory.grow(pagesFor(nextGrowthTarget(have, bytes, fullBlockBytes(layout))) - have / WASM_PAGE_BYTES)
 }
 
-/**
- * Grows a block so that it holds the given number of slots.
- *
- * @param handle The block to grow.
- * @param slots The slots it must hold afterwards.
- *
- * @internal
- */
 export function ensureBlockSlots(handle: VectorBlockHandle, slots: number): void {
   const bytes = handle.layout.slotsOffset + Math.min(slots, handle.layout.capacity) * handle.layout.slotStride
   const storage = handle.storage
@@ -169,14 +136,6 @@ export function ensureBlockSlots(handle: VectorBlockHandle, slots: number): void
   growMemoryTo(storage.kind === 'shared-memory' ? storage.memory : storage.simd.memory, bytes, handle.layout)
 }
 
-/**
- * Reports the bytes a block holds right now.
- *
- * @param handle The block to read.
- * @returns The buffer, which a later growth of a WebAssembly memory replaces.
- *
- * @internal
- */
 export function blockBuffer(handle: VectorBlockHandle): GrowableBuffer {
   const storage = handle.storage
   if (storage.kind === 'bytes') return storage.buffer
@@ -186,13 +145,6 @@ export function blockBuffer(handle: VectorBlockHandle): GrowableBuffer {
 export const NOTHING_STAGED = -1
 export const QUERY_STAGED = -2
 
-/**
- * This is one thread's open handle on a block, holding the distance kernels
- * bound to the block's memory, the thread's own scratch offset, and the
- * views that follow the memory as it grows.
- *
- * @internal
- */
 export interface OpenVectorBlock {
   readonly handle: VectorBlockHandle
   readonly simd: ArenaSimd | null
@@ -208,16 +160,6 @@ export interface OpenVectorBlock {
   data(neededLength: number): DataView
 }
 
-/**
- * Opens a block on the current thread.
- *
- * @param handle The block to open.
- * @param threadSlot This thread's scratch slot, which decides where the
- * thread writes a query so that concurrent searches stay apart.
- * @returns The open block.
- *
- * @internal
- */
 export function openVectorBlock(handle: VectorBlockHandle, threadSlot: number): OpenVectorBlock {
   const { layout, storage } = handle
   const simd =
@@ -254,15 +196,6 @@ export function openVectorBlock(handle: VectorBlockHandle, threadSlot: number): 
   }
 }
 
-/**
- * Reports the byte offset of a slot inside its block.
- *
- * @param layout The layout the block follows.
- * @param localOrdinal The slot's ordinal inside its own block.
- * @returns The byte offset the slot starts at.
- *
- * @internal
- */
 export function slotByteOffset(layout: BlockGeometry, localOrdinal: number): number {
   return layout.slotsOffset + localOrdinal * layout.slotStride
 }
