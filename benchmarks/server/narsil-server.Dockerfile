@@ -4,7 +4,7 @@
 # on Debian bookworm (glibc 2.36). The uWebSockets.js arm64 prebuilt the server
 # loads requires glibc 2.38, so that image fails to start on arm64 hosts such as
 # Apple Silicon. Trixie (glibc 2.41) satisfies it on both architectures.
-FROM node:22-trixie-slim AS build
+FROM node:24-trixie-slim AS build
 WORKDIR /repo
 RUN corepack enable
 COPY . .
@@ -12,7 +12,7 @@ RUN pnpm install --frozen-lockfile
 ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN pnpm --filter @delali/narsil build
 
-FROM node:22-trixie-slim AS runtime
+FROM node:24-trixie-slim AS runtime
 WORKDIR /repo
 RUN corepack enable
 COPY --from=build /repo /repo
