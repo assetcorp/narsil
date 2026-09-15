@@ -210,8 +210,9 @@ export interface VectorQueryConfig {
    * full-precision vectors before it returns the best `limit`. A value below
    * 1 or one that is not a finite number fails with `CONFIG_INVALID`. The
    * engine ignores this on a field whose quantization is `none`. When a query
-   * omits it, the engine takes 3 for `osq1` and `osq2` and 2 for `osq4` and
-   * `osq8`.
+   * omits it, the engine takes 3 for `osq1` and `osq2`, 2 for `osq8`, and 2
+   * for `osq4` at 1,024 dimensions and above, but 5 for `osq4` below 1,024,
+   * where a four-bit code ranks the true neighbours less reliably.
    */
   oversample?: number
 }

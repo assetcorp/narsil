@@ -1,7 +1,12 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Narsil } from '../../../narsil'
 import { createNarsil } from '../../../narsil'
 import type { QueryParams } from '../../../types/search'
+
+vi.mock('../../../core/partition/constants', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../../core/partition/constants')>()),
+  MULTI_TERM_PRUNING_POSTINGS_THRESHOLD: 0,
+}))
 
 const TERMS = ['alpha', 'beta', 'gamma', 'delta', 'omega']
 const CORPUS_SIZE = 4000

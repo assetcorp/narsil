@@ -1,4 +1,4 @@
-import { fixedView, growBufferTo } from '../../shared-buffers/growable'
+import { fixedView, growBufferTo, growBufferToExactly } from '../../shared-buffers/growable'
 import { GRAPH_SLOTS, GRAPH_UPPER_USED, type SharedGraphHandles } from '../handles'
 
 export const ABSENT = -1
@@ -69,12 +69,17 @@ export function upperUsed(adj: Adjacency): number {
 
 export function ensureAdjacencyCapacity(adj: Adjacency, needed: number): void {
   if (needed <= adj.nodeLevels.length) return
-  const capacity = Math.max(needed, adj.handles.nodeLevels.byteLength * 2)
-  growBufferTo(adj.handles.level0, capacity * adj.level0Stride * 4)
-  growBufferTo(adj.handles.upperBase, capacity * 4)
-  growBufferTo(adj.handles.locks, capacity * 4)
-  growBufferTo(adj.handles.tombstones, capacity)
-  growBufferTo(adj.handles.nodeLevels, capacity)
+  const { handles } = adj
+  if (needed <= handles.nodeLevels.byteLength) {
+    rebindNodes(adj)
+    return
+  }
+  const capacity = Math.max(needed, Math.min(handles.nodeLevels.byteLength * 2, handles.nodeLevels.maxByteLength))
+  growBufferToExactly(handles.level0, capacity * adj.level0Stride * 4)
+  growBufferToExactly(handles.upperBase, capacity * 4)
+  growBufferToExactly(handles.locks, capacity * 4)
+  growBufferToExactly(handles.tombstones, capacity)
+  growBufferToExactly(handles.nodeLevels, capacity)
   rebindNodes(adj)
 }
 

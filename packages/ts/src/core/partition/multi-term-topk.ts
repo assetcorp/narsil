@@ -9,7 +9,7 @@ import type { BM25Params } from '../../types/schema'
 import type { InvertedIndexReader } from '../inverted-index'
 import { bm25PruningSound, computeBM25 } from '../scorer'
 import { blockBoundsFor, type PostingBlockBounds } from './block-bounds'
-import { PRUNING_REJECTION_SLACK } from './constants'
+import { MULTI_TERM_PRUNING_POSTINGS_THRESHOLD, PRUNING_REJECTION_SLACK } from './constants'
 import { postingColumns } from './posting-columns'
 import { markMatched, type ScoreBuffer } from './score-buffer'
 import { EMPTY_COMPONENTS } from './scoring'
@@ -68,12 +68,15 @@ export function prunableMultiTermLists(
   if (!bm25PruningSound(params.bm25Params)) return null
 
   const terms: MultiTermScanTerm[] = []
+  let postings = 0
   for (const queryToken of params.queryTokens) {
     const list = index.lookup(queryToken.token)
     if (list === undefined) continue
     if (!list.ordered) return null
+    postings += list.length
     terms.push({ token: queryToken.token, list })
   }
+  if (postings < MULTI_TERM_PRUNING_POSTINGS_THRESHOLD) return null
   return terms
 }
 

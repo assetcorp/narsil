@@ -3,7 +3,11 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { ScoredDocument } from '../../types/internal'
 import type { VectorMetric } from '../brute-force'
 import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
-import { DEFAULT_OVERSAMPLE_BY_BITS } from '../osq/constants'
+import {
+  DEFAULT_OSQ4_NARROW_OVERSAMPLE,
+  DEFAULT_OVERSAMPLE_BY_BITS,
+  OSQ4_NARROW_DIMENSION_LIMIT,
+} from '../osq/constants'
 import { magnitude } from '../similarity'
 import type { ArenaQueryVector } from '../vector-store'
 import { DEFAULT_EF_SEARCH } from './constants'
@@ -42,6 +46,11 @@ interface Traversal {
   qMag: number
 }
 
+function defaultOversample(bits: 1 | 2 | 4 | 8, dimension: number): number {
+  if (bits === 4 && dimension < OSQ4_NARROW_DIMENSION_LIMIT) return DEFAULT_OSQ4_NARROW_OVERSAMPLE
+  return DEFAULT_OVERSAMPLE_BY_BITS[bits]
+}
+
 function traverse(
   state: HNSWSearchState,
   query: Float32Array,
@@ -54,7 +63,9 @@ function traverse(
   const quantizer = calibrated === undefined || calibrated.size === 0 ? undefined : calibrated
   const useQuantized = quantizer !== undefined
   const depth =
-    quantizer === undefined ? k : Math.ceil(k * (options.oversample ?? DEFAULT_OVERSAMPLE_BY_BITS[quantizer.bits]))
+    quantizer === undefined
+      ? k
+      : Math.ceil(k * (options.oversample ?? defaultOversample(quantizer.bits, state.dimension)))
   let ef = Math.max(options.efSearch ?? DEFAULT_EF_SEARCH, depth)
 
   const filter = options.filter

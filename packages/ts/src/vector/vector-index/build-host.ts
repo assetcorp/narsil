@@ -12,8 +12,9 @@ interface Dispatch {
   workerCount: number
 }
 
-interface LocalFallback {
-  warned: boolean
+interface PlacementFallback {
+  noWorkerWarned: boolean
+  shortAnswerWarned: boolean
 }
 
 async function dispatcherFor(state: VectorIndexState, graph: HNSWIndex): Promise<Dispatch | null> {
@@ -50,7 +51,7 @@ export async function insertIntoGraph(
 
   const pending = new Set<Promise<void>>()
   const limit = dispatch.workerCount * GRAPH_BUILD_CHUNKS_IN_FLIGHT_PER_WORKER
-  const fallback: LocalFallback = { warned: false }
+  const fallback: PlacementFallback = { noWorkerWarned: false, shortAnswerWarned: false }
   let batchDocIds: string[] = []
   let batchOrdinals: number[] = []
 
@@ -88,7 +89,7 @@ async function placeChunk(
   dispatch: Dispatch,
   chunkDocIds: string[],
   chunkOrdinals: Int32Array,
-  fallback: LocalFallback,
+  fallback: PlacementFallback,
 ): Promise<void> {
   let outcome: GraphInsertOutcome | null = null
   try {
@@ -98,18 +99,30 @@ async function placeChunk(
   }
   if (state.disposed) return
   if (outcome === null) {
-    if (!fallback.warned) {
-      fallback.warned = true
+    if (!fallback.noWorkerWarned) {
+      fallback.noWorkerWarned = true
       console.warn(
         `No worker thread placed the vectors of "${state.indexName}/${state.fieldName}", so this thread is building its graph itself`,
       )
     }
     for (const ordinal of chunkOrdinals) graph.insertOrdinal(ordinal)
   }
+  let placedHere = 0
   for (let i = 0; i < chunkDocIds.length; i++) {
     const docId = chunkDocIds[i]
-    if (state.store.getOrdinal(docId) === chunkOrdinals[i]) state.buffer.delete(docId)
-    else graph.markTombstoneOrdinal(chunkOrdinals[i])
+    const ordinal = chunkOrdinals[i]
+    if (state.store.getOrdinal(docId) !== ordinal) {
+      graph.markTombstoneOrdinal(ordinal)
+      continue
+    }
+    if (!state.tombstones.has(docId) && !graph.has(docId) && graph.insertOrdinal(ordinal)) placedHere += 1
+    state.buffer.delete(docId)
+  }
+  if (placedHere > 0 && outcome !== null && !fallback.shortAnswerWarned) {
+    fallback.shortAnswerWarned = true
+    console.warn(
+      `A worker thread answered a chunk of "${state.indexName}/${state.fieldName}" without placing ${placedHere} of its vectors, so this thread placed them itself`,
+    )
   }
 }
 

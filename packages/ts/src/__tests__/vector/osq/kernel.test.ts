@@ -38,6 +38,27 @@ describe('the WebAssembly plane kernel', () => {
     }
   })
 
+  it('sums the same four-by-four products in one pass, with every bit set and at every plane length', () => {
+    expect(simd).not.toBeNull()
+    if (simd === null) return
+    const next = pseudoRandom(20260915)
+    const memory = new Uint8Array(simd.memory.buffer)
+    for (const planeBytes of [1, 15, 16, 17, 48, 96, 97, 384]) {
+      const saturated = new Uint8Array(4 * planeBytes).fill(255)
+      const pairs: Array<[Uint8Array, Uint8Array]> = [
+        [randomBytes(4 * planeBytes, next), randomBytes(4 * planeBytes, next)],
+        [saturated, saturated],
+      ]
+      for (const [document, query] of pairs) {
+        memory.set(document, 0)
+        memory.set(query, 8192)
+        expect(simd.osq_dot_planes_4x4(0, 8192, planeBytes)).toBe(
+          osqPackedLevelProducts(document, 0, 4, query, 0, 4, planeBytes),
+        )
+      }
+    }
+  })
+
   it('agrees with the JavaScript byte dot product for 8-bit codes', () => {
     expect(simd).not.toBeNull()
     if (simd === null) return

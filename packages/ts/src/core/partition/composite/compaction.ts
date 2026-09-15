@@ -61,17 +61,12 @@ export function swapFrozenSegmentList(
 ): void {
   const dropped = resolveFrozenSegments(frozen, dropSegmentIds, partitionId)
   const dropSet = new Set(dropSegmentIds)
-  for (const ordinal of replacement.docStore.allInternalIds()) {
-    const docId = replacement.docStore.getExternalId(ordinal)
-    if (docId === undefined) continue
-    let liveInDropped = false
-    for (const segment of dropped) {
-      if (segment.hasDocument(docId)) {
-        liveInDropped = true
-        break
-      }
+  for (const segment of dropped) {
+    for (const docId of segment.tombstonedDocIds()) {
+      if (!replacement.hasDocument(docId)) continue
+      if (dropped.some(other => other.hasDocument(docId))) continue
+      replacement.tombstoneDocument(docId)
     }
-    if (!liveInDropped) replacement.tombstoneDocument(docId)
   }
   const kept = frozen.filter(segment => !dropSet.has(segment.segmentId))
   frozen.length = 0

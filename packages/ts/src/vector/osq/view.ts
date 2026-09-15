@@ -89,9 +89,9 @@ export function openSharedQuantizer(
 
   function productsInBlock(block: OpenVectorBlock, documentOffset: number, queryOffset: number): number {
     if (block.simd !== null) {
-      return bits === 8
-        ? block.simd.dot_u8(documentOffset, queryOffset, dimension)
-        : block.simd.osq_dot_planes(documentOffset, queryOffset, planeBytes, bits, queryBits)
+      if (bits === 8) return block.simd.dot_u8(documentOffset, queryOffset, dimension)
+      if (bits === 4 && queryBits === 4) return block.simd.osq_dot_planes_4x4(documentOffset, queryOffset, planeBytes)
+      return block.simd.osq_dot_planes(documentOffset, queryOffset, planeBytes, bits, queryBits)
     }
     const bytes = block.bytes(Math.max(documentOffset, queryOffset) + codeBytes)
     return bits === 8
@@ -213,7 +213,9 @@ export function openSharedQuantizer(
         products =
           bits === 8
             ? blockA.simd.dot_u8(offsetA, offsetB, dimension)
-            : blockA.simd.osq_dot_planes(offsetA, offsetB, planeBytes, bits, bits)
+            : bits === 4
+              ? blockA.simd.osq_dot_planes_4x4(offsetA, offsetB, planeBytes)
+              : blockA.simd.osq_dot_planes(offsetA, offsetB, planeBytes, bits, bits)
       } else {
         const bytesA = blockA.bytes(offsetA + codeBytes)
         const bytesB = blockB.bytes(offsetB + codeBytes)

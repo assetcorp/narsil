@@ -138,6 +138,8 @@ export interface ArenaSimd {
   sqdist_u8: (ptrA: number, ptrB: number, len: number) => number
   /** Returns the sum of level products of two plane-packed codes at the given byte offsets, weighting the set bits of document plane j and query plane p by two to the power j plus p. */
   osq_dot_planes: (ptrDoc: number, ptrQuery: number, planeBytes: number, docBits: number, queryBits: number) => number
+  /** Returns the sum that `osq_dot_planes` returns for a four-plane document and a four-plane query, reading all eight planes of each 16-byte span in one pass. */
+  osq_dot_planes_4x4: (ptrDoc: number, ptrQuery: number, planeBytes: number) => number
 }
 
 let arenaModule: WebAssembly.Module | null | undefined
@@ -172,6 +174,7 @@ export function createArenaSimd(): ArenaSimd | null {
       typeof exports.dot_u8 !== 'function' ||
       typeof exports.sqdist_u8 !== 'function' ||
       typeof exports.osq_dot_planes !== 'function' ||
+      typeof exports.osq_dot_planes_4x4 !== 'function' ||
       typeof exports.dot_product !== 'function' ||
       typeof exports.magnitude !== 'function' ||
       typeof exports.squared_euclidean_distance !== 'function' ||
@@ -217,6 +220,7 @@ export function createSharedArenaSimd(memory: WebAssembly.Memory): ArenaSimd | n
       typeof exports.dot_u8 !== 'function' ||
       typeof exports.sqdist_u8 !== 'function' ||
       typeof exports.osq_dot_planes !== 'function' ||
+      typeof exports.osq_dot_planes_4x4 !== 'function' ||
       typeof exports.dot_product !== 'function' ||
       typeof exports.magnitude !== 'function' ||
       typeof exports.squared_euclidean_distance !== 'function'
@@ -231,6 +235,7 @@ export function createSharedArenaSimd(memory: WebAssembly.Memory): ArenaSimd | n
       dot_u8: exports.dot_u8,
       sqdist_u8: exports.sqdist_u8,
       osq_dot_planes: exports.osq_dot_planes,
+      osq_dot_planes_4x4: exports.osq_dot_planes_4x4,
     }
   } catch {
     return null

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createInvertedIndex } from '../../../core/inverted-index'
+import { MULTI_TERM_PRUNING_POSTINGS_THRESHOLD } from '../../../core/partition/constants'
+import { prunableMultiTermLists } from '../../../core/partition/multi-term-topk'
 import { prunableSingleTermList } from '../../../core/partition/search'
 import type { FieldNameTable, InternalSearchParams } from '../../../types/internal'
 
@@ -81,5 +83,29 @@ describe('routing to the pruned single-term scan', () => {
     const list = index.lookup('alpha')
     expect(list?.ordered).toBe(false)
     expect(prunableSingleTermList(paramsFor(), index, FIELD_NAMES)).toBeNull()
+  })
+})
+
+describe('routing to the pruned multi-term scan', () => {
+  function twoTermIndex(alphaPostings: number, betaPostings: number) {
+    const index = buildIndex(alphaPostings)
+    for (let internalId = 0; internalId < betaPostings; internalId++) {
+      index.insert('beta', internalId, 1, 0, null)
+    }
+    return index
+  }
+
+  const twoTerms = paramsFor({
+    queryTokens: [
+      { token: 'alpha', position: 0 },
+      { token: 'beta', position: 1 },
+    ],
+  })
+
+  it('routes a query to the pruned scan only once its lists together reach the posting threshold', () => {
+    const half = MULTI_TERM_PRUNING_POSTINGS_THRESHOLD / 2
+    expect(prunableMultiTermLists(twoTerms, twoTermIndex(half, half - 1))).toBeNull()
+    const terms = prunableMultiTermLists(twoTerms, twoTermIndex(half, half))
+    expect(terms?.map(term => term.token)).toEqual(['alpha', 'beta'])
   })
 })
