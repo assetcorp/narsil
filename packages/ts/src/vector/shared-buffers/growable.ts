@@ -30,7 +30,17 @@ export function nextGrowthTarget(have: number, needed: number, max: number): num
 }
 
 export function growBufferTo(buffer: GrowableBuffer, bytes: number): void {
+  const held = buffer.byteLength
+  if (held >= bytes) return
+  resizeBuffer(buffer, bytes, nextGrowthTarget(held, bytes, buffer.maxByteLength))
+}
+
+export function growBufferToExactly(buffer: GrowableBuffer, bytes: number): void {
   if (buffer.byteLength >= bytes) return
+  resizeBuffer(buffer, bytes, bytes)
+}
+
+function resizeBuffer(buffer: GrowableBuffer, bytes: number, target: number): void {
   if (bytes > buffer.maxByteLength) {
     throw new NarsilError(
       ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
@@ -38,7 +48,6 @@ export function growBufferTo(buffer: GrowableBuffer, bytes: number): void {
       { bytes, maxBytes: buffer.maxByteLength },
     )
   }
-  const target = nextGrowthTarget(buffer.byteLength, bytes, buffer.maxByteLength)
   if (buffer instanceof ArrayBuffer) {
     buffer.resize(target)
     return

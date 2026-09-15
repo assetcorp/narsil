@@ -72,8 +72,8 @@ export function openSharedVectorStore(initial: SharedVectorStoreHandles, threadS
   const codeCapacity = initial.codeLayout?.capacity ?? 1
   const blocks: Array<OpenVectorBlock | undefined> = []
   const codeBlocks: OpenVectorBlock[] = []
-  let magnitudes = fixedView(handles.magnitudes, Float64Array)
   let present = fixedView(handles.present, Uint8Array)
+  let magnitudes = fixedView(handles.magnitudes, Float64Array)
   let partitions = fixedView(handles.partitions, Int32Array)
   let docIdBytes = fixedView(handles.docIdBytes, Uint8Array)
   let docIdOffsets = fixedView(handles.docIdOffsets, Uint32Array)
@@ -85,8 +85,8 @@ export function openSharedVectorStore(initial: SharedVectorStoreHandles, threadS
   const coldScratchB = new Float32Array(dimension)
 
   function rebind(): void {
-    magnitudes = fixedView(handles.magnitudes, Float64Array)
     present = fixedView(handles.present, Uint8Array)
+    magnitudes = fixedView(handles.magnitudes, Float64Array)
     partitions = fixedView(handles.partitions, Int32Array)
     docIdBytes = fixedView(handles.docIdBytes, Uint8Array)
     docIdOffsets = fixedView(handles.docIdOffsets, Uint32Array)

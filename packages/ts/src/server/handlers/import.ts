@@ -1,6 +1,8 @@
+import { providedDocId } from '../../engine/mutations/insert-admission'
 import { NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
 import type { AnyDocument } from '../../types/schema'
+import { IMPORT_FLUSHES_IN_FLIGHT } from '../constants'
 import type { HandlerDeps } from '../deps'
 import { ServerErrorCodes, serializeNarsilError } from '../errors'
 import { respondError, respondJson } from '../handler-utils'
@@ -33,12 +35,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Streams an NDJSON corpus into the engine in bounded batches, yielding the
- * event loop between batches so searches and health probes stay responsive on
- * the single thread. Per-line parse failures and per-document engine failures
- * are collected and returned together, so one bad record never aborts the load,
- * and the collected list stops at `maxErrors` while the reported total keeps
- * counting.
+ * Streams an NDJSON corpus into the engine in bounded batches, keeping a few
+ * batches in flight so their segments build on separate workers, and yielding
+ * the event loop between batches so searches and health probes stay responsive
+ * on the single thread. A line whose id already appeared earlier in the body
+ * waits until every other batch has settled, so it meets the same outcome as
+ * it would have met one batch at a time. Per-line parse failures and
+ * per-document engine failures are collected and returned together, so one bad
+ * record never aborts the load, and the collected list stops at `maxErrors`
+ * while the reported total keeps counting.
  *
  * @param engine - The engine the documents are written into.
  * @param options - The index, the buffered body, the batching and reporting
@@ -61,10 +66,7 @@ export async function runImport(engine: Narsil, options: ImportRunOptions): Prom
     if (errors.length < maxErrors) errors.push(error)
   }
 
-  const flush = async (): Promise<void> => {
-    if (pending.length === 0) return
-    const documents = pending.map(entry => entry.document)
-    pending = []
+  const flushDocuments = async (documents: AnyDocument[]): Promise<void> => {
     const result = await engine.insertBatch(indexName, documents, { skipClone: true })
     indexed += result.succeeded.length
     for (const failure of result.failed) {
@@ -76,38 +78,81 @@ export async function runImport(engine: Narsil, options: ImportRunOptions): Prom
     }
   }
 
+  const inFlight = new Set<Promise<void>>()
+  let flushError: unknown
+  const startFlush = (): void => {
+    if (pending.length === 0) return
+    const documents = pending.map(entry => entry.document)
+    pending = []
+    const run: Promise<void> = flushDocuments(documents)
+      .catch(err => {
+        flushError ??= err
+      })
+      .finally(() => inFlight.delete(run))
+    inFlight.add(run)
+  }
+
+  const settleFlushes = async (): Promise<void> => {
+    await Promise.all(inFlight)
+    if (flushError !== undefined) throw flushError
+  }
+
   const report = (): void => {
     onProgress?.({ indexed, failed, bytesProcessed, bytesTotal })
   }
 
-  for (const line of iterateNdjson(body, maxLineBytes)) {
-    bytesProcessed = line.bytesConsumed
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(line.text)
-    } catch {
-      recordFailure({ line: line.lineNumber, code: ServerErrorCodes.INVALID_JSON, message: 'Line is not valid JSON' })
-      continue
-    }
-    if (!isPlainObject(parsed)) {
-      recordFailure({
-        line: line.lineNumber,
-        code: ServerErrorCodes.INVALID_REQUEST,
-        message: 'Line is not a JSON object',
-      })
-      continue
-    }
-    pending.push({ document: parsed, line: line.lineNumber })
-    if (pending.length >= batchSize) {
-      signal?.throwIfAborted()
-      await flush()
-      report()
-      await yieldToEventLoop()
-      signal?.throwIfAborted()
-    }
-  }
+  const seenIds = new Set<string>()
+  const repeated: PendingDoc[] = []
 
-  await flush()
+  try {
+    for (const line of iterateNdjson(body, maxLineBytes)) {
+      bytesProcessed = line.bytesConsumed
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(line.text)
+      } catch {
+        recordFailure({ line: line.lineNumber, code: ServerErrorCodes.INVALID_JSON, message: 'Line is not valid JSON' })
+        continue
+      }
+      if (!isPlainObject(parsed)) {
+        recordFailure({
+          line: line.lineNumber,
+          code: ServerErrorCodes.INVALID_REQUEST,
+          message: 'Line is not a JSON object',
+        })
+        continue
+      }
+      const docId = providedDocId(parsed)
+      if (docId !== undefined) {
+        if (seenIds.has(docId)) {
+          repeated.push({ document: parsed, line: line.lineNumber })
+          continue
+        }
+        seenIds.add(docId)
+      }
+      pending.push({ document: parsed, line: line.lineNumber })
+      if (pending.length >= batchSize) {
+        signal?.throwIfAborted()
+        startFlush()
+        if (inFlight.size >= IMPORT_FLUSHES_IN_FLIGHT) await Promise.race(inFlight)
+        if (flushError !== undefined) await settleFlushes()
+        report()
+        await yieldToEventLoop()
+        signal?.throwIfAborted()
+      }
+    }
+
+    startFlush()
+    await settleFlushes()
+    for (let start = 0; start < repeated.length; start += batchSize) {
+      signal?.throwIfAborted()
+      await flushDocuments(repeated.slice(start, start + batchSize).map(entry => entry.document))
+    }
+  } catch (err) {
+    await Promise.allSettled(inFlight)
+    report()
+    throw err
+  }
   bytesProcessed = bytesTotal
   report()
   return { indexed, failed, errors, errorsTruncated: failed > errors.length }

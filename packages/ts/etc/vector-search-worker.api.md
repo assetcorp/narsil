@@ -13,6 +13,7 @@ export interface ArenaSimd {
     magnitude: (ptr: number, len: number) => number;
     memory: WebAssembly.Memory;
     osq_dot_planes: (ptrDoc: number, ptrQuery: number, planeBytes: number, docBits: number, queryBits: number) => number;
+    osq_dot_planes_4x4: (ptrDoc: number, ptrQuery: number, planeBytes: number) => number;
     sqdist_u8: (ptrA: number, ptrB: number, len: number) => number;
     squared_euclidean_distance: (ptrA: number, ptrB: number, len: number) => number;
 }
