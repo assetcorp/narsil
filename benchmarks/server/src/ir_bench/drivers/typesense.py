@@ -28,7 +28,9 @@ _STOP_WORDS_SET = "lucene-english"
 def _raise(response: httpx.Response) -> None:
     if response.is_success:
         return
-    raise EngineError(f"HTTP {response.status_code} from {response.request.url}: {response.text[:500]}")
+    raise EngineError(
+        f"HTTP {response.status_code} from {response.request.url}: {response.text[:500]}", response.status_code
+    )
 
 
 class TypesenseDriver:

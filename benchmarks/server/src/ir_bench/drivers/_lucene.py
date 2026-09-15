@@ -7,7 +7,14 @@ import httpx
 
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
-from ..core.ingest import NDJSON_CONTENT_TYPE, BatchOutcome, encode_json_lines, import_batches
+from ..core.ingest import (
+    NDJSON_CONTENT_TYPE,
+    RETRYABLE_STATUS_CODES,
+    BatchOutcome,
+    encode_json_lines,
+    import_batches,
+    retry_delays,
+)
 from ..core.types import (
     GRAPH_BUILD_TIMEOUT_SECONDS,
     INTEGER_MS,
@@ -27,7 +34,9 @@ _TASK_POLL_SECONDS = 1.0
 def _raise(response: httpx.Response) -> None:
     if response.is_success:
         return
-    raise EngineError(f"HTTP {response.status_code} from {response.request.url}: {response.text[:500]}")
+    raise EngineError(
+        f"HTTP {response.status_code} from {response.request.url}: {response.text[:500]}", response.status_code
+    )
 
 
 class LuceneRestDriver:
@@ -83,7 +92,7 @@ class LuceneRestDriver:
         response = self._client.put(f"/{index}", json=body)
         _raise(response)
 
-    def _send_bulk(self, index: str, batch: list[tuple[str, dict]]) -> BatchOutcome:
+    def _bulk_once(self, index: str, batch: list[tuple[str, dict]]) -> tuple[int, list[tuple[str, dict]]]:
         def actions():
             for doc_id, source in batch:
                 yield {"index": {"_id": doc_id}}
@@ -95,18 +104,34 @@ class LuceneRestDriver:
             headers=NDJSON_CONTENT_TYPE,
         )
         _raise(response)
-        payload = response.json()
         indexed = 0
-        for item in payload.get("items", []):
+        rejected: list[tuple[str, dict]] = []
+        for document, item in zip(batch, response.json().get("items", [])):
             outcome = item.get("index") or item.get("create") or {}
-            if "error" not in outcome and int(outcome.get("status", 0)) in (200, 201):
+            status = int(outcome.get("status", 0))
+            if "error" not in outcome and status in (200, 201):
                 indexed += 1
+            elif status in RETRYABLE_STATUS_CODES:
+                rejected.append(document)
+        return indexed, rejected
+
+    def _send_bulk(self, index: str, batch: list[tuple[str, dict]]) -> BatchOutcome:
+        indexed, rejected = self._bulk_once(index, batch)
+        for delay in retry_delays():
+            if not rejected:
+                break
+            time.sleep(delay)
+            accepted, rejected = self._bulk_once(index, rejected)
+            indexed += accepted
         return BatchOutcome(submitted=len(batch), indexed=indexed)
 
     def _bulk(
         self, index: str, sources: Iterable[tuple[str, dict]], batch_size: int, clients: int
     ) -> ImportResult:
-        total = import_batches(sources, batch_size, clients, lambda batch: self._send_bulk(index, batch))
+        def send(batch: list[tuple[str, dict]]) -> BatchOutcome:
+            return self._send_bulk(index, batch)
+
+        total = import_batches(sources, batch_size, clients, send, resend=send)
         refresh = self._client.post(f"/{index}/_refresh")
         _raise(refresh)
         return ImportResult(submitted=total.submitted, indexed=total.indexed)
