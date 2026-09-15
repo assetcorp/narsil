@@ -38,7 +38,9 @@ _FULL_SCAN_THRESHOLD_KB = 10
 def _raise(response: httpx.Response) -> None:
     if response.is_success:
         return
-    raise EngineError(f"HTTP {response.status_code} from {response.request.url}: {response.text[:500]}")
+    raise EngineError(
+        f"HTTP {response.status_code} from {response.request.url}: {response.text[:500]}", response.status_code
+    )
 
 
 class QdrantDriver:
@@ -194,12 +196,10 @@ class QdrantDriver:
         remaining = iter(documents)
         first_batch = list(islice(remaining, batch_size))
         model = self._build_sparse_model(self._average_document_length([doc.text for doc in first_batch]))
-        total = import_batches(
-            enumerate(chain(first_batch, remaining)),
-            batch_size,
-            clients,
-            lambda batch: self._send_points(index, model, batch),
-        )
+        def send(batch: list[tuple[int, VectorDoc]]) -> BatchOutcome:
+            return self._send_points(index, model, batch)
+
+        total = import_batches(enumerate(chain(first_batch, remaining)), batch_size, clients, send, resend=send)
         return ImportResult(submitted=total.submitted, indexed=total.indexed)
 
     def build_vectors(self, index: str, timeout_seconds: float = GRAPH_BUILD_TIMEOUT_SECONDS) -> None:

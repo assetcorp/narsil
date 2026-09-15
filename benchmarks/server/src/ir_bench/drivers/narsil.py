@@ -30,6 +30,16 @@ _VECTOR_FIELD = "embedding"
 _RRF_K = 60
 _RESCORE_OVERSAMPLING_GRID = (3.0, 5.0, 8.0)
 _OSQ4_MIN_DIMENSION = 384
+_DEFAULT_RESCORE_OVERSAMPLING = 2.0
+_OSQ4_NARROW_RESCORE_OVERSAMPLING = 5.0
+_OSQ4_NARROW_DIMENSION_LIMIT = 1024
+_ALREADY_INDEXED_CODE = "DOC_ALREADY_EXISTS"
+
+
+def default_rescore_oversampling(quantization: str, dims: int) -> float:
+    if quantization == "osq4" and dims < _OSQ4_NARROW_DIMENSION_LIMIT:
+        return _OSQ4_NARROW_RESCORE_OVERSAMPLING
+    return _DEFAULT_RESCORE_OVERSAMPLING
 
 
 def best_config_quantization(dims: int) -> str:
@@ -57,7 +67,7 @@ def _raise_for_envelope(response: httpx.Response) -> None:
             detail = f"{error.get('code')}: {error.get('message')}"
     except (json.JSONDecodeError, ValueError):
         pass
-    raise EngineError(f"HTTP {response.status_code} from {response.request.url}: {detail}")
+    raise EngineError(f"HTTP {response.status_code} from {response.request.url}: {detail}", response.status_code)
 
 
 class NarsilDriver:
@@ -107,7 +117,7 @@ class NarsilDriver:
         response = self._client.post("/indexes", json={"name": index, "config": config})
         _raise_for_envelope(response)
 
-    def _send_import(self, index: str, batch: list[dict]) -> BatchOutcome:
+    def _send_import(self, index: str, batch: list[dict], resending: bool = False) -> BatchOutcome:
         response = self._client.post(
             f"/indexes/{index}/documents/_import",
             content=encode_json_lines(batch),
@@ -115,16 +125,25 @@ class NarsilDriver:
         )
         _raise_for_envelope(response)
         payload = response.json()
-        return BatchOutcome(
-            submitted=len(batch),
-            indexed=int(payload.get("indexed", 0)),
-            failures=tuple(payload.get("errors") or []),
-        )
+        indexed = int(payload.get("indexed", 0))
+        errors = list(payload.get("errors") or [])
+        if resending:
+            refusals = [error for error in errors if error.get("code") != _ALREADY_INDEXED_CODE]
+            if not refusals:
+                indexed += int(payload.get("failed", len(errors)))
+            errors = refusals
+        return BatchOutcome(submitted=len(batch), indexed=indexed, failures=tuple(errors))
 
     def _import_docs(
         self, index: str, documents: Iterable[dict], batch_size: int, clients: int
     ) -> ImportResult:
-        total = import_batches(documents, batch_size, clients, lambda batch: self._send_import(index, batch))
+        total = import_batches(
+            documents,
+            batch_size,
+            clients,
+            lambda batch: self._send_import(index, batch),
+            resend=lambda batch: self._send_import(index, batch, resending=True),
+        )
         if total.failures:
             raise EngineError(
                 f"Narsil rejected {len(total.failures)} document(s); first error: {total.failures[0]}"
@@ -195,6 +214,8 @@ class NarsilDriver:
             )
         else:
             quantization = "none"
+        engine_default = default_rescore_oversampling(quantization, params.dims)
+        self.rescore_oversample_grid = tuple(value for value in _RESCORE_OVERSAMPLING_GRID if value > engine_default)
         config: dict[str, object] = {
             "schema": {"text": "string", _VECTOR_FIELD: f"vector[{params.dims}]"},
             "bm25": {"k1": self._k1, "b": self._b},

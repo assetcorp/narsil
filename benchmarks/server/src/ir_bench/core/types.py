@@ -26,6 +26,10 @@ SERVER_TIME_RESOLUTIONS = (FLOATING_MS, INTEGER_MS, NOT_AVAILABLE)
 class EngineError(RuntimeError):
     """An engine driver could not complete a benchmark operation."""
 
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 @dataclass(frozen=True)
 class ServerTimeSource:
