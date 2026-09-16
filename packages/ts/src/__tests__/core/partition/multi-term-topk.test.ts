@@ -1,12 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { Narsil } from '../../../narsil'
 import { createNarsil } from '../../../narsil'
 import type { QueryParams } from '../../../types/search'
-
-vi.mock('../../../core/partition/constants', async importOriginal => ({
-  ...(await importOriginal<typeof import('../../../core/partition/constants')>()),
-  MULTI_TERM_PRUNING_POSTINGS_THRESHOLD: 0,
-}))
 
 const TERMS = ['alpha', 'beta', 'gamma', 'delta', 'omega']
 const CORPUS_SIZE = 4000
@@ -136,6 +131,25 @@ describe('pruned multi-term scoring', () => {
   it('agrees with the unpruned path under a field boost', async () => {
     await comparePrunedWithFull(narsil, 'skewed', { term: 'alpha filler', limit: 10, boost: { title: 4 } })
     await comparePrunedWithFull(narsil, 'skewed', { term: 'alpha beta', limit: 10, boost: { title: 0 } })
+  })
+
+  it('agrees with the unpruned path when a negative boost lowers the scores of the early leaders', async () => {
+    const lowered = await createNarsil({ workers: { enabled: false } })
+    await lowered.createIndex('lowered', { schema: { title: 'string', body: 'string' }, language: 'english' })
+    const documents = []
+    for (let index = 0; index < 15; index++) {
+      documents.push({ id: `x-${String(index).padStart(5, '0')}`, title: 'alpha', body: 'beta beta beta beta beta' })
+    }
+    for (let index = 0; index < 2000; index++) {
+      documents.push({ id: `y-${String(index).padStart(5, '0')}`, title: 'beta', body: 'filler' })
+      documents.push({ id: `z-${String(index).padStart(5, '0')}`, title: 'gamma', body: 'filler' })
+    }
+    await lowered.insertBatch('lowered', documents)
+
+    await comparePrunedWithFull(lowered, 'lowered', { term: 'alpha beta', limit: 10, boost: { body: -10 } })
+    const page = await lowered.query('lowered', { term: 'alpha beta', limit: 10, boost: { body: -10 } })
+    expect(page.hits.every(hit => hit.id.startsWith('y-'))).toBe(true)
+    await lowered.shutdown()
   })
 
   it('agrees with the unpruned path when the query names fields or carries a filter', async () => {
