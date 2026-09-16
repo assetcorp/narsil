@@ -9,6 +9,7 @@ import type { BM25Params } from '../../types/schema'
 import type { InvertedIndexReader } from '../inverted-index'
 import { bm25PruningSound, computeBM25, computeBM25WithIDF, computeIDF, resolveBM25Params } from '../scorer'
 import { blockBoundsFor } from './block-bounds'
+import { bestSearchable, type FieldScoring, fieldLengthOf } from './field-scoring'
 import { postingColumns } from './posting-columns'
 import { EMPTY_COMPONENTS } from './scoring'
 import { buildMinHeap, candidateWorse, siftDown, sortSelection, type TopKCandidate } from './top-k-heap'
@@ -19,31 +20,8 @@ export interface SingleTermScanRequest {
   totalDocs: number
   bm25Params: BM25Params | undefined
   limit: number
-  fieldSearchable: Uint8Array
-  fieldBoosts: Float64Array
-  fieldAvgLengths: Float64Array
-  fieldLengthColumns: ReadonlyArray<Uint32Array | null>
+  fields: FieldScoring
   resolver: InternalIdResolver
-}
-
-export function fieldLengthOf(
-  columns: ReadonlyArray<Uint32Array | null>,
-  fieldIndex: number,
-  internalId: number,
-  averageLength: number,
-): number {
-  const column = fieldIndex < columns.length ? columns[fieldIndex] : null
-  if (column === null || internalId >= column.length) return averageLength
-  const stored = column[internalId]
-  return stored > 0 ? stored : averageLength
-}
-
-export function bestSearchable(searchable: Uint8Array, values: Float64Array): number {
-  let best = 0
-  for (let index = 0; index < searchable.length; index++) {
-    if (searchable[index] === 1 && values[index] > best) best = values[index]
-  }
-  return best
 }
 
 export function fieldsCoverEvery(fields: string[] | undefined, fieldNames: readonly string[]): boolean {
@@ -102,7 +80,12 @@ export function prunableSingleTermList(
  */
 export function singleTermTopK(request: SingleTermScanRequest): InternalSearchResult {
   const { list, docFrequency, totalDocs, bm25Params, limit, resolver } = request
-  const { fieldSearchable, fieldBoosts, fieldAvgLengths, fieldLengthColumns } = request
+  const {
+    searchable: fieldSearchable,
+    boosts: fieldBoosts,
+    averageLengths: fieldAvgLengths,
+    lengthColumns: fieldLengthColumns,
+  } = request.fields
 
   const wanted = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 0
   const { docIds, termFrequencies, fieldNameIndices, deletedDocs: deleted, hasDeleted } = postingColumns(list)

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { createInvertedIndex } from '../../../core/inverted-index'
-import { MULTI_TERM_PRUNING_POSTINGS_THRESHOLD } from '../../../core/partition/constants'
 import { prunableMultiTermLists } from '../../../core/partition/multi-term-topk'
 import { prunableSingleTermList } from '../../../core/partition/search'
 import type { FieldNameTable, InternalSearchParams } from '../../../types/internal'
@@ -95,17 +94,15 @@ describe('routing to the pruned multi-term scan', () => {
     return index
   }
 
-  const twoTerms = paramsFor({
-    queryTokens: [
-      { token: 'alpha', position: 0 },
-      { token: 'beta', position: 1 },
-    ],
-  })
-
-  it('routes a query to the pruned scan only once its lists together reach the posting threshold', () => {
-    const half = MULTI_TERM_PRUNING_POSTINGS_THRESHOLD / 2
-    expect(prunableMultiTermLists(twoTerms, twoTermIndex(half, half - 1))).toBeNull()
-    const terms = prunableMultiTermLists(twoTerms, twoTermIndex(half, half))
-    expect(terms?.map(term => term.token)).toEqual(['alpha', 'beta'])
+  it('routes short lists to the pruned scan in query order and leaves out a term the index lacks', () => {
+    const params = paramsFor({
+      queryTokens: [
+        { token: 'beta', position: 0 },
+        { token: 'missing', position: 1 },
+        { token: 'alpha', position: 2 },
+      ],
+    })
+    const terms = prunableMultiTermLists(params, twoTermIndex(3, 2))
+    expect(terms?.map(term => term.token)).toEqual(['beta', 'alpha'])
   })
 })
