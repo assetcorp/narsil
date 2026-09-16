@@ -7,7 +7,7 @@ import type {
 } from '../../types/internal'
 import type { BM25Params } from '../../types/schema'
 import type { InvertedIndexReader } from '../inverted-index'
-import { bm25PruningSound, computeBM25 } from '../scorer'
+import { bm25PruningSound, computeBM25, computeBM25WithIDF, computeIDF, resolveBM25Params } from '../scorer'
 import { blockBoundsFor, type PostingBlockBounds } from './block-bounds'
 import { MULTI_TERM_PRUNING_POSTINGS_THRESHOLD, PRUNING_REJECTION_SLACK } from './constants'
 import { postingColumns } from './posting-columns'
@@ -45,6 +45,10 @@ interface TermCursor {
   hasDeleted: boolean
   length: number
   docFrequency: number
+  idf: number
+  k1: number
+  b: number
+  scoresAreZero: boolean
   bounds: PostingBlockBounds
   blockBound: Float64Array
   maxScore: number
@@ -143,6 +147,7 @@ function openCursor(term: MultiTermScanTerm, docFrequency: number, request: Mult
     blockBound[block] = bestEntry * maxBoost * bounds.maxEntriesPerDocument[block]
     if (blockBound[block] > maxScore) maxScore = blockBound[block]
   }
+  const { k1, b } = resolveBM25Params(bm25Params)
   const cursor: TermCursor = {
     docIds: columns.docIds,
     termFrequencies: columns.termFrequencies,
@@ -151,6 +156,10 @@ function openCursor(term: MultiTermScanTerm, docFrequency: number, request: Mult
     hasDeleted: columns.hasDeleted,
     length: columns.count,
     docFrequency,
+    idf: computeIDF(docFrequency, totalDocs),
+    k1,
+    b,
+    scoresAreZero: totalDocs === 0,
     bounds,
     blockBound,
     maxScore,
@@ -162,23 +171,20 @@ function openCursor(term: MultiTermScanTerm, docFrequency: number, request: Mult
   return cursor
 }
 
+function entryScore(cursor: TermCursor, entry: number, fieldLength: number, averageLength: number): number {
+  if (cursor.scoresAreZero) return 0
+  return computeBM25WithIDF(cursor.termFrequencies[entry], cursor.idf, fieldLength, averageLength, cursor.k1, cursor.b)
+}
+
 function addRunScore(cursor: TermCursor, request: MultiTermScanRequest, score: number): number {
-  const { fieldSearchable, fieldBoosts, fieldAvgLengths, fieldLengthColumns, totalDocs, bm25Params } = request
+  const { fieldSearchable, fieldBoosts, fieldAvgLengths, fieldLengthColumns } = request
   const { docIds, length, doc } = cursor
   let total = score
   for (let entry = cursor.entry; entry < length && docIds[entry] === doc; entry++) {
     const fieldIndex = cursor.fieldNameIndices[entry]
     if (fieldSearchable[fieldIndex] !== 1) continue
     const fieldLength = fieldLengthOf(fieldLengthColumns, fieldIndex, doc, fieldAvgLengths[fieldIndex])
-    total +=
-      computeBM25(
-        cursor.termFrequencies[entry],
-        cursor.docFrequency,
-        totalDocs,
-        fieldLength,
-        fieldAvgLengths[fieldIndex],
-        bm25Params,
-      ) * fieldBoosts[fieldIndex]
+    total += entryScore(cursor, entry, fieldLength, fieldAvgLengths[fieldIndex]) * fieldBoosts[fieldIndex]
   }
   return total
 }
@@ -197,7 +203,7 @@ function countMatches(cursors: TermCursor[], buffer: ScoreBuffer, fieldSearchabl
 }
 
 function exactScore(cursors: TermCursor[], candidate: number, request: MultiTermScanRequest): number | null {
-  const { fieldSearchable, fieldBoosts, fieldAvgLengths, fieldLengthColumns, totalDocs, bm25Params } = request
+  const { fieldSearchable, fieldBoosts, fieldAvgLengths, fieldLengthColumns } = request
   let score = 0
   let matched = false
   for (const cursor of cursors) {
@@ -208,15 +214,7 @@ function exactScore(cursors: TermCursor[], candidate: number, request: MultiTerm
       if (fieldSearchable[fieldIndex] !== 1) continue
       matched = true
       const fieldLength = fieldLengthOf(fieldLengthColumns, fieldIndex, candidate, fieldAvgLengths[fieldIndex])
-      score +=
-        computeBM25(
-          cursor.termFrequencies[entry],
-          cursor.docFrequency,
-          totalDocs,
-          fieldLength,
-          fieldAvgLengths[fieldIndex],
-          bm25Params,
-        ) * fieldBoosts[fieldIndex]
+      score += entryScore(cursor, entry, fieldLength, fieldAvgLengths[fieldIndex]) * fieldBoosts[fieldIndex]
     }
   }
   return matched ? score : null

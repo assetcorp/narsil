@@ -1,7 +1,7 @@
 import type { InternalSearchParams, InternalSearchResult, PostingListView } from '../../types/internal'
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 import type { InvertedIndexReader } from '../inverted-index'
-import { computeBM25, computeBM25WithGlobalStats, computeIDF } from '../scorer'
+import { computeBM25WithIDF, computeIDF, resolveBM25Params } from '../scorer'
 import { multiTermTopK, prunableMultiTermLists } from './multi-term-topk'
 import { postingColumns } from './posting-columns'
 import { addScore, beginScoring, createScoreBuffer, hasScore, topKFromBuffer } from './score-buffer'
@@ -60,7 +60,8 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
   const totalDocs = globalStats?.totalDocuments ?? state.stats.totalDocuments
   const avgFieldLengths = globalStats?.averageFieldLengths ?? state.stats.averageFieldLengths
   const globalDocFreqs = globalStats?.docFrequencies ?? state.stats.docFrequencies
-  const scoreFn = globalStats ? computeBM25WithGlobalStats : computeBM25
+  const { k1, b } = resolveBM25Params(bm25Params)
+  const scoresAreZero = totalDocs === 0
 
   if (state.scoreBuffer === null) state.scoreBuffer = createScoreBuffer(state.docStore.internalIdCapacity())
   const scoreBuffer = state.scoreBuffer
@@ -148,7 +149,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
         const actualFieldLength = resolveFieldLength(internalId, fieldIndex, avgLen)
 
         const termScore =
-          scoreFn(termFrequency, match.docFreq, totalDocs, actualFieldLength, avgLen, bm25Params) *
+          (scoresAreZero ? 0 : computeBM25WithIDF(termFrequency, match.idf, actualFieldLength, avgLen, k1, b)) *
           fieldBoost *
           match.factor
 
@@ -293,7 +294,9 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
           const avgLen = fieldAvgLengths[fieldIndex]
           const actualFieldLength = resolveFieldLength(internalId, fieldIndex, avgLen)
 
-          let termScore = scoreFn(termFrequency, match.docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
+          let termScore = scoresAreZero
+            ? 0
+            : computeBM25WithIDF(termFrequency, match.idf, actualFieldLength, avgLen, k1, b)
           termScore *= fieldBoost
 
           addScore(scoreBuffer, internalId, termScore)
@@ -347,7 +350,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
           const avgLen = fieldAvgLengths[fieldIndex]
           const actualFieldLength = resolveFieldLength(internalId, fieldIndex, avgLen)
 
-          let termScore = scoreFn(termFrequency, docFreq, totalDocs, actualFieldLength, avgLen, bm25Params)
+          let termScore = scoresAreZero ? 0 : computeBM25WithIDF(termFrequency, idf, actualFieldLength, avgLen, k1, b)
           termScore *= fieldBoost
 
           addScore(scoreBuffer, internalId, termScore)
