@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from fractions import Fraction
+
 import numpy as np
 
 _QUERY_BLOCK = 512
@@ -92,13 +94,13 @@ def exact_top_k(
 def ann_recall_at_k(approx: dict[str, list[str]], truth: dict[str, list[str]], k: int) -> float:
     """Mean overlap between an engine's approximate top-k and the exact top-k."""
 
-    total = 0.0
+    total = Fraction(0)
     counted = 0
     for query_id, truth_ids in truth.items():
         cut = set(truth_ids[:k])
         if not cut:
             continue
         got = set(approx.get(query_id, [])[:k])
-        total += len(cut & got) / len(cut)
+        total += Fraction(len(cut & got), len(cut))
         counted += 1
-    return total / counted if counted else 0.0
+    return float(total / counted) if counted else 0.0
