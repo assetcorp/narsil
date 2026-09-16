@@ -56,7 +56,7 @@ track. The two dedicated vector databases run vector and hybrid.
 
 Every engine indexes the same dense vectors, but each engine runs its own keyword
 side for hybrid. Elasticsearch, OpenSearch, and Weaviate run BM25 over the text.
-Qdrant uses BM25 sparse vectors (fastembed `Qdrant/bm25`) with server-side IDF.
+Qdrant turns the raw text into BM25 sparse vectors on its own server (`qdrant/bm25`) with server-side IDF.
 Narsil runs its own BM25. Each engine implements its own fusion, so the table
 names the method per engine.
 

@@ -31,6 +31,8 @@ _RESCORE_OVERSAMPLING_GRID = (2.0, 3.0, 5.0, 8.0)
 
 _DENSE = "dense"
 _SPARSE = "text"
+_SERVER_BM25_MODEL = "qdrant/bm25"
+_FASTEMBED_BM25_MODEL = "Qdrant/bm25"
 _INDEXING_THRESHOLD = 100
 _FULL_SCAN_THRESHOLD_KB = 10
 
@@ -45,8 +47,9 @@ def _raise(response: httpx.Response) -> None:
 
 class QdrantDriver:
     """Dedicated vector database. The shared dense vectors are indexed in HNSW; the
-    keyword side of hybrid is Qdrant's own BM25 sparse vectors (fastembed
-    `Qdrant/bm25`) with server-side IDF, fused with the dense results by Reciprocal
+    keyword side of hybrid is Qdrant's own BM25 sparse vectors, which the server
+    derives from the raw document and query text through its `qdrant/bm25` model
+    and weights with server-side IDF, fused with the dense results by Reciprocal
     Rank Fusion through the Query API. HNSW is forced on (low full-scan threshold)
     so the comparison measures the index, not a brute-force fallback."""
 
@@ -55,8 +58,8 @@ class QdrantDriver:
         self.run_tag = engine.run_tag
         self.vector_setup = "HNSW dense vectors, distance Cosine, over the shared precomputed vectors"
         self.hybrid_setup = (
-            f"Dense HNSW fused with BM25 sparse vectors (fastembed Qdrant/bm25, k1={bm25.k1} b={bm25.b}, "
-            "average document length measured on the first import batch, server IDF) via RRF"
+            f"Dense HNSW fused with server-side BM25 sparse vectors (qdrant/bm25, k1={bm25.k1} b={bm25.b}, "
+            "average document length estimated on the first import batch, server IDF) via RRF"
         )
         self.hybrid_fusion = "RRF (Query API fusion)"
         self.vector_knob = "hnsw_ef"
@@ -67,10 +70,8 @@ class QdrantDriver:
         self._vector_profile = EQUAL_PRECISION
         self.rescore_oversample_grid = _RESCORE_OVERSAMPLING_GRID
         self._rescore_oversample: float | None = None
-        self._sparse_model_name = "Qdrant/bm25"
         self._k1 = bm25.k1
         self._b = bm25.b
-        self._sparse = None
         self._client = build_client(engine.url)
 
     def set_vector_profile(self, profile: str) -> None:
@@ -128,8 +129,8 @@ class QdrantDriver:
                 f"(oversampling {_RESCORE_OVERSAMPLING}x), distance Cosine, over the shared precomputed vectors"
             )
             self.hybrid_setup = (
-                "TurboQuant 4-bit dense HNSW (full-precision rescore) fused with BM25 sparse vectors "
-                f"(fastembed Qdrant/bm25, k1={self._k1} b={self._b}, average document length measured on "
+                "TurboQuant 4-bit dense HNSW (full-precision rescore) fused with server-side BM25 sparse vectors "
+                f"(qdrant/bm25, k1={self._k1} b={self._b}, average document length estimated on "
                 "the first import batch, server IDF) via RRF"
             )
         response = self._client.put(f"/collections/{index}", json=body)
@@ -144,43 +145,29 @@ class QdrantDriver:
             params["quantization"] = {"rescore": True, "oversampling": oversampling}
         return params or None
 
-    def _build_sparse_model(self, average_length: float | None):
-        from fastembed import SparseTextEmbedding
-
+    def _bm25_text(self, text: str, average_length: float | None = None) -> dict:
         options: dict = {"k": self._k1, "b": self._b}
         if average_length is not None:
             options["avg_len"] = average_length
-        return SparseTextEmbedding(model_name=self._sparse_model_name, **options)
-
-    def _sparse_model(self):
-        if self._sparse is None:
-            self._sparse = self._build_sparse_model(None)
-        return self._sparse
+        return {"text": text, "model": _SERVER_BM25_MODEL, "options": options}
 
     def _average_document_length(self, texts: list[str]) -> float:
+        from fastembed import SparseTextEmbedding
         from fastembed.sparse.bm25 import remove_non_alphanumeric
 
-        bm25 = self._sparse_model().model
+        bm25 = SparseTextEmbedding(model_name=_FASTEMBED_BM25_MODEL).model
         lengths = [len(bm25._stem(bm25.tokenizer.tokenize(remove_non_alphanumeric(text)))) for text in texts]
         return max(1.0, sum(lengths) / len(lengths)) if lengths else 1.0
 
-    def _send_points(self, index: str, model, batch: list[tuple[int, VectorDoc]]) -> BatchOutcome:
-        sparse = list(model.embed([doc.text for _, doc in batch]))
-        points = []
-        for (point_id, doc), sparse_vec in zip(batch, sparse):
-            points.append(
-                {
-                    "id": point_id,
-                    "vector": {
-                        _DENSE: doc.vector,
-                        _SPARSE: {
-                            "indices": [int(i) for i in sparse_vec.indices.tolist()],
-                            "values": [float(v) for v in sparse_vec.values.tolist()],
-                        },
-                    },
-                    "payload": {"doc_id": doc.doc_id},
-                }
-            )
+    def _send_points(self, index: str, average_length: float, batch: list[tuple[int, VectorDoc]]) -> BatchOutcome:
+        points = [
+            {
+                "id": point_id,
+                "vector": {_DENSE: doc.vector, _SPARSE: self._bm25_text(doc.text, average_length)},
+                "payload": {"doc_id": doc.doc_id},
+            }
+            for point_id, doc in batch
+        ]
         response = self._client.put(
             f"/collections/{index}/points",
             params={"wait": "true"},
@@ -195,9 +182,10 @@ class QdrantDriver:
     ) -> ImportResult:
         remaining = iter(documents)
         first_batch = list(islice(remaining, batch_size))
-        model = self._build_sparse_model(self._average_document_length([doc.text for doc in first_batch]))
+        average_length = self._average_document_length([doc.text for doc in first_batch])
+
         def send(batch: list[tuple[int, VectorDoc]]) -> BatchOutcome:
-            return self._send_points(index, model, batch)
+            return self._send_points(index, average_length, batch)
 
         total = import_batches(enumerate(chain(first_batch, remaining)), batch_size, clients, send, resend=send)
         return ImportResult(submitted=total.submitted, indexed=total.indexed)
@@ -247,24 +235,12 @@ class QdrantDriver:
         return self._parse(self._client.post(f"/collections/{index}/points/query", json=query))
 
     def hybrid_search(self, index: str, term: str, vector: list[float], limit: int, ef: int | None) -> SearchResponse:
-        sparse_results = list(self._sparse_model().query_embed(term))
         dense_prefetch: dict = {"query": vector, "using": _DENSE, "limit": limit}
         params = self._search_params(ef)
         if params is not None:
             dense_prefetch["params"] = params
-        prefetch = [dense_prefetch]
-        if sparse_results and len(sparse_results[0].indices) > 0:
-            sparse_vec = sparse_results[0]
-            prefetch.append(
-                {
-                    "query": {
-                        "indices": [int(i) for i in sparse_vec.indices.tolist()],
-                        "values": [float(v) for v in sparse_vec.values.tolist()],
-                    },
-                    "using": _SPARSE,
-                    "limit": limit,
-                }
-            )
+        sparse_prefetch = {"query": self._bm25_text(term), "using": _SPARSE, "limit": limit}
+        prefetch = [dense_prefetch, sparse_prefetch]
         query = {"prefetch": prefetch, "query": {"fusion": "rrf"}, "limit": limit, "with_payload": ["doc_id"]}
         return self._parse(self._client.post(f"/collections/{index}/points/query", json=query))
 
