@@ -7,7 +7,7 @@ import type {
 } from '../../types/internal'
 import type { BM25Params } from '../../types/schema'
 import type { InvertedIndexReader } from '../inverted-index'
-import { bm25PruningSound, computeBM25 } from '../scorer'
+import { bm25PruningSound, computeBM25, computeBM25WithIDF, computeIDF, resolveBM25Params } from '../scorer'
 import { blockBoundsFor } from './block-bounds'
 import { postingColumns } from './posting-columns'
 import { EMPTY_COMPONENTS } from './scoring'
@@ -110,6 +110,9 @@ export function singleTermTopK(request: SingleTermScanRequest): InternalSearchRe
   const bounds = blockBoundsFor(list, fieldLengthColumns)
   const maxBoost = bestSearchable(fieldSearchable, fieldBoosts)
   const maxAverageLength = bestSearchable(fieldSearchable, fieldAvgLengths)
+  const idf = computeIDF(docFrequency, totalDocs)
+  const { k1, b } = resolveBM25Params(bm25Params)
+  const scoresAreZero = totalDocs === 0
 
   const heap: TopKCandidate[] = []
   let full = false
@@ -149,14 +152,10 @@ export function singleTermTopK(request: SingleTermScanRequest): InternalSearchRe
         if (fieldSearchable[fieldIndex] === 1) {
           const fieldLength = fieldLengthOf(fieldLengthColumns, fieldIndex, internalId, fieldAvgLengths[fieldIndex])
           score +=
-            computeBM25(
-              termFrequencies[entry],
-              docFrequency,
-              totalDocs,
-              fieldLength,
-              fieldAvgLengths[fieldIndex],
-              bm25Params,
-            ) * fieldBoosts[fieldIndex]
+            (scoresAreZero
+              ? 0
+              : computeBM25WithIDF(termFrequencies[entry], idf, fieldLength, fieldAvgLengths[fieldIndex], k1, b)) *
+            fieldBoosts[fieldIndex]
           scored = true
         }
         entry++
