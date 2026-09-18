@@ -322,6 +322,12 @@ The cross-implementation conformance suite runs a fixed 10,000-vector dataset an
 
 ---
 
+## Native Search Core
+
+The native search core is the vector search written in C, and it is the standard search of every implementation. An implementation must search its graphs through the native search core wherever its platform can load native code. Where the platform cannot load native code, an implementation may search through its own code. That search must return the same documents with the same scores as the native search core returns for the same graph and the same query.
+
+---
+
 ## Concurrency
 
 The vector index must be thread-safe at its interface boundary.
