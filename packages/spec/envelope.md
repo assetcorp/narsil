@@ -289,11 +289,11 @@ Every other field keeps its version 1 meaning. The four posting columns are alig
 
 A vector index payload holds one part of one vector field's state, and a field spans `parts` payloads of at most 65,536 vectors each, in ordinal order. It appears in two places: as an entry of the snapshot bundle's `vectorIndexes` lists, and as the payload of a vector segment file under the [checkpoint segment keys](durability.md#segmented-checkpoint). Unlike every other payload, its field names are camelCase, because it is the one payload written without a snake_case translation layer; see [Serialisation](vector-index.md#serialisation).
 
-A version 2 vector index payload is a MessagePack map:
+A version 3 vector index payload is a MessagePack map:
 
 ```text
 {
-  v:         uint8            (2)
+  v:         uint8            (3)
   fieldName: string
   dimension: uint16
   part:      uint32           (this payload's position in the field, from 0)
@@ -341,7 +341,7 @@ Vector `i` of part `p` has ordinal `p * 65536 + i`, and a field with no vectors 
 
 `graphs` lists the field's graphs in the same order in every part, each repeating its header and holding in `nodes` the nodes of this part's vectors alone, so a reader assembles each graph from every part. An implementation holding one graph writes a list of length 1, and a segment-based implementation writes one graph per segment. An empty `graphs` list means the implementation searches by brute force, because the vector count has not reached the promotion threshold.
 
-A writer must set `codes`, with `bits` matching the mode, for an index that holds a graph and whose quantisation is not `none`, and it must write nil otherwise. `records` holds one `OSQRecord` per vector, whose `code` is packed as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines and takes `dimension` bytes at 8 bits and `bits * ceiling(dimension / 8)` bytes otherwise, followed by 16 bytes of `lower`, `upper`, `correction`, and `sum`.
+A writer must set `codes`, with `bits` matching the mode, for an index that holds a graph and whose quantisation is not `none`, and it must write nil otherwise. `records` holds one `OSQRecord` per vector, whose `code` is packed as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines and takes `ceiling(dimension * bits / 8)` bytes, followed by 16 bytes of `lower`, `upper`, `correction`, and `sum`.
 
 ---
 

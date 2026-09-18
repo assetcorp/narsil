@@ -712,7 +712,7 @@ A search must quantise the query with `quantize(query, c, QUERY_BITS[bits], metr
 
 ### Packing
 
-A code holds its packed levels beside its `lower`, `upper`, `correction`, and `sum`. An 8-bit code holds one byte per level, in dimension order. Any other code holds one plane of `ceiling(dimension / 8)` bytes per bit, so it occupies `bits * ceiling(dimension / 8)` bytes. Plane `j` holds bit `j` of every level, with level `i` at bit `7 - (i mod 8)` of byte `floor(i / 8)`. Every bit after the last level holds 0.
+A code holds its packed levels beside its `lower`, `upper`, `correction`, and `sum`. It holds `8 / bits` levels in each byte, in dimension order, so it occupies `ceiling(dimension * bits / 8)` bytes. Level `i` occupies `bits` bits of byte `floor(i * bits / 8)`, from bit `(i mod (8 / bits)) * bits` upwards, where bit 0 is the least significant. Every bit after the last level holds 0.
 
 ### Estimated Similarity
 
@@ -732,4 +732,4 @@ estimate(d: OSQCode, q: OSQCode, bits: uint8, c: List<float32>, metric) -> float
   return similarity
 ```
 
-`popcount` counts the set bits across a plane's bytes. For a plane-packed code the sum of level products equals `SUM over document planes j and query planes p of power(2, j + p) * popcount(document plane j AND query plane p)`, so an implementation may compute it from the packed planes. A search ranks candidates by `estimate` and then re-scores the nearest of them against their full-precision vectors, as [search](vector-index.md#searchquery-k-options) defines.
+Every level product is an integer, so an implementation may add the products up from the packed bytes in any order. A search ranks candidates by `estimate` and then re-scores the nearest of them against their full-precision vectors, as [search](vector-index.md#searchquery-k-options) defines.
