@@ -8,7 +8,6 @@ import {
   isTombstoned,
   maxConns,
   nextVisitStamp,
-  nodeDistanceByOrd,
   nodeExists,
   queryDistanceByOrd,
 } from './shared'
@@ -106,7 +105,7 @@ export function selectNeighborsHeuristic(
   state: HNSWGraphState,
   candidates: DistanceList,
   maxConnections: number,
-  metric: VectorMetric,
+  distance: (aOrd: number, bOrd: number) => number,
   selected: DistanceList,
 ): void {
   const working = state.workspace.working
@@ -124,7 +123,7 @@ export function selectNeighborsHeuristic(
 
     let accepted = true
     for (let s = 0; s < selected.size; s++) {
-      const distBetween = nodeDistanceByOrd(state, candidateOrd, selected.ords[s], metric)
+      const distBetween = distance(candidateOrd, selected.ords[s])
       if (candidateDistance >= distBetween) {
         accepted = false
         break
@@ -138,7 +137,12 @@ export function selectNeighborsHeuristic(
   }
 }
 
-export function pruneConnections(state: HNSWGraphState, ord: number, layer: number, metric: VectorMetric): void {
+export function pruneConnections(
+  state: HNSWGraphState,
+  ord: number,
+  layer: number,
+  distance: (aOrd: number, bOrd: number) => number,
+): void {
   const adjacency = state.adjacency
   const base = layerBase(adjacency, ord, layer)
   if (base === -1) return
@@ -152,7 +156,7 @@ export function pruneConnections(state: HNSWGraphState, ord: number, layer: numb
   ensureListCapacity(candidates, count)
   for (let i = 1; i <= count; i++) {
     const connOrd = neighbors[base + i]
-    const dist = nodeDistanceByOrd(state, ord, connOrd, metric)
+    const dist = distance(ord, connOrd)
     if (dist === Number.POSITIVE_INFINITY) continue
     candidates.ords[candidates.size] = connOrd
     candidates.distances[candidates.size] = dist
@@ -160,6 +164,6 @@ export function pruneConnections(state: HNSWGraphState, ord: number, layer: numb
   }
 
   const kept = state.workspace.pruneSelection
-  selectNeighborsHeuristic(state, candidates, mc, metric, kept)
+  selectNeighborsHeuristic(state, candidates, mc, distance, kept)
   replaceNeighbors(adjacency, ord, layer, kept.ords, kept.size)
 }

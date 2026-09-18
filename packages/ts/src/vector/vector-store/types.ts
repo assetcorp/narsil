@@ -36,6 +36,7 @@ export interface VectorSearchReader {
   entryForOrdinal(ordinal: number): VectorStoreEntry | undefined
   prepareQueryArena(query: Float32Array): ArenaQueryVector | null
   distanceFromArena(prepared: ArenaQueryVector, ordinal: number, metric: VectorMetric): number
+  queryDistance(prepared: ArenaQueryVector, metric: VectorMetric): (ordinal: number) => number
 }
 
 export interface VectorBuildReader extends VectorSearchReader {
@@ -43,6 +44,8 @@ export interface VectorBuildReader extends VectorSearchReader {
   readonly slots: number
   holdsOrdinal(ordinal: number): boolean
   distanceByOrdinal(ordA: number, ordB: number, metric: VectorMetric): number
+  ordinalDistance(from: number, metric: VectorMetric): (ordinal: number) => number
+  pairDistance(metric: VectorMetric): (ordA: number, ordB: number) => number
 }
 
 export interface VectorStoreOptions {

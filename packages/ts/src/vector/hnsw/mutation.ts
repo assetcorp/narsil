@@ -21,6 +21,7 @@ import {
   isTombstoned,
   maxConns,
   nodeDistanceByOrd,
+  nodeDistanceFunction,
   nodeExists,
   nodeMaxLayer,
   randomLevel,
@@ -84,8 +85,9 @@ function placementDistance(state: HNSWGraphState, ord: number, vector: Float32Ar
   const quantizer = state.quantizer
   if (quantizer !== undefined && buildsFromCodes(state)) {
     const prepared = quantizer.prepareQuery(vector)
-    if (prepared !== null) return candOrd => quantizer.distanceFromPreparedByOrdinal(prepared, candOrd)
+    if (prepared !== null) return quantizer.preparedDistance(prepared)
   }
+  if (quantizer === undefined) return state.store.ordinalDistance(ord, metric)
   return candOrd => nodeDistanceByOrd(state, ord, candOrd, metric)
 }
 
@@ -106,9 +108,10 @@ function selectNeighborsPerLayer(state: HNSWGraphState, ord: number, level: numb
 
   const linkTop = Math.min(level, topLayer)
   const selections = linkSelectionsFor(workspace, linkTop + 1)
+  const distance = nodeDistanceFunction(state, metric)
   for (let layer = linkTop; layer >= 0; layer--) {
     searchLayer(state, entry.vector, entry.magnitude, state.efCons, layer, metric, false, insertDistFn, candidates)
-    selectNeighborsHeuristic(state, candidates, maxConns(state, layer), metric, selections[layer])
+    selectNeighborsHeuristic(state, candidates, maxConns(state, layer), distance, selections[layer])
     if (candidates.size > 0) setEntryPointsFromList(workspace, candidates)
   }
   return linkTop
@@ -128,7 +131,7 @@ function writeOwnLists(state: HNSWGraphState, ord: number, linkTop: number): voi
 }
 
 function linkNeighborsBack(state: HNSWGraphState, ord: number, linkTop: number): void {
-  const metric = state.buildMetric
+  const distance = nodeDistanceFunction(state, state.buildMetric)
   const selections = state.workspace.linkSelections
   for (let layer = linkTop; layer >= 0; layer--) {
     const selected = selections[layer]
@@ -138,7 +141,7 @@ function linkNeighborsBack(state: HNSWGraphState, ord: number, linkTop: number):
       lockNodeWrite(state.locks, neighborOrd)
       try {
         addNeighbor(state.adjacency, neighborOrd, layer, ord)
-        pruneConnections(state, neighborOrd, layer, metric)
+        pruneConnections(state, neighborOrd, layer, distance)
       } finally {
         unlockNodeWrite(state.locks, neighborOrd)
       }
@@ -186,7 +189,7 @@ export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?
   const maxLayer = nodeMaxLayer(state, ord)
   if (maxLayer === -1) return
 
-  const metric = state.buildMetric
+  const distance = nodeDistanceFunction(state, state.buildMetric)
 
   for (let layer = 0; layer <= maxLayer; layer++) {
     const formerNeighbors = collectNeighbors(state.adjacency, ord, layer)
@@ -214,20 +217,20 @@ export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?
       const candidates = state.workspace.repairCandidates
       candidates.size = 0
       for (const candOrd of candidateOrds) {
-        const dist = nodeDistanceByOrd(state, neighborOrd, candOrd, metric)
+        const dist = distance(neighborOrd, candOrd)
         if (dist === Number.POSITIVE_INFINITY) continue
         appendToList(candidates, candOrd, dist)
       }
 
       const selected = state.workspace.repairSelection
-      selectNeighborsHeuristic(state, candidates, mc, metric, selected)
+      selectNeighborsHeuristic(state, candidates, mc, distance, selected)
       replaceNeighbors(state.adjacency, neighborOrd, layer, selected.ords, selected.size)
 
       for (let i = 0; i < selected.size; i++) {
         const newConnOrd = selected.ords[i]
         if (layer <= nodeMaxLayer(state, newConnOrd)) {
           addNeighbor(state.adjacency, newConnOrd, layer, neighborOrd)
-          pruneConnections(state, newConnOrd, layer, metric)
+          pruneConnections(state, newConnOrd, layer, distance)
         }
       }
     }

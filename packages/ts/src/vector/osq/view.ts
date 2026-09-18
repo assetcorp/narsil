@@ -54,15 +54,17 @@ export function openSharedQuantizer(
     return Atomics.load(store.handles.header, STORE_CALIBRATED) === 1
   }
 
+  function recomputeCentroidDot(generation: number): void {
+    const centroid = store.handles.centroid
+    let total = 0
+    for (let i = 0; i < dimension; i++) total += centroid[i] * centroid[i]
+    centroidDot = total
+    centroidGeneration = generation
+  }
+
   function centroidDotNow(): number {
     const generation = Atomics.load(store.handles.header, STORE_CALIBRATION_GENERATION)
-    if (generation !== centroidGeneration) {
-      const centroid = store.handles.centroid
-      let total = 0
-      for (let i = 0; i < dimension; i++) total += centroid[i] * centroid[i]
-      centroidDot = total
-      centroidGeneration = generation
-    }
+    if (generation !== centroidGeneration) recomputeCentroidDot(generation)
     return centroidDot
   }
 
@@ -134,6 +136,36 @@ export function openSharedQuantizer(
     return currentQuery
   }
 
+  function distanceBetween(ordA: number, ordB: number): number {
+    if (!holds(ordA) || !holds(ordB)) return Number.POSITIVE_INFINITY
+    const blockA = store.codeBlockOf(ordA)
+    const blockB = store.codeBlockOf(ordB)
+    const offsetA = recordOffset(ordA)
+    const offsetB = recordOffset(ordB)
+    let products: number
+    if (blockA === blockB && blockA.simd !== null) {
+      products =
+        bits === 8
+          ? blockA.simd.dot_u8(offsetA, offsetB, dimension)
+          : bits === 4
+            ? blockA.simd.osq_dot_planes_4x4(offsetA, offsetB, planeBytes)
+            : blockA.simd.osq_dot_planes(offsetA, offsetB, planeBytes, bits, bits)
+    } else {
+      const bytesA = blockA.bytes(offsetA + codeBytes)
+      const bytesB = blockB.bytes(offsetB + codeBytes)
+      products =
+        bits === 8
+          ? osqByteLevelProducts(bytesA, offsetA, bytesB, offsetB, dimension)
+          : osqPackedLevelProducts(bytesA, offsetA, bits, bytesB, offsetB, bits, planeBytes)
+    }
+    readTrailer(blockA.data(offsetA + layout.slotStride), offsetA, codeBytes, documentTrailer)
+    readTrailer(blockB.data(offsetB + layout.slotStride), offsetB, codeBytes, otherTrailer)
+    return osqDistance(
+      osqEstimate(products, documentTrailer, bits, otherTrailer, bits, dimension, centroidDotNow(), metric),
+      metric,
+    )
+  }
+
   return {
     bits,
     metric,
@@ -202,34 +234,83 @@ export function openSharedQuantizer(
       return estimateDistance(ordinal, prepared)
     },
 
-    distanceBetweenOrdinals(ordA, ordB) {
-      if (!holds(ordA) || !holds(ordB)) return Number.POSITIVE_INFINITY
-      const blockA = store.codeBlockOf(ordA)
-      const blockB = store.codeBlockOf(ordB)
-      const offsetA = recordOffset(ordA)
-      const offsetB = recordOffset(ordB)
-      let products: number
-      if (blockA === blockB && blockA.simd !== null) {
-        products =
+    preparedDistance(prepared) {
+      const generic = (ordinal: number): number =>
+        holds(ordinal) ? estimateDistance(ordinal, prepared) : Number.POSITIVE_INFINITY
+      if (store.handles.codeBlocks.length === 0) return generic
+      const block = store.codeBlockOf(0)
+      const simd = block.simd
+      if (simd === null || !block.hasScratch) return generic
+      const presentView = codePresent
+      const limit = Math.min(presentView.length, capacity)
+      const data = block.data(0)
+      const dataLength = data.byteLength
+      const queryOffset = block.scratchByteOffset
+      const { slotsOffset, slotStride } = layout
+      return ordinal => {
+        if (ordinal < 0 || ordinal >= limit || block.stagedOrdinal !== QUERY_STAGED) return generic(ordinal)
+        if (presentView[ordinal] !== 1) return Number.POSITIVE_INFINITY
+        const offset = slotsOffset + ordinal * slotStride
+        if (offset + slotStride > dataLength) return generic(ordinal)
+        const products =
           bits === 8
-            ? blockA.simd.dot_u8(offsetA, offsetB, dimension)
-            : bits === 4
-              ? blockA.simd.osq_dot_planes_4x4(offsetA, offsetB, planeBytes)
-              : blockA.simd.osq_dot_planes(offsetA, offsetB, planeBytes, bits, bits)
-      } else {
-        const bytesA = blockA.bytes(offsetA + codeBytes)
-        const bytesB = blockB.bytes(offsetB + codeBytes)
-        products =
-          bits === 8
-            ? osqByteLevelProducts(bytesA, offsetA, bytesB, offsetB, dimension)
-            : osqPackedLevelProducts(bytesA, offsetA, bits, bytesB, offsetB, bits, planeBytes)
+            ? simd.dot_u8(offset, queryOffset, dimension)
+            : bits === 4 && queryBits === 4
+              ? simd.osq_dot_planes_4x4(offset, queryOffset, planeBytes)
+              : simd.osq_dot_planes(offset, queryOffset, planeBytes, bits, queryBits)
+        readTrailer(data, offset, codeBytes, documentTrailer)
+        const estimate = osqEstimate(
+          products,
+          documentTrailer,
+          bits,
+          prepared,
+          queryBits,
+          dimension,
+          centroidDotNow(),
+          metric,
+        )
+        return osqDistance(estimate, metric)
       }
-      readTrailer(blockA.data(offsetA + layout.slotStride), offsetA, codeBytes, documentTrailer)
-      readTrailer(blockB.data(offsetB + layout.slotStride), offsetB, codeBytes, otherTrailer)
-      return osqDistance(
-        osqEstimate(products, documentTrailer, bits, otherTrailer, bits, dimension, centroidDotNow(), metric),
-        metric,
-      )
+    },
+
+    distanceBetweenOrdinals: distanceBetween,
+
+    pairDistance() {
+      if (store.handles.codeBlocks.length === 0) return distanceBetween
+      const block = store.codeBlockOf(0)
+      const simd = block.simd
+      if (simd === null) return distanceBetween
+      const presentView = codePresent
+      const limit = Math.min(presentView.length, capacity)
+      const data = block.data(0)
+      const dataLength = data.byteLength
+      const { slotsOffset, slotStride } = layout
+      return (ordA, ordB) => {
+        if (ordA < 0 || ordB < 0 || ordA >= limit || ordB >= limit) return distanceBetween(ordA, ordB)
+        if (presentView[ordA] !== 1 || presentView[ordB] !== 1) return Number.POSITIVE_INFINITY
+        const offsetA = slotsOffset + ordA * slotStride
+        const offsetB = slotsOffset + ordB * slotStride
+        if (Math.max(offsetA, offsetB) + slotStride > dataLength) return distanceBetween(ordA, ordB)
+        const products =
+          bits === 8
+            ? simd.dot_u8(offsetA, offsetB, dimension)
+            : bits === 4
+              ? simd.osq_dot_planes_4x4(offsetA, offsetB, planeBytes)
+              : simd.osq_dot_planes(offsetA, offsetB, planeBytes, bits, bits)
+        readTrailer(data, offsetA, codeBytes, documentTrailer)
+        readTrailer(data, offsetB, codeBytes, otherTrailer)
+        const estimate = osqEstimate(
+          products,
+          documentTrailer,
+          bits,
+          otherTrailer,
+          bits,
+          dimension,
+          centroidDotNow(),
+          metric,
+        )
+        return osqDistance(estimate, metric)
+      }
     },
   }
 }

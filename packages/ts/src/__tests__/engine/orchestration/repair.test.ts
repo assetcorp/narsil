@@ -150,7 +150,7 @@ describe('a crashed worker is replaced', () => {
           ({
             partitionCount: 1,
             countDocuments: () => 0,
-            getPartition: () => ({}),
+            getPartition: () => ({ count: () => 0 }),
             serializePartition: (partitionId: number) => ({ partitionId }),
           }) as unknown as PartitionManager,
       },

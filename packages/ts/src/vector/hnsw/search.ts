@@ -82,10 +82,10 @@ function traverse(
   let distFn: ((ord: number) => number) | undefined
   if (quantizer !== undefined) {
     const prepared = quantizer.prepareQuery(query)
-    if (prepared) distFn = (ord: number) => quantizer.distanceFromPreparedByOrdinal(prepared, ord)
+    if (prepared) distFn = quantizer.preparedDistance(prepared)
   }
   if (!distFn && arenaQuery) {
-    distFn = (ord: number) => store.distanceFromArena(arenaQuery, ord, searchMetric)
+    distFn = store.queryDistance(arenaQuery, searchMetric)
   }
 
   const workspace = state.workspace
@@ -111,6 +111,48 @@ function traverse(
   return { candidates, depth: useQuantized ? depth : 0, arenaQuery, qMag }
 }
 
+interface ResolvedHit extends OrdinalHit {
+  docId: string
+}
+
+function bestFirst(a: ResolvedHit, b: ResolvedHit): number {
+  return b.score - a.score || compareCodePoints(a.docId, b.docId)
+}
+
+function resolveEvery(hits: OrdinalHit[], docIdOf: (ord: number) => string | undefined): ResolvedHit[] {
+  const resolved: ResolvedHit[] = []
+  for (const hit of hits) {
+    const docId = docIdOf(hit.ord)
+    if (docId !== undefined) resolved.push({ ord: hit.ord, score: hit.score, docId })
+  }
+  return resolved
+}
+
+function scoresDescend(hits: OrdinalHit[]): boolean {
+  for (let i = 1; i < hits.length; i++) {
+    if (!(hits[i].score <= hits[i - 1].score)) return false
+  }
+  return hits.length === 0 || !Number.isNaN(hits[0].score)
+}
+
+function bestResolvedHits(hits: OrdinalHit[], k: number, docIdOf: (ord: number) => string | undefined): ResolvedHit[] {
+  if (!Number.isInteger(k) || k <= 0) {
+    return resolveEvery(hits, docIdOf).sort(bestFirst).slice(0, k)
+  }
+  let ordered = hits
+  if (!scoresDescend(ordered)) {
+    if (hits.some(hit => Number.isNaN(hit.score))) return resolveEvery(hits, docIdOf).sort(bestFirst).slice(0, k)
+    ordered = hits.slice().sort((a, b) => b.score - a.score)
+  }
+  const taken: ResolvedHit[] = []
+  for (const hit of ordered) {
+    if (taken.length >= k && hit.score < taken[k - 1].score) break
+    const docId = docIdOf(hit.ord)
+    if (docId !== undefined) taken.push({ ord: hit.ord, score: hit.score, docId })
+  }
+  return taken.sort(bestFirst).slice(0, k)
+}
+
 function collectHits(
   state: HNSWSearchState,
   query: Float32Array,
@@ -118,7 +160,6 @@ function collectHits(
   searchMetric: VectorMetric,
   minSimilarity: number,
   options: GraphSearchOptions,
-  hasDocument: (ord: number) => boolean,
 ): OrdinalHit[] {
   if (query.length !== state.dimension) {
     throw new NarsilError(
@@ -146,7 +187,6 @@ function collectHits(
       searchMetric,
       minSimilarity,
       options.filter,
-      hasDocument,
     )
   }
 
@@ -157,7 +197,6 @@ function collectHits(
     if (filter && !ordinalFilterHas(filter, ord)) continue
     const score = toScore(candidates.distances[i], searchMetric)
     if (score < minSimilarity) continue
-    if (!hasDocument(ord)) continue
     hits.push({ ord, score })
   }
   return hits
@@ -173,7 +212,6 @@ function rescoreWithFullPrecision(
   metric: VectorMetric,
   minSimilarity: number,
   filter: OrdinalFilter | undefined,
-  hasDocument: (ord: number) => boolean,
 ): OrdinalHit[] {
   const rescored: OrdinalHit[] = []
   const nearest = Math.min(candidates.size, depth)
@@ -194,7 +232,6 @@ function rescoreWithFullPrecision(
 
     const score = toScore(fullDistance, metric)
     if (score < minSimilarity) continue
-    if (!hasDocument(ord)) continue
 
     rescored.push({ ord, score })
   }
@@ -211,24 +248,14 @@ export function search(
   minSimilarity: number,
   options: GraphSearchOptions = {},
 ): ScoredDocument[] {
-  const hasDocument = (ord: number) => docIdOf(ord) !== undefined
-  const hits = collectHits(state, query, k, searchMetric, minSimilarity, options, hasDocument)
-
-  const results: ScoredDocument[] = []
-  for (const hit of hits) {
-    const docId = docIdOf(hit.ord)
-    if (docId === undefined) continue
-    results.push({
-      docId,
-      score: hit.score,
-      termFrequencies: {},
-      fieldLengths: {},
-      idf: {},
-    })
-  }
-
-  results.sort((a, b) => b.score - a.score || compareCodePoints(a.docId, b.docId))
-  return results.slice(0, k)
+  const hits = collectHits(state, query, k, searchMetric, minSimilarity, options)
+  return bestResolvedHits(hits, k, docIdOf).map(hit => ({
+    docId: hit.docId,
+    score: hit.score,
+    termFrequencies: {},
+    fieldLengths: {},
+    idf: {},
+  }))
 }
 
 export function searchOrdinals(
@@ -240,14 +267,6 @@ export function searchOrdinals(
   minSimilarity: number,
   options: GraphSearchOptions = {},
 ): OrdinalHit[] {
-  const ids = new Map<number, string>()
-  const hasDocument = (ord: number): boolean => {
-    const docId = docIdOf(ord)
-    if (docId === undefined) return false
-    ids.set(ord, docId)
-    return true
-  }
-  const hits = collectHits(state, query, k, searchMetric, minSimilarity, options, hasDocument)
-  hits.sort((a, b) => b.score - a.score || compareCodePoints(ids.get(a.ord) ?? '', ids.get(b.ord) ?? ''))
-  return hits.slice(0, k)
+  const hits = collectHits(state, query, k, searchMetric, minSimilarity, options)
+  return bestResolvedHits(hits, k, docIdOf)
 }

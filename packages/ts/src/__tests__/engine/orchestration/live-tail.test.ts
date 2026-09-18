@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { isCompositePartition } from '../../../core/partition/composite'
+import { cancelIdleMerge } from '../../../engine/orchestration/compaction'
 import { LIVE_TAIL_FLUSH_DOCUMENTS } from '../../../engine/orchestration/constants'
 import { flushGrownTails } from '../../../engine/orchestration/live-tail'
+import { scaleOutIndex } from '../../../engine/orchestration/scale-out'
 import type { OrchestratorState } from '../../../engine/orchestration/types'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { SchemaDefinition } from '../../../types/schema'
 import { createDirectExecutor, type DirectExecutorExtensions } from '../../../workers/direct-executor'
 import type { Executor } from '../../../workers/executor'
 import type { WorkerAction } from '../../../workers/protocol'
-import { emptyOrchestratorState, settle } from './fixtures'
+import { emptyOrchestratorState, registryWith, settle } from './fixtures'
 
 const schema: SchemaDefinition = { title: 'string', score: 'number' }
 
@@ -26,6 +28,7 @@ async function mainAndCopy(): Promise<{
   state: OrchestratorState
   main: PartitionManager
   copy: PartitionManager
+  worker: DirectExecutorExtensions
   received: WorkerAction[]
 }> {
   const executor = createDirectExecutor()
@@ -67,7 +70,7 @@ async function mainAndCopy(): Promise<{
       shutdown: async () => undefined,
     },
   })
-  return { state, main, copy, received }
+  return { state, main, copy, worker, received }
 }
 
 async function insertOnBoth(
@@ -118,5 +121,36 @@ describe('freezing a live tail that grows during ingest', () => {
     expect(frozenCount(main)).toBe(1)
     expect(received).toEqual([])
     expect(buffered.map(action => action.type)).toEqual(['freezeLiveTail'])
+  }, 20_000)
+})
+
+describe('loading copies of an index whose documents all sit in its live tail', () => {
+  it('freezes the tail into a shared segment first, so each copy attaches it in place of a serialised copy', async () => {
+    const { state, main, worker, received } = await mainAndCopy()
+    state.scaledOutIndexes.clear()
+    for (const [indexName, entry] of registryWith('products', schema)) state.indexRegistry.set(indexName, entry)
+    for (let i = 0; i < 200; i++) {
+      const document = { id: `doc-${i}`, title: 'restored entry', score: i }
+      await state.executor.execute({
+        type: 'insert',
+        indexName: 'products',
+        docId: document.id,
+        document,
+        requestId: `r${i}`,
+      })
+    }
+
+    await scaleOutIndex(state, 'products', 'the restored index reached the copy threshold')
+    cancelIdleMerge(state, 'products')
+
+    expect(frozenCount(main)).toBe(1)
+    expect(liveCount(main)).toBe(0)
+    expect(received.map(action => action.type)).toEqual(['dropIndex', 'createIndex', 'deserialize', 'attachSegments'])
+    const copy = worker.getManager('products')
+    if (!copy) throw new Error('copy missing')
+    expect(frozenCount(copy)).toBe(1)
+    expect(liveCount(copy)).toBe(0)
+    expect(copy.countDocuments()).toBe(200)
+    expect(copy.get('doc-199')).toMatchObject({ score: 199 })
   }, 20_000)
 })

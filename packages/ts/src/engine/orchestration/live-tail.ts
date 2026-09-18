@@ -1,8 +1,9 @@
 import { isCompositePartition } from '../../core/partition/composite'
+import type { FrozenSegment } from '../../core/partition/frozen'
 import { createSharedFrozenSegment, freezeSegmentShared } from '../../core/partition/frozen'
 import type { PartitionManager } from '../../partitioning/manager'
 import { createRequestId } from '../../workers/protocol'
-import { LIVE_TAIL_FLUSH_DOCUMENTS } from './constants'
+import { LIVE_TAIL_FLUSH_DOCUMENTS, LIVE_TAIL_FREEZE_FLOOR } from './constants'
 import { queueForCopies } from './replication'
 import type { OrchestratorState } from './types'
 
@@ -12,11 +13,25 @@ export function liveTailCount(manager: PartitionManager, partitionId: number): n
   return isCompositePartition(partition) ? partition.live.count() : partition.count()
 }
 
-function freezeTail(state: OrchestratorState, indexName: string, manager: PartitionManager, partitionId: number): void {
-  const segment = manager.freezeLiveTail(partitionId, (payload, documents) => {
+function freezeIntoSharedSegment(manager: PartitionManager, partitionId: number): FrozenSegment | null {
+  return manager.freezeLiveTail(partitionId, (payload, documents) => {
     const snapshot = freezeSegmentShared(payload, documents)
     return snapshot === null ? null : createSharedFrozenSegment(snapshot)
   })
+}
+
+export function freezeLiveTailsBeforeCopiesLoad(manager: PartitionManager): void {
+  for (let partitionId = 0; partitionId < manager.partitionCount; partitionId++) {
+    try {
+      if (liveTailCount(manager, partitionId) >= LIVE_TAIL_FREEZE_FLOOR) freezeIntoSharedSegment(manager, partitionId)
+    } catch (err) {
+      console.warn(`Freezing the live tail of partition ${partitionId} of "${manager.indexName}" failed:`, err)
+    }
+  }
+}
+
+function freezeTail(state: OrchestratorState, indexName: string, manager: PartitionManager, partitionId: number): void {
+  const segment = freezeIntoSharedSegment(manager, partitionId)
   if (segment === null || segment.sharedSnapshot === null) return
   queueForCopies(state, {
     type: 'freezeLiveTail',

@@ -324,6 +324,24 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       return open.view.distanceFromArena(prepared, ordinal, metric)
     },
 
+    queryDistance(prepared: ArenaQueryVector, metric: VectorMetric): (ordinal: number) => number {
+      if (open === null) return () => Number.POSITIVE_INFINITY
+      const inner = open.view.queryDistance(prepared, metric)
+      return ordinal => (ordToDoc[ordinal] === undefined ? Number.POSITIVE_INFINITY : inner(ordinal))
+    },
+
+    ordinalDistance(from: number, metric: VectorMetric): (ordinal: number) => number {
+      const pair = this.pairDistance(metric)
+      return ordinal => pair(from, ordinal)
+    },
+
+    pairDistance(metric: VectorMetric): (ordA: number, ordB: number) => number {
+      if (open === null) return () => Number.POSITIVE_INFINITY
+      const inner = open.view.pairDistance(metric)
+      return (ordA, ordB) =>
+        ordToDoc[ordA] === undefined || ordToDoc[ordB] === undefined ? Number.POSITIVE_INFINITY : inner(ordA, ordB)
+    },
+
     exportSnapshot(): VectorStoreSnapshot {
       const slots = ordToDoc.length
       const dimension = open === null ? 0 : open.handles.dimension

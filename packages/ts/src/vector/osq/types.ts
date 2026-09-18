@@ -13,6 +13,8 @@ export interface QuantizerSearchReader {
   isCalibrated(): boolean
   prepareQuery(query: Float32Array): OsqQuery | null
   distanceFromPreparedByOrdinal(prepared: OsqQuery, ordinal: number): number
+  preparedDistance(prepared: OsqQuery): (ordinal: number) => number
+  pairDistance(): (ordA: number, ordB: number) => number
   distanceBetweenOrdinals(ordA: number, ordB: number): number
 }
 

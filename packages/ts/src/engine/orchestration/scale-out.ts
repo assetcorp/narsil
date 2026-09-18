@@ -11,6 +11,7 @@ import {
   toError,
   workerIneligibility,
 } from './eligibility'
+import { freezeLiveTailsBeforeCopiesLoad } from './live-tail'
 import { deferPoolRestart, handleWorkerCrash, retirePool } from './repair'
 import { enqueueReplication } from './replication'
 import { announceRequestThreads } from './request-threads'
@@ -121,6 +122,7 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
   const buffered: WorkerAction[] = []
   state.copyLoadBuffers.set(indexName, buffered)
   try {
+    freezeLiveTailsBeforeCopiesLoad(manager)
     await transferIndexToPool(indexName, pool, entry.config, manager, state.callbacks?.isAnalysisStale?.(indexName))
     state.scaledOutIndexes.add(indexName)
     state.lastAccessAt.set(indexName, Date.now())
