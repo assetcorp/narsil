@@ -115,7 +115,7 @@ export function recordingHarness(
         ({
           partitionCount,
           countDocuments: () => documentCount,
-          getPartition: () => ({}),
+          getPartition: () => ({ count: () => 0 }),
           serializePartition: (partitionId: number) => ({ partitionId }),
         }) as unknown as PartitionManager,
       queryContextOf: () => undefined,

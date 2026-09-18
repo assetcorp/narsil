@@ -118,29 +118,104 @@ export function sortListByDistance(list: DistanceList): void {
   }
 }
 
-function heapPrecedes(heap: DistanceHeap, a: number, b: number): boolean {
-  return heap.greatestFirst ? heap.distances[a] > heap.distances[b] : heap.distances[a] < heap.distances[b]
+function siftUpGreatestFirst(
+  ords: Int32Array,
+  distances: Float64Array,
+  start: number,
+  ord: number,
+  distance: number,
+): void {
+  let index = start
+  while (index > 0) {
+    const parent = (index - 1) >> 1
+    if (!(distance > distances[parent])) break
+    ords[index] = ords[parent]
+    distances[index] = distances[parent]
+    index = parent
+  }
+  ords[index] = ord
+  distances[index] = distance
 }
 
-function swapHeapEntries(heap: DistanceHeap, a: number, b: number): void {
-  const ord = heap.ords[a]
-  heap.ords[a] = heap.ords[b]
-  heap.ords[b] = ord
-  const distance = heap.distances[a]
-  heap.distances[a] = heap.distances[b]
-  heap.distances[b] = distance
+function siftUpLeastFirst(
+  ords: Int32Array,
+  distances: Float64Array,
+  start: number,
+  ord: number,
+  distance: number,
+): void {
+  let index = start
+  while (index > 0) {
+    const parent = (index - 1) >> 1
+    if (!(distance < distances[parent])) break
+    ords[index] = ords[parent]
+    distances[index] = distances[parent]
+    index = parent
+  }
+  ords[index] = ord
+  distances[index] = distance
+}
+
+function siftDownGreatestFirst(
+  ords: Int32Array,
+  distances: Float64Array,
+  size: number,
+  ord: number,
+  distance: number,
+): void {
+  let index = 0
+  for (;;) {
+    const left = 2 * index + 1
+    const right = left + 1
+    let first = index
+    let firstDistance = distance
+    if (left < size && distances[left] > firstDistance) {
+      first = left
+      firstDistance = distances[left]
+    }
+    if (right < size && distances[right] > firstDistance) first = right
+    if (first === index) break
+    ords[index] = ords[first]
+    distances[index] = distances[first]
+    index = first
+  }
+  ords[index] = ord
+  distances[index] = distance
+}
+
+function siftDownLeastFirst(
+  ords: Int32Array,
+  distances: Float64Array,
+  size: number,
+  ord: number,
+  distance: number,
+): void {
+  let index = 0
+  for (;;) {
+    const left = 2 * index + 1
+    const right = left + 1
+    let first = index
+    let firstDistance = distance
+    if (left < size && distances[left] < firstDistance) {
+      first = left
+      firstDistance = distances[left]
+    }
+    if (right < size && distances[right] < firstDistance) first = right
+    if (first === index) break
+    ords[index] = ords[first]
+    distances[index] = distances[first]
+    index = first
+  }
+  ords[index] = ord
+  distances[index] = distance
 }
 
 export function pushHeap(heap: DistanceHeap, ord: number, distance: number): void {
-  appendToList(heap, ord, distance)
-
-  let index = heap.size - 1
-  while (index > 0) {
-    const parent = (index - 1) >> 1
-    if (!heapPrecedes(heap, index, parent)) break
-    swapHeapEntries(heap, index, parent)
-    index = parent
-  }
+  ensureListCapacity(heap, heap.size + 1)
+  const start = heap.size
+  heap.size += 1
+  if (heap.greatestFirst) siftUpGreatestFirst(heap.ords, heap.distances, start, ord, distance)
+  else siftUpLeastFirst(heap.ords, heap.distances, start, ord, distance)
 }
 
 export function popHeap(heap: DistanceHeap): boolean {
@@ -151,20 +226,11 @@ export function popHeap(heap: DistanceHeap): boolean {
   heap.size -= 1
 
   if (heap.size > 0) {
-    heap.ords[0] = heap.ords[heap.size]
-    heap.distances[0] = heap.distances[heap.size]
-
-    let index = 0
-    for (;;) {
-      const left = 2 * index + 1
-      const right = left + 1
-      let first = index
-      if (left < heap.size && heapPrecedes(heap, left, first)) first = left
-      if (right < heap.size && heapPrecedes(heap, right, first)) first = right
-      if (first === index) break
-      swapHeapEntries(heap, index, first)
-      index = first
-    }
+    const size = heap.size
+    const ord = heap.ords[size]
+    const distance = heap.distances[size]
+    if (heap.greatestFirst) siftDownGreatestFirst(heap.ords, heap.distances, size, ord, distance)
+    else siftDownLeastFirst(heap.ords, heap.distances, size, ord, distance)
   }
 
   return true

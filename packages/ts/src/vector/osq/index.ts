@@ -127,6 +127,18 @@ export function createOsqQuantizer(
     distanceFromPreparedByOrdinal: (prepared, ordinal) =>
       shared()?.distanceFromPreparedByOrdinal(prepared, ordinal) ?? Number.POSITIVE_INFINITY,
 
+    preparedDistance(prepared) {
+      const view = shared()
+      if (view === null) return () => Number.POSITIVE_INFINITY
+      return view.preparedDistance(prepared)
+    },
+
+    pairDistance() {
+      const view = shared()
+      if (view === null) return () => Number.POSITIVE_INFINITY
+      return view.pairDistance()
+    },
+
     distanceBetweenOrdinals: (ordA, ordB) => shared()?.distanceBetweenOrdinals(ordA, ordB) ?? Number.POSITIVE_INFINITY,
 
     clear() {

@@ -3,7 +3,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
 import { fixedView } from '../shared-buffers/growable'
 import { arenaFloat32Distance } from '../simd'
-import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from '../similarity'
+import { magnitude } from '../similarity'
 import { NOTHING_STAGED, type OpenVectorBlock, openVectorBlock, QUERY_STAGED, slotByteOffset } from './blocks'
 import {
   IN_MEMORY,
@@ -12,9 +12,20 @@ import {
   STORE_CODE_BLOCK_COUNT,
   STORE_SLOTS,
 } from './handles'
+import {
+  type HotBlockReads,
+  jsDistance,
+  ordinalDistanceOf,
+  pairDistanceOf,
+  queryDistanceOf,
+} from './hot-block-distance'
 import type { ArenaQueryVector, VectorStoreEntry } from './types'
 
 const decoder = new TextDecoder()
+
+const NOT_HELD = 0
+const HELD_COLD = 1
+const HELD_HOT = 2
 
 export interface SharedVectorStoreView {
   readonly dimension: number
@@ -39,6 +50,10 @@ export interface SharedVectorStoreView {
   distanceByOrdinal(ordA: number, ordB: number, metric: VectorMetric): number
   prepareQueryArena(query: Float32Array): ArenaQueryVector | null
   distanceFromArena(prepared: ArenaQueryVector, ordinal: number, metric: VectorMetric): number
+  hotBlockReads(): HotBlockReads | null
+  queryDistance(prepared: ArenaQueryVector, metric: VectorMetric): (ordinal: number) => number
+  ordinalDistance(from: number, metric: VectorMetric): (ordinal: number) => number
+  pairDistance(metric: VectorMetric): (ordA: number, ordB: number) => number
   blockOf(ordinal: number): OpenVectorBlock
   localOrdinal(ordinal: number): number
   /** Opens the code block holding an ordinal's record, which every code block of the field must exist for. */
@@ -52,17 +67,6 @@ export interface SharedVectorStoreView {
   readFromFile(fileIndex: number, offset: number, target: Float32Array): boolean
   /** Closes every file descriptor this thread opened for released vectors. */
   close(): void
-}
-
-function jsDistance(a: Float32Array, b: Float32Array, magA: number, magB: number, metric: VectorMetric): number {
-  switch (metric) {
-    case 'cosine':
-      return 1 - cosineSimilarityWithMagnitudes(a, b, magA, magB)
-    case 'dotProduct':
-      return -dotProduct(a, b)
-    case 'euclidean':
-      return euclideanDistance(a, b)
-  }
 }
 
 export function openSharedVectorStore(initial: SharedVectorStoreHandles, threadSlot: number): SharedVectorStoreView {
@@ -128,16 +132,20 @@ export function openSharedVectorStore(initial: SharedVectorStoreHandles, threadS
     return fileOf(ordinal) !== IN_MEMORY
   }
 
-  function holds(ordinal: number): boolean {
-    if (ordinal < 0) return false
+  function holdState(ordinal: number): number {
+    if (ordinal < 0) return NOT_HELD
     if (ordinal >= present.length) {
-      if (ordinal >= handles.present.byteLength) return false
+      if (ordinal >= handles.present.byteLength) return NOT_HELD
       rebind()
     }
-    if (present[ordinal] !== 1) return false
-    if (isCold(ordinal)) return true
+    if (present[ordinal] !== 1) return NOT_HELD
+    if (isCold(ordinal)) return HELD_COLD
     const index = Math.floor(ordinal / capacity)
-    return index < handles.blocks.length && handles.blocks[index] !== null
+    return index < handles.blocks.length && handles.blocks[index] !== null ? HELD_HOT : NOT_HELD
+  }
+
+  function holds(ordinal: number): boolean {
+    return holdState(ordinal) !== NOT_HELD
   }
 
   function readFromFile(file: number, offset: number, target: Float32Array): boolean {
@@ -176,6 +184,14 @@ export function openSharedVectorStore(initial: SharedVectorStoreHandles, threadS
     block.float32(0).set(source, block.scratchByteOffset / 4)
     block.stagedOrdinal = ordinal
     return true
+  }
+
+  function hotBlockReads(): HotBlockReads | null {
+    const handle = handles.blocks[0]
+    if (handle === null || handle === undefined) return null
+    const { slotsOffset, slotStride } = layout
+    const limit = Math.min(present.length, diskFile.length, magnitudes.length, capacity)
+    return { block: blockAt(0), present, diskFile, magnitudes, limit, slotsOffset, slotStride, dimension }
   }
 
   function stageQuery(block: OpenVectorBlock): boolean {
@@ -342,9 +358,10 @@ export function openSharedVectorStore(initial: SharedVectorStoreHandles, threadS
     },
 
     distanceFromArena(prepared, ordinal, metric) {
-      if (!holds(ordinal)) return Number.POSITIVE_INFINITY
+      const state = holdState(ordinal)
+      if (state === NOT_HELD) return Number.POSITIVE_INFINITY
       if (currentQuery === null) return Number.POSITIVE_INFINITY
-      if (isCold(ordinal)) {
+      if (state === HELD_COLD) {
         if (!readColdInto(ordinal, coldScratchA)) return Number.POSITIVE_INFINITY
         return jsDistance(currentQuery, coldScratchA, prepared.magnitude, magnitudes[ordinal], metric)
       }
@@ -363,6 +380,11 @@ export function openSharedVectorStore(initial: SharedVectorStoreHandles, threadS
       }
       return jsDistance(currentQuery, vectorIn(block, local), prepared.magnitude, magnitudes[ordinal], metric)
     },
+
+    hotBlockReads,
+    queryDistance: (prepared, metric) => queryDistanceOf(view, prepared, metric),
+    ordinalDistance: (from, metric) => ordinalDistanceOf(view, from, metric),
+    pairDistance: metric => pairDistanceOf(view, metric),
   }
 
   for (let index = 0; index < handles.blocks.length; index++) {

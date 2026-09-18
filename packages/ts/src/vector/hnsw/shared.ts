@@ -165,6 +165,23 @@ export function nodeDistanceByOrd(state: HNSWGraphState, aOrd: number, bOrd: num
   return state.store.distanceByOrdinal(aOrd, bOrd, metric)
 }
 
+export function nodeDistanceFunction(
+  state: HNSWGraphState,
+  metric: VectorMetric,
+): (aOrd: number, bOrd: number) => number {
+  const storeDistance = state.store.pairDistance(metric)
+  const quantizer = state.quantizer
+  if (quantizer === undefined) return storeDistance
+  const codeDistance = quantizer.pairDistance()
+  return (aOrd, bOrd) => {
+    if (buildsFromCodes(state)) {
+      const estimated = codeDistance(aOrd, bOrd)
+      if (estimated !== Number.POSITIVE_INFINITY) return estimated
+    }
+    return storeDistance(aOrd, bOrd)
+  }
+}
+
 export function queryDistanceByOrd(
   state: HNSWSearchState,
   qVec: Float32Array,
