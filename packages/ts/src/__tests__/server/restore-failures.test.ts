@@ -33,16 +33,16 @@ describe('restore with a body that is not a snapshot', () => {
     const finished = await restoreBytes(server.base, new Uint8Array([1, 2, 3, 4]))
 
     expect(finished.status).toBe('failed')
-    expect(finished.error?.code).toBe('DOC_VALIDATION_FAILED')
-    expect(finished.error?.message).toContain('not a Narsil snapshot')
+    expect(finished.error?.code).toBe('ENVELOPE_INVALID_MAGIC')
+    expect(finished.error?.message).toContain('32 bytes')
   })
 
-  it('rejects a body that decodes to something other than an envelope', async () => {
-    const finished = await restoreBytes(server.base, new Uint8Array([0xc0]))
+  it('rejects a body that carries no envelope header', async () => {
+    const finished = await restoreBytes(server.base, new Uint8Array(40).fill(0xc0))
 
     expect(finished.status).toBe('failed')
-    expect(finished.error?.code).toBe('DOC_VALIDATION_FAILED')
-    expect(finished.error?.message).toContain('envelope')
+    expect(finished.error?.code).toBe('ENVELOPE_INVALID_MAGIC')
+    expect(finished.error?.message).toContain('NRSL')
   })
 
   it('round-trips a snapshot the engine produced', async () => {

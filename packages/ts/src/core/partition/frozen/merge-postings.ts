@@ -2,24 +2,12 @@ import { compareCodePoints } from '../../ordering'
 import type { SegmentPostingColumns } from './columns'
 import type { FrozenSegment } from './index'
 
-/**
- * This records where each surviving document of one input segment goes in the
- * merged segment, holding its new ordinal, or -1 where a tombstone drops it.
- *
- * @internal
- */
 export interface SegmentRemap {
   segment: FrozenSegment
   remap: Int32Array
   fieldIndexRemap: Uint8Array
 }
 
-/**
- * These are the merged segment's posting arrays, which the merge sizes in a
- * counting pass and fills in a second pass over the same token order.
- *
- * @internal
- */
 export interface MergedPostings extends SegmentPostingColumns {
   tokens: string[]
   docFrequencies: Record<string, number>
@@ -110,16 +98,6 @@ function countRange(range: TokenRange, counts: { postings: number; positions: nu
   }
 }
 
-/**
- * Merges the postings of several frozen segments into one set of flat arrays,
- * building no live index. A counting pass sizes the arrays before a second
- * pass fills them, and each input's positions copy across as bytes.
- *
- * @param inputs The segments to merge with their ordinal remaps.
- * @returns The merged postings in code point token order.
- *
- * @internal
- */
 export function mergePostings(inputs: readonly SegmentRemap[]): MergedPostings {
   let totalPostings = 0
   let totalPositions = 0

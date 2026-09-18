@@ -5,7 +5,7 @@ import {
   validateRegisteredAdapter,
   validateRequiredFieldsInSchema,
 } from '../schema/embedding-validator'
-import { validateSchema, validateVectorPromotion } from '../schema/validator'
+import { validateSchema, validateVectorPromotion, validateVectorStorage } from '../schema/validator'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexConfig } from '../types/schema'
@@ -27,6 +27,7 @@ export async function createEngineIndex(
   }
   validateSchema(indexConfig.schema)
   validateVectorPromotion(indexConfig.vectorPromotion)
+  validateVectorStorage(indexConfig.vectorPromotion, core.filesystemDurability)
   validateBM25Params(indexConfig.bm25)
   if (indexConfig.partitions) {
     validatePartitionConfig(indexConfig.partitions)

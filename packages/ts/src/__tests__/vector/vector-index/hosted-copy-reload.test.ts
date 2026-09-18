@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GraphInsertOutcome } from '../../../vector/shared-field/types'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
 import type { SharedCopyHost } from '../../../vector/vector-index/shared'
@@ -14,7 +14,7 @@ interface FakeHost {
   placed: number[]
 }
 
-function createFakeHost(): FakeHost {
+function createFakeHost(placesOrdinal: (ordinal: number) => boolean = () => true): FakeHost {
   const threads = createFakeVectorThreads(HOST_THREAD_SLOT)
   const loads: string[] = []
   const drops: string[] = []
@@ -37,7 +37,7 @@ function createFakeHost(): FakeHost {
 
     async insertOrdinals(_indexName, _fieldName, handle, ordinals): Promise<GraphInsertOutcome | null> {
       for (const ordinal of ordinals) placed.push(ordinal)
-      return threads.insertOrdinals(handle, ordinals)
+      return threads.insertOrdinals(handle, ordinals.filter(placesOrdinal))
     },
   }
 
@@ -77,6 +77,25 @@ describe('a vector field the request threads hold', () => {
     expect(placed).toHaveLength(DOC_COUNT)
     expect(drops).toEqual([])
     expect(index.search(normalizedVector(DIM, 4), 5, { metric: 'cosine', minSimilarity: 0 })).toHaveLength(5)
+  })
+
+  it('places every vector a thread answered for without placing', async () => {
+    const { host, placed } = createFakeHost(ordinal => ordinal % 2 === 0)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      index = hostedIndex(host)
+      await insertAndBuild(index, DOC_COUNT)
+
+      expect(placed).toHaveLength(DOC_COUNT)
+      expect(index.maintenanceStatus().bufferSize).toBe(0)
+      for (let i = 0; i < DOC_COUNT; i++) {
+        const hits = index.search(normalizedVector(DIM, i + 1), 1, { metric: 'cosine', minSimilarity: 0 })
+        expect(hits[0]?.docId).toBe(`doc${i}`)
+      }
+      expect(warn).toHaveBeenCalledTimes(1)
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('sends the field again under a fresh handle after a refresh', async () => {

@@ -79,11 +79,15 @@ function createMockVectorIndex(dimension: number): VectorIndex {
       estimatedOptimizeMs: 0,
     })),
     estimateMemoryBytes: vi.fn(() => 0),
-    serialize: vi.fn(() => ({ fieldName: 'embedding', dimension, vectors: [], graphs: [], sq8: null })),
+    serialize: vi.fn(() => []),
     deserialize: vi.fn(),
+    adoptDiskLayout: vi.fn(async () => {}),
+    completeGraph: vi.fn(async () => {}),
     size: 0,
     dimension,
     fieldName: 'embedding',
+    quantization: 'none',
+    storage: 'memory',
   }
 }
 

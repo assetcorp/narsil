@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createHNSWIndex, type HNSWIndex } from '../../vector/hnsw'
-import { createScalarQuantizer } from '../../vector/scalar-quantization'
+import { createOsqQuantizer } from '../../vector/osq'
 import { createVectorSearchPool, type VectorSearchPool } from '../../vector/search-pool'
 import type { SharedVectorFieldHandles } from '../../vector/shared-field/types'
 import { createVectorStore, type VectorStore } from '../../vector/vector-store'
@@ -57,21 +57,21 @@ describe('real workers sharing one vector field in place', () => {
 
   beforeAll(async () => {
     const next = pseudoRandom(20260810)
-    store = createVectorStore({ dimension: DIMENSION, quantized: true })
+    store = createVectorStore({ dimension: DIMENSION, codeBits: 4 })
     for (let i = 0; i < DOC_COUNT; i++) {
       store.insert(docIdOf(i), nextVector(next))
     }
 
-    const quantizer = createScalarQuantizer(DIMENSION, store)
+    const quantizer = createOsqQuantizer(DIMENSION, 4, 'cosine', store)
     const all: Float32Array[] = []
     for (const [, entry] of store.entries()) all.push(entry.vector)
     quantizer.calibrate(all)
-    for (const [docId, entry] of store.entries()) quantizer.quantize(docId, entry.vector)
 
     graph = createHNSWIndex(DIMENSION, store, { m: 16, efConstruction: 100, metric: 'cosine' }, quantizer)
     handles = {
       dimension: DIMENSION,
-      quantization: 'sq8',
+      quantization: 'osq4',
+      metric: 'cosine',
       store: store.handles,
       graph: graph.handles,
       filterThreshold: 0.03,

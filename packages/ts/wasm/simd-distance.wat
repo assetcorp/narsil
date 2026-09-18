@@ -333,4 +333,182 @@
     (local.get $sum)
   )
 
+  (func (export "osq_dot_planes") (param $doc i32) (param $query i32) (param $plane_bytes i32) (param $doc_bits i32) (param $query_bits i32) (result i32)
+    (local $j i32)
+    (local $p i32)
+    (local $total i32)
+    (local $bits i32)
+    (local $a i32)
+    (local $b i32)
+    (local $i i32)
+    (local $simd_end i32)
+    (local $acc v128)
+
+    (local.set $total (i32.const 0))
+    (local.set $simd_end (i32.and (local.get $plane_bytes) (i32.const -16)))
+    (local.set $j (i32.const 0))
+
+    (block $jbrk
+      (loop $jlp
+        (br_if $jbrk (i32.ge_u (local.get $j) (local.get $doc_bits)))
+        (local.set $a (i32.add (local.get $doc) (i32.mul (local.get $j) (local.get $plane_bytes))))
+        (local.set $p (i32.const 0))
+        (block $pbrk
+          (loop $plp
+            (br_if $pbrk (i32.ge_u (local.get $p) (local.get $query_bits)))
+            (local.set $b (i32.add (local.get $query) (i32.mul (local.get $p) (local.get $plane_bytes))))
+            (local.set $acc (i32x4.splat (i32.const 0)))
+            (local.set $i (i32.const 0))
+            (block $ibrk
+              (loop $ilp
+                (br_if $ibrk (i32.ge_u (local.get $i) (local.get $simd_end)))
+                (local.set $acc
+                  (i32x4.add
+                    (local.get $acc)
+                    (i32x4.extadd_pairwise_i16x8_u
+                      (i16x8.extadd_pairwise_i8x16_u
+                        (i8x16.popcnt
+                          (v128.and
+                            (v128.load (i32.add (local.get $a) (local.get $i)))
+                            (v128.load (i32.add (local.get $b) (local.get $i)))
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+                (local.set $i (i32.add (local.get $i) (i32.const 16)))
+                (br $ilp)
+              )
+            )
+            (local.set $bits
+              (i32.add
+                (i32.add (i32x4.extract_lane 0 (local.get $acc)) (i32x4.extract_lane 1 (local.get $acc)))
+                (i32.add (i32x4.extract_lane 2 (local.get $acc)) (i32x4.extract_lane 3 (local.get $acc)))
+              )
+            )
+            (block $rbrk
+              (loop $rlp
+                (br_if $rbrk (i32.ge_u (local.get $i) (local.get $plane_bytes)))
+                (local.set $bits
+                  (i32.add
+                    (local.get $bits)
+                    (i32.popcnt
+                      (i32.and
+                        (i32.load8_u (i32.add (local.get $a) (local.get $i)))
+                        (i32.load8_u (i32.add (local.get $b) (local.get $i)))
+                      )
+                    )
+                  )
+                )
+                (local.set $i (i32.add (local.get $i) (i32.const 1)))
+                (br $rlp)
+              )
+            )
+            (local.set $total
+              (i32.add (local.get $total) (i32.shl (local.get $bits) (i32.add (local.get $j) (local.get $p))))
+            )
+            (local.set $p (i32.add (local.get $p) (i32.const 1)))
+            (br $plp)
+          )
+        )
+        (local.set $j (i32.add (local.get $j) (i32.const 1)))
+        (br $jlp)
+      )
+    )
+
+    (local.get $total)
+  )
+
+  (func (export "osq_dot_planes_4x4") (param $doc i32) (param $query i32) (param $plane_bytes i32) (result i32)
+    (local $i i32)
+    (local $simd_end i32)
+    (local $total i32)
+    (local $d0 v128)
+    (local $d1 v128)
+    (local $d2 v128)
+    (local $d3 v128)
+    (local $q v128)
+    (local $weighted v128)
+    (local $planes v128)
+    (local $acc v128)
+    (local $p i32)
+    (local $j i32)
+    (local $query_byte i32)
+    (local $doc_byte i32)
+
+    (local.set $simd_end (i32.and (local.get $plane_bytes) (i32.const -16)))
+    (local.set $acc (i32x4.splat (i32.const 0)))
+    (local.set $i (i32.const 0))
+
+    (block $brk
+      (loop $lp
+        (br_if $brk (i32.ge_u (local.get $i) (local.get $simd_end)))
+        (local.set $d0 (v128.load (i32.add (local.get $doc) (local.get $i))))
+        (local.set $d1 (v128.load (i32.add (i32.add (local.get $doc) (local.get $plane_bytes)) (local.get $i))))
+        (local.set $d2 (v128.load (i32.add (i32.add (local.get $doc) (i32.shl (local.get $plane_bytes) (i32.const 1))) (local.get $i))))
+        (local.set $d3 (v128.load (i32.add (i32.add (local.get $doc) (i32.mul (local.get $plane_bytes) (i32.const 3))) (local.get $i))))
+        (local.set $planes (i16x8.splat (i32.const 0)))
+        (local.set $p (i32.const 3))
+        (block $pbrk
+          (loop $plp
+            (local.set $q (v128.load (i32.add (i32.add (local.get $query) (i32.mul (local.get $plane_bytes) (local.get $p))) (local.get $i))))
+            (local.set $weighted (i8x16.popcnt (v128.and (local.get $d3) (local.get $q))))
+            (local.set $weighted (i8x16.add (i8x16.add (local.get $weighted) (local.get $weighted)) (i8x16.popcnt (v128.and (local.get $d2) (local.get $q)))))
+            (local.set $weighted (i8x16.add (i8x16.add (local.get $weighted) (local.get $weighted)) (i8x16.popcnt (v128.and (local.get $d1) (local.get $q)))))
+            (local.set $weighted (i8x16.add (i8x16.add (local.get $weighted) (local.get $weighted)) (i8x16.popcnt (v128.and (local.get $d0) (local.get $q)))))
+            (local.set $planes (i16x8.add (i16x8.add (local.get $planes) (local.get $planes)) (i16x8.extadd_pairwise_i8x16_u (local.get $weighted))))
+            (br_if $pbrk (i32.eqz (local.get $p)))
+            (local.set $p (i32.sub (local.get $p) (i32.const 1)))
+            (br $plp)
+          )
+        )
+        (local.set $acc (i32x4.add (local.get $acc) (i32x4.extadd_pairwise_i16x8_u (local.get $planes))))
+        (local.set $i (i32.add (local.get $i) (i32.const 16)))
+        (br $lp)
+      )
+    )
+
+    (local.set $total
+      (i32.add
+        (i32.add (i32x4.extract_lane 0 (local.get $acc)) (i32x4.extract_lane 1 (local.get $acc)))
+        (i32.add (i32x4.extract_lane 2 (local.get $acc)) (i32x4.extract_lane 3 (local.get $acc)))
+      )
+    )
+
+    (block $rbrk
+      (loop $rlp
+        (br_if $rbrk (i32.ge_u (local.get $i) (local.get $plane_bytes)))
+        (local.set $j (i32.const 0))
+        (block $jbrk
+          (loop $jlp
+            (br_if $jbrk (i32.ge_u (local.get $j) (i32.const 4)))
+            (local.set $doc_byte (i32.load8_u (i32.add (i32.add (local.get $doc) (i32.mul (local.get $plane_bytes) (local.get $j))) (local.get $i))))
+            (local.set $p (i32.const 0))
+            (block $qbrk
+              (loop $qlp
+                (br_if $qbrk (i32.ge_u (local.get $p) (i32.const 4)))
+                (local.set $query_byte (i32.load8_u (i32.add (i32.add (local.get $query) (i32.mul (local.get $plane_bytes) (local.get $p))) (local.get $i))))
+                (local.set $total
+                  (i32.add
+                    (local.get $total)
+                    (i32.shl (i32.popcnt (i32.and (local.get $doc_byte) (local.get $query_byte))) (i32.add (local.get $j) (local.get $p)))
+                  )
+                )
+                (local.set $p (i32.add (local.get $p) (i32.const 1)))
+                (br $qlp)
+              )
+            )
+            (local.set $j (i32.add (local.get $j) (i32.const 1)))
+            (br $jlp)
+          )
+        )
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $rlp)
+      )
+    )
+
+    (local.get $total)
+  )
+
 )

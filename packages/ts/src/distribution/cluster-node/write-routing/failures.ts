@@ -4,12 +4,6 @@ import type { PartitionAssignment } from '../../coordinator/types'
 import { appendDeleteReplicationEntry, appendIndexReplicationEntry } from './replication'
 import type { WriteRoutingDeps } from './types'
 
-/**
- * The partition one primary write belongs to, which every rollback needs to
- * restore the document and to compensate the entry it already appended.
- *
- * @internal
- */
 export interface PrimaryWriteScope {
   indexName: string
   partitionId: number

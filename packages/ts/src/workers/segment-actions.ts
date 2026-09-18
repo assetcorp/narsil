@@ -1,13 +1,13 @@
 import { createPartitionIndex } from '../core/partition'
 import { isCompositePartition } from '../core/partition/composite'
-import { createSharedFrozenSegment } from '../core/partition/frozen'
+import { createSharedFrozenSegment, freezeSegmentShared } from '../core/partition/frozen'
 import { mergeFrozenSegments } from '../core/partition/frozen/merge'
 import { ErrorCodes, NarsilError } from '../errors'
 import { resolvePartitionInsertOptions } from '../partitioning/insert-options'
 import type { PartitionManager } from '../partitioning/manager'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
-import type { WorkerAction } from './protocol'
+import type { BuiltSegmentResult, WorkerAction } from './protocol'
 
 export interface SegmentIndexEntry {
   manager: PartitionManager
@@ -59,7 +59,14 @@ export function runSegmentAction(entry: SegmentIndexEntry, action: SegmentAction
         segment.insert(doc.docId, doc.document, entry.config.schema, entry.language, options)
       }
       segment.endBatch()
-      return segment.encodeSegment()
+      const payload = segment.encodeSegment()
+      const snapshot = freezeSegmentShared(
+        payload,
+        action.documents.map(doc => doc.document),
+        action.segmentId,
+      )
+      const built: BuiltSegmentResult = snapshot === null ? { kind: 'payload', payload } : { kind: 'shared', snapshot }
+      return built
     }
 
     case 'mergeSegments': {

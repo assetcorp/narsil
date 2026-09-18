@@ -1,5 +1,6 @@
 import type { VectorMetric } from '../brute-force'
 import type { OrdinalFilter } from '../ordinal-filter'
+import type { OsqBits } from '../osq/quantize'
 import type { SharedVectorStoreHandles } from './handles'
 import type { SharedVectorStoreView } from './view'
 
@@ -31,43 +32,40 @@ export interface VectorStoreSnapshot {
   docIds: Array<string | null>
 }
 
-/**
- * A nearest-neighbour search performs these reads against the stored vectors.
- *
- * The main thread's store and another thread's view over the same shared
- * blocks both satisfy it, so one search implementation serves both.
- *
- * @internal
- */
 export interface VectorSearchReader {
   entryForOrdinal(ordinal: number): VectorStoreEntry | undefined
   prepareQueryArena(query: Float32Array): ArenaQueryVector | null
   distanceFromArena(prepared: ArenaQueryVector, ordinal: number, metric: VectorMetric): number
+  queryDistance(prepared: ArenaQueryVector, metric: VectorMetric): (ordinal: number) => number
 }
 
-/**
- * Graph construction performs these reads against the stored vectors, and the
- * main thread's store and a building thread's view both satisfy them.
- *
- * @internal
- */
 export interface VectorBuildReader extends VectorSearchReader {
   readonly dimension: number
   readonly slots: number
   holdsOrdinal(ordinal: number): boolean
   distanceByOrdinal(ordA: number, ordB: number, metric: VectorMetric): number
+  ordinalDistance(from: number, metric: VectorMetric): (ordinal: number) => number
+  pairDistance(metric: VectorMetric): (ordA: number, ordB: number) => number
 }
 
 export interface VectorStoreOptions {
   /** Every vector has this many components, and the first vector inserted sets it where the caller gives none. */
   dimension?: number
-  /** Each slot reserves room for the vector's byte codes when this reads true, which is the default. */
-  quantized?: boolean
+  /** Each level of a document code holds this many bits, and the store keeps no codes where the caller gives none. */
+  codeBits?: OsqBits | null
+  /** One float block may reach this many bytes, which a field kept on disk sets low so that the store releases a block soon after a checkpoint. */
+  blockBytes?: number
+}
+
+export interface DiskLocation {
+  fileIndex: number
+  offset: number
 }
 
 export interface VectorStore extends VectorBuildReader {
   readonly size: number
-  readonly quantized: boolean
+  /** Each level of a document code holds this many bits, and null where the store keeps no codes. */
+  readonly codeBits: OsqBits | null
   /** This reads true once every stored vector names the partition it belongs to. */
   readonly partitionsKnown: boolean
   /** Another thread opens these shared structures to read this store in place. */
@@ -76,6 +74,16 @@ export interface VectorStore extends VectorBuildReader {
   readonly view: SharedVectorStoreView
   /** Appends the vector at a fresh ordinal, retiring the ordinal the document held before, and returns the new one. */
   insert(docId: string, vector: Float32Array, partitionId?: number): number
+  /** Appends a document whose vector a checkpoint file holds at a fresh ordinal, holding no block slot for it. */
+  insertCold(docId: string, magnitude: number, location: DiskLocation, partitionId?: number): number
+  /** Adds a checkpoint file the store reads released vectors from, and returns its index. */
+  addVectorFile(path: string): number
+  /** Reports whether a checkpoint file holds an ordinal's vector. */
+  isCold(ordinal: number): boolean
+  /** Points an ordinal at a file location and reports whether it did. A hot ordinal takes the location only once the file holds the same bytes. */
+  releaseToFile(ordinal: number, location: DiskLocation): boolean
+  /** Drops every block whose ordinals are all released or retired, and returns how many it dropped. */
+  releaseColdBlocks(): number
   setPartition(docId: string, partitionId: number): void
   forgetPartition(docId: string): void
   partitionOfOrdinal(ordinal: number): number | undefined

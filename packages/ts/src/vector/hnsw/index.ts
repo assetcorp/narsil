@@ -1,7 +1,6 @@
 import type { ScoredDocument, VectorEntry } from '../../types/internal'
 import type { VectorMetric } from '../brute-force'
-import type { OrdinalFilter } from '../ordinal-filter'
-import type { ScalarQuantizer } from '../scalar-quantization-types'
+import type { OsqQuantizer } from '../osq/types'
 import type { VectorStore } from '../vector-store'
 import { adjacencySlots, graphBytes, hasNode } from './adjacency'
 import { COMPACTION_ABSOLUTE_THRESHOLD, COMPACTION_TOMBSTONE_RATIO } from './constants'
@@ -15,7 +14,7 @@ import {
   resetGraph,
 } from './mutation'
 import { deserializeGraph, serializeGraph } from './persistence'
-import { search as searchOp } from './search'
+import { type GraphSearchOptions, search as searchOp } from './search'
 import {
   entryPointOf,
   type HNSWConfig,
@@ -30,6 +29,7 @@ import { exportSnapshot, type HNSWSnapshot, restoreSnapshot } from './snapshot'
 import { openGraphState } from './state'
 
 export type { SharedGraphHandles } from './handles'
+export type { GraphSearchOptions } from './search'
 export type { HNSWConfig, SerializedHNSWGraph } from './shared'
 export type { HNSWSnapshot } from './snapshot'
 
@@ -62,8 +62,7 @@ export interface HNSWIndex {
     k: number,
     searchMetric: VectorMetric,
     minSimilarity: number,
-    filter?: OrdinalFilter,
-    efSearch?: number,
+    options?: GraphSearchOptions,
   ): ScoredDocument[]
   clear(): void
   entries(): IterableIterator<[string, VectorEntry]>
@@ -89,26 +88,11 @@ export function createHNSWIndexFromSnapshot(store: VectorStore, snapshot: HNSWSn
   return index
 }
 
-/**
- * Builds the graph of one vector field over the store holding its vectors, or
- * opens the graph another thread created where the caller gives its handles.
- *
- * @param dimension The number of components per vector.
- * @param store The store holding the field's vectors.
- * @param config The graph's shape, which the handles override where given.
- * @param quantizer The field's quantizer, or undefined where the field keeps
- * full precision.
- * @param handles The shared structures of a graph to open in place of a new
- * one.
- * @returns The graph.
- *
- * @internal
- */
 export function createHNSWIndex(
   dimension: number,
   store: VectorStore,
   config?: HNSWConfig,
-  quantizer?: ScalarQuantizer,
+  quantizer?: OsqQuantizer,
   handles?: SharedGraphHandles,
 ): HNSWIndex {
   const M = config?.m ?? 16
@@ -219,9 +203,8 @@ export function createHNSWIndex(
       k: number,
       searchMetric: VectorMetric,
       minSimilarity: number,
-      filter?: OrdinalFilter,
-      efSearch?: number,
-    ) => searchOp(state, docIdOf, query, k, searchMetric, minSimilarity, filter, efSearch),
+      options?: GraphSearchOptions,
+    ) => searchOp(state, docIdOf, query, k, searchMetric, minSimilarity, options),
     clear: () => exclusively(() => resetGraph(state)),
     entries: entriesIterator,
     compactionNeeded,

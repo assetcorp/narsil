@@ -123,17 +123,6 @@ function threadHandlers(local: ThreadReadEngine, relay: RelayClient, settings: R
   }
 }
 
-/**
- * Starts receiving HTTP requests on this worker: it opens the port to the main
- * thread, registers every route on an app of its own, and returns the
- * descriptor the acceptor on the main thread moves connections to.
- *
- * @param executor The executor holding this worker's copies.
- * @param settings The settings the main thread sent.
- * @returns The app descriptor to register with the acceptor.
- *
- * @internal
- */
 export async function serveRequests(
   executor: DirectExecutorExtensions,
   settings: RequestThreadSettings,
@@ -157,12 +146,6 @@ export async function serveRequests(
   return { descriptor: child.getDescriptor() }
 }
 
-/**
- * Stops receiving requests on this worker, closing every connection it holds
- * and the port to the main thread, so that the thread can exit.
- *
- * @internal
- */
 export function closeRequestThread(): void {
   if (servingApp === null) return
   const { app, relay } = servingApp

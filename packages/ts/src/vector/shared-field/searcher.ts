@@ -1,4 +1,5 @@
 import { createBoundedMaxHeap } from '../../core/heap'
+import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
 import type { OrdinalHit } from '../hnsw/search'
 import { entryForOrd, type HNSWSearchState, isTombstoned, toDistance, toScore } from '../hnsw/shared'
@@ -7,12 +8,6 @@ import { magnitude } from '../similarity'
 import type { VectorScoredResult, VectorSearcher, VectorSearchOptions } from '../vector-index/shared'
 import type { SharedVectorFieldView } from './view'
 
-/**
- * A request thread needs these to answer vector searches from a field it
- * holds in place.
- *
- * @internal
- */
 export interface SharedVectorSearcherOptions {
   /** This names the vector field the view belongs to. */
   fieldName: string
@@ -55,19 +50,6 @@ function bruteForceOrdinals(
   return heap.toSortedArray().reverse()
 }
 
-/**
- * Opens a field on the current thread as something a query can search,
- * mapping each ordinal hit back to its document id through the shared table.
- *
- * The searcher drops a hit whose document the text copy has released, so
- * every hit it returns names a document that copy still holds, even where a
- * removal reached the text copy before the vector index compacted it.
- *
- * @param options The view, the field name, and the text copy check.
- * @returns The searcher a query context resolves the field to.
- *
- * @internal
- */
 export function createSharedVectorSearcher(options: SharedVectorSearcherOptions): VectorSearcher {
   const { fieldName, view, holdsDocument } = options
 
@@ -99,7 +81,7 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
   }
 
   function hitsFor(query: Float32Array, k: number, searchOptions: VectorSearchOptions, filter?: OrdinalFilter) {
-    const { metric, minSimilarity, efSearch } = searchOptions
+    const { metric, minSimilarity, efSearch, oversample } = searchOptions
     const liveSize = view.liveSize
     const graph = view.graph
     if (
@@ -110,7 +92,7 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
     ) {
       return bruteForceOrdinals(graph, view.docIdOf, query, k, metric, minSimilarity, filter)
     }
-    return view.searchOrdinals(query, k, metric, minSimilarity, filter, efSearch)
+    return view.searchOrdinals(query, k, metric, minSimilarity, { filter, efSearch, oversample })
   }
 
   return {
@@ -119,6 +101,13 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
     partitionsKnown: () => true,
     assignPartitions: () => undefined,
     searchParallel(query, k, searchOptions) {
+      if (query.length !== view.handles.dimension) {
+        throw new NarsilError(
+          ErrorCodes.VECTOR_DIMENSION_MISMATCH,
+          `Vector dimension mismatch: expected ${view.handles.dimension}, got ${query.length}`,
+          { expected: view.handles.dimension, received: query.length },
+        )
+      }
       const filter = filterFor(searchOptions)
       if (filter !== undefined && filter.count === 0) return Promise.resolve([])
       const hits = hitsFor(query, k, searchOptions, filter)

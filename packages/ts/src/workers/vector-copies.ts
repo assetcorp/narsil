@@ -9,26 +9,12 @@ interface HeldField {
   view: SharedVectorFieldView
 }
 
-/**
- * One worker holds an index's vector fields here, keyed by field name,
- * alongside the graph its searches answer from and every graph the threads
- * are still building.
- *
- * @internal
- */
 export interface HeldVectorCopies {
   searchers: Map<string, VectorSearcher>
   fields: Map<string, HeldField>
   builds: Map<string, HeldField>
 }
 
-/**
- * Builds the empty record of the vector fields one worker holds for an index.
- *
- * @returns The record.
- *
- * @internal
- */
 export function createHeldVectorCopies(): HeldVectorCopies {
   return { searchers: new Map(), fields: new Map(), builds: new Map() }
 }
@@ -39,21 +25,6 @@ function fieldUnderHandle(held: HeldVectorCopies, fieldName: string, handle: str
   return held.builds.get(handle)
 }
 
-/**
- * Opens a field's handles on this worker, as a graph under construction or as
- * the graph searches answer from, and refreshes a field the worker already
- * holds under that handle.
- *
- * @param held The fields this worker holds for the index.
- * @param manager The worker's text copy of the index, which decides whether a
- * hit still names a document it holds.
- * @param fieldName The vector field the handles belong to.
- * @param handle The handle the main thread sent them under.
- * @param handles The field's shared structures.
- * @param threadSlot This thread's scratch and lock slot.
- *
- * @internal
- */
 export function loadHeldVectorCopy(
   held: HeldVectorCopies,
   manager: PartitionManager,
@@ -82,35 +53,16 @@ export function loadHeldVectorCopy(
   )
 }
 
-/**
- * Reports whether this worker reads every vector of a field in place, even
- * where that field holds no graph yet. It reads false while the main thread
- * has added a block whose handles it has yet to send, because the worker
- * reads no vector of that block until they arrive.
- *
- * @param held The fields this worker holds for the index.
- * @param fieldName The vector field to ask about.
- * @returns True where the worker reads every vector of that field in place.
- *
- * @internal
- */
 export function holdsVectorField(held: HeldVectorCopies, fieldName: string): boolean {
   return held.fields.get(fieldName)?.view.readsEveryVector === true
 }
 
-/**
- * Releases a field this worker holds under a handle, leaving a field it holds
- * under a later handle in place.
- *
- * @param held The fields this worker holds for the index.
- * @param fieldName The vector field to release.
- * @param handle The handle the field went out under.
- *
- * @internal
- */
 export function dropHeldVectorCopy(held: HeldVectorCopies, fieldName: string, handle: string): void {
+  held.builds.get(handle)?.view.close()
   held.builds.delete(handle)
-  if (held.fields.get(fieldName)?.handle !== handle) return
+  const field = held.fields.get(fieldName)
+  if (field?.handle !== handle) return
+  field.view.close()
   held.fields.delete(fieldName)
   held.searchers.delete(fieldName)
 }
@@ -122,19 +74,6 @@ function yieldToEventLoop(): Promise<void> {
   })
 }
 
-/**
- * Places vectors in a graph this worker holds, yielding between vectors so
- * that the worker answers a request arriving meanwhile.
- *
- * @param held The fields this worker holds for the index.
- * @param fieldName The vector field the ordinals belong to.
- * @param handle The handle the field came in under.
- * @param ordinals The ordinals to place.
- * @returns What the worker saw while placing them, or null where it holds no
- * such field.
- *
- * @internal
- */
 export async function insertIntoHeldGraph(
   held: HeldVectorCopies,
   fieldName: string,
@@ -150,16 +89,6 @@ export async function insertIntoHeldGraph(
   return field.view.takeOutcome()
 }
 
-/**
- * Reads a document's vector from a field this worker holds in place.
- *
- * @param held The fields this worker holds for the index.
- * @param fieldName The vector field to read.
- * @param docId The document to read.
- * @returns The vector, or undefined where the field holds none for it.
- *
- * @internal
- */
 export function heldVectorOf(held: HeldVectorCopies, fieldName: string, docId: string): Float32Array | undefined {
   return held.fields.get(fieldName)?.view.vectorOf(docId)
 }

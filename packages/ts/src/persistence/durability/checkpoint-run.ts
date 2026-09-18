@@ -1,8 +1,10 @@
 import { writeMetadataEnvelope } from '../../serialization/envelope'
+import type { VectorIndex } from '../../vector/vector-index'
 import { reclaimWalBeyondCount, truncateCoveredSegments } from './checkpoint'
 import { writeIndexCheckpoint } from './checkpoint-write'
 import type { DurableDirectory } from './durable-filesystem'
 import type { IndexState } from './manager-state'
+import { removeCheckpointGarbage, type VectorCheckpointLayout } from './segment'
 import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import type { PartitionCheckpoint } from './snapshot-bundle'
 import type { IndexDurabilityHooks } from './types'
@@ -21,6 +23,19 @@ interface DurableCheckpointInput {
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error))
+}
+
+async function adoptVectorLayouts(
+  directory: DurableDirectory,
+  vectorIndexes: Map<string, VectorIndex>,
+  layouts: readonly VectorCheckpointLayout[],
+): Promise<void> {
+  for (const layout of layouts) {
+    const vecIndex = vectorIndexes.get(layout.fieldPath)
+    if (vecIndex === undefined || vecIndex.storage !== 'disk') continue
+    const path = await directory.pathOf(layout.key)
+    await vecIndex.adoptDiskLayout({ path, docIds: layout.docIds, vectorsOffset: layout.vectorsOffset })
+  }
 }
 
 /**
@@ -63,7 +78,7 @@ export async function runDurableCheckpoint(input: DurableCheckpointInput): Promi
     }
   }
 
-  const writtenDocumentCount = await writeIndexCheckpoint({
+  const written = await writeIndexCheckpoint({
     directory: input.directory,
     metadata,
     targets,
@@ -72,7 +87,9 @@ export async function runDurableCheckpoint(input: DurableCheckpointInput): Promi
     canOffload: input.canOffload,
     fromMemory: input.fromMemory,
   })
-  const checkpointDocumentCount = writtenDocumentCount ?? documentCount
+  await adoptVectorLayouts(input.directory, input.hooks.getVectorIndexes(input.indexName), written.vectorLayouts)
+  await removeCheckpointGarbage(input.directory, written.garbage)
+  const checkpointDocumentCount = written.documentCount ?? documentCount
   await input.queueMetadataWrite(input.indexName, async () => {
     const checkpointMetadata = input.hooks.buildMetadata(input.indexName, checkpointDocumentCount)
     if (checkpointMetadata === undefined) {

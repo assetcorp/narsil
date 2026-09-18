@@ -57,6 +57,7 @@ export type WorkerAction =
   | {
       type: 'buildSegment'
       indexName: string
+      segmentId: string
       documents: Array<{ docId: string; document: AnyDocument }>
       options?: PartitionInsertOptions
       requestId: string
@@ -99,6 +100,10 @@ export type WorkerAction =
   | { type: 'memoryReport'; requestId: string }
   | { type: 'bootstrap'; moduleUrl: string; requestId: string }
   | { type: 'shutdown'; requestId: string }
+
+export type BuiltSegmentResult =
+  | { kind: 'shared'; snapshot: SharedSegmentSnapshot }
+  | { kind: 'payload'; payload: SegmentPayload }
 
 export type WorkerResponse =
   | { type: 'success'; requestId: string; data: unknown }

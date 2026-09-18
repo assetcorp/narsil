@@ -4,7 +4,6 @@ import type { AnyDocument } from '../../../types/schema'
 import type { BooleanFieldIndexReader, EnumFieldIndexReader, NumericFieldIndexReader } from '../../field-index'
 import { generateId } from '../../id-generator'
 import type { PartitionStatsView } from '../../statistics'
-import { createSurfaceRegistry, type SurfaceRegistryReader } from '../../surface-registry'
 import type { PartitionReadState } from '../read-state'
 import type { SegmentPayload } from '../segment-payload'
 import type { SegmentColumns } from './columns'
@@ -20,6 +19,7 @@ import { createFrozenBooleanReader, createFrozenEnumReader, createFrozenNumericR
 import { createFrozenInvertedReader } from './inverted-reader'
 import { createFrozenPostingViews } from './posting-views'
 import type { SharedSegmentSnapshot } from './shared-snapshot'
+import { createLazySurfaceReader, decodeSurfaceTable } from './surface-table'
 import { buildFrozenTokenTable, type FrozenTokenTable, wrapFrozenTokenTable } from './token-table'
 import { createFrozenTombstones } from './tombstones'
 
@@ -28,13 +28,6 @@ export { freezeSegmentShared } from './shared-snapshot'
 export type { FrozenTokenTable } from './token-table'
 export { buildFrozenTokenTable } from './token-table'
 
-/**
- * One immutable body of indexed documents served read-only from its flat
- * segment arrays. Removes tombstone an ordinal instead of rewriting the
- * arrays, and an update tombstones here and reinserts into the live tail.
- *
- * @internal
- */
 export interface FrozenSegment extends PartitionReadState {
   readonly segmentId: string
   readonly documentSource: FrozenDocumentSource
@@ -48,16 +41,13 @@ export interface FrozenSegment extends PartitionReadState {
   tombstonedDocIds(): string[]
 }
 
-/**
- * One frozen segment serves every read from these flat arrays.
- *
- * @internal
- */
-export interface FrozenSegmentArrays extends SegmentColumns {
+export interface FrozenSegmentArrays extends Omit<SegmentColumns, 'surfaceForms'> {
   tokenTable: FrozenTokenTable
   idTable: ExternalIdTable
   /** This holds the documents as encoded bytes, and it reads null where the segment holds them as objects. */
   documentTable: EncodedDocumentTableData | null
+  /** Reads the segment's surface forms, which it decodes from the shared table on the first call, and returns null where the segment holds none. */
+  readSurfaceForms(): SerializedSurfaceForms | null
 }
 
 interface FrozenSegmentSource extends FrozenSegmentArrays {
@@ -83,14 +73,6 @@ function buildStatsView(source: FrozenSegmentSource): PartitionStatsView {
       return materializedFrequencies
     },
   }
-}
-
-function buildSurfaceReader(surfaceForms: SerializedSurfaceForms | null): SurfaceRegistryReader {
-  const registry = createSurfaceRegistry()
-  if (surfaceForms !== null) {
-    registry.deserialize(surfaceForms)
-  }
-  return registry
 }
 
 function buildGeoReaders(entries: SegmentPayload['geo']): Map<string, GeoIndexReader> {
@@ -139,7 +121,7 @@ function assembleFrozenSegment(
     invertedIdx: createFrozenInvertedReader(source.tokenTable, postingViews),
     docStore,
     stats: buildStatsView(source),
-    surfaceRegistry: buildSurfaceReader(source.surfaceForms),
+    surfaceRegistry: createLazySurfaceReader(source.readSurfaceForms),
     numericIndexes,
     booleanIndexes,
     enumIndexes,
@@ -197,6 +179,7 @@ export function createFrozenSegment(
       tokenTable: buildFrozenTokenTable(payload.tokens, payload.docFrequencies),
       idTable: buildExternalIdTable(payload.docIds),
       documentTable: null,
+      readSurfaceForms: () => payload.surfaceForms,
       docFrequencies: () => payload.docFrequencies,
     },
     wrapDocumentArray(documents),
@@ -213,6 +196,7 @@ export function createSharedFrozenSegment(snapshot: SharedSegmentSnapshot): Froz
       tokenTable,
       idTable: wrapExternalIdTable(snapshot.idTable),
       documentTable: snapshot.documentTable,
+      readSurfaceForms: () => (snapshot.surfaceTable === null ? null : decodeSurfaceTable(snapshot.surfaceTable)),
       docFrequencies: () => {
         const frequencies: Record<string, number> = Object.create(null)
         for (let at = 0; at < tokenTable.size; at++) {

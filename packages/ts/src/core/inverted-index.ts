@@ -16,13 +16,6 @@ export interface TermSuggestion {
   documentFrequency: number
 }
 
-/**
- * The lookups the query path performs against an inverted index. The live
- * index implements it over its token map, and a frozen segment implements it
- * over a sorted token table.
- *
- * @internal
- */
 export interface InvertedIndexReader {
   lookup(token: string): PostingListView | undefined
   fuzzyLookup(

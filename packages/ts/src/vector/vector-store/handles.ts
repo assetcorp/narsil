@@ -1,6 +1,14 @@
 import { MAX_DOC_ID_TABLE_BYTES, MAX_VECTOR_ORDINALS, VECTOR_STORE_INITIAL_CAPACITY } from '../constants'
-import { createGrowableBuffer, type GrowableBuffer } from '../shared-buffers/growable'
-import { blockBuffer, computeVectorBlockLayout, type VectorBlockHandle, type VectorBlockLayout } from './blocks'
+import type { OsqBits } from '../osq/quantize'
+import { createFixedBuffer, createGrowableBuffer, type GrowableBuffer } from '../shared-buffers/growable'
+import {
+  BLOCK_MAX_BYTES,
+  blockBuffer,
+  computeVectorBlockLayout,
+  type VectorBlockHandle,
+  type VectorBlockLayout,
+} from './blocks'
+import { computeCodeBlockLayout, type VectorCodeBlockLayout } from './code-blocks'
 
 export const STORE_SLOTS = 0
 export const STORE_LIVE_COUNT = 1
@@ -8,36 +16,45 @@ export const STORE_BLOCK_COUNT = 2
 export const STORE_CALIBRATED = 3
 export const STORE_CODE_COUNT = 4
 export const STORE_DOC_ID_BYTES = 5
-const STORE_HEADER_WORDS = 8
+export const STORE_CODE_BLOCK_COUNT = 6
+export const STORE_CALIBRATION_GENERATION = 7
+const STORE_HEADER_WORDS = 16
 
-export const CALIBRATION_ALPHA = 0
-export const CALIBRATION_OFFSET = 1
-const CALIBRATION_WORDS = 2
+export const IN_MEMORY = -1
 
 /**
  * A thread opens these handles so that it can read one field's vectors,
- * codes, and document ids in place. They name the blocks holding the vectors
- * and the side tables that hold one entry per ordinal, and every one of those
- * structures grows without moving.
+ * codes, and document ids in place. They name the blocks holding the vectors,
+ * the blocks holding the code records, the side tables that hold one entry
+ * per ordinal, and the checkpoint files that hold the vectors of the
+ * ordinals a field on disk has released from memory.
  *
  * The main thread appends ordinals, and because the tables grow in place, a
  * thread that opened the handles once goes on reading the current state.
- * Adding a block is the one structural change, so the main thread sends the
- * handles again whenever it adds one.
+ * Adding a block, releasing one, or adding a file is a structural change, so
+ * the main thread bumps the layout revision and sends the handles again.
  *
  * @internal
  */
 export interface SharedVectorStoreHandles {
   /** Every vector of the field has this many components. */
   dimension: number
-  /** Each slot also holds the vector's byte codes when this reads true. */
-  quantized: boolean
-  /** Every block of the field follows this layout. */
+  /** Each level of a document code holds this many bits, and null where the field keeps no codes. */
+  codeBits: OsqBits | null
+  /** Every float block of the field follows this layout. */
   layout: VectorBlockLayout
+  /** Every code block of the field follows this layout, and null where the field keeps no codes. */
+  codeLayout: VectorCodeBlockLayout | null
+  /** The main thread raises this on every structural change, so a thread compares it against what it opened. */
+  layoutRevision: number
   /** Every thread reads these counters through atomics. */
   header: Int32Array
-  /** These blocks hold the vectors, in ordinal order. */
-  blocks: VectorBlockHandle[]
+  /** These blocks hold the vectors, in ordinal order, with null where the store released a block to disk or never filled it. */
+  blocks: Array<VectorBlockHandle<VectorBlockLayout> | null>
+  /** These blocks hold the code records, in ordinal order. */
+  codeBlocks: VectorBlockHandle<VectorCodeBlockLayout>[]
+  /** These are the paths of the checkpoint files holding vectors, with an empty string where no ordinal reads a file any more. */
+  vectorFiles: string[]
   /** This holds each ordinal's vector magnitude. */
   magnitudes: GrowableBuffer
   /** This holds one byte per ordinal, which reads 1 where the ordinal holds a live vector. */
@@ -48,24 +65,22 @@ export interface SharedVectorStoreHandles {
   docIdBytes: GrowableBuffer
   /** This holds the byte each ordinal's id starts at, with one closing offset after the last. */
   docIdOffsets: GrowableBuffer
-  /** This holds each ordinal's code sum. */
-  codeSums: GrowableBuffer
-  /** This holds each ordinal's squared code sum. */
-  codeSumSqs: GrowableBuffer
-  /** This holds the magnitude each ordinal's codes decode to. */
-  codeMagnitudes: GrowableBuffer
-  /** This holds one byte per ordinal, which reads 1 where the ordinal holds codes. */
+  /** This holds one byte per ordinal, which reads 1 where the ordinal holds a code record. */
   codePresent: GrowableBuffer
-  /** This holds the quantiser's alpha and offset. */
-  calibration: Float64Array
+  /** This holds the index into `vectorFiles` of the file holding each ordinal's vector, or -1 where a block holds it. */
+  diskFile: GrowableBuffer
+  /** This holds the byte offset of each ordinal's vector inside its file. */
+  diskOffset: GrowableBuffer
+  /** This holds the centroid the quantizer takes every code against. */
+  centroid: Float32Array
 }
 
-function sharedInt32(words: number): Int32Array {
-  return new Int32Array(createGrowableBuffer(words * 4, words * 4))
+function fixedInt32(words: number): Int32Array {
+  return new Int32Array(createFixedBuffer(words * 4), 0, words)
 }
 
-function sharedFloat64(words: number): Float64Array {
-  return new Float64Array(createGrowableBuffer(words * 8, words * 8))
+function fixedFloat32(length: number): Float32Array {
+  return new Float32Array(createFixedBuffer(length * 4), 0, length)
 }
 
 function perOrdinal(bytesPerOrdinal: number): GrowableBuffer {
@@ -75,61 +90,52 @@ function perOrdinal(bytesPerOrdinal: number): GrowableBuffer {
   )
 }
 
-/**
- * Allocates the handles of an empty field.
- *
- * @param dimension The number of components per vector.
- * @param quantized Whether each slot also holds byte codes.
- * @returns The handles, holding no block yet.
- *
- * @internal
- */
-export function createSharedVectorStoreHandles(dimension: number, quantized: boolean): SharedVectorStoreHandles {
+function inMemoryTable(): GrowableBuffer {
+  const buffer = perOrdinal(4)
+  new Int32Array(buffer).fill(IN_MEMORY)
+  return buffer
+}
+
+export function createSharedVectorStoreHandles(
+  dimension: number,
+  codeBits: OsqBits | null,
+  blockBytes: number = BLOCK_MAX_BYTES,
+): SharedVectorStoreHandles {
   return {
     dimension,
-    quantized,
-    layout: computeVectorBlockLayout(dimension, quantized),
-    header: sharedInt32(STORE_HEADER_WORDS),
+    codeBits,
+    layout: computeVectorBlockLayout(dimension, blockBytes),
+    codeLayout: codeBits === null ? null : computeCodeBlockLayout(dimension, codeBits),
+    layoutRevision: 0,
+    header: fixedInt32(STORE_HEADER_WORDS),
     blocks: [],
+    codeBlocks: [],
+    vectorFiles: [],
     magnitudes: perOrdinal(8),
     present: perOrdinal(1),
     partitions: perOrdinal(4),
     docIdBytes: createGrowableBuffer(VECTOR_STORE_INITIAL_CAPACITY * 16, MAX_DOC_ID_TABLE_BYTES),
     docIdOffsets: perOrdinal(4),
-    codeSums: perOrdinal(8),
-    codeSumSqs: perOrdinal(8),
-    codeMagnitudes: perOrdinal(8),
     codePresent: perOrdinal(1),
-    calibration: sharedFloat64(CALIBRATION_WORDS),
+    diskFile: inMemoryTable(),
+    diskOffset: perOrdinal(4),
+    centroid: fixedFloat32(dimension),
   }
 }
 
-/**
- * Reports the bytes one field's shared structures hold, read from each
- * structure as it stands. A block grows ahead of the vectors it holds, so a
- * figure computed from the vector count would understate what the field
- * occupies. Node counts a WebAssembly memory in none of the figures
- * `process.memoryUsage` returns, and a field keeps its vectors in one, so this
- * call is the only account of them the engine has.
- *
- * @param handles The field's shared structures.
- * @returns The bytes those structures hold. Every thread reads the same
- * structures, so the process holds this figure once however many threads open
- * the field.
- *
- * @internal
- */
 export function sharedVectorStoreBytes(handles: SharedVectorStoreHandles): number {
-  let bytes = handles.header.byteLength + handles.calibration.byteLength
-  for (const block of handles.blocks) bytes += blockBuffer(block).byteLength
+  let bytes = handles.header.byteLength + handles.centroid.byteLength
+  for (const block of handles.blocks) {
+    if (block !== null) bytes += blockBuffer(block).byteLength
+  }
+  for (const block of handles.codeBlocks) bytes += blockBuffer(block).byteLength
   bytes += handles.magnitudes.byteLength
   bytes += handles.present.byteLength
   bytes += handles.partitions.byteLength
   bytes += handles.docIdBytes.byteLength
   bytes += handles.docIdOffsets.byteLength
-  bytes += handles.codeSums.byteLength
-  bytes += handles.codeSumSqs.byteLength
-  bytes += handles.codeMagnitudes.byteLength
   bytes += handles.codePresent.byteLength
+  bytes += handles.diskFile.byteLength
+  bytes += handles.diskOffset.byteLength
   return bytes
 }

@@ -152,7 +152,7 @@ export function searchWithFilter(
     scheduleBuild(state)
   }
 
-  const { metric, minSimilarity, efSearch } = options
+  const { metric, minSimilarity, efSearch, oversample } = options
 
   if (filter && filter.count === 0) return []
 
@@ -169,13 +169,14 @@ export function searchWithFilter(
     }
   }
 
+  const graphOptions = { filter, efSearch, oversample }
   if (state.buffer.size === 0) {
-    const hnswResults = state.hnsw.search(query, k, metric, minSimilarity, filter, efSearch)
+    const hnswResults = state.hnsw.search(query, k, metric, minSimilarity, graphOptions)
     return hnswResults.map(r => ({ docId: r.docId, score: r.score }))
   }
 
   const hnswResults = state.hnsw
-    .search(query, k, metric, minSimilarity, filter, efSearch)
+    .search(query, k, metric, minSimilarity, graphOptions)
     .map(r => ({ docId: r.docId, score: r.score }))
 
   const bufferResults = bruteForceSearch(state, query, k, metric, minSimilarity, bufferCandidates(state, filter))

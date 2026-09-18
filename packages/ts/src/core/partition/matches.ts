@@ -4,13 +4,6 @@ import type { PartitionFilterMatches } from './filters'
 import { postingColumns } from './posting-columns'
 import type { PartitionReadState } from './utils'
 
-/**
- * The documents of one partition that a full-text query matches, held as a bit
- * per ordinal. A sorted query without scoring walks the postings once to build
- * this, then streams the sort columns against it.
- *
- * @internal
- */
 export interface PartitionSearchMatches extends PartitionFilterMatches {
   /** Returns the external ids of every matching document, for facet counting. */
   matchedDocIds(): Set<string>

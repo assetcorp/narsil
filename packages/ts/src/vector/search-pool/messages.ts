@@ -96,6 +96,8 @@ export interface VectorSearchRequest {
   filter?: OrdinalFilter
   /** The worker explores this many candidates, or its own default when absent. */
   efSearch?: number
+  /** The worker re-scores this many times the requested count against full precision, or its own default when absent. */
+  oversample?: number
 }
 
 /**
@@ -123,6 +125,8 @@ export interface VectorOrdinalSearchRequest {
   filter?: OrdinalFilter
   /** The worker explores this many candidates, or its own default when absent. */
   efSearch?: number
+  /** The worker re-scores this many times the requested count against full precision, or its own default when absent. */
+  oversample?: number
 }
 
 /**

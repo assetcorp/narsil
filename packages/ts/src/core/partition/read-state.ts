@@ -9,15 +9,6 @@ import type { SurfaceRegistryReader } from '../surface-registry'
 import type { ScoreBuffer } from './score-buffer'
 import type { SortColumnSet } from './sort-columns'
 
-/**
- * Everything the query path reads from one body of indexed documents. The
- * live partition state satisfies it directly, and a frozen segment implements
- * it over the flat arrays of its payload, so search, filters, facets,
- * sorting, and suggestions run unchanged over either. The cache slots are
- * mutable because reads build them lazily; each implementation owns its own.
- *
- * @internal
- */
 export interface PartitionReadState {
   readonly invertedIdx: InvertedIndexReader
   readonly docStore: DocumentStoreReader

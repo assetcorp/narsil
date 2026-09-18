@@ -1,11 +1,5 @@
 import { INITIAL_LIST_CAPACITY } from './constants'
 
-/**
- * A list of ordinals with the distance measured for each, held in parallel
- * typed arrays so that the builder allocates nothing per insertion.
- *
- * @internal
- */
 export interface DistanceList {
   /** The ordinal of each entry, valid up to {@link DistanceList.size}. */
   ords: Int32Array
@@ -15,13 +9,6 @@ export interface DistanceList {
   size: number
 }
 
-/**
- * A binary heap over the same parallel arrays a {@link DistanceList} uses,
- * ordering by distance and reporting each popped entry through
- * {@link DistanceHeap.topOrd} and {@link DistanceHeap.topDistance}.
- *
- * @internal
- */
 export interface DistanceHeap extends DistanceList {
   /** True where the greatest distance leaves the heap first. */
   readonly greatestFirst: boolean
@@ -31,16 +18,6 @@ export interface DistanceHeap extends DistanceList {
   topDistance: number
 }
 
-/**
- * The working memory one thread reuses across every graph traversal and every
- * insertion it performs.
- *
- * A thread performs one traversal at a time, so one set of buffers serves
- * every traversal it makes. Each step of an insertion writes to its own
- * buffer, so that no step overwrites the working set of the step around it.
- *
- * @internal
- */
 export interface HNSWWorkspace {
   /** The frontier a layer traversal still has to expand. */
   frontier: DistanceHeap
@@ -54,8 +31,8 @@ export interface HNSWWorkspace {
   traversal: DistanceList
   /** The candidates the selection rule reads, sorted in place. */
   working: DistanceList
-  /** The neighbours a new node takes. */
-  insertSelection: DistanceList
+  /** The neighbours a new node takes on each layer, indexed by layer. */
+  linkSelections: DistanceList[]
   /** The neighbours of the node whose list is over its cap. */
   pruneCandidates: DistanceList
   /** The neighbours that node keeps. */
@@ -74,15 +51,6 @@ function createHeap(greatestFirst: boolean): DistanceHeap {
   return { ...createList(INITIAL_LIST_CAPACITY), greatestFirst, topOrd: -1, topDistance: 0 }
 }
 
-/**
- * Builds the working memory one thread reuses for its traversals and
- * insertions.
- *
- * @returns Buffers sized for a first traversal, which grow as a larger one
- * needs them.
- *
- * @internal
- */
 export function createHNSWWorkspace(): HNSWWorkspace {
   return {
     frontier: createHeap(false),
@@ -91,7 +59,7 @@ export function createHNSWWorkspace(): HNSWWorkspace {
     entryPointCount: 0,
     traversal: createList(INITIAL_LIST_CAPACITY),
     working: createList(INITIAL_LIST_CAPACITY),
-    insertSelection: createList(INITIAL_LIST_CAPACITY),
+    linkSelections: [],
     pruneCandidates: createList(INITIAL_LIST_CAPACITY),
     pruneSelection: createList(INITIAL_LIST_CAPACITY),
     repairCandidates: createList(INITIAL_LIST_CAPACITY),
@@ -99,15 +67,12 @@ export function createHNSWWorkspace(): HNSWWorkspace {
   }
 }
 
-/**
- * Grows a list to hold the requested number of entries, keeping what it
- * already holds.
- *
- * @param list The list to grow.
- * @param needed The number of entries it must hold.
- *
- * @internal
- */
+export function linkSelectionsFor(workspace: HNSWWorkspace, layers: number): DistanceList[] {
+  const selections = workspace.linkSelections
+  while (selections.length < layers) selections.push(createList(INITIAL_LIST_CAPACITY))
+  return selections
+}
+
 export function ensureListCapacity(list: DistanceList, needed: number): void {
   if (needed <= list.ords.length) return
 
@@ -123,15 +88,6 @@ export function ensureListCapacity(list: DistanceList, needed: number): void {
   list.distances = distances
 }
 
-/**
- * Appends one entry to a list, growing the list where it is full.
- *
- * @param list The list to append to.
- * @param ord The ordinal to record.
- * @param distance The distance measured for that ordinal.
- *
- * @internal
- */
 export function appendToList(list: DistanceList, ord: number, distance: number): void {
   ensureListCapacity(list, list.size + 1)
   list.ords[list.size] = ord
@@ -139,15 +95,6 @@ export function appendToList(list: DistanceList, ord: number, distance: number):
   list.size += 1
 }
 
-/**
- * Copies the entries of one list into another, replacing what the target
- * held.
- *
- * @param source The list to copy from.
- * @param target The list to fill.
- *
- * @internal
- */
 export function copyList(source: DistanceList, target: DistanceList): void {
   ensureListCapacity(target, source.size)
   target.ords.set(source.ords.subarray(0, source.size))
@@ -155,14 +102,6 @@ export function copyList(source: DistanceList, target: DistanceList): void {
   target.size = source.size
 }
 
-/**
- * Orders a list by distance, nearest first, keeping the order of entries that
- * share a distance.
- *
- * @param list The list to order in place.
- *
- * @internal
- */
 export function sortListByDistance(list: DistanceList): void {
   const { ords, distances } = list
   for (let i = 1; i < list.size; i++) {
@@ -179,49 +118,106 @@ export function sortListByDistance(list: DistanceList): void {
   }
 }
 
-function heapPrecedes(heap: DistanceHeap, a: number, b: number): boolean {
-  return heap.greatestFirst ? heap.distances[a] > heap.distances[b] : heap.distances[a] < heap.distances[b]
-}
-
-function swapHeapEntries(heap: DistanceHeap, a: number, b: number): void {
-  const ord = heap.ords[a]
-  heap.ords[a] = heap.ords[b]
-  heap.ords[b] = ord
-  const distance = heap.distances[a]
-  heap.distances[a] = heap.distances[b]
-  heap.distances[b] = distance
-}
-
-/**
- * Adds one entry to a heap.
- *
- * @param heap The heap to add to.
- * @param ord The ordinal to record.
- * @param distance The distance measured for that ordinal.
- *
- * @internal
- */
-export function pushHeap(heap: DistanceHeap, ord: number, distance: number): void {
-  appendToList(heap, ord, distance)
-
-  let index = heap.size - 1
+function siftUpGreatestFirst(
+  ords: Int32Array,
+  distances: Float64Array,
+  start: number,
+  ord: number,
+  distance: number,
+): void {
+  let index = start
   while (index > 0) {
     const parent = (index - 1) >> 1
-    if (!heapPrecedes(heap, index, parent)) break
-    swapHeapEntries(heap, index, parent)
+    if (!(distance > distances[parent])) break
+    ords[index] = ords[parent]
+    distances[index] = distances[parent]
     index = parent
   }
+  ords[index] = ord
+  distances[index] = distance
 }
 
-/**
- * Removes the entry at the top of a heap and reports it through
- * {@link DistanceHeap.topOrd} and {@link DistanceHeap.topDistance}.
- *
- * @param heap The heap to take from.
- * @returns False where the heap is empty.
- *
- * @internal
- */
+function siftUpLeastFirst(
+  ords: Int32Array,
+  distances: Float64Array,
+  start: number,
+  ord: number,
+  distance: number,
+): void {
+  let index = start
+  while (index > 0) {
+    const parent = (index - 1) >> 1
+    if (!(distance < distances[parent])) break
+    ords[index] = ords[parent]
+    distances[index] = distances[parent]
+    index = parent
+  }
+  ords[index] = ord
+  distances[index] = distance
+}
+
+function siftDownGreatestFirst(
+  ords: Int32Array,
+  distances: Float64Array,
+  size: number,
+  ord: number,
+  distance: number,
+): void {
+  let index = 0
+  for (;;) {
+    const left = 2 * index + 1
+    const right = left + 1
+    let first = index
+    let firstDistance = distance
+    if (left < size && distances[left] > firstDistance) {
+      first = left
+      firstDistance = distances[left]
+    }
+    if (right < size && distances[right] > firstDistance) first = right
+    if (first === index) break
+    ords[index] = ords[first]
+    distances[index] = distances[first]
+    index = first
+  }
+  ords[index] = ord
+  distances[index] = distance
+}
+
+function siftDownLeastFirst(
+  ords: Int32Array,
+  distances: Float64Array,
+  size: number,
+  ord: number,
+  distance: number,
+): void {
+  let index = 0
+  for (;;) {
+    const left = 2 * index + 1
+    const right = left + 1
+    let first = index
+    let firstDistance = distance
+    if (left < size && distances[left] < firstDistance) {
+      first = left
+      firstDistance = distances[left]
+    }
+    if (right < size && distances[right] < firstDistance) first = right
+    if (first === index) break
+    ords[index] = ords[first]
+    distances[index] = distances[first]
+    index = first
+  }
+  ords[index] = ord
+  distances[index] = distance
+}
+
+export function pushHeap(heap: DistanceHeap, ord: number, distance: number): void {
+  ensureListCapacity(heap, heap.size + 1)
+  const start = heap.size
+  heap.size += 1
+  if (heap.greatestFirst) siftUpGreatestFirst(heap.ords, heap.distances, start, ord, distance)
+  else siftUpLeastFirst(heap.ords, heap.distances, start, ord, distance)
+}
+
 export function popHeap(heap: DistanceHeap): boolean {
   if (heap.size === 0) return false
 
@@ -230,45 +226,20 @@ export function popHeap(heap: DistanceHeap): boolean {
   heap.size -= 1
 
   if (heap.size > 0) {
-    heap.ords[0] = heap.ords[heap.size]
-    heap.distances[0] = heap.distances[heap.size]
-
-    let index = 0
-    for (;;) {
-      const left = 2 * index + 1
-      const right = left + 1
-      let first = index
-      if (left < heap.size && heapPrecedes(heap, left, first)) first = left
-      if (right < heap.size && heapPrecedes(heap, right, first)) first = right
-      if (first === index) break
-      swapHeapEntries(heap, index, first)
-      index = first
-    }
+    const size = heap.size
+    const ord = heap.ords[size]
+    const distance = heap.distances[size]
+    if (heap.greatestFirst) siftDownGreatestFirst(heap.ords, heap.distances, size, ord, distance)
+    else siftDownLeastFirst(heap.ords, heap.distances, size, ord, distance)
   }
 
   return true
 }
 
-/**
- * Empties a heap without releasing the memory it holds.
- *
- * @param heap The heap to empty.
- *
- * @internal
- */
 export function resetHeap(heap: DistanceHeap): void {
   heap.size = 0
 }
 
-/**
- * Moves every entry of a heap into a list, nearest first, and leaves the heap
- * empty.
- *
- * @param heap The heap ordering by greatest distance first.
- * @param list The list to fill.
- *
- * @internal
- */
 export function drainHeapNearestFirst(heap: DistanceHeap, list: DistanceList): void {
   const count = heap.size
   ensureListCapacity(list, count)
@@ -281,27 +252,11 @@ export function drainHeapNearestFirst(heap: DistanceHeap, list: DistanceList): v
   }
 }
 
-/**
- * Points the next traversal at a single ordinal.
- *
- * @param workspace The working memory to set.
- * @param ord The ordinal the traversal starts from.
- *
- * @internal
- */
 export function setSingleEntryPoint(workspace: HNSWWorkspace, ord: number): void {
   workspace.entryPoints[0] = ord
   workspace.entryPointCount = 1
 }
 
-/**
- * Points the next traversal at every ordinal of a list.
- *
- * @param workspace The working memory to set.
- * @param list The ordinals the traversal starts from.
- *
- * @internal
- */
 export function setEntryPointsFromList(workspace: HNSWWorkspace, list: DistanceList): void {
   if (list.size > workspace.entryPoints.length) {
     let capacity = workspace.entryPoints.length

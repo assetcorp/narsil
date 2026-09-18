@@ -1,5 +1,7 @@
 import type { IndexMetadata } from '../../types/internal'
+import { CHECKPOINT_WORKER_HEARTBEAT_MS } from './constants'
 import { rebuildSnapshotFromDurable } from './rebuild'
+import type { SegmentedCheckpointOutcome } from './segment'
 import type { PartitionCheckpoint } from './snapshot-bundle'
 
 export interface CheckpointWorkerRequest {
@@ -11,6 +13,7 @@ export interface CheckpointWorkerRequest {
 
 export interface CheckpointWorkerSuccess {
   type: 'success'
+  outcome: SegmentedCheckpointOutcome
 }
 
 export interface CheckpointWorkerError {
@@ -18,7 +21,11 @@ export interface CheckpointWorkerError {
   message: string
 }
 
-export type CheckpointWorkerMessage = CheckpointWorkerSuccess | CheckpointWorkerError
+export interface CheckpointWorkerHeartbeat {
+  type: 'heartbeat'
+}
+
+export type CheckpointWorkerMessage = CheckpointWorkerSuccess | CheckpointWorkerError | CheckpointWorkerHeartbeat
 
 async function handleRequest(raw: unknown): Promise<CheckpointWorkerSuccess> {
   const request = raw as CheckpointWorkerRequest
@@ -34,8 +41,13 @@ async function handleRequest(raw: unknown): Promise<CheckpointWorkerSuccess> {
   if (!Number.isInteger(request.compactionThreshold) || request.compactionThreshold <= 0) {
     throw new Error('Checkpoint request has an invalid compaction threshold')
   }
-  await rebuildSnapshotFromDurable(request.root, request.metadata, request.targets, request.compactionThreshold)
-  return { type: 'success' }
+  const outcome = await rebuildSnapshotFromDurable(
+    request.root,
+    request.metadata,
+    request.targets,
+    request.compactionThreshold,
+  )
+  return { type: 'success', outcome }
 }
 
 async function setupAsync(): Promise<void> {
@@ -53,12 +65,17 @@ async function setupAsync(): Promise<void> {
 
   const port = parentPort
   port.on('message', (raw: unknown) => {
+    const heartbeat = setInterval(
+      () => port.postMessage({ type: 'heartbeat' } satisfies CheckpointWorkerHeartbeat),
+      CHECKPOINT_WORKER_HEARTBEAT_MS,
+    )
     handleRequest(raw)
       .then(result => port.postMessage(result))
       .catch(err => {
         const message = err instanceof Error ? err.message : String(err)
         port.postMessage({ type: 'error', message } satisfies CheckpointWorkerError)
       })
+      .finally(() => clearInterval(heartbeat))
   })
 }
 

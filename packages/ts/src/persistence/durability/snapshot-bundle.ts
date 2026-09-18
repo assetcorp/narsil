@@ -2,6 +2,9 @@ import { decode, encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { type EnvelopeParts, packSnapshotEnvelopeParts, unpackEnvelopeBytes } from '../../serialization/envelope'
 import type { VectorIndexPayload } from '../../vector/vector-index'
+import { decodeVectorIndexParts } from '../../vector/vector-index/payload'
+
+export const SNAPSHOT_BUNDLE_VERSION = 2
 
 export interface PartitionCheckpoint {
   partitionId: number
@@ -10,7 +13,7 @@ export interface PartitionCheckpoint {
 }
 
 export interface SnapshotBundle {
-  version: 1
+  version: typeof SNAPSHOT_BUNDLE_VERSION
   schema: Record<string, string>
   language: string
   analysisRevision?: string
@@ -18,7 +21,7 @@ export interface SnapshotBundle {
   stopWords?: string
   stopWordList?: string[]
   partitions: Uint8Array[]
-  vectorIndexes: Record<string, VectorIndexPayload>
+  vectorIndexes: Record<string, VectorIndexPayload[]>
   checkpoint: PartitionCheckpoint[]
 }
 
@@ -31,13 +34,13 @@ interface RawSnapshotBundle {
   stop_words?: unknown
   stop_word_list?: unknown
   partitions?: Uint8Array[]
-  vectorIndexes?: Record<string, VectorIndexPayload>
+  vectorIndexes?: unknown
   checkpoint?: Array<{ partitionId?: number; lastSeqNo?: number; primaryTerm?: number }>
 }
 
 export async function encodeSnapshotBundle(bundle: SnapshotBundle): Promise<EnvelopeParts> {
   const payload = encode({
-    version: 1,
+    version: SNAPSHOT_BUNDLE_VERSION,
     schema: bundle.schema,
     language: bundle.language,
     ...(bundle.analysisRevision !== undefined ? { analysis_revision: bundle.analysisRevision } : {}),
@@ -59,10 +62,10 @@ export async function decodeSnapshotBundle(data: Uint8Array): Promise<SnapshotBu
   const { payloadBytes } = await unpackEnvelopeBytes(data)
   const raw = decode(payloadBytes) as RawSnapshotBundle
 
-  if (raw.version !== 1) {
+  if (raw.version !== SNAPSHOT_BUNDLE_VERSION) {
     throw new NarsilError(
-      ErrorCodes.PERSISTENCE_LOAD_FAILED,
-      `Unsupported snapshot bundle version ${raw.version}; expected 1`,
+      ErrorCodes.ENVELOPE_VERSION_MISMATCH,
+      `Unsupported snapshot bundle version ${raw.version}; expected ${SNAPSHOT_BUNDLE_VERSION}`,
       { version: raw.version },
     )
   }
@@ -87,7 +90,7 @@ export async function decodeSnapshotBundle(data: Uint8Array): Promise<SnapshotBu
   const stopWordList = normalizeStopWordList(raw.stop_word_list)
 
   return {
-    version: 1,
+    version: SNAPSHOT_BUNDLE_VERSION,
     schema: raw.schema,
     language: raw.language,
     ...(typeof raw.analysis_revision === 'string' ? { analysisRevision: raw.analysis_revision } : {}),
@@ -95,9 +98,23 @@ export async function decodeSnapshotBundle(data: Uint8Array): Promise<SnapshotBu
     ...(typeof raw.stop_words === 'string' ? { stopWords: raw.stop_words } : {}),
     ...(stopWordList !== undefined ? { stopWordList } : {}),
     partitions: raw.partitions,
-    vectorIndexes: raw.vectorIndexes ?? {},
+    vectorIndexes: normalizeVectorIndexes(raw.vectorIndexes),
     checkpoint: normalizeCheckpoint(raw.checkpoint),
   }
+}
+
+function normalizeVectorIndexes(raw: unknown): Record<string, VectorIndexPayload[]> {
+  if (raw === undefined || raw === null) {
+    return {}
+  }
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Snapshot bundle vectorIndexes must be a map')
+  }
+  const result: Record<string, VectorIndexPayload[]> = {}
+  for (const [fieldPath, parts] of Object.entries(raw as Record<string, unknown>)) {
+    result[fieldPath] = decodeVectorIndexParts(parts)
+  }
+  return result
 }
 
 function normalizeStopWordList(raw: unknown): string[] | undefined {

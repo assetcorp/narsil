@@ -25,7 +25,9 @@ from ._stop_words import LUCENE_ENGLISH_STOP_WORDS
 def _raise(response: httpx.Response) -> None:
     if response.is_success:
         return
-    raise EngineError(f"HTTP {response.status_code} from {response.request.url}: {response.text[:500]}")
+    raise EngineError(
+        f"HTTP {response.status_code} from {response.request.url}: {response.text[:500]}", response.status_code
+    )
 
 
 class MeilisearchDriver:
@@ -109,7 +111,10 @@ class MeilisearchDriver:
     def import_documents(
         self, index: str, documents: Iterable[tuple[str, str]], batch_size: int, clients: int
     ) -> ImportResult:
-        total = import_batches(documents, batch_size, clients, lambda batch: self._send_import(index, batch))
+        def send(batch: list[tuple[str, str]]) -> BatchOutcome:
+            return self._send_import(index, batch)
+
+        total = import_batches(documents, batch_size, clients, send, resend=send)
         return ImportResult(submitted=total.submitted, indexed=total.indexed)
 
     def count(self, index: str) -> int:

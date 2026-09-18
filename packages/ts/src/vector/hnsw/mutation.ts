@@ -14,19 +14,21 @@ import { pruneConnections, searchLayer, selectNeighborsHeuristic } from './graph
 import { GRAPH_ENTRY_POINT, GRAPH_NODE_COUNT, GRAPH_TOMBSTONE_COUNT, GRAPH_TOP_LAYER } from './handles'
 import { lockEntry, lockGraphShared, lockNodeWrite, unlockEntry, unlockGraphShared, unlockNodeWrite } from './locks'
 import {
+  buildsFromCodes,
   ensureCapacity,
   entryPointOf,
   type HNSWGraphState,
   isTombstoned,
   maxConns,
   nodeDistanceByOrd,
+  nodeDistanceFunction,
   nodeExists,
   nodeMaxLayer,
   randomLevel,
   reachTombstone,
   topLayerOf,
 } from './shared'
-import { appendToList, setEntryPointsFromList, setSingleEntryPoint } from './workspace'
+import { appendToList, linkSelectionsFor, setEntryPointsFromList, setSingleEntryPoint } from './workspace'
 
 function clearTombstone(state: HNSWGraphState, ord: number): void {
   if (reachTombstone(state, ord) && Atomics.compareExchange(state.tombstones, ord, 1, 0) === 1) {
@@ -78,69 +80,96 @@ function raiseEntry(state: HNSWGraphState, ord: number, level: number): void {
   }
 }
 
-function linkNode(state: HNSWGraphState, ord: number, level: number): void {
+function placementDistance(state: HNSWGraphState, ord: number, vector: Float32Array): (candOrd: number) => number {
+  const metric = state.buildMetric
+  const quantizer = state.quantizer
+  if (quantizer !== undefined && buildsFromCodes(state)) {
+    const prepared = quantizer.prepareQuery(vector)
+    if (prepared !== null) return quantizer.preparedDistance(prepared)
+  }
+  if (quantizer === undefined) return state.store.ordinalDistance(ord, metric)
+  return candOrd => nodeDistanceByOrd(state, ord, candOrd, metric)
+}
+
+function selectNeighborsPerLayer(state: HNSWGraphState, ord: number, level: number): number {
   const metric = state.buildMetric
   const workspace = state.workspace
   const candidates = workspace.traversal
-  const selected = workspace.insertSelection
   const entry = state.store.entryForOrdinal(ord)
-  if (entry === undefined) return
-  const insertDistFn = (candOrd: number) => nodeDistanceByOrd(state, ord, candOrd, metric)
-  const entryPoint = entryPointOf(state)
+  if (entry === undefined) return -1
+  const insertDistFn = placementDistance(state, ord, entry.vector)
   const topLayer = topLayerOf(state)
-  setSingleEntryPoint(workspace, entryPoint)
+  setSingleEntryPoint(workspace, entryPointOf(state))
 
   for (let layer = topLayer; layer > level; layer--) {
     searchLayer(state, entry.vector, entry.magnitude, 1, layer, metric, false, insertDistFn, candidates)
-    if (candidates.size > 0) {
-      setSingleEntryPoint(workspace, candidates.ords[0])
-    }
+    if (candidates.size > 0) setSingleEntryPoint(workspace, candidates.ords[0])
   }
 
-  for (let layer = Math.min(level, topLayer); layer >= 0; layer--) {
+  const linkTop = Math.min(level, topLayer)
+  const selections = linkSelectionsFor(workspace, linkTop + 1)
+  const distance = nodeDistanceFunction(state, metric)
+  for (let layer = linkTop; layer >= 0; layer--) {
     searchLayer(state, entry.vector, entry.magnitude, state.efCons, layer, metric, false, insertDistFn, candidates)
-    selectNeighborsHeuristic(state, candidates, maxConns(state, layer), metric, selected)
+    selectNeighborsHeuristic(state, candidates, maxConns(state, layer), distance, selections[layer])
+    if (candidates.size > 0) setEntryPointsFromList(workspace, candidates)
+  }
+  return linkTop
+}
 
-    lockNodeWrite(state.locks, ord)
-    replaceNeighbors(state.adjacency, ord, layer, selected.ords, selected.size)
+function writeOwnLists(state: HNSWGraphState, ord: number, linkTop: number): void {
+  const selections = state.workspace.linkSelections
+  lockNodeWrite(state.locks, ord)
+  try {
+    for (let layer = linkTop; layer >= 0; layer--) {
+      const selected = selections[layer]
+      replaceNeighbors(state.adjacency, ord, layer, selected.ords, selected.size)
+    }
+  } finally {
     unlockNodeWrite(state.locks, ord)
+  }
+}
 
+function linkNeighborsBack(state: HNSWGraphState, ord: number, linkTop: number): void {
+  const distance = nodeDistanceFunction(state, state.buildMetric)
+  const selections = state.workspace.linkSelections
+  for (let layer = linkTop; layer >= 0; layer--) {
+    const selected = selections[layer]
     for (let i = 0; i < selected.size; i++) {
       const neighborOrd = selected.ords[i]
       if (layer > nodeMaxLayer(state, neighborOrd)) continue
       lockNodeWrite(state.locks, neighborOrd)
       try {
         addNeighbor(state.adjacency, neighborOrd, layer, ord)
-        pruneConnections(state, neighborOrd, layer, metric)
+        pruneConnections(state, neighborOrd, layer, distance)
       } finally {
         unlockNodeWrite(state.locks, neighborOrd)
       }
     }
-
-    if (candidates.size > 0) {
-      setEntryPointsFromList(workspace, candidates)
-    }
   }
+}
 
+function linkNode(state: HNSWGraphState, ord: number, level: number): void {
+  const topLayer = topLayerOf(state)
+  const linkTop = selectNeighborsPerLayer(state, ord, level)
+  if (linkTop < 0) return
+  writeOwnLists(state, ord, linkTop)
+  linkNeighborsBack(state, ord, linkTop)
   if (level > topLayer) raiseEntry(state, ord, level)
 }
 
-/**
- * Places the vector at an ordinal in the graph, sharing the graph with every
- * other thread placing or searching at the same time.
- *
- * @param state This thread's graph state.
- * @param ord The ordinal to place.
- * @param holdsGraphLock True where the caller already holds the graph lock.
- * @returns True where the node went in, and false where the graph held it
- * already or the store retired the ordinal while the batch was in flight.
- *
- * @internal
- */
+function writeRecordBeforePlacement(state: HNSWGraphState, ord: number): void {
+  const quantizer = state.quantizer
+  if (quantizer === undefined || !buildsFromCodes(state)) return
+  const entry = state.store.entryForOrdinal(ord)
+  if (entry !== undefined) quantizer.writeCodes(ord, entry.vector)
+}
+
 export function insertNode(state: HNSWGraphState, ord: number, holdsGraphLock = false): boolean {
   if (!state.store.holdsOrdinal(ord)) return false
   ensureCapacity(state, ord + 1)
   if (nodeExists(state, ord)) return false
+  writeRecordBeforePlacement(state, ord)
 
   if (!holdsGraphLock) lockGraphShared(state.locks)
   try {
@@ -156,17 +185,11 @@ export function insertNode(state: HNSWGraphState, ord: number, holdsGraphLock = 
   return true
 }
 
-/**
- * Cuts a node out of the graph and repairs its neighbours' lists. The caller
- * must hold the graph exclusively.
- *
- * @internal
- */
 export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?: Set<number>): void {
   const maxLayer = nodeMaxLayer(state, ord)
   if (maxLayer === -1) return
 
-  const metric = state.buildMetric
+  const distance = nodeDistanceFunction(state, state.buildMetric)
 
   for (let layer = 0; layer <= maxLayer; layer++) {
     const formerNeighbors = collectNeighbors(state.adjacency, ord, layer)
@@ -194,20 +217,20 @@ export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?
       const candidates = state.workspace.repairCandidates
       candidates.size = 0
       for (const candOrd of candidateOrds) {
-        const dist = nodeDistanceByOrd(state, neighborOrd, candOrd, metric)
+        const dist = distance(neighborOrd, candOrd)
         if (dist === Number.POSITIVE_INFINITY) continue
         appendToList(candidates, candOrd, dist)
       }
 
       const selected = state.workspace.repairSelection
-      selectNeighborsHeuristic(state, candidates, mc, metric, selected)
+      selectNeighborsHeuristic(state, candidates, mc, distance, selected)
       replaceNeighbors(state.adjacency, neighborOrd, layer, selected.ords, selected.size)
 
       for (let i = 0; i < selected.size; i++) {
         const newConnOrd = selected.ords[i]
         if (layer <= nodeMaxLayer(state, newConnOrd)) {
           addNeighbor(state.adjacency, newConnOrd, layer, neighborOrd)
-          pruneConnections(state, newConnOrd, layer, metric)
+          pruneConnections(state, newConnOrd, layer, distance)
         }
       }
     }
@@ -227,12 +250,6 @@ export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?
   }
 }
 
-/**
- * Marks a node removed, keeping it in the graph as a stepping stone until
- * compaction cuts it out.
- *
- * @internal
- */
 export function markTombstone(state: HNSWGraphState, ord: number): void {
   if (!nodeExists(state, ord) || !reachTombstone(state, ord)) return
   if (Atomics.compareExchange(state.tombstones, ord, 0, 1) === 0) {
@@ -247,12 +264,6 @@ export function markTombstone(state: HNSWGraphState, ord: number): void {
   }
 }
 
-/**
- * Cuts every tombstoned node out of the graph. The caller must hold the graph
- * exclusively.
- *
- * @internal
- */
 export function compactTombstones(state: HNSWGraphState): void {
   if (Atomics.load(state.header, GRAPH_TOMBSTONE_COUNT) === 0) return
 
@@ -270,11 +281,6 @@ export function compactTombstones(state: HNSWGraphState): void {
   }
 }
 
-/**
- * Empties the graph in place. The caller must hold the graph exclusively.
- *
- * @internal
- */
 export function resetGraph(state: HNSWGraphState): void {
   resetAdjacency(state.adjacency)
   state.tombstones = fixedView(state.adjacency.handles.tombstones, Uint8Array)
@@ -285,12 +291,6 @@ export function resetGraph(state: HNSWGraphState): void {
   Atomics.store(state.header, GRAPH_TOP_LAYER, -1)
 }
 
-/**
- * Rebuilds the graph in place from its live nodes. The caller must hold the
- * graph exclusively.
- *
- * @internal
- */
 export function rebuild(state: HNSWGraphState): void {
   const nodeCount = Atomics.load(state.header, GRAPH_NODE_COUNT)
   if (Atomics.load(state.header, GRAPH_TOMBSTONE_COUNT) === 0 && nodeCount === 0) return

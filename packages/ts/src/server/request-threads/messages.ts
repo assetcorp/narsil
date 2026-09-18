@@ -5,11 +5,6 @@ import type { ResolvedBuild, ResolvedLimits } from '../deps'
 import type { ServerHandlers } from '../routes'
 import type { RequestContext, RequestDenial } from '../types'
 
-/**
- * Everything a worker needs to receive HTTP requests as a request thread.
- *
- * @internal
- */
 export interface RequestThreadSettings {
   /** The thread sends every request it cannot answer itself down this port, and asks it for each authorisation. */
   port: MessagePort
@@ -33,19 +28,8 @@ export interface RequestThreadSettings {
   searchHooks: boolean
 }
 
-/**
- * The routes a request thread answers on its own whatever index the request
- * names, because each carries data the thread already holds.
- *
- * @internal
- */
 export type ThreadOnlyRoute = 'livez' | 'version' | 'capabilities'
 
-/**
- * The names of the routes a request thread sends to the main thread whole.
- *
- * @internal
- */
 export type RelayedRoute = Exclude<keyof ServerHandlers, ThreadOnlyRoute>
 
 export interface RelayedRequest {

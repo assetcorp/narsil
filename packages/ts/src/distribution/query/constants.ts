@@ -23,6 +23,8 @@ export const MAX_PREFIX_LENGTH = 1024
 export const MAX_PINNED_ENTRIES = 1_000
 export const MAX_PINNED_POSITION = RESULT_WINDOW
 export const MAX_EF_SEARCH = 10_000
+export { MIN_OVERSAMPLE } from '../../vector/osq/constants'
+export const MAX_OVERSAMPLE = 100
 export const MAX_GROUP_FIELDS = 64
 
 export const MAX_HIGHLIGHT_TAG_LENGTH = 256

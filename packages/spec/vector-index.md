@@ -275,7 +275,7 @@ VectorIndexConfig {
 }
 ```
 
-An `osq8`, `osq4`, `osq2`, or `osq1` index stores eight, four, two, or one bits per dimension, as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines. An index set to `none` stores no code. When `quantization` is absent, an implementation must use `osq1` at 1,024 dimensions and above, `osq4` from 384 to 1,023, and `osq8` below 384.
+An `osq8`, `osq4`, `osq2`, or `osq1` index stores eight, four, two, or one bits per dimension, as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines. An index set to `none` stores no code. When `quantization` is absent, an implementation must use `osq4` at 384 dimensions and above and `osq8` below 384.
 
 A quantised index calibrates its quantiser once its vector count reaches the HNSW promotion threshold, and it calibrates again during `compact`. A quantised index places a new vector in the graph by scoring it as a query against the codes of its neighbours.
 

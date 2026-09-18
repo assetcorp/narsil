@@ -4,23 +4,16 @@ import type { SegmentPayload } from '../segment-payload'
 import type { SegmentColumns } from './columns'
 import { type EncodedDocumentTableData, encodeDocumentTableData } from './document-source'
 import { type ExternalIdTableData, encodeExternalIdTableData } from './external-ids'
+import { encodeSurfaceTable, type SurfaceTableData } from './surface-table'
 import { encodeFrozenTokenTableData, type FrozenTokenTableData } from './token-table'
 
-/**
- * One keyword segment frozen into shared memory. Every typed array is a view
- * over a SharedArrayBuffer, so posting this to a worker attaches the same
- * bytes instead of copying them, and nothing writes to it after the freeze.
- * Token and document id strings live as UTF-8 blobs and decode lazily on
- * whichever thread touches them. The small plain fields, field names, enum
- * values, and surface forms, still clone per worker.
- *
- * @internal
- */
-export interface SharedSegmentSnapshot extends SegmentColumns {
+export interface SharedSegmentSnapshot extends Omit<SegmentColumns, 'surfaceForms'> {
   segmentId: string
   tokenTable: FrozenTokenTableData
   idTable: ExternalIdTableData
   documentTable: EncodedDocumentTableData
+  /** The surface forms packed flat, or null where the segment holds none. */
+  surfaceTable: SurfaceTableData | null
 }
 
 function sharedUint32(source: Uint32Array): Uint32Array {
@@ -47,6 +40,13 @@ function sharedFloat64(source: Float64Array): Float64Array {
   return copy
 }
 
+function sharedSurfaceTable(payload: SegmentPayload): SurfaceTableData | null {
+  if (payload.surfaceForms === null) return null
+  const table = encodeSurfaceTable(payload.surfaceForms)
+  if (table.counts.length === 0) return null
+  return { blob: sharedUint8(table.blob), offsets: sharedUint32(table.offsets), counts: sharedUint32(table.counts) }
+}
+
 export function freezeSegmentShared(
   payload: SegmentPayload,
   documents: ReadonlyArray<AnyDocument>,
@@ -56,17 +56,6 @@ export function freezeSegmentShared(
   return freezeEncodedSegmentShared(payload, encodeDocumentTableData(documents), segmentId)
 }
 
-/**
- * Freezes a segment whose documents are already encoded, so a merge that
- * copied the bytes of its inputs never decodes a document.
- *
- * @param payload The segment's arrays.
- * @param documentData The encoded documents in ordinal order.
- * @param segmentId The id the segment keeps, or a fresh one where absent.
- * @returns The snapshot, or null where the runtime offers no shared memory.
- *
- * @internal
- */
 export function freezeEncodedSegmentShared(
   payload: SegmentPayload,
   documentData: EncodedDocumentTableData,
@@ -127,6 +116,6 @@ export function freezeEncodedSegmentShared(
       latitudes: sharedFloat64(entry.latitudes),
       longitudes: sharedFloat64(entry.longitudes),
     })),
-    surfaceForms: payload.surfaceForms,
+    surfaceTable: sharedSurfaceTable(payload),
   }
 }

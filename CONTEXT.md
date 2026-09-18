@@ -92,9 +92,9 @@ _Avoid_: chunk, shard, piece
 Promotion keeps the meaning the spec gives it: the moment a vector field passes its threshold and moves from exact comparison to the graph. This glossary reserves the word for that transition alone.
 _Avoid_: promoted, promotion, for anything to do with worker copies
 
-**Optimised scalar quantisation (OSQ)**:
-OSQ is the quantisation that Elastic named and that Lucene implements, and Narsil applies it at every code size. The index centres each vector on its centroid and quantises it over an interval that it fits to that vector alone. A mode name carries the bits per dimension, so `osq8`, `osq4`, `osq2`, and `osq1` are one family, and Elastic's BBQ is the 1-bit case.
-_Avoid_: SQ8, scalar quantisation, binary quantisation, BBQ
+**Optimised scalar quantization (OSQ)**:
+OSQ is the quantization that Elastic named and that Lucene implements, and Narsil applies it at every code size. The index centres each vector on its centroid and quantizes it over an interval that it fits to that vector alone. A mode name carries the bits per dimension, so `osq8`, `osq4`, `osq2`, and `osq1` are one family, and Elastic's BBQ is the 1-bit case.
+_Avoid_: SQ8, scalar quantization, binary quantization, BBQ
 
 **Request thread**:
 A request thread is a worker that receives requests from clients and answers a query on an index whose copy it holds, while the main thread receives every write and every query on an index that holds no copies.

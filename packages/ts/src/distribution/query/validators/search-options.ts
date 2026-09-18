@@ -5,11 +5,13 @@ import {
   MAX_GROUP_FIELDS,
   MAX_HYBRID_K,
   MAX_LIMIT,
+  MAX_OVERSAMPLE,
   MAX_PINNED_ENTRIES,
   MAX_PINNED_POSITION,
   MAX_PREFIX_LENGTH,
   MAX_TERMS_COUNT,
   MIN_HYBRID_K,
+  MIN_OVERSAMPLE,
 } from '../constants'
 import {
   CONFIG_INVALID,
@@ -165,6 +167,15 @@ export function validateEfSearchParam(value: unknown): void {
     throwInvalid(
       CONFIG_INVALID,
       `Invalid SearchPayload: "params.vector.efSearch" must be an integer between 1 and ${MAX_EF_SEARCH}`,
+    )
+  }
+}
+
+export function validateOversampleParam(value: unknown): void {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < MIN_OVERSAMPLE || value > MAX_OVERSAMPLE) {
+    throwInvalid(
+      CONFIG_INVALID,
+      `Invalid SearchPayload: "params.vector.oversample" must be a number between ${MIN_OVERSAMPLE} and ${MAX_OVERSAMPLE}`,
     )
   }
 }

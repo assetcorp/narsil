@@ -135,12 +135,6 @@ export function applyPartitionFiltersBitset(
   return evaluateFilters(filters, context)
 }
 
-/**
- * The documents of one partition that a filter accepts, held as a bit per
- * ordinal rather than as a set of document ids.
- *
- * @internal
- */
 export interface PartitionFilterMatches {
   /** This many stored documents pass the filter. */
   readonly count: number

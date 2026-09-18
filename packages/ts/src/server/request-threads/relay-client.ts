@@ -7,14 +7,6 @@ import { type ResponseSink, sendError, sendRelayed } from '../response'
 import type { RequestContext } from '../types'
 import type { EmbeddedReply, RelayedRoute, RelayReply } from './messages'
 
-/**
- * A request thread's side of the port to the main thread: it sends whole
- * requests, authorisations, and query embeddings, matches each reply to the
- * caller waiting for it, and tells the main thread which indexes the thread
- * has read so that their copies stay loaded.
- *
- * @internal
- */
 export interface RelayClient {
   authorize(context: RequestContext): Promise<Authorization>
   request(route: RelayedRoute, ctx: RouteContext): Promise<void>

@@ -11,7 +11,8 @@ function fieldHandles(): SharedVectorFieldHandles {
   return {
     dimension: DIMENSION,
     quantization: 'none',
-    store: createSharedVectorStoreHandles(DIMENSION, false),
+    metric: 'cosine',
+    store: createSharedVectorStoreHandles(DIMENSION, null),
     graph: null,
     filterThreshold: 0.1,
     searchable: true,

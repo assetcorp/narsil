@@ -1,20 +1,12 @@
 import type { VectorMetric } from '../brute-force'
 import { insertNode } from '../hnsw/mutation'
-import { type OrdinalHit, searchOrdinals } from '../hnsw/search'
+import { type GraphSearchOptions, type OrdinalHit, searchOrdinals } from '../hnsw/search'
 import { type HNSWGraphState, nodeCountOf, tombstoneCountOf } from '../hnsw/shared'
 import { openGraphState } from '../hnsw/state'
-import type { OrdinalFilter } from '../ordinal-filter'
-import { openSharedQuantizer, type SharedQuantizerView } from '../scalar-quantization-view'
+import { openSharedQuantizer, type SharedQuantizerView } from '../osq/view'
 import { openSharedVectorStore, type SharedVectorStoreView } from '../vector-store/view'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from './types'
 
-/**
- * This is one thread's open view over a vector field, holding the readers
- * over its shared vectors and codes alongside the graph state the thread
- * searches and extends once the field holds a graph.
- *
- * @internal
- */
 export interface SharedVectorFieldView {
   readonly handles: SharedVectorFieldHandles
   readonly store: SharedVectorStoreView
@@ -32,47 +24,33 @@ export interface SharedVectorFieldView {
   vectorOf(docId: string): Float32Array | undefined
   /** Takes handles the main thread sent again, opening any block or graph they add. */
   adopt(next: SharedVectorFieldHandles): void
-  /** Places an ordinal's vector in the graph and writes its codes, reporting whether the node was new. */
+  /** Closes every file descriptor this thread opened for the field's released vectors. */
+  close(): void
+  /** Places an ordinal's vector in the graph, writing its record first, and reports whether the node was new. */
   insertOrdinal(ordinal: number): boolean
-  /** Reports whether a vector placed since the last report fell outside the quantiser's calibration. */
+  /** Reports how many vectors the thread placed since the last report. */
   takeOutcome(): GraphInsertOutcome
   searchOrdinals(
     query: Float32Array,
     k: number,
     metric: VectorMetric,
     minSimilarity: number,
-    filter: OrdinalFilter | undefined,
-    efSearch: number | undefined,
+    options: GraphSearchOptions,
   ): OrdinalHit[]
 }
 
-function outsideCalibration(quantizer: SharedQuantizerView, vector: Float32Array): boolean {
-  const { alpha, offset } = quantizer.constants()
-  const upper = offset + alpha * 255
-  for (let d = 0; d < vector.length; d++) {
-    if (vector[d] < offset || vector[d] > upper) return true
-  }
-  return false
-}
-
-/**
- * Opens a field on the current thread.
- *
- * @param initial The handles to open.
- * @param threadSlot This thread's scratch slot inside every block and its
- * slot in the graph's lock record.
- * @returns The view.
- *
- * @internal
- */
 export function openSharedVectorField(initial: SharedVectorFieldHandles, threadSlot: number): SharedVectorFieldView {
   let handles = initial
   const store = openSharedVectorStore(initial.store, threadSlot)
-  const quantizer = initial.quantization === 'sq8' ? openSharedQuantizer(store) : undefined
+  const codeLayout = initial.store.codeLayout
+  const quantizer =
+    initial.quantization !== 'none' && codeLayout !== null
+      ? openSharedQuantizer(store, codeLayout, initial.metric)
+      : undefined
   let graph: HNSWGraphState | null = null
   let ordinals: Map<string, number> | null = null
   let scanned = 0
-  let outside = false
+  let placed = 0
 
   function openGraph(next: SharedVectorFieldHandles): void {
     graph = next.graph === null ? null : openGraphState(next.graph, next.dimension, store, quantizer, threadSlot)
@@ -124,26 +102,26 @@ export function openSharedVectorField(initial: SharedVectorFieldHandles, threadS
       handles = next
     },
 
+    close() {
+      store.close()
+    },
+
     insertOrdinal(ordinal) {
       if (graph === null) return false
       const fresh = insertNode(graph, ordinal)
-      if (fresh && quantizer !== undefined && quantizer.isCalibrated()) {
-        const vector = store.vectorAt(ordinal)
-        if (outsideCalibration(quantizer, vector)) outside = true
-        quantizer.writeCodes(ordinal, vector)
-      }
+      if (fresh) placed += 1
       return fresh
     },
 
     takeOutcome() {
-      const outcome = { outsideCalibration: outside }
-      outside = false
+      const outcome = { placed }
+      placed = 0
       return outcome
     },
 
-    searchOrdinals(query, k, metric, minSimilarity, filter, efSearch) {
+    searchOrdinals(query, k, metric, minSimilarity, options) {
       if (graph === null) return []
-      return searchOrdinals(graph, docIdOf, query, k, metric, minSimilarity, filter, efSearch)
+      return searchOrdinals(graph, docIdOf, query, k, metric, minSimilarity, options)
     },
   }
 }

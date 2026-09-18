@@ -3,13 +3,6 @@ import { RESPONSE_STREAM_THRESHOLD_BYTES } from './constants'
 import type { ResponseAbort } from './request'
 import type { ErrorEnvelope } from './types'
 
-/**
- * The part of a uWebSockets.js response the handlers write to, which the main
- * thread also satisfies with a capturing object when it answers a request a
- * request thread sent it.
- *
- * @internal
- */
 export interface ResponseSink {
   cork(callback: () => void): ResponseSink
   writeStatus(status: string): ResponseSink
@@ -111,18 +104,6 @@ export function sendEmpty(res: ResponseSink, status: number): void {
   })
 }
 
-/**
- * Writes a response the main thread produced for a request thread, as one
- * corked write for a small body and as a stream for a large one.
- *
- * @param res The response to write to.
- * @param abort The request's abort handle.
- * @param status The HTTP status to answer with.
- * @param headers Every header the main thread wrote.
- * @param body The body bytes.
- *
- * @internal
- */
 export function sendRelayed(
   res: ResponseSink,
   abort: ResponseAbort,

@@ -1,15 +1,22 @@
 from __future__ import annotations
 
 import json
+import time
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from typing import Callable, Iterable, Iterator, TypeVar
 
+import httpx
 import numpy as np
+
+from .types import EngineError
 
 T = TypeVar("T")
 
 _IN_FLIGHT_PER_CLIENT = 2
+IMPORT_BATCH_ATTEMPTS = 5
+IMPORT_RETRY_FIRST_DELAY_SECONDS = 2.0
+RETRYABLE_STATUS_CODES = frozenset({429, 502, 503, 504})
 JSON_CONTENT_TYPE = {"content-type": "application/json"}
 NDJSON_CONTENT_TYPE = {"content-type": "application/x-ndjson"}
 
@@ -49,12 +56,51 @@ def chunked(items: Iterable[T], size: int) -> Iterator[list[T]]:
         yield batch
 
 
+def retry_delays() -> Iterator[float]:
+    delay = IMPORT_RETRY_FIRST_DELAY_SECONDS
+    for _ in range(IMPORT_BATCH_ATTEMPTS - 1):
+        yield delay
+        delay *= 2
+
+
+def _transient(error: Exception) -> bool:
+    if isinstance(error, httpx.TransportError):
+        return True
+    return isinstance(error, EngineError) and error.status_code in RETRYABLE_STATUS_CODES
+
+
+def _with_retries(
+    send: Callable[[list[T]], BatchOutcome], resend: Callable[[list[T]], BatchOutcome]
+) -> Callable[[list[T]], BatchOutcome]:
+    def attempt(batch: list[T]) -> BatchOutcome:
+        deliver = send
+        for attempt_number, delay in enumerate(retry_delays(), start=1):
+            try:
+                return deliver(batch)
+            except (httpx.TransportError, EngineError) as error:
+                if not _transient(error):
+                    raise
+                print(
+                    f"import batch of {len(batch)} failed on attempt {attempt_number} of {IMPORT_BATCH_ATTEMPTS} "
+                    f"({error!r}); sending it again in {delay:g}s",
+                    flush=True,
+                )
+                time.sleep(delay)
+                deliver = resend
+        return resend(batch)
+
+    return attempt
+
+
 def import_batches(
     items: Iterable[T],
     batch_size: int,
     clients: int,
     send: Callable[[list[T]], BatchOutcome],
+    resend: Callable[[list[T]], BatchOutcome] | None = None,
 ) -> BatchOutcome:
+    if resend is not None:
+        send = _with_retries(send, resend)
     worker_count = max(1, clients)
     if worker_count == 1:
         return _total(send(batch) for batch in chunked(items, batch_size))

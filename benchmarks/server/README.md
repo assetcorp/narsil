@@ -56,7 +56,7 @@ track. The two dedicated vector databases run vector and hybrid.
 
 Every engine indexes the same dense vectors, but each engine runs its own keyword
 side for hybrid. Elasticsearch, OpenSearch, and Weaviate run BM25 over the text.
-Qdrant uses BM25 sparse vectors (fastembed `Qdrant/bm25`) with server-side IDF.
+Qdrant turns the raw text into BM25 sparse vectors on its own server (`qdrant/bm25`) with server-side IDF.
 Narsil runs its own BM25. Each engine implements its own fusion, so the table
 names the method per engine.
 
@@ -295,7 +295,7 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   sets, records ingest, recall, latency, and throughput, and its quality fields
   stay empty.
 - The vector and hybrid tracks run twice for every engine that serves them: once at
-  full float, and once under the engine's own recommended production quantisation,
+  full float, and once under the engine's own recommended production quantization,
   which `run-all.sh` names best config and writes to `engine-<name>-bestconfig.json`.
   Set `BENCH_BEST_CONFIG=0` to run the equal-precision pass alone.
 - For Narsil the harness also records how the server held the index it measured, read from

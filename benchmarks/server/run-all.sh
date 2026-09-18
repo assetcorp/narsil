@@ -12,7 +12,7 @@
 # BENCH_DATASETS on a sized machine and raise the caps. See docs/large-datasets.md.
 #
 # Vector/hybrid run at full float (equal precision) first, and every vector engine
-# then runs again under its own recommended production quantisation, producing a
+# then runs again under its own recommended production quantization, producing a
 # second, clearly-labeled best-config comparison. Set BENCH_BEST_CONFIG=0 to skip
 # that second pass.
 #

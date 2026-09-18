@@ -1,10 +1,11 @@
 import type { HNSWIndex } from '../hnsw'
-import { buildGraphFromStore, scheduleBuild } from './build'
+import { buildGraphFromStore, promoteToGraph, scheduleBuild } from './build'
 import { insertIntoGraph } from './build-host'
 import { ESTIMATED_MS_PER_TOMBSTONE, ESTIMATED_MS_PER_VECTOR_REBUILD } from './constants'
 import {
   adoptGraph,
   allLiveDocIds,
+  calibrateQuantizer,
   graphNeedsRebuild,
   liveSize,
   type MaintenanceStatus,
@@ -24,14 +25,14 @@ export function compact(state: VectorIndexState): void {
   for (const docId of state.tombstones) {
     state.store.remove(docId)
     state.buffer.delete(docId)
-    if (state.sq8) {
-      state.sq8.remove(docId)
+    if (state.osq) {
+      state.osq.remove(docId)
     }
   }
 
   state.tombstones.clear()
 
-  if (state.sq8?.isCalibrated() && state.store.size > 0) {
+  if (state.osq?.isCalibrated() && state.store.size > 0) {
     recalibrateFromStore(state)
   }
 }
@@ -43,7 +44,6 @@ async function insertMissing(state: VectorIndexState, graph: HNSWIndex): Promise
 
 async function foldIntoGraph(state: VectorIndexState): Promise<void> {
   const rebuildNeeded = graphNeedsRebuild(state)
-  const compactRecalibrates = state.tombstones.size > 0 && state.sq8?.isCalibrated() === true
 
   compact(state)
 
@@ -52,8 +52,8 @@ async function foldIntoGraph(state: VectorIndexState): Promise<void> {
     adoptGraph(state, null)
     if (previous !== null) dropSharedGraph(state, previous)
     state.buffer.clear()
-    if (state.sq8) {
-      state.sq8.clear()
+    if (state.osq) {
+      state.osq.clear()
     }
     return
   }
@@ -64,24 +64,20 @@ async function foldIntoGraph(state: VectorIndexState): Promise<void> {
   } else {
     await insertMissing(state, graph)
   }
-
-  if (state.sq8 && state.store.size > 0 && !compactRecalibrates) {
-    recalibrateFromStore(state)
-  }
 }
 
-export async function optimize(state: VectorIndexState): Promise<void> {
+async function buildExclusively(state: VectorIndexState, work: () => Promise<void>): Promise<void> {
   while (state.pendingBuild) {
     await state.pendingBuild
   }
   if (state.disposed) return
 
   state.building = true
-  const work = foldIntoGraph(state)
-  state.pendingBuild = work
+  const run = work()
+  state.pendingBuild = run
 
   try {
-    await work
+    await run
   } finally {
     state.building = false
     state.pendingBuild = null
@@ -89,6 +85,28 @@ export async function optimize(state: VectorIndexState): Promise<void> {
       scheduleBuild(state)
     }
   }
+}
+
+export function optimize(state: VectorIndexState): Promise<void> {
+  return buildExclusively(state, () => foldIntoGraph(state))
+}
+
+async function fillGraph(state: VectorIndexState): Promise<void> {
+  const graph = state.hnsw
+  if (graph === null) {
+    if (liveSize(state) >= state.promotionThreshold) await promoteToGraph(state)
+    return
+  }
+  if (state.osq && !state.osq.isCalibrated()) calibrateQuantizer(state)
+  if (graphNeedsRebuild(state)) {
+    await buildGraphFromStore(state)
+    return
+  }
+  await insertMissing(state, graph)
+}
+
+export function completeGraph(state: VectorIndexState): Promise<void> {
+  return buildExclusively(state, () => fillGraph(state))
 }
 
 export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {

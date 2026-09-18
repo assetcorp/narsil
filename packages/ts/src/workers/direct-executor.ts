@@ -9,7 +9,7 @@ import { createPartitionRouter } from '../partitioning/router'
 import { extractVectorFieldsFromSchema } from '../schema/validator'
 import type { FulltextSearchOptions } from '../search/fulltext'
 import type { LanguageModule } from '../types/language'
-import type { IndexConfig } from '../types/schema'
+import type { IndexConfig, VectorStorageMode } from '../types/schema'
 import {
   createVectorIndex,
   type VectorIndex,
@@ -29,11 +29,6 @@ import {
   loadHeldVectorCopy,
 } from './vector-copies'
 
-/**
- * What a query on this thread's copy of an index runs against.
- *
- * @internal
- */
 export interface IndexQueryContext {
   manager: PartitionManager
   config: IndexConfig
@@ -60,6 +55,8 @@ export interface DirectExecutorOptions {
   vectorWorkerCopies?: VectorWorkerCopyPolicy
   /** The thread writes into this scratch slot inside every vector block it opens, and it takes the same slot in every graph's lock record. */
   threadSlot?: number
+  /** A vector field whose configuration names no storage keeps its full-precision vectors here. */
+  vectorStorage?: VectorStorageMode
 }
 
 interface IndexEntry {
@@ -78,6 +75,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
   const indexes = new Map<string, IndexEntry>()
   const vectorWorkerCopies = options?.vectorWorkerCopies ?? NO_VECTOR_WORKER_COPIES
   const threadSlot = options?.threadSlot ?? 0
+  const vectorStorage: VectorStorageMode = options?.vectorStorage ?? 'memory'
 
   function requireIndex(indexName: string): IndexEntry {
     const entry = indexes.get(indexName)
@@ -94,7 +92,14 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
     for (const [fieldPath, dim] of extractVectorFieldsFromSchema(config.schema)) {
       vectorIndexes.set(
         fieldPath,
-        createVectorIndex(fieldPath, dim, config.vectorPromotion, vectorWorkerCopies, indexName),
+        createVectorIndex(
+          fieldPath,
+          dim,
+          config.vectorPromotion,
+          vectorWorkerCopies,
+          indexName,
+          config.vectorPromotion?.storage ?? vectorStorage,
+        ),
       )
     }
     return vectorIndexes

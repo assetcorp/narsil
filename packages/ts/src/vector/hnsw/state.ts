@@ -1,4 +1,4 @@
-import type { QuantizerSearchReader } from '../scalar-quantization-types'
+import type { QuantizerBuildReader } from '../osq/types'
 import { fixedView } from '../shared-buffers/growable'
 import type { VectorBuildReader } from '../vector-store'
 import { openAdjacency } from './adjacency'
@@ -7,26 +7,11 @@ import { openGraphLocks } from './locks'
 import type { HNSWGraphState } from './shared'
 import { createHNSWWorkspace } from './workspace'
 
-/**
- * Opens a graph on the current thread, over the readers the thread already
- * holds for the field's vectors and codes.
- *
- * @param handles The graph to open.
- * @param dimension The number of components per vector.
- * @param store The thread's reader over the field's vectors.
- * @param quantizer The thread's reader over the field's codes, or undefined
- * where the field is not quantised.
- * @param threadSlot This thread's slot in the lock record.
- * @returns The state every search and insertion on this thread reads and
- * writes.
- *
- * @internal
- */
 export function openGraphState(
   handles: SharedGraphHandles,
   dimension: number,
   store: VectorBuildReader,
-  quantizer: QuantizerSearchReader | undefined,
+  quantizer: QuantizerBuildReader | undefined,
   threadSlot: number,
 ): HNSWGraphState {
   const shape = graphShapeOf(handles.header)

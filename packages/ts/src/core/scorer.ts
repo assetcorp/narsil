@@ -25,6 +25,32 @@ export function bm25PruningSound(params?: BM25Params): boolean {
   return Number.isFinite(k1) && k1 >= 0 && b >= 0 && b <= 1
 }
 
+export interface ResolvedBM25Params {
+  k1: number
+  b: number
+}
+
+export function resolveBM25Params(params?: BM25Params): ResolvedBM25Params {
+  return { k1: params?.k1 ?? DEFAULT_K1, b: params?.b ?? DEFAULT_B }
+}
+
+export function computeBM25WithIDF(
+  termFrequency: number,
+  idf: number,
+  fieldLength: number,
+  avgFieldLength: number,
+  k1: number,
+  b: number,
+): number {
+  if (avgFieldLength === 0) return 0
+
+  const numerator = termFrequency * (k1 + 1)
+  const denominator = termFrequency + k1 * (1 - b + (b * fieldLength) / avgFieldLength)
+
+  if (denominator === 0) return 0
+  return idf * (numerator / denominator)
+}
+
 export function computeBM25(
   termFrequency: number,
   docFrequency: number,
@@ -34,17 +60,9 @@ export function computeBM25(
   params?: BM25Params,
 ): number {
   if (totalDocs === 0) return 0
-  if (avgFieldLength === 0) return 0
-
   const k1 = params?.k1 ?? DEFAULT_K1
   const b = params?.b ?? DEFAULT_B
-
-  const idf = computeIDF(docFrequency, totalDocs)
-  const numerator = termFrequency * (k1 + 1)
-  const denominator = termFrequency + k1 * (1 - b + (b * fieldLength) / avgFieldLength)
-
-  if (denominator === 0) return 0
-  return idf * (numerator / denominator)
+  return computeBM25WithIDF(termFrequency, computeIDF(docFrequency, totalDocs), fieldLength, avgFieldLength, k1, b)
 }
 
 export function computeBM25WithGlobalStats(

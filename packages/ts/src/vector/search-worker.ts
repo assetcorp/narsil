@@ -23,7 +23,7 @@ export type { VectorMetric } from './brute-force'
 export type { HNSWSnapshot } from './hnsw'
 export type { SharedGraphHandles } from './hnsw/handles'
 export type { OrdinalFilter } from './ordinal-filter'
-export type { ScalarQuantizerCalibration } from './scalar-quantization-types'
+export type { OsqBits } from './osq'
 export type {
   SharedFieldLoadRequest,
   VectorAckResponse,
@@ -43,9 +43,10 @@ export type { GrowableBuffer } from './shared-buffers/growable'
 export type { GraphInsertOutcome, SharedVectorFieldHandles } from './shared-field/types'
 export type { ArenaSimd } from './simd'
 export type { VectorStoreSnapshot } from './vector-store'
-export type { VectorBlockHandle, VectorBlockLayout, VectorBlockStorage } from './vector-store/blocks'
+export type { BlockGeometry, VectorBlockHandle, VectorBlockLayout, VectorBlockStorage } from './vector-store/blocks'
+export type { VectorCodeBlockLayout } from './vector-store/code-blocks'
 export type { SharedVectorStoreHandles } from './vector-store/handles'
-export type { WorkerCopySnapshot } from './worker-copy'
+export type { WorkerCopyCodes, WorkerCopySnapshot } from './worker-copy'
 
 type LoadedCopy = { kind: 'clone'; copy: WorkerCopy } | { kind: 'shared'; view: SharedVectorFieldView }
 
@@ -75,6 +76,8 @@ function handleLoadShared(request: SharedFieldLoadRequest): VectorAckResponse {
 }
 
 function handleDrop(request: VectorDropRequest): VectorAckResponse {
+  const held = copies.get(request.handle)
+  if (held?.kind === 'shared') held.view.close()
   copies.delete(request.handle)
   return { type: 'ack', requestId: request.requestId, handle: request.handle }
 }
@@ -110,14 +113,11 @@ function handleSearch(request: VectorSearchRequest): VectorSearchResponse {
     throw new Error(`Handle ${request.handle} holds a shared field, which answers ordinal searches alone`)
   }
 
-  const hits = entry.copy.graph.search(
-    request.query,
-    request.k,
-    request.metric,
-    request.minSimilarity,
-    request.filter,
-    request.efSearch,
-  )
+  const hits = entry.copy.graph.search(request.query, request.k, request.metric, request.minSimilarity, {
+    filter: request.filter,
+    efSearch: request.efSearch,
+    oversample: request.oversample,
+  })
 
   const docIds: string[] = []
   const scores = new Float64Array(hits.length)
@@ -138,14 +138,11 @@ function handleSearchOrdinals(request: VectorOrdinalSearchRequest): VectorOrdina
     throw new Error(`Handle ${request.handle} holds a cloned copy, which answers document id searches alone`)
   }
 
-  const hits = entry.view.searchOrdinals(
-    request.query,
-    request.k,
-    request.metric,
-    request.minSimilarity,
-    request.filter,
-    request.efSearch,
-  )
+  const hits = entry.view.searchOrdinals(request.query, request.k, request.metric, request.minSimilarity, {
+    filter: request.filter,
+    efSearch: request.efSearch,
+    oversample: request.oversample,
+  })
 
   const ordinals = new Uint32Array(hits.length)
   const scores = new Float64Array(hits.length)

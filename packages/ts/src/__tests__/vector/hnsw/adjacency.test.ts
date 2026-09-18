@@ -131,6 +131,58 @@ describe('flat adjacency', () => {
     expect(adjacencySlots(reader)).toBe(300)
   })
 
+  it('keeps the neighbour arrays covering every node level when another thread grows the graph in the middle of a growth', () => {
+    const handles = createSharedGraphHandles({ m: M, mMax0: MMAX0, efConstruction: 100, metric: 'cosine' })
+    const placer = openAdjacency(handles, M, MMAX0)
+    const other = openAdjacency(handles, M, MMAX0)
+    const byteLengthOf = Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, 'byteLength')?.get
+    expect(byteLengthOf).toBeDefined()
+    if (byteLengthOf === undefined) return
+    const originalGrow = SharedArrayBuffer.prototype.grow
+    let level0Grown = false
+    let otherGrew = false
+    Object.defineProperty(handles.level0, 'grow', {
+      configurable: true,
+      value(this: SharedArrayBuffer, target: number) {
+        level0Grown = true
+        return originalGrow.call(this, target)
+      },
+    })
+    Object.defineProperty(handles.nodeLevels, 'byteLength', {
+      configurable: true,
+      get(this: SharedArrayBuffer) {
+        const held = byteLengthOf.call(this) as number
+        if (level0Grown && !otherGrew) {
+          otherGrew = true
+          createNode(other, held, 0)
+        }
+        return held
+      },
+    })
+
+    createNode(placer, 16, 0)
+
+    expect(otherGrew).toBe(true)
+    const levels = new Uint8Array(handles.nodeLevels)
+    const nodesInLevel0 = byteLengthOf.call(handles.level0) / (MMAX0 + 2) / 4
+    const nodesInUpperBase = byteLengthOf.call(handles.upperBase) / 4
+    expect(nodesInLevel0).toBeGreaterThanOrEqual(levels.length)
+    expect(nodesInUpperBase).toBeGreaterThanOrEqual(levels.length)
+  })
+
+  it('grows the graph no further when a view that fell behind needs a node the buffers already cover', () => {
+    const handles = createSharedGraphHandles({ m: M, mMax0: MMAX0, efConstruction: 100, metric: 'cosine' })
+    const behind = openAdjacency(handles, M, MMAX0)
+    const ahead = openAdjacency(handles, M, MMAX0)
+    createNode(ahead, 600, 0)
+    const grownTo = handles.nodeLevels.byteLength
+
+    createNode(behind, 20, 0)
+
+    expect(handles.nodeLevels.byteLength).toBe(grownTo)
+    expect(nodeLevel(behind, 600)).toBe(0)
+  })
+
   it('separates the blocks of two nodes at the same level', () => {
     const adj = newAdjacency()
     createNode(adj, 0, 2)

@@ -1,15 +1,15 @@
 import type { VectorMetric } from '../brute-force'
-import type { HNSWIndex } from '../hnsw'
-import type { OrdinalFilter } from '../ordinal-filter'
+import type { GraphSearchOptions, HNSWIndex } from '../hnsw'
 import { acquireVectorSearchPool, releaseVectorSearchPool } from '../search-pool'
 import { sharedMemoryAvailable } from '../shared-buffers/growable'
-import type { WorkerCopySnapshot } from '../worker-copy'
+import type { WorkerCopyCodes, WorkerCopySnapshot } from '../worker-copy'
 import { WORKER_COPY_MIN_VECTORS } from './constants'
 import {
   assignStorePartitions,
   fieldHandlesOf,
   liveSize,
   type SharedCopyHost,
+  threadsHoldCurrentLayout,
   type VectorIndexState,
   type VectorScoredResult,
   type WorkerCopyMode,
@@ -22,16 +22,6 @@ function nextHandle(state: VectorIndexState): string {
   return `${state.indexName}/${state.fieldName}#${handleCounter}`
 }
 
-/**
- * Reports the handle the threads know a graph by, or null where they hold
- * none.
- *
- * @param state The index the graph belongs to.
- * @param graph The graph to ask about, or null for the vectors alone.
- * @returns The handle, or null where no thread holds it.
- *
- * @internal
- */
 export function sharedHandleOf(state: VectorIndexState, graph: HNSWIndex | null): string | null {
   return state.sharedHandles.get(graph)?.handle ?? null
 }
@@ -49,14 +39,6 @@ async function dropHandle(state: VectorIndexState, handle: string): Promise<void
   }
 }
 
-/**
- * Withdraws a graph from every thread that holds it.
- *
- * @param state The index the graph belongs to.
- * @param graph The graph to withdraw, or null for the vectors alone.
- *
- * @internal
- */
 export function dropSharedGraph(state: VectorIndexState, graph: HNSWIndex | null): void {
   const shared = state.sharedHandles.get(graph)
   if (shared === undefined) return
@@ -69,14 +51,6 @@ export function dropSharedGraph(state: VectorIndexState, graph: HNSWIndex | null
   void dropHandle(state, shared.handle)
 }
 
-/**
- * Withdraws every copy the threads hold, which a cloned copy needs after any
- * write, and which a shared field needs once the threads holding it are gone.
- *
- * @param state The index whose copies to withdraw.
- *
- * @internal
- */
 export function invalidateWorkerCopies(state: VectorIndexState): void {
   state.revision += 1
   for (const graph of [...state.sharedHandles.keys()]) dropSharedGraph(state, graph)
@@ -92,14 +66,6 @@ export function invalidateWorkerCopies(state: VectorIndexState): void {
   }
 }
 
-/**
- * Notes a write to the field, withdrawing a cloned copy, while a shared field
- * goes on serving because the threads read the write in place.
- *
- * @param state The index the write reached.
- *
- * @internal
- */
 export function noteWrite(state: VectorIndexState): void {
   state.revision += 1
   if (state.workerCopyMode === 'clone') invalidateWorkerCopies(state)
@@ -116,13 +82,13 @@ interface SharedFieldRecord {
   searchable: boolean
   mode: WorkerCopyMode
   revision: number
-  blockCount: number
+  layoutRevision: number
 }
 
 function recordSharedField(state: VectorIndexState, record: SharedFieldRecord): void {
-  const { graph, handle, searchable, mode, revision, blockCount } = record
+  const { graph, handle, searchable, mode, revision, layoutRevision } = record
   state.sharedHandles.set(graph, { handle, searchable, mode })
-  state.sharedBlockCount = blockCount
+  state.sharedLayoutRevision = layoutRevision
   if (!searchable) return
   state.workerCopyHandle = handle
   state.workerCopyRevision = revision
@@ -140,7 +106,7 @@ async function loadOnHost(
     assignStorePartitions(state, docId => host.resolvePartition(state.indexName, docId))
   }
   const handle = state.sharedHandles.get(graph)?.handle ?? nextHandle(state)
-  const blockCount = state.store.handles.blocks.length
+  const layoutRevision = state.store.handles.layoutRevision
   let loaded = false
   try {
     loaded = await host.loadShared(state.indexName, state.fieldName, handle, fieldHandlesOf(state, graph, searchable))
@@ -148,15 +114,35 @@ async function loadOnHost(
     loaded = false
   }
   if (!loaded || state.disposed) return null
-  recordSharedField(state, { graph, handle, searchable, mode: 'hosted', revision: state.revision, blockCount })
+  recordSharedField(state, { graph, handle, searchable, mode: 'hosted', revision: state.revision, layoutRevision })
   return handle
+}
+
+function captureCloneCodes(state: VectorIndexState): WorkerCopyCodes | null {
+  const quantizer = state.osq
+  const centroid = quantizer?.centroid ?? null
+  const layout = state.store.handles.codeLayout
+  if (quantizer === null || centroid === null || layout === null) return null
+  const slots = state.store.slots
+  const records = new Uint8Array(slots * layout.slotStride)
+  const present = new Uint8Array(slots)
+  for (let ordinal = 0; ordinal < slots; ordinal++) {
+    const docId = state.store.docIdForOrdinal(ordinal)
+    if (docId === undefined) continue
+    const record = quantizer.recordOf(docId)
+    if (record === undefined) continue
+    records.set(record, ordinal * layout.slotStride)
+    present[ordinal] = 1
+  }
+  return { centroid: Float32Array.from(centroid), records, present }
 }
 
 function captureCloneSnapshot(state: VectorIndexState, graph: HNSWIndex): WorkerCopySnapshot {
   return {
     dimension: state.dimension,
     quantization: state.quantizationMode,
-    calibration: state.sq8?.calibration ?? null,
+    metric: state.metric,
+    codes: captureCloneCodes(state),
     store: state.store.exportSnapshot(),
     graph: graph.exportSnapshot(),
     tombstones: Array.from(state.tombstones),
@@ -182,7 +168,7 @@ async function loadOnPool(
   state.workerCopyPool = pool
 
   const handle = state.sharedHandles.get(graph)?.handle ?? nextHandle(state)
-  const blockCount = state.store.handles.blocks.length
+  const layoutRevision = state.store.handles.layoutRevision
   let mode: 'shared' | 'clone' = 'shared'
   let loaded = false
   try {
@@ -200,22 +186,10 @@ async function loadOnPool(
     await pool.drop(handle).catch(() => undefined)
     return null
   }
-  recordSharedField(state, { graph, handle, searchable, mode, revision, blockCount })
+  recordSharedField(state, { graph, handle, searchable, mode, revision, layoutRevision })
   return handle
 }
 
-/**
- * Sends a graph to the threads holding the field, and sends it again where
- * the store gained a block or the graph became searchable, reporting the
- * handle those threads know it by.
- *
- * @param state The index the graph belongs to.
- * @param graph The graph to share.
- * @param searchable Whether the threads answer searches from it.
- * @returns The handle, or null where no thread could take it.
- *
- * @internal
- */
 export function shareGraph(
   state: VectorIndexState,
   graph: HNSWIndex | null,
@@ -224,8 +198,8 @@ export function shareGraph(
   const run = state.sharing.then(async () => {
     if (!state.workerCopies.enabled || state.disposed) return null
     const existing = state.sharedHandles.get(graph)
-    const blocksUnchanged = state.sharedBlockCount === state.store.handles.blocks.length
-    if (existing !== undefined && blocksUnchanged && (existing.searchable || !searchable)) return existing.handle
+    const layoutUnchanged = threadsHoldCurrentLayout(state)
+    if (existing !== undefined && layoutUnchanged && (existing.searchable || !searchable)) return existing.handle
     const host = state.workerCopies.host
     return host !== undefined ? loadOnHost(state, host, graph, searchable) : loadOnPool(state, graph, searchable)
   })
@@ -236,14 +210,22 @@ export function shareGraph(
   return run
 }
 
-/**
- * Sends the graph the index answers from to the threads holding the field,
- * once the index holds a graph and no build is in flight.
- *
- * @param state The index to share.
- *
- * @internal
- */
+export function resendSharedHandles(state: VectorIndexState): Promise<void> {
+  const run = state.sharing.then(async () => {
+    if (!state.workerCopies.enabled || state.disposed) return
+    const host = state.workerCopies.host
+    for (const [graph, shared] of [...state.sharedHandles]) {
+      if (host !== undefined) await loadOnHost(state, host, graph, shared.searchable)
+      else await loadOnPool(state, graph, shared.searchable)
+    }
+  })
+  state.sharing = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
 export function scheduleWorkerCopyLoad(state: VectorIndexState): void {
   if (!state.workerCopies.enabled) return
   if (state.disposed || state.workerCopyLoading || state.building) return
@@ -251,7 +233,7 @@ export function scheduleWorkerCopyLoad(state: VectorIndexState): void {
   const host = state.workerCopies.host
   if (graph === null && host === undefined) return
   const existing = state.sharedHandles.get(graph)
-  if (existing?.searchable && state.sharedBlockCount === state.store.handles.blocks.length) return
+  if (existing?.searchable && threadsHoldCurrentLayout(state)) return
   if (host === undefined && liveSize(state) < WORKER_COPY_MIN_VECTORS) return
 
   state.workerCopyLoading = true
@@ -271,8 +253,7 @@ export async function searchViaWorkerCopies(
   k: number,
   metric: VectorMetric,
   minSimilarity: number,
-  efSearch?: number,
-  filter?: OrdinalFilter,
+  options: GraphSearchOptions,
 ): Promise<VectorScoredResult[] | null> {
   const pool = state.workerCopyPool
   const handle = state.workerCopyHandle
@@ -281,7 +262,7 @@ export async function searchViaWorkerCopies(
 
   try {
     if (state.workerCopyMode === 'shared') {
-      const outcome = await pool.searchOrdinals(handle, query, k, metric, minSimilarity, efSearch, filter)
+      const outcome = await pool.searchOrdinals(handle, query, k, metric, minSimilarity, options)
       const results: VectorScoredResult[] = []
       for (let i = 0; i < outcome.ordinals.length; i++) {
         const docId = state.store.docIdForOrdinal(outcome.ordinals[i])
@@ -290,7 +271,7 @@ export async function searchViaWorkerCopies(
       }
       return results
     }
-    return await pool.search(handle, query, k, metric, minSimilarity, efSearch, filter)
+    return await pool.search(handle, query, k, metric, minSimilarity, options)
   } catch {
     return null
   }
