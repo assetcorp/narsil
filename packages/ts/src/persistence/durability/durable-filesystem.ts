@@ -73,7 +73,7 @@ async function writeFully(handle: FileHandle, buffer: Uint8Array, key: string): 
     if (bytesWritten <= 0) {
       throw new NarsilError(
         ErrorCodes.PERSISTENCE_SAVE_FAILED,
-        `Write to "${key}" made no progress; the snapshot would be truncated and is not acknowledged`,
+        `Write to "${key}" made no progress; the file would be truncated and the write is not acknowledged`,
         { key, written: offset, total: buffer.length },
       )
     }
@@ -132,7 +132,7 @@ export function createDurableDirectory(root: string): DurableDirectory {
 
       return {
         async append(bytes: Uint8Array): Promise<void> {
-          await handle.write(bytes)
+          await writeFully(handle, bytes, key)
         },
         async sync(): Promise<void> {
           try {

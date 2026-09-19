@@ -33,6 +33,8 @@ export interface HNSWWorkspace {
   working: DistanceList
   /** The neighbours a new node takes on each layer, indexed by layer. */
   linkSelections: DistanceList[]
+  /** The candidates the native search core found for a new node on each layer, indexed by layer. */
+  placementCandidates: DistanceList[]
   /** The neighbours of the node whose list is over its cap. */
   pruneCandidates: DistanceList
   /** The neighbours that node keeps. */
@@ -60,11 +62,18 @@ export function createHNSWWorkspace(): HNSWWorkspace {
     traversal: createList(INITIAL_LIST_CAPACITY),
     working: createList(INITIAL_LIST_CAPACITY),
     linkSelections: [],
+    placementCandidates: [],
     pruneCandidates: createList(INITIAL_LIST_CAPACITY),
     pruneSelection: createList(INITIAL_LIST_CAPACITY),
     repairCandidates: createList(INITIAL_LIST_CAPACITY),
     repairSelection: createList(INITIAL_LIST_CAPACITY),
   }
+}
+
+export function placementCandidatesFor(workspace: HNSWWorkspace, layers: number): DistanceList[] {
+  const candidates = workspace.placementCandidates
+  while (candidates.length < layers) candidates.push(createList(INITIAL_LIST_CAPACITY))
+  return candidates
 }
 
 export function linkSelectionsFor(workspace: HNSWWorkspace, layers: number): DistanceList[] {

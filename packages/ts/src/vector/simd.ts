@@ -136,10 +136,12 @@ export interface ArenaSimd {
   dot_u8: (ptrA: number, ptrB: number, len: number) => number
   /** Returns the integer squared distance between two byte code vectors at the given byte offsets. */
   sqdist_u8: (ptrA: number, ptrB: number, len: number) => number
-  /** Returns the sum of level products of two plane-packed codes at the given byte offsets, weighting the set bits of document plane j and query plane p by two to the power j plus p. */
-  osq_dot_planes: (ptrDoc: number, ptrQuery: number, planeBytes: number, docBits: number, queryBits: number) => number
-  /** Returns the sum that `osq_dot_planes` returns for a four-plane document and a four-plane query, reading all eight planes of each 16-byte span in one pass. */
-  osq_dot_planes_4x4: (ptrDoc: number, ptrQuery: number, planeBytes: number) => number
+  /** Returns the sum of level products of two 4-bit codes at the given byte offsets, each holding two levels per byte. */
+  osq_dot_nibbles_4x4: (ptrA: number, ptrB: number, bytes: number) => number
+  /** Returns the sum of level products of a 1-bit or 2-bit code and a query staged as four bit planes, each plane spanning `planeBytes` with its bits at the positions of the code's lowest level bits. */
+  osq_dot_bits: (ptrDoc: number, ptrPlanes: number, planeBytes: number, docBits: number) => number
+  /** Returns the sum of level products of two 1-bit codes or two 2-bit codes at the given byte offsets. */
+  osq_dot_bits_pair: (ptrA: number, ptrB: number, bytes: number, bits: number) => number
 }
 
 let arenaModule: WebAssembly.Module | null | undefined
@@ -173,8 +175,9 @@ export function createArenaSimd(): ArenaSimd | null {
     if (
       typeof exports.dot_u8 !== 'function' ||
       typeof exports.sqdist_u8 !== 'function' ||
-      typeof exports.osq_dot_planes !== 'function' ||
-      typeof exports.osq_dot_planes_4x4 !== 'function' ||
+      typeof exports.osq_dot_nibbles_4x4 !== 'function' ||
+      typeof exports.osq_dot_bits !== 'function' ||
+      typeof exports.osq_dot_bits_pair !== 'function' ||
       typeof exports.dot_product !== 'function' ||
       typeof exports.magnitude !== 'function' ||
       typeof exports.squared_euclidean_distance !== 'function' ||
@@ -219,8 +222,9 @@ export function createSharedArenaSimd(memory: WebAssembly.Memory): ArenaSimd | n
     if (
       typeof exports.dot_u8 !== 'function' ||
       typeof exports.sqdist_u8 !== 'function' ||
-      typeof exports.osq_dot_planes !== 'function' ||
-      typeof exports.osq_dot_planes_4x4 !== 'function' ||
+      typeof exports.osq_dot_nibbles_4x4 !== 'function' ||
+      typeof exports.osq_dot_bits !== 'function' ||
+      typeof exports.osq_dot_bits_pair !== 'function' ||
       typeof exports.dot_product !== 'function' ||
       typeof exports.magnitude !== 'function' ||
       typeof exports.squared_euclidean_distance !== 'function'
@@ -234,8 +238,9 @@ export function createSharedArenaSimd(memory: WebAssembly.Memory): ArenaSimd | n
       squared_euclidean_distance: exports.squared_euclidean_distance,
       dot_u8: exports.dot_u8,
       sqdist_u8: exports.sqdist_u8,
-      osq_dot_planes: exports.osq_dot_planes,
-      osq_dot_planes_4x4: exports.osq_dot_planes_4x4,
+      osq_dot_nibbles_4x4: exports.osq_dot_nibbles_4x4,
+      osq_dot_bits: exports.osq_dot_bits,
+      osq_dot_bits_pair: exports.osq_dot_bits_pair,
     }
   } catch {
     return null

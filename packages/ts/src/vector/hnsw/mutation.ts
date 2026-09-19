@@ -1,3 +1,5 @@
+import { nativeFieldFor, nativeServesWalk } from '../native/field'
+import { nativePlacementCandidates } from '../native/walk'
 import { fixedView } from '../shared-buffers/growable'
 import {
   addNeighbor,
@@ -28,7 +30,13 @@ import {
   reachTombstone,
   topLayerOf,
 } from './shared'
-import { appendToList, linkSelectionsFor, setEntryPointsFromList, setSingleEntryPoint } from './workspace'
+import {
+  appendToList,
+  linkSelectionsFor,
+  placementCandidatesFor,
+  setEntryPointsFromList,
+  setSingleEntryPoint,
+} from './workspace'
 
 function clearTombstone(state: HNSWGraphState, ord: number): void {
   if (reachTombstone(state, ord) && Atomics.compareExchange(state.tombstones, ord, 1, 0) === 1) {
@@ -91,12 +99,43 @@ function placementDistance(state: HNSWGraphState, ord: number, vector: Float32Ar
   return candOrd => nodeDistanceByOrd(state, ord, candOrd, metric)
 }
 
+function selectNeighborsFromNativeCandidates(
+  state: HNSWGraphState,
+  ord: number,
+  level: number,
+  vector: Float32Array,
+): number | null {
+  const field = nativeFieldFor(state)
+  if (field === null || !nativeServesWalk(field)) return null
+  const workspace = state.workspace
+  const candidates = placementCandidatesFor(workspace, level + 1)
+  const linkTop = nativePlacementCandidates(
+    state,
+    field,
+    vector,
+    state.buildMetric,
+    ord,
+    level,
+    state.efCons,
+    candidates,
+  )
+  if (linkTop === null) return null
+  const selections = linkSelectionsFor(workspace, linkTop + 1)
+  const distance = nodeDistanceFunction(state, state.buildMetric)
+  for (let layer = linkTop; layer >= 0; layer--) {
+    selectNeighborsHeuristic(state, candidates[layer], maxConns(state, layer), distance, selections[layer])
+  }
+  return linkTop
+}
+
 function selectNeighborsPerLayer(state: HNSWGraphState, ord: number, level: number): number {
   const metric = state.buildMetric
   const workspace = state.workspace
   const candidates = workspace.traversal
   const entry = state.store.entryForOrdinal(ord)
   if (entry === undefined) return -1
+  const nativeLinkTop = selectNeighborsFromNativeCandidates(state, ord, level, entry.vector)
+  if (nativeLinkTop !== null) return nativeLinkTop
   const insertDistFn = placementDistance(state, ord, entry.vector)
   const topLayer = topLayerOf(state)
   setSingleEntryPoint(workspace, entryPointOf(state))

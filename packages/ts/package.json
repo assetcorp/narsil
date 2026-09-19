@@ -38,6 +38,10 @@
     "#platform/vector-file": {
       "browser": "./src/vector/vector-store/vector-file.browser.ts",
       "default": "./src/vector/vector-store/vector-file.ts"
+    },
+    "#platform/native-core": {
+      "browser": "./src/vector/native/loader.browser.ts",
+      "default": "./src/vector/native/loader.ts"
     }
   },
   "sideEffects": false,

@@ -14,6 +14,7 @@ import {
   resetGraph,
 } from './mutation'
 import { deserializeGraph, serializeGraph } from './persistence'
+import { searchScratchBytes } from './scratch-bytes'
 import { type GraphSearchOptions, search as searchOp } from './search'
 import {
   entryPointOf,
@@ -48,6 +49,12 @@ export interface HNSWIndex {
    * the lock words, and the tombstone bytes.
    */
   readonly graphBytes: number
+  /**
+   * The bytes this thread holds to search the graph: the visited marks and the
+   * candidate lists of the search backend in use, which is the native search
+   * core's workspace where the core serves the graph.
+   */
+  readonly searchScratchBytes: number
   /** Another thread opens these shared structures to search or extend this graph in place. */
   readonly handles: SharedGraphHandles
 
@@ -179,6 +186,9 @@ export function createHNSWIndex(
     },
     get graphBytes() {
       return graphBytes(state.adjacency)
+    },
+    get searchScratchBytes() {
+      return searchScratchBytes(state)
     },
     get handles() {
       return shared

@@ -20,23 +20,63 @@ export function osqLevelProducts(a: Uint8Array, b: Uint8Array): number {
   return total
 }
 
-export function osqPackedLevelProducts(
-  document: Uint8Array,
-  documentOffset: number,
-  documentBits: number,
-  query: Uint8Array,
-  queryOffset: number,
-  queryBits: number,
-  planeBytes: number,
+const LEVEL_BIT_MASK: Readonly<Record<1 | 2, number>> = { 1: 0xff, 2: 0x55 }
+const STAGED_QUERY_PLANES = 4
+
+export function osqNibbleProducts(
+  a: Uint8Array,
+  aOffset: number,
+  b: Uint8Array,
+  bOffset: number,
+  bytes: number,
 ): number {
   let total = 0
+  for (let n = 0; n < bytes; n++) {
+    const left = a[aOffset + n]
+    const right = b[bOffset + n]
+    total += (left & 15) * (right & 15) + (left >> 4) * (right >> 4)
+  }
+  return total
+}
+
+export function osqStagedPlaneProducts(
+  document: Uint8Array,
+  documentOffset: number,
+  documentBits: 1 | 2,
+  planes: Uint8Array,
+  planesOffset: number,
+  planeBytes: number,
+): number {
+  const mask = LEVEL_BIT_MASK[documentBits]
+  let total = 0
   for (let j = 0; j < documentBits; j++) {
-    const documentPlane = documentOffset + j * planeBytes
-    for (let p = 0; p < queryBits; p++) {
-      const queryPlane = queryOffset + p * planeBytes
+    for (let p = 0; p < STAGED_QUERY_PLANES; p++) {
+      const plane = planesOffset + p * planeBytes
       let bitsSet = 0
-      for (let n = 0; n < planeBytes; n++) bitsSet += POPCOUNT[document[documentPlane + n] & query[queryPlane + n]]
+      for (let n = 0; n < planeBytes; n++) {
+        bitsSet += POPCOUNT[(document[documentOffset + n] >> j) & mask & planes[plane + n]]
+      }
       total += 2 ** (j + p) * bitsSet
+    }
+  }
+  return total
+}
+
+export function osqNarrowPairProducts(
+  a: Uint8Array,
+  aOffset: number,
+  b: Uint8Array,
+  bOffset: number,
+  bits: 1 | 2,
+  bytes: number,
+): number {
+  const mask = LEVEL_BIT_MASK[bits]
+  let total = 0
+  for (let j = 0; j < bits; j++) {
+    for (let l = 0; l < bits; l++) {
+      let bitsSet = 0
+      for (let n = 0; n < bytes; n++) bitsSet += POPCOUNT[(a[aOffset + n] >> j) & (b[bOffset + n] >> l) & mask]
+      total += 2 ** (j + l) * bitsSet
     }
   }
   return total

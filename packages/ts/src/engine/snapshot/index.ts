@@ -15,10 +15,24 @@ import { decodeVectorIndexParts } from '../../vector/vector-index/payload'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
 import type { StaleIndex } from '../analysis-rebuild'
+import { BATCH_CHUNK_SIZE } from '../constants'
 import type { IndexRegistryEntry } from '../core'
-import type { DurabilityIntegration } from '../durability-integration'
+import type { DurabilityIntegration, DurableInsert } from '../durability-integration'
 import type { IndexStateCoordinator } from '../index-state'
 import { restoredConfigFields, restoredEmbedding, type SnapshotEnvelope } from './restore-config'
+
+async function recordRestoredDocuments(
+  durability: DurabilityIntegration,
+  indexName: string,
+  restored: readonly DurableInsert[],
+): Promise<void> {
+  if (restored.length === 0) return
+  for (const outcome of await durability.recordInsertOrUpdateBatch(indexName, restored)) {
+    if (!outcome.ok) {
+      throw outcome.error
+    }
+  }
+}
 
 export async function createSnapshot(manager: PartitionManager, entry: IndexRegistryEntry): Promise<Uint8Array> {
   if (entry.config.tokenizer !== undefined && typeof entry.config.tokenizer !== 'string') {
@@ -246,12 +260,17 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
 
     if (deps.durability) {
       for (let partitionId = 0; partitionId < manager.partitionCount; partitionId++) {
+        let restored: DurableInsert[] = []
         for (const docId of manager.getPartition(partitionId).docIds()) {
           const document = manager.get(docId)
-          if (document !== undefined) {
-            await deps.durability.recordInsertOrUpdate(indexName, docId, document, noopApply)
+          if (document === undefined) continue
+          restored.push({ docId, document, apply: noopApply })
+          if (restored.length === BATCH_CHUNK_SIZE) {
+            await recordRestoredDocuments(deps.durability, indexName, restored)
+            restored = []
           }
         }
+        await recordRestoredDocuments(deps.durability, indexName, restored)
       }
       await deps.durability.manager.persistMetadata(indexName)
       await deps.durability.manager.checkpoint(indexName)

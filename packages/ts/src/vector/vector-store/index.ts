@@ -9,6 +9,7 @@ import {
   STORE_CALIBRATED,
   STORE_CALIBRATION_GENERATION,
   STORE_CODE_COUNT,
+  STORE_HOLDS_VECTORS_ON_DISK,
   STORE_LIVE_COUNT,
   STORE_SLOTS,
   sharedVectorStoreBytes,
@@ -163,6 +164,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     insertCold(docId: string, vectorMagnitude: number, location: DiskLocation, partitionId?: number): number {
       const store = requireOpen()
       const previous = docToOrd.get(docId)
+      Atomics.store(store.handles.header, STORE_HOLDS_VECTORS_ON_DISK, 1)
       const ordinal = claimOrdinal(store, docId, true, partitionId)
       store.magnitudes[ordinal] = vectorMagnitude
       store.diskOffset[ordinal] = location.offset
@@ -189,6 +191,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       const store = requireOpen()
       if (ordToDoc[ordinal] === undefined) return false
       if (store.diskFile[ordinal] === IN_MEMORY && !fileHoldsSameBytes(store, ordinal, location)) return false
+      Atomics.store(store.handles.header, STORE_HOLDS_VECTORS_ON_DISK, 1)
       store.diskOffset[ordinal] = location.offset
       store.diskFile[ordinal] = location.fileIndex
       return true
@@ -281,6 +284,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       }
       resetDocIds(open.handles)
       Atomics.store(open.handles.header, STORE_SLOTS, 0)
+      Atomics.store(open.handles.header, STORE_HOLDS_VECTORS_ON_DISK, 0)
       Atomics.store(open.handles.header, STORE_LIVE_COUNT, 0)
       Atomics.store(open.handles.header, STORE_CODE_COUNT, 0)
       Atomics.store(open.handles.header, STORE_CALIBRATED, 0)

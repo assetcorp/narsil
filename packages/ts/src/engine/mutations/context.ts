@@ -16,6 +16,14 @@ export interface DurableWriteToken {
 
 export type ApplyMutation = () => void | Promise<void>
 
+export interface DurableInsert {
+  docId: string
+  document: AnyDocument
+  apply: ApplyMutation
+}
+
+export type DurableInsertOutcome = { ok: true; write: DurableWriteToken } | { ok: false; error: unknown }
+
 export interface DurabilityRecorder {
   recordInsertOrUpdate(
     indexName: string,
@@ -23,6 +31,7 @@ export interface DurabilityRecorder {
     document: AnyDocument,
     apply: ApplyMutation,
   ): Promise<DurableWriteToken>
+  recordInsertOrUpdateBatch(indexName: string, inserts: readonly DurableInsert[]): Promise<DurableInsertOutcome[]>
   recordRemove(indexName: string, docId: string, apply: ApplyMutation): Promise<DurableWriteToken>
 }
 

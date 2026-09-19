@@ -2,6 +2,8 @@ import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { ScoredDocument } from '../../types/internal'
 import type { VectorMetric } from '../brute-force'
+import { type NativeField, nativeFieldFor, nativeServesWalk, reserveCandidates } from '../native/field'
+import { nativeRescore, nativeTraverse } from '../native/walk'
 import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
 import {
   DEFAULT_OSQ4_NARROW_OVERSAMPLE,
@@ -44,6 +46,7 @@ interface Traversal {
   depth: number
   arenaQuery: ArenaQueryVector | null
   qMag: number
+  native: NativeField | null
 }
 
 function defaultOversample(bits: 1 | 2 | 4 | 8, dimension: number): number {
@@ -75,6 +78,16 @@ function traverse(
     ef = Math.min(ef, liveSize)
   }
 
+  const workspace = state.workspace
+  const candidates = workspace.traversal
+  const native = nativeFieldFor(state)
+  if (native !== null && nativeServesWalk(native)) {
+    candidates.size = 0
+    if (nativeTraverse(state, native, query, ef, searchMetric, candidates)) {
+      return { candidates, depth: useQuantized ? depth : 0, arenaQuery: null, qMag: 0, native }
+    }
+  }
+
   const store = state.store
   const arenaQuery = store.prepareQueryArena(query)
   const qMag = arenaQuery ? arenaQuery.magnitude : magnitude(query)
@@ -88,13 +101,11 @@ function traverse(
     distFn = store.queryDistance(arenaQuery, searchMetric)
   }
 
-  const workspace = state.workspace
-  const candidates = workspace.traversal
   candidates.size = 0
   lockGraphShared(state.locks)
   try {
     const entryPoint = entryPointOf(state)
-    if (entryPoint === -1) return { candidates, depth: useQuantized ? depth : 0, arenaQuery, qMag }
+    if (entryPoint === -1) return { candidates, depth: useQuantized ? depth : 0, arenaQuery, qMag, native: null }
     setSingleEntryPoint(workspace, entryPoint)
 
     for (let layer = topLayerOf(state); layer >= 1; layer--) {
@@ -108,7 +119,7 @@ function traverse(
   } finally {
     unlockGraphShared(state.locks)
   }
-  return { candidates, depth: useQuantized ? depth : 0, arenaQuery, qMag }
+  return { candidates, depth: useQuantized ? depth : 0, arenaQuery, qMag, native: null }
 }
 
 interface ResolvedHit extends OrdinalHit {
@@ -174,15 +185,39 @@ function collectHits(
     return []
   }
 
-  const { candidates, depth, arenaQuery, qMag } = traverse(state, query, k, searchMetric, options)
+  const { candidates, depth, arenaQuery, qMag, native } = traverse(state, query, k, searchMetric, options)
 
   if (depth > 0) {
+    if (native === null) {
+      return rescoreWithFullPrecision(
+        state,
+        candidates,
+        query,
+        qMag,
+        arenaQuery,
+        depth,
+        searchMetric,
+        minSimilarity,
+        options.filter,
+      )
+    }
+    const rescored = rescoreThroughNativeCore(
+      native,
+      candidates,
+      query,
+      depth,
+      searchMetric,
+      minSimilarity,
+      options.filter,
+    )
+    if (rescored !== null) return rescored
+    const arena = state.store.prepareQueryArena(query)
     return rescoreWithFullPrecision(
       state,
       candidates,
       query,
-      qMag,
-      arenaQuery,
+      arena ? arena.magnitude : magnitude(query),
+      arena,
       depth,
       searchMetric,
       minSimilarity,
@@ -200,6 +235,38 @@ function collectHits(
     hits.push({ ord, score })
   }
   return hits
+}
+
+function rescoreThroughNativeCore(
+  native: NativeField,
+  candidates: DistanceList,
+  query: Float32Array,
+  depth: number,
+  metric: VectorMetric,
+  minSimilarity: number,
+  filter: OrdinalFilter | undefined,
+): OrdinalHit[] | null {
+  if (!native.holdsEveryVector) return null
+  const nearest = Math.min(candidates.size, depth)
+  reserveCandidates(native, nearest)
+  const ordinals = native.ordinals
+  const distances = native.distances
+  let kept = 0
+  for (let i = 0; i < nearest; i++) {
+    const ord = candidates.ords[i]
+    if (filter && !ordinalFilterHas(filter, ord)) continue
+    ordinals[kept++] = ord
+  }
+  if (!nativeRescore(native, query, metric, ordinals, kept, distances)) return null
+
+  const rescored: OrdinalHit[] = []
+  for (let i = 0; i < kept; i++) {
+    if (distances[i] === Number.POSITIVE_INFINITY) continue
+    const score = toScore(distances[i], metric)
+    if (score < minSimilarity) continue
+    rescored.push({ ord: ordinals[i], score })
+  }
+  return rescored
 }
 
 function rescoreWithFullPrecision(

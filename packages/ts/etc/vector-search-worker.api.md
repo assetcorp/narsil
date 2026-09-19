@@ -12,8 +12,9 @@ export interface ArenaSimd {
     dot_u8: (ptrA: number, ptrB: number, len: number) => number;
     magnitude: (ptr: number, len: number) => number;
     memory: WebAssembly.Memory;
-    osq_dot_planes: (ptrDoc: number, ptrQuery: number, planeBytes: number, docBits: number, queryBits: number) => number;
-    osq_dot_planes_4x4: (ptrDoc: number, ptrQuery: number, planeBytes: number) => number;
+    osq_dot_bits: (ptrDoc: number, ptrPlanes: number, planeBytes: number, docBits: number) => number;
+    osq_dot_bits_pair: (ptrA: number, ptrB: number, bytes: number, bits: number) => number;
+    osq_dot_nibbles_4x4: (ptrA: number, ptrB: number, bytes: number) => number;
     sqdist_u8: (ptrA: number, ptrB: number, len: number) => number;
     squared_euclidean_distance: (ptrA: number, ptrB: number, len: number) => number;
 }
@@ -181,7 +182,6 @@ export interface VectorCodeBlockLayout extends BlockGeometry {
     bits: OsqBits;
     codeBytes: number;
     dimension: number;
-    planeBytes: number;
     queryBits: OsqBits;
     queryBytes: number;
 }

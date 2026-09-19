@@ -6,8 +6,10 @@ const TRAILER_UPPER = 4
 const TRAILER_CORRECTION = 8
 const TRAILER_SUM = 12
 
+const QUERY_PLANES_FOR_NARROW_CODES = 4
+
 export function osqCodeBytes(dimension: number, bits: OsqBits): number {
-  return bits === 8 ? dimension : bits * Math.ceil(dimension / 8)
+  return Math.ceil((dimension * bits) / 8)
 }
 
 export function osqRecordBytes(dimension: number, bits: OsqBits): number {
@@ -20,16 +22,12 @@ export function packLevels(levels: Uint8Array, bits: OsqBits, target: Uint8Array
     target.set(levels, offset)
     return
   }
-  const planeBytes = Math.ceil(dimension / 8)
-  target.fill(0, offset, offset + bits * planeBytes)
+  const perByte = 8 / bits
+  target.fill(0, offset, offset + osqCodeBytes(dimension, bits))
   for (let i = 0; i < dimension; i++) {
     const value = levels[i]
     if (value === 0) continue
-    const byte = offset + (i >> 3)
-    const mask = 1 << (7 - (i & 7))
-    for (let j = 0; j < bits; j++) {
-      if ((value >> j) & 1) target[byte + j * planeBytes] |= mask
-    }
+    target[offset + Math.floor(i / perByte)] |= value << ((i % perByte) * bits)
   }
 }
 
@@ -39,15 +37,37 @@ export function unpackLevels(bytes: Uint8Array, offset: number, dimension: numbe
     levels.set(bytes.subarray(offset, offset + dimension))
     return levels
   }
-  const planeBytes = Math.ceil(dimension / 8)
+  const perByte = 8 / bits
+  const mask = (1 << bits) - 1
   for (let i = 0; i < dimension; i++) {
-    const byte = offset + (i >> 3)
-    const shift = 7 - (i & 7)
-    let value = 0
-    for (let j = 0; j < bits; j++) value |= ((bytes[byte + j * planeBytes] >> shift) & 1) << j
-    levels[i] = value
+    levels[i] = (bytes[offset + Math.floor(i / perByte)] >> ((i % perByte) * bits)) & mask
   }
   return levels
+}
+
+export function osqStagedQueryBytes(dimension: number, documentBits: OsqBits): number {
+  if (documentBits === 8) return dimension
+  if (documentBits === 4) return osqCodeBytes(dimension, 4)
+  return QUERY_PLANES_FOR_NARROW_CODES * osqCodeBytes(dimension, documentBits)
+}
+
+export function stageQueryLevels(levels: Uint8Array, documentBits: OsqBits, target: Uint8Array): void {
+  if (documentBits === 8 || documentBits === 4) {
+    packLevels(levels, documentBits, target, 0)
+    return
+  }
+  const planeBytes = osqCodeBytes(levels.length, documentBits)
+  const perByte = 8 / documentBits
+  target.fill(0, 0, QUERY_PLANES_FOR_NARROW_CODES * planeBytes)
+  for (let i = 0; i < levels.length; i++) {
+    const value = levels[i]
+    if (value === 0) continue
+    const byte = Math.floor(i / perByte)
+    const bit = 1 << ((i % perByte) * documentBits)
+    for (let plane = 0; plane < QUERY_PLANES_FOR_NARROW_CODES; plane++) {
+      if ((value >> plane) & 1) target[plane * planeBytes + byte] |= bit
+    }
+  }
 }
 
 export function writeRecord(

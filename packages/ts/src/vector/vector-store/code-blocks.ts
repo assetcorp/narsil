@@ -1,13 +1,13 @@
 import { VECTOR_SCRATCH_SLOTS } from '../constants'
 import { osqQueryBits } from '../osq/estimate'
 import type { OsqBits } from '../osq/quantize'
-import { osqCodeBytes, osqRecordBytes } from '../osq/record'
+import { osqCodeBytes, osqRecordBytes, osqStagedQueryBytes } from '../osq/record'
 import { alignUp, BLOCK_MAX_BYTES, type BlockGeometry } from './blocks'
 
 /**
  * This is the geometry of a block holding one code record per slot: the packed code
  * with its lower, upper, correction, and sum inline, so a comparison reads
- * one contiguous record. Each thread's scratch holds one packed query code.
+ * one contiguous record. Each thread's scratch holds one staged query.
  *
  * @internal
  */
@@ -20,16 +20,14 @@ export interface VectorCodeBlockLayout extends BlockGeometry {
   queryBits: OsqBits
   /** A packed document code spans this many bytes. */
   codeBytes: number
-  /** A packed query code spans this many bytes. */
+  /** A staged query spans this many bytes. */
   queryBytes: number
-  /** One plane of a packed code spans this many bytes. */
-  planeBytes: number
 }
 
 export function computeCodeBlockLayout(dimension: number, bits: OsqBits): VectorCodeBlockLayout {
   const queryBits = osqQueryBits(bits)
   const codeBytes = osqCodeBytes(dimension, bits)
-  const queryBytes = osqCodeBytes(dimension, queryBits)
+  const queryBytes = osqStagedQueryBytes(dimension, bits)
   const scratchStride = alignUp(queryBytes)
   const slotsOffset = alignUp(VECTOR_SCRATCH_SLOTS * scratchStride)
   const slotStride = osqRecordBytes(dimension, bits)
@@ -39,7 +37,6 @@ export function computeCodeBlockLayout(dimension: number, bits: OsqBits): Vector
     queryBits,
     codeBytes,
     queryBytes,
-    planeBytes: Math.ceil(dimension / 8),
     scratchStride,
     slotsOffset,
     slotStride,

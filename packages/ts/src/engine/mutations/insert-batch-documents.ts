@@ -1,11 +1,10 @@
 import type { BatchResult } from '../../types/results'
 import type { InsertOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE } from '../constants'
-import { insertDocumentVectors } from '../vector-coordinator'
 import type { MutationContext } from './context'
-import { rollbackInsertedDocument } from './durable-rollback'
-import { admitInsert, asBatchInsertError } from './insert-admission'
+import { asBatchInsertError } from './insert-admission'
 import type { AdmittedInsert } from './insert-batch-admission'
+import { applyInsertChunk } from './insert-batch-apply'
 
 export interface AppliedAdmission {
   succeeded: string[]
@@ -20,70 +19,26 @@ export async function applyAdmittedDocuments(
   options: InsertOptions | undefined,
   failed: BatchResult['failed'],
 ): Promise<AppliedAdmission> {
-  const manager = ctx.requireManager(indexName)
-  const vecIndexes = manager.getVectorIndexes()
   const hasAfterHook = ctx.pluginRegistry.hasHooks('afterInsert')
   const succeeded: string[] = []
   const buffered = new Set<string>()
   const touchedVectorFields = new Set<string>()
 
-  for (let i = 0; i < admitted.length; i++) {
+  for (let chunkStart = 0; chunkStart < admitted.length; chunkStart += BATCH_CHUNK_SIZE) {
     if (ctx.abortController.signal.aborted) break
 
-    const doc = admitted[i]
-    try {
-      let inserted = false
-      let docBuffered = false
-      const apply = async (): Promise<void> => {
-        admitInsert(ctx, indexName, manager, doc.docId)
-        if (
-          ctx.bufferIfRebalancing(indexName, {
-            action: 'insert',
-            docId: doc.docId,
-            document: doc.document,
-            indexName,
-          })
-        ) {
-          docBuffered = true
-          return
-        }
-        await ctx.executor.execute({
-          type: 'insert',
-          indexName,
-          docId: doc.docId,
-          document: doc.partitionDoc,
-          requestId: doc.docId,
-          skipClone: doc.extractedVectors.size > 0 ? true : options?.skipClone,
-        })
-        inserted = true
-        try {
-          insertDocumentVectors(doc.docId, doc.extractedVectors, vecIndexes, manager.partitionIdOf(doc.docId))
-        } catch (vecErr) {
-          try {
-            await ctx.executor.execute({ type: 'remove', indexName, docId: doc.docId, requestId: doc.docId })
-            inserted = false
-          } catch (rollbackErr) {
-            console.warn(
-              `Rollback failed for doc "${doc.docId}" during batch insert atomicity:`,
-              rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
-            )
-          }
-          throw vecErr
-        }
-      }
+    const chunk = admitted.slice(chunkStart, chunkStart + BATCH_CHUNK_SIZE)
+    const applications = await applyInsertChunk(ctx, indexName, chunk, options)
 
-      if (ctx.durability) {
-        try {
-          await ctx.durability.recordInsertOrUpdate(indexName, doc.docId, doc.document, apply)
-        } catch (durableErr) {
-          await rollbackInsertedDocument(ctx, indexName, doc.docId, inserted, durableErr)
-          throw durableErr
-        }
-      } else {
-        await apply()
+    for (let i = 0; i < chunk.length; i++) {
+      const doc = chunk[i]
+      const application = applications[i]
+      if (application.status === 'skipped') continue
+      if (application.status === 'failed') {
+        failed.push({ docId: doc.docId, error: asBatchInsertError(application.error) })
+        continue
       }
-
-      if (docBuffered) {
+      if (application.status === 'buffered') {
         buffered.add(doc.docId)
         succeeded.push(doc.docId)
         continue
@@ -102,11 +57,9 @@ export async function applyAdmittedDocuments(
       }
 
       succeeded.push(doc.docId)
-    } catch (err) {
-      failed.push({ docId: doc.docId, error: asBatchInsertError(err) })
     }
 
-    if ((i + 1) % BATCH_CHUNK_SIZE === 0 && i + 1 < admitted.length) {
+    if (chunkStart + BATCH_CHUNK_SIZE < admitted.length) {
       await new Promise<void>(r => setTimeout(r, 0))
     }
   }

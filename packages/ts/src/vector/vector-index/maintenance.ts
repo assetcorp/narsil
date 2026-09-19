@@ -128,5 +128,6 @@ export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {
 }
 
 export function estimateMemoryBytes(state: VectorIndexState): number {
-  return state.store.memoryBytes() + (state.hnsw === null ? 0 : state.hnsw.graphBytes)
+  if (state.hnsw === null) return state.store.memoryBytes()
+  return state.store.memoryBytes() + state.hnsw.graphBytes + state.hnsw.searchScratchBytes
 }
