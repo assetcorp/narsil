@@ -17,6 +17,7 @@ export interface WalWriterConfig {
 
 export interface WalWriter {
   append(entry: ReplicationLogEntry): Promise<void>
+  appendAll(entries: readonly ReplicationLogEntry[]): Promise<void>
   appendDurable(entry: ReplicationLogEntry): Promise<void>
   commit(): Promise<void>
   rollToNewSegment(startSeqNo: number): Promise<void>
@@ -157,32 +158,66 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
     }
   }
 
-  async function appendFrame(entry: ReplicationLogEntry): Promise<void> {
-    await ensureSegment(entry.seqNo)
-    await maybeRoll(entry.seqNo)
-    const activeHandle = handle
-    if (activeHandle === null) {
-      throw new NarsilError(
-        ErrorCodes.PERSISTENCE_SAVE_FAILED,
-        `WAL segment for "${config.indexName}" partition ${config.partitionId} is not open`,
-        { indexName: config.indexName, partitionId: config.partitionId },
-      )
+  function joinFrames(frames: Uint8Array[]): Uint8Array {
+    if (frames.length === 1) {
+      return frames[0]
     }
-    const frame = frameRecord(entry)
-    await activeHandle.append(frame)
-    activeBytes += frame.length
-    if (entry.seqNo > highestAppendedSeqNo) {
-      highestAppendedSeqNo = entry.seqNo
+    let totalBytes = 0
+    for (const frame of frames) {
+      totalBytes += frame.length
+    }
+    const joined = new Uint8Array(totalBytes)
+    let offset = 0
+    for (const frame of frames) {
+      joined.set(frame, offset)
+      offset += frame.length
+    }
+    return joined
+  }
+
+  async function appendFrames(entries: readonly ReplicationLogEntry[]): Promise<void> {
+    let next = 0
+    while (next < entries.length) {
+      const firstSeqNo = entries[next].seqNo
+      await ensureSegment(firstSeqNo)
+      await maybeRoll(firstSeqNo)
+      const activeHandle = handle
+      if (activeHandle === null) {
+        throw new NarsilError(
+          ErrorCodes.PERSISTENCE_SAVE_FAILED,
+          `WAL segment for "${config.indexName}" partition ${config.partitionId} is not open`,
+          { indexName: config.indexName, partitionId: config.partitionId },
+        )
+      }
+      const frames: Uint8Array[] = []
+      let pendingBytes = 0
+      let lastSeqNo = firstSeqNo
+      while (next < entries.length && (frames.length === 0 || activeBytes + pendingBytes < segmentMaxBytes)) {
+        const frame = frameRecord(entries[next])
+        frames.push(frame)
+        pendingBytes += frame.length
+        lastSeqNo = entries[next].seqNo
+        next += 1
+      }
+      await activeHandle.append(joinFrames(frames))
+      activeBytes += pendingBytes
+      if (lastSeqNo > highestAppendedSeqNo) {
+        highestAppendedSeqNo = lastSeqNo
+      }
     }
   }
 
   return {
     async append(entry: ReplicationLogEntry): Promise<void> {
-      await appendFrame(entry)
+      await appendFrames([entry])
+    },
+
+    async appendAll(entries: readonly ReplicationLogEntry[]): Promise<void> {
+      await appendFrames(entries)
     },
 
     async appendDurable(entry: ReplicationLogEntry): Promise<void> {
-      await appendFrame(entry)
+      await appendFrames([entry])
       await coordinator.commit()
     },
 

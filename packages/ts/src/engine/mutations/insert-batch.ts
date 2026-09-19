@@ -2,9 +2,8 @@ import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
 import { validateDocId } from '../validation'
-import { insertDocumentVectors, prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
+import { prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
 import type { MutationContext } from './context'
-import { rollbackInsertedDocument } from './durable-rollback'
 import {
   admitInsert,
   asBatchInsertError,
@@ -12,6 +11,8 @@ import {
   embedChunkDocuments,
   providedDocId,
 } from './insert-admission'
+import type { AdmittedInsert } from './insert-batch-admission'
+import { applyInsertChunk } from './insert-batch-apply'
 import { insertBatchViaSegments } from './insert-batch-segments'
 import { replicateAsSegments } from './segment-replication'
 import { awaitWriteVisibility } from './write-visibility'
@@ -67,6 +68,7 @@ export async function insertDocumentBatch(
       failed,
     )
 
+    const prepared: AdmittedInsert[] = []
     for (let i = chunkStart; i < chunkEnd; i++) {
       if (ctx.abortController.signal.aborted) break
       if (chunkFailedIndexes.has(i)) continue
@@ -89,82 +91,47 @@ export async function insertDocumentBatch(
         }
 
         admitInsert(ctx, indexName, batchManager, batchDocId)
-
-        let batchInserted = false
-        let batchBuffered = false
-        const applyBatchInsert = async (): Promise<void> => {
-          admitInsert(ctx, indexName, batchManager, batchDocId)
-          if (
-            ctx.bufferIfRebalancing(indexName, {
-              action: 'insert',
-              docId: batchDocId,
-              document: documents[i],
-              indexName,
-            })
-          ) {
-            batchBuffered = true
-            return
-          }
-          await ctx.executor.execute({
-            type: 'insert',
-            indexName,
-            docId: batchDocId,
-            document: partitionDoc as AnyDocument,
-            requestId: batchDocId,
-            skipClone: extractedVectors.size > 0 ? true : options?.skipClone,
-          })
-          batchInserted = true
-          try {
-            insertDocumentVectors(batchDocId, extractedVectors, batchVecIndexes, batchManager.partitionIdOf(batchDocId))
-          } catch (vecErr) {
-            try {
-              await ctx.executor.execute({ type: 'remove', indexName, docId: batchDocId, requestId: batchDocId })
-              batchInserted = false
-            } catch (rollbackErr) {
-              console.warn(
-                `Rollback failed for doc "${batchDocId}" during batch insert atomicity:`,
-                rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
-              )
-            }
-            throw vecErr
-          }
-        }
-
-        if (ctx.durability) {
-          try {
-            await ctx.durability.recordInsertOrUpdate(indexName, batchDocId, documents[i], applyBatchInsert)
-          } catch (durableErr) {
-            await rollbackInsertedDocument(ctx, indexName, batchDocId, batchInserted, durableErr)
-            throw durableErr
-          }
-        } else {
-          await applyBatchInsert()
-        }
-
-        if (batchBuffered) {
-          bufferedDocIds.add(batchDocId)
-          succeeded.push(batchDocId)
-          succeededDocs.push(partitionDoc as AnyDocument)
-          continue
-        }
-
-        for (const fieldPath of extractedVectors.keys()) {
-          touchedVectorFields.add(fieldPath)
-        }
-
-        if (hasAfterHook) {
-          try {
-            await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: batchDocId, document: documents[i] })
-          } catch (err) {
-            console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
-          }
-        }
-
-        succeeded.push(batchDocId)
-        succeededDocs.push(partitionDoc as AnyDocument)
+        prepared.push({
+          docId: batchDocId,
+          document: documents[i],
+          partitionDoc: partitionDoc as AnyDocument,
+          extractedVectors,
+        })
       } catch (err) {
         failed.push({ docId: batchDocId, error: asBatchInsertError(err) })
       }
+    }
+
+    const applications = await applyInsertChunk(ctx, indexName, prepared, options)
+    for (let i = 0; i < prepared.length; i++) {
+      const doc = prepared[i]
+      const application = applications[i]
+      if (application.status === 'skipped') continue
+      if (application.status === 'failed') {
+        failed.push({ docId: doc.docId, error: asBatchInsertError(application.error) })
+        continue
+      }
+      if (application.status === 'buffered') {
+        bufferedDocIds.add(doc.docId)
+        succeeded.push(doc.docId)
+        succeededDocs.push(doc.partitionDoc)
+        continue
+      }
+
+      for (const fieldPath of doc.extractedVectors.keys()) {
+        touchedVectorFields.add(fieldPath)
+      }
+
+      if (hasAfterHook) {
+        try {
+          await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: doc.docId, document: doc.document })
+        } catch (err) {
+          console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
+        }
+      }
+
+      succeeded.push(doc.docId)
+      succeededDocs.push(doc.partitionDoc)
     }
 
     if (chunkEnd < documents.length) {

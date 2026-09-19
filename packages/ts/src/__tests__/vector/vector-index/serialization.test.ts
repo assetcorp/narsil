@@ -12,7 +12,7 @@ function partOf(
   const flat = new Float32Array(vectors.length * DIM)
   for (let i = 0; i < vectors.length; i++) flat.set(vectors[i], i * DIM)
   return {
-    v: 2,
+    v: 3,
     fieldName: 'embedding',
     dimension: DIM,
     part: 0,
@@ -71,7 +71,7 @@ describe('VectorIndex serialization', () => {
 
     expect(parts).toHaveLength(1)
     const [part] = parts
-    expect(part.v).toBe(2)
+    expect(part.v).toBe(3)
     expect(part.fieldName).toBe('embedding')
     expect(part.dimension).toBe(DIM)
     expect(part.part).toBe(0)
@@ -122,7 +122,7 @@ describe('VectorIndex serialization', () => {
       expect(part.codes).not.toBeNull()
       expect(part.codes?.bits).toBe(4)
       expect(part.codes?.centroid).toHaveLength(DIM)
-      expect(part.codes?.records.byteLength).toBe(6 * (4 * Math.ceil(DIM / 8) + 16))
+      expect(part.codes?.records.byteLength).toBe(6 * (Math.ceil((DIM * 4) / 8) + 16))
     } finally {
       sqIndex.dispose()
     }

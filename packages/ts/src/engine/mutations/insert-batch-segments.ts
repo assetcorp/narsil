@@ -1,6 +1,7 @@
 import { createFrozenSegment, createSharedFrozenSegment, type FrozenSegment } from '../../core/partition/frozen'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
+import type { VectorIndex } from '../../vector/vector-index'
 import { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
 import type { BuiltSegment } from '../orchestration/segments'
 import { insertDocumentVectors } from '../vector-coordinator'
@@ -56,6 +57,61 @@ async function applyIndividually(
   return { succeeded: applied.succeeded, touchedVectorFields: applied.touchedVectorFields }
 }
 
+async function insertVectorsOrRemoveDocument(
+  ctx: MutationContext,
+  indexName: string,
+  doc: AdmittedInsert,
+  vecIndexes: Map<string, VectorIndex>,
+  partitionId: number | undefined,
+): Promise<void> {
+  try {
+    insertDocumentVectors(doc.docId, doc.extractedVectors, vecIndexes, partitionId)
+  } catch (vecErr) {
+    try {
+      await ctx.executor.execute({ type: 'remove', indexName, docId: doc.docId, requestId: doc.docId })
+    } catch (rollbackErr) {
+      console.warn(
+        `Rollback failed for doc "${doc.docId}" during batch insert atomicity:`,
+        rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+      )
+    }
+    throw vecErr
+  }
+}
+
+interface DurableRecordFailure {
+  error: unknown
+}
+
+async function recordChunkDurably(
+  ctx: MutationContext,
+  indexName: string,
+  docs: readonly AdmittedInsert[],
+): Promise<(DurableRecordFailure | null)[]> {
+  if (!ctx.durability || docs.length === 0) {
+    return docs.map(() => null)
+  }
+  const outcomes = await ctx.durability.recordInsertOrUpdateBatch(
+    indexName,
+    docs.map(doc => ({ docId: doc.docId, document: doc.document, apply: noopApply })),
+  )
+  const failures: (DurableRecordFailure | null)[] = []
+  for (let i = 0; i < docs.length; i++) {
+    const outcome = outcomes[i]
+    if (outcome.ok) {
+      failures.push(null)
+      continue
+    }
+    try {
+      await rollbackInsertedDocument(ctx, indexName, docs[i].docId, true, outcome.error)
+      failures.push({ error: outcome.error })
+    } catch (rollbackError) {
+      failures.push({ error: rollbackError })
+    }
+  }
+  return failures
+}
+
 async function recordMergedDocuments(
   ctx: MutationContext,
   indexName: string,
@@ -69,30 +125,30 @@ async function recordMergedDocuments(
   const touchedVectorFields = new Set<string>()
   const failedDocIds = new Set<string>()
 
-  for (let i = 0; i < admitted.length; i++) {
-    const doc = admitted[i]
-    try {
-      try {
-        insertDocumentVectors(doc.docId, doc.extractedVectors, vecIndexes, manager.partitionIdOf(doc.docId))
-      } catch (vecErr) {
-        try {
-          await ctx.executor.execute({ type: 'remove', indexName, docId: doc.docId, requestId: doc.docId })
-        } catch (rollbackErr) {
-          console.warn(
-            `Rollback failed for doc "${doc.docId}" during batch insert atomicity:`,
-            rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
-          )
-        }
-        throw vecErr
-      }
+  function recordFailure(doc: AdmittedInsert, err: unknown): void {
+    failedDocIds.add(doc.docId)
+    failed.push({ docId: doc.docId, error: asBatchInsertError(err) })
+  }
 
-      if (ctx.durability) {
-        try {
-          await ctx.durability.recordInsertOrUpdate(indexName, doc.docId, doc.document, noopApply)
-        } catch (durableErr) {
-          await rollbackInsertedDocument(ctx, indexName, doc.docId, true, durableErr)
-          throw durableErr
-        }
+  for (let chunkStart = 0; chunkStart < admitted.length; chunkStart += BATCH_CHUNK_SIZE) {
+    const chunk = admitted.slice(chunkStart, chunkStart + BATCH_CHUNK_SIZE)
+    const withVectors: AdmittedInsert[] = []
+    for (const doc of chunk) {
+      try {
+        await insertVectorsOrRemoveDocument(ctx, indexName, doc, vecIndexes, manager.partitionIdOf(doc.docId))
+        withVectors.push(doc)
+      } catch (vecErr) {
+        recordFailure(doc, vecErr)
+      }
+    }
+
+    const recorded = await recordChunkDurably(ctx, indexName, withVectors)
+    for (let i = 0; i < withVectors.length; i++) {
+      const doc = withVectors[i]
+      const failure = recorded[i]
+      if (failure !== null) {
+        recordFailure(doc, failure.error)
+        continue
       }
 
       for (const fieldPath of doc.extractedVectors.keys()) {
@@ -108,12 +164,9 @@ async function recordMergedDocuments(
       }
 
       succeeded.push(doc.docId)
-    } catch (err) {
-      failedDocIds.add(doc.docId)
-      failed.push({ docId: doc.docId, error: asBatchInsertError(err) })
     }
 
-    if ((i + 1) % BATCH_CHUNK_SIZE === 0 && i + 1 < admitted.length) {
+    if (chunkStart + BATCH_CHUNK_SIZE < admitted.length) {
       await new Promise<void>(r => setTimeout(r, 0))
     }
   }

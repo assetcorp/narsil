@@ -1,8 +1,23 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { osqEstimate, osqLevelProducts, osqPackedLevelProducts, osqQueryBits } from '../../../vector/osq/estimate'
+import {
+  osqEstimate,
+  osqLevelProducts,
+  osqNarrowPairProducts,
+  osqNibbleProducts,
+  osqQueryBits,
+  osqStagedPlaneProducts,
+} from '../../../vector/osq/estimate'
 import { createOsqScratch, type OsqBits, osqCentroid, osqQuantize } from '../../../vector/osq/quantize'
-import { osqCodeBytes, osqRecordBytes, packLevels, readRecord, writeRecord } from '../../../vector/osq/record'
+import {
+  osqCodeBytes,
+  osqRecordBytes,
+  osqStagedQueryBytes,
+  packLevels,
+  readRecord,
+  stageQueryLevels,
+  writeRecord,
+} from '../../../vector/osq/record'
 
 interface FixtureCode {
   lower: number
@@ -84,19 +99,48 @@ describe('optimised scalar quantization against Lucene', () => {
     }
   })
 
-  it.each([1, 2, 4] as OsqBits[])('sums level products from packed planes at %i bits', bits => {
+  it.each([1, 2] as const)('sums level products from a packed %i-bit code and a staged query', bits => {
     const scratch = createOsqScratch(fixture.dimension)
-    const queryBits = osqQueryBits(bits)
-    const planeBytes = Math.ceil(fixture.dimension / 8)
+    const codeBytes = osqCodeBytes(fixture.dimension, bits)
     const document = osqQuantize(docs[0], luceneCentroid, bits, fixture.metric, scratch)
-    const query = osqQuantize(queries[0], luceneCentroid, queryBits, fixture.metric, scratch)
-    const documentPlanes = new Uint8Array(osqCodeBytes(fixture.dimension, bits))
-    const queryPlanes = new Uint8Array(osqCodeBytes(fixture.dimension, queryBits))
-    packLevels(document.levels, bits, documentPlanes, 0)
-    packLevels(query.levels, queryBits, queryPlanes, 0)
-    expect(osqPackedLevelProducts(documentPlanes, 0, bits, queryPlanes, 0, queryBits, planeBytes)).toBe(
+    const other = osqQuantize(docs[1], luceneCentroid, bits, fixture.metric, scratch)
+    const query = osqQuantize(queries[0], luceneCentroid, osqQueryBits(bits), fixture.metric, scratch)
+    const documentBytes = new Uint8Array(codeBytes)
+    const otherBytes = new Uint8Array(codeBytes)
+    const staged = new Uint8Array(osqStagedQueryBytes(fixture.dimension, bits))
+    packLevels(document.levels, bits, documentBytes, 0)
+    packLevels(other.levels, bits, otherBytes, 0)
+    stageQueryLevels(query.levels, bits, staged)
+    expect(osqStagedPlaneProducts(documentBytes, 0, bits, staged, 0, codeBytes)).toBe(
       osqLevelProducts(document.levels, query.levels),
     )
+    expect(osqNarrowPairProducts(documentBytes, 0, otherBytes, 0, bits, codeBytes)).toBe(
+      osqLevelProducts(document.levels, other.levels),
+    )
+  })
+
+  it('sums level products from two packed 4-bit codes', () => {
+    const scratch = createOsqScratch(fixture.dimension)
+    const codeBytes = osqCodeBytes(fixture.dimension, 4)
+    const document = osqQuantize(docs[0], luceneCentroid, 4, fixture.metric, scratch)
+    const query = osqQuantize(queries[0], luceneCentroid, 4, fixture.metric, scratch)
+    const documentBytes = new Uint8Array(codeBytes)
+    const queryBytes = new Uint8Array(codeBytes)
+    packLevels(document.levels, 4, documentBytes, 0)
+    packLevels(query.levels, 4, queryBytes, 0)
+    expect(osqNibbleProducts(documentBytes, 0, queryBytes, 0, codeBytes)).toBe(
+      osqLevelProducts(document.levels, query.levels),
+    )
+  })
+
+  it.each([1, 2, 4] as OsqBits[])('packs level i of a %i-bit code from the lowest bit of its byte upwards', bits => {
+    const perByte = 8 / bits
+    const levels = new Uint8Array(perByte + 1)
+    levels[1] = 2 ** bits - 1
+    levels[perByte] = 1
+    const bytes = new Uint8Array(osqCodeBytes(levels.length, bits))
+    packLevels(levels, bits, bytes, 0)
+    expect(Array.from(bytes)).toEqual([(2 ** bits - 1) << bits, 1])
   })
 
   it.each(WIDTHS)('round-trips a record through its byte layout at %i bits', bits => {

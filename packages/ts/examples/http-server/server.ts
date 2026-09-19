@@ -8,8 +8,10 @@ import { createServer, type OnRequestHook, type ServerLimits } from '@delali/nar
  * entrypoint the distributed phase builds on.
  *
  * Environment:
- *   NARSIL_HOST              listen address           (default 0.0.0.0)
+ *   NARSIL_HOST              listen address           (default 127.0.0.1)
  *   NARSIL_PORT              listen port              (default 7700)
+ *   NARSIL_ALLOW_INSECURE    "true" to listen on a non-loopback address without NARSIL_API_KEY
+ *   NARSIL_INSTANCE_ID       stable id for this instance, so a restart marks its unfinished tasks as failed
  *   NARSIL_DURABILITY_DIR    enable filesystem durability rooted at this path
  *   NARSIL_WORKERS           run this many request threads, each holding the worker copies (default: cores minus one, between 2 and 8)
  *   NARSIL_PROMOTION_THRESHOLD  documents in one index that trigger the worker copies (default 1000)

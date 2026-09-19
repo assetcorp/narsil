@@ -13,6 +13,7 @@ interface ChildOptions {
   docCount: number
   mode?: 'sync' | 'async'
   exit?: 'wait-for-kill' | 'clean-exit' | 'normal-return'
+  write?: 'single' | 'batch'
 }
 
 function spawnChild(options: ChildOptions): {
@@ -27,6 +28,7 @@ function spawnChild(options: ChildOptions): {
       NARSIL_DOC_COUNT: String(options.docCount),
       NARSIL_MODE: options.mode ?? 'sync',
       NARSIL_EXIT: options.exit ?? 'wait-for-kill',
+      NARSIL_WRITE: options.write ?? 'single',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -140,6 +142,31 @@ describe('durability crash recovery (out-of-process)', () => {
     await exited
 
     expect(await recoverAndCount()).toBe(12)
+  })
+
+  it('recovers every document of an acknowledged batch after a SIGKILL', async () => {
+    const { child, acked, exited } = spawnChild({ directory: root, docCount: 2500, write: 'batch' })
+    await acked
+    child.kill('SIGKILL')
+    await exited
+
+    const reader = await createNarsil({ durability: { directory: root } })
+    try {
+      expect(await reader.countDocuments('movies')).toBe(2500)
+      expect(await reader.get('movies', 'm0')).toMatchObject({ title: 'Movie 0' })
+      expect(await reader.get('movies', 'm2499')).toMatchObject({ title: 'Movie 2499' })
+    } finally {
+      await reader.shutdown()
+    }
+  })
+
+  it('recovers a small acknowledged batch that the engine inserted one document at a time', async () => {
+    const { child, acked, exited } = spawnChild({ directory: root, docCount: 20, write: 'batch' })
+    await acked
+    child.kill('SIGKILL')
+    await exited
+
+    expect(await recoverAndCount()).toBe(20)
   })
 
   it('loses nothing on a clean async-mode exit because the OS flushes buffered bytes', async () => {

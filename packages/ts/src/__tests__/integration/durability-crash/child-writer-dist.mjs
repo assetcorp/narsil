@@ -23,8 +23,21 @@ async function main() {
   }
 
   const startIndex = narsil.listIndexes().find(info => info.name === 'movies')?.documentCount ?? 0
-  for (let i = startIndex; i < startIndex + docCount; i += 1) {
-    await narsil.insert('movies', { title: `Movie ${i}`, year: 2000 + i }, `m${i}`)
+  if (process.env.NARSIL_WRITE === 'batch') {
+    const documents = []
+    for (let i = startIndex; i < startIndex + docCount; i += 1) {
+      documents.push({ id: `m${i}`, title: `Movie ${i}`, year: 2000 + i })
+    }
+    const result = await narsil.insertBatch('movies', documents)
+    if (result.failed.length > 0) {
+      process.stderr.write(`batch failed for ${result.failed.length} documents\n`)
+      process.exit(3)
+      return
+    }
+  } else {
+    for (let i = startIndex; i < startIndex + docCount; i += 1) {
+      await narsil.insert('movies', { title: `Movie ${i}`, year: 2000 + i }, `m${i}`)
+    }
   }
 
   process.stdout.write('ACKED\n')

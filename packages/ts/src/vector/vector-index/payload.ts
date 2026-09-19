@@ -3,7 +3,7 @@ import type { SerializedHNSWGraph } from '../hnsw'
 import type { OsqBits } from '../osq'
 import { osqRecordBytes } from '../osq/record'
 
-export const VECTOR_INDEX_PAYLOAD_VERSION = 2
+export const VECTOR_INDEX_PAYLOAD_VERSION = 3
 export const VECTOR_INDEX_PART_VECTORS = 65_536
 
 export interface VectorIndexCodes {

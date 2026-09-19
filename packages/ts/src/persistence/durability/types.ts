@@ -25,11 +25,14 @@ export interface MutationRecord {
   apply: () => void | Promise<void>
 }
 
+export type MutationOutcome = { ok: true; seqNo: number } | { ok: false; error: unknown }
+
 export interface DurabilityManager {
   isActive(): boolean
   recover(metadataOnly?: boolean): Promise<void>
   recoverIndex(indexName: string): Promise<void>
   recordMutation(record: MutationRecord): Promise<number>
+  recordMutations(records: readonly MutationRecord[]): Promise<MutationOutcome[]>
   /** The highest sequence number this node's own write-ahead log holds for a partition, counting what recovery
    * replayed. A replicated write reaches the partition without passing through this log, so a node that took the
    * partition on as a replica reports 0. */

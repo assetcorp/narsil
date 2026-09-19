@@ -1,12 +1,20 @@
 import type { VectorMetric } from '../brute-force'
 import { fixedView } from '../shared-buffers/growable'
+import type { ArenaSimd } from '../simd'
 import { NOTHING_STAGED, type OpenVectorBlock, QUERY_STAGED, slotByteOffset } from '../vector-store/blocks'
 import type { VectorCodeBlockLayout } from '../vector-store/code-blocks'
 import { STORE_CALIBRATED, STORE_CALIBRATION_GENERATION, STORE_CODE_COUNT } from '../vector-store/handles'
 import type { SharedVectorStoreView } from '../vector-store/view'
-import { osqByteLevelProducts, osqDistance, osqEstimate, osqPackedLevelProducts } from './estimate'
+import {
+  osqByteLevelProducts,
+  osqDistance,
+  osqEstimate,
+  osqNarrowPairProducts,
+  osqNibbleProducts,
+  osqStagedPlaneProducts,
+} from './estimate'
 import { createOsqScratch, type OsqBits, osqQuantize } from './quantize'
-import { type OsqTrailer, osqCodeBytes, packLevels, readTrailer, writeRecord } from './record'
+import { type OsqTrailer, readTrailer, stageQueryLevels, writeRecord } from './record'
 import type { OsqQuery, QuantizerSearchReader } from './types'
 
 export interface SharedQuantizerView extends QuantizerSearchReader {
@@ -34,7 +42,7 @@ export function openSharedQuantizer(
   layout: VectorCodeBlockLayout,
   metric: VectorMetric,
 ): SharedQuantizerView {
-  const { dimension, bits, queryBits, codeBytes, planeBytes, capacity } = layout
+  const { dimension, bits, queryBits, codeBytes, capacity } = layout
   const scratch = createOsqScratch(dimension)
   const documentTrailer: OsqTrailer = { lower: 0, upper: 0, correction: 0, sum: 0 }
   const otherTrailer: OsqTrailer = { lower: 0, upper: 0, correction: 0, sum: 0 }
@@ -89,24 +97,32 @@ export function openSharedQuantizer(
     return true
   }
 
-  function productsInBlock(block: OpenVectorBlock, documentOffset: number, queryOffset: number): number {
-    if (block.simd !== null) {
-      if (bits === 8) return block.simd.dot_u8(documentOffset, queryOffset, dimension)
-      if (bits === 4 && queryBits === 4) return block.simd.osq_dot_planes_4x4(documentOffset, queryOffset, planeBytes)
-      return block.simd.osq_dot_planes(documentOffset, queryOffset, planeBytes, bits, queryBits)
-    }
-    const bytes = block.bytes(Math.max(documentOffset, queryOffset) + codeBytes)
-    return bits === 8
-      ? osqByteLevelProducts(bytes, documentOffset, bytes, queryOffset, dimension)
-      : osqPackedLevelProducts(bytes, documentOffset, bits, bytes, queryOffset, queryBits, planeBytes)
+  function simdQueryProducts(simd: ArenaSimd, documentOffset: number, queryOffset: number): number {
+    if (bits === 8) return simd.dot_u8(documentOffset, queryOffset, dimension)
+    if (bits === 4) return simd.osq_dot_nibbles_4x4(documentOffset, queryOffset, codeBytes)
+    return simd.osq_dot_bits(documentOffset, queryOffset, codeBytes, bits)
+  }
+
+  function simdPairProducts(simd: ArenaSimd, offsetA: number, offsetB: number): number {
+    if (bits === 8) return simd.dot_u8(offsetA, offsetB, dimension)
+    if (bits === 4) return simd.osq_dot_nibbles_4x4(offsetA, offsetB, codeBytes)
+    return simd.osq_dot_bits_pair(offsetA, offsetB, codeBytes, bits)
+  }
+
+  function pairProducts(bytesA: Uint8Array, offsetA: number, bytesB: Uint8Array, offsetB: number): number {
+    if (bits === 8) return osqByteLevelProducts(bytesA, offsetA, bytesB, offsetB, dimension)
+    if (bits === 4) return osqNibbleProducts(bytesA, offsetA, bytesB, offsetB, codeBytes)
+    return osqNarrowPairProducts(bytesA, offsetA, bytesB, offsetB, bits, codeBytes)
   }
 
   function productsAgainstQuery(block: OpenVectorBlock, documentOffset: number, query: OsqQuery): number {
-    if (stageQuery(block, query)) return productsInBlock(block, documentOffset, block.scratchByteOffset)
+    if (block.simd !== null && stageQuery(block, query)) {
+      return simdQueryProducts(block.simd, documentOffset, block.scratchByteOffset)
+    }
     const bytes = block.bytes(documentOffset + codeBytes)
-    return bits === 8
-      ? osqByteLevelProducts(bytes, documentOffset, query.packed, 0, dimension)
-      : osqPackedLevelProducts(bytes, documentOffset, bits, query.packed, 0, queryBits, planeBytes)
+    if (bits === 8) return osqByteLevelProducts(bytes, documentOffset, query.packed, 0, dimension)
+    if (bits === 4) return osqNibbleProducts(bytes, documentOffset, query.packed, 0, codeBytes)
+    return osqStagedPlaneProducts(bytes, documentOffset, bits, query.packed, 0, codeBytes)
   }
 
   function estimateDistance(ordinal: number, query: OsqQuery): number {
@@ -123,8 +139,8 @@ export function openSharedQuantizer(
   function prepareQuery(query: Float32Array): OsqQuery | null {
     if (!isCalibrated() || query.length !== dimension) return null
     const code = osqQuantize(query, store.handles.centroid, queryBits, metric, scratch)
-    const packed = new Uint8Array(osqCodeBytes(dimension, queryBits))
-    packLevels(code.levels, queryBits, packed, 0)
+    const packed = new Uint8Array(layout.queryBytes)
+    stageQueryLevels(code.levels, bits, packed)
     for (const block of store.openCodeBlocks()) block.stagedOrdinal = NOTHING_STAGED
     currentQuery = {
       packed,
@@ -144,19 +160,9 @@ export function openSharedQuantizer(
     const offsetB = recordOffset(ordB)
     let products: number
     if (blockA === blockB && blockA.simd !== null) {
-      products =
-        bits === 8
-          ? blockA.simd.dot_u8(offsetA, offsetB, dimension)
-          : bits === 4
-            ? blockA.simd.osq_dot_planes_4x4(offsetA, offsetB, planeBytes)
-            : blockA.simd.osq_dot_planes(offsetA, offsetB, planeBytes, bits, bits)
+      products = simdPairProducts(blockA.simd, offsetA, offsetB)
     } else {
-      const bytesA = blockA.bytes(offsetA + codeBytes)
-      const bytesB = blockB.bytes(offsetB + codeBytes)
-      products =
-        bits === 8
-          ? osqByteLevelProducts(bytesA, offsetA, bytesB, offsetB, dimension)
-          : osqPackedLevelProducts(bytesA, offsetA, bits, bytesB, offsetB, bits, planeBytes)
+      products = pairProducts(blockA.bytes(offsetA + codeBytes), offsetA, blockB.bytes(offsetB + codeBytes), offsetB)
     }
     readTrailer(blockA.data(offsetA + layout.slotStride), offsetA, codeBytes, documentTrailer)
     readTrailer(blockB.data(offsetB + layout.slotStride), offsetB, codeBytes, otherTrailer)
@@ -252,12 +258,7 @@ export function openSharedQuantizer(
         if (presentView[ordinal] !== 1) return Number.POSITIVE_INFINITY
         const offset = slotsOffset + ordinal * slotStride
         if (offset + slotStride > dataLength) return generic(ordinal)
-        const products =
-          bits === 8
-            ? simd.dot_u8(offset, queryOffset, dimension)
-            : bits === 4 && queryBits === 4
-              ? simd.osq_dot_planes_4x4(offset, queryOffset, planeBytes)
-              : simd.osq_dot_planes(offset, queryOffset, planeBytes, bits, queryBits)
+        const products = simdQueryProducts(simd, offset, queryOffset)
         readTrailer(data, offset, codeBytes, documentTrailer)
         const estimate = osqEstimate(
           products,
@@ -291,12 +292,7 @@ export function openSharedQuantizer(
         const offsetA = slotsOffset + ordA * slotStride
         const offsetB = slotsOffset + ordB * slotStride
         if (Math.max(offsetA, offsetB) + slotStride > dataLength) return distanceBetween(ordA, ordB)
-        const products =
-          bits === 8
-            ? simd.dot_u8(offsetA, offsetB, dimension)
-            : bits === 4
-              ? simd.osq_dot_planes_4x4(offsetA, offsetB, planeBytes)
-              : simd.osq_dot_planes(offsetA, offsetB, planeBytes, bits, bits)
+        const products = simdPairProducts(simd, offsetA, offsetB)
         readTrailer(data, offsetA, codeBytes, documentTrailer)
         readTrailer(data, offsetB, codeBytes, otherTrailer)
         const estimate = osqEstimate(

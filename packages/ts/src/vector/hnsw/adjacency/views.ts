@@ -90,10 +90,13 @@ export function ensureUpperCapacity(adj: Adjacency, entries: number): void {
 
 function allocateUpperBlock(adj: Adjacency, levels: number): number {
   const size = levels * adj.upperStride
-  const offset = Atomics.add(adj.header, GRAPH_UPPER_USED, size)
-  growBufferTo(adj.handles.upper, (offset + size) * 4)
-  rebindUpper(adj)
-  return offset
+  for (;;) {
+    const offset = Atomics.load(adj.header, GRAPH_UPPER_USED)
+    growBufferTo(adj.handles.upper, (offset + size) * 4)
+    if (Atomics.compareExchange(adj.header, GRAPH_UPPER_USED, offset, offset + size) !== offset) continue
+    rebindUpper(adj)
+    return offset
+  }
 }
 
 function raiseSlots(adj: Adjacency, slots: number): void {
