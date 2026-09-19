@@ -113,6 +113,12 @@ importers:
         specifier: 4.1.2
         version: 4.1.2(@types/node@22.15.18)(jsdom@28.1.0)(vite@7.3.1(@types/node@22.15.18)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
 
+  packages/native:
+    devDependencies:
+      node-api-headers:
+        specifier: 1.9.0
+        version: 1.9.0
+
   packages/spec: {}
 
   packages/ts:
@@ -5828,6 +5834,9 @@ packages:
   node-abi@3.94.0:
     resolution: {integrity: sha512-W5ZNO5KRPB5TkYmGVD9F6YqhsglXJzE6etpbmT+f6EQElhiX/UTG551cnsRGvLG3fyZEg9HwaDmNmj5nwJ4z9g==}
     engines: {node: '>=10'}
+
+  node-api-headers@1.9.0:
+    resolution: {integrity: sha512-2oNILP4jXwRB4ywnYKjVk1YyJ96n2D4EOVJO6S3oYZ5PtbJrw3Yt9TpAuX3nBLMuzn74rnfGQrv13pS9vC+YiA==}
 
   node-forge@1.4.0:
     resolution: {integrity: sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ==}
@@ -14852,6 +14861,8 @@ snapshots:
   node-abi@3.94.0:
     dependencies:
       semver: 7.7.4
+
+  node-api-headers@1.9.0: {}
 
   node-forge@1.4.0: {}
 

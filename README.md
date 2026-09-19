@@ -10,13 +10,13 @@
 
 Distributed search, reforged.
 
-Narsil is a distributed search engine with full-text, vector, hybrid, and geosearch. You use one codebase in two contexts: embedded in your application process, where the engine answers a query without a network hop, and as a standalone search server with a REST API, a write-ahead log, and bulk NDJSON ingest. In either context you get the same engine, and it stores indexes in the same cross-language binary format (.nrsl), so an index built in one loads in the other.
+Narsil is a distributed search engine with full-text, vector, hybrid, and geosearch. You can embed Narsil in your application process, where the engine searches without a network hop, or deploy it as a standalone search server with a REST API, a write-ahead log, and bulk NDJSON ingest. Both forms contain the same engine, which stores indexes in one cross-language binary format (`.nrsl`), so you can load an index from one form into the other.
 
-The engine partitions large indexes across workers and merges partition results into a single ranked answer. Its BM25 ranking matches the Anserini reference within 0.006 nDCG@10 on the BEIR datasets. On BEIR SciFact it takes the top nDCG@10 at 0.681, narrowly ahead of Elasticsearch and OpenSearch at 0.679, and answers 958 keyword queries per second against their 841 and 878 ([benchmarks](BENCHMARKS.md)). The TypeScript package is the reference implementation.
+The engine partitions large indexes across workers and merges the results of the partitions into a single ranked list. Its BM25 nDCG@10 is within 0.006 of the Anserini reference on BEIR SciFact and NFCorpus. On SciFact, Narsil scores 0.681 nDCG@10, ahead of Elasticsearch and OpenSearch at 0.679. At its peak, it also serves 958 keyword queries per second on SciFact, while Elasticsearch serves 841 and OpenSearch serves 878 ([benchmarks](BENCHMARKS.md)).
 
 Try it in your browser at [narsil.sondelali.com/demo](https://narsil.sondelali.com/demo). Read the full documentation at [narsil.sondelali.com/docs](https://narsil.sondelali.com/docs).
 
-> *narsil* is the sword of Elendil in Tolkien's Lord of the Rings, shattered into shards and later reforged. The name maps to the architecture, since the engine splits your data into partitions and persists each one on its own, then reforges them into a single ranked answer for every query.
+> *narsil* is the sword of Elendil in Tolkien's Lord of the Rings, shattered into shards and later reforged. The name fits the design, because the engine splits your data into partitions that it persists one by one, then merges their results into one ranked list for each query.
 
 ## Project status
 
@@ -24,25 +24,26 @@ Narsil comes in three parts at two levels of maturity.
 
 | Part | Status | Details |
 | --- | --- | --- |
-| Embedded engine (`@delali/narsil`) | Stable | You embed the engine in your process for full-text, vector, hybrid, and geosearch. It reports failures through typed error codes, and its continuous integration runs the test suite on Node 22 and 24. |
+| Embedded engine (`@delali/narsil`) | Stable | You embed the engine in your process for full-text, vector, hybrid, and geosearch. It reports failures through typed error codes. Continuous integration tests it on Node 22 and 24. |
 | Single-node server (`@delali/narsil/server`) | Stable | A REST API wraps the same engine, with a write-ahead log, bulk NDJSON import, and snapshot and restore. |
-| Multi-node cluster (`@delali/narsil/distribution`) | Experimental | The cluster provides node roles, replication, and query routing over an in-process transport, TCP with mTLS, or gRPC. Its APIs change without notice. |
+| Multi-node cluster (`@delali/narsil/distribution`) | Experimental | The cluster adds node roles, replication, and query routing over an in-process transport, TCP with mTLS, or gRPC. We may change its APIs without notice. |
 
-The `.nrsl` binary format is the contract that every Narsil implementation reads and writes. This TypeScript package is the reference implementation that validates the format, and a second-language port in Go or Rust is the headline item on the [roadmap](ROADMAP.md).
+Every Narsil implementation must load and save the `.nrsl` binary format, which is the contract between them. This TypeScript package is the reference implementation of that format, while the headline item on the [roadmap](ROADMAP.md) is a second implementation in Go or Rust.
 
 ## Packages
 
 | Package | Description |
 | --- | --- |
-| [`@delali/narsil`](packages/ts) | The core search engine provides full-text, vector, hybrid, and geosearch, plus an HTTP server subpath. |
+| [`@delali/narsil`](packages/ts) | This package holds the core search engine for full-text, vector, hybrid, and geosearch, plus an HTTP server subpath. |
+| [`@delali/narsil-native-*`](packages/native) | Six platform packages hold the native search core in C, through which `@delali/narsil` searches vector graphs on macOS, Linux, and Windows. |
 | [`@delali/narsil-embeddings-transformers`](packages/embeddings-transformers) | The adapter computes embeddings from local models through Hugging Face Transformers.js. |
-| [`@delali/narsil-certutil`](packages/certutil) | The CLI generates and manages the TLS certificates Narsil clusters use, covering CA creation, node certificate signing, inspection, and format conversion. |
+| [`@delali/narsil-certutil`](packages/certutil) | The CLI creates certificate authorities, signs node certificates, and inspects and converts the TLS certificates that Narsil clusters use. |
 
 ## Getting started
 
 ### Embedded
 
-You install the engine as a package, and it works inside your process, in Node.js, Bun, Deno, or a browser.
+Install the engine as a package to use it inside your process in Node.js, Bun, Deno, or a browser:
 
 ```bash
 pnpm add @delali/narsil
@@ -89,7 +90,7 @@ const results = await narsil.query('products', {
 
 ### As a server
 
-A REST API wraps the same engine. The [http-server example](packages/ts/examples/http-server) is a production launcher: it binds to localhost by default, refuses a public bind without authentication, and reads its configuration from environment variables.
+A REST API wraps the same engine. The [http-server example](packages/ts/examples/http-server) is a production launcher, which binds to 127.0.0.1 by default and takes its configuration from environment variables. It stops with an error when you bind it to a public address without authentication.
 
 ```bash
 pnpm --filter @delali/narsil build
@@ -108,44 +109,44 @@ curl -X POST localhost:7700/indexes/products/search \
   -d '{"term":"keyboard"}'
 ```
 
-The [HTTP server guide](docs/http-server.md) shows the embedding API, and the [example's README](packages/ts/examples/http-server/README.md) documents every endpoint with request and response bodies.
+The [HTTP server guide](docs/http-server.md) covers the embedding API, while the [example's README](packages/ts/examples/http-server/README.md) holds every endpoint with its request and response bodies.
 
-Each guide under [`docs/`](docs/) documents one area with working examples, and the highlights follow.
+Each guide under [`docs/`](docs/) covers one area with working examples. In the list of features below, each feature links to the guide that covers it.
 
 ## Features
 
-**Search.** [Full-text search](docs/full-text-search.md#basic-queries) scores with BM25 and supports field boosting, [fuzzy matching](docs/full-text-search.md#fuzzy-matching) via bounded Levenshtein distance, [search as you type](docs/full-text-search.md#search-as-you-type) through last-word prefix matching, and [term-coverage and score thresholds](docs/full-text-search.md#score-and-coverage-thresholds). Queries compose with [filters](docs/filters-facets-and-pagination.md#filters), [facets](docs/filters-facets-and-pagination.md#facets), [sorting](docs/filters-facets-and-pagination.md#sort), [grouping](docs/filters-facets-and-pagination.md#grouping), [highlighting](docs/full-text-search.md#highlighting), [cursor pagination](docs/filters-facets-and-pagination.md#pagination), [pinned results](docs/filters-facets-and-pagination.md#pinning), and [autocomplete suggestions](docs/full-text-search.md#suggestions).
+**Search.** For [full-text search](docs/full-text-search.md#basic-queries), the engine scores with BM25 and supports field boosting, [fuzzy matching](docs/full-text-search.md#fuzzy-matching) through bounded Levenshtein distance, [search as you type](docs/full-text-search.md#search-as-you-type) through last-word prefix matching, and [term-coverage and score thresholds](docs/full-text-search.md#score-and-coverage-thresholds). You can combine a query with [filters](docs/filters-facets-and-pagination.md#filters), [facets](docs/filters-facets-and-pagination.md#facets), [sorting](docs/filters-facets-and-pagination.md#sort), [grouping](docs/filters-facets-and-pagination.md#grouping), [highlighting](docs/full-text-search.md#highlighting), [cursor pagination](docs/filters-facets-and-pagination.md#pagination), [pinned results](docs/filters-facets-and-pagination.md#pinning), and [autocomplete suggestions](docs/full-text-search.md#suggestions).
 
-**Vector and hybrid retrieval.** [Vector search](docs/vector-search.md#vector-search) serves cosine, dot-product, and Euclidean queries, starts on an exact scan, and promotes a field to an HNSW graph as it grows, with optimised scalar quantization on by default. [Hybrid search](docs/hybrid-search.md#hybrid-search) fuses BM25 and vector rankings through reciprocal rank fusion or linear blending, and [embedding adapters](docs/embedding-adapters.md#embedding-adapters) turn text into vectors automatically on insert and query, through OpenAI, local Transformers.js models, or your own adapter.
+**Vector and hybrid retrieval.** For [vector search](docs/vector-search.md#vector-search), the engine compares vectors by cosine similarity, dot product, or Euclidean distance. It scans a field exactly until the field holds 1,024 vectors, a count that you can change, after which it builds an HNSW graph with optimised scalar quantization on by default. On arm64 and x64 machines running macOS, Linux, or Windows, the engine searches that graph through a [native core in C](docs/vector-search.md#native-search-core), which returns the same results as its WebAssembly search. For [hybrid search](docs/hybrid-search.md#hybrid-search), the engine fuses BM25 and vector rankings through reciprocal rank fusion or linear blending. [Embedding adapters](docs/embedding-adapters.md#embedding-adapters) turn text into vectors on insert and query, through OpenAI, local Transformers.js models, or an adapter of your own.
 
-**Geosearch.** [Geo filters](docs/geosearch.md#geosearch) match by radius (Haversine or Vincenty distance) or polygon containment, and they compose with every other query feature.
+**Geosearch.** [Geo filters](docs/geosearch.md#geosearch) match documents by radius, using Haversine or Vincenty distance, or by polygon containment. You can combine a geo filter with every other query feature.
 
-**Storage.** [Persistence adapters](docs/persistence-and-durability.md#persistence) plug in filesystem, IndexedDB, memory, or custom backends. [Durability](docs/persistence-and-durability.md#durability) adds a write-ahead log with periodic checkpoints and automatic recovery, and [snapshots](docs/persistence-and-durability.md#snapshots-and-restore) capture a whole index as one portable byte array. With [lifecycle settings](docs/persistence-and-durability.md#index-lifecycle), the engine closes idle indexes and reopens one when a caller uses it, so one engine can hold more indexes than fit in memory. The `.nrsl` serialization format is specified in [`packages/spec`](packages/spec) so other language implementations read and write the same files.
+**Storage.** [Persistence adapters](docs/persistence-and-durability.md#persistence) store indexes on the filesystem, in IndexedDB, in memory, or in a backend of your own. With [durability](docs/persistence-and-durability.md#durability) on, the engine keeps a write-ahead log with periodic checkpoints and recovers on its own after a crash. A [snapshot](docs/persistence-and-durability.md#snapshots-and-restore) captures a whole index as one portable byte array. With [lifecycle settings](docs/persistence-and-durability.md#index-lifecycle), the engine closes idle indexes and reopens one when a caller uses it, so one engine can hold more indexes than can fit in memory. [`packages/spec`](packages/spec) specifies the `.nrsl` serialization format so that implementations in other languages can load and save the same files.
 
-**Scale.** [Partitioned indexes](docs/partitions-and-workers.md#partitions-and-rebalancing) route documents by deterministic hash and reshape online through `rebalance()`, with writes buffering in a write-ahead queue during the reshape. [Worker copies](docs/partitions-and-workers.md#worker-copies) answer keyword queries on half the worker threads once an index holds 1,000 documents, the [HTTP server receives requests on the threads that hold them](docs/partitions-and-workers.md#request-threads), and such an index [analyses a batch once](docs/partitions-and-workers.md#how-a-batch-reaches-the-worker-copies) and shares the result with every copy in place of indexing it again per copy. [Three scoring modes](docs/full-text-search.md#scoring-modes) handle BM25 statistics skew across partitions and instances.
+**Scale.** The engine routes each document to a [partition](docs/partitions-and-workers.md#partitions-and-rebalancing) by a deterministic hash. When you call `rebalance()`, the engine reshapes the partitions online and buffers incoming writes in a write-ahead queue. Once an index holds 1,000 documents, the engine serves keyword queries from [worker copies](docs/partitions-and-workers.md#worker-copies) on half its worker threads, while the [HTTP server receives requests on the threads that hold those copies](docs/partitions-and-workers.md#request-threads). The engine [analyses each batch once](docs/partitions-and-workers.md#how-a-batch-reaches-the-worker-copies) and passes the result to every copy. You can choose among [three scoring modes](docs/full-text-search.md#scoring-modes) for BM25 statistics that differ across partitions and instances.
 
-**Operations.** The [HTTP server](docs/http-server.md#http-server) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. The [client](docs/client.md#client) subpath reaches every one of those routes from a browser or from Node under the engine's own method names, and `waitForTask` follows a long load to its finish. The [React](docs/react.md#react) subpath gives those methods to components as hooks, which share one request per set of arguments. [Events](docs/observability.md#events), [typed errors](docs/errors.md#errors), [plugins](docs/observability.md#plugins), and [memory reporting](docs/observability.md#memory-reporting) cover observability, and [language modules](docs/language-support.md#language-support) cover 107 languages as separate entry points, 20 of them African.
+**Operations.** The [HTTP server](docs/http-server.md#http-server) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. The [client](docs/client.md#client) subpath calls every one of those routes from a browser or from Node under the engine's own method names. Its `waitForTask` returns once a long load finishes. The [React](docs/react.md#react) subpath exposes those methods to components as hooks, which send one request for each distinct set of arguments. For observability, you get [events](docs/observability.md#events), [typed errors](docs/errors.md#errors), [plugins](docs/observability.md#plugins), and [memory reporting](docs/observability.md#memory-reporting). [Language modules](docs/language-support.md#language-support) cover 107 languages as separate entry points, including 20 African languages.
 
 ## Examples
 
 | Example | What it shows |
 | --- | --- |
 | [Live demo](https://narsil.sondelali.com/demo) | The hosted demo works entirely in the browser, so you can try search without installing anything. |
-| [HTTP server](packages/ts/examples/http-server) | The launcher serves the engine as a REST service with durability, API-key auth, and Docker packaging, and its README documents the full API surface. |
+| [HTTP server](packages/ts/examples/http-server) | The launcher serves the engine as a REST service with durability, API-key auth, and Docker packaging. Its README holds every endpoint of the API. |
 | [Browser](packages/ts/examples/browser) | The app embeds the engine in a browser with IndexedDB persistence and Web Worker search. |
-| [Server app](packages/ts/examples/server-app) | The app reaches the HTTP server through the client SDK and the React hooks, loads corpora as import tasks, and answers questions from them in an Ask view. |
+| [Server app](packages/ts/examples/server-app) | The app calls the HTTP server through the client SDK and the React hooks to load corpora as import tasks. In its Ask view, you can ask questions about those corpora. |
 
 ## Benchmarks
 
-Narsil is portable, so it competes in two classes. Run as a search server, it goes up against Elasticsearch, OpenSearch, Qdrant, Weaviate, Typesense, and Meilisearch. Embedded inside one process, it goes up against the JavaScript libraries Orama and MiniSearch. [BENCHMARKS.md](BENCHMARKS.md) holds the full results, with charts for every track.
+Because Narsil works both embedded and as a server, we benchmark it in two classes. We compare the server with Elasticsearch, OpenSearch, Qdrant, Weaviate, Typesense, and Meilisearch, and the embedded engine with the JavaScript libraries Orama and MiniSearch. [BENCHMARKS.md](BENCHMARKS.md) holds the full results, with charts for every track.
 
 ### Production search servers
 
-On the [BEIR](https://github.com/beir-cellar/beir) information-retrieval datasets, served over HTTP, Narsil's BM25 takes the top nDCG@10 on SciFact, narrowly ahead of the Lucene engines, and takes the top nDCG@10, Recall@100, MAP, and MRR on NFCorpus. On the hybrid track it takes the top nDCG@10 on NFCorpus. Its BM25 reproduces the published Anserini baseline to within 0.006 nDCG@10 on both datasets, which is the calibration that makes the comparison trustworthy. The keyword, vector, and hybrid numbers for all seven engines are in [BENCHMARKS.md](BENCHMARKS.md).
+Over HTTP on the [BEIR](https://github.com/beir-cellar/beir) SciFact and NFCorpus datasets, Narsil has the top BM25 nDCG@10 on SciFact, ahead of the Lucene engines, and the top nDCG@10, Recall@100, MAP, and MRR on NFCorpus. On the hybrid track, it has the top nDCG@10 on NFCorpus. Its BM25 nDCG@10 is within 0.006 of the published Anserini baseline on both datasets. [BENCHMARKS.md](BENCHMARKS.md) holds the keyword, vector, and hybrid numbers for all seven engines.
 
 ### In-process libraries
 
-Measured in one process against Orama and MiniSearch, with the same stop words and default BM25 parameters, and with each engine stemming English its own way, Narsil takes the top nDCG@10 on the BEIR SciFact corpus. It inserts text faster than both libraries at every scale, and it answers a search faster than both as the corpus grows. On vector search, where MiniSearch has no equivalent, Narsil answers queries faster than Orama at matched recall on SciFact and NFCorpus, while Orama inserts vectors faster and holds a smaller footprint. The full quality, throughput, latency, and memory tables are in [BENCHMARKS.md](BENCHMARKS.md), and the method and reproduction steps are in [`benchmarks/in-process`](benchmarks/in-process).
+When we measure Narsil in one process against Orama and MiniSearch, with the same stop words and default BM25 parameters for all three, Narsil has the top nDCG@10 on BEIR SciFact, although each library stems English in its own way. It inserts text faster than both libraries at every scale that we measure, while it searches faster than both at 10,000 and 50,000 documents. Because MiniSearch has no vector search, we compare vector search against Orama alone. Narsil searches vectors faster than Orama at the same recall on SciFact and NFCorpus, although Orama inserts them faster. [BENCHMARKS.md](BENCHMARKS.md) holds the full quality, throughput, and latency tables, while [`benchmarks/in-process`](benchmarks/in-process) holds the method and the steps to reproduce them.
 
 ## Documentation
 
@@ -155,7 +156,7 @@ Measured in one process against Orama and MiniSearch, with the same stop words a
 | [Indexes and documents](docs/indexes-and-documents.md) | Schemas, index management, inserts, reads, updates, removals, and batch operations |
 | [Full-text search](docs/full-text-search.md) | Term queries, fuzzy matching, prefix completion, thresholds, highlighting, scoring modes, and suggestions |
 | [Filters, facets, and pagination](docs/filters-facets-and-pagination.md) | Field, array, presence, and geo filters, facet counts, sorting, grouping, cursors, and pinning |
-| [Vector search](docs/vector-search.md) | Vector fields, distance metrics, HNSW promotion, quantization, and graph maintenance |
+| [Vector search](docs/vector-search.md) | Vector fields, distance metrics, HNSW promotion, quantization, the native search core, and graph maintenance |
 | [Hybrid search](docs/hybrid-search.md) | Reciprocal rank fusion and linear blending of text and vector rankings |
 | [Geosearch](docs/geosearch.md) | Radius and polygon filters, and the two distance formulas |
 | [Embedding adapters](docs/embedding-adapters.md) | Automatic embedding on insert and query, named adapters, the bundled ones, and custom ones |
@@ -163,17 +164,17 @@ Measured in one process against Orama and MiniSearch, with the same stop words a
 | [Partitions and workers](docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker copies, and multi-instance invalidation |
 | [Language support](docs/language-support.md) | The 107 language modules, analysis revisions and rebuilds, and named tokenizers and stop words |
 | [HTTP server](docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |
-| [Cluster mode](docs/cluster.md) | Multi-node indexes: nodes and roles, replication, routed writes, distributed searches and reads, and what a cluster refuses |
+| [Cluster mode](docs/cluster.md) | Multi-node indexes: nodes and roles, replication, routed writes, distributed searches and reads, and the calls that fail in a cluster |
 | [Client](docs/client.md) | Reaching a server from a browser or Node, following a task, and the codes it raises |
 | [React](docs/react.md) | The hooks over the client, one shared request per key, and loading a corpus from a component |
 | [Observability](docs/observability.md) | Plugin hooks, engine events, and memory reporting |
 | [Errors](docs/errors.md) | Every error code and what throws it |
 
-The [specification](packages/spec/) defines the `.nrsl` format, the analysis pipeline, and the replication invariants that every implementation follows.
+The [specification](packages/spec/) defines the `.nrsl` format, the analysis pipeline, and the replication invariants that every implementation must uphold.
 
 ## Distribution status
 
-The multi-node cluster mode under `@delali/narsil/distribution` is under active development and experimental. It works over an in-process transport for tests, and over TCP with mTLS or gRPC between processes. Its APIs change without notice, so no production deployment should depend on it yet. The design is specified in [`packages/spec/distribution`](packages/spec/distribution).
+The multi-node cluster mode under `@delali/narsil/distribution` is under active development and experimental. It works over an in-process transport for tests, and over TCP with mTLS or gRPC between processes. We may change its APIs without notice, so keep it out of production for now. [`packages/spec/distribution`](packages/spec/distribution) specifies the design.
 
 ## Runtime support
 
