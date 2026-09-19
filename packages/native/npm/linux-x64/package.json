@@ -1,0 +1,26 @@
+{
+  "name": "@delali/narsil-native-linux-x64",
+  "version": "0.0.0",
+  "description": "Narsil's native search core, a Node-API addon in C that searches vector graphs, compiled for Linux on x86-64 with glibc and with musl.",
+  "license": "Apache-2.0",
+  "author": "Delali (https://sondelali.com)",
+  "homepage": "https://github.com/assetcorp/narsil",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/assetcorp/narsil.git",
+    "directory": "packages/native/npm/linux-x64"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "narsil-core.node",
+    "musl/narsil-core.node"
+  ],
+  "engines": {
+    "node": ">=22"
+  }
+}

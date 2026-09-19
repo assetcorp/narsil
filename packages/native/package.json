@@ -1,0 +1,28 @@
+{
+  "name": "@delali/narsil-native-build",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Narsil's native search core in C, with its Node-API binding and the scripts that build, test, and lint them.",
+  "author": "Delali (https://sondelali.com)",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/assetcorp/narsil",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/assetcorp/narsil.git",
+    "directory": "packages/native"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node build.mjs --host-compiler",
+    "build:target": "node build.mjs",
+    "format": "node format.mjs",
+    "lint": "node lint.mjs",
+    "test": "node test/run.mjs"
+  },
+  "devDependencies": {
+    "node-api-headers": "1.9.0"
+  }
+}

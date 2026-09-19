@@ -1,0 +1,25 @@
+{
+  "name": "@delali/narsil-native-win32-x64",
+  "version": "0.0.0",
+  "description": "Narsil's native search core, a Node-API addon in C that searches vector graphs, compiled for Windows on x86-64.",
+  "license": "Apache-2.0",
+  "author": "Delali (https://sondelali.com)",
+  "homepage": "https://github.com/assetcorp/narsil",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/assetcorp/narsil.git",
+    "directory": "packages/native/npm/win32-x64"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "narsil-core.node"
+  ],
+  "engines": {
+    "node": ">=22"
+  }
+}
