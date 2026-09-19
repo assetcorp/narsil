@@ -324,7 +324,117 @@ The cross-implementation conformance suite runs a fixed 10,000-vector dataset an
 
 ## Native Search Core
 
-The native search core is the vector search written in C, and it is the standard search of every implementation. An implementation must search its graphs through the native search core wherever its platform can load native code. Where the platform cannot load native code, an implementation may search through its own code. That search must return the same documents with the same scores as the native search core returns for the same graph and the same query.
+The native search core is the vector search written in C, which every implementation uses as its standard search. An implementation must search its graphs through the native search core wherever its platform can load native code. Where the platform cannot load native code, an implementation may search through its own code. That search must return the same documents with the same scores as the native search core returns for the same graph and the same query.
+
+### Interface
+
+The core has a C interface that uses no type of a host runtime. To search, an implementation must pass the graph, the store, the query vector, the metric, the candidate count, and its thread slot. The core then returns that many of the nearest ordinals with their distances, nearest first. To place a vector, the implementation must pass that vector and its top layer in place of the query, so that the core returns the candidates of every layer from that top layer down to 0. The implementation must select the neighbours from those candidates, prune the lists, and write the lists while it follows [Locks](#locks).
+
+### Shared Memory
+
+An implementation must give the core the memory that holds a graph, its codes, and its vectors, because the core searches that memory in place. Every value in that memory must be little-endian. The implementation must leave a region at the same address when it grows that region. A writer must make the new bytes of a region readable before it stores any value that refers to them.
+
+```text
+Graph {
+  header:     int32[160]
+  nodeLevels: uint8 per ordinal               (the node's top layer plus 1, or 0 where the graph holds no node)
+  level0:     int32[mMax0 + 2] per ordinal    (a count, then that many neighbour ordinals)
+  upperBase:  int32 per ordinal               (the position in upper of the node's layer 1 list plus 1, or 0)
+  upper:      int32[m + 2] per upper layer    (a count, then that many neighbour ordinals)
+  locks:      int32 per ordinal
+  tombstones: uint8 per ordinal               (1 once a caller removes the document)
+  heldLocks:  int32[32] per thread slot
+}
+
+GraphHeader {
+  word 0:   entryPoint        (the ordinal where a search starts, or -1)
+  word 1:   topLayer          (the entry point's top layer, or -1)
+  word 2:   m
+  word 3:   mMax0
+  word 4:   efConstruction
+  word 5:   metric            (0 for cosine, 1 for dotProduct, 2 for euclidean)
+  word 32:  nodeCount
+  word 33:  tombstoneCount
+  word 64:  upperUsed         (the int32 values of upper in use)
+  word 65:  slots             (the ordinals in use)
+  word 96:  graphLock
+  word 97:  writersWaiting
+  word 128: entryLock
+}
+```
+
+A writer must store the lists of a node's upper layers in consecutive entries of `upper`, in ascending layer order. A writer must leave 0 in every header word that `GraphHeader` omits.
+
+```text
+Store {
+  header:      int32[16]
+  codes:       List<CodeBlock>
+  codePresent: uint8 per ordinal      (1 where the ordinal holds a record)
+  centroid:    float32[dimension]
+  vectors:     List<VectorBlock or nil>
+  magnitudes:  float64 per ordinal
+  present:     uint8 per ordinal      (1 where the ordinal holds a live vector)
+}
+
+StoreHeader {
+  word 0: slots
+  word 1: liveCount
+  word 2: vectorBlockCount
+  word 3: calibrated                  (1 while the codes are valid)
+  word 4: codeCount
+  word 6: codeBlockCount
+  word 7: calibrationGeneration
+}
+```
+
+A `CodeBlock` holds `OSQRecord`s, as [Vector Index Payload](envelope.md#vector-index-payload) defines, with no padding between them. Each entry of a `VectorBlock` is one vector in a span of `dimension * 4` bytes, which the implementation rounds up to a multiple of 16. Every block of a list must hold the same number of entries, so ordinal `o` is entry `o mod entriesPerBlock` of block `floor(o / entriesPerBlock)`. A `vectors` entry is nil where the index holds that block's vectors on disk, so the implementation must re-score the candidates of that block itself. The core reads only these words of the store header.
+
+The core must skip an ordinal at or above `slots` and a list that ends above `upperUsed`, because a corrupt value could otherwise send the core outside a region.
+
+### Locks
+
+Every thread that reads or writes a shared graph must follow this protocol. The thread must read and write every lock word atomically, because another thread may change the word at any moment.
+
+The lock word of a node holds a version in its upper 30 bits, `writerWaiting` in bit 1, and `writeHeld` in bit 0.
+
+```text
+readNeighbours(ord, layer) -> List<int32>
+  repeat:
+    before = locks[ord]
+    when writeHeld is clear in before:
+      list = a copy of the node's list at layer
+      when locks[ord] equals before:
+        return list
+
+lockNode(ord)
+  repeat:
+    seen = locks[ord]
+    when writeHeld is clear in seen and compareAndSwap(locks[ord], seen, seen + 1) succeeds:
+      return
+    otherwise:
+      the thread may set writerWaiting in locks[ord] and sleep until another thread wakes it
+
+unlockNode(ord)
+  released = locks[ord] with writeHeld and writerWaiting clear, plus 4
+  previous = exchange(locks[ord], released)
+  when writerWaiting is set in previous:
+    wake the threads that sleep on locks[ord]
+```
+
+A writer must hold the lock of a node while it changes any list of that node.
+
+`graphLock` holds the number of threads that search or place, or -1 while one thread holds the graph alone. A thread must raise `graphLock` by 1 before it reads the graph and lower `graphLock` by 1 afterwards. That thread must wait while `graphLock` is -1 or `writersWaiting` is above 0. A thread that needs the graph alone must raise `writersWaiting` by 1, swap `graphLock` from 0 to -1, and lower `writersWaiting` by 1. A thread must swap `entryLock` from 0 to -1 before it stores `entryPoint` and `topLayer`, then store 0 in `entryLock`.
+
+Every thread must record the locks that it holds in its own 32 words of `heldLocks`, so that the implementation can release the locks of a thread that dies.
+
+```text
+HeldLocks {
+  word 0: the ordinal whose lock the thread holds plus 1, or 0
+  word 1: the value that the thread stores in that lock word when it takes the lock
+  word 2: 1 while graphLock counts the thread
+  word 4: 1 while writersWaiting counts the thread
+}
+```
 
 ---
 
@@ -332,11 +442,11 @@ The native search core is the vector search written in C, and it is the standard
 
 The vector index must be thread-safe at its interface boundary.
 
-- **Concurrent reads are safe.** Several searches may run at once.
-- **Concurrent reads and writes are safe.** A write must never corrupt a read running beside it. A read taken during a write may include or exclude the document being written, and must never return corrupt or partial state.
-- **Concurrent writes may be serialised.** An implementation is free to take a lock and run writes one at a time.
+- **Concurrent reads are safe.** An implementation may serve several searches at once.
+- **Concurrent reads and writes are safe.** A write must never corrupt a read that overlaps it. A read that overlaps a write may include or exclude the document of that write, but it must never return corrupt or partial state.
+- **Concurrent writes may be serialised.** An implementation may take a lock and apply its writes one at a time.
 
-The contract requires no lock-free reads, no concurrent writes, and no particular locking strategy. A single-threaded runtime satisfies it by construction, and a runtime with threads satisfies it with read-write locks, sharded locks, or an equivalent.
+An implementation whose graph the native search core searches must follow [Locks](#locks). Any other implementation may choose its locking strategy. A single-threaded runtime satisfies the contract by construction, while a runtime with threads satisfies it with read-write locks, sharded locks, or an equivalent.
 
 ---
 
