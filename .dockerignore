@@ -5,6 +5,12 @@
 !.npmrc
 !tsconfig.json
 !packages/embeddings-transformers/package.json
+!packages/native/package.json
+!packages/native/build.mjs
+!packages/native/toolchain.mjs
+!packages/native/include
+!packages/native/src
+!packages/native/node
 !packages/ts/package.json
 !packages/ts/tsconfig.json
 !packages/ts/tsup.config.ts

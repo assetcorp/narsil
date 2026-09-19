@@ -8,6 +8,13 @@
   "[javascript][javascriptreact][typescript][typescriptreact][json][css]": {
     "editor.defaultFormatter": "biomejs.biome"
   },
+  "[c]": {
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+  },
+  "files.associations": {
+    "**/packages/native/**/*.h": "c"
+  },
+  "clangd.path": "${workspaceFolder}/packages/native/.lint-tools/bin/clangd",
   "eslint.enable": false,
   "prettier.enable": false,
   "search.exclude": {

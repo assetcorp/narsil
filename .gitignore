@@ -17,6 +17,12 @@ benchmarks/server/artifacts/
 .cache/
 .venv/
 scratch/
+packages/native/build/
+packages/native/artifacts/
+packages/native/.lint-tools/
+packages/native/npm/*/*
+!packages/native/npm/*/package.json
+!packages/native/npm/*/README.md
 
 # Python bytecode caches, written when the writeup tool runs on the host
 __pycache__/
