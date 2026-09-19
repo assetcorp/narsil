@@ -1,0 +1,4 @@
+clang-format==22.1.1
+clang-tidy==22.1.8
+clangd==22.1.1
+ziglang==0.16.0

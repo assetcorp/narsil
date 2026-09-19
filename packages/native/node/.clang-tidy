@@ -1,0 +1,3 @@
+InheritParentConfig: true
+CheckOptions:
+  bugprone-easily-swappable-parameters.IgnoredParameterNames: '"";iterator;Iterator;begin;Begin;end;End;first;First;last;Last;lhs;LHS;rhs;RHS;finalize_hint'
