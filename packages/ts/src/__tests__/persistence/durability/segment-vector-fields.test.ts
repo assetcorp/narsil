@@ -5,7 +5,7 @@ import { decode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil } from '../../../narsil'
 import { createDurableDirectory, type DurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { unpackEnvelopeBytes } from '../../../serialization/envelope'
+import { unpackEnvelopeBytes, unpackIndexSnapshotEnvelope } from '../../../serialization/envelope'
 import type { IndexConfig } from '../../../types/schema'
 import { osqRecordBytes } from '../../../vector/osq/record'
 import { decodeVectorIndexPart } from '../../../vector/vector-index/payload'
@@ -125,6 +125,33 @@ describe('vector fields in a segmented checkpoint', () => {
     const reader = await createNarsil({ durability: { directory: root } })
     expect((await reader.query('papers', query)).hits.map(hit => hit.id)).toEqual(expected)
     await reader.shutdown()
+  })
+
+  it('saves the graph that the index already searches through, and builds no second one', async () => {
+    const config: IndexConfig = { ...CONFIG, vectorPromotion: { threshold: 8 } }
+    const writer = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })
+    await writer.createIndex('papers', config)
+    for (let i = 0; i < 200; i += 1) {
+      await writer.insert('papers', { title: `Paper ${i}`, embedding: embeddingFor(i) }, `p${i}`)
+    }
+    await writer.optimizeVectors('papers', 'embedding')
+    await writer.checkpoint('papers')
+    const snapshot = decode(await unpackIndexSnapshotEnvelope(await writer.snapshot('papers'))) as {
+      vectorIndexes: Record<string, unknown[]>
+    }
+    const searchedThrough = decodeVectorIndexPart(snapshot.vectorIndexes.embedding[0]).graphs[0]
+    await writer.shutdown()
+
+    const directory = createDurableDirectory(root)
+    const vectorKeys = (await directory.list('papers/segments/0/')).filter(key => key.includes('/vec-embedding-'))
+    const bytes = await directory.read(vectorKeys[0])
+    if (bytes === null) throw new Error('vector part missing')
+    const { payloadBytes } = await unpackEnvelopeBytes(bytes)
+    const saved = decodeVectorIndexPart(decode(payloadBytes)).graphs[0]
+
+    expect(saved.nodes).toHaveLength(200)
+    expect(saved.nodes).toEqual(searchedThrough.nodes)
+    expect(saved.entryPoint).toEqual(searchedThrough.entryPoint)
   })
 
   it('recovers the vector an update replaced', async () => {

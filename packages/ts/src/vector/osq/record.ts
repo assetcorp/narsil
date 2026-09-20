@@ -7,6 +7,7 @@ const TRAILER_CORRECTION = 8
 const TRAILER_SUM = 12
 
 const QUERY_PLANES_FOR_NARROW_CODES = 4
+const LEVELS_IN_A_TWO_BIT_BYTE = 4
 
 export function osqCodeBytes(dimension: number, bits: OsqBits): number {
   return Math.ceil((dimension * bits) / 8)
@@ -57,13 +58,18 @@ export function stageQueryLevels(levels: Uint8Array, documentBits: OsqBits, targ
     return
   }
   const planeBytes = osqCodeBytes(levels.length, documentBits)
-  const perByte = 8 / documentBits
   target.fill(0, 0, QUERY_PLANES_FOR_NARROW_CODES * planeBytes)
+  if (documentBits === 2) {
+    for (let i = 0; i < levels.length; i++) {
+      target[(i % LEVELS_IN_A_TWO_BIT_BYTE) * planeBytes + Math.floor(i / LEVELS_IN_A_TWO_BIT_BYTE)] = levels[i]
+    }
+    return
+  }
   for (let i = 0; i < levels.length; i++) {
     const value = levels[i]
     if (value === 0) continue
-    const byte = Math.floor(i / perByte)
-    const bit = 1 << ((i % perByte) * documentBits)
+    const byte = i >> 3
+    const bit = 1 << (i & 7)
     for (let plane = 0; plane < QUERY_PLANES_FOR_NARROW_CODES; plane++) {
       if ((value >> plane) & 1) target[plane * planeBytes + byte] |= bit
     }

@@ -58,6 +58,26 @@ describe('crc32 incremental', () => {
     return data
   }
 
+  it('returns the checksum that zlib gives for 10,000 bytes, whole and in chunks of every size', () => {
+    const data = makeData(10_000)
+    const fromZlib = 0x38e68819
+    expect(crc32(data)).toBe(fromZlib)
+    for (const chunkSize of [1, 15, 16, 17, 4096]) {
+      let state = crc32Init()
+      for (let offset = 0; offset < data.length; offset += chunkSize) {
+        state = crc32Update(state, data.subarray(offset, Math.min(offset + chunkSize, data.length)))
+      }
+      expect(crc32Final(state)).toBe(fromZlib)
+    }
+  })
+
+  it('checksums a view that starts inside a larger buffer', () => {
+    const data = makeData(10_000)
+    const padded = new Uint8Array(10_016)
+    padded.set(data, 9)
+    expect(crc32(padded.subarray(9, 10_009))).toBe(0x38e68819)
+  })
+
   it('matches the whole-buffer checksum regardless of where chunks split', () => {
     const data = makeData(10_000)
     const reference = crc32(data)

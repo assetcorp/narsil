@@ -80,6 +80,12 @@ function createMockVectorIndex(dimension: number): VectorIndex {
     })),
     estimateMemoryBytes: vi.fn(() => 0),
     serialize: vi.fn(() => []),
+    planParts: vi.fn(() => ({
+      parts: 0,
+      readPart() {
+        throw new Error('The fake vector index holds no part')
+      },
+    })),
     deserialize: vi.fn(),
     adoptDiskLayout: vi.fn(async () => {}),
     releaseVectorFiles: vi.fn(async () => {}),

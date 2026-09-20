@@ -32,9 +32,32 @@ export function initAbortHandler(res: ResponseSink): ResponseAbort {
   }
 }
 
+function declaredBodyBytes(header: string): number | null {
+  return /^\d{1,15}$/.test(header) ? Number(header) : null
+}
+
+function bodyWithRoomFor(body: Buffer, filled: number, needed: number, maxBytes: number): Buffer {
+  if (needed <= body.length) return body
+  const grown = Buffer.allocUnsafeSlow(Math.min(maxBytes, Math.max(needed, body.length * 2)))
+  grown.set(body.subarray(0, filled))
+  return grown
+}
+
+function bodyOfExactly(body: Buffer, filled: number): Buffer {
+  if (filled === body.length) return body
+  const exact = Buffer.allocUnsafeSlow(filled)
+  exact.set(body.subarray(0, filled))
+  return exact
+}
+
 /** Buffers the request body, enforcing a byte ceiling. Exceeding the cap sends
  * 413 and rejects, so a single oversized body cannot grow unbounded in memory. */
-export function readBody(res: ResponseSink, maxBytes: number, abort: ResponseAbort): Promise<Buffer> {
+export function readBody(
+  res: ResponseSink,
+  maxBytes: number,
+  abort: ResponseAbort,
+  declaredBytes: number | null = null,
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     if (abort.aborted) {
       reject(new Error('aborted'))
@@ -42,7 +65,9 @@ export function readBody(res: ResponseSink, maxBytes: number, abort: ResponseAbo
     }
     let done = false
     let total = 0
-    const chunks: Buffer[] = []
+    let filled = 0
+    let body: Buffer | null = null
+    const reserved = declaredBytes !== null && declaredBytes <= maxBytes ? declaredBytes : 0
     abort.onAbort(() => {
       if (done) return
       done = true
@@ -59,10 +84,14 @@ export function readBody(res: ResponseSink, maxBytes: number, abort: ResponseAbo
         reject(new Error('payload too large'))
         return
       }
-      chunks.push(Buffer.from(new Uint8Array(chunk)))
+      const arrived = new Uint8Array(chunk)
+      const firstSize = isLast ? arrived.length : Math.max(reserved, arrived.length)
+      body = bodyWithRoomFor(body ?? Buffer.allocUnsafeSlow(firstSize), filled, total, maxBytes)
+      body.set(arrived, filled)
+      filled = total
       if (isLast) {
         done = true
-        resolve(Buffer.concat(chunks))
+        resolve(bodyOfExactly(body, filled))
       }
     })
   })
@@ -162,6 +191,7 @@ export function createRouteRunner(deps: RunnerDeps) {
       }
       const query = new URLSearchParams(req.getQuery() ?? '')
       const contentType = req.getHeader('content-type')
+      const declaredBytes = needsBody ? declaredBodyBytes(req.getHeader('content-length')) : null
 
       let hookContext: RequestContext | null = null
       if (useHook) {
@@ -190,7 +220,9 @@ export function createRouteRunner(deps: RunnerDeps) {
         )
         return
       }
-      const bodyPromise = needsBody ? readBody(res, opts.maxBytes, abort) : Promise.resolve<Buffer | null>(null)
+      const bodyPromise = needsBody
+        ? readBody(res, opts.maxBytes, abort, declaredBytes)
+        : Promise.resolve<Buffer | null>(null)
       const hookPromise: Promise<Authorization> =
         hookContext !== null && authorize !== undefined ? authorize(hookContext) : Promise.resolve({ allowed: true })
 

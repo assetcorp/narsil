@@ -124,8 +124,13 @@ function encodeFieldLengths(
   return { names, columns, totals }
 }
 
-function encodeFieldIndexes(
-  state: PartitionReadState,
+export type SegmentFieldIndexes = Pick<
+  PartitionReadState,
+  'numericIndexes' | 'booleanIndexes' | 'enumIndexes' | 'geoIndexes'
+>
+
+export function encodeFieldIndexes(
+  state: SegmentFieldIndexes,
   remap: Int32Array,
 ): Pick<SegmentPayload, 'numeric' | 'boolean' | 'enums' | 'geo'> {
   const survives = (internalId: number): boolean => remap[internalId] >= 0

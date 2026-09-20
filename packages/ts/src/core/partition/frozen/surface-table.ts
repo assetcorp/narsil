@@ -1,5 +1,6 @@
 import type { SerializedSurfaceForms } from '../../../types/internal'
 import { createSurfaceRegistry, type SurfaceRegistryReader } from '../../surface-registry'
+import { encodeStringBlob } from './string-blob'
 
 export interface SurfaceTableData {
   blob: Uint8Array
@@ -7,35 +8,19 @@ export interface SurfaceTableData {
   counts: Uint32Array
 }
 
-const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
 export function encodeSurfaceTable(forms: SerializedSurfaceForms): SurfaceTableData {
-  const entries: Array<[Uint8Array, Uint8Array, number]> = []
-  let blobLength = 0
+  const surfaceThenToken: string[] = []
+  const entryCounts: number[] = []
   for (const surface of Object.keys(forms)) {
     const value = forms[surface]
     if (!Array.isArray(value)) continue
-    const surfaceBytes = encoder.encode(surface)
-    const tokenBytes = encoder.encode(value[1])
-    entries.push([surfaceBytes, tokenBytes, value[0]])
-    blobLength += surfaceBytes.length + tokenBytes.length
+    surfaceThenToken.push(surface, value[1])
+    entryCounts.push(value[0])
   }
-  const blob = new Uint8Array(blobLength)
-  const offsets = new Uint32Array(entries.length * 2 + 1)
-  const counts = new Uint32Array(entries.length)
-  let cursor = 0
-  for (let i = 0; i < entries.length; i++) {
-    const [surfaceBytes, tokenBytes, count] = entries[i]
-    blob.set(surfaceBytes, cursor)
-    cursor += surfaceBytes.length
-    offsets[2 * i + 1] = cursor
-    blob.set(tokenBytes, cursor)
-    cursor += tokenBytes.length
-    offsets[2 * i + 2] = cursor
-    counts[i] = count
-  }
-  return { blob, offsets, counts }
+  const { blob, offsets } = encodeStringBlob(surfaceThenToken)
+  return { blob, offsets, counts: Uint32Array.from(entryCounts) }
 }
 
 export function decodeSurfaceTable(table: SurfaceTableData): SerializedSurfaceForms {

@@ -33,6 +33,7 @@ function packed(levels: Uint8Array, bits: OsqBits): Uint8Array {
 describe('the WebAssembly code kernels', () => {
   const simd = createArenaSimd()
   const dimensions = [1, 3, 7, 16, 31, 32, 33, 127, 128, 129, 384, 1536]
+  const narrowCodeDimensions = [...dimensions, 20_000]
 
   it('sums the level products of a 1-bit or 2-bit code against a staged query, at every dimension', () => {
     expect(simd).not.toBeNull()
@@ -40,7 +41,7 @@ describe('the WebAssembly code kernels', () => {
     const next = pseudoRandom(20260913)
     const memory = new Uint8Array(simd.memory.buffer)
     for (const bits of [1, 2] as const) {
-      for (const dimension of dimensions) {
+      for (const dimension of narrowCodeDimensions) {
         const pairs: Array<[Uint8Array, Uint8Array]> = [
           [randomLevels(dimension, bits, next), randomLevels(dimension, 4, next)],
           [saturatedLevels(dimension, bits), saturatedLevels(dimension, 4)],
@@ -64,7 +65,7 @@ describe('the WebAssembly code kernels', () => {
     const next = pseudoRandom(20260918)
     const memory = new Uint8Array(simd.memory.buffer)
     for (const bits of [1, 2] as const) {
-      for (const dimension of dimensions) {
+      for (const dimension of narrowCodeDimensions) {
         const pairs: Array<[Uint8Array, Uint8Array]> = [
           [randomLevels(dimension, bits, next), randomLevels(dimension, bits, next)],
           [saturatedLevels(dimension, bits), saturatedLevels(dimension, bits)],

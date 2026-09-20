@@ -1,7 +1,7 @@
 import type { IndexMetadata } from '../../types/internal'
 import { CHECKPOINT_WORKER_HEARTBEAT_MS } from './constants'
 import { rebuildSnapshotFromDurable } from './rebuild'
-import type { SegmentedCheckpointOutcome } from './segment'
+import type { SegmentedCheckpointOutcome, VectorsWrittenFromMemory } from './segment'
 import type { PartitionCheckpoint } from './snapshot-bundle'
 
 export interface CheckpointWorkerRequest {
@@ -9,6 +9,13 @@ export interface CheckpointWorkerRequest {
   metadata: IndexMetadata
   targets: PartitionCheckpoint[]
   compactionThreshold: number
+  vectorsAlreadyWritten?: VectorsWrittenFromMemory
+}
+
+function validVectorsAlreadyWritten(value: unknown): value is VectorsWrittenFromMemory | undefined {
+  if (value === undefined) return true
+  if (value === null || typeof value !== 'object') return false
+  return Object.values(value).every(refs => Array.isArray(refs))
 }
 
 export interface CheckpointWorkerSuccess {
@@ -41,11 +48,15 @@ async function handleRequest(raw: unknown): Promise<CheckpointWorkerSuccess> {
   if (!Number.isInteger(request.compactionThreshold) || request.compactionThreshold <= 0) {
     throw new Error('Checkpoint request has an invalid compaction threshold')
   }
+  if (!validVectorsAlreadyWritten(request.vectorsAlreadyWritten)) {
+    throw new Error('Checkpoint request names vector segments in a shape the worker cannot read')
+  }
   const outcome = await rebuildSnapshotFromDurable(
     request.root,
     request.metadata,
     request.targets,
     request.compactionThreshold,
+    request.vectorsAlreadyWritten,
   )
   return { type: 'success', outcome }
 }

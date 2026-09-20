@@ -63,7 +63,10 @@ async function answerRequest(handlers: ServerHandlers, request: RelayedRequest):
     params: request.params,
     query: new URLSearchParams(request.query),
     contentType: request.contentType,
-    rawBody: request.rawBody === null ? null : Buffer.from(request.rawBody),
+    rawBody:
+      request.rawBody === null
+        ? null
+        : Buffer.from(request.rawBody.buffer, request.rawBody.byteOffset, request.rawBody.byteLength),
     abort: NO_ABORT,
     hookContext: request.hookContext,
   }

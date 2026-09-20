@@ -1,7 +1,7 @@
-import { createPartitionIndex } from '../core/partition'
 import { isCompositePartition } from '../core/partition/composite'
 import { createSharedFrozenSegment, freezeSegmentShared } from '../core/partition/frozen'
 import { mergeFrozenSegments } from '../core/partition/frozen/merge'
+import { buildSegmentPayload } from '../core/partition/segment-builder'
 import { ErrorCodes, NarsilError } from '../errors'
 import { resolvePartitionInsertOptions } from '../partitioning/insert-options'
 import type { PartitionManager } from '../partitioning/manager'
@@ -52,14 +52,14 @@ function requireComposite(entry: SegmentIndexEntry, indexName: string, partition
 export function runSegmentAction(entry: SegmentIndexEntry, action: SegmentAction): unknown {
   switch (action.type) {
     case 'buildSegment': {
-      const segment = createPartitionIndex(0, entry.config.trackPositions ?? true)
       const options = resolvePartitionInsertOptions(entry.config, entry.manager.analysis, action.options)
-      segment.beginBatch()
-      for (const doc of action.documents) {
-        segment.insert(doc.docId, doc.document, entry.config.schema, entry.language, options)
-      }
-      segment.endBatch()
-      const payload = segment.encodeSegment()
+      const payload = buildSegmentPayload(
+        action.documents,
+        entry.config.schema,
+        entry.language,
+        options,
+        entry.config.trackPositions ?? true,
+      )
       const snapshot = freezeSegmentShared(
         payload,
         action.documents.map(doc => doc.document),

@@ -3,5 +3,10 @@ export { loadSegmentedSnapshot, readSegmentManifest, reclaimOrphanedSegments } f
 export type { SegmentManifest } from './manifest'
 export { countLiveDocuments } from './merge'
 export { readSegmentContents } from './segment-file'
-export type { VectorCheckpointLayout } from './vector'
-export { removeCheckpointGarbage, type SegmentedCheckpointOutcome, writeSegmentedCheckpoint } from './write'
+export { type VectorCheckpointLayout, type VectorWriteOutcome, writeLiveVectors } from './vector'
+export {
+  removeCheckpointGarbage,
+  type SegmentedCheckpointOutcome,
+  type VectorsWrittenFromMemory,
+  writeSegmentedCheckpoint,
+} from './write'

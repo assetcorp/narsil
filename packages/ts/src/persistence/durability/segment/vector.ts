@@ -1,14 +1,15 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { decode } from '@msgpack/msgpack'
 import { restoreVectorFields } from '../../../distribution/replication/replica'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
 import { extractVectorFromDoc, insertDocumentVectors, removeDocumentVectors } from '../../../engine/vector-coordinator'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { packSnapshotEnvelopePartsRetrying, unpackEnvelopeBytes } from '../../../serialization/envelope'
+import { packSnapshotEnvelopeChunks, unpackEnvelopeBytes } from '../../../serialization/envelope'
 import { HEADER_SIZE } from '../../../serialization/header'
 import type { IndexConfig } from '../../../types/schema'
 import {
   createVectorIndex,
   type VectorIndex,
+  type VectorIndexPartsPlan,
   type VectorIndexPayload,
   type VectorPartFile,
 } from '../../../vector/vector-index'
@@ -16,6 +17,7 @@ import { decodeVectorIndexPart } from '../../../vector/vector-index/payload'
 import type { DurableDirectory } from '../durable-filesystem'
 import { vectorSegmentKey } from './layout'
 import type { VectorSegmentRef } from './manifest'
+import { vectorPartChunks } from './vector-part-bytes'
 
 export interface VectorWriteInput {
   directory: DurableDirectory
@@ -107,30 +109,62 @@ export async function writePartitionVectors(input: VectorWriteInput): Promise<Ve
       applyEntryVectors(entry, input.vectorFieldPaths, vectorIndexes)
     }
 
-    const refs: VectorSegmentRef[] = []
-    const layouts: VectorCheckpointLayout[] = []
+    const outcome: VectorWriteOutcome = { refs: [], layouts: [] }
     for (const [fieldPath, vecIndex] of vectorIndexes) {
       await vecIndex.completeGraph()
-      const generation = (priorByField.get(fieldPath)?.generation ?? 0) + 1
-      const keys: string[] = []
-      for (const part of vecIndex.serialize()) {
-        const key = vectorSegmentKey(input.indexName, input.partitionId, fieldPath, generation, part.part)
-        const envelope = await packSnapshotEnvelopePartsRetrying(() => encode(part))
-        await input.directory.atomicWrite(key, [envelope.header, envelope.payload])
-        keys.push(key)
-        layouts.push({
-          fieldPath,
-          key,
-          docIds: part.docIds,
-          vectorsOffset: vectorsOffsetOf(envelope.payload.length, part),
-        })
-      }
-      refs.push({ fieldPath, generation, keys })
+      await writeFieldParts(input, fieldPath, priorByField.get(fieldPath), vecIndex.planParts(), outcome)
     }
-    return { refs, layouts }
+    return outcome
   } finally {
     for (const vecIndex of vectorIndexes.values()) vecIndex.dispose()
   }
+}
+
+interface VectorSegmentTarget {
+  directory: DurableDirectory
+  indexName: string
+  partitionId: number
+}
+
+async function writeFieldParts(
+  target: VectorSegmentTarget,
+  fieldPath: string,
+  prior: VectorSegmentRef | undefined,
+  plan: VectorIndexPartsPlan,
+  outcome: VectorWriteOutcome,
+): Promise<void> {
+  const generation = (prior?.generation ?? 0) + 1
+  const keys: string[] = []
+  for (let index = 0; index < plan.parts; index++) {
+    const part = plan.readPart(index)
+    const key = vectorSegmentKey(target.indexName, target.partitionId, fieldPath, generation, part.part)
+    const envelope = await packSnapshotEnvelopeChunks(vectorPartChunks(part))
+    await target.directory.atomicWrite(key, envelope)
+    keys.push(key)
+    let fileBytes = 0
+    for (const chunk of envelope) fileBytes += chunk.length
+    outcome.layouts.push({
+      fieldPath,
+      key,
+      docIds: part.docIds,
+      vectorsOffset: fileBytes - part.docIds.length * part.dimension * 4,
+    })
+  }
+  outcome.refs.push({ fieldPath, generation, keys })
+}
+
+export interface LiveVectorWriteInput extends VectorSegmentTarget {
+  plans: Map<string, VectorIndexPartsPlan>
+  priorVectors: VectorSegmentRef[]
+}
+
+export async function writeLiveVectors(input: LiveVectorWriteInput): Promise<VectorWriteOutcome> {
+  const outcome: VectorWriteOutcome = { refs: [], layouts: [] }
+  for (const [fieldPath, plan] of input.plans) {
+    const prior = input.priorVectors.find(ref => ref.fieldPath === fieldPath)
+    await writeFieldParts(input, fieldPath, prior, plan, outcome)
+  }
+  return outcome
 }
 
 function applyEntryVectors(

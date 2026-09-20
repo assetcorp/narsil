@@ -54,53 +54,80 @@ function recordFor(state: VectorIndexState, quantizer: OsqQuantizer, docId: stri
   return quantizer.recordOf(docId)
 }
 
-function codesFor(state: VectorIndexState, docIds: readonly string[]): VectorIndexCodes | null {
+function codedCentroid(state: VectorIndexState): number[] | null {
+  const centroid = state.osq?.centroid ?? null
+  if (centroid === null || state.store.handles.codeLayout === null || state.hnsw === null) return null
+  return Array.from(centroid)
+}
+
+function sameCentroid(state: VectorIndexState, planned: readonly number[]): boolean {
+  const current = state.osq?.centroid ?? null
+  if (current === null || current.length !== planned.length) return false
+  for (let i = 0; i < planned.length; i++) {
+    if (current[i] !== planned[i]) return false
+  }
+  return true
+}
+
+function partCodes(
+  state: VectorIndexState,
+  docIds: readonly string[],
+  centroid: number[] | null,
+): VectorIndexCodes | null {
   const quantizer = state.osq
-  const centroid = quantizer?.centroid ?? null
   const layout = state.store.handles.codeLayout
-  if (quantizer === null || centroid === null || layout === null || state.hnsw === null) return null
+  if (centroid === null || quantizer === null || layout === null) return null
+  if (!sameCentroid(state, centroid)) {
+    throw new NarsilError(
+      ErrorCodes.PERSISTENCE_SAVE_FAILED,
+      `The vector field "${state.fieldName}" was recalibrated while its parts were being written`,
+      { fieldName: state.fieldName },
+    )
+  }
   const records = new Uint8Array(docIds.length * layout.slotStride)
   for (let i = 0; i < docIds.length; i++) {
     const record = recordFor(state, quantizer, docIds[i])
     if (record !== undefined) records.set(record, i * layout.slotStride)
   }
-  return { bits: quantizer.bits, centroid: Array.from(centroid), records }
+  return { bits: quantizer.bits, centroid, records }
 }
 
-export function serialize(state: VectorIndexState): VectorIndexPayload[] {
+export interface VectorIndexPartsPlan {
+  readonly parts: number
+  readPart(part: number): VectorIndexPayload
+}
+
+export function planParts(state: VectorIndexState): VectorIndexPartsPlan {
   const docIds = liveDocIds(state)
   const parts = Math.max(1, Math.ceil(docIds.length / VECTOR_INDEX_PART_VECTORS))
   const partOf = new Map<string, number>()
   for (let i = 0; i < docIds.length; i++) partOf.set(docIds[i], Math.floor(i / VECTOR_INDEX_PART_VECTORS))
   const graphs = graphsPerPart(state, partOf, parts)
-  const codes = codesFor(state, docIds)
-  const dimension = state.dimension
-  const recordBytes = state.store.handles.codeLayout?.slotStride ?? 0
+  const centroid = codedCentroid(state)
 
-  const payloads: VectorIndexPayload[] = []
-  for (let part = 0; part < parts; part++) {
-    const start = part * VECTOR_INDEX_PART_VECTORS
-    const slice = docIds.slice(start, start + VECTOR_INDEX_PART_VECTORS)
-    payloads.push({
-      v: VECTOR_INDEX_PAYLOAD_VERSION,
-      fieldName: state.fieldName,
-      dimension,
-      part,
-      parts,
-      docIds: slice,
-      graphs: graphs[part],
-      codes:
-        codes === null
-          ? null
-          : {
-              bits: codes.bits,
-              centroid: codes.centroid,
-              records: codes.records.subarray(start * recordBytes, (start + slice.length) * recordBytes),
-            },
-      vectors: vectorsToBytes(partVectors(state, slice)),
-    })
+  return {
+    parts,
+    readPart(part: number): VectorIndexPayload {
+      const start = part * VECTOR_INDEX_PART_VECTORS
+      const slice = docIds.slice(start, start + VECTOR_INDEX_PART_VECTORS)
+      return {
+        v: VECTOR_INDEX_PAYLOAD_VERSION,
+        fieldName: state.fieldName,
+        dimension: state.dimension,
+        part,
+        parts,
+        docIds: slice,
+        graphs: graphs[part],
+        codes: partCodes(state, slice, centroid),
+        vectors: vectorsToBytes(partVectors(state, slice)),
+      }
+    },
   }
-  return payloads
+}
+
+export function serialize(state: VectorIndexState): VectorIndexPayload[] {
+  const plan = planParts(state)
+  return Array.from({ length: plan.parts }, (_, part) => plan.readPart(part))
 }
 
 interface Sequence {

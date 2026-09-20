@@ -6,7 +6,7 @@ import {
   osqNarrowPairProducts,
   osqNibbleProducts,
   osqQueryBits,
-  osqStagedPlaneProducts,
+  osqStagedQueryProducts,
 } from '../../../vector/osq/estimate'
 import { createOsqScratch, type OsqBits, osqCentroid, osqQuantize } from '../../../vector/osq/quantize'
 import {
@@ -111,7 +111,7 @@ describe('optimised scalar quantization against Lucene', () => {
     packLevels(document.levels, bits, documentBytes, 0)
     packLevels(other.levels, bits, otherBytes, 0)
     stageQueryLevels(query.levels, bits, staged)
-    expect(osqStagedPlaneProducts(documentBytes, 0, bits, staged, 0, codeBytes)).toBe(
+    expect(osqStagedQueryProducts(documentBytes, 0, bits, staged, 0, codeBytes)).toBe(
       osqLevelProducts(document.levels, query.levels),
     )
     expect(osqNarrowPairProducts(documentBytes, 0, otherBytes, 0, bits, codeBytes)).toBe(

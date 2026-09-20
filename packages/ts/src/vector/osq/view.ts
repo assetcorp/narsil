@@ -13,7 +13,7 @@ import {
   osqEstimate,
   osqNarrowPairProducts,
   osqNibbleProducts,
-  osqStagedPlaneProducts,
+  osqStagedQueryProducts,
 } from './estimate'
 import { createOsqScratch, type OsqBits, osqCentroid, osqQuantize } from './quantize'
 import { type OsqTrailer, readTrailer, stageQueryLevels, writeRecord } from './record'
@@ -159,7 +159,7 @@ export function openSharedQuantizer(
     const bytes = block.bytes(documentOffset + codeBytes)
     if (bits === 8) return osqByteLevelProducts(bytes, documentOffset, query.packed, 0, dimension)
     if (bits === 4) return osqNibbleProducts(bytes, documentOffset, query.packed, 0, codeBytes)
-    return osqStagedPlaneProducts(bytes, documentOffset, bits, query.packed, 0, codeBytes)
+    return osqStagedQueryProducts(bytes, documentOffset, bits, query.packed, 0, codeBytes)
   }
 
   function estimateDistance(ordinal: number, query: OsqQuery): number {

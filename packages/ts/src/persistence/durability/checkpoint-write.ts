@@ -2,7 +2,7 @@ import type { PartitionManager } from '../../partitioning/manager'
 import type { IndexMetadata } from '../../types/internal'
 import { runCheckpointOnWorker } from './checkpoint-worker-dispatch'
 import type { DurableDirectory } from './durable-filesystem'
-import { type SegmentedCheckpointOutcome, writeSegmentedCheckpoint } from './segment'
+import { type SegmentedCheckpointOutcome, type VectorsWrittenFromMemory, writeSegmentedCheckpoint } from './segment'
 import type { PartitionCheckpoint } from './snapshot-bundle'
 
 export interface IndexCheckpointWrite {
@@ -13,6 +13,7 @@ export interface IndexCheckpointWrite {
   manager: PartitionManager
   canOffload: boolean
   fromMemory: boolean
+  vectorsAlreadyWritten: VectorsWrittenFromMemory
 }
 
 /**
@@ -24,11 +25,17 @@ export interface IndexCheckpointWrite {
  * builds incremental segments from the log.
  */
 export async function writeIndexCheckpoint(input: IndexCheckpointWrite): Promise<SegmentedCheckpointOutcome> {
-  const { directory, metadata, targets, compactionThreshold, manager } = input
+  const { directory, metadata, targets, compactionThreshold, manager, vectorsAlreadyWritten } = input
 
   const offloaded =
     !input.fromMemory && input.canOffload && metadata.tokenizer === undefined && metadata.stopWords === undefined
-      ? await runCheckpointOnWorker({ root: directory.root, metadata, targets, compactionThreshold })
+      ? await runCheckpointOnWorker({
+          root: directory.root,
+          metadata,
+          targets,
+          compactionThreshold,
+          vectorsAlreadyWritten,
+        })
       : null
 
   if (offloaded !== null) {
@@ -40,6 +47,7 @@ export async function writeIndexCheckpoint(input: IndexCheckpointWrite): Promise
     metadata,
     targets,
     compactionThreshold,
+    vectorsAlreadyWritten,
     ...(input.fromMemory
       ? {
           wholePartitionPayload: (partitionId: number) => ({
