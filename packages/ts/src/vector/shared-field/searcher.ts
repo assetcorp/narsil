@@ -3,6 +3,8 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
 import type { OrdinalHit } from '../hnsw/search'
 import { entryForOrd, type HNSWSearchState, isTombstoned, toDistance, toScore } from '../hnsw/shared'
+import { noteFallback } from '../native/backend'
+import { nativeScoresOf } from '../native/store'
 import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter, ordinalFilterValues } from '../ordinal-filter'
 import { magnitude } from '../similarity'
 import type { VectorScoredResult, VectorSearcher, VectorSearchOptions } from '../vector-index/shared'
@@ -17,6 +19,33 @@ export interface SharedVectorSearcherOptions {
   holdsDocument: (docId: string) => boolean
 }
 
+type ResolvedHit = OrdinalHit & { docId: string }
+
+function bestFirst(a: ResolvedHit, b: ResolvedHit): number {
+  return b.score - a.score || (a.docId < b.docId ? -1 : a.docId > b.docId ? 1 : 0)
+}
+
+function distancesInTypeScript(
+  state: HNSWSearchState,
+  query: Float32Array,
+  metric: VectorMetric,
+  ordinals: number[],
+): Float64Array {
+  noteFallback('score')
+  const arenaQuery = state.store.prepareQueryArena(query)
+  const queryMagnitude = arenaQuery ? arenaQuery.magnitude : magnitude(query)
+  const distances = new Float64Array(ordinals.length).fill(Number.POSITIVE_INFINITY)
+  for (let i = 0; i < ordinals.length; i++) {
+    if (arenaQuery) {
+      distances[i] = state.store.distanceFromArena(arenaQuery, ordinals[i], metric)
+      continue
+    }
+    const entry = entryForOrd(state, ordinals[i])
+    if (entry) distances[i] = toDistance(query, entry.vector, queryMagnitude, entry.magnitude, metric)
+  }
+  return distances
+}
+
 function bruteForceOrdinals(
   state: HNSWSearchState,
   docIdOf: (ord: number) => string | undefined,
@@ -25,27 +54,24 @@ function bruteForceOrdinals(
   metric: VectorMetric,
   minSimilarity: number,
   filter: OrdinalFilter,
-): Array<OrdinalHit & { docId: string }> {
-  const arenaQuery = state.store.prepareQueryArena(query)
-  const queryMagnitude = arenaQuery ? arenaQuery.magnitude : magnitude(query)
-  const bestFirst = (a: OrdinalHit & { docId: string }, b: OrdinalHit & { docId: string }) =>
-    b.score - a.score || (a.docId < b.docId ? -1 : a.docId > b.docId ? 1 : 0)
-  const heap = createBoundedMaxHeap<OrdinalHit & { docId: string }>(bestFirst, k)
+): ResolvedHit[] {
+  const ordinals: number[] = []
+  const docIds: string[] = []
   for (const ord of ordinalFilterValues(filter)) {
     if (isTombstoned(state, ord)) continue
     const docId = docIdOf(ord)
     if (docId === undefined) continue
-    let distance: number
-    if (arenaQuery) {
-      distance = state.store.distanceFromArena(arenaQuery, ord, metric)
-      if (distance === Number.POSITIVE_INFINITY) continue
-    } else {
-      const entry = entryForOrd(state, ord)
-      if (!entry) continue
-      distance = toDistance(query, entry.vector, queryMagnitude, entry.magnitude, metric)
-    }
-    const score = toScore(distance, metric)
-    if (score >= minSimilarity) heap.push({ ord, score, docId })
+    ordinals.push(ord)
+    docIds.push(docId)
+  }
+  const distances =
+    nativeScoresOf(state.store.handles, query, metric, ordinals) ??
+    distancesInTypeScript(state, query, metric, ordinals)
+  const heap = createBoundedMaxHeap<ResolvedHit>(bestFirst, k)
+  for (let i = 0; i < ordinals.length; i++) {
+    if (distances[i] === Number.POSITIVE_INFINITY) continue
+    const score = toScore(distances[i], metric)
+    if (score >= minSimilarity) heap.push({ ord: ordinals[i], score, docId: docIds[i] })
   }
   return heap.toSortedArray().reverse()
 }

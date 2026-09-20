@@ -9,7 +9,7 @@ export const packageDirectory = dirname(fileURLToPath(import.meta.url))
 export const buildDirectory = join(packageDirectory, 'build')
 export const TEST_LINK_FLAGS = ['-pthread']
 
-export const LANGUAGE_FLAGS = ['-std=c11', '-ffp-contract=off']
+export const LANGUAGE_FLAGS = ['-std=c11', '-ffp-contract=off', '-D_POSIX_C_SOURCE=200809L']
 export const CORE_FLAGS = ['-O2', '-fvisibility=hidden']
 export const POSITION_INDEPENDENT_FLAGS = ['-fPIC']
 export const NODE_API_FLAGS = ['-DNAPI_VERSION=8']

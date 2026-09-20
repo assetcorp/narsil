@@ -82,6 +82,7 @@ function createMockVectorIndex(dimension: number): VectorIndex {
     serialize: vi.fn(() => []),
     deserialize: vi.fn(),
     adoptDiskLayout: vi.fn(async () => {}),
+    releaseVectorFiles: vi.fn(async () => {}),
     completeGraph: vi.fn(async () => {}),
     size: 0,
     dimension,

@@ -99,9 +99,10 @@ jobs:
         run: node .github/scripts/publish-native-packages.js "${{ needs.plan.outputs.version }}" next
 
       - name: Publish
+        working-directory: packages/ts
         env:
           NPM_CONFIG_PROVENANCE: true
-        run: pnpm nx release publish --projects=narsil-ts --tag next
+        run: npm publish --tag next --access public
 
   publish:
     name: Publish to npm
@@ -114,6 +115,7 @@ jobs:
     env:
       RELEASE_PROJECTS: ${{ inputs.package == '@delali/narsil' && 'narsil-ts' || inputs.package == '@delali/narsil-embeddings-transformers' && 'narsil-embeddings-transformers' || inputs.package == '@delali/narsil-certutil' && 'narsil-certutil' || 'narsil-ts,narsil-embeddings-transformers,narsil-certutil' }}
       RELEASES_NARSIL_TS: ${{ inputs.package == '@delali/narsil' || inputs.package == 'all' }}
+      RELEASE_PROJECTS_WITHOUT_A_NATIVE_CORE: ${{ inputs.package == '@delali/narsil-embeddings-transformers' && 'narsil-embeddings-transformers' || inputs.package == '@delali/narsil-certutil' && 'narsil-certutil' || inputs.package == 'all' && 'narsil-embeddings-transformers,narsil-certutil' || '' }}
     services:
       etcd:
         image: gcr.io/etcd-development/etcd:v3.6.0
@@ -212,6 +214,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: pnpm nx release "$VERSION" $DRY_RUN_FLAG --projects="$RELEASE_PROJECTS" --skip-publish
 
+      - name: Publish the packages that hold no native core
+        if: ${{ !inputs.dry-run && env.RELEASE_PROJECTS_WITHOUT_A_NATIVE_CORE != '' }}
+        env:
+          NPM_CONFIG_PROVENANCE: true
+        run: pnpm nx release publish --projects="$RELEASE_PROJECTS_WITHOUT_A_NATIVE_CORE" --verbose
+
       - name: Download the compiled cores
         if: ${{ !inputs.dry-run && env.RELEASES_NARSIL_TS == 'true' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -225,8 +233,9 @@ jobs:
           NPM_CONFIG_PROVENANCE: true
         run: node .github/scripts/publish-native-packages.js "$(node -p "require('./packages/ts/package.json').version")" latest
 
-      - name: Publish
-        if: ${{ !inputs.dry-run }}
+      - name: Publish @delali/narsil
+        if: ${{ !inputs.dry-run && env.RELEASES_NARSIL_TS == 'true' }}
+        working-directory: packages/ts
         env:
           NPM_CONFIG_PROVENANCE: true
-        run: pnpm nx release publish --projects="$RELEASE_PROJECTS" --verbose
+        run: npm publish --access public

@@ -1,4 +1,5 @@
 import type { HNSWIndex } from '../hnsw'
+import { nativeStoreScratchBytes } from '../native/store'
 import { buildGraphFromStore, promoteToGraph, scheduleBuild } from './build'
 import { insertIntoGraph } from './build-host'
 import { ESTIMATED_MS_PER_TOMBSTONE, ESTIMATED_MS_PER_VECTOR_REBUILD } from './constants'
@@ -31,10 +32,14 @@ export function compact(state: VectorIndexState): void {
   }
 
   state.tombstones.clear()
+}
 
-  if (state.osq?.isCalibrated() && state.store.size > 0) {
+function recalibrateWhileNoThreadSearches(state: VectorIndexState, graph: HNSWIndex | null): void {
+  if (graph === null) {
     recalibrateFromStore(state)
+    return
   }
+  graph.exclusively(() => recalibrateFromStore(state))
 }
 
 async function insertMissing(state: VectorIndexState, graph: HNSWIndex): Promise<void> {
@@ -60,6 +65,7 @@ async function foldIntoGraph(state: VectorIndexState): Promise<void> {
 
   const graph = state.hnsw
   if (graph === null || rebuildNeeded) {
+    if (state.osq?.isCalibrated()) recalibrateWhileNoThreadSearches(state, graph)
     await buildGraphFromStore(state)
   } else {
     await insertMissing(state, graph)
@@ -127,7 +133,11 @@ export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {
   }
 }
 
+function flatScanScratchBytes(state: VectorIndexState): number {
+  return state.store.dimension === 0 ? 0 : nativeStoreScratchBytes(state.store.handles)
+}
+
 export function estimateMemoryBytes(state: VectorIndexState): number {
-  if (state.hnsw === null) return state.store.memoryBytes()
+  if (state.hnsw === null) return state.store.memoryBytes() + flatScanScratchBytes(state)
   return state.store.memoryBytes() + state.hnsw.graphBytes + state.hnsw.searchScratchBytes
 }

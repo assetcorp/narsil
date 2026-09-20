@@ -119,7 +119,7 @@ static level_range refine(refinement problem, level_range start) {
   return range;
 }
 
-static void normalise_into(double *normalised, const float *vector, uint32_t dimension) {
+void normalise_into(double *normalised, const float *vector, uint32_t dimension) {
   double squares = 0;
   for (uint32_t i = 0; i < dimension; i++) { squares += (double)vector[i] * (double)vector[i]; }
   double length = sqrt(squares);
@@ -185,8 +185,8 @@ static void fill_levels(const narsil_store *store, const double *centred, prepar
   code->sum = sum;
 }
 
-void prepare_code(narsil_workspace *workspace, const narsil_store *store, narsil_metric metric, const float *vector,
-                  prepared_code *code) {
+void quantise_vector(narsil_workspace *workspace, const narsil_store *store, narsil_metric metric, const float *vector,
+                     uint32_t bits, quantised_vector *quantised) {
   double *normalised = workspace->normalised;
   double *centred = workspace->centred;
   if (metric == NARSIL_METRIC_COSINE) {
@@ -195,10 +195,22 @@ void prepare_code(narsil_workspace *workspace, const narsil_store *store, narsil
     for (uint32_t i = 0; i < store->dimension; i++) { normalised[i] = (double)vector[i]; }
   }
   centred_summary summary = centre_into(store, metric, normalised, centred);
+  quantised->range = initial_range(store, centred, summary, bits);
+  quantised->correction = summary.correction;
+  quantised->centred = centred;
+}
 
+double quantised_level(double value, level_range range, uint32_t bits) {
+  return level_of(value, range, steps_of(bits));
+}
+
+void prepare_code(narsil_workspace *workspace, const narsil_store *store, narsil_metric metric, const float *vector,
+                  prepared_code *code) {
+  quantised_vector quantised;
   *code = workspace->code;
   code->bits = query_bits_of(store->bits);
-  code->range = initial_range(store, centred, summary, code->bits);
-  code->correction = summary.correction;
-  fill_levels(store, centred, code);
+  quantise_vector(workspace, store, metric, vector, code->bits, &quantised);
+  code->range = quantised.range;
+  code->correction = quantised.correction;
+  fill_levels(store, quantised.centred, code);
 }

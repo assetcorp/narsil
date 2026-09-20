@@ -63,9 +63,7 @@ describe('real workers sharing one vector field in place', () => {
     }
 
     const quantizer = createOsqQuantizer(DIMENSION, 4, 'cosine', store)
-    const all: Float32Array[] = []
-    for (const [, entry] of store.entries()) all.push(entry.vector)
-    quantizer.calibrate(all)
+    quantizer.calibrate(Int32Array.from({ length: DOC_COUNT }, (_, ordinal) => ordinal))
 
     graph = createHNSWIndex(DIMENSION, store, { m: 16, efConstruction: 100, metric: 'cosine' }, quantizer)
     handles = {

@@ -1,6 +1,7 @@
 import { createVectorFileReader, type VectorFileReader } from '#platform/vector-file'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
+import { detachNativeStore } from '../native/store'
 import { fixedView } from '../shared-buffers/growable'
 import { arenaFloat32Distance } from '../simd'
 import { magnitude } from '../similarity'
@@ -226,6 +227,7 @@ export function openSharedVectorStore(initial: SharedVectorStoreHandles, threadS
     },
 
     adoptHandles(next) {
+      detachNativeStore(handles)
       handles = next
       rebind()
       for (let index = 0; index < next.blocks.length; index++) {
@@ -243,6 +245,7 @@ export function openSharedVectorStore(initial: SharedVectorStoreHandles, threadS
     readFromFile,
 
     close() {
+      detachNativeStore(handles)
       reader?.close()
       reader = null
     },

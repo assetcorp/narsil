@@ -49,9 +49,8 @@ function graphsPerPart(state: VectorIndexState, partOf: Map<string, number>, par
 function recordFor(state: VectorIndexState, quantizer: OsqQuantizer, docId: string): Uint8Array | undefined {
   const record = quantizer.recordOf(docId)
   if (record !== undefined) return record
-  const entry = state.store.get(docId)
-  if (entry === undefined) return undefined
-  quantizer.quantize(docId, entry.vector)
+  if (!state.store.has(docId)) return undefined
+  quantizer.quantize(docId)
   return quantizer.recordOf(docId)
 }
 

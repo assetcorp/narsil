@@ -19,17 +19,18 @@ export interface QuantizerSearchReader {
 }
 
 export interface QuantizerBuildReader extends QuantizerSearchReader {
-  writeCodes(ordinal: number, vector: Float32Array): void
+  /** Quantizes the stored vector of an ordinal and writes its record. */
+  writeCodes(ordinal: number): void
 }
 
 export interface OsqQuantizer extends QuantizerBuildReader {
   readonly dimension: number
   /** The centroid the quantizer takes every record against, or null before calibration. */
   readonly centroid: Float32Array | null
-  /** Computes the centroid from the given vectors and marks the field calibrated. */
-  calibrate(vectors: Iterable<Float32Array>): void
-  /** Quantizes a stored vector and writes its record. */
-  quantize(docId: string, vector: Float32Array): void
+  /** Computes the centroid from the stored vectors of the given ordinals and marks the field calibrated. */
+  calibrate(ordinals: Int32Array): void
+  /** Quantizes a document's stored vector and writes its record, after calibrating from that vector where the field holds no centroid. */
+  quantize(docId: string): void
   remove(docId: string): void
   removeOrdinal(ordinal: number): void
   hasOrdinal(ordinal: number): boolean
@@ -40,7 +41,7 @@ export interface OsqQuantizer extends QuantizerBuildReader {
   /** Copies a record written elsewhere into a stored document's slot. */
   restoreRecord(docId: string, record: Uint8Array): void
   restoreCentroid(centroid: Float32Array): void
-  /** Calibrates again over the given vectors and rewrites every record from them. */
-  recalibrateAll(vectors: Iterable<[string, Float32Array]>): void
+  /** Calibrates again over the stored vectors of the given ordinals and rewrites the record of each. */
+  recalibrate(ordinals: Int32Array): void
   clear(): void
 }

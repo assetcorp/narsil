@@ -1,4 +1,4 @@
-import { createBruteForceSearch } from '../src/vector/brute-force'
+import { createExactSearch } from '../src/__tests__/vector/exact-search'
 import { createHNSWIndex } from '../src/vector/hnsw'
 import { createVectorStore } from '../src/vector/vector-store'
 
@@ -39,7 +39,7 @@ const queries = generateVectors(QUERY_COUNT, DIM, 999)
 
 const bfStore = createVectorStore()
 for (let i = 0; i < SCALE; i++) bfStore.insert(`d${i}`, vectors[i])
-const bf = createBruteForceSearch(DIM, bfStore)
+const bf = createExactSearch(DIM, bfStore)
 
 const groundTruth = queries.map(q => bf.search(q, K, 'cosine', 0).map(r => r.docId))
 

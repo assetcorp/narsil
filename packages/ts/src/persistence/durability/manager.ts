@@ -355,6 +355,7 @@ export function createDurabilityManager(
         indexes.delete(indexName)
         metadataWrites.delete(indexName)
       }
+      for (const vectorIndex of hooks.getVectorIndexes(indexName).values()) await vectorIndex.releaseVectorFiles()
       for (const key of await directory.list(`${indexName}/`)) {
         await directory.remove(key)
       }

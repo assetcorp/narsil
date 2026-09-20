@@ -1,5 +1,6 @@
-import { nativeFieldFor, nativeServesWalk } from '../native/field'
-import { nativePlacementCandidates } from '../native/walk'
+import { noteFallback } from '../native/backend'
+import { nativeFieldFor } from '../native/field'
+import { nativeCompact, nativePlace, nativeRemove } from '../native/writes'
 import { fixedView } from '../shared-buffers/growable'
 import {
   addNeighbor,
@@ -7,13 +8,21 @@ import {
   collectNeighbors,
   createNode,
   deleteNode,
+  ensureUpperRoom,
   neighborCount,
   removeNeighbor,
   replaceNeighbors,
   resetAdjacency,
 } from './adjacency'
+import { PLACEMENT_ROOM_REQUESTS } from './constants'
 import { pruneConnections, searchLayer, selectNeighborsHeuristic } from './graph-ops'
-import { GRAPH_ENTRY_POINT, GRAPH_NODE_COUNT, GRAPH_TOMBSTONE_COUNT, GRAPH_TOP_LAYER } from './handles'
+import {
+  GRAPH_ENTRY_POINT,
+  GRAPH_NODE_COUNT,
+  GRAPH_TOMBSTONE_COUNT,
+  GRAPH_TOP_LAYER,
+  publishGraphCapacity,
+} from './handles'
 import { lockEntry, lockGraphShared, lockNodeWrite, unlockEntry, unlockGraphShared, unlockNodeWrite } from './locks'
 import {
   buildsFromCodes,
@@ -30,18 +39,12 @@ import {
   reachTombstone,
   topLayerOf,
 } from './shared'
-import {
-  appendToList,
-  linkSelectionsFor,
-  placementCandidatesFor,
-  setEntryPointsFromList,
-  setSingleEntryPoint,
-} from './workspace'
+import { appendToList, linkSelectionsFor, setEntryPointsFromList, setSingleEntryPoint } from './workspace'
 
 function clearTombstone(state: HNSWGraphState, ord: number): void {
-  if (reachTombstone(state, ord) && Atomics.compareExchange(state.tombstones, ord, 1, 0) === 1) {
-    Atomics.sub(state.header, GRAPH_TOMBSTONE_COUNT, 1)
-  }
+  if (!reachTombstone(state, ord) || Atomics.load(state.tombstones, ord) !== 1) return
+  Atomics.sub(state.header, GRAPH_TOMBSTONE_COUNT, 1)
+  Atomics.store(state.tombstones, ord, 0)
 }
 
 function highestNode(state: HNSWGraphState, includeTombstoned: boolean): number {
@@ -99,43 +102,12 @@ function placementDistance(state: HNSWGraphState, ord: number, vector: Float32Ar
   return candOrd => nodeDistanceByOrd(state, ord, candOrd, metric)
 }
 
-function selectNeighborsFromNativeCandidates(
-  state: HNSWGraphState,
-  ord: number,
-  level: number,
-  vector: Float32Array,
-): number | null {
-  const field = nativeFieldFor(state)
-  if (field === null || !nativeServesWalk(field)) return null
-  const workspace = state.workspace
-  const candidates = placementCandidatesFor(workspace, level + 1)
-  const linkTop = nativePlacementCandidates(
-    state,
-    field,
-    vector,
-    state.buildMetric,
-    ord,
-    level,
-    state.efCons,
-    candidates,
-  )
-  if (linkTop === null) return null
-  const selections = linkSelectionsFor(workspace, linkTop + 1)
-  const distance = nodeDistanceFunction(state, state.buildMetric)
-  for (let layer = linkTop; layer >= 0; layer--) {
-    selectNeighborsHeuristic(state, candidates[layer], maxConns(state, layer), distance, selections[layer])
-  }
-  return linkTop
-}
-
 function selectNeighborsPerLayer(state: HNSWGraphState, ord: number, level: number): number {
   const metric = state.buildMetric
   const workspace = state.workspace
   const candidates = workspace.traversal
   const entry = state.store.entryForOrdinal(ord)
   if (entry === undefined) return -1
-  const nativeLinkTop = selectNeighborsFromNativeCandidates(state, ord, level, entry.vector)
-  if (nativeLinkTop !== null) return nativeLinkTop
   const insertDistFn = placementDistance(state, ord, entry.vector)
   const topLayer = topLayerOf(state)
   setSingleEntryPoint(workspace, entryPointOf(state))
@@ -200,8 +172,23 @@ function linkNode(state: HNSWGraphState, ord: number, level: number): void {
 function writeRecordBeforePlacement(state: HNSWGraphState, ord: number): void {
   const quantizer = state.quantizer
   if (quantizer === undefined || !buildsFromCodes(state)) return
-  const entry = state.store.entryForOrdinal(ord)
-  if (entry !== undefined) quantizer.writeCodes(ord, entry.vector)
+  quantizer.writeCodes(ord)
+}
+
+function placeThroughTheCore(state: HNSWGraphState, ord: number, holdsGraphLock: boolean): boolean {
+  let field = nativeFieldFor(state)
+  if (field === null) return false
+  const level = randomLevel(state.mL)
+  for (let request = 0; request < PLACEMENT_ROOM_REQUESTS && field !== null; request++) {
+    ensureUpperRoom(state.adjacency, level)
+    const placement = nativePlace(state, field, state.buildMetric, ord, level, holdsGraphLock)
+    if (placement === 'placed') return true
+    if (placement === 'failed') return false
+    ensureCapacity(state, ord + 1)
+    publishGraphCapacity(state.adjacency.handles)
+    field = nativeFieldFor(state)
+  }
+  return false
 }
 
 export function insertNode(state: HNSWGraphState, ord: number, holdsGraphLock = false): boolean {
@@ -209,6 +196,9 @@ export function insertNode(state: HNSWGraphState, ord: number, holdsGraphLock = 
   ensureCapacity(state, ord + 1)
   if (nodeExists(state, ord)) return false
   writeRecordBeforePlacement(state, ord)
+  if (placeThroughTheCore(state, ord, holdsGraphLock)) return true
+  if (nodeExists(state, ord)) return false
+  noteFallback('place')
 
   if (!holdsGraphLock) lockGraphShared(state.locks)
   try {
@@ -291,6 +281,9 @@ export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?
 
 export function markTombstone(state: HNSWGraphState, ord: number): void {
   if (!nodeExists(state, ord) || !reachTombstone(state, ord)) return
+  const field = nativeFieldFor(state)
+  if (field !== null && nativeRemove(state, field, ord)) return
+  noteFallback('remove')
   if (Atomics.compareExchange(state.tombstones, ord, 0, 1) === 0) {
     Atomics.add(state.header, GRAPH_TOMBSTONE_COUNT, 1)
   }
@@ -305,6 +298,9 @@ export function markTombstone(state: HNSWGraphState, ord: number): void {
 
 export function compactTombstones(state: HNSWGraphState): void {
   if (Atomics.load(state.header, GRAPH_TOMBSTONE_COUNT) === 0) return
+  const field = nativeFieldFor(state)
+  if (field !== null && nativeCompact(state, field, state.buildMetric)) return
+  noteFallback('compact')
 
   const tombstonedOrds: number[] = []
   const slots = adjacencySlots(state.adjacency)

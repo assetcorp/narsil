@@ -66,6 +66,19 @@ export function invalidateWorkerCopies(state: VectorIndexState): void {
   }
 }
 
+export async function withdrawWorkerCopies(state: VectorIndexState): Promise<void> {
+  state.revision += 1
+  const handles = new Set<string>()
+  for (const shared of state.sharedHandles.values()) handles.add(shared.handle)
+  if (state.workerCopyHandle !== null) handles.add(state.workerCopyHandle)
+  state.sharedHandles.clear()
+  state.workerCopyHandle = null
+  state.workerCopyRevision = -1
+  state.workerCopyMode = null
+  await Promise.all([...handles].map(handle => dropHandle(state, handle)))
+  if (state.workerCopies.host === undefined && state.sharedHandles.size === 0) state.workerCopyPool = null
+}
+
 export function noteWrite(state: VectorIndexState): void {
   state.revision += 1
   if (state.workerCopyMode === 'clone') invalidateWorkerCopies(state)

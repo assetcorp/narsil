@@ -1,6 +1,6 @@
 import type { VectorMetric } from '../brute-force'
 import type { VectorStore } from '../vector-store'
-import { type OsqBits, osqCentroid } from './quantize'
+import type { OsqBits } from './quantize'
 import { unpackLevels } from './record'
 import type { OsqQuantizer } from './types'
 import { openSharedQuantizer, type SharedQuantizerView } from './view'
@@ -38,13 +38,6 @@ export function createOsqQuantizer(
     return ordinal
   }
 
-  function calibrateFromVectors(vectors: Iterable<Float32Array>): boolean {
-    const centroid = osqCentroid(vectors, dimension, metric)
-    if (centroid === null) return false
-    requireShared().writeCentroid(centroid)
-    return true
-  }
-
   return {
     dimension,
     bits,
@@ -60,19 +53,19 @@ export function createOsqQuantizer(
 
     isCalibrated: () => shared()?.isCalibrated() ?? false,
 
-    calibrate(vectors) {
-      calibrateFromVectors(vectors)
+    calibrate(ordinals) {
+      if (ordinals.length > 0) requireShared().calibrateFrom(ordinals)
     },
 
-    quantize(docId, vector) {
+    quantize(docId) {
       const ordinal = ordinalOf(docId)
       const view = requireShared()
-      if (!view.isCalibrated()) calibrateFromVectors([vector])
-      view.writeCodes(ordinal, vector)
+      if (!view.isCalibrated()) view.calibrateFrom(Int32Array.of(ordinal))
+      view.writeCodes(ordinal)
     },
 
-    writeCodes(ordinal, vector) {
-      shared()?.writeCodes(ordinal, vector)
+    writeCodes(ordinal) {
+      shared()?.writeCodes(ordinal)
     },
 
     remove(docId) {
@@ -108,18 +101,12 @@ export function createOsqQuantizer(
       requireShared().writeCentroid(centroid)
     },
 
-    recalibrateAll(vectors) {
-      const collected: Array<[string, Float32Array]> = []
-      const rawVectors: Float32Array[] = []
-      for (const pair of vectors) {
-        collected.push(pair)
-        rawVectors.push(pair[1])
-      }
-      if (collected.length === 0) return
-      calibrateFromVectors(rawVectors)
+    recalibrate(ordinals) {
+      if (ordinals.length === 0) return
       const view = requireShared()
       view.resetCodes()
-      for (const [docId, vector] of collected) view.writeCodes(ordinalOf(docId), vector)
+      view.calibrateFrom(ordinals)
+      view.writeCodesOf(ordinals)
     },
 
     prepareQuery: query => shared()?.prepareQuery(query) ?? null,

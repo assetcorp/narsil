@@ -96,6 +96,8 @@ export interface VectorStore extends VectorBuildReader {
   clear(): void
   /** Gives up the shared blocks, which the memory the vectors occupy returns with, and leaves an empty store behind. */
   release(): void
+  /** Closes every vector file that this thread holds open or maps, which a read of a released vector opens again. */
+  closeFiles(): void
   /**
    * Reports the bytes this store's shared structures hold, read from each
    * structure as it stands. The bookkeeping each thread keeps on its own heap

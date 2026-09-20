@@ -1,4 +1,4 @@
-import { createBruteForceSearch } from '../src/vector/brute-force'
+import { createExactSearch } from '../src/__tests__/vector/exact-search'
 import { createHNSWIndex } from '../src/vector/hnsw'
 import { isSimdAvailable } from '../src/vector/simd'
 import { createVectorStore } from '../src/vector/vector-store'
@@ -117,7 +117,7 @@ async function main() {
       const bfStore = createVectorStore()
       let t0 = performance.now()
       for (let i = 0; i < scale; i++) bfStore.insert(`d${i}`, vectors[i])
-      const bf = createBruteForceSearch(dim, bfStore)
+      const bf = createExactSearch(dim, bfStore)
       const bfInsertMs = performance.now() - t0
 
       const bfSearch = measureSearch(q => bf.search(q, K, 'cosine', 0), queries)

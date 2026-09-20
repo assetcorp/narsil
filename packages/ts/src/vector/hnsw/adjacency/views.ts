@@ -1,5 +1,5 @@
 import { fixedView, growBufferTo, growBufferToExactly } from '../../shared-buffers/growable'
-import { GRAPH_SLOTS, GRAPH_UPPER_USED, type SharedGraphHandles } from '../handles'
+import { GRAPH_SLOTS, GRAPH_UPPER_USED, publishGraphCapacity, type SharedGraphHandles } from '../handles'
 
 export const ABSENT = -1
 
@@ -80,19 +80,31 @@ export function ensureAdjacencyCapacity(adj: Adjacency, needed: number): void {
   growBufferToExactly(handles.locks, capacity * 4)
   growBufferToExactly(handles.tombstones, capacity)
   growBufferToExactly(handles.nodeLevels, capacity)
+  publishGraphCapacity(handles)
   rebindNodes(adj)
 }
 
-export function ensureUpperCapacity(adj: Adjacency, entries: number): void {
+function growUpperTo(adj: Adjacency, entries: number): void {
+  const held = adj.handles.upper.byteLength
   growBufferTo(adj.handles.upper, entries * 4)
+  if (adj.handles.upper.byteLength !== held) publishGraphCapacity(adj.handles)
+}
+
+export function ensureUpperCapacity(adj: Adjacency, entries: number): void {
+  growUpperTo(adj, entries)
   rebindUpper(adj)
+}
+
+export function ensureUpperRoom(adj: Adjacency, levels: number): void {
+  if (levels < 1) return
+  growUpperTo(adj, Atomics.load(adj.header, GRAPH_UPPER_USED) + levels * adj.upperStride)
 }
 
 function allocateUpperBlock(adj: Adjacency, levels: number): number {
   const size = levels * adj.upperStride
   for (;;) {
     const offset = Atomics.load(adj.header, GRAPH_UPPER_USED)
-    growBufferTo(adj.handles.upper, (offset + size) * 4)
+    growUpperTo(adj, offset + size)
     if (Atomics.compareExchange(adj.header, GRAPH_UPPER_USED, offset, offset + size) !== offset) continue
     rebindUpper(adj)
     return offset
