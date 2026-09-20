@@ -29,7 +29,6 @@ interface RawPartitionEntry {
   partitionId?: number
   nextSegmentId?: number
   segments?: RawSegmentRef[]
-  vectors?: RawVectorRef[]
 }
 
 interface RawManifest {
@@ -38,6 +37,7 @@ interface RawManifest {
   language?: string
   checkpoint?: Array<{ partitionId?: number; lastSeqNo?: number; primaryTerm?: number }>
   partitions?: RawPartitionEntry[]
+  vectors?: RawVectorRef[]
 }
 
 export async function decodeSegmentManifest(data: Uint8Array): Promise<SegmentManifest> {
@@ -60,6 +60,7 @@ export async function decodeSegmentManifest(data: Uint8Array): Promise<SegmentMa
     language: base.language,
     checkpoint: normalizeCheckpoint(raw.checkpoint),
     partitions: normalizePartitions(raw.partitions),
+    vectors: normalizeVectors(raw.vectors),
   }
 }
 
@@ -108,7 +109,6 @@ function normalizePartitions(raw: RawManifest['partitions']): PartitionManifestE
       partitionId: entry.partitionId,
       nextSegmentId,
       segments,
-      vectors: normalizeVectors(entry.vectors, entry.partitionId),
     })
   }
   return result
@@ -181,16 +181,15 @@ function readNextSegmentId(value: unknown, segments: SegmentRef[], partitionId: 
   return value
 }
 
-function normalizeVectors(raw: RawVectorRef[] | undefined, partitionId: number): VectorSegmentRef[] {
+function normalizeVectors(raw: RawVectorRef[] | undefined): VectorSegmentRef[] {
   if (raw === undefined) {
     return []
   }
   if (!Array.isArray(raw)) {
-    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Segment manifest has malformed vector references', {
-      partitionId,
-    })
+    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Segment manifest has malformed vector references')
   }
   const result: VectorSegmentRef[] = []
+  const seenFields = new Set<string>()
   for (const vector of raw) {
     if (
       typeof vector?.fieldPath !== 'string' ||
@@ -200,10 +199,17 @@ function normalizeVectors(raw: RawVectorRef[] | undefined, partitionId: number):
       !vector.keys.every(isKey)
     ) {
       throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Segment manifest has an invalid vector reference', {
-        partitionId,
         vector,
       })
     }
+    if (seenFields.has(vector.fieldPath)) {
+      throw new NarsilError(
+        ErrorCodes.PERSISTENCE_LOAD_FAILED,
+        `Segment manifest lists the vector field "${vector.fieldPath}" twice`,
+        { fieldPath: vector.fieldPath },
+      )
+    }
+    seenFields.add(vector.fieldPath)
     result.push({ fieldPath: vector.fieldPath, generation: vector.generation, keys: [...vector.keys] })
   }
   return result

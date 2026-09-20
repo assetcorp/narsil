@@ -46,13 +46,38 @@ describe('segment manifest decode bounds', () => {
           partitionId: 0,
           nextSegmentId: 2,
           segments: [{ id: 1, key: 'docs/segments/0/s0000000000000001', docCount: 5, tombstoneCount: 0 }],
-          vectors: [],
         },
       ],
     })
     const manifest = await decodeSegmentManifest(bytes)
     expect(manifest.partitions[0].segments[0].id).toBe(1)
     expect(manifest.partitions[0].nextSegmentId).toBe(2)
+  })
+
+  it('reads the vector segment of each field from the manifest itself', async () => {
+    const embedding = { fieldPath: 'embedding', generation: 3, keys: ['docs/segments/vec-embedding-1l4nfg2-g3-p0000'] }
+    const bytes = await encodeRawManifest({
+      version: SEGMENT_MANIFEST_VERSION,
+      schema: { title: 'string', embedding: 'vector[8]' },
+      language: 'english',
+      checkpoint: [],
+      partitions: [],
+      vectors: [embedding],
+    })
+    expect((await decodeSegmentManifest(bytes)).vectors).toEqual([embedding])
+  })
+
+  it('rejects a manifest that lists one vector field twice', async () => {
+    const embedding = { fieldPath: 'embedding', generation: 3, keys: ['docs/segments/vec-embedding-1l4nfg2-g3-p0000'] }
+    const bytes = await encodeRawManifest({
+      version: SEGMENT_MANIFEST_VERSION,
+      schema: { title: 'string', embedding: 'vector[8]' },
+      language: 'english',
+      checkpoint: [],
+      partitions: [],
+      vectors: [embedding, { ...embedding, generation: 4 }],
+    })
+    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/lists the vector field "embedding" twice/)
   })
 
   it('rejects a segment list above the maximum', async () => {
@@ -65,7 +90,7 @@ describe('segment manifest decode bounds', () => {
       schema: { title: 'string' },
       language: 'english',
       checkpoint: [],
-      partitions: [{ partitionId: 0, nextSegmentId: segments.length, segments, vectors: [] }],
+      partitions: [{ partitionId: 0, nextSegmentId: segments.length, segments }],
     })
     await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/exceeding the maximum/)
   })
@@ -84,7 +109,6 @@ describe('segment manifest decode bounds', () => {
             { id: 1, key: 'docs/segments/0/s-a', docCount: 1, tombstoneCount: 0 },
             { id: 1, key: 'docs/segments/0/s-b', docCount: 1, tombstoneCount: 0 },
           ],
-          vectors: [],
         },
       ],
     })
@@ -102,7 +126,6 @@ describe('segment manifest decode bounds', () => {
           partitionId: 0,
           nextSegmentId: 1,
           segments: [{ id: 1, key: 'docs/segments/0/s1', docCount: 1, tombstoneCount: 0 }],
-          vectors: [],
         },
       ],
     })
@@ -120,7 +143,6 @@ describe('segment manifest decode bounds', () => {
           partitionId: 0,
           nextSegmentId: 1,
           segments: [{ id: 0, key: 'docs/segments/0/s0', docCount: -1, tombstoneCount: 0 }],
-          vectors: [],
         },
       ],
     })
@@ -145,9 +167,10 @@ describe('segment load partition bounds', () => {
       language: 'english',
       checkpoint: [],
       partitions: [
-        { partitionId: 0, nextSegmentId: 0, segments: [], vectors: [] },
-        { partitionId: 1, nextSegmentId: 0, segments: [], vectors: [] },
+        { partitionId: 0, nextSegmentId: 0, segments: [] },
+        { partitionId: 1, nextSegmentId: 0, segments: [] },
       ],
+      vectors: [],
     }
 
     const directory = createDurableDirectory('/tmp/narsil-bounds-unused')

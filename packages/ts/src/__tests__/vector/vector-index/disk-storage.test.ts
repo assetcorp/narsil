@@ -171,7 +171,7 @@ describe('a vector field kept on disk', () => {
     expect(recovered.hits.map(hit => hit.id)).toEqual(expected)
 
     const durable = createDurableDirectory(directory)
-    const [key] = (await durable.list('papers/segments/0/')).filter(name => name.includes('/vec-embedding-'))
+    const [key] = (await durable.list('papers/segments/')).filter(name => name.includes('/vec-embedding-'))
     const bytes = await durable.read(key)
     if (bytes === null) throw new Error('vector part missing')
     const { header, payloadBytes } = await unpackEnvelopeBytes(bytes)
