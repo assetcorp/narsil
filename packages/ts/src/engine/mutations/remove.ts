@@ -6,18 +6,23 @@ import { validateDocId } from '../validation'
 import { removeDocumentVectors } from '../vector-coordinator'
 import type { MutationContext } from './context'
 import { rollbackRemovedDocument } from './durable-rollback'
+import { recordChunk } from './record-batch'
 import { awaitWriteVisibility } from './write-visibility'
 
-export async function removeDocument(
-  ctx: MutationContext,
-  indexName: string,
-  docId: string,
-  options?: WriteOptions,
-): Promise<void> {
-  ctx.guardShutdown()
-  ctx.requireIndex(indexName)
-  validateDocId(docId)
+interface PreparedRemoval {
+  docId: string
+  document: null
+  restoreDoc: AnyDocument | undefined
+  buffered: boolean
+}
 
+function asRemoveError(err: unknown): NarsilError {
+  return err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_NOT_FOUND, String(err))
+}
+
+async function prepareRemoval(ctx: MutationContext, indexName: string, docId: string): Promise<PreparedRemoval> {
+  ctx.guardShutdown()
+  validateDocId(docId)
   await ctx.pluginRegistry.runHook('beforeRemove', { indexName, docId })
 
   const rebalancing = ctx.isRebalancing(indexName)
@@ -26,10 +31,17 @@ export async function removeDocument(
   }
 
   const restoreRef = ctx.durability && !rebalancing ? ctx.requireManager(indexName).getRef(docId) : undefined
-  const restoreDoc: AnyDocument | undefined = restoreRef ? (structuredClone(restoreRef) as AnyDocument) : undefined
+  return {
+    docId,
+    document: null,
+    restoreDoc: restoreRef ? (structuredClone(restoreRef) as AnyDocument) : undefined,
+    buffered: false,
+  }
+}
 
-  let buffered = false
-  const applyRemove = async (): Promise<void> => {
+function applyOfRemoval(ctx: MutationContext, indexName: string, prepared: PreparedRemoval): () => Promise<void> {
+  const { docId } = prepared
+  return async (): Promise<void> => {
     if (ctx.isRebalancing(indexName)) {
       const bufferedState = ctx.bufferedDocState(indexName, docId)
       const exists =
@@ -39,30 +51,15 @@ export async function removeDocument(
       }
     }
     if (ctx.bufferIfRebalancing(indexName, { action: 'remove', docId, indexName })) {
-      buffered = true
+      prepared.buffered = true
       return
     }
     await ctx.executor.execute({ type: 'remove', indexName, docId, requestId: docId })
-    const removeVecIndexes = ctx.requireManager(indexName).getVectorIndexes()
-    removeDocumentVectors(docId, removeVecIndexes)
+    removeDocumentVectors(docId, ctx.requireManager(indexName).getVectorIndexes())
   }
+}
 
-  if (ctx.durability) {
-    try {
-      await ctx.durability.recordRemove(indexName, docId, applyRemove)
-    } catch (err) {
-      await rollbackRemovedDocument(ctx, indexName, docId, restoreDoc, err)
-      throw err
-    }
-  } else {
-    await applyRemove()
-  }
-
-  if (buffered) {
-    if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
-    return
-  }
-
+async function settleRemoval(ctx: MutationContext, indexName: string, docId: string): Promise<void> {
   try {
     await ctx.pluginRegistry.runHook('afterRemove', { indexName, docId })
   } catch (err) {
@@ -75,6 +72,31 @@ export async function removeDocument(
     docId,
     requestId: `replicate-remove-${docId}`,
   })
+}
+
+export async function removeDocument(
+  ctx: MutationContext,
+  indexName: string,
+  docId: string,
+  options?: WriteOptions,
+): Promise<void> {
+  ctx.guardShutdown()
+  ctx.requireIndex(indexName)
+  const prepared = await prepareRemoval(ctx, indexName, docId)
+  const apply = applyOfRemoval(ctx, indexName, prepared)
+
+  if (ctx.durability) {
+    try {
+      await ctx.durability.recordRemove(indexName, docId, apply)
+    } catch (err) {
+      await rollbackRemovedDocument(ctx, indexName, docId, prepared.restoreDoc, err)
+      throw err
+    }
+  } else {
+    await apply()
+  }
+
+  if (!prepared.buffered) await settleRemoval(ctx, indexName, docId)
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 }
 
@@ -90,25 +112,43 @@ export async function removeDocumentBatch(
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
   const manager = ctx.requireManager(indexName)
+  const hooked = ctx.pluginRegistry.hasHooks('beforeRemove') || ctx.pluginRegistry.hasHooks('afterRemove')
+  const chunkSize = hooked ? 1 : BATCH_CHUNK_SIZE
   manager.beginBatchRemove()
 
   try {
-    for (let chunkStart = 0; chunkStart < docIds.length; chunkStart += BATCH_CHUNK_SIZE) {
-      const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, docIds.length)
-
+    for (let chunkStart = 0; chunkStart < docIds.length; chunkStart += chunkSize) {
+      const chunkEnd = Math.min(chunkStart + chunkSize, docIds.length)
+      const prepared: PreparedRemoval[] = []
       for (let i = chunkStart; i < chunkEnd; i++) {
         try {
-          await removeDocument(ctx, indexName, docIds[i])
-          succeeded.push(docIds[i])
+          prepared.push(await prepareRemoval(ctx, indexName, docIds[i]))
         } catch (err) {
-          failed.push({
-            docId: docIds[i],
-            error: err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_NOT_FOUND, String(err)),
-          })
+          failed.push({ docId: docIds[i], error: asRemoveError(err) })
         }
       }
 
-      if (chunkEnd < docIds.length) {
+      const applies = prepared.map(removal => applyOfRemoval(ctx, indexName, removal))
+      const failures = await recordChunk(ctx, indexName, prepared, applies)
+
+      for (let i = 0; i < prepared.length; i++) {
+        const removal = prepared[i]
+        const failure = failures[i]
+        if (failure !== null) {
+          let error = failure.error
+          try {
+            await rollbackRemovedDocument(ctx, indexName, removal.docId, removal.restoreDoc, error)
+          } catch (rollbackError) {
+            error = rollbackError
+          }
+          failed.push({ docId: removal.docId, error: asRemoveError(error) })
+          continue
+        }
+        if (!removal.buffered) await settleRemoval(ctx, indexName, removal.docId)
+        succeeded.push(removal.docId)
+      }
+
+      if (chunkEnd < docIds.length && chunkEnd % BATCH_CHUNK_SIZE === 0) {
         await new Promise<void>(r => setTimeout(r, 0))
       }
     }

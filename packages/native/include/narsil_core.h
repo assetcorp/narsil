@@ -15,6 +15,7 @@ extern "C" {
 #define NARSIL_HELD_WORDS_PER_THREAD 32
 #define NARSIL_OSQ_TRAILER_BYTES 16
 #define NARSIL_MAX_PLACEMENT_LAYERS 64
+#define NARSIL_LIST_WORDS_OVER_NEIGHBOURS 2
 
 #define NARSIL_GRAPH_WORD_ENTRY_POINT 0
 #define NARSIL_GRAPH_WORD_TOP_LAYER 1
@@ -44,7 +45,6 @@ typedef enum {
   NARSIL_OK = 0,
   NARSIL_INVALID_ARGUMENT = 1,
   NARSIL_OUT_OF_MEMORY = 2,
-  NARSIL_UNSUPPORTED_PROCESSOR = 3,
 } narsil_status;
 
 typedef struct {
@@ -107,6 +107,7 @@ typedef struct {
 } narsil_placement;
 
 int32_t narsil_core_abi_version(void);
+uint32_t narsil_record_bytes(uint32_t dimension, uint32_t bits);
 
 narsil_status narsil_workspace_create(narsil_workspace **workspace);
 void narsil_workspace_destroy(narsil_workspace *workspace);

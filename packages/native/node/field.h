@@ -9,8 +9,8 @@
 typedef struct {
   narsil_graph graph;
   narsil_store store;
-  const uint8_t **code_blocks;
-  const float **vector_blocks;
+  const void **code_blocks;
+  const void **vector_blocks;
   napi_ref memory;
 } attached_field;
 

@@ -13,6 +13,15 @@
 
 int32_t narsil_core_abi_version(void) { return NARSIL_CORE_ABI_VERSION; }
 
+uint32_t grown_capacity(uint32_t first, uint32_t needed) {
+  uint32_t capacity = first;
+  while (capacity < needed) {
+    if (capacity > UINT32_MAX / 2) { return needed; }
+    capacity *= 2;
+  }
+  return capacity;
+}
+
 narsil_status narsil_workspace_create(narsil_workspace **workspace) {
   if (workspace == NULL) { return NARSIL_INVALID_ARGUMENT; }
   narsil_workspace *created = calloc(1, sizeof *created);
@@ -81,8 +90,8 @@ narsil_status workspace_reserve_dimension(narsil_workspace *workspace, uint32_t 
 
 narsil_status workspace_reserve_visited(narsil_workspace *workspace, uint32_t slots) {
   if (slots <= workspace->visited_capacity) { return NARSIL_OK; }
-  uint32_t capacity = workspace->visited_capacity == 0 ? INITIAL_VISITED_CAPACITY : workspace->visited_capacity;
-  while (capacity < slots) { capacity *= 2; }
+  uint32_t held = workspace->visited_capacity == 0 ? INITIAL_VISITED_CAPACITY : workspace->visited_capacity;
+  uint32_t capacity = grown_capacity(held, slots);
   uint32_t *visited = calloc(capacity, sizeof *visited);
   if (visited == NULL) { return NARSIL_OUT_OF_MEMORY; }
   if (workspace->visited != NULL) {
@@ -96,9 +105,8 @@ narsil_status workspace_reserve_visited(narsil_workspace *workspace, uint32_t sl
 
 narsil_status workspace_reserve_entry_points(narsil_workspace *workspace, uint32_t count) {
   if (count <= workspace->entry_point_capacity) { return NARSIL_OK; }
-  uint32_t capacity =
-      workspace->entry_point_capacity == 0 ? INITIAL_ENTRY_POINT_CAPACITY : workspace->entry_point_capacity;
-  while (capacity < count) { capacity *= 2; }
+  uint32_t held = workspace->entry_point_capacity == 0 ? INITIAL_ENTRY_POINT_CAPACITY : workspace->entry_point_capacity;
+  uint32_t capacity = grown_capacity(held, count);
   int32_t *entry_points = realloc(workspace->entry_points, (size_t)capacity * sizeof *entry_points);
   if (entry_points == NULL) { return NARSIL_OUT_OF_MEMORY; }
   workspace->entry_points = entry_points;

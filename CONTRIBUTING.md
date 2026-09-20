@@ -40,12 +40,12 @@ pnpm --filter @delali/narsil-native-build format   # apply clang-format to the C
 
 ## Conventions
 
-- Keep each source file under 400 lines. When you split a module across several files, put them in a directory with an `index.ts` that re-exports the module, as `packages/ts/src/core/partition/` does.
+- Keep each source file under 400 lines, apart from `packages/ts/src/languages/`, each `constants.ts`, and the WebAssembly text under `packages/ts/wasm/`, which the build reads as one file. When you split a module across several files, put them in a directory with an `index.ts` that re-exports the module, as `packages/ts/src/core/partition/` does.
 - Let Biome format the code, and keep the layout that it writes.
 - Let clang-format lay out the C code, following `packages/native/.clang-format`.
 - `pnpm lint` exits with an error on any clang-tidy finding, because clang-tidy reports every finding as an error under `packages/native/.clang-tidy`.
-- In VS Code or Cursor, install the clangd extension and remove or disable Microsoft's C/C++ extension so that the editor shows the lint's findings as you type.
-- `.vscode/settings.json` holds the path to the clangd that `pnpm lint` installs in `packages/native/.lint-tools`, so lint once before you open a C file.
+- In VS Code or Cursor, install the clangd extension and remove or disable Microsoft's C/C++ extension so that the editor shows clang-tidy's findings as you type.
+- `.vscode/settings.json` holds the path to the clangd that `pnpm lint` installs in `packages/native/.lint-tools`, so call `pnpm lint` once before you open a C file.
 - [`packages/native/README.md`](packages/native/README.md) covers how to build, test, and lint the native search core.
 - Start any change to the `.nrsl` format in [`packages/spec`](packages/spec), because the format is a cross-language contract that every future implementation must match.
 - When you add a language, or change how the engine analyses text in an existing one, you need steps beyond the usual lint, typecheck, build, and test targets. [`packages/ts/src/languages/README.md`](packages/ts/src/languages/README.md) holds every command, when to use it, and which of them continuous integration executes.

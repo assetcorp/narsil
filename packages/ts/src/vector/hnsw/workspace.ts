@@ -33,7 +33,6 @@ export interface HNSWWorkspace {
   working: DistanceList
   /** The neighbours a new node takes on each layer, indexed by layer. */
   linkSelections: DistanceList[]
-  /** The candidates the native search core found for a new node on each layer, indexed by layer. */
   placementCandidates: DistanceList[]
   /** The neighbours of the node whose list is over its cap. */
   pruneCandidates: DistanceList

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 export const packageDirectory = dirname(fileURLToPath(import.meta.url))
 export const buildDirectory = join(packageDirectory, 'build')
-export const testSource = join(packageDirectory, 'test', 'core_test.c')
+export const TEST_LINK_FLAGS = ['-pthread']
 
 export const LANGUAGE_FLAGS = ['-std=c11', '-ffp-contract=off']
 export const CORE_FLAGS = ['-O2', '-fvisibility=hidden']
@@ -48,6 +48,10 @@ function cFilesIn(directory, extensions) {
 
 export function coreSources() {
   return cFilesIn('src', ['.c'])
+}
+
+export function testSources() {
+  return cFilesIn('test', ['.c'])
 }
 
 export function addonSources() {
@@ -95,7 +99,9 @@ export function writeCompileDatabase() {
   const commands = [...coreSources(), ...addonSources()].map(file =>
     compileCommand(file, [...CORE_FLAGS, ...POSITION_INDEPENDENT_FLAGS, ...shared]),
   )
-  commands.push(compileCommand(testSource, [...TEST_FLAGS, ...shared]))
+  for (const file of testSources()) {
+    commands.push(compileCommand(file, [...TEST_FLAGS, ...shared]))
+  }
   mkdirSync(buildDirectory, { recursive: true })
   const path = join(buildDirectory, 'compile_commands.json')
   writeFileSync(path, `${JSON.stringify(commands, null, 2)}\n`)

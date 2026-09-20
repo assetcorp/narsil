@@ -16,7 +16,6 @@ export interface WalWriterConfig {
 }
 
 export interface WalWriter {
-  append(entry: ReplicationLogEntry): Promise<void>
   appendAll(entries: readonly ReplicationLogEntry[]): Promise<void>
   appendDurable(entry: ReplicationLogEntry): Promise<void>
   commit(): Promise<void>
@@ -152,8 +151,11 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
     })
   }
 
-  async function maybeRoll(nextSeqNo: number): Promise<void> {
-    if (handle !== null && activeBytes >= segmentMaxBytes) {
+  async function maybeRoll(nextSeqNo: number, appendedBytes: number): Promise<void> {
+    if (handle === null || activeBytes <= SEGMENT_HEADER_SIZE) {
+      return
+    }
+    if (activeBytes >= segmentMaxBytes || activeBytes + appendedBytes > segmentMaxBytes) {
       await rollToNewSegment(nextSeqNo)
     }
   }
@@ -176,42 +178,30 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
   }
 
   async function appendFrames(entries: readonly ReplicationLogEntry[]): Promise<void> {
-    let next = 0
-    while (next < entries.length) {
-      const firstSeqNo = entries[next].seqNo
-      await ensureSegment(firstSeqNo)
-      await maybeRoll(firstSeqNo)
-      const activeHandle = handle
-      if (activeHandle === null) {
-        throw new NarsilError(
-          ErrorCodes.PERSISTENCE_SAVE_FAILED,
-          `WAL segment for "${config.indexName}" partition ${config.partitionId} is not open`,
-          { indexName: config.indexName, partitionId: config.partitionId },
-        )
-      }
-      const frames: Uint8Array[] = []
-      let pendingBytes = 0
-      let lastSeqNo = firstSeqNo
-      while (next < entries.length && (frames.length === 0 || activeBytes + pendingBytes < segmentMaxBytes)) {
-        const frame = frameRecord(entries[next])
-        frames.push(frame)
-        pendingBytes += frame.length
-        lastSeqNo = entries[next].seqNo
-        next += 1
-      }
-      await activeHandle.append(joinFrames(frames))
-      activeBytes += pendingBytes
-      if (lastSeqNo > highestAppendedSeqNo) {
-        highestAppendedSeqNo = lastSeqNo
-      }
+    if (entries.length === 0) {
+      return
+    }
+    const joined = joinFrames(entries.map(frameRecord))
+    const firstSeqNo = entries[0].seqNo
+    await ensureSegment(firstSeqNo)
+    await maybeRoll(firstSeqNo, joined.length)
+    const activeHandle = handle
+    if (activeHandle === null) {
+      throw new NarsilError(
+        ErrorCodes.PERSISTENCE_SAVE_FAILED,
+        `WAL segment for "${config.indexName}" partition ${config.partitionId} is not open`,
+        { indexName: config.indexName, partitionId: config.partitionId },
+      )
+    }
+    await activeHandle.append(joined)
+    activeBytes += joined.length
+    const lastSeqNo = entries[entries.length - 1].seqNo
+    if (lastSeqNo > highestAppendedSeqNo) {
+      highestAppendedSeqNo = lastSeqNo
     }
   }
 
   return {
-    async append(entry: ReplicationLogEntry): Promise<void> {
-      await appendFrames([entry])
-    },
-
     async appendAll(entries: readonly ReplicationLogEntry[]): Promise<void> {
       await appendFrames(entries)
     },

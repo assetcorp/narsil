@@ -12,7 +12,7 @@ Distributed search, reforged.
 
 Narsil is a distributed search engine with full-text, vector, hybrid, and geosearch. You can embed Narsil in your application process, where the engine searches without a network hop, or deploy it as a standalone search server with a REST API, a write-ahead log, and bulk NDJSON ingest. Both forms contain the same engine, which stores indexes in one cross-language binary format (`.nrsl`), so you can load an index from one form into the other.
 
-The engine partitions large indexes across workers and merges the results of the partitions into a single ranked list. Its BM25 nDCG@10 is within 0.006 of the Anserini reference on BEIR SciFact and NFCorpus. On SciFact, Narsil scores 0.681 nDCG@10, ahead of Elasticsearch and OpenSearch at 0.679. At its peak, it also serves 958 keyword queries per second on SciFact, while Elasticsearch serves 841 and OpenSearch serves 878 ([benchmarks](https://github.com/assetcorp/narsil/blob/main/BENCHMARKS.md)). This TypeScript package is the reference implementation of the `.nrsl` format, while the headline item on the [roadmap](https://github.com/assetcorp/narsil/blob/main/ROADMAP.md) is a second implementation in Go or Rust.
+The engine partitions large indexes across workers and merges the results of the partitions into a single ranked list. Its BM25 nDCG@10 is within 0.006 of the Anserini reference on BEIR SciFact and NFCorpus. On SciFact, Narsil scores 0.681 nDCG@10, ahead of Elasticsearch and OpenSearch at 0.679. At its peak, it also serves 958 keyword queries per second on SciFact, while Elasticsearch serves 841 and OpenSearch serves 878 ([benchmarks](https://github.com/assetcorp/narsil/blob/main/BENCHMARKS.md)). This TypeScript package is the reference implementation of the `.nrsl` format, so a second implementation in Go or Rust is the headline item on the [roadmap](https://github.com/assetcorp/narsil/blob/main/ROADMAP.md).
 
 Try it in your browser at [narsil.sondelali.com/demo](https://narsil.sondelali.com/demo). Read the full documentation at [narsil.sondelali.com/docs](https://narsil.sondelali.com/docs).
 
@@ -38,7 +38,7 @@ pnpm add @delali/narsil
 
 Narsil works in Node.js 22 or newer, and in Bun, Deno, and browsers. The [Runtime support](#runtime-support) table covers each runtime.
 
-On arm64 and x64 machines running macOS, Linux, or Windows, the package manager also installs Narsil's native search core as an optional dependency. If you omit optional dependencies, Narsil searches vector graphs through WebAssembly, with the same results.
+On an arm64 or x64 machine under macOS, Linux, or Windows, the package manager also installs Narsil's native search core as an optional dependency, and the engine searches vector graphs through it. If you omit optional dependencies, Narsil searches those graphs through WebAssembly, with the same results, as it always does in a browser.
 
 ## Quick start
 
@@ -81,13 +81,13 @@ const results = await narsil.query('products', {
 })
 ```
 
-Every hit holds the document, its id, and its BM25 score. `results.count` is the number of documents that match in total, while `results.elapsed` is the query time in milliseconds. `results.coverage` counts the partitions that the search covered, so you can tell when a cluster returns results from part of its data.
+Every hit holds the document, its id, and its BM25 score. Beside the hits, `results.count` holds the total number of matching documents, `results.elapsed` holds the query time in milliseconds, and `results.coverage` counts the partitions that the search covered, so you can tell when a cluster returns results from part of its data.
 
 ## Features
 
 **Search.** For [full-text search](https://github.com/assetcorp/narsil/blob/main/docs/full-text-search.md), the engine scores with BM25 and supports field boosting, fuzzy matching through bounded Levenshtein distance, search as you type through last-word prefix matching, and term-coverage and score thresholds. You can combine a query with [filters, facets, sorting, grouping, cursor pagination, and pinned results](https://github.com/assetcorp/narsil/blob/main/docs/filters-facets-and-pagination.md).
 
-**Vector and hybrid retrieval.** For [vector search](https://github.com/assetcorp/narsil/blob/main/docs/vector-search.md), the engine compares vectors by cosine similarity, dot product, or Euclidean distance. It scans a field exactly until the field holds 1,024 vectors, a count that you can change, after which it builds an HNSW graph with optimised scalar quantization on by default. On arm64 and x64 machines running macOS, Linux, or Windows, the engine searches that graph through a [native core in C](https://github.com/assetcorp/narsil/blob/main/docs/vector-search.md#native-search-core), which returns the same results as its WebAssembly search. For [hybrid search](https://github.com/assetcorp/narsil/blob/main/docs/hybrid-search.md), the engine fuses BM25 and vector rankings through reciprocal rank fusion or linear blending. [Embedding adapters](https://github.com/assetcorp/narsil/blob/main/docs/embedding-adapters.md) turn text into vectors on insert and query, through OpenAI, local Transformers.js models, or an adapter of your own.
+**Vector and hybrid retrieval.** For [vector search](https://github.com/assetcorp/narsil/blob/main/docs/vector-search.md), the engine compares vectors by cosine similarity, dot product, or Euclidean distance. It scans a field exactly until the field holds 1,024 vectors, a count that you can change, after which it builds an HNSW graph with optimised scalar quantization on by default. Outside a browser, on an arm64 or x64 machine under macOS, Linux, or Windows, the engine searches that graph through a [native core in C](https://github.com/assetcorp/narsil/blob/main/docs/vector-search.md#native-search-core), which returns the same results as its WebAssembly search. For [hybrid search](https://github.com/assetcorp/narsil/blob/main/docs/hybrid-search.md), the engine fuses BM25 and vector rankings through reciprocal rank fusion or linear blending. [Embedding adapters](https://github.com/assetcorp/narsil/blob/main/docs/embedding-adapters.md) turn text into vectors on insert and query, through OpenAI, local Transformers.js models, or an adapter of your own.
 
 **Geosearch.** [Geo filters](https://github.com/assetcorp/narsil/blob/main/docs/geosearch.md) match documents by radius, using Haversine or Vincenty distance, or by polygon containment. You can combine a geo filter with every other query feature.
 
@@ -131,7 +131,7 @@ The [specification](../spec/) defines the `.nrsl` format, the analysis pipeline,
 
 ## Distribution
 
-`@delali/narsil/distribution` holds Narsil's multi-node cluster mode: nodes and roles, replication, coordinator adapters for etcd and in-process testing, TCP and gRPC transports with mutual TLS, and distributed query routing. A cluster node can create, drop, clear, write, update, search, list, count, and suggest across every partition. The [cluster dashboard example](examples/cluster-dashboard) starts three nodes against etcd and shows the state of each partition while you cut the network links. Because the layer is experimental and we may change its APIs without notice, pin an exact version before you depend on it. The [cluster guide](../../docs/cluster.md) covers the API, while [`packages/spec/distribution`](../spec/distribution) specifies the contract that every implementation must uphold.
+`@delali/narsil/distribution` holds Narsil's multi-node cluster mode: nodes and roles, replication, coordinator adapters for etcd and in-process testing, TCP and gRPC transports with mutual TLS, and distributed query routing. A cluster node can create, drop, clear, write, update, search, list, count, and suggest across every partition. The [cluster dashboard example](examples/cluster-dashboard) starts three nodes against etcd and shows the state of each partition while you cut the network links. Because the layer is experimental and we may change its APIs without notice, pin an exact version before you depend on it. The [cluster guide](../../docs/cluster.md) covers the API. For the contract that every implementation must uphold, read [`packages/spec/distribution`](../spec/distribution).
 
 ## Search quality
 

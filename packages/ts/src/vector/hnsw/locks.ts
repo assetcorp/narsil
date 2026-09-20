@@ -1,4 +1,4 @@
-import { LOCK_SPIN_ITERATIONS, LOCK_WAIT_SLICE_MS } from '../constants'
+import { GRAPH_LOCK_WAIT_SLICE_MS, LOCK_SPIN_ITERATIONS, LOCK_WAIT_SLICE_MS } from '../constants'
 import { fixedView, growBufferTo, sharedMemoryAvailable } from '../shared-buffers/growable'
 import {
   GRAPH_ENTRY_LOCK,
@@ -46,9 +46,9 @@ function canWait(words: Int32Array): boolean {
   return blockingAllowed && sharedMemoryAvailable() && words.buffer instanceof SharedArrayBuffer
 }
 
-function waitOn(words: Int32Array, index: number, seen: number): void {
+function waitOn(words: Int32Array, index: number, seen: number, sliceMs: number = LOCK_WAIT_SLICE_MS): void {
   if (!canWait(words)) return
-  Atomics.wait(words, index, seen, LOCK_WAIT_SLICE_MS)
+  Atomics.wait(words, index, seen, sliceMs)
 }
 
 function heldIndex(locks: GraphLocks, kind: number): number {
@@ -64,7 +64,7 @@ function acquireExclusive(words: Int32Array, index: number): void {
       spins += 1
       continue
     }
-    waitOn(words, index, seen)
+    waitOn(words, index, seen, GRAPH_LOCK_WAIT_SLICE_MS)
   }
 }
 
@@ -142,7 +142,7 @@ export function lockGraphShared(locks: GraphLocks): void {
       spins += 1
       continue
     }
-    waitOn(header, GRAPH_LOCK, seen)
+    waitOn(header, GRAPH_LOCK, seen, GRAPH_LOCK_WAIT_SLICE_MS)
   }
 }
 

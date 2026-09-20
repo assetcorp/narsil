@@ -168,7 +168,43 @@ describe('durability manager batch recording', () => {
     await manager.shutdown()
   })
 
-  it('recovers the whole records of a batch whose last record a crash cut short', async () => {
+  it('leaves the frontier behind a batch whose sync fails, so no record counts as acknowledged', async () => {
+    const directory = createDurableDirectory(root)
+    const realAppendHandle = directory.appendHandle.bind(directory)
+    let failSync = false
+    vi.spyOn(directory, 'appendHandle').mockImplementation(async key => {
+      const handle = await realAppendHandle(key)
+      return {
+        ...handle,
+        sync: async () => {
+          if (failSync) throw new NarsilError('PERSISTENCE_FSYNC_FAILED', 'injected fsync failure')
+          await handle.sync()
+        },
+      }
+    })
+    const manager = createDurabilityManager(
+      { directory: root, mode: 'sync', checkpointIntervalMs: 0 },
+      inertHooks(),
+      directory,
+    )
+    await manager.recordMutations([mutation(0, 'acknowledged')])
+    failSync = true
+    const outcomes = await manager.recordMutations([mutation(0, 'lost-0'), mutation(0, 'lost-1')])
+    expect(outcomes.every(outcome => !outcome.ok)).toBe(true)
+    await manager.shutdown()
+
+    const markerBytes = await directory.read('movies/wal/0/commit')
+    expect(markerBytes).not.toBeNull()
+    if (markerBytes === null) return
+    const marker = readCommitMarker(markerBytes)
+    const segment = await directory.read('movies/wal/0/0000000000000001')
+    expect(segment).not.toBeNull()
+    if (marker === null || segment === null) return
+    const durable = readDurableRegion(segment, marker.state.durableByteLength)
+    expect(durable.map(entry => entry.documentId)).toEqual(['acknowledged'])
+  })
+
+  it('reads back every whole record of a batch after a crash cuts the last one short', async () => {
     const directory = createDurableDirectory(root)
     const manager = createDurabilityManager(
       { directory: root, mode: 'async', flushIntervalMs: 0, checkpointIntervalMs: 0 },

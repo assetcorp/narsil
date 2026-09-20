@@ -1,9 +1,10 @@
 import type { InsertOptions } from '../../types/schema'
 import { insertDocumentVectors } from '../vector-coordinator'
-import type { DurableInsertOutcome, MutationContext } from './context'
+import type { MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
 import { admitInsert } from './insert-admission'
 import type { AdmittedInsert } from './insert-batch-admission'
+import { recordChunk } from './record-batch'
 
 export type InsertApplication =
   | { status: 'inserted' }
@@ -66,23 +67,6 @@ function applyOf(
   }
 }
 
-interface InsertFailure {
-  error: unknown
-}
-
-async function failureOfApply(apply: () => Promise<void>): Promise<InsertFailure | null> {
-  try {
-    await apply()
-    return null
-  } catch (error) {
-    return { error }
-  }
-}
-
-function failureOfOutcome(outcome: DurableInsertOutcome): InsertFailure | null {
-  return outcome.ok ? null : { error: outcome.error }
-}
-
 export async function applyInsertChunk(
   ctx: MutationContext,
   indexName: string,
@@ -91,20 +75,7 @@ export async function applyInsertChunk(
 ): Promise<InsertApplication[]> {
   const progress: InsertProgress[] = docs.map(() => ({ inserted: false, buffered: false, skipped: false }))
   const applies = docs.map((doc, i) => applyOf(ctx, indexName, doc, options, progress[i]))
-
-  let failures: (InsertFailure | null)[]
-  if (ctx.durability) {
-    const outcomes = await ctx.durability.recordInsertOrUpdateBatch(
-      indexName,
-      docs.map((doc, i) => ({ docId: doc.docId, document: doc.document, apply: applies[i] })),
-    )
-    failures = outcomes.map(failureOfOutcome)
-  } else {
-    failures = []
-    for (const apply of applies) {
-      failures.push(await failureOfApply(apply))
-    }
-  }
+  const failures = await recordChunk(ctx, indexName, docs, applies)
 
   const applications: InsertApplication[] = []
   for (let i = 0; i < docs.length; i++) {

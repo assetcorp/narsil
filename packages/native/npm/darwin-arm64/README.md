@@ -17,7 +17,7 @@ Every platform package is an optional dependency of [`@delali/narsil`](https://w
 
 ## What it does
 
-Narsil searches the HNSW graph of each vector field through this core, which returns the same documents with the same scores as Narsil's WebAssembly search. Where Node cannot load this binary, Narsil searches through WebAssembly. To search through WebAssembly everywhere, set `NARSIL_SEARCH_BACKEND=wasm` before you start the process.
+Narsil searches the HNSW graph of each vector field through this core, which returns the same documents with the same scores as Narsil's WebAssembly search. Where Node cannot load this binary, Narsil searches through WebAssembly. To hold a process to the WebAssembly search, set `NARSIL_SEARCH_BACKEND=wasm` before you start it.
 
 ## Licence
 

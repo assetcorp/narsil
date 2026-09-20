@@ -84,8 +84,8 @@ describe('WAL writer', () => {
 
   it('batches a fsync across an append followed by commit', async () => {
     const writer = createWalWriter(directory, { indexName: 'movies', partitionId: 0 })
-    await writer.append(entry(1))
-    await writer.append(entry(2))
+    await writer.appendAll([entry(1)])
+    await writer.appendAll([entry(2)])
     await writer.commit()
     await writer.close()
 
@@ -123,8 +123,8 @@ describe('WAL writer', () => {
 
   it('advances the commit marker to the new segment as part of a roll', async () => {
     const writer = createWalWriter(directory, { indexName: 'movies', partitionId: 0, segmentMaxBytes: 20 })
-    await writer.append(entry(1))
-    await writer.append(entry(2))
+    await writer.appendAll([entry(1)])
+    await writer.appendAll([entry(2)])
 
     const markerBytes = await directory.read('movies/wal/0/commit')
     expect(markerBytes).not.toBeNull()
@@ -173,17 +173,22 @@ describe('WAL writer', () => {
     expect(entries.map(e => e.seqNo)).toEqual([1, 2, 3, 4, 5])
   })
 
-  it('splits a batch across segments at the size limit and keeps every entry', async () => {
+  it('holds one batch in one segment and rolls before the next batch', async () => {
     const writer = createWalWriter(directory, { indexName: 'movies', partitionId: 0, segmentMaxBytes: 200 })
-    const batch = Array.from({ length: 12 }, (_, i) => entry(i + 1))
-    await writer.appendAll(batch)
+    const first = Array.from({ length: 12 }, (_, i) => entry(i + 1))
+    await writer.appendAll(first)
+    await writer.commit()
+    expect(segmentKeys(await directory.list('movies/wal/0/')).length).toBe(1)
+
+    const second = Array.from({ length: 3 }, (_, i) => entry(i + 13))
+    await writer.appendAll(second)
     await writer.commit()
     await writer.close()
 
     const keys = segmentKeys(await directory.list('movies/wal/0/'))
-    expect(keys.length).toBeGreaterThan(1)
+    expect(keys.length).toBe(2)
     const entries = await readAllEntries(directory)
-    expect(entries.map(e => e.seqNo)).toEqual(batch.map(e => e.seqNo))
+    expect(entries.map(e => e.seqNo)).toEqual([...first, ...second].map(e => e.seqNo))
   })
 
   it('writes nothing for an empty batch', async () => {

@@ -41,6 +41,7 @@ export async function insertDocumentBatch(
   const failed: BatchResult['failed'] = []
   const hasBeforeHook = ctx.pluginRegistry.hasHooks('beforeInsert')
   const hasAfterHook = ctx.pluginRegistry.hasHooks('afterInsert')
+  const documentByDocument = hasBeforeHook || hasAfterHook
   const required = entry.config.required
 
   const batchManager = ctx.requireManager(indexName)
@@ -67,6 +68,40 @@ export async function insertDocumentBatch(
       chunkFailedIndexes,
       failed,
     )
+
+    async function applyPrepared(prepared: AdmittedInsert[]): Promise<void> {
+      const applications = await applyInsertChunk(ctx, indexName, prepared, options)
+      for (let i = 0; i < prepared.length; i++) {
+        const doc = prepared[i]
+        const application = applications[i]
+        if (application.status === 'skipped') continue
+        if (application.status === 'failed') {
+          failed.push({ docId: doc.docId, error: asBatchInsertError(application.error) })
+          continue
+        }
+        if (application.status === 'buffered') {
+          bufferedDocIds.add(doc.docId)
+          succeeded.push(doc.docId)
+          succeededDocs.push(doc.partitionDoc)
+          continue
+        }
+
+        for (const fieldPath of doc.extractedVectors.keys()) {
+          touchedVectorFields.add(fieldPath)
+        }
+
+        if (hasAfterHook) {
+          try {
+            await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: doc.docId, document: doc.document })
+          } catch (err) {
+            console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
+          }
+        }
+
+        succeeded.push(doc.docId)
+        succeededDocs.push(doc.partitionDoc)
+      }
+    }
 
     const prepared: AdmittedInsert[] = []
     for (let i = chunkStart; i < chunkEnd; i++) {
@@ -100,39 +135,12 @@ export async function insertDocumentBatch(
       } catch (err) {
         failed.push({ docId: batchDocId, error: asBatchInsertError(err) })
       }
+      if (documentByDocument && prepared.length > 0) {
+        await applyPrepared(prepared.splice(0, prepared.length))
+      }
     }
 
-    const applications = await applyInsertChunk(ctx, indexName, prepared, options)
-    for (let i = 0; i < prepared.length; i++) {
-      const doc = prepared[i]
-      const application = applications[i]
-      if (application.status === 'skipped') continue
-      if (application.status === 'failed') {
-        failed.push({ docId: doc.docId, error: asBatchInsertError(application.error) })
-        continue
-      }
-      if (application.status === 'buffered') {
-        bufferedDocIds.add(doc.docId)
-        succeeded.push(doc.docId)
-        succeededDocs.push(doc.partitionDoc)
-        continue
-      }
-
-      for (const fieldPath of doc.extractedVectors.keys()) {
-        touchedVectorFields.add(fieldPath)
-      }
-
-      if (hasAfterHook) {
-        try {
-          await ctx.pluginRegistry.runHook('afterInsert', { indexName, docId: doc.docId, document: doc.document })
-        } catch (err) {
-          console.warn('afterInsert plugin hook error:', err instanceof Error ? err.message : String(err))
-        }
-      }
-
-      succeeded.push(doc.docId)
-      succeededDocs.push(doc.partitionDoc)
-    }
+    if (prepared.length > 0) await applyPrepared(prepared)
 
     if (chunkEnd < documents.length) {
       await new Promise<void>(r => setTimeout(r, 0))

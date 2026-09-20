@@ -18,7 +18,7 @@ export const STORE_CODE_COUNT = 4
 export const STORE_DOC_ID_BYTES = 5
 export const STORE_CODE_BLOCK_COUNT = 6
 export const STORE_CALIBRATION_GENERATION = 7
-export const STORE_HOLDS_VECTORS_ON_DISK = 8
+export const STORE_RELEASED_VECTORS_TO_DISK = 8
 const STORE_HEADER_WORDS = 16
 
 export const IN_MEMORY = -1

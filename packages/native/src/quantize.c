@@ -35,6 +35,11 @@ uint32_t code_bytes_of(uint32_t dimension, uint32_t bits) {
   return ((dimension * bits) + (BITS_PER_BYTE - 1)) / BITS_PER_BYTE;
 }
 
+uint32_t narsil_record_bytes(uint32_t dimension, uint32_t bits) {
+  if (bits == 0) { return 0; }
+  return code_bytes_of(dimension, bits) + NARSIL_OSQ_TRAILER_BYTES;
+}
+
 uint32_t query_bits_of(uint32_t bits) { return bits == BITS_PER_BYTE ? BITS_PER_BYTE : NARROW_CODE_QUERY_BITS; }
 
 static double steps_of(uint32_t bits) { return (double)((1U << bits) - 1); }

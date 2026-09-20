@@ -134,21 +134,21 @@ In sync mode a node acknowledges a write only after the marker fsync returns. A 
 
 Creating a new segment file, or creating the marker file for the first time, requires an fsync of the partition directory so that the new directory entry survives a crash.
 
-The marker always names the current active segment. Rolling to a new segment advances the marker to it as part of the roll, so the marker never names a sealed segment and a checkpoint never deletes the segment the marker names active; see [Checkpoint and Truncation](#checkpoint-and-truncation). In sync mode this flush runs on every group commit. In async mode it runs only on the `flush_interval_ms` timer, so the marker lags the appended records by up to one interval and those records recover as described next.
+The marker always names the current active segment. Rolling to a new segment advances the marker to it as part of the roll, so the marker never names a sealed segment and a checkpoint never deletes the segment that the marker names active; see [Checkpoint and Truncation](#checkpoint-and-truncation). In sync mode a node flushes on every group commit. In async mode a node flushes on the `flush_interval_ms` timer alone, so the marker lags the appended records by up to one interval and those records recover as described next.
 
 ### Reading a Segment
 
 Recovery uses the commit marker to find each segment's durable region and then reads the records inside it.
 
 1. Read the partition's commit marker and take the slot with the highest `write_seq` whose `marker_crc32` is valid. When neither slot is valid, or the marker is absent, the partition has no acknowledged log records beyond the snapshot and recovery replays nothing from the log.
-2. Delete every segment whose `startSeqNo` is greater than `active_segment_seq_no`. Such a segment holds only unacknowledged records from a roll a crash interrupted.
+2. Delete every segment whose `startSeqNo` is greater than `active_segment_seq_no`. Such a segment holds only unacknowledged records from a roll that a crash interrupted.
 3. A segment whose `startSeqNo` is below `active_segment_seq_no` was sealed before the active segment opened, so it is durable in full. Read every record in it.
 4. In the active segment, the first `durable_byte_length` bytes are the fsynced frontier. Read the records inside the frontier by byte offset, never by trusting a record's own length to find where the frontier ends.
 5. Inside the frontier every record must be complete and valid. A `record_length` that overruns the frontier, a `frame_crc32` mismatch, a payload that fails to decode, a failed entry checksum, or a `seqNo` out of order is corruption of acknowledged, fsynced data. Recovery refuses to start and raises `PERSISTENCE_WAL_CORRUPT`.
 6. Once every segment has been read up to the frontier, the highest `seqNo` read must equal `highest_durable_seq_no`. A lower value means a durable record is missing, which is corruption; refuse and raise `PERSISTENCE_WAL_CORRUPT`.
-7. Past `durable_byte_length` in the active segment lie records appended but not yet fsynced, which exist only in async mode. Recovery parses them one at a time and replays each record that is complete, valid, and carries a `seqNo` above `highest_durable_seq_no`. It stops at the first record that is incomplete or fails its checksum, treats that as the torn tail, truncates the segment to the end of the last good record, and fsyncs it.
+7. Past `durable_byte_length` in the active segment lie records appended but not yet fsynced, which stay unacknowledged in both modes. In async mode these are the records since the last flush; in sync mode they are the records of a write that a crash caught between its append and its fsync. Recovery parses them one at a time and replays each record that is complete, valid, and carries a `seqNo` above `highest_durable_seq_no`. It stops at the first record that is incomplete or fails its checksum, treats that as the torn tail, truncates the segment to the end of the last good record, and fsyncs it.
 
-Recovery reads the fsynced frontier deterministically and treats any failure inside it as fatal, so acknowledged, fsynced data is never dropped without a word. Only the async tail beyond the frontier is parsed on a best-effort basis, and that is exactly the window the async guarantee already allows to be lost: a clean async crash keeps the tail the operating system flushed, and a power cut keeps the records up to the first torn frame.
+Recovery reads the fsynced frontier deterministically and treats any failure inside it as fatal, so a node reports every failure inside acknowledged, fsynced data. Recovery parses the tail beyond the frontier on a best-effort basis alone. In async mode that tail holds the window that the async guarantee already allows a node to lose, while in sync mode it holds writes that a node never acknowledges. A clean crash keeps the tail that the operating system flushed, while a power cut keeps the records up to the first torn frame.
 
 ---
 

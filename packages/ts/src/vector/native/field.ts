@@ -8,7 +8,7 @@ import {
   type SharedVectorStoreHandles,
   STORE_CALIBRATED,
   STORE_CODE_COUNT,
-  STORE_HOLDS_VECTORS_ON_DISK,
+  STORE_RELEASED_VECTORS_TO_DISK,
 } from '../vector-store/handles'
 import type { NativeCore, NativeFieldHandle, NativeFieldMemory } from './types'
 
@@ -54,7 +54,7 @@ function blockBytes(block: VectorBlockHandle): Uint8Array | null {
 }
 
 function everyVectorInMemory(store: SharedVectorStoreHandles): boolean {
-  return Atomics.load(store.header, STORE_HOLDS_VECTORS_ON_DISK) === 0 && store.blocks.every(block => block !== null)
+  return Atomics.load(store.header, STORE_RELEASED_VECTORS_TO_DISK) === 0 && store.blocks.every(block => block !== null)
 }
 
 function fieldMemory(
@@ -168,6 +168,25 @@ let nativeSearchCoreEnabled = true
 
 export function setNativeSearchCoreEnabled(enabled: boolean): void {
   nativeSearchCoreEnabled = enabled
+}
+
+export function stopUsingTheNativeSearchCore(error: unknown): void {
+  if (!nativeSearchCoreEnabled) return
+  nativeSearchCoreEnabled = false
+  console.warn(
+    'The native search core raised an error, so this thread searches through WebAssembly from now on:',
+    error instanceof Error ? error.message : String(error),
+  )
+}
+
+let workspaceOwner: WeakRef<HNSWSearchState> | null = null
+
+export function nativeScratchBytes(state: HNSWSearchState, field: NativeField): number {
+  const perField = field.ordinals.byteLength + field.distances.byteLength + field.layerCounts.byteLength
+  const owner = workspaceOwner?.deref()
+  if (owner !== undefined && owner !== state) return perField
+  workspaceOwner = new WeakRef(state)
+  return perField + field.core.workspaceBytes()
 }
 
 export function nativeFieldFor(state: HNSWSearchState): NativeField | null {

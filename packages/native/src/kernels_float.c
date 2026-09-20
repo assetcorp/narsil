@@ -8,7 +8,7 @@
 #define UNROLLED_LANES 4U
 #define UNROLLED_WIDTH (LANE_WIDTH * UNROLLED_LANES)
 
-#if !defined(NARSIL_PORTABLE_KERNELS) && (defined(__aarch64__) || defined(_M_ARM64))
+#ifdef NARSIL_NEON
 #include <arm_neon.h>
 typedef float32x4_t lanes;
 static inline lanes lanes_zero(void) { return vdupq_n_f32(0); }
@@ -20,7 +20,7 @@ static inline float lanes_sum_in_pairs(lanes values) {
   return (vgetq_lane_f32(values, 0) + vgetq_lane_f32(values, 1)) +
          (vgetq_lane_f32(values, 2) + vgetq_lane_f32(values, 3));
 }
-#elif !defined(NARSIL_PORTABLE_KERNELS) && (defined(__SSE2__) || defined(_M_X64))
+#elif defined(NARSIL_SSE2)
 #include <emmintrin.h>
 typedef __m128 lanes;
 static inline lanes lanes_zero(void) { return _mm_setzero_ps(); }
