@@ -1,18 +1,18 @@
 # Narsil Algorithm Specifications
 
-This document specifies every algorithm Narsil uses. Every implementation must produce identical output for identical input, except where floating-point precision makes that impossible. Each section gives the formula, the parameters, the edge cases, and the behaviour a caller can rely on.
+This document specifies every algorithm that Narsil uses. Every implementation must produce identical output for identical input, except where floating-point precision makes that impossible. Each section gives the formula, the parameters, the edge cases, and the behaviour that a caller can rely on.
 
-The pseudocode is language-neutral. `List<T>` is an ordered collection of `T` and `Map<K, V>` a mapping from keys to values. Arithmetic operators carry their usual meaning, `XOR` is bitwise exclusive or, `AND` is bitwise and, and a shift written `>>` on an unsigned value fills from the left with zeros. Names such as `uint32` and `float32` describe exact widths, and each implementation maps them to its own types.
+The pseudocode is language-neutral. `List<T>` is an ordered collection of `T`, and `Map<K, V>` is a mapping from keys to values. Arithmetic operators have their usual meaning, `XOR` is bitwise exclusive or, `AND` is bitwise and, and a shift written `>>` on an unsigned value fills from the left with zeros. Names such as `uint32` and `float32` describe exact widths, and each implementation maps them to its own types.
 
 ---
 
 ## BM25 (Best Matching 25)
 
-BM25 is the relevance scoring algorithm behind every full-text query.
+BM25 is the algorithm that scores the relevance of a document to every full-text query.
 
 ### Formula
 
-For a query `Q` holding terms `q1` through `qn`, scored against a document `D`:
+An implementation must score a query `Q`, which holds the terms `q1` through `qn`, against a document `D` as follows:
 
 ```text
 score(Q, D) = SUM over each query term qi of
@@ -36,11 +36,11 @@ score(Q, D) = SUM over each query term qi of
 IDF(qi) = ln((N - n(qi) + 0.5) / (n(qi) + 0.5) + 1)
 ```
 
-The `+ 1` inside the logarithm keeps IDF at or above zero even for a term appearing in more than half the documents.
+The `+ 1` inside the logarithm keeps IDF at or above zero, even for a term that appears in more than half the documents.
 
 ### Multi-Field Scoring
 
-A query that matches a document across several fields scores the sum of the per-field BM25 scores, each multiplied by that field's boost:
+Where a query matches a document across several fields, the document's score is the sum of its per-field BM25 scores, each multiplied by that field's boost:
 
 ```text
 total_score = SUM over each field f of
@@ -56,30 +56,30 @@ Each field uses its own `|D|`, the token count in that field, and its own `avgdl
 | `k1` | 1.2 | 0 or above | Controls how fast term frequency saturates |
 | `b` | 0.75 | 0 to 1 | Controls document length normalisation |
 
-A higher `k1` gives repeated terms more weight. A `b` of 0 applies no length normalisation, and a `b` of 1 applies it fully. Both are configured per index when the index is created. An implementation must reject index creation when `k1` is negative or not finite, or when `b` falls outside 0 to 1.
+A higher `k1` gives repeated terms more weight. A `b` of 0 applies no length normalisation, while a `b` of 1 applies it fully. A caller sets both for an index when it creates that index. An implementation must accept a `k1` that is finite and at or above 0 and a `b` from 0 to 1, and it must reject index creation with any other value.
 
 ### Edge Cases
 
 - **A term in no documents** has `n(qi) = 0`, so IDF is `ln((N + 0.5) / 0.5 + 1)`. The IDF is high, but nothing matches, so the term adds nothing to any score.
-- **A term in every document** has `n(qi) = N`, so IDF is `ln(0.5 / (N + 0.5) + 1)`, which is near zero. The term separates nothing.
+- **A term in every document** has `n(qi) = N`, so IDF is `ln(0.5 / (N + 0.5) + 1)`, which is near zero, and the term ranks no document above another.
 - **An empty corpus** has `N = 0`, and every document scores 0.
 - **A zero-length document** has `|D| = 0`, which reduces the denominator to `k1 * (1 - b)`. With `b` at 1 that denominator is zero, so an implementation must guard against dividing by zero and score the field 0.
 
 ### Distributed BM25
 
-Across partitions, BM25 runs in one of three modes.
+Across partitions, an implementation scores BM25 in one of three modes.
 
-**Local scoring**, the default, gives each partition its own `N`, `n(qi)`, and `avgdl`. It is fast, and it approximates when partition sizes or term distributions differ.
+**Local scoring**, the default, gives each partition its own `N`, `n(qi)`, and `avgdl`. It takes one round trip, and its scores are approximate where partition sizes or term distributions differ.
 
-**DFS**, for distributed frequency statistics, runs in two phases. The first collects `N`, `n(qi)`, and `avgdl` from each partition; the coordinator sums `N` and `n(qi)` and computes a weighted `avgdl`. The second sends those global values back for scoring. The ranking is correct and it costs two round trips.
+**DFS**, for distributed frequency statistics, takes two phases. In the first phase, the coordinator collects `N`, `n(qi)`, and `avgdl` from each partition, sums `N` and `n(qi)`, and computes a weighted `avgdl`. In the second phase, it sends those global values back to the partitions for scoring. The ranking is exact, and it takes two round trips.
 
-**Statistics broadcast** has each partition publish its local statistics periodically. The coordinator holds a merged set and every query scores against the latest merge. It costs one round trip and the statistics run slightly behind.
+**Statistics broadcast** has each partition publish its local statistics periodically. The coordinator holds a merged set, and every query scores against the latest merge. It takes one round trip, while its statistics can be older than the newest writes.
 
 ---
 
 ## Bounded Levenshtein Distance
 
-Fuzzy matching, meaning typo tolerance, uses the edit distance between two strings: the fewest single-character insertions, deletions, and substitutions that turn `a` into `b`. The computation stops early once the distance passes the tolerance.
+Fuzzy matching, which tolerates typos, uses the edit distance between two strings. That distance is the fewest single-character insertions, deletions, and substitutions that turn `a` into `b`. The computation stops early once the distance passes the tolerance.
 
 ```text
 boundedLevenshtein(a: string, b: string, tolerance: uint32)
@@ -109,26 +109,26 @@ boundedLevenshtein(a: string, b: string, tolerance: uint32)
   return { distance, withinTolerance: distance <= tolerance }
 ```
 
-The early exit is what keeps this cheap: once the smallest value in a row passes the tolerance, the final distance must pass it too, so the remaining rows never need computing.
+Once the smallest value in a row passes the tolerance, the final distance must pass it too, so the computation returns before it fills the remaining rows.
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
 | `tolerance` | 0 | The largest edit distance accepted. Zero means exact matches only, so typo tolerance is opt-in per query. |
 | `prefixLength` | 2 | The number of leading characters that must match exactly. |
 
-`prefixLength` narrows the search: only tokens sharing the same first characters are candidates, which turns a scan of every token into a scan of one prefix bucket.
+`prefixLength` narrows the search, because only the tokens that share those first characters are candidates, so an implementation scans one prefix bucket in place of every token.
 
 ---
 
 ## HNSW (Hierarchical Navigable Small World)
 
-HNSW answers approximate nearest-neighbour queries once the vector count passes the brute-force promotion threshold. The threshold and the promotion process are in [HNSW Promotion](vector-index.md#hnsw-promotion).
+HNSW answers approximate nearest-neighbour queries once the vector count passes the brute-force promotion threshold. [HNSW Promotion](vector-index.md#hnsw-promotion) defines the threshold and the promotion process.
 
 ### Graph Structure
 
 HNSW builds a proximity graph in layers.
 
-- **Layer 0**, the bottom, holds every vector, and each node connects to up to `M` of its nearest neighbours.
+- **Layer 0**, the bottom, holds every vector, and each node connects to up to `2 * M` of its neighbours.
 - **Layers 1 upward** each hold a random subset of the layer below, and their connections span longer distances.
 - **The top layer** holds the fewest nodes, and every search starts there.
 
@@ -141,32 +141,45 @@ where mL = 1 / ln(M)
 
 ### Insertion
 
-Inserting a vector `v` runs five steps:
+An implementation must insert a vector `v` in five steps:
 
 1. Draw a random layer level `l` from the exponential distribution above.
 2. Start from the graph's current entry point on its topmost layer.
 3. For each layer from the top down to `l + 1`, navigate greedily to the node nearest `v` under the chosen metric.
-4. For each layer from `minimum(l, top_layer)` down to 0, find the `efConstruction` nearest neighbours to `v` in that layer, connect `v` to the `M` closest of them, and prune any neighbour that now holds more than `M` connections, or more than `2 * M` at layer 0, back to its closest `M` or `2 * M`.
+4. For each layer from `minimum(l, top_layer)` down to 0, find the `efConstruction` nearest neighbours of `v` in that layer, and connect `v` in both directions to the nodes that `selectNeighbours` returns for them. Where a neighbour then holds more connections than its limit, replace its list with the nodes that `selectNeighbours` returns for that list.
 5. When `l` is above the current top layer, make `v` the new entry point.
+
+The limit of a node is `M` connections per layer, and `2 * M` at layer 0. `selectNeighbours` keeps a candidate only where that candidate is nearer to the node than to every neighbour already selected, so that the connections of a node spread across the directions around it.
+
+```text
+selectNeighbours(node, candidates: List<node>, limit: uint32) -> List<node>
+  selected = an empty list
+  for each c in candidates, nearest to node first:
+    when selected holds limit entries:
+      return selected
+    when distance(node, c) < distance(c, s) for every s in selected:
+      append c to selected
+  return selected
+```
 
 ### Search
 
-Finding the `k` nearest neighbours of a query vector `q`:
+An implementation must find the `k` nearest neighbours of a query vector `q` in four steps:
 
 1. Start at the entry point on the top layer.
 2. For each layer from the top down to layer 1, navigate greedily to the node nearest `q`.
-3. At layer 0, keep a candidate set ordered by nearest distance and a result set ordered by farthest distance, both seeded with the node reached from the layer above. Then, while the candidate set holds anything:
+3. At layer 0, keep a candidate set ordered by nearest distance and a result set ordered by farthest distance, and seed both with the node that step 2 reaches. Then, while the candidate set holds any entry:
    - Take the closest candidate `c`.
-   - Stop when `c` is farther from `q` than the farthest result already held.
-   - For each unvisited neighbour `n` of `c`, compute its distance to `q`, and add it to both sets when the result set holds fewer than `efSearch` entries or `n` is closer than the farthest result. Drop the farthest whenever the result set exceeds `efSearch`.
+   - Stop when `c` is farther from `q` than the farthest entry of the result set.
+   - For each unvisited neighbour `n` of `c`, compute its distance to `q`, and add `n` to both sets when the result set holds fewer than `efSearch` entries or `n` is closer than the farthest result. Drop the farthest entry whenever the result set exceeds `efSearch`.
 4. Return the `k` closest entries from the result set.
 
 ### Removal
 
-Removing a vector `v`:
+An implementation must remove a vector `v` in two steps:
 
-1. In every layer holding `v`, take `v` out of each neighbour's connection list. A neighbour that has lost its only link to a region of the graph may be reconnected to `v`'s other neighbours.
-2. When `v` was the entry point, promote the nearest remaining node in its place.
+1. In every layer that holds `v`, take `v` out of the list of each neighbour. Where a neighbour then holds fewer connections than its limit, replace its list with the nodes that `selectNeighbours` returns for its own neighbours and the other neighbours of `v`, and connect each of those nodes back to that neighbour.
+2. Where `v` is the entry point, make the live node with the highest top layer the new entry point.
 
 ### Parameters
 
@@ -176,13 +189,13 @@ Removing a vector `v`:
 | `efConstruction` | 200 | The size of the dynamic candidate list during a build |
 | `efSearch` | 50 | The size of the dynamic candidate list during a search |
 
-Layer 0 allows `2 * M` connections. A higher `efConstruction` builds a better graph and inserts more slowly. A higher `efSearch` raises recall and answers more slowly, and each query may set its own.
+Layer 0 allows `2 * M` connections. A higher `efConstruction` raises the recall of the graph and lengthens each insert. A higher `efSearch` raises recall and lengthens each search, and each query may set its own.
 
-The metrics are defined in [Similarity Functions](#similarity-functions).
+[Similarity Functions](#similarity-functions) defines the metrics.
 
 ### Serialisation
 
-A graph serialises with an array-based node form, which keeps the MessagePack encoding compact. The full schema is in [envelope.md](envelope.md).
+An implementation must serialise a graph in an array-based node form, which keeps the MessagePack encoding compact. [envelope.md](envelope.md) holds the full schema.
 
 ```text
 {
@@ -203,7 +216,7 @@ A graph serialises with an array-based node form, which keeps the MessagePack en
 
 ### Filtered Search
 
-With a filter set supplied, only vectors whose document ID is in the set can appear in the results, and how selective that filter is decides the strategy:
+Where a caller supplies a filter set, a search must return only vectors whose document ID is in the set, and an implementation must choose its strategy by the selectivity of that filter:
 
 ```text
 selectivity = size(filterDocIds) / totalVectors
@@ -217,19 +230,19 @@ else:
     ef = minimum(ef, totalVectors)
 ```
 
-At 3% selectivity on an index of 100,000 vectors the filter admits 3,000 vectors, and a brute-force pass over those is quick. A traversal that fails the filter on 97% of the nodes it reaches costs more, because it pays the traversal on top of the same comparisons.
+At 3% selectivity on an index of 100,000 vectors, the filter admits 3,000 vectors, which a brute-force pass scores directly. A walk that fails the filter on 97% of the nodes that it reaches costs more, because it pays for the walk on top of the same comparisons.
 
-When an index holds several graphs, the selectivity check runs per graph rather than over the whole index.
+When an index holds several graphs, an implementation must check selectivity for each graph.
 
 ### Auto-Promotion
 
-Vector search runs in two tiers: a brute-force linear scan below a configurable promotion threshold, and HNSW at or above it. The promotion process, the threshold, and the construction strategies are in [HNSW Promotion](vector-index.md#hnsw-promotion).
+A vector index answers a search by a brute-force linear scan below a configurable promotion threshold, and by HNSW at or above it. [HNSW Promotion](vector-index.md#hnsw-promotion) defines the promotion process, the threshold, and the construction strategies.
 
 ---
 
 ## Similarity Functions
 
-Three metrics measure the distance between two vectors, and all three work on arrays of 32-bit floats.
+Three metrics measure the distance between two vectors, and all three take arrays of 32-bit floats.
 
 ### Cosine Similarity
 
@@ -241,9 +254,9 @@ where
   magnitude(v) = squareRoot(SUM over i of v[i] * v[i])
 ```
 
-The range is -1 to 1, higher is more similar, and this is the default metric.
+The range is -1 to 1, and a higher value means more similar. Cosine is the default metric.
 
-Compute `magnitude(v)` when the vector is inserted and store it, so no search recomputes it. When either vector has zero magnitude, return 0.
+An implementation should compute `magnitude(v)` when a caller inserts the vector and store it, so that a search reads the stored value. When either vector has zero magnitude, the function must return 0.
 
 ### Dot Product
 
@@ -251,7 +264,7 @@ Compute `magnitude(v)` when the vector is inserted and store it, so no search re
 dotProduct(a, b) = SUM over i of a[i] * b[i]
 ```
 
-The range is unbounded and higher is more similar. Use it on vectors already normalised to unit length, where the dot product equals the cosine similarity.
+The range is unbounded, and a higher value means more similar. Use it on vectors of unit length, where the dot product equals the cosine similarity.
 
 ### Euclidean Distance
 
@@ -259,13 +272,13 @@ The range is unbounded and higher is more similar. Use it on vectors already nor
 euclidean(a, b) = squareRoot(SUM over i of (a[i] - b[i]) * (a[i] - b[i]))
 ```
 
-The range starts at 0 and has no upper bound, and a lower value means more similar. Ranking can skip the square root, because squared distance preserves the order.
+The range starts at 0 and has no upper bound, and a lower value means more similar. An implementation may rank by the squared distance, because the square root preserves the order.
 
 ---
 
 ## Haversine Distance
 
-Haversine gives the great-circle distance between two points on a sphere. It uses the mean Earth radius, and it is fast and accurate over short distances.
+Haversine gives the great-circle distance between two points on a sphere of the mean Earth radius. It takes one closed formula, and [Vincenty Distance](#vincenty-distance) states how far the two results differ.
 
 ```text
 a = sin^2((lat2 - lat1) / 2)
@@ -274,7 +287,7 @@ c = 2 * atan2(squareRoot(a), squareRoot(1 - a))
 distance = R * c
 ```
 
-`lat1`, `lon1`, `lat2`, and `lon2` are in radians, converted from degrees by multiplying by PI and dividing by 180. `R` is 6,371,008.8 metres, the mean Earth radius, and the result is in metres.
+`lat1`, `lon1`, `lat2`, and `lon2` are in radians, which an implementation computes from degrees by multiplying by PI and dividing by 180. `R` is 6,371,008.8 metres, the mean Earth radius, and the result is in metres.
 
 | Unit | Conversion from metres |
 |------|------------------------|
@@ -282,13 +295,13 @@ distance = R * c
 | `mi` | distance / 1609.344 |
 | `m` | distance unchanged |
 
-Three edge cases matter. Two identical points give 0. Two antipodal points give `PI * R`, half the circumference. Latitude must fall between -90 and 90 and longitude between -180 and 180; a value outside those ranges is a schema validation error at insertion time.
+Two identical points give 0, and two antipodal points give `PI * R`, which is half the circumference. Latitude must be from -90 to 90 and longitude from -180 to 180, and an implementation must reject any other value as a schema validation error at insertion.
 
 ---
 
 ## Vincenty Distance
 
-Vincenty gives the geodesic distance between two points on an oblate spheroid, the WGS-84 ellipsoid. It is more accurate than Haversine over long distances and slower, because it iterates.
+Vincenty gives the geodesic distance between two points on the WGS-84 ellipsoid, which is an oblate spheroid. It is more accurate than Haversine over long distances, and it takes longer because it iterates.
 
 ```text
 a = 6378137.0            (semi-major axis in metres)
@@ -347,15 +360,15 @@ distance = b * A * (sigma - delta_sigma)
 
 The result is in metres.
 
-A loop that has not converged after 200 iterations, which happens for nearly antipodal points, falls back to the Haversine formula.
+Where the loop reaches 200 iterations without converging, which can happen for nearly antipodal points, an implementation must return the Haversine distance.
 
-Haversine is the default. Vincenty runs when a geo radius filter sets its high-precision flag. Under about 100 km the two differ by less than 0.3%, and across a continent Vincenty can differ by up to 0.5%.
+Haversine is the default, and an implementation must use Vincenty when a geo radius filter sets its high-precision flag. Under about 100 km the two differ by less than 0.3%, and across a continent they can differ by up to 0.5%.
 
 ---
 
 ## Point-in-Polygon (Ray Casting)
 
-Geo polygon filters test whether a point lies inside a polygon by casting a horizontal ray from the point to the right and counting the polygon edges it crosses. An odd count puts the point inside, and an even count puts it outside.
+A geo polygon filter tests whether a point is inside a polygon by casting a horizontal ray from the point to the right and counting the polygon edges that the ray crosses. An odd count means that the point is inside, and an even count means that it is outside.
 
 ```text
 isPointInPolygon(lat: float64, lon: float64, polygon: List<GeoPoint>) -> boolean
@@ -377,7 +390,7 @@ isPointInPolygon(lat: float64, lon: float64, polygon: List<GeoPoint>) -> boolean
 
 ### Polygon Centroid
 
-The centroid, from the shoelace formula, supports optimisations such as filtering by distance to the centroid before running the full polygon test.
+An implementation may compute the centroid with the shoelace formula, so that it can filter by distance to the centroid before it applies the full polygon test.
 
 ```text
 centroid(polygon: List<GeoPoint>) -> GeoPoint
@@ -401,19 +414,19 @@ centroid(polygon: List<GeoPoint>) -> GeoPoint
   return { lat: cx, lon: cy }
 ```
 
-Three edge cases matter. A point exactly on an edge counts as outside, which is what ray casting gives at a boundary. A polygon of fewer than three points returns false. A self-intersecting polygon has undefined behaviour, and an implementation may support it under the even-odd rule that ray casting already applies.
+A point exactly on an edge counts as outside, which is the answer that ray casting gives at a boundary. `isPointInPolygon` must return false for a polygon of fewer than three points. This specification leaves a self-intersecting polygon undefined, and an implementation may support one under the even-odd rule that ray casting already applies.
 
 ---
 
 ## CRC32
 
-CRC32 under the IEEE polynomial covers data integrity in `.nrsl` envelopes.
+A `.nrsl` envelope protects its data with CRC32 under the IEEE polynomial.
 
 ```text
 IEEE polynomial: 0xEDB88320 (reflected form)
 ```
 
-A 256-entry lookup table makes it fast:
+An implementation should compute the checksum through a lookup table of 256 entries:
 
 ```text
 buildCRC32Table() -> List<uint32>
@@ -445,13 +458,13 @@ Every shift above is a logical shift on a 32-bit unsigned value, filling from th
 | empty bytes | `0x00000000` |
 | ASCII `123456789` | `0xCBF43926` |
 
-CRC32 covers the raw payload bytes, after compression when compression is on. The result goes into header bytes 14 to 17 when the checksum flag is set. A reader recomputes it and compares, and a mismatch means corruption and must raise `PERSISTENCE_CRC_MISMATCH`.
+A writer must compute CRC32 over the raw payload bytes, after compression when compression is on, and it must store the result in header bytes 14 to 17 when it sets the checksum flag. A reader must recompute the checksum and raise `PERSISTENCE_CRC_MISMATCH` where the two values differ.
 
 ---
 
 ## FNV-1a Hash
 
-FNV-1a is the fast, non-cryptographic hash behind partition routing, where the partition is `hash(docId) modulo partitionCount`, and behind [cursor binding](partitioning.md#cursor-binding).
+FNV-1a is the non-cryptographic hash that partition routing uses, where the partition is `hash(docId) modulo partitionCount`, and that [cursor binding](partitioning.md#cursor-binding) uses.
 
 ```text
 fnv1a(input: bytes) -> uint32
@@ -470,25 +483,25 @@ fnv1a(input: bytes) -> uint32
 | empty string | `0x811C9DC5` |
 | ASCII `foobar` | `0xBF9CF968` |
 
-The empty string returns the offset basis unchanged, because the loop never runs.
+The empty string returns the offset basis unchanged, because the loop has no byte to process.
 
-FNV-1a is deterministic, so the same input always gives the same output, and it spreads values evenly enough for routing. It is not cryptographically secure, so it must never be used for anything but hash-based routing and cursor binding.
+FNV-1a is deterministic, so the same input always gives the same output, and it spreads values evenly enough for routing. An implementation must use FNV-1a for hash-based routing and cursor binding alone, because it offers no cryptographic security.
 
-A string input hashes as its UTF-8 bytes. Every implementation must use that same encoding, or the same document ID routes to different partitions in different languages.
+An implementation must hash a string as its UTF-8 bytes, because any other encoding would route one document ID to different partitions in different languages.
 
 ---
 
 ## String Ordering
 
-Narsil orders strings with the two comparisons this section defines, and with nothing else. Neither reads a locale, a collation library, or any other host state, so every implementation on every machine produces the same order for the same input.
+Narsil orders strings with the two comparisons that this section defines, and with those alone. Neither comparison reads a locale, a collation library, or any other host state, so every implementation on every machine produces the same order for the same input.
 
 ### Code Point Order
 
 Code point order compares two strings position by position through their Unicode code points. The first position where they differ decides the order, and the lower code point orders first. When one string is a prefix of the other, the shorter orders first. Two strings are equal only when their code points are identical.
 
-Comparing the UTF-8 encodings of two strings byte by byte gives the same order, so an implementation whose strings are UTF-8 compares raw bytes.
+Comparing the UTF-8 encodings of two strings byte by byte gives the same order, so an implementation whose strings are UTF-8 may compare raw bytes.
 
-An implementation whose strings are UTF-16 must not compare 16-bit units directly, because a supplementary character encodes as a surrogate pair whose units compare below the code points U+E000 to U+FFFF. Adjusting the two units at the first differing position restores code point order:
+A supplementary character encodes in UTF-16 as a surrogate pair whose units compare below the code points U+E000 to U+FFFF. An implementation whose strings are UTF-16 must therefore adjust the two units at the first differing position before it compares them:
 
 ```text
 adjust(unit: uint16) -> uint16
@@ -499,19 +512,19 @@ adjust(unit: uint16) -> uint16
 
 ### Where Each Order Applies
 
-Code point order compares document IDs everywhere: result tiebreaks, cursor anchors, merges, and the default listing order. An ID compares raw, with no folding and no normalisation, so two distinct IDs never compare equal.
+An implementation must compare document IDs in code point order everywhere, which covers result tiebreaks, cursor anchors, merges, and the default listing order. It must compare an ID raw, with no folding and no normalisation, so two distinct IDs never compare equal.
 
-Every tie on a rank key breaks the same way. Results sharing a score, facet buckets sharing a count, and suggestions sharing a document frequency each order by their string key, ascending in code point order: the document ID, the bucket value, or the term. A truncation to a limit keeps the entries that order first under this rule, so what survives the cut never depends on insertion order.
+Every tie on a rank key breaks the same way. Results that share a score order by document ID, facet buckets that share a count order by bucket value, and suggestions that share a document frequency order by term, each ascending in code point order. A truncation to a limit must keep the entries that order first under this rule, so that the kept entries are independent of insertion order.
 
-The sort value order below applies to the fields a query or a listing names in its `sort`.
+The sort value order below applies to the fields that a query or a listing names in its `sort`.
 
-A sort names a `number`, a `boolean`, or an `enum` field with no preparation. A sort names a `string` field only where the schema marks that field sortable, and a sort naming an unmarked `string` field raises `SEARCH_INVALID_FIELD`, because ordering free text costs an implementation far more memory per document than ordering a scalar. Every other field type counts as missing under the rules below, so a sort naming one leaves every document equal.
+A sort may name a `number`, a `boolean`, or an `enum` field with no preparation. A sort may name a `string` field only where the schema marks that field sortable, and an implementation must raise `SEARCH_INVALID_FIELD` for a sort that names an unmarked `string` field, because ordering free text takes more memory per document than ordering a scalar. Every other field type counts as missing under the rules below, so a sort that names one leaves every document equal.
 
-A query that names a sort ranks by sort values alone, and it must not compute relevance scores. Setting `includeScores` to true restores scoring, and each hit then carries the score it would carry without the sort. A sorted query carrying a score threshold must compute scores to apply the floor, and it still reports them only where `includeScores` is true. A hit returned without scoring carries no score.
+An implementation must rank a query that names a sort by sort values alone, and it must skip relevance scoring. Where `includeScores` is true, it must score each hit as it would without the sort. A sorted query that holds a score threshold must compute scores to apply that floor, and it must report them only where `includeScores` is true. A hit that the implementation returns without scoring holds no score.
 
 ### Sort Value Order
 
-A sort compares two documents field by field, in the order the sort names its fields, and the first field that separates them decides. Within one field:
+A sort compares two documents field by field, in the order in which the sort names its fields, and the first field that separates them decides the order. Within one field:
 
 1. A missing value orders after every present value, in ascending and in descending direction alike. An absent field, a null, an array, an object, and a number that is not finite each count as missing. Two missing values are equal.
 2. Present values of different types order by type: numbers, then strings, then booleans.
@@ -520,17 +533,17 @@ A sort compares two documents field by field, in the order the sort names its fi
 
 Two documents that every sort field leaves equal order by document ID, ascending in code point order, whatever the sort directions.
 
-A string sort value is its first 512 code points, and the rest never takes part. Two string values compare by their case folds in code point order, and when the folds are equal, by their raw code points. Folding first keeps `apple` and `Banana` in the order a reader expects, and comparing raw on a folded tie keeps `Apple` and `apple` distinct.
+A string sort value is the first 512 code points of the string, and the comparison ignores the rest. Two string values compare by their case folds in code point order, and by their raw code points when the folds are equal. Folding first keeps `apple` and `Banana` in the order that a reader expects, while the raw comparison on a folded tie keeps `Apple` and `apple` distinct.
 
 ### Case Folding
 
-The fold is Unicode full case folding: the mappings of `CaseFolding.txt` with status `C` or `F`, pinned at Unicode 17.0.0, which holds 1,585 mappings, 104 of them to more than one code point and none to more than three. A code point with no mapping folds to itself. Folding is context-free, each code point folding alone wherever it stands, so an implementation may fold lazily while comparing instead of materialising folded strings.
+The fold is Unicode full case folding, which is the set of mappings in `CaseFolding.txt` with status `C` or `F`, pinned at Unicode 17.0.0. That set holds 1,585 mappings, of which 104 map to more than one code point and none maps to more than three. A code point with no mapping folds to itself. Folding is context-free, because each code point folds alone wherever it appears, so an implementation may fold lazily while it compares.
 
-Folding differs from lowercasing: lowercasing `ΣΊΣΥΦΟΣ` ends in the final sigma `ς`, while folding maps every sigma to `σ`. An implementation must fold from the table, never through its runtime's lowercase function.
+Folding differs from lowercasing, because lowercasing `ΣΊΣΥΦΟΣ` ends in the final sigma `ς`, while folding maps every sigma to `σ`. An implementation must therefore fold from the table alone.
 
-Folding serves ordering alone. It never changes a stored value, an analysed token, or anything written to disk or to the wire.
+Folding serves ordering alone, so a stored value, an analysed token, and every byte on disk or on the wire stay as they are.
 
-The fold table is part of this specification, and every implementation ships it. Changing the table is a breaking change to the specification's major version, so the registration check in [Node Registration](distribution/cluster.md#version) keeps engines with different tables out of one cluster. Unicode guarantees that a folding never changes once its character is assigned, so a table regenerated from a later Unicode version differs only for characters the earlier version left unassigned.
+The fold table is part of this specification, and every implementation must include it. Changing the table is a breaking change to the specification's major version, so the registration check in [Node Registration](distribution/cluster.md#version) keeps engines with different tables out of one cluster. Unicode guarantees that a folding stays fixed once its character is assigned, so a table that an implementer regenerates from a later Unicode version differs only for characters that the earlier version leaves unassigned.
 
 ### Test Vectors
 
@@ -551,7 +564,7 @@ Code point order, listed ascending:
 ""  <  "B"  <  "a"  <  "doc-1"  <  "doc-10"  <  "doc-2"  <  U+FF61  <  U+1F600
 ```
 
-The last pair is the trap the adjustment exists for: an unadjusted UTF-16 comparison puts U+1F600 first, because its high surrogate 0xD83D compares below 0xFF61.
+The adjustment exists for the last pair, because an unadjusted UTF-16 comparison puts U+1F600 first, since its high surrogate 0xD83D compares below 0xFF61.
 
 Sort value order for strings, listed ascending:
 
@@ -567,9 +580,9 @@ An implementation must reproduce both lists exactly.
 
 ## Reciprocal Rank Fusion
 
-RRF is the default hybrid fusion strategy. It combines ranked lists from different search modes, such as BM25 text results and vector similarity results, by fusing on rank position instead of score magnitude.
+RRF is the default hybrid fusion strategy. It combines ranked lists from different search modes, such as BM25 text results and vector similarity results, by rank position.
 
-Given result lists `L1` through `Ln` and a constant `k`:
+An implementation must score each document from the result lists `L1` through `Ln` and a constant `k`:
 
 ```text
 rrf_score(doc) = SUM over each list Li containing doc of
@@ -580,9 +593,9 @@ rrf_score(doc) = SUM over each list Li containing doc of
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
-| `k` | 60 | The constant that damps how much rank position counts |
+| `k` | 60 | The constant that lowers the weight of the top ranks |
 
-A higher `k` narrows the gap between adjacent ranks and makes the fusion more even. A lower `k` widens the advantage the top ranks hold.
+A higher `k` narrows the gap between adjacent ranks, while a lower `k` widens the advantage that the top ranks hold.
 
 ```text
 reciprocalRankFusion(lists: List<List<ScoredDoc>>, k: uint32) -> List<ScoredDoc>
@@ -598,18 +611,18 @@ reciprocalRankFusion(lists: List<List<ScoredDoc>>, k: uint32) -> List<ScoredDoc>
 Three properties follow:
 
 - **RRF needs no normalisation.** BM25 scores and cosine similarities have different distributions, and their rank positions compare directly.
-- **A document in one list only** takes a contribution from that list alone, and its contribution from a list it is missing from is 0, which is the same as ranking it infinitely far down.
+- **A document in one list alone** receives the contribution of that list, while every other list contributes 0.
 - **Ties break by document ID**, compared in [code point order](#code-point-order), which keeps pagination deterministic.
 
 ---
 
 ## Optimised Scalar Quantisation (OSQ)
 
-OSQ quantises each vector against a centroid, over an interval it fits to that vector, as Lucene's optimised scalar quantisation does. A document code holds 8, 4, 2, or 1 bits per dimension for `osq8`, `osq4`, `osq2`, or `osq1`, and a query code holds `QUERY_BITS[bits]` bits per dimension.
+OSQ quantises each vector against a centroid, over an interval that it fits to that vector, as Lucene's optimised scalar quantisation does. A document code holds 8, 4, 2, or 1 bits per dimension for `osq8`, `osq4`, `osq2`, or `osq1`, and a query code holds `QUERY_BITS[bits]` bits per dimension.
 
 ### Centroid
 
-Calibration computes the centroid from every vector in the store, then quantises each vector against that centroid. An index that has no vectors skips calibration.
+Calibration computes the centroid from every vector in the store, then quantises each vector against that centroid. An index that holds no vector skips calibration.
 
 ```text
 centroid(vectors: List<List<float32>>, metric) -> List<float32>
