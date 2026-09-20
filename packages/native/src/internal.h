@@ -10,8 +10,16 @@
 #define NODE_WRITE_HELD 1
 
 #define QUERY_PLANES 4
-#define MAX_NEIGHBOURS_PER_LIST 512
+#define MAX_M 512
+#define MAX_NEIGHBOURS_PER_LIST ((2 * MAX_M) + 1)
 #define BITS_PER_BYTE 8
+
+#ifdef NARSIL_PORTABLE_KERNELS
+#elif defined(__aarch64__) || defined(_M_ARM64)
+#define NARSIL_NEON 1
+#elif defined(__SSE2__) || defined(_M_X64)
+#define NARSIL_SSE2 1
+#endif
 
 typedef struct {
   int32_t ordinal;
@@ -67,13 +75,11 @@ typedef struct {
   uint32_t slots;
   uint32_t store_slots;
   uint32_t upper_used;
-  uint32_t thread_slot;
   int skip_tombstones;
   uint32_t code_bytes;
   uint32_t record_bytes;
   double centroid_dot;
   float_query query;
-  int32_t own_ordinal;
   int32_t *fence;
   prepared_code code;
 } walk_context;
@@ -99,6 +105,8 @@ struct narsil_workspace {
 static inline int32_t load_word(const int32_t *words, uint32_t index) {
   return atomic_load((const _Atomic(int32_t) *)(words + index));
 }
+
+uint32_t grown_capacity(uint32_t first, uint32_t needed);
 
 narsil_status heap_reserve(distance_heap *heap, uint32_t capacity);
 void heap_release(distance_heap *heap);

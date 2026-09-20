@@ -33,7 +33,6 @@ export interface VectorStoreSnapshot {
 }
 
 export interface VectorSearchReader {
-  /** The shared memory of the field, which the native search core reads in place. */
   readonly handles: SharedVectorStoreHandles
   entryForOrdinal(ordinal: number): VectorStoreEntry | undefined
   prepareQueryArena(query: Float32Array): ArenaQueryVector | null

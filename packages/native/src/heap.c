@@ -10,8 +10,8 @@
 
 narsil_status heap_reserve(distance_heap *heap, uint32_t capacity) {
   if (capacity <= heap->capacity) { return NARSIL_OK; }
-  uint32_t next = heap->capacity == 0 ? INITIAL_HEAP_CAPACITY : heap->capacity;
-  while (next < capacity) { next *= 2; }
+  uint32_t held = heap->capacity == 0 ? INITIAL_HEAP_CAPACITY : heap->capacity;
+  uint32_t next = grown_capacity(held, capacity);
   int32_t *ordinals = realloc(heap->ordinals, (size_t)next * sizeof *ordinals);
   if (ordinals == NULL) { return NARSIL_OUT_OF_MEMORY; }
   heap->ordinals = ordinals;

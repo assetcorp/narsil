@@ -78,8 +78,8 @@ for (const packageName of PACKAGES) {
 if (refused.length > 0) {
   console.error(
     `npm publish failed for ${refused.length} of ${PACKAGES.length} platform packages at ${version}: ${refused.join(', ')}. ` +
-      'A publish from this workflow fails for a package without a trusted publisher for this workflow. ' +
-      'npm can store a trusted publisher only for a package that already exists, so publish a new package once by hand, ' +
+      'This workflow can publish a package only where npm holds a trusted publisher for it. ' +
+      'npm stores a trusted publisher only for a package that already exists, so publish each new package once by hand, ' +
       'then configure its publisher with: npm trust github <package> --file publish.yml --repo assetcorp/narsil',
   )
   process.exit(1)

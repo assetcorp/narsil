@@ -324,11 +324,11 @@ The cross-implementation conformance suite runs a fixed 10,000-vector dataset an
 
 ## Native Search Core
 
-The native search core is the vector search written in C, which every implementation uses as its standard search. An implementation must search its graphs through the native search core wherever its platform can load native code. Where the platform cannot load native code, an implementation may search through its own code. That search must return the same documents with the same scores as the native search core returns for the same graph and the same query.
+The native search core is the vector search written in C, which every implementation uses as its standard search. An implementation must search a graph through the native search core wherever its platform can load native code and the store holds that graph's codes or vectors in memory. An implementation may search through its own code anywhere else, and wherever the deployment selects its own search. That search must return the same documents with the same scores as the native search core returns for the same graph and the same query.
 
 ### Interface
 
-The core has a C interface that uses no type of a host runtime. To search, an implementation must pass the graph, the store, the query vector, the metric, the candidate count, and its thread slot. The core then returns that many of the nearest ordinals with their distances, nearest first. To place a vector, the implementation must pass that vector and its top layer in place of the query, so that the core returns the candidates of every layer from that top layer down to 0. The implementation must select the neighbours from those candidates, prune the lists, and write the lists while it follows [Locks](#locks).
+The core's C interface must use C types alone. To search, an implementation must pass the graph, the store, the query vector, the metric, the candidate count, and its thread slot. The core then returns that many of the nearest ordinals with their distances, nearest first. To place a vector, the implementation must pass that vector and its top layer in place of the query, so that the core returns the candidates of every layer from that top layer down to 0. The implementation must select the neighbours from those candidates, prune the lists, and write the lists while it follows [Locks](#locks).
 
 ### Shared Memory
 
@@ -382,12 +382,14 @@ StoreHeader {
   word 2: vectorBlockCount
   word 3: calibrated                  (1 while the codes are valid)
   word 4: codeCount
+  word 5: docIdBytes                  (the bytes of the implementation's document id table in use)
   word 6: codeBlockCount
   word 7: calibrationGeneration
+  word 8: releasedVectorsToDisk       (1 once the implementation writes any vector of the store to disk)
 }
 ```
 
-A `CodeBlock` holds `OSQRecord`s, as [Vector Index Payload](envelope.md#vector-index-payload) defines, with no padding between them. Each entry of a `VectorBlock` is one vector in a span of `dimension * 4` bytes, which the implementation rounds up to a multiple of 16. Every block of a list must hold the same number of entries, so ordinal `o` is entry `o mod entriesPerBlock` of block `floor(o / entriesPerBlock)`. A `vectors` entry is nil where the index holds that block's vectors on disk, so the implementation must re-score the candidates of that block itself. The core reads only these words of the store header.
+A `CodeBlock` must hold `OSQRecord`s, as [Vector Index Payload](envelope.md#vector-index-payload) defines, with no padding between them. Each entry of a `VectorBlock` must hold one vector in a span of `dimension * 4` bytes, which the implementation rounds up to a multiple of 16. Every block of a list must hold the same number of entries, so ordinal `o` is entry `o mod entriesPerBlock` of block `floor(o / entriesPerBlock)`. A `vectors` entry is nil where the index holds that block's vectors on disk, so the implementation must re-score the candidates of that block itself. The core reads words 0, 3, and 4 of the store header alone.
 
 The core must skip an ordinal at or above `slots` and a list that ends above `upperUsed`, because a corrupt value could otherwise send the core outside a region.
 
@@ -423,7 +425,7 @@ unlockNode(ord)
 
 A writer must hold the lock of a node while it changes any list of that node.
 
-`graphLock` holds the number of threads that search or place, or -1 while one thread holds the graph alone. A thread must raise `graphLock` by 1 before it reads the graph and lower `graphLock` by 1 afterwards. That thread must wait while `graphLock` is -1 or `writersWaiting` is above 0. A thread that needs the graph alone must raise `writersWaiting` by 1, swap `graphLock` from 0 to -1, and lower `writersWaiting` by 1. A thread must swap `entryLock` from 0 to -1 before it stores `entryPoint` and `topLayer`, then store 0 in `entryLock`.
+`graphLock` holds the number of threads that search or place, or -1 while one thread holds the graph alone. A thread must raise `graphLock` by 1 before it reads the graph and lower `graphLock` by 1 afterwards. That thread must wait while `graphLock` is -1 or `writersWaiting` is above 0. A thread that needs the graph alone must raise `writersWaiting` by 1, swap `graphLock` from 0 to -1, and lower `writersWaiting` by 1. That thread must store 0 in `graphLock` when it finishes, and wake the threads that sleep on `graphLock`. A thread must swap `entryLock` from 0 to -1 before it stores `entryPoint` and `topLayer`, then store 0 in `entryLock`.
 
 Every thread must record the locks that it holds in its own 32 words of `heldLocks`, so that the implementation can release the locks of a thread that dies.
 

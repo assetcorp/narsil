@@ -60,10 +60,12 @@ async function builtIndex(quantization: VectorQuantizationMode, metric: VectorMe
   return index
 }
 
-function searchAll(index: VectorIndex, metric: VectorMetric, native: boolean) {
+function searchAll(index: VectorIndex, metric: VectorMetric, native: boolean, oversample?: number) {
   setNativeSearchCoreEnabled(native)
   return clusteredVectors(QUERIES, 99).map(query =>
-    index.search(query, 10, { metric, minSimilarity: Number.NEGATIVE_INFINITY }).map(hit => [hit.docId, hit.score]),
+    index
+      .search(query, 10, { metric, minSimilarity: Number.NEGATIVE_INFINITY, oversample })
+      .map(hit => [hit.docId, hit.score]),
   )
 }
 
@@ -104,6 +106,18 @@ describe.skipIf(!binaryBuilt)('the native search core against the WebAssembly se
           searches.mockRestore()
           expect(fromNativeCore).toEqual(fromWebAssembly)
           expect(fromNativeCore.every(hits => hits.length === 10)).toBe(true)
+        } finally {
+          index.dispose()
+        }
+      })
+
+      it(`picks the same candidates by code for ${quantization} under ${metric}`, async () => {
+        const index = await builtIndex(quantization, metric, false)
+        try {
+          const withoutRescoreDepth = 1
+          const fromWebAssembly = searchAll(index, metric, false, withoutRescoreDepth)
+          const fromNativeCore = searchAll(index, metric, true, withoutRescoreDepth)
+          expect(fromNativeCore).toEqual(fromWebAssembly)
         } finally {
           index.dispose()
         }

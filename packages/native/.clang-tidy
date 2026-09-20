@@ -14,4 +14,4 @@ WarningsAsErrors: '*'
 HeaderFilterRegex: 'packages/native/(include|src|node)/[^/]+\.h$'
 FormatStyle: file
 CheckOptions:
-  misc-include-cleaner.IgnoreHeaders: 'any-windows-any/.*'
+  misc-include-cleaner.IgnoreHeaders: 'any-windows-any/.*;sys/_pthread/.*'

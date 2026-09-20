@@ -97,11 +97,11 @@ OSQ is the quantization that Elastic named and that Lucene implements, and Narsi
 _Avoid_: SQ8, scalar quantization, binary quantization, BBQ
 
 **Native search core**:
-The native search core is the vector search written in C that every language implementation of Narsil loads where the platform can load native code. It searches the graph for a query, and it finds the candidates for a new vector during placement. It must return the same results as the WebAssembly search, bit for bit.
-_Avoid_: C engine, native engine, addon, native module
+The native search core is the vector search written in C that every language implementation of Narsil loads where the platform can load native code. It searches the graph for a query, and it finds the candidates for a new vector during placement. It must return the same results as the WebAssembly search, bit for bit. Each language binds it through its own shim, which is a Node-API addon for TypeScript.
+_Avoid_: C engine, native engine, native module, and 'the addon' for the core itself
 
 **Search backend**:
-The search backend is whichever of the two vector searches a thread is using, the native search core or the WebAssembly search. A browser always uses the WebAssembly search, while any other runtime uses it only where the native search core cannot load.
+The search backend is the vector search that a thread uses, either the native search core or the WebAssembly search. A browser always uses the WebAssembly search, while any other runtime uses it only where that runtime cannot load the native search core.
 _Avoid_: engine, driver, kernel, for the choice between the two searches
 
 **Request thread**:

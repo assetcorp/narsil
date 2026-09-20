@@ -27,6 +27,13 @@ static int is_code_width(uint32_t bits) {
   }
 }
 
+static int lists_fit_the_workspace(const narsil_graph *graph) {
+  int32_t max_neighbours = load_word(graph->header, NARSIL_GRAPH_WORD_M);
+  int32_t max_base_neighbours = load_word(graph->header, NARSIL_GRAPH_WORD_MMAX0);
+  if (max_neighbours <= 0 || max_base_neighbours <= 0) { return 0; }
+  return max_neighbours < MAX_NEIGHBOURS_PER_LIST && max_base_neighbours < MAX_NEIGHBOURS_PER_LIST;
+}
+
 static int graph_is_complete(const narsil_graph *graph) {
   return graph->header != NULL && graph->node_levels != NULL && graph->level0 != NULL && graph->upper_base != NULL &&
          graph->upper != NULL && graph->locks != NULL && graph->tombstones != NULL && graph->held_locks != NULL;
@@ -133,12 +140,12 @@ static narsil_status begin_walk(narsil_workspace *workspace, walk_context *conte
   if (!graph_is_complete(graph) || !store_is_complete(store)) { return NARSIL_INVALID_ARGUMENT; }
   if (store->dimension == 0 || thread_slot >= graph->thread_slots) { return NARSIL_INVALID_ARGUMENT; }
   if (!is_metric(metric) || !is_code_width(store->bits)) { return NARSIL_INVALID_ARGUMENT; }
+  if (!lists_fit_the_workspace(graph)) { return NARSIL_INVALID_ARGUMENT; }
 
   memset(context, 0, sizeof *context);
   context->graph = graph;
   context->store = store;
   context->metric = (narsil_metric)metric;
-  context->thread_slot = thread_slot;
   context->fence = &workspace->fence;
   context->query.values = vector;
   context->uses_codes = store->bits != 0 && store->records_per_block > 0 &&
@@ -177,15 +184,15 @@ static void use_single_entry(narsil_workspace *workspace, int32_t ordinal) {
   workspace->entry_point_count = 1;
 }
 
-static narsil_status descend_to_base(narsil_workspace *workspace, const walk_context *context, int32_t top_layer,
-                                     narsil_candidates *nearest) {
-  narsil_status status = NARSIL_OK;
-  for (int32_t layer = top_layer; status == NARSIL_OK && layer >= 1; layer--) {
+static narsil_status descend_layers(narsil_workspace *workspace, const walk_context *context, int32_t first,
+                                    int32_t last, narsil_candidates *out) {
+  for (int32_t layer = first; layer >= last; layer--) {
     layer_search search = {1, layer};
-    status = search_layer(workspace, context, search, nearest);
-    if (status == NARSIL_OK && nearest->count > 0) { use_single_entry(workspace, nearest->ordinals[0]); }
+    narsil_status status = search_layer(workspace, context, search, out);
+    if (status != NARSIL_OK) { return status; }
+    if (out->count > 0) { use_single_entry(workspace, out->ordinals[0]); }
   }
-  return status;
+  return NARSIL_OK;
 }
 
 narsil_status narsil_search(narsil_workspace *workspace, const narsil_graph *graph, const narsil_store *store,
@@ -197,7 +204,6 @@ narsil_status narsil_search(narsil_workspace *workspace, const narsil_graph *gra
       begin_walk(workspace, &context, graph, store, request->metric, request->query, request->thread_slot);
   if (status != NARSIL_OK) { return status; }
   context.skip_tombstones = 1;
-  context.own_ordinal = -1;
   nearest->count = 0;
 
   graph_lock_shared(graph, request->thread_slot);
@@ -207,7 +213,7 @@ narsil_status narsil_search(narsil_workspace *workspace, const narsil_graph *gra
     status = workspace_reserve_entry_points(workspace, 1);
     if (status == NARSIL_OK) {
       use_single_entry(workspace, entry);
-      status = descend_to_base(workspace, &context, load_word(graph->header, NARSIL_GRAPH_WORD_TOP_LAYER), nearest);
+      status = descend_layers(workspace, &context, load_word(graph->header, NARSIL_GRAPH_WORD_TOP_LAYER), 1, nearest);
     }
     layer_search base = {request->candidate_count, 0};
     if (status == NARSIL_OK) { status = search_layer(workspace, &context, base, nearest); }
@@ -231,12 +237,8 @@ static narsil_status link_layers(narsil_workspace *workspace, const walk_context
   use_single_entry(workspace, load_word(graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT));
 
   narsil_candidates *descent = &placement->per_layer[link_top];
-  for (int32_t layer = graph_top; layer > request->top_layer; layer--) {
-    layer_search search = {1, layer};
-    status = search_layer(workspace, context, search, descent);
-    if (status != NARSIL_OK) { return status; }
-    if (descent->count > 0) { use_single_entry(workspace, descent->ordinals[0]); }
-  }
+  status = descend_layers(workspace, context, graph_top, request->top_layer + 1, descent);
+  if (status != NARSIL_OK) { return status; }
   for (int32_t layer = link_top; layer >= 0; layer--) {
     narsil_candidates *candidates = &placement->per_layer[layer];
     layer_search search = {(uint32_t)ef_construction, layer};
@@ -260,7 +262,6 @@ narsil_status narsil_place(narsil_workspace *workspace, const narsil_graph *grap
       begin_walk(workspace, &context, graph, store, request->metric, request->vector, request->thread_slot);
   if (status != NARSIL_OK) { return status; }
   context.skip_tombstones = 0;
-  context.own_ordinal = request->own_ordinal;
   status = read_graph_extent(workspace, &context);
   if (status != NARSIL_OK) { return status; }
   int32_t own = request->own_ordinal;

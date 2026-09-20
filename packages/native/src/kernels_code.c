@@ -10,16 +10,15 @@
 #define NIBBLE_BITS 4
 #define TWO_BIT_LOW_BITS UINT64_C(0x5555555555555555)
 
-#ifdef NARSIL_PORTABLE_KERNELS
-#elif defined(__aarch64__) || defined(_M_ARM64)
+#ifdef NARSIL_NEON
 #include <arm_neon.h>
-#define CODE_KERNELS_NEON 1
-#elif defined(__SSE2__) || defined(_M_X64)
-#include <emmintrin.h>
-#define CODE_KERNELS_SSE2 1
 #endif
 
-#ifdef CODE_KERNELS_SSE2
+#ifdef NARSIL_SSE2
+#include <emmintrin.h>
+#endif
+
+#ifdef NARSIL_SSE2
 static inline __m128i load_bytes(const uint8_t *source) {
   __m128i loaded;
   memcpy(&loaded, source, sizeof loaded);
@@ -36,7 +35,7 @@ static inline uint32_t sum_of_lanes(__m128i running) {
 uint32_t kernel_products_8x8(const uint8_t *document, const uint8_t *query, uint32_t dimension) {
   uint32_t total = 0;
   uint32_t offset = 0;
-#ifdef CODE_KERNELS_NEON
+#ifdef NARSIL_NEON
   uint32x4_t running = vdupq_n_u32(0);
   for (; offset + VECTOR_BYTES <= dimension; offset += VECTOR_BYTES) {
     uint8x16_t document_bytes = vld1q_u8(document + offset);
@@ -45,7 +44,7 @@ uint32_t kernel_products_8x8(const uint8_t *document, const uint8_t *query, uint
     running = vpadalq_u16(running, vmull_u8(vget_high_u8(document_bytes), vget_high_u8(query_bytes)));
   }
   total = vaddvq_u32(running);
-#elif defined(CODE_KERNELS_SSE2)
+#elif defined(NARSIL_SSE2)
   __m128i zero = _mm_setzero_si128();
   __m128i running = zero;
   for (; offset + VECTOR_BYTES <= dimension; offset += VECTOR_BYTES) {
@@ -65,7 +64,7 @@ uint32_t kernel_products_8x8(const uint8_t *document, const uint8_t *query, uint
 uint32_t kernel_products_4x4(const uint8_t *document, const uint8_t *low, const uint8_t *high, uint32_t bytes) {
   uint32_t total = 0;
   uint32_t offset = 0;
-#ifdef CODE_KERNELS_NEON
+#ifdef NARSIL_NEON
   uint8x16_t mask = vdupq_n_u8(LOW_NIBBLE_MASK);
   uint32x4_t running = vdupq_n_u32(0);
   for (; offset + VECTOR_BYTES <= bytes; offset += VECTOR_BYTES) {
@@ -81,7 +80,7 @@ uint32_t kernel_products_4x4(const uint8_t *document, const uint8_t *low, const 
     running = vpadalq_u16(vpadalq_u16(running, first), second);
   }
   total = vaddvq_u32(running);
-#elif defined(CODE_KERNELS_SSE2)
+#elif defined(NARSIL_SSE2)
   __m128i zero = _mm_setzero_si128();
   __m128i mask = _mm_set1_epi8((char)LOW_NIBBLE_MASK);
   __m128i running = zero;

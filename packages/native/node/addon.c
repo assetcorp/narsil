@@ -164,7 +164,7 @@ static napi_value place(napi_env env, napi_callback_info info) {
     return throw_error(env, "an argument to place has the wrong type, or the vector has the wrong dimension");
   }
   if (layer_count == 0 || layer_count > NARSIL_MAX_PLACEMENT_LAYERS) {
-    return throw_error(env, "place takes between 1 and 64 layers");
+    return throw_error(env, "place takes at least one layer, and no more layers than the core holds room for");
   }
   size_t per_layer_capacity =
       (ordinal_capacity < distance_capacity ? ordinal_capacity : distance_capacity) / layer_count;
@@ -178,9 +178,10 @@ static napi_value place(napi_env env, napi_callback_info info) {
   narsil_placement placement = {per_layer, (uint32_t)layer_count, -1};
   narsil_status status = narsil_place(state->workspace, &field->graph, &field->store, &request, &placement);
   report_workspace_memory(env, state);
-  if (status != NARSIL_OK) { return number_of(env, -(int32_t)status - 1); }
+  if (status != NARSIL_OK) { return number_of(env, -(int32_t)status); }
   for (size_t layer = 0; layer < layer_count; layer++) { ((int32_t *)counts)[layer] = (int32_t)per_layer[layer].count; }
-  return number_of(env, placement.linked_top_layer < 0 ? -1 : placement.linked_top_layer);
+  int32_t linked = placement.linked_top_layer < 0 ? -1 : placement.linked_top_layer;
+  return number_of(env, linked + 1);
 }
 
 static napi_value rescore(napi_env env, napi_callback_info info) {

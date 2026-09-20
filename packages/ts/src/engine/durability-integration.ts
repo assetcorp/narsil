@@ -22,13 +22,13 @@ export interface DurableWrite {
 
 export type ApplyMutation = () => void | Promise<void>
 
-export interface DurableInsert {
+export interface DurableMutation {
   docId: string
-  document: AnyDocument
+  document: AnyDocument | null
   apply: ApplyMutation
 }
 
-export type DurableInsertOutcome = { ok: true; write: DurableWrite } | { ok: false; error: unknown }
+export type DurableWriteOutcome = { ok: true; write: DurableWrite } | { ok: false; error: unknown }
 
 export interface DurabilityIntegration {
   manager: DurabilityManager
@@ -38,7 +38,7 @@ export interface DurabilityIntegration {
     document: AnyDocument,
     apply: ApplyMutation,
   ): Promise<DurableWrite>
-  recordInsertOrUpdateBatch(indexName: string, inserts: readonly DurableInsert[]): Promise<DurableInsertOutcome[]>
+  recordMutationBatch(indexName: string, mutations: readonly DurableMutation[]): Promise<DurableWriteOutcome[]>
   recordRemove(indexName: string, docId: string, apply: ApplyMutation): Promise<DurableWrite>
 }
 
@@ -195,23 +195,23 @@ export function createDurabilityIntegration(
     ): Promise<DurableWrite> {
       return recordMutation(indexName, docId, 'INDEX', encode(document), apply)
     },
-    async recordInsertOrUpdateBatch(
+    async recordMutationBatch(
       indexName: string,
-      inserts: readonly DurableInsert[],
-    ): Promise<DurableInsertOutcome[]> {
+      mutations: readonly DurableMutation[],
+    ): Promise<DurableWriteOutcome[]> {
       const records: MutationRecord[] = []
-      const outcomes: DurableInsertOutcome[] = new Array(inserts.length)
+      const outcomes: DurableWriteOutcome[] = new Array(mutations.length)
       const recordPositions: number[] = []
-      for (let i = 0; i < inserts.length; i++) {
-        const insert = inserts[i]
+      for (let i = 0; i < mutations.length; i++) {
+        const mutation = mutations[i]
         try {
           records.push({
             indexName,
-            partitionId: partitionFor(indexName, insert.docId),
-            operation: 'INDEX',
-            documentId: insert.docId,
-            document: encode(insert.document),
-            apply: insert.apply,
+            partitionId: partitionFor(indexName, mutation.docId),
+            operation: mutation.document === null ? 'DELETE' : 'INDEX',
+            documentId: mutation.docId,
+            document: mutation.document === null ? null : encode(mutation.document),
+            apply: mutation.apply,
           })
           recordPositions.push(i)
         } catch (error) {

@@ -712,7 +712,7 @@ A search must quantise the query with `quantize(query, c, QUERY_BITS[bits], metr
 
 ### Packing
 
-A code holds its packed levels beside its `lower`, `upper`, `correction`, and `sum`. It holds `8 / bits` levels in each byte, in dimension order, so it occupies `ceiling(dimension * bits / 8)` bytes. Level `i` occupies `bits` bits of byte `floor(i * bits / 8)`, from bit `(i mod (8 / bits)) * bits` upwards, where bit 0 is the least significant. Every bit after the last level holds 0.
+A code holds its packed levels beside its `lower`, `upper`, `correction`, and `sum`. A writer must pack `8 / bits` levels into each byte, in dimension order, so a code spans `ceiling(dimension * bits / 8)` bytes. Level `i` takes `bits` bits of byte `floor(i * bits / 8)`, from bit `(i mod (8 / bits)) * bits` upwards, where bit 0 is the least significant. A writer must leave 0 in every bit after the last level.
 
 ### Estimated Similarity
 

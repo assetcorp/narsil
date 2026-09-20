@@ -1,4 +1,4 @@
-import { nativeFieldFor, nativeServesWalk } from '../native/field'
+import { nativeFieldFor, nativeScratchBytes, nativeServesWalk } from '../native/field'
 import type { HNSWSearchState } from './shared'
 import type { DistanceList, HNSWWorkspace } from './workspace'
 
@@ -26,11 +26,5 @@ export function searchScratchBytes(state: HNSWSearchState): number {
   const held = workspaceBytes(state.workspace) + state.neighborScratch.byteLength
   const native = nativeFieldFor(state)
   if (native === null || !nativeServesWalk(native)) return held + state.visited.byteLength
-  return (
-    held +
-    native.core.workspaceBytes() +
-    native.ordinals.byteLength +
-    native.distances.byteLength +
-    native.layerCounts.byteLength
-  )
+  return held + nativeScratchBytes(state, native)
 }

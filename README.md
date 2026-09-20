@@ -28,7 +28,7 @@ Narsil comes in three parts at two levels of maturity.
 | Single-node server (`@delali/narsil/server`) | Stable | A REST API wraps the same engine, with a write-ahead log, bulk NDJSON import, and snapshot and restore. |
 | Multi-node cluster (`@delali/narsil/distribution`) | Experimental | The cluster adds node roles, replication, and query routing over an in-process transport, TCP with mTLS, or gRPC. We may change its APIs without notice. |
 
-Every Narsil implementation must load and save the `.nrsl` binary format, which is the contract between them. This TypeScript package is the reference implementation of that format, while the headline item on the [roadmap](ROADMAP.md) is a second implementation in Go or Rust.
+Every Narsil implementation must load and save the `.nrsl` binary format, which is the contract between them. This TypeScript package is the reference implementation of that format, so a second implementation in Go or Rust is the headline item on the [roadmap](ROADMAP.md).
 
 ## Packages
 
@@ -109,7 +109,7 @@ curl -X POST localhost:7700/indexes/products/search \
   -d '{"term":"keyboard"}'
 ```
 
-The [HTTP server guide](docs/http-server.md) covers the embedding API, while the [example's README](packages/ts/examples/http-server/README.md) holds every endpoint with its request and response bodies.
+The [HTTP server guide](docs/http-server.md) covers the embedding API. For every endpoint with its request and response bodies, read the [example's README](packages/ts/examples/http-server/README.md).
 
 Each guide under [`docs/`](docs/) covers one area with working examples. In the list of features below, each feature links to the guide that covers it.
 
@@ -117,7 +117,7 @@ Each guide under [`docs/`](docs/) covers one area with working examples. In the 
 
 **Search.** For [full-text search](docs/full-text-search.md#basic-queries), the engine scores with BM25 and supports field boosting, [fuzzy matching](docs/full-text-search.md#fuzzy-matching) through bounded Levenshtein distance, [search as you type](docs/full-text-search.md#search-as-you-type) through last-word prefix matching, and [term-coverage and score thresholds](docs/full-text-search.md#score-and-coverage-thresholds). You can combine a query with [filters](docs/filters-facets-and-pagination.md#filters), [facets](docs/filters-facets-and-pagination.md#facets), [sorting](docs/filters-facets-and-pagination.md#sort), [grouping](docs/filters-facets-and-pagination.md#grouping), [highlighting](docs/full-text-search.md#highlighting), [cursor pagination](docs/filters-facets-and-pagination.md#pagination), [pinned results](docs/filters-facets-and-pagination.md#pinning), and [autocomplete suggestions](docs/full-text-search.md#suggestions).
 
-**Vector and hybrid retrieval.** For [vector search](docs/vector-search.md#vector-search), the engine compares vectors by cosine similarity, dot product, or Euclidean distance. It scans a field exactly until the field holds 1,024 vectors, a count that you can change, after which it builds an HNSW graph with optimised scalar quantization on by default. On arm64 and x64 machines running macOS, Linux, or Windows, the engine searches that graph through a [native core in C](docs/vector-search.md#native-search-core), which returns the same results as its WebAssembly search. For [hybrid search](docs/hybrid-search.md#hybrid-search), the engine fuses BM25 and vector rankings through reciprocal rank fusion or linear blending. [Embedding adapters](docs/embedding-adapters.md#embedding-adapters) turn text into vectors on insert and query, through OpenAI, local Transformers.js models, or an adapter of your own.
+**Vector and hybrid retrieval.** For [vector search](docs/vector-search.md#vector-search), the engine compares vectors by cosine similarity, dot product, or Euclidean distance. It scans a field exactly until the field holds 1,024 vectors, a count that you can change, after which it builds an HNSW graph with optimised scalar quantization on by default. Outside a browser, on an arm64 or x64 machine under macOS, Linux, or Windows, the engine searches that graph through a [native core in C](docs/vector-search.md#native-search-core), which returns the same results as its WebAssembly search. For [hybrid search](docs/hybrid-search.md#hybrid-search), the engine fuses BM25 and vector rankings through reciprocal rank fusion or linear blending. [Embedding adapters](docs/embedding-adapters.md#embedding-adapters) turn text into vectors on insert and query, through OpenAI, local Transformers.js models, or an adapter of your own.
 
 **Geosearch.** [Geo filters](docs/geosearch.md#geosearch) match documents by radius, using Haversine or Vincenty distance, or by polygon containment. You can combine a geo filter with every other query feature.
 
@@ -146,7 +146,7 @@ Over HTTP on the [BEIR](https://github.com/beir-cellar/beir) SciFact and NFCorpu
 
 ### In-process libraries
 
-When we measure Narsil in one process against Orama and MiniSearch, with the same stop words and default BM25 parameters for all three, Narsil has the top nDCG@10 on BEIR SciFact, although each library stems English in its own way. It inserts text faster than both libraries at every scale that we measure, while it searches faster than both at 10,000 and 50,000 documents. Because MiniSearch has no vector search, we compare vector search against Orama alone. Narsil searches vectors faster than Orama at the same recall on SciFact and NFCorpus, although Orama inserts them faster. [BENCHMARKS.md](BENCHMARKS.md) holds the full quality, throughput, and latency tables, while [`benchmarks/in-process`](benchmarks/in-process) holds the method and the steps to reproduce them.
+When we measure Narsil in one process against Orama and MiniSearch, with the same stop words and default BM25 parameters for all three, Narsil has the top nDCG@10 on BEIR SciFact, although each library stems English in its own way. It inserts text faster than both libraries at every scale that we measure. At 10,000 and 50,000 documents it also searches faster than both, although at 1,000 documents the three libraries stay within 0.004 ms of one another. Because MiniSearch has no vector search, we compare vector search against Orama alone. Narsil searches vectors faster than Orama at the same recall on SciFact and NFCorpus, although Orama inserts them faster. [BENCHMARKS.md](BENCHMARKS.md) holds the full quality, throughput, and latency tables. For the method and the steps to reproduce them, read [`benchmarks/in-process`](benchmarks/in-process).
 
 ## Documentation
 

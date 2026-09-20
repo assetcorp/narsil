@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: native-core-${{ github.ref }}
+  group: native-core-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -67,10 +67,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup pnpm
+      - name: Set up pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
@@ -79,7 +79,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Setup Zig
+      - name: Set up Zig
         if: matrix.zig
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
@@ -104,10 +104,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup pnpm
+      - name: Set up pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
@@ -120,14 +120,22 @@ jobs:
         run: pnpm --filter @delali/narsil-native-build lint
 
   sanitised:
-    name: Test the core in C under the sanitisers
-    runs-on: ubuntu-latest
+    name: Test the core in C under the sanitisers on ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: x86-64
+            runner: ubuntu-latest
+          - label: 64-bit Arm
+            runner: ubuntu-24.04-arm
 
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
@@ -167,10 +175,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup pnpm
+      - name: Set up pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
@@ -193,16 +201,26 @@ jobs:
         run: pnpm vitest run src/__tests__/vector/native
 
   identity-musl:
-    name: Compare the core with the WebAssembly search on linux-x64 musl
+    name: Compare the core with the WebAssembly search on ${{ matrix.target }}
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     container: node:24-alpine
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64-musl
+            runner: ubuntu-latest
+            output: packages/native/npm/linux-x64/musl
+          - target: linux-arm64-musl
+            runner: ubuntu-24.04-arm
+            output: packages/native/npm/linux-arm64/musl
 
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup pnpm
+      - name: Set up pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
       - name: Install dependencies
@@ -211,12 +229,12 @@ jobs:
       - name: Download the musl binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: narsil-native-linux-x64-musl
-          path: packages/native/npm/linux-x64/musl
+          name: narsil-native-${{ matrix.target }}
+          path: ${{ matrix.output }}
 
       - name: Compare the core with the WebAssembly search
         working-directory: packages/ts
         env:
-          NARSIL_NATIVE_CORE_PATH: ${{ github.workspace }}/packages/native/npm/linux-x64/musl/narsil-core.node
+          NARSIL_NATIVE_CORE_PATH: ${{ github.workspace }}/${{ matrix.output }}/narsil-core.node
           NARSIL_REQUIRE_NATIVE_CORE: '1'
         run: pnpm vitest run src/__tests__/vector/native

@@ -17,17 +17,17 @@ import type { Executor } from '../../workers/executor'
 import type { StaleIndex } from '../analysis-rebuild'
 import { BATCH_CHUNK_SIZE } from '../constants'
 import type { IndexRegistryEntry } from '../core'
-import type { DurabilityIntegration, DurableInsert } from '../durability-integration'
+import type { DurabilityIntegration, DurableMutation } from '../durability-integration'
 import type { IndexStateCoordinator } from '../index-state'
 import { restoredConfigFields, restoredEmbedding, type SnapshotEnvelope } from './restore-config'
 
 async function recordRestoredDocuments(
   durability: DurabilityIntegration,
   indexName: string,
-  restored: readonly DurableInsert[],
+  restored: readonly DurableMutation[],
 ): Promise<void> {
   if (restored.length === 0) return
-  for (const outcome of await durability.recordInsertOrUpdateBatch(indexName, restored)) {
+  for (const outcome of await durability.recordMutationBatch(indexName, restored)) {
     if (!outcome.ok) {
       throw outcome.error
     }
@@ -260,7 +260,7 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
 
     if (deps.durability) {
       for (let partitionId = 0; partitionId < manager.partitionCount; partitionId++) {
-        let restored: DurableInsert[] = []
+        let restored: DurableMutation[] = []
         for (const docId of manager.getPartition(partitionId).docIds()) {
           const document = manager.get(docId)
           if (document === undefined) continue

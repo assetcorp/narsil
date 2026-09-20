@@ -339,9 +339,9 @@ OSQRecord = [
 
 Vector `i` of part `p` has ordinal `p * 65536 + i`, and a field with no vectors has one part holding none. Every number inside `vectors` and inside an `OSQRecord` is little-endian. A writer must write `vectors` as the last entry of the map with the compression flag at 0, so that a reader finds vector `i` of a part at `payload_length - (count - i) * dimension * 4` bytes into the payload, where `count` is the length of `docIds`.
 
-`graphs` lists the field's graphs in the same order in every part, each repeating its header and holding in `nodes` the nodes of this part's vectors alone, so a reader assembles each graph from every part. An implementation holding one graph writes a list of length 1, and a segment-based implementation writes one graph per segment. An empty `graphs` list means the implementation searches by brute force, because the vector count has not reached the promotion threshold.
+`graphs` lists the field's graphs in the same order in every part, each repeating its header and holding in `nodes` the nodes of this part's vectors alone, so a reader assembles each graph from every part. An implementation holding one graph writes a list of length 1, and a segment-based implementation writes one graph per segment. An empty `graphs` list means the implementation searches by brute force, because the vector count stays below the promotion threshold.
 
-A writer must set `codes`, with `bits` matching the mode, for an index that holds a graph and whose quantisation is not `none`, and it must write nil otherwise. `records` holds one `OSQRecord` per vector, whose `code` is packed as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines and takes `ceiling(dimension * bits / 8)` bytes, followed by 16 bytes of `lower`, `upper`, `correction`, and `sum`.
+A writer must set `codes`, with `bits` matching the mode, for an index that holds a graph under an `osq` mode, and it must write nil for every other index. `records` holds one `OSQRecord` per vector, whose `code` is packed as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines and takes `ceiling(dimension * bits / 8)` bytes, followed by 16 bytes of `lower`, `upper`, `correction`, and `sum`.
 
 ---
 

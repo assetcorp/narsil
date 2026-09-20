@@ -138,7 +138,7 @@ export interface ArenaSimd {
   sqdist_u8: (ptrA: number, ptrB: number, len: number) => number
   /** Returns the sum of level products of two 4-bit codes at the given byte offsets, each holding two levels per byte. */
   osq_dot_nibbles_4x4: (ptrA: number, ptrB: number, bytes: number) => number
-  /** Returns the sum of level products of a 1-bit or 2-bit code and a query staged as four bit planes, each plane spanning `planeBytes` with its bits at the positions of the code's lowest level bits. */
+  /** Returns the sum of level products of a 1-bit or 2-bit code and a query staged as four bit planes. Each plane spans `planeBytes`, with one bit for each of the code's lowest level bits. */
   osq_dot_bits: (ptrDoc: number, ptrPlanes: number, planeBytes: number, docBits: number) => number
   /** Returns the sum of level products of two 1-bit codes or two 2-bit codes at the given byte offsets. */
   osq_dot_bits_pair: (ptrA: number, ptrB: number, bytes: number, bits: number) => number
