@@ -1,7 +1,11 @@
 import { spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime } from '../../runtime/detect'
 import type { CheckpointWorkerMessage, CheckpointWorkerRequest } from './checkpoint-worker'
-import { CHECKPOINT_TIMEOUT_RECOVERY_BACKOFF_MS, CHECKPOINT_WORKER_TIMEOUT_MS } from './constants'
+import {
+  CHECKPOINT_TIMEOUT_RECOVERY_BACKOFF_MS,
+  CHECKPOINT_WORKER_IDLE_MS,
+  CHECKPOINT_WORKER_TIMEOUT_MS,
+} from './constants'
 import type { SegmentedCheckpointOutcome } from './segment'
 
 export interface WorkerHandle {
@@ -17,6 +21,8 @@ let failNextWorkerForTests = false
 let pooledWorker: WorkerHandle | null = null
 let workerBusy = false
 let spawnedWorkerCount = 0
+let workerIdleMs = CHECKPOINT_WORKER_IDLE_MS
+let idleTimer: ReturnType<typeof setTimeout> | null = null
 
 function resolveWorkerEntryPoint(): string {
   const base = import.meta.url
@@ -144,6 +150,7 @@ export async function runCheckpointOnWorker(
   }
 
   workerBusy = true
+  cancelIdleRetirement()
   try {
     if (pooledWorker === null) {
       pooledWorker = await spawnWorker()
@@ -164,17 +171,37 @@ export async function runCheckpointOnWorker(
     return null
   } finally {
     workerBusy = false
+    retireWorkerOnceIdle()
   }
+}
+
+function cancelIdleRetirement(): void {
+  if (idleTimer !== null) {
+    clearTimeout(idleTimer)
+    idleTimer = null
+  }
+}
+
+function retireWorkerOnceIdle(): void {
+  cancelIdleRetirement()
+  idleTimer = unrefTimer(
+    setTimeout(() => {
+      idleTimer = null
+      if (!workerBusy) terminateCheckpointWorker()
+    }, workerIdleMs),
+  )
 }
 
 export function resetCheckpointWorkerLatch(): void {
   workerUsable = true
   failNextWorkerForTests = false
   spawnedWorkerCount = 0
+  workerIdleMs = CHECKPOINT_WORKER_IDLE_MS
   terminateCheckpointWorker()
 }
 
 export function terminateCheckpointWorker(): void {
+  cancelIdleRetirement()
   const worker = pooledWorker
   if (worker === null) {
     return
@@ -187,6 +214,14 @@ export function terminateCheckpointWorker(): void {
 
 export function __checkpointWorkerSpawnCountForTests(): number {
   return spawnedWorkerCount
+}
+
+export function __checkpointWorkerIsPooledForTests(): boolean {
+  return pooledWorker !== null
+}
+
+export function __setCheckpointWorkerIdleMsForTests(idleMs: number): void {
+  workerIdleMs = idleMs
 }
 
 export function __failNextCheckpointWorkerForTests(): void {

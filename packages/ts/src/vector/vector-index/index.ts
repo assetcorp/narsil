@@ -166,6 +166,7 @@ export function createVectorIndex(
     sharedHandles: new Map(),
     sharedLayoutRevision: 0,
     sharing: Promise.resolve(),
+    releaseToFilesInFlight: Promise.resolve(),
   }
 
   function validateDimension(vector: Float32Array): void {

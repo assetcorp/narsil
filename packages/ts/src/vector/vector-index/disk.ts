@@ -34,11 +34,23 @@ function* locationsOf(
   }
 }
 
+async function shareFilesWithEveryThread(
+  state: VectorIndexState,
+  paths: Iterable<string>,
+): Promise<Map<string, number>> {
+  const fileIndexes = new Map<string, number>()
+  for (const path of paths) fileIndexes.set(path, state.store.addVectorFile(path))
+  await resendSharedHandles(state)
+  return fileIndexes
+}
+
 async function releaseLocations(
   state: VectorIndexState,
+  paths: Iterable<string>,
   locations: Iterable<[string, PendingVectorLocation]>,
 ): Promise<void> {
-  const fileIndexes = new Map<string, number>()
+  const fileIndexes = await shareFilesWithEveryThread(state, paths)
+  if (state.disposed) return
   let count = 0
   for (const [docId, location] of locations) {
     if (count > 0 && count % DISK_ADOPTION_YIELD_INTERVAL === 0) {
@@ -47,16 +59,21 @@ async function releaseLocations(
     }
     count += 1
     const ordinal = state.store.getOrdinal(docId)
-    if (ordinal === undefined) continue
-    let fileIndex = fileIndexes.get(location.path)
-    if (fileIndex === undefined) {
-      fileIndex = state.store.addVectorFile(location.path)
-      fileIndexes.set(location.path, fileIndex)
-    }
+    const fileIndex = fileIndexes.get(location.path)
+    if (ordinal === undefined || fileIndex === undefined) continue
     state.store.releaseToFile(ordinal, { fileIndex, offset: location.offset })
   }
   state.store.releaseColdBlocks()
   await resendSharedHandles(state)
+}
+
+function releaseInTurn(state: VectorIndexState, release: () => Promise<void>): Promise<void> {
+  const run = state.releaseToFilesInFlight.then(release)
+  state.releaseToFilesInFlight = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
 }
 
 export async function adoptDiskLayout(state: VectorIndexState, layout: VectorFileLayout): Promise<void> {
@@ -67,12 +84,13 @@ export async function adoptDiskLayout(state: VectorIndexState, layout: VectorFil
     }
     return
   }
-  await releaseLocations(state, locationsOf(state, layout))
+  await releaseInTurn(state, () => releaseLocations(state, [layout.path], locationsOf(state, layout)))
 }
 
 export async function releasePendingLocations(state: VectorIndexState): Promise<void> {
   if (state.pendingLocations.size === 0 || !holdsVectorsOnDisk(state) || state.disposed) return
   const pending = [...state.pendingLocations]
   state.pendingLocations.clear()
-  await releaseLocations(state, pending)
+  const paths = new Set(pending.map(([, location]) => location.path))
+  await releaseInTurn(state, () => releaseLocations(state, paths, pending))
 }
