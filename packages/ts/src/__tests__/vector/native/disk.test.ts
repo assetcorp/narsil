@@ -114,7 +114,7 @@ describe.skipIf(!binaryBuilt)('the native search core over a field kept on disk'
     searches.mockRestore()
 
     const durable = createDurableDirectory(directory)
-    const [vectorFileKey] = (await durable.list('papers/segments/0/')).filter(key => key.includes('/vec-embedding-'))
+    const [vectorFileKey] = (await durable.list('papers/segments/')).filter(key => key.includes('/vec-embedding-'))
     const vectorFile = await durable.pathOf(vectorFileKey)
     const fileStoodAtEachDetachment: boolean[] = []
     const detachStore = core.detachStore.bind(core)

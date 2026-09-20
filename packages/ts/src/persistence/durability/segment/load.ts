@@ -2,7 +2,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { DurableDirectory } from '../durable-filesystem'
 import type { ReplayDeps } from '../recovery'
 import type { PartitionCheckpoint } from '../snapshot-bundle'
-import { manifestKey, segmentPrefix, snapshotBundleKey } from './layout'
+import { manifestKey, segmentsPrefix, snapshotBundleKey } from './layout'
 import {
   decodeSegmentManifest,
   manifestReferencedKeys,
@@ -11,7 +11,7 @@ import {
 } from './manifest'
 import { mergeTimeOrderedSegments } from './merge'
 import { readSegmentContents, type SegmentContents } from './segment-file'
-import { readVectorParts, type VectorPartsRead } from './vector'
+import { readVectorParts } from './vector'
 
 export async function readSegmentManifest(
   directory: DurableDirectory,
@@ -48,7 +48,6 @@ export async function loadSegmentedSnapshot(
     }
   }
 
-  const partsByField = new Map<string, VectorPartsRead>()
   for (const partition of manifest.partitions) {
     if (partition.partitionId >= deps.manager.partitionCount) {
       throw new NarsilError(
@@ -57,11 +56,14 @@ export async function loadSegmentedSnapshot(
         { indexName, partitionId: partition.partitionId, partitionCount: deps.manager.partitionCount },
       )
     }
-    await loadPartition(directory, indexName, partition, deps, partsByField)
+    await loadPartition(directory, indexName, partition, deps)
   }
 
-  for (const [fieldPath, read] of partsByField) {
-    deps.vectorIndexes.get(fieldPath)?.deserialize(read.parts, read.files)
+  for (const vector of manifest.vectors) {
+    const vectorIndex = deps.vectorIndexes.get(vector.fieldPath)
+    if (vectorIndex === undefined) continue
+    const read = await readVectorParts(directory, vector.keys)
+    vectorIndex.deserialize(read.parts, read.files)
   }
 
   return manifest.checkpoint
@@ -72,7 +74,6 @@ async function loadPartition(
   indexName: string,
   partition: PartitionManifestEntry,
   deps: ReplayDeps,
-  partsByField: Map<string, VectorPartsRead>,
 ): Promise<void> {
   const ordered: SegmentContents[] = []
   for (const segment of partition.segments) {
@@ -86,20 +87,6 @@ async function loadPartition(
     language: deps.manager.language.name,
   })
   deps.manager.deserializePartition(partition.partitionId, merged)
-
-  for (const vector of partition.vectors) {
-    if (!deps.vectorIndexes.has(vector.fieldPath)) {
-      continue
-    }
-    const read = await readVectorParts(directory, vector.keys)
-    const collected = partsByField.get(vector.fieldPath)
-    if (collected === undefined) {
-      partsByField.set(vector.fieldPath, read)
-    } else {
-      collected.parts.push(...read.parts)
-      collected.files.push(...read.files)
-    }
-  }
 }
 
 export async function reclaimOrphanedSegments(
@@ -108,13 +95,8 @@ export async function reclaimOrphanedSegments(
   manifest: SegmentManifest,
 ): Promise<void> {
   const referenced = manifestReferencedKeys(manifest)
-  for (const partition of manifest.partitions) {
-    const prefix = segmentPrefix(indexName, partition.partitionId)
-    for (const key of await directory.list(prefix)) {
-      if (!referenced.has(key)) {
-        await directory.remove(key)
-      }
-    }
+  for (const key of await directory.list(segmentsPrefix(indexName))) {
+    if (!referenced.has(key)) await directory.remove(key)
   }
   await directory.remove(snapshotBundleKey(indexName))
 }

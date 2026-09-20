@@ -516,7 +516,7 @@ A persistence adapter addresses stored bytes by string key:
 | `<indexName>/meta` | Index metadata |
 | `<indexName>/manifest` | Checkpoint segment manifest |
 | `<indexName>/segments/<partitionId>/s<segmentId>` | One checkpoint segment, id zero-padded to 16 digits |
-| `<indexName>/segments/<partitionId>/vec-<fieldPath>-g<generation>-p<part>` | One part of one vector field's index at one generation, part zero-padded to 4 digits |
+| `<indexName>/segments/vec-<fieldPath>-g<generation>-p<part>` | One part of one vector field's index for the whole index at one generation, part zero-padded to 4 digits |
 | `<indexName>/snapshot` | Whole-index checkpoint bundle, written by the snapshot-only tier |
 | `<indexName>/wal/<partitionId>/<startSeqNo>` | Write-ahead log segment, start sequence number zero-padded to 16 digits |
 | `<indexName>/wal/<partitionId>/commit` | Write-ahead log commit marker |

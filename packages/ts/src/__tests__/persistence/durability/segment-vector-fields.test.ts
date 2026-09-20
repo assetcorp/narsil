@@ -77,8 +77,8 @@ describe('vector fields in a segmented checkpoint', () => {
     expect(fields.embedding).toBeUndefined()
     expect(fields.title).toBe('Paper 3')
 
-    const vectorKeys = await directory.list('papers/segments/0/')
-    expect(vectorKeys.some(key => key.includes('/vec-embedding-'))).toBe(true)
+    const vectorKeys = await directory.list('papers/segments/')
+    expect(vectorKeys.some(key => key.startsWith('papers/segments/vec-embedding-'))).toBe(true)
 
     const reader = await createNarsil({ durability: { directory: root } })
     const recovered = await reader.get('papers', 'p3')
@@ -111,7 +111,7 @@ describe('vector fields in a segmented checkpoint', () => {
     await writer.shutdown()
 
     const directory = createDurableDirectory(root)
-    const vectorKeys = (await directory.list('papers/segments/0/')).filter(key => key.includes('/vec-embedding-'))
+    const vectorKeys = (await directory.list('papers/segments/')).filter(key => key.includes('/vec-embedding-'))
     expect(vectorKeys).toHaveLength(1)
     const bytes = await directory.read(vectorKeys[0])
     if (bytes === null) throw new Error('vector part missing')
@@ -143,7 +143,7 @@ describe('vector fields in a segmented checkpoint', () => {
     await writer.shutdown()
 
     const directory = createDurableDirectory(root)
-    const vectorKeys = (await directory.list('papers/segments/0/')).filter(key => key.includes('/vec-embedding-'))
+    const vectorKeys = (await directory.list('papers/segments/')).filter(key => key.includes('/vec-embedding-'))
     const bytes = await directory.read(vectorKeys[0])
     if (bytes === null) throw new Error('vector part missing')
     const { payloadBytes } = await unpackEnvelopeBytes(bytes)
@@ -152,6 +152,39 @@ describe('vector fields in a segmented checkpoint', () => {
     expect(saved.nodes).toHaveLength(200)
     expect(saved.nodes).toEqual(searchedThrough.nodes)
     expect(saved.entryPoint).toEqual(searchedThrough.entryPoint)
+  })
+
+  it('writes each vector field once for an index of several partitions, and recovers its graph whole', async () => {
+    const config: IndexConfig = { ...CONFIG, vectorPromotion: { threshold: 8 } }
+    const writer = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })
+    await writer.createIndex('papers', config)
+    for (let i = 0; i < 60; i += 1) {
+      await writer.insert('papers', { title: `Paper ${i}`, embedding: embeddingFor(i) }, `p${i}`)
+    }
+    await writer.rebalance('papers', 3)
+    for (let i = 60; i < 90; i += 1) {
+      await writer.insert('papers', { title: `Paper ${i}`, embedding: embeddingFor(i) }, `p${i}`)
+    }
+    await writer.optimizeVectors('papers', 'embedding')
+    await writer.checkpoint('papers')
+    const query = { vector: { field: 'embedding', value: embeddingFor(77) }, limit: 5 }
+    const expected = (await writer.query('papers', query)).hits.map(hit => hit.id)
+    await writer.shutdown()
+
+    const directory = createDurableDirectory(root)
+    const vectorKeys = (await directory.list('papers/segments/')).filter(key => key.includes('/vec-'))
+    expect(vectorKeys).toHaveLength(1)
+    expect(vectorKeys[0]).toMatch(/^papers\/segments\/vec-embedding-[a-z0-9]+-g\d+-p0000$/)
+    const bytes = await directory.read(vectorKeys[0])
+    if (bytes === null) throw new Error('vector part missing')
+    const part = decodeVectorIndexPart(decode((await unpackEnvelopeBytes(bytes)).payloadBytes))
+    expect(part.docIds).toHaveLength(90)
+    expect(part.graphs[0].nodes).toHaveLength(90)
+
+    const reader = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })
+    expect((await reader.vectorMaintenanceStatus('papers'))[0]).toMatchObject({ graphCount: 1, bufferSize: 0 })
+    expect((await reader.query('papers', query)).hits.map(hit => hit.id)).toEqual(expected)
+    await reader.shutdown()
   })
 
   it('recovers the vector an update replaced', async () => {

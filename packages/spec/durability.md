@@ -199,41 +199,41 @@ A crash before step 4 leaves the previous snapshot intact and the temporary file
 
 ## Segmented Checkpoint
 
-The write-ahead log tier checkpoints incrementally, so the cost of a checkpoint scales with what changed since the last one rather than with the size of the index.
+The write-ahead log tier checkpoints its documents incrementally, so the cost of writing them grows with the changes since the last checkpoint, while a checkpoint writes a changed vector field whole.
 
 ### Layout
 
-A segmented checkpoint is a manifest plus per-partition segment files, stored under the keys in [Storage Path Convention](envelope.md#storage-path-convention). Segment ids count up from zero within a partition and are zero-padded to 16 digits, so segment keys sort in creation order, and a partition holds at most 65536 segments.
+A segmented checkpoint is a manifest, the segment files of each partition, and the vector segment files of each vector field, stored under the keys in [Storage Path Convention](envelope.md#storage-path-convention). A writer must number a partition's segments upwards from zero and zero-pad each id to 16 digits, so that segment keys sort in creation order. A partition must hold at most 65536 segments.
 
-A segment file is a `.nrsl` envelope with the checksum flag set and `envelope_format_version` 2, and its payload is a MessagePack map:
+A segment file is a `.nrsl` envelope with the checksum flag set and `envelope_format_version` 2, whose payload is a MessagePack map:
 
 ```text
 SegmentFile {
   payload:    bytes         (a version 2 partition payload holding the segment's documents)
-  tombstones: List<string>  (document IDs this segment removes from older segments)
+  tombstones: List<string>  (document IDs that this segment removes from older segments)
 }
 ```
 
-A vector segment file is the same envelope carrying one part of a [vector index payload](envelope.md#vector-index-payload).
+A vector segment file is the same envelope, with one part of a [vector index payload](envelope.md#vector-index-payload) as its payload. A vector field has one vector segment for the whole index, because a [vector index](vector-index.md) covers every partition.
 
 ### Manifest
 
-The manifest commits a checkpoint. It is a `.nrsl` envelope with the same flags, and its payload is a MessagePack map. A reader rejects a manifest whose `version` is anything other than 4.
+Writing the manifest commits a checkpoint. The manifest is a `.nrsl` envelope with the same flags, whose payload is a MessagePack map. A reader must reject a manifest whose `version` is anything other than 5.
 
 ```text
 SegmentManifest {
-  version:    uint8   (4)
+  version:    uint8   (5)
   schema:     Map<string, string>
   language:   string
   checkpoint: List<PartitionCheckpoint>
   partitions: List<PartitionManifestEntry>
+  vectors:    List<VectorSegmentRef>   (one entry per vector field)
 }
 
 PartitionManifestEntry {
   partitionId:   uint32
   nextSegmentId: uint64
   segments:      List<SegmentRef>
-  vectors:       List<VectorSegmentRef>
 }
 
 SegmentRef {
@@ -250,21 +250,22 @@ VectorSegmentRef {
 }
 ```
 
-`checkpoint` carries the same list as the snapshot bundle, and recovery replays each partition's log from its `lastSeqNo + 1`.
+`checkpoint` holds the same list as the snapshot bundle holds, so recovery must replay each partition's log from its `lastSeqNo + 1`.
 
 ### Writing a Checkpoint
 
-1. For each partition, read the log records between the previous checkpoint's `lastSeqNo` and the new one, build one segment holding the documents those records inserted or updated and a tombstone for each document they removed, and write it under the next segment id. A partition with no changes writes no segment.
-2. When a partition changed, rewrite each of its vector fields as the parts of a new vector segment at the next generation. A partition with no changes keeps its previous vector segments. A vector segment is the only place a checkpoint stores a vector value, so the document segment written in step 1 holds none. When a log record stores a document carrying no value for a vector field, the new vector segment must omit that document's vector, because the record replaced the document the earlier vector came from.
-3. When a partition's segment count exceeds the compaction threshold, 12 by default, merge its oldest segments into one so the count returns to the threshold.
-4. Write the manifest atomically over `<indexName>/manifest` with the same atomic write as the snapshot bundle. The manifest write is the commit point: a crash before it leaves the previous manifest in force and the new files unreferenced.
-5. Once the manifest is durable, delete every key the previous manifest referenced that the new one does not, and delete any `<indexName>/snapshot` bundle.
+1. For each partition, read the log records between the previous checkpoint's `lastSeqNo` and the new one, and write one segment under the next segment id. That segment must hold the documents that those records inserted or updated, and a tombstone for each document that they removed. Write no segment for a partition with no changes.
+2. When any partition changed, write each vector field once for the whole index, as the parts of a new vector segment at the field's next generation. A checkpoint with no changes must keep the previous vector segments. A vector segment is the only place where a checkpoint stores a vector value, so the document segment of step 1 must hold none. When a log record stores a document with no value for a vector field, the new vector segment must omit that document's vector, because the record replaces the document that the earlier vector came from.
+3. A writer may take a field's vectors, graph, and codes from the vector index that it searches through. The vector segment may then hold the effect of a log record above a partition's `lastSeqNo`, provided that the record is durable before step 5, because recovery replays that record over the segment.
+4. When a partition's segment count exceeds the compaction threshold, 12 by default, merge its oldest segments into one, so that the count returns to the threshold.
+5. Write the manifest atomically over `<indexName>/manifest` with the same atomic write as the snapshot bundle. The manifest write is the commit point, so a crash before it leaves the previous manifest in force and the new files unreferenced.
+6. Once the manifest is durable, delete every key that the previous manifest references and the new one does not, and delete any `<indexName>/snapshot` bundle.
 
 ### Structural-Merge Recovery
 
-Recovery loads a partition by reading its manifest-listed segments in id order and merging them: the newest occurrence of a document wins, and a tombstone removes the document from every older segment. Each vector field loads from the parts of its listed vector segment.
+Recovery must load a partition by reading the segments that the manifest lists for it, in id order, and merging them, so that the newest occurrence of a document wins and a tombstone removes the document from every older segment. Recovery must load each vector field once, from the parts of the vector segment that the manifest lists for it.
 
-Keys under `<indexName>/segments/` that the manifest does not reference are deleted during recovery, because a checkpoint that crashed before its manifest write leaves them behind.
+Recovery must delete every key under `<indexName>/segments/` that the manifest does not reference, because a checkpoint that crashes before its manifest write leaves such keys behind.
 
 ---
 

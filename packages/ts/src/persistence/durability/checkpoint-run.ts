@@ -63,9 +63,9 @@ export async function runDurableCheckpoint(input: DurableCheckpointInput): Promi
     manager,
     canOffload: input.canOffload,
     fromMemory: input.fromMemory,
-    vectorsAlreadyWritten: liveVectors.vectorsAlreadyWritten,
+    vectors: liveVectors.vectors,
   })
-  await adoptVectorLayouts(input.directory, vectorIndexes, [...liveVectors.layouts, ...written.vectorLayouts])
+  await adoptVectorLayouts(input.directory, vectorIndexes, liveVectors.layouts)
   await removeCheckpointGarbage(input.directory, written.garbage)
   const checkpointDocumentCount = written.documentCount ?? documentCount
   await input.queueMetadataWrite(input.indexName, async () => {

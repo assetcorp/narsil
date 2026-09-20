@@ -20,14 +20,12 @@ export function segmentKey(indexName: string, partitionId: number, segmentId: nu
   return `${segmentPrefix(indexName, partitionId)}s${formatSegmentId(segmentId)}`
 }
 
-export function vectorSegmentKey(
-  indexName: string,
-  partitionId: number,
-  fieldPath: string,
-  generation: number,
-  part: number,
-): string {
-  return `${segmentPrefix(indexName, partitionId)}vec-${encodeFieldPath(fieldPath)}-g${generation}-p${formatPart(part)}`
+export function segmentsPrefix(indexName: string): string {
+  return `${indexName}/segments/`
+}
+
+export function vectorSegmentKey(indexName: string, fieldPath: string, generation: number, part: number): string {
+  return `${segmentsPrefix(indexName)}vec-${encodeFieldPath(fieldPath)}-g${generation}-p${formatPart(part)}`
 }
 
 function formatSegmentId(segmentId: number): string {
